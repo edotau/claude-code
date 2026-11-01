@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"bytes"
@@ -53,30 +53,19 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 		fmt.Fprintf(r.log, "%s %s %s %d %d %s%s\n", start.Format(time.RFC3339), provider, cmp.Or(model, "-"), sw.status,
 			attempts, time.Since(start).Round(time.Millisecond), extra)
 	}()
+	model, extra = r.forwardPassthrough(sw, in, provider, dialect, rest)
+}
+
+func (r *Router) forwardPassthrough(sw *statusWriter, in *http.Request, provider, dialect, rest string) (model, extra string) {
 	if in.Method != http.MethodPost && in.Method != http.MethodGet {
 		writeError(sw, http.StatusNotFound, "proxy: unsupported route "+in.Method+" "+in.URL.Path+" (passthrough takes GET or POST)")
 		return
 	}
-	reg, err := r.registry()
-	if err != nil {
-		writeError(sw, http.StatusInternalServerError, "proxy: "+err.Error())
-		return
-	}
-	p, err := reg.Get(provider)
-	if err != nil {
-		writeError(sw, http.StatusBadRequest, "proxy: "+err.Error())
-		return
-	}
-	route, ok := p.Route(dialect)
-	dbxGemini := false
-	if !ok && dialect == providers.ProtocolGemini {
-		route, ok = databricksGemini(p)
-		dbxGemini = ok
-	}
+	p, route, dbxGemini, ok := r.passthroughRoute(sw, provider, dialect)
 	if !ok {
-		writeError(sw, http.StatusNotFound, "proxy: provider "+p.Name+" has no "+dialect+" route")
 		return
 	}
+	var err error
 	if err := safeRest(rest); err != nil {
 		writeError(sw, http.StatusBadRequest, err.Error())
 		return
@@ -91,17 +80,47 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 			return
 		}
 	}
+	return r.passthroughRequest(sw, in, p, route, rest, query, model, dialect, dbxGemini)
+}
+
+func (r *Router) passthroughRoute(w http.ResponseWriter, provider, dialect string) (p *providers.Provider, route string, dbxGemini, ok bool) {
+	reg, err := r.registry()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "proxy: "+err.Error())
+		return nil, "", false, false
+	}
+	p, err = reg.Get(provider)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
+		return nil, "", false, false
+	}
+	route, ok = p.Route(dialect)
+	dbxGemini = false
+	if !ok && dialect == providers.ProtocolGemini {
+		route, ok = databricksGemini(p)
+		dbxGemini = ok
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "proxy: provider "+p.Name+" has no "+dialect+" route")
+		return nil, "", false, false
+	}
+	return p, route, dbxGemini, true
+}
+
+func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *providers.Provider, route, rest, query, model, dialect string, dbxGemini bool) (string, string) {
+	var extra string
+	var err error
 	var body []byte
 	geminiChat := false
 	if in.Method == http.MethodPost {
 		body, err = io.ReadAll(io.LimitReader(in.Body, maxBody+1))
 		if err != nil {
 			writeError(sw, http.StatusBadRequest, "proxy: read body: "+err.Error())
-			return
+			return model, extra
 		}
 		if len(body) > maxBody {
 			writeError(sw, http.StatusRequestEntityTooLarge, "proxy: request body over 64MiB")
-			return
+			return model, extra
 		}
 		model = cmp.Or(passthroughModel(body), model)
 		if dbxGemini {
@@ -115,6 +134,11 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 			body = clampOutputTokens(body, model)
 		}
 	}
+	return r.passthroughResponse(sw, in, p, route, rest, query, model, dialect, body, geminiChat)
+}
+
+func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider, route, rest, query, model, dialect string, body []byte, geminiChat bool) (string, string) {
+	var extra string
 	target := route + "/" + rest
 	if query != "" {
 		target += "?" + query
@@ -131,10 +155,10 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 		var failure *fallbackError
 		if errors.As(err, &failure) && failure.auth {
 			writeError(sw, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", p.Name, authHint(p)))
-			return
+			return model, extra
 		}
 		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
-		return
+		return model, extra
 	}
 	extra = passthroughDiag(resp)
 	if geminiChat && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
@@ -152,6 +176,7 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 	if tail != nil {
 		logLedgerUsage(in, p, model, scrapeUsage(tail.buf))
 	}
+	return model, extra
 }
 
 // flattenGeminiResponse buffers a non-stream Gemini chat reply and joins its content parts into one string.
@@ -192,7 +217,7 @@ func geminiTools(raw json.RawMessage) (json.RawMessage, bool) {
 	return out, err == nil
 }
 
-// fixGeminiChat drops stream_options, maps an Anthropic-style tool_choice object and fills a missing thoughtSignature on assistant tool_calls; else body as is.
+// fixGeminiChat normalizes streaming options, tool choice, schemas, and thought signatures.
 func fixGeminiChat(body []byte) []byte {
 	var top map[string]json.RawMessage
 	if json.Unmarshal(body, &top) != nil {
@@ -211,34 +236,7 @@ func fixGeminiChat(body []byte) []byte {
 	if fixed, ok := geminiTools(top["tools"]); ok {
 		top["tools"], changed = fixed, true
 	}
-	var msgs []map[string]json.RawMessage
-	if json.Unmarshal(top["messages"], &msgs) == nil {
-		for _, m := range msgs {
-			var calls []map[string]json.RawMessage
-			if json.Unmarshal(m["tool_calls"], &calls) != nil {
-				continue
-			}
-			touched := false
-			for _, c := range calls {
-				if c == nil { // a null entry: nothing to sign, and writing to it would panic
-					continue
-				}
-				_, sig := c["thoughtSignature"]
-				_, extra := c["extra_content"]
-				if !sig && !extra {
-					c["thoughtSignature"] = json.RawMessage(`"` + translate.SkipThoughtSignature + `"`)
-					touched = true
-				}
-			}
-			if touched {
-				m["tool_calls"], _ = json.Marshal(calls)
-				changed = true
-			}
-		}
-		if changed {
-			top["messages"], _ = json.Marshal(msgs)
-		}
-	}
+	changed = geminiSignatures(top, changed)
 	if !changed {
 		return body
 	}
@@ -448,4 +446,36 @@ func dropOffThoughts(body []byte) []byte {
 		return body
 	}
 	return out
+}
+
+func geminiSignatures(top map[string]json.RawMessage, changed bool) bool {
+	var msgs []map[string]json.RawMessage
+	if json.Unmarshal(top["messages"], &msgs) == nil {
+		for _, m := range msgs {
+			var calls []map[string]json.RawMessage
+			if json.Unmarshal(m["tool_calls"], &calls) != nil {
+				continue
+			}
+			touched := false
+			for _, c := range calls {
+				if c == nil { // a null entry: nothing to sign, and writing to it would panic
+					continue
+				}
+				_, sig := c["thoughtSignature"]
+				_, extra := c["extra_content"]
+				if !sig && !extra {
+					c["thoughtSignature"] = json.RawMessage(`"` + translate.SkipThoughtSignature + `"`)
+					touched = true
+				}
+			}
+			if touched {
+				m["tool_calls"], _ = json.Marshal(calls)
+				changed = true
+			}
+		}
+		if changed {
+			top["messages"], _ = json.Marshal(msgs)
+		}
+	}
+	return changed
 }

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -16,9 +15,7 @@ import (
 // secretName is the router secret's vault record.
 const secretName = "CLAUDE_CODE_ROUTER_SECRET"
 
-// ClientSecret returns the per-install secret clients must present, sealed in the vault.
-// First use imports state/router.secret (same value), reads it back, then deletes the file.
-// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
+// ClientSecret reads the vault secret, importing router.secret if needed; remove migration after 2026-11-13.
 func ClientSecret() (string, error) {
 	s, found, err := vault.ReadSecret(secretName)
 	if err != nil {
@@ -70,20 +67,4 @@ func initSecret() (string, error) {
 
 func secretErr(err error) error {
 	return fmt.Errorf("proxy: router secret needs the vault (see `claude-code vault`): %w", err)
-}
-
-// authHint names the remedy a rejected credential needs, picked by the provider's auth type.
-func authHint(p *providers.Provider) string {
-	a := p.Auth
-	switch {
-	case p.Preset == providers.PresetDatabricks && a.Type == providers.AuthPAT: // login refuses a pat row without the switch
-		return "run `claude-code databricks login --profile " + p.Name + " --auth-type oauth`"
-	case p.Preset == providers.PresetDatabricks || a.Type == providers.AuthOAuth || a.Type == providers.AuthM2M:
-		return "run `claude-code databricks login --profile " + p.Name + "`"
-	case a.Command != "":
-		return "check the provider's auth.command"
-	case (a.Type == providers.AuthKey || a.Type == providers.AuthPAT) && a.Env != "":
-		return "run `claude-code vault set " + a.Env + "`"
-	}
-	return "run `claude-code configure provider --list " + p.Name + "`"
 }

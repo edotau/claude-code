@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/tokenledger"
 )
 
@@ -40,7 +41,7 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
 	srv := setup(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`)
 	resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku"}`,
-		map[string]string{SessionHeader: "sess-1", AgentHeader: "code-worker"})
+		map[string]string{proxy.SessionHeader: "sess-1", proxy.AgentHeader: "code-worker"})
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
@@ -87,9 +88,9 @@ func TestLedgerAttributionHeaders(t *testing.T) {
 		hdr            map[string]string
 		session, agent string
 	}{
-		{"both", map[string]string{SessionHeader: "s1", AgentHeader: "claude"}, "s1", "claude"},
+		{"both", map[string]string{proxy.SessionHeader: "s1", proxy.AgentHeader: "claude"}, "s1", "claude"},
 		{"session-id fallback", map[string]string{"X-Claude-Code-Session-Id": "s2"}, "s2", ""},
-		{"session wins over session-id", map[string]string{SessionHeader: "s1", "X-Claude-Code-Session-Id": "s2"}, "s1", ""},
+		{"session wins over session-id", map[string]string{proxy.SessionHeader: "s1", "X-Claude-Code-Session-Id": "s2"}, "s1", ""},
 		{"neither", nil, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

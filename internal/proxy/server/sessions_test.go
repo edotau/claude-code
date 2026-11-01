@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 type sessionRig struct {
@@ -54,8 +56,8 @@ func (g *sessionRig) call(t *testing.T, path, body, key string) (int, string) {
 
 func (g *sessionRig) mint(t *testing.T, profile string) string {
 	t.Helper()
-	code, b := g.call(t, SessionPath, `{"profile":"`+profile+`","pid":4242}`, secret)
-	var out sessionResp
+	code, b := g.call(t, proxy.SessionPath, `{"profile":"`+profile+`","pid":4242}`, secret)
+	var out proxy.SessionResponse
 	if code != 200 || json.Unmarshal([]byte(b), &out) != nil || out.Token == "" {
 		t.Fatalf("mint = %d %s", code, b)
 	}
@@ -73,10 +75,10 @@ func TestSessionTokenScopeAndMintAuth(t *testing.T) {
 	if code, _ := g.call(t, "/p/other/v1/messages", `{}`, tok); code != http.StatusUnauthorized {
 		t.Errorf("other profile = %d, want 401", code)
 	}
-	if code, _ := g.call(t, SessionPath, `{"profile":"dev","pid":4242}`, tok); code != http.StatusUnauthorized {
+	if code, _ := g.call(t, proxy.SessionPath, `{"profile":"dev","pid":4242}`, tok); code != http.StatusUnauthorized {
 		t.Errorf("mint with a session token = %d, want 401", code)
 	}
-	if code, _ := g.call(t, SessionRevokePath, `{"token":"`+tok+`"}`, tok); code != http.StatusUnauthorized {
+	if code, _ := g.call(t, proxy.SessionRevokePath, `{"token":"`+tok+`"}`, tok); code != http.StatusUnauthorized {
 		t.Errorf("revoke with a session token = %d, want 401", code)
 	}
 	if code, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); code == http.StatusUnauthorized {
@@ -110,7 +112,7 @@ func TestSessionTokenDiesWithReusedPidAndOnRevoke(t *testing.T) {
 	}
 	g.setStart("100")
 	tok = g.mint(t, "dev")
-	if c, _ := g.call(t, SessionRevokePath, `{"token":"`+tok+`"}`, secret); c != http.StatusNoContent {
+	if c, _ := g.call(t, proxy.SessionRevokePath, `{"token":"`+tok+`"}`, secret); c != http.StatusNoContent {
 		t.Fatalf("revoke = %d", c)
 	}
 	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {

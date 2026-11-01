@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"context"
@@ -24,8 +24,7 @@ func TestRejectLocal(t *testing.T) {
 	}
 }
 
-// A literal loopback base_url is the user's choice and dials; the same server behind a hostname that
-// resolves to loopback is refused before the connect.
+// A literal loopback URL is allowed; a hostname resolving to the same address is refused.
 func TestGuardedClientLiteralVsResolved(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
 	defer srv.Close()
@@ -57,9 +56,7 @@ func TestGuardedClientLiteralVsResolved(t *testing.T) {
 	}
 }
 
-// resolveProxyHosts reads HTTP(S)_PROXY through http.ProxyFromEnvironment, which net/http caches
-// process-wide behind a sync.Once; t.Setenv in this process would not be seen, so this runs the
-// read in a fresh subprocess per case, the way net/http's own tests exercise proxy env vars.
+// resolveProxyHosts runs in a fresh subprocess per case because net/http caches proxy environment values.
 func TestResolveProxyHosts(t *testing.T) {
 	if os.Getenv("GO_WANT_RESOLVEPROXYHOSTS_HELPER") == "1" {
 		hosts := resolveProxyHosts()
@@ -90,10 +87,7 @@ func TestResolveProxyHosts(t *testing.T) {
 	}
 }
 
-// A configured HTTPS_PROXY host dials unguarded even though it resolves into the loopback range
-// (RFC1918/loopback proxies are common on a dev box); a base_url host NOT in proxyHosts resolving
-// to the same range is still refused. proxyHosts is swapped directly since it is process-global and
-// resolveProxyHosts itself is covered (env → map) by TestResolveProxyHosts above.
+// Configured proxy hosts may resolve locally; other upstream hostnames may not.
 func TestGuardedDialProxyHostVsBaseURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
 	defer srv.Close()
