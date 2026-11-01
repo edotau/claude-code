@@ -17,6 +17,9 @@ const (
 
 // Candidate is one importable profile: identifying fields and secret PRESENCE only, structurally no secret.
 type Candidate struct {
+	Pair        string // source user profile named by the pairing comment
+	PairSet     bool   // includes an explicit pair=none
+	Env         string // optional dev/qa/prod tag
 	Name        string
 	Host        string // scheme+host only; "" when the source host is unusable
 	AuthType    string // the source profile's auth_type, verbatim
@@ -49,7 +52,7 @@ func Candidates(path string) ([]Candidate, error) {
 
 // classifyProfile maps a profile to a row authType; an explicit auth_type wins over inference from the keys present.
 func classifyProfile(p profile) Candidate {
-	c := Candidate{Name: p.name, AuthType: p.authType, ClientID: p.clientID,
+	c := Candidate{Pair: p.pair, PairSet: p.pairSet, Env: p.env, Name: p.name, AuthType: p.authType, ClientID: p.clientID,
 		AccountID: p.accountID, WorkspaceID: p.workspaceID,
 		HasSecret: p.clientSecret != "" || p.token != ""}
 	host, ok := normalizeHost(p.host)
@@ -98,7 +101,7 @@ func normalizeHost(h string) (string, bool) {
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return "", false
 	}
-	return "https://" + u.Host, true
+	return "https://" + strings.ToLower(u.Host), true
 }
 
 // Secrets are the credential values of one profile; read only on an explicit --seal-secrets.

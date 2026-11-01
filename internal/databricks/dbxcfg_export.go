@@ -3,6 +3,7 @@ package databricks
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -11,6 +12,9 @@ import (
 
 // ExportRow is one vault row rendered as a .databrickscfg section; it carries identifiers only, never a secret.
 type ExportRow struct {
+	Pair        string // user section named by an SP pairing signal
+	PairSet     bool
+	SecretID    string // paired user row owns this SP credential
 	ID          string // vault provider id
 	Section     string // section name (ID unless renamed)
 	Host        string
@@ -44,6 +48,33 @@ func ExportRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
 		rows = append(rows, ExportRow{ID: n, Section: n, Host: host, Auth: p.Auth.Type, ClientID: p.Auth.ClientID,
 			AccountID: p.Auth.AccountID, WorkspaceID: p.Auth.WorkspaceID})
 	}
+
+	for i, r := range rows {
+		if r.Auth != providers.AuthM2M {
+			continue
+		}
+		for _, u := range rows {
+			if u.Auth == providers.AuthOAuth && u.Host == r.Host {
+				rows[i].PairSet = true
+				break
+			}
+		}
+	}
+	for _, r := range rows {
+		p := reg.Providers[r.ID]
+		if r.Auth != providers.AuthOAuth || p.Auth.SPClientID == "" {
+			continue
+		}
+		section := r.ID + "-sp"
+		for i := 2; ; i++ {
+			if _, exists := reg.Providers[section]; !exists && !slices.ContainsFunc(rows, func(x ExportRow) bool { return x.Section == section }) {
+				break
+			}
+			section = fmt.Sprintf("%s-sp-%d", r.ID, i)
+		}
+		rows = append(rows, ExportRow{ID: section, Section: section, Host: r.Host, Auth: providers.AuthM2M,
+			ClientID: p.Auth.SPClientID, Pair: r.Section, PairSet: true, SecretID: r.ID})
+	}
 	return rows, skipped
 }
 
@@ -53,6 +84,9 @@ var sectionRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 func Rename(rows []ExportRow, rename map[string]string) (out []ExportRow, skipped []string) {
 	seen := map[string]bool{}
 	for _, r := range rows {
+		if s, ok := rename[r.Pair]; ok && r.PairSet {
+			r.Pair = s
+		}
 		if s, ok := rename[r.ID]; ok {
 			r.Section = s
 		}
@@ -74,6 +108,13 @@ func Rename(rows []ExportRow, rename map[string]string) (out []ExportRow, skippe
 // sectionText renders one row; u2m is written as the CLI's databricks-cli, and pat names itself so it re-imports.
 func sectionText(r ExportRow) string {
 	var b strings.Builder
+	if r.PairSet {
+		pair := r.Pair
+		if pair == "" {
+			pair = "none"
+		}
+		fmt.Fprintf(&b, "# claude-code: pair=%s\n", pair)
+	}
 	fmt.Fprintf(&b, "[%s]\nhost = %s\n", r.Section, r.Host)
 	switch r.Auth {
 	case providers.AuthOAuth:
@@ -103,6 +144,9 @@ func RenderExport(rows []ExportRow) string {
 
 // Hint is the use-time line for a row: how the CLI gets the credential the file deliberately lacks.
 func Hint(r ExportRow) string {
+	if r.SecretID != "" {
+		r.ID = r.SecretID
+	}
 	switch r.Auth {
 	case providers.AuthM2M:
 		return fmt.Sprintf("[%s] DATABRICKS_CLIENT_SECRET=$(claude-code vault get %s) databricks -p %s ...",
@@ -129,7 +173,21 @@ func splitBlocks(text string) []block {
 		t := strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))
 		if strings.HasPrefix(t, "[") {
 			if name, ok := headerName(t); ok {
-				blocks = append(blocks, block{name: name})
+				prev := &blocks[len(blocks)-1]
+				start := len(prev.lines)
+				for start > 0 && strings.TrimSpace(prev.lines[start-1]) == "" {
+					start--
+				}
+				if start > 0 {
+					if _, ok := pairingComment(prev.lines[start-1]); ok {
+						start--
+					} else {
+						start = len(prev.lines)
+					}
+				}
+				prefix := slices.Clone(prev.lines[start:])
+				prev.lines = prev.lines[:start]
+				blocks = append(blocks, block{name: name, lines: prefix})
 			}
 		}
 		last := &blocks[len(blocks)-1]
@@ -141,22 +199,25 @@ func splitBlocks(text string) []block {
 // Merge writes rows into existing text: every other section (and [DEFAULT]) stays verbatim. An existing
 // section of the same name is replaced only with force, and an auth_type = databricks-cli one never is.
 func Merge(existing string, rows []ExportRow, force bool) (string, []string) {
-	have := map[string]map[string]string{}
+	have := map[string]*section{}
 	for _, s := range parseSections(existing) {
-		have[s.name] = s.keys
+		have[s.name] = s
 	}
 	blocks := splitBlocks(existing)
 	var notes []string
 	var appended []string
 	for _, r := range rows {
-		keys, exists := have[r.Section]
+		sig, exists := have[r.Section]
+		if exists && sig.pairSet {
+			r.Pair, r.PairSet = sig.pair, true
+		}
 		switch {
 		case isReserved(r.Section):
 			notes = append(notes, "keep ["+r.Section+"]: reserved, never written")
 		case !exists:
 			appended = append(appended, sectionText(r))
 			notes = append(notes, "add ["+r.Section+"]")
-		case keys["auth_type"] == CLIAuthU2M:
+		case sig.keys["auth_type"] == CLIAuthU2M:
 			notes = append(notes, "keep ["+r.Section+"]: an existing databricks-cli login section is never overwritten")
 		case !force:
 			notes = append(notes, "keep ["+r.Section+"]: exists (--force replaces it)")

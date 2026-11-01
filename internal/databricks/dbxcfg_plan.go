@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -11,15 +12,22 @@ import (
 // Row is the planned outcome for one candidate.
 type Row struct {
 	Candidate
-	ID     string // vault provider id
-	Action string // add|replace|skip
-	Reason string // why skipped
+	ID           string // vault provider id
+	Action       string // add|replace|skip
+	Reason       string // why skipped
+	SPClientID   string // paired identifier, never the secret
+	SPProfile    string // source section supplying the paired credential
+	PairingSet   bool   // retain an explicit unpair as an empty spClientId
+	identity     string
+	previousHost string
+	existed      bool
 }
 
 // ImportOptions steer ImportPlan.
 type ImportOptions struct {
 	Rename  map[string]string // source name to row id
 	Replace bool
+	Pair    map[string]string // SP section to user section; empty means explicitly unpaired
 }
 
 // ImportPlan maps candidates to rows against the existing provider rows (id to raw JSON).
@@ -34,6 +42,17 @@ func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o Import
 		}
 		raw, exists := existing[r.ID]
 		ek := existingAuthType(raw)
+		r.existed, r.previousHost = exists, existingHost(raw)
+		if ek == providers.AuthOAuth {
+			var p struct {
+				Auth     map[string]json.RawMessage `json:"auth"`
+				Identity string                     `json:"identity"`
+			}
+			_ = json.Unmarshal(raw, &p)
+			value, set := p.Auth["spClientId"]
+			_ = json.Unmarshal(value, &r.SPClientID)
+			r.PairingSet, r.identity = set, p.Identity
+		}
 		switch {
 		case c.Skip != "":
 			r.Action, r.Reason = "skip", c.Skip
@@ -47,6 +66,8 @@ func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o Import
 			r.Action, r.Reason = "skip", "existing row has no sealed auth.type; switch it with `claude-code databricks login --profile "+r.ID+" --auth-type oauth`"
 		case exists && ek != "" && ek != c.Auth:
 			r.Action, r.Reason = "skip", "existing auth.type "+ek+" is never changed"
+		case r.SPClientID != "" && r.previousHost != c.Host:
+			r.Action, r.Reason = "skip", "paired profile host is never changed on re-import"
 		case collides(names, r):
 			n := SecretNameOf(r)
 			r.Action, r.Reason = "skip", "secret name "+n+" is shared with row "+names[n]+"; use --rename"
@@ -61,11 +82,16 @@ func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o Import
 		}
 		rows = append(rows, r)
 	}
-	return rows
+	return pairRows(rows, o.Pair, names)
 }
 
 // SecretNameOf is the vault name of a planned row's sealed credential, derived by providers.
-func SecretNameOf(r Row) string { return secretName(r.ID, r.Auth) }
+func SecretNameOf(r Row) string {
+	if r.Auth == providers.AuthOAuth && r.SPClientID != "" {
+		return secretName(r.ID, providers.AuthM2M)
+	}
+	return secretName(r.ID, r.Auth)
+}
 
 // secretName is the vault name of a databricks profile's sealed secret for an auth type.
 func secretName(id, authType string) string {
@@ -76,7 +102,13 @@ func secretName(id, authType string) string {
 func sealedNames(existing map[string]json.RawMessage) map[string]string {
 	out := map[string]string{}
 	for id, raw := range existing {
-		if n := secretName(id, existingAuthType(raw)); n != "" {
+		var p providers.Provider
+		_ = json.Unmarshal(raw, &p)
+		auth := existingAuthType(raw)
+		if auth == providers.AuthOAuth && p.Auth.SPClientID != "" {
+			out[secretName(id, providers.AuthM2M)] = id
+		}
+		if n := secretName(id, auth); n != "" {
 			out[n] = id
 		}
 	}
@@ -116,7 +148,14 @@ func RowJSON(r Row) (json.RawMessage, error) {
 	if r.WorkspaceID != "" {
 		auth["workspaceId"] = r.WorkspaceID
 	}
-	return json.Marshal(map[string]any{"preset": "databricks", "host": r.Host, "auth": auth})
+	if r.PairingSet && r.Auth == providers.AuthOAuth {
+		auth["spClientId"] = r.SPClientID
+	}
+	out := map[string]any{"preset": "databricks", "host": r.Host, "auth": auth}
+	if r.identity != "" {
+		out["identity"] = r.identity
+	}
+	return json.Marshal(out)
 }
 
 // Apply writes the add/replace rows into the overlay doc's providers map.
@@ -151,4 +190,137 @@ func Existing(top map[string]json.RawMessage) map[string]json.RawMessage {
 		_ = json.Unmarshal(raw, &out)
 	}
 	return out
+}
+
+// pairRows consumes explicit choices before same-host inference; any existing user pairing decision is final.
+func pairRows(rows []Row, choices map[string]string, names map[string]string) []Row {
+	order := make([]int, len(rows))
+	for i := range rows {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(i, j int) int {
+		_, a := choices[rows[i].Name]
+		_, b := choices[rows[j].Name]
+		a, b = a || rows[i].PairSet, b || rows[j].PairSet
+		if a == b {
+			return 0
+		}
+		if a {
+			return -1
+		}
+		return 1
+	})
+	for _, i := range order {
+		sp := &rows[i]
+		if sp.Auth != providers.AuthM2M || sp.Skip != "" {
+			continue
+		}
+		users, countSP := sameHostRows(rows, *sp)
+		target, explicit := pairTarget(rows, *sp, users, countSP, choices)
+		paired := false
+		for _, j := range users {
+			if rows[j].Name == target && attachSP(&rows[j], sp, names) {
+				paired = true
+				break
+			}
+		}
+		if !paired && len(users) > 0 && !explicit && sp.Action != "skip" {
+			sp.Reason = "unpaired; choose a service principal in configure"
+		}
+	}
+
+	for _, sp := range rows {
+		target, explicit := choices[sp.Name]
+		if !explicit {
+			target, explicit = sp.Pair, sp.PairSet
+		}
+		if sp.Auth != providers.AuthM2M || !explicit || target != "" {
+			continue
+		}
+		for j := range rows {
+			u := &rows[j]
+			if u.Auth == providers.AuthOAuth && u.Host == sp.Host && u.SPClientID == "" {
+				u.PairingSet = true
+			}
+		}
+	}
+	return rows
+}
+
+// pairingEnv sorts ambiguous choices by environment without using a name to override host safety.
+func pairingEnv(c Candidate) string {
+	if c.Env != "" {
+		return strings.ToLower(c.Env)
+	}
+	for _, tag := range strings.FieldsFunc(strings.ToLower(c.Name), func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
+		if slices.Contains([]string{"dev", "qa", "prod"}, tag) {
+			return tag
+		}
+	}
+	return ""
+}
+
+// existingHost reads a row without expanding or redacting it.
+func existingHost(raw json.RawMessage) string {
+	var p providers.Provider
+	if json.Unmarshal(raw, &p) != nil {
+		return ""
+	}
+	host, _ := normalizeHost(providers.AuthHost(&p))
+	return host
+}
+
+// sameHostRows counts source profiles, including ones that an earlier pairing already consumed.
+func sameHostRows(rows []Row, sp Row) (users []int, principals int) {
+	for j, u := range rows {
+		if u.Skip != "" || u.Host != sp.Host {
+			continue
+		}
+		if u.Auth == providers.AuthM2M {
+			principals++
+		}
+		if u.Auth == providers.AuthOAuth {
+			users = append(users, j)
+		}
+	}
+	return users, principals
+}
+
+func pairTarget(rows []Row, sp Row, users []int, principals int, choices map[string]string) (string, bool) {
+	if target, ok := choices[sp.Name]; ok {
+		return target, true
+	}
+	if sp.PairSet {
+		return sp.Pair, true
+	}
+	for _, j := range users {
+		if rows[j].SPClientID == sp.ClientID && rows[j].previousHost == sp.Host {
+			return rows[j].Name, false
+		}
+	}
+	if len(users) == 1 && principals == 1 {
+		return rows[users[0]].Name, false
+	}
+	return "", false
+}
+
+// attachSP never replaces a stored pairing decision or borrows a credential from a different host.
+func attachSP(u, sp *Row, names map[string]string) bool {
+	if u.Action == "skip" && (!u.existed || u.SPClientID != sp.ClientID) {
+		return false
+	}
+	if u.PairingSet && (u.SPClientID == "" || u.SPClientID != sp.ClientID || u.previousHost != sp.Host) {
+		return false
+	}
+	if u.SPProfile != "" || (u.Action != "skip" && sp.Action == "skip") {
+		return false
+	}
+	name := secretName(u.ID, providers.AuthM2M)
+	if owner := names[name]; owner != "" && owner != u.ID {
+		return false
+	}
+	u.SPClientID, u.SPProfile, u.PairingSet, u.HasSecret = sp.ClientID, sp.Name, true, sp.HasSecret
+	names[name] = u.ID
+	sp.Action, sp.Reason = "skip", "paired with "+u.ID
+	return true
 }
