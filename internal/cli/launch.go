@@ -30,16 +30,47 @@ func cmdClaude(args []string) int { return launchClaude("", args) }
 
 // launchClaude launches Claude Code with alias as the main-loop model ("" = opus).
 func launchClaude(alias string, args []string) int {
+	as, args, err := takeAs(args)
+	if err != nil {
+		return fail("%v", err)
+	}
 	opts, rest, err := agent.ParseArgs(args, true)
 	if err != nil {
 		return fail("%v", err)
 	}
 	opts.Alias = alias
-	plan, err := agent.Claude(context.Background(), opts, rest)
+	plan, err := agent.Claude(providers.WithIdentity(context.Background(), as), opts, rest)
 	if err == nil && !opts.PrintEnv {
 		agent.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile], rest)
 	}
 	return runPlan(plan, opts, err)
+}
+
+// takeAs removes --as user|sp (or --as=V) from args and validates it; it stops at a bare "--".
+func takeAs(args []string) (string, []string, error) {
+	var as string
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		name, val, hasVal := strings.Cut(args[i], "=")
+		switch {
+		case args[i] == "--":
+			rest = append(rest, args[i:]...)
+			i = len(args)
+		case name != "--as":
+			rest = append(rest, args[i])
+		case hasVal:
+			as = val
+		case i+1 < len(args):
+			i++
+			as = args[i]
+		default:
+			return "", nil, errors.New("--as needs user or sp")
+		}
+	}
+	if as != "" && as != providers.IdentityUser && as != providers.IdentitySP {
+		return "", nil, fmt.Errorf("--as %q must be user or sp", as)
+	}
+	return as, rest, nil
 }
 
 // aliasVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.

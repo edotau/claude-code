@@ -40,7 +40,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	case len(pos) == 0:
 		line := agent + ": no profile set (launches use today's selection)"
 		if v := agentpkg.GetAgentRecord(agent).Profile; v != "" {
-			line = fmt.Sprintf("%s: profile %s", agent, v)
+			line = fmt.Sprintf("%s: profile %s", agent, v) + identityNote(v)
 		}
 		if !agentpkg.VaultAgentIsClaude(agent) {
 			state := agentpkg.AgentOn
@@ -76,6 +76,23 @@ func cmdAgentProfile(agent string, args []string) int {
 		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
 	}
 	return 0
+}
+
+// identityNote is " · identity <mode>" for a profile paired with a service principal, else "".
+func identityNote(profile string) string {
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	p, ok := reg.Providers[profile]
+	if !ok || p == nil || p.Auth.SPClientID == "" {
+		return ""
+	}
+	mode, err := providers.ResolveIdentity(p.Identity, "")
+	if err != nil {
+		return ""
+	}
+	return " · identity " + mode
 }
 
 // setAgentProfile writes profile into agent's record, leaving its other fields.
