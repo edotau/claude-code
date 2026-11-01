@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"maps"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -101,9 +102,9 @@ type Plan struct {
 }
 
 // UsageError is a launch refusal the CLI reports verbatim with exit 2.
-type UsageError string
+type UsageError struct{ Msg string }
 
-func (e UsageError) Error() string { return string(e) }
+func (e *UsageError) Error() string { return e.Msg }
 
 // envMap turns a KEY=VALUE env list into a map, dropping malformed entries.
 func envMap(env []string) map[string]string {

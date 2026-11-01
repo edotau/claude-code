@@ -229,7 +229,7 @@ func cmdScience(args []string) int {
 }
 
 func runPlan(plan agent.Plan, opts agent.LaunchOptions, err error) int {
-	if usage, ok := errors.AsType[agent.UsageError](err); ok {
+	if usage, ok := errors.AsType[*agent.UsageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
