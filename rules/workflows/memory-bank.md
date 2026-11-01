@@ -40,7 +40,8 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
 
 - `memory-start` (SessionStart) — injects a pointer to the catalog + this repo's Current Focus/Blockers/Next Steps and
   In Progress; the rest loads on demand. It also scaffolds a missing bank, spawns the daily `memory dream` when
-  due, and spawns the previous session's missed update (catch-up covers one previous session only).
+  due, and spawns one detached sweep (`memory catchup`) that saves up to 3 missed interactive sessions from the last
+  14 days, skips live ones, and prints one quiet line at the next start.
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; another repo's store only when the prompt names
   it.
 - `claude-code memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress,
@@ -48,6 +49,8 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
 - `memory-update` / `memory-end` (Stop / SessionEnd) — after enough edits, run `memory update` headless so a session
   that forgets still persists; the first dispatch claims a detached `memory watch` that updates after 10 quiet
   minutes (a crash fires no SessionEnd). `memory-compact` does the same before compaction.
+- `memory dream` — archives durable-file overflow and consolidates; it never moves entries to home. `memory promote`
+  is the only route to home.
 - `memory index` — regenerates the `MEMORY.md` bank region and `memory/index.md`, rotates sessionHistory, commits the
   store. **Never hand-edit generated regions.**
 - `memory review` — caps, staleness, dupes, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — moves

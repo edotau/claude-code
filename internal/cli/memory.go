@@ -36,8 +36,8 @@ var memoryPage = helptext.Page{
 	About: "Per-repo and home memory banks: session-start injects them, the Stop/SessionEnd\n" +
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
-	Hint: "plumbing: search, show, index, path, digest, fmt, watch, timeline, archive,\n" +
-		"          alias — dispatchable, off the menu above\n" +
+	Hint: "plumbing: search, show, index, path, digest, fmt, watch, catchup, timeline,\n" +
+		"          archive, alias — dispatchable, off the menu above\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -54,7 +54,7 @@ func memoryCommandRows() [][2]string {
 var memoryPlumbing = map[string][2]string{
 	"search":   {"<terms>", "rank blocks for terms, with scores"},
 	"show":     {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
-	"index":    {"", "settle the bank: rotate, promote and archive over caps"},
+	"index":    {"", "settle the bank: rotate and archive over caps"},
 	"path":     {"", "print the bank directory"},
 	"digest":   {"", "write the bank digest"},
 	"fmt":      {"", "wrap the bank files"},
@@ -275,7 +275,7 @@ func cmdMemoryDream(args []string) int {
 	fs := memoryFlagSet("dream")
 	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
 	force := fs.Bool("force", false, "run even when not due")
-	dryRun := fs.Bool("dry-run", false, "deterministic preview: caps, promotable/archivable blocks; no writes")
+	dryRun := fs.Bool("dry-run", false, "deterministic preview: caps, archivable blocks; no writes")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -301,6 +301,10 @@ func cmdMemoryDigest(args []string) int {
 
 func cmdMemoryWatch(args []string) int {
 	return hooks.IdleUpdateWatch(args, os.Stderr) // spawned detached by the Stop gate; its own flag set
+}
+
+func cmdMemoryCatchup(args []string) int {
+	return hooks.CatchUpSweep(args, os.Stdout, os.Stderr) // spawned detached at session start; its own flag set
 }
 
 func cmdMemoryFmt(args []string) int {
@@ -390,6 +394,7 @@ var memorySubcommands = map[string]func([]string) int{
 	"digest":   cmdMemoryDigest,
 	"fmt":      cmdMemoryFmt,
 	"watch":    cmdMemoryWatch,
+	"catchup":  cmdMemoryCatchup,
 	"timeline": cmdMemoryTimeline,
 	"archive":  cmdMemoryArchive,
 	"alias":    cmdMemoryAlias,

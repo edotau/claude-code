@@ -28,7 +28,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
-			"digest", "index", "path", "watch", "timeline", "archive", "alias", "fmt"},
+			"digest", "index", "path", "catchup", "watch", "timeline", "archive", "alias", "fmt"},
 		"gateway":  {"router", "proxy", "token"},
 		"agents":   {"sync", "tree", "reap"},
 		"workflow": {"skeleton", "lint"},
