@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -136,6 +138,15 @@ func StubRouterForTest(t testing.TB, base string) {
 	oe := ensureRouter
 	t.Cleanup(func() { ensureRouter = oe })
 	ensureRouter = func(context.Context) (string, error) { return base, nil }
+}
+
+// StubProxyForTest stubs the router, its secret and session mints for a whole test binary (call from TestMain),
+// and shortens the dispatch limiter's poll; no proxy daemon is reached or spawned.
+func StubProxyForTest(base, secret string) {
+	ensureRouter = func(context.Context) (string, error) { return base, nil }
+	routerSecret = func() (string, error) { return secret, nil }
+	mintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
+	sharedPoll = 25 * time.Millisecond
 }
 
 type directKey struct{}
