@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // bearerToken matches a bearer-style header value: the scheme plus a long opaque token.
@@ -119,4 +121,9 @@ func Any(m map[string]string) bool {
 		}
 	}
 	return false
+}
+
+// Preview collapses prompt's whitespace, redacts credential-shaped words, and truncates to n runes.
+func Preview(prompt string, n int) string {
+	return textutil.Truncate(Redact(strings.Join(strings.Fields(prompt), " ")), n)
 }

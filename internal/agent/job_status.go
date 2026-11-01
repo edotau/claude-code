@@ -240,7 +240,7 @@ func toRow(r Record) Row {
 	if status == "running" || status == "lost" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
-	preview := Preview(r.Request.Prompt, 60)
+	preview := shapes.Preview(r.Request.Prompt, 60)
 	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
 		Error: shapes.Redact(r.Error), Progress: r.Progress}
 }

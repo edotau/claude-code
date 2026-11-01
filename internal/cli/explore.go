@@ -1,4 +1,6 @@
-package agent
+package cli
+
+import "github.com/edotau/claude-code/internal/agent"
 
 // explorePromptBase is the read-only Explore brief shared by every agent; web is appended when enabled.
 const explorePromptBase = `Read-only: never modify, create or delete a file.
@@ -29,7 +31,7 @@ func ExplorePrompt(question string, web bool) string {
 // ExploreArgs builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
 func ExploreArgs(agentName, cwd, question string, web, background bool) []string {
 	args := []string{"--agent", agentName, "--workdir", cwd}
-	if s, ok := LookupSchema(agentName); ok && s.CLI.ReadNeedsTools {
+	if s, ok := agent.LookupSchema(agentName); ok && s.CLI.ReadNeedsTools {
 		args = append(args, "--tools")
 	}
 	if background {
