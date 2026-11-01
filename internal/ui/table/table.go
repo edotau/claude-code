@@ -21,39 +21,119 @@ func Truncate(s string, width int) string {
 	return string(r[:width-1]) + "…"
 }
 
-// Render lays out a header plus rows as two-space-indented, column-aligned, width-truncated lines.
+// TruncateMiddle clips s to width runes keeping both ends, so names that share a long prefix stay distinct.
+func TruncateMiddle(s string, width int) string {
+	r := []rune(s)
+	if width <= 2 || len(r) <= width {
+		return Truncate(s, width)
+	}
+	tail := (width - 1) / 2
+	return string(r[:width-1-tail]) + "…" + string(r[len(r)-tail:])
+}
+
+const (
+	maxGap   = 8  // widest gap between columns when the page has room to spare
+	minColW  = 4  // a column never shrinks below this to fit the terminal
+	spreadTo = 80 // the width a table spreads its gaps toward
+)
+
+// shrinkWidths returns ws shrunk (widest column first, down to minColW) until the columns plus 2-space gaps fit width.
+func shrinkWidths(ws []int, width int) []int {
+	ws = slices.Clone(ws)
+	for width > 0 && sumInts(ws)+2*(len(ws)-1) > width {
+		w := slices.Index(ws, slices.Max(ws))
+		if ws[w] <= minColW {
+			break
+		}
+		ws[w]--
+	}
+	return ws
+}
+
+func sumInts(xs []int) int {
+	t := 0
+	for _, x := range xs {
+		t += x
+	}
+	return t
+}
+
+// Justify lays rows out as plain column-aligned lines (no indent) no wider than width (<= 0 = unknown, no cap).
+// A short row's last cell spans the remaining columns and does not size its column; clip shortens a cell (nil = Truncate).
+func Justify(rows [][]string, width int, clip func(string, int) string) []string {
+	if clip == nil {
+		clip = Truncate
+	}
+	n := 0
+	for _, r := range rows {
+		n = max(n, len(r))
+	}
+	spans := func(r []string, i int) bool { return len(r) < n && i == len(r)-1 }
+	ws := make([]int, n)
+	for _, r := range rows {
+		for i, c := range r {
+			if !spans(r, i) {
+				ws[i] = max(ws[i], utf8.RuneCountInString(c))
+			}
+		}
+	}
+	ws = shrinkWidths(ws, width)
+	gap := 0
+	if n > 1 {
+		lim := spreadTo
+		if width > 0 {
+			lim = min(width, spreadTo)
+		}
+		slack := max(lim-sumInts(ws)-2*(n-1), 0)
+		gap = min(maxGap, 2+slack/(n-1))
+	}
+	out := make([]string, len(rows))
+	for k, r := range rows {
+		var b strings.Builder
+		for i, c := range r {
+			start := sumInts(ws[:i]) + gap*i
+			switch {
+			case spans(r, i) && width > 0 && width-start <= 0:
+				c = ""
+			case spans(r, i) && width > 0:
+				c = clip(c, width-start)
+			case !spans(r, i):
+				c = clip(c, ws[i])
+			}
+			b.WriteString(c)
+			if i < len(r)-1 {
+				b.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+gap))
+			}
+		}
+		out[k] = Truncate(strings.TrimRight(b.String(), " "), width)
+	}
+	return out
+}
+
+// Render lays out a header plus rows as two-space-indented, column-aligned lines, no cell wider than its column.
 // colMax caps each column's cells (0 or a missing entry = no cap).
 func Render(head []string, colMax []int, rows [][]string, width int) string {
-	rows = slices.Clone(rows)
-	for i, r := range rows {
+	all := make([][]string, 0, len(rows)+1)
+	for _, r := range append([][]string{head}, rows...) {
 		r = slices.Clone(r)
 		for c := range r {
 			if c < len(colMax) && colMax[c] > 0 {
 				r[c] = Truncate(r[c], colMax[c])
 			}
 		}
-		rows[i] = r
+		all = append(all, r)
 	}
-	ws := make([]int, len(head))
-	for _, r := range append([][]string{head}, rows...) {
-		for i, c := range r {
-			ws[i] = max(ws[i], utf8.RuneCountInString(c))
-		}
+	return Indented(all, width, nil)
+}
+
+// Indented is Justify as text: every line two-space-indented, the indent counted in width.
+func Indented(rows [][]string, width int, clip func(string, int) string) string {
+	if width > 0 {
+		width = max(width-2, 1)
 	}
 	var b strings.Builder
-	for _, r := range append([][]string{head}, rows...) {
-		line := " "
-		var lineSb strings.Builder
-		for i, c := range r {
-			lineSb.WriteByte(' ')
-			lineSb.WriteString(c)
-			if i < len(r)-1 {
-				lineSb.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+1))
-			}
-		}
-		line += lineSb.String()
-		b.WriteString(Truncate(strings.TrimRight(line, " "), width))
-		b.WriteByte('\n')
+	for _, l := range Justify(rows, width, clip) {
+		b.WriteString(strings.TrimRight("  "+l, " ") + "\n")
 	}
 	return b.String()
 }

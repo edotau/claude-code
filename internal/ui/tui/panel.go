@@ -3,9 +3,11 @@ package tui
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 const (
@@ -16,7 +18,7 @@ const (
 
 // pickState is the panel's pure state, separated from I/O so key handling tests without a TTY.
 type pickState struct {
-	rows  []string     // "name  detail" rows, already column-aligned
+	rows  []string     // rows laid out at the current terminal width, re-laid on every draw
 	heads map[int]bool // rows that are section titles: drawn after a blank line, never selectable
 	sel   int
 }
@@ -51,19 +53,32 @@ func handlePickKey(s pickState, k Key) (pickState, int) {
 	return s, pickNone
 }
 
-// layoutRows pads every name to the widest, so every row's detail column lines up.
-func layoutRows(rows [][2]string) []string {
-	width := 0
-	for _, r := range rows {
-		if n := len(oneLine(r[0])); n > width {
-			width = n
-		}
+var (
+	detailSplit = regexp.MustCompile(`\s{2,}`)
+	trailBadge  = regexp.MustCompile(` (\[[^\]]*\])$`)
+)
+
+// rowCells is a row's cells: the name, then the detail split on 2+ space runs, a trailing " [..]" badge last.
+func rowCells(r [2]string) []string {
+	detail := oneLine(r[1])
+	badge := ""
+	if m := trailBadge.FindStringSubmatchIndex(detail); m != nil {
+		badge, detail = detail[m[2]:m[3]], detail[:m[0]]
 	}
-	out := make([]string, len(rows))
+	cells := append([]string{oneLine(r[0])}, detailSplit.Split(detail, -1)...)
+	if badge != "" {
+		cells = append(cells, badge)
+	}
+	return cells
+}
+
+// layoutRows lays rows out as columns shared by every row, each line at most width runes (0 = unbounded).
+func layoutRows(rows [][2]string, width int) []string {
+	cells := make([][]string, len(rows))
 	for i, r := range rows {
-		out[i] = fmt.Sprintf("%-*s  %s", width, oneLine(r[0]), oneLine(r[1]))
+		cells[i] = rowCells(r)
 	}
-	return out
+	return table.Justify(cells, width, nil)
 }
 
 // hintText is the key-hint line render draws last; panelLines counts it by the same literal.
@@ -132,17 +147,17 @@ func render(title string, s pickState, color bool) string {
 // start (clamped). Returns the chosen row index, or -1 on Esc/q/Ctrl-C. A non-error, non-nil err
 // means stdin is not a terminal; the caller should fall back to a line prompt.
 func Pick(title string, rows [][2]string, start int) (int, error) {
-	return pickHeads(title, layoutRows(rows), nil, start)
+	return pickHeads(title, func(cols int) []string { return layoutRows(rows, cols) }, nil, start)
 }
 
-// pickHeads runs the picker over already-aligned rows; the cursor never lands on a section-title row (heads).
-func pickHeads(title string, rows []string, heads map[int]bool, start int) (int, error) {
+// pickHeads runs the picker over rows from lay(cols), re-laid per frame; the cursor skips section-title rows (heads).
+func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, start int) (int, error) {
 	t, err := Open()
 	if err != nil {
 		return -1, err
 	}
 	defer t.Close()
-	s := pickState{rows: rows, heads: heads}
+	s := pickState{rows: lay(0), heads: heads}
 	if start >= 0 && start < len(s.rows) {
 		s.sel = start
 	}
@@ -152,7 +167,8 @@ func pickHeads(title string, rows []string, heads map[int]bool, start int) (int,
 	color := ansi.Enabled(os.Stdout)
 	prev := 0 // lines the last frame drew: the next redraw rewinds exactly that many
 	draw := func() {
-		cols, h := t.Size() // per frame: a resize keeps the window and the rewind honest
+		cols, h := t.Size()          // per frame: a resize keeps the window and the rewind honest
+		s.rows = lay(max(cols-2, 0)) // 2 = the marker prefix
 		f := fit(title, s, cols, h)
 		if prev > 0 {
 			fmt.Fprintf(os.Stdout, "\r\x1b[%dA\x1b[J", prev-1)
@@ -224,35 +240,46 @@ type Section struct {
 	Rows  [][2]string
 }
 
-// PickSections draws every section's rows under its own title (title itself is unused: each section carries one) (columns aligned across all of them), then
-// trailing after a blank line. It returns the index among selectable rows in order (trailing = the last),
-// or -1 on Esc/q/Ctrl-C/Left; start is in the same numbering.
+// sectionLines maps a sectioned panel: which display lines are titles, and the display line of each selectable row.
+func sectionLines(sections []Section) (map[int]bool, []int) {
+	heads := map[int]bool{}
+	var pos []int
+	line := 0
+	for _, sec := range sections {
+		heads[line] = true // every section, the first included: a blank line, then its title
+		line++
+		for range sec.Rows {
+			pos = append(pos, line)
+			line++
+		}
+	}
+	return heads, append(pos, line)
+}
+
+// PickSections draws every section's rows under its own title (each section carries one; title is unused), with
+// columns shared across all sections, then trailing after a blank line. It returns the index among selectable rows
+// in order (trailing = the last), or -1 on Esc/q/Ctrl-C/Left; start is in the same numbering.
 func PickSections(title string, sections []Section, trailing [2]string, start int) (int, error) {
 	var all [][2]string
 	for _, sec := range sections {
 		all = append(all, sec.Rows...)
 	}
-	laid := layoutRows(append(all, trailing))
-	var rows []string
-	heads := map[int]bool{}
-	var pos []int // display index of each selectable row
-	k := 0
-	for _, sec := range sections {
-		heads[len(rows)] = true // every section, the first included: a blank line, then its title
-		rows = append(rows, sec.Title)
-		for range sec.Rows {
-			pos = append(pos, len(rows))
-			rows = append(rows, laid[k])
-			k++
+	all = append(all, trailing)
+	heads, pos := sectionLines(sections)
+	lay := func(cols int) []string {
+		laid := layoutRows(all, cols)
+		rows := make([]string, 0, pos[len(pos)-1]+1)
+		for _, sec := range sections {
+			rows = append(append(rows, sec.Title), laid[:len(sec.Rows)]...)
+			laid = laid[len(sec.Rows):]
 		}
+		return append(rows, laid[0])
 	}
-	pos = append(pos, len(rows))
-	rows = append(rows, laid[k])
 	at := 0
 	if start >= 0 && start < len(pos) {
 		at = pos[start]
 	}
-	idx, err := pickHeads("", rows, heads, at)
+	idx, err := pickHeads("", lay, heads, at)
 	if err != nil || idx < 0 {
 		return -1, err
 	}

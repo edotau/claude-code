@@ -75,11 +75,11 @@ func TestHandlePickKeyEnterOnEmptyRowsIsNoop(t *testing.T) {
 }
 
 func TestLayoutRowsAligns(t *testing.T) {
-	rows := layoutRows([][2]string{{"ab", "x"}, {"longname", "y"}})
-	if got, want := rows[0], "ab        x"; got != want {
+	rows := layoutRows([][2]string{{"ab", "x"}, {"longname", "y"}}, 0)
+	if got, want := rows[0], "ab              x"; got != want {
 		t.Errorf("rows[0] = %q, want %q", got, want)
 	}
-	if got, want := rows[1], "longname  y"; got != want {
+	if got, want := rows[1], "longname        y"; got != want {
 		t.Errorf("rows[1] = %q, want %q", got, want)
 	}
 }
@@ -89,7 +89,7 @@ func TestLayoutRowsAligns(t *testing.T) {
 // render puts one blank line between the last regular row and the trailing Submit/Back row every picker
 // appends as its final row, in every menu — not just the ones built through PickBack.
 func TestRenderBlankLineBeforeTrailingRow(t *testing.T) {
-	s := pickState{rows: layoutRows([][2]string{{"a", "x"}, {"b", "y"}, {"Back", "return to the previous menu"}})}
+	s := pickState{rows: layoutRows([][2]string{{"a", "x"}, {"b", "y"}, {"Back", "return to the previous menu"}}, 0)}
 	out := render("title", s, false)
 	if !strings.Contains(out, "\x1b[K\r\n\x1b[K\r\n  "+s.rows[2]) {
 		t.Errorf("render must blank-separate the trailing row from the rest:\n%q", out)
