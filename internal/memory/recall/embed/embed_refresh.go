@@ -58,7 +58,7 @@ func RefreshEmbeddings(root, profile string, now time.Time) bool {
 	return spawned
 }
 
-// embedBackedOff reports a recent endpoint timeout, when a mint would only fail and retry.
+// embedBackedOff reports a recent endpoint failure, when a mint would only fail and retry.
 func embedBackedOff(profile string, now time.Time) bool {
 	st, err := os.Stat(filepath.Join(memstore.StateDir(), embedCachePre+profile+".backoff"))
 	return err == nil && now.Sub(st.ModTime()) < embedBackoff

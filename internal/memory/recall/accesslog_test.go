@@ -13,15 +13,14 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// One spanning pass over the access fold: 30-day rotation keeps the cold horizon, ReturnCounts credits
-// only explicit search/show returns, and nominations cover a non-home repo's log under its store key.
+// Rotation preserves history; returns exclude old reads and injections; nominations include other repos.
 func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 	home := memstore.HomeBankDir()
-
 	old := now.AddDate(0, 0, -(accessRotateDays + 1))
 	LogAccess(home, old, "aa000001", AccessRecall)
+	LogAccess(home, old, "cc000003", AccessSearch)
 	LogAccess(home, now, "bb000002", AccessRecall) // the write that must rotate
 	logPath := AccessLogPath(home)
 	if _, err := os.Stat(logPath + ".1"); err != nil {
@@ -34,12 +33,10 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	if s := stats["aa000001"]; s.Count != 1 {
 		t.Errorf("the rotated entry must still count: %+v", s)
 	}
-
 	// ReturnCounts: search/show returns inside the window count; recall injections and old lines never do.
 	LogAccess(home, now.AddDate(0, 0, -10), "cc000003", AccessSearch)
 	LogAccess(home, now.AddDate(0, 0, -5), "cc000003", AccessShow)
 	LogAccess(home, now.AddDate(0, 0, -2), "cc000003", AccessRecall)
-	LogAccess(home, now.AddDate(0, 0, -(accessRotateDays+5)), "cc000003", AccessSearch)
 	counts := ReturnCounts([]string{home}, now)
 	if counts["cc000003"] != 2 {
 		t.Errorf("ReturnCounts[cc000003] = %d, want 2 (in-window search + show)", counts["cc000003"])

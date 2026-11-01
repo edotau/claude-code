@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -28,7 +27,7 @@ import (
 )
 
 // embedCacheSchema is the embedding cache's schema version; a mismatch is a miss, never migrated.
-const embedCacheSchema = 1
+const embedCacheSchema = 2
 
 const (
 	embedBatch     = 16
@@ -36,7 +35,7 @@ const (
 	embedMaxRows   = 4000
 	embedBodyLimit = 32 << 20
 	embedCachePre  = "embeddings-"
-	embedBackoff   = 5 * time.Minute // after a timed-out query, keyword-only for this long
+	embedBackoff   = 5 * time.Minute // after a failed query, keyword-only for this long
 )
 
 // embedRecallWait is the hard budget for the per-prompt embedding, credential included; tests shorten it.
@@ -52,7 +51,7 @@ func SetEmbedRecallWait(d time.Duration) (restore func()) {
 var embedFormat = schemas.Register(schemas.Format{
 	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
 	Glob: EmbedDBPath,
-	Keep: "bbolt cache, one JSON record per profile; a version mismatch is a miss",
+	Keep: "bbolt profile metadata and binary float32 rows; a version mismatch is a miss",
 })
 
 var safeProfile = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -69,9 +68,10 @@ type VectorRecord struct {
 }
 
 type VectorRow struct {
-	Root string `json:"root,omitempty"` // bank root whose index wrote the row; pruning never crosses roots
-	Hash string `json:"hash"`           // sha256 of the embedded text
-	Vec  string `json:"vec"`            // base64 little-endian float32, L2-normalised
+	Root      string `json:"root,omitempty"` // bank root whose index wrote the row; pruning never crosses roots
+	Hash      string `json:"hash"`           // sha256 of the embedded text
+	Vec       string `json:"-"`              // binary little-endian float32, L2-normalised
+	BlockHash string `json:"block_hash,omitempty"`
 }
 
 // EmbedClient embeds texts with one named model; Embed honours ctx.
@@ -167,7 +167,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	if force || rec.Namespace != c.Namespace || rec.Rows == nil {
 		rec = freshEmbedCache(c)
 	}
-	ids, texts, hashes, total := pendingEmbeds(root, rec)
+	ids, texts, hashes, blocks, total := pendingEmbeds(root, rec)
 	started := now.UnixNano()
 	owner, err := newEmbedOwner()
 	if err != nil {
@@ -181,7 +181,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 		return 0, total, fmt.Errorf("%w until %s", ErrEmbedBusy, held.Format("15:04"))
 	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]VectorRow{}, started: started}
-	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes)
+	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
 	run.current = currentEntryHashes(root)
 	var store VectorStore = vectorStore
 	stored, cerr := store.Put(VectorWrite{Profile: c.Profile, Owner: owner, Started: started, Merge: func(cur VectorRecord) VectorRecord {
@@ -202,7 +202,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 }
 
 // pendingEmbeds lists root's live entries whose vector in cache is missing, stale or undecodable, and the live count.
-func pendingEmbeds(root string, cache VectorRecord) (ids, texts, hashes []string, total int) {
+func pendingEmbeds(root string, cache VectorRecord) (ids, texts, hashes, blocks []string, total int) {
 	live := map[string]bool{}
 	cacheDim := cacheDimOf(cache)
 	for _, h := range bank.CorpusBlocks(root) {
@@ -213,15 +213,16 @@ func pendingEmbeds(root string, cache VectorRecord) (ids, texts, hashes []string
 		text := entryEmbedText(e)
 		hash := textHash(text)
 		live[e.ID] = true
-		if row, ok := cache.Rows[e.ID]; ok && row.Hash == hash {
+		if row, ok := cache.Rows[e.ID]; ok && row.Hash == hash && row.BlockHash == hitHash(h) {
 			v, decoded := decodeVec(row.Vec)
 			if decoded && (cacheDim == 0 || len(v) == cacheDim) {
 				continue
 			}
 		}
 		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
+		blocks = append(blocks, hitHash(h))
 	}
-	return ids, texts, hashes, len(live)
+	return ids, texts, hashes, blocks, len(live)
 }
 
 // embedRun is one mint's paid-for rows, merged into the record that is current at commit time.
@@ -257,6 +258,8 @@ func (r *embedRun) merge(cur VectorRecord) VectorRecord {
 			continue
 		}
 		if old, have := cur.Rows[id]; have && !r.force && old.Hash == row.Hash && sameDim(old, row) {
+			old.BlockHash = row.BlockHash
+			cur.Rows[id] = old
 			continue
 		}
 		cur.Rows[id] = row
@@ -291,8 +294,9 @@ func (r *embedRun) shed(cur VectorRecord) {
 
 // Semantic scores entries against one embedded query, from the cached entry vectors.
 type Semantic struct {
-	query []float32
-	rows  map[string]VectorRow
+	query  []float32
+	rows   map[string]VectorRow
+	blocks map[string]string
 }
 
 // ReadProfileCache is the per-profile read NewSemantic uses; a var so tests can fail one profile.
@@ -310,7 +314,7 @@ func NewSemantic(query string) (*Semantic, error) {
 	attempt := time.Now()
 	backoff := filepath.Join(memstore.StateDir(), embedCachePre+profile+".backoff")
 	if st, err := os.Stat(backoff); err == nil && time.Since(st.ModTime()) < embedBackoff {
-		return nil, fmt.Errorf("endpoint timed out recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
+		return nil, fmt.Errorf("endpoint failed recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
 	defer cancel()
@@ -319,12 +323,16 @@ func NewSemantic(query string) (*Semantic, error) {
 	select {
 	case r := <-done:
 		if r.err != nil {
+			_ = paths.AtomicWrite(backoff, nil, 0o600)
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
+			}
 			return nil, r.err
 		}
 		if st, err := os.Stat(backoff); err == nil && st.ModTime().Before(attempt) {
 			_ = os.Remove(backoff)
 		}
-		return &Semantic{query: r.vec, rows: cache.Rows}, nil
+		return newSemantic(r.vec, cache.Rows), nil
 	case <-ctx.Done():
 		_ = paths.AtomicWrite(backoff, nil, 0o600) // a slow endpoint costs one prompt the full wait, not every prompt
 		return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
@@ -337,15 +345,7 @@ func (s *Semantic) Cosine(e bank.Entry) (float64, bool) {
 	if !ok || row.Hash != textHash(entryEmbedText(e)) {
 		return 0, false
 	}
-	v, ok := decodeVec(row.Vec)
-	if !ok || len(v) != len(s.query) {
-		return 0, false
-	}
-	var dot float64
-	for i := range v {
-		dot += float64(v[i]) * float64(s.query[i])
-	}
-	return dot, true
+	return s.cosineRow(row)
 }
 
 // dominantDim returns the most frequent decoded vector dimension, with ties going to the larger dimension.
@@ -400,12 +400,12 @@ func encodeVec(v []float32) string {
 	for i, x := range v {
 		binary.LittleEndian.PutUint32(b[4*i:], math.Float32bits(x))
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return string(b)
 }
 
 func decodeVec(s string) ([]float32, bool) {
-	b, err := base64.StdEncoding.DecodeString(s)
-	if err != nil || len(b)%4 != 0 {
+	b := []byte(s)
+	if len(b)%4 != 0 {
 		return nil, false
 	}
 	v := make([]float32, len(b)/4)
@@ -481,7 +481,7 @@ func PostEmbeddings(ctx context.Context, url string, texts []string, authorize f
 	return out, nil
 }
 
-func (r *embedRun) embed(ctx context.Context, client Embedder, ids, texts, hashes []string) (embedded int, embedErr error) {
+func (r *embedRun) embed(ctx context.Context, client Embedder, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
 	for i := 0; i < len(texts) && embedErr == nil; i += embedBatch { // network calls stay outside any transaction
 		j := min(i+embedBatch, len(texts))
 		vecs, err := client.Embed(ctx, texts[i:j])
@@ -494,7 +494,7 @@ func (r *embedRun) embed(ctx context.Context, client Embedder, ids, texts, hashe
 		}
 		for k, v := range vecs {
 			r.freshDim = len(v)
-			r.fresh[ids[i+k]] = VectorRow{Root: r.root, Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
+			r.fresh[ids[i+k]] = VectorRow{Root: r.root, Hash: hashes[i+k], BlockHash: blocks[i+k], Vec: encodeVec(normalize(v))}
 		}
 		embedded += j - i
 	}

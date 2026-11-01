@@ -156,12 +156,12 @@ func pickTier(ranked []bank.SearchHit, archived bool, need int, seen map[string]
 	return out, passed
 }
 
-func recallTier(ranked []bank.SearchHit, archived bool, need int) ([]RecallPick, float64) {
-	var cands []RecallPick
+func recallTier(ranked []bank.SearchHit, archived bool, need int) ([]bank.SearchHit, float64) {
+	var cands []bank.SearchHit
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
-		e := bank.EntryFromHit(h)
-		if e.Archived != archived || e.Superseded {
+		first, _, _ := strings.Cut(h.Block, "\n")
+		if (h.Bank == "archive") != archived || strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED") {
 			continue
 		}
 		if topAny == 0 {
@@ -170,7 +170,7 @@ func recallTier(ranked []bank.SearchHit, archived bool, need int) ([]RecallPick,
 		if top == 0 && h.Matched >= need {
 			top = h.Score
 		}
-		cands = append(cands, RecallPick{Entry: e, Hit: h})
+		cands = append(cands, h)
 	}
 	if top == 0 {
 		top = topAny
@@ -186,7 +186,7 @@ func scoreRecall(c RecallPick, top float64, admitted bool, sem *embed.Semantic) 
 	if sem == nil {
 		return kw, admitted
 	}
-	cos, ok := sem.Cosine(c.Entry)
+	cos, ok := sem.CosineHit(c.Hit)
 	if !ok {
 		return kw, admitted
 	} // Entries without a current vector retain their full keyword score.
@@ -194,21 +194,26 @@ func scoreRecall(c RecallPick, top float64, admitted bool, sem *embed.Semantic) 
 	return blend, admitted || cos >= recallCosineAdmit
 }
 
-func recallPool(cands []RecallPick, top float64, need int, sem *embed.Semantic, trace *RecallTrace) []RecallPick {
+func recallPool(cands []bank.SearchHit, top float64, need int, sem *embed.Semantic, trace *RecallTrace) []RecallPick {
 	var pool []RecallPick
-	for _, c := range cands {
-		kwOK := c.Hit.Matched >= need && c.Hit.Score >= top*recallScoreFloor
+	for _, h := range cands {
+		kwOK := h.Matched >= need && h.Score >= top*recallScoreFloor
+		c := RecallPick{Hit: h}
 		c.Score, kwOK = scoreRecall(c, top, kwOK, sem)
-		trace.scores(c, 0)
-		if kwOK {
-			pool = append(pool, c)
+		if !kwOK {
+			reason := "below floor"
+			if h.Matched < need {
+				reason = "matched too few"
+			}
+			trace.outcome(BlockKey(h.Block), reason)
 			continue
 		}
-		reason := "below floor"
-		if c.Hit.Matched < need {
-			reason = "matched too few"
+		c.Entry = bank.EntryFromHit(h)
+		if h.ID != "" {
+			c.Entry.ID = h.ID
 		}
-		trace.outcome(BlockKey(c.Hit.Block), reason)
+		trace.scores(c, 0)
+		pool = append(pool, c)
 	}
 	return pool
 }

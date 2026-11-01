@@ -2,6 +2,7 @@ package recall
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
@@ -215,13 +216,75 @@ func ReturnCounts(dirs []string, now time.Time) map[string]int {
 			continue
 		}
 		seen[path] = true
-		eachAccessLine(path, func(ts time.Time, entry, reason string) {
-			if ts.After(cutoff) && (reason == AccessSearch || reason == AccessShow) {
+		eachRecentAccessLine(path, cutoff, func(entry, reason string) {
+			if reason == AccessSearch || reason == AccessShow {
 				counts[entry]++
 			}
 		})
 	}
 	return counts
+}
+
+// eachRecentAccessLine walks time-ordered generations backwards, stopping at the window boundary.
+func eachRecentAccessLine(path string, cutoff time.Time, fn func(entry, reason string)) {
+	for i := 0; i <= accessGenerations; i++ {
+		p := path
+		if i > 0 {
+			p = fmt.Sprintf("%s.%d", path, i)
+		}
+		if !accessTail(p, func(line string) bool {
+			parts := strings.SplitN(line, " -- ", 3)
+			if len(parts) < 2 {
+				return true
+			}
+			ts, err := time.Parse(time.RFC3339, parts[0])
+			if err != nil {
+				return true
+			}
+			if !ts.After(cutoff) {
+				return false
+			}
+			if len(parts) == 3 {
+				fn(parts[1], strings.TrimSpace(parts[2]))
+			}
+			return true
+		}) {
+			return
+		}
+	}
+}
+
+func accessTail(path string, visit func(string) bool) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return true
+	}
+	var carry []byte
+	for end := info.Size(); end > 0; {
+		start := max(int64(0), end-4096)
+		buf := make([]byte, end-start)
+		if _, err := f.ReadAt(buf, start); err != nil {
+			return true
+		}
+		buf = append(buf, carry...)
+		for {
+			i := bytes.LastIndexByte(buf, '\n')
+			if i < 0 {
+				break
+			}
+			if !visit(string(buf[i+1:])) {
+				return false
+			}
+			buf = buf[:i]
+		}
+		carry, end = buf, start
+	}
+	return len(carry) == 0 || visit(string(carry))
 }
 
 // LogHits logs access for matching search hits grouped by each hit's owning bank directory.
@@ -231,7 +294,10 @@ func LogHits(root string, hits []bank.SearchHit, reason string, now time.Time) {
 	}
 	grouped := map[string][]string{}
 	for _, h := range hits {
-		key := bank.EntryFromHit(h).ID
+		key := h.ID
+		if key == "" {
+			key = bank.EntryFromHit(h).ID
+		}
 		if key == "" {
 			continue
 		}

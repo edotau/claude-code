@@ -33,11 +33,12 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallP
 		return nil, trace
 	}
 	root = recallRoot(root)
-	ranked := SearchBanksTerms(root, q, terms, 0)
+	ready := startSemantic(q, semantic)
+	ranked, files, segs := searchBanksTerms(root, q, terms, 0)
 	var sem *embed.Semantic
 	semSeen := false
 	if semantic {
-		ranked, sem, semSeen, trace.Embeddings = recallSemantic(root, session, q, ranked, tr)
+		ranked, sem, semSeen, trace.Embeddings = recallSemantic(<-ready, files, segs, session, q, ranked, tr)
 	}
 	if len(ranked) == 0 {
 		return nil, trace
@@ -58,11 +59,27 @@ func recallRoot(root string) string {
 	return paths.ConfigDir()
 }
 
-func recallSemantic(root, session, q string, ranked []bank.SearchHit, trace *RecallTrace) ([]bank.SearchHit, *embed.Semantic, bool, string) {
-	sem, err := embed.NewSemantic(q)
-	if err != nil {
-		return ranked, nil, false, "keyword-only: " + err.Error()
+type semanticReady struct {
+	sem *embed.Semantic
+	err error
+}
+
+func startSemantic(query string, enabled bool) <-chan semanticReady {
+	ready := make(chan semanticReady, 1)
+	if enabled {
+		go func() {
+			sem, err := embed.NewSemantic(query)
+			ready <- semanticReady{sem, err}
+		}()
 	}
+	return ready
+}
+
+func recallSemantic(result semanticReady, files []bank.CorpusFile, segs []bank.SegView, session, q string, ranked []bank.SearchHit, trace *RecallTrace) ([]bank.SearchHit, *embed.Semantic, bool, string) {
+	if result.err != nil {
+		return ranked, nil, false, "keyword-only: " + result.err.Error()
+	}
+	sem := result.sem
 	seen := SeenBlocks(session)
 	var skipped []bank.SearchHit
 	skip := func(h bank.SearchHit) bool {
@@ -74,7 +91,7 @@ func recallSemantic(root, session, q string, ranked []bank.SearchHit, trace *Rec
 		}
 		return true
 	}
-	extra, semSeen := sem.Candidates(root, recallBodies+recallPointers, recallCosineAdmit, skip)
+	extra, semSeen := sem.Candidates(files, segs, recallBodies+recallPointers, recallCosineAdmit, skip)
 	if trace != nil {
 		have := map[string]bool{}
 		for _, h := range ranked {
@@ -84,7 +101,7 @@ func recallSemantic(root, session, q string, ranked []bank.SearchHit, trace *Rec
 			if have[BlockKey(h.Block)] {
 				continue
 			}
-			c := RecallPick{Entry: bank.EntryFromHit(h), Hit: h}
+			c := recallTracePick(h)
 			c.Score, _ = scoreRecall(c, 0, false, sem)
 			trace.candidate(c, recallNeed(bank.ContentQueryTerms(textutil.Tokenize(q))), sem)
 			trace.outcome(BlockKey(h.Block), "seen")
