@@ -1,9 +1,11 @@
 package configure
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -66,9 +68,9 @@ func installOCFake(t *testing.T, f *ocFake) {
 	lookOpencode = func(string) (string, error) { return "/real/opencode", nil }
 }
 
-func ocDialog() (*dialog, *bytes.Buffer) {
+func ocDialog(menuInput ...string) (*dialog, *bytes.Buffer) {
 	var out bytes.Buffer
-	return &dialog{out: &out}, &out
+	return &dialog{out: &out, br: bufio.NewReader(strings.NewReader(strings.Join(menuInput, "")))}, &out
 }
 
 // v1Data is the 1.x shape: one credential per integration, Name == ID, labels OAuth / API key.
@@ -227,42 +229,38 @@ func TestOpencodePageEnvRowRefusesLogout(t *testing.T) {
 	}
 }
 
-// actionLabels runs Enter on row and returns the action page's labels (answering Back/Esc there).
+// actionLabels runs Enter on row and returns the action page's labels (answering blank there).
 func actionLabels(t *testing.T, major int, ints []agent.OpencodeIntegration, row int) []string {
 	t.Helper()
 	f := &ocFake{ints: ints, major: major, answers: []tui.ListResult{{Index: row}, {Index: -1}}}
 	installOCFake(t, f)
-	d, _ := ocDialog()
+	d, out := ocDialog("\n")
 	runOpencodePage(d)
-	if len(f.specs) < 2 {
-		t.Fatalf("no action page: %d specs", len(f.specs))
-	}
 	var labels []string
-	for _, r := range f.specs[1].Rows {
-		labels = append(labels, r.Label)
-	}
-	if f.specs[1].Search {
-		t.Errorf("action page must not search")
+	for _, l := range strings.Split(out.String(), "\n") {
+		if _, rest, ok := strings.Cut(l, ") "); ok && strings.HasPrefix(strings.TrimSpace(l), strconv.Itoa(len(labels)+1)+")") {
+			labels = append(labels, strings.TrimSpace(rest))
+		}
 	}
 	return labels
 }
 
 func TestOpencodePageSwitchOfferedOnlyOn2xInactive(t *testing.T) {
-	if got := strings.Join(actionLabels(t, 1, v1Data(), 1), ","); got != "Log out,Back" {
+	if got := strings.Join(actionLabels(t, 1, v1Data(), 1), ","); got != "Log out" {
 		t.Errorf("1.x actions = %s", got)
 	}
-	if got := strings.Join(actionLabels(t, 2, v2Data(), 0), ","); got != "Log out,Back" { // already active
+	if got := strings.Join(actionLabels(t, 2, v2Data(), 0), ","); got != "Log out" { // already active
 		t.Errorf("2.x active actions = %s", got)
 	}
-	if got := strings.Join(actionLabels(t, 2, v2Data(), 1), ","); got != "Make active,Log out,Back" {
+	if got := strings.Join(actionLabels(t, 2, v2Data(), 1), ","); got != "Make active,Log out" {
 		t.Errorf("2.x inactive actions = %s", got)
 	}
 }
 
 func TestOpencodePageMakeActive(t *testing.T) {
-	f := &ocFake{ints: v2Data(), major: 2, answers: []tui.ListResult{{Index: 1}, {Index: 0}}}
+	f := &ocFake{ints: v2Data(), major: 2, answers: []tui.ListResult{{Index: 1}}}
 	installOCFake(t, f)
-	d, out := ocDialog()
+	d, out := ocDialog("1\n")
 	runOpencodePage(d)
 	want := []string{"/real/opencode", "auth", "switch", "github-copilot", "cred-2"}
 	if len(f.ran) != 1 || !reflect.DeepEqual(f.ran[0], want) {
@@ -274,16 +272,16 @@ func TestOpencodePageMakeActive(t *testing.T) {
 }
 
 func TestOpencodePageActionLogOutConfirms(t *testing.T) {
-	f := &ocFake{ints: v1Data(), major: 1, answers: []tui.ListResult{{Index: 3}, {Index: 0}}}
+	f := &ocFake{ints: v1Data(), major: 1, answers: []tui.ListResult{{Index: 3}}}
 	installOCFake(t, f)
-	d, _ := ocDialog()
+	d, _ := ocDialog("1\n")
 	runOpencodePage(d)
 	if len(f.ran) != 0 || len(f.asked) != 1 || f.asked[0] != "Log out of OpenAI (OAuth)?" {
 		t.Errorf("declined: ran=%v asked=%v", f.ran, f.asked)
 	}
-	f2 := &ocFake{ints: v1Data(), major: 1, confirm: true, answers: []tui.ListResult{{Index: 3}, {Index: 0}}}
+	f2 := &ocFake{ints: v1Data(), major: 1, confirm: true, answers: []tui.ListResult{{Index: 3}}}
 	installOCFake(t, f2)
-	d2, out2 := ocDialog()
+	d2, out2 := ocDialog("1\n")
 	runOpencodePage(d2)
 	if len(f2.ran) != 1 || !reflect.DeepEqual(f2.ran[0], []string{"/real/opencode", "auth", "logout", "openai"}) ||
 		!strings.Contains(out2.String(), "Removed account from OpenAI") {
@@ -331,7 +329,7 @@ func TestOpencodePageAdapterErrorStillRenders(t *testing.T) {
 	if n := strings.Count(out.String(), "opencode: opencode auth list: timeout"); n != 1 {
 		t.Errorf("error printed x%d: %q", n, out.String())
 	}
-	if len(f.specs) != 3 || f.specs[0].Rows[0].Label != "Databricks" {
+	if len(f.specs) != 2 || f.specs[0].Rows[0].Label != "Databricks" {
 		t.Errorf("specs=%d rows=%+v", len(f.specs), f.specs[0].Rows)
 	}
 }
@@ -368,11 +366,11 @@ func TestOpencodeDatabricksRowSetsUp(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		profiles int
-		picks    []int
+		input    string // action-menu answer, then the profile picker's when several
 		want     string
 	}{
-		{"one profile skips the picker", 1, []int{0}, "login:dev,mint:dev"},
-		{"several profiles ask", 3, []int{1}, ""},
+		{"one profile skips the picker", 1, "1\n", "login:dev,mint:dev"},
+		{"several profiles ask", 3, "1\n2\n", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			d := dbxSetUpEnv(t)
@@ -383,21 +381,16 @@ func TestOpencodeDatabricksRowSetsUp(t *testing.T) {
 				n := dbxProfileNames(d.reg)[1]
 				c.want = "login:" + n + ",mint:" + n
 			}
-			df := &dbxFake{picks: c.picks}
+			d.br = bufio.NewReader(strings.NewReader(c.input))
+			df := &dbxFake{}
 			installDbxFake(t, df)
-			f := &ocFake{ints: v1Data(), major: 1, answers: []tui.ListResult{{Index: 0}, {Index: 0}}}
+			f := &ocFake{ints: v1Data(), major: 1, answers: []tui.ListResult{{Index: 0}}}
 			installOCFake(t, f)
 			runOpencodePage(d)
 			if got := strings.Join(df.calls, ","); got != c.want {
 				t.Errorf("calls = %q, want %q", got, c.want)
 			}
-			picker := 0
-			for _, ti := range df.titles {
-				if ti == "Set up Databricks" {
-					picker++
-				}
-			}
-			if (picker == 1) != (c.profiles > 1) {
+			if picker := strings.Count(dbxOut(d), "Databricks profile"); (picker > 0) != (c.profiles > 1) {
 				t.Errorf("profile picker shown %d times with %d profiles", picker, c.profiles)
 			}
 			if strings.Contains(dbxOut(d), dbxTok) {

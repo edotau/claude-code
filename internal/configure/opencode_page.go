@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -168,33 +169,22 @@ func runOpencodePage(d *dialog) {
 	}
 }
 
-// ocAccountActions is the per-credential page: Make active (2.x, not already active), Log out, Back.
+// ocAccountActions is the per-credential page: Make active (2.x, not already active) and Log out; Back is the shell's.
 func ocAccountActions(d *dialog, r ocRow) {
-	type act struct {
-		label string
-		run   func()
-	}
-	var acts []act
+	var rows []uidialog.Row
 	if sw, _ := opencodeSwitchArgv(r.in.ID, r.conn.ID); sw != nil && !r.conn.Active {
-		acts = append(acts, act{"Make active", func() { ocSwitch(d, r, sw) }})
+		rows = append(rows, uidialog.Row{Name: "Make active", Run: func() bool { ocSwitch(d, r, sw); return true }})
 	}
 	if r.in.ID == "databricks" {
-		acts = append(acts, act{"Set up Databricks", func() { ocSetUpDatabricks(d) }})
+		rows = append(rows, uidialog.Row{Name: "Set up Databricks", Run: func() bool { ocSetUpDatabricks(d); return true }})
 	}
-	acts = append(acts, act{"Log out", func() {
+	rows = append(rows, uidialog.Row{Name: "Log out", Run: func() bool {
 		if confirmKey(fmt.Sprintf("Log out of %s (%s)?", r.row.Label, r.row.Detail), false) {
 			ocLogout(d, r)
 		}
-	}}, act{"Back", func() {}})
-	rows := make([]tui.ListRow, len(acts))
-	for i, a := range acts {
-		rows[i] = tui.ListRow{Label: a.label}
-	}
-	res, err := opencodeList(tui.ListSpec{Title: r.row.Label + " · " + r.row.Detail, Rows: rows}, 0)
-	if err != nil || res.Index < 0 || res.Index >= len(acts) {
-		return
-	}
-	acts[res.Index].run()
+		return true
+	}})
+	d.shell().Run(r.row.Label+" · "+r.row.Detail, func() []uidialog.Row { return rows })
 }
 
 // ocSetUpDatabricks runs the Databricks set-up flow, asking for the profile only when there are several.
@@ -211,7 +201,7 @@ func ocSetUpDatabricks(d *dialog) {
 			rows[i] = [2]string{n, "Databricks profile"}
 		}
 		var err error
-		if idx, err = dbxPick("Set up Databricks", rows, 0); err != nil || idx < 0 {
+		if idx, err = d.shell().Pick("Set up Databricks", rows); err != nil || idx < 0 {
 			return
 		}
 	}

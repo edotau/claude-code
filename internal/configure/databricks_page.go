@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/providers"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -20,7 +21,8 @@ var (
 	dbxLogin    = databricks.LoginRow
 	dbxMint     = databricks.Mint
 	dbxSetPAT   = databricks.SetPAT
-	dbxPick     = tui.PickBack
+	dbxPick     = tui.PickBack // still used by the opencode page's profile picker
+	dbxShell    = func(d *dialog) *uidialog.Shell { return d.shell() }
 	dbxSecret   = tui.Secret
 	dbxCopy     = clipboard.WriteSecret
 	dbxSchedule = clipboard.ScheduleClear
@@ -97,53 +99,42 @@ func runDatabricks(d *dialog) bool {
 
 // runDatabricksPage loops the env list until Back.
 func runDatabricksPage(d *dialog) {
-	start := 0
-	for {
-		rows := make([][2]string, len(dbxProfileNames(d.reg)))
-		for i, e := range dbxProfileNames(d.reg) {
+	dbxShell(d).Run("databricks", func() []uidialog.Row {
+		var rows []uidialog.Row
+		for _, e := range dbxProfileNames(d.reg) {
 			at, text, _ := dbxState(d.reg, e)
 			if at == "" {
 				at = "-"
 			}
-			rows[i] = [2]string{e, at + "  " + text}
+			rows = append(rows, uidialog.Row{Name: e, Detail: at + "  " + text, Run: func() bool {
+				runDatabricksEnv(d, e)
+				return false
+			}})
 		}
-		idx, err := dbxPick("databricks", rows, start)
-		if err != nil || idx < 0 {
-			return
-		}
-		start = idx
-		runDatabricksEnv(d, dbxProfileNames(d.reg)[idx])
-	}
+		return rows
+	})
 }
 
 // runDatabricksEnv is one env's action list.
 func runDatabricksEnv(d *dialog, env string) {
-	acts := []struct {
-		label, desc string
-		run         func()
-	}{
-		{"Set up", "sign in, verify a token, apply to agents", func() { dbxSetUp(d, env) }},
-		{"Login", "browser sign-in (u2m)", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }},
-		{"Paste PAT", "hidden input", func() { dbxPaste(d, env) }},
-		{"Mint now", "fresh token, expiry only", func() { dbxMintNow(d, env, false) }},
-		{"Copy token", "clipboard, clears in 30s", func() { dbxMintNow(d, env, true) }},
-		{"Apply to agents", "repoint all four or one", func() { dbxApply(d, env) }},
-		{"Identity", "auto, user or sp; the paired service principal", func() { dbxIdentity(d, env) }},
+	act := func(name, detail string, run func()) uidialog.Row {
+		return uidialog.Row{Name: name, Detail: detail, Run: func() bool {
+			run()
+			d.reload()
+			return false
+		}}
 	}
-	rows := make([][2]string, len(acts))
-	for i, a := range acts {
-		rows[i] = [2]string{a.label, a.desc}
-	}
-	start := 0
-	for {
-		idx, err := dbxPick("databricks · "+env, rows, start)
-		if err != nil || idx < 0 {
-			return
+	dbxShell(d).Run("databricks · "+env, func() []uidialog.Row {
+		return []uidialog.Row{
+			act("Set up", "sign in, verify a token, apply to agents", func() { dbxSetUp(d, env) }),
+			act("Login", "browser sign-in (u2m)", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }),
+			act("Paste PAT", "hidden input", func() { dbxPaste(d, env) }),
+			act("Mint now", "fresh token, expiry only", func() { dbxMintNow(d, env, false) }),
+			act("Copy token", "clipboard, clears in 30s", func() { dbxMintNow(d, env, true) }),
+			act("Apply to agents", "repoint all four or one", func() { dbxApply(d, env) }),
+			act("Identity", "auto, user or sp; the paired service principal", func() { dbxIdentity(d, env) }),
 		}
-		start = idx
-		acts[idx].run()
-		d.reload()
-	}
+	})
 }
 
 // dbxDo runs fn under the interrupt-free page context and reports a failure or "done".
@@ -248,7 +239,7 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	for _, a := range dbxAgents {
 		rows = append(rows, [2]string{a, "this agent only"})
 	}
-	idx, perr := dbxPick("apply "+env+" to", rows, 0)
+	idx, perr := dbxShell(d).Pick("apply "+env+" to", rows)
 	if perr != nil || idx < 0 {
 		return true, nil
 	}
@@ -308,9 +299,9 @@ func dbxIdentity(d *dialog, env string) {
 	cur, _ := providers.ResolveIdentity(p.Identity, "")
 	rows := make([][2]string, len(modes))
 	for i, m := range modes {
-		rows[i] = [2]string{m, curMark(m == cur)}
+		rows[i] = [2]string{m, uidialog.Mark(m == cur)}
 	}
-	idx, err := dbxPick("identity · "+env, rows, max(slices.Index(modes, cur), 0))
+	idx, err := dbxShell(d).Pick("identity · "+env, rows, max(slices.Index(modes, cur), 0))
 	if err != nil || idx < 0 {
 		return
 	}

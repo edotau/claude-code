@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // probeValue live-checks a candidate value for p without storing it first, via the env-var seam
@@ -125,11 +125,11 @@ func runRotate(d *dialog, kt keyTarget) bool {
 	chosen := 0
 	if len(opts) > 1 {
 		if isStdinTTY() && d.o.In == os.Stdin {
-			rows := make([][2]string, len(opts))
+			rows := make([]uidialog.Row, len(opts))
 			for i, o := range opts {
-				rows[i] = [2]string{o.action, o.desc}
+				rows[i] = uidialog.Row{Name: o.action, Detail: o.desc}
 			}
-			idx, err := tui.PickBack(kt.label+" — rotate which credential?", rows, 0)
+			idx, err := d.shell().Pick(kt.label+" — rotate which credential?", uidialog.Pairs(rows))
 			if err != nil || idx < 0 {
 				return false
 			}

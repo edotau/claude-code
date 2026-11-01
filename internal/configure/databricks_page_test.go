@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -43,11 +45,45 @@ type dbxFake struct {
 	authType string
 }
 
+// dbxScreen is the numbered-prompt terminal: it records each menu the page draws into f.titles and f.rows, and
+// answers every prompt from f.picks (0-based; -1 or exhausted = Back).
+type dbxScreen struct {
+	f   *dbxFake
+	buf strings.Builder
+}
+
+func (s *dbxScreen) Write(p []byte) (int, error) { return s.buf.Write(p) }
+
+func (s *dbxScreen) Read(p []byte) (int, error) {
+	var rows [][2]string
+	title := ""
+	for _, ln := range strings.Split(s.buf.String(), "\n") {
+		switch {
+		case strings.HasPrefix(ln, "  ") && len(ln) > 25:
+			rows = append(rows, [2]string{strings.TrimSpace(ln[5:27]), ln[28:]})
+		case ln != "" && !strings.HasPrefix(ln, "pick a number"):
+			title = ln
+		}
+	}
+	s.buf.Reset()
+	s.f.titles = append(s.f.titles, title)
+	s.f.rows = append(s.f.rows, rows)
+	if len(s.f.picks) == 0 {
+		return 0, io.EOF
+	}
+	i := s.f.picks[0]
+	s.f.picks = s.f.picks[1:]
+	if i < 0 {
+		return copy(p, "\n"), nil
+	}
+	return copy(p, fmt.Sprintf("%d\n", i+1)), nil
+}
+
 func installDbxFake(t *testing.T, f *dbxFake) {
 	t.Helper()
-	l, m, sp, pk, sc, cp, sh := dbxLogin, dbxMint, dbxSetPAT, dbxPick, dbxSecret, dbxCopy, dbxSchedule
+	l, m, sp, pk, sc, cp, sh, shl := dbxLogin, dbxMint, dbxSetPAT, dbxPick, dbxSecret, dbxCopy, dbxSchedule, dbxShell
 	t.Cleanup(func() {
-		dbxLogin, dbxMint, dbxSetPAT, dbxPick, dbxSecret, dbxCopy, dbxSchedule = l, m, sp, pk, sc, cp, sh
+		dbxLogin, dbxMint, dbxSetPAT, dbxPick, dbxSecret, dbxCopy, dbxSchedule, dbxShell = l, m, sp, pk, sc, cp, sh, shl
 	})
 	dbxLogin = func(_ context.Context, name string, _ io.Writer) error {
 		f.calls = append(f.calls, "login:"+name)
@@ -77,6 +113,10 @@ func installDbxFake(t *testing.T, f *dbxFake) {
 		i := f.picks[0]
 		f.picks = f.picks[1:]
 		return i, nil
+	}
+	dbxShell = func(*dialog) *uidialog.Shell {
+		scr := &dbxScreen{f: f}
+		return &uidialog.Shell{Out: scr, In: bufio.NewReader(scr)}
 	}
 	dbxSecret = func(string, func(string) string) (string, error) { return f.secret, nil }
 	dbxCopy = func(_ context.Context, v string) error {

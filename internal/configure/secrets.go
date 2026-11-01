@@ -2,14 +2,12 @@ package configure
 
 import (
 	"bufio"
-	"cmp"
 	"fmt"
 	"maps"
 	"os"
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -18,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // envName is a valid secret name: an env var identifier.
@@ -131,40 +129,23 @@ func secretsLoop(d *dialog) int {
 	}
 }
 
-// pick is tui.Pick on the controlling terminal, a numbered prompt otherwise (tests, pipes).
-// start, if given, is the initial cursor row (TUI path only; the numbered-prompt path ignores it).
+// pick is the ui/dialog shell's Pick: the terminal panel on a TTY, a numbered prompt otherwise (tests, pipes).
 func pick(d *dialog, title string, rows [][2]string, start ...int) (int, error) {
-	if isStdinTTY() && d.o.In == os.Stdin {
-		return tui.PickBack(title, rows, cmp.Or(start...))
-	}
-	d.println(title)
-	for i, r := range rows {
-		d.printf("  %d) %-22s %s\n", i+1, r[0], r[1])
-	}
-	fmt.Fprint(d.out, "pick a number (blank = cancel): ")
-	n, err := strconv.Atoi(strings.TrimSpace(readLine(d.br)))
-	if err != nil || n < 1 || n > len(rows) {
-		return -1, nil
-	}
-	return n - 1, nil
+	return d.shell().Pick(title, rows, start...)
 }
 
 // editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
 func editSecret(d *dialog, s trackedSecret) {
-	type action struct {
-		name, desc string
-		run        func() bool
-	}
-	var acts []action
+	var acts []uidialog.Row
 	kt := keyTarget{label: s.name, envVar: s.name, fixCmd: "claude-code vault set " + s.name}
 	if s.name == providers.OAuthTokenEnv {
 		kt.mintArgv = []string{"claude", "setup-token"}
 	}
 	for _, o := range authOptions(kt) {
-		acts = append(acts, action{o.action, o.desc, func() bool { return runAuthOption(d, kt, o) }})
+		acts = append(acts, uidialog.Row{Name: o.action, Detail: o.desc, Run: func() bool { return runAuthOption(d, kt, o) }})
 	}
 	if s.source == "vault" {
-		acts = append(acts, action{"Delete", "remove from the vault", func() bool {
+		acts = append(acts, uidialog.Row{Name: "Delete", Detail: "remove from the vault", Run: func() bool {
 			if !confirm(d, "Delete "+s.name+"?") {
 				return false
 			}
@@ -188,15 +169,11 @@ func editSecret(d *dialog, s trackedSecret) {
 			return true
 		}})
 	}
-	rows := make([][2]string, 0, len(acts))
-	for _, a := range acts {
-		rows = append(rows, [2]string{a.name, a.desc})
-	}
-	idx, err := pick(d, s.name+" ("+sourceLabel(s.source, s.shadowed)+")", rows)
+	idx, err := pick(d, s.name+" ("+sourceLabel(s.source, s.shadowed)+")", uidialog.Pairs(acts))
 	if err != nil || idx < 0 || idx >= len(acts) {
 		return
 	}
-	acts[idx].run()
+	acts[idx].Run()
 }
 
 // addCustom reads a NAME (visible) and its value (hidden); a pasted NAME=value or `export NAME="value"` line is
