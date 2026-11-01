@@ -59,7 +59,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 		}
 		out = strings.TrimSpace(out + "\n" + drift)
 	}
-	// The daily dream (promote + consolidate) runs detached on the Copilot CLI; never blocks launch.
+	// The daily dream (promote + consolidate) runs detached on Claude; never blocks launch.
 	if !bank.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
 		spawnDream(cwd)
 	}
