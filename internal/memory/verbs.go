@@ -154,7 +154,7 @@ func embedIndex(out, errw io.Writer, root, profile string, reembed bool) {
 // UpdateSessionOptions is one `memory update`; ClaudeBin is only called once an update will really run.
 type UpdateSessionOptions struct {
 	Transcript, CWD, Session string
-	DryRun                   bool
+	DryRun, Historical       bool
 	ClaudeBin                func() (string, error)
 	Run                      AgentFunc
 	Out, Err                 io.Writer
@@ -196,7 +196,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 	if err != nil {
 		fmt.Fprintln(o.Err, "claude-code: memory update:", err)
 	}
-	return Update(UpdateOptions{Claude: claude, Run: o.Run, Transcript: transcript, CWD: root, Session: session, Out: o.Out})
+	return Update(UpdateOptions{Claude: claude, Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
 }
 
 // DreamRunOptions is one `memory dream`.

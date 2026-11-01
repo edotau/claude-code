@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -62,12 +61,8 @@ func transcriptInteractive(path string) bool {
 	return false
 }
 
-// readOnlyEdits is countEdits without its cache writes, for --dry-run (subagent files are not counted).
-func readOnlyEdits(trPath, countFile string) int {
-	cs, _ := readCountState(countFile)
-	edits, turns, _ := transcript.CountWorkFrom(trPath, cs.offset)
-	return cs.edits + edits + cs.subEdits + (cs.turns+turns)/userTurnsPerEdit
-}
+// readOnlyEdits is countEdits without cache writes, for --dry-run.
+func readOnlyEdits(trPath, countFile string) int { return countWork(trPath, countFile, false) }
 
 // sweepSkip is why a finished session needs no save ("" = it does): cheap checks before any transcript read.
 func sweepSkip(c sweepCand, current string, now time.Time) string {
@@ -190,7 +185,7 @@ func runSweep(current string, now time.Time, out io.Writer) {
 		_ = writeStamp(stampPath(c.id), time.Now(), "catchup", c.edits)
 		fmt.Fprintf(out, "catchup %s (%s)\n", c.id, c.why)
 		ctx, cancel := context.WithTimeout(context.Background(), memory.UpdateTimeout+2*time.Minute)
-		cmd := exec.CommandContext(ctx, self, "memory", "update", "--session", c.id, "--transcript", c.path)
+		cmd := exec.CommandContext(ctx, self, "memory", "update", "--historical", "--session", c.id, "--transcript", c.path)
 		cmd.Stdout, cmd.Stderr = out, out
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(out, "catchup %s: %v\n", c.id, err)

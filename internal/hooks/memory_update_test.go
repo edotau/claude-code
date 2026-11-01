@@ -1106,3 +1106,27 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 		t.Errorf("an unwritable stamp cannot count blocks, so Stop must fail open; got %d", got)
 	}
 }
+
+// TestReadOnlyEditsMatchesCountEditsWithoutWriting: the dry-run count includes subagent edits and persists nothing.
+func TestReadOnlyEditsMatchesCountEditsWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	tr := filepath.Join(dir, "t.jsonl")
+	writeEdits(t, tr, 1)
+	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
+	countFile := filepath.Join(dir, "count")
+
+	dry := readOnlyEdits(tr, countFile)
+	if entries, _ := os.ReadDir(subDir); len(entries) != 1 {
+		t.Errorf("dry count wrote into the subagents dir: %v", entries)
+	}
+	if _, err := os.Stat(countFile); err == nil {
+		t.Error("dry count wrote the count file")
+	}
+	if real := countEdits(tr, countFile); dry != 4 || real != dry {
+		t.Errorf("dry = %d, real = %d, want both 4", dry, real)
+	}
+}

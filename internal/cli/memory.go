@@ -222,6 +222,7 @@ func cmdMemoryUpdate(args []string) int {
 	cwd := fs.String("cwd", "", "bank's project root (default: session's, else cwd)")
 	session := fs.String("session", "", "finished session's id; result: update-result-<id>")
 	dryRun := fs.Bool("dry-run", false, "print the resolved transcript and session; update nothing")
+	historical := fs.Bool("historical", false, "older session: history and decisions only")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -229,7 +230,7 @@ func cmdMemoryUpdate(args []string) int {
 		return failUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
-		DryRun: *dryRun, ClaudeBin: claude.ClaudeBinary, Run: memoryAgent(), Out: os.Stdout, Err: os.Stderr})
+		DryRun: *dryRun, Historical: *historical, ClaudeBin: claude.ClaudeBinary, Run: memoryAgent(), Out: os.Stdout, Err: os.Stderr})
 	if err != nil {
 		return fail("memory update: %v", err)
 	}
