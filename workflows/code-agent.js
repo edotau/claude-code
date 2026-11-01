@@ -92,9 +92,9 @@ const run = (task, label) =>
     `Agent: ${a.agent}\n` +
       `Relay one external-model call; do NOT answer the task yourself. Write the TASK below verbatim to a scratch file with a quoted heredoc (<<'EOF'), ` +
       `${AGENTS_STEP}Then run exactly: cd ${CWD} && claude-code ask --agent ${a.agent} --format json${PROFILE ? ' --profile ' + PROFILE : ''}${VMODEL_FLAG} --workdir ${CWD} --timeout ${MIN}m${TOOLS ? ' --tools' : ''}${AGENTS_FLAG} --background - < <that file>. ` +
-      `It prints "job <id> started"; loop claude-code ${a.agent} status <id> with sleep 5 until done, then claude-code ${a.agent} result <id> (agent-verbs.md step 3). ` +
-      `The result is ONE JSON line {agent, status, provider, model, answer, error, transport, …}. ok = exit 0 AND error empty AND answer non-empty. ` +
-      `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error, or the stderr tail on a non-JSON exit. Never retry.\n\nTASK:\n${task}${AGENTS_TAIL}`,
+      `It prints ONE JSON line {"id":…,"log":…}; id = the job id. Loop claude-code ${a.agent} status <id> with sleep 5 until done, then claude-code agents result <id> --format json. ` +
+      `The result is ONE indented JSON object {agent, status, provider, model, answer, error:{kind,message}|null, transport, …}. ok = exit 0 AND error null AND answer non-empty. ` +
+      `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error's message, or the stderr tail on a non-JSON exit. Never retry.\n\nTASK:\n${task}${AGENTS_TAIL}`,
     { label, phase: 'Agent', schema: ENVELOPE, agentType: 'code-worker', model: 'haiku', effort: 'low' }
   )
 
