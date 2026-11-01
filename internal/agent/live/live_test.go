@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/gemini"
 	"net"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func liveEnvScript(t *testing.T, script string) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	home := filepath.Join(dir, "home") // the agy target needs a Google sign-in marker; never read the developer's
-	marker := agent.AgyLoginMarker(home)
+	marker := gemini.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
 		t.Fatal(err)
 	}

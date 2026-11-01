@@ -2,15 +2,12 @@ package agent
 
 import (
 	"bufio"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os/exec"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -79,61 +76,6 @@ func (b *claudeLive) Parse(dec *bufio.Reader, sink Sink, lg func(kind, text stri
 	total := res.Usage.CostUSD
 	res.Usage.CostUSD = max(total-b.prevCost, 0)
 	b.prevCost = max(b.prevCost, total)
-	return res, err
-}
-
-// agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
-type agyLive struct {
-	tools   bool
-	intro   string // emulated system prompts, owed to the first turn only
-	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
-	prev    Usage
-}
-
-func (b *agyLive) Build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBuffer, string, error) {
-	ctx = directCtx(ctx, req)
-	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
-	p, err := newCLIEngine("gemini").prepare(ctx, req)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	areq := p.agyRequest(req)
-	bin, err := paths.AgentBin("agy")
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("gemini: %w", err)
-	}
-	b.tools, b.resumed = areq.Tools, req.SessionID != ""
-	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
-		b.intro += preamble(req.SystemPrompt)
-	}
-	if req.AppendSystemPrompt != "" {
-		b.intro += preamble(req.AppendSystemPrompt)
-	}
-	cmd, tail := ChildCmd(ctx, bin, agyArgv(areq), areq.Env, areq.Cwd, "", areq.KeepEnv, true)
-	return cmd, tail, p.Result.Provider, nil
-}
-
-func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
-	prompt, b.intro = b.intro+prompt, ""
-	line, err := agyStdin(agyRequest{Prompt: prompt, Tools: b.tools})
-	if err != nil {
-		return err
-	}
-	_, err = io.WriteString(w, line)
-	return err
-}
-
-// parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
-func (b *agyLive) Parse(dec *bufio.Reader, sink Sink, lg func(kind, text string)) (Result, error) {
-	res, err := parseAgyEvents(dec, sink, true, lg)
-	total := res.Usage
-	if b.resumed { // the history behind a --session is unknown: this turn reports no usage, later ones their delta
-		b.resumed, b.prev, res.Usage = false, total, Usage{}
-		return res, err
-	}
-	res.Usage = Usage{InputTokens: max(total.InputTokens-b.prev.InputTokens, 0), OutputTokens: max(total.OutputTokens-b.prev.OutputTokens, 0),
-		CacheReadTokens: max(total.CacheReadTokens-b.prev.CacheReadTokens, 0), CostUSD: max(total.CostUSD-b.prev.CostUSD, 0)}
-	b.prev = total
 	return res, err
 }
 

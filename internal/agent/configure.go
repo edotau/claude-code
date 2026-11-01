@@ -112,7 +112,7 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 	var cred string
 	var err error
 	routed := false
-	if p.Auth.Method() != providers.AuthNone && !isDirect(ctx) {
+	if p.Auth.Method() != providers.AuthNone && !IsDirect(ctx) {
 		// Keyed provider: the agent gets the router base + router secret; the real credential stays in the router.
 		if p, base, cred, err = routerRoute(ctx, s, p, dialect); err != nil {
 			return nil, nil, err
@@ -144,7 +144,7 @@ func WithDirect(ctx context.Context) context.Context {
 	return context.WithValue(ctx, directKey{}, true)
 }
 
-func isDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
+func IsDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
 
 // routerRoute ensures the router daemon and returns a copy of p routed through it with the router secret as key.
 func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {

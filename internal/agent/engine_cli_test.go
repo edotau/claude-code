@@ -9,12 +9,10 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // attach per engine: codex folds the file inline (stdin has no live-read channel). gemini (agy)
-// inlines it too when tools are off (agy's no-tools preamble bars it from reading @path live), but
+// inlines it too when tools are off (agy's no-tools Preamble bars it from reading @path live), but
 // appends a live @path reference once tools are on. Every other vendor (opencode included) leaves the
 // prompt untouched since it carries the attachment in its own argv instead (opencodeRun's -f).
 func TestVendorEngineAttachPrompt(t *testing.T) {
@@ -95,63 +93,6 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	})
 }
 
-// geminiOwnLoginFixture isolates HOME/CLAUDE_CONFIG_DIR and writes agy's own login marker, so
-// vendorTarget's gemini fallback dispatch (fallbackTarget) applies without a real Google login.
-func geminiOwnLoginFixture(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	marker := AgyLoginMarker(home)
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// vendorRunner.Run's gemini branch resolves the model agy actually runs as: the GEMINI_AGENT_MODEL pin
-// when the caller named none, else AgyDefaultModel; res.Model is set before RunAgy ever runs, so it
-// comes back correct even though no real agy binary is installed here (RunAgy errors, Run still
-// returns res with Model set — vendor.go Run()).
-func TestVendorEngineGeminiModelResolutionPinBeatsDefault(t *testing.T) {
-	geminiOwnLoginFixture(t)
-	vaulttest.SetRecord(t, "gemini", "model", "")
-	vaulttest.SetRecord(t, "gemini", "model", "")
-
-	res, err := newCLIEngine("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
-	if err == nil {
-		t.Fatal("want an error (no real agy binary installed), got nil")
-	}
-	if res.Model != AgyDefaultModel {
-		t.Errorf("res.Model = %q, want AgyDefaultModel %q (no pin, no explicit model)", res.Model, AgyDefaultModel)
-	}
-
-	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
-	res, err = newCLIEngine("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
-	if err == nil {
-		t.Fatal("want an error (no real agy binary installed), got nil")
-	}
-	if res.Model != "gemini-2.5-pro" {
-		t.Errorf("res.Model = %q, want the GEMINI_AGENT_MODEL pin gemini-2.5-pro", res.Model)
-	}
-}
-
-// An explicit RunOptions.Model still wins over the GEMINI_AGENT_MODEL pin.
-func TestVendorEngineGeminiExplicitModelBeatsPin(t *testing.T) {
-	geminiOwnLoginFixture(t)
-	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
-
-	res, err := newCLIEngine("gemini").Run(context.Background(), RunOptions{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
-	if err == nil {
-		t.Fatal("want an error (no real agy binary installed), got nil")
-	}
-	if res.Model != "gemini-3.8-flash-low" {
-		t.Errorf("res.Model = %q, want the explicit request model, not the gemini-2.5-pro pin", res.Model)
-	}
-}
-
 // vendorRunner.Caps advertises Autonomous for all three hub-backed CLIs (opencode, gemini, codex); copilot's
 // own Caps additionally carries SessionID and Memory, which only its own agent needs.
 func TestVendorCapsAutonomous(t *testing.T) {
@@ -226,37 +167,9 @@ const agyOK = `{"event":"init","conversation_id":"415ed744","init":{"model":"gem
 {"event":"result","result":{"conversation_id":"415ed744","status":"SUCCESS","response":"pong\n","duration_seconds":1.57,"num_turns":1,"usage":{"input_tokens":18621,"output_tokens":1,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":18622}}}
 `
 
-func TestParseAgyStream(t *testing.T) {
-	var out strings.Builder
-	res, err := parseAgyStream(newBR(agyOK), NewTextSink(&out), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.SessionID != "415ed744" || res.Answer != "pong" || out.String() != "pong" {
-		t.Errorf("res = %+v, streamed %q", res, out.String())
-	}
-	if res.Usage != (Usage{InputTokens: 18621, OutputTokens: 1, CacheReadTokens: 0}) {
-		t.Errorf("usage = %+v", res.Usage)
-	}
-}
-
 // Captured live: a tool call is soft-denied headless (exit 0, no step_update text, status still SUCCESS).
 const agySoftDeny = `{"event":"result","result":{"conversation_id":"d1","status":"SUCCESS","response":"","num_turns":1,"usage":{"input_tokens":71644,"output_tokens":346},"denied_actions":[{"action":"command","display_name":"RunCommand"}]}}
 `
-
-func TestParseAgyStream_SoftDeny(t *testing.T) {
-	quietStderr(t)
-	res, err := parseAgyStream(newBR(agySoftDeny), NewTextSink(&strings.Builder{}), nil)
-	if e, ok := errors.AsType[*Error](err); !ok || statusOf(e) != StatusPartial {
-		t.Fatalf("a soft deny ends with no answer, which is partial, not ok: %v", err)
-	}
-	if res.SessionID != "d1" || res.Answer != "" {
-		t.Errorf("res = %+v, want empty answer (no agent_response deltas, tool call denied)", res)
-	}
-	if res.Usage != (Usage{InputTokens: 71644, OutputTokens: 346}) {
-		t.Errorf("usage = %+v", res.Usage)
-	}
-}
 
 // TestVendorEngineNilProviderDefense tests that vendorRunner.Run safely handles
 // the edge case where vendorTarget returns own=false with nil Provider.

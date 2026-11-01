@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/gemini"
 	"io"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func cliEnv(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	marker := agent.AgyLoginMarker(home)
+	marker := gemini.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}

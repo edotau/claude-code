@@ -1,10 +1,11 @@
-package agent
+package gemini
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -137,7 +138,7 @@ func TestBridgeRunDefaultModel(t *testing.T) {
 	if res.Answer != "hello" {
 		t.Errorf("answer = %q, want hello", res.Answer)
 	}
-	if res.Usage != (Usage{InputTokens: 5, OutputTokens: 2}) {
+	if res.Usage != (agent.Usage{InputTokens: 5, OutputTokens: 2}) {
 		t.Errorf("usage = %+v, want {5 2}", res.Usage)
 	}
 	if !strings.Contains(log.String(), "1 path(s) indexed, 1 inlined") {
@@ -414,11 +415,11 @@ func TestBridgeRunUpstream502IsTransient(t *testing.T) {
 	_, err := RunGemini(context.Background(), GeminiOptions{
 		Provider: "tgem", Cwd: dir, Task: "t", Timeout: 2 * time.Second,
 	}, io.Discard, io.Discard)
-	var ae *Error
+	var ae *agent.Error
 	if !errors.As(err, &ae) {
 		t.Fatalf("err = %v, want an *Error", err)
 	}
-	if ae.Kind != KindTransient {
+	if ae.Kind != agent.KindTransient {
 		t.Errorf("kind = %v, want KindTransient", ae.Kind)
 	}
 }
@@ -596,14 +597,14 @@ func TestBridgeRunPrintCommandAgyBackend(t *testing.T) {
 }
 
 // dispatchRecords lists the dispatch log Record files under CLAUDE_CONFIG_DIR/state/harness/dispatch.
-func dispatchRecords(t *testing.T) []Record {
+func dispatchRecords(t *testing.T) []agent.Record {
 	t.Helper()
 	dir := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "state", "harness", "dispatch")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	var out []Record
+	var out []agent.Record
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -612,7 +613,7 @@ func dispatchRecords(t *testing.T) []Record {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var r Record
+		var r agent.Record
 		if err := json.Unmarshal(b, &r); err != nil {
 			t.Fatal(err)
 		}
@@ -704,8 +705,8 @@ exit 1
 	if err == nil {
 		t.Fatal("want an error, got nil")
 	}
-	var ae *Error
-	if !errors.As(err, &ae) || ae.Kind != KindFatal {
+	var ae *agent.Error
+	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal {
 		t.Fatalf("err = %v, want a fatal *Error (400 must not be retried)", err)
 	}
 	got, readErr := os.ReadFile(counter)
@@ -797,7 +798,7 @@ func TestBridgeRunAgyDispatchRecordIsCompact(t *testing.T) {
 // fastBackoff shrinks the shared retry backoff for the test and restores it on cleanup.
 func fastBackoff(t *testing.T) {
 	t.Helper()
-	b, m := DefaultBaseDelay, DefaultMaxDelay
-	DefaultBaseDelay, DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
-	t.Cleanup(func() { DefaultBaseDelay, DefaultMaxDelay = b, m })
+	b, m := agent.DefaultBaseDelay, agent.DefaultMaxDelay
+	agent.DefaultBaseDelay, agent.DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
+	t.Cleanup(func() { agent.DefaultBaseDelay, agent.DefaultMaxDelay = b, m })
 }

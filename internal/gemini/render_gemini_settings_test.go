@@ -1,4 +1,4 @@
-package agent_test
+package gemini_test
 
 import (
 	"bytes"
@@ -207,4 +207,21 @@ func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 			}
 		})
 	}
+}
+
+// scratch sets a hermetic CLAUDE_CONFIG_DIR with a keyed default provider and returns the vendor-config home dir.
+func scratch(t *testing.T) string {
+	t.Helper()
+	configDir := vaulttest.Use(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HARNESS_PROVIDER", "")
+	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
+	agent.StubRouterForTest(t, "http://127.0.0.1:9999")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default": "openai"}`)
+	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return home
 }

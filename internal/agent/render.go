@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -233,85 +232,6 @@ func commitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Wr
 		return nil
 	})
 	return true, nil
-}
-
-// --- gemini: report-only. agy (the agent's binary, name unchanged) has no known settings-file
-// auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
-// auth is the cached Google login marker at launch time (see agent.GeminiLoginPresent).
-
-func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
-	if sel.Provider.Auth.Method() == providers.AuthCLI {
-		fmt.Fprintln(out, "gemini: skipped: session provider is passthrough, not keyed")
-		return false, nil
-	}
-	fmt.Fprintln(out, "gemini: no config render; agy has no settings-auth equivalent (launch-time env/login only)")
-	return false, nil
-}
-
-// renderGeminiSettings merges the spec's exact-match guard denies into agy's
-// ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
-func renderGeminiSettings(home string, o RenderOptions, out io.Writer) (bool, error) {
-	cfg, err := agentconfig.LoadConfig()
-	if err != nil {
-		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
-		return false, nil
-	}
-	if !cfg.Agent("gemini").Permission.UseGuardRules {
-		return false, nil
-	}
-	var rules []string
-	for _, r := range cfg.Guard().Deny {
-		cmd, ok := strings.CutPrefix(r, "Bash(")
-		cmd, ok2 := strings.CutSuffix(cmd, ")")
-		if !ok || !ok2 || strings.HasSuffix(cmd, ":*") {
-			fmt.Fprintf(out, "gemini-settings: note: %q is not exact-match; agy denies exact commands only, skipped\n", r)
-			continue
-		}
-		rules = append(rules, "command("+cmd+")")
-	}
-	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
-	raw, readErr := os.ReadFile(path)
-	existed := readErr == nil
-	next := map[string]any{}
-	if existed {
-		if err := json.Unmarshal(raw, &next); err != nil {
-			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: %v\n", path, err)
-			return false, nil
-		}
-		if next == nil { // "null" decodes without error but leaves next nil, not an empty object
-			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: not an object\n", path)
-			return false, nil
-		}
-	}
-	perms, _ := next["permissions"].(map[string]any)
-	if perms == nil {
-		perms = map[string]any{}
-	}
-	existing, _ := perms["deny"].([]any)
-	seen := map[string]bool{}
-	merged := make([]string, 0, len(existing)+len(rules))
-	for _, e := range existing {
-		s, ok := e.(string)
-		if !ok || seen[s] {
-			continue
-		}
-		seen[s] = true
-		merged = append(merged, s)
-	}
-	for _, r := range rules {
-		if seen[r] {
-			continue
-		}
-		seen[r] = true
-		merged = append(merged, r)
-	}
-	perms["deny"] = merged
-	next["permissions"] = perms
-	body, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return false, fmt.Errorf("gemini-settings: %w", err)
-	}
-	return CommitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
 }
 
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.

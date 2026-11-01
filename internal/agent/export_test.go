@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"io"
+
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -43,3 +45,7 @@ func SwapLoadState(wrap func(prev func() router.State) func() router.State) func
 func NewFailingRunner(name string, err error) Engine {
 	return &fakeRunner{name: name, errs: []error{err}, emptyAnswer: true}
 }
+
+type failingStreamWriter struct{}
+
+func (failingStreamWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }

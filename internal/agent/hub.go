@@ -167,7 +167,7 @@ func (l hubDispatch) Run(ctx context.Context, req RunOptions, sink Sink) (Result
 		defer cancel()
 	}
 	cmd, tail := ChildCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
-	out, runErr := runEventStream(cctx, l.agent, cmd, tail, sink, parseOpenCodeStream, onFirstByte)
+	out, runErr := RunEventStream(cctx, l.agent, cmd, tail, sink, parseOpenCodeStream, onFirstByte)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID

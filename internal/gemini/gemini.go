@@ -1,4 +1,4 @@
-package agent
+package gemini
 
 import (
 	"bufio"
@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
-	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,24 +22,24 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 )
 
-type geminiEngine struct{ BaseEngine }
+type geminiEngine struct{ agent.BaseEngine }
 
-var _ HeadlessDriver = geminiEngine{}
+var _ agent.HeadlessDriver = geminiEngine{}
 
 func (geminiEngine) Attach(prompt string, paths []string, tools bool) (string, error) {
 	if tools {
-		return attachSuffix(prompt, paths), nil
+		return agent.AttachSuffix(prompt, paths), nil
 	}
-	return AttachInline(prompt, paths)
+	return agent.AttachInline(prompt, paths)
 }
 
-func (geminiEngine) Before(req RunOptions, t providers.Target) providers.Target {
+func (geminiEngine) Before(req agent.RunOptions, t providers.Target) providers.Target {
 	t.Model = agyModel(req, t)
 	return t
 }
 
-func (geminiEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink Sink) (Result, error) {
-	areq := p.agyRequest(req)
+func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
+	areq := newAgyRequest(p, req)
 	res := p.Result
 	res.Model = areq.Model
 	out, err := runAgy(ctx, areq, sink)
@@ -48,22 +50,22 @@ func (geminiEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink Si
 	return res, err
 }
 
-func (geminiEngine) Login(_ *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+func (geminiEngine) Login(_ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
 	return geminiLogin(model, h)
 }
 
 // Wire serves only a gateway row: Serves refuses agy every other non-login row.
-func (geminiEngine) Wire(ctx context.Context, r WireRoute, h *Headless) ([]string, []string, error) {
-	if isDirect(ctx) { // --direct skips the router that swaps the Databricks token
+func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
+	if agent.IsDirect(ctx) { // --direct skips the router that swaps the Databricks token
 		return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", r.Provider.Name)
 	}
 	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: the router fixes agy's requests for Databricks
 }
 
 func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	if p, ok := LoginProvider(reg, "google", e.name); ok && GeminiLoginPresent() {
+	if p, ok := agent.LoginProvider(reg, "google", e.Name()); ok && GeminiLoginPresent() {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
-		t, _ := ResolveAgentModel(ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return t, "gemini (Google login via agy)", true
 	}
 	return providers.Target{}, "", false
@@ -75,12 +77,12 @@ func (geminiEngine) LoginStatus() (bool, string) {
 
 // FollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
 func (geminiEngine) FollowsPin(p *providers.Provider) bool {
-	return !GeminiGatewayRow(p) || GetAgentRecord("gemini").Profile == p.Name
+	return !agent.GeminiGatewayRow(p) || agent.GetAgentRecord("gemini").Profile == p.Name
 }
 
 // NoRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
 func (geminiEngine) NoRoute(_ *providers.Registry, t providers.Target) error {
-	if GeminiGatewayRow(t.Provider) {
+	if agent.GeminiGatewayRow(t.Provider) {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
 	return nil
@@ -93,7 +95,7 @@ func (geminiEngine) CheckLogin(context.Context) (providers.AuthVerdict, string) 
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o RenderOptions, out io.Writer) (bool, error) {
+func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o agent.RenderOptions, out io.Writer) (bool, error) {
 	d, err := reportGemini(sel, out)
 	if err != nil {
 		return d, err
@@ -102,30 +104,22 @@ func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home 
 	return d || gd, err
 }
 
-func (geminiEngine) ConfigPaths(home string) ([]LabelPath, error) {
-	home, err := homeOr(home)
+func (geminiEngine) ConfigPaths(home string) ([]agent.LabelPath, error) {
+	home, err := agent.HomeOr(home)
 	if err != nil {
 		return nil, err
 	}
-	return []LabelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
+	return []agent.LabelPath{{Label: "gemini-settings", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
 }
 
 func (geminiEngine) RouteDetail() (string, bool) { return geminiRouteDetail(), true }
 
-func (geminiEngine) NewLive() LiveBackend { return &agyLive{} }
-
-// googleHost is Gemini's own API host; a gemini-dialect route anywhere else is a gateway.
-const googleHost = "generativelanguage.googleapis.com"
-
-func isGateway(base string) bool {
-	u, err := url.Parse(base)
-	return err == nil && u.Host != googleHost
-}
+func (geminiEngine) NewLive() agent.LiveBackend { return &agyLive{} }
 
 // geminiLogin runs agy on its own cached Google sign-in (AgyLoginMarker); without one it errors with the sign-in hint.
-func geminiLogin(model string, h *Headless) ([]string, []string, error) {
+func geminiLogin(model string, h *agent.Headless) ([]string, []string, error) {
 	if !GeminiLoginPresent() {
-		s, _ := LookupSchema("gemini")
+		s, _ := agent.LookupSchema("gemini")
 		return nil, nil, errors.New("gemini: agy is not signed in; " + s.CLI.ConfigureHint)
 	}
 	if h != nil {
@@ -172,7 +166,7 @@ var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
-		base, effort, _ = agyGatewayBase(cmp.Or(GetAgentRecord("gemini").Model, AgyDefaultModel))
+		base, effort, _ = agyGatewayBase(cmp.Or(agent.GetAgentRecord("gemini").Model, AgyDefaultModel))
 	}
 	if effort == "" {
 		return base, base
@@ -196,12 +190,12 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 
 // geminiGateway runs agy in its env-only gateway mode against the router's /p/<profile>/gemini route, which swaps
 // in a fresh Databricks token per request; the key agy holds is a session token scoped to this profile.
-func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
-	rb, err := ensureRouter(ctx)
+func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+	rb, err := agent.EnsureRouter(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: router: %w", err)
 	}
-	tok, err := mintSession(ctx, p.Name, os.Getpid())
+	tok, err := agent.MintSession(ctx, p.Name, os.Getpid())
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
@@ -278,17 +272,17 @@ func agyStdin(r agyRequest) (string, error) {
 
 // runAgy drives `agy` headless over stream-json: agent_response text deltas stream live, and the
 // result event carries the final answer, usage, conversation id and status.
-func runAgy(ctx context.Context, r agyRequest, sink Sink) (Result, error) {
+func runAgy(ctx context.Context, r agyRequest, sink agent.Sink) (agent.Result, error) {
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
-		return Result{}, fmt.Errorf("gemini: %w", err)
+		return agent.Result{}, fmt.Errorf("gemini: %w", err)
 	}
 	stdin, err := agyStdin(r)
 	if err != nil {
-		return Result{}, err
+		return agent.Result{}, err
 	}
-	cmd, tail := ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
-	return runEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, nil)
+	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
+	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, nil)
 }
 
 // agyEvent mirrors agy's stream-json schema: one JSON object per line.
@@ -321,13 +315,13 @@ type agyEvent struct {
 }
 
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
-func parseAgyStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...StreamLog) (Result, error) {
-	return parseAgyEvents(br, sink, false, PickLog(logs))
+func parseAgyStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (agent.Result, error) {
+	return parseAgyEvents(br, sink, false, agent.PickLog(logs))
 }
 
 // parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
-func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res Result, _ error) {
-	ts := TransportTracker{Start: Clock()}
+func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.StreamLog) (res agent.Result, _ error) {
+	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
 	var answer, pending strings.Builder
 	flush := func() {
@@ -338,14 +332,14 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res R
 	var sawResult bool
 	var lastStep string // the last step type/state logged, so repeated updates stay one line
 	var openStep string // the last non-response step still running (a backgrounded command), else ""
-	err := DecodeLines(br, lg, func(raw []byte) (bool, error) {
+	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev agyEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			flush()
-			_ = EmitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
+			_ = agent.EmitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
 			return false, fmt.Errorf("decode agy stream-json: %w", err)
 		}
-		ts.Event(Clock())
+		ts.Event(agent.Clock())
 		switch ev.Event {
 		case "init":
 			res.SessionID = ev.ConvID
@@ -364,7 +358,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res R
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
 				return false, nil
 			}
-			if err := sink.Emit(Event{Type: EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
+			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
 				return false, err
 			}
 			answer.WriteString(ev.StepUpdate.TextDelta)
@@ -374,10 +368,10 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res R
 			response = ev.Result.Response
 			flush()
 			if err := applyAgyResult(&res, ev); err != nil {
-				_ = EmitError(lg, sink, err.Error()) // the agy error returned below aborts
+				_ = agent.EmitError(lg, sink, err.Error()) // the agy error returned below aborts
 				res.Answer = strings.TrimSpace(answer.String())
 				if once {
-					err = resultError{err} // the result was consumed: the turn failed, the stream is at a boundary
+					err = agent.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
 				}
 				return false, err
 			}
@@ -401,10 +395,10 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res R
 
 // finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in
 // result.response (no agent_response deltas) still answers.
-func finishAgyTurn(res Result, sink Sink, answer *strings.Builder, response string, flush func(), openStep string, once bool) (Result, error) {
+func finishAgyTurn(res agent.Result, sink agent.Sink, answer *strings.Builder, response string, flush func(), openStep string, once bool) (agent.Result, error) {
 	flush()
 	if answer.Len() == 0 && response != "" {
-		if err := sink.Emit(Event{Type: EventText, Text: response}); err != nil {
+		if err := sink.Emit(agent.Event{Type: agent.EventText, Text: response}); err != nil {
 			return res, err
 		}
 		answer.WriteString(response)
@@ -415,17 +409,17 @@ func finishAgyTurn(res Result, sink Sink, answer *strings.Builder, response stri
 		if openStep != "" {
 			why = "turn ended with an unfinished " + openStep + " step"
 		}
-		return res, &Error{Kind: KindFatal, Agent: "gemini", Progressed: true, Err: errors.New("agy: partial result: " + why)}
+		return res, &agent.Error{Kind: agent.KindFatal, Agent: "gemini", Progressed: true, Err: errors.New("agy: partial result: " + why)}
 	}
 	return res, nil
 }
 
-func applyAgyResult(res *Result, ev agyEvent) error {
+func applyAgyResult(res *agent.Result, ev agyEvent) error {
 	out := ev.Result
 	if out.ConversationID != "" {
 		res.SessionID = out.ConversationID
 	}
-	res.Usage = Usage{
+	res.Usage = agent.Usage{
 		InputTokens:     out.Usage.InputTokens,
 		OutputTokens:    out.Usage.OutputTokens + out.Usage.ThinkingTokens,
 		CacheReadTokens: out.Usage.CacheReadTokens,
@@ -446,3 +440,167 @@ func applyAgyResult(res *Result, ev agyEvent) error {
 	}
 	return nil
 }
+
+// --- gemini: report-only. agy (the agent's binary, name unchanged) has no known settings-file
+// auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
+// auth is the cached Google login marker at launch time (see agent.GeminiLoginPresent).
+
+func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
+	if sel.Provider.Auth.Method() == providers.AuthCLI {
+		fmt.Fprintln(out, "gemini: skipped: session provider is passthrough, not keyed")
+		return false, nil
+	}
+	fmt.Fprintln(out, "gemini: no config render; agy has no settings-auth equivalent (launch-time env/login only)")
+	return false, nil
+}
+
+// renderGeminiSettings merges the spec's exact-match guard denies into agy's
+// ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
+func renderGeminiSettings(home string, o agent.RenderOptions, out io.Writer) (bool, error) {
+	cfg, err := agentconfig.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
+		return false, nil
+	}
+	if !cfg.Agent("gemini").Permission.UseGuardRules {
+		return false, nil
+	}
+	var rules []string
+	for _, r := range cfg.Guard().Deny {
+		cmd, ok := strings.CutPrefix(r, "Bash(")
+		cmd, ok2 := strings.CutSuffix(cmd, ")")
+		if !ok || !ok2 || strings.HasSuffix(cmd, ":*") {
+			fmt.Fprintf(out, "gemini-settings: note: %q is not exact-match; agy denies exact commands only, skipped\n", r)
+			continue
+		}
+		rules = append(rules, "command("+cmd+")")
+	}
+	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+	raw, readErr := os.ReadFile(path)
+	existed := readErr == nil
+	next := map[string]any{}
+	if existed {
+		if err := json.Unmarshal(raw, &next); err != nil {
+			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: %v\n", path, err)
+			return false, nil
+		}
+		if next == nil { // "null" decodes without error but leaves next nil, not an empty object
+			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: not an object\n", path)
+			return false, nil
+		}
+	}
+	perms, _ := next["permissions"].(map[string]any)
+	if perms == nil {
+		perms = map[string]any{}
+	}
+	existing, _ := perms["deny"].([]any)
+	seen := map[string]bool{}
+	merged := make([]string, 0, len(existing)+len(rules))
+	for _, e := range existing {
+		s, ok := e.(string)
+		if !ok || seen[s] {
+			continue
+		}
+		seen[s] = true
+		merged = append(merged, s)
+	}
+	for _, r := range rules {
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		merged = append(merged, r)
+	}
+	perms["deny"] = merged
+	next["permissions"] = perms
+	body, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("gemini-settings: %w", err)
+	}
+	return agent.CommitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
+}
+
+// geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
+// means agy's own default (AgyDefaultModel).
+func geminiRouteDetail() string {
+	model, source := providers.GeminiModel()
+	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
+}
+
+// agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
+func agyModel(req agent.RunOptions, t providers.Target) string {
+	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
+		t.Model = AgyDefaultModel
+	}
+	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
+	if agent.GeminiGatewayRow(t.Provider) {
+		_, arg := agyGatewayArg(gt.Model)
+		return arg
+	}
+	return gt.Model
+}
+
+// agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
+func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
+	return agyRequest{
+		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
+	}
+}
+
+// agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
+type agyLive struct {
+	tools   bool
+	intro   string // emulated system prompts, owed to the first turn only
+	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
+	prev    agent.Usage
+}
+
+func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *agent.TailBuffer, string, error) {
+	ctx = agent.DirectCtx(ctx, req)
+	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
+	p, err := agent.PrepareCLI(ctx, "gemini", req)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	areq := newAgyRequest(p, req)
+	bin, err := paths.AgentBin("agy")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("gemini: %w", err)
+	}
+	b.tools, b.resumed = areq.Tools, req.SessionID != ""
+	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
+		b.intro += agent.Preamble(req.SystemPrompt)
+	}
+	if req.AppendSystemPrompt != "" {
+		b.intro += agent.Preamble(req.AppendSystemPrompt)
+	}
+	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(areq), areq.Env, areq.Cwd, "", areq.KeepEnv, true)
+	return cmd, tail, p.Result.Provider, nil
+}
+
+func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
+	prompt, b.intro = b.intro+prompt, ""
+	line, err := agyStdin(agyRequest{Prompt: prompt, Tools: b.tools})
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, line)
+	return err
+}
+
+// parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
+func (b *agyLive) Parse(dec *bufio.Reader, sink agent.Sink, lg func(kind, text string)) (agent.Result, error) {
+	res, err := parseAgyEvents(dec, sink, true, lg)
+	total := res.Usage
+	if b.resumed { // the history behind a --session is unknown: this turn reports no usage, later ones their delta
+		b.resumed, b.prev, res.Usage = false, total, agent.Usage{}
+		return res, err
+	}
+	res.Usage = agent.Usage{InputTokens: max(total.InputTokens-b.prev.InputTokens, 0), OutputTokens: max(total.OutputTokens-b.prev.OutputTokens, 0),
+		CacheReadTokens: max(total.CacheReadTokens-b.prev.CacheReadTokens, 0), CostUSD: max(total.CostUSD-b.prev.CostUSD, 0)}
+	b.prev = total
+	return res, err
+}
+
+var geminiPresent = GeminiLoginPresent

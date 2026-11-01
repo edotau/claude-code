@@ -213,7 +213,7 @@ func emulatePersona(c Caps, req RunOptions, dropped []string) (RunOptions, []str
 	text += "\n\n" + p.Prompt
 	req.Persona = nil
 	if c.AppendSystemPrompt == Emulated {
-		req.Prompt = preamble(text) + req.Prompt
+		req.Prompt = Preamble(text) + req.Prompt
 	} else {
 		req.AppendSystemPrompt = strings.TrimSpace(text + "\n\n" + req.AppendSystemPrompt)
 	}

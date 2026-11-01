@@ -1,4 +1,4 @@
-package agent
+package gemini
 
 import (
 	"context"
@@ -14,57 +14,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// agy has no custom base URL, so a gateway provider for the gemini vendor must fail fast with a clear error.
-func TestGeminiGateway(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("GW_KEY", secret)
-	p := &providers.Provider{Name: "gw", Protocol: providers.ProtocolGemini, BaseURL: "https://gw.example/gemini",
-		Auth: providers.Auth{Type: providers.AuthKey, Env: "GW_KEY"}, Headers: map[string]string{"X-Team": "a"}}
-	_, _, err := schemaFor("gemini").Configure(context.Background(), providers.Target{Provider: p, Model: "m"}, "")
-	if err == nil || !strings.Contains(err.Error(), "no custom base URL") {
-		t.Fatalf("err = %v, want a clear \"no custom base URL\" error", err)
-	}
-}
-
-// gemini runs only on agy's cached Google login (AgyLoginMarker under HOME): no marker refuses to
-// configure (no GEMINI_API_KEY fallback), a marker on disk lets it through with no key injected.
-func TestGeminiLoginPrecedence(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if GeminiLoginPresent() {
-		t.Fatal("no marker on disk must read as not logged in")
-	}
-	tg := target(t, "antigravity", "gemini-2.5-pro")
-	// target() reset HOME to its own tempdir; point it back at ours for the marker check.
-	t.Setenv("HOME", home)
-
-	if _, _, err := schemaFor("gemini").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"}); err == nil || !strings.Contains(err.Error(), "not signed in") {
-		t.Fatalf("without a login marker, err = %v, want a not-signed-in error", err)
-	}
-
-	marker := AgyLoginMarker(home)
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("tok"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if !GeminiLoginPresent() {
-		t.Fatal("marker on disk must read as logged in")
-	}
-
-	env, _, err := schemaFor("gemini").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := envMap(env)["GEMINI_API_KEY"]; ok {
-		t.Errorf("with a login marker, GEMINI_API_KEY must not be set, got %q", got)
-	}
-}
 
 // D6: agy's model is flag > process env > the GEMINI_MODEL vault pin > agy's default.
 func TestAgyModelPrecedence(t *testing.T) {
@@ -90,78 +41,6 @@ func TestAgyModelPrecedence(t *testing.T) {
 	}
 	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], "gemini-flag"); got != "gemini-flag" {
 		t.Errorf("flag = %q, want it to beat env and pin", got)
-	}
-}
-
-// Regression: no GEMINI_PROFILE pin and no Google login must refuse, never bill the session's Databricks row.
-func TestResolveTargetGeminiNoLoginNoPinRefuses(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("HOME", t.TempDir())
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	p := dbxRow("qa", "databricks-")
-	reg.Providers[p.Name] = p
-	sel := providers.Selection{Provider: p, Aliases: map[string]providers.Target{"opus": {Provider: p, Model: "databricks-claude-opus-5-5"}}}
-	_, _, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
-	if err == nil || !strings.Contains(err.Error(), "GEMINI_PROFILE") {
-		t.Fatalf("err = %v, want the Google-login-or-pin refusal", err)
-	}
-}
-
-// Regression: --direct has no Databricks route for agy (the router swaps the token); refuse, don't route.
-func TestGeminiGatewayRefusesDirect(t *testing.T) {
-	vaulttest.Use(t)
-	StubRouterForTest(t, "http://127.0.0.1:1")
-	_, _, err := schemaFor("gemini").configureRoute(WithDirect(context.Background()),
-		providers.Target{Provider: dbxRow("qa", "databricks-"), Model: "gemini-3.8-flash"}, &Headless{Prompt: "hi"})
-	if err == nil || !strings.Contains(err.Error(), "--direct") {
-		t.Fatalf("err = %v, want a --direct refusal", err)
-	}
-}
-
-func TestParseAgyStreamResultApplication(t *testing.T) {
-	const init = `{"event":"init","conversation_id":"init-id"}` + "\n"
-	const delta = `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":" partial "}}` + "\n"
-	cases := []struct {
-		name, stream, answer, output, session, err string
-		usage                                      Usage
-	}{
-		{
-			name:   "response fallback and result metadata",
-			stream: init + `{"event":"result","result":{"status":"SUCCESS","conversation_id":"result-id","response":" answer \n","usage":{"input_tokens":7,"output_tokens":3,"thinking_tokens":2,"cache_read_tokens":4}}}`,
-			answer: "answer", output: " answer \n", session: "result-id",
-			usage: Usage{InputTokens: 7, OutputTokens: 5, CacheReadTokens: 4},
-		},
-		{
-			name:   "deltas win and init session survives",
-			stream: init + delta + `{"event":"result","result":{"status":"SUCCESS","response":"duplicate"}}`,
-			answer: "partial", output: " partial ", session: "init-id",
-		},
-		{
-			name:   "failure retains partial answer and usage",
-			stream: init + delta + `{"event":"result","result":{"status":"ERROR","response":"not emitted","error":"upstream failed","usage":{"input_tokens":7,"thinking_tokens":2}}}`,
-			answer: "partial", output: " partial ", session: "init-id", err: "upstream failed",
-			usage: Usage{InputTokens: 7, OutputTokens: 2},
-		},
-		{
-			name: "status error fallback", stream: `{"event":"result","result":{"status":"CANCELLED","response":"not emitted"}}`,
-			err: "agy run CANCELLED",
-		},
-		{
-			name: "missing status error fallback", stream: `{"event":"result","result":{}}`,
-			err: "agy run failed",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var out strings.Builder
-			res, err := parseAgyStream(newBR(tc.stream), NewTextSink(&out), nil)
-			if (err == nil) != (tc.err == "") || err != nil && err.Error() != tc.err {
-				t.Fatalf("err = %v, want %q", err, tc.err)
-			}
-			if res.Answer != tc.answer || out.String() != tc.output || res.SessionID != tc.session || res.Usage != tc.usage {
-				t.Fatalf("res = %+v, output = %q", res, out.String())
-			}
-		})
 	}
 }
 
@@ -209,21 +88,6 @@ func TestAgyArgvConversation(t *testing.T) {
 	}
 }
 
-type failingStreamWriter struct{}
-
-func (failingStreamWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
-
-func TestParseAgyStreamWriteErrors(t *testing.T) {
-	for _, stream := range []string{
-		agyOK,
-		`{"event":"result","result":{"status":"SUCCESS","response":"fallback"}}`,
-	} {
-		if _, err := parseAgyStream(newBR(stream), NewTextSink(failingStreamWriter{}), nil); !errors.Is(err, io.ErrClosedPipe) {
-			t.Fatalf("err = %v, want closed pipe", err)
-		}
-	}
-}
-
 // truncateBeforeResult drops every line at-and-after the "result" event from a stream-json fixture,
 // simulating a connection that dies mid-run (the agy binary itself was not reachable in this sandbox
 // to capture a fresh truncated stream live, so this derives the truncation from the agyOK fixture
@@ -244,21 +108,6 @@ func truncateBeforeResult(t *testing.T, stream string) string {
 	return strings.Join(kept, "\n") + "\n"
 }
 
-// A stream that EOFs before any result event is a truncated connection, not a quiet success: gemini.go
-// must surface it rather than returning a zero-Usage "success" with whatever text happened to stream.
-func TestParseAgyStream_TruncatedNoResult(t *testing.T) {
-	truncated := truncateBeforeResult(t, agyOK)
-	var out strings.Builder
-	res, err := parseAgyStream(newBR(truncated), NewTextSink(&out), nil)
-	if err == nil || err.Error() != "agy: stream ended without a result event" {
-		t.Fatalf("err = %v, want \"agy: stream ended without a result event\"", err)
-	}
-	// The step_update text that did arrive before truncation is still surfaced, not thrown away.
-	if res.Answer != "pong" || out.String() != "pong" {
-		t.Errorf("res.Answer = %q, streamed %q, want %q (the pre-truncation delta)", res.Answer, out.String(), "pong")
-	}
-}
-
 func TestAgyArgvDebugFile(t *testing.T) {
 	if slices.Contains(agyArgv(agyRequest{Model: "m"}), "--log-file") {
 		t.Fatal("--log-file without DebugFile")
@@ -266,95 +115,6 @@ func TestAgyArgvDebugFile(t *testing.T) {
 	argv := agyArgv(agyRequest{Model: "m", DebugFile: "/tmp/l"})
 	if i := slices.Index(argv, "--log-file"); i < 0 || argv[i+1] != "/tmp/l" {
 		t.Fatalf("argv = %v", argv)
-	}
-}
-
-// TestParseAgyStreamPartial: a SUCCESS turn that ends on a backgrounded command or with no answer is partial.
-func TestParseAgyStreamPartial(t *testing.T) {
-	ok := `{"event":"result","result":{"status":"SUCCESS","response":""}}`
-	step := func(typ, state string) string {
-		return `{"event":"step_update","step_update":{"step_type":"` + typ + `","state":"` + state + `"}}` + "\n"
-	}
-	text := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"waiting"}}` + "\n"
-	for name, stream := range map[string]string{
-		"open command": text + step("run_command", "ACTIVE") + ok,
-		"empty answer": step("user_input", "DONE") + ok,
-	} {
-		res, err := parseAgyStream(newBR(stream), NewTextSink(&strings.Builder{}), nil)
-		var e *Error
-		if !errors.As(err, &e) || !e.Progressed || statusOf(e) != StatusPartial {
-			t.Errorf("%s: err = %v, want a partial-status error", name, err)
-		}
-		_ = res
-	}
-	done := text + step("run_command", "DONE") + `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":" done"}}` + "\n" + ok
-	if _, err := parseAgyStream(newBR(done), NewTextSink(&strings.Builder{}), nil); err != nil {
-		t.Errorf("finished command then answer: err = %v, want nil", err)
-	}
-}
-
-// TestParseAgyStreamOpenCommandSurvivesResponse: a response delta after an ACTIVE command does not close it.
-func TestParseAgyStreamOpenCommandSurvivesResponse(t *testing.T) {
-	step := func(state string) string {
-		s := `"step_type":"run_command"`
-		if state != "" {
-			s += `,"state":"` + state + `"`
-		}
-		return `{"event":"step_update","step_update":{` + s + `}}` + "\n"
-	}
-	text := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"bg"}}` + "\n"
-	ok := `{"event":"result","result":{"status":"SUCCESS"}}`
-	_, err := parseAgyStream(newBR(step("ACTIVE")+text+ok), NewTextSink(&strings.Builder{}), nil)
-	var e *Error
-	if !errors.As(err, &e) || statusOf(e) != StatusPartial {
-		t.Errorf("active command then response: err = %v, want partial", err)
-	}
-	if _, err := parseAgyStream(newBR(step("")+text+ok), NewTextSink(&strings.Builder{}), nil); err != nil {
-		t.Errorf("state-less step: err = %v, want nil", err)
-	}
-}
-
-func geminiCells(t *testing.T, pin string) []string {
-	t.Helper()
-	tb := testTable(t)
-	vaulttest.Use(t)
-	activateAgents(t, "gemini")
-	if pin != "" {
-		vaulttest.SetRecord(t, "gemini", "model", pin)
-	}
-	r := tb.Pick(context.Background(), "sonnet", "gemini", router.State{}, RosterPick(router.PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }}))
-	var models []string
-	for _, c := range r.Candidates {
-		if c.Agent == "gemini" {
-			models = append(models, c.Model)
-		}
-	}
-	return models
-}
-
-// GEMINI_MODEL pin on the profile-less (native agy login) gemini dispatch beats the table cell.
-func TestGeminiModelPinBeatsTableCellWithoutProfile(t *testing.T) {
-	got := geminiCells(t, "gemini-pinned-x")
-	if len(got) == 0 {
-		t.Fatal("no gemini candidate")
-	}
-	for _, m := range got {
-		if m != "gemini-pinned-x" {
-			t.Errorf("gemini cell model = %q, want the pin", m)
-		}
-	}
-}
-
-// With no pin the table cell is kept.
-func TestGeminiNoPinKeepsTableCell(t *testing.T) {
-	got := geminiCells(t, "")
-	if len(got) == 0 {
-		t.Fatal("no gemini candidate")
-	}
-	for _, m := range got {
-		if m == "" || m == "gemini-pinned-x" {
-			t.Errorf("gemini cell model = %q, want the table cell", m)
-		}
 	}
 }
 
@@ -548,23 +308,5 @@ func TestBridgeLogCapturesRedactedAgyOutput(t *testing.T) {
 	}
 	if n := strings.Count(got, "agy-stderr-line"); n != 1 {
 		t.Errorf("stderr line appears %d times, want exactly once:\n%s", n, got)
-	}
-}
-
-// Step lines reach the dispatch log as steps start and finish, before the result event is parsed.
-func TestParseAgyStepsLogged(t *testing.T) {
-	in := `{"event":"step_update","step_update":{"step_type":"run_command","state":"RUNNING"}}
-{"event":"step_update","step_update":{"step_type":"run_command","state":"RUNNING"}}
-{"event":"step_update","step_update":{"step_type":"run_command","state":"DONE"}}
-{"event":"result","result":{"status":"SUCCESS","response":"ok"}}
-`
-	var lines []string
-	lg := func(kind, text string) { lines = append(lines, kind+": "+text) }
-	if _, err := parseAgyEvents(newBR(in), NewTextSink(&strings.Builder{}), false, lg); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"step: run_command running", "step: run_command done"}
-	if len(lines) < len(want) || !slices.Equal(lines[:len(want)], want) {
-		t.Errorf("log = %q, want it to start with %q", lines, want)
 	}
 }

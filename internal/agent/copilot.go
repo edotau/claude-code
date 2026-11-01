@@ -30,7 +30,7 @@ var (
 )
 
 func (e copilotEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
-	ctx = directCtx(ctx, req)
+	ctx = DirectCtx(ctx, req)
 	cs := schemaFor(e.name)
 	t, own, err := cs.targetCtx(ctx, req)
 	if err != nil {
@@ -254,7 +254,7 @@ func (copilotEngine) Render(reg *providers.Registry, sel providers.Selection, ho
 }
 
 func (copilotEngine) ConfigPaths(home string) ([]LabelPath, error) {
-	home, err := homeOr(home)
+	home, err := HomeOr(home)
 	if err != nil {
 		return nil, err
 	}

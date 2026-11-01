@@ -122,7 +122,7 @@ func copilotRegistryEligible(direct bool, t providers.Target) bool {
 
 // UsesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
 func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {
-	return copilotRegistryEligible(isDirect(ctx), t)
+	return copilotRegistryEligible(IsDirect(ctx), t)
 }
 
 // ConfigureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
