@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -211,8 +213,12 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
+	lg := eventLogFor(ctx)
+	idle := &idleReader{r: stdout, last: time.Now().UnixNano()}
+	stop := heartbeat(lg, idle, name)
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
-	out, perr := parse(bufio.NewReader(stdout), sink, onMeaningful, eventLogFor(ctx))
+	out, perr := parse(bufio.NewReader(idle), sink, onMeaningful, lg)
+	stop()
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Answer, res.Usage, res.SessionID, res.Transport, res.Structured = out.Answer, out.Usage, out.SessionID, out.Transport, out.Structured
@@ -223,6 +229,45 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 		return res, emptyAnswer(name)
 	}
 	return res, perr
+}
+
+// heartbeatEvery is how long a child's stdout may stay quiet before a "still running" log line.
+var heartbeatEvery = 30 * time.Second
+
+// idleReader stamps the time of every read so heartbeat can tell a quiet stream from a busy one.
+type idleReader struct {
+	r    io.Reader
+	last int64 // unix nanos of the last read, atomic
+}
+
+func (i *idleReader) Read(p []byte) (int, error) {
+	n, err := i.r.Read(p)
+	atomic.StoreInt64(&i.last, time.Now().UnixNano())
+	return n, err
+}
+
+// heartbeat logs a "still running" line each heartbeatEvery of stdout silence until the returned stop is called.
+func heartbeat(lg eventLog, i *idleReader, name string) (stop func()) {
+	if lg == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(heartbeatEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				quiet := time.Since(time.Unix(0, atomic.LoadInt64(&i.last))).Round(time.Second)
+				if quiet >= heartbeatEvery {
+					lg.emit("heartbeat", fmt.Sprintf("%s still running, no output for %s", name, quiet))
+				}
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 type openCodeEvent struct {

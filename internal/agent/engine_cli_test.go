@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -15,7 +17,7 @@ import (
 // inlines it too when tools are off (agy's no-tools preamble bars it from reading @path live), but
 // appends a live @path reference once tools are on. Every other vendor (opencode included) leaves the
 // prompt untouched since it carries the attachment in its own argv instead (opencodeRun's -f).
-func TestVendorRunnerAttachPrompt(t *testing.T) {
+func TestVendorEngineAttachPrompt(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(f, []byte("file-content"), 0o600); err != nil {
 		t.Fatal(err)
@@ -48,7 +50,7 @@ func TestVendorRunnerAttachPrompt(t *testing.T) {
 
 // A missing attachment is a fatal error for the inline path, not a silently dropped reference,
 // regardless of Tools (gemini without tools now inlines too, so it must fail the same way).
-func TestVendorRunnerAttachPromptMissingPath(t *testing.T) {
+func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
 	for _, c := range []struct {
 		vendor string
 		tools  bool
@@ -67,7 +69,7 @@ func TestVendorRunnerAttachPromptMissingPath(t *testing.T) {
 // default) makes vendorTargetNote return immediately (req.Provider != "" short-circuits the vendor's own
 // fallback resolution), so every case fails or refuses before any real CLI exec — no bin/codex, bin/agy
 // or bin/opencode needed, and no network call.
-func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
+func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	big := strings.Repeat("x", MaxPromptBytes+10)
@@ -113,7 +115,7 @@ func geminiOwnLoginFixture(t *testing.T) {
 // when the caller named none, else AgyDefaultModel; res.Model is set before RunAgy ever runs, so it
 // comes back correct even though no real agy binary is installed here (RunAgy errors, Run still
 // returns res with Model set — vendor.go Run()).
-func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
+func TestVendorEngineGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	geminiOwnLoginFixture(t)
 	vaulttest.SetRecord(t, "gemini", "model", "")
 	vaulttest.SetRecord(t, "gemini", "model", "")
@@ -137,7 +139,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 }
 
 // An explicit RunOptions.Model still wins over the GEMINI_AGENT_MODEL pin.
-func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
+func TestVendorEngineGeminiExplicitModelBeatsPin(t *testing.T) {
 	geminiOwnLoginFixture(t)
 	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
 
@@ -256,11 +258,11 @@ func TestParseAgyStream_SoftDeny(t *testing.T) {
 	}
 }
 
-// TestVendorRunnerNilProviderDefense tests that vendorRunner.Run safely handles
+// TestVendorEngineNilProviderDefense tests that vendorRunner.Run safely handles
 // the edge case where vendorTarget returns own=false with nil Provider.
 // Line 104 (res.Provider = t.Provider.Name) must not panic when t.Provider is nil.
 // Similarly, copilotEngine.Run (copilot.go) must handle nil Provider.
-func TestVendorRunnerNilProviderDefense(t *testing.T) {
+func TestVendorEngineNilProviderDefense(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
@@ -281,5 +283,23 @@ func TestVendorRunnerNilProviderDefense(t *testing.T) {
 		t.Logf("WARNING: vendorTarget returned own=false with nil Provider; " +
 			"vendorRunner.Run line 104 must have a nil check")
 		return // This is the defect scenario; fix should add nil check in Run()
+	}
+}
+
+// A quiet child stream logs a heartbeat line while it runs.
+func TestHeartbeatLogsWhenQuiet(t *testing.T) {
+	old := heartbeatEvery
+	heartbeatEvery = 10 * time.Millisecond
+	t.Cleanup(func() { heartbeatEvery = old })
+	var mu sync.Mutex
+	var got []string
+	lg := func(kind, text string) { mu.Lock(); got = append(got, kind); mu.Unlock() }
+	stop := heartbeat(lg, &idleReader{last: time.Now().Add(-time.Minute).UnixNano()}, "gemini")
+	time.Sleep(60 * time.Millisecond)
+	stop()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) == 0 || got[0] != "heartbeat" {
+		t.Errorf("log kinds = %v, want a heartbeat", got)
 	}
 }

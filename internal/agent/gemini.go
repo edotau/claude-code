@@ -336,6 +336,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Re
 	}
 	var response string
 	var sawResult bool
+	var lastStep string // the last step type/state logged, so repeated updates stay one line
 	var openStep string // the last non-response step still running (a backgrounded command), else ""
 	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev agyEvent
@@ -354,6 +355,10 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Re
 					openStep = t
 				} else if openStep == t {
 					openStep = ""
+				}
+				if key := t + "/" + st; key != lastStep {
+					lastStep = key
+					lg.emit("step", t+" "+strings.ToLower(st))
 				}
 			}
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {

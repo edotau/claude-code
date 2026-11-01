@@ -107,3 +107,18 @@ func TestEnvelopeNewFieldsOmitEmpty(t *testing.T) {
 		t.Errorf("usage = %s, want cost_usd", full["usage"])
 	}
 }
+
+// gemini has no read-only mode: --read-only is refused with a one-line error, not run tool-less.
+func TestRefuseReadOnlyGemini(t *testing.T) {
+	g, err := Lookup("gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RefuseReadOnly(g.Caps(), "gemini", true)
+	if err == nil || !strings.Contains(err.Error(), "use --tools or another agent") || strings.Contains(err.Error(), "\n") {
+		t.Fatalf("err = %v, want one line naming --tools", err)
+	}
+	if RefuseReadOnly(g.Caps(), "gemini", false) != nil || RefuseReadOnly(Caps{}, "codex", true) != nil {
+		t.Error("only gemini with --read-only is refused")
+	}
+}
