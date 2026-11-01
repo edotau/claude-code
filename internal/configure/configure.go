@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"maps"
 	"os"
@@ -22,6 +21,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
@@ -820,7 +822,7 @@ func runAgents(d *dialog) bool {
 	if d.o.Agent != "" {
 		agentList = []string{d.o.Agent}
 	}
-	_, err := agent.RenderConfigs(agent.RenderOptions{
+	_, err := agent.RenderConfigs(agentrender.RenderOptions{
 		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out,
 	})
 	if err != nil {

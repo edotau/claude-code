@@ -3,11 +3,13 @@ package agent_test
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/agent"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent"
+	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 )
 
 // foreignMarker is the literal foreign-hook command a third-party tool (e.g. an agent dashboard) installs into every
@@ -35,7 +37,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -117,7 +119,7 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
+	_, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
 		t.Fatalf("expected agent.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}

@@ -1,4 +1,4 @@
-package agent
+package render
 
 import (
 	"bytes"

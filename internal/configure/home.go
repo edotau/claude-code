@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/codex"
 	"io/fs"
 	"maps"
 	"os"
@@ -19,6 +18,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/codex"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/launch"
@@ -375,7 +377,7 @@ func rerenderConfigs(d *dialog) bool {
 	default:
 		d.printf("settings.json updated (backup %s)\n", backup)
 	}
-	if _, err := agent.RenderConfigs(agent.RenderOptions{Out: d.out}); err != nil {
+	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Out: d.out}); err != nil {
 		d.printf("agent configs: %v\n", err)
 	}
 	return true

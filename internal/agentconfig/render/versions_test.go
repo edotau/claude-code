@@ -1,4 +1,4 @@
-package agent
+package render
 
 import (
 	"bytes"
@@ -77,7 +77,7 @@ func TestMirrorPrunedToFive(t *testing.T) {
 func TestRevertRestoresNewestMirror(t *testing.T) {
 	path, _ := backupEnv(t)
 	writeVersions(t, path, 4)
-	if err := revertOne("gemini-settings", path, false, io.Discard); err != nil {
+	if err := RevertOne("gemini-settings", path, false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != "v3" {
@@ -98,11 +98,59 @@ func TestRevertLegacySidecarWhenMirrorEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := revertOne("gemini-settings", path, false, &out); err != nil {
+	if err := RevertOne("gemini-settings", path, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
 	if string(got) != "old" {
 		t.Fatalf("config = %q, want %q (output: %s)", got, "old", out.String())
+	}
+}
+
+// TestLostLinesEmptyWhenTheirsMatchesBaseline: theirs (current file) equal to the last-written baseline
+// means the user made no local edits — no lost lines, even when the upcoming render (next) differs.
+func TestLostLinesEmptyWhenTheirsMatchesBaseline(t *testing.T) {
+	base := []byte("a\nb\nc\n")
+	theirs := base // no hand edit since the last render
+	next := []byte("a\nb\nc\nd\n")
+	if got := lostLines(theirs, base, next); got != nil {
+		t.Errorf("lostLines(theirs==base) = %v, want nil", got)
+	}
+}
+
+// TestLostLinesDetectsHandAddedLine: a line present in theirs but absent from both base and next is the
+// user's own edit, lost by the upcoming render.
+func TestLostLinesDetectsHandAddedLine(t *testing.T) {
+	base := []byte("a\nb\n")
+	theirs := []byte("a\nb\nuser-added\n")
+	next := []byte("a\nb\n")
+	got := lostLines(theirs, base, next)
+	if len(got) != 1 || got[0] != "user-added" {
+		t.Errorf("lostLines = %v, want [\"user-added\"]", got)
+	}
+}
+
+// TestVersionFilesCappedAtFive: backupAndWrite keeps the newest 5 cache-mirrored backups, oldest dropped first.
+func TestVersionFilesCappedAtFive(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte("v0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 7; i++ {
+		old, _ := os.ReadFile(path)
+		if err := backupAndWrite(path, old, []byte(fmt.Sprintf("v%d", i)), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := mirrorsOf(path)
+	if len(m) != 5 {
+		t.Fatalf("mirrors = %d, want 5: %v", len(m), m)
+	}
+	if got, _ := os.ReadFile(m[0]); string(got) != "v6" {
+		t.Errorf("newest mirror = %q, want v6", got)
+	}
+	if got, _ := os.ReadFile(m[4]); string(got) != "v2" {
+		t.Errorf("oldest kept mirror = %q, want v2", got)
 	}
 }

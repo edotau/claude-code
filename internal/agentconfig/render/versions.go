@@ -1,5 +1,5 @@
-// Agent-file versions, baselines and lost-line detection behind CommitFile, plus `configure --revert`.
-package agent
+// Agent-file versions, baselines and lost-line detection behind CommitFile, plus the per-file revert.
+package render
 
 import (
 	"crypto/sha256"
@@ -17,7 +17,7 @@ import (
 )
 
 var _ = schemas.Register(schemas.Format{
-	Name: "vendor-baseline", Owner: "internal/agent", Kind: schemas.Derived,
+	Name: "vendor-baseline", Owner: "internal/agentconfig/render", Kind: schemas.Derived,
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "vendor-baseline", "*") },
 	Version: 1, Keep: "raw bytes last written to a vendor file; reseeded when missing",
 })
@@ -161,30 +161,6 @@ func HomeOr(home string) (string, error) {
 	return os.UserHomeDir()
 }
 
-// RevertConfigs restores each selected agent's files to their newest backup version, removing the restored version so a second revert steps one version further back.
-func RevertConfigs(o RenderOptions) error {
-	agents := o.Agents
-	if len(agents) == 0 {
-		agents = DefaultAgents
-	}
-	out := o.Out
-	if out == nil {
-		out = os.Stdout
-	}
-	for _, a := range agents {
-		files, err := schemaFor(a).eng().ConfigPaths(o.Home)
-		if err != nil {
-			return fmt.Errorf("generate: %w", err)
-		}
-		for _, lp := range files {
-			if err := revertOne(lp.Label, lp.Path, o.DryRun, out); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // LegacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; codex restore only.
 // Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
 func LegacyBackupSource(path string) (src string, stepBack, ok bool) {
@@ -197,8 +173,8 @@ func LegacyBackupSource(path string) (src string, stepBack, ok bool) {
 	return src, false, err == nil
 }
 
-// revertOne restores path from its newest cache-mirrored backup and removes it so the next revert goes further back.
-func revertOne(label, path string, dryRun bool, out io.Writer) error {
+// RevertOne restores path from its newest cache-mirrored backup and removes it so the next revert goes further back.
+func RevertOne(label, path string, dryRun bool, out io.Writer) error {
 	if ops := fileOps[label]; ops.Revert != nil {
 		return ops.Revert(path, dryRun, out)
 	}

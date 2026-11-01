@@ -7,7 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig/render"
+
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -67,23 +68,23 @@ func copilotMatcher(m string) string {
 // {"version", "hooks"} shape: each entry is either kept whole, byte-identical (foreign) or dropped whole
 // (harness-owned, by its "bash" command prefix); every other top-level key survives untouched.
 func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
-	existingTop, err := agent.DecodeRawObject(existingRaw)
+	existingTop, err := render.DecodeRawObject(existingRaw)
 	if err != nil {
 		return nil, fmt.Errorf("existing file: %w", err)
 	}
-	renderedTop, err := agent.DecodeRawObject(body)
+	renderedTop, err := render.DecodeRawObject(body)
 	if err != nil {
 		return nil, err
 	}
-	existingHooks, err := agent.DecodeRawEvents(existingTop["hooks"])
+	existingHooks, err := render.DecodeRawEvents(existingTop["hooks"])
 	if err != nil {
 		return nil, fmt.Errorf("existing file: %w", err)
 	}
-	renderedHooks, err := agent.DecodeRawEvents(renderedTop["hooks"])
+	renderedHooks, err := render.DecodeRawEvents(renderedTop["hooks"])
 	if err != nil {
 		return nil, err
 	}
-	merged := agent.MergeHookEvents(existingHooks, renderedHooks, classifyCopilotEntry)
+	merged := render.MergeHookEvents(existingHooks, renderedHooks, classifyCopilotEntry)
 	hooksRaw, err := textutil.MarshalNoEscape(merged)
 	if err != nil {
 		return nil, err

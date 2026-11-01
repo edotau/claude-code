@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/edotau/claude-code/internal/agentconfig/render"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
@@ -41,23 +42,23 @@ func CodexJSON() ([]byte, error) {
 // rendered ones; mirrors internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file
 // Codex reads directly.
 func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
-	existingTop, err := agent.DecodeRawObject(existingRaw)
+	existingTop, err := render.DecodeRawObject(existingRaw)
 	if err != nil {
 		return nil, fmt.Errorf("existing file: %w", err)
 	}
-	renderedTop, err := agent.DecodeRawObject(body)
+	renderedTop, err := render.DecodeRawObject(body)
 	if err != nil {
 		return nil, err
 	}
-	existingHooks, err := agent.DecodeRawEvents(existingTop["hooks"])
+	existingHooks, err := render.DecodeRawEvents(existingTop["hooks"])
 	if err != nil {
 		return nil, fmt.Errorf("existing file: %w", err)
 	}
-	renderedHooks, err := agent.DecodeRawEvents(renderedTop["hooks"])
+	renderedHooks, err := render.DecodeRawEvents(renderedTop["hooks"])
 	if err != nil {
 		return nil, err
 	}
-	merged := agent.MergeHookEvents(existingHooks, renderedHooks, classifyCodexGroup)
+	merged := render.MergeHookEvents(existingHooks, renderedHooks, classifyCodexGroup)
 	hooksRaw, err := textutil.MarshalNoEscape(merged)
 	if err != nil {
 		return nil, err
@@ -109,7 +110,7 @@ func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
 // rebuildCodexGroup replaces a partially-filtered group's "hooks" array, preserving every other key
 // (matcher, or anything unknown) as raw bytes.
 func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.RawMessage, error) {
-	obj, err := agent.DecodeRawObject(raw)
+	obj, err := render.DecodeRawObject(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +122,7 @@ func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.Raw
 	return textutil.MarshalNoEscape(obj)
 }
 
-func renderCodex(reg *providers.Registry, sel providers.Selection, o agent.RenderOptions, out io.Writer) (bool, error) {
+func renderCodex(reg *providers.Registry, sel providers.Selection, o render.RenderOptions, out io.Writer) (bool, error) {
 	body, err := CodexJSON()
 	if err != nil {
 		return false, err
@@ -175,10 +176,10 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o agent.Rende
 		return false, err
 	}
 
-	drift, err := agent.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
+	drift, err := render.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
 	if err != nil {
 		return drift, err
 	}
-	d, err := agent.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
+	d, err := render.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
 	return drift || d, err
 }
