@@ -27,7 +27,9 @@ func inertStripped(cmd string) string {
 			seg = ""
 			var kept strings.Builder
 			for _, sub := range subs {
-				kept.WriteString(" $(" + sub + ")")
+				kept.WriteString(" $(")
+				kept.WriteString(sub)
+				kept.WriteString(")")
 			}
 			seg += kept.String()
 		}
