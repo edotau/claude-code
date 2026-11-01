@@ -2,12 +2,18 @@ package usage
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -95,5 +101,38 @@ func TestBudgetRowsSkipUnparsableNumbers(t *testing.T) {
 	rows := budgetRows("dev", mk(" 1,100.5 ", "2,000", "50.2"))
 	if len(rows) != 1 || rows[0].Used != 1100.5 || rows[0].Limit != 2000 {
 		t.Errorf("comma values = %+v", rows)
+	}
+}
+
+// withTokenExpiry stamps every row from the recorded expiry as RFC3339 UTC, and leaves the key out of the JSON when none exists.
+func TestWithTokenExpiryStampsRecordedExpiryAndOmitsWhenAbsent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rows := func() []quota { return []quota{{}, {}} }
+
+	bare, err := json.Marshal(withTokenExpiry(rows(), "dbx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bare), "token_expires_at") {
+		t.Fatalf("no record, yet JSON carries the key: %s", bare)
+	}
+
+	exp := time.Date(2026, 10, 31, 19, 22, 58, 0, time.UTC)
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec := []byte(`{"schema":1,"exp":` + strconv.FormatInt(exp.Unix(), 10) + `}`)
+	if err := os.WriteFile(filepath.Join(dir, "dbx.json"), rec, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := withTokenExpiry(rows(), "dbx")
+	for i, q := range got {
+		if q.TokenExpiresAt != "2026-10-31T19:22:58Z" {
+			t.Errorf("row %d TokenExpiresAt = %q, want 2026-10-31T19:22:58Z", i, q.TokenExpiresAt)
+		}
+	}
+	if other := withTokenExpiry(rows(), "other"); other[0].TokenExpiresAt != "" {
+		t.Errorf("a profile with no record was stamped %q", other[0].TokenExpiresAt)
 	}
 }
