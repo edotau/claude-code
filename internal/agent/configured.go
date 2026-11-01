@@ -19,5 +19,5 @@ func Configured(agent string, c router.Cell) error {
 	if _, err := paths.AgentBin(s.CLI.Binary); err != nil {
 		return err
 	}
-	return s.eng().presence(c)
+	return s.eng().Presence(c)
 }

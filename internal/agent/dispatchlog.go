@@ -285,36 +285,36 @@ func stderrLogFrom(ctx context.Context) *LogSink {
 	return c.sink
 }
 
-// teeWriter returns w that also feeds ctx's log, or w itself when the dispatch has none.
-func teeWriter(ctx context.Context, w io.Writer) io.Writer {
+// TeeWriter returns w that also feeds ctx's log, or w itself when the dispatch has none.
+func TeeWriter(ctx context.Context, w io.Writer) io.Writer {
 	if s := logFrom(ctx); s != nil {
 		return io.MultiWriter(w, s.Stream())
 	}
 	return w
 }
 
-// eventLog writes one formatted event line to the dispatch log; a nil eventLog is a no-op.
-type eventLog func(kind, text string)
+// StreamLog writes one formatted event line to the dispatch log; a nil StreamLog is a no-op.
+type StreamLog func(kind, text string)
 
 // eventTextCap bounds the text of one `▸ kind: text` log line, in runes.
 const eventTextCap = 300
 
 // eventLogFor binds ctx's sink; nil when the dispatch has none.
-func eventLogFor(ctx context.Context) eventLog {
+func eventLogFor(ctx context.Context) StreamLog {
 	if stderrLogFrom(ctx) == nil {
 		return nil
 	}
 	return func(kind, text string) { logEvent(ctx, kind, text) }
 }
 
-func (l eventLog) emit(kind, text string) {
+func (l StreamLog) emit(kind, text string) {
 	if l != nil {
 		l(kind, text)
 	}
 }
 
-// pickLog is the first non-nil optional eventLog argument, so parsers called without one stay silent.
-func pickLog(ls []eventLog) eventLog {
+// PickLog is the first non-nil optional eventLog argument, so parsers called without one stay silent.
+func PickLog(ls []StreamLog) StreamLog {
 	for _, l := range ls {
 		if l != nil {
 			return l

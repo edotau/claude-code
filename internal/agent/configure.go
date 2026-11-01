@@ -67,7 +67,7 @@ func routeEnvLast(launchEnv, env []string) []string {
 // applyLaunch appends the agent's spec Launch.Env (always) and Launch.Args (only when args is true) to
 // an already-built launch; a broken overlay is best-effort and must not break the launch.
 func (s Schema) applyLaunch(env, argv []string, args bool) ([]string, []string) {
-	env = append(env, s.eng().launchEnv()...)
+	env = append(env, s.eng().LaunchEnv()...)
 	vc, err := agentconfig.LoadConfig()
 	if err != nil {
 		return env, argv
@@ -85,7 +85,7 @@ func (s Schema) LaunchSpec() (env, argv []string) { return s.applyLaunch(nil, ni
 
 func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
 	name := s.Name
-	e, ok := engines[name]
+	e, ok := driverFor(name)
 	if !ok {
 		return nil, nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(Names(), "|"))
 	}
@@ -97,7 +97,7 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 		return login(e, p, models.Strip1M(t.Model), h)
 	}
 	if len(s.CLI.Dialects) == 0 && GeminiGatewayRow(p) { // a CLI with no dialect reaches a gateway row only here
-		return e.wire(ctx, wireRoute{Target: t, Provider: p}, h)
+		return e.Wire(ctx, WireRoute{Target: t, Provider: p}, h)
 	}
 	if ok, why := Serves(name, p, ""); !ok {
 		return nil, nil, fmt.Errorf("%s: %s", name, why)
@@ -122,7 +122,7 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 	} else if cred, err = providers.Credential(ctx, p); err != nil {
 		return nil, nil, err
 	}
-	return e.wire(ctx, wireRoute{Target: t, Provider: p, Dialect: dialect, Base: base, Model: model, Cred: cred, Routed: routed}, h)
+	return e.Wire(ctx, WireRoute{Target: t, Provider: p, Dialect: dialect, Base: base, Model: model, Cred: cred, Routed: routed}, h)
 }
 
 // Router seams (tests stub these so no daemon is spawned).
@@ -172,9 +172,9 @@ func positional(prompt string) []string {
 }
 
 // login runs the agent on its own subscription sign-in; a login provider serves only the CLI it names.
-func login(e engine, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
-	if !e.loginServes(p) {
+func login(e Driver, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+	if !e.LoginServes(p) {
 		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", e.Name(), p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
-	return e.login(p, model, h)
+	return e.Login(p, model, h)
 }

@@ -15,7 +15,7 @@ import (
 func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cmd, _ := childCmd(ctx, "sh", []string{"-c", "sleep 60 & sleep 60; wait"}, nil, t.TempDir(), "", nil, false)
+	cmd, _ := ChildCmd(ctx, "sh", []string{"-c", "sleep 60 & sleep 60; wait"}, nil, t.TempDir(), "", nil, false)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

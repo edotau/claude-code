@@ -138,8 +138,8 @@ func printLostLines(out io.Writer, lines []string) {
 
 // --- revert: step each agent file back to its newest backup version ---
 
-// labelPath is one file this tool can write, named by its commitFile label.
-type labelPath struct{ label, path string }
+// LabelPath is one file this tool can write, named by its commitFile label.
+type LabelPath struct{ Label, Path string }
 
 // homeOr is home, else the user's home directory.
 func homeOr(home string) (string, error) {
@@ -160,12 +160,12 @@ func RevertConfigs(o RenderOptions) error {
 		out = os.Stdout
 	}
 	for _, a := range agents {
-		files, err := schemaFor(a).eng().configPaths(o.Home)
+		files, err := schemaFor(a).eng().ConfigPaths(o.Home)
 		if err != nil {
 			return fmt.Errorf("generate: %w", err)
 		}
 		for _, lp := range files {
-			if err := revertOne(lp.label, lp.path, o.DryRun, out); err != nil {
+			if err := revertOne(lp.Label, lp.Path, o.DryRun, out); err != nil {
 				return err
 			}
 		}

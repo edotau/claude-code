@@ -146,7 +146,17 @@ type Engine interface {
 
 // Engines lists every agent in roster order.
 func Engines() []Engine {
-	return []Engine{claudeAgent, newCLIEngine("codex"), newCLIEngine("gemini"), newCLIEngine("opencode"), copilotAgent}
+	var out []Engine
+	for _, s := range rows() {
+		if s.Name == "claude" {
+			out = append(out, claudeAgent)
+		} else if e, ok := mustDriver(s.Name).(Engine); ok {
+			out = append(out, e)
+		} else {
+			out = append(out, newCLIEngine(s.Name))
+		}
+	}
+	return out
 }
 
 // Lookup finds an agent by name.
@@ -424,9 +434,9 @@ func attachSuffix(prompt string, paths []string) string {
 // ErrBadAttach marks an unreadable or binary --attach file: a request fault no other agent can fix.
 var ErrBadAttach = errors.New("attach")
 
-// attachInline embeds each path as a literal <file path="…">content</file> block after prompt: the
+// AttachInline embeds each path as a literal <file path="…">content</file> block after prompt: the
 // fallback for an agent with no live-read channel (codex's prompt rides stdin blind).
-func attachInline(prompt string, paths []string) (string, error) {
+func AttachInline(prompt string, paths []string) (string, error) {
 	if len(paths) == 0 {
 		return prompt, nil
 	}
@@ -457,9 +467,9 @@ func IsImage(data []byte) bool {
 	return false
 }
 
-// splitImages separates the image paths (by content sniff) from the rest; an unreadable path stays in rest so
+// SplitImages separates the image paths (by content sniff) from the rest; an unreadable path stays in rest so
 // attachInline reports it.
-func splitImages(paths []string) (images, rest []string) {
+func SplitImages(paths []string) (images, rest []string) {
 	for _, p := range paths {
 		head := make([]byte, 512)
 		f, err := os.Open(p)
@@ -490,10 +500,10 @@ func envNames(env []string) []string {
 	return out
 }
 
-// childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
+// ChildCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
 // is scrubbed of inherited credentials before env (the launch's own additions) is layered on. agent
 // also scrubs HARNESS_VAULT_KEY: true for every agent CLI child, false for the claude agent's own child.
-func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *TailBuffer) {
+func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	ownGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second

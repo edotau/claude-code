@@ -45,8 +45,8 @@ func (s *chanSink) Emit(ev Event) error {
 	default:
 	}
 	if s.fullSince.IsZero() {
-		s.fullSince = clock()
-	} else if clock().Sub(s.fullSince) > streamStall {
+		s.fullSince = Clock()
+	} else if Clock().Sub(s.fullSince) > streamStall {
 		s.cancel(ErrStreamAbandoned)
 	}
 	select {

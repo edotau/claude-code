@@ -70,8 +70,8 @@ func TestCheckVerdictsPerKind(t *testing.T) {
 	env(t)
 	ocred := credential
 	t.Cleanup(func() { credential = ocred })
-	oc, og, ov, ocp := claudeStatus, geminiPresent, codexStatus, signinCopilotLogin
-	t.Cleanup(func() { claudeStatus, geminiPresent, codexStatus, signinCopilotLogin = oc, og, ov, ocp })
+	oc, og, ov, ocp := claudeStatus, geminiPresent, CodexStatus, signinCopilotLogin
+	t.Cleanup(func() { claudeStatus, geminiPresent, CodexStatus, signinCopilotLogin = oc, og, ov, ocp })
 	pathstest.FakeVendor(t, "codex", "#!/bin/sh\nexit 0\n")
 
 	var credErr error
@@ -141,17 +141,17 @@ func TestCheckVerdictsPerKind(t *testing.T) {
 	})
 	t.Run("codex", func(t *testing.T) {
 		cx := row("x", providers.Auth{Type: providers.AuthCLI, Login: "codex"})
-		codexStatus = func(context.Context, string) ([]byte, error) { return []byte("Logged in using ChatGPT\n"), nil }
+		CodexStatus = func(context.Context, string) ([]byte, error) { return []byte("Logged in using ChatGPT\n"), nil }
 		if v, d := SigninFor(cx).Check(context.Background()); v != providers.VerdictOK || d != "Logged in using ChatGPT" {
 			t.Errorf("logged in = %s %q", v, d)
 		}
-		codexStatus = func(context.Context, string) ([]byte, error) {
+		CodexStatus = func(context.Context, string) ([]byte, error) {
 			return nil, &exec.ExitError{}
 		}
 		if v, _ := SigninFor(cx).Check(context.Background()); v != providers.VerdictNeedsLogin {
 			t.Errorf("exit 1 = %s", v)
 		}
-		codexStatus = func(context.Context, string) ([]byte, error) { return nil, errors.New("exec: killed") }
+		CodexStatus = func(context.Context, string) ([]byte, error) { return nil, errors.New("exec: killed") }
 		if v, _ := SigninFor(cx).Check(context.Background()); v != providers.VerdictTransient {
 			t.Errorf("non-exit error must be transient, got %s", v)
 		}
@@ -383,10 +383,10 @@ func TestSecretOKDetail(t *testing.T) {
 
 func TestCodexDetailCutAtDash(t *testing.T) {
 	env(t)
-	o := codexStatus
-	t.Cleanup(func() { codexStatus = o })
+	o := CodexStatus
+	t.Cleanup(func() { CodexStatus = o })
 	pathstest.FakeVendor(t, "codex", "#!/bin/sh\nexit 0\n")
-	codexStatus = func(context.Context, string) ([]byte, error) {
+	CodexStatus = func(context.Context, string) ([]byte, error) {
 		return []byte("Logged in using ChatGPT - user@example.com\n"), nil
 	}
 	_, d := SigninFor(row("x", providers.Auth{Type: providers.AuthCLI, Login: "codex"})).Check(context.Background())

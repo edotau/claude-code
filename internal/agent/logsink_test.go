@@ -70,8 +70,8 @@ func TestLogSinkStdoutByteIdentical(t *testing.T) {
 	run := func(ctx context.Context) []byte {
 		t.Helper()
 		var buf bytes.Buffer
-		cmd, _ := childCmd(ctx, bin, nil, nil, "", "", nil, true)
-		cmd.Stdout = teeWriter(ctx, &buf)
+		cmd, _ := ChildCmd(ctx, bin, nil, nil, "", "", nil, true)
+		cmd.Stdout = TeeWriter(ctx, &buf)
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("run fake: %v", err)
 		}

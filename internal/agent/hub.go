@@ -42,7 +42,7 @@ var errStalled = errors.New("free dispatch stalled: no output within the first-o
 // IsHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
 // copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
 func IsHubAgent(name string) bool {
-	return slices.ContainsFunc(rosterRows, func(s Schema) bool { return s.Name == name && s.CLI.Hub })
+	return slices.ContainsFunc(rows(), func(s Schema) bool { return s.Name == name && s.CLI.Hub })
 }
 
 // HubStart resolves the provider a hub agent's first dispatch targets: explicitProvider when the caller set
@@ -166,7 +166,7 @@ func (l hubDispatch) Run(ctx context.Context, req RunOptions, sink Sink) (Result
 		defer timer.Stop()
 		defer cancel()
 	}
-	cmd, tail := childCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
+	cmd, tail := ChildCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	out, runErr := runEventStream(cctx, l.agent, cmd, tail, sink, parseOpenCodeStream, onFirstByte)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {

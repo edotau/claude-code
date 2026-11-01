@@ -37,7 +37,7 @@ func TestVendorEngineAttachPrompt(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := engines[c.vendor].attach("task", []string{f}, c.tools)
+			got, err := mustDriver(c.vendor).Attach("task", []string{f}, c.tools)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +57,7 @@ func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
 	}{
 		{"codex", true}, {"gemini", false},
 	} {
-		if _, err := engines[c.vendor].attach("task", []string{"/does/not/exist"}, c.tools); err == nil {
+		if _, err := mustDriver(c.vendor).Attach("task", []string{"/does/not/exist"}, c.tools); err == nil {
 			t.Fatalf("%s tools=%v: want an error for a missing attachment, got nil", c.vendor, c.tools)
 		}
 	}

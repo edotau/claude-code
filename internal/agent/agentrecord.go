@@ -13,8 +13,8 @@ type AgentRecord = vault.AgentRecord
 func AgentRecords() map[string]AgentRecord {
 	var recs map[string]AgentRecord
 	_ = vault.View(func(tx *vault.Tx) (err error) { recs, err = tx.AgentRecords(); return err })
-	out := make(map[string]AgentRecord, len(rosterRows))
-	for _, k := range rosterRows {
+	out := make(map[string]AgentRecord, len(rows()))
+	for _, k := range rows() {
 		out[k.Name] = recs[k.Name]
 	}
 	return out

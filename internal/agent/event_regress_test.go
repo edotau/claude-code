@@ -52,7 +52,7 @@ func TestEventLogFlushesHeldTextBeforeToolUse(t *testing.T) {
 	l := NewEventLog(path, "id1")
 	_ = l.Emit(Event{Type: EventStart})
 	_ = l.Emit(Event{Type: EventText, Text: "no newline yet"})
-	_ = l.Emit(toolEvent("Bash", "t1"))
+	_ = l.Emit(ToolEvent("Bash", "t1"))
 	_ = l.Emit(Event{Type: EventResult})
 	l.Close()
 	var got []string

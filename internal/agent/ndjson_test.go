@@ -11,36 +11,36 @@ func newBR(s string) *bufio.Reader { return bufio.NewReader(strings.NewReader(s)
 type nonJSONCase struct {
 	name   string
 	events string
-	big    func(text string) string                       // one event carrying text
-	run    func(string, eventLog) (Result, string, error) // returns the result and the streamed text
+	big    func(text string) string                        // one event carrying text
+	run    func(string, StreamLog) (Result, string, error) // returns the result and the streamed text
 }
 
 func ndjsonCases() []nonJSONCase {
 	return []nonJSONCase{
 		{"claude", claudeFixture, func(s string) string {
 			return `{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"` + s + `"}]}}` + "\n"
-		}, func(in string, lg eventLog) (Result, string, error) {
+		}, func(in string, lg StreamLog) (Result, string, error) {
 			var out strings.Builder
 			res, err := parseClaudeStream(newBR(in), NewTextSink(&out), lg)
 			return res, out.String(), err
 		}},
 		{"codex", codexFixture, func(s string) string {
 			return `{"type":"item.completed","item":{"id":"i9","type":"agent_message","text":"` + s + `"}}` + "\n"
-		}, func(in string, lg eventLog) (Result, string, error) {
+		}, func(in string, lg StreamLog) (Result, string, error) {
 			var out strings.Builder
 			res, err := parseCodexStream(newBR(in), NewTextSink(&out), nil, lg)
 			return res, out.String(), err
 		}},
 		{"agy", agyOK, func(s string) string {
 			return `{"event":"step_update","step_update":{"conversation_id":"415ed744","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"` + s + `"}}` + "\n"
-		}, func(in string, lg eventLog) (Result, string, error) {
+		}, func(in string, lg StreamLog) (Result, string, error) {
 			var out strings.Builder
 			res, err := parseAgyStream(newBR(in), NewTextSink(&out), nil, lg)
 			return res, out.String(), err
 		}},
 		{"vendor", openCodeOK, func(s string) string {
 			return `{"type":"text","timestamp":2,"sessionID":"ses_A","part":{"id":"p2","sessionID":"ses_A","type":"text","text":"` + s + `"}}` + "\n"
-		}, func(in string, lg eventLog) (Result, string, error) {
+		}, func(in string, lg StreamLog) (Result, string, error) {
 			var out strings.Builder
 			res, err := parseOpenCodeStream(newBR(in), NewTextSink(&out), nil, lg)
 			return res, out.String(), err

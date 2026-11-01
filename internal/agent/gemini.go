@@ -20,25 +20,25 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 )
 
-type geminiEngine struct{ baseEngine }
+type geminiEngine struct{ BaseEngine }
 
-var _ headlessEngine = geminiEngine{}
+var _ HeadlessDriver = geminiEngine{}
 
-func (geminiEngine) attach(prompt string, paths []string, tools bool) (string, error) {
+func (geminiEngine) Attach(prompt string, paths []string, tools bool) (string, error) {
 	if tools {
 		return attachSuffix(prompt, paths), nil
 	}
-	return attachInline(prompt, paths)
+	return AttachInline(prompt, paths)
 }
 
-func (geminiEngine) before(req RunOptions, t providers.Target) providers.Target {
+func (geminiEngine) Before(req RunOptions, t providers.Target) providers.Target {
 	t.Model = agyModel(req, t)
 	return t
 }
 
-func (geminiEngine) exec(ctx context.Context, p cliPrep, req RunOptions, sink Sink) (Result, error) {
+func (geminiEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink Sink) (Result, error) {
 	areq := p.agyRequest(req)
-	res := p.res
+	res := p.Result
 	res.Model = areq.Model
 	out, err := runAgy(ctx, areq, sink)
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
@@ -48,20 +48,20 @@ func (geminiEngine) exec(ctx context.Context, p cliPrep, req RunOptions, sink Si
 	return res, err
 }
 
-func (geminiEngine) login(_ *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+func (geminiEngine) Login(_ *providers.Provider, model string, h *Headless) ([]string, []string, error) {
 	return geminiLogin(model, h)
 }
 
-// wire serves only a gateway row: Serves refuses agy every other non-login row.
-func (geminiEngine) wire(ctx context.Context, r wireRoute, h *Headless) ([]string, []string, error) {
+// Wire serves only a gateway row: Serves refuses agy every other non-login row.
+func (geminiEngine) Wire(ctx context.Context, r WireRoute, h *Headless) ([]string, []string, error) {
 	if isDirect(ctx) { // --direct skips the router that swaps the Databricks token
 		return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", r.Provider.Name)
 	}
 	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: the router fixes agy's requests for Databricks
 }
 
-func (e geminiEngine) fallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	if p, ok := loginProvider(reg, "google", e.name); ok && GeminiLoginPresent() {
+func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
+	if p, ok := LoginProvider(reg, "google", e.name); ok && GeminiLoginPresent() {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
 		t, _ := ResolveAgentModel(ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return t, "gemini (Google login via agy)", true
@@ -73,27 +73,27 @@ func (geminiEngine) LoginStatus() (bool, string) {
 	return GeminiLoginPresent(), "Google login (agy)"
 }
 
-// followsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
-func (geminiEngine) followsPin(p *providers.Provider) bool {
+// FollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
+func (geminiEngine) FollowsPin(p *providers.Provider) bool {
 	return !GeminiGatewayRow(p) || GetAgentRecord("gemini").Profile == p.Name
 }
 
-// noRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
-func (geminiEngine) noRoute(_ *providers.Registry, t providers.Target) error {
+// NoRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
+func (geminiEngine) NoRoute(_ *providers.Registry, t providers.Target) error {
 	if GeminiGatewayRow(t.Provider) {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
 	return nil
 }
 
-func (geminiEngine) checkLogin(context.Context) (providers.AuthVerdict, string) {
+func (geminiEngine) CheckLogin(context.Context) (providers.AuthVerdict, string) {
 	if geminiPresent() {
 		return providers.VerdictOK, "agy login present"
 	}
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (geminiEngine) render(_ *providers.Registry, sel providers.Selection, home string, o RenderOptions, out io.Writer) (bool, error) {
+func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o RenderOptions, out io.Writer) (bool, error) {
 	d, err := reportGemini(sel, out)
 	if err != nil {
 		return d, err
@@ -102,15 +102,15 @@ func (geminiEngine) render(_ *providers.Registry, sel providers.Selection, home 
 	return d || gd, err
 }
 
-func (geminiEngine) configPaths(home string) ([]labelPath, error) {
+func (geminiEngine) ConfigPaths(home string) ([]LabelPath, error) {
 	home, err := homeOr(home)
 	if err != nil {
 		return nil, err
 	}
-	return []labelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
+	return []LabelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
 }
 
-func (geminiEngine) routeDetail() (string, bool) { return geminiRouteDetail(), true }
+func (geminiEngine) RouteDetail() (string, bool) { return geminiRouteDetail(), true }
 
 func (geminiEngine) NewLive() LiveBackend { return &agyLive{} }
 
@@ -287,7 +287,7 @@ func runAgy(ctx context.Context, r agyRequest, sink Sink) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
+	cmd, tail := ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
 	return runEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, nil)
 }
 
@@ -321,14 +321,14 @@ type agyEvent struct {
 }
 
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
-func parseAgyStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (Result, error) {
-	return parseAgyEvents(br, sink, false, pickLog(logs))
+func parseAgyStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...StreamLog) (Result, error) {
+	return parseAgyEvents(br, sink, false, PickLog(logs))
 }
 
 // parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
-func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Result, _ error) {
-	ts := transportTracker{start: clock()}
-	defer func() { res.Transport = ts.result() }()
+func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res Result, _ error) {
+	ts := TransportTracker{Start: Clock()}
+	defer func() { res.Transport = ts.Result() }()
 	var answer, pending strings.Builder
 	flush := func() {
 		lg.emit("assistant", pending.String())
@@ -338,14 +338,14 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Re
 	var sawResult bool
 	var lastStep string // the last step type/state logged, so repeated updates stay one line
 	var openStep string // the last non-response step still running (a backgrounded command), else ""
-	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
+	err := DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev agyEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			flush()
-			_ = emitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
+			_ = EmitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
 			return false, fmt.Errorf("decode agy stream-json: %w", err)
 		}
-		ts.event(clock())
+		ts.Event(Clock())
 		switch ev.Event {
 		case "init":
 			res.SessionID = ev.ConvID
@@ -374,7 +374,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Re
 			response = ev.Result.Response
 			flush()
 			if err := applyAgyResult(&res, ev); err != nil {
-				_ = emitError(lg, sink, err.Error()) // the agy error returned below aborts
+				_ = EmitError(lg, sink, err.Error()) // the agy error returned below aborts
 				res.Answer = strings.TrimSpace(answer.String())
 				if once {
 					err = resultError{err} // the result was consumed: the turn failed, the stream is at a boundary

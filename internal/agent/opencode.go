@@ -196,7 +196,7 @@ func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, b
 	if !OpencodeCopilotLoginPresent() {
 		return providers.Target{}, "", false
 	}
-	p, ok := loginProvider(reg, "github", "copilot")
+	p, ok := LoginProvider(reg, "github", "copilot")
 	if !ok {
 		return providers.Target{}, "", false
 	}
@@ -227,7 +227,7 @@ func opencodeCopilotLogin(model string, h *Headless) ([]string, []string, error)
 // session alias, rooted at the github-copilot provider instead of the session's. ok is false without a
 // registered github-copilot provider or either alias.
 func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
-	p, found := loginProvider(reg, "github", "copilot")
+	p, found := LoginProvider(reg, "github", "copilot")
 	if !found {
 		return "", "", false
 	}
@@ -309,31 +309,31 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 
 func init() { agentconfig.OverlayModels = opencodeOverlayModels }
 
-type opencodeEngine struct{ baseEngine }
+type opencodeEngine struct{ BaseEngine }
 
-var _ headlessEngine = opencodeEngine{}
+var _ HeadlessDriver = opencodeEngine{}
 
-func (opencodeEngine) after(p *cliPrep, req RunOptions) {
+func (opencodeEngine) After(p *CLIPrep, req RunOptions) {
 	if req.SystemPrompt != "" {
-		p.env, p.argv = opencodeSystemPrompt(p.env, p.argv, req.SystemPrompt)
+		p.Env, p.Argv = opencodeSystemPrompt(p.Env, p.Argv, req.SystemPrompt)
 	}
 }
 
-func (e opencodeEngine) exec(ctx context.Context, p cliPrep, req RunOptions, sink Sink) (Result, error) {
-	bin, err := e.bin()
+func (e opencodeEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink Sink) (Result, error) {
+	bin, err := e.Bin()
 	if err != nil {
-		return p.res, err
+		return p.Result, err
 	}
-	cmd, tail := childCmd(ctx, bin, p.argv, p.env, req.WorkDir, "", req.KeepEnv, true)
-	return runStream(ctx, e.name, cmd, tail, p.res, sink, parseOpenCodeStream)
+	cmd, tail := ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
+	return RunStream(ctx, e.name, cmd, tail, p.Result, sink, parseOpenCodeStream)
 }
 
-// loginServes adds github: that profile's Auth.Login names copilot, yet opencode has its own GitHub Copilot login.
-func (e opencodeEngine) loginServes(p *providers.Provider) bool {
-	return p.Provider == "github" || e.baseEngine.loginServes(p)
+// LoginServes adds github: that profile's Auth.Login names copilot, yet opencode has its own GitHub Copilot login.
+func (e opencodeEngine) LoginServes(p *providers.Provider) bool {
+	return p.Provider == "github" || e.BaseEngine.LoginServes(p)
 }
 
-func (opencodeEngine) login(p *providers.Provider, model string, h *Headless) (env, argv []string, err error) {
+func (opencodeEngine) Login(p *providers.Provider, model string, h *Headless) (env, argv []string, err error) {
 	if p.Provider != "github" {
 		return nil, nil, errors.New("opencode: no subscription sign-in support")
 	}
@@ -343,15 +343,15 @@ func (opencodeEngine) login(p *providers.Provider, model string, h *Headless) (e
 	return opencodeCopilotLogin(model, h)
 }
 
-func (opencodeEngine) wire(ctx context.Context, r wireRoute, h *Headless) (env, argv []string, err error) {
+func (opencodeEngine) Wire(ctx context.Context, r WireRoute, h *Headless) (env, argv []string, err error) {
 	return opencode(r.Provider, r.Dialect, r.Base, r.Model, r.Cred, r.Routed, h)
 }
 
-func (e opencodeEngine) fallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	return routeFallback(reg, e.describeRoute(reg))
+func (e opencodeEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
+	return routeFallback(reg, e.DescribeRoute(reg))
 }
 
-func (opencodeEngine) describeRoute(reg *providers.Registry) RouteInfo {
+func (opencodeEngine) DescribeRoute(reg *providers.Registry) RouteInfo {
 	return describeOpenCodeRoute(reg)
 }
 
@@ -362,8 +362,8 @@ func (opencodeEngine) LoginStatus() (bool, string) {
 	return false, ""
 }
 
-// preRoute prefers opencode's own login (Go/Zen, else the github-copilot one) ahead of a session provider that could serve it.
-func (opencodeEngine) preRoute(reg *providers.Registry, explicit bool) (providers.Target, string, bool, error) {
+// PreRoute prefers opencode's own login (Go/Zen, else the github-copilot one) ahead of a session provider that could serve it.
+func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (providers.Target, string, bool, error) {
 	if explicit {
 		return providers.Target{}, "", false, nil
 	}
@@ -376,19 +376,19 @@ func (opencodeEngine) preRoute(reg *providers.Registry, explicit bool) (provider
 	return providers.Target{}, "", false, nil
 }
 
-func (e opencodeEngine) noRoute(reg *providers.Registry, _ providers.Target) error {
-	return routeErr(e.describeRoute(reg))
+func (e opencodeEngine) NoRoute(reg *providers.Registry, _ providers.Target) error {
+	return routeErr(e.DescribeRoute(reg))
 }
 
-// launchEnv points every opencode launch at the tracked overlay; a failed write is best-effort, opencode runs without it.
-func (opencodeEngine) launchEnv() []string {
+// LaunchEnv points every opencode launch at the tracked overlay; a failed write is best-effort, opencode runs without it.
+func (opencodeEngine) LaunchEnv() []string {
 	if cfg, tui, err := agentconfig.WriteOpencodeOverlay(); err == nil {
 		return []string{"OPENCODE_CONFIG=" + cfg, "OPENCODE_TUI_CONFIG=" + tui}
 	}
 	return nil
 }
 
-func (opencodeEngine) presence(c router.Cell) error {
+func (opencodeEngine) Presence(c router.Cell) error {
 	if id, _, found := strings.Cut(c.Model, "/"); found {
 		_, err := opencodeCredential(id)
 		return err
@@ -396,9 +396,9 @@ func (opencodeEngine) presence(c router.Cell) error {
 	return nil
 }
 
-// ownLogin is opencode on its own stored login/config: argv only, no harness route injected.
+// OwnLogin is opencode on its own stored login/config: argv only, no harness route injected.
 // Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
-func (e opencodeEngine) ownLogin(h Headless) (env, argv []string, err error) {
+func (e opencodeEngine) OwnLogin(h Headless) (env, argv []string, err error) {
 	if err := checkPrompt(h); err != nil {
 		return nil, nil, err
 	}
@@ -410,11 +410,11 @@ func (e opencodeEngine) ownLogin(h Headless) (env, argv []string, err error) {
 	return routeEnvLast(launchEnv, env), argv, nil
 }
 
-func (opencodeEngine) render(_ *providers.Registry, _ providers.Selection, _ string, o RenderOptions, out io.Writer) (bool, error) {
+func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ string, o RenderOptions, out io.Writer) (bool, error) {
 	return renderOpenCodeOverlay(o, out)
 }
 
-func (opencodeEngine) routeDetail() (string, bool) {
+func (opencodeEngine) RouteDetail() (string, bool) {
 	reg, sel, selErr, ok := loadSelection()
 	if !ok {
 		return "", false
