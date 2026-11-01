@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc/inflight"
+	"github.com/edotau/claude-code/internal/inflight"
 )
 
 // sleeper starts `sh -c 'sleep 30'` in its own process group writing to out; done closes once it is reaped.

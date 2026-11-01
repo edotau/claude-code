@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // scanAllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
