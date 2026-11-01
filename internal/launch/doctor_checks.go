@@ -102,7 +102,7 @@ var knownStateNames = []string{
 	"harness", "plans-scratch", "copilot", "projections", "statusline", "usage", "vault.db*",
 	"*.lock", "*.log", "backups", "cache", "locks", "history*", "checkpoint", "agents-inflight", "memory",
 	"codex", "opencode", "preflight", "dispatch", "vendors", "vendor-baseline", "stop-format", "worktree-merge-ops", "worktree-busy",
-	"agentversion.json", "opencode-models-check.json", "proxy.json", "router.json", "tailscale-machines.json",
+	"vscode-serve", "vscode-serve.secret", "agentversion.json", "opencode-models-check.json", "proxy.json", "router.json", "tailscale-machines.json",
 }
 
 // formatsDoctorChecks returns the soft "formats" and "state layout" rows.
