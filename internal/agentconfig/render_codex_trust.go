@@ -1,4 +1,4 @@
-package agent
+package agentconfig
 
 import (
 	"bytes"
@@ -17,12 +17,12 @@ import (
 )
 
 // Codex hashes sorted compact JSON of event_name and a group containing one normalized handler (verified
-// on 0.163.0). codexTrustEntries reads mergedHooks — the real post-merge hooks.json, not the isolated
+// on 0.163.0). CodexTrustEntries reads mergedHooks — the real post-merge hooks.json, not the isolated
 // rendered body — so gi/hi land on the position Codex itself will read; it emits an entry only for a
 // harness-owned hook (IsHarness), leaving whatever trust Codex/Orca already recorded for a
 // foreign hook (Orca, claude-dbx) alone. An event is checked against Codex's supported set only once it
 // is found to contain a harness hook, so a foreign-only event (Stop, SessionStart, ...) never errors.
-func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, error) {
+func CodexTrustEntries(path string, mergedHooks []byte) (map[string]string, error) {
 	var config struct {
 		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
 	}
@@ -34,7 +34,7 @@ func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, erro
 		settings.EventUserPromptSubmit: "user_prompt_submit",
 		settings.EventSessionStart:     "session_start", settings.EventSubagentStart: "subagent_start",
 	}
-	path = codexHookSourcePath(path)
+	path = CodexHookSourcePath(path)
 	entries := map[string]string{}
 	for event, groups := range config.Hooks {
 		if !anyHarnessHook(groups) {
@@ -103,7 +103,7 @@ func codexTrustDigest(event, name string, group settings.MatcherGroup, hook sett
 }
 
 // Codex resolves the source directory through symlinks but retains the hooks.json leaf.
-func codexHookSourcePath(path string) string {
+func CodexHookSourcePath(path string) string {
 	path, _ = filepath.Abs(path)
 	parent := filepath.Dir(path)
 	tail := filepath.Base(path)
@@ -128,8 +128,8 @@ var codexTrustedHashRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^(\s*(?:trusted_hash|"trusted_hash"|'trusted_hash')\s*=\s*)("(?:[^"\\]|\\.)*"|'[^']*')(.*)$`)
 })
 
-// mergeCodexTrust changes only the emitted hooks' hashes, retaining unrelated tables, fields, and comments.
-func mergeCodexTrust(raw string, entries map[string]string) string {
+// MergeCodexTrust changes only the emitted hooks' hashes, retaining unrelated tables, fields, and comments.
+func MergeCodexTrust(raw string, entries map[string]string) string {
 	remaining := make(map[string]string, len(entries))
 	maps.Copy(remaining, entries)
 	var out strings.Builder
@@ -157,7 +157,7 @@ func mergeCodexTrust(raw string, entries map[string]string) string {
 			}
 		}
 		out.WriteString(line)
-		state, depth = tomlLineState(line, state, depth)
+		state, depth = TOMLLineState(line, state, depth)
 	}
 	flush()
 	keys := make([]string, 0, len(remaining))

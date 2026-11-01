@@ -1,4 +1,4 @@
-package agent
+package agentconfig
 
 import (
 	"encoding/json"
@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// tomlString reads one basic or literal TOML string value, dropping a trailing comment; bare values are kept.
-func tomlString(v string) string {
+// TOMLString reads one basic or literal TOML string value, dropping a trailing comment; bare values are kept.
+func TOMLString(v string) string {
 	v = strings.TrimSpace(v)
 	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
 		if end := strings.IndexByte(v[1:], v[0]); end >= 0 {
@@ -20,13 +20,13 @@ func tomlString(v string) string {
 	return strings.TrimSpace(v)
 }
 
-// tomlQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
-func tomlQuote(s string) string {
+// TOMLQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
+func TOMLQuote(s string) string {
 	b, _ := json.Marshal(s) // a JSON string is a valid TOML basic string
 	return string(b)
 }
 
-func tomlInline(pairs [][2]string) string {
+func TOMLInline(pairs [][2]string) string {
 	parts := make([]string, len(pairs))
 	for i, kv := range pairs {
 		parts[i] = kv[0] + " = " + kv[1]
@@ -44,13 +44,13 @@ func appendTOML(raw, section string) string {
 	return raw + "\n" + section
 }
 
-// insertTopLevelTOML puts section before the first real top-level table header (outside multiline
+// InsertTopLevelTOML puts section before the first real top-level table header (outside multiline
 // strings and open arrays), dropping any pre-existing top-level assignment section itself also sets,
 // so TOML never ends up with duplicate keys; with no such header in raw, it falls back to appendTOML.
-func insertTopLevelTOML(raw, section string) string {
+func InsertTopLevelTOML(raw, section string) string {
 	keys := topLevelKeysOf(section)
 	lines := strings.SplitAfter(raw, "\n")
-	idx := firstTopLevelHeaderIndex(lines)
+	idx := FirstTopLevelHeaderIndex(lines)
 	if idx == -1 {
 		return appendTOML(dropTopLevelKeys(raw, keys), section)
 	}
@@ -67,7 +67,7 @@ func insertTopLevelTOML(raw, section string) string {
 // the keys an insert must not duplicate in whatever top-level text already precedes it.
 func topLevelKeysOf(section string) []string {
 	lines := strings.SplitAfter(section, "\n")
-	idx := firstTopLevelHeaderIndex(lines)
+	idx := FirstTopLevelHeaderIndex(lines)
 	if idx == -1 {
 		idx = len(lines)
 	}
@@ -84,8 +84,8 @@ func topLevelKeysOf(section string) []string {
 	return keys
 }
 
-// tomlKeyName decodes one quoted key without stripping quotes that belong to its actual name.
-func tomlKeyName(raw string) string {
+// TOMLKeyName decodes one quoted key without stripping quotes that belong to its actual name.
+func TOMLKeyName(raw string) string {
 	key := strings.TrimSpace(raw)
 	if len(key) >= 2 && key[0] == '\'' && key[len(key)-1] == '\'' {
 		return key[1 : len(key)-1]
@@ -112,11 +112,11 @@ func dropTopLevelKeys(raw string, keys []string) string {
 		trimmed := strings.TrimSpace(line)
 		drop := skipping
 		if !skipping && multiline == "" && depth == 0 {
-			if key, _, ok := strings.Cut(trimmed, "="); ok && slices.Contains(keys, tomlKeyName(key)) {
+			if key, _, ok := strings.Cut(trimmed, "="); ok && slices.Contains(keys, TOMLKeyName(key)) {
 				drop = true
 			}
 		}
-		nextMultiline, nextDepth := tomlLineState(line, multiline, depth)
+		nextMultiline, nextDepth := TOMLLineState(line, multiline, depth)
 		if drop {
 			skipping = nextMultiline != "" || nextDepth > 0
 		} else {
@@ -127,22 +127,22 @@ func dropTopLevelKeys(raw string, keys []string) string {
 	return out.String()
 }
 
-// firstTopLevelHeaderIndex finds the first line whose "[" is a genuine top-level table header: outside
+// FirstTopLevelHeaderIndex finds the first line whose "[" is a genuine top-level table header: outside
 // any multiline string and outside an open (possibly multiline) array; -1 when raw has none.
-func firstTopLevelHeaderIndex(lines []string) int {
+func FirstTopLevelHeaderIndex(lines []string) int {
 	multiline, depth := "", 0
 	for i, line := range lines {
 		if multiline == "" && depth == 0 && strings.HasPrefix(strings.TrimSpace(line), "[") {
 			return i
 		}
-		multiline, depth = tomlLineState(line, multiline, depth)
+		multiline, depth = TOMLLineState(line, multiline, depth)
 	}
 	return -1
 }
 
-// tomlLineState extends tomlMultilineState with bracket depth, so a "["-led continuation line inside
+// TOMLLineState extends tomlMultilineState with bracket depth, so a "["-led continuation line inside
 // an open (possibly multiline) array is never mistaken for a table header.
-func tomlLineState(line, state string, depth int) (string, int) {
+func TOMLLineState(line, state string, depth int) (string, int) {
 	for i := 0; i < len(line); {
 		if state != "" {
 			if state == `"""` && line[i] == '\\' {
