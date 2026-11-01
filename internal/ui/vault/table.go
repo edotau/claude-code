@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"unicode/utf8"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
@@ -151,7 +149,7 @@ func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax i
 	rows = slices.Clone(rows)
 	for i, r := range rows {
 		if keyMax > 0 {
-			r[0] = vaultTruncateMiddle(r[0], keyMax) // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
+			r[0] = table.TruncateMiddle(r[0], keyMax) // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
 		}
 		if valueMax > 0 {
 			r[1] = table.Truncate(r[1], valueMax)
@@ -165,28 +163,12 @@ func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax i
 		b.WriteString("  (none)\n")
 		return b.String()
 	}
-	keyW := 0
-	for _, r := range rows {
-		if n := utf8.RuneCountInString(r[0]); n > keyW {
-			keyW = n
-		}
+	cells := make([][]string, len(rows))
+	for i, r := range rows {
+		cells[i] = []string{r[0], r[1]}
 	}
-	for _, r := range rows {
-		line := fmt.Sprintf("  %-*s  %s", keyW, r[0], r[1])
-		b.WriteString(table.Truncate(line, width))
-		b.WriteString("\n")
-	}
+	b.WriteString(table.Indented(cells, width, nil))
 	return b.String()
-}
-
-// vaultTruncateMiddle clips s to width runes keeping both ends, so names that share a long prefix stay distinct.
-func vaultTruncateMiddle(s string, width int) string {
-	r := []rune(s)
-	if width <= 2 || len(r) <= width {
-		return table.Truncate(s, width)
-	}
-	tail := (width - 1) / 2
-	return string(r[:width-1-tail]) + "…" + string(r[len(r)-tail:])
 }
 
 // vaultProvidersText renders the providers overlay as a provider table (PLANS stays JSON-only) and one-line lists.
@@ -494,19 +476,11 @@ func vaultAgentsText(raw json.RawMessage, width int, color bool) string {
 
 // vaultOverlayLines aligns agent/path/value rows (path and value clipped like the key/value sections).
 func vaultOverlayLines(rows [][3]string, width int) string {
-	clipped := make([][3]string, len(rows))
-	aw, pw := 0, 0
+	cells := make([][]string, len(rows))
 	for i, r := range rows {
-		clipped[i] = [3]string{r[0], vaultTruncateMiddle(r[1], kvKeyMax+8), table.Truncate(r[2], kvValueMax)}
-		aw, pw = max(aw, utf8.RuneCountInString(r[0])), max(pw, utf8.RuneCountInString(clipped[i][1]))
+		cells[i] = []string{r[0], table.TruncateMiddle(r[1], kvKeyMax+8), table.Truncate(r[2], kvValueMax)}
 	}
-	var b strings.Builder
-	for _, r := range clipped {
-		line := fmt.Sprintf("  %-*s  %-*s  %s", aw, r[0], pw, r[1], r[2])
-		b.WriteString(table.Truncate(line, width))
-		b.WriteString("\n")
-	}
-	return b.String()
+	return table.Indented(cells, width, nil)
 }
 
 // vaultAgentRows renders one agent entry: launch.env, launch.args, permission and mcp.allow read as lists.

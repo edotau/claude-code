@@ -7,15 +7,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-const secretNameMax = 40
 
 // recordLabels is every record's plaintext label by name; read without a key, so nothing is decrypted (a test seam).
 var recordLabels = func() map[string]string {
@@ -106,7 +103,7 @@ func secretRows(stored []secrets.Stored, labels map[string]string) []secretRow {
 	return rows
 }
 
-// vaultSecretsText is the SECRETS section: name column fitted to the section (capped), one clipped line per row.
+// vaultSecretsText is the SECRETS section: columns justified to the terminal, names clipped in the middle.
 func vaultSecretsText(stored []secrets.Stored, width int) string {
 	if len(stored) == 0 {
 		return "SECRETS\n  (none)\n"
@@ -117,19 +114,9 @@ func vaultSecretsText(stored []secrets.Stored, width int) string {
 	}) {
 		labels = recordLabels()
 	}
-	rows := secretRows(stored, labels)
-	nameW, maskW := 0, 0
-	for i, r := range rows {
-		rows[i].name = table.Truncate(r.name, secretNameMax)
-		nameW = max(nameW, utf8.RuneCountInString(rows[i].name))
-		maskW = max(maskW, utf8.RuneCountInString(r.mask))
+	cells := [][]string{}
+	for _, r := range secretRows(stored, labels) {
+		cells = append(cells, []string{r.name, r.mask, r.tail})
 	}
-	var b strings.Builder
-	b.WriteString("SECRETS\n")
-	for _, r := range rows {
-		line := fmt.Sprintf("  %-*s  %-*s  %s", nameW, r.name, maskW, r.mask, r.tail)
-		b.WriteString(table.Truncate(line, width))
-		b.WriteByte('\n')
-	}
-	return b.String()
+	return "SECRETS\n" + table.Indented(cells, width, table.TruncateMiddle)
 }
