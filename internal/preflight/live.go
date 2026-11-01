@@ -257,9 +257,12 @@ func proxyUp() bool {
 // refreshRetry spaces detached refresh attempts, so an unreachable workspace doesn't spawn one per SessionStart.
 const refreshRetry = 15 * time.Minute
 
-// Claim takes the detached-refresh slot; false when another attempt started within refreshRetry.
-func Claim(now time.Time) bool {
-	path := filepath.Join(paths.StateDir(), "preflight", "refresh-attempt")
+// Claim takes the detached served-refresh slot; false when another attempt started within refreshRetry.
+func Claim(now time.Time) bool { return ClaimNamed("refresh-attempt", now) }
+
+// ClaimNamed takes the detached-refresh slot stamped name; false when another attempt started within refreshRetry.
+func ClaimNamed(name string, now time.Time) bool {
+	path := filepath.Join(paths.StateDir(), "preflight", name)
 	if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < refreshRetry {
 		return false
 	}

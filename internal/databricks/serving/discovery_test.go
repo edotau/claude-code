@@ -341,3 +341,23 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 		})
 	}
 }
+
+// Save remembers the validated subject locally; a changed auth identity misses, so no profile reuses another's.
+func TestRecallSubjectFollowsSaveAndAuthIdentity(t *testing.T) {
+	p, f := discoveryEnv(t)
+	if _, found, err := RecallSubject(p); err != nil || found {
+		t.Fatalf("before save: found=%v err=%v", found, err)
+	}
+	if err := Save(p, discoverForTest(t, p, false)); err != nil {
+		t.Fatal(err)
+	}
+	me := f.me.Load()
+	if subject, found, err := RecallSubject(p); err != nil || !found || subject != "subject-one" || f.me.Load() != me {
+		t.Fatalf("after save: %q found=%v err=%v Me %d→%d", subject, found, err, me, f.me.Load())
+	}
+	other := *p
+	other.Auth.ClientID = "another-client"
+	if _, found, err := RecallSubject(&other); err != nil || found {
+		t.Fatalf("changed client id: found=%v err=%v, want a miss", found, err)
+	}
+}

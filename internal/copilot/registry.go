@@ -313,9 +313,18 @@ type CopilotEndpoint struct {
 	Snapshot bool // read from a sealed snapshot, so it can lag the workspace
 }
 
-// discoverCopilotEndpoints reads the resolved Databricks profile p's READY chat endpoints, marking the curated-menu ones.
+// discoverCopilotEndpoints reads the resolved Databricks profile p's READY chat endpoints for a launch.
 func discoverCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]CopilotEndpoint, error) {
-	infos, snapshot, err := copilotModelInfos(ctx, reg, p)
+	return copilotEndpointRows(copilotModelInfos(ctx, reg, p))
+}
+
+// checkedCopilotEndpoints is discoverCopilotEndpoints with the identity validated on every read, for explicit commands.
+func checkedCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]CopilotEndpoint, error) {
+	return copilotEndpointRows(copilotCheckedModelInfos(ctx, reg, p))
+}
+
+// copilotEndpointRows keeps the READY chat endpoints of a model read, marking the curated-menu ones.
+func copilotEndpointRows(infos []providers.ModelInfo, snapshot bool, err error) ([]CopilotEndpoint, error) {
 	if err != nil {
 		return nil, err
 	}

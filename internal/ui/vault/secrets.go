@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
@@ -34,10 +35,10 @@ var recordLabels = func() map[string]string {
 // secretRow is one SECRETS line: display name, masked preview, and the trailing "N chars" or discovery suffix.
 type secretRow struct{ name, mask, tail string }
 
-// discoveryName is "<PROVIDER>_<PROFILE>_MODEL_DISCOVERY", or the refresh hint when the record is unlabeled.
-func discoveryName(label string) string {
+// discoveryName is "<PROVIDER>_<PROFILE>_<kind>", or the refresh hint when the record is unlabeled.
+func discoveryName(label, kind string) string {
 	if label == "" {
-		return "MODEL_DISCOVERY (refresh to label)"
+		return kind + " (refresh to label)"
 	}
 	up := strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
@@ -45,7 +46,23 @@ func discoveryName(label string) string {
 		}
 		return '_'
 	}, strings.ToUpper(label))
-	return up + "_MODEL_DISCOVERY"
+	return up + "_" + kind
+}
+
+// discoveryAge is "  <age>" (30s, 5m, 3h, 2d) since a snapshot was sealed (its discovery time), "" when unknown; fits 80 columns.
+func discoveryAge(sealed time.Time) string {
+	d := time.Since(sealed)
+	switch {
+	case sealed.IsZero():
+		return ""
+	case d < time.Minute:
+		return fmt.Sprintf("  %ds", int(max(d, 0).Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("  %dm", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("  %dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("  %dd", int(d.Hours()/24))
 }
 
 // secretRows builds the display rows, sorted by display name.
@@ -62,7 +79,12 @@ func secretRows(stored []secrets.Stored, labels map[string]string) []secretRow {
 	for i, s := range stored {
 		kr[i].key = s.Name
 		if hash, ok := strings.CutPrefix(s.Name, serving.DiscoveryKeyPrefix); ok {
-			kr[i].secretRow = secretRow{discoveryName(labels[s.Name]), "mode***", "/v1/" + hash[:min(12, len(hash))]}
+			kr[i].secretRow = secretRow{discoveryName(labels[s.Name], "MODEL_DISCOVERY"), "mode***",
+				"/v1/" + hash[:min(8, len(hash))] + discoveryAge(s.SetAt)}
+			continue
+		}
+		if hash, ok := strings.CutPrefix(s.Name, serving.SubjectKeyPrefix); ok {
+			kr[i].secretRow = secretRow{discoveryName(labels[s.Name], "MODEL_SUBJECT"), "id***", "/v1/" + hash[:min(8, len(hash))]}
 			continue
 		}
 		prefix := s.Prefix
@@ -90,7 +112,9 @@ func vaultSecretsText(stored []secrets.Stored, width int) string {
 		return "SECRETS\n  (none)\n"
 	}
 	var labels map[string]string // read only when a discovery record needs its label
-	if slices.ContainsFunc(stored, func(s secrets.Stored) bool { return strings.HasPrefix(s.Name, serving.DiscoveryKeyPrefix) }) {
+	if slices.ContainsFunc(stored, func(s secrets.Stored) bool {
+		return strings.HasPrefix(s.Name, serving.DiscoveryKeyPrefix) || strings.HasPrefix(s.Name, serving.SubjectKeyPrefix)
+	}) {
 		labels = recordLabels()
 	}
 	rows := secretRows(stored, labels)

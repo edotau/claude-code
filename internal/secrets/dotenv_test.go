@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
@@ -88,13 +89,23 @@ func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 		{Name: "Z_KEY", Source: "vault", Len: 5},
 	}
 	got, err := ListStored(nil)
+	for i := range got {
+		if got[i].SetAt.IsZero() {
+			t.Errorf("%s: SetAt is zero, want the record's seal time", got[i].Name)
+		}
+		got[i].SetAt = time.Time{} // compared above; the rest is exact
+	}
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("ListStored with wrong key = %+v, %v, want %+v", got, err, want)
 	}
 	if got[0].Masked() != "sk-test-*** (44 chars)" || got[1].Masked() != "5 chars" {
 		t.Fatalf("Masked = %q, %q", got[0].Masked(), got[1].Masked())
 	}
-	if got, err := ListStored([]string{"Z_KEY", "ONLY_IN_ENV", "MISSING"}); err != nil || !slices.Equal(got, want[1:]) {
+	got, err = ListStored([]string{"Z_KEY", "ONLY_IN_ENV", "MISSING"})
+	if len(got) == 1 {
+		got[0].SetAt = time.Time{}
+	}
+	if err != nil || !slices.Equal(got, want[1:]) {
 		t.Fatalf("ListStored restricted = %+v, %v", got, err)
 	}
 	if pairs, err := ExportPairs(nil); !errors.Is(err, vault.ErrWrongKey) || pairs != nil ||
