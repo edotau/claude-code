@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,32 +41,10 @@ func CodexJSON() ([]byte, error) {
 // rendered ones; mirrors internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file
 // Codex reads directly.
 func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
-	existingTop, err := render.DecodeRawObject(existingRaw)
-	if err != nil {
-		return nil, fmt.Errorf("existing file: %w", err)
-	}
-	renderedTop, err := render.DecodeRawObject(body)
+	next, _, err := render.MergeHooksTop(existingRaw, body, classifyCodexGroup)
 	if err != nil {
 		return nil, err
 	}
-	existingHooks, err := render.DecodeRawEvents(existingTop["hooks"])
-	if err != nil {
-		return nil, fmt.Errorf("existing file: %w", err)
-	}
-	renderedHooks, err := render.DecodeRawEvents(renderedTop["hooks"])
-	if err != nil {
-		return nil, err
-	}
-	merged := render.MergeHookEvents(existingHooks, renderedHooks, classifyCodexGroup)
-	hooksRaw, err := textutil.MarshalNoEscape(merged)
-	if err != nil {
-		return nil, err
-	}
-	next := maps.Clone(existingTop)
-	if next == nil {
-		next = map[string]json.RawMessage{}
-	}
-	next["hooks"] = hooksRaw
 	return textutil.MarshalIndentNoEscape(next)
 }
 
