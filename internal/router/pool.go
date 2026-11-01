@@ -2,12 +2,16 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"maps"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -39,12 +43,25 @@ func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin stri
 	}
 	model, err := pickPool(agent, p, BYOKPool(), now)
 	if err != nil {
-		return pinnedModel(agent, alias, cell, p, "", now), "byok state unavailable; using alias"
+		return pinnedModel(agent, alias, cell, p, "", now), "byok state unavailable (" + stateErrClass(err) + "); using alias"
 	}
 	if model == "" {
 		return pinnedModel(agent, alias, cell, p, "", now), "byok pool has no served model; using alias"
 	}
 	return model, ""
+}
+
+// stateErrClass names why Update failed, for a note; the raw error carries paths, so it stays out.
+func stateErrClass(err error) string {
+	switch {
+	case errors.Is(err, schemas.ErrNewer):
+		return "written by a newer build"
+	case errors.Is(err, fs.ErrPermission):
+		return "permission denied"
+	case errors.Is(err, syscall.ENOSPC):
+		return "disk full"
+	}
+	return "file error"
 }
 
 // pickPool selects and records under the same lock, so simultaneous picks see each other's timestamps.
