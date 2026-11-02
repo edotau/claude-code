@@ -108,13 +108,13 @@ func TestTotalSegmentPlusWhileDispatchRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	in.TranscriptPath = writeTranscript(t, "a:800:12")
-	if got := totalSegment(in, "none"); got != "812 ⛁" {
+	if got := totalSegment(in, "none"); got != "812·⛁" {
 		t.Fatalf("idle = %q, want 812", got)
 	}
 	writeRunningDispatch(t, "20261024T000002.000-codex", os.Getpid(), inflight.SessionOwner())
 	// runningCounts caches for runningTTL, so drop the stamp the idle call wrote.
 	_ = os.Remove(stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath))
-	if got := totalSegment(in, "none"); got != "812 ⛁+" {
+	if got := totalSegment(in, "none"); got != "812·⛁+" {
 		t.Errorf("running = %q, want 812+", got)
 	}
 }
