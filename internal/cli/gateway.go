@@ -94,7 +94,7 @@ func cmdGatewayProxy(args []string) int {
 			"providers and falls back across the registry's fallback chain. No flag = --status.",
 	})
 	start := fs.Bool("start", false, "start the background proxy if needed; print its base URL")
-	stop := fs.Bool("stop", false, "stop the background proxy")
+	stop := fs.Bool("stop", false, "stop the background proxy; stays down until the next start")
 	restart := fs.Bool("restart", false, "stop the proxy if running, then start it; print its base URL")
 	status := fs.Bool("status", false, "proxy pid, URL and the profile fallback chain; exit 1 when not running")
 	serve := fs.Bool("serve", false, "run the proxy in the foreground until interrupted")
@@ -154,6 +154,9 @@ func cmdGatewayProxy(args []string) int {
 		fmt.Println(base)
 		return 0
 	case *stop:
+		if err := proxy.Hold(); err != nil {
+			return fail("proxy: hold: %v", err)
+		}
 		st, err := proxy.Stop(ctx)
 		if errors.Is(err, proxy.ErrNotRunning) {
 			fmt.Println("proxy: not running")

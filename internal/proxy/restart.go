@@ -3,6 +3,12 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // RestartRow is one daemon's outcome in `network restart`.
@@ -43,4 +49,50 @@ func RestartReport(ctx context.Context, dry, force bool) RestartRow {
 		row.Status, row.OldPID, row.NewPID = "restarted", old.PID, cur.PID
 	}
 	return row
+}
+
+// restartRetry spaces watchdog restarts machine-wide, so every status line refresh in a down-proxy window spawns once.
+const restartRetry = 15 * time.Second
+
+// heldPath marks a deliberate `gateway proxy --stop`: the watchdog leaves the proxy down until the next start.
+func heldPath() string { return filepath.Join(paths.StateDir(), "proxy.held") }
+
+// Hold keeps the watchdog from restarting a deliberately stopped proxy; Release (any start) lifts it.
+func Hold() error { return os.WriteFile(heldPath(), nil, 0o600) }
+
+// Release lifts a Hold; a missing marker is not an error.
+func Release() {
+	if err := os.Remove(heldPath()); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "proxy: release hold: %v\n", err)
+	}
+}
+
+// ClaimRestart takes the watchdog restart slot; false while held, or when another restart was claimed within restartRetry.
+func ClaimRestart(now time.Time) bool {
+	if _, err := os.Stat(heldPath()); err == nil {
+		return false
+	}
+	path := filepath.Join(paths.StateDir(), "proxy.restart-claim")
+	if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < restartRetry {
+		return false
+	}
+	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
+		_ = os.WriteFile(path, nil, 0o600) // best effort: an unwritable stamp must not stop the restart
+	}
+	return true
+}
+
+// SpawnStart starts `gateway proxy --start` detached; false when claimed within 15s, or the binary can't be resolved.
+func SpawnStart() bool {
+	if !ClaimRestart(time.Now()) {
+		return false
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return proc.SpawnDetached(exe, []string{"gateway", "proxy", "--start"}, "", nil)
 }
