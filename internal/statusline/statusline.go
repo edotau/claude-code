@@ -179,7 +179,7 @@ func collect(in Input, cfg Config) values {
 		provider, routed = sessionProvider()
 	}
 	if cfg.seg("provider", true) {
-		v.provider = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
+		v.provider = capLabel(providerLabel(cmp.Or(provider, modelFamily(in.Model.ID))), cmp.Or(cfg.ProviderMax, 24))
 	}
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
@@ -489,4 +489,19 @@ func sigTokens(n int) string {
 		return fmt.Sprintf("%.1f%s", f, unit)
 	}
 	return fmt.Sprintf("%.2f%s", f, unit)
+}
+
+// capLabel fits "provider·profile" in max runes, keeping the provider and the profile's tail: "databricks·…user-dev".
+func capLabel(label string, max int) string {
+	r := []rune(label)
+	if len(r) <= max {
+		return label
+	}
+	head, tail, ok := strings.Cut(label, "·")
+	if !ok || len([]rune(head))+2 >= max {
+		return string(r[:max-1]) + "…"
+	}
+	keep := max - len([]rune(head)) - 2
+	t := []rune(tail)
+	return head + "·…" + string(t[len(t)-keep:])
 }
