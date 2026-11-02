@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/menu"
 )
@@ -70,6 +71,12 @@ var agentMenus = map[string]func(d *dialog) agentMenu{
 
 // pickAgent is the submenu picker seam; tests replace it.
 var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int, error) {
+	if !d.shell().TTY { // the numbered prompt prints rows raw: no span markers
+		rows = slices.Clone(rows)
+		for i := range rows {
+			rows[i][1] = ansi.Strip(rows[i][1])
+		}
+	}
 	return d.shell().Pick(title, rows, start)
 }
 

@@ -4,6 +4,7 @@ package menu
 import (
 	"strings"
 
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -31,6 +32,15 @@ func Bracket(ok bool, yes, no string) string {
 		return "[" + yes + "]"
 	}
 	return "[" + no + "]"
+}
+
+// Checked is a bracketed value that paints green when valid and dim otherwise (only where Status paints the row).
+func Checked(valid bool, s string) string {
+	open := ansi.SpanOff
+	if valid {
+		open = ansi.SpanOK
+	}
+	return "[" + open + s + ansi.SpanEnd + "]"
 }
 
 // PadTo pads s to n columns of runes; an s already that wide gets a two-space gap instead.

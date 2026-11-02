@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"io"
 	"os"
 	"os/exec"
@@ -589,7 +590,7 @@ func maxRuneLen(labels []string) int {
 // rowRenderedWidth mirrors tui's layoutRows + render: a 2-char marker/space prefix, every label padded to
 // the widest in its row set, a 2-space spacer, then the detail column.
 func rowRenderedWidth(labels []string, detail string) int {
-	return 2 + maxRuneLen(labels) + 2 + len([]rune(detail))
+	return 2 + maxRuneLen(labels) + 2 + len([]rune(ansi.Strip(detail)))
 }
 
 // TestMenuRowWidthsFitEightyColumns: every row configure shows — the top agent picker and each agent's own

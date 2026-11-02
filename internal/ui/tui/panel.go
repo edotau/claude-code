@@ -135,7 +135,7 @@ func render(title string, s pickState, color bool) string {
 		prefix, line := "  ", ansi.Status(color, row)
 		if i == s.sel {
 			prefix = AccentMark(color, "▸") + " "
-			line = Selected(color, row)
+			line = Selected(color, ansi.Strip(row))
 		}
 		b.WriteString(prefix + line + "\x1b[K\r\n")
 	}
