@@ -285,7 +285,7 @@ func copilotMenu(d *dialog) agentMenu {
 	}
 	pinned := vault.GetAgentRecord("copilot").Profile
 	rows := []billingRow{
-		{"Subscription", "GitHub Copilot · " + Bracket(loggedIn, configure.WithTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "GitHub Copilot " + Bracket(loggedIn, configure.WithTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
 				return true
