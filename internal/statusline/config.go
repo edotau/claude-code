@@ -14,6 +14,7 @@ type Config struct {
 	Style string `json:"style"` // gradient|powerline|capsule|minimal|dashboard
 	theme.Look
 	GradientEase   float64           `json:"gradientEase"` // ramp position exponent: <1 reaches the end colors sooner; 0 → 1
+	RampLift       bool              `json:"rampLift"`     // lift every ramp stop but the opening blue: a brighter middle
 	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user
 	Order          []string          `json:"order"`
 	BranchMax      int               `json:"branchMax"`
