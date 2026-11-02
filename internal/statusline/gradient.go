@@ -41,6 +41,14 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 	total := max(len(cells)-1, 1)
 	trough := troughTone(cfg.Bar)
 	var out strings.Builder
+	if cfg.seg("path", true) { // the shell's own user: prefix; the ramp starts at the path
+		if cfg.UserColor == "ansi" {
+			out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
+		} else {
+			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true))
+		}
+		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false))
+	}
 	for i, c := range cells {
 		rgb := ansi.GradAt(stops, easeAt(rampPos(float64(i)/float64(total)), cfg.GradientEase))
 		switch c.kind {
@@ -85,8 +93,6 @@ func gradientCells(v values, cfg Config) []cell {
 	}
 
 	if cfg.seg("path", true) {
-		push(v.userHost, "g")
-		pushSep(":")
 		push(v.path, "g")
 		pushSep(sepPath)
 	}
