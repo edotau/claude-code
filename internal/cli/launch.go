@@ -417,27 +417,45 @@ func refreshServed() {
 	}
 }
 
+// discoverProfile re-seals one profile's snapshot by its registry row: github or Databricks.
+func discoverProfile(ctx context.Context, name string) int {
+	reg, err := providers.Load()
+	if err != nil {
+		return fail("preflight: %v", err)
+	}
+	p := reg.Providers[name]
+	switch {
+	case p != nil && p.Provider == "github":
+		_, err = copilot.RefreshCatalog(ctx)
+	case p != nil && p.Preset == providers.PresetDatabricks:
+		err = copilot.RefreshCopilotModels(ctx, name)
+	default:
+		return fail("preflight: %q is not a Databricks or github profile", name)
+	}
+	if err != nil {
+		return fail("preflight: %v", err)
+	}
+	return 0
+}
+
 // cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func cmdPreflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
 		Usage: "claude-code preflight [--live|--refresh|--discover <profile>]",
 		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.\n" +
 			"--refresh only re-lists stale listings, silently.\n" +
-			"--discover re-seals one profile's model-discovery snapshot, silently (a launch spawns it when expired).",
+			"--discover re-seals one profile's model snapshot (Databricks or github), silently (a launch spawns it when expired).",
 	})
 	live := fs.Bool("live", false, "refresh stale listings and ask each pinned agent for pong")
 	refresh := fs.Bool("refresh", false, "re-list stale served-endpoint caches, print nothing")
-	discover := fs.String("discover", "", "re-seal this profile's model-discovery snapshot, print nothing")
+	discover := fs.String("discover", "", "re-seal one profile's model snapshot (Databricks or github)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if *discover != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
 		defer cancel()
-		if err := copilot.RefreshCopilotModels(ctx, *discover); err != nil {
-			return fail("preflight: %v", err)
-		}
-		return 0
+		return discoverProfile(ctx, *discover)
 	}
 	reg, err := providers.Load()
 	if err != nil {
