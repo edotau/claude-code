@@ -234,20 +234,32 @@ func listLines(s listState, color bool, cols, h int) []line {
 		if r.OK {
 			status = strings.TrimSpace("✓ " + status)
 		}
-		cells := strings.TrimRight(pad(r.Label, lw)+"  "+pad(r.Detail, dw)+"  "+status, " ")
-		cells = table.Truncate(cells, cols-2) // width <= 0 is unbounded
+		full := strings.TrimRight(pad(r.Label, lw)+"  "+pad(r.Detail, dw)+"  "+status, " ")
+		cells := table.Truncate(full, cols-2) // width <= 0 is unbounded
 		var styled string
 		switch {
 		case i == s.pendRow:
 			styled = ansi.Style(color, ansi.Red, "▸") + " " + ansi.Style(color, ansi.Red+"\x1b[7m", cells)
 		case p == s.cur:
 			styled = AccentMark(color, "▸") + " " + Selected(color, cells)
+		case cells != full: // clipped: print exactly what countLines measured, or the wrap leaves stale frames
+			styled = "  " + cells
 		default:
 			st := ansi.Status(color, r.Status)
 			if r.OK {
 				st = strings.TrimSpace(ansi.Style(color, ansi.Green, "✓") + " " + st)
 			}
-			styled = "  " + strings.TrimRight(pad(r.Label, lw)+"  "+ansi.Style(color, ansi.Dim, pad(r.Detail, dw))+"  "+st, " ")
+			detail := r.Detail // pad only when a status follows: padding inside the dim escape survives TrimRight
+			if st != "" {
+				detail = pad(r.Detail, dw)
+			}
+			styled = "  " + pad(r.Label, lw)
+			if detail != "" || st != "" {
+				styled += "  " + ansi.Style(color, ansi.Dim, detail)
+			}
+			if st != "" {
+				styled += "  " + st
+			}
 		}
 		if p == s.cur {
 			at = len(body)
