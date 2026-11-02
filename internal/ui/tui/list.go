@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // ListRow is one selectable row of a List dialog.
@@ -222,11 +223,19 @@ func listLines(s listState, color bool, cols, h int) []line {
 				body = append(body, line{t, Accent(color, t)})
 			}
 		}
+		if cols > 0 { // clip the status to the row's room (2 = marker prefix, 2 = gap, 2 = "✓ ") so a row never wraps
+			room := cols - 2 - lw - 2 - dw - 2
+			if r.OK {
+				room -= 2
+			}
+			r.Status = table.Truncate(r.Status, max(room, 0))
+		}
 		status := r.Status
 		if r.OK {
 			status = strings.TrimSpace("✓ " + status)
 		}
 		cells := strings.TrimRight(pad(r.Label, lw)+"  "+pad(r.Detail, dw)+"  "+status, " ")
+		cells = table.Truncate(cells, cols-2) // width <= 0 is unbounded
 		var styled string
 		switch {
 		case i == s.pendRow:
