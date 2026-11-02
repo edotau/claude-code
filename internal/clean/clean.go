@@ -401,11 +401,7 @@ func selectTargets(all []target, want string) ([]target, error) {
 		byName[t.name] = t
 	}
 	var out []target
-	for name := range strings.SplitSeq(want, ",") {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
+	for _, name := range textutil.SplitCSV(want) {
 		t, ok := byName[name]
 		if !ok {
 			return nil, fmt.Errorf("unknown target %q (see `claude-code clean --list`)", name)
