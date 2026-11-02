@@ -279,7 +279,15 @@ func RunMintContext(ctx context.Context, argv []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	DiscoverAfterSignin()
 	return SetupTokenRE.FindString(buf.String()), nil
+}
+
+// DiscoverAfterSignin refreshes copilot's and opencode's model lists in the background after a successful sign-in.
+func DiscoverAfterSignin() {
+	if reg, err := providers.Load(); err == nil {
+		preflight.DiscoverAfterAuth(reg)
+	}
 }
 
 // ctxErr wraps ctx's error under verb when ctx is already done, else nil — the one cancellation check
@@ -324,6 +332,9 @@ func RunLoginContext(ctx context.Context, argv []string) error {
 	err = cmd.Run()
 	if cerr := ctxErr(ctx, "login"); cerr != nil {
 		return cerr
+	}
+	if err == nil {
+		DiscoverAfterSignin()
 	}
 	return err
 }

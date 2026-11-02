@@ -224,6 +224,7 @@ func dbxSetUp(d *dialog, env string) {
 		exp = "expires in " + dbxDur(time.Until(res.Expiry))
 	}
 	d.printf("%s · %s · token verified · %s\n", env, res.AuthType, exp)
+	configure.DiscoverAfterSignin()
 	cancelled, err := dbxApplyPins(d, env)
 	switch {
 	case err != nil:
@@ -286,6 +287,10 @@ func dbxIdentity(d *dialog, env string) {
 		return
 	}
 	spID := p.Auth.SPClientID
+	if modes[idx] == providers.IdentityUser { // user mode never reads the SP: keep the stored id and secret
+		saveDbxIdentity(d, env, modes[idx], spID, "")
+		return
+	}
 	id, err := dbxSecret("Service principal client id (empty keeps "+cmp.Or(spID, "none")+"): ", func(s string) string { return s })
 	if err != nil {
 		return
@@ -297,12 +302,16 @@ func dbxIdentity(d *dialog, env string) {
 			return
 		}
 	}
-	if err := configure.SaveDbxIdentity(d.reg, env, modes[idx], spID, secret); err != nil {
+	saveDbxIdentity(d, env, modes[idx], spID, secret)
+}
+
+func saveDbxIdentity(d *dialog, env, mode, spID, secret string) {
+	if err := configure.SaveDbxIdentity(d.reg, env, mode, spID, secret); err != nil {
 		d.printf("%s: identity: %v\n", env, err)
 		return
 	}
 	d.changed = true
-	d.printf("%s: identity %s\n", env, modes[idx])
+	d.printf("%s: identity %s\n", env, mode)
 }
 
 // reload refreshes the registry after a login, PAT or apply changed it.

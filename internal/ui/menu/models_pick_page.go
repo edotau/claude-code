@@ -146,7 +146,7 @@ func copilotCatalog(d *dialog) ([]copilot.SDKModel, error) {
 	d.copilotCatalogLoaded = true
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	d.copilotCatalog, d.copilotCatalogErr = configure.CopilotModels(ctx)
+	d.copilotCatalog, d.copilotCatalogErr = copilot.Catalog(ctx)
 	return d.copilotCatalog, d.copilotCatalogErr
 }
 
