@@ -178,8 +178,10 @@ func collect(in Input, cfg Config) values {
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
 	}
-	if cfg.seg("proxy", true) {
-		v.proxy = proxySegment(routed)
+	if showProxy := cfg.seg("proxy", true); showProxy || routed { // a routed session restarts a down proxy
+		if seg := proxySegment(routed); showProxy {
+			v.proxy = seg
+		}
 	}
 	if cfg.seg("git", true) && worktree != "" {
 		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
@@ -297,6 +299,7 @@ func proxySegment(routed bool) string {
 		return "proxy:" + strconv.Itoa(st.Port)
 	}
 	if routed {
+		proxy.SpawnStart()
 		return "proxy:down"
 	}
 	return ""
