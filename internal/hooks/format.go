@@ -270,22 +270,38 @@ func nearestDirWith(path, name string) string {
 // prettierConfigs are the file names that declare a prettier setup for a project.
 var prettierConfigs = []string{
 	".prettierrc", ".prettierrc.json", ".prettierrc.yaml", ".prettierrc.yml", ".prettierrc.json5", ".prettierrc.js",
-	".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.toml", "prettier.config.js", "prettier.config.cjs",
-	"prettier.config.mjs", "prettier.config.ts",
+	".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.toml", ".prettierrc.ts", ".prettierrc.mts", ".prettierrc.cts",
+	"prettier.config.js", "prettier.config.cjs", "prettier.config.mjs", "prettier.config.ts", "prettier.config.mts",
+	"prettier.config.cts",
 }
 
-// hasPrettierConfig reports whether path's project configures prettier: a config file or a package.json entry.
+// hasPrettierConfig reports an ancestor (≤8 levels) with a prettier config or package.json entry (monorepo roots too).
 func hasPrettierConfig(path string) bool {
-	for _, name := range prettierConfigs {
-		if nearestDirWith(path, name) != "" {
-			return true
-		}
-	}
-	root := nearestDirWith(path, "package.json")
-	if root == "" {
+	dir, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
 		return false
 	}
-	body, err := os.ReadFile(filepath.Join(root, "package.json"))
+	for range 8 {
+		for _, name := range prettierConfigs {
+			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+				return true
+			}
+		}
+		if packageDeclaresPrettier(filepath.Join(dir, "package.json")) {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
+	return false
+}
+
+// packageDeclaresPrettier reports a package.json with a "prettier" key or a prettier (dev)dependency.
+func packageDeclaresPrettier(pkgPath string) bool {
+	body, err := os.ReadFile(pkgPath)
 	if err != nil {
 		return false
 	}
