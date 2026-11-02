@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -118,6 +119,7 @@ func Health(ctx context.Context, port int) error {
 
 // Ensure starts the router daemon if it is not already healthy and returns its base URL (http://127.0.0.1:<port>).
 func Ensure(ctx context.Context) (string, error) {
+	Release() // any start, by hand or by a launch, ends a deliberate --stop
 	if st, ok := Running(ctx); ok {
 		return Base(st.Port), nil
 	}
@@ -219,15 +221,34 @@ func Stop(ctx context.Context) (State, error) {
 	return st, fmt.Errorf("pid %d signalled but still draining", st.PID)
 }
 
-// Restart replaces a running router with one spawned from the current binary; a stopped router is left alone.
+// awaitPortFree waits up to 5s for 127.0.0.1:port to stop accepting connections (the daemon closes it on SIGTERM).
+func awaitPortFree(ctx context.Context, port int) error {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		d := net.Dialer{Timeout: 200 * time.Millisecond}
+		c, err := d.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			return nil
+		}
+		_ = c.Close()
+	}
+	return fmt.Errorf("proxy still accepting on :%d after SIGTERM", port)
+}
+
+// Restart replaces a running router with one spawned from the current binary, leaving a gap of only the respawn time;
+// a stopped router is left alone.
 func Restart(ctx context.Context) (old, cur State, restarted bool, err error) {
 	old, ok := Running(ctx)
 	if !ok {
 		return old, State{}, false, nil
 	}
-	if _, err = Stop(ctx); err != nil {
+	if err = terminate(old.PID); err != nil {
 		return old, State{}, false, err
 	}
+	if err = awaitPortFree(ctx, old.Port); err != nil {
+		return old, State{}, false, err
+	}
+	// The old daemon keeps draining in the background: its listener is closed, so the replacement binds at once.
 	if _, err = Ensure(ctx); err != nil {
 		return old, State{}, false, err
 	}
