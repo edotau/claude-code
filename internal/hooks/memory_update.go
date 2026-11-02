@@ -103,6 +103,7 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 		}
 		if trigger == triggerStop {
 			if writeStamp(stamp, now, "1", work) != nil {
+				failedOpen = true
 				return false, 0 // fail open: the block count cannot persist
 			}
 			return true, work

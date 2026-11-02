@@ -155,7 +155,7 @@ func safetyAskVerdict(in *Input) (Decision, string, string) {
 		}
 	}
 	if harnessGitBlocked(cmd, in.CWD) {
-		what := "git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
+		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
 		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
 		return Ask, safetyMessage(in, Ask, what, "", hint), "shared config git mutation"
 	}
