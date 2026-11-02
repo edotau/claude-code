@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/opencode"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -242,6 +243,7 @@ func ocSwitch(d *dialog, r ocRow, argv []string) {
 		d.printf("%s: %v\n", r.row.Label, err)
 	default:
 		d.changed = true
+		configure.DiscoverAfterSignin()
 		d.printf("%s: %s is now active\n", r.row.Label, r.row.Detail)
 	}
 }
@@ -262,6 +264,7 @@ func ocAddAccount(d *dialog) {
 		d.printf("opencode: %v\n", err)
 	default:
 		d.changed = true
+		configure.DiscoverAfterSignin()
 		ints, _ := opencodeAuth()
 		n := 0
 		for _, in := range ints {

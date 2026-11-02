@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -52,9 +53,17 @@ func OfferLogin(ctx context.Context, o agent.LaunchOptions, args []string, ps []
 	}
 	wg.Wait()
 	in := bufio.NewReader(loginIn) // one reader: a per-provider reader would swallow the next prompt's answer
+	loggedIn := false
 	for i, p := range todo {
-		if err := offerLoginOne(ctx, p, in, checks[i]); err != nil {
+		ok, err := offerLoginOne(ctx, p, in, checks[i])
+		loggedIn = loggedIn || ok
+		if err != nil {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: %v", p.Name, err))
+		}
+	}
+	if loggedIn { // models differ per account: refresh copilot's and opencode's lists once, detached
+		if reg, err := providers.Load(); err == nil {
+			preflight.DiscoverAfterAuth(reg)
 		}
 	}
 }
@@ -68,35 +77,36 @@ type checkResult struct {
 }
 
 // OfferLoginOne prompts and signs in when p's check says it must, then rechecks once.
-func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader, c checkResult) error {
+func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader, c checkResult) (loggedIn bool, err error) {
 	s, v, ok := c.s, c.v, c.ok
 	if !ok {
 		// A timeout is transient and never means a login is needed (A1 `transient`: no auth mark recorded).
-		return fmt.Errorf("sign-in check timed out after %s; launching anyway", credCheckTimeout)
+		return false, fmt.Errorf("sign-in check timed out after %s; launching anyway", credCheckTimeout)
 	}
 	if !v.Condemns() {
-		return nil
+		return false, nil
 	}
 	fmt.Fprintf(loginOut, "%s: login required. Log in now? [Y/n] ", p.Name)
 	line, _ := in.ReadString('\n')
 	if a := strings.ToLower(strings.TrimSpace(line)); a != "" && !strings.HasPrefix(a, "y") {
 		if p.Auth.Method() == "" && p.CLIProfile != "" {
-			return fmt.Errorf("login skipped; requests will fail until `databricks auth login -p %s` (%s)", p.CLIProfile, v)
+			return false, fmt.Errorf("login skipped; requests will fail until `databricks auth login -p %s` (%s)", p.CLIProfile, v)
 		}
-		return fmt.Errorf("login skipped; requests will fail until `claude-code configure provider --all %s` (%s)", p.Name, v)
+		return false, fmt.Errorf("login skipped; requests will fail until `claude-code configure provider --all %s` (%s)", p.Name, v)
 	}
 	if err := s.Login(ctx, loginIn, loginOut); err != nil {
-		return fmt.Errorf("login: %w", err)
+		return false, fmt.Errorf("login: %w", err)
 	}
 	var detail string
+	loggedIn = true
 	v, detail, ok = checkSignin(ctx, s)
 	if !ok {
-		return fmt.Errorf("sign-in check timed out after %s; launching anyway", credCheckTimeout)
+		return true, fmt.Errorf("sign-in check timed out after %s; launching anyway", credCheckTimeout)
 	}
 	if v.Condemns() {
-		return fmt.Errorf("still %s after login: %s", v, detail)
+		return true, fmt.Errorf("still %s after login: %s", v, detail)
 	}
-	return nil
+	return true, nil
 }
 
 // checkSignin runs the check, giving up after credCheckTimeout (ok=false); an abandoned one dies with the exec.
