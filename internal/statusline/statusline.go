@@ -449,7 +449,7 @@ func totalSegment(in Input, session string) string {
 	if n <= 0 {
 		return ""
 	}
-	out := sigTokens(n) + " ⛁"
+	out := sigTokens(n) + "·⛁"
 	if _, dispatches := runningCounts(in); dispatches > 0 {
 		out += "+"
 	}

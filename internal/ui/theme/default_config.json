@@ -34,9 +34,9 @@
     "velocity": true
   },
   "bar": {
-    "width": 10,
-    "filledGlyph": "█",
-    "emptyGlyph": "█",
+    "width": 5,
+    "filledGlyph": "▰",
+    "emptyGlyph": "▱",
     "percent": "after",
     "terminalBg": "#300a24",
     "theme": "auto",

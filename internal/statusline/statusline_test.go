@@ -62,7 +62,7 @@ func sample() values {
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | Opus 5 [1m] · proxy:18765 · ██████████ 42% · total:1.23M · 12m │ main +10 -3",
+		"gradient":  "tester:~/proj | Opus 5 [1m] · proxy:18765 · ▰▰▱▱▱ 42% · total:1.23M · 12m │ main +10 -3",
 		"powerline": "tester:~/proj |  Opus 5 [1m]  proxy:18765  42%  total:1.23M  12m   main  +10 -3",
 		"capsule":   "tester:~/proj | ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( total:1.23M ) ( 12m ) (  main ) +10 -3",
 		"minimal":   "tester:~/proj |  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  total:1.23M  ·  12m  ·   main  +10 -3",
@@ -99,7 +99,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 		t.Fatalf("want header + value rows, got %q", lines)
 	}
 	hdr, val := []rune(lines[0]), []rune(lines[1])
-	if !strings.HasPrefix(lines[1], "tester:~/proj | Opus 5 [1m]") || !strings.HasSuffix(lines[1], "██████████ 42%") {
+	if !strings.HasPrefix(lines[1], "tester:~/proj | Opus 5 [1m]") || !strings.HasSuffix(lines[1], "▰▰▱▱▱ 42%") {
 		t.Errorf("value row %q", lines[1])
 	}
 	if len(val) != len("tester:~/proj | ")+100 {
@@ -384,8 +384,8 @@ func writeTranscript(t *testing.T, recs ...string) string {
 func TestTotalSegment(t *testing.T) {
 	hermetic(t)
 	in := Input{TranscriptPath: writeTranscript(t, "a:1000:100", "a:1000:200", "b:40000:4800")}
-	if got := totalSegment(in, "none"); got != "46.0k ⛁" {
-		t.Errorf("deduped by message id = %q, want 46.0k ⛁", got)
+	if got := totalSegment(in, "none"); got != "46.0k·⛁" {
+		t.Errorf("deduped by message id = %q, want 46.0k·⛁", got)
 	}
 	f, err := os.OpenFile(in.TranscriptPath, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
@@ -393,8 +393,8 @@ func TestTotalSegment(t *testing.T) {
 	}
 	fmt.Fprintln(f, `{"type":"assistant","message":{"id":"c","usage":{"input_tokens":1500,"output_tokens":0}}}`)
 	f.Close()
-	if got := totalSegment(in, "none"); got != "47.5k ⛁" {
-		t.Errorf("after append (offset cache) = %q, want 47.5k ⛁", got)
+	if got := totalSegment(in, "none"); got != "47.5k·⛁" {
+		t.Errorf("after append (offset cache) = %q, want 47.5k·⛁", got)
 	}
 	if got := totalSegment(in, "max"); got != "" {
 		t.Errorf("subscription = %q, want hidden", got)
