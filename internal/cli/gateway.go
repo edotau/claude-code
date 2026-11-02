@@ -89,12 +89,13 @@ func printProxyState(ps proxyState) {
 // cmdGatewayProxy is `gateway proxy`: at most one lifecycle flag, no flag = --status; stray args are errors.
 func cmdGatewayProxy(args []string) int {
 	fs := helptext.NewFlagSet("gateway proxy", helptext.Page{
-		Usage: "claude-code gateway proxy [--start|--stop|--status|--serve] [flags]",
+		Usage: "claude-code gateway proxy [--start|--stop|--restart|--status|--serve] [flags]",
 		About: "The loopback proxy that translates Anthropic requests for OpenAI-style\n" +
 			"providers and falls back across the registry's fallback chain. No flag = --status.",
 	})
 	start := fs.Bool("start", false, "start the background proxy if needed; print its base URL")
 	stop := fs.Bool("stop", false, "stop the background proxy")
+	restart := fs.Bool("restart", false, "stop the proxy if running, then start it; print its base URL")
 	status := fs.Bool("status", false, "proxy pid, URL and the profile fallback chain; exit 1 when not running")
 	serve := fs.Bool("serve", false, "run the proxy in the foreground until interrupted")
 	port := fs.Int("port", proxy.DefaultPort, "with --serve: loopback port (a busy port held by an older proxy is reclaimed, else an error)")
@@ -109,20 +110,20 @@ func cmdGatewayProxy(args []string) int {
 		return badFormat("gateway proxy", err)
 	}
 	n := 0
-	for _, b := range []bool{*start, *stop, *status, *serve} {
+	for _, b := range []bool{*start, *stop, *restart, *status, *serve} {
 		if b {
 			n++
 		}
 	}
 	if n > 1 {
-		return fail("gateway proxy: at most one of --start, --stop, --status, --serve")
+		return fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve")
 	}
 	portSet := false
 	fs.Visit(func(f *flag.Flag) { portSet = portSet || f.Name == "port" })
 	if portSet && !*serve {
 		return fail("gateway proxy: --port needs --serve")
 	}
-	if *format == helptext.JSON && (*start || *stop || *serve) {
+	if *format == helptext.JSON && (*start || *stop || *restart || *serve) {
 		return fail("gateway proxy: --format json applies to --status only")
 	}
 	ctx := context.Background()
@@ -132,6 +133,20 @@ func cmdGatewayProxy(args []string) int {
 	case *start:
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
+		base, err := proxy.Ensure(ctx)
+		if err != nil {
+			return fail("proxy: %v", err)
+		}
+		fmt.Println(base)
+		return 0
+	case *restart:
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if st, err := proxy.Stop(ctx); err == nil {
+			fmt.Printf("proxy: stopped pid %d\n", st.PID)
+		} else if !errors.Is(err, proxy.ErrNotRunning) {
+			return fail("proxy: %v", err)
+		}
 		base, err := proxy.Ensure(ctx)
 		if err != nil {
 			return fail("proxy: %v", err)
