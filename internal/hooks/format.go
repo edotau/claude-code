@@ -250,12 +250,20 @@ func isExec(p string) bool {
 
 // nearestDirWith returns the closest ancestor (within 8 levels) of path holding name.
 func nearestDirWith(path, name string) string {
+	return walkUp(path, func(dir string) bool {
+		_, err := os.Stat(filepath.Join(dir, name))
+		return err == nil
+	})
+}
+
+// walkUp returns the closest ancestor (within 8 levels) of path for which match holds, or "".
+func walkUp(path string, match func(dir string) bool) string {
 	dir, err := filepath.Abs(filepath.Dir(path))
 	if err != nil {
 		return ""
 	}
 	for range 8 {
-		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+		if match(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -277,26 +285,14 @@ var prettierConfigs = []string{
 
 // hasPrettierConfig reports an ancestor (≤8 levels) with a prettier config or package.json entry (monorepo roots too).
 func hasPrettierConfig(path string) bool {
-	dir, err := filepath.Abs(filepath.Dir(path))
-	if err != nil {
-		return false
-	}
-	for range 8 {
+	return walkUp(path, func(dir string) bool {
 		for _, name := range prettierConfigs {
 			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 				return true
 			}
 		}
-		if packageDeclaresPrettier(filepath.Join(dir, "package.json")) {
-			return true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return false
-		}
-		dir = parent
-	}
-	return false
+		return packageDeclaresPrettier(filepath.Join(dir, "package.json"))
+	}) != ""
 }
 
 // packageDeclaresPrettier reports a package.json with a "prettier" key or a prettier (dev)dependency.

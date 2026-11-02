@@ -178,25 +178,32 @@ func shellTokens(seg string) []string {
 	return out
 }
 
-// hardBlockVerdict blocks a hard shape outside inert text; inside a message or argument it asks, never in a heredoc.
+// hardBlockVerdict blocks a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.
 func hardBlockVerdict(in *Input, cmd, scan string) (Decision, string, string, bool) {
 	if strings.Contains(cmd, "<<") {
 		scan = cmd
 	}
-	for _, seg := range shellSegments(scan) {
-		for _, re := range hardBlocks() {
-			if re.MatchString(seg) {
-				return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String(), true
-			}
-		}
+	if pattern, ok := firstHardBlock(scan); ok {
+		return Block, safetyMessage(in, Block, "destructive command", pattern, terminalHint), pattern, true
 	}
-	for _, seg := range shellSegments(cmd) {
-		for _, re := range hardBlocks() {
-			if re.MatchString(seg) {
-				what := "destructive command (matched only inside quoted/inert text)"
-				return Ask, safetyMessage(in, Ask, what, re.String(), terminalHint), re.String(), true
-			}
-		}
+	if scan == cmd {
+		return Allow, "", "", false // nothing was stripped, so the raw pass would find nothing new
+	}
+	if pattern, ok := firstHardBlock(cmd); ok {
+		what := "destructive command (matched only inside quoted/inert text)"
+		return Ask, safetyMessage(in, Ask, what, pattern, terminalHint), pattern, true
 	}
 	return Allow, "", "", false
+}
+
+// firstHardBlock is the first hard-block pattern any shell segment of text matches.
+func firstHardBlock(text string) (string, bool) {
+	for _, seg := range shellSegments(text) {
+		for _, re := range hardBlocks() {
+			if re.MatchString(seg) {
+				return re.String(), true
+			}
+		}
+	}
+	return "", false
 }

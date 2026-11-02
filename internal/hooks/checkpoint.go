@@ -44,9 +44,9 @@ func contextCheckpoint(in *Input) {
 func memoryUpdateStop(in *Input) Result {
 	var hv bytes.Buffer
 	contextCheckpoint(in)
-	failedOpen = false
-	r := exitResult(sessionUpdate(in, &hv), hv.String())
-	if failedOpen && r.Decision != Block {
+	code, failedOpen := sessionUpdate(in, &hv)
+	r := exitResult(code, hv.String())
+	if failedOpen {
 		r.SystemMessage = updateNotSaved
 	}
 	return r

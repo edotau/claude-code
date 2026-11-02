@@ -95,7 +95,7 @@ func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	run := func() int {
-		return sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
+		return sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	}
 
 	writeEdits(t, tr, 2)
@@ -150,7 +150,7 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	codes := []int{}
 	for range 5 {
 		var errb bytes.Buffer
-		codes = append(codes, sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb))
+		codes = append(codes, sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb))
 		if codes[len(codes)-1] == ExitBlock && !strings.Contains(errb.String(), "claude-code memory update") {
 			t.Errorf("block reason %q", errb.String())
 		}
@@ -161,12 +161,12 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 
 	// Evidence releases the gate: a bank write after the stamp.
 	_ = os.Remove(stampPath("s1"))
-	sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
+	sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Minute), "1", 5)
 	if _, err := memory.Init(cwd); err != nil {
 		t.Fatal(err)
 	}
-	if got := sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
+	if got := sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
 		t.Error("a bank write after the prompt must release the gate")
 	}
 }
@@ -370,7 +370,7 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	run := func() int {
-		return sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
+		return sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	}
 
 	writeUserTurns(t, tr, 5)
@@ -514,7 +514,7 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	payload := fmt.Sprintf(`{"session_id":"sub-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionUpdate(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+	if code := sessionUpdateCode(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
 		t.Fatalf("subagent edits must arm the update gate: code=%d calls=%d", code, calls.Load())
 	}
 }
@@ -536,7 +536,7 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	payload := fmt.Sprintf(`{"session_id":"commit-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionUpdate(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+	if code := sessionUpdateCode(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
 		t.Fatalf("a bare git commit must arm the update gate: code=%d calls=%d", code, calls.Load())
 	}
 }
@@ -910,7 +910,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	cwd := t.TempDir()
 	stubSpawn(t, false)
 	var errb bytes.Buffer
-	code := sessionUpdate(ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
+	code := sessionUpdateCode(ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
 	if code != ExitBlock && code != ExitProceed {
 		t.Errorf("unexpected exit code %d parsing a catchup stamp", code)
 	}
@@ -1102,7 +1102,7 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
+	if got := sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
 		t.Errorf("an unwritable stamp cannot count blocks, so Stop must fail open; got %d", got)
 	}
 }
@@ -1129,4 +1129,10 @@ func TestReadOnlyEditsMatchesCountEditsWithoutWriting(t *testing.T) {
 	if real := countEdits(tr, countFile); dry != 4 || real != dry {
 		t.Errorf("dry = %d, real = %d, want both 4", dry, real)
 	}
+}
+
+// sessionUpdateCode is sessionUpdate's exit code alone, for tests that only check the gate.
+func sessionUpdateCode(in *Input, stderr io.Writer) int {
+	code, _ := sessionUpdate(in, stderr)
+	return code
 }
