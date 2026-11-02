@@ -62,7 +62,7 @@ func sample() values {
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | Opus 5 [1m] · proxy:18765 · 42% · total:1.23M · 12m │ main +10 -3",
+		"gradient":  "tester:~/proj | Opus 5 [1m] · proxy:18765 · ██████████ 42% · total:1.23M · 12m │ main +10 -3",
 		"powerline": "tester:~/proj |  Opus 5 [1m]  proxy:18765  42%  total:1.23M  12m   main  +10 -3",
 		"capsule":   "tester:~/proj | ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( total:1.23M ) ( 12m ) (  main ) +10 -3",
 		"minimal":   "tester:~/proj |  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  total:1.23M  ·  12m  ·   main  +10 -3",

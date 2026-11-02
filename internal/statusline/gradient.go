@@ -105,7 +105,10 @@ func gradientCells(v values, cfg Config) []cell {
 			if emitted {
 				pushSep(sepMinor)
 			}
-			push(strconv.Itoa(v.contextPct)+"%", "g")
+			filled, empty := contextBarParts(v.contextPct, cfg.Bar)
+			push(filled, "filled")
+			push(empty, "empty")
+			push(" "+strconv.Itoa(v.contextPct)+"%", "g")
 			emitted = true
 			continue
 		}

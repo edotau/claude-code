@@ -35,7 +35,7 @@ func TestGradientCells(t *testing.T) {
 			path:  true,
 			want: []run{
 				{"~/proj ", "g"}, {"|", "sep"}, {" openrouter ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
-				{" ", "g"}, {"|", "sep"}, {" 42%", "g"},
+				{" ", "g"}, {"|", "sep"}, {" ", "g"}, {"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
 				{" ", "g"}, {"|", "sep"}, {" total:1.23M", "g"}, {" | ", "sep"}, {"feature…", "g"},
 			},
 		},
@@ -43,7 +43,7 @@ func TestGradientCells(t *testing.T) {
 			name:  "context first",
 			order: []string{"context", "model"},
 			want: []run{
-				{"42%", "g"}, {" ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
+				{"++", "filled"}, {"--", "empty"}, {" 42%", "g"}, {" ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
 				{" | ", "sep"}, {"feature…", "g"},
 			},
 		},
