@@ -372,7 +372,22 @@ func saveModel(d *dialog, p *providers.Provider, claude bool, alias, id string) 
 
 // modelChoices lists ids the account can serve: opencode's catalog for a hub account, the live API (else the
 // registry's own table) for claude's provider.
-var modelChoices = func(p *providers.Provider, claude bool) []string {
+var modelChoices = func(p *providers.Provider, claude bool) (choices []string) {
+	defer func() {
+		if p.Provider == "github" {
+			return // Copilot keeps its live enabled catalog, not saved history.
+		}
+		saved, err := providers.PickerModels(p)
+		if err != nil {
+			fmt.Printf("models: %v\n", err)
+			return
+		}
+		for _, m := range saved {
+			if !slices.Contains(choices, m.ID) {
+				choices = append(choices, m.ID)
+			}
+		}
+	}()
 	if !claude && p.OpencodeID != "" {
 		if ids := opencodeModels(p.OpencodeID); len(ids) > 0 {
 			return ids

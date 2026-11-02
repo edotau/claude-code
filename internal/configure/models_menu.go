@@ -8,9 +8,19 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// CatalogForAlias is alias's pickable catalog: the provider's live models, or — when that listing fails
-// in a known way (FallbackModels) — a known offline list, with a note explaining the substitution.
-func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.Provider, alias string) ([]providers.ModelInfo, string) {
+// CatalogForAlias lists live choices plus saved additions, with an explained offline fallback.
+func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.Provider, alias string) (choices []providers.ModelInfo, note string) {
+	defer func() {
+		if p.Provider == "github" {
+			return // Saved history must not bypass Copilot policy filtering.
+		}
+		saved, err := providers.PickerModels(p)
+		if err != nil {
+			note += " saved picker additions unavailable: " + err.Error()
+			return
+		}
+		choices = providers.MergePickerModels(choices, saved)
+	}()
 	var infos []providers.ModelInfo
 	var err error
 	if p.Provider == "github" {
@@ -21,7 +31,7 @@ func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.
 	if err == nil {
 		return infos, ""
 	}
-	infos, note, err := providers.FallbackModels(p, err)
+	infos, note, err = providers.FallbackModels(p, err)
 	if err != nil {
 		return nil, "live catalog unavailable (" + err.Error() + ") and no fallback for the " + alias + " alias"
 	}

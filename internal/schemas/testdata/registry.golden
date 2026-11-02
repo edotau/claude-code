@@ -15,6 +15,7 @@
 # legacy-layout: opencode-auth-cache
 # legacy-layout: opencode-models-check
 # legacy-layout: opencode-overlay
+# legacy-layout: picker-additions
 # legacy-layout: projections
 # legacy-layout: quota
 # legacy-layout: router-runtime
@@ -49,6 +50,7 @@ oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | in
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/opencode | keep
 opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/opencode | keep
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentconfig | keep
+picker-additions | store | 1 | state/vault.db | internal/providers | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep

@@ -93,12 +93,32 @@ claude-code configure provider --all [<profile>]    # check every sign-in (or on
 claude-code switch example                          # pin the session profile
 claude-code models --pin haiku=openai:gpt-5-nano    # pin a model alias; provider:model crosses providers
 claude-code models --unpin | --live --profile p     # clear pins | list what upstream serves
+claude-code models discover                         # live preview across all registry profiles
+claude-code models discover --profile p --apply     # append profile-scoped runtime choices
+# /discover-models [--profile p] [--dry-run]         # slash launcher applies by default
 claude-code --profile example --model sonnet         # this launch only
 ```
 
 Precedence: `--profile` → the claude agent record's `profile` → registry `default`. Model: `--model` → the record's
 `aliases` (`models --pin`) → the profile's `models`. Settings live in one vault record per agent; an exported
 `CLAUDE_PROFILE` marks the session, it is not a setting.
+
+`models discover` uses authenticated live listing only, with bounded pagination/timeouts and
+per-profile errors/skips; it never saves fallback catalogs. CLI preview is the default;
+`--apply` saves append-only choices in sealed, versioned vault records scoped by profile,
+routes, spelling and account/auth configuration. A second unchanged apply adds nothing.
+Configured aliases, selections, pins, routes and the legacy global Databricks menu are
+not rewritten. Except for Copilot, saved choices feed configure/agent model pickers and harness-generated
+OpenCode catalogs on the next routed launch; Databricks Codex catalogs include only
+Responses entries for which Codex supplies bundled metadata. Native vendor catalogs
+and OpenCode hub-native launches are not rewritten. Vendor CLI-only catalogs without
+a supported adapter are explicit skips. Copilot requires an explicit profile login and
+uses that account's `gh` token without changing the global account pin. Copilot additions
+are saved history only: its native picker continues to use the live enabled catalog. Gemini-native
+API profiles list generation-capable models, not embeddings. Saved choices remain even
+when absent from later listings: **discovery is not inference proof or current availability**.
+Changing route/account configuration selects a separate additions scope; changing only
+a credential in the same configuration retains history.
 
 ### Vault
 
