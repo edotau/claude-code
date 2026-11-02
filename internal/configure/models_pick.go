@@ -300,7 +300,7 @@ func copilotCanonicalID(id string) string {
 
 // pickCopilotModelFallback is the pre-SDK list: opencode's github-copilot catalog.
 func pickCopilotModelFallback(d *dialog, cur string) {
-	p := profileBy(d.reg, "github", providers.AuthCLI)
+	p := ProfileBy(d.reg, "github", providers.AuthCLI)
 	if p == nil {
 		d.printf("copilot: no github provider registered\n")
 		return

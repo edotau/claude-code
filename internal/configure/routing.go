@@ -164,7 +164,7 @@ func editRoutingChoice(d *dialog, f agentconfig.Field, values []string) (string,
 	if idx == resetIdx {
 		return "", true
 	}
-	if err := validateRoutingInput(f, values[idx]); err != nil {
+	if err := ValidateRoutingInput(f, values[idx]); err != nil {
 		d.printf("%s: %v\n", f.Key, err)
 		return "", false
 	}
@@ -177,15 +177,15 @@ func editRoutingText(d *dialog, f agentconfig.Field) (string, bool) {
 	if input == "" {
 		return "", true
 	}
-	if err := validateRoutingInput(f, input); err != nil {
+	if err := ValidateRoutingInput(f, input); err != nil {
 		d.printf("%s: %v\n", f.Key, err)
 		return "", false
 	}
 	return input, true
 }
 
-// validateRoutingInput runs f.Set against a scratch Routing, so a bad value is reported before staging.
-func validateRoutingInput(f agentconfig.Field, input string) error {
+// ValidateRoutingInput runs f.Set against a scratch Routing, so a bad value is reported before staging.
+func ValidateRoutingInput(f agentconfig.Field, input string) error {
 	var scratch providers.Routing
 	return f.Set(&scratch, input)
 }

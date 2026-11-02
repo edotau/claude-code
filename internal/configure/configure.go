@@ -113,8 +113,8 @@ func (d *dialog) header(section string) {
 	d.println(tui.Accent(d.color, menu.Heading(section)))
 }
 
-// warmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
-func warmServedOnChange(out io.Writer, skip bool, pins map[string]router.PinSpec, wasOn bool) {
+// WarmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
+func WarmServedOnChange(out io.Writer, skip bool, pins map[string]router.PinSpec, wasOn bool) {
 	if skip || !providers.ServedRoutingOn() || (wasOn && maps.Equal(pins, agent.AgentPins())) {
 		return
 	}
@@ -149,7 +149,7 @@ func Run(o Options, section string) int {
 	}
 	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
-	defer warmServedOnChange(out, o.Check || o.DryRun, agent.AgentPins(), providers.ServedRoutingOn())
+	defer WarmServedOnChange(out, o.Check || o.DryRun, agent.AgentPins(), providers.ServedRoutingOn())
 	if len(o.Drop)+len(o.Keep) > 0 {
 		code := runDropKeep(d)
 		if d.changed && !o.Check && !o.DryRun && !rerenderConfigs(d) && code == 0 {
@@ -224,8 +224,8 @@ func Agent(name string, interactive bool, out io.Writer) (changed bool, err erro
 
 // --- provider ---
 
-// currentProvider is the configured profile (vault pin), falling back to the registry default when unpinned.
-func currentProvider(reg *providers.Registry) string {
+// CurrentProvider is the configured profile (vault pin), falling back to the registry default when unpinned.
+func CurrentProvider(reg *providers.Registry) string {
 	if cur := vault.GetAgentRecord("claude").Profile; cur != "" {
 		return cur
 	}
@@ -238,7 +238,7 @@ func runProvider(d *dialog) bool {
 	}
 	reg := d.reg
 	names := reg.Names()
-	cur := currentProvider(reg)
+	cur := CurrentProvider(reg)
 	cred := func(n string) string {
 		if providers.CredentialPresent(reg.Providers[n]) {
 			return "cred:ok"
@@ -304,8 +304,8 @@ func applyProvider(d *dialog, name string) bool {
 
 // --- keys ---
 
-// keyTarget is one row `configure keys` reports on: a provider-level credential or an agent's own login.
-type keyTarget struct {
+// KeyTarget is one row `configure keys` reports on: a provider-level credential or an agent's own login.
+type KeyTarget struct {
 	label     string
 	present   bool
 	source    string              // present: which source/login answered
@@ -320,9 +320,9 @@ type keyTarget struct {
 // setupTokenRE matches the long-lived token `claude setup-token` prints once the browser flow completes.
 var setupTokenRE = regexp.MustCompile(`sk-ant-oat\d+-[A-Za-z0-9_-]{20,}`)
 
-// maxPlanTarget fills the claude row for the Claude Max plan (passthrough): the interactive /login session as
+// MaxPlanTarget fills the claude row for the Claude Max plan (passthrough): the interactive /login session as
 // reported by `claude auth status`, plus whether a long-lived setup-token is stored for unattended runs.
-func maxPlanTarget(kt keyTarget) keyTarget {
+func MaxPlanTarget(kt KeyTarget) KeyTarget {
 	kt.loginArgv = []string{"claude", "auth", "login"}
 	kt.mintArgv = []string{"claude", "setup-token"}
 	kt.envVar = providers.OAuthTokenEnv
@@ -347,8 +347,8 @@ var consoleURLs = map[string]string{
 	"OPENAI_API_KEY":    "https://platform.openai.com/api-keys",
 }
 
-// authOption is one way to satisfy an absent credential: an agent's browser/device login, or a pasted key.
-type authOption struct {
+// AuthOption is one way to satisfy an absent credential: an agent's browser/device login, or a pasted key.
+type AuthOption struct {
 	action string   // one or two words, the picker's first column (Paste API key)
 	desc   string   // one short line, the second column
 	argv   []string // login CLI to run attached to the terminal
@@ -357,16 +357,16 @@ type authOption struct {
 }
 
 // label is the piped one-line form of the option.
-func (o authOption) label() string { return o.action + " — " + o.desc }
+func (o AuthOption) label() string { return o.action + " — " + o.desc }
 
-// authOptions lists every way kt can be satisfied, browser login first; the dialog shows them all.
-func authOptions(kt keyTarget) []authOption {
-	var opts []authOption
+// AuthOptions lists every way kt can be satisfied, browser login first; the dialog shows them all.
+func AuthOptions(kt KeyTarget) []AuthOption {
+	var opts []AuthOption
 	if len(kt.loginArgv) > 0 {
-		opts = append(opts, authOption{action: "Browser login", desc: strings.Join(kt.loginArgv, " "), argv: kt.loginArgv})
+		opts = append(opts, AuthOption{action: "Browser login", desc: strings.Join(kt.loginArgv, " "), argv: kt.loginArgv})
 	}
 	if len(kt.mintArgv) > 0 {
-		opts = append(opts, authOption{action: "Mint token", desc: strings.Join(kt.mintArgv, " ") + " (unattended runs)",
+		opts = append(opts, AuthOption{action: "Mint token", desc: strings.Join(kt.mintArgv, " ") + " (unattended runs)",
 			mint: kt.mintArgv, env: kt.envVar})
 	}
 	if kt.envVar != "" {
@@ -374,13 +374,13 @@ func authOptions(kt keyTarget) []authOption {
 		if u := consoleURLs[kt.envVar]; u != "" {
 			desc = "create at " + strings.TrimPrefix(u, "https://")
 		}
-		opts = append(opts, authOption{action: "Paste API key", desc: desc, env: kt.envVar})
+		opts = append(opts, AuthOption{action: "Paste API key", desc: desc, env: kt.envVar})
 	}
 	return opts
 }
 
-func keyTargets(reg *providers.Registry, agentFilter string) ([]keyTarget, error) {
-	var out []keyTarget
+func KeyTargets(reg *providers.Registry, agentFilter string) ([]KeyTarget, error) {
+	var out []KeyTarget
 	if agentFilter == "" {
 		sel, err := providers.Select(reg, "")
 		if err != nil {
@@ -391,12 +391,12 @@ func keyTargets(reg *providers.Registry, agentFilter string) ([]keyTarget, error
 		if p.Auth.Env != "" {
 			fix = "claude-code vault set " + p.Auth.Env
 		}
-		kt := keyTarget{
+		kt := KeyTarget{
 			label: "claude", present: providers.CredentialPresent(p), source: secrets.Resolve(p).Source,
 			envVar: p.Auth.Env, fixCmd: fix, provider: p,
 		}
 		if p.Auth.Method() == providers.AuthCLI {
-			kt = maxPlanTarget(kt)
+			kt = MaxPlanTarget(kt)
 		}
 		out = append(out, kt)
 	}
@@ -404,24 +404,24 @@ func keyTargets(reg *providers.Registry, agentFilter string) ([]keyTarget, error
 		if agentFilter != "" && name != agentFilter {
 			continue
 		}
-		out = append(out, agentKeyTarget(reg, name))
+		out = append(out, AgentKeyTarget(reg, name))
 	}
 	return out, nil
 }
 
-func agentKeyTarget(reg *providers.Registry, name string) keyTarget {
+func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
 	sel, err := providers.Select(reg, "")
 	s, _ := agent.LookupSchema(name)
-	fallback := func() keyTarget {
+	fallback := func() KeyTarget {
 		if err == nil {
 			target, note, rerr := s.ResolveTarget(reg, sel, false)
 			// The agent's own stored config/login is a working setup, not a missing key.
 			if errors.Is(rerr, agent.ErrOwnLogin) {
-				return keyTarget{label: name, present: true, source: afterUsing(note)}
+				return KeyTarget{label: name, present: true, source: afterUsing(note)}
 			}
 			// A passthrough provider carries another agent's login, never a key this agent can use.
 			if rerr == nil && target.Provider.Auth.Method() != providers.AuthCLI && providers.CredentialPresent(target.Provider) {
-				return keyTarget{label: name, present: true, source: target.Provider.Name + " key",
+				return KeyTarget{label: name, present: true, source: target.Provider.Name + " key",
 					envVar: target.Provider.Auth.Env, provider: target.Provider}
 			}
 		}
@@ -429,10 +429,10 @@ func agentKeyTarget(reg *providers.Registry, name string) keyTarget {
 		if s, ok := agent.LookupSchema(name); ok {
 			hint = s.CLI.ConfigureHint
 		}
-		return keyTarget{label: name, present: false, fixCmd: hint}
+		return KeyTarget{label: name, present: false, fixCmd: hint}
 	}
 	if present, source := s.LoginStatus(); present {
-		kt := keyTarget{label: name, present: true, source: source}
+		kt := KeyTarget{label: name, present: true, source: source}
 		// copilot's label is the only trace of its source: a gh account or env token has no sign-in to re-run
 		if name != "copilot" || strings.HasSuffix(source, "copilot login") {
 			kt.loginArgv = s.CLI.LoginArgv // rotate: re-run the CLI's own sign-in
@@ -440,7 +440,7 @@ func agentKeyTarget(reg *providers.Registry, name string) keyTarget {
 		return kt
 	}
 	if name == "gemini" { // agy has no key route, so nothing to fall back to
-		return keyTarget{label: name, present: false, loginArgv: s.CLI.LoginArgv, fixCmd: "run `agy` to sign in with Google"}
+		return KeyTarget{label: name, present: false, loginArgv: s.CLI.LoginArgv, fixCmd: "run `agy` to sign in with Google"}
 	}
 	kt := fallback()
 	if !kt.present {
@@ -453,7 +453,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return keysMenu(d) // a terminal gets the pick-one menu; piped runs keep the line-by-line pass below
 	}
-	targets, err := keyTargets(d.reg, d.o.Agent)
+	targets, err := KeyTargets(d.reg, d.o.Agent)
 	if err != nil {
 		d.println(err)
 		return false, false
@@ -472,8 +472,8 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 	return allOK, changed
 }
 
-func runPresentKey(d *dialog, kt keyTarget) (ok, changed bool) {
-	status, detail, age := probeCached(kt)
+func runPresentKey(d *dialog, kt KeyTarget) (ok, changed bool) {
+	status, detail, age := ProbeCached(kt)
 	if status == "rejected" {
 		return runRejectedKey(d, kt, detail)
 	}
@@ -484,12 +484,12 @@ func runPresentKey(d *dialog, kt keyTarget) (ok, changed bool) {
 	}
 	if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
 		d.shell().Confirm("Mint a long-lived token so unattended runs (update, ask, cron) survive /login expiry?") {
-		return true, runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar})
+		return true, runAuthOption(d, kt, AuthOption{mint: kt.mintArgv, env: kt.envVar})
 	}
 	return true, false
 }
 
-func runRejectedKey(d *dialog, kt keyTarget, detail string) (ok, changed bool) {
+func runRejectedKey(d *dialog, kt KeyTarget, detail string) (ok, changed bool) {
 	d.printf("%-10s present but REJECTED (%s): %s\n", kt.label, kt.source, detail)
 	if !d.o.Interactive || d.o.Check {
 		return false, false
@@ -500,7 +500,7 @@ func runRejectedKey(d *dialog, kt keyTarget, detail string) (ok, changed bool) {
 	return false, false
 }
 
-func runAbsentKey(d *dialog, kt keyTarget) (ok, changed bool) {
+func runAbsentKey(d *dialog, kt KeyTarget) (ok, changed bool) {
 	if d.o.Interactive && !d.o.Check && resolveKey(d, kt) {
 		return true, true
 	}
@@ -508,8 +508,8 @@ func runAbsentKey(d *dialog, kt keyTarget) (ok, changed bool) {
 	return false, false
 }
 
-// probe live-checks a present keyed credential (4s cap); "" when there is nothing to probe.
-func probe(kt keyTarget) (status, detail string) {
+// Probe live-checks a present keyed credential (4s cap); "" when there is nothing to Probe.
+func Probe(kt KeyTarget) (status, detail string) {
 	if kt.provider == nil {
 		return "", ""
 	}
@@ -521,31 +521,31 @@ func probe(kt keyTarget) (status, detail string) {
 // probeTTL is how long a verified/rejected probe result is trusted before re-probing; "unreachable" is never cached.
 const probeTTL = 6 * time.Hour
 
-// probeCached reuses fresh vault probe results; env overrides and uncached values always probe live.
-func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
+// ProbeCached reuses fresh vault probe results; env overrides and uncached values always probe live.
+func ProbeCached(kt KeyTarget) (status, detail string, age time.Duration) {
 	if kt.provider == nil || kt.provider.Auth.Env == "" {
-		status, detail = probe(kt)
+		status, detail = Probe(kt)
 		return status, detail, 0
 	}
 	env := kt.provider.Auth.Env
-	meta, src := probeSource(env)
+	meta, src := ProbeSource(env)
 	if src != "vault" {
-		status, detail = probe(kt)
+		status, detail = Probe(kt)
 		return status, detail, 0
 	}
 	if cached, cachedAge, ok := secretstore.CachedProbe(meta[env], probeTTL, time.Now()); ok {
 		return cached, "", cachedAge
 	}
 	setAt := meta[env].SetAt
-	status, detail = probe(kt)
+	status, detail = Probe(kt)
 	if status == "verified" || status == "rejected" {
 		_ = secretstore.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
 }
 
-// probeSource resolves env's launch source; unreadable vault metadata yields nil, forcing a live probe.
-func probeSource(env string) (meta map[string]secretstore.Meta, src string) {
+// ProbeSource resolves env's launch source; unreadable vault metadata yields nil, forcing a live probe.
+func ProbeSource(env string) (meta map[string]secretstore.Meta, src string) {
 	meta, err := secretstore.LoadMeta()
 	if err != nil {
 		_, src, _, _ = secretstore.Effective(env) // meta unreadable: fall back to the live-lookup ladder
@@ -577,8 +577,8 @@ func afterUsing(note string) string {
 
 // resolveKey presents every way to satisfy kt — browser/device login and pasted key side by side — as a picker
 // on a terminal, or one [Y/n] per option when piped; false means skipped, empty, or failed.
-func resolveKey(d *dialog, kt keyTarget) bool {
-	opts := authOptions(kt)
+func resolveKey(d *dialog, kt KeyTarget) bool {
+	opts := AuthOptions(kt)
 	if len(opts) == 0 {
 		return false
 	}
@@ -616,9 +616,9 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 }
 
 // runAuthOption performs one option: the login CLI on the real terminal, or console page + hidden paste + the store.
-func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
+func runAuthOption(d *dialog, kt KeyTarget, o AuthOption) bool {
 	if len(o.argv) > 0 {
-		if err := runLogin(o.argv); err != nil {
+		if err := RunLogin(o.argv); err != nil {
 			d.printf("%s: %v\n", kt.label, err)
 			return false
 		}
@@ -626,7 +626,7 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 		return true
 	}
 	if len(o.mint) > 0 {
-		tok, err := runMint(o.mint)
+		tok, err := RunMint(o.mint)
 		if err != nil {
 			d.printf("%s: %v\n", kt.label, err)
 			return false
@@ -648,11 +648,11 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 	return storeValue(d, o.env, v)
 }
 
-// runMint tees stdout from the token-minting CLI and returns its token only when the command succeeds.
-func runMint(argv []string) (string, error) {
+// RunMint tees stdout from the token-minting CLI and returns its token only when the command succeeds.
+func RunMint(argv []string) (string, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runMintContext(ctx, argv)
+	return RunMintContext(ctx, argv)
 }
 
 // attachedCommand is argv under ctx; cancel sends SIGINT first, and Go kills it after WaitDelay.
@@ -663,7 +663,7 @@ func attachedCommand(ctx context.Context, argv []string) *exec.Cmd {
 	return cmd
 }
 
-func runMintContext(ctx context.Context, argv []string) (string, error) {
+func RunMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := ctxErr(ctx, "mint token"); err != nil {
 		return "", err
 	}
@@ -723,12 +723,12 @@ func confirmLeave(n int, what string) bool {
 	return n > 0 && saveConfirmed(fmt.Sprintf("Save %d %s", n, what))
 }
 
-// runLogin execs an agent's own login CLI attached to the real terminal: picking the row that leads here
+// RunLogin execs an agent's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
-func runLogin(argv []string) error {
+func RunLogin(argv []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runLoginContext(ctx, argv)
+	return RunLoginContext(ctx, argv)
 }
 
 func cliArgv(argv []string) ([]string, error) {
@@ -745,7 +745,7 @@ func cliArgv(argv []string) ([]string, error) {
 	return resolved, nil
 }
 
-func runLoginContext(ctx context.Context, argv []string) error {
+func RunLoginContext(ctx context.Context, argv []string) error {
 	argv, err := cliArgv(argv)
 	if err != nil {
 		return err

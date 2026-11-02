@@ -269,10 +269,10 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	return false, nil
 }
 
-// dbxSaveIdentity writes env's identity mode and paired client id to its provider row, then seals secret (when given)
+// SaveDbxIdentity writes env's identity mode and paired client id to its provider row, then seals secret (when given)
 // as DATABRICKS_<ENV>_M2M, restoring the old one if the row write fails; never echoed. Mode sp needs a client id.
-func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
-	p := d.reg.Providers[env]
+func SaveDbxIdentity(reg *providers.Registry, env, mode, spID, secret string) error {
+	p := reg.Providers[env]
 	if p == nil {
 		return fmt.Errorf("%s: no such profile", env)
 	}
@@ -300,14 +300,13 @@ func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
 		if secret == "" {
 			return err
 		}
-		return errors.Join(err, dbxRestoreSecret(name, secret, prev, hadPrev))
+		return errors.Join(err, DbxRestoreSecret(name, secret, prev, hadPrev))
 	}
-	d.changed = true
 	return nil
 }
 
-// dbxRestoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
-func dbxRestoreSecret(name, wrote, prev string, hadPrev bool) error {
+// DbxRestoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
+func DbxRestoreSecret(name, wrote, prev string, hadPrev bool) error {
 	wrote = strings.TrimSpace(wrote)
 	restored := false
 	err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
@@ -364,10 +363,11 @@ func dbxIdentity(d *dialog, env string) {
 			return
 		}
 	}
-	if err := dbxSaveIdentity(d, env, modes[idx], spID, secret); err != nil {
+	if err := SaveDbxIdentity(d.reg, env, modes[idx], spID, secret); err != nil {
 		d.printf("%s: identity: %v\n", env, err)
 		return
 	}
+	d.changed = true
 	d.printf("%s: identity %s\n", env, modes[idx])
 }
 

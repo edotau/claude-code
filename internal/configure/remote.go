@@ -26,7 +26,7 @@ func runRemote(d *dialog) bool {
 		d.printf("tailscale   not connected → claude-code network tailscale --connect\n")
 	}
 	switch {
-	case hasAdminCredential():
+	case HasAdminCredential():
 		d.printf("admin api   credential present\n")
 	default:
 		d.printf("admin api   credential absent → claude-code vault set TAILSCALE_OAUTH_CLIENT_ID|_SECRET\n")
@@ -51,8 +51,8 @@ func runRemote(d *dialog) bool {
 	return true
 }
 
-// hasAdminCredential reports, by name only, whether a tailscale admin API credential is set.
-func hasAdminCredential() bool {
+// HasAdminCredential reports, by name only, whether a tailscale admin API credential is set.
+func HasAdminCredential() bool {
 	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
 		return true
 	}

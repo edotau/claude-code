@@ -28,8 +28,8 @@ type ghStatus struct {
 	account  string
 }
 
-// ghAuthCheck runs `gh auth status` (8s cap); its exit code is the verdict, its stdout+stderr the account line.
-func ghAuthCheck() ghStatus {
+// GHAuthCheck runs `gh auth status` (8s cap); its exit code is the verdict, its stdout+stderr the account line.
+func GHAuthCheck() ghStatus {
 	bin, err := exec.LookPath("gh")
 	if err != nil {
 		return ghStatus{}
@@ -57,7 +57,7 @@ func printRoute(d *dialog, ri agent.RouteInfo) {
 // githubStatusRows prints every github section status line and reports which are OK, for both the
 // interactive menu (re-run each loop) and the piped report (run once).
 func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
-	gh := ghAuthCheck()
+	gh := GHAuthCheck()
 	switch {
 	case !gh.found:
 		d.printf("%-16s ABSENT: gh CLI not found on PATH\n", "gh CLI")
@@ -130,7 +130,7 @@ func githubMenu(d *dialog) bool {
 
 // runGithubLogin execs argv attached to the real terminal, same contract as runLogin elsewhere in configure.
 func runGithubLogin(d *dialog, argv []string, label string) {
-	if err := runLogin(argv); err != nil {
+	if err := RunLogin(argv); err != nil {
 		d.printf("%s: %v\n", label, err)
 		return
 	}
@@ -228,7 +228,7 @@ func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 	if err != nil {
 		return err
 	}
-	p := profileBy(reg, "github", providers.AuthCLI)
+	p := ProfileBy(reg, "github", providers.AuthCLI)
 	if p == nil {
 		return errors.New("github models: no github profile in the registry")
 	}

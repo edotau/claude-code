@@ -44,19 +44,19 @@ func newDialog(in string) (*dialog, *bytes.Buffer) {
 func TestRotateOptionsShapes(t *testing.T) {
 	cases := []struct {
 		name string
-		kt   keyTarget
+		kt   KeyTarget
 		want []string
 	}{
-		{"login only", keyTarget{loginArgv: []string{"codex", "login"}}, []string{"Login"}},
-		{"mint only", keyTarget{mintArgv: []string{"claude", "setup-token"}}, []string{"OAuth token"}},
-		{"login and mint (subscription)", keyTarget{loginArgv: []string{"claude", "auth", "login"}, mintArgv: []string{"claude", "setup-token"}},
+		{"login only", KeyTarget{loginArgv: []string{"codex", "login"}}, []string{"Login"}},
+		{"mint only", KeyTarget{mintArgv: []string{"claude", "setup-token"}}, []string{"OAuth token"}},
+		{"login and mint (subscription)", KeyTarget{loginArgv: []string{"claude", "auth", "login"}, mintArgv: []string{"claude", "setup-token"}},
 			[]string{"Login", "OAuth token"}},
-		{"keyed, no generator", keyTarget{envVar: "X", provider: &providers.Provider{}}, []string{"API key"}},
-		{"keyed but no provider: no generator and no paste", keyTarget{envVar: "X"}, nil},
-		{"nothing at all", keyTarget{}, nil},
+		{"keyed, no generator", KeyTarget{envVar: "X", provider: &providers.Provider{}}, []string{"API key"}},
+		{"keyed but no provider: no generator and no paste", KeyTarget{envVar: "X"}, nil},
+		{"nothing at all", KeyTarget{}, nil},
 	}
 	for _, c := range cases {
-		opts := rotateOptions(c.kt)
+		opts := RotateOptions(c.kt)
 		var got []string
 		for _, o := range opts {
 			got = append(got, o.action)
@@ -78,7 +78,7 @@ func TestRotateOptionsShapes(t *testing.T) {
 
 func TestRunRotateNoOptionsFalse(t *testing.T) {
 	d, _ := newDialog("")
-	if runRotate(d, keyTarget{}) {
+	if runRotate(d, KeyTarget{}) {
 		t.Error("runRotate with no options must be false")
 	}
 }
@@ -88,7 +88,7 @@ func TestRunRotateNoOptionsFalse(t *testing.T) {
 func TestRunRotateSingleLoginOptionNoBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("")
-	kt := keyTarget{label: "codex", loginArgv: []string{"codex-does-not-exist", "login"}}
+	kt := KeyTarget{label: "codex", loginArgv: []string{"codex-does-not-exist", "login"}}
 	if runRotate(d, kt) {
 		t.Errorf("runRotate must fail when the login CLI is missing:\n%s", out.String())
 	}
@@ -102,7 +102,7 @@ func TestRunRotateSingleMintOptionStoresVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, out := newDialog("")
-	kt := keyTarget{label: "claude", envVar: providers.OAuthTokenEnv, mintArgv: []string{"/bin/echo", "sk-ant-oat1-newtokenabcDEFghijklmno0123456789"}}
+	kt := KeyTarget{label: "claude", envVar: providers.OAuthTokenEnv, mintArgv: []string{"/bin/echo", "sk-ant-oat1-newtokenabcDEFghijklmno0123456789"}}
 	if !runRotate(d, kt) {
 		t.Fatalf("runRotate(mint) = false:\n%s", out.String())
 	}
@@ -116,7 +116,7 @@ func TestRunRotateSingleMintOptionStoresVault(t *testing.T) {
 func TestRunRotateTwoOptionsPipedPicksSecondOnDecline(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("n\n")
-	kt := keyTarget{label: "claude", loginArgv: []string{"missing-login-cli"}, mintArgv: []string{"missing-mint-cli"}}
+	kt := KeyTarget{label: "claude", loginArgv: []string{"missing-login-cli"}, mintArgv: []string{"missing-mint-cli"}}
 	runRotate(d, kt) // exercising which branch ran, not the (missing-binary) result
 	if !strings.Contains(out.String(), "Login") {
 		t.Errorf("expected the first option's confirm prompt in output:\n%s", out.String())
@@ -130,7 +130,7 @@ func TestRegenerateMintEnvOnlyRefuses(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ROT_MINT_ENV", "set-via-process-env")
 	d, out := newDialog("")
-	kt := keyTarget{label: "x", envVar: "ROT_MINT_ENV"}
+	kt := KeyTarget{label: "x", envVar: "ROT_MINT_ENV"}
 	if regenerate(d, kt, []string{"/bin/echo", "sk-ant-oat1-newvaluevalue0123456789abcdef"}, true) {
 		t.Fatal("regenerate(mint) on an env-only credential must refuse")
 	}
@@ -145,7 +145,7 @@ func TestRegenerateMintEnvOnlyRefuses(t *testing.T) {
 func TestRegenerateLoginFailurePrintsError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("")
-	if regenerate(d, keyTarget{label: "codex"}, []string{"codex-does-not-exist"}, false) {
+	if regenerate(d, KeyTarget{label: "codex"}, []string{"codex-does-not-exist"}, false) {
 		t.Fatal("regenerate(login) must fail when the CLI is missing")
 	}
 	if !strings.Contains(out.String(), "codex") {
@@ -160,7 +160,7 @@ func TestReplaceKeyEnvOnlyRefuses(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ROT_REPLACE_ENV", "set-via-process-env")
 	d, out := newDialog("new-pasted-value\n")
-	kt := keyTarget{label: "x", envVar: "ROT_REPLACE_ENV"}
+	kt := KeyTarget{label: "x", envVar: "ROT_REPLACE_ENV"}
 	if replaceKey(d, kt) {
 		t.Fatal("replaceKey on an env-only credential must refuse")
 	}
@@ -181,7 +181,7 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 	p := fakeKeyedProvider(t, "ROT_REPLACE_KEY", "the-only-accepted-value")
 	const newVal = "brand-new-but-rejected-value-0002"
 	d, out := newDialog(newVal + "\ny\n") // paste, then "y" to the keep-old prompt
-	kt := keyTarget{label: "x", envVar: "ROT_REPLACE_KEY", provider: p}
+	kt := KeyTarget{label: "x", envVar: "ROT_REPLACE_KEY", provider: p}
 	if replaceKey(d, kt) {
 		t.Fatalf("replaceKey must report false when the old value is kept:\n%s", out.String())
 	}
@@ -207,7 +207,7 @@ func TestReplaceKeyProbeAcceptedStoresVaultRedacted(t *testing.T) {
 	const newVal = "accepted-fresh-secret-value-99"
 	p := fakeKeyedProvider(t, "ROT_REPLACE_OK", newVal)
 	d, out := newDialog(newVal + "\n")
-	kt := keyTarget{label: "x", envVar: "ROT_REPLACE_OK", provider: p}
+	kt := KeyTarget{label: "x", envVar: "ROT_REPLACE_OK", provider: p}
 	if !replaceKey(d, kt) {
 		t.Fatalf("replaceKey must succeed on an accepted probe:\n%s", out.String())
 	}
@@ -227,7 +227,7 @@ func TestReplaceKeyProbeAcceptedStoresVaultRedacted(t *testing.T) {
 
 func TestEnsureKeyPresentKeepsOnConfirm(t *testing.T) {
 	d, out := newDialog("y\n")
-	kt := keyTarget{label: "x"}
+	kt := KeyTarget{label: "x"}
 	if !ensureKey(d, kt, true) {
 		t.Fatalf("ensureKey must keep the present key on confirm:\n%s", out.String())
 	}
@@ -238,7 +238,7 @@ func TestEnsureKeyPresentDeclineRunsReplace(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ROT_ENSURE_ENV", "env-only-so-replace-must-refuse")
 	d, out := newDialog("n\n")
-	kt := keyTarget{label: "x", envVar: "ROT_ENSURE_ENV"}
+	kt := KeyTarget{label: "x", envVar: "ROT_ENSURE_ENV"}
 	if ensureKey(d, kt, true) {
 		t.Fatal("ensureKey declining keep must fall to replaceKey, which refuses an env-only credential")
 	}
@@ -251,7 +251,7 @@ func TestEnsureKeyAbsentRunsResolve(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("y\npasted-value-here\n")
-	kt := keyTarget{label: "x", envVar: "ROT_ENSURE_ABSENT", fixCmd: "x"}
+	kt := KeyTarget{label: "x", envVar: "ROT_ENSURE_ABSENT", fixCmd: "x"}
 	if !ensureKey(d, kt, false) {
 		t.Fatalf("ensureKey on an absent key must run resolveKey:\n%s", out.String())
 	}

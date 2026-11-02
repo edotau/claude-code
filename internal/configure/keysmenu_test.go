@@ -8,7 +8,7 @@ import (
 
 // TestKeyRows: one row per credential, absent ones say how to fix, and allOK tracks a missing credential.
 func TestKeyRows(t *testing.T) {
-	rows, ok := keyRows([]keyTarget{
+	rows, ok := keyRows([]KeyTarget{
 		{label: "codex", present: true, source: "ChatGPT login (codex login)"},
 		{label: "gemini", present: false},
 	})
@@ -41,13 +41,13 @@ func TestKeysMenuBackChangesNothing(t *testing.T) {
 // TestLoginLine: every login row's mode is "subscription", with the tier when the CLI reports one.
 func TestLoginLine(t *testing.T) {
 	cases := []struct {
-		kt   keyTarget
+		kt   KeyTarget
 		want string
 	}{
-		{keyTarget{label: "claude", source: "claude.ai login (max)", headless: true}, "subscription (max)"},
-		{keyTarget{label: "codex", source: "ChatGPT login (codex login)"}, "subscription"},
-		{keyTarget{label: "opencode", source: "opencode auth login: github-copilot"}, "subscription"},
-		{keyTarget{label: "copilot", source: "GH_TOKEN / gh auth status"}, "subscription"},
+		{KeyTarget{label: "claude", source: "claude.ai login (max)", headless: true}, "subscription (max)"},
+		{KeyTarget{label: "codex", source: "ChatGPT login (codex login)"}, "subscription"},
+		{KeyTarget{label: "opencode", source: "opencode auth login: github-copilot"}, "subscription"},
+		{KeyTarget{label: "copilot", source: "GH_TOKEN / gh auth status"}, "subscription"},
 	}
 	for _, c := range cases {
 		if got := loginLine(c.kt); got != c.want {
@@ -58,7 +58,7 @@ func TestLoginLine(t *testing.T) {
 
 // Given the Max-plan login (AuthCLI probes as "login"), the row reads subscription (tier) and verified.
 func TestKeyColsMaxPlanLoginIsVerified(t *testing.T) {
-	kt := keyTarget{label: "claude", present: true, envVar: "X", source: "claude.ai login (max)",
+	kt := KeyTarget{label: "claude", present: true, envVar: "X", source: "claude.ai login (max)",
 		provider: &providers.Provider{Auth: providers.Auth{Type: providers.AuthCLI}}}
 	if got := keyCols(kt); got != [2]string{"subscription (max)", "verified"} {
 		t.Errorf("keyCols = %v, want subscription (max) / verified", got)

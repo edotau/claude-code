@@ -15,7 +15,7 @@ var pickKey = tui.PickBack
 func keysMenu(d *dialog) (allOK, changed bool) {
 	start := 0
 	for {
-		targets, err := keyTargets(d.reg, d.o.Agent)
+		targets, err := KeyTargets(d.reg, d.o.Agent)
 		if err != nil {
 			d.println(err)
 			return false, changed
@@ -34,7 +34,7 @@ func keysMenu(d *dialog) (allOK, changed bool) {
 
 // keyRows renders one picker row per credential (name, then mode and check aligned) and reports whether every
 // credential is present and accepted.
-func keyRows(targets []keyTarget) ([][2]string, bool) {
+func keyRows(targets []KeyTarget) ([][2]string, bool) {
 	names := make([]string, len(targets))
 	cols := make([][2]string, len(targets))
 	allOK := true
@@ -50,12 +50,12 @@ func keyRows(targets []keyTarget) ([][2]string, bool) {
 
 // keyCols is one credential's mode (how it signs in · how it bills) and check: verified, unverified, rejected or
 // missing. A login counts as verified when its own CLI's status check confirmed it.
-func keyCols(kt keyTarget) [2]string {
+func keyCols(kt KeyTarget) [2]string {
 	if !kt.present {
 		return [2]string{"not set up", "not verified"}
 	}
 	if kt.provider != nil && kt.envVar != "" {
-		status, _ := probe(kt)
+		status, _ := Probe(kt)
 		if status == "verified" {
 			return [2]string{modeAPIKey, "verified"}
 		}
@@ -70,7 +70,7 @@ func keyCols(kt keyTarget) [2]string {
 var tierRE = regexp.MustCompile(`\((\w+)\)`)
 
 // loginLine is a login credential's mode: "subscription", with the tier when the CLI reports one ("subscription (max)").
-func loginLine(kt keyTarget) string {
+func loginLine(kt KeyTarget) string {
 	if kt.label == "claude" {
 		if m := tierRE.FindStringSubmatch(kt.source); m != nil {
 			return "subscription (" + m[1] + ")"
@@ -80,14 +80,14 @@ func loginLine(kt keyTarget) string {
 }
 
 // changeKey runs the picked credential's actions: rotate when present, set up when absent.
-func changeKey(d *dialog, kt keyTarget) bool {
+func changeKey(d *dialog, kt KeyTarget) bool {
 	if !kt.present {
 		if !actionConfirmed("Set up " + kt.label) {
 			return false
 		}
 		return resolveKey(d, kt)
 	}
-	if len(rotateOptions(kt)) == 0 {
+	if len(RotateOptions(kt)) == 0 {
 		d.printf("%-10s nothing to rotate here: %s\n", kt.label, kt.source)
 		return false
 	}

@@ -3,6 +3,7 @@ package configure
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"slices"
@@ -29,16 +30,16 @@ var agyCommand = func() *exec.Cmd {
 // agySignInPoll is how often runAgy checks for agy's own login marker once it's running.
 var agySignInPoll = 500 * time.Millisecond
 
-// agySignInTimeout bounds how long runAgy waits for a sign-in before giving up and stopping agy.
+// agySignInTimeout bounds how long AgySignIn waits for a sign-in before giving up and stopping agy.
 var agySignInTimeout = 10 * time.Minute
 
-// agyStopGrace is how long SIGINT gets to land before runAgy escalates to SIGTERM.
+// agyStopGrace is how long SIGINT gets to land before AgySignIn escalates to SIGTERM.
 var agyStopGrace = 3 * time.Second
 
-// runAgy starts agy on the real terminal, polls for its login marker every agySignInPoll, and stops it
+// AgySignIn starts agy on the real terminal, polls for its login marker every agySignInPoll, and stops it
 // (SIGINT, then SIGTERM after agyStopGrace) the moment the marker appears — or on agySignInTimeout, or
 // agy exits on its own. The caller never has to return to a menu with agy's own TUI still on screen.
-func runAgy(d *dialog) bool {
+func AgySignIn() (ok bool, msg string) {
 	defer tui.Preserve()()
 	home, _ := os.UserHomeDir()
 	marker := gemini.AgyLoginMarker(home)
@@ -47,8 +48,7 @@ func runAgy(d *dialog) bool {
 	cmd := agyCommand()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
-		d.printf("agy: %v\n", err)
-		return false
+		return false, fmt.Sprintf("agy: %v", err)
 	}
 	done := make(chan struct{}) // closed on exit; the login marker, not agy's exit status, decides sign-in
 	go func() { _ = cmd.Wait(); close(done) }()
@@ -58,25 +58,28 @@ func runAgy(d *dialog) bool {
 	for {
 		if agySignedInSince(marker, before, beforeInfo) {
 			stopAgy(cmd, done)
-			d.printf("%-10s signed in\n", "agy")
-			return true
+			return true, fmt.Sprintf("%-10s signed in", "agy")
 		}
 		select {
 		case <-done:
 			if agySignedInSince(marker, before, beforeInfo) { // agy may have written the marker right before exiting
-				d.printf("%-10s signed in\n", "agy")
-				return true
+				return true, fmt.Sprintf("%-10s signed in", "agy")
 			}
-			d.printf("agy: not signed in\n")
-			return false
+			return false, "agy: not signed in"
 		case now := <-ticker.C:
 			if now.After(deadline) {
 				stopAgy(cmd, done)
-				d.printf("agy: not signed in (timed out)\n")
-				return false
+				return false, "agy: not signed in (timed out)"
 			}
 		}
 	}
+}
+
+// runAgy is AgySignIn with its message printed on d.
+func runAgy(d *dialog) bool {
+	ok, msg := AgySignIn()
+	d.printf("%s\n", msg)
+	return ok
 }
 
 func agySignedInSince(marker string, before []byte, beforeInfo os.FileInfo) bool {

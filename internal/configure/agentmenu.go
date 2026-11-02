@@ -134,23 +134,23 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 	return m.rows[idx].run()
 }
 
-// keyVerified live-probes a keyed provider; false when absent or not accepted.
-func keyVerified(p *providers.Provider) bool {
+// KeyVerified live-probes a keyed provider; false when absent or not accepted.
+func KeyVerified(p *providers.Provider) bool {
 	if p == nil || !providers.CredentialPresent(p) {
 		return false
 	}
-	status, _, _ := probeCached(keyTarget{provider: p})
+	status, _, _ := ProbeCached(KeyTarget{provider: p})
 	return status == "verified"
 }
 
-// keyPresent reports whether provider name has a stored key.
-func keyPresent(reg *providers.Registry, provider string) (*providers.Provider, bool) {
-	p := profileBy(reg, provider, providers.AuthKey)
+// KeyPresent reports whether provider name has a stored key.
+func KeyPresent(reg *providers.Registry, provider string) (*providers.Provider, bool) {
+	p := ProfileBy(reg, provider, providers.AuthKey)
 	return p, p != nil && providers.CredentialPresent(p)
 }
 
-// profileBy is the first profile under provider signing in by method (key, cli, ...), or nil.
-func profileBy(reg *providers.Registry, provider, method string) *providers.Provider {
+// ProfileBy is the first profile under provider signing in by method (key, cli, ...), or nil.
+func ProfileBy(reg *providers.Registry, provider, method string) *providers.Provider {
 	for _, n := range reg.ProfilesOf(provider) {
 		if p := reg.Providers[n]; p.Auth.Method() == method {
 			return p
@@ -159,8 +159,8 @@ func profileBy(reg *providers.Registry, provider, method string) *providers.Prov
 	return nil
 }
 
-// profileName is p's name, "" for nil.
-func profileName(p *providers.Provider) string {
+// ProfileName is p's name, "" for nil.
+func ProfileName(p *providers.Provider) string {
 	if p == nil {
 		return ""
 	}
@@ -169,7 +169,7 @@ func profileName(p *providers.Provider) string {
 
 // signIn runs an agent's own sign-in CLI after the [y/N] confirm and reports the outcome.
 func signIn(d *dialog, label string, argv []string) bool {
-	if err := runLogin(argv); err != nil {
+	if err := RunLogin(argv); err != nil {
 		d.printf("%s: %v\n", label, err)
 		return false
 	}
@@ -179,13 +179,13 @@ func signIn(d *dialog, label string, argv []string) bool {
 
 // keyRow is the API key row shared by every agent: ensure (paste, probe, store) the provider's key.
 func keyRow(d *dialog, label, provider, desc string) billingRow {
-	p, ok := keyPresent(d.reg, provider)
+	p, ok := KeyPresent(d.reg, provider)
 	return billingRow{modeAPIKey, desc + " " + menu.Bracket(ok, "key set", "no key"), modeAPIKey, func() bool {
 		if p == nil {
 			d.printf("%s: no %s provider registered\n", label, provider)
 			return false
 		}
-		kt := keyTarget{label: label, envVar: p.Auth.Env, fixCmd: "claude-code vault set " + p.Auth.Env, provider: p}
+		kt := KeyTarget{label: label, envVar: p.Auth.Env, fixCmd: "claude-code vault set " + p.Auth.Env, provider: p}
 		return ensureKey(d, kt, ok)
 	}}
 }
@@ -196,8 +196,8 @@ func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 		return agentState{modeSubscription, tier, true}
 	}
 	// BYOK fallback (agent.DescribeRoute order): the anthropic key, handed over as generated config, never `auth login`.
-	if p, ok := keyPresent(d.reg, anthropicProvider); ok {
-		return agentState{mode: modeAPIKey, verified: keyVerified(p)}
+	if p, ok := KeyPresent(d.reg, anthropicProvider); ok {
+		return agentState{mode: modeAPIKey, verified: KeyVerified(p)}
 	}
 	return agentState{mode: modeNone}
 }
@@ -211,8 +211,8 @@ func codexMenu(d *dialog) agentMenu {
 	st := agentState{mode: modeNone}
 	if loggedIn {
 		st = agentState{modeSubscription, tier, true}
-	} else if kt := agentKeyTarget(d.reg, "codex"); kt.present {
-		st = agentState{mode: modeAPIKey, verified: kt.provider == nil || keyVerified(kt.provider)}
+	} else if kt := AgentKeyTarget(d.reg, "codex"); kt.present {
+		st = agentState{mode: modeAPIKey, verified: kt.provider == nil || KeyVerified(kt.provider)}
 	}
 	key := keyRow(d, "codex", "openai", "pay per token · paste to set or rotate OPENAI_API_KEY")
 	ensure := key.run
@@ -474,11 +474,11 @@ func copilotKeyRow(d *dialog) billingRow {
 	_, src, ok := secretstore.Get(env)
 	stored := ok && src != "env"
 	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + menu.Bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
-		kt := keyTarget{label: "copilot", envVar: env, fixCmd: "claude-code vault set " + env}
+		kt := KeyTarget{label: "copilot", envVar: env, fixCmd: "claude-code vault set " + env}
 		if stored {
 			return ensureKey(d, kt, true)
 		}
-		return runAuthOption(d, kt, authOption{action: "Paste API key", env: env})
+		return runAuthOption(d, kt, AuthOption{action: "Paste API key", env: env})
 	}}
 }
 

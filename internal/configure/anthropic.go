@@ -38,7 +38,7 @@ func (f *firstParty) login() (loggedIn bool, plan string) {
 
 func (f *firstParty) key() bool {
 	if !f.keyDone {
-		if p := profileBy(f.reg, anthropicProvider, providers.AuthKey); p != nil {
+		if p := ProfileBy(f.reg, anthropicProvider, providers.AuthKey); p != nil {
 			f.keyOK = providers.CredentialPresent(p)
 		}
 		f.keyDone = true
@@ -50,7 +50,7 @@ func (f *firstParty) key() bool {
 // mode pins it as the session provider (after [y/N]); other backends stay reachable via `claude-code switch`.
 func claudeMenu(d *dialog) agentMenu {
 	fp := &firstParty{reg: d.reg}
-	cur := currentProvider(d.reg)
+	cur := CurrentProvider(d.reg)
 	loggedIn, plan := fp.login()
 	keyOK := fp.key()
 	tier := ""
@@ -63,27 +63,27 @@ func claudeMenu(d *dialog) agentMenu {
 				if !d.shell().Confirm("Not logged in to claude.ai — run `claude auth login` now?") {
 					return false
 				}
-				if err := runLogin([]string{"claude", "auth", "login"}); err != nil {
+				if err := RunLogin([]string{"claude", "auth", "login"}); err != nil {
 					d.printf("anthropic: %v\n", err)
 					return false
 				}
 			}
-			return keepOrPin(d, cur, profileName(profileBy(d.reg, anthropicProvider, providers.AuthCLI)))
+			return keepOrPin(d, cur, ProfileName(ProfileBy(d.reg, anthropicProvider, providers.AuthCLI)))
 		}},
 		{"API key", "pay per token · paste to set or rotate · no RC " + menu.Bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
-			kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code vault set " + anthropicKeyEnv,
-				provider: profileBy(fp.reg, anthropicProvider, providers.AuthKey)}
+			kt := KeyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code vault set " + anthropicKeyEnv,
+				provider: ProfileBy(fp.reg, anthropicProvider, providers.AuthKey)}
 			if !ensureKey(d, kt, keyOK) {
 				d.printf("anthropic: no usable API key; left on %s\n", billingLabel(d.reg, cur))
 				return false
 			}
-			return keepOrPin(d, cur, profileName(profileBy(d.reg, anthropicProvider, providers.AuthKey)))
+			return keepOrPin(d, cur, ProfileName(ProfileBy(d.reg, anthropicProvider, providers.AuthKey)))
 		}},
 		{"Login", "claude auth login · browser sign-in, refreshes the session", "", func() bool {
-			return regenerate(d, keyTarget{label: anthropicRow}, []string{"claude", "auth", "login"}, false)
+			return regenerate(d, KeyTarget{label: anthropicRow}, []string{"claude", "auth", "login"}, false)
 		}},
 		{"OAuth token", "setup-token · mints a token, rotates " + providers.OAuthTokenEnv, "", func() bool {
-			kt := keyTarget{label: anthropicRow, envVar: providers.OAuthTokenEnv}
+			kt := KeyTarget{label: anthropicRow, envVar: providers.OAuthTokenEnv}
 			return regenerate(d, kt, []string{"claude", "setup-token"}, true)
 		}},
 	}}
@@ -100,13 +100,13 @@ func claudeState(d *dialog, fp *firstParty, cur, tier string) agentState {
 		ok, _ := fp.login()
 		return agentState{modeSubscription, tier, ok}
 	case p.Provider == anthropicProvider:
-		return agentState{mode: modeAPIKey, verified: fp.key() && keyVerified(p)}
+		return agentState{mode: modeAPIKey, verified: fp.key() && KeyVerified(p)}
 	case p.Auth.Login == "codex":
 		return agentState{mode: billingLabel(d.reg, cur), verified: codex.CodexChatGPTLoginPresent()}
 	case p.Auth.Login == "copilot":
 		return agentState{mode: billingLabel(d.reg, cur), verified: copilot.CopilotLoginPresent()}
 	}
-	return agentState{mode: billingLabel(d.reg, cur), verified: keyVerified(p)}
+	return agentState{mode: billingLabel(d.reg, cur), verified: KeyVerified(p)}
 }
 
 // keepOrPin pins name unless it is already the session provider.
