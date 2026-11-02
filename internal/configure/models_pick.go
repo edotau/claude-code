@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -63,8 +64,7 @@ func modelRow(d *dialog, name string) *billingRow {
 		return nil
 	}
 	if name == "copilot" {
-		model, source := providers.CopilotModel(d.reg)
-		desc := model + " (" + source + ")"
+		desc := copilotRouteDesc(d)
 		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d); return true }}
 	}
 	if name == "codex" || name == "gemini" { // their own CLI catalogs pin CODEX_MODEL/GEMINI_MODEL: `vault edit`
@@ -74,8 +74,70 @@ func modelRow(d *dialog, name string) *billingRow {
 	if p == nil {
 		return nil
 	}
-	desc := currentModel(d, p, claude, models.Opus) + " via " + p.Name
+	cur := currentModel(d, p, claude, models.Opus)
+	desc := modelDesc(p.Name, cur, modelListed(p, claude, cur))
 	return &billingRow{label: "Model", desc: desc, run: func() bool { pickModel(d, name, p, claude); return true }}
+}
+
+// modelDescPad is the provider column's width: the active model's check column starts after it.
+const modelDescPad = 16
+
+// modelDesc is the Model row's detail: the provider, then the active model [alias or id], green when listed.
+func modelDesc(provider, model string, listed bool) string {
+	if model == "" {
+		return provider
+	}
+	return menu.PadTo(provider, modelDescPad) + menu.Checked(listed, cmp.Or(models.AliasOf(model), model))
+}
+
+// modelListed: model is in the agent's static catalog (claude: the model catalog; others: the opencode menu or the
+// account's own table); no network.
+func modelListed(p *providers.Provider, claude bool, model string) bool {
+	if _, _, ok := models.Resolve(model); ok && claude {
+		return true
+	}
+	if slices.ContainsFunc(providers.OpencodeMenu(), func(m providers.OpencodeModel) bool { return m.ID == model }) {
+		return true
+	}
+	for _, id := range p.Models {
+		if id == model {
+			return true
+		}
+	}
+	return false
+}
+
+// copilotRouteDesc is copilot's Model row detail: its route, then the pinned (else default) model. Listed means the
+// sealed Databricks snapshot or this dialog's already-fetched catalog holds it; it never fetches.
+func copilotRouteDesc(d *dialog) string {
+	model, _ := providers.CopilotModel(d.reg)
+	name := cmp.Or(vault.GetAgentRecord("copilot").Profile, providers.SessionProfile())
+	if p := d.reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
+		return modelDesc("databricks·"+name, model, snapshotHas(p, model))
+	}
+	listed := false
+	if d.copilotCatalogLoaded && d.copilotCatalogErr == nil {
+		_, listed = copilotCatalogModel(d, model)
+	}
+	return modelDesc("github-copilot", model, listed)
+}
+
+// snapshotHas reads p's sealed discovery snapshot (vault only, no network, no refresh) for model.
+func snapshotHas(p *providers.Provider, model string) bool {
+	subject, found, err := serving.RecallSubject(p)
+	if err != nil || !found {
+		return false
+	}
+	scope, err := serving.NewScope(p, subject)
+	if err != nil {
+		return false
+	}
+	snap, found, err := serving.Read(scope, true)
+	if err != nil || !found {
+		return false
+	}
+	want := copilotCanonicalID(model)
+	return slices.ContainsFunc(snap.Models, func(m providers.ModelInfo) bool { return copilotCanonicalID(m.ID) == want })
 }
 
 // copilotListModelsFn is the injectable seam over copilot.SDKListModels; tests fake the SDK catalog.

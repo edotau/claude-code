@@ -70,10 +70,32 @@ var statusTokens = []struct{ token, code string }{
 // gray instead of having its "verified" painted green; the text is otherwise byte-identical.
 func Status(on bool, line string) string {
 	if !on {
-		return line
+		return Strip(line)
 	}
+	line = spanRE.ReplaceAllStringFunc(line, func(sp string) string {
+		code := Dim
+		if strings.HasPrefix(sp, SpanOK) {
+			code = Green
+		}
+		return code + strings.TrimSuffix(sp[len(SpanOK):], SpanEnd) + Reset
+	})
 	return statusRE.ReplaceAllStringFunc(line, func(tok string) string { return statusCode[tok] + tok + Reset })
 }
+
+// Span markers are zero-meaning runes a row wraps around one value: SpanOK..SpanEnd paints green and SpanOff..SpanEnd
+// dim, in Status only; Strip removes them wherever a row prints unpainted.
+const (
+	SpanOK  = "\ue000"
+	SpanOff = "\ue001"
+	SpanEnd = "\ue002"
+)
+
+var spanRE = regexp.MustCompile("[\ue000\ue001][^\ue002]*\ue002")
+
+var spanStrip = strings.NewReplacer(SpanOK, "", SpanOff, "", SpanEnd, "")
+
+// Strip removes the span markers from s.
+func Strip(s string) string { return spanStrip.Replace(s) }
 
 var statusCode = func() map[string]string {
 	m := make(map[string]string, len(statusTokens))
