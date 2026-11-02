@@ -183,6 +183,9 @@ func collect(in Input, cfg Config) values {
 	}
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
+		if cfg.ModelLabel == "name" {
+			v.model = modelName(in)
+		}
 	}
 	if cfg.seg("proxy", true) {
 		v.proxy = proxySegment(routed)
@@ -274,6 +277,16 @@ func modelSegment(in Input, session string) string {
 		}
 	}
 	return tag1M(in, shortModelID(id))
+}
+
+// modelName is the display name with "[1m]" for a 1M window ("Opus 5.5[1m]"), else the short id.
+func modelName(in Input) string {
+	name, _, _ := strings.Cut(in.Model.DisplayName, " · ")
+	name = strings.TrimSpace(strings.ReplaceAll(name, " (1M context)", ""))
+	if name == "" {
+		return modelSegment(in, "")
+	}
+	return tag1M(in, name)
 }
 
 // shortModelID maps "claude-X" to "anthropic-X" and drops the "-claude" infix after a provider prefix.

@@ -2,8 +2,10 @@ package statusline
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -15,6 +17,8 @@ type Config struct {
 	theme.Look
 	GradientEase   float64           `json:"gradientEase"` // ramp position exponent: <1 reaches the end colors sooner; 0 → 1
 	RampLift       bool              `json:"rampLift"`     // lift every ramp stop but the opening blue: a brighter middle
+	Layout         string            `json:"layout"`       // "" (compact) or "classic": provider, display name, full bar
+	ModelLabel     string            `json:"modelLabel"`   // "id" (default) or "name": the model display name
 	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user
 	Order          []string          `json:"order"`
 	BranchMax      int               `json:"branchMax"`
@@ -84,5 +88,21 @@ func loadConfig() Config {
 	if len(cfg.Separators) == 0 {
 		cfg.Separators = embeddedConfig().Separators
 	}
+	return withLayout(cfg)
+}
+
+// withLayout applies a named layout's presets: "classic" is provider · display name · full 10-cell bar.
+func withLayout(cfg Config) Config {
+	if cfg.Layout != "classic" {
+		return cfg
+	}
+	segs := maps.Clone(cfg.Segments)
+	segs["provider"] = true
+	cfg.Segments = segs
+	if !slices.Contains(cfg.Order, "provider") {
+		cfg.Order = append([]string{"provider"}, cfg.Order...)
+	}
+	cfg.ModelLabel = "name"
+	cfg.Bar.Width, cfg.Bar.FilledGlyph, cfg.Bar.EmptyGlyph = 10, "█", "█"
 	return cfg
 }
