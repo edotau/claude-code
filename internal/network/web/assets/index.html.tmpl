@@ -21,7 +21,7 @@
   .chip { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
   .chip-running, .chip-active, .chip-working { background: #1d3a0a; color: #8ae234; }
   .chip-finished, .chip-idle, .chip-ready { background: #734469; color: #e0dce0; }
-  .chip-stale, .chip-error { background: #4a1010; color: #ef2929; }
+  .chip-stale, .chip-error { background: #4a1010; color: #ffa3a3; }
   .chip-input-needed { background: #4a3d00; color: #fce94f; }
   .chip-unknown, .chip-gone { background: #441d3d; color: #b5acb3; }
   .sub { margin-left: 0.9rem; border-left: 2px solid #40404055; padding-left: 0.6rem; margin-top: 0.35rem; }
@@ -30,13 +30,12 @@
   .col-agent { width: min(13rem, 38vw); }
   @media (max-width: 600px) { .agent-row > .row > .muted { display: none; } }
   .col-status { width: 4.8rem; }
-  .id-tag { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; font-size: 0.72rem; cursor: copy; }
   .col-dispatch { width: min(22rem, 58vw); }
   .glyph { display: inline-block; width: 1.1em; }
   .agent-row:hover { background: #734469; }
-  .activity { font-size: 0.78rem; color: #729fcf; margin-top: 0.1rem; }
+  .activity { font-size: 0.78rem; color: #b0cbea; margin-top: 0.1rem; }
   .dispatch { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #cfc6cd; }
-  .linklike { background: none; border: none; color: #729fcf; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
+  .linklike { background: none; border: none; color: #b0cbea; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
   #detailEvents { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 40vh; overflow: auto; margin: 0.4rem 0 0; }
   label { display: block; font-size: 0.82rem; color: #cfc6cd; margin: 0.5rem 0 0.2rem; }
   select, input, textarea, button {
@@ -60,8 +59,18 @@
   .plan-row { cursor: pointer; }
   .plan-x { margin-top: 0.5rem; cursor: default; border-top: 1px solid #40404055; padding-top: 0.4rem; }
   .task { margin: 0.25rem 0; display: flex; gap: 0.5rem; align-items: baseline; }
-  .task input { width: auto; flex: none; padding: 0; margin: 0; }
-  .plan-err { color: #ef2929; font-size: 0.8rem; margin: 0.3rem 0; }
+  .task input { width: 1.1rem; height: 1.1rem; flex: none; padding: 0; margin: 0; }
+  .plan-err { color: #ffa3a3; font-size: 0.8rem; margin: 0.3rem 0; }
+  .row-open { width: auto; margin: 0; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .id-tag { width: auto; min-height: 24px; margin: 0; padding: 0.15rem 0.35rem; border: 0; border-radius: 4px; background: #441d3d; color: inherit; font: 0.72rem/1.4 ui-monospace, monospace; cursor: copy; }
+  #tabs button, #hostTabs button, #usageDays button { min-height: 1.75rem; }
+  #detailCloseBtn { padding: 0.25rem 0.3rem; min-height: 1.5rem; }
+  .plan-row .row-open { font-weight: 700; }
+  .col-agent.row-open { width: min(13rem, 38vw); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .load-err { color: #ffa3a3; font-size: 0.82rem; margin: 0.3rem 0; }
+  h1 .chip { vertical-align: middle; margin-left: 0.4rem; }
+  #liveAge { font-weight: 400; margin-left: 0.3rem; }
   .plan-x details { margin: 0.25rem 0; }
   .plan-x summary { cursor: pointer; font-size: 0.8rem; color: #cfc6cd; }
   .task code { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
@@ -72,14 +81,14 @@
     --vscode-widget-border: #40404055; --vscode-button-background: var(--accent); --vscode-button-foreground: var(--accent-fg);
     --vscode-badge-background: #5f5961; --vscode-badge-foreground: #ffffff; --vscode-charts-blue: #729fcf;
     --vscode-charts-green: #8ae234; --vscode-charts-orange: #f28fb0; --vscode-charts-yellow: #c7a6f0;
-    --vscode-editorWarning-foreground: #fce94f; --vscode-editorError-foreground: #ef2929;
+    --vscode-editorWarning-foreground: #fce94f; --vscode-editorError-foreground: #ffa3a3;
     --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   #architecturePane { overflow-wrap: anywhere; }
   .arch-subtabs { display: flex; gap: 0 1rem; margin-bottom: 0.7rem; border-bottom: 1px solid #40404088; }
   .arch-subtabs button { width: auto; margin: 0 0 -1px; padding: 0.3rem 0.1rem; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #cfc6cd; font-weight: 400; font-size: 0.82rem; }
   .arch-subtabs button.active { border-bottom-color: var(--accent); color: #fff; }
-  .arch-body a { color: #729fcf; text-decoration: none; }
+  .arch-body a { color: #b0cbea; text-decoration: none; }
   .arch-body a:hover { text-decoration: underline; }
   .arch-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0 0.8rem; align-items: start; }
   .arch-left { min-width: 0; }
@@ -109,44 +118,24 @@
 </style>
 </head>
 <body>
-<h1>claude-code web</h1>
-<div id="tabs">
-  <button type="button" data-tab="agents" class="active">Agents</button>
-  <button type="button" data-tab="plans">Plans</button>
-  <button type="button" data-tab="usage">Usage</button>
-  <button type="button" data-tab="architecture">Architecture</button>
+<h1>claude-code web<span id="liveStatus" class="chip chip-unknown" role="status">connecting</span><span id="liveAge" class="muted"></span></h1>
+<span id="copyStatus" class="sr-only" role="status"></span>
+<div id="tabs" role="tablist" aria-label="Views">
+  <button type="button" role="tab" id="tab-agents" aria-controls="agentsPane" aria-selected="true" data-tab="agents" class="active">Agents</button>
+  <button type="button" role="tab" id="tab-dispatch" aria-controls="dispatchPane" aria-selected="false" tabindex="-1" data-tab="dispatch">Dispatch</button>
+  <button type="button" role="tab" id="tab-plans" aria-controls="plansPane" aria-selected="false" tabindex="-1" data-tab="plans">Plans</button>
+  <button type="button" role="tab" id="tab-usage" aria-controls="usagePane" aria-selected="false" tabindex="-1" data-tab="usage">Usage</button>
+  <button type="button" role="tab" id="tab-architecture" aria-controls="architecturePane" aria-selected="false" tabindex="-1" data-tab="architecture">Architecture</button>
 </div>
 
-<div id="architecturePane" style="display:none"></div>
+<div id="architecturePane" role="tabpanel" aria-labelledby="tab-architecture" style="display:none"></div>
 
-<div id="usagePane" style="display:none">
-  <p class="muted"><span id="usageDays"><button type="button" data-days="7">7d</button> <button type="button" data-days="30">30d</button></span> <span id="usageStatus">loading…</span></p>
+<div id="usagePane" role="tabpanel" aria-labelledby="tab-usage" style="display:none">
+  <p class="muted"><span id="usageDays"><button type="button" data-days="7">7d</button> <button type="button" data-days="30">30d</button></span> <span id="usageStatus" role="status">loading…</span></p>
   <iframe id="usageFrame" sandbox="allow-scripts" title="Usage" hidden></iframe>
 </div>
 
-<div id="plansPane" style="display:none">
-  <section>
-    <h2>Plans</h2>
-    <div id="plansList"><p class="muted">loading…</p></div>
-  </section>
-</div>
-
-<div id="agentsPane">
-<section>
-  <h2>Agents</h2>
-  <div id="tree"><p class="muted">loading…</p></div>
-</section>
-
-<section id="detailSection" style="display:none">
-  <h2>Agent <button type="button" class="linklike" id="detailCloseBtn">[close]</button></h2>
-  <div id="detail"></div>
-</section>
-
-<section>
-  <h2>Browsers</h2>
-  <div id="browsers"><p class="muted">loading…</p></div>
-</section>
-
+<div id="dispatchPane" role="tabpanel" aria-labelledby="tab-dispatch" style="display:none">
 <section>
   <h2>Dispatches</h2>
   <div id="hostTabs"></div>
@@ -174,8 +163,33 @@
 
     <button type="submit">Dispatch</button>
   </form>
-  <div id="dispatchResult"></div>
+  <div id="dispatchResult" role="status"></div>
 </section>
+</div>
+
+<div id="plansPane" role="tabpanel" aria-labelledby="tab-plans" style="display:none">
+  <section>
+    <h2>Plans</h2>
+    <div id="plansList"><p class="muted">loading…</p></div>
+  </section>
+</div>
+
+<div id="agentsPane" role="tabpanel" aria-labelledby="tab-agents">
+<section>
+  <h2>Agents</h2>
+  <div id="tree"><p class="muted">loading…</p></div>
+</section>
+
+<section id="detailSection" style="display:none">
+  <h2>Agent <button type="button" class="linklike" id="detailCloseBtn" aria-label="Close agent detail">[close]</button></h2>
+  <div id="detail"></div>
+</section>
+
+<section>
+  <h2>Browsers</h2>
+  <div id="browsers"><p class="muted">loading…</p></div>
+</section>
+
 </div>
 
 <script>
@@ -197,7 +211,7 @@ function statusCol(status) { return '<span class="col col-status">' + chip(statu
 // idTag shows label or a short id; a click copies the full value, which SendMessage and `network view` take.
 function idTag(id, label) {
   if (!id) return '';
-  return '<code class="id-tag" data-id="' + escapeHTML(id) + '" title="' + escapeHTML(id) + ' (click to copy)">' + escapeHTML(label || id.slice(0, 8)) + '</code>';
+  return '<button type="button" class="id-tag" data-id="' + escapeHTML(id) + '" title="' + escapeHTML(id) + ' (click to copy)" aria-label="copy ' + escapeHTML(id) + '">' + escapeHTML(label || id.slice(0, 8)) + '</button>';
 }
 
 // copyText falls back to execCommand: the tailnet page is plain http, where navigator.clipboard is undefined.
@@ -235,7 +249,7 @@ function renderSubagents(subs, sessionId) {
   if (!subs || !subs.length) return '';
   return '<div class="sub">' + subs.map(function (s) {
     return '<div class="agent-row" data-session="' + escapeHTML(sessionId) + '" data-agent="' + escapeHTML(s.id) + '">' +
-      '<div class="row"><span><span class="col col-agent"><span class="glyph">' + statusGlyph(s.status) + '</span>' + escapeHTML(s.type || s.id) + '</span>' + statusCol(s.status) + idTag(s.id) + '</span>' +
+      '<div class="row"><span><button type="button" class="col col-agent row-open"><span class="glyph" aria-hidden="true">' + statusGlyph(s.status) + '</span>' + escapeHTML(s.type || s.id) + '</button>' + statusCol(s.status) + idTag(s.id) + '</span>' +
       '<span class="muted">' + escapeHTML(s.lastTool || '') + '</span></div>' +
       renderActivity(s.activity) +
       (s.dispatches || []).map(renderDispatch).join('') +
@@ -332,7 +346,11 @@ function followDetail(sessionId, agentId) {
       }
       return pump();
     })
-    .catch(function () {});
+    .catch(function (err) {
+      if (err.name === 'AbortError') return;
+      const pre = document.getElementById('detailEvents');
+      if (pre) pre.textContent += '\n[stream ended: ' + String(err.message || err) + ']';
+    });
 }
 
 function openDetail(sessionId, agentId) {
@@ -341,11 +359,7 @@ function openDetail(sessionId, agentId) {
   const el = document.getElementById('detail');
   section.style.display = '';
   el.innerHTML = '<p class="muted">loading…</p>';
-  fetch('/api/view?session=' + encodeURIComponent(sessionId) + '&agent=' + encodeURIComponent(agentId))
-    .then(function (r) {
-      if (!r.ok) return r.text().then(function (t) { throw new Error(t); });
-      return r.json();
-    })
+  getJSON('/api/view?session=' + encodeURIComponent(sessionId) + '&agent=' + encodeURIComponent(agentId))
     .then(function (snap) {
       el.innerHTML = renderSnapshot(snap);
       if (snap.status === 'running') followDetail(sessionId, agentId);
@@ -366,44 +380,100 @@ function renderBrowsers(rep) {
   }).join('');
 }
 
+// getJSON fails with the server's message on a non-2xx, so callers can say why a load failed.
+function getJSON(url) {
+  return fetch(url).then(function (r) {
+    if (r.ok) return r.json();
+    return r.text().then(function (t) { throw new Error(t.trim() || 'HTTP ' + r.status); });
+  });
+}
+
+// loadFailed explains an empty section; a section that already shows data (dataset.loaded === key) keeps it.
+function loadFailed(box, what, err, key) {
+  if (box.dataset.loaded === (key || '1')) return;
+  box.innerHTML = '<p class="load-err">couldn’t load ' + what + ': ' + escapeHTML(String(err.message || err)) + ' · retrying</p>';
+}
+
+let feedState = '';
+let lastUpdate = 0;
+let feedRetry = 0;
+let sseDown = false; // true once the event stream failed: the 5s poll is then the only source of agent state
+const feedChip = { live: 'running', polling: 'idle', offline: 'error' };
+
+// setFeed rewrites the header chip only on a state change, so screen readers hear transitions, not every tick.
+function setFeed(state) {
+  if (state !== 'offline') lastUpdate = Date.now();
+  if (state !== feedState) {
+    feedState = state;
+    const c = document.getElementById('liveStatus');
+    c.className = 'chip chip-' + feedChip[state];
+    c.textContent = state;
+  }
+  paintAge();
+}
+
+function paintAge() {
+  const s = Math.round((Date.now() - lastUpdate) / 1000);
+  document.getElementById('liveAge').textContent = feedState === 'live' || !lastUpdate ? '' :
+    'updated ' + (s < 60 ? s + 's' : Math.round(s / 60) + 'm') + ' ago';
+}
+
 function loadBrowsers() {
-  fetch('/api/browsers').then(function (r) { return r.json(); }).then(function (rep) {
-    document.getElementById('browsers').innerHTML = renderBrowsers(rep);
-  }).catch(function () {});
+  const box = document.getElementById('browsers');
+  getJSON('/api/browsers').then(function (rep) {
+    box.innerHTML = renderBrowsers(rep);
+    box.dataset.loaded = '1';
+  }).catch(function (err) { loadFailed(box, 'browsers', err); });
 }
 
 let treeEpoch = 0; // bumped per SSE render; a fetch that began before one is stale and must not overwrite it
 function loadTree() {
   const started = treeEpoch;
-  fetch('/api/tree').then(function (r) { return r.json(); }).then(function (tree) {
+  const box = document.getElementById('tree');
+  getJSON('/api/tree').then(function (tree) {
     if (treeEpoch !== started) return;
-    document.getElementById('tree').innerHTML = renderTree(tree);
-  }).catch(function () {});
+    box.innerHTML = renderTree(tree);
+    box.dataset.loaded = '1';
+    if (sseDown) setFeed('polling');
+  }).catch(function (err) {
+    if (treeEpoch !== started) return;
+    loadFailed(box, 'agents', err);
+    if (sseDown) setFeed('offline');
+  });
 }
 
 function loadDispatches(host) {
   if (!host) return;
-  fetch('/api/dispatches?host=' + encodeURIComponent(host)).then(function (r) { return r.json(); }).then(function (sessions) {
-    document.getElementById('dispatches').innerHTML = renderDispatches(sessions);
-  }).catch(function () {});
+  const box = document.getElementById('dispatches');
+  getJSON('/api/dispatches?host=' + encodeURIComponent(host)).then(function (sessions) {
+    if (host !== currentHost) return; // the user switched hosts while this was in flight
+    box.innerHTML = renderDispatches(sessions);
+    box.dataset.loaded = host;
+  }).catch(function (err) {
+    if (host === currentHost) loadFailed(box, 'dispatches on ' + escapeHTML(host), err, host);
+  });
+}
+
+// markSelected marks the one button pred picks in list as active and pressed, the rest as not.
+function markSelected(list, pred) {
+  list.forEach(function (b) {
+    const on = pred(b);
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
 }
 
 function buildHostTabs(hosts) {
   const el = document.getElementById('hostTabs');
-  el.innerHTML = hosts.map(function (h) { return '<button data-host="' + escapeHTML(h) + '">' + escapeHTML(h) + '</button>'; }).join('');
+  el.innerHTML = hosts.map(function (h) { return '<button type="button" aria-pressed="false" data-host="' + escapeHTML(h) + '">' + escapeHTML(h) + '</button>'; }).join('');
   el.querySelectorAll('button').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      el.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
-      btn.classList.add('active');
+      markSelected(el.querySelectorAll('button'), function (b) { return b === btn; });
       currentHost = btn.dataset.host;
       loadDispatches(currentHost);
     });
   });
-  if (hosts.length) {
-    currentHost = hosts[0];
-    el.querySelector('button').classList.add('active');
-    loadDispatches(currentHost);
-  }
+  if (hosts.length) el.querySelector('button').click();
 }
 
 document.getElementById('dispatchForm').addEventListener('submit', function (e) {
@@ -429,10 +499,12 @@ document.getElementById('tree').addEventListener('click', function (e) {
   const tag = e.target.closest('.id-tag');
   if (tag) {
     const short = tag.textContent;
+    const said = document.getElementById('copyStatus');
     copyText(tag.dataset.id).then(function () {
+      said.textContent = 'copied ' + tag.dataset.id;
       tag.textContent = 'copied';
       setTimeout(function () { tag.textContent = short; }, 900);
-    }).catch(function () { tag.textContent = 'copy failed'; });
+    }).catch(function () { tag.textContent = 'copy failed'; said.textContent = 'copy failed'; });
     return;
   }
   const row = e.target.closest('.agent-row');
@@ -443,23 +515,41 @@ document.getElementById('detailCloseBtn').addEventListener('click', closeDetail)
 
 let treeLive = false;
 function watchTree() {
-  if (!window.EventSource) return;
+  if (!window.EventSource) { sseDown = true; return; }
   const es = new EventSource('/api/events');
+  es.onopen = function () { feedRetry = 0; sseDown = false; setFeed('live'); };
   es.addEventListener('tree', function (e) {
-    try { const t = JSON.parse(e.data); treeEpoch++; document.getElementById('tree').innerHTML = renderTree(t); treeLive = true; } catch (err) {}
+    try {
+      const t = JSON.parse(e.data);
+      const box = document.getElementById('tree');
+      treeEpoch++;
+      box.innerHTML = renderTree(t);
+      box.dataset.loaded = '1';
+      treeLive = true;
+      setFeed('live');
+    } catch (err) {}
   });
   es.addEventListener('plans', function (e) {
     try { plansLive = true; renderPlans(JSON.parse(e.data)); if (openPlan) showPlan(openPlan); } catch (err) {}
   });
-  es.onerror = function () { treeLive = false; plansLive = false; es.close(); };
+  // onerror closes and retries with backoff (2s doubling to 60s); the poll answers live/offline in the meantime.
+  es.onerror = function () {
+    es.close();
+    treeLive = false;
+    plansLive = false;
+    sseDown = true;
+    loadTree();
+    setTimeout(watchTree, Math.min(60000, 2000 * Math.pow(2, feedRetry++)));
+  };
 }
 
 let plansList = [];
 let openPlan = null;
 let plansLive = false;
 function loadPlans() {
-  fetch('/api/plans').then(function (r) { return r.json(); })
-    .then(function (l) { renderPlans(l); if (openPlan) showPlan(openPlan); }).catch(function () {});
+  getJSON('/api/plans')
+    .then(function (l) { renderPlans(l); if (openPlan) showPlan(openPlan); })
+    .catch(function (err) { loadFailed(document.getElementById('plansList'), 'plans', err); });
 }
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -477,6 +567,7 @@ function renderPlans(list) {
   const box = document.getElementById('plansList');
   planPark.appendChild(planX);
   box.textContent = '';
+  box.dataset.loaded = '1';
   if (!plansList.length) { box.appendChild(el('p', 'muted', 'no plans')); return; }
   const byRepo = new Map();
   plansList.forEach(function (p) { if (!byRepo.has(p.repo)) byRepo.set(p.repo, []); byRepo.get(p.repo).push(p); });
@@ -492,7 +583,10 @@ function planCard(p) {
   const card = el('div', 'card plan-row');
   card.dataset.path = p.path;
   const row = el('div', 'row');
-  row.appendChild(el('strong', null, p.path.split('/').pop()));
+  const open = el('button', 'row-open', p.path.split('/').pop());
+  open.type = 'button';
+  open.setAttribute('aria-expanded', String(openPlan === p.path));
+  row.appendChild(open);
   row.appendChild(el('span', 'muted', p.ticked + '/' + p.total + (p.claims.length ? ' · ' + p.claims.length + ' claimed' : '')));
   card.appendChild(row);
   const bar = el('div', 'bar');
@@ -529,7 +623,9 @@ function postTick(path, t, done, cb) {
     cb.checked = !done;
     cb.disabled = false;
     planX.querySelectorAll('.plan-err').forEach(function (n) { n.remove(); });
-    planX.prepend(el('div', 'plan-err', 'Tick failed: ' + String(err.message || err)));
+    const msg = el('div', 'plan-err', 'Tick failed: ' + String(err.message || err));
+    msg.setAttribute('role', 'alert');
+    planX.prepend(msg);
   });
 }
 
@@ -574,10 +670,11 @@ function showPlan(path) {
   const card = planCardFor(path);
   const top = card && card.getBoundingClientRect().top; // a plan open above collapses: hold this row where it was
   if (openPlan !== path) { planX.textContent = ''; planFullOpen = false; }
+  if (openPlan && openPlan !== path) markPlanOpen(openPlan, false);
   openPlan = path;
+  markPlanOpen(path, true);
   if (card) { card.appendChild(planX); window.scrollBy(0, card.getBoundingClientRect().top - top); }
-  return fetch('/api/plan?path=' + encodeURIComponent(path))
-    .then(function (r) { if (!r.ok) return r.text().then(function (t) { throw new Error(t); }); return r.json(); })
+  return getJSON('/api/plan?path=' + encodeURIComponent(path))
     .then(function (d) { if (openPlan === path) renderPlanDetail(d); })
     .catch(function (err) {
       planX.textContent = '';
@@ -585,7 +682,15 @@ function showPlan(path) {
     });
 }
 
+// markPlanOpen mirrors the open plan on its card's header button for screen readers.
+function markPlanOpen(path, open) {
+  const card = planCardFor(path);
+  const b = card && card.querySelector('.row-open');
+  if (b) b.setAttribute('aria-expanded', String(open));
+}
+
 function closePlan() {
+  if (openPlan) markPlanOpen(openPlan, false);
   openPlan = null;
   planPark.appendChild(planX);
 }
@@ -704,9 +809,7 @@ function loadUsage(fresh) {
 }
 
 function markUsageDays() {
-  document.querySelectorAll('#usageDays button').forEach(function (b) {
-    b.classList.toggle('active', Number(b.dataset.days) === usageState.days);
-  });
+  markSelected(document.querySelectorAll('#usageDays button'), function (b) { return Number(b.dataset.days) === usageState.days; });
 }
 
 document.getElementById('usageDays').addEventListener('click', function (e) {
@@ -728,14 +831,31 @@ window.addEventListener('message', function (e) {
   else if (msg.type === 'toggle') { usageState.detailed = !!msg.detailed; renderUsage(); }
 });
 
+// Arrow keys, Home and End move between the view tabs (WAI-ARIA tabs pattern, automatic activation).
+document.getElementById('tabs').addEventListener('keydown', function (e) {
+  const tabs = Array.from(document.querySelectorAll('#tabs [role="tab"]'));
+  const i = tabs.indexOf(document.activeElement);
+  const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+  let next = -1;
+  if (step) next = (i + step + tabs.length) % tabs.length;
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = tabs.length - 1;
+  if (i < 0 || next < 0) return;
+  e.preventDefault();
+  tabs[next].focus();
+  tabs[next].click();
+});
+
 document.getElementById('tabs').addEventListener('click', function (e) {
   const tab = e.target.dataset && e.target.dataset.tab;
   if (!tab) return;
-  document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('active', b === e.target); });
-  document.getElementById('agentsPane').style.display = tab === 'agents' ? '' : 'none';
-  document.getElementById('plansPane').style.display = tab === 'plans' ? '' : 'none';
-  document.getElementById('usagePane').style.display = tab === 'usage' ? '' : 'none';
-  document.getElementById('architecturePane').style.display = tab === 'architecture' ? '' : 'none';
+  document.querySelectorAll('#tabs button').forEach(function (b) {
+    const on = b === e.target;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+  });
+  document.querySelectorAll('[role="tabpanel"]').forEach(function (p) { p.style.display = p.id === tab + 'Pane' ? '' : 'none'; });
   if (tab === 'usage') loadUsage(false);
   if (tab === 'architecture' && !document.getElementById('archScript')) {
     const sc = document.createElement('script');
@@ -754,6 +874,7 @@ setInterval(function () {
   if (!treeLive) loadTree();
   if (!plansLive) loadPlans();
   if (currentHost) loadDispatches(currentHost);
+  paintAge();
 }, 5000);
 setInterval(loadBrowsers, 30000);
 </script>
