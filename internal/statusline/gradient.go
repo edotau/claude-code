@@ -85,6 +85,8 @@ func gradientCells(v values, cfg Config) []cell {
 	}
 
 	if cfg.seg("path", true) {
+		push(v.userHost, "g")
+		pushSep(":")
 		push(v.path, "g")
 		pushSep(sepPath)
 	}
