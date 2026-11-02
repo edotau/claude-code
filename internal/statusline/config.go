@@ -22,8 +22,9 @@ type Config struct {
 	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user
 	Order          []string          `json:"order"`
 	BranchMax      int               `json:"branchMax"`
-	PathMax        int               `json:"pathMax"` // cwd path display cap, in runes; 0 → no cap
-	Width          int               `json:"width"`   // clip each line to N cells; 0 → $COLUMNS, else no clip
+	PathMax        int               `json:"pathMax"`     // cwd path display cap, in runes; 0 → no cap
+	ProviderMax    int               `json:"providerMax"` // provider label cap, in runes: the profile tail is kept; 0 → 24
+	Width          int               `json:"width"`       // clip each line to N cells; 0 → $COLUMNS, else no clip
 	Segments       map[string]bool   `json:"segments"`
 	Bar            BarConfig         `json:"bar"`
 	Separators     map[string]string `json:"separators"`
