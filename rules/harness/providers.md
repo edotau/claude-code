@@ -22,7 +22,6 @@ paths:
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status` · foreground: `--serve --port N` |
 | Proxy restart and watchdog | `gateway proxy --restart` gaps only the respawn time (the old daemon drains in the background); a routed session's status line restarts a down proxy within one refresh (claims ≥15s apart) |
-| Proxy systemd unit (Linux) | `make install` renders `~/.config/systemd/user/claude-code-proxy.service` (`Restart=always`) and enables it; once enabled, start/stop/restart go through `systemctl --user`, `--stop` still holds the watchdog off, `nuke` removes it; macOS has no supervisor yet |
 
 - Secrets only in the vault or `auth.command` (CLAUDE.md hard rule 2); `configure provider --list` shows the
   source, never the value.

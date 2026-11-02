@@ -147,9 +147,6 @@ func TestContractLayout(t *testing.T) {
 				}
 				return
 			}
-			if f.Name == "proxy-unit" { // lives in the systemd user dir, outside the config dir
-				return
-			}
 			rel := relGlob(dir, f)
 			if rel == outside {
 				t.Fatalf("glob %s is outside %s", f.Glob(), dir)

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -104,10 +103,6 @@ func DoctorChecks() (checks []Check, ok bool) {
 	}
 	check(true, false, "in-flight", inflightDoctorDetail())
 	check(true, false, "proxy", proxyStatus())
-	if runtime.GOOS == "linux" {
-		unitOK, unitDetail := proxy.UnitStatus()
-		check(unitOK, false, "proxy unit", unitDetail)
-	}
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
