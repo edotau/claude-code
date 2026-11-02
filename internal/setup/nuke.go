@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -137,6 +138,9 @@ func Nuke(opts NukeOpts) error {
 	fmt.Fprintf(opts.Out, "archived user content to %s\n", tarPath)
 	// The audit log lives inside Dir and is about to be removed with it: log to stderr instead.
 	fmt.Fprintf(os.Stderr, "claude-code: %s %s apply\n", audit.SetupNuke, opts.Dir)
+	if _, err := proxy.RemoveUnit(opts.Dir); err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code: remove proxy unit: %v\n", err)
+	}
 	return os.RemoveAll(opts.Dir)
 }
 
