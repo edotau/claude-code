@@ -6,25 +6,37 @@
 <meta name="csrf-token" content="{{.CSRFToken}}">
 <title>claude-code web</title>
 <style>
-  :root { color-scheme: dark; --accent: #56d4c8; --accent-fg: #1f0f1c; }
+  /* Tokens from DESIGN.md (The Aubergine Console); colors below reference these. */
+  :root {
+    color-scheme: dark; --accent: #56d4c8; --accent-fg: #1f0f1c;
+    --aubergine-page: #512645; --aubergine-card: #633758; --aubergine-raised: #734469; --aubergine-well: #441d3d;
+    --mist-text: #e0dce0; --mist-soft: #cfc6cd; --mist-muted: #b5acb3; --hairline: #40404055;
+    --tango-green: #8ae234; --tango-green-well: #1d3a0a; --tango-red-pale: #ffa3a3; --tango-red-well: #4a1010;
+    --tango-yellow: #fce94f; --tango-yellow-well: #4a3d00; --tango-blue-pale: #b0cbea; --tango-blue: #729fcf;
+    --heading-white: #ffffff; --chart-pink: #f28fb0; --chart-lilac: #c7a6f0;
+  }
   * { box-sizing: border-box; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .active:focus-visible, form button:focus-visible { outline-color: var(--mist-text); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 0; }
+  .arch-tl:focus-visible { outline-offset: -2px; }
   body {
     margin: 0; padding: 0.75rem; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #512645; color: #e0dce0;
+    background: var(--aubergine-page); color: var(--mist-text);
   }
   h1 { font-size: 1.1rem; margin: 0.25rem 0 0.75rem; }
-  h2 { font-size: 0.95rem; color: #cfc6cd; margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  h2 { font-size: 0.95rem; color: var(--mist-soft); margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
   section { margin-bottom: 1rem; }
-  .card { background: #633758; border: 1px solid #40404055; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
+  .card { background: var(--aubergine-card); border: 1px solid var(--hairline); border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
-  .muted { color: #b5acb3; font-size: 0.82rem; }
+  .muted { color: var(--mist-muted); font-size: 0.82rem; }
   .chip { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
-  .chip-running, .chip-active, .chip-working { background: #1d3a0a; color: #8ae234; }
-  .chip-finished, .chip-idle, .chip-ready { background: #734469; color: #e0dce0; }
-  .chip-stale, .chip-error { background: #4a1010; color: #ffa3a3; }
-  .chip-input-needed { background: #4a3d00; color: #fce94f; }
-  .chip-unknown, .chip-gone { background: #441d3d; color: #b5acb3; }
-  .sub { margin-left: 0.9rem; border-left: 2px solid #40404055; padding-left: 0.6rem; margin-top: 0.35rem; }
+  .chip-running, .chip-active, .chip-working { background: var(--tango-green-well); color: var(--tango-green); }
+  .chip-finished, .chip-idle, .chip-ready { background: var(--aubergine-raised); color: var(--mist-text); }
+  .chip-stale, .chip-error { background: var(--tango-red-well); color: var(--tango-red-pale); }
+  .chip-input-needed { background: var(--tango-yellow-well); color: var(--tango-yellow); }
+  .chip-unknown, .chip-gone { background: var(--aubergine-well); color: var(--mist-muted); }
+  .sub { margin-left: 0.9rem; border-left: 2px solid var(--hairline); padding-left: 0.6rem; margin-top: 0.35rem; }
   .agent-row { cursor: pointer; padding: 0.2rem 0; }
   .col { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; margin-right: 0.4rem; }
   .col-agent { width: min(13rem, 38vw); }
@@ -32,83 +44,77 @@
   .col-status { width: 4.8rem; }
   .col-dispatch { width: min(22rem, 58vw); }
   .glyph { display: inline-block; width: 1.1em; }
-  .agent-row:hover { background: #734469; }
-  .activity { font-size: 0.78rem; color: #b0cbea; margin-top: 0.1rem; }
-  .dispatch { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #cfc6cd; }
-  .linklike { background: none; border: none; color: #b0cbea; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
+  .agent-row:hover { background: var(--aubergine-raised); }
+  .activity { font-size: 0.78rem; color: var(--tango-blue-pale); margin-top: 0.1rem; }
+  .dispatch { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: var(--mist-soft); }
+  .linklike { background: none; border: none; color: var(--tango-blue-pale); width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
   #detailEvents { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 40vh; overflow: auto; margin: 0.4rem 0 0; }
-  label { display: block; font-size: 0.82rem; color: #cfc6cd; margin: 0.5rem 0 0.2rem; }
+  label { display: block; font-size: 0.82rem; color: var(--mist-soft); margin: 0.5rem 0 0.2rem; }
   select, input, textarea, button {
-    width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #40404055;
-    background: #441d3d; color: #e0dce0; font-size: 0.95rem;
+    width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid var(--hairline);
+    background: var(--aubergine-well); color: var(--mist-text); font-size: 0.95rem;
   }
   textarea { min-height: 4.5rem; resize: vertical; }
   button { margin-top: 0.75rem; background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; cursor: pointer; }
   button:disabled { opacity: 0.6; }
   #dispatchResult { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.8rem; margin-top: 0.5rem; }
   #hostTabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
-  #hostTabs button { width: auto; background: #734469; border-color: #40404055; color: #e0dce0; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
-  #hostTabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-  #tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
-  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #734469; border-color: #40404055; color: #e0dce0; font-weight: 400; }
-  #tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-  #usageDays button { width: auto; margin-top: 0; padding: 0.2rem 0.7rem; background: #734469; border-color: #40404055; color: #e0dce0; font-weight: 400; }
-  #usageDays button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-  .bar { height: 6px; background: #40404055; border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
-  .bar > span { display: block; height: 100%; background: #8ae234; }
+  #hostTabs button, #usageDays button { width: auto; min-height: 1.75rem; margin-top: 0; background: var(--aubergine-raised); border-color: var(--hairline); color: var(--mist-text); font-weight: 400; }
+  #hostTabs button { padding: 0.3rem 0.6rem; }
+  #usageDays button { padding: 0.2rem 0.7rem; }
+  #hostTabs button.active, #usageDays button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  #tabs { display: flex; flex-wrap: wrap; gap: 0 1.25rem; margin-bottom: 0.75rem; }
+  #tabs button { width: auto; min-height: 1.75rem; margin: 0; padding: 0.3rem 0.1rem; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--mist-soft); font-weight: 400; }
+  #tabs button:hover { color: var(--mist-text); }
+  #tabs button.active { border-bottom-color: var(--accent); color: var(--heading-white); }
+  .bar { height: 6px; background: var(--hairline); border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--tango-green); }
   .plan-row { cursor: pointer; }
-  .plan-x { margin-top: 0.5rem; cursor: default; border-top: 1px solid #40404055; padding-top: 0.4rem; }
+  .plan-x { margin-top: 0.5rem; cursor: default; border-top: 1px solid var(--hairline); padding-top: 0.4rem; }
   .task { margin: 0.25rem 0; display: flex; gap: 0.5rem; align-items: baseline; }
   .task input { width: 1.1rem; height: 1.1rem; flex: none; padding: 0; margin: 0; }
-  .plan-err { color: #ffa3a3; font-size: 0.8rem; margin: 0.3rem 0; }
+  .plan-err { color: var(--tango-red-pale); font-size: 0.8rem; margin: 0.3rem 0; }
   .row-open { width: auto; margin: 0; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-  .id-tag { width: auto; min-height: 24px; margin: 0; padding: 0.15rem 0.35rem; border: 0; border-radius: 4px; background: #441d3d; color: inherit; font: 0.72rem/1.4 ui-monospace, monospace; cursor: copy; }
-  #tabs button, #hostTabs button, #usageDays button { min-height: 1.75rem; }
+  .id-tag { width: auto; min-height: 24px; margin: 0; padding: 0.15rem 0.35rem; border: 0; border-radius: 4px; background: var(--aubergine-well); color: inherit; font: 0.72rem/1.4 ui-monospace, monospace; cursor: copy; }
   #detailCloseBtn { padding: 0.25rem 0.3rem; min-height: 1.5rem; }
   .plan-row .row-open { font-weight: 700; }
   .col-agent.row-open { width: min(13rem, 38vw); }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .load-err { color: #ffa3a3; font-size: 0.82rem; margin: 0.3rem 0; }
+  .load-err { color: var(--tango-red-pale); font-size: 0.82rem; margin: 0.3rem 0; }
   h1 .chip { vertical-align: middle; margin-left: 0.4rem; }
   #liveAge { font-weight: 400; margin-left: 0.3rem; }
   .plan-x details { margin: 0.25rem 0; }
-  .plan-x summary { cursor: pointer; font-size: 0.8rem; color: #cfc6cd; }
-  .task code { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
+  .plan-x summary { cursor: pointer; font-size: 0.8rem; color: var(--mist-soft); }
+  .task code { background: var(--aubergine-well); padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
   .plan-more pre { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; margin: 0.4rem 0 0.6rem; }
   /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Ubuntu terminal palette, dark only. */
   :root {
-    --vscode-foreground: #e0dce0; --vscode-sideBar-background: #512645; --vscode-descriptionForeground: #b5acb3;
-    --vscode-widget-border: #40404055; --vscode-button-background: var(--accent); --vscode-button-foreground: var(--accent-fg);
-    --vscode-badge-background: #5f5961; --vscode-badge-foreground: #ffffff; --vscode-charts-blue: #729fcf;
-    --vscode-charts-green: #8ae234; --vscode-charts-orange: #f28fb0; --vscode-charts-yellow: #c7a6f0;
-    --vscode-editorWarning-foreground: #fce94f; --vscode-editorError-foreground: #ffa3a3;
+    --vscode-foreground: var(--mist-text); --vscode-sideBar-background: var(--aubergine-page); --vscode-descriptionForeground: var(--mist-muted);
+    --vscode-widget-border: var(--hairline); --vscode-button-background: var(--accent); --vscode-button-foreground: var(--accent-fg);
+    --vscode-badge-background: #5f5961; --vscode-badge-foreground: var(--heading-white); --vscode-charts-blue: var(--tango-blue);
+    --vscode-charts-green: var(--tango-green); --vscode-charts-orange: var(--chart-pink); --vscode-charts-yellow: var(--chart-lilac);
+    --vscode-editorWarning-foreground: var(--tango-yellow); --vscode-editorError-foreground: var(--tango-red-pale);
     --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   #architecturePane { overflow-wrap: anywhere; }
-  .arch-subtabs { display: flex; gap: 0 1rem; margin-bottom: 0.7rem; border-bottom: 1px solid #40404088; }
-  .arch-subtabs button { width: auto; margin: 0 0 -1px; padding: 0.3rem 0.1rem; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #cfc6cd; font-weight: 400; font-size: 0.82rem; }
-  .arch-subtabs button.active { border-bottom-color: var(--accent); color: #fff; }
-  .arch-body a { color: #b0cbea; text-decoration: none; }
+  .arch-body a { color: var(--tango-blue-pale); text-decoration: none; }
   .arch-body a:hover { text-decoration: underline; }
   .arch-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0 0.8rem; align-items: start; }
   .arch-left { min-width: 0; }
   .arch-left input { margin: 0 0 0.5rem; font-size: 0.85rem; }
-  .arch-tree { background: #633758; border: 1px solid #40404055; border-radius: 10px; padding: 0.4rem 0; overflow: auto; max-height: 80vh; font: 0.78rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .arch-tl { width: max-content; min-width: 100%; padding: 0 0.6rem; white-space: pre; cursor: pointer; color: #cfc6cd; }
-  .arch-tl:hover { background: #734469; }
-  .arch-tl.sel { background: #734469; box-shadow: inset 2px 0 0 var(--accent); }
+  .arch-tree { background: var(--aubergine-card); border: 1px solid var(--hairline); border-radius: 10px; padding: 0.4rem 0; overflow: auto; max-height: 80vh; font: 0.78rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .arch-tl { width: max-content; min-width: 100%; padding: 0 0.6rem; white-space: pre; cursor: pointer; color: var(--mist-soft); }
+  .arch-tl:hover { background: var(--aubergine-raised); }
+  .arch-tl.sel { background: var(--aubergine-raised); box-shadow: inset 2px 0 0 var(--accent); }
   .arch-tn { display: inline-block; min-width: var(--nw, 30ch); }
-  .arch-d { color: #fff; }
-  .arch-tc { color: #b5acb3; }
-  .arch-detail { position: sticky; top: 0.5rem; max-height: calc(100vh - 1rem); overflow: auto; background: #633758; border: 1px solid #40404055; border-radius: 10px; padding: 0.3rem 0.8rem 0.6rem; font-size: 0.86rem; }
-  .arch-detail h4 { font-size: 0.85rem; color: #cfc6cd; margin: 0.8rem 0 0.3rem; }
-  .arch-title { text-transform: none; letter-spacing: 0; color: #fff; font-size: 1rem; margin: 0.6rem 0 0.3rem; font-family: ui-monospace, monospace; }
+  .arch-d { color: var(--heading-white); }
+  .arch-tc { color: var(--mist-muted); }
+  .arch-detail { position: sticky; top: 0.5rem; max-height: calc(100vh - 1rem); overflow: auto; background: var(--aubergine-card); border: 1px solid var(--hairline); border-radius: 10px; padding: 0.3rem 0.8rem 0.6rem; font-size: 0.86rem; }
+  .arch-detail h4 { font-size: 0.85rem; color: var(--mist-soft); margin: 0.8rem 0 0.3rem; }
+  .arch-title { text-transform: none; letter-spacing: 0; color: var(--heading-white); font-size: 1rem; margin: 0.6rem 0 0.3rem; font-family: ui-monospace, monospace; }
   .arch-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0; }
-  .arch-chip { display: inline-block; padding: 0.1rem 0.5rem; background: #734469; border: 1px solid #40404055; border-radius: 999px; font-size: 0.75rem; }
-  .arch-badge { display: inline-block; padding: 0.05rem 0.45rem; border: 1px solid #40404055; border-radius: 999px; background: #441d3d; font-size: 0.72rem; color: #e0dce0; }
+  .arch-chip { display: inline-block; padding: 0.1rem 0.5rem; background: var(--aubergine-raised); border: 1px solid var(--hairline); border-radius: 999px; font-size: 0.75rem; }
   .arch-field { margin: 0.35rem 0; }
-  .arch-flags { display: flex; flex-wrap: wrap; gap: 0.1rem 0.7rem; color: #cfc6cd; font-family: ui-monospace, monospace; font-size: 0.76rem; }
-  .arch-flags span { white-space: nowrap; }
   @media (max-width: 700px) {
     .arch-split { grid-template-columns: minmax(0, 1fr); gap: 0.8rem 0; }
     .arch-tree { max-height: 60vh; }
@@ -211,7 +217,7 @@ function statusCol(status) { return '<span class="col col-status">' + chip(statu
 // idTag shows label or a short id; a click copies the full value, which SendMessage and `network view` take.
 function idTag(id, label) {
   if (!id) return '';
-  return '<button type="button" class="id-tag" data-id="' + escapeHTML(id) + '" title="' + escapeHTML(id) + ' (click to copy)" aria-label="copy ' + escapeHTML(id) + '">' + escapeHTML(label || id.slice(0, 8)) + '</button>';
+  return '<button type="button" class="id-tag" data-focus-key="copy:' + escapeHTML(id) + '" data-id="' + escapeHTML(id) + '" title="' + escapeHTML(id) + ' (click to copy)" aria-label="copy ' + escapeHTML(id) + '">' + escapeHTML(label || id.slice(0, 8)) + '</button>';
 }
 
 // copyText falls back to execCommand: the tailnet page is plain http, where navigator.clipboard is undefined.
@@ -249,7 +255,7 @@ function renderSubagents(subs, sessionId) {
   if (!subs || !subs.length) return '';
   return '<div class="sub">' + subs.map(function (s) {
     return '<div class="agent-row" data-session="' + escapeHTML(sessionId) + '" data-agent="' + escapeHTML(s.id) + '">' +
-      '<div class="row"><span><button type="button" class="col col-agent row-open"><span class="glyph" aria-hidden="true">' + statusGlyph(s.status) + '</span>' + escapeHTML(s.type || s.id) + '</button>' + statusCol(s.status) + idTag(s.id) + '</span>' +
+      '<div class="row"><span><button type="button" class="col col-agent row-open" data-focus-key="open:' + escapeHTML(s.id) + '"><span class="glyph" aria-hidden="true">' + statusGlyph(s.status) + '</span>' + escapeHTML(s.type || s.id) + '</button>' + statusCol(s.status) + idTag(s.id) + '</span>' +
       '<span class="muted">' + escapeHTML(s.lastTool || '') + '</span></div>' +
       renderActivity(s.activity) +
       (s.dispatches || []).map(renderDispatch).join('') +
@@ -380,6 +386,29 @@ function renderBrowsers(rep) {
   }).join('');
 }
 
+// focusKey names the focused control across live redraws; a deliberate blur (target still in the page) clears it.
+let focusKey = '';
+document.addEventListener('focusin', function (e) { focusKey = e.target.dataset.focusKey || ''; });
+document.addEventListener('focusout', function (e) {
+  const t = e.target; // removal fires focusout while t still counts as connected, so judge one tick later
+  setTimeout(function () { if (t.isConnected && document.activeElement === document.body) focusKey = ''; });
+});
+
+// restoreFocus refocuses the redrawn control when a live redraw removed the focused one.
+function restoreFocus() {
+  if (!focusKey || document.activeElement !== document.body) return;
+  const n = document.querySelector('[data-focus-key="' + CSS.escape(focusKey) + '"]');
+  if (n) n.focus({ preventScroll: true });
+}
+
+// paintTree swaps in a tree snapshot and puts keyboard focus back where it was.
+function paintTree(tree) {
+  const box = document.getElementById('tree');
+  box.innerHTML = renderTree(tree);
+  box.dataset.loaded = '1';
+  restoreFocus();
+}
+
 // getJSON fails with the server's message on a non-2xx, so callers can say why a load failed.
 function getJSON(url) {
   return fetch(url).then(function (r) {
@@ -432,8 +461,7 @@ function loadTree() {
   const box = document.getElementById('tree');
   getJSON('/api/tree').then(function (tree) {
     if (treeEpoch !== started) return;
-    box.innerHTML = renderTree(tree);
-    box.dataset.loaded = '1';
+    paintTree(tree);
     if (sseDown) setFeed('polling');
   }).catch(function (err) {
     if (treeEpoch !== started) return;
@@ -521,10 +549,8 @@ function watchTree() {
   es.addEventListener('tree', function (e) {
     try {
       const t = JSON.parse(e.data);
-      const box = document.getElementById('tree');
       treeEpoch++;
-      box.innerHTML = renderTree(t);
-      box.dataset.loaded = '1';
+      paintTree(t);
       treeLive = true;
       setFeed('live');
     } catch (err) {}
@@ -577,6 +603,7 @@ function renderPlans(list) {
   });
   const open = openPlan && planCardFor(openPlan);
   if (open) open.appendChild(planX);
+  restoreFocus();
 }
 
 function planCard(p) {
@@ -586,6 +613,7 @@ function planCard(p) {
   const open = el('button', 'row-open', p.path.split('/').pop());
   open.type = 'button';
   open.setAttribute('aria-expanded', String(openPlan === p.path));
+  open.dataset.focusKey = 'plan:' + p.path;
   row.appendChild(open);
   row.appendChild(el('span', 'muted', p.ticked + '/' + p.total + (p.claims.length ? ' · ' + p.claims.length + ' claimed' : '')));
   card.appendChild(row);
@@ -634,6 +662,7 @@ function taskRow(path, t) {
   const cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.checked = t.done;
+  cb.dataset.focusKey = 'task:' + path + ':' + t.line;
   if (t.userMark) cb.title = userTitle(t.userMark);
   cb.addEventListener('change', function () { postTick(path, t, cb.checked, cb); });
   const text = el('span', null, t.title + ' ');
@@ -664,6 +693,7 @@ function renderPlanDetail(d) {
   const full = planFull(d);
   if (full) planX.appendChild(full);
   d.tasks.forEach(function (t) { planX.appendChild(taskRow(d.path, t)); });
+  restoreFocus();
 }
 
 function showPlan(path) {
@@ -673,7 +703,7 @@ function showPlan(path) {
   if (openPlan && openPlan !== path) markPlanOpen(openPlan, false);
   openPlan = path;
   markPlanOpen(path, true);
-  if (card) { card.appendChild(planX); window.scrollBy(0, card.getBoundingClientRect().top - top); }
+  if (card && planX.parentNode !== card) { card.appendChild(planX); window.scrollBy(0, card.getBoundingClientRect().top - top); }
   return getJSON('/api/plan?path=' + encodeURIComponent(path))
     .then(function (d) { if (openPlan === path) renderPlanDetail(d); })
     .catch(function (err) {

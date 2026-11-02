@@ -1,13 +1,12 @@
-// Architecture tab: a tree + detail browser over /api/architecture (curated notes, git file list, Go scan, CLI verbs).
+// Architecture tab: a tree + detail browser over /api/architecture (curated notes, git file list, Go scan).
 (function () {
   'use strict';
   const MAXROWS = 1500;
   const MAXCOMMENT = 70;
-  const NAMES = { dir: 'Directory', commands: 'Commands' };
+  const NAMES = { dir: 'Directory' };
   const st = { data: null, route: { sub: 'dir', rest: '' }, views: {}, clicked: '' };
   const pane = document.getElementById('architecturePane');
   let body = null;
-  let tabBar = null;
 
   function el(tag, cls, text, kids) {
     const n = document.createElement(tag);
@@ -66,42 +65,6 @@
     sortKids(roots);
     return { roots: roots, byKey: byKey, detail: dirDetail, home: dirHome };
   }
-  function cmdModel() {
-    const by = {};
-    const order = [];
-    ((st.data && st.data.verbs) || []).forEach(function (v) {
-      const g = v.group || 'HIDDEN';
-      if (!by[g]) { by[g] = []; order.push(g); }
-      by[g].push(v);
-    });
-    const names = order.filter(function (g) { return g !== 'HIDDEN'; }).concat(by.HIDDEN ? ['HIDDEN'] : []);
-    const byKey = {};
-    const roots = names.map(function (g) {
-      const gn = node(null, 'group/' + g, g, true);
-      gn.verbs = by[g];
-      byKey[gn.key] = gn;
-      by[g].forEach(function (v) { gn.kids.push(verbNode(gn, v, byKey)); });
-      return gn;
-    });
-    return { roots: roots, byKey: byKey, detail: cmdDetail, home: cmdHome };
-  }
-  function verbNode(par, v, byKey) {
-    const vn = node(par, v.name, v.name, (v.subverbs || []).length > 0);
-    vn.verb = v;
-    vn.hash = hashFor('commands', v.name);
-    vn.comment = sentence(v.summary);
-    byKey[vn.key] = vn;
-    (v.subverbs || []).forEach(function (s) {
-      const sn = node(vn, v.name + '/' + s.name, s.name, false);
-      sn.verb = v;
-      sn.sub = s;
-      sn.hash = hashFor('commands', sn.key);
-      byKey[sn.key] = sn;
-      vn.kids.push(sn);
-    });
-    return vn;
-  }
-
   // ---- Detail panels ----
   function field(label, text) { return text ? el('div', 'arch-field', null, [el('b', '', label + ': '), document.createTextNode(text)]) : null; }
   function chip(hash, text, title) {
@@ -148,30 +111,8 @@
     return [el('p', '', c.summary || 'No summary recorded.'), meta ? el('p', 'muted', meta) : null,
       rules.length ? el('h4', '', 'Import rules') : null].concat(rules);
   }
-  function flagList(flags) {
-    if (!flags || !flags.length) return el('p', 'muted', 'No flags.');
-    return el('div', 'arch-flags', null, flags.map(function (f) { return el('span', '', f); }));
-  }
-  function cmdDetail(n) {
-    if (n.verbs) {
-      const hidden = n.verbs.filter(function (v) { return v.hidden; }).length;
-      return [el('h3', 'arch-title', n.name), el('p', '', n.verbs.length + ' verbs, ' + hidden + ' hidden.')];
-    }
-    const v = n.verb;
-    const own = (curated().verbs || {})[v.name] || {};
-    const owners = n.sub ? [] : (own.owner || []).map(function (p) { return chip(hashFor('dir', p), p.replace(/^internal\//, ''), p); });
-    return [el('h3', 'arch-title', n.sub ? v.name + ' ' + n.sub.name : v.name), n.sub ? null : el('p', '', v.summary || ''),
-      v.hidden ? el('span', 'arch-badge', 'hidden') : null,
-      owners.length ? el('div', 'arch-field', null, [el('b', '', 'Owner:'), el('div', 'arch-chips', null, owners)]) : null,
-      n.sub ? null : field('Note', own.note), flagList(n.sub ? n.sub.flags : v.flags)];
-  }
-  function cmdHome() {
-    const roots = view('commands').model.roots;
-    const total = roots.reduce(function (a, g) { return a + g.verbs.length; }, 0);
-    return [el('p', '', total + ' verbs in ' + roots.length + ' groups. Pick one to see its owner and flags.')];
-  }
 
-  // ---- Tree + detail component, shared by both sub-tabs ----
+  // ---- Tree + detail component ----
   function hit(n, q, memo) {
     if (!memo.has(n)) {
       memo.set(n, (n.key + ' ' + n.comment).toLowerCase().indexOf(q) >= 0 || n.kids.some(function (k) { return hit(k, q, memo); }));
@@ -237,7 +178,7 @@
     if (window.matchMedia('(max-width: 700px)').matches) v.detail.scrollIntoView({ block: 'start' });
   }
   function makeView(sub) {
-    const v = { sub: sub, model: sub === 'dir' ? dirModel() : cmdModel(), open: new Set(), sel: '', missing: '', q: '' };
+    const v = { sub: sub, model: dirModel(), open: new Set(), sel: '', missing: '', q: '' };
     v.model.roots.forEach(function (n) { v.open.add(n.key); });
     const input = el('input');
     input.placeholder = 'Filter by path or comment';
@@ -261,17 +202,6 @@
   }
 
   // ---- Shell ----
-  function buildTabs() {
-    tabBar = el('div', 'arch-subtabs');
-    Object.keys(NAMES).forEach(function (k) {
-      const b = el('button', '', NAMES[k]);
-      b.type = 'button';
-      b.dataset.sub = k;
-      b.addEventListener('click', function () { location.hash = hashFor(k, ''); });
-      tabBar.appendChild(b);
-    });
-    return tabBar;
-  }
   function render() {
     if (!st.data || !body) return;
     const v = view(st.route.sub);
@@ -279,7 +209,6 @@
     v.sel = n ? n.key : '';
     v.missing = !n && st.route.rest ? st.route.rest : '';
     if (n) openAncestors(v, n);
-    tabBar.querySelectorAll('button').forEach(function (b) { b.classList.toggle('active', b.dataset.sub === v.sub); });
     body.textContent = '';
     body.appendChild(v.root);
     paint(v, st.clicked !== v.sel);
@@ -288,7 +217,7 @@
   function build() {
     body = el('div', 'arch-body');
     pane.textContent = '';
-    [buildTabs(), scan().error ? el('p', 'card', 'Source scan unavailable: ' + scan().error + ' (curated notes only).') : null, body]
+    [scan().error ? el('p', 'card', 'Source scan unavailable: ' + scan().error + ' (curated notes only).') : null, body]
       .forEach(function (k) { if (k) pane.appendChild(k); });
     st.route = parseHash();
     render();
