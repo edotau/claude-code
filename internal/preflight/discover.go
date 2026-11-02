@@ -35,7 +35,7 @@ func DiscoverTargets(reg *providers.Registry) []string {
 	for _, agent := range []string{"copilot", "opencode"} {
 		name := providers.AgentRecord(agent).Profile
 		if name == "" && agent == "copilot" {
-			name = "github"
+			name = GithubProfile(reg)
 		}
 		p := reg.Providers[name]
 		if p == nil || (p.Preset != providers.PresetDatabricks && p.Provider != "github") || slices.Contains(out, name) {
@@ -44,6 +44,17 @@ func DiscoverTargets(reg *providers.Registry) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// GithubProfile is the first profile on the github provider (copilot's default route), or "" when none exists.
+func GithubProfile(reg *providers.Registry) string {
+	if reg == nil {
+		return ""
+	}
+	if names := reg.ProfilesOf("github"); len(names) > 0 {
+		return names[0]
+	}
+	return ""
 }
 
 // DiscoverAfterAuth refreshes every discover target's model list in the background after a sign-in.

@@ -127,11 +127,11 @@ func nearMatches(want string, ids []string) []string {
 	return out
 }
 
-// copilotModelIDs lists the live copilot catalog's model ids.
+// copilotModelIDs lists the copilot catalog's model ids (sealed snapshot first).
 func copilotModelIDs() ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	list, err := launchCatalog(ctx)
+	list, err := Catalog(ctx)
 	if err != nil {
 		return nil, err
 	}
