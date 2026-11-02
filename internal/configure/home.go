@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -59,7 +60,7 @@ func tailscaleRow() homeRow {
 		host, _, _ = strings.Cut(st.DNSName, ".")
 	}
 	check := "no admin key"
-	if hasAdminCredential() {
+	if HasAdminCredential() {
 		check = "admin key"
 	}
 	if host != "" {
@@ -99,18 +100,18 @@ type mcpClient struct {
 func webSearchClients() []mcpClient {
 	codexCfg, cfgErr := paths.CodexConfigPath("")
 	return []mcpClient{
-		{"claude", func() bool { return claudeJSONWired(paths.ClaudeJSON()) }, registerClaudeMCP},
-		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error {
+		{"claude", func() bool { return ClaudeJSONWired(paths.ClaudeJSON()) }, RegisterClaudeMCP},
+		{"codex", func() bool { return CodexWired(codexCfg) }, func(bin string) error {
 			if cfgErr != nil {
 				return cfgErr
 			}
-			return registerCodexMCP(codexCfg, bin)
+			return RegisterCodexMCP(codexCfg, bin)
 		}},
 	}
 }
 
-// claudeJSONWired: ~/.claude.json's user-scope web_search runs `claude-code network websearch`.
-func claudeJSONWired(path string) bool {
+// ClaudeJSONWired: ~/.claude.json's user-scope web_search runs `claude-code network websearch`.
+func ClaudeJSONWired(path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -131,7 +132,7 @@ func claudeJSONWired(path string) bool {
 // codexMCPBlock matches config.toml's [mcp_servers.web_search] table up to the next table.
 var codexMCPBlock = regexp.MustCompile(`(?m)^\[mcp_servers\.web_search\]\n(?:[^\[\n].*\n|\n)*`)
 
-func codexWired(path string) bool {
+func CodexWired(path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -140,15 +141,15 @@ func codexWired(path string) bool {
 	return b != nil && strings.Contains(string(b), "claude-code") && strings.Contains(string(b), `args = ["network", "websearch"]`)
 }
 
-func registerClaudeMCP(bin string) error {
+func RegisterClaudeMCP(bin string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return registerClaudeMCPContext(ctx, bin)
+	return RegisterClaudeMCPContext(ctx, bin)
 }
 
-func registerClaudeMCPContext(ctx context.Context, bin string) error {
+func RegisterClaudeMCPContext(ctx context.Context, bin string) error {
 	if err := ctxErr(ctx, "claude mcp"); err != nil {
 		return err
 	}
@@ -170,8 +171,8 @@ func registerClaudeMCPContext(ctx context.Context, bin string) error {
 	return nil
 }
 
-// registerCodexMCP replaces (or appends) the web_search table, sealing the previous file in the vault backups.
-func registerCodexMCP(path, bin string) error {
+// RegisterCodexMCP replaces (or appends) the web_search table, sealing the previous file in the vault backups.
+func RegisterCodexMCP(path, bin string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -346,20 +347,35 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	d.changed = true
 }
 
-// rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the agent configs;
-// false when settings.json could not be brought current.
-func rerenderConfigs(d *dialog) bool {
+// RerenderSettings re-renders settings.json (merge: foreign keys/hooks kept, backup first) and returns the
+// line to print; an error means settings.json could not be brought current.
+func RerenderSettings() (string, error) {
 	_, existing, merged, _, backup, err := launch.ApplySettings(false)
 	switch {
 	case err != nil:
+		return "", err
+	case backup == "" && string(merged) == string(existing):
+		return "settings.json unchanged", nil
+	default:
+		return fmt.Sprintf("settings.json updated (backup %s)", backup), nil
+	}
+}
+
+// RenderAgentConfigs re-renders the agent configs, writing progress to out.
+func RenderAgentConfigs(out io.Writer) error {
+	_, err := agent.RenderConfigs(agentrender.RenderOptions{Out: out})
+	return err
+}
+
+// rerenderConfigs runs both re-renders on d; false when settings.json could not be brought current.
+func rerenderConfigs(d *dialog) bool {
+	line, err := RerenderSettings()
+	if err != nil {
 		d.printf("settings.json: %v\n", err)
 		return false
-	case backup == "" && string(merged) == string(existing):
-		d.println("settings.json unchanged")
-	default:
-		d.printf("settings.json updated (backup %s)\n", backup)
 	}
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Out: d.out}); err != nil {
+	d.println(line)
+	if err := RenderAgentConfigs(d.out); err != nil {
 		d.printf("agent configs: %v\n", err)
 	}
 	return true

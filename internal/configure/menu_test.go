@@ -420,7 +420,7 @@ func TestProbeValueRejectsInvalidCandidateBeforeRequest(t *testing.T) {
 		Name: "invalid-candidate", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL,
 		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: name},
 	}
-	status, detail := probeValue(p, name, candidate)
+	status, detail := ProbeValue(p, name, candidate)
 	if status != "unreachable" || detail == "" {
 		t.Errorf("probeValue = (%q, %q), want unreachable with an error detail", status, detail)
 	}

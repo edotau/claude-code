@@ -135,8 +135,8 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("PATH", t.TempDir())
-	kt := keyTarget{label: "openai", envVar: "OPENAI_API_KEY", loginArgv: []string{"openai", "login"}, fixCmd: "x"}
-	opts := authOptions(kt)
+	kt := KeyTarget{label: "openai", envVar: "OPENAI_API_KEY", loginArgv: []string{"openai", "login"}, fixCmd: "x"}
+	opts := AuthOptions(kt)
 	if len(opts) != 2 || opts[0].argv == nil || opts[1].env != "OPENAI_API_KEY" || !strings.Contains(opts[1].desc, "platform.openai.com") {
 		t.Fatalf("authOptions = %+v, want browser login then key with its console URL", opts)
 	}
@@ -229,11 +229,11 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no claude binary: status reads as not logged in
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-	kt := maxPlanTarget(keyTarget{label: "claude"})
+	kt := MaxPlanTarget(KeyTarget{label: "claude"})
 	if kt.present || kt.headless {
 		t.Fatalf("no login and no token must read absent: %+v", kt)
 	}
-	opts := authOptions(kt)
+	opts := AuthOptions(kt)
 	if len(opts) != 3 || opts[0].argv == nil || opts[1].mint == nil || opts[1].env != "CLAUDE_CODE_OAUTH_TOKEN" || opts[2].env != "CLAUDE_CODE_OAUTH_TOKEN" {
 		t.Fatalf("authOptions = %+v, want login, mint, paste", opts)
 	}
@@ -242,7 +242,7 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 		t.Errorf("token capture = %q", got)
 	}
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-stored")
-	if kt := maxPlanTarget(keyTarget{label: "claude"}); !kt.present || !kt.headless || !strings.Contains(kt.source, "headless token") {
+	if kt := MaxPlanTarget(KeyTarget{label: "claude"}); !kt.present || !kt.headless || !strings.Contains(kt.source, "headless token") {
 		t.Errorf("a stored token must read present/headless: %+v", kt)
 	}
 }
@@ -386,10 +386,10 @@ func TestLoginAndMintContext(t *testing.T) {
 				run := func(ctx context.Context) error {
 					if mint {
 						var err error
-						token, err = runMintContext(ctx, argv)
+						token, err = RunMintContext(ctx, argv)
 						return err
 					}
-					return runLoginContext(ctx, argv)
+					return RunLoginContext(ctx, argv)
 				}
 				if mode == "cancel" {
 					assertConfigureCancellation(t, ready, run)
@@ -488,7 +488,7 @@ func TestVendorKeyTargetCopilotRotateWiring(t *testing.T) {
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())     // no real gh hosts.yml: GHActiveAccount reads nothing
 	t.Setenv("GH_TOKEN", "ghp_env_override")
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	kt := agentKeyTarget(reg, "copilot")
+	kt := AgentKeyTarget(reg, "copilot")
 	if !kt.present || len(kt.loginArgv) != 0 {
 		t.Errorf("env-token copilot = %+v, want present with no loginArgv", kt)
 	}
@@ -505,7 +505,7 @@ func TestVendorKeyTargetCodexRotateWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	kt := agentKeyTarget(reg, "codex")
+	kt := AgentKeyTarget(reg, "codex")
 	if !kt.present {
 		t.Fatalf("codex = %+v, want present via the ChatGPT login file", kt)
 	}
@@ -527,7 +527,7 @@ func TestVendorKeyTargetGeminiGoogleLoginRotateWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	kt := agentKeyTarget(reg, "gemini")
+	kt := AgentKeyTarget(reg, "gemini")
 	if !kt.present {
 		t.Fatalf("gemini = %+v, want present via the agy login marker", kt)
 	}

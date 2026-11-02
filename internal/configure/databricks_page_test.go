@@ -578,7 +578,7 @@ func TestDbxIdentitySavesRowAndSealedSecret(t *testing.T) {
 	if strings.Contains(dbxOut(d), "sp-secret-VALUE") {
 		t.Errorf("secret printed: %q", dbxOut(d))
 	}
-	if err := dbxSaveIdentity(d, "dev", providers.IdentitySP, "", ""); err == nil {
+	if err := SaveDbxIdentity(d.reg, "dev", providers.IdentitySP, "", ""); err == nil {
 		t.Error("sp without a client id was accepted")
 	}
 }
@@ -600,7 +600,7 @@ func TestDbxSaveIdentityRollsBackSecretOnRowFailure(t *testing.T) {
 			dbxSetRow = func(string, map[string]any) error { return errors.New("overlay write failed") }
 			t.Cleanup(func() { dbxSetRow = orig })
 
-			err := dbxSaveIdentity(d, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW")
+			err := SaveDbxIdentity(d.reg, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW")
 			if err == nil || !strings.Contains(err.Error(), "overlay write failed") {
 				t.Fatalf("err = %v, want the row-write error", err)
 			}
@@ -634,7 +634,7 @@ func TestDbxSaveIdentityKeepsConcurrentRotationOnRowFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { dbxSetRow = orig })
 
-	if err := dbxSaveIdentity(d, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW"); err == nil {
+	if err := SaveDbxIdentity(d.reg, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW"); err == nil {
 		t.Fatal("want the row-write error")
 	}
 	if got, _, _ := vault.ReadSecret(name); got != "sp-secret-ROTATED" {

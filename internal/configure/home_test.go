@@ -29,7 +29,7 @@ func TestRegisterClaudeMCPContext(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			_, log, ready := configureCommandEnv(t, mode)
 			run := func(ctx context.Context) error {
-				return registerClaudeMCPContext(ctx, "/custom path/claude-code")
+				return RegisterClaudeMCPContext(ctx, "/custom path/claude-code")
 			}
 			if strings.HasPrefix(mode, "cancel-") {
 				assertConfigureCancellation(t, ready, run)

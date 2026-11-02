@@ -112,11 +112,11 @@ func TestHasAdminCredential(t *testing.T) {
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "")
 	t.Setenv("TAILSCALE_API_KEY", "")
 	t.Setenv("PATH", t.TempDir()) // no secret-tool: the host keyring must not answer
-	if hasAdminCredential() {
+	if HasAdminCredential() {
 		t.Error("hasAdminCredential() = true with nothing set, want false")
 	}
 	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
-	if !hasAdminCredential() {
+	if !HasAdminCredential() {
 		t.Error("hasAdminCredential() = false with TAILSCALE_API_KEY set, want true")
 	}
 }
@@ -141,7 +141,7 @@ func TestKeysAndSecretsNeverCarryTailscale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := keyTargets(reg, "")
+	all, err := KeyTargets(reg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestKeysAndSecretsNeverCarryTailscale(t *testing.T) {
 	}
 }
 
-func hasLabel(ts []keyTarget, label string) bool {
+func hasLabel(ts []KeyTarget, label string) bool {
 	for _, kt := range ts {
 		if kt.label == label {
 			return true

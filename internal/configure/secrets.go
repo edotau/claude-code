@@ -24,16 +24,16 @@ import (
 // envName is a valid secret name: an env var identifier.
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// trackedSecret is one row of the secrets dialog: a name the harness knows of and where it resolves today.
-type trackedSecret struct {
+// TrackedSecret is one row of the secrets dialog: a name the harness knows of and where it resolves today.
+type TrackedSecret struct {
 	name     string
 	source   string // vault|env|"" (missing)
 	shadowed string // vault|"" — a stored value an env var is shadowing
 	users    string // providers that read it, or a short role
 }
 
-// trackedSecrets combines provider auth.env names, the setup-token, and every secret stored in the vault.
-func trackedSecrets(reg *providers.Registry) []trackedSecret {
+// TrackedSecrets combines provider auth.env names, the setup-token, and every secret stored in the vault.
+func TrackedSecrets(reg *providers.Registry) []TrackedSecret {
 	users := map[string][]string{
 		providers.OAuthTokenEnv: {"claude -p (setup-token)"},
 	}
@@ -57,7 +57,7 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 			}
 		}
 	}
-	out := make([]trackedSecret, 0, len(users))
+	out := make([]TrackedSecret, 0, len(users))
 	for name, u := range users {
 		var src, shadowed string
 		if metaErr == nil {
@@ -70,7 +70,7 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 				_, _, shadowed, _ = secretstore.Effective(name)
 			}
 		}
-		out = append(out, trackedSecret{name: name, source: src, shadowed: shadowed, users: strings.Join(u, ", ")})
+		out = append(out, TrackedSecret{name: name, source: src, shadowed: shadowed, users: strings.Join(u, ", ")})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out
@@ -112,7 +112,7 @@ func secretsLoop(d *dialog) int {
 	reg := d.reg
 	store := "the vault"
 	for {
-		list := trackedSecrets(reg)
+		list := TrackedSecrets(reg)
 		rows := make([][2]string, 0, len(list)+2)
 		for _, s := range list {
 			rows = append(rows, [2]string{s.name, fmt.Sprintf("%-16s %s", sourceLabel(s.source, s.shadowed), s.users)})
@@ -139,13 +139,13 @@ func secretsLoop(d *dialog) int {
 }
 
 // editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
-func editSecret(d *dialog, s trackedSecret) {
+func editSecret(d *dialog, s TrackedSecret) {
 	var acts []uidialog.Row
-	kt := keyTarget{label: s.name, envVar: s.name, fixCmd: "claude-code vault set " + s.name}
+	kt := KeyTarget{label: s.name, envVar: s.name, fixCmd: "claude-code vault set " + s.name}
 	if s.name == providers.OAuthTokenEnv {
 		kt.mintArgv = []string{"claude", "setup-token"}
 	}
-	for _, o := range authOptions(kt) {
+	for _, o := range AuthOptions(kt) {
 		acts = append(acts, uidialog.Row{Name: o.action, Detail: o.desc, Run: func() bool { return runAuthOption(d, kt, o) }})
 	}
 	if s.source == "vault" {

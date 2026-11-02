@@ -45,7 +45,7 @@ func TestWarmServedOnFlipOn(t *testing.T) {
 	n := servedHarness(t, true)
 	putRec(t, "claude", "PROFILE", "qa")
 	var out bytes.Buffer
-	warmServedOnChange(&out, false, agent.AgentPins(), false)
+	WarmServedOnChange(&out, false, agent.AgentPins(), false)
 	if *n == 0 || !cached(t) {
 		t.Fatalf("flip-on made %d requests, cached=%v, want a warmed cache", *n, cached(t))
 	}
@@ -56,12 +56,12 @@ func TestWarmServedOnPinChangeOnly(t *testing.T) {
 	n := servedHarness(t, true)
 	before := agent.AgentPins()
 	var out bytes.Buffer
-	warmServedOnChange(&out, false, before, true)
+	WarmServedOnChange(&out, false, before, true)
 	if *n != 0 {
 		t.Fatalf("unchanged pins and switch warmed: %d requests", *n)
 	}
 	putRec(t, "claude", "PROFILE", "qa")
-	warmServedOnChange(&out, false, before, true)
+	WarmServedOnChange(&out, false, before, true)
 	if *n == 0 || !cached(t) {
 		t.Fatalf("pin change made %d requests, cached=%v, want a warmed cache", *n, cached(t))
 	}
@@ -72,7 +72,7 @@ func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 	n := servedHarness(t, false)
 	before := agent.AgentPins()
 	putRec(t, "claude", "PROFILE", "qa")
-	warmServedOnChange(&bytes.Buffer{}, false, before, false)
+	WarmServedOnChange(&bytes.Buffer{}, false, before, false)
 	if *n != 0 || cached(t) {
 		t.Fatalf("switch off: %d requests, cached=%v", *n, cached(t))
 	}
@@ -83,7 +83,7 @@ func TestWarmServedSkippedForCheckAndDryRun(t *testing.T) {
 	n := servedHarness(t, true)
 	before := agent.AgentPins()
 	putRec(t, "claude", "PROFILE", "qa")
-	warmServedOnChange(&bytes.Buffer{}, true, before, false)
+	WarmServedOnChange(&bytes.Buffer{}, true, before, false)
 	if *n != 0 || cached(t) {
 		t.Fatalf("skip=true: %d requests, cached=%v", *n, cached(t))
 	}

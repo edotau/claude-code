@@ -43,7 +43,7 @@ func TestSecretsAddCustomStoresVaultAndRedacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newRow := len(trackedSecrets(reg)) + 1 // "+ new" is the row right after every tracked secret
+	newRow := len(TrackedSecrets(reg)) + 1 // "+ new" is the row right after every tracked secret
 	in := strings.NewReader(fmt.Sprintf("%d\nMY_NEW_SECRET\nsk-super-secret-raw-value\n\n", newRow))
 	var out bytes.Buffer
 	rc := Secrets(Options{In: in, Out: &out})
@@ -119,7 +119,7 @@ func TestSourceLabel(t *testing.T) {
 // Every secrets-page row, worst case "env over vault" shadowing the setup-token's long name and
 // user list, must still render at 80 columns or fewer (mirrors rowRenderedWidth in rowwidth_test.go).
 func TestSecretsRowWidthFitsEightyColumns(t *testing.T) {
-	list := []trackedSecret{
+	list := []TrackedSecret{
 		{name: providers.OAuthTokenEnv, source: "env", shadowed: "vault", users: "claude -p (setup-token)"},
 		{name: "A_CUSTOM", source: "vault", shadowed: "", users: "custom"},
 	}
@@ -149,7 +149,7 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := map[string]string{}
-	for _, s := range trackedSecrets(reg) {
+	for _, s := range TrackedSecrets(reg) {
 		rows[s.name] = s.users
 	}
 	if _, ok := rows["OPENAI_API_KEY"]; ok {
@@ -166,7 +166,7 @@ func TestEditSecretDeletesVaultValue(t *testing.T) {
 	t.Setenv(name, "")
 	vaulttest.Secret(t, name, "stored-value")
 	d, out := newDialog("2\ny\n")
-	editSecret(d, trackedSecret{name: name, source: "vault"})
+	editSecret(d, TrackedSecret{name: name, source: "vault"})
 	if _, src, ok := secretstore.Get(name); ok || src != "" {
 		t.Fatalf("deleted secret still resolves from %q", src)
 	}
@@ -191,7 +191,7 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 	if !d.stage(name, "replacement-value") {
 		t.Fatal("stage failed")
 	}
-	editSecret(d, trackedSecret{name: name, source: "vault"})
+	editSecret(d, TrackedSecret{name: name, source: "vault"})
 
 	if _, staged := d.pending[name]; staged {
 		t.Error("the staged Store must be dropped once Delete is picked")
@@ -251,13 +251,13 @@ func TestProbeCachedVaultAndEnvOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := fakeKeyedProvider(t, name, "env-value")
-	kt := keyTarget{provider: p}
-	status, _, age := probeCached(kt)
+	kt := KeyTarget{provider: p}
+	status, _, age := ProbeCached(kt)
 	if status != "verified" || age < time.Minute {
 		t.Fatalf("vault cache = (%q, %v), want verified cached result", status, age)
 	}
 	t.Setenv(name, "env-value")
-	status, _, age = probeCached(kt)
+	status, _, age = ProbeCached(kt)
 	if status != "verified" || age != 0 {
 		t.Fatalf("env override = (%q, %v), want verified live result", status, age)
 	}

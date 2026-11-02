@@ -15,7 +15,7 @@ import (
 )
 
 // catalogFn is the discovery seam over catalogForAlias; tests stub the served-model listing.
-var catalogFn = catalogForAlias
+var catalogFn = CatalogForAlias
 
 // modelsMenu is the session profile's alias page (aliases + Unpin all) until Back/Esc.
 func modelsMenu(d *dialog) bool {
@@ -109,9 +109,9 @@ func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 	pinModel(d, sel.Provider.Name, alias, infos[idx].ID)
 }
 
-// catalogForAlias is alias's pickable catalog: the provider's live models, or — when that listing fails
+// CatalogForAlias is alias's pickable catalog: the provider's live models, or — when that listing fails
 // in a known way (FallbackModels) — a known offline list, with a note explaining the substitution.
-func catalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.Provider, alias string) ([]providers.ModelInfo, string) {
+func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.Provider, alias string) ([]providers.ModelInfo, string) {
 	var infos []providers.ModelInfo
 	var err error
 	if p.Provider == "github" {

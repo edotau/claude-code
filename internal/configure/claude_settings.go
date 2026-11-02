@@ -204,8 +204,8 @@ func editText(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawMes
 	return raw, true
 }
 
-// renderObject parses render's output into a top-level key -> value map.
-func renderObject(render func() ([]byte, error)) (map[string]json.RawMessage, error) {
+// RenderObject parses render's output into a top-level key -> value map.
+func RenderObject(render func() ([]byte, error)) (map[string]json.RawMessage, error) {
 	raw, err := render()
 	if err != nil {
 		return nil, err
@@ -217,9 +217,9 @@ func renderObject(render func() ([]byte, error)) (map[string]json.RawMessage, er
 	return m, nil
 }
 
-// readLiveSettings parses the live settings.json; a missing file is not an error (just no rows to flag).
-func readLiveSettings() (map[string]json.RawMessage, error) {
-	return renderObject(func() ([]byte, error) { return os.ReadFile(launch.SettingsFile()) })
+// ReadLiveSettings parses the live settings.json; a missing file is not an error (just no rows to flag).
+func ReadLiveSettings() (map[string]json.RawMessage, error) {
+	return RenderObject(func() ([]byte, error) { return os.ReadFile(launch.SettingsFile()) })
 }
 
 // runClaudeSettings is the "claude code" page: interactive on a terminal (edits staged until the page is
@@ -246,12 +246,12 @@ func runClaudeSettings(d *dialog) bool {
 // reportClaudeSettings prints one line per Catalog key under its section header: key, effective value,
 // source (template|vault[, live differs]) — no prompts, no writes.
 func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []settings.Section) bool {
-	tmpl, err := renderObject(settings.Render)
+	tmpl, err := RenderObject(settings.Render)
 	if err != nil {
 		d.printf("claude code: %v\n", err)
 		return false
 	}
-	live, err := readLiveSettings()
+	live, err := ReadLiveSettings()
 	if err != nil && !os.IsNotExist(err) {
 		d.printf("claude code: %v\n", err)
 	}
@@ -362,7 +362,7 @@ func runDropKeep(d *dialog) int {
 	if d.o.Check {
 		return dropKeepCheck(d, cur)
 	}
-	live, err := readLiveSettings()
+	live, err := ReadLiveSettings()
 	if err != nil && !os.IsNotExist(err) {
 		d.printf("claude code: %v\n", err)
 		return 1
@@ -447,12 +447,12 @@ func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []
 	defer saveClaudeSettings(d, staged, reset)
 	start := 0
 	for {
-		tmpl, err := renderObject(settings.Render)
+		tmpl, err := RenderObject(settings.Render)
 		if err != nil {
 			d.printf("claude code: %v\n", err)
 			return false
 		}
-		live, err := readLiveSettings()
+		live, err := ReadLiveSettings()
 		if err != nil && !os.IsNotExist(err) {
 			d.printf("claude code: %v\n", err)
 		}
