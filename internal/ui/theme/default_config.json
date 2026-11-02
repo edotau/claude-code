@@ -2,13 +2,12 @@
   "style": "gradient",
   "colorMode": "auto",
   "gradient": "gemini",
-  "gradientEase": 0.45,
+  "gradientEase": 1,
   "powerlineTheme": "nord",
   "charset": "text",
   "userColor": "ansi",
   "velocityMode": "code",
   "order": [
-    "provider",
     "model",
     "proxy",
     "context",
@@ -23,7 +22,7 @@
   "segments": {
     "path": true,
     "model": true,
-    "provider": true,
+    "provider": false,
     "proxy": false,
     "context": true,
     "limits": true,

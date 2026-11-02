@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -153,7 +152,9 @@ func render(v values, cfg Config, pal theme.Palettes) string {
 		}
 		return clip(head+body, width)
 	}
-	return clip(renderGradient(v, cfg, pal, stops, mode), width)
+	flat := cfg
+	flat.Lift = 0 // lift would wash the opening blue
+	return clip(renderGradient(v, cfg, pal, flat.Stops(pal), mode), width)
 }
 
 // collect resolves every enabled segment; disabled ones skip their IO.
@@ -169,7 +170,8 @@ func collect(in Input, cfg Config) values {
 	v := values{userHost: promptUser(), path: collapsePath(shortenDir(root), root, cfg.PathMax)}
 	var provider string
 	var routed bool
-	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("proxy", true) || cfg.seg("limits", true) {
+	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("proxy", true) || cfg.seg("limits", true) ||
+		cfg.seg("total", true) {
 		provider, routed = sessionProvider()
 	}
 	if cfg.seg("provider", true) {
@@ -196,7 +198,7 @@ func collect(in Input, cfg Config) values {
 		v.contextPct = contextPct(in)
 	}
 	if cfg.seg("total", true) {
-		v.total = totalSegment(in)
+		v.total = totalSegment(in, provider)
 	}
 	v.duration = formatDuration(in.Cost.DurationMS)
 	if id := in.SessionID; id != "" {
@@ -254,37 +256,37 @@ func providerLabel(name string) string {
 	return name
 }
 
-// modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
+// modelSegment is the model id as "<provider>-<model>[1m]"; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
 func modelSegment(in Input, session string) string {
-	name := in.Model.DisplayName
-	if i := strings.Index(name, " · "); i >= 0 {
-		name = name[:i]
-	}
-	name = strings.TrimSpace(strings.ReplaceAll(name, " (1M context)", " [1m]"))
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
+	if id == "" {
+		name, _, _ := strings.Cut(in.Model.DisplayName, " · ")
+		return strings.TrimSpace(strings.ReplaceAll(name, " (1M context)", "[1m]"))
+	}
 	// Registry check: ollama tags like "qwen3:30b" carry a colon without naming a provider.
 	if prov, model, ok := strings.Cut(id, ":"); ok && prov != session && model != "" {
 		if reg := registry(); reg != nil && reg.Providers[prov] != nil {
-			if name == "" || models.Strip1M(name) == id {
-				name = model
-			}
-			return tag1M(in, name) + " ⇄" + prov
+			return tag1M(in, shortModelID(model)) + " ⇄" + prov
 		}
 	}
-	if name == "" {
-		name = in.Model.ID
-	}
-	return tag1M(in, name)
+	return tag1M(in, shortModelID(id))
 }
 
-// tag1M marks a 1M session whose display name lacks Claude Code's "(1M context)" (custom ids, e.g. Databricks).
-func tag1M(in Input, name string) string {
-	oneM := models.Has1M(strings.TrimSpace(in.Model.ID)) ||
-		(in.ContextWindow != nil && in.ContextWindow.Size >= models.ContextWindow1M)
-	if !oneM || models.Has1M(name) {
-		return name
+// shortModelID maps "claude-X" to "anthropic-X" and drops the "-claude" infix after a provider prefix.
+func shortModelID(id string) string {
+	if rest, ok := strings.CutPrefix(id, "claude-"); ok {
+		return "anthropic-" + rest
 	}
-	return name + " [1m]"
+	return strings.Replace(id, "-claude-", "-", 1)
+}
+
+// tag1M appends "[1m]" (no space) when the session runs a 1M context window.
+func tag1M(in Input, name string) string {
+	if models.Has1M(strings.TrimSpace(in.Model.ID)) ||
+		(in.ContextWindow != nil && in.ContextWindow.Size >= models.ContextWindow1M) {
+		return name + "[1m]"
+	}
+	return name
 }
 
 // proxyTTL caps health probes at one per 5s across renders.
@@ -437,18 +439,17 @@ func shortenDir(p string) string {
 	return p
 }
 
-// totalSegment is "total:<n>": this session's payload tokens plus its finished dispatches', "+" while a dispatch runs.
-func totalSegment(in Input) string {
-	n := 0
-	if cw := in.ContextWindow; cw != nil {
-		n = cw.TotalInput + cw.TotalOutput
+// totalSegment is the session's cumulative input+output tokens from the transcript (API billing only), "+" while a
+// dispatch runs.
+func totalSegment(in Input, session string) string {
+	if onSubscription(session) {
+		return ""
 	}
-	li, lo, _ := tokenledger.TotalsBySession(in.SessionID)
-	n += li + lo
+	n := sessionTokens(in.TranscriptPath)
 	if n <= 0 {
 		return ""
 	}
-	out := "total:" + sigTokens(n)
+	out := sigTokens(n) + " ⛁"
 	if _, dispatches := runningCounts(in); dispatches > 0 {
 		out += "+"
 	}
