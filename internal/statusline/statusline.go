@@ -152,11 +152,9 @@ func render(v values, cfg Config, pal theme.Palettes) string {
 		}
 		return clip(head+body, width)
 	}
-	ramp := cfg.Stops(pal) // lifted, so the middle of the ramp stays bright
 	flat := cfg
-	flat.Lift = 0
-	ramp[0] = flat.Stops(pal)[0] // except the opening blue, which lift would wash out
-	return clip(renderGradient(v, cfg, pal, ramp, mode), width)
+	flat.Lift = 0 // lift would wash the opening blue
+	return clip(renderGradient(v, cfg, pal, flat.Stops(pal), mode), width)
 }
 
 // collect resolves every enabled segment; disabled ones skip their IO.
