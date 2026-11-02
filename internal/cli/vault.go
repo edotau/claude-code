@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -94,7 +95,7 @@ func cmdVaultSet(args []string) int {
 		return vaultSetTailscalePiped(*apiKey, *dryRun)
 	}
 	if len(names) == 0 && !*dryRun && tui.StdinIsTerminal() {
-		return configure.Secrets(configure.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
+		return menu.Secrets(menu.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
 	}
 	if len(names) != 1 {
 		fs.Usage()

@@ -6,13 +6,10 @@ package configure
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // ProbeValue live-checks a candidate value for p without storing it first, via the env-var seam
@@ -34,129 +31,20 @@ func ProbeValue(p *providers.Provider, envVar, candidate string) (status, detail
 	return providers.ProbeCredential(ctx, p)
 }
 
-// replaceKey pastes a new value for kt's keyed credential, probes it live before it overwrites the
-// stored one (a rejected/unreachable paste asks whether to keep the old one instead), and writes it
-// back to the vault.
-func replaceKey(d *dialog, kt KeyTarget) bool {
-	if kt.envVar == "" {
-		return false
-	}
-	if _, src, _ := secretstore.Get(kt.envVar); src == "env" {
-		d.printf("%s: env-only, not in the vault; edit where exported\n", kt.envVar)
-		return false
-	}
-	if !actionConfirmed("Paste a new " + kt.envVar + " to rotate it") {
-		return false
-	}
-	if u := consoleURLs[kt.envVar]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the new key?") {
-		openBrowser(u)
-	}
-	val, err := secretLine(d, "Paste the new value for "+kt.envVar+" (input hidden, Enter when done): ")
-	if err != nil || strings.TrimSpace(val) == "" {
-		d.printf("%s: no value entered\n", kt.envVar)
-		return false
-	}
-	_, v := ParseAssignment(val)
-	if kt.provider != nil {
-		status, detail := ProbeValue(kt.provider, kt.envVar, v)
-		if status == "rejected" || status == "unreachable" {
-			d.printf("%s: new value %s (%s)\n", kt.envVar, status, detail)
-			if d.shell().Confirm("Keep the old key and discard this paste?") {
-				return false
-			}
-		}
-	}
-	return storeValue(d, kt.envVar, v)
-}
-
-// regenerate re-runs an agent's own login or mint CLI to rotate a credential that is already present.
-// A login reports the outcome (the session lives in the agent's own file, not the vault).
-// A mint writes the printed token back to the vault.
-func regenerate(d *dialog, kt KeyTarget, argv []string, mint bool) bool {
-	if !mint {
-		if err := RunLogin(argv); err != nil {
-			d.printf("%s: %v\n", kt.label, err)
-			return false
-		}
-		d.printf("%-10s logged in again\n", kt.label)
-		return true
-	}
-	tok, err := RunMint(argv)
-	if err != nil {
-		d.printf("%s: %v\n", kt.label, err)
-		return false
-	}
-	if tok == "" {
-		d.printf("%s: no token found in the output; try again or paste one\n", kt.envVar)
-		return false
-	}
-	if _, src, _ := secretstore.Get(kt.envVar); src == "env" {
-		d.printf("%s: minted a new token\n%s: env-only; update where exported\n", kt.label, kt.envVar)
-		return false
-	}
-	return storeValue(d, kt.envVar, tok)
-}
-
 // RotateOptions lists how an already-present kt can be rotated: its own CLI first (login, then mint —
 // the anthropic subscription row carries both, named explicitly), else a plain paste when it is a
 // keyed credential with no generator.
 func RotateOptions(kt KeyTarget) []AuthOption {
 	var opts []AuthOption
-	if len(kt.loginArgv) > 0 {
-		opts = append(opts, AuthOption{action: "Login", desc: strings.Join(kt.loginArgv, " ") + " · browser sign-in, refreshes the session", argv: kt.loginArgv})
+	if len(kt.LoginArgv) > 0 {
+		opts = append(opts, AuthOption{Action: "Login", Desc: strings.Join(kt.LoginArgv, " ") + " · browser sign-in, refreshes the session", Argv: kt.LoginArgv})
 	}
-	if len(kt.mintArgv) > 0 {
-		opts = append(opts, AuthOption{action: "OAuth token", desc: strings.Join(kt.mintArgv, " ") + " · mints a new token, rotates " + kt.envVar,
-			mint: kt.mintArgv, env: kt.envVar})
+	if len(kt.MintArgv) > 0 {
+		opts = append(opts, AuthOption{Action: "OAuth token", Desc: strings.Join(kt.MintArgv, " ") + " · mints a new token, rotates " + kt.EnvVar,
+			Mint: kt.MintArgv, Env: kt.EnvVar})
 	}
-	if len(opts) == 0 && kt.envVar != "" && kt.provider != nil {
-		opts = append(opts, AuthOption{action: "API key", desc: "paste a new " + kt.envVar + " · rotates the stored key", env: kt.envVar})
+	if len(opts) == 0 && kt.EnvVar != "" && kt.Provider != nil {
+		opts = append(opts, AuthOption{Action: "API key", Desc: "paste a new " + kt.EnvVar + " · rotates the stored key", Env: kt.EnvVar})
 	}
 	return opts
-}
-
-// runRotate offers kt's rotate options (generate first, else paste) and runs the chosen one; false
-// means skipped, cancelled, or nothing to rotate.
-func runRotate(d *dialog, kt KeyTarget) bool {
-	opts := RotateOptions(kt)
-	if len(opts) == 0 {
-		return false
-	}
-	chosen := 0
-	if len(opts) > 1 {
-		if isStdinTTY() && d.o.In == os.Stdin {
-			rows := make([]uidialog.Row, len(opts))
-			for i, o := range opts {
-				rows[i] = uidialog.Row{Name: o.action, Detail: o.desc}
-			}
-			idx, err := d.shell().Pick(kt.label+" — rotate which credential?", uidialog.Pairs(rows))
-			if err != nil || idx < 0 {
-				return false
-			}
-			chosen = idx
-		} else if !d.shell().Confirm(opts[0].label() + "?") {
-			chosen = 1
-		}
-	}
-	o := opts[chosen]
-	switch {
-	case len(o.argv) > 0:
-		return regenerate(d, kt, o.argv, false)
-	case len(o.mint) > 0:
-		return regenerate(d, kt, o.mint, true)
-	default:
-		return replaceKey(d, kt)
-	}
-}
-
-// ensureKey makes sure kt's keyed credential is usable before a sub-picker pins it: absent asks to add
-// one, present defaults to keeping it and only replaces on an explicit no.
-func ensureKey(d *dialog, kt KeyTarget, present bool) bool {
-	if !present {
-		return resolveKey(d, kt)
-	}
-	if d.shell().Confirm(kt.label + " key present — keep it?") {
-		return true
-	}
-	return replaceKey(d, kt)
 }

@@ -34,7 +34,7 @@ func TestClaudeTier(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			writeClaudeJSON(t, c.json)
-			if got := claudeTier(c.plan); got != c.want {
+			if got := ClaudeTier(c.plan); got != c.want {
 				t.Errorf("claudeTier(%q) = %q, want %q", c.plan, got, c.want)
 			}
 		})
@@ -63,7 +63,7 @@ func TestCopilotTier(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			clear(copilotPlanCache)
 			copilotTierCmd = func(context.Context) ([]byte, error) { return []byte(c.out), c.err }
-			if got := copilotTier(); got != c.want {
+			if got := CopilotTier(); got != c.want {
 				t.Errorf("copilotTier = %q, want %q", got, c.want)
 			}
 		})
@@ -74,27 +74,10 @@ func TestTitleAndWithTier(t *testing.T) {
 	if title("") != "" || title("plus") != "Plus" {
 		t.Errorf("title: %q %q", title(""), title("plus"))
 	}
-	if got := withTier("subscription", ""); got != "subscription" {
+	if got := WithTier("subscription", ""); got != "subscription" {
 		t.Errorf("withTier no tier = %q", got)
 	}
-	if got := withTier("subscription", "Max 20x"); got != "subscription (Max 20x)" {
+	if got := WithTier("subscription", "Max 20x"); got != "subscription (Max 20x)" {
 		t.Errorf("withTier = %q", got)
-	}
-}
-
-func TestAgentStateLabelAndCheck(t *testing.T) {
-	cases := []struct {
-		s            agentState
-		label, check string
-	}{
-		{agentState{modeSubscription, "Max 20x", true}, "subscription (Max 20x)", "verified"},
-		{agentState{mode: modeSubscription}, "subscription", "not verified"},
-		{agentState{mode: modeAPIKey, tier: "ignored", verified: true}, "API key", "verified"},
-		{agentState{mode: modeNone}, "not set up", "not verified"},
-	}
-	for _, c := range cases {
-		if c.s.label() != c.label || c.s.check() != c.check {
-			t.Errorf("%+v: label=%q check=%q, want %q/%q", c.s, c.s.label(), c.s.check(), c.label, c.check)
-		}
 	}
 }

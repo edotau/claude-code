@@ -1,0 +1,61 @@
+package menu
+
+import (
+	"context"
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/network/tailscale"
+	"net"
+	"strings"
+	"time"
+)
+
+// cgnatRemote is the 100.64.0.0/10 block tailscale assigns IPv4 node addresses from.
+var cgnatRemote = func() *net.IPNet { _, n, _ := net.ParseCIDR("100.64.0.0/10"); return n }()
+
+// runRemote reports tailscale connectivity, dispatch hosts, and whether `claude-code network page` has a
+// tailnet address to bind — read-only, never fails --check.
+func runRemote(d *dialog) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	st, err := tailscale.Status(ctx)
+	switch err {
+	case nil:
+		d.printf("tailscale   running (%s)\n", strings.TrimSuffix(st.DNSName, "."))
+	default:
+		d.printf("tailscale   not connected → claude-code network tailscale --connect\n")
+	}
+	switch {
+	case configure.HasAdminCredential():
+		d.printf("admin api   credential present\n")
+	default:
+		d.printf("admin api   credential absent → claude-code vault set TAILSCALE_OAUTH_CLIENT_ID|_SECRET\n")
+	}
+	machines, _ := tailscale.Machines(ctx)
+	var online []string
+	for _, m := range machines {
+		if m.Online && m.Name != "" {
+			online = append(online, m.Name)
+		}
+	}
+	if len(online) > 0 {
+		d.printf("dispatch    %s\n", strings.Join(online, ", "))
+	} else {
+		d.printf("dispatch    no online tailnet machines found\n")
+	}
+	if ip := tailnetIPv4(st); ip != "" {
+		d.printf("web         %s available for claude-code network page\n", ip)
+	} else {
+		d.printf("web         no tailnet IPv4 address; claude-code network page binds loopback only\n")
+	}
+	return true
+}
+
+// tailnetIPv4 picks this node's tailnet (100.64.0.0/10) IPv4 address out of st.IPs, if any.
+func tailnetIPv4(st tailscale.Local) string {
+	for _, s := range st.IPs {
+		if ip := net.ParseIP(s); ip != nil && ip.To4() != nil && cgnatRemote.Contains(ip) {
+			return s
+		}
+	}
+	return ""
+}

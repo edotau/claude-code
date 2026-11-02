@@ -19,16 +19,16 @@ import (
 
 var maxTierRE = regexp.MustCompile(`max_(\d+x)`)
 
-// claudeTier names the claude.ai plan: the rate-limit tier in ~/.claude.json ("Max 20x") beats the bare plan ("Max").
-func claudeTier(plan string) string {
-	if m := maxTierRE.FindStringSubmatch(claudeRateTier()); m != nil {
+// ClaudeTier names the claude.ai plan: the rate-limit tier in ~/.claude.json ("Max 20x") beats the bare plan ("Max").
+func ClaudeTier(plan string) string {
+	if m := maxTierRE.FindStringSubmatch(ClaudeRateTier()); m != nil {
 		return "Max " + m[1]
 	}
 	return title(strings.Trim(plan, " ()"))
 }
 
-// claudeRateTier is the raw rate-limit tier ~/.claude.json records ("default_claude_max_20x"), user before org.
-func claudeRateTier() string {
+// ClaudeRateTier is the raw rate-limit tier ~/.claude.json records ("default_claude_max_20x"), user before org.
+func ClaudeRateTier() string {
 	b, err := os.ReadFile(paths.ClaudeJSON())
 	if err != nil {
 		return ""
@@ -45,22 +45,22 @@ func claudeRateTier() string {
 	return cmp.Or(cfg.Account.User, cfg.Account.Org)
 }
 
-// codexTier is codex's ChatGPT plan ("Plus", "Pro"), read offline.
-func codexTier() string { return title(codex.CodexPlan()) }
+// CodexTier is codex's ChatGPT plan ("Plus", "Pro"), read offline.
+func CodexTier() string { return title(codex.CodexPlan()) }
 
 // copilotTierCmd is the plan lookup seam; tests replace it.
 var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
 	return exec.CommandContext(ctx, "gh", "api", "/copilot_internal/user").Output()
 }
 
-// copilotTier is the Copilot plan's sold name ("Pro+"); the raw copilot_plan when GitHub adds an unknown one.
-func copilotTier() string { return providers.CopilotPlanName(copilotRawPlan()) }
+// CopilotTier is the Copilot plan's sold name ("Pro+"); the raw copilot_plan when GitHub adds an unknown one.
+func CopilotTier() string { return providers.CopilotPlanName(CopilotRawPlan()) }
 
 // copilotPlanCache holds the one gh lookup per run; the plan does not change while configure is open.
 var copilotPlanCache = map[string]string{}
 
-// copilotRawPlan asks GitHub which Copilot plan the gh login holds ("individual_pro"; 3 s cap); "" when offline.
-func copilotRawPlan() string {
+// CopilotRawPlan asks GitHub which Copilot plan the gh login holds ("individual_pro"; 3 s cap); "" when offline.
+func CopilotRawPlan() string {
 	if v, ok := copilotPlanCache["plan"]; ok {
 		return v
 	}
@@ -83,8 +83,8 @@ func title(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// withTier renders a mode with its tier when one is known: "subscription (Max 20x)".
-func withTier(mode, tier string) string {
+// WithTier renders a mode with its tier when one is known: "subscription (Max 20x)".
+func WithTier(mode, tier string) string {
 	if tier == "" {
 		return mode
 	}

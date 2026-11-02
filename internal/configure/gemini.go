@@ -4,22 +4,19 @@ package configure
 import (
 	"bytes"
 	"fmt"
+	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"os"
 	"os/exec"
 	"slices"
 	"syscall"
 	"time"
-
-	"github.com/edotau/claude-code/internal/gemini"
-
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/ui/menu"
-	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// agyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.
-var agyCommand = func() *exec.Cmd {
+// AgyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.
+var AgyCommand = func() *exec.Cmd {
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return &exec.Cmd{Err: err}
@@ -27,14 +24,14 @@ var agyCommand = func() *exec.Cmd {
 	return exec.Command(bin)
 }
 
-// agySignInPoll is how often runAgy checks for agy's own login marker once it's running.
-var agySignInPoll = 500 * time.Millisecond
+// AgySignInPoll is how often runAgy checks for agy's own login marker once it's running.
+var AgySignInPoll = 500 * time.Millisecond
 
-// agySignInTimeout bounds how long AgySignIn waits for a sign-in before giving up and stopping agy.
-var agySignInTimeout = 10 * time.Minute
+// AgySignInTimeout bounds how long AgySignIn waits for a sign-in before giving up and stopping agy.
+var AgySignInTimeout = 10 * time.Minute
 
-// agyStopGrace is how long SIGINT gets to land before AgySignIn escalates to SIGTERM.
-var agyStopGrace = 3 * time.Second
+// AgyStopGrace is how long SIGINT gets to land before AgySignIn escalates to SIGTERM.
+var AgyStopGrace = 3 * time.Second
 
 // AgySignIn starts agy on the real terminal, polls for its login marker every agySignInPoll, and stops it
 // (SIGINT, then SIGTERM after agyStopGrace) the moment the marker appears — or on agySignInTimeout, or
@@ -45,15 +42,15 @@ func AgySignIn() (ok bool, msg string) {
 	marker := gemini.AgyLoginMarker(home)
 	before, _ := os.ReadFile(marker)
 	beforeInfo, _ := os.Stat(marker)
-	cmd := agyCommand()
+	cmd := AgyCommand()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		return false, fmt.Sprintf("agy: %v", err)
 	}
 	done := make(chan struct{}) // closed on exit; the login marker, not agy's exit status, decides sign-in
 	go func() { _ = cmd.Wait(); close(done) }()
-	deadline := time.Now().Add(agySignInTimeout)
-	ticker := time.NewTicker(agySignInPoll)
+	deadline := time.Now().Add(AgySignInTimeout)
+	ticker := time.NewTicker(AgySignInPoll)
 	defer ticker.Stop()
 	for {
 		if agySignedInSince(marker, before, beforeInfo) {
@@ -73,13 +70,6 @@ func AgySignIn() (ok bool, msg string) {
 			}
 		}
 	}
-}
-
-// runAgy is AgySignIn with its message printed on d.
-func runAgy(d *dialog) bool {
-	ok, msg := AgySignIn()
-	d.printf("%s\n", msg)
-	return ok
 }
 
 func agySignedInSince(marker string, before []byte, beforeInfo os.FileInfo) bool {
@@ -102,7 +92,7 @@ func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
 	select {
 	case <-done:
 		waitOrTermDescendants(desc)
-	case <-time.After(agyStopGrace):
+	case <-time.After(AgyStopGrace):
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		signalAliveDescendants(desc, syscall.SIGTERM)
 		<-done
@@ -110,7 +100,7 @@ func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
 }
 
 func waitOrTermDescendants(pids []int) {
-	deadline := time.Now().Add(agyStopGrace)
+	deadline := time.Now().Add(AgyStopGrace)
 	for {
 		alive := slices.ContainsFunc(pids, proc.Alive)
 		if !alive {
@@ -144,24 +134,4 @@ func signalAliveDescendants(pids []int, sig syscall.Signal) {
 		}
 	}
 	signalDescendants(alive, sig)
-}
-
-func geminiMenu(d *dialog) agentMenu {
-	loginSel := gemini.GeminiLoginPresent()
-	st := agentState{mode: modeNone}
-	if loginSel {
-		st = agentState{mode: modeSubscription, verified: true}
-	}
-	return agentMenu{st, []billingRow{
-		{"Subscription", "Google login via agy · plan limits " + menu.Bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
-			if loginSel {
-				d.printf("%-10s on its Google login (kept)\n", "agy")
-				return true
-			}
-			return runAgy(d)
-		}},
-		{"Login", "agy · browser sign-in, refreshes the Google session", "", func() bool {
-			return runAgy(d)
-		}},
-	}}
 }

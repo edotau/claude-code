@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -17,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -60,9 +60,9 @@ func reviewToolNames() []string {
 	return out
 }
 
-// configureSections derives from configure.Sections, the package's own run order.
+// configureSections derives from menu.SectionNames, the package's own run order.
 func configureSections() []string {
-	return append(append([]string{}, configure.Sections...), "desktop")
+	return append(append([]string{}, menu.SectionNames...), "desktop")
 }
 
 // modelPinAliases offers "alias=" stems for --pin; the user types the model id after the "=" themselves.
