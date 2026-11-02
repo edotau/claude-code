@@ -8,7 +8,7 @@ paths:
 **Prefer one line of ≤80 characters, label column included.** On a terminal, help rows and TUI menu rows never
 wrap: a row wider than the window clips (`...` in help, `…` in menus). Piped help keeps the full text and may wrap
 only with a hanging indent: every continuation line starts exactly at the description column, never under the
-label column. Arrow-key TUI menu rows (`internal/configure`) stay single-line — wrapping breaks the highlight and
+label column. Arrow-key TUI menu rows (`internal/ui/menu`) stay single-line — wrapping breaks the highlight and
 the row→key mapping. Be concise but descriptive — every word counts.
 
 - Lead with what the item does; drop filler ("this will", "allows you to") and `·`-chained clauses.
