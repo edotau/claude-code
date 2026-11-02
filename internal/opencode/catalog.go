@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -39,17 +40,31 @@ func OpencodeServed(name string) (map[string]providers.ModelInfo, *providers.Pro
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	infos, err := providers.ListModels(ctx, reg, p)
-	if err != nil {
-		return nil, p, err
+	infos, ok := servedSnapshot(p)
+	if !ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if infos, err = providers.ListModels(ctx, reg, p); err != nil {
+			return nil, p, err
+		}
 	}
 	out := make(map[string]providers.ModelInfo, len(infos))
 	for _, m := range infos {
 		out[m.ID] = m
 	}
 	return out, p, nil
+}
+
+// servedSnapshot is p's sealed model snapshot with no network; an expired one is served and refreshed detached.
+func servedSnapshot(p *providers.Provider) ([]providers.ModelInfo, bool) {
+	snap, ok := serving.Recall(p)
+	if !ok || len(snap.Models) == 0 {
+		return nil, false
+	}
+	if time.Since(snap.DiscoveredAt) >= serving.CacheTTL() {
+		preflight.SpawnDiscover(p.Name, false)
+	}
+	return snap.Models, true
 }
 
 func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
