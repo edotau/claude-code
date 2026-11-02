@@ -132,38 +132,23 @@ func Ensure(ctx context.Context) (string, error) {
 			base = Base(st.Port)
 			return nil
 		}
-		start := spawn
-		if supervised() {
-			start = func() error { return unitCtl("start") }
-		}
-		if err := start(); err != nil {
+		if err := spawn(); err != nil {
 			return err
 		}
-		if st, ok := awaitRunning(ctx, 3*time.Second); ok {
-			base = Base(st.Port)
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+			if st, ok := Running(ctx); ok {
+				base = Base(st.Port)
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
 		}
 		return fmt.Errorf("proxy did not become healthy within 3s (see %s)", LogFile())
 	})
 	return base, err
-}
-
-// awaitRunning polls for a healthy proxy for up to d.
-func awaitRunning(ctx context.Context, d time.Duration) (State, bool) {
-	for deadline := time.Now().Add(d); time.Now().Before(deadline); {
-		if st, ok := Running(ctx); ok {
-			return st, true
-		}
-		select {
-		case <-ctx.Done():
-			return State{}, false
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
-	return State{}, false
 }
 
 // ErrTestBinary: under `go test`, os.Executable is the test binary, which would re-run its own tests as a "router".
@@ -214,21 +199,15 @@ func ownedElsewhere(st State) bool {
 	return err == nil && cur.PID != 0 && cur.PID != st.PID && cur.Port != st.Port && alive(cur.PID)
 }
 
-// Stop SIGTERMs a healthy proxy (under the systemd unit: stops it) and waits briefly for it to exit; a stale state file is removed.
+// Stop SIGTERMs a healthy proxy and waits briefly for it to exit; a stale state file is removed.
 func Stop(ctx context.Context) (State, error) {
 	st, ok := Running(ctx)
-	if !ok && supervised() {
-		_ = unitCtl("stop") // a unit stuck restarting must not outlive a --stop
-	}
 	if !ok {
 		if st.PID != 0 && !alive(st.PID) {
 			_ = os.Remove(stateFile())
 			_ = os.Remove(legacyStateFile())
 		}
 		return st, ErrNotRunning
-	}
-	if supervised() {
-		return st, unitCtl("stop")
 	}
 	if err := terminate(st.PID); err != nil {
 		return st, err
@@ -263,23 +242,17 @@ func Restart(ctx context.Context) (old, cur State, restarted bool, err error) {
 	if !ok {
 		return old, State{}, false, nil
 	}
-	if supervised() {
-		if err = unitCtl("restart"); err != nil {
-			return old, State{}, false, err
-		}
-	} else {
-		if err = terminate(old.PID); err != nil {
-			return old, State{}, false, err
-		}
-		if err = awaitPortFree(ctx, old.Port); err != nil {
-			return old, State{}, false, err
-		}
-		// The old daemon keeps draining in the background: its listener is closed, so the replacement binds at once.
-		if _, err = Ensure(ctx); err != nil {
-			return old, State{}, false, err
-		}
+	if err = terminate(old.PID); err != nil {
+		return old, State{}, false, err
 	}
-	cur, ok = awaitRunning(ctx, 5*time.Second)
+	if err = awaitPortFree(ctx, old.Port); err != nil {
+		return old, State{}, false, err
+	}
+	// The old daemon keeps draining in the background: its listener is closed, so the replacement binds at once.
+	if _, err = Ensure(ctx); err != nil {
+		return old, State{}, false, err
+	}
+	cur, ok = Running(ctx)
 	if !ok {
 		return old, State{}, false, fmt.Errorf("proxy did not come back healthy (see %s)", LogFile())
 	}

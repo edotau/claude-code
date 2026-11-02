@@ -17,7 +17,6 @@
 # legacy-layout: opencode-overlay
 # legacy-layout: picker-additions
 # legacy-layout: projections
-# legacy-layout: proxy-unit
 # legacy-layout: quota
 # legacy-layout: router-runtime
 # legacy-layout: served-models
@@ -53,7 +52,6 @@ opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | i
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentconfig | keep
 picker-additions | store | 1 | state/vault.db | internal/providers | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
-proxy-unit | derived | 0 | <fixed at init> | internal/proxy | keep
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep
 router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/proxy | keep
