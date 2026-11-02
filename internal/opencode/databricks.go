@@ -94,7 +94,11 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 // splitMenu sorts the menu over the chat, Responses and Claude providers by wire; dropped are labels p has no route for.
 func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[string]any, allowed map[string]bool, dropped []string) {
 	chat, resp, claude, allowed = map[string]any{}, map[string]any{}, map[string]any{}, map[string]bool{}
-	for _, m := range providers.OpencodeMenu() {
+	menu, err := providers.OpencodeMenuFor(p)
+	if err != nil {
+		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
+	}
+	for _, m := range menu {
 		wire := agentconfig.MenuWire(p, m.ID) // the catalog spells the id the way this row serves it
 		allowed[wire] = true
 		entry := map[string]any{"name": m.Label + " · " + p.Name}

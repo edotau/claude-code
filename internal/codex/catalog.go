@@ -62,7 +62,10 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("version failed: %w", err)
 	}
-	menu := providers.OpencodeMenu()
+	menu, err := providers.OpencodeMenuFor(p)
+	if err != nil {
+		return "", "", err
+	}
 	parts := []string{string(version), p.Name}
 	for _, m := range menu {
 		parts = append(parts, agentconfig.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))

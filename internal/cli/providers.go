@@ -117,6 +117,9 @@ var modelsPage = helptext.Page{
 }
 
 func cmdModels(args []string) int {
+	if len(args) > 0 && args[0] == "discover" {
+		return cmdModelsDiscover(args[1:])
+	}
 	fs := helptext.NewFlagSet("models", modelsPage)
 	provider := fs.String("profile", "", "profile to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")

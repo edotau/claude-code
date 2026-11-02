@@ -139,6 +139,18 @@ func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[
 				menu[id] = map[string]any{"name": id}
 			}
 		}
+		if p.Provider == "github" {
+			return menu // Saved history must not re-enable a disabled Copilot model.
+		}
+		saved, err := providers.PickerModels(p)
+		if err != nil {
+			fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
+		}
+		for _, m := range saved {
+			if _, exists := menu[m.ID]; !exists {
+				menu[m.ID] = map[string]any{"name": cmp.Or(m.Name, m.ID) + " · " + p.Name}
+			}
+		}
 	}
 	return menu
 }
