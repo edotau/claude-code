@@ -35,15 +35,18 @@ func TestGradientCells(t *testing.T) {
 			path:  true,
 			want: []run{
 				{"~/proj ", "g"}, {"|", "sep"}, {" openrouter ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
-				{" ", "g"}, {"|", "sep"}, {" ", "g"}, {"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
+				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
+				{"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
 				{" ", "g"}, {"|", "sep"}, {" total:1.23M", "g"}, {" | ", "sep"}, {"feature…", "g"},
 			},
 		},
 		{
-			name:  "context first",
-			order: []string{"context", "model"},
+			name:   "context first with percent before",
+			order:  []string{"context", "model"},
+			before: true,
 			want: []run{
-				{"++", "filled"}, {"--", "empty"}, {" 42%", "g"}, {" ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
+				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
+				{"++", "filled"}, {"--", "empty"}, {" ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
 				{" | ", "sep"}, {"feature…", "g"},
 			},
 		},

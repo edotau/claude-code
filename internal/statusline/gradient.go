@@ -27,13 +27,7 @@ func easeAt(t, exp float64) float64 {
 	return math.Pow(t, exp)
 }
 
-// gradientHold is the leading share of the line that stays on the first stop before the even ramp begins.
-const gradientHold = 0.25
-
-// rampPos maps a cell's line position t∈[0,1] to a ramp position: flat through the hold, then linear to the end.
-func rampPos(t float64) float64 { return max(0, t-gradientHold) / (1 - gradientHold) }
-
-// renderGradient sweeps the ramp from the first cell across cfg.Order, the branch and the
+// renderGradient paints "user:" then sweeps the ramp from the path across cfg.Order, the branch and the
 // velocity counts; separators, troughs and the dot keep their own tones.
 func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	dim := ansi.Hex(pal.Sem("dim"))
@@ -41,7 +35,7 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 	total := max(len(cells)-1, 1)
 	trough := troughTone(cfg.Bar)
 	var out strings.Builder
-	if cfg.seg("path", true) { // the shell's own user: prefix; the ramp starts at the path
+	if cfg.seg("path", true) {
 		if cfg.UserColor == "ansi" {
 			out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
 		} else {
@@ -50,12 +44,12 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false))
 	}
 	for i, c := range cells {
-		rgb := ansi.GradAt(stops, easeAt(rampPos(float64(i)/float64(total)), cfg.GradientEase))
+		rgb := ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase))
 		switch c.kind {
 		case "sep":
 			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))
 		case "empty":
-			out.WriteString(ansi.Paint(mode, ansi.Mix(rgb, trough, 0.5), string(c.ch), false)) // a faded ramp tint
+			out.WriteString(ansi.Paint(mode, trough, string(c.ch), false))
 		case "dot":
 			out.WriteString(ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true))
 		default:
@@ -63,13 +57,14 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 		}
 	}
 	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
-		out.WriteString(" ")
+		out.WriteString(ansi.Paint(mode, dim, cfg.sep("minor", " · "), false))
 		out.WriteString(velocityText(v, mode, pal))
 	}
 	return out.String()
 }
 
 func gradientCells(v values, cfg Config) []cell {
+	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")
 	sepGit := cfg.sep("git", " │ ")
 
@@ -102,13 +97,13 @@ func gradientCells(v values, cfg Config) []cell {
 			continue // agents opens the git section, below
 		}
 		if key == "context" {
-			if emitted {
-				pushSep(sepMinor)
-			}
+			pushSep(sepMajor)
 			filled, empty := contextBarParts(v.contextPct, cfg.Bar)
 			push(filled, "filled")
 			push(empty, "empty")
-			push(" "+strconv.Itoa(v.contextPct)+"%", "g")
+			if cfg.Bar.Percent != "before" {
+				push(" "+strconv.Itoa(v.contextPct)+"%", "g")
+			}
 			emitted = true
 			continue
 		}

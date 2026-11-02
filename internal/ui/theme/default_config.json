@@ -2,12 +2,13 @@
   "style": "gradient",
   "colorMode": "auto",
   "gradient": "gemini",
-  "gradientEase": 1,
+  "gradientEase": 0.45,
   "powerlineTheme": "nord",
   "charset": "text",
   "userColor": "ansi",
   "velocityMode": "code",
   "order": [
+    "provider",
     "model",
     "proxy",
     "context",
@@ -22,7 +23,7 @@
   "segments": {
     "path": true,
     "model": true,
-    "provider": false,
+    "provider": true,
     "proxy": false,
     "context": true,
     "limits": true,
@@ -34,9 +35,9 @@
     "velocity": true
   },
   "bar": {
-    "width": 5,
-    "filledGlyph": "▰",
-    "emptyGlyph": "▱",
+    "width": 10,
+    "filledGlyph": "█",
+    "emptyGlyph": "█",
     "percent": "after",
     "terminalBg": "#300a24",
     "theme": "auto",
