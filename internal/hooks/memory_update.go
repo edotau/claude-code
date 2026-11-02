@@ -41,23 +41,21 @@ const (
 // updateNotSaved is the visible line when the Stop gate fails open without an update.
 const updateNotSaved = "memory update NOT saved; run `claude-code memory update`"
 
-// failedOpen is set when a Stop gate released without an update; memoryUpdateStop turns it into a SystemMessage.
-var failedOpen bool
-
 // sidecarLockWait bounds how long countSubagentEdits waits for the sidecar lock; a var so tests can shorten it.
 var sidecarLockWait = 2 * time.Second
 
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work; with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
-func sessionUpdate(in *Input, stderr io.Writer) int {
+func sessionUpdate(in *Input, stderr io.Writer) (code int, failedOpen bool) {
 	in = sessionRootInput(in)
 	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
-		return ExitProceed
+		return ExitProceed, false
 	}
-	if blocked, work := updateIfNew(in, triggerStop, time.Now()); blocked {
-		return blockForUpdate(stderr, work)
+	blocked, work, failedOpen := updateIfNew(in, triggerStop, time.Now())
+	if blocked {
+		return blockForUpdate(stderr, work), false
 	}
-	return ExitProceed
+	return ExitProceed, failedOpen
 }
 
 // sessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
@@ -82,7 +80,7 @@ func preCompact(in *Input) Result {
 }
 
 // updateIfNew spawns an update when work (edits or user turns) is new since the stamp; blocked = Stop must block.
-func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work int) {
+func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
 	stamp := stampPath(in.SessionID)
 	st, ok := readStamp(stamp)
 	covered := 0
@@ -99,46 +97,45 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 	work = countEdits(in.TranscriptPath, countPath(in.SessionID))
 	if work > covered && work >= floor {
 		if dispatchUpdate(in, trigger, work, now) {
-			return false, 0
+			return false, 0, false
 		}
 		if trigger == triggerStop {
 			if writeStamp(stamp, now, "1", work) != nil {
-				failedOpen = true
-				return false, 0 // fail open: the block count cannot persist
+				return false, 0, true // fail open: the block count cannot persist
 			}
-			return true, work
+			return true, work, false
 		}
 	}
-	return false, 0
+	return false, 0, false
 }
 
 // stampedStop is the Stop gate for a session that already has a stamp: re-arm, release, or block up to the cap.
-func stampedStop(in *Input, st updateStamp, stamp string, now time.Time) (blocked bool, work int) {
+func stampedStop(in *Input, st updateStamp, stamp string, now time.Time) (blocked bool, work int, failedOpen bool) {
 	if st.bg || st.state == "catchup" {
 		if now.Sub(st.at) < updateRearmCooldown {
-			return false, 0 // cheap gate before the whole-transcript count
+			return false, 0, false // cheap gate before the whole-transcript count
 		}
 		work = countEdits(in.TranscriptPath, countPath(in.SessionID))
 		if work >= st.edits+updateRearmEdits {
 			dispatchUpdate(in, triggerStop, work, now)
 		}
-		return false, 0
+		return false, 0, false
 	}
 	if bank.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
 		_ = writeStamp(stamp, now, "bg", st.edits) // ran by hand: released, re-arms; a lost stamp re-dispatches
-		return false, 0
+		return false, 0, false
 	}
 	if st.blocks >= updateMaxBlocks {
 		if st.blocks == updateMaxBlocks { // say so once, at the cap; later Stops stay quiet
-			failedOpen = writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) == nil
+			persisted := writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) == nil
+			return false, 0, persisted // the notice shows once, only when its stamp persisted
 		}
-		return false, 0 // fail open
+		return false, 0, false // fail open
 	}
 	if writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) != nil {
-		failedOpen = true
-		return false, 0 // fail open: the block count cannot persist
+		return false, 0, true // fail open: the block count cannot persist
 	}
-	return true, st.edits
+	return true, st.edits, false
 }
 
 // logUpdateToLedger notes an update in the session's linked-worktree ledger; best effort, never fatal.

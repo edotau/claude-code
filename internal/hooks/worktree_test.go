@@ -330,7 +330,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	stubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 3)
-	if sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != ExitProceed {
+	if sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != ExitProceed {
 		t.Fatal("update blocked")
 	}
 	data, err := os.ReadFile(filepath.Join(memstore.Dir(main), "worktrees", "wt-h.md"))

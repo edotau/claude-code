@@ -130,7 +130,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	writeEdits(t, tr, 6)
 	stubSpawn(t, true)
 	watches := stubWatcher(t, true)
-	run := func() { sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}) }
+	run := func() { sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}) }
 
 	run()
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Hour), "bg", 6)
