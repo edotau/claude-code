@@ -17,20 +17,12 @@
       "Bash(go *)",
       "Bash(claude-code *)",
       "Bash(gofmt -l *)",
-      "Bash(systemctl --user is-active *)",
-      "Bash(go build *)",
-      "Bash(go vet *)",
-      "Bash(go test *)",
-      "Bash(make lint)",
-      "Bash(make fmt)"
+      "Bash(systemctl --user is-active *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
-      "Bash(rm -rf ~)",
-      "Read(~/.ssh/**)",
-      "Read(**/state/vault.db)",
-      "Read(**/.credentials.json)"
+      "Bash(rm -rf ~)"
     ],
     "ask": [
       "Bash(git push --force:*)",
@@ -46,13 +38,7 @@
       "Read(~/.ssh/**)",
       "Read(~/.aws/credentials)",
       "Read(**/state/vault.db)",
-      "Read(**/.credentials.json)",
-      "Bash(git push --force*)",
-      "Bash(git push * --force*)",
-      "Bash(git push * -f)",
-      "Bash(git push * -f *)",
-      "Bash(claude-code vault *)",
-      "Bash(go test * ./...*)"
+      "Read(**/.credentials.json)"
     ],
     "defaultMode": "auto"
   },
@@ -215,10 +201,10 @@
   "skipWorkflowUsageWarning": true,
   "theme": "auto",
   "preferredNotifChannel": "auto",
+  "idleCompaction": false,
   "switchModelsOnFlag": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": false,
   "useAutoModeDuringPlan": true,
-  "autoConnectIde": false,
-  "idleCompaction": false
+  "autoConnectIde": false
 }
