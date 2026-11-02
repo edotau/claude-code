@@ -62,10 +62,10 @@ func sample() values {
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "~/proj | Opus 5 [1m] · proxy:18765 · 42% · total:1.23M · 12m │ main +10 -3",
-		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  proxy:18765  42%  total:1.23M  12m   main  +10 -3",
-		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( total:1.23M ) ( 12m ) (  main ) +10 -3",
-		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  total:1.23M  ·  12m  ·   main  +10 -3",
+		"gradient":  "tester:~/proj | Opus 5 [1m] · proxy:18765 · 42% · total:1.23M · 12m │ main +10 -3",
+		"powerline": "tester:~/proj |  Opus 5 [1m]  proxy:18765  42%  total:1.23M  12m   main  +10 -3",
+		"capsule":   "tester:~/proj | ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( total:1.23M ) ( 12m ) (  main ) +10 -3",
+		"minimal":   "tester:~/proj |  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  total:1.23M  ·  12m  ·   main  +10 -3",
 	}
 	for style, want := range cases {
 		cfg := embeddedConfig()
@@ -77,8 +77,8 @@ func TestStyleGoldens(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	got := render(sample(), cfg, theme.EmbeddedPalettes())
-	// The ramp opens on the first cell: "~" carries gemini's first stop, bold truecolor.
-	if !strings.HasPrefix(got, "\x1b[1;38;2;71;150;228m~") {
+	// The user prefix is painted outside the ramp, which opens on the path: "~" carries gemini's first stop.
+	if !strings.Contains(got, "\x1b[1;38;2;71;150;228m~") {
 		t.Errorf("gradient head escapes: %q", got)
 	}
 	cfg.Style = "powerline"
@@ -135,7 +135,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", "30")
-	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "~/proj | Opus 5 [1m] · proxy:…" {
+	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] ·…" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
@@ -453,8 +453,16 @@ func TestModelFamily(t *testing.T) {
 	}
 }
 
+// renderPayload renders with provider first in the order (it is not in the default order).
 func renderPayload(t *testing.T, model string) string {
 	t.Helper()
+	cfgDir := theme.StatuslineDir()
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"order":["provider","model","context"],"segments":{"provider":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	payload := `{"workspace":{"current_dir":"/nowhere/proj"},"model":{"id":"` + model + `","display_name":"Opus 5"}}`
 	return plain(Render([]byte(payload), "minimal"))
 }
@@ -479,7 +487,7 @@ func TestLabelProviderBeforeModel(t *testing.T) {
 	labelRegistry(t)
 	t.Setenv(providers.EnvSessionProfile, "qa")
 	got := renderPayload(t, "claude-opus-5")
-	p, m := strings.Index(got, "databricks·qa"), strings.Index(got, "Opus 5")
+	p, m := strings.Index(got, "databricks·qa"), strings.Index(got, "-opus-5")
 	if p < 0 || m < 0 || p > m {
 		t.Errorf("provider must precede model: %q", got)
 	}
