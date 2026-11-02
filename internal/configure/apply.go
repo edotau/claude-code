@@ -14,7 +14,7 @@ import (
 // other field alone, then clears all targeted agents' last-used profiles. It returns the agents whose records changed.
 // A non-empty profile must exist and be one each agent can serve; "" (off) always applies.
 func ApplyProfile(agents []string, profile string) (changed []string, err error) {
-	if err := validProfile(agents, profile); err != nil {
+	if err := ValidProfile(agents, profile); err != nil {
 		return nil, err
 	}
 	err = vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
@@ -33,8 +33,8 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	return changed, agentpkg.ClearLastProfilesFor(agents...)
 }
 
-// validProfile rejects a profile some agent cannot run on, before any record is written.
-func validProfile(agents []string, profile string) error {
+// ValidProfile rejects a profile some agent cannot run on, before any record is written.
+func ValidProfile(agents []string, profile string) error {
 	if profile == "" {
 		return nil
 	}

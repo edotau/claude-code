@@ -1,35 +1,22 @@
 package configure
 
 import (
-	"bufio"
-	"fmt"
-	"maps"
-	"os"
-	"regexp"
-	"slices"
-	"sort"
-	"strings"
-
-	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
-	"github.com/edotau/claude-code/internal/shapes"
-	"github.com/edotau/claude-code/internal/signin"
-	"github.com/edotau/claude-code/internal/ui/ansi"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
-	"github.com/edotau/claude-code/internal/ui/menu"
+	"regexp"
+	"sort"
+	"strings"
 )
 
-// envName is a valid secret name: an env var identifier.
-var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// EnvName is a valid secret name: an env var identifier.
+var EnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // TrackedSecret is one row of the secrets dialog: a name the harness knows of and where it resolves today.
 type TrackedSecret struct {
-	name     string
-	source   string // vault|env|"" (missing)
-	shadowed string // vault|"" — a stored value an env var is shadowing
-	users    string // providers that read it, or a short role
+	Name     string
+	Source   string // vault|env|"" (missing)
+	Shadowed string // vault|"" — a stored value an env var is shadowing
+	Users    string // providers that read it, or a short role
 }
 
 // TrackedSecrets combines provider auth.env names, the setup-token, and every secret stored in the vault.
@@ -70,137 +57,10 @@ func TrackedSecrets(reg *providers.Registry) []TrackedSecret {
 				_, _, shadowed, _ = secretstore.Effective(name)
 			}
 		}
-		out = append(out, TrackedSecret{name: name, source: src, shadowed: shadowed, users: strings.Join(u, ", ")})
+		out = append(out, TrackedSecret{Name: name, Source: src, Shadowed: shadowed, Users: strings.Join(u, ", ")})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
-}
-
-// sourceLabel names the effective source and flags an env override of a vault value.
-func sourceLabel(src, shadowed string) string {
-	switch {
-	case src == "":
-		return "missing"
-	case src == "unreadable":
-		return "vault unreadable"
-	case src == "env" && shadowed == "vault":
-		return "env over vault"
-	}
-	return src
-}
-
-// Secrets is the guided `vault set`: pick a tracked secret (or a new custom one), choose how to satisfy it,
-// and seal it in the vault. Loops until Esc or done.
-func Secrets(o Options) int {
-	reg, err := providers.Load()
-	if err != nil {
-		fmt.Fprintf(o.writer(), "secrets: %v\n", err)
-		return 1
-	}
-	o.In = o.reader()
-	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: o.writer(), color: ansi.Enabled(o.writer())}
-	return secretsLoop(d)
-}
-
-// secretsLoop is the secrets page on d: standalone it stores at once; inside configure (d.pending set) every
-// value is staged and configure's Submit saves it to the vault.
-func secretsLoop(d *dialog) int {
-	if d.pending != nil {
-		before := maps.Clone(d.pending)
-		defer confirmPageKeys(d, before)
-	}
-	reg := d.reg
-	store := "the vault"
-	for {
-		list := TrackedSecrets(reg)
-		rows := make([][2]string, 0, len(list)+2)
-		for _, s := range list {
-			rows = append(rows, [2]string{s.name, fmt.Sprintf("%-16s %s", sourceLabel(s.source, s.shadowed), s.users)})
-		}
-		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, menu.EnterRow("save and go back"))
-		title := "secrets — pick one to set (stores in " + store + ")"
-		if d.pending != nil {
-			title = "secrets — pick one to set (Submit saves to " + store + ")"
-		}
-		idx, err := d.shell().PickPlain(title, rows)
-		if err != nil {
-			fmt.Fprintf(d.out, "secrets: %v\n", err)
-			return 1
-		}
-		if idx < 0 || idx == len(rows)-1 {
-			return 0
-		}
-		if idx == len(list) {
-			addCustom(d)
-			continue
-		}
-		editSecret(d, list[idx])
-	}
-}
-
-// editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
-func editSecret(d *dialog, s TrackedSecret) {
-	var acts []uidialog.Row
-	kt := KeyTarget{label: s.name, envVar: s.name, fixCmd: "claude-code vault set " + s.name}
-	if s.name == providers.OAuthTokenEnv {
-		kt.mintArgv = []string{"claude", "setup-token"}
-	}
-	for _, o := range AuthOptions(kt) {
-		acts = append(acts, uidialog.Row{Name: o.action, Detail: o.desc, Run: func() bool { return runAuthOption(d, kt, o) }})
-	}
-	if s.source == "vault" {
-		acts = append(acts, uidialog.Row{Name: "Delete", Detail: "remove from the vault", Run: func() bool {
-			if !d.shell().Confirm("Delete " + s.name + "?") {
-				return false
-			}
-			if d.pending != nil {
-				if _, staged := d.pending[s.name]; staged {
-					restoreStaged(d, s.name, map[string]stagedKey{}) // drop any staged Store of the same name
-				}
-				if d.pendingDeletes == nil {
-					d.pendingDeletes = map[string]bool{}
-				}
-				d.pendingDeletes[s.name] = true
-				d.printf("staged delete of %s · Submit removes it from the vault\n", s.name)
-				return true
-			}
-			if err := secretstore.Delete(s.name); err != nil {
-				d.printf("%s: %v\n", s.name, err)
-				return false
-			}
-			audit.Log(audit.SecretDelete, s.name, "")
-			d.printf("deleted %s\n", s.name)
-			return true
-		}})
-	}
-	idx, err := d.shell().Pick(s.name+" ("+sourceLabel(s.source, s.shadowed)+")", uidialog.Pairs(acts))
-	if err != nil || idx < 0 || idx >= len(acts) {
-		return
-	}
-	acts[idx].Run()
-}
-
-// addCustom reads a NAME (visible) and its value (hidden); a pasted NAME=value or `export NAME="value"` line is
-// parsed, so either half may carry the name.
-func addCustom(d *dialog) {
-	name := strings.TrimSpace(d.shell().Line("Secret name (e.g. NEW_SECRET; blank to take it from the pasted line): "))
-	raw, err := secretLine(d, "Paste the value or a NAME=value line (input hidden, Enter when done): ")
-	if err != nil {
-		d.printf("secrets: %v\n", err)
-		return
-	}
-	pn, val := ParseAssignment(raw)
-	if name == "" {
-		name = pn
-	}
-	switch {
-	case !envName.MatchString(name):
-		d.printf("secrets: %q is not a valid name (letters, digits, underscore; not starting with a digit)\n", name)
-	case val == "":
-		d.printf("%s: no value entered\n", name)
-	default:
-		storeValue(d, name, val)
-	}
 }
 
 // ParseAssignment splits a pasted secret: `export NAME="value"`, `NAME=value`, or a bare value (name "").
@@ -208,101 +68,11 @@ func addCustom(d *dialog) {
 func ParseAssignment(raw string) (name, value string) {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimSpace(strings.TrimPrefix(s, "export "))
-	if k, v, ok := strings.Cut(s, "="); ok && v != "" && envName.MatchString(k) && strings.ToUpper(k) == k {
+	if k, v, ok := strings.Cut(s, "="); ok && v != "" && EnvName.MatchString(k) && strings.ToUpper(k) == k {
 		name, s = k, strings.TrimSpace(v)
 	}
 	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
 		s = s[1 : len(s)-1]
 	}
 	return name, s
-}
-
-// storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
-func storeValue(d *dialog, name, val string) bool {
-	if name == copilot.CopilotTokenEnv && !signin.ValidCopilotToken(val) {
-		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
-		return false
-	}
-	if err := shapes.ValidCredential(name, val); err != nil {
-		d.printf("%v\n", err)
-		return false
-	}
-	if d.pending != nil {
-		if !d.stage(name, val) {
-			return false
-		}
-		delete(d.pendingDeletes, name) // re-picking a staged delete to paste a new value must cancel the delete
-		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secretstore.Redact(val))
-		return true
-	}
-	if err := secretstore.Store(name, val); err != nil {
-		d.printf("%s: %v\n", name, err)
-		return false
-	}
-	d.printf("wrote %s to the vault (%s)\n", name, secretstore.Redact(val))
-	return true
-}
-
-// confirmPageKeys asks, on leaving the secrets page inside configure, whether to save what the page staged
-// now (y) or drop it (N); keys staged before the page opened are left for configure's own Submit. Staged
-// deletes (editSecret's Delete, in staged mode) are decided in the same prompt.
-func confirmPageKeys(d *dialog, before map[string]stagedKey) {
-	var page []string
-	for name, k := range d.pending {
-		if prev, ok := before[name]; ok && prev.val == k.val {
-			continue
-		}
-		if v, _, ok := secretstore.Get(name); ok && v == k.val && k.had && k.prev == v {
-			continue // re-entered the value already stored: not a change
-		}
-		page = append(page, name)
-	}
-	slices.Sort(page)
-	deletes := slices.Sorted(maps.Keys(d.pendingDeletes))
-	if len(page) == 0 && len(deletes) == 0 {
-		return
-	}
-	if !confirmLeave(len(page)+len(deletes), "change(s) to the secrets manager") {
-		for _, name := range page {
-			restoreStaged(d, name, before)
-		}
-		d.pendingDeletes = nil
-		d.printf("secrets: %d change(s) discarded\n", len(page)+len(deletes))
-		return
-	}
-	for _, name := range page {
-		k := d.pending[name]
-		if err := secretstore.Store(name, k.val); err != nil {
-			d.printf("%s: not saved: %v\n", name, err)
-			continue
-		}
-		d.printf("saved %s to the vault (%s)\n", name, secretstore.Redact(k.val))
-		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
-	}
-	for _, name := range deletes {
-		if err := secretstore.Delete(name); err != nil {
-			d.printf("%s: not deleted: %v\n", name, err)
-			continue
-		}
-		audit.Log(audit.SecretDelete, name, "")
-		d.printf("deleted %s\n", name)
-	}
-	d.pendingDeletes = nil
-	d.changed = true
-}
-
-// restoreStaged undoes one page-staged key: back to its pre-page staging, or out of pending with its env restored.
-func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
-	if prev, ok := before[name]; ok {
-		d.pending[name] = prev
-		_ = os.Setenv(name, prev.val)
-		return
-	}
-	k := d.pending[name]
-	if k.had {
-		_ = os.Setenv(name, k.prev)
-	} else {
-		_ = os.Unsetenv(name)
-	}
-	delete(d.pending, name)
 }

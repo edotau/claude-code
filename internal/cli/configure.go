@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -123,7 +123,7 @@ func cmdConfigure(args []string) int {
 	if *out != "" || *agents || *noAgents {
 		return fail("configure: --out, --agents and --no-agents need --restore")
 	}
-	return configure.Run(configure.Options{
+	return menu.Run(menu.Options{
 		Provider: *provider, Agent: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
 		JSON: *format == helptext.JSON, Drop: drop, Keep: keep, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
@@ -181,7 +181,7 @@ func init() {
 		if !tui.Confirm("Set up "+name+" now?", true) {
 			return false
 		}
-		changed, err := configure.Agent(name, true, os.Stderr)
+		changed, err := menu.Agent(name, true, os.Stderr)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "configure %s: %v\n", name, err)
 		}
