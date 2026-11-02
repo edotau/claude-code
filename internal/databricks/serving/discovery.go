@@ -1,6 +1,7 @@
 package serving
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -255,4 +257,41 @@ func Save(p *providers.Provider, snapshot Snapshot) error {
 		return errors.New("cannot seal discovery cache; check vault access")
 	}
 	return nil
+}
+
+// snapshotTTL is the default life of a sealed snapshot; cacheTTLEnv overrides it.
+const (
+	snapshotTTL = 24 * time.Hour
+	cacheTTLEnv = "HARNESS_MODEL_CACHE_TTL"
+)
+
+// CacheTTL is the snapshot life; an unset or invalid HARNESS_MODEL_CACHE_TTL gives the default (invalid warns).
+func CacheTTL() time.Duration {
+	raw := strings.TrimSpace(cmp.Or(os.Getenv(cacheTTLEnv), providers.CustomEnv()[cacheTTLEnv]))
+	if raw == "" {
+		return snapshotTTL
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		fmt.Fprintf(os.Stderr, "serving: %s=%q is not a positive Go duration; using %s\n", cacheTTLEnv, raw, snapshotTTL)
+		return snapshotTTL
+	}
+	return d
+}
+
+// Recall reads p's snapshot under its remembered subject, locally and unfiltered; ok is false on any miss or error.
+func Recall(p *providers.Provider) (Snapshot, bool) {
+	subject, found, err := RecallSubject(p)
+	if err != nil || !found {
+		return Snapshot{}, false
+	}
+	scope, err := NewScope(p, subject)
+	if err != nil {
+		return Snapshot{}, false
+	}
+	snap, found, err := Read(scope, true)
+	if err != nil || !found {
+		return Snapshot{}, false
+	}
+	return snap, true
 }

@@ -114,7 +114,7 @@ var writers = map[string]string{
 	"internal/memory/bank/txn.go:save":                                 "memory-journal",
 	"internal/testtool/mutate/mutate.go:Check":                         unversioned("foreign: mutation-test scratch copy"),
 	"internal/preflight/live.go:ClaimNamed":                            unversioned("marker: detached refresh attempt stamp"),
-	"internal/copilot/discovery.go:spawnCopilotRefresh":                unversioned("foreign: /dev/null opened for a detached refresh"),
+	"internal/preflight/discover.go:SpawnDiscover":                     unversioned("foreign: /dev/null opened for a detached refresh"),
 	"internal/router/served_cache.go:SaveServed":                       "served-models",
 	"internal/opencode/check.go:SaveCheckCache":                        "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":              "token-expiry",
