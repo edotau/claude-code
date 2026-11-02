@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -15,7 +14,7 @@ import (
 // limitsCacheMaxAge bounds how stale internal/usage's oauth-usage cache may be before it is ignored.
 const limitsCacheMaxAge = 6 * time.Hour
 
-// limitsSegment is "5h:N% 7d:N%" on the first-party subscription session only: the payload's rate_limits, else
+// limitsSegment is "7d:N%" on the first-party subscription session only: the payload's rate_limits, else
 // internal/usage's cache file; a window with no fresh data or a passed reset is omitted. Any other session shows
 // its credential's time left ("oauth:42m", "tok:42m") when an expiry is recorded, else "".
 func limitsSegment(in Input, session string) string {
@@ -26,18 +25,14 @@ func limitsSegment(in Input, session string) string {
 		}
 		return tokenLeft(tokenLabel(session), exp, time.Now())
 	}
-	five, week := limitsFromPayload(in)
-	if five < 0 && week < 0 {
-		five, week = limitsFromCache()
+	_, week := limitsFromPayload(in)
+	if week < 0 {
+		_, week = limitsFromCache()
 	}
-	var parts []string
-	if five >= 0 {
-		parts = append(parts, fmt.Sprintf("5h:%d%%", five))
+	if week < 0 {
+		return ""
 	}
-	if week >= 0 {
-		parts = append(parts, fmt.Sprintf("7d:%d%%", week))
-	}
-	return strings.Join(parts, " ")
+	return fmt.Sprintf("7d:%d%%", week)
 }
 
 // onSubscription is true when the session profile row is first-party Anthropic on its cli (passthrough) login.

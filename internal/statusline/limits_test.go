@@ -36,7 +36,7 @@ func TestLimitsSegmentFromPayload(t *testing.T) {
 		"rate_limits":{"five_hour":{"used_percentage":23.4,"resets_at":%d},"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`,
 		future, future)
 	got := plain(Render([]byte(payload), "gradient"))
-	if want := "5h:23% 7d:41%"; !strings.Contains(got, want) {
+	if want := "7d:41%"; !strings.Contains(got, want) {
 		t.Errorf("want %q in %q", want, got)
 	}
 }
@@ -64,7 +64,7 @@ func TestLimitsSegmentFromCache(t *testing.T) {
 	future := time.Now().Add(24 * time.Hour)
 	writeLimitsCache(t, time.Now(), 23, 41, future, future)
 	got := plain(Render([]byte(runningPayload), "gradient"))
-	if want := "5h:23% 7d:41%"; !strings.Contains(got, want) {
+	if want := "7d:41%"; !strings.Contains(got, want) {
 		t.Errorf("want %q in %q", want, got)
 	}
 }
@@ -149,8 +149,8 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	if got := limitsSegment(in, "openai"); got != "" {
 		t.Errorf("non-subscription profile without a record: %q, want empty", got)
 	}
-	if got := limitsSegment(in, "max"); got != "5h:23% 7d:41%" {
-		t.Errorf("subscription session: %q, want 5h/7d only, even with an expiry record", got)
+	if got := limitsSegment(in, "max"); got != "7d:41%" {
+		t.Errorf("subscription session: %q, want 7d only, even with an expiry record", got)
 	}
 	if got := limitsSegment(in, "no-such-provider"); got != "" {
 		t.Errorf("unknown provider: %q, want empty", got)

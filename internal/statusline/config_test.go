@@ -9,7 +9,7 @@ import (
 func TestDefaultConfigOrder(t *testing.T) {
 	hermetic(t)
 	cfg := loadConfig()
-	want := []string{"provider", "model", "proxy", "context", "limits", "total", "duration", "session"}
+	want := []string{"model", "proxy", "context", "limits", "total", "duration", "session"}
 	if !reflect.DeepEqual(cfg.Order, want) {
 		t.Errorf("Order = %v, want %v", cfg.Order, want)
 	}
@@ -19,8 +19,8 @@ func TestDefaultConfigOrder(t *testing.T) {
 	if !cfg.seg("agents", false) {
 		t.Error("segments.agents should default to true")
 	}
-	if cfg.GradientEase != 0.45 {
-		t.Errorf("GradientEase = %v, want 0.45", cfg.GradientEase)
+	if cfg.GradientEase != 1 {
+		t.Errorf("GradientEase = %v, want 1", cfg.GradientEase)
 	}
 	if cfg.PathMax != 24 {
 		t.Errorf("PathMax = %d, want 24", cfg.PathMax)

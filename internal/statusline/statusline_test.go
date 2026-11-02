@@ -18,7 +18,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/ui/theme"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -63,7 +62,7 @@ func sample() values {
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | openrouter · Opus 5 [1m] · proxy:18765 · ██████████ 42% · total:1.23M · 12m │ main · +10 -3",
+		"gradient":  "~/proj | Opus 5 [1m] · proxy:18765 · 42% · total:1.23M · 12m │ main +10 -3",
 		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  proxy:18765  42%  total:1.23M  12m   main  +10 -3",
 		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( total:1.23M ) ( 12m ) (  main ) +10 -3",
 		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  total:1.23M  ·  12m  ·   main  +10 -3",
@@ -78,8 +77,8 @@ func TestStyleGoldens(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	got := render(sample(), cfg, theme.EmbeddedPalettes())
-	// The ramp opens on the path: "~" carries gemini's first stop, bold truecolor.
-	if !strings.Contains(got, "\x1b[01;32mtester\x1b[0m") || !strings.Contains(got, "\x1b[1;38;2;71;150;228m~") {
+	// The ramp opens on the first cell: "~" carries gemini's first stop, bold truecolor.
+	if !strings.HasPrefix(got, "\x1b[1;38;2;71;150;228m~") {
 		t.Errorf("gradient head escapes: %q", got)
 	}
 	cfg.Style = "powerline"
@@ -136,7 +135,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", "30")
-	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | openrouter · …" {
+	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "~/proj | Opus 5 [1m] · proxy:…" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
@@ -207,15 +206,15 @@ func TestProviderAndModelSegments(t *testing.T) {
 		return modelSegment(in, "anthropic")
 	}
 	for _, c := range [][3]string{
-		{"claude-opus-5[1m]", "Opus 5 (1M context)", "Opus 5 [1m]"},
+		{"claude-opus-5[1m]", "Opus 5 (1M context)", "anthropic-opus-5[1m]"},
 		{"openai:gpt-5-nano", "openai:gpt-5-nano", "gpt-5-nano ⇄openai"},
 		{"openai:gpt-5-nano", "", "gpt-5-nano ⇄openai"},
 		{"qwen3:30b", "qwen3:30b", "qwen3:30b"}, // an ollama tag, not a provider prefix
-		{"anthropic:claude-haiku-5", "Haiku 5", "Haiku 5"},
-		{"claude-sonnet-5", "", "claude-sonnet-5"},
-		{"databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5 [1m]"},
-		{"databricks-claude-opus-5-5[1m]", "", "databricks-claude-opus-5-5[1m]"},
-		{"databricks-claude-opus-5-5", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5"},
+		{"anthropic:claude-haiku-5", "Haiku 5", "anthropic:claude-haiku-5"},
+		{"claude-sonnet-5", "", "anthropic-sonnet-5"},
+		{"databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-opus-5-5[1m]"},
+		{"databricks-claude-opus-5-5[1m]", "", "databricks-opus-5-5[1m]"},
+		{"databricks-claude-opus-5-5", "databricks-claude-opus-5-5", "databricks-opus-5-5"},
 	} {
 		if got := model(c[0], c[1]); got != c[2] {
 			t.Errorf("model(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
@@ -229,7 +228,7 @@ func TestProviderAndModelSegments(t *testing.T) {
 		TotalOutput    int      `json:"total_output_tokens"`
 		UsedPercentage *float64 `json:"used_percentage"`
 	}{Size: 1_000_000}
-	if got := modelSegment(in, "anthropic"); got != "Custom [1m]" {
+	if got := modelSegment(in, "anthropic"); got != "custom-model[1m]" {
 		t.Errorf("reported 1M window: %q", got)
 	}
 }
@@ -327,7 +326,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " anthropic·max  ·  Opus 5  ·  0% ") || !strings.Contains(got, "1 ◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " anthropic-opus-5  ·  0% ") || !strings.Contains(got, "1 ◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -341,7 +340,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( anthropic·max ) ( Opus 5 ) ( 0% ) ( total:51.4k ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
+	want := "tester:/nowhere/proj | ( anthropic-opus-5 ) ( 0% ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -367,21 +366,40 @@ func TestSigTokens(t *testing.T) {
 	}
 }
 
-func TestTotalSegment(t *testing.T) {
-	hermetic(t)
-	var in Input
-	if err := json.Unmarshal([]byte(`{"session_id":"s1","context_window":{"total_input_tokens":41200,"total_output_tokens":4800}}`), &in); err != nil {
+// writeTranscript writes assistant records "id:in:out"; a repeated id is one response, the last line winning.
+func writeTranscript(t *testing.T, recs ...string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, r := range recs {
+		f := strings.Split(r, ":")
+		fmt.Fprintf(&b, `{"type":"assistant","message":{"id":%q,"usage":{"input_tokens":%s,"output_tokens":%s}}}`+"\n", f[0], f[1], f[2])
+	}
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := totalSegment(in); got != "total:46.0k" {
-		t.Errorf("payload only = %q, want total:46.0k", got)
+	return path
+}
+
+func TestTotalSegment(t *testing.T) {
+	hermetic(t)
+	in := Input{TranscriptPath: writeTranscript(t, "a:1000:100", "a:1000:200", "b:40000:4800")}
+	if got := totalSegment(in, "none"); got != "46.0k ⛁" {
+		t.Errorf("deduped by message id = %q, want 46.0k ⛁", got)
 	}
-	tokenledger.Append(tokenledger.Entry{Session: "s1", Input: 1000, Output: 500})
-	tokenledger.Append(tokenledger.Entry{Session: "other", Input: 9_000_000})
-	if got := totalSegment(in); got != "total:47.5k" {
-		t.Errorf("with ledger = %q, want total:47.5k", got)
+	f, err := os.OpenFile(in.TranscriptPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := totalSegment(Input{SessionID: "none"}); got != "" {
+	fmt.Fprintln(f, `{"type":"assistant","message":{"id":"c","usage":{"input_tokens":1500,"output_tokens":0}}}`)
+	f.Close()
+	if got := totalSegment(in, "none"); got != "47.5k ⛁" {
+		t.Errorf("after append (offset cache) = %q, want 47.5k ⛁", got)
+	}
+	if got := totalSegment(in, "max"); got != "" {
+		t.Errorf("subscription = %q, want hidden", got)
+	}
+	if got := totalSegment(Input{}, "none"); got != "" {
 		t.Errorf("zero total = %q, want empty", got)
 	}
 }
