@@ -61,6 +61,23 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 	return authType, "expires in " + dbxDur(time.Until(exp)), true
 }
 
+// dbxIdentityBadge is the Identity row's check column: the set mode and who signs in now ("[auto → sp]"),
+// green while that credential's token is live.
+func dbxIdentityBadge(reg *providers.Registry, env string) string {
+	p := reg.Providers[env]
+	if p == nil {
+		return ""
+	}
+	mode, _ := providers.ResolveIdentity(p.Identity, "")
+	authType, text, ok := dbxState(reg, env)
+	who := map[string]string{providers.AuthM2M: "sp", providers.AuthOAuth: "user", providers.AuthPAT: "pat"}[authType]
+	label := mode
+	if who != "" && who != mode {
+		label += " → " + who
+	}
+	return Checked(ok && text != "expired", label)
+}
+
 // dbxDur renders a remaining lifetime as Nm, or NhMMm from two hours up.
 func dbxDur(d time.Duration) string {
 	m := int(d.Round(time.Minute) / time.Minute)
@@ -139,7 +156,8 @@ func runDatabricksEnv(d *dialog, env string) {
 			act("Mint now", "fresh token, expiry only", func() { dbxMintNow(d, env, false) }),
 			act("Copy token", "clipboard, clears in 30s", func() { dbxMintNow(d, env, true) }),
 			act("Apply to agents", "repoint all four or one", func() { dbxApply(d, env) }),
-			act("Identity", "auto, user or sp; the paired service principal", func() { dbxIdentity(d, env) }),
+			act("Identity", "auto, user or sp; the paired service principal  "+dbxIdentityBadge(d.reg, env),
+				func() { dbxIdentity(d, env) }),
 		}
 	})
 }
