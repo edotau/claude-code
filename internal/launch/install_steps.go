@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -62,6 +63,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "agents   %s\n", agentConfigsSummary(w))
 	}
 	installGitHooks(w, dryRun)
+	installProxyUnit(w, target, dryRun)
 	if !dryRun {
 		PreflightStep(w, target)
 	}
@@ -102,11 +104,23 @@ func installCompact(w io.Writer) error {
 	windowsSettingsCompact(w)
 	agentsSyncCompact(w)
 	installGitHooks(w, false)
+	installProxyUnit(w, target, false)
 	PreflightStep(w, target)
 	if settingsErr != nil {
 		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
 	}
 	return settingsErr
+}
+
+// installProxyUnit renders the systemd user unit that supervises the proxy (Linux with a user manager; else silent).
+func installProxyUnit(w io.Writer, bin string, dryRun bool) {
+	res, err := proxy.InstallUnit(context.Background(), bin, dryRun)
+	switch {
+	case err != nil:
+		fmt.Fprintf(w, "proxy unit skip  %v\n", err)
+	case res != "skip":
+		fmt.Fprintf(w, "proxy unit  %s  %s\n", res, paths.ShortHome(proxy.UnitPath()))
+	}
 }
 
 // PreflightStep refreshes stale workspace listings and prints one live pong row per pinned agent; never fails install.
