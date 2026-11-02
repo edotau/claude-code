@@ -55,7 +55,7 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 		case "sep":
 			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))
 		case "empty":
-			out.WriteString(ansi.Paint(mode, trough, string(c.ch), false))
+			out.WriteString(ansi.Paint(mode, ansi.Mix(rgb, trough, 0.5), string(c.ch), false)) // a faded ramp tint
 		case "dot":
 			out.WriteString(ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true))
 		default:
