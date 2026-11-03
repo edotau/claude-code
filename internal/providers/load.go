@@ -228,6 +228,15 @@ func applyRoutingOverlay(base, o *Routing) {
 	if o.ServedAware != nil {
 		base.ServedAware = o.ServedAware
 	}
+	if o.ClaudeAnywhere != nil {
+		base.ClaudeAnywhere = o.ClaudeAnywhere
+	}
+	for name, ladder := range o.Ladders {
+		if base.Ladders == nil {
+			base.Ladders = map[string][]Rung{}
+		}
+		base.Ladders[name] = ladder // a ladder is one owned list: replaced whole by name
+	}
 	if o.Opencode.Ladder != nil {
 		base.Opencode.Ladder = o.Opencode.Ladder
 	}

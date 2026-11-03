@@ -314,6 +314,7 @@ func (r *Registry) Validate() error {
 	errs = append(errs, validateSecretNames(r)...)
 	errs = append(errs, validateNameRefs(r)...)
 	errs = append(errs, validateRouting(r.Routing)...)
+	errs = append(errs, validateLadders(r)...)
 	if len(errs) > 0 {
 		return fmt.Errorf("providers: %s", strings.Join(errs, "; "))
 	}

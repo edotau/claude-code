@@ -1,8 +1,10 @@
 package providers
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -31,9 +33,32 @@ type Routing struct {
 	// Subagents toggles the agent-effort pressure hook's coworker offload; nil = on.
 	Subagents *bool `json:"subagents,omitempty"`
 	// ServedAware lets the router pick Databricks models the workspace lists READY; nil = off (static menu).
-	ServedAware *bool           `json:"servedAware,omitempty"`
-	Opencode    OpencodeRouting `json:"opencode,omitzero"`
+	ServedAware *bool `json:"servedAware,omitempty"`
+	// ClaudeAnywhere scores claude into the first ladder rung it beats instead of last; nil = off.
+	ClaudeAnywhere *bool `json:"claudeAnywhere,omitempty"`
+	// Ladders orders the fallback agents after want, keyed by ladder name; an overlay replaces a ladder by name.
+	Ladders  map[string][]Rung `json:"ladders,omitempty"`
+	Opencode OpencodeRouting   `json:"opencode,omitzero"`
 }
+
+// Ladder names: default runs on a Databricks or BYOK session profile, firstParty on any other.
+const (
+	LadderDefault    = "default"
+	LadderFirstParty = "firstParty"
+)
+
+// LadderNames are the ladders routing.ladders may set.
+var LadderNames = []string{LadderDefault, LadderFirstParty}
+
+// Rung is one ladder step: an agent, a provider or both; Models orders its vendor models (opencode: sub ids).
+type Rung struct {
+	Agent    string   `json:"agent,omitempty"`
+	Provider string   `json:"provider,omitempty"`
+	Models   []string `json:"models,omitempty"`
+}
+
+// Label names the rung in errors and skips: "agent/provider", "*" for an unset side.
+func (g Rung) Label() string { return cmp.Or(g.Agent, "*") + "/" + cmp.Or(g.Provider, "*") }
 
 // OpencodeRouting is opencode's own sub-pick knobs: the paid-backend ladder order, the work-repo markers
 // that block zen-free, which aliases zen-free may serve, and the free dispatch's stall deadline. Ladder,
@@ -90,6 +115,11 @@ func (o OpencodeRouting) FirstOutput() time.Duration {
 // SubagentsOn reports whether subagent offload routing is on: nil (unset) defaults to on.
 func (r Routing) SubagentsOn() bool {
 	return r.Subagents == nil || *r.Subagents
+}
+
+// ClaudeAnywhereOn reports whether claude scores into the ladder: nil (unset) defaults to off.
+func (r Routing) ClaudeAnywhereOn() bool {
+	return r.ClaudeAnywhere != nil && *r.ClaudeAnywhere
 }
 
 // ServedAwareOn reports whether served-model-aware routing is on: nil (unset) defaults to off.
@@ -169,6 +199,76 @@ func validateRouting(r Routing) []string {
 		}
 	}
 	return errs
+}
+
+// validateLadders checks each ladder's name and rungs; an error names the ladder, the rung index and its label.
+func validateLadders(r *Registry) []string {
+	var errs []string
+	for _, name := range slices.Sorted(maps.Keys(r.Routing.Ladders)) {
+		if !slices.Contains(LadderNames, name) {
+			errs = append(errs, fmt.Sprintf("routing.ladders names unknown ladder %q (%s)", name, strings.Join(LadderNames, ", ")))
+			continue
+		}
+		seen := map[string]bool{}
+		for i, g := range r.Routing.Ladders[name] {
+			label := fmt.Sprintf("routing.ladders.%s[%d] %s", name, i, g.Label())
+			if seen[g.Label()] {
+				errs = append(errs, label+" duplicates an earlier rung")
+				continue
+			}
+			seen[g.Label()] = true
+			errs = append(errs, validateRung(r, label, g)...)
+		}
+	}
+	return errs
+}
+
+// validateRung checks one rung's agent, provider and models.
+func validateRung(r *Registry, label string, g Rung) []string {
+	if g.Agent == "" && g.Provider == "" {
+		return []string{label + " names neither an agent nor a provider"}
+	}
+	var errs []string
+	if g.Agent != "" && !slices.Contains(RouteAgents, g.Agent) {
+		errs = append(errs, fmt.Sprintf("%s names unknown agent %q (%s)", label, g.Agent, strings.Join(RouteAgents, ", ")))
+	}
+	if g.Provider != "" && !slices.Contains(ProviderKeys, g.Provider) {
+		errs = append(errs, fmt.Sprintf("%s names unknown provider %q (%s)", label, g.Provider, strings.Join(ProviderKeys, ", ")))
+	}
+	if len(g.Models) > 0 && g.Agent == "" {
+		return append(errs, label+" lists models without an agent")
+	}
+	for _, m := range g.Models {
+		if !rungModelOK(r, g.Agent, m) {
+			errs = append(errs, fmt.Sprintf("%s model %q is no alias or model a row serves", label, m))
+		}
+	}
+	return errs
+}
+
+// rungModelOK: opencode takes its sub ids; any other agent an alias or a catalog model a row or the Databricks menu serves.
+func rungModelOK(r *Registry, agent, m string) bool {
+	if agent == "opencode" {
+		return slices.Contains(RouteOpencodeSubIDs, m)
+	}
+	if slices.Contains(RouteAliases, m) {
+		return true
+	}
+	id, _, ok := models.Resolve(m)
+	if !ok {
+		return false
+	}
+	if slices.ContainsFunc(DatabricksOpencodeMenu, func(e OpencodeModel) bool { return e.ID == id }) {
+		return true
+	}
+	for _, n := range r.Names() {
+		for _, v := range r.Providers[n].Models {
+			if c, _, ok := models.Resolve(v); ok && c == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // validRouteRow reports whether key names a routed row: an alias, or a canonical Claude id of a routed alias.
