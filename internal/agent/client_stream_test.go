@@ -83,17 +83,20 @@ func TestStreamConsumerReadsNothingStillFinishes(t *testing.T) {
 
 // Given a full buffer with drops, Then the stream still ends in exactly one result, as its last event.
 func TestStreamFullBufferDropsStillEndsInOneResult(t *testing.T) {
-	var notes []string
-	c := &Client{Notify: func(s string) { notes = append(notes, s) }}
-	base := runtime.NumGoroutine()
+	notes := make(chan string, 2)
+	c := &Client{Notify: func(s string) { notes <- s }}
 	ch := streamPreparedRun(c, streamPrepared(t, &burstRunner{n: 2 * streamBuffer}))
-	waitGoroutines(t, base) // finish with nobody reading, so drops are certain
+	select { // the note fires as the run ends with nobody reading, so drops are certain
+	case <-notes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no dropped-events note within 5s")
+	}
 	results, last := drainEvents(ch)
 	if results != 1 || last.Type != EventResult {
 		t.Errorf("results = %d, last = %q, want one result last", results, last.Type)
 	}
-	if len(notes) != 1 {
-		t.Errorf("notes = %q, want one dropped-events note", notes)
+	if len(notes) != 0 {
+		t.Errorf("extra notes = %d, want exactly one dropped-events note", len(notes)+1)
 	}
 }
 
