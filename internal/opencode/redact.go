@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-// secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., -password, ...), case-insensitive.
-var secretFlagRE = regexp.MustCompile(`(?i)^--?[a-z0-9_-]*(key|token|secret|password)(=.*)?$`)
+// secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., --header, -H, ...); names are case-insensitive.
+var secretFlagRE = regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header))(=.*)?|-H)$`)
 
 // RedactConfig blanks mcp.<name>.environment/headers values, provider.<name>.options.headers values,
-// secret-flag values in .command, and the query string of .url in an OPENCODE_CONFIG_CONTENT string;
+// secret-flag values in .command, and the userinfo and query string of .url in an OPENCODE_CONFIG_CONTENT string;
 // returns s unchanged on any parse error.
 func RedactConfig(s string) string {
 	var cfg map[string]any
@@ -93,16 +93,20 @@ func redactCommandSecrets(entry map[string]any) {
 	}
 }
 
-// redactURLQuery strips entry["url"]'s query string, appending a marker so a redaction is visible.
+// redactURLQuery strips entry["url"]'s userinfo and query string; a stripped query leaves a visible marker.
 func redactURLQuery(entry map[string]any) {
 	raw, ok := entry["url"].(string)
 	if !ok {
 		return
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.RawQuery == "" {
+	if err != nil || (u.RawQuery == "" && u.User == nil) {
 		return
 	}
-	u.RawQuery = ""
-	entry["url"] = u.String() + "?<redacted>"
+	marker := ""
+	if u.RawQuery != "" {
+		marker = "?<redacted>"
+	}
+	u.RawQuery, u.User = "", nil
+	entry["url"] = u.String() + marker
 }

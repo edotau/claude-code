@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -46,8 +47,6 @@ var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, bin, args...).Output()
 }
 
-const opencodeAuthTimeout = 5 * time.Second
-
 var (
 	opencodeMu        sync.Mutex
 	opencodeMajorKey  string
@@ -58,6 +57,7 @@ var (
 	opencodeAuthErr   error
 	opencodeAuthAt    time.Time // when a failed probe was stored; it is retried after opencodeAuthRetry
 	opencodeAuthIsSet bool
+	opencodeAuthGen   int // bumped by InvalidateOpencodeAuth so an in-flight probe cannot store a stale answer
 )
 
 // opencodeAuthRetry is how long a failed `auth list` is reused, so callers in one menu pass spawn it once.
@@ -75,52 +75,63 @@ func opencodeBinKey() string {
 	return p
 }
 
-// OpencodeMajor is the major version from `opencode --version` (cached per binary); 0 = absent or unparseable.
+// OpencodeMajor is the major version from `opencode --version` (cached per binary); 0 = absent, unparseable or unprobed.
 func OpencodeMajor() int {
-	key := opencodeBinKey()
-	opencodeMu.Lock()
-	defer opencodeMu.Unlock()
-	return opencodeMajorLocked(key)
-}
-
-func opencodeMajorLocked(key string) int {
-	if opencodeMajorSet && opencodeMajorKey == key {
-		return opencodeMajorVal
-	}
-	if key != "" {
-		if c := loadOpencodeDiskCache(); c.Version != nil && c.Version.Bin == key {
-			opencodeMajorKey, opencodeMajorVal, opencodeMajorSet = key, c.Version.Major, true
-			return c.Version.Major
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), opencodeAuthTimeout)
-	defer cancel()
-	out, err := opencodeOutput(ctx, "--version")
-	if err != nil { // a failed probe is not cached: the next call retries rather than pinning 2.x to 1.x
-		return 0
-	}
-	v := textutil.VersionMajor(string(out))
-	opencodeMajorKey, opencodeMajorVal, opencodeMajorSet = key, v, true
-	if v > 0 && strings.Contains(key, "|") {
-		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Version = &opencodeDiskVersion{Bin: key, Major: v} })
-	}
+	v, _ := opencodeMajor(opencodeBinKey())
 	return v
 }
 
+// opencodeMajor is OpencodeMajor plus the probe error; a failed probe is never cached, so the next call retries.
+func opencodeMajor(key string) (int, error) {
+	opencodeMu.Lock()
+	if opencodeMajorSet && opencodeMajorKey == key {
+		defer opencodeMu.Unlock()
+		return opencodeMajorVal, nil
+	}
+	opencodeMu.Unlock()
+	if key != "" {
+		if c := loadOpencodeDiskCache(); c.Version != nil && c.Version.Bin == key {
+			storeOpencodeMajor(key, c.Version.Major)
+			return c.Version.Major, nil
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	defer cancel()
+	out, err := opencodeOutput(ctx, "--version")
+	if err != nil {
+		return 0, fmt.Errorf("opencode --version: %s", execErrDetail(err))
+	}
+	v := textutil.VersionMajor(string(out))
+	storeOpencodeMajor(key, v)
+	if v > 0 && strings.Contains(key, "|") {
+		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Version = &opencodeDiskVersion{Bin: key, Major: v} })
+	}
+	return v, nil
+}
+
+func storeOpencodeMajor(key string, v int) {
+	opencodeMu.Lock()
+	opencodeMajorKey, opencodeMajorVal, opencodeMajorSet = key, v, true
+	opencodeMu.Unlock()
+}
+
 // OpencodeAuth lists opencode's stored logins, sorted by integration ID: 2.x via `opencode auth list --format
-// json --standalone`, 1.x (or unknown version) via auth.json. A failed 2.x call still returns the auth.json data,
-// plus an error. Cached per binary/auth.json state, a failure for opencodeAuthRetry; see InvalidateOpencodeAuth.
+// json --standalone`, 1.x via auth.json. A failed 2.x or version probe still returns the auth.json data, plus an
+// error. Cached per binary/auth.json state, a failure for opencodeAuthRetry (a version-probe failure not at all).
 func OpencodeAuth() ([]OpencodeIntegration, error) {
 	bin, file, key := opencodeAuthKeys()
 	opencodeMu.Lock()
-	defer opencodeMu.Unlock()
 	fresh := opencodeAuthErr == nil || time.Since(opencodeAuthAt) < opencodeAuthRetry
 	if opencodeAuthIsSet && opencodeAuthKey == key && fresh {
+		defer opencodeMu.Unlock()
 		return opencodeAuthVal, opencodeAuthErr
 	}
+	gen := opencodeAuthGen
+	opencodeMu.Unlock()
+	major, merr := opencodeMajor(bin)
 	var ints []OpencodeIntegration
 	var err error
-	if opencodeMajorLocked(bin) >= 2 {
+	if major >= 2 {
 		ints, err = opencodeAuthV2Cached(bin)
 		if err != nil {
 			fallback, ferr := readOpencodeAuthJSON(file)
@@ -134,8 +145,15 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			err = nil
 		}
+		if merr != nil && bin != "" { // version unknown, so these 1.x files may not be the login store
+			return ints, errors.Join(merr, err)
+		}
 	}
-	opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthAt, opencodeAuthIsSet = key, ints, err, time.Now(), true
+	opencodeMu.Lock()
+	if gen == opencodeAuthGen {
+		opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthAt, opencodeAuthIsSet = key, ints, err, time.Now(), true
+	}
+	opencodeMu.Unlock()
 	return ints, err
 }
 
@@ -149,6 +167,7 @@ func opencodeAuthKeys() (bin, file, key string) {
 func InvalidateOpencodeAuth() {
 	opencodeMu.Lock()
 	opencodeAuthIsSet, opencodeAuthVal, opencodeAuthErr = false, nil, nil
+	opencodeAuthGen++
 	ownLogin = ownLoginMemo{}
 	if _, err := os.Stat(opencodeCacheFile()); err == nil {
 		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = nil })
@@ -184,7 +203,7 @@ type opencodeListEntry struct {
 }
 
 func opencodeAuthV2() ([]OpencodeIntegration, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), opencodeAuthTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, err := opencodeOutput(ctx, "auth", "list", "--format", "json", "--standalone")
 	if err != nil {
@@ -266,8 +285,8 @@ func readOpencodeAuthJSON(file string) ([]OpencodeIntegration, error) {
 			conn.Method, conn.Label = "key", "API key"
 		}
 		// "x" and "x/" are the same integration: merge rather than list it twice.
-		if n := len(ints); n > 0 && ints[n-1].ID == id {
-			ints[n-1].Conns = append(ints[n-1].Conns, conn)
+		if i := slices.IndexFunc(ints, func(in OpencodeIntegration) bool { return in.ID == id }); i >= 0 {
+			ints[i].Conns = append(ints[i].Conns, conn)
 			continue
 		}
 		ints = append(ints, OpencodeIntegration{ID: id, Name: id, Conns: []OpencodeConn{conn}})
@@ -301,7 +320,11 @@ func OpencodeLogoutArgv(id, credID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if OpencodeMajor() >= 2 {
+	major, err := opencodeMajor(opencodeBinKey())
+	if err != nil {
+		return nil, err
+	}
+	if major >= 2 {
 		return []string{bin, "auth", "logout", id, credID}, nil
 	}
 	return []string{bin, "auth", "logout", id}, nil
@@ -309,11 +332,12 @@ func OpencodeLogoutArgv(id, credID string) ([]string, error) {
 
 // OpencodeSwitchArgv makes credID the active account for id (2.x only); nil, nil on 1.x (no switch verb).
 func OpencodeSwitchArgv(id, credID string) ([]string, error) {
-	if OpencodeMajor() < 2 {
-		return nil, nil
-	}
 	bin, err := paths.AgentBin("opencode")
 	if err != nil {
+		return nil, err
+	}
+	major, err := opencodeMajor(opencodeBinKey())
+	if err != nil || major < 2 {
 		return nil, err
 	}
 	return []string{bin, "auth", "switch", id, credID}, nil
@@ -354,20 +378,22 @@ func loadOpencodeDiskCache() opencodeDiskCache {
 	return c
 }
 
-// updateOpencodeDiskCache read-modify-writes the cache atomically (0600 in a 0700 dir); failures are ignored.
+// updateOpencodeDiskCache read-modify-writes the cache under a file lock (0600 in a 0700 dir); failures are ignored.
 func updateOpencodeDiskCache(fn func(*opencodeDiskCache)) {
-	c := loadOpencodeDiskCache()
-	fn(&c)
-	c.Schema = opencodeCacheSchema
-	data, err := json.Marshal(c)
-	if err != nil {
-		return
-	}
 	file := opencodeCacheFile()
 	if os.MkdirAll(filepath.Dir(file), 0o700) != nil {
 		return
 	}
-	_ = paths.AtomicWrite(file, data, 0o600)
+	_ = paths.WithFileLock(file, func() error {
+		c := loadOpencodeDiskCache()
+		fn(&c)
+		c.Schema = opencodeCacheSchema
+		data, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		return paths.AtomicWrite(file, data, 0o600)
+	})
 }
 
 // opencodeDBKey is the DB path plus size+mtime of it and its -wal; "" when the DB can't be cached.

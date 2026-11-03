@@ -36,6 +36,8 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		return p, nil
 	}
 	var first *providers.Provider
+	var logins []string // probed once, on the first ladder entry that resolves
+	probed := false
 	for _, id := range reg.Routing.Opencode.LadderOrder() {
 		p, err := opencodeLadderProvider(reg, id)
 		if err != nil {
@@ -44,7 +46,10 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		if first == nil {
 			first = p
 		}
-		if slices.Contains(opencodeLogins(), OpencodeCredID(p.OpencodeID)) {
+		if !probed {
+			logins, probed = opencodeLogins(), true
+		}
+		if slices.Contains(logins, OpencodeCredID(p.OpencodeID)) {
 			return p, nil
 		}
 	}
