@@ -231,7 +231,7 @@ func TestOwnLoginProfilesMatchBuiltInDefaults(t *testing.T) {
 			}
 			continue
 		}
-		if !ownLogin(reg, a, want) {
+		if !ownLogin(func() *providers.Registry { return reg }, a, want) {
 			t.Errorf("%s: %q is not a built-in row with auth.login == %s", a, want, a)
 		}
 	}

@@ -394,7 +394,7 @@ func AgentActive(agent string) bool {
 // AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else its record's.
 func AgentPins() map[string]router.PinSpec {
 	recs := vault.AgentRecords(RosterNames())
-	reg, _ := providers.Load()
+	reg := sync.OnceValue(func() *providers.Registry { r, _ := providers.Load(); return r }) // only a pinned row reads it
 	out := make(map[string]router.PinSpec, len(rows()))
 	for _, k := range rows() {
 		r := recs[k.Name]
@@ -412,13 +412,14 @@ func AgentPins() map[string]router.PinSpec {
 }
 
 // ownLogin reports a profile that is agent's own sign-in: its schema's OwnLoginProfile, else a row with Auth.Login == agent.
-func ownLogin(reg *providers.Registry, agent, profile string) bool {
+func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 	if profile == "" {
 		return false
 	}
 	if s, ok := LookupSchema(agent); ok && s.CLI.OwnLoginProfile != "" {
 		return profile == s.CLI.OwnLoginProfile
 	}
+	reg := loadReg()
 	if reg == nil {
 		return false
 	}
