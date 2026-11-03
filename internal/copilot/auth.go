@@ -168,14 +168,6 @@ func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) 
 	return fmt.Sprintf("%s %.1f%% of credits used", user, pct), pct < copilotWorkablePct
 }
 
-// Label renders "account via source", or the source alone when the account is unknown.
-func (a CopilotAuth) Label() string {
-	if a.Account == "" {
-		return a.Source
-	}
-	return a.Account + " via " + a.Source
-}
-
 // commentRE strips the // comment lines copilot writes at the top of config.json.
 var commentRE = regexp.MustCompile(`(?m)^[ \t]*//.*$`)
 
