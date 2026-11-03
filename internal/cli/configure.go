@@ -231,39 +231,11 @@ func cmdConfigureDesktop(args []string) int {
 		if err != nil {
 			return fail("configure desktop: %v", err)
 		}
-		sel, err := providers.Select(reg, *profile)
-		if err != nil {
-			return fail("configure desktop: %v", err)
-		}
-		p := sel.Provider
-		if p.Auth.Method() == providers.AuthCLI {
-			return fail("configure desktop: profile %s uses a CLI login; select an API profile", p.Name)
-		}
-		opts.Profile = p.Name
-		opts.HelperPath, opts.HelperArgs, opts.HelperWindows, err = desktopHelper(p.Name)
-		if err != nil {
-			return fail("configure desktop: %v", err)
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		opts.Models, err = desktop.ModelList(ctx, reg, p)
-		if err != nil {
+		if opts, err = desktop.BuildOptions(ctx, reg, *profile, *dryRun, opts, desktopHelper, desktopEnsure); err != nil {
 			return fail("configure desktop: %v", err)
 		}
-		opts.Headers = proxy.HarnessHeaders()
-		opts.Headers[proxy.AgentHeader] = "desktop"
-		base := proxy.Base(proxy.DefaultPort)
-		if *dryRun {
-			if st, ok := proxy.Running(ctx); ok {
-				base = proxy.Base(st.Port)
-			}
-		} else {
-			base, err = desktopEnsure(ctx)
-			if err != nil {
-				return fail("configure desktop: proxy unavailable; run gateway proxy --start")
-			}
-		}
-		opts.BaseURL = proxy.SessionBase(base, p.Name)
 	}
 	if err := desktop.Configure(opts, os.Stdout); err != nil {
 		return fail("configure desktop: %v", err)

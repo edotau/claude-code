@@ -36,20 +36,7 @@ func cmdAgentProfile(agent string, args []string) int {
 		fmt.Printf("%s: profile cleared (own login)\n", agent)
 		return 0
 	case len(pos) == 0:
-		line := agent + ": no profile set (launches use today's selection)"
-		if v := vault.GetAgentRecord(agent).Profile; v != "" {
-			line = fmt.Sprintf("%s: profile %s", agent, v) + identityNote(v)
-		}
-		if !agentpkg.VaultAgentIsClaude(agent) {
-			state := agentpkg.AgentOn
-			if !agentpkg.AgentActive(agent) {
-				state = agentpkg.AgentOff
-			} else if why := agentpkg.AgentUnbillable(agent); why != "" {
-				state = agentpkg.AgentOff + ", " + why
-			}
-			line += " · " + state
-		}
-		fmt.Println(line)
+		fmt.Println(configure.ProfileStatus(agent))
 		return 0
 	}
 	reg, err := providers.Load()
@@ -65,23 +52,6 @@ func cmdAgentProfile(agent string, args []string) int {
 		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
 	}
 	return 0
-}
-
-// identityNote is " · identity <mode>" for a profile paired with a service principal, else "".
-func identityNote(profile string) string {
-	reg, err := providers.Load()
-	if err != nil {
-		return ""
-	}
-	p, ok := reg.Providers[profile]
-	if !ok || p == nil || p.Auth.SPClientID == "" {
-		return ""
-	}
-	mode, err := providers.ResolveIdentity(p.Identity, "")
-	if err != nil {
-		return ""
-	}
-	return " · identity " + mode
 }
 
 // cmdAgentOnOff is `<agent> on|off`: off clears the record's profile, on sets the own login; claude is always on.

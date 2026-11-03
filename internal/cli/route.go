@@ -53,7 +53,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if err != nil {
 		return fail(name+": %v", err)
 	}
-	src := routeSources{Weights: routeWeightsSource()}
+	src := routeSources{Weights: providers.RouteWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	rj := newRouteJSON(res, src)
 	var ps proxyState
@@ -133,17 +133,6 @@ func newRouteJSON(res router.PickResult, src routeSources) routeJSON {
 		}
 	}
 	return out
-}
-
-// routeWeightsSource reports "vault" when the vault overlay's own routing object sets weights, else
-// "default" — derived from presence in the overlay (providers.RoutingOverlay), never from comparing the
-// resolved weights to the registry's default.
-func routeWeightsSource() string {
-	overlay, err := providers.RoutingOverlay()
-	if err != nil || overlay.Weights == nil {
-		return "default"
-	}
-	return "vault"
 }
 
 // printRoute renders the pick: weights (and their source), one scored row per candidate, then each
