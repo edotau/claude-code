@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/configure"
-
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -235,16 +233,16 @@ func fakeCopilotBin(t *testing.T) {
 	}
 }
 
-// stubCatalog replaces copilotListModelsFn with a fixed result and restores it on cleanup.
+// stubCatalog replaces copilotCatalogFn with a fixed result and restores it on cleanup.
 func stubCatalog(t *testing.T, models []copilot.SDKModel, err error) *int {
 	t.Helper()
-	orig := configure.CopilotListModelsFn
+	orig := copilotCatalogFn
 	calls := 0
-	configure.CopilotListModelsFn = func(ctx context.Context, o copilot.SDKOptions) ([]copilot.SDKModel, error) {
+	copilotCatalogFn = func(context.Context) ([]copilot.SDKModel, error) {
 		calls++
 		return models, err
 	}
-	t.Cleanup(func() { configure.CopilotListModelsFn = orig })
+	t.Cleanup(func() { copilotCatalogFn = orig })
 	return &calls
 }
 
