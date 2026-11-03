@@ -1,0 +1,44 @@
+package claude
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
+)
+
+func writeClaudeJSON(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if body == "" {
+		return
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaudeTier(t *testing.T) {
+	cases := []struct{ name, json, plan, want string }{
+		{"user 20x", `{"oauthAccount":{"userRateLimitTier":"default_claude_max_20x"}}`, "max", "Max 20x"},
+		{"org 5x", `{"oauthAccount":{"organizationRateLimitTier":"default_claude_max_5x"}}`, "max", "Max 5x"},
+		{"user beats org", `{"oauthAccount":{"userRateLimitTier":"default_claude_max_5x","organizationRateLimitTier":"default_claude_max_20x"}}`, "max", "Max 5x"},
+		{"no tier, Max plan", `{"oauthAccount":{"userRateLimitTier":"default"}}`, "max", "Max"},
+		{"no tier, Pro plan in parens", `{}`, " (pro) ", "Pro"},
+		{"no file", ``, "pro", "Pro"},
+		{"malformed file", `{`, "pro", "Pro"},
+		{"nothing known", ``, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			writeClaudeJSON(t, c.json)
+			if got := claudeAgent.Plan(context.Background(), providers.AuthState{Present: true, PlanHint: strings.Trim(c.plan, " ()")}).Name; got != c.want {
+				t.Errorf("claudeTier(%q) = %q, want %q", c.plan, got, c.want)
+			}
+		})
+	}
+}

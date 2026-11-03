@@ -8,15 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/preflight"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/secretstore"
-	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"maps"
 	"os"
@@ -27,6 +18,16 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // WarmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
@@ -71,12 +72,16 @@ func MaxPlanTarget(kt KeyTarget) KeyTarget {
 	kt.EnvVar = providers.OAuthTokenEnv
 	kt.FixCmd = "claude auth login (interactive) · claude setup-token → claude-code vault set " + providers.OAuthTokenEnv + " (headless)"
 	kt.Headless = providers.HeadlessOAuthToken() != ""
-	loggedIn, plan := providers.ClaudeLoginStatus()
-	kt.Present = loggedIn || kt.Headless
+	st := agent.AuthStatus("claude")
+	plan := ""
+	if st.PlanHint != "" {
+		plan = " (" + st.PlanHint + ")"
+	}
+	kt.Present = st.Present || kt.Headless
 	switch {
-	case loggedIn && kt.Headless:
+	case st.Present && kt.Headless:
 		kt.Source = "claude.ai login" + plan + "; headless token set"
-	case loggedIn:
+	case st.Present:
 		kt.Source = "claude.ai login" + plan + "; no headless token"
 	case kt.Headless:
 		kt.Source = "headless token (" + providers.OAuthTokenEnv + "); not logged in interactively"
@@ -174,10 +179,9 @@ func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
 		}
 		return KeyTarget{Label: name, Present: false, FixCmd: hint}
 	}
-	if present, source := s.LoginStatus(); present {
-		kt := KeyTarget{Label: name, Present: true, Source: source}
-		// copilot's label is the only trace of its source: a gh account or env token has no sign-in to re-run
-		if name != "copilot" || strings.HasSuffix(source, "copilot login") {
+	if st := agent.AuthStatus(name); st.Present {
+		kt := KeyTarget{Label: name, Present: true, Source: st.Label()}
+		if st.Method == providers.AuthCLI { // a gh account or env token has no sign-in to re-run
 			kt.LoginArgv = s.CLI.LoginArgv // rotate: re-run the CLI's own sign-in
 		}
 		return kt
