@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -196,30 +197,22 @@ func (p Plan) envWith(base []string, custom map[string]string, locked map[string
 	return p.plainEnv(base)
 }
 
-// plainEnv is the credential scrub, then base minus Unset/Set keys, plus Set.
-func (p Plan) plainEnv(base []string) []string {
+// envMode is the deny scrub this plan's child gets: agent CLIs also lose HARNESS_VAULT_KEY.
+func (p Plan) envMode() EnvMode {
 	if p.CLI {
-		base, _ = proc.ScrubAgent(base, proc.EnvKeepSet(p.Keep))
-	} else {
-		base, _ = proc.Scrub(base, proc.EnvKeepSet(p.Keep))
+		return EnvAgent
 	}
-	drop := map[string]bool{}
-	for _, k := range p.Unset {
-		drop[k] = true
-	}
-	for k := range p.Set {
-		drop[k] = true
-	}
-	out := make([]string, 0, len(base)+len(p.Set))
-	for _, kv := range base {
-		if k, _, _ := strings.Cut(kv, "="); !drop[k] {
-			out = append(out, kv)
-		}
-	}
+	return EnvClaude
+}
+
+// plainEnv is the plan as an EnvSpec: base scrubbed, minus Unset and Set names, then Set in name order.
+func (p Plan) plainEnv(base []string) []string {
+	set := make([]string, 0, len(p.Set))
 	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
-		out = append(out, k+"="+p.Set[k])
+		set = append(set, k+"="+p.Set[k])
 	}
-	return out
+	spec := EnvSpec{Mode: p.envMode(), Base: append([]string{}, base...), Keep: p.Keep, Unset: p.Unset, Set: set}
+	return spec.Environ(context.Background()) // interactive: no batch isolation
 }
 
 // envRedactors blank the secrets inside a structured env value (key -> redactor), filled by Register from the agent owning the key.
@@ -266,11 +259,7 @@ func (p Plan) unsetNames() []string {
 			names[k] = true
 		}
 	}
-	scrub := proc.Scrub
-	if p.CLI {
-		scrub = proc.ScrubAgent
-	}
-	_, dropped := scrub(os.Environ(), proc.EnvKeepSet(p.Keep))
+	_, dropped := p.envMode().scrub(os.Environ(), p.Keep)
 	for _, k := range dropped {
 		if _, set := p.Set[k]; !set {
 			names[k] = true
