@@ -174,6 +174,3 @@ Verdict discipline: `skills/evaluate-code/SKILL.md` → Verdicts.
 - Hand back before the verb's output is read — one batch, one report: the answer first, then the hand-back.
 
 Per `agent-verbs.md` → Don't: don't invent a verb.
-
-Memory proposals:
-[shared discipline and codex candidates](../skills/subagent-workflows/references/memory-updates.md#codex).

@@ -141,5 +141,3 @@ Verdict discipline — closed vocabulary first, evidence after, never soften or 
 - **Contradictory requirements** → flag the conflict, propose a resolution.
 - **Asked to orchestrate but can't dispatch** → fall back to self-contained sequential.
 - **Cannot verify** → say so explicitly; do not claim success.
-
-Memory proposals: [shared discipline](../skills/subagent-workflows/references/memory-updates.md).

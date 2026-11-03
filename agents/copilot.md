@@ -205,7 +205,4 @@ outcome first, plain-sentence facts).
 
 Per `agent-verbs.md` → Don't: don't invent a verb.
 
-Memory proposals:
-[shared discipline and copilot candidates](../skills/subagent-workflows/references/memory-updates.md#copilot).
-
 [lf]: ../rules/standards/testing-guidelines.md#live-first-then-tests--no-core-contract-exception

@@ -283,6 +283,3 @@ need to know which engine answered.
 - Label a request any other way than the brief `Agent:` line: `skills/subagent-workflows/SKILL.md` -> Leaf types.
 
 Per `agent-verbs.md` → Don't: don't invent a verb.
-
-Memory proposals:
-[shared discipline and gemini candidates](../skills/subagent-workflows/references/memory-updates.md#gemini).

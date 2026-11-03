@@ -63,7 +63,7 @@ resend unchanged). Then:
 - `Ran on:` the quoted `ask: ran on …` line, or `self — <why>` in-context.
 - Files changed, each verification command with its exit code, each `Acceptance:` item mapped to its evidence.
 - `TASK:`/`ISSUE:` facts as plain sentences, anything found outside `Owns:`, tests planned but not written, optional
-  [memory proposals](references/memory-updates.md).
+  memory proposals: durable facts the diff and git history can't show (the main session decides; never write memory).
 
 **Ownership** — one writer per file; one package parallelizes when each leaf owns a new file and the manager makes the
 integration edit. The manager owns decisions, integration, verification and commits. Leaves never dispatch subagents,
