@@ -447,7 +447,7 @@ func TestDoctorAuditJSONWriteError(t *testing.T) {
 // A launch refusal (*agent.UsageError, even wrapped) prints its message and exits 2, not the generic 1.
 func TestRunPlanUsageErrorExitsTwo(t *testing.T) {
 	err := fmt.Errorf("launch: %w", &agent.UsageError{Msg: "not a harness profile"})
-	if code := runPlan(agent.Plan{}, agent.LaunchOptions{}, err); code != 2 {
+	if code := runPlan("claude", agent.Plan{}, agent.LaunchOptions{}, err); code != 2 {
 		t.Fatalf("runPlan(UsageError) = %d, want 2", code)
 	}
 }
