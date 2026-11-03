@@ -270,10 +270,12 @@ func TestListRenderSnapshot(t *testing.T) {
 	want := strings.Join([]string{
 		"opencode",
 		"Search: ",
+		"",
 		"== accounts ==",
 		"  GitHub Copilot  OAuth                                ✓ in use by claude-code",
 		"▸ Nvidia          API key                              ✓",
 		"  GitHub Copilot  $GITHUB_TOKEN                        environment (unset to disconnect)",
+		"",
 		"== actions ==",
 		"  + Add account   opencode auth login",
 		"  Use API key     claude-code key for opencode (BYOK)",

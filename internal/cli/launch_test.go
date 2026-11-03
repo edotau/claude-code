@@ -254,7 +254,12 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 				if err := secretstore.Store("AUDIT_FAKE_KEY", value); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Chmod(filepath.Join(cfg, "state", "vault.db"), 0o644); err != nil {
+				// Opening the vault tightens vault.db (fa2b54af); a loose rolled-back archive is still a finding.
+				archive := filepath.Join(cfg, "state", "vault.db.rolledback-1")
+				if err := os.WriteFile(archive, []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(archive, 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}

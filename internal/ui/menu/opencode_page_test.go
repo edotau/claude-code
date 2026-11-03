@@ -106,7 +106,7 @@ func rowsOfPage(p opencodePage) []tui.ListRow {
 func TestOpencodePageRows1x(t *testing.T) {
 	d, _ := ocDialog()
 	p := buildOpencodePage(d, v1Data(), 1)
-	if p.title != "opencode  ✓ 5 accounts · opencode 1.x" {
+	if p.title != "opencode (current: not set up · 5 accounts · opencode 1.x)" {
 		t.Errorf("title = %q", p.title)
 	}
 	want := []tui.ListRow{
@@ -116,7 +116,8 @@ func TestOpencodePageRows1x(t *testing.T) {
 		{Label: "OpenAI", Detail: "OAuth", OK: true, Section: "accounts"},
 		{Label: "zed", Detail: "API key", OK: true, Section: "accounts"},
 		{Label: "Set up", Detail: "sign in, verify, pin the route", Section: "actions"},
-		{Label: "+ Add account", Detail: "opencode auth login · browser sign-in", Section: "actions"},
+		{Label: "+ Add account", Detail: "browser sign-in (opencode auth login)", Section: "actions"},
+		{Label: "Back", Detail: "return to the previous menu"},
 	}
 	if got := rowsOfPage(p); !reflect.DeepEqual(got, want) {
 		t.Errorf("rows =\n%+v\nwant\n%+v", got, want)
@@ -131,7 +132,7 @@ func TestOpencodePageRows1x(t *testing.T) {
 func TestOpencodePageRows2x(t *testing.T) {
 	d, _ := ocDialog()
 	p := buildOpencodePage(d, v2Data(), 2)
-	if p.title != "opencode  ✓ 4 accounts · opencode 2.x" {
+	if p.title != "opencode (current: not set up · 4 accounts · opencode 2.x)" {
 		t.Errorf("title = %q", p.title)
 	}
 	got := rowsOfPage(p)
@@ -149,7 +150,7 @@ func TestOpencodePageRows2x(t *testing.T) {
 func TestOpencodePageNotConnected(t *testing.T) {
 	d, _ := ocDialog()
 	p := buildOpencodePage(d, nil, 0)
-	if p.title != "opencode  not connected" {
+	if p.title != "opencode (current: not set up · not connected)" {
 		t.Errorf("title = %q", p.title)
 	}
 	if r := p.rows[0]; r.row.Label != "not connected" || r.run != nil || r.conn != nil {
@@ -351,7 +352,7 @@ func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	installOCFake(t, f)
 	title, _, _ := fakePickAgent(t, -1)
 	actions[0](d)
-	if len(f.specs) != 1 || !strings.HasPrefix(f.specs[0].Title, "opencode  not connected") || *title != "" {
+	if len(f.specs) != 1 || !strings.HasPrefix(f.specs[0].Title, "opencode (current: not set up · not connected") || *title != "" {
 		t.Fatalf("opencode row must open the list page, not runAgentMenu: specs=%d title=%q", len(f.specs), *title)
 	}
 	var labels []string

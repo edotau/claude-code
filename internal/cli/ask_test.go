@@ -42,8 +42,8 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt"}},
 		{name: "retry repeated attachments accumulate", retry: true, attachments: []string{"b.txt", "c.txt"},
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt", "c.txt"}},
-		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "DATABRICKS_HOST,HOME"},
-			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"DATABRICKS_HOST", "HOME"}},
+		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "LANG,HOME"},
+			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"LANG", "HOME"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()

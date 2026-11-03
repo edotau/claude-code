@@ -233,7 +233,12 @@ func TestScanFileMetadataExemptions(t *testing.T) {
 func TestDoctorFlagsLoosePerms(t *testing.T) {
 	doctorTestVault(t)
 	vaulttest.Secret(t, "A_KEY", "v")
-	if err := os.Chmod(vault.Path(), 0o644); err != nil {
+	// Opening the vault tightens vault.db itself (fa2b54af), so the loose file doctor can still see is an archive.
+	archive := vault.Path() + ".rolledback-1"
+	if err := os.WriteFile(archive, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(archive, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := providers.Load()
@@ -244,7 +249,7 @@ func TestDoctorFlagsLoosePerms(t *testing.T) {
 	if rc != ExitFindings {
 		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, ExitFindings, detail)
 	}
-	if !strings.Contains(detail, vault.Path()+" is 0644, want 0600") || !strings.Contains(detail, "chmod 600 "+vault.Path()) {
+	if !strings.Contains(detail, archive+" is 0644, want 0600") || !strings.Contains(detail, "chmod 600 "+archive) {
 		t.Fatalf("DoctorChecks missing vault permission remediation: %s", detail)
 	}
 }

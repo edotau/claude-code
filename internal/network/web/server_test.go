@@ -666,7 +666,7 @@ func TestIndexTreeFetchGuardedByEpoch(t *testing.T) {
 		}
 	}
 	watch := extractJSFunc(t, src, "watchTree")
-	if i, j := strings.Index(watch, "treeEpoch++"), strings.Index(watch, "renderTree("); i < 0 || j < 0 || i > j {
+	if i, j := strings.Index(watch, "treeEpoch++"), strings.Index(watch, "paintTree("); i < 0 || j < 0 || i > j {
 		t.Fatal("watchTree must bump treeEpoch before rendering an SSE snapshot")
 	}
 	if !strings.Contains(watch, "es.onerror") || !strings.Contains(src, "if (!treeLive) loadTree();") {

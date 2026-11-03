@@ -705,7 +705,7 @@ func TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	seed, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(settings.RepoDefaultsRel)))
+	seed, err := os.ReadFile(filepath.Join("..", "..", "..", filepath.FromSlash(settings.RepoDefaultsRel)))
 	if err != nil {
 		t.Fatal(err)
 	}
