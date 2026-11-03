@@ -1,10 +1,16 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package paths
 
-import "os"
+import (
+	"errors"
+	"fmt"
+	"os"
+)
 
-func lock(*os.File) error   { return nil }
+var errNoFileLock = fmt.Errorf("file locking: %w", errors.ErrUnsupported)
+
 func unlock(*os.File) error { return nil }
 
-func TryLock(*os.File) bool { return true }
+// tryLock fails closed: there is no lock primitive here, so no caller may believe it holds one.
+func tryLock(*os.File) (bool, error) { return false, errNoFileLock }
