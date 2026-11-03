@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -215,6 +216,27 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 	return models.Wire("dotted", canonical), "", true
 }
 
+// gatewayTokens holds one router session token per profile for this process; the router drops each when it exits.
+var (
+	gatewayMu     sync.Mutex
+	gatewayTokens = map[string]string{}
+)
+
+// gatewayToken mints profile's token once per process (concurrent --batch jobs share it), under the router's token cap.
+func gatewayToken(ctx context.Context, profile string) (string, error) {
+	gatewayMu.Lock()
+	defer gatewayMu.Unlock()
+	if t, ok := gatewayTokens[profile]; ok {
+		return t, nil
+	}
+	tok, err := agent.MintSession(ctx, profile, os.Getpid())
+	if err != nil {
+		return "", err
+	}
+	gatewayTokens[profile] = tok
+	return tok, nil
+}
+
 // geminiGateway runs agy in its env-only gateway mode against the router's /p/<profile>/gemini route, which swaps
 // in a fresh Databricks token per request; the key agy holds is a session token scoped to this profile.
 func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
@@ -222,7 +244,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: router: %w", err)
 	}
-	tok, err := agent.MintSession(ctx, p.Name, os.Getpid())
+	tok, err := gatewayToken(ctx, p.Name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
