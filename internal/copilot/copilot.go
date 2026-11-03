@@ -114,6 +114,10 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 		route.apply(&opts)
 	}
 	// the SDK child gets exactly BuildClientOptions' env; its base drops foreign credentials under ctx isolation
+	if err := agent.CheckRouteNames(slices.Concat(opts.Env, opts.ChildEnv), req.OverlaySet); err != nil {
+		done()
+		return opts, nil, nil, copilotFatal(err)
+	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
 	if err := applyCopilotToken(&opts, own, env); err != nil {
 		return opts, nil, done, copilotFatal(err)
