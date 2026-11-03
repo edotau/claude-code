@@ -100,8 +100,8 @@ func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless)
 	return codexLogin(model, h)
 }
 
-func (codexEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
-	return codex(r.Provider, r.Base, r.Model, r.Cred, h)
+func (codexEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
+	return codex(ctx, r.Provider, r.Base, r.Model, r.Cred, h)
 }
 
 func (e codexEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
@@ -443,7 +443,7 @@ func codexRanModel(t providers.Target) string {
 }
 
 // codex speaks only the Responses API (`wire_api = "chat"` is rejected by current builds).
-func codex(p *providers.Provider, base, model, cred string, h *agent.Headless) ([]string, []string, error) {
+func codex(ctx context.Context, p *providers.Provider, base, model, cred string, h *agent.Headless) ([]string, []string, error) {
 	model = codexResponsesModel(p, model)
 	id, err := agentconfig.OwnedID(p)
 	if err != nil {
@@ -471,7 +471,7 @@ func codex(p *providers.Provider, base, model, cred string, h *agent.Headless) (
 	}
 	argv := []string{"-c", "model_provider=" + agentconfig.TOMLQuote(id), "-c", "model=" + agentconfig.TOMLQuote(model),
 		"-c", "model_providers." + id + "=" + agentconfig.TOMLInline(fields)}
-	catalog := codexCatalogArgs(p)
+	catalog := codexCatalogArgs(ctx, p)
 	argv = append(argv, catalog...) // /model offers only ids this row serves
 	if len(catalog) == 2 {
 		env = append(env, settings.CodexCatalogEnv+"="+agentconfig.TOMLString(strings.TrimPrefix(catalog[1], "model_catalog_json=")))

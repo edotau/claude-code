@@ -31,11 +31,11 @@ func codexSlug(id string) string {
 }
 
 // codexCatalogArgs returns a validated Databricks model catalog override, or lets launch continue without one.
-func codexCatalogArgs(p *providers.Provider) []string {
+func codexCatalogArgs(ctx context.Context, p *providers.Provider) []string {
 	if p.Preset != providers.PresetDatabricks {
 		return nil
 	}
-	path, missing, err := codexCatalogPath(p)
+	path, missing, err := codexCatalogPath(ctx, p)
 	if err != nil {
 		fmt.Fprintln(agentconfig.CatalogWarn, "codex catalog:", err)
 		return nil
@@ -49,7 +49,7 @@ func codexCatalogArgs(p *providers.Provider) []string {
 	return []string{"-c", "model_catalog_json=" + agentconfig.TOMLQuote(path)}
 }
 
-func codexCatalogPath(p *providers.Provider) (string, string, error) {
+func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, string, error) {
 	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return "", "", fmt.Errorf("binary lookup failed: %w", err)
@@ -59,7 +59,7 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 		return "", "", fmt.Errorf("temporary home failed: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(home) }()
-	version, err := runCodexCatalog(bin, home, "--version")
+	version, err := runCodexCatalog(ctx, bin, home, "--version")
 	if err != nil {
 		return "", "", fmt.Errorf("version failed: %w", err)
 	}
@@ -84,7 +84,7 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 			return path, "", nil
 		}
 	}
-	raw, err := runCodexCatalog(bin, home, "debug", "models", "--bundled")
+	raw, err := runCodexCatalog(ctx, bin, home, "debug", "models", "--bundled")
 	if err != nil {
 		return "", "", fmt.Errorf("bundled dump failed: %w", err)
 	}
@@ -99,7 +99,7 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 	if err := os.WriteFile(candidate, body, 0o600); err != nil {
 		return "", "", fmt.Errorf("candidate write failed: %w", err)
 	}
-	if _, err := runCodexCatalog(bin, home, "-c", "model_catalog_json="+agentconfig.TOMLQuote(candidate), "debug", "models"); err != nil {
+	if _, err := runCodexCatalog(ctx, bin, home, "-c", "model_catalog_json="+agentconfig.TOMLQuote(candidate), "debug", "models"); err != nil {
 		return "", "", fmt.Errorf("validation failed: %w", err)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -120,11 +120,12 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 	return path, missing, nil
 }
 
-func runCodexCatalog(bin, home string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func runCodexCatalog(ctx context.Context, bin, home string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent, Set: []string{"CODEX_HOME=" + home}}.Environ(ctx) // no credentials for a --version probe
+	spec := agent.EnvSpec{Mode: agent.EnvAgent, Unset: []string{agentconfig.OverlayVar}, Set: []string{"CODEX_HOME=" + home}}
+	cmd.Env = spec.Environ(ctx) // no credentials for a --version probe; isolation and unset ride ctx
 	agent.RecordOverlayDebug("codex-catalog", cmd.Env)
 	cmd.Dir = home
 	return cmd.Output()
