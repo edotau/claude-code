@@ -29,6 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 type codexEngine struct{ agent.BaseEngine }
@@ -196,7 +197,7 @@ func (codexEngine) AuthStatus() providers.AuthState {
 func codexAuthState() providers.AuthState {
 	b, keyringNote := codexAuthJSON()
 	if codexTokensPresent(b) {
-		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: CodexPlan()}
+		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: codexPlanFrom(b)}
 	}
 	bin, err := paths.AgentBin("codex")
 	if err != nil { // no CLI to ask: a failed keyring lookup is the only unknown left
@@ -210,7 +211,7 @@ func codexAuthState() providers.AuthState {
 	out, err := codexStatus(ctx, bin)
 	switch {
 	case err == nil && strings.Contains(strings.ToLower(string(out)), "chatgpt"):
-		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: CodexPlan()}
+		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: codexPlanFrom(b)}
 	case err == nil:
 		return providers.AuthState{Method: providers.AuthNone} // signed in with an API key, not ChatGPT
 	case ctx.Err() != nil:
@@ -222,18 +223,9 @@ func codexAuthState() providers.AuthState {
 	return providers.AuthState{Method: providers.AuthNone, Err: fmt.Errorf("codex login status: %w", err)}
 }
 
-// Plan is codex's ChatGPT plan ("Plus", "Pro"), read offline from the login's id token.
-func (codexEngine) Plan(context.Context, providers.AuthState) providers.Subscription {
-	raw := CodexPlan()
-	return providers.Subscription{Raw: raw, Name: title(raw)}
-}
-
-// title upper-cases the first letter of s.
-func title(s string) string {
-	if s == "" {
-		return ""
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
+// Plan is codex's ChatGPT plan ("Plus", "Pro"): st.PlanHint, which AuthStatus read from the login's id token.
+func (codexEngine) Plan(_ context.Context, st providers.AuthState) providers.Subscription {
+	return providers.Subscription{Raw: st.PlanHint, Name: textutil.Title(st.PlanHint)}
 }
 
 func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o render.RenderOptions, out io.Writer) (bool, error) {
@@ -541,10 +533,7 @@ func codexChatGPTLogin() error {
 		}
 	}
 	b, keyringNote := codexAuthJSON()
-	var auth struct {
-		Tokens json.RawMessage `json:"tokens"`
-	}
-	if b != nil && json.Unmarshal(b, &auth) == nil && len(auth.Tokens) > 0 && string(auth.Tokens) != "null" {
+	if codexTokensPresent(b) {
 		return nil
 	}
 	file := filepath.Join(codexHome(), "auth.json")
@@ -584,9 +573,6 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	// The prompt rides stdin behind the `-` operand: a positional prompt like "help" is a codex subcommand.
 	return append(argv, "-")
 }
-
-// CodexChatGPTLoginPresent reports whether codex's own ChatGPT sign-in (~/.codex/auth.json) is on disk.
-func CodexChatGPTLoginPresent() bool { return codexChatGPTLogin() == nil }
 
 // codexKeychainService is the macOS/Linux keyring service codex stores its ChatGPT login under when
 // config.toml sets cli_auth_credentials_store = "keyring" (the whole auth.json body as the secret value).
@@ -680,11 +666,9 @@ func codexKeyringAuthJSON() (data []byte, note string) {
 	return nil, err.Error()
 }
 
-// CodexPlan is the ChatGPT plan codex is signed in on ("plus", "pro", "team"…), read offline from the id_token
-// claim in codex's auth.json (file or keyring); "" when absent or unreadable. The token is decoded, never
-// verified or printed.
-func CodexPlan() string {
-	b, _ := codexAuthJSON()
+// codexPlanFrom is the ChatGPT plan ("plus", "pro", "team"…) in the id_token claim of an auth.json body; "" when
+// absent or unreadable. The token is decoded, never verified or printed.
+func codexPlanFrom(b []byte) string {
 	if b == nil {
 		return ""
 	}
