@@ -19,7 +19,7 @@
 - **Simplicity first** — no abstractions for single-use code, no knobs nobody turns, no error handling for
   impossible states; 200 lines that could be 50 get rewritten. Edit existing files over creating new ones; match the
   existing style even where you'd write it differently. Fix lane: built-in `/simplify` + `quality.md` → Simplify.
-- **Surgical changes** — every changed line traces to the request: no drive-by reformatting, quote swaps, comment
+- **Precise changes** — every changed line traces to the request: no drive-by reformatting, quote swaps, comment
   churn or "while I'm here" refactors; when adding an entry (flag, command, target), write only its text — fix
   existing descriptions, help text and comments only for wrong facts or spelling. Remove only orphans your change
   created; mention pre-existing dead code.
