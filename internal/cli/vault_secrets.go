@@ -38,7 +38,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
 		return 0
 	}
-	if err := secretstore.Store(name, value); err != nil {
+	if err := signin.SetSecret(name, value); err != nil {
 		return fail("vault set: %v", err)
 	}
 	router.ClearSecretAuth(name)
@@ -49,7 +49,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 // readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.
 func readSecretValue(name string) (string, error) {
 	if tui.StdinIsTerminal() {
-		v, err := tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", secretstore.Preview)
+		v, err := signin.PromptSecret(name)
 		return strings.TrimSpace(v), err
 	}
 	raw, err := io.ReadAll(os.Stdin)
@@ -195,7 +195,7 @@ func cmdVaultImport(args []string) int {
 		return 1
 	}
 	for _, p := range pairs {
-		if err := secretstore.Store(p.Name, p.Value); err != nil {
+		if err := signin.SetSecret(p.Name, p.Value); err != nil {
 			return fail("vault import: %s: %v", p.Name, err)
 		}
 		fmt.Fprintf(os.Stderr, "stored %s in the vault\n", p.Name)
