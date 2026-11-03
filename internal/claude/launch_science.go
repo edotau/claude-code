@@ -38,7 +38,7 @@ func scienceWiped(key string) bool {
 func Science(env, args []string) (agent.Plan, error) {
 	bin, err := paths.LookPathReal("claude-science")
 	if err != nil {
-		return agent.Plan{}, errors.New("claude-science not found on PATH; install Claude for Life Sciences from https://claude.ai/download")
+		return agent.Plan{}, errors.New("claude-science not found on PATH; run: claude-code install --tools=claude-science")
 	}
 	plan := agent.Plan{Binary: bin, Set: map[string]string{}, Argv: args}
 	for _, kv := range env {
