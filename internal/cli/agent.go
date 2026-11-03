@@ -90,28 +90,11 @@ func (a *agentsFlag) Set(s string) error {
 	return nil
 }
 
-// flagExplicit is true when --<name> appeared on this command line.
-func flagExplicit(fs *flag.FlagSet, name string) bool {
-	explicit := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			explicit = true
-		}
-	})
-	return explicit
-}
+// flagExplicit delegates to helptext.Explicit; other cli files still call it until they adopt the helper.
+func flagExplicit(fs *flag.FlagSet, name string) bool { return helptext.Explicit(fs, name) }
 
-// timeoutExplicit is true when --timeout appeared on this command line, so it always beats the
-// tools-aware default.
-func timeoutExplicit(fs *flag.FlagSet) bool {
-	explicit := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "timeout" {
-			explicit = true
-		}
-	})
-	return explicit
-}
+// timeoutExplicit is true when --timeout was typed, so it always beats the tools-aware default.
+func timeoutExplicit(fs *flag.FlagSet) bool { return helptext.Explicit(fs, "timeout") }
 
 func validateAskFlags(format, fallback string) error {
 	if !slices.Contains([]string{helptext.Text, helptext.JSON, formatStreamJSON}, format) {
