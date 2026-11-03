@@ -61,11 +61,11 @@ type SDKResult struct {
 }
 
 // BuildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
-func BuildClientOptions(o SDKOptions) (*copilot.ClientOptions, error) {
+func BuildClientOptions(ctx context.Context, o SDKOptions) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
-	base := agent.EnvSpec{Mode: agent.EnvAgent, Keep: o.KeepEnv}.Environ(context.Background()) // no isolation here, as before
+	base := agent.EnvSpec{Mode: agent.EnvAgent, Keep: o.KeepEnv}.Environ(ctx) // isolation and unset ride ctx
 	if o.multiProvider() {
 		if err := validateRegistryOptions(o); err != nil {
 			return nil, err
@@ -331,7 +331,7 @@ func CatalogOptions(cliPath, token string) SDKOptions {
 
 // listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
 var listModelsFn = func(ctx context.Context, o SDKOptions) (models []copilot.ModelInfo, err error) {
-	clientOpts, err := BuildClientOptions(o)
+	clientOpts, err := BuildClientOptions(ctx, o)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +400,7 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 	if strings.TrimSpace(prompt) == "" {
 		return SDKResult{}, errors.New("empty prompt")
 	}
-	clientOpts, err := BuildClientOptions(o)
+	clientOpts, err := BuildClientOptions(ctx, o)
 	if err != nil {
 		return SDKResult{}, err
 	}

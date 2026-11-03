@@ -115,7 +115,7 @@ func selectRegistered(ctx context.Context, session *copilot.Session, o SDKOption
 
 // ClientEnv is the child process env the SDK client would start the CLI with.
 func ClientEnv(o SDKOptions) ([]string, error) {
-	co, err := BuildClientOptions(o)
+	co, err := BuildClientOptions(context.Background(), o)
 	if err != nil {
 		return nil, err
 	}
