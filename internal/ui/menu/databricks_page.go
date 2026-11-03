@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"time"
+
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
@@ -12,8 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
-	"slices"
-	"time"
 )
 
 var (
@@ -30,6 +31,11 @@ var (
 	dbxCopy = clipboard.WriteSecret
 
 	dbxSchedule = clipboard.ScheduleClear
+)
+
+const (
+	dbxLoginTimeout = 5 * time.Minute // browser sign-in waits on the user
+	dbxNetTimeout   = 30 * time.Second
 )
 
 // dbxAgents are the agents "Apply to agents" can repoint.
@@ -162,9 +168,11 @@ func runDatabricksEnv(d *dialog, env string) {
 	})
 }
 
-// dbxDo runs fn under the interrupt-free page context and reports a failure or "done".
+// dbxDo runs fn under a login-timeout context and reports a failure or "done".
 func dbxDo(d *dialog, env, what string, fn func(context.Context) error) {
-	if err := fn(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), dbxLoginTimeout)
+	defer cancel()
+	if err := fn(ctx); err != nil {
 		d.printf("%s: %s: %v\n", env, what, err)
 		return
 	}
@@ -177,7 +185,9 @@ func dbxPaste(d *dialog, env string) {
 	if err != nil || v == "" {
 		return
 	}
-	status, err := dbxSetPAT(context.Background(), env, v)
+	ctx, cancel := context.WithTimeout(context.Background(), dbxNetTimeout)
+	defer cancel()
+	status, err := dbxSetPAT(ctx, env, v)
 	if err != nil {
 		d.printf("%s: paste PAT: %v\n", env, err)
 		return
@@ -188,7 +198,8 @@ func dbxPaste(d *dialog, env string) {
 
 // dbxMintNow mints; the token is only ever handed to the clipboard, never printed.
 func dbxMintNow(d *dialog, env string, copyIt bool) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), dbxNetTimeout)
+	defer cancel()
 	res, tok, err := dbxMint(ctx, env)
 	if err != nil {
 		d.printf("%s: mint: %v\n", env, err)
@@ -227,12 +238,16 @@ func dbxProfileNames(reg *providers.Registry) []string {
 
 // dbxSetUp signs in with OAuth, verifies a token (discarded) and applies the profile, stopping at the first failure.
 func dbxSetUp(d *dialog, env string) {
-	if err := dbxLogin(context.Background(), env, d.out); err != nil {
+	loginCtx, cancelLogin := context.WithTimeout(context.Background(), dbxLoginTimeout)
+	defer cancelLogin()
+	if err := dbxLogin(loginCtx, env, d.out); err != nil {
 		d.printf("%s: set up stopped at sign-in: %v\n", env, err)
 		return
 	}
 	d.changed = true
-	res, _, err := dbxMint(context.Background(), env)
+	mintCtx, cancelMint := context.WithTimeout(context.Background(), dbxNetTimeout)
+	defer cancelMint()
+	res, _, err := dbxMint(mintCtx, env)
 	if err != nil {
 		d.printf("%s: set up stopped at token check: %v\n", env, err)
 		return

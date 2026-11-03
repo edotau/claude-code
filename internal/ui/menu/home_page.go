@@ -4,16 +4,17 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
@@ -58,7 +59,7 @@ const webSearchKey = "TAVILY_API_KEY"
 
 func webSearchRow() homeRow {
 	state := "no key"
-	if _, _, ok := secretstore.Get(webSearchKey); ok {
+	if src, _ := secretstore.HasSecretErr(webSearchKey); src != "" { // presence only: no decrypt per render
 		state = "key set"
 	}
 	var wired []string

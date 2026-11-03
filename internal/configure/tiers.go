@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/codex"
-
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -56,12 +56,13 @@ var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
 // CopilotTier is the Copilot plan's sold name ("Pro+"); the raw copilot_plan when GitHub adds an unknown one.
 func CopilotTier() string { return providers.CopilotPlanName(CopilotRawPlan()) }
 
-// copilotPlanCache holds the one gh lookup per run; the plan does not change while configure is open.
+// copilotPlanCache holds one gh lookup per active gh account, so a sign-in or account switch mid-menu re-asks.
 var copilotPlanCache = map[string]string{}
 
 // CopilotRawPlan asks GitHub which Copilot plan the gh login holds ("individual_pro"; 3 s cap); "" when offline.
 func CopilotRawPlan() string {
-	if v, ok := copilotPlanCache["plan"]; ok {
+	account := copilot.GHActiveAccount()
+	if v, ok := copilotPlanCache[account]; ok {
 		return v
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -72,7 +73,7 @@ func CopilotRawPlan() string {
 	if out, err := copilotTierCmd(ctx); err == nil {
 		_ = json.Unmarshal(out, &u)
 	}
-	copilotPlanCache["plan"] = u.Plan
+	copilotPlanCache[account] = u.Plan
 	return u.Plan
 }
 

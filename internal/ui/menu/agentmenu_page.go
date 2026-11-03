@@ -3,6 +3,11 @@ package menu
 import (
 	"cmp"
 	"fmt"
+	"os"
+	"os/exec"
+	"slices"
+	"strings"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
@@ -15,10 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/vault"
-	"os"
-	"os/exec"
-	"slices"
-	"strings"
 )
 
 const (
@@ -392,12 +393,13 @@ func copilotContextLabel(val string) string {
 // clearIneligibleCopilotPins drops the effort/context pins a newly chosen model can't honor, after a
 // copilot model switch; each cleared pin prints the reason on one line.
 func clearIneligibleCopilotPins(d *dialog, modelID string) {
-	if cur := vault.GetAgentRecord("copilot").Effort; cur != "" {
+	rec := vault.GetAgentRecord("copilot")
+	if cur := rec.Effort; cur != "" {
 		if m, ok := copilotCatalogModel(d, modelID); ok && !slices.Contains(m.Efforts, cur) {
 			clearCopilotPin(d, "EFFORT", cur, modelID, "doesn't support that effort")
 		}
 	}
-	if cur := vault.GetAgentRecord("copilot").Context; cur != "" && !copilotContextEligible(d, modelID) {
+	if cur := rec.Context; cur != "" && !copilotContextEligible(d, modelID) {
 		clearCopilotPin(d, "CONTEXT", cur, modelID, "has no long-context tier")
 	}
 }

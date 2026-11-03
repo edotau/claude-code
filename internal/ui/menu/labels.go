@@ -3,12 +3,11 @@ package menu
 
 import (
 	"cmp"
-	"github.com/edotau/claude-code/internal/configure"
 	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/codex"
-
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
