@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // DefaultClientName identifies this host in the SDK's User-Agent.
@@ -67,7 +65,7 @@ func BuildClientOptions(o SDKOptions) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
-	base, _ := proc.ScrubAgent(os.Environ(), proc.EnvKeepSet(o.KeepEnv))
+	base := agent.EnvSpec{Mode: agent.EnvAgent, Keep: o.KeepEnv}.Environ(context.Background()) // no isolation here, as before
 	if o.multiProvider() {
 		if err := validateRegistryOptions(o); err != nil {
 			return nil, err
