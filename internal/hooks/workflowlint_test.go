@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -279,5 +280,24 @@ func TestAgentEffortRegistryDispatches(t *testing.T) {
 	code := RunArgs("PreToolUse", []string{"--dispatch-effort"}, strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
 	if code != ExitProceed {
 		t.Fatalf("RunArgs(PreToolUse, --dispatch-effort) on an Agent payload = %d, want ExitProceed", code)
+	}
+}
+
+// TestWorkflowLintAutoModeByNameUnderCwdBlocksWithScriptPath: auto mode can't review a rewritten call, so a
+// by-name call whose script is under the cwd is blocked with the scriptPath re-issue instruction.
+func TestWorkflowLintAutoModeByNameUnderCwdBlocksWithScriptPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "workflows", "gate-loop.js")
+	if err := os.WriteFile(path, []byte("agent('x', { model: 'sonnet' });\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := fmt.Sprintf(`{"tool_name":"Workflow","permission_mode":"auto","cwd":%q,"tool_input":{"name":"gate-loop"}}`, dir)
+	res := agentEffortResult(ParseInput(strings.NewReader(in)))
+	if res.Decision != Block || !strings.Contains(res.Reason, "scriptPath: "+fmt.Sprintf("%q", path)) {
+		t.Errorf("result = %+v, want a Block naming scriptPath %s", res, path)
 	}
 }

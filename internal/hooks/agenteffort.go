@@ -52,13 +52,18 @@ func agentEffortResult(in *Input) Result {
 		task = in.nested("tool_input", "description")
 	}
 
+	// auto mode's classifier returns no verdict on a rewritten call, so non-functional edits ride additionalContext
+	auto := in.nested("permission_mode") == "auto"
 	recallBlock, _ := agentRecall(in.SessionID, in.CWD, task)
-	changed := recallBlock != ""
-	if changed {
+	changed, recallNote := recallBlock != "", ""
+	if changed && auto {
+		changed, recallNote = false, "memory-recall for this dispatch (paste into the brief if relevant):"+recallBlock
+	} else if changed {
 		updated[promptField] = task + recallBlock
 	}
 
 	note, systemMessage := pinModel(in, updated, task)
+	changed = changed || note != ""
 	profileNote, deny := applyProfile(updated, promptField, task)
 	if deny != nil {
 		return *deny
@@ -72,23 +77,24 @@ func agentEffortResult(in *Input) Result {
 			base = rosterModel(in.nested("tool_input", "subagent_type"))
 		}
 		if pn, ps := applyPressure(in, updated, promptField, base); pn != "" {
-			note, systemMessage = strings.TrimSpace(note+" "+pn), strings.TrimSpace(systemMessage+"; "+ps)
+			note, systemMessage, changed = strings.TrimSpace(note+" "+pn), strings.TrimSpace(systemMessage+"; "+ps), true
 			systemMessage = strings.TrimPrefix(systemMessage, "; ")
 		}
 	}
-	if applyLabel(updated, task) {
+	if !auto && applyLabel(updated, task) {
 		changed = true
 	}
 	if hint := byokHint(in.nested("tool_input", "subagent_type"), task); hint != "" {
-		note = strings.TrimSpace(note + "\n" + hint)
+		note, changed = strings.TrimSpace(note+"\n"+hint), changed || !auto
 	}
-	if note != "" {
-		changed = true
+	note = strings.TrimSpace(note + "\n" + recallNote)
+	switch {
+	case changed:
+		return Result{UpdatedInput: updated, Context: note, SystemMessage: systemMessage}
+	case note != "":
+		return Result{Context: note, SystemMessage: systemMessage}
 	}
-	if !changed {
-		return Result{}
-	}
-	return Result{UpdatedInput: updated, Context: note, SystemMessage: systemMessage}
+	return Result{}
 }
 
 // applyLabel prefixes the description with the agents doing the work, minus the leaf's own type.
