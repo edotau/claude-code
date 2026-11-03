@@ -21,6 +21,8 @@
       "Bash(go build *)",
       "Bash(go vet *)",
       "Bash(go test *)",
+      "Bash(*/.claude/bin/rtk grep *)",
+      "Bash(*/.claude/bin/rtk ls *)",
       "Bash(make lint)",
       "Bash(make fmt)"
     ],
@@ -215,10 +217,11 @@
   "skipWorkflowUsageWarning": true,
   "theme": "auto",
   "preferredNotifChannel": "auto",
+  "idleCompaction": false,
   "switchModelsOnFlag": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": false,
   "useAutoModeDuringPlan": true,
   "autoConnectIde": false,
-  "idleCompaction": false
+  "fastMode": true
 }
