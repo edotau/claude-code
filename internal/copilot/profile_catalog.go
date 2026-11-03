@@ -25,7 +25,7 @@ func ListProfileModels(ctx context.Context, p *providers.Provider) ([]providers.
 	}
 	bin, err := paths.AgentBin("copilot")
 	if err != nil {
-		return nil, errors.New("Copilot CLI unavailable")
+		return nil, errors.New("copilot CLI unavailable")
 	}
 	token := GHToken(p.Login)
 	if token == "" {

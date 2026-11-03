@@ -98,7 +98,6 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader,
 		return false, fmt.Errorf("login: %w", err)
 	}
 	var detail string
-	loggedIn = true
 	v, detail, ok = checkSignin(ctx, s)
 	if !ok {
 		return true, fmt.Errorf("sign-in check timed out after %s; launching anyway", credCheckTimeout)

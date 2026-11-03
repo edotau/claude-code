@@ -211,7 +211,7 @@ func discoveryGet(ctx context.Context, p *Provider, u, source string) ([]byte, e
 	if source == "gemini-models" && p.Auth.Type == AuthKey {
 		token, err := Credential(ctx, p)
 		if err != nil {
-			return nil, errors.New("Gemini API credential unavailable")
+			return nil, errors.New("gemini API credential unavailable")
 		}
 		req.Header.Del("Authorization")
 		req.Header.Del("X-Api-Key")
