@@ -507,6 +507,7 @@ func launchFlags(name string) *flag.FlagSet {
 	helptext.NameVar(fs, new(string), "profile", profileUsage)
 	fs.Bool("direct", false, "skip the proxy; hand the CLI the profile route")
 	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")
+	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
 	if name == "codex" {
 		fs.String("f", "", "config.toml whose keys ride as -c overrides")
 	}
