@@ -1,11 +1,11 @@
 package menu
 
 import (
+	"context"
 	"os"
 
-	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -25,11 +25,13 @@ type firstParty struct {
 	loginDone, keyDone bool
 	loggedIn, keyOK    bool
 	plan               string
+	st                 providers.AuthState
 }
 
 func (f *firstParty) login() (loggedIn bool, plan string) {
 	if !f.loginDone {
-		f.loggedIn, f.plan = providers.ClaudeLoginStatus()
+		f.st = agent.AuthStatus("claude")
+		f.loggedIn, f.plan = f.st.Present, f.st.PlanHint
 		f.loginDone = true
 	}
 	return f.loggedIn, f.plan
@@ -50,14 +52,11 @@ func (f *firstParty) key() bool {
 func claudeMenu(d *dialog) agentMenu {
 	fp := &firstParty{reg: d.reg}
 	cur := configure.CurrentProvider(d.reg)
-	loggedIn, plan := fp.login()
+	loggedIn, _ := fp.login()
 	keyOK := fp.key()
-	tier := ""
-	if loggedIn {
-		tier = configure.ClaudeTier(plan)
-	}
+	tier := agent.AuthPlan(context.Background(), "claude", fp.st)
 	return agentMenu{claudeState(d, fp, cur, tier), []billingRow{
-		{"Subscription", "OAuth · plan limits · Remote Control " + Bracket(loggedIn, configure.WithTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "OAuth · plan limits · Remote Control " + Bracket(loggedIn, configure.WithTier("logged in", tier.Name), "not logged in"), modeSubscription, func() bool {
 			if !loggedIn {
 				if !d.shell().Confirm("Not logged in to claude.ai — run `claude auth login` now?") {
 					return false
@@ -89,7 +88,7 @@ func claudeMenu(d *dialog) agentMenu {
 }
 
 // claudeState is the pinned backend's mode and check; a non-anthropic pin shows by name.
-func claudeState(d *dialog, fp *firstParty, cur, tier string) agentState {
+func claudeState(d *dialog, fp *firstParty, cur string, tier providers.Subscription) agentState {
 	p, err := d.reg.Get(cur)
 	if err != nil {
 		return agentState{mode: billingLabel(d.reg, cur), verified: false}
@@ -100,10 +99,8 @@ func claudeState(d *dialog, fp *firstParty, cur, tier string) agentState {
 		return agentState{modeSubscription, tier, ok}
 	case p.Provider == anthropicProvider:
 		return agentState{mode: modeAPIKey, verified: fp.key() && configure.KeyVerified(p)}
-	case p.Auth.Login == "codex":
-		return agentState{mode: billingLabel(d.reg, cur), verified: codex.CodexChatGPTLoginPresent()}
-	case p.Auth.Login == "copilot":
-		return agentState{mode: billingLabel(d.reg, cur), verified: copilot.CopilotLoginPresent()}
+	case p.Auth.Login != "":
+		return agentState{mode: billingLabel(d.reg, cur), verified: agent.AuthStatus(p.Auth.Login).Present}
 	}
 	return agentState{mode: billingLabel(d.reg, cur), verified: configure.KeyVerified(p)}
 }

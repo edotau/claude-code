@@ -32,14 +32,14 @@ func TestModeLabelFormatsDefaultsAndFallsBack(t *testing.T) {
 	if got := modeLabel(d, "gemini", agentState{mode: modeSubscription}); got != "google subscription google ai pro" {
 		t.Errorf("antigravity label = %q", got)
 	}
-	if got := modeLabel(d, "codex", agentState{mode: modeSubscription, tier: "Plus"}); got != "openai subscription plus" {
+	if got := modeLabel(d, "codex", agentState{mode: modeSubscription, tier: providers.Subscription{Name: "Plus"}}); got != "openai subscription plus" {
 		t.Errorf("codex label (detected tier, vendor default) = %q", got)
 	}
-	if got := modeLabel(d, "copilot", agentState{mode: modeSubscription, tier: "Pro+"}); got != "subscription (Pro+)" {
+	if got := modeLabel(d, "copilot", agentState{mode: modeSubscription, tier: providers.Subscription{Name: "Pro+"}}); got != "subscription (Pro+)" {
 		t.Errorf("unlisted agent = %q, want today's label", got)
 	}
 	reg.AgentPlanFormat = "{tier} · {provider}"
-	if got := modeLabel(d, "copilot", agentState{mode: modeSubscription, tier: "Pro+"}); got != "Pro+ · GitHub" {
+	if got := modeLabel(d, "copilot", agentState{mode: modeSubscription, tier: providers.Subscription{Name: "Pro+"}}); got != "Pro+ · GitHub" {
 		t.Errorf("a set format applies to every agent, verbatim: %q", got)
 	}
 }

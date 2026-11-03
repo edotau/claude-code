@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -42,7 +40,7 @@ func modeLabel(d *dialog, name string, st agentState) string {
 		format, lower = defaultPlanFormat, true
 	}
 	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentMaker[name]), "{mode}", st.mode,
-		"{tier}", cmp.Or(plan.Tier, st.tier), "{id}", id).Replace(format)
+		"{tier}", cmp.Or(plan.Tier, st.tier.Name), "{id}", id).Replace(format)
 	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
 	if lower {
 		out = strings.ToLower(out)
@@ -84,13 +82,5 @@ func rawPlanID(d *dialog, name string, st agentState) string {
 		}
 		return ""
 	}
-	switch name {
-	case "claude":
-		return configure.ClaudeRateTier()
-	case "codex":
-		return codex.CodexPlan()
-	case "copilot":
-		return configure.CopilotRawPlan()
-	}
-	return ""
+	return st.tier.Raw
 }
