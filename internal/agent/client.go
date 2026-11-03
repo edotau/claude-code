@@ -123,9 +123,10 @@ type clientUsageError struct{ error }
 func (clientUsageError) ExitCode() int { return 2 }
 
 func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
+	var reg *providers.Registry // loaded once when a provider is named; explicit reuses it
 	if o.Provider != "" {
-		reg, err := providers.Load()
-		if err != nil {
+		var err error
+		if reg, err = providers.Load(); err != nil {
 			return Chain{}, err
 		}
 		if _, err := reg.Get(o.Provider); err != nil {
@@ -133,7 +134,7 @@ func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, erro
 		}
 	}
 	if ExplicitBackend(o) {
-		return c.explicit(r, o)
+		return c.explicit(reg, r, o)
 	}
 	if err := ctx.Err(); err != nil {
 		return Chain{}, err
@@ -143,12 +144,9 @@ func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, erro
 	return chain, err
 }
 
-func (c *Client) explicit(r Engine, o RunOptions) (Chain, error) {
+// explicit builds the chain for a named backend; reg is route's registry, non-nil whenever o.Provider is set.
+func (c *Client) explicit(reg *providers.Registry, r Engine, o RunOptions) (Chain, error) {
 	if o.Provider != "" && !o.Native && IsHubAgent(o.Agent) {
-		reg, err := providers.Load()
-		if err != nil {
-			return Chain{}, err
-		}
 		if p, err := reg.Get(o.Provider); err != nil || p.OpencodeID != "" {
 			start, err := HubStart(reg, o.Agent, o.Provider)
 			if err != nil {
