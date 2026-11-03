@@ -135,6 +135,7 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 // TestOpencodeOverlayModelsFollowTable checks the opencode overlay's model/small_model are the table's opencode cells,
 // with a vault route override reaching only the overridden cell.
 func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
+	isolateOpencodeRouteEnv(t) // the host's copilot-only login would swap in github-copilot/ ids
 	vaulttest.Use(t)
 	render := func() map[string]any {
 		_, body, _, _, err := agentconfig.OpencodeOverlayRendered()
