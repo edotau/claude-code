@@ -4,6 +4,7 @@ package settings
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,10 +12,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+//go:embed settings.template.json
+var templateJSON []byte
 
 // Section groups the default keys shown under one configure-page header.
 type Section struct {
@@ -31,9 +34,9 @@ var (
 // Sections groups the editable keys by section: the defaults file's scalar keys and env variables first,
 // then every sectioned catalog key the file lacks, so a key removed from the file stays on the page.
 func Sections() ([]Section, error) {
-	o, err := parseObject(defaults.Claude)
+	o, err := parseObject(templateJSON)
 	if err != nil {
-		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
+		return nil, fmt.Errorf("internal/settings/settings.template.json: %w", err)
 	}
 	by := map[string][]string{}
 	seen := map[string]bool{}
@@ -47,7 +50,7 @@ func Sections() ([]Section, error) {
 		if k == "env" {
 			env, err := parseObject(o.vals[k])
 			if err != nil {
-				return nil, fmt.Errorf("defaults/claude/settings.json env: %w", err)
+				return nil, fmt.Errorf("internal/settings/settings.template.json env: %w", err)
 			}
 			for _, e := range env.keys {
 				if _, ok := FieldFor(e); ok && !CredentialKey(e) {
@@ -85,10 +88,10 @@ func Sections() ([]Section, error) {
 
 // loadDefaults parses the embedded defaults file, expanding ${HOOK_BIN}.
 func loadDefaults() (*object, error) {
-	expanded := strings.ReplaceAll(string(defaults.Claude), "${HOOK_BIN}", HookBin)
+	expanded := strings.ReplaceAll(string(templateJSON), "${HOOK_BIN}", HookBin)
 	o, err := parseObject([]byte(expanded))
 	if err != nil {
-		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
+		return nil, fmt.Errorf("internal/settings/settings.template.json: %w", err)
 	}
 	return o, nil
 }

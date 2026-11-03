@@ -498,7 +498,7 @@ func scanHelpGuard(t *testing.T, root string) []guardFinding {
 	t.Helper()
 	fset := token.NewFileSet()
 	byDir := map[string][]*ast.File{}
-	for _, src := range []string{"cmd", "defaults", "internal"} {
+	for _, src := range []string{"cmd", "internal"} {
 		err := filepath.WalkDir(filepath.Join(root, src), func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return err

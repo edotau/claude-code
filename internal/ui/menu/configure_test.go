@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -673,7 +672,7 @@ func TestSettingRowFitsEightyColumns(t *testing.T) {
 // value, plus the "default"/"vault" source suffix — stays <=80 cols.
 func TestRoutingRowFitsEightyColumns(t *testing.T) {
 	var labels []string
-	for _, m := range agentconfig.Modules() {
+	for _, m := range settings.Modules() {
 		for _, f := range m.Fields() {
 			labels = append(labels, f.Key)
 		}
@@ -687,7 +686,7 @@ func TestRoutingRowFitsEightyColumns(t *testing.T) {
 			FreeFirstOutput: "90s",
 		},
 	}
-	for _, m := range agentconfig.Modules() {
+	for _, m := range settings.Modules() {
 		for _, f := range m.Fields() {
 			detail := f.Get(worst) + "  " + routingSource(f, worst)
 			if w := rowRenderedWidth(labels, detail); w > 80 {
