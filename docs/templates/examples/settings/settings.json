@@ -43,6 +43,8 @@
       "Bash(go build *)",
       "Bash(go vet *)",
       "Bash(go test *)",
+      "Bash(*/.claude/bin/rtk grep *)",
+      "Bash(*/.claude/bin/rtk ls *)",
       "Bash(make lint)",
       "Bash(make fmt)"
     ],
