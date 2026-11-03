@@ -9,7 +9,6 @@ import (
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -85,22 +84,7 @@ func agentNames() []string {
 	return out
 }
 
-// secretNames unions every env var the harness itself reads (each enabled provider's auth.env, the
-// setup-token) with the names index `vault set` has already written — never a hand copy of either.
-func secretNames() []string {
-	var out []string
-	if reg, err := providers.Load(); err == nil {
-		for _, n := range reg.Names() {
-			if env := reg.Providers[n].Auth.Env; env != "" {
-				out = append(out, env)
-			}
-		}
-	}
-	out = append(out, providers.OAuthTokenEnv)
-	out = append(out, secretstore.Names()...)
-	slices.Sort(out)
-	return slices.Compact(out)
-}
+func secretNames() []string { return providers.SecretNames() }
 
 func memoryRepoNames() []string { return memstore.RepoKeys() }
 
