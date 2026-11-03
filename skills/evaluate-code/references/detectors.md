@@ -1,178 +1,74 @@
-# Detectors — full CLI reference
+# Detectors — `claude-code review` reference
 
-All detectors are `claude-code review <sub>` verbs — same flags as the scripts they replaced.
-All are **advisory** and **exit 0** (never a hard gate) except where noted. All structured
-output is `--json`, except `gate` (`enforcement-patterns.md`) — the aggregate
-wrapper that runs them on staged files and prints findings; it takes no `--json` of its own.
+Advisory: findings never fail a verb, and `gate` always exits 0. Structured output is `--json` (`gate` has none).
+Flags below are from `claude-code review <tool> -h`; run the mechanical gate first
+(`rules/standards/quality.md` → Verification Order).
 
 ## Detector index
 
-| Verb (`claude-code review …`) | Principle / role | Flags |
+| Verb (`claude-code review …`) | Role | Usage |
 |---|---|---|
-| `complexity` | #2 Simplicity | complexity/length/nesting, class density, premature ABC/Protocol |
-| `diff` | #3 Surgical | whitespace/comment churn, docstring adds, quote-style swaps |
-| `assumptions` | #1 Think | minimizing language, hopeful phrasing, absolute scope, missing verification |
-| `goals` | #4 Goal | plan steps scored 0–3 on verification quality; missing final check |
-| `quality` | quality | smells, SOLID violations, 0–100 score (6 languages) |
-| `pr` | triage | file-risk categorization, commit-message lint, complexity score |
-| `report` | orchestration | combines pr + quality into one report (text/md/json) |
+| `complexity` | #2 Simplicity | `<targets...> [--threshold strict\|medium\|relaxed] [--ext py,ts,tsx,js,jsx,go]` |
+| `diff` | #3 Surgical | `[--diff <range>] [--file <saved.diff>]`; default is the staged diff |
+| `assumptions` | #1 Clarify | `[plan.md\|-]`; plan text only (stdin default) |
+| `goals` | #4 Goal-driven | `[plan.md\|-]`; plan text only (stdin default) |
+| `quality` | smells, SOLID | `<file\|dir> [-l <language>] [-o FILE]` |
+| `pr` | triage | `[repo] [-b main] [--head HEAD] [-o FILE]` |
+| `report` | pr + quality | `[repo] [-f text\|markdown\|json] [--pr-analysis F] [--quality-analysis F] [-o FILE]` |
+| `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …]` |
+| `gate` | staged-change summary | `[--repo DIR]` |
 
----
+## What each reports
 
-Run the mechanical gate first — `rules/standards/quality.md` → Verification Order (step 1).
+- **complexity** — per-function cyclomatic complexity, length and nesting; per-file import count, class density,
+  premature ABC/Protocol, file length. Verdict `PASS`/`WARN`/`FAIL`, 0–100 per file. Thresholds: `strict` (new code),
+  `medium` (default), `relaxed` (legacy).
+- **diff** — whitespace-only, comment-only, docstring-addition and quote-style-swap lines; a noise ratio:
+  `CLEAN` (<10%), `NOISY` (<30%), `VERY_NOISY`.
+- **assumptions** — minimizing language ("just"), "obviously", hopeful phrasing ("should work"), absolute scope
+  ("all users"), vague verbs, unscoped subjects, numbered plans with no verification. Verdict
+  `CLEAN`/`REVIEW`/`CLARIFY`; heuristic, so false positives are expected.
+- **goals** — each plan step 0–3: `3` runnable check (assert/pytest/exit 0/curl/grep), `2` manual check, `1` vague,
+  `0` none; also checks for a final end-to-end step. Verdict `STRONG` (≥70%), `WEAK` (≥40%), `MISSING`.
+- **quality** — long functions, many parameters, god classes, magic numbers, commented-out code, SOLID signals,
+  0–100 score. Regex-based: breadth over precision; prefer `complexity` for per-function metrics.
+- **pr** — files by path risk (auth/security → critical), risky added lines (secrets, SQL concatenation, debugger,
+  `any`, eslint-disable), conventional-commit lint, a 1–10 complexity score and review order. Needs a git repo.
+- **report** — verdict (`approve` … `block`), 0–100 score, P0–P2 actions, findings by severity.
 
----
-
-## `claude-code review complexity` — Principle #2 (Simplicity First)
-
-Detects over-engineering. Python is analyzed via an indentation/keyword estimate (not an
-AST); TS/JS use the same heuristics as before. Go files are not analyzed.
-
-```text
-claude-code review complexity <targets...> [--threshold strict|medium|relaxed]
-                                            [--ext py,ts,tsx,js,jsx] [--json]
-```
-
-Checks: per-function cyclomatic complexity, function length, nesting depth; per-file import
-count, class density, premature ABC/Protocol in small files, file length.
-
-Thresholds: `strict` (new code) · `medium` (default) · `relaxed` (legacy). Verdict:
-`PASS` / `WARN` / `FAIL`. Each file gets a 0–100 score.
+`assumptions` and `goals` feed the `Plan` agent's self-review (`agents/Plan.md`); never point them at source files.
 
 ```bash
 claude-code review complexity src/auth/ --threshold strict --json
-```
-
----
-
-## `claude-code review diff` — Principle #3 (Surgical Changes)
-
-Flags changed lines that don't trace to the stated goal.
-
-```text
-claude-code review diff [--diff <range>] [--file <saved.diff>] [--json]
-```
-
-Default reads `git diff --cached`. Flags: whitespace-only, comment-only, docstring
-additions, quote-style swaps. Reports a **noise ratio** → `CLEAN` (<10%) / `NOISY` (<30%) /
-`VERY_NOISY`. Usage errors exit 2; a missing `--file` exits 1; findings themselves stay exit 0.
-
-```bash
-claude-code review diff                       # staged
 claude-code review diff --diff HEAD~3..HEAD
-```
-
-### Manual review cues (things the detector can't flag)
-
-Two recurring "change doesn't trace to the goal" failure modes that no automated detector
-catches — check them by hand on any diff:
-
-- **Off-topic mass deletion / clobber.** A large deletion or wholesale rewrite in a file
-  whose commit subject is about something else (docs replaced inside a `fix: cicd`
-  commit; a config file gutted in a feature commit) is a red flag for an *accidental
-  overwrite*, often by boilerplate from an upstream tool. When `git diff --stat` shows a
-  big deletion the commit message doesn't mention, diff the actual content and confirm
-  intent before accepting it. Recover with `git show <commit>~1:<path> > <path>` if
-  clobbered.
-- **Duplicate that reintroduces the bug a guard prevented.** When a diff adds a
-  top-of-module side-effecting call (`torch.serialization.add_safe_globals`,
-  `warnings.filterwarnings`, a monkeypatch, an env swap), grep the same module for an
-  existing *guarded* version first. A common hasty-patch failure is adding an *unguarded*
-  duplicate above a properly guarded one — it both duplicates the effect and re-opens the
-  crash/edge-case the guard was defending against.
-- **Declared-but-unwired config variables.** In declarative infra (DAB, Terraform, any
-  config DSL), a variable that's declared and passed but never `${var.x}`-referenced is
-  the config analogue of dead code. It escapes `validate` gates because defaults satisfy
-  them — only a "declared vs referenced" grep catches it.
-
----
-
-## `claude-code review assumptions` — Principle #1 (Clarify Assumptions)
-
-Reads a markdown plan (or stdin) and flags hidden assumptions.
-
-```text
-claude-code review assumptions [plan.md|-] [--json]
-```
-
-Flags: minimizing language ("just", "simply"), unstated assumptions ("obviously"), hopeful
-phrasing ("should work"), absolute scope ("all users", "always"), vague action verbs,
-unscoped subjects ("the user"), numbered plan blocks with no verification step. Verdict:
-`CLEAN` / `REVIEW` / `CLARIFY`. Heuristic — false positives expected; the point is to start
-a conversation about assumptions before coding.
-
-```bash
 echo "I'll just export all user data" | claude-code review assumptions -
 ```
 
-**Consumer: the `Plan` agent** (`agents/Plan.md`) — its self-review pipes drafted plans through
-this detector and `review goals`. Both analyze **plan text via stdin (`-`) or a plan .md**,
-never code files — don't point them at source files.
+## Manual review cues (no detector flags these)
 
----
+- **Off-topic mass deletion or clobber** — a large deletion or rewrite in a file the commit subject is not about
+  (docs replaced inside a `fix: cicd` commit) is an accidental overwrite until `git diff --stat` and the content say
+  otherwise. Recover with `git show <commit>~1:<path> > <path>`.
+- **Unguarded duplicate of a guarded side effect** — a new top-of-module call (`add_safe_globals`,
+  `filterwarnings`, a monkeypatch, an env swap): grep the module for an existing guarded version first.
+- **Declared-but-unwired config variable** — in declarative infra (DAB, Terraform), a variable passed but never
+  referenced (`${var.x}`) is dead code that `validate` cannot see; grep declared against referenced.
 
-## `claude-code review goals` — Principle #4 (Goal-Driven Execution)
+## Enforcement levels
 
-Scores each plan step 0–3 on verification quality.
+The gate is opt-in by design and not in the generated `settings.json`; higher levels catch more at more friction.
 
-```text
-claude-code review goals [plan.md|-] [--json]
-```
+| Level | Mechanism | Setup |
+|---|---|---|
+| 1 Passive | the skill loads as context | none |
+| 2 Active | `/code-review` before commit: diff scope, detectors, quality + security lenses, verdict | a command (default) |
+| 3 Gate | `claude-code review gate` on staged files; awareness only, never blocks | git pre-commit or a PreToolUse hook |
+| 4 CI | detectors as PR checks; fail the job yourself, since the verbs exit 0 | CI config |
 
-Scoring: `3` concrete runnable check (assert/pytest/exit 0/status 200/curl/grep) · `2`
-manual check (verify/confirm/inspect) · `1` vague ("should work") · `0` none. Also checks
-for a final/end-to-end step. Verdict: `STRONG` (≥70%) / `WEAK` (≥40%) / `MISSING`.
-
-```bash
-claude-code review goals implementation-plan.md --json
-```
-
----
-
-## `claude-code review quality` — quality (smells + SOLID)
-
-Multi-language smells, SOLID violations, and a 0–100 quality score.
-
-```text
-claude-code review quality <file|dir> [--language python|typescript|javascript|go|swift|kotlin]
-                                       [--json] [--output FILE]
-```
-
-Smells: long functions, too many parameters, high complexity, god classes, magic numbers,
-commented-out code. SOLID: OCP (type-checking), LSP/ISP (NotImplementedError), DIP
-(import-heavy). **Exit code 1** if the target path does not exist (else 0).
-
-> For precise per-function Python metrics prefer `review complexity`. `review quality` is
-> regex-based across 6 languages — better breadth, lower per-function precision.
-
----
-
-## `claude-code review pr` — triage
-
-Risk-categorizes a PR's changed files and lints commit messages. **Requires a git repo**
-(exit 1 if not).
-
-```text
-claude-code review pr [repo_path] [--base main] [--head HEAD] [--json] [--output FILE]
-```
-
-Categorizes files critical/high/medium/low by path (auth/security → critical), scans added
-lines for risky patterns (hardcoded secrets, SQL concatenation, debugger, console.log, `any`
-type, eslint-disable), validates conventional-commit format, and emits a 1–10 complexity
-score with a suggested review order.
-
----
-
-## `claude-code review report` — orchestration
-
-Combines `review pr` + `review quality` into one report.
-
-```text
-claude-code review report [repo_path] [--format text|markdown|json]
-                           [--pr-analysis pr.json] [--quality-analysis quality.json]
-                           [--output FILE]
-```
-
-Produces a verdict (`approve` / `approve_with_suggestions` / `request_changes` / `block`), a
-0–100 score, prioritized P0–P2 action items, and findings grouped by severity. **Exit 1**
-if the path does not exist.
+- **Level 3, git:** `printf '#!/bin/sh\nexec claude-code review gate\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`.
+- **Level 3, PreToolUse:** declare it in `internal/settings/hookspec.go` (matcher `Bash`, command
+  `claude-code review gate`), then `claude-code install`; never hand-edit `settings.json`.
+- **Level 4:** parse the JSON verdict, for example
+  `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`,
+  and `claude-code review diff --diff origin/main...HEAD --json`. Choose `FAIL` only or `WARN` too per team
+  tolerance; for a regulated repo also fail on CRITICAL/HIGH from the security pass.

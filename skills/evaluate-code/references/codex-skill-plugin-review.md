@@ -32,13 +32,8 @@ Run by any reviewer; on codex via `claude-code codex ask "<the mode section belo
 ### Priority Recommendations   1. … 2. … 3. …
 ```
 
-### SKILL edge cases
-
-Clean description → focus on content/organization. >5,000 words → strongly recommend splitting into
-`references/`. Minimal new skill → constructive building guidance. Missing referenced files →
-report with paths.
-
----
+Edge cases: clean description → focus on content; >5,000 words → recommend splitting into `references/`; missing
+referenced files → report with paths.
 
 ## PLUGIN mode
 
@@ -73,8 +68,5 @@ report with paths.
 ### Overall Assessment [PASS/FAIL] - [reasoning]
 ```
 
-### PLUGIN edge cases
-
-Minimal plugin (just the manifest) → valid if manifest correct. Empty dirs / unknown manifest
-fields → warn, don't fail. Multiple errors → group by file, prioritize critical. Plugin not found →
-clear error + guidance. Corrupted files → skip, report, continue.
+Edge cases: a manifest-only plugin is valid if the manifest is correct; empty dirs and unknown manifest fields warn,
+never fail; group multiple errors by file; skip corrupted files, report them and continue.

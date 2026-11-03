@@ -100,7 +100,7 @@ Then push the current branch (CLAUDE.md hard rule 5) — `commit` does not push.
 | Bug fix (LOW) | fix → live re-run → regression test → `@agent-copilot commit` |
 | One-module feature (MEDIUM) | review → plan → implement → verify (simplify is its step 5) → commit |
 | Cross-module feature (HIGH) | review → orchestrate `[--refine]` → verify → commit |
-| Tech debt | `skills/evaluate-code/references/techdebt.md` |
+| Tech debt | `skills/evaluate-code/SKILL.md` → Tech debt |
 | Review current changes | `/code-review` (security is an `evaluate-code` lens, not an agent) |
 | Second opinion | `@agent-codex` |
 
