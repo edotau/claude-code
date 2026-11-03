@@ -69,10 +69,23 @@ func Release() {
 
 // ClaimRestart takes the watchdog restart slot; false while held, or when another restart was claimed within restartRetry.
 func ClaimRestart(now time.Time) bool {
+	path := filepath.Join(paths.StateDir(), "proxy.restart-claim")
+	claimed, ran := false, false
+	err := paths.WithFileLock(path, func() error { // check-and-stamp under one lock: concurrent refreshes claim once
+		claimed, ran = claimRestartLocked(path, now), true
+		return nil
+	})
+	if err != nil && !ran { // best effort: an unlockable state dir must not stop the restart
+		return claimRestartLocked(path, now)
+	}
+	return claimed
+}
+
+// claimRestartLocked is ClaimRestart's check-and-stamp; the caller holds the claim lock when it can.
+func claimRestartLocked(path string, now time.Time) bool {
 	if _, err := os.Stat(heldPath()); err == nil {
 		return false
 	}
-	path := filepath.Join(paths.StateDir(), "proxy.restart-claim")
 	if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < restartRetry {
 		return false
 	}

@@ -327,8 +327,8 @@ func TestStreamChat(t *testing.T) {
 			},
 		},
 		{
-			name: "empty stream still closes",
-			in:   ": ping\n\n",
+			name: "empty stream with [DONE] still closes",
+			in:   ": ping\n\ndata: [DONE]\n\n",
 			want: []string{
 				msgStart,
 				`message_delta {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":0}}`,

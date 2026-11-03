@@ -42,7 +42,7 @@ func parsePassthrough(path string) (provider, dialect, rest string, ok bool) {
 	return "", "", "", false
 }
 
-// passthrough forwards a same-dialect request verbatim to the provider's route with egress auth.
+// passthrough forwards a same-dialect request to the provider's route with egress auth and model body fixes.
 func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, dialect, rest string) {
 	start := r.now()
 	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
@@ -162,7 +162,10 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 	}
 	extra = passthroughDiag(resp)
 	if geminiChat && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
-		resp = flattenGeminiResponse(resp)
+		if err := flattenGeminiResponse(resp); err != nil {
+			writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
+			return model, extra
+		}
 	}
 	var tail *tailBuffer
 	if metered(p) && in.Method == http.MethodPost && resp.StatusCode == http.StatusOK && dialect != providers.ProtocolGemini {
@@ -180,16 +183,19 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 }
 
 // flattenGeminiResponse buffers a non-stream Gemini chat reply and joins its content parts into one string.
-func flattenGeminiResponse(resp *http.Response) *http.Response {
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+func flattenGeminiResponse(resp *http.Response) error {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	_ = resp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("read upstream reply: %w", err)
+	}
+	if len(raw) > maxBody {
+		return fmt.Errorf("upstream reply exceeds %d bytes", maxBody)
+	}
 	out := translate.FlattenChatContent(raw)
 	resp.Body, resp.ContentLength = io.NopCloser(bytes.NewReader(out)), int64(len(out))
 	resp.Header.Del("Content-Length")
-	if err != nil {
-		resp.Header.Set("Connection", "close")
-	}
-	return resp
+	return nil
 }
 
 // geminiTools strips the schema keys Google rejects from every tool's parameters; false when none changed.

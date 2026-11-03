@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,30 @@ func invalidToken(resp *http.Response, p *providers.Provider) bool {
 		io.Closer
 	}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
 	return providers.IsInvalidTokenResponse(p, resp.StatusCode, peek)
+}
+
+// credentialMarkers are lower-cased 403 body fragments naming a refused credential, not a policy or WAF block.
+var credentialMarkers = []string{"invalid_token", "invalid_grant", "invalid_client", "invalid access token",
+	"invalid token", "expired_token", "expired token", "token expired", "token has expired", "token is expired"}
+
+// rejectedAfterRemint reports a 401, a 400 Invalid Token, or a 403 whose body or WWW-Authenticate names the credential.
+func rejectedAfterRemint(resp *http.Response, p *providers.Provider) bool {
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return true
+	case http.StatusForbidden:
+		if strings.Contains(strings.ToLower(resp.Header.Get("WWW-Authenticate")), "invalid_token") {
+			return true
+		}
+		peek, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		resp.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+		low := strings.ToLower(string(peek))
+		return slices.ContainsFunc(credentialMarkers, func(m string) bool { return strings.Contains(low, m) })
+	}
+	return invalidToken(resp, p)
 }
 
 // failover marks denied models dead, cools rate-limited providers, and drains responses when moving on.
@@ -106,7 +131,7 @@ func tooLong(resp *http.Response) bool {
 func retryAfter(v string, now time.Time) time.Duration {
 	d := defaultCooldown
 	if s, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && s > 0 {
-		d = time.Duration(s) * time.Second
+		d = time.Duration(min(s, int(maxCooldown/time.Second))) * time.Second // clamp first: a huge value would overflow
 	} else if at, err := http.ParseTime(v); err == nil && at.After(now) {
 		d = at.Sub(now)
 	}
@@ -119,12 +144,17 @@ func (r *Router) registry() (*providers.Registry, error) {
 	if fi, err := os.Stat(vault.Path()); err == nil {
 		stamp = fi.ModTime()
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.reg != nil && stamp.Equal(r.regStamp) {
-		return r.reg, nil
+	if reg, ok := r.cachedRegistry(stamp); ok {
+		return reg, nil
+	}
+	r.regLoad.Lock() // one load at a time, without r.mu: a slow vault decrypt must not stall every request
+	defer r.regLoad.Unlock()
+	if reg, ok := r.cachedRegistry(stamp); ok { // another caller loaded it while this one waited
+		return reg, nil
 	}
 	reg, err := providers.Load()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err != nil {
 		if r.reg == nil {
 			return nil, err
@@ -135,6 +165,13 @@ func (r *Router) registry() (*providers.Registry, error) {
 	}
 	r.reg, r.regStamp = reg, stamp
 	return reg, nil
+}
+
+// cachedRegistry returns the loaded table when it matches the vault stamp.
+func (r *Router) cachedRegistry(stamp time.Time) (*providers.Registry, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.reg, r.reg != nil && stamp.Equal(r.regStamp)
 }
 
 func presentedSecret(req *http.Request) string {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -125,22 +126,16 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 	tok := sessionTokenPf + hex.EncodeToString(b)
 	now := s.now()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	pruned := false
-	for k, v := range s.m {
-		if !now.Before(v.expires) {
-			delete(s.m, k)
-			pruned = true
-		}
-	}
+	pruned := s.pruneExpiredLocked(now)
+	var probe map[string]*session
 	if len(s.m) >= sessionMax { // exited-but-unexpired sessions must not block a new mint
-		for k, v := range s.m {
-			if !s.stillBound(v) {
-				delete(s.m, k)
-				pruned = true
-			}
-		}
+		probe = maps.Clone(s.m)
 	}
+	s.mu.Unlock()
+	dead := s.unbound(probe)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pruned = s.dropLocked(dead) || pruned
 	if len(s.m) >= sessionMax {
 		if pruned {
 			_ = s.saveLocked()
@@ -168,21 +163,18 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	if !strings.HasPrefix(tok, sessionTokenPf) || profile == "" {
 		return false
 	}
-	now := s.now()
+	now, hash := s.now(), sessionHash(tok)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var ses *session
-	hash := sessionHash(tok)
-	for k, v := range s.m { // constant-time compare, no map lookup keyed on the presented bytes
-		if subtle.ConstantTimeCompare([]byte(k), []byte(hash)) == 1 {
-			ses = v
-		}
-	}
+	ses := s.findLocked(hash)
 	if ses == nil {
 		return false
 	}
 	recheck := now.Sub(ses.checked) >= sessionVerify
-	if !now.Before(ses.expires) || (recheck && !s.stillBound(ses)) {
+	if recheck && now.Before(ses.expires) && !s.probeUnlocked(hash, ses) {
+		return false
+	}
+	if !now.Before(ses.expires) {
 		delete(s.m, hash)
 		_ = s.saveLocked()
 		return false
@@ -197,31 +189,87 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	return true
 }
 
+// probeUnlocked checks ses's process without mu; false if ses was dropped meanwhile, an exited process expires ses.
+func (s *sessionStore) probeUnlocked(hash string, ses *session) bool {
+	s.mu.Unlock()
+	bound := s.stillBound(ses)
+	s.mu.Lock()
+	if s.findLocked(hash) != ses {
+		return false
+	}
+	if !bound {
+		ses.expires = time.Time{}
+	}
+	return true
+}
+
+// findLocked returns the session for hash by constant-time compare, no map lookup keyed on the presented bytes.
+func (s *sessionStore) findLocked(hash string) *session {
+	var ses *session
+	for k, v := range s.m {
+		if subtle.ConstantTimeCompare([]byte(k), []byte(hash)) == 1 {
+			ses = v
+		}
+	}
+	return ses
+}
+
 // slideLocked renews ses's TTL and persists the new expiry once it leads the saved one by sessionPersist.
 func (s *sessionStore) slideLocked(ses *session, now time.Time) {
 	ses.expires = now.Add(sessionTTL)
-	if ses.expires.Sub(ses.saved) >= sessionPersist {
+	if ses.expires.Sub(ses.saved) >= sessionPersist && s.saveLocked() == nil { // a failed write retries next request
 		ses.saved = ses.expires
-		_ = s.saveLocked()
 	}
 }
 
 // count reports live tokens, pruning expired tokens and tokens whose bound process has exited.
 func (s *sessionStore) count() int {
 	s.mu.Lock()
+	pruned := s.pruneExpiredLocked(s.now())
+	probe := maps.Clone(s.m)
+	s.mu.Unlock()
+	dead := s.unbound(probe) // procStart may exec ps (darwin): never under mu
+	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.now()
-	pruned := false
-	for hash, ses := range s.m {
-		if !now.Before(ses.expires) || !s.stillBound(ses) {
-			delete(s.m, hash)
-			pruned = true
-		}
-	}
-	if pruned {
+	if s.dropLocked(dead) || pruned {
 		_ = s.saveLocked()
 	}
 	return len(s.m)
+}
+
+// pruneExpiredLocked drops expired sessions and reports whether any went.
+func (s *sessionStore) pruneExpiredLocked(now time.Time) bool {
+	pruned := false
+	for k, v := range s.m {
+		if !now.Before(v.expires) {
+			delete(s.m, k)
+			pruned = true
+		}
+	}
+	return pruned
+}
+
+// unbound probes each session's process without mu and returns those whose process exited or was reused.
+func (s *sessionStore) unbound(probe map[string]*session) map[string]*session {
+	dead := map[string]*session{}
+	for hash, ses := range probe {
+		if !s.stillBound(ses) {
+			dead[hash] = ses
+		}
+	}
+	return dead
+}
+
+// dropLocked deletes each dead session still mapped to the same pointer and reports whether any went.
+func (s *sessionStore) dropLocked(dead map[string]*session) bool {
+	dropped := false
+	for hash, ses := range dead {
+		if s.m[hash] == ses {
+			delete(s.m, hash)
+			dropped = true
+		}
+	}
+	return dropped
 }
 
 func (s *sessionStore) stillBound(ses *session) bool {

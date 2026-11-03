@@ -215,11 +215,16 @@ func TestPassthroughForwardsClientLogin(t *testing.T) {
 		}
 		ok(w, r, n)
 	})
+	sub.Close() // the client login reaches only the https anthropicHost origin
+	sub.Server = httptest.NewTLSServer(sub.Config.Handler)
+	t.Cleanup(sub.Close)
+	pointAnthropicHostAt(t, sub.URL)
 	gem := newUpstream(t, ok)
 	t.Setenv("GEM_KEY", "gem-key")
-	srv := setup(t, `{"default":"sub","fallback":["gem"],"providers":{"anthropic":{
+	srv := setupRouter(t, `{"default":"sub","fallback":["gem"],"providers":{"anthropic":{
 		"sub":{"protocol":"anthropic","base_url":"`+sub.URL+`","auth":{"type":"cli"},"models":{"opus":"m"}},
-		"gem":{"protocol":"anthropic","base_url":"`+gem.URL+`","auth":{"type":"key","header":"bearer","env":"GEM_KEY"},"models":{"opus":"g"}}}}}`)
+		"gem":{"protocol":"anthropic","base_url":"`+gem.URL+`","auth":{"type":"key","header":"bearer","env":"GEM_KEY"},"models":{"opus":"g"}}}}}`,
+		func(r *Router) { r.client = sub.Client() })
 	login := map[string]string{"X-Api-Key": "", proxy.ClientHeader: secret, "Authorization": "Bearer oauth-tok"}
 
 	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {

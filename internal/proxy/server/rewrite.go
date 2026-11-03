@@ -110,14 +110,17 @@ var hopHeaders = map[string]bool{
 	"Te": true, "Trailer": true, "Transfer-Encoding": true, "Upgrade": true, "Content-Length": true,
 }
 
-// passthroughAuth sets the client's login on h, else the sealed subscription token (with its OAuth beta).
+// passthroughAuth sets the client's login on h, else the sealed subscription token, only for anthropicHost routes.
 func (r *Router) passthroughAuth(h http.Header, in *http.Request, route string) {
+	if !anthropicOrigin(route) {
+		return
+	}
 	if a := in.Header.Get("Authorization"); a != "" {
 		h.Set("Authorization", a)
 		return
 	}
 	tok := r.oauthToken()
-	if tok == "" || !anthropicOrigin(route) {
+	if tok == "" {
 		return
 	}
 	h.Set("Authorization", "Bearer "+tok)

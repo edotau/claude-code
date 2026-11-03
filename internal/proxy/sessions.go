@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -30,7 +32,7 @@ func MintSessionToken(ctx context.Context, profile string, pid int) (string, err
 	return out.Token, nil
 }
 
-// RevokeSessionToken drops token at the daemon; if it is not running, no request can use the token.
+// RevokeSessionToken drops token at the daemon; nil only when no daemon runs (no state, dead pid, refused port).
 func RevokeSessionToken(ctx context.Context, token string) error {
 	err := postSession(ctx, false, SessionRevokePath, SessionRequest{Token: token}, nil)
 	if errors.Is(err, ErrNotRunning) {
@@ -40,27 +42,26 @@ func RevokeSessionToken(ctx context.Context, token string) error {
 }
 
 func postSession(ctx context.Context, start bool, path string, body SessionRequest, out *SessionResponse) error {
-	var base string
 	if start {
-		b, err := Ensure(ctx)
-		if err != nil {
+		if _, err := Ensure(ctx); err != nil {
 			return err
 		}
-		base = b
-	} else {
-		st, ok := Running(ctx)
-		if !ok {
-			return ErrNotRunning
-		}
-		base = Base(st.Port)
+	}
+	st, err := ReadState()
+	if err != nil || !alive(st.PID) {
+		return ErrNotRunning
+	}
+	ctx, cancel := context.WithTimeout(ctx, sessionTimeout)
+	defer cancel()
+	if err := verifyHolder(ctx, st); err != nil {
+		return err
 	}
 	secret, err := ClientSecret()
 	if err != nil {
 		return err
 	}
 	raw, _ := json.Marshal(body)
-	ctx, cancel := context.WithTimeout(ctx, sessionTimeout)
-	defer cancel()
+	base := Base(st.Port)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(raw))
 	if err != nil {
 		return err
@@ -79,6 +80,26 @@ func postSession(ctx context.Context, start bool, path string, body SessionReque
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// verifyHolder confirms the /healthz answer on st.Port comes from st.PID before the router secret is sent there.
+func verifyHolder(ctx context.Context, st State) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, Base(st.Port)+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if errors.Is(err, syscall.ECONNREFUSED) { // nothing listens: the recorded pid is not a live proxy
+		return ErrNotRunning
+	}
+	if err != nil {
+		return fmt.Errorf("proxy pid %d unreachable on port %d: %w", st.PID, st.Port, err)
+	}
+	_ = resp.Body.Close()
+	if got := resp.Header.Get(PIDHeader); resp.StatusCode != http.StatusOK || got != strconv.Itoa(st.PID) {
+		return fmt.Errorf("port %d answers %s as pid %q, not proxy pid %d; secret withheld", st.Port, resp.Status, got, st.PID)
+	}
+	return nil
 }
 
 // sessionTimeout bounds the POST so a wedged daemon cannot hang the caller.

@@ -150,8 +150,8 @@ func StreamChat(w io.Writer, flush func(), r io.Reader, clientModel string) erro
 			data = append(data, bytes.TrimPrefix(bytes.TrimPrefix(line, []byte("data:")), []byte(" ")))
 		}
 		if readErr == io.EOF {
-			_, err := dispatch()
-			return s.end(err)
+			done, err := dispatch()
+			return s.end(s.truncated(done, err))
 		}
 		if readErr != nil {
 			if !s.started {
@@ -290,6 +290,17 @@ func (s *streamer) start() error {
 		ID: newID("msg_"), Type: "message", Role: "assistant", Model: s.model, Content: []any{},
 		StopReason: nil, StopSequence: nil, Usage: startUsage{InputTokens: 0, OutputTokens: 0},
 	}})
+}
+
+// truncated turns a clean EOF with neither [DONE] nor a finish_reason into a stream error; an empty body writes nothing.
+func (s *streamer) truncated(done bool, err error) error {
+	if err != nil || done || s.finish != "" {
+		return err
+	}
+	if !s.started {
+		return fmt.Errorf("translate: stream read: %w", io.ErrUnexpectedEOF)
+	}
+	return s.fail(500, "upstream stream ended without a finish_reason", io.ErrUnexpectedEOF)
 }
 
 // end closes the message unless err is set; an error event has already been written for in-band failures.

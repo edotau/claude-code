@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,8 +34,11 @@ func relay(w http.ResponseWriter, resp *http.Response) {
 			}
 			flush()
 		}
-		if err != nil {
+		if errors.Is(err, io.EOF) {
 			return
+		}
+		if err != nil {
+			panic(http.ErrAbortHandler) // a mid-body upstream failure must reach the client as a broken stream
 		}
 	}
 }
