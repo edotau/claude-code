@@ -40,6 +40,7 @@ type SDKOptions struct {
 	UseLoggedInUser  bool // always explicit: unset, the SDK silently falls back to the GitHub subscription
 	GitHubToken      string
 	Autonomous       bool   // MessageOptions.AgentMode = AgentModeAutopilot
+	Fleet            bool   // experimental session.RPC.Fleet.Start instead of SendAndWait
 	EnableMemory     bool   // SessionConfig.Memory.Enabled
 	SessionID        string // non-empty resumes this session instead of creating a new one
 	// Providers+Models switch to the multi-provider route: Model is a provider/id of Models, Token feeds every
@@ -451,7 +452,12 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 		msgOpts.AgentMode = copilot.AgentModeAutopilot
 	}
 	start := time.Now()
-	_, sendErr := session.SendAndWait(ctx, msgOpts)
+	var sendErr error
+	if o.Fleet {
+		sendErr = startFleet(ctx, session.RPC.Fleet, msgOpts)
+	} else {
+		_, sendErr = session.SendAndWait(ctx, msgOpts)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	res := SDKResult{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start)}
@@ -468,4 +474,22 @@ func fileAttachments(paths []string) []copilot.Attachment {
 		out = append(out, &copilot.AttachmentFile{Path: p, DisplayName: filepath.Base(p)})
 	}
 	return out
+}
+
+// fleetStarter is the slice of the SDK's fleet API startFleet needs.
+type fleetStarter interface {
+	Start(ctx context.Context, params *rpc.FleetStartRequest) (*rpc.FleetStartResult, error)
+}
+
+// startFleet runs the prompt in fleet mode and waits for it to finish.
+func startFleet(ctx context.Context, f fleetStarter, m copilot.MessageOptions) error {
+	wait := true
+	res, err := f.Start(ctx, &rpc.FleetStartRequest{Prompt: &m.Prompt, Wait: &wait, Attachments: m.Attachments})
+	if err != nil {
+		return err
+	}
+	if res == nil || !res.Started {
+		return errors.New("copilot: fleet mode did not start")
+	}
+	return nil
 }

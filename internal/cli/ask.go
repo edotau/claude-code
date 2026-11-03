@@ -65,6 +65,7 @@ func runAsk(args []string, resume bool) int {
 	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
 	direct := fs.Bool("direct", false, "agents: hand the CLI the profile route, skip the proxy")
 	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
+	fleet := fs.Bool("fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	stdinFramed := fs.Bool("stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
@@ -121,7 +122,7 @@ func runAsk(args []string, resume bool) int {
 	}
 	if *batchSrc != "" {
 		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools,
-			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
+			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, Fleet: *fleet, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
 			Env: []string(env), OutputSchema: schema, Agents: defs}
 		return askBatch(fs, resume, *batchSrc, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native},
@@ -140,7 +141,7 @@ func runAsk(args []string, resume bool) int {
 	prompt := strings.Join(positional, " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
 		session: session, tools: tools, readOnly: readOnly, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
-		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
+		autonomous: autonomous, fleet: fleet, enableMemory: enableMemory, rubric: rubric, direct: direct,
 		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile, systemPrompt: systemPrompt,
 		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema, persona: &persona, host: host, remoteBin: remoteBin, fallback: fallback}
 	jobRec, rc, done := loadAskJob(*job, *format, state, &prompt)
@@ -186,7 +187,7 @@ func runAsk(args []string, resume bool) int {
 	*debugFile = absDebugFile(*debugFile)
 	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools, Timeout: *timeout,
-		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
+		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, Fleet: *fleet, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
 		Agent: ref, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
@@ -410,22 +411,22 @@ func askStdoutSink(format, dispatchID string) agent.Sink {
 
 // askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
 type askState struct {
-	name, provider, model, effort, workdir, session, rubric    *string
-	tools, readOnly, noTools, autonomous, enableMemory, direct *bool
-	noPersist, safeMode                                        *bool
-	debugFile, systemPrompt, appendSystemPrompt, outputSchema  *string
-	host, remoteBin, fallback                                  *string
-	timeout                                                    *time.Duration
-	persona                                                    **agent.Schema
-	attach                                                     *attachFlag
-	keepEnv                                                    *keepEnvFlag
+	name, provider, model, effort, workdir, session, rubric           *string
+	tools, readOnly, noTools, autonomous, fleet, enableMemory, direct *bool
+	noPersist, safeMode                                               *bool
+	debugFile, systemPrompt, appendSystemPrompt, outputSchema         *string
+	host, remoteBin, fallback                                         *string
+	timeout                                                           *time.Duration
+	persona                                                           **agent.Schema
+	attach                                                            *attachFlag
+	keepEnv                                                           *keepEnvFlag
 }
 
 // applyRecord copies a logged dispatch's request onto this ask invocation's flags.
 func (s *askState) applyRecord(rec agent.Record) {
 	*s.name, *s.provider, *s.model, *s.effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*s.workdir, *s.session, *s.tools, *s.timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
-	*s.attach, *s.autonomous, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
+	*s.attach, *s.autonomous, *s.fleet, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
 	*s.keepEnv, *s.direct, *s.noTools, *s.readOnly = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools, rec.Request.ReadOnly
 	*s.noPersist, *s.safeMode, *s.debugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
 	*s.systemPrompt, *s.appendSystemPrompt, *s.outputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
