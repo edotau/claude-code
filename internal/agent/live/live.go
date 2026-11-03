@@ -182,6 +182,7 @@ func ServeLive(ctx context.Context, rec *agent.Record, notify func(string)) (err
 	if err != nil {
 		return err
 	}
+	agent.RecordOverlayDebug(name, cmd.Env)
 	if err := cmd.Start(); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(LiveSocket(rec.ID))

@@ -59,6 +59,7 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink a
 	if err != nil {
 		return agent.Result{}, err
 	}
+	agent.RecordOverlayDebug("claude", cmd.Env)
 	if err := cmd.Start(); err != nil {
 		return agent.Result{}, err
 	}
