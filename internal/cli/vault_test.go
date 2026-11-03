@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -258,13 +259,13 @@ func TestCmdVaultSetBareExitsTwo(t *testing.T) {
 func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
-		pairs []vaultPair
+		pairs []tailscale.Cred
 	}{
-		{"carriage return in first", []vaultPair{
+		{"carriage return in first", []tailscale.Cred{
 			{Name: "TAILSCALE_OAUTH_CLIENT_ID", Value: "id-\rvalue"},
 			{Name: "TAILSCALE_OAUTH_CLIENT_SECRET", Value: "secret-value"},
 		}},
-		{"newline in second", []vaultPair{
+		{"newline in second", []tailscale.Cred{
 			{Name: "TAILSCALE_OAUTH_CLIENT_ID", Value: "id-value"},
 			{Name: "TAILSCALE_OAUTH_CLIENT_SECRET", Value: "secret-\nvalue"},
 		}},
