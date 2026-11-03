@@ -22,7 +22,9 @@
     "deny": [
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
-      "Bash(rm -rf ~)"
+      "Bash(rm -rf ~)",
+      "Bash(git merge)",
+      "Bash(git merge *)"
     ],
     "ask": [
       "Bash(git push --force:*)",
