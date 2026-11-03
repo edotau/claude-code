@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -78,7 +79,7 @@ func runInstallScript(ctx context.Context, w io.Writer, dryRun bool, url string,
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "bash", append([]string{f.Name()}, args...)...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent, Set: env}.Environ(ctx) // a downloaded script gets no provider credential
 	cmd.Stdout, cmd.Stderr = w, w
 	return cmd.Run()
 }
