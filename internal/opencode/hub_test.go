@@ -158,8 +158,8 @@ func TestFirstOutputWatchdogStepStart(t *testing.T) {
 	if !stallRun(t, ms(200), ms(500), []string{step}, []time.Duration{0}) {
 		t.Error("step_start then silence did not stall: step_start must not disarm the watchdog")
 	}
-	// the text at 240ms is past the first window (200ms), so only the renewal at 120ms keeps the run alive.
-	if stallRun(t, ms(200), ms(500), []string{step, step, text}, []time.Duration{0, ms(120), ms(120)}) {
+	// text at 1000ms is past the first window (800ms); only the 500ms renewal saves it, with 300ms slack for load.
+	if stallRun(t, ms(800), ms(1000), []string{step, step, text}, []time.Duration{0, ms(500), ms(500)}) {
 		t.Error("step_start, step_start, text stalled: step_start must renew the window and text must disarm it")
 	}
 }

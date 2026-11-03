@@ -104,7 +104,6 @@ help-svg: compile  ## Redraw the README menu image
 
 .PHONY: examples
 examples: help-svg  ## Regenerate docs/templates examples + menu image
-	$(GO) test ./internal/memory -run TestDocsTemplateExamples -update >/dev/null
 	$(GO) test ./internal/settings -run 'TestRenderGolden|TestDocsTemplateExampleSettings' -update >/dev/null
 	$(GO) test ./internal/launch -run TestDocsTemplateExampleWindows -update >/dev/null
 	@echo -e "$(C_OK)examples regenerated; review git diff docs/"
