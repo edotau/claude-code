@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -36,7 +37,7 @@ func BuildOptions(ctx context.Context, reg *providers.Registry, profile string, 
 			base = proxy.Base(st.Port)
 		}
 	} else if base, err = ensure(ctx); err != nil {
-		return opts, fmt.Errorf("proxy unavailable; run gateway proxy --start")
+		return opts, errors.New("proxy unavailable; run gateway proxy --start")
 	}
 	opts.BaseURL = proxy.SessionBase(base, p.Name)
 	return opts, nil
