@@ -78,15 +78,12 @@ func modelRow(d *dialog, name string) *billingRow {
 	return &billingRow{label: "Model", desc: desc, run: func() bool { pickModel(d, name, p, claude); return true }}
 }
 
-// modelDescPad is the provider column's width: the active model's check column starts after it.
-const modelDescPad = 16
-
 // modelDesc is the Model row's detail: the provider, then the active model [alias or id], green when listed.
 func modelDesc(provider, model string, listed bool) string {
 	if model == "" {
 		return provider
 	}
-	return PadTo(provider, modelDescPad) + Checked(listed, cmp.Or(models.AliasOf(model), model))
+	return provider + " " + Checked(listed, cmp.Or(models.AliasOf(model), model)) // the picker aligns the badge column
 }
 
 // modelListed: model is in the agent's static catalog (claude: the model catalog; others: the opencode menu or the
