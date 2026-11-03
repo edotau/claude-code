@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"fmt"
 
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/providers"
@@ -209,7 +210,9 @@ func (c *Client) Run(ctx context.Context, o RunOptions, out Sink) (Result, error
 	if err != nil {
 		return Result{Agent: cmp.Or(o.Agent, "claude"), Status: StatusError}, err
 	}
-	_ = p.Record.Save()
+	if err := p.Record.Save(); err != nil && c.Notify != nil { // fail-open: the log never gates the run
+		c.Notify(fmt.Sprintf("dispatch %s record not saved before the run: %v", p.Record.ID, err))
+	}
 	return c.Exec(ctx, p, out, RunRecordedOpts{})
 }
 
