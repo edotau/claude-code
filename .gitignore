@@ -106,3 +106,4 @@ coverage.*
 
 # Copilot repo instructions: local, not tracked
 /.github/copilot-instructions.md
+.impeccable
