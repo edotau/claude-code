@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-engineer',
   description: 'The house dispatch: parallel Explore intel → implementer → copilot test repair (after impl lands) → scoped gate loop',
   whenToUse:
-    'USE: a MEDIUM+ code change end to end in one package set: Explore intel, claude implementer, copilot repairs the existing tests, gate loop. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {task, cwd, scope: ["internal/x"]}}). OPTIONAL: packages, gate (auto-detected), maxIterations, tests:false, implModel:"opus" after a failed sonnet try. RETURNS {status: blocked | error | green | stalled | capped}. PLANNED: steps {intel, impl, test, gate}. Details: saved-workflows.md.',
+    'USE: a MEDIUM+ code change end to end in one package set: Explore intel, claude implementer, copilot repairs the existing tests, gate loop. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {task, cwd, scope: ["internal/x"]}}). OPTIONAL: packages, gate (auto-detected), maxIterations, tests:false, steps {intel, impl, test, gate}: each {agent, model, effort, profile}; impl and test may be external (model = vendor id), intel and gate claude only; e.g. steps:{impl:{model:"opus"}}. RETURNS {status: blocked | error | green | stalled | capped}. Details: saved-workflows.md.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
     { title: 'Build', detail: 'implementer (non-test files), then copilot test repair (existing test files only) with the impl result' },
@@ -14,6 +14,57 @@ export const meta = {
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 // The registry imports the script to read its meta, so a missing arg must not throw at module top level.
 if (!a.task) return { error: 'code-engineer needs args.task' }
+// ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
+// stepOf(steps, name, defaults, {allowed, externalOK, lists}) -> {kind:'claude',model,effort} | {kind:'external',agent,vendorModel,profile}
+// An array value (only for stages named in `lists`) returns an array of those; any bad input throws Error naming stage/field.
+const stepOf = (steps, name, defaults, opt) => {
+  const S_AGENTS = ['claude', 'copilot', 'codex', 'gemini', 'opencode']
+  const S_CLAUDE = ['haiku', 'sonnet', 'opus']
+  const S_EFFORT = ['low', 'medium', 'high', 'xhigh']
+  const S_FIELDS = ['agent', 'model', 'effort', 'profile']
+  const allowed = (opt && opt.allowed) || []
+  const lists = (opt && opt.lists) || []
+  const d = defaults || {}
+  if (steps !== undefined && (!steps || typeof steps !== 'object' || Array.isArray(steps))) throw new Error('steps must be an object')
+  for (const k of Object.keys(steps || {})) if (!allowed.includes(k)) throw new Error(`steps.${k}: unknown stage (allowed: ${allowed.join('|')})`)
+  const one = (v, where) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
+    for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
+    const agentName = v.agent !== undefined ? v.agent : d.agent || 'claude'
+    if (!S_AGENTS.includes(agentName)) throw new Error(`${where}.agent must be ${S_AGENTS.join('|')}`)
+    if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
+    if (v.profile !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(v.profile))) throw new Error(`${where}.profile must be a profile name`)
+    const effort = v.effort !== undefined ? v.effort : d.effort || 'medium'
+    if (agentName === 'claude') {
+      const model = v.model !== undefined ? v.model : d.agent && d.agent !== 'claude' ? 'sonnet' : d.model || 'sonnet'
+      if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')} for agent claude`)
+      return { kind: 'claude', model, effort }
+    }
+    if (!(opt && opt.externalOK)) throw new Error(`${where}.agent: ${agentName} not allowed here (claude only)`)
+    const vendorModel = v.model !== undefined ? v.model : v.agent === undefined ? d.model : undefined
+    if (vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(vendorModel))) throw new Error(`${where}.model must be a model id or alias`)
+    return { kind: 'external', agent: agentName, vendorModel, profile: v.profile !== undefined ? v.profile : d.profile }
+  }
+  const v = (steps || {})[name]
+  if (Array.isArray(v)) {
+    if (!lists.includes(name)) throw new Error(`steps.${name}: a list is not allowed for this stage`)
+    if (!v.length) throw new Error(`steps.${name}: list is empty`)
+    return v.map((x, i) => one(x, `steps.${name}[${i}]`))
+  }
+  return one(v === undefined ? {} : v, `steps.${name}`)
+}
+// ── end stepOf ──
+if (a.implModel !== undefined) return { status: 'error', error: 'code-engineer: implModel was replaced by steps.impl.model' }
+let ST
+try {
+  const opt = { allowed: ['intel', 'impl', 'test', 'gate'] }
+  ST = {
+    intel: stepOf(a.steps, 'intel', { model: 'sonnet', effort: 'low' }, opt),
+    impl: stepOf(a.steps, 'impl', { model: 'sonnet', effort: 'high' }, { ...opt, externalOK: true }),
+    test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, { ...opt, externalOK: true }),
+    gate: stepOf(a.steps, 'gate', { model: 'sonnet', effort: 'medium' }, opt),
+  }
+} catch (e) { return { status: 'error', error: 'code-engineer: ' + e.message } }
 const TASK = a.task
 const CWD = a.cwd || ''
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : []
@@ -72,7 +123,7 @@ const briefs = (await parallel(LENSES.map(l => () =>
   agent(
     `Read-only scouting for a code change${CWD ? ' in ' + CWD : ''}. Task: ${TASK}\nScope hint: ${SCOPE.join(', ') || 'none given'}\n` +
     `Your lens: ${l.prompt}. Return files, seams (file:line) and risks. Do not edit anything.`,
-    { label: `intel:${l.key}`, phase: 'Intel', schema: BRIEF_SCHEMA, agentType: 'Explore', model: routeModel('sonnet'), effort: 'low' } // Explore alone runs opus
+    { label: `intel:${l.key}`, phase: 'Intel', schema: BRIEF_SCHEMA, agentType: 'Explore', model: routeModel(ST.intel.model), effort: ST.intel.effort } // Explore alone runs opus
   )
 ))).filter(Boolean)
 if (!briefs.length) log('intel: both Explore readers returned nothing — building blind from the task text')
@@ -86,21 +137,32 @@ log(`intel: ${brief.files.length} files, ${brief.seams.length} seams, ${brief.ri
 // ── Phase 2: Build (ADK SequentialAgent; disjoint ownership — impl owns code, tests owns *_test.go, tests run after impl) ─
 phase('Build')
 const context = `Task: ${TASK}\nFiles: ${brief.files.join(', ')}\nSeams:\n- ${brief.seams.join('\n- ')}\nRisks:\n- ${brief.risks.join('\n- ')}\n${SHARED_TREE}`
-const impl = await agent(
+const IMPL_PROMPT =
   `${context}\nYou are the IMPLEMENTER. Edit non-test source files only — never test files or fixtures (` + TEST_GLOBS + `); the test agent owns them. ` +
   `Surgical: touch only what the task requires, match existing style. Run the repo's formatter and linter on each file you touch (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint). Report NEEDS_CONTEXT before editing if anything is unclear; stop rather than guess at a new design decision. ` +
   `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report). ` +
   `After a defect fix write ISSUE: searched P, found N. Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). ` +
-  `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; put Ran on: <agent (model) · fallback none|who>, files changed, verification output and the TASK/ISSUE facts as plain sentences in the summary; list anything left undone.`,
-  { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(a.implModel || 'sonnet'), effort: 'high' }
+  `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; put Ran on: <agent (model) · fallback none|who>, files changed, verification output and the TASK/ISSUE facts as plain sentences in the summary; list anything left undone.`
+// An external stage returns text, not the schema: map the code-agent envelope onto the RESULT shape.
+const viaExternal = async (step, task) => {
+  const r = await workflow('code-agent', { agent: step.agent, vendorModel: step.vendorModel, profile: step.profile, cwd: CWD || undefined, task, tools: true, fallback: false })
+  const ok = !!(r && r.ok)
+  const text = r && typeof r.answer === 'string' ? r.answer : ''
+  return { status: ok ? 'DONE' : 'BLOCKED', filesChanged: [], summary: ok ? text : `external ${step.agent} failed: ${(r && (r.error || r.status)) || 'no result'}`, leftUndone: [] }
+}
+const impl = ST.impl.kind === 'external' ? await viaExternal(ST.impl, IMPL_PROMPT) : await agent(
+  IMPL_PROMPT,
+  { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(ST.impl.model), effort: ST.impl.effort }
 )
 const implBlocked = !impl || impl.status === 'BLOCKED' || impl.status === 'NEEDS_CONTEXT'
-const tests = (implBlocked || !RUN_TESTS) ? null : await agent(
+const TEST_PROMPT = () =>
   `${context}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\n` +
   `You are the TEST agent (copilot), REPAIR only: fix existing tests and fixtures (` + TEST_GLOBS + `) the implementation broke; write NO new tests (the main thread adds them after its live check). Never edit non-test files (the implementer owns them and has finished). ` +
   `Follow ~/.claude/agents/copilot.md → TEST (make the test-wrong vs code-wrong call; never edit non-test files). Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; include Ran on: in the summary. ` +
-  `Run only the scoped tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `; never the full suite.`,
-  { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel('sonnet'), effort: 'medium' }
+  `Run only the scoped tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `; never the full suite.`
+const tests = (implBlocked || !RUN_TESTS) ? null : ST.test.kind === 'external' ? await viaExternal(ST.test, TEST_PROMPT()) : await agent(
+  TEST_PROMPT(),
+  { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(ST.test.model), effort: ST.test.effort }
 )
 if (implBlocked) log('build: impl blocked or empty — test agent skipped')
 else if (!RUN_TESTS) log('build: args.tests=false — test agent skipped')
@@ -109,6 +171,6 @@ log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : '
 // ── Phase 3: Gate (ADK LoopAgent via the saved green-keeper-loop workflow) ─────────────────────────
 phase('Gate')
 if (implBlocked) return { brief, impl, tests, gate: null, status: 'blocked' }
-const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : [...new Set(brief.files.map(f => f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '.'))], maxIterations: MAX_ITER })
+const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : [...new Set(brief.files.map(f => f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '.'))], maxIterations: MAX_ITER, steps: a.steps && a.steps.gate ? { fix: { model: ST.gate.model, effort: ST.gate.effort } } : undefined })
 
 return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }
