@@ -129,8 +129,8 @@ func FlattenChatContent(body []byte) []byte {
 	for _, c := range choices {
 		var msg map[string]json.RawMessage
 		var parts []struct{ Type, Text string }
-		if json.Unmarshal(c["message"], &msg) != nil || json.Unmarshal(msg["content"], &parts) != nil {
-			continue
+		if json.Unmarshal(c["message"], &msg) != nil || json.Unmarshal(msg["content"], &parts) != nil || parts == nil {
+			continue // a null (tool-call-only) or string content stays as sent
 		}
 		var sb strings.Builder
 		for _, pt := range parts {

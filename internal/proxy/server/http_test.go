@@ -465,8 +465,12 @@ func TestStalledInvalidTokenBodyIsCutByIdleTimeout(t *testing.T) {
 	srv := setupRouter2(t, `{"default":"patrow","providers":{"databricks":{"patrow":`+row+`}}}`)
 
 	start := time.Now()
-	resp := post(t, srv.URL+"/p/patrow/v1/messages", `{"model":"m1"}`, nil)
-	_, _ = io.ReadAll(resp.Body)
+	req := testRequest(t, http.MethodPost, srv.URL+"/p/patrow/v1/messages", strings.NewReader(`{"model":"m1"}`))
+	req.Header.Set("X-Api-Key", secret)
+	if resp, err := http.DefaultClient.Do(req); err == nil { // the cut body aborts the relay: a broken stream is fine
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}
 	if d := time.Since(start); d > 3*time.Second {
 		t.Fatalf("request took %v: the stalled body was not cut by idleTimeout", d)
 	}
@@ -492,20 +496,23 @@ func TestRejectedKeyHintsVaultSetNotDatabricksLogin(t *testing.T) {
 	}
 }
 
-// A 403 that survives the re-mint is a rejected credential: the caller gets the proxy's 401 and the mark.
-func TestForbiddenAfterRemintIsAnAuthRejection(t *testing.T) {
+// A bare 403 that survives the re-mint is a policy/WAF block: relayed to the caller as-is, never a mark.
+func TestBareForbiddenAfterRemintIsRelayedNotCondemned(t *testing.T) {
 	g := useGate(t)
-	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusForbidden) })
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"message":"model not permitted"}`)
+	})
 	t.Setenv("UP1_KEY", "k1")
 	srv := setupRouter(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`, nil)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
 	b := body(t, resp)
-	if resp.StatusCode != 401 || !strings.Contains(b, "authentication failed; run `claude-code vault set UP1_KEY`") {
-		t.Fatalf("status %d body %s, want 401 authentication failed", resp.StatusCode, b)
+	if resp.StatusCode != 403 || !strings.Contains(b, "model not permitted") {
+		t.Fatalf("status %d body %s, want the upstream 403 relayed", resp.StatusCode, b)
 	}
-	if _, ok := g.marked("up1"); !ok {
-		t.Fatal("a 403 after the re-mint must mark the provider")
+	if _, ok := g.marked("up1"); ok {
+		t.Fatal("a bare 403 after the re-mint must not mark the provider")
 	}
 }
 

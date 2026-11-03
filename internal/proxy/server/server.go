@@ -43,6 +43,7 @@ type Router struct {
 	sessions *sessionStore // lifetime-limited per-profile tokens, persisted across restarts
 	inflight atomic.Int64
 
+	regLoad  sync.Mutex // serializes providers.Load outside mu
 	mu       sync.Mutex
 	reg      *providers.Registry
 	regStamp time.Time
@@ -53,6 +54,7 @@ type Router struct {
 
 	authState func(account string, now time.Time) (string, bool) // cached router.LoadState().AuthMarked lookup for attempts
 	authAt    time.Time                                          // when authState was loaded
+	authGen   int                                                // bumped by condemn: a load begun before its mark is not cached
 	marked    map[string]bool                                    // provider names this process marked auth-dead: cleared on their next success
 	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
 	oauthAt   time.Time                                          // oauthTok is valid until oauthAt+credTTL
@@ -263,11 +265,19 @@ func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
 // authMarks is the route state, re-read from quota.json at most once per authStateTTL.
 func (r *Router) authMarks() func(string, time.Time) (string, bool) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if now := r.now(); r.authState == nil || now.Sub(r.authAt) >= authStateTTL {
-		r.authState, r.authAt = router.LoadState().AuthMarked, now
+	now, state, gen := r.now(), r.authState, r.authGen
+	fresh := state != nil && now.Sub(r.authAt) < authStateTTL
+	r.mu.Unlock()
+	if fresh {
+		return state
 	}
-	return r.authState
+	state = router.LoadState().AuthMarked // read quota.json without holding mu
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.authGen == gen {
+		r.authState, r.authAt = state, now
+	}
+	return state
 }
 
 // condemn records a provider as auth-dead in the route state; best-effort, the caller moves on regardless.
@@ -279,6 +289,7 @@ func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
 	r.mu.Lock()
 	r.marked[p.Name] = true
 	r.authAt = time.Time{} // the next attempts() re-reads the state and sees the mark
+	r.authGen++
 	r.mu.Unlock()
 }
 
@@ -504,7 +515,7 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 			return nil, err
 		}
 		resp.Body = newIdleBody(resp.Body, idleTimeout)
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || invalidToken(resp, p) {
+		if rejectedAfterRemint(resp, p) { // a policy/WAF 403 is relayed to the client, never condemned
 			drain(resp)
 			r.condemn(p, providers.VerdictRejected)
 			return nil, &fallbackError{error: errors.New("credential rejected after re-mint"), status: http.StatusUnauthorized, auth: true}
