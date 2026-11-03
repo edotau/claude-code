@@ -27,25 +27,25 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestClaudeLoginStatusLoggedIn(t *testing.T) {
+func TestClaudeLoginProbeLoggedIn(t *testing.T) {
 	resetClaudeProbe()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	pathstest.FakeVendor(t, "claude", `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
 echo '{"loggedIn":true,"subscriptionType":"max"}'`)
-	loggedIn, plan := ClaudeLoginStatus()
+	loggedIn, plan, _ := ClaudeLoginProbe()
 	if !loggedIn || plan != " (max)" {
-		t.Errorf("ClaudeLoginStatus() = %v, %q; want true, \" (max)\"", loggedIn, plan)
+		t.Errorf("ClaudeLoginProbe() = %v, %q; want true, \" (max)\"", loggedIn, plan)
 	}
 }
 
-func TestClaudeLoginStatusNoBinary(t *testing.T) {
+func TestClaudeLoginProbeNoBinary(t *testing.T) {
 	resetClaudeProbe()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	loggedIn, plan := ClaudeLoginStatus()
+	loggedIn, plan, _ := ClaudeLoginProbe()
 	if loggedIn || plan != "" {
-		t.Errorf("ClaudeLoginStatus() with no claude binary = %v, %q; want false, \"\"", loggedIn, plan)
+		t.Errorf("ClaudeLoginProbe() with no claude binary = %v, %q; want false, \"\"", loggedIn, plan)
 	}
 }
 
