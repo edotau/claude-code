@@ -136,6 +136,9 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
 	}
+	if err := agent.CheckRouteNames(env, req.OverlaySet); err != nil {
+		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
+	}
 	env = append(env, req.Env...) // --env goes last so it wins
 	cctx := ctx
 	var onFirstByte, onStep func()
