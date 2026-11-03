@@ -227,7 +227,11 @@ func altAuth(reg *providers.Registry, name string) string {
 		if providers.HeadlessOAuthToken() != "" {
 			return "claude uses the OAuth token instead"
 		}
-		if ok, plan := providers.ClaudeLoginStatus(); ok {
+		if st := agent.AuthStatus("claude"); st.Present {
+			plan := ""
+			if st.PlanHint != "" {
+				plan = " (" + st.PlanHint + ")"
+			}
 			return "claude uses the OAuth login" + plan + " instead"
 		}
 	}
