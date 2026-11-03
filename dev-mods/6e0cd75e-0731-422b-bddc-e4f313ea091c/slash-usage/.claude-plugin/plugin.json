@@ -1,1 +1,0 @@
-{ "name": "slash-usage", "version": "0.1.0", "description": "Mid-sentence /command typeahead and a usage band above the prompt", "types": "./types/index.d.ts" }
