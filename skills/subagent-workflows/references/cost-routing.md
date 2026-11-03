@@ -1,154 +1,74 @@
 # Cost Routing and Cross-Model Dispatches
 
-Claude stays the manager. A step delegated through `claude-code ask` bills to that agent's profile; Claude
-spends only the brief and the check. Use another agent when it is cheaper for the step, or when a second model
-adds real coverage (independent review, broad-context sweep). Stay inline for small, coupled work.
+Claude stays the manager: a step sent through `claude-code ask` or `claude-code dispatch` bills the agent's profile,
+and Claude spends only the brief and the check. Delegate when another agent is cheaper for the step or adds real
+coverage; stay inline for small, coupled work. Architecture, judgement, integration and final verification never leave
+Claude.
 
-## Classify, then route
+## Pick by role
 
-| Kind | Signal | Agent | Call |
-|---|---|---|---|
-| `sweep` | many files, whole-repo context, web search | `gemini` (agy, Google sign-in) | `claude-code gemini explore "<question>"`; targeted: `claude-code ask --agent gemini --tools "<brief>"`; 1M context: `claude-code gemini bridge --dirs <d> "<task>"` |
-| `review` | adversarial second opinion on a diff or plan | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"`; a diff: `claude-code codex review --adversarial [--base <b>]` |
-| `mechanical` | one-liner, lookup, mechanical edit | `copilot` (`haiku`: `internal/router/table.json`) | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
-| `standard` | everything else (the default) | rotate `claude` · `copilot` · `codex` · `opencode` (`sonnet`: `internal/router/table.json`) | as above, `--agent <agent>` |
-| `reasoning` | explicitly flagged hard reasoning | Claude (`opus`: `internal/router/table.json`) | stays in session; never by default |
+| Role | Agent | Call |
+| --- | --- | --- |
+| explore — code scan + web/deep research | `gemini` | `claude-code dispatch explore [--part q]… "<task>"` (≤12 parallel legs, one cited report) |
+| wide edits, scans, audits | `copilot` fleet | `claude-code dispatch fleet "<task>"` or `ask --agent copilot --fleet`; check `git diff --stat` after |
+| compare or find a model | `opencode` | `claude-code dispatch compare --models a,b "<task>"`; pool: `opencode catalog list`; `--model byok` = router picks a rare Databricks model |
+| adversarial review | `codex` | `claude-code codex review --adversarial [--base <b>]` |
+| standard / mechanical edits | router pick | `claude-code ask --agent <a> --tools --fallback none --format json "<brief>"` |
+| hard reasoning, integration | Claude | stays in session |
 
-Docs and implementation edits rotate across agents including `opencode` (model and effort from
-`internal/router/table.json`). Architecture, judgement, integration and final verification never leave Claude.
-Task kind is the manager's judgement, and a caller's kind is a hint: say so when you disagree. `claude-code gateway
-router --task "<text>"` only picks a model tier (low effort → haiku, else sonnet).
-
-Gemini needs `--tools` for any repo or web work — without it agy answers from model memory. Model cell mappings
-follow `internal/router/table.json` as the single source.
+Gemini needs `--tools` for repo or web work (without it agy answers from memory); `dispatch explore` sets it.
 
 ## Run the dispatch
 
-1. `claude-code agents` lists available agents (✓ = binary + credential). Availability is not a working
-   credential: smoke-test once with `claude-code ask --agent <a> "Reply READY only."`.
-   Run it directly (codex answers in ~4s); the `code-agent` workflow skips it for codex (~90s of relay overhead).
-2. Assign agents round-robin across implementation steps and name it in the brief as `Agent: <name>`; keep the
-   split even across the session. Assign `Agent: claude` when the brief would cost more than the work, the step
-   needs context only this session holds, or the agent failed its smoke test.
-3. Size the model alias (`opus`, `sonnet`, `haiku`): `internal/router/table.json` is the single source for
-   agent × model, effort, account and price. Each dispatch runs the requested alias's cell, including Claude.
-4. Use `--fallback none` so a failed dispatch exits non-zero instead of silently running on Claude — see Fallback below.
-5. An agent runs in the shared tree on new files it owns; with the user's yes, `claude-code worktree create <name>`,
-   `--workdir <worktree>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
+1. `claude-code agents` lists agents (✓ = binary + credential); availability isn't a working login, so smoke once:
+   `claude-code ask --agent <a> "Reply READY only."`.
+2. Name the agent in the brief (`Agent: <name>`); use `Agent: claude` when the brief costs more than the work, the step
+   needs this session's context, or the agent failed its smoke test.
+3. Name the model alias (`opus`/`sonnet`/`haiku`); `internal/router/table.json` maps agent × alias → model, effort,
+   account and price.
+4. `--fallback none` makes a failed dispatch exit non-zero instead of silently running on Claude.
+5. The agent CLI starts cold: paste every fact it needs, plus the shared-tree line from SKILL.md. opencode has ignored
+   `--workdir` and written the live tree — check `git diff --stat`.
+
+## Concurrency
+
+Under a batch (`ask --batch`, `dispatch`, workflows) each billed account runs up to 12 dispatches at once
+(`inflight.Base`; a profile's `concurrency` overrides) and the machine up to min(12 × accounts, 4 × CPUs); outside a
+batch nothing caps them. Legs run host-isolated (no other profile's credentials). Back off on persistent `429`s.
 
 ## Ask flags and lifecycle
 
-Dispatch roles live in [Leaf types](../SKILL.md#leaf-types); this section is the flag surface every agent shares.
-Per-agent levels:
-`claude-code agents --format json` prints `{name, binary, available, caps{…, cost, background, live, remote}, events[]}`
-(`--host <h>` lists a remote's); a flag an agent cannot honor is named in the envelope's `dropped`, never silent.
+A flag an agent can't honor is named in the envelope's `dropped`, never silent; `claude-code agents --format json`
+lists each agent's caps.
 
-- **Stream**: `ask --format stream-json` prints NDJSON events (`start|text|tool_use|tool_result|retry|result|error`);
-  the `result` event carries the envelope, `usage.cost_usd` where the agent reports it (claude; gemini if agy does).
-  Every dispatch also writes `state/harness/dispatch/<id>.events.jsonl`.
-- **System prompt and env**: `--system-prompt`/`--append-system-prompt` are native on claude (and codex), emulated as a
-  task preamble on the rest (listed in `emulated`). `--env NAME=VALUE` (repeatable) reaches every agent after the
-  credential scrub; credential-looking names (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*AUTH*`) are refused (use the vault),
-  and the dispatch record keeps names only. Not with `--background`.
-- **Lifecycle, any agent**: `ask --background` detaches; then `claude-code agents status|result|cancel <id>` and
-  `agents tail <id> [-f] [--format json]` (json follows the events file). `agents reap` clears dead dispatches.
-- **Remote**: `ask --host <tailnet-host> [--remote-bin <path>]` runs the ask over ssh; profiles resolve on the remote
-  vault, `--attach` and `--keep-env` are dropped.
-- **Live claude session**: `ask --agent claude --live [--timeout <idle>]` starts a background holder (one claude
-  process, unix socket `<id>.sock`); `agents send <id> "<task>"` runs one turn on it and streams its events. One turn
-  in flight (a second `send` is refused), 10 minutes idle by default, at most 4 sessions, `agents cancel <id>` ends one.
+- **Stream**: `ask --format stream-json` (NDJSON `start|text|tool_use|tool_result|retry|result|error`; `result` holds
+  the envelope). Every dispatch also writes `state/harness/dispatch/<id>.events.jsonl`. Go: `agent.Client.Stream`.
+- **Prompt and env**: `--system-prompt`/`--append-system-prompt` are native on claude and codex, emulated elsewhere;
+  `--env NAME=VALUE` reaches every agent, credential-looking names refused (use the vault).
+- **Lifecycle**: `ask --background`, then `claude-code agents status|result|tail|cancel <id>`; `agents reap` cleans up.
+- **Remote / live**: `ask --host <h>` runs over ssh; `ask --agent claude --live` + `agents send <id> "<task>"` holds one
+  claude process (one turn in flight, ≤4 sessions).
 
 ## Fallback
 
-The router (`internal/agent/route_*.go`) dynamically picks and ranks agent + model for every `claude-code ask` dispatch.
-Table: `internal/router/table.json` defines agent × model alias (`claude`, `copilot`, `codex`, `opencode`,
-`gemini` × `opus`, `sonnet`, `haiku`) mapping to model, effort, account key (`<provider>·<profile>`, e.g.
-`anthropic·max`, `github·personal`, `openai·chatgpt`) and price. Default weights are `price=0.5` `headroom=0.5`
-(vault-overridable via `route` and `routeWeights`). Each dispatch runs the SAME model alias's cell (alias from
-`--model`, else the task classifier), including the Claude dispatch; a `<AGENT>_MODEL` pin overrides the
-cell (see Pins).
+The router ranks candidates for every dispatch; `claude-code gateway router [--agent a] [--model M] [--task "<t>"]`
+shows the pick, scores and skip gates without dispatching.
 
-- **Gates** (drop candidate before scoring, with reason):
-  - `off` — `<AGENT>_ACTIVE=off` (`claude-code <agent> off`) never routes to that agent, even when asked for it;
-    `claude-code <agent> on` lifts it. Set from configure's `Active` row; the vault table shows `ACTIVE` per agent.
-    Claude is always on. An explicit `--profile` still runs (D8).
-  - `row` — no configured row for the requested model alias.
-  - `available` — agent binary or login credentials missing.
-  - `account` — Copilot runs on the pinned `COPILOT_PROFILE` only: unpinned, or a pin that is not a gh login,
-    drops it (never another profile; `claude-code configure github` changes it).
-  - Copilot credit gate — a pinned GitHub profile runs only with credits verified < 95%; at 95% or more (or
-    unverified) the dispatch ends as a quota hop and the loop moves to the next agent, carrying any handoff. No fixed
-    Databricks profile order: copilot reaches Databricks only through its own pin (`--profile` or `COPILOT_PROFILE`).
-    Never a GitHub dispatch over 95%, never a bill.
-  - `exhausted` — 100% of window used, or a remembered quota failure (`402`, monthly quota, usage limit).
-- **Scoring**: `total = 0.5 * price + 0.5 * headroom` (0–1 each); a subscription's price is its window share left,
-  and an account bills the backend the agent actually resolves (codex on an API key = `openai·openai`).
-  Low accounts (>=90% of window used) sort after all non-low accounts. Exhausted accounts are never picked.
-- **Quota state**: `state/harness/quota.json`, written by `claude-code usage`, by a dispatch's quota failure (resets
-  parsed from error message, else window end), and a 15-min targeted refresh. `claude-code doctor` displays a row
-  per exhausted or low account.
-- **Dispatch ladder** (`ask --fallback all|agents|none`, default `all`): the wanted agent (`--agent`) leads if it
-  passes gates; other agent candidates follow sorted by score; Claude runs last under `all`. `agents` stops
-  before Claude; `none` fails fast. `review` always falls back across non-Claude agents only, never to Claude.
-  `--format json` reports `fallback`/`fallback_reason`; non-empty `fallback` goes on the `Ran on:` line, never hidden.
-- **Pins** (`claude-code <agent> profile [<profile>|--clear]` sets or clears `<AGENT>_PROFILE`; `claude-code switch
-  <profile>` sets Claude's own pin, `CLAUDE_PROFILE`; configure's `Route` row sets either): a pinned agent's dispatch
-  runs only on that profile, never on another account of the same agent. Model precedence: `--model` > `<AGENT>_MODEL`
-  pin > the table cell; a pin's model is respelled for its profile. Pins are listed by `claude-code gateway router`.
-- **Pinned ladder** (the `all` default; `review` keeps its non-Claude-only rule): a dispatch starts on its agent's pin
-  and falls back on quota, rate limit, auth, 5xx, network, generic 400 or context-length overflow. Content-policy
-  refusals, HTTP 413 and a bad `--attach` fail fast and stop the loop. The loop always ends at Claude Code's own pin, at
-  the lowest model alias whose cell serves the dispatch's model. If Claude's pin is exhausted the error lists every hop
-  with its account and says `claude-code switch <profile>`; there is no hop after Claude (`ask --agent claude` with an
-  exhausted pin fails fast).
-- **Inspection verb**:
-  `claude-code gateway router [--model M] [--agent a] [--task "<text>"] [--fallback all|agents|none]`
-  `[--format text|json]` prints the pick, per-dimension scores, weights, total, and skip gates; never dispatches.
-- **Pressure hooks & workflows**: `dispatch-effort` hook checks Anthropic quota (>=90% of 5h/weekly window downshifts
-  an unset subagent model one alias; >=97% moves code-worker/Explore to `coworker` at haiku with the routed agent
-  prepended; opt-out via `HARNESS_ROUTE_SUBAGENTS=0`). The `code-agent` Workflow with no `args.agent` picks via
-  `claude-code gateway router --format json`. Finding (2026-10-25): that hook only rewrites an *unset* dispatch model,
-  so it never reached the saved Workflows (`workflows/*.js`), which pin every stage explicitly for `dispatch-effort`;
-  each script now reads `claude-code gateway router --agent claude --fallback none` once itself and downshifts its
-  own pins under pressure (`saved-workflows.md`).
-- **Copilot on Databricks** — dispatches follow the session's `<provider>·<profile>` via the proxy `/p/<profile>`
-  (BYOK, `COPILOT_OFFLINE=true`, no credits); `--profile <p> --model <alias>` selects it; prompt cap = window − 32k
-  − 10% (≈148k on 200k, ≈868k on a `one_m` profile). Headless mid-task quota writes a handoff in
-  `memory/<bank>/handoffs` and returns `KindQuota` with `handoff` in the JSON envelope; the loop carries that
-  handoff to the next dispatch (a Databricks dispatch only when a pin or `--profile` names one). Interactive copilot
-  cannot hand off. Copilot now switches models within a Databricks profile (`/model`, registry; `--direct` = one model).
-- **Explicit profile** (`--profile`): one dispatch, no fallback, but gated and marked on its own account.
-- **Credential route** (`internal/agent/routes.go`, `<agent> setup` → route row): opencode uses its own `opencode`
-  login (Go plan; else the vault `OPENCODE_API_KEY`), then its GitHub Copilot login; copilot its pinned GitHub
-  profile, then BYOK `ANTHROPIC_API_KEY`. A `<agent>: session profile … cannot serve …; using <x>` line is this
-  route, not a fallback dispatch — report `fallback: none`.
-
-Independent read-only dispatches run in parallel (one backgrounded Bash call each); a writer then its reviewer run
-in sequence. Dispatches on one provider share its rate limit — reduce concurrency on persistent `429`s.
-
-**Default agent per task class**
-
-| Task class | Agent | Leaf type |
-| --- | --- | --- |
-| sweep / research | `gemini` | `code-worker`, `Agent: gemini` (or a `gemini` leaf) |
-| mechanical edits | `copilot` | `code-worker`, `Agent: copilot` |
-| standard edits, docs | rotate `claude` · `copilot` · `codex` · `opencode` | `code-worker`, `Agent: <rotated agent>` |
-| review / vet | `codex` | `code-worker`, `Agent: codex` |
-| compare, relay, quota offload | several agents | `coworker` (always requests) |
-| BYOK pool (rare Databricks models) | `copilot` · `opencode` | `coworker`, `--model byok` (router picks; skips models that refuse the agent) |
-| reasoning / integration | `claude` (in-context) | `claude`, or the main thread |
-
-Leaf types, the `Agent:` field and the label rule: [SKILL.md → Leaf types](../SKILL.md#leaf-types).
+- **Ladder**: candidates follow `routing.ladders` (`internal/providers/defaults.json`). Default: copilot (gpt-6.1-sol,
+  gpt-6-astra) → Databricks → codex (openai) → opencode, Claude scored in after copilot; `--route first-party`:
+  copilot → codex → gemini → opencode-go. The `--agent` asked for leads when it passes the gates.
+- **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile
+  only while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error).
+- **Score**: `0.5 × price + 0.5 × headroom`; accounts ≥90% used sort last.
+- **`--fallback all|agents|none`** (default `all`): `agents` stops before Claude, `none` fails fast; review never falls
+  back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
+- **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `<AGENT>_MODEL` > table cell.
+  `--profile` is one dispatch with no fallback.
+- A `<agent>: session profile … cannot serve …; using <x>` line is the credential route, not a fallback: report
+  `fallback: none`. Copilot-on-Databricks details: `rules/harness/agent.md` → Dispatch behavior.
 
 ## Verify and compare
 
-`--format json` returns `agent`, `provider`, `model`, `usage`, and `fallback`/`fallback_reason` (Fallback above).
-Treat the answer as a claim: check `git diff --stat` for the expected files and run the verification yourself.
-Each leaf's report carries the contract's `Ran on:` line plus first-try pass/fail and hand fixes (`../SKILL.md` →
-Handoff contract); tally per agent (`claude-code ask --log`) and shift the split only on that evidence. A leaf
-assigned an agent that did the work itself is a skipped dispatch, not a success.
-
-The agent CLI starts cold: paste every fact it needs; in `~/.claude` add the shared-tree line from SKILL.md.
-As a `Workflow` stage (only when the user asks for one): `code-agent {agent, cwd, task}`, or
-`code-analyzer {steps: {refute: [{model: "sonnet"}, {agent: "copilot"}]}}`. Interactive agent session:
-`claude-code codex|gemini|opencode|copilot [args]` (`--` forces passthrough).
+Treat every answer as a claim: check `git diff --stat` for the expected files and run the verification yourself. A
+leaf told to use an agent that did the work itself is a skipped dispatch, not a success. Tally per agent
+(`claude-code ask --log`) and shift the split only on that evidence.
