@@ -43,3 +43,12 @@ func TestModeLabelFormatsDefaultsAndFallsBack(t *testing.T) {
 		t.Errorf("a set format applies to every agent, verbatim: %q", got)
 	}
 }
+
+func TestWithTier(t *testing.T) {
+	if got := withTier("subscription", ""); got != "subscription" {
+		t.Errorf("withTier no tier = %q", got)
+	}
+	if got := withTier("subscription", "Max 20x"); got != "subscription (Max 20x)" {
+		t.Errorf("withTier = %q", got)
+	}
+}

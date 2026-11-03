@@ -158,10 +158,9 @@ func KeyTargets(reg *providers.Registry, agentFilter string) ([]KeyTarget, error
 }
 
 func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
-	sel, err := providers.Select(reg, "")
-	s, _ := agent.LookupSchema(name)
+	s, known := agent.LookupSchema(name)
 	fallback := func() KeyTarget {
-		if err == nil {
+		if sel, err := providers.Select(reg, ""); err == nil { // only when the agent's own sign-in is absent
 			target, note, rerr := s.ResolveTarget(reg, sel, false)
 			// The agent's own stored config/login is a working setup, not a missing key.
 			if errors.Is(rerr, agent.ErrOwnLogin) {
@@ -174,7 +173,7 @@ func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
 			}
 		}
 		hint := "run `claude-code configure agents`"
-		if s, ok := agent.LookupSchema(name); ok {
+		if known {
 			hint = s.CLI.ConfigureHint
 		}
 		return KeyTarget{Label: name, Present: false, FixCmd: hint}

@@ -69,6 +69,14 @@ func glob(pattern, s string) bool {
 	return ok
 }
 
+// withTier renders a mode with its tier when one is known: "subscription (Max 20x)".
+func withTier(mode, tier string) string {
+	if tier == "" {
+		return mode
+	}
+	return mode + " (" + tier + ")"
+}
+
 // rawPlanID is what the agent's sign-in reports (claude rate tier, ChatGPT plan, copilot_plan); on an API key it
 // is the account's opus model id, so a pattern can match a provider's prefixed ids.
 func rawPlanID(d *dialog, name string, st agentState) string {
