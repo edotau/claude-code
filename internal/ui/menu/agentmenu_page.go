@@ -90,7 +90,7 @@ var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int,
 }
 
 // signInRows are the agent page rows that hold a credential; the rest are actions.
-var signInRows = map[string]bool{"Subscription": true, "API key": true, "Login": true, "OAuth token": true, "User": true}
+var signInRows = map[string]bool{"Subscription": true, "API key": true, "Login": true, "OAuth token": true, "GitHub user": true}
 
 // agentSections groups an agent page's rows under sign-in and actions; order maps a shown index to rows'.
 func agentSections(rows [][2]string) ([]tui.Section, []int) {
@@ -322,9 +322,21 @@ func copilotMenu(d *dialog) agentMenu {
 	if auth.Source == copilot.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
-	pinned := vault.GetAgentRecord("copilot").Profile
+	chain := copilot.RouteChain(d.reg)
+	for i := range chain {
+		if chain[i].Label == "GitHub" && auth.Account != "" { // the offline chain cannot name a token-only account
+			chain[i].Label += " " + auth.Account
+		}
+	}
+	if len(chain) > 0 && chain[0].When == "pinned" && chain[0].OK { // a usable pinned Databricks profile is the route
+		st = agentState{mode: backendLabel(d.reg, vault.GetAgentRecord("copilot").Profile), verified: true}
+	}
+	who := "gh active"
+	if auth.Account != "" {
+		who = auth.Account + " · " + copilot.ShortSource(auth.Source)
+	}
 	rows := []billingRow{
-		{"Subscription", "GitHub Copilot " + Bracket(loggedIn, withTier(auth.Label(), plan.Name), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", strings.TrimSpace("GitHub Copilot "+plan.Name) + " " + Bracket(loggedIn, who, "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
 				return true
@@ -335,11 +347,31 @@ func copilotMenu(d *dialog) agentMenu {
 		{"Login", "browser sign-in (copilot login)", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-		{"User", "the gh account copilot runs as " + Bracket(pinned != "", pinned, "gh active"), "", func() bool {
+		{"GitHub user", "account the GitHub route uses " + Bracket(true, who, ""), "", func() bool {
 			return pickGitHubUser(d, auth)
 		}},
 	}
+	if fb := copilotFallback(chain); fb != "" {
+		rows = append(rows, billingRow{"Fallback", fb, "", func() bool {
+			for i, s := range chain {
+				d.printf("%d. %-24s %-22s %s\n", i+1, s.Label, s.When, Bracket(s.OK, "usable", "not set up"))
+			}
+			return false
+		}})
+	}
 	return agentMenu{st, rows}
+}
+
+// copilotFallback is the route chain after the first usable step ("GitHub edotau (under 95% of credits) → ..."); "" when none.
+func copilotFallback(chain []copilot.RouteStep) string {
+	first := slices.IndexFunc(chain, func(s copilot.RouteStep) bool { return s.OK })
+	var rest []string
+	for _, s := range chain[first+1:] {
+		if s.OK {
+			rest = append(rest, s.Label+" ("+s.When+")")
+		}
+	}
+	return strings.Join(rest, " → ")
 }
 
 // copilotEffortChoices: menu label → the --reasoning-effort value copilot's CLI and SDK accept. Fixed

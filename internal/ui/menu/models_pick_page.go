@@ -109,7 +109,7 @@ func copilotRouteDesc(d *dialog) string {
 	model, _ := providers.CopilotModel(d.reg)
 	name := cmp.Or(vault.GetAgentRecord("copilot").Profile, providers.SessionProfile())
 	if p := d.reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
-		return modelDesc("databricks·"+name, model, snapshotHas(p, model))
+		return modelDesc("databricks-"+name, model, snapshotHas(p, model))
 	}
 	listed := false
 	if d.copilotCatalogLoaded && d.copilotCatalogErr == nil {
