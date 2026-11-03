@@ -66,5 +66,3 @@ can:
 
 Flag only what would break implementation; wording, nice-to-haves and extra sections are not issues. Output the
 verdict, then issues as `[Phase X.Y]: issue — why it matters`.
-
-Related, don't duplicate: `judge.md` → Protocol.

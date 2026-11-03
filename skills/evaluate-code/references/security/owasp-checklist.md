@@ -1,7 +1,12 @@
-# Mode 1: Application Security Review — OWASP Checklist
+# Application security review — OWASP checklist
 
-The full code-audit checklist. `../../SKILL.md` → Security carries the contract, must-review
-triggers, and read-only contract; this is the detailed pass to run when auditing application code.
+The detailed pass for auditing application code; `../../SKILL.md` → Security carries the contract. Secrets, input
+validation, injection/XSS, CSRF and auth/authz: `rules/standards/security.md`. Check each OWASP Top 10 category
+against the change, plus these before ANY commit:
+
+- [ ] Rate limiting on endpoints
+- [ ] Error messages don't leak sensitive data
+- [ ] Logs carry no secrets or PII (`%`-style logging args, never f-strings)
 
 ## Mechanical scan of added lines
 
@@ -9,24 +14,9 @@ triggers, and read-only contract; this is the detailed pass to run when auditing
 git diff $RANGE | grep -nE '^\+' | grep -iE 'password|secret|api[_-]?key|token|BEGIN (RSA|PRIVATE)|eval\(|exec\(|pickle\.loads|md5|sha1|verify=False|shell=True'
 ```
 
-## Pre-Commit Security Checklist
-
-Secrets, input validation, injection/XSS, CSRF, auth/authz: `rules/standards/security.md` →
-Before commit. This skill adds, before ANY commit:
-
-- [ ] Rate limiting on endpoints
-- [ ] Error messages don't leak sensitive data
-- [ ] Logs carry no secrets or PII
-
-## OWASP Top 10
-
-The OWASP Top 10 itself needs no restating here; check each category against the change, then the
-harness-specific items above and below. One harness convention worth naming: `%`-style logging args, never
-f-strings, so a secret is never interpolated into a log line by accident.
-
 ## Response Protocol
 
-If security issue found:
+If a security issue is found:
 
 1. STOP immediately; run the Security lens (`evaluate-code`) over the affected surface
 2. Assess severity (CRITICAL/HIGH/MEDIUM/LOW)
@@ -37,7 +27,7 @@ If security issue found:
 
 ## Common False Positives
 
-Always verify context before flagging:
+Verify context before flagging:
 
 - Environment variables in `.env.example` (not actual secrets)
 - Test credentials in test files (if clearly marked)
