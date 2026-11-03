@@ -7,6 +7,21 @@
       "headroom": 0.5
     },
     "subagents": true,
+    "claudeAnywhere": true,
+    "ladders": {
+      "default": [
+        {"agent": "copilot", "models": ["gpt-6.1-sol", "gpt-6-astra"]},
+        {"provider": "databricks"},
+        {"agent": "codex", "provider": "openai"},
+        {"agent": "opencode"}
+      ],
+      "firstParty": [
+        {"agent": "copilot"},
+        {"agent": "codex", "provider": "openai"},
+        {"agent": "gemini"},
+        {"agent": "opencode", "models": ["opencode-go"]}
+      ]
+    },
     "opencode": {
       "ladder": [
         "opencode-go",
