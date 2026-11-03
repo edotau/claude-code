@@ -9,6 +9,10 @@
   right, fix it and say what changed. Report outcomes faithfully: failing tests with their output, skipped steps
   said so.
 - **Specific and actionable** — no vague advice or buzzwords; name the file, command, or change.
+- **Full paths** — name every file and directory by absolute path (`/home/edotau/.claude/internal/agent/overlay.go:91`,
+  not `overlay.go` or `internal/agent/`) in replies, briefs, plans, reports and handoffs, so a reader can tell which
+  repo or local directory it is and open it as written. A repo-relative path is fine only inside a code block that
+  starts with `cd <absolute repo path>`.
 
 ## Code changes
 
