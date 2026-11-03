@@ -114,7 +114,7 @@ func registryOpts(t *testing.T, version, log string, known ...string) SDKOptions
 
 func openSession(t *testing.T, o SDKOptions) (*copilot.Session, error) {
 	t.Helper()
-	co, err := BuildClientOptions(o)
+	co, err := BuildClientOptions(context.Background(), o)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func calls(t *testing.T, log string) []string {
 func TestRegistryUnregisteredPick(t *testing.T) {
 	o := registryOpts(t, "1.0.104", t.TempDir()+"/log")
 	o.Model = "dbx-openai/not-registered"
-	if _, err := BuildClientOptions(o); !errors.Is(err, ErrUnregisteredPick) {
+	if _, err := BuildClientOptions(context.Background(), o); !errors.Is(err, ErrUnregisteredPick) {
 		t.Fatalf("BuildClientOptions err = %v, want ErrUnregisteredPick", err)
 	}
 
