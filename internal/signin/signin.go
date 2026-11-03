@@ -69,6 +69,14 @@ func ValidateSecret(name, value string) error {
 	return shapes.ValidCredential(name, value)
 }
 
+// SetSecret validates then stores one vault secret; callers clear whichever auth cache they own.
+func SetSecret(name, value string) error {
+	if err := ValidateSecret(name, value); err != nil {
+		return err
+	}
+	return storeSecret(name, value)
+}
+
 // isGitHubToken: the transitional env name, or a vault name GITHUB_[<PROFILE>_]PAT (providers.SecretName).
 func isGitHubToken(name string) bool {
 	return name == providers.CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
@@ -162,10 +170,7 @@ func (s secretSignin) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
 	if v = strings.TrimSpace(v); v == "" {
 		return errors.New("empty value")
 	}
-	if err := ValidateSecret(name, v); err != nil {
-		return err
-	}
-	if err := storeSecret(name, v); err != nil {
+	if err := SetSecret(name, v); err != nil {
 		return err
 	}
 	_ = router.ClearProviderAuth(s.p.Name) // best-effort: the TTL backstops a missed clear
