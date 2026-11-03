@@ -26,6 +26,7 @@ type EnvSpec struct {
 	Mode  EnvMode
 	Base  []string // nil means os.Environ(), except under EnvPrescrubbed where it is used as given
 	Keep  []string // names both scrubs keep (--keep-env); the deny scrub also honors HARNESS_KEEP_ENV
+	Unset []string // names dropped from the scrubbed base (Plan.Unset, an overlay unset); Set and Extra still add them
 	Set   []string // the launch's own KEY=VALUE, after the scrubs so they are never dropped
 	Extra []string // --env, after Set so it wins
 	PWD   string   // non-empty appends PWD=<dir> last, for a child that reads $PWD
@@ -37,17 +38,51 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	if base == nil && s.Mode != EnvPrescrubbed {
 		base = os.Environ()
 	}
-	switch s.Mode {
-	case EnvClaude:
-		base, _ = proc.Scrub(base, proc.EnvKeepSet(s.Keep))
-	case EnvAgent:
-		base, _ = proc.ScrubAgent(base, proc.EnvKeepSet(s.Keep))
-	}
-	env := append(append(scrubIsolated(ctx, base, s.Keep), s.Set...), s.Extra...)
+	base, _ = s.Mode.scrub(base, s.Keep)
+	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), s.dropper(ctx))
+	env = append(append(env, s.Set...), s.Extra...)
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
 	return env
+}
+
+// scrub is the Mode's deny scrub; EnvPrescrubbed passes env through.
+func (m EnvMode) scrub(env, keep []string) (kept, dropped []string) {
+	switch m {
+	case EnvClaude:
+		return proc.Scrub(env, proc.EnvKeepSet(keep))
+	case EnvAgent:
+		return proc.ScrubAgent(env, proc.EnvKeepSet(keep))
+	}
+	return env, nil
+}
+
+type unsetKey struct{}
+
+// withUnsetEnv carries names every child env built under ctx drops from its inherited base (an overlay's unset).
+func withUnsetEnv(ctx context.Context, names []string) context.Context {
+	if len(names) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, unsetKey{}, slices.Clone(names))
+}
+
+// dropper reports a base entry the child must not inherit: unset by the spec or ctx, or assigned again after it.
+func (s EnvSpec) dropper(ctx context.Context) func(string) bool {
+	drop := map[string]bool{}
+	names, _ := ctx.Value(unsetKey{}).([]string)
+	for _, n := range slices.Concat(s.Unset, names) {
+		drop[n] = true
+	}
+	for _, kv := range slices.Concat(s.Set, s.Extra) {
+		n, _, _ := strings.Cut(kv, "=")
+		drop[n] = true
+	}
+	if s.PWD != "" {
+		drop["PWD"] = true
+	}
+	return func(kv string) bool { n, _, _ := strings.Cut(kv, "="); return drop[n] }
 }
 
 // BlankForeignCredentials adds NAME= for each foreign credential in the process env that env (the launch's own
