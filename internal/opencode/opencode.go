@@ -433,6 +433,35 @@ func (opencodeEngine) LoginStatus() (bool, string) {
 	return false, ""
 }
 
+var _ agent.Authenticator = opencodeEngine{}
+
+// AuthStatus is opencode's stored `opencode auth login` providers; a failed probe sets Err, never reads as logged out.
+func (opencodeEngine) AuthStatus() providers.AuthState {
+	names, err := opencodeLoginsErr()
+	if len(names) == 0 {
+		return providers.AuthState{Err: err}
+	}
+	return providers.AuthState{
+		Present: true, Source: "opencode auth login: " + strings.Join(names, ", "), Method: providers.AuthCLI, Err: err,
+	}
+}
+
+func (opencodeEngine) Plan(context.Context, providers.AuthState) providers.Subscription {
+	return providers.Subscription{}
+}
+
+// Verify is presence-only: a probe error with no stored login is transient, not NeedsLogin.
+func (e opencodeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
+	st := e.AuthStatus()
+	switch {
+	case st.Present:
+		return providers.VerdictOK, st.Source
+	case st.Err != nil:
+		return providers.VerdictTransient, st.Err.Error()
+	}
+	return providers.VerdictNeedsLogin, ""
+}
+
 // PreRoute prefers opencode's own login (Go/Zen, else the github-copilot one) ahead of a session provider that could serve it.
 func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (providers.Target, string, bool, error) {
 	if explicit {
