@@ -121,7 +121,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	}
 	cmd, tail := agent.ChildCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	keep := append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...)
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Extra: req.Env}.Environ(ctx) // --env last, so it wins
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Set: launcherSet(cl.Set), Extra: req.Env}.Environ(ctx) // --env last, so it wins
 	return cmd, tail, cl, nil
 }
 
@@ -330,4 +330,13 @@ func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
 	}
 	prompt += sb.String()
 	return prompt, nil
+}
+
+// launcherSet is the launch's own route values as KEY=VALUE, re-added after Unset so an overlay never drops them.
+func launcherSet(set map[string]string) []string {
+	out := make([]string, 0, len(set))
+	for _, k := range slices.Sorted(maps.Keys(set)) {
+		out = append(out, k+"="+set[k])
+	}
+	return out
 }
