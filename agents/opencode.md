@@ -31,15 +31,9 @@ Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent
 
 ## Invocation
 
-Called as `@agent-opencode <request>` or dispatched with a brief. A leading `ask resume review explore transfer status
-tail result cancel setup catalog profile on off` runs `claude-code opencode <verb> <rest>` and relays it. Anything
-else is a routed task: `claude-code ask --agent opencode --tools "<task>"` (default model:
-`internal/router/table.json`). `--profile <p>` and `--model <m>` in the request ride on every `claude-code opencode`
-call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb that lacks a flag
-errors, so relay it.
-
-`/opencode <verb|task>` (`commands/opencode.md`) runs the CLI straight from the prompt box with no subagent (bare task =
-`ask`); use `@agent-opencode` or `/coworkers` when the task needs a brief and a checked answer.
+`@agent-opencode <request>` or a brief. A leading verb (`claude-code opencode -h`) runs `claude-code opencode <verb>
+<rest>`, relayed; anything else runs `claude-code ask --agent opencode --tools "<task>"`. `--profile`/`--model` ride on
+every call. `/opencode` runs the CLI directly, no subagent.
 
 ## Owns
 
