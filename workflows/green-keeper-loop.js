@@ -2,7 +2,7 @@ export const meta = {
   name: 'green-keeper-loop',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
-    '{gate?: auto-detected when absent, cwd, scope: ["dir"], maxIterations: 3, fixesPerIteration?: 3}. Returns {status, exit: green|stalled|capped|error, gate, gateSource, iterations, filesChanged, residual, history}.',
+    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration. RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. PLANNED: steps {fix}.',
   phases: [
     { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
     { title: 'Gate', detail: 'one fixer per iteration: run the gate, fix root causes within scope, re-run' },
