@@ -51,19 +51,26 @@ func EnableOverlayDebug(path string) error {
 	return os.Setenv(OverlayDebugVar, abs)
 }
 
-// overlayDebugSalt reads the salt beside the log, or creates it exclusively (a concurrent first run reads the winner's).
+// overlayDebugSalt reads the salt beside the log, or links a fully written one into place (the loser reads the winner's).
 func overlayDebugSalt(path string) (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err == nil {
-		salt := hex.EncodeToString(b)
-		_, werr := f.WriteString(salt)
-		return salt, errors.Join(werr, f.Close())
+	salt := hex.EncodeToString(b)
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return "", err
 	}
-	if !errors.Is(err, os.ErrExist) {
+	defer os.Remove(tmp.Name())
+	_, werr := tmp.WriteString(salt)
+	if err := errors.Join(werr, tmp.Chmod(0o600), tmp.Close()); err != nil {
+		return "", err
+	}
+	// link is atomic and fails if path exists, so a reader never sees a half-written salt
+	if err := os.Link(tmp.Name(), path); err == nil {
+		return salt, nil
+	} else if !errors.Is(err, os.ErrExist) {
 		return "", err
 	}
 	if err := os.Chmod(path, 0o600); err != nil {

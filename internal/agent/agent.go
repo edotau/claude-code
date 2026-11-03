@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
@@ -551,9 +552,9 @@ func childErr(ctx context.Context, name string, err error, tail *TailBuffer) err
 	}
 	if t := strings.TrimSpace(tail.String()); t != "" {
 		if len(t) > 600 {
-			t = "…" + t[len(t)-600:]
+			t = "…" + strings.ToValidUTF8(t[len(t)-600:], "")
 		}
-		return fmt.Errorf("%s: %w: %s", name, err, t)
+		return fmt.Errorf("%s: %w: %s", name, err, shapes.Redact(t))
 	}
 	return fmt.Errorf("%s: %w", name, err)
 }
@@ -812,14 +813,11 @@ func dispatchLabel(r Engine) string {
 	return r.Name()
 }
 
-// FallbackReason keeps the last line of the failure (an agent CLI prints its own ERROR line last), capped at 200 bytes.
+// FallbackReason keeps the last line of the failure (an agent CLI prints its own ERROR line last), capped at 200 runes.
 func FallbackReason(err error) string {
 	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
 	s := strings.TrimSpace(lines[len(lines)-1])
-	if len(s) > 200 {
-		s = s[:200]
-	}
-	return s
+	return textutil.CapRunes(s, 200, "")
 }
 
 // dispatchUnavailable is true when the binary, target or exec failed before any answer; claude/api never count.
@@ -847,12 +845,17 @@ func hopFailed(res Result, err error) bool {
 	return !errors.As(err, &e) || !e.Progressed
 }
 
-// ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright.
+// ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
+// when the registry cannot load, any "x:y" model counts as pinned (fail closed).
 func ExplicitBackend(req RunOptions) bool {
 	if req.Provider != "" {
 		return true
 	}
-	reg, _ := providers.Load()
+	reg, err := providers.Load()
+	if err != nil { // fail closed: an unreadable registry must not turn a "name:model" pin into a fallback
+		name, _, ok := strings.Cut(req.Model, ":")
+		return ok && name != ""
+	}
 	return namesProvider(reg, req.Model)
 }
 

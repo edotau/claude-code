@@ -166,13 +166,13 @@ func (r Record) LogLine() string {
 func (r *Record) Finish(res Result, err error, took time.Duration) {
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked = res.Invoked
-	r.Fallback, r.FallbackReason = res.Fallback, res.FallbackReason
+	r.Fallback, r.FallbackReason = res.Fallback, shapes.Redact(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
 	}
 	r.DurationMs = took.Milliseconds()
 	if err != nil {
-		r.Status, r.Error = "error", err.Error()
+		r.Status, r.Error = "error", shapes.Redact(err.Error())
 	}
 }
 
@@ -316,8 +316,8 @@ type StreamLog func(kind, text string)
 // eventTextCap bounds the text of one `▸ kind: text` log line, in runes.
 const eventTextCap = 300
 
-// eventLogFor binds ctx's sink; nil when the dispatch has none.
-func eventLogFor(ctx context.Context) StreamLog {
+// EventLogFor binds ctx's sink; nil when the dispatch has none.
+func EventLogFor(ctx context.Context) StreamLog {
 	if stderrLogFrom(ctx) == nil {
 		return nil
 	}
@@ -460,13 +460,12 @@ func RunRecorded(ctx context.Context, rec *Record, agentName string, out Sink, o
 		_, _ = io.WriteString(o.AnswerTo, res.Answer)
 	}
 	// the result event lands before the record leaves running, so a tail follower never exits without it
-	rerr := sink.Emit(ResultEvent(NewEnvelope(res, err, rec.ID)))
+	if rerr := sink.Emit(ResultEvent(NewEnvelope(res, err, rec.ID))); rerr != nil && err == nil {
+		err = rerr
+	}
 	rec.Finish(res, err, time.Since(begin))
 	if serr := rec.Save(); serr != nil && o.Notify != nil {
 		o.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", rec.ID, serr))
-	}
-	if rerr != nil && err == nil {
-		err = rerr
 	}
 	return res, err
 }

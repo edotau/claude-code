@@ -3,15 +3,17 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -76,22 +78,52 @@ func workspaceKey() string {
 
 // gitTopOr is cwd's git repo root, else cwd.
 func gitTopOr(cwd string) string {
-	if out, err := exec.CommandContext(context.Background(), "git", "-C", cwd, "rev-parse", "--show-toplevel").Output(); err == nil {
-		if top := strings.TrimSpace(string(out)); top != "" {
-			return top
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel"); err == nil && strings.TrimSpace(out) != "" {
+		return strings.TrimSpace(out)
 	}
 	return cwd
 }
 
+// readLastProfiles is the stored state, empty when the file is missing or undecodable.
 func readLastProfiles() lastProfiles {
-	var st lastProfiles
-	if data, err := os.ReadFile(lastProfileFile()); err == nil {
-		if _, err := schemas.Decode(lastProfileFormat, data, &st); err != nil {
-			st = lastProfiles{}
-		}
-	}
+	st, _ := loadLastProfiles()
 	return st
+}
+
+// loadLastProfiles is the stored state plus any decode error; a corrupt file is copied to .corrupt-<unix>, a newer one refused.
+func loadLastProfiles() (lastProfiles, error) {
+	var st lastProfiles
+	path := lastProfileFile()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return st, nil
+		}
+		return lastProfiles{}, err
+	}
+	if _, err := schemas.Decode(lastProfileFormat, data, &st); err != nil {
+		if errors.Is(err, schemas.ErrNewer) {
+			return lastProfiles{}, err
+		}
+		if berr := paths.AtomicWrite(fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix()), data, 0o600); berr != nil {
+			return lastProfiles{}, errors.Join(err, berr)
+		}
+		return lastProfiles{}, nil
+	}
+	return st, nil
+}
+
+// updateLastProfiles applies fn to the stored workspaces under the file lock and writes them back.
+func updateLastProfiles(fn func(map[string]map[string]lastProfileAt) map[string]map[string]lastProfileAt) error {
+	return paths.WithFileLock(lastProfileFile(), func() error {
+		st, err := loadLastProfiles()
+		if err != nil {
+			return err
+		}
+		return writeLastProfiles(fn(st.Workspaces))
+	})
 }
 
 // lastProfile is the profile this workspace last launched agentName with, "" unless it is registered and the agent can use it.
@@ -131,18 +163,19 @@ func ClearLastProfilesFor(gone ...string) error {
 	if len(gone) == 0 {
 		return nil
 	}
-	st := readLastProfiles()
-	next := map[string]map[string]lastProfileAt{}
-	for ws, byAgent := range st.Workspaces {
-		kept := maps.Clone(byAgent)
-		for _, n := range gone {
-			delete(kept, n)
+	return updateLastProfiles(func(cur map[string]map[string]lastProfileAt) map[string]map[string]lastProfileAt {
+		next := map[string]map[string]lastProfileAt{}
+		for ws, byAgent := range cur {
+			kept := maps.Clone(byAgent)
+			for _, n := range gone {
+				delete(kept, n)
+			}
+			if len(kept) > 0 {
+				next[ws] = kept
+			}
 		}
-		if len(kept) > 0 {
-			next[ws] = kept
-		}
-	}
-	return writeLastProfiles(next)
+		return next
+	})
 }
 
 func writeLastProfiles(ws map[string]map[string]lastProfileAt) error {
@@ -159,13 +192,15 @@ func RecordLastProfile(agentName, profile string, args []string) {
 	if profile == "" || ws == "" || IsHeadless(args) {
 		return
 	}
-	next := map[string]map[string]lastProfileAt{}
-	for k, v := range readLastProfiles().Workspaces {
-		next[k] = maps.Clone(v)
-	}
-	if next[ws] == nil {
-		next[ws] = map[string]lastProfileAt{}
-	}
-	next[ws][agentName] = lastProfileAt{Profile: profile, Updated: time.Now().UTC()}
-	_ = writeLastProfiles(next)
+	_ = updateLastProfiles(func(cur map[string]map[string]lastProfileAt) map[string]map[string]lastProfileAt {
+		next := map[string]map[string]lastProfileAt{}
+		for k, v := range cur {
+			next[k] = maps.Clone(v)
+		}
+		if next[ws] == nil {
+			next[ws] = map[string]lastProfileAt{}
+		}
+		next[ws][agentName] = lastProfileAt{Profile: profile, Updated: time.Now().UTC()}
+		return next
+	})
 }
