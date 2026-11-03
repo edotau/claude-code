@@ -308,7 +308,7 @@ func parseClaudeUsage(body []byte, subscriptionType string) []quota {
 	if err := json.Unmarshal(body, &u); err != nil {
 		return []quota{{Provider: "anthropic", Note: "usage unavailable: unreadable response"}}
 	}
-	plan := title(subscriptionType)
+	plan := textutil.Title(subscriptionType)
 	fiveLocal, fiveUTC := claudeResets(u.FiveHour.ResetsAt)
 	weekLocal, weekUTC := claudeResets(u.SevenDay.ResetsAt)
 	out := []quota{
