@@ -3,6 +3,7 @@
 package clean
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 // openMemoryFiles retains state if lsof is missing or cannot inspect open descriptors.
 func openMemoryFiles() (map[string]bool, bool) {
-	data, err := exec.Command("lsof", "-Fn", "+D", memstore.StateDir()).Output()
+	data, err := exec.CommandContext(context.Background(), "lsof", "-Fn", "+D", memstore.StateDir()).Output()
 	if err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 1 || len(exit.Stderr) != 0 {
