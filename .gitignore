@@ -107,3 +107,7 @@ coverage.*
 # Copilot repo instructions: local, not tracked
 /.github/copilot-instructions.md
 .impeccable
+
+# Mods: engine-generated types; per-session dev mods
+mods/*/.claude-plugin/types/
+dev-mods/
