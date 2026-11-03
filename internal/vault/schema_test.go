@@ -154,7 +154,7 @@ func TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := View(func(tx *Tx) error {
-		if s, _ := tx.Get(Meta, "schema"); s != strconv.Itoa(SchemaVersion) {
+		if s, _ := tx.Get(Meta, "schema"); s != strconv.Itoa(schemaVersion) {
 			t.Errorf("schema after Update = %q, want current", s)
 		}
 		return nil
@@ -162,7 +162,7 @@ func TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := ledgerLines(t)
-	if len(l) != 1 || l[0]["format"] != "vault" || l[0]["from"] != float64(2) || l[0]["to"] != float64(SchemaVersion) {
+	if len(l) != 1 || l[0]["format"] != "vault" || l[0]["from"] != float64(2) || l[0]["to"] != float64(schemaVersion) {
 		t.Fatalf("ledger = %v, want one {format:vault from:2 to:current}", l)
 	}
 
@@ -203,7 +203,7 @@ func TestUpdateErrorLeavesNoLedgerLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := ledgerLines(t)
-	if len(l) != base+1 || l[base]["from"] != float64(2) || l[base]["to"] != float64(SchemaVersion) {
+	if len(l) != base+1 || l[base]["from"] != float64(2) || l[base]["to"] != float64(schemaVersion) {
 		t.Fatalf("ledger = %v, want exactly one new 2->current line", l)
 	}
 }

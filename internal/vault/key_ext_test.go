@@ -12,6 +12,45 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+func TestRetiredMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		want    []string
+		wantErr bool
+	}{
+		{name: "missing"},
+		{name: "empty", raw: `[]`, want: []string{}},
+		{name: "null", raw: `null`},
+		{name: "valid", raw: `["old", "older"]`, want: []string{"old", "older"}},
+		{name: "invalid JSON", raw: `[`, wantErr: true},
+		{name: "wrong shape", raw: `{}`, wantErr: true},
+		{name: "mixed types", raw: `["old", 42]`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			if tc.raw != "" {
+				vaulttest.Put(t, vault.Meta, "retired", tc.raw)
+			}
+			if err := vault.View(func(tx *vault.Tx) error {
+				got, err := vault.Retired(tx)
+				if (err != nil) != tc.wantErr {
+					t.Fatalf("Retired error = %v, want error %t", err, tc.wantErr)
+				}
+				if tc.wantErr && !strings.Contains(err.Error(), "retired") {
+					t.Errorf("Retired error lacks metadata context: %v", err)
+				}
+				if !reflect.DeepEqual(got, tc.want) {
+					t.Errorf("Retired = %v, want %v", got, tc.want)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestRetiredAfterTwoRotations(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	k, err := vault.EnsureKey()
@@ -33,7 +72,11 @@ func TestRetiredAfterTwoRotations(t *testing.T) {
 		t.Fatalf("second old = %s, want %s", second, next)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
-		if got, want := vault.Retired(tx), []string{k.Kid, next}; !reflect.DeepEqual(got, want) {
+		got, err := vault.Retired(tx)
+		if err != nil {
+			return err
+		}
+		if want := []string{k.Kid, next}; !reflect.DeepEqual(got, want) {
 			t.Errorf("Retired = %v, want %v", got, want)
 		}
 		return nil

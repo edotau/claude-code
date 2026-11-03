@@ -156,8 +156,9 @@ func checkRetiredKeys() []Check {
 	var kids []string
 	if err := vault.View(func(t *vault.Tx) error {
 		id, _ = t.Get(vault.Meta, "vault_id")
-		kids = vault.Retired(t)
-		return nil
+		var err error
+		kids, err = vault.Retired(t)
+		return err
 	}); err != nil {
 		return []Check{{Name: "vault retired keys", Detail: err.Error()}}
 	}

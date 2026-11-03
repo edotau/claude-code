@@ -41,9 +41,6 @@ const (
 	hkdfSchema    = 2
 )
 
-// SchemaVersion is the layout this build writes.
-const SchemaVersion = schemaVersion
-
 // View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed, or MasterKey
 // (it opens its own View) from inside another's callback. bbolt is not reentrant across process
 // file locks, so a same-goroutine nested open blocks on the outer transaction's own flock until
@@ -358,12 +355,15 @@ func (t *Tx) PutRecordIn(bucket, name string, r Record) error {
 	return t.Put(bucket, name, string(v))
 }
 
-// Retired returns the retired key IDs recorded by committed rotations.
-func Retired(t *Tx) []string {
-	raw, _ := t.Get(Meta, "retired")
-	var kids []string
-	if json.Unmarshal([]byte(raw), &kids) != nil {
-		return nil
+// Retired returns the retired key IDs recorded by committed rotations, or an error for corrupt metadata.
+func Retired(t *Tx) ([]string, error) {
+	raw, ok := t.Get(Meta, "retired")
+	if !ok {
+		return nil, nil
 	}
-	return kids
+	var kids []string
+	if err := json.Unmarshal([]byte(raw), &kids); err != nil {
+		return nil, fmt.Errorf("vault: retired key IDs are corrupt: %w", err)
+	}
+	return kids, nil
 }

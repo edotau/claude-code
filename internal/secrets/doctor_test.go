@@ -78,7 +78,7 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 func TestMasterKeyStatus(t *testing.T) {
 	t.Run("unreadable vault", func(t *testing.T) {
 		doctorTestVault(t)
-		vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
+		vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 		count, source, err := MasterKeyStatus()
 		if count != 0 || source != "" || err == nil {
 			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"\", err)", count, source, err)
@@ -173,6 +173,19 @@ func TestDoctorLockedVault(t *testing.T) {
 	}
 }
 
+func TestDoctorCorruptRetiredKeys(t *testing.T) {
+	doctorTestVault(t)
+	vaulttest.Put(t, vault.Meta, "retired", `["old", 42]`)
+	checks := checkRetiredKeys()
+	if len(checks) != 1 {
+		t.Fatalf("checkRetiredKeys = %+v, want one error row", checks)
+	}
+	c := checks[0]
+	if c.Name != "vault retired keys" || c.OK || c.Gate || !strings.Contains(c.Detail, "retired key IDs are corrupt") {
+		t.Fatalf("retired keys row = %+v, want advisory corruption diagnostic", c)
+	}
+}
+
 func TestDoctorRetiredKeys(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("fake keyring needs a POSIX shell")
@@ -226,12 +239,12 @@ func TestDoctorRetiredKeys(t *testing.T) {
 // fail the gate, never read as "no credentials stored" (checkMasterKey -> NamesErr).
 func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
 	doctorTestVault(t)
-	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
+	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 	rc, out := doctorTestResult(&providers.Registry{})
 	if rc != ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
-	if !strings.Contains(out, "vault is unreadable:") || !strings.Contains(out, "schema "+strconv.Itoa(vault.SchemaVersion+1)) {
+	if !strings.Contains(out, "vault is unreadable:") || !strings.Contains(out, "schema "+strconv.Itoa(currentVaultSchema(t)+1)) {
 		t.Fatalf("Doctor missing unreadable-vault diagnostic: %s", out)
 	}
 }
