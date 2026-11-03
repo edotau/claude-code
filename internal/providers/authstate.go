@@ -1,7 +1,15 @@
 // authstate.go — the typed sign-in status every agent and provider row reports.
 package providers
 
-import "time"
+import (
+	"cmp"
+	"encoding/json"
+	"os"
+	"regexp"
+	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
+)
 
 // AuthState is one credential's sign-in as status rows render it, for an agent CLI or a provider row.
 type AuthState struct {
@@ -26,4 +34,43 @@ func (a AuthState) Label() string {
 type Subscription struct {
 	Raw, Name string
 	Account   string // the identity a network lookup named when AuthState.Account was empty
+}
+
+var maxTierRE = regexp.MustCompile(`max_(\d+x)`)
+
+// MaxTierName names a rate-limit tier ("default_claude_max_20x"): 20x is "Ultra", 5x "Max 5x"; "" when not a Max tier.
+func MaxTierName(tier string) string {
+	m := maxTierRE.FindStringSubmatch(tier)
+	switch {
+	case m == nil:
+		return ""
+	case m[1] == "20x":
+		return "Ultra"
+	}
+	return "Max " + m[1]
+}
+
+// ClaudeOAuthAccount is the oauthAccount block of ~/.claude.json.
+type ClaudeOAuthAccount struct {
+	Org      string `json:"organizationRateLimitTier"`
+	User     string `json:"userRateLimitTier"`
+	PlanName string `json:"planDisplayName"`
+}
+
+// Tier is the raw rate-limit tier ("default_claude_max_20x"), user before org.
+func (a ClaudeOAuthAccount) Tier() string { return cmp.Or(a.User, a.Org) }
+
+// ClaudeAccount reads ~/.claude.json's oauthAccount; zero when the file is absent or unreadable.
+func ClaudeAccount() ClaudeOAuthAccount {
+	b, err := os.ReadFile(paths.ClaudeJSON())
+	if err != nil {
+		return ClaudeOAuthAccount{}
+	}
+	var cfg struct {
+		Account ClaudeOAuthAccount `json:"oauthAccount"`
+	}
+	if json.Unmarshal(b, &cfg) != nil {
+		return ClaudeOAuthAccount{}
+	}
+	return cfg.Account
 }
