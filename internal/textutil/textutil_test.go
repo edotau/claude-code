@@ -3,6 +3,7 @@ package textutil
 import (
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestTruncate(t *testing.T) {
@@ -141,6 +142,15 @@ func TestHumanBytes(t *testing.T) {
 	} {
 		if got := HumanBytes(tc.n); got != tc.want {
 			t.Errorf("HumanBytes(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+func TestParseRetryAfterHugeSecondsNeverNegative(t *testing.T) {
+	for _, v := range []string{"10000000000", "9223372036854775807"} {
+		d, ok := ParseRetryAfter(v, time.Now())
+		if !ok || d <= 0 {
+			t.Errorf("ParseRetryAfter(%q) = %v, %v; want positive, true", v, d, ok)
 		}
 	}
 }

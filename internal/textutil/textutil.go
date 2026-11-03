@@ -8,12 +8,16 @@ import (
 	"unicode/utf8"
 )
 
-// Title upper-cases the first byte of s ("plus" → "Plus").
+// Title upper-cases the first rune of s ("plus" → "Plus").
 func Title(s string) string {
 	if s == "" {
 		return ""
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
 }
 
 // Truncate cuts s to at most n runes, replacing the tail with "…" when it does not fit so the

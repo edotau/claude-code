@@ -1,6 +1,7 @@
 package textutil
 
 import (
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -8,11 +9,14 @@ import (
 	"time"
 )
 
+// maxRetrySeconds is the largest second count that still fits a time.Duration.
+const maxRetrySeconds = int(math.MaxInt64 / time.Second)
+
 // ParseRetryAfter parses seconds or an HTTP-date; callers decide how to handle nonpositive durations.
 func ParseRetryAfter(v string, now time.Time) (time.Duration, bool) {
 	v = strings.TrimSpace(v)
 	if seconds, err := strconv.Atoi(v); err == nil {
-		return time.Duration(seconds) * time.Second, true
+		return time.Duration(max(-maxRetrySeconds, min(seconds, maxRetrySeconds))) * time.Second, true
 	}
 	if at, err := http.ParseTime(v); err == nil {
 		return at.Sub(now), true
