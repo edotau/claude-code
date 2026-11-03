@@ -34,6 +34,7 @@ var writers = map[string]string{
 	"internal/codex/codex.go:codexSchemaFile":                          unversioned("foreign: codex --output-schema temp file"),
 	"internal/agent/dispatchlog.go:Save":                               "dispatch-record",
 	"internal/agent/lastprofile.go:writeLastProfiles":                  "last-profile",
+	"internal/agent/lastprofile.go:loadLastProfiles":                   unversioned("backup: the corrupt last-profile.json copied aside before it is replaced"),
 	"internal/agent/overlay_debug.go:appendOverlayDebug":               unversioned("debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values"),
 	"internal/agent/overlay_debug.go:overlayDebugSalt":                 unversioned("debug: the generated fingerprint salt beside the --overlay-debug file"),
 	"internal/agent/dispatchlog.go:claimRecord":                        unversioned("claim: the running record, linked in whole"),

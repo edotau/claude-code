@@ -74,9 +74,6 @@ func ChildErr(ctx context.Context, name string, err error, tail *TailBuffer) err
 // StatusOf maps a classified failure to the envelope status.
 func StatusOf(e *Error) string { return statusOf(e) }
 
-// EventLogFor binds ctx's dispatch log; nil when the dispatch has none.
-func EventLogFor(ctx context.Context) StreamLog { return eventLogFor(ctx) }
-
 // NewRunSink stamps agent's name on sink's events and counts its text bytes.
 func NewRunSink(sink Sink, agent string) Sink { return &runSink{Sink: sink, agent: agent} }
 

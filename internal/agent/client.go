@@ -124,10 +124,12 @@ func (clientUsageError) ExitCode() int { return 2 }
 
 func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
 	if o.Provider != "" {
-		if reg, err := providers.Load(); err == nil {
-			if _, err := reg.Get(o.Provider); err != nil {
-				return Chain{}, err
-			}
+		reg, err := providers.Load()
+		if err != nil {
+			return Chain{}, err
+		}
+		if _, err := reg.Get(o.Provider); err != nil {
+			return Chain{}, err
 		}
 	}
 	if ExplicitBackend(o) {
@@ -198,7 +200,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d RunRecordedO
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
-		return RunWithFallback(ctx, p.chain, p.Opts, sink, c.Notify)
+		return RunWithFallback(ctx, p.chain, p.Opts, sink, d.Notify)
 	})
 	res.DispatchID = p.Record.ID
 	return res, err

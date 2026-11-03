@@ -181,7 +181,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
-	lg := eventLogFor(ctx)
+	lg := EventLogFor(ctx)
 	idle := &idleReader{r: stdout, last: time.Now().UnixNano()}
 	stop := heartbeat(lg, idle, name)
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
