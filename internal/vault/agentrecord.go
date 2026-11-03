@@ -14,7 +14,7 @@ const AgentRecordsKey = "agent-records"
 // agentRecordSchema is the vault layout that folded the <AGENT>_<FIELD> pins into records.
 const agentRecordSchema = 4
 
-// aliasRecordSchema is the layout that renamed a record's "aliases" key to "aliases".
+// aliasRecordSchema is the layout that renamed a record's "slots" key to "aliases".
 const aliasRecordSchema = 5
 
 // AgentRecord is one agent's vault record; every field is optional and a zero record is not stored.
@@ -143,7 +143,7 @@ func renameSlotsKey(raw string) string {
 	return string(b)
 }
 
-// migrateSlotsToAliases rewrites every stored record under the "aliases" key (AgentRecords reads the old "aliases").
+// migrateSlotsToAliases rewrites every stored record under the "aliases" key (AgentRecords reads the old "slots").
 func migrateSlotsToAliases(t *Tx) error {
 	recs, err := t.AgentRecords()
 	if err != nil {
@@ -222,15 +222,21 @@ func migrateAgentPins(t *Tx) (off []string, err error) {
 	return off, nil
 }
 
-// AgentRecords reads the vault once; every name is present (zero value when unset), a read error is empty.
-func AgentRecords(names []string) map[string]AgentRecord {
+// ReadAgentRecords reads the vault once; every name is present (zero value when unset), and a read error is returned.
+func ReadAgentRecords(names []string) (map[string]AgentRecord, error) {
 	var recs map[string]AgentRecord
-	_ = View(func(tx *Tx) (err error) { recs, err = tx.AgentRecords(); return err })
+	err := View(func(tx *Tx) (err error) { recs, err = tx.AgentRecords(); return err })
 	out := make(map[string]AgentRecord, len(names))
 	for _, n := range names {
 		out[n] = recs[n]
 	}
-	return out
+	return out, err
+}
+
+// AgentRecords is ReadAgentRecords for display callers: a read error reads as every name unset.
+func AgentRecords(names []string) map[string]AgentRecord {
+	recs, _ := ReadAgentRecords(names)
+	return recs
 }
 
 // GetAgentRecord is agent's record (zero value when unset or unreadable).

@@ -45,10 +45,24 @@ var errStaleKey = errors.New("vault: master key is stale")
 // account whenever the pointer is stale, absent, or shared by a copied root mid-rotation.
 func account(id string) string { return "vault-key/" + id }
 
+// keyFlightKey names one resolution; concurrent callers with the same key share a single resolver run.
+type keyFlightKey struct{ path, vaultID, kid, command string }
+
+// keyFlight is one in-progress resolution; its result fields are written before done closes.
+type keyFlight struct {
+	done   chan struct{}
+	key    *Key
+	source string
+	err    error
+}
+
 var keyCache struct {
 	sync.Mutex
-	path, vaultID, kid, command, source string
-	key                                 *Key
+	keyFlightKey
+	source  string
+	key     *Key
+	gen     uint64 // bumped by invalidateKey so a resolve that started earlier never refills the cache
+	flights map[keyFlightKey]*keyFlight
 }
 
 // invalidateKey clears the per-process key cache so the next MasterKey call re-resolves from the
@@ -57,6 +71,8 @@ func invalidateKey() {
 	keyCache.Lock()
 	defer keyCache.Unlock()
 	keyCache.key = nil
+	keyCache.gen++
+	keyCache.flights = nil // later callers start a fresh resolve instead of joining a pre-invalidation one
 }
 
 func keyMeta() (id, kid, command string, err error) {
@@ -94,12 +110,48 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 		}
 		return matchKey(id, k, "env", kid, command)
 	}
+	fk := keyFlightKey{Path(), id, kid, command}
 	keyCache.Lock()
-	defer keyCache.Unlock()
-	if keyCache.key != nil && keyCache.path == Path() && keyCache.vaultID == id &&
-		keyCache.kid == kid && keyCache.command == command {
-		return keyCache.key, keyCache.source, nil
+	if keyCache.key != nil && keyCache.keyFlightKey == fk {
+		k, source := keyCache.key, keyCache.source
+		keyCache.Unlock()
+		return k, source, nil
 	}
+	if f := keyCache.flights[fk]; f != nil {
+		keyCache.Unlock()
+		<-f.done // the resolver's keyring and key_command calls are each bounded by their own timeouts
+		return f.key, f.source, f.err
+	}
+	f := &keyFlight{done: make(chan struct{})}
+	if keyCache.flights == nil {
+		keyCache.flights = map[keyFlightKey]*keyFlight{}
+	}
+	keyCache.flights[fk] = f
+	gen := keyCache.gen
+	keyCache.Unlock()
+	runKeyFlight(f, fk, gen)
+	return f.key, f.source, f.err
+}
+
+// runKeyFlight resolves fk outside the cache lock, then publishes the result to the cache and to f's waiters.
+func runKeyFlight(f *keyFlight, fk keyFlightKey, gen uint64) {
+	defer close(f.done)
+	defer func() {
+		keyCache.Lock()
+		defer keyCache.Unlock()
+		if keyCache.flights[fk] == f {
+			delete(keyCache.flights, fk)
+		}
+		if f.err == nil && f.key != nil && keyCache.gen == gen {
+			keyCache.keyFlightKey, keyCache.source, keyCache.key = fk, f.source, f.key
+		}
+	}()
+	f.err = errors.New("vault: key resolution panicked") // overwritten below unless lookupKey panics
+	f.key, f.source, f.err = lookupKey(fk.vaultID, fk.kid, fk.command)
+}
+
+// lookupKey is resolveKey's uncached path: the keyring account, then key_command, then matchKey's fallbacks.
+func lookupKey(id, kid, command string) (*Key, string, error) {
 	v, found, lookupErr := keyringLookup(account(id))
 	recoverable := lookupErr != nil && (errors.Is(lookupErr, ErrKeyringUnavailable) || errors.Is(lookupErr, ErrKeyringNoAnswer))
 	if lookupErr != nil && !recoverable {
@@ -126,13 +178,7 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 	if err != nil {
 		return nil, source, err
 	}
-	k, source, err = matchKey(id, k, source, kid, command)
-	if err != nil {
-		return nil, source, err
-	}
-	keyCache.path, keyCache.vaultID, keyCache.kid, keyCache.command, keyCache.source, keyCache.key =
-		Path(), id, kid, command, source, k
-	return k, source, nil
+	return matchKey(id, k, source, kid, command)
 }
 
 // parseKeyCommandArgv decodes meta/key_command as a validated JSON argv array: no shell is ever

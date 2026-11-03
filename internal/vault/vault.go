@@ -35,7 +35,7 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion is the on-disk layout (4 = agent pins folded into records, 5 = record "aliases" renamed "aliases"); hkdfSchema is the oldest this build reads (2).
+// schemaVersion is the on-disk layout (4 = agent pins folded into records, 5 = record "slots" renamed "aliases"); hkdfSchema is the oldest this build reads (2).
 const (
 	schemaVersion = aliasRecordSchema
 	hkdfSchema    = 2
@@ -118,7 +118,7 @@ func create(path string) error {
 		return err
 	}
 	tmp := f.Name()
-	defer func() { _ = os.Remove(tmp) }() // best-effort cleanup; os.Link above moves it into place on success
+	defer func() { _ = os.Remove(tmp) }() // best-effort cleanup; os.Link below moves it into place on success
 	if err = f.Close(); err != nil {
 		return err
 	}
