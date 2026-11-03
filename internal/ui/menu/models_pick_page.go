@@ -4,6 +4,12 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os/exec"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks/serving"
@@ -12,10 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
-	"os/exec"
-	"slices"
-	"strings"
-	"time"
 )
 
 // aliasUse says in a few words what each alias is for; an alias row stays within 80 columns.
@@ -321,6 +323,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 	if claude {
 		aliases = append(aliases, models.Fable)
 	}
+	choices := sync.OnceValue(func() []string { return modelChoices(p, claude) }) // alias-independent; a fetch takes 20–45s
 	for {
 		rows := make([][2]string, len(aliases))
 		for i, s := range aliases {
@@ -330,7 +333,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		if err != nil || idx < 0 {
 			return
 		}
-		ids := modelChoices(p, claude)
+		ids := choices()
 		if len(ids) == 0 {
 			d.printf("%s: no model list available for %s\n", name, p.Name)
 			return

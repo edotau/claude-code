@@ -72,14 +72,14 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 		if !ok || (d.o.Agent != "" && d.o.Agent != name) {
 			continue
 		}
-		st := build(d).state
+		m := build(d) // the page re-renders after every pick, so this build is fresh enough to open
 		n := name
-		rows = append(rows, homeRow{Name: displayLabel(n), State: modeLabel(d, n, st), Check: st.check(), Run: func(d *dialog) {
+		rows = append(rows, homeRow{Name: displayLabel(n), State: modeLabel(d, n, m.state), Check: m.state.check(), Run: func(d *dialog) {
 			if page, ok := agentPages[n]; ok {
 				page(d)
 				return
 			}
-			runAgentMenu(d, displayLabel(n), agentMenus[n](d))
+			runAgentMenu(d, displayLabel(n), m)
 		}})
 	}
 	return RowsOf(rows)

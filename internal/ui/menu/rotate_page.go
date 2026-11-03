@@ -1,11 +1,12 @@
 package menu
 
 import (
+	"os"
+	"strings"
+
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
-	"os"
-	"strings"
 )
 
 // replaceKey pastes a new value for kt's keyed credential, probes it live before it overwrites the
@@ -73,8 +74,7 @@ func regenerate(d *dialog, kt configure.KeyTarget, argv []string, mint bool) boo
 		return false
 	}
 	if _, src, _ := secretstore.Get(kt.EnvVar); src == "env" {
-		d.printf("%s: minted a new token\n%s: env-only; update where exported\n", kt.Label, kt.EnvVar)
-		return false
+		d.printf("%s: minted a new token, saving it to the vault; the exported %s still overrides it\n", kt.Label, kt.EnvVar)
 	}
 	return storeValue(d, kt.EnvVar, tok)
 }

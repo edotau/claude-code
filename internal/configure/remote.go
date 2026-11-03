@@ -6,12 +6,10 @@ import (
 
 // HasAdminCredential reports, by name only, whether a tailscale admin API credential is set.
 func HasAdminCredential() bool {
-	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
-		return true
+	for _, n := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY"} {
+		if src, _ := secretstore.HasSecretErr(n); src != "" { // presence only: no decrypt per home render
+			return true
+		}
 	}
-	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok {
-		return true
-	}
-	_, _, ok := secretstore.Get("TAILSCALE_API_KEY")
-	return ok
+	return false
 }

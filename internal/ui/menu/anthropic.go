@@ -1,11 +1,10 @@
 package menu
 
 import (
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 
 	"github.com/edotau/claude-code/internal/codex"
-
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
