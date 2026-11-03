@@ -16,8 +16,7 @@ const (
 	simplicityMaxFile  = 1 << 20
 	simplicityMaxLines = 8
 	simplicityMaxChars = 1000
-	simplicityFixHint  = "Fix per rules/standards/quality.md → Comments; patterns: " +
-		"skills/simplify/references/simplification-patterns.md"
+	simplicityFixHint  = "Fix per rules/standards/quality.md → Comments, Simplify (built-in /simplify)"
 )
 
 // reviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.

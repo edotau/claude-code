@@ -18,8 +18,8 @@ An ambiguous requirement gets one interpretation, silently; the damage is invisi
 
 ## #2 Simplicity First
 
-Speculative generality; each piece adds reading cost for flexibility that never pays off. Before/after fixes:
-`../../simplify/references/simplification-patterns.md`.
+Speculative generality; each piece adds reading cost for flexibility that never pays off. Fix lane:
+`rules/standards/quality.md` → Simplify (with the built-in `/simplify`).
 
 - **A3. Factory for a single product** — `review complexity` → `premature-abstraction`, `class-density`
 - **A4. Error handling for impossible states** — `review complexity` → `cyclomatic-complexity`
