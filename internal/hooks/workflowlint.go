@@ -92,6 +92,10 @@ func workflowByName(in *Input, name string) Result {
 	if hits := lintSavedFile(path); len(hits) > 0 {
 		return blockSavedLint(path, hits)
 	}
+	if in.nested("permission_mode") == "auto" && inCWD(path, in.CWD) {
+		return Result{Decision: Block, Reason: fmt.Sprintf("workflow-lint: auto mode can't review a rewritten call; "+
+			"re-issue as Workflow({scriptPath: %q, args: <same args>})", path)}
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{}
@@ -105,6 +109,13 @@ func workflowByName(in *Input, name string) Result {
 	note := fmt.Sprintf("workflow-lint: name → inline script from %s (the by-name registry is read at session"+
 		" start; the file on disk is current)", path)
 	return Result{UpdatedInput: updated, Context: note}
+}
+
+// inCWD reports whether path lies inside cwd, comparing cleaned absolute paths.
+func inCWD(path, cwd string) bool {
+	p, err1 := filepath.Abs(path)
+	d, err2 := filepath.Abs(cwd)
+	return cwd != "" && err1 == nil && err2 == nil && underDir(d, p)
 }
 
 // lintSavedFile reads path and returns the pin problems worth blocking on; a read error returns nil

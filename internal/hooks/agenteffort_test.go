@@ -463,3 +463,18 @@ func TestLabelCellPinnedModelBeatsRouteCell(t *testing.T) {
 		t.Errorf("labelCell(codex) = %q with the pin set (unpinned cell %q), want the pinned model", got, cell)
 	}
 }
+
+// TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput: in auto mode a recall-only result must carry no
+// updatedInput (the classifier returns no verdict on a rewritten call); the recall goes to additionalContext.
+func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	seedHomeRecallBlock(t, 2)
+	in := fmt.Sprintf(`{"tool_name":"Agent","permission_mode":"auto","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
+	res := agentEffortResult(ParseInput(strings.NewReader(in)))
+	if res.UpdatedInput != nil {
+		t.Errorf("updatedInput = %v, want none in auto mode", res.UpdatedInput)
+	}
+	if !strings.Contains(res.Context, "memory-recall for this dispatch") {
+		t.Errorf("context = %q, want the recall block", res.Context)
+	}
+}
