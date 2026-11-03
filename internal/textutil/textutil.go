@@ -8,6 +8,14 @@ import (
 	"unicode/utf8"
 )
 
+// Title upper-cases the first byte of s ("plus" → "Plus").
+func Title(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 // Truncate cuts s to at most n runes, replacing the tail with "…" when it does not fit so the
 // result (including the ellipsis) never exceeds n runes.
 func Truncate(s string, n int) string {

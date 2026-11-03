@@ -226,11 +226,11 @@ func parseWham(body []byte) []quota {
 		if w == nil {
 			continue
 		}
-		out = append(out, quota{Provider: "openai", Account: u.Email, Plan: title(u.Plan), Window: windowLabel(w.Seconds),
+		out = append(out, quota{Provider: "openai", Account: u.Email, Plan: textutil.Title(u.Plan), Window: windowLabel(w.Seconds),
 			UsedPct: w.UsedPct, Resets: time.Unix(w.ResetAt, 0).Local().Format("2006-01-02 15:04")})
 	}
 	if len(out) == 0 {
-		out = append(out, quota{Provider: "openai", Account: u.Email, Plan: title(u.Plan), Note: "no rate-limit windows reported"})
+		out = append(out, quota{Provider: "openai", Account: u.Email, Plan: textutil.Title(u.Plan), Note: "no rate-limit windows reported"})
 	}
 	return out
 }
@@ -245,13 +245,6 @@ func windowLabel(sec int64) string {
 	default:
 		return fmt.Sprintf("%dh", sec/3600)
 	}
-}
-
-func title(s string) string {
-	if s == "" {
-		return ""
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // bar generates a 10-cell filled/empty bar for a percentage (0-100).
