@@ -1,8 +1,9 @@
 package menu
 
 import (
-	"github.com/edotau/claude-code/internal/configure"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/providers"
 )

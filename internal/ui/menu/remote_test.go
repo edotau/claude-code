@@ -2,12 +2,13 @@ package menu
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"

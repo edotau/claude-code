@@ -2,11 +2,12 @@ package menu
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 )
 
 // cgnatRemote is the 100.64.0.0/10 block tailscale assigns IPv4 node addresses from.

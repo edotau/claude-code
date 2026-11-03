@@ -1,11 +1,12 @@
 package configure
 
 import (
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 // EnvName is a valid secret name: an env var identifier.

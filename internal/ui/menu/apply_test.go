@@ -2,11 +2,12 @@ package menu
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/vault"
 

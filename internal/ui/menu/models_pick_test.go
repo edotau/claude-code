@@ -6,11 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/paths"

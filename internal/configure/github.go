@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // ghAccountRE pulls the account name out of `gh auth status`'s "Logged in to github.com account <name>" line.

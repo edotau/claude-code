@@ -3,8 +3,9 @@ package menu
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/configure"
 	"slices"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/vault"
 

@@ -5,6 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/edotau/claude-code/internal/agent"
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/configure"
@@ -15,14 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
-	"io"
-	"os"
-	"os/exec"
-	"runtime"
-	"slices"
-	"strconv"
-	"strings"
-	"time"
 )
 
 // SectionNames runs in this order when no section is named.

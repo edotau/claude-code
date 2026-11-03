@@ -2,13 +2,14 @@ package menu
 
 import (
 	"context"
+	"strings"
+	"time"
+
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
-	"strings"
-	"time"
 )
 
 // catalogFn is the discovery seam over catalogForAlias; tests stub the served-model listing.

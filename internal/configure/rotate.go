@@ -6,10 +6,11 @@ package configure
 import (
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/providers"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // ProbeValue live-checks a candidate value for p without storing it first, via the env-var seam

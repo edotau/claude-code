@@ -2,11 +2,12 @@ package menu
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/configure"
 )
 
 // TestWebSearchClaudeWiredHonoursConfigDir: the claude client reads CLAUDE_CONFIG_DIR/.claude.json, not $HOME/.claude.json.

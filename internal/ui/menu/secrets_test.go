@@ -3,11 +3,12 @@ package menu
 import (
 	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"

@@ -4,12 +4,13 @@ package configure
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
-	"strings"
-	"time"
 )
 
 var (
