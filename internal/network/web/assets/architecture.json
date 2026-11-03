@@ -15,8 +15,6 @@
   "dirs": {
     "cmd": {"kind": "package", "purpose": "Holds the binary's main package.", "notHere": "Anything else; there is only one binary."},
     "cmd/claude-code": {"kind": "package", "purpose": "main: calls cli.Run and exits.", "notHere": "Any logic."},
-    "defaults": {"kind": "package", "purpose": "Embeds the shipped default settings files.", "addHere": "New shipped default config files.", "notHere": "Render logic (internal/settings)."},
-    "defaults/claude": {"kind": "content", "purpose": "settings.json source of truth (hard rule 1); make install renders ~/.claude/settings.json from it.", "addHere": "Default settings keys.", "notHere": "Hooks (internal/settings/hookspec.go)."},
     "internal": {"kind": "content", "purpose": "All Go packages of the binary."},
     "internal/paths": {"kind": "package", "purpose": "Locates the config dir and state dirs; atomic and locked file writes; repo slug.", "addHere": "A location several packages need, including vendor homes (CODEX_HOME). Atomic file helpers.", "notHere": "Anything needing an internal import."},
     "internal/paths/pathstest": {"kind": "package", "purpose": "Isolated fake vendor executables for tests.", "notHere": "Production imports."},
@@ -112,6 +110,7 @@
     "internal/configure": {"kind": "package", "purpose": "The guided setup TUI: pages for provider, models, agents, routing, GitHub and more.", "addHere": "A setup page.", "notHere": "Writes other verbs also perform; call the owner."},
     "internal/cli": {"kind": "package", "purpose": "Verb table, help, completion spec and verb handlers. Imports 49 packages by design.", "addHere": "A verb's flag parsing and printing.", "notHere": "Engines. vault_table.go, providers.go, memory.go and agent.go have outgrown handlers."},
     "internal/hosttest": {"kind": "package", "purpose": "Gives each test binary a clean host: no agent CLIs, no credentials, throwaway HOME.", "notHere": "Production imports."},
+    "internal/hosttest/gittest": {"kind": "package", "purpose": "Fresh one-commit git repo per test, copied from a once-built template.", "notHere": "Production imports."},
     "agents": {"kind": "content", "purpose": "Subagent definitions, flat; name: must equal the file stem. Projected into other agents' homes.", "addHere": "A new subagent (change protocol: manifest first).", "notHere": "Long how-to; link a skill."},
     "commands": {"kind": "content", "purpose": "Slash commands, flat; thin launchers into an agent or skill.", "notHere": "Procedures; those are skills."},
     "workflows": {"kind": "content", "purpose": "Saved Workflow tool scripts: code-agent, code-analyzer, code-engineer, green-keeper-loop.", "addHere": "A reusable orchestration."},

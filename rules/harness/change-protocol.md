@@ -14,9 +14,10 @@ made in the generated `settings.json`, silently erased by the next `make install
 
 ## Impact Checklist
 
-1. **Settings or hooks** (`env`, hook chain, permissions, `statusLine`) — edit `defaults/claude/settings.json` (hooks:
-   `hooks.md`), `make install`, then `grep -n "<key>" ~/.claude/settings.json` and `claude-code doctor`. In a linked
-   worktree, cwd does not isolate writes: `settings-management.md` → worktree render.
+1. **Settings or hooks** (`env`, hook chain, permissions, `statusLine`) — edit
+   `internal/settings/settings.template.json` (hooks: `hooks.md`), `make install`, then
+   `grep -n "<key>" ~/.claude/settings.json` and `claude-code doctor`. In a linked worktree, cwd does not isolate
+   writes: `settings-management.md` → worktree render.
 2. **Agent or command renamed/moved** — agents are flat `agents/<name>.md` with `name:` equal to the stem (a mismatch
    silently breaks memory resolution); commands are flat `commands/<command>.md`. Grep the old name and fix every
    caller in the same commit.

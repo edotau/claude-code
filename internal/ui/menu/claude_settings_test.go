@@ -717,7 +717,7 @@ func TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat(t *testing.T) {
 	stubAddList(t, key)
 	origStat := gitDiffStat
 	t.Cleanup(func() { gitDiffStat = origStat })
-	gitDiffStat = func(string) (string, error) { return " defaults/claude/settings.json | 1 +\n", nil }
+	gitDiffStat = func(string) (string, error) { return " internal/settings/settings.template.json | 1 +\n", nil }
 	confirmAll(t, true)
 
 	runMenuDirect(t, d)
@@ -726,7 +726,7 @@ func TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat(t *testing.T) {
 	if !strings.HasPrefix(string(got), "{\n  \"$schema\"") || !strings.Contains(string(got), `"`+key+`": false`) {
 		t.Errorf("repo defaults missing the key or lost $schema first:\n%s", got)
 	}
-	if !strings.Contains(out.String(), "settings.json | 1 +") || !strings.Contains(out.String(), "not committed") {
+	if !strings.Contains(out.String(), "settings.template.json | 1 +") || !strings.Contains(out.String(), "not committed") {
 		t.Errorf("output lacks the diff --stat or the no-commit note:\n%s", out.String())
 	}
 }

@@ -22,7 +22,7 @@ import (
 
 const archTTL = 60 * time.Second
 
-var archGoRoots = []string{"internal", "cmd", "defaults"}
+var archGoRoots = []string{"internal", "cmd"}
 
 const gitListTimeout = 10 * time.Second
 

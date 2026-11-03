@@ -4,12 +4,12 @@
 package configure
 
 import (
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // ValidateRoutingInput runs f.Set against a scratch Routing, so a bad value is reported before staging.
-func ValidateRoutingInput(f agentconfig.Field, input string) error {
+func ValidateRoutingInput(f settings.RoutingField, input string) error {
 	var scratch providers.Routing
 	return f.Set(&scratch, input)
 }

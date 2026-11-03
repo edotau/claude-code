@@ -1,4 +1,4 @@
-package agentconfig
+package settings
 
 import (
 	"strings"
@@ -8,7 +8,7 @@ import (
 )
 
 // fieldByKey finds a registered field by its Key across every module, failing the test if absent.
-func fieldByKey(t *testing.T, key string) Field {
+func fieldByKey(t *testing.T, key string) RoutingField {
 	t.Helper()
 	for _, m := range Modules() {
 		for _, f := range m.Fields() {
@@ -18,7 +18,7 @@ func fieldByKey(t *testing.T, key string) Field {
 		}
 	}
 	t.Fatalf("no field named %q", key)
-	return Field{}
+	return RoutingField{}
 }
 
 // TestWeightsPriceRoundTripsAndResets checks Set/Get agree, headroom always picks up the remainder (the

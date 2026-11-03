@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -458,7 +457,7 @@ func TestSectionsCoverRenderedKeys(t *testing.T) {
 
 // The env block holds only env-only variables: one the schema documents as a settings key's override belongs in that key.
 func TestEnvHoldsOnlyEnvOnlyVariables(t *testing.T) {
-	o, err := parseObject(defaults.Claude)
+	o, err := parseObject(templateJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +476,7 @@ func TestEnvHoldsOnlyEnvOnlyVariables(t *testing.T) {
 
 // TestDefaultsMatchSchema: every key in the defaults file passes its schema validation, or is a docs-sourced catalog key.
 func TestDefaultsMatchSchema(t *testing.T) {
-	o, err := parseObject(defaults.Claude)
+	o, err := parseObject(templateJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,9 +532,9 @@ func TestSchemaKeyValidateRejects(t *testing.T) {
 
 // A catalog key absent from the defaults file still has a page row, so removing it from the file loses nothing.
 func TestSectionsKeepCatalogKeysMissingFromDefaults(t *testing.T) {
-	orig := defaults.Claude
-	t.Cleanup(func() { defaults.Claude = orig })
-	defaults.Claude = []byte(`{"$schema": "x", "model": "opus"}`)
+	orig := templateJSON
+	t.Cleanup(func() { templateJSON = orig })
+	templateJSON = []byte(`{"$schema": "x", "model": "opus"}`)
 	sections, err := Sections()
 	if err != nil {
 		t.Fatal(err)
