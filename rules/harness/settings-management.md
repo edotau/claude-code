@@ -21,6 +21,8 @@ paths:
 `internal/settings/hookspec.go`; a direct edit is discarded on the next render. That covers `env`, hooks,
 permissions, `apiKeyHelper`, `statusLine`.
 The defaults derive paths from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR` — never hardcode a machine path there.
+**Propose permission additions first:** show new `permissions.allow` rules as a table and wait for the owner's pick
+before editing the defaults or running `make install` (`/fewer-permission-prompts` included).
 
 1. Edit `defaults/claude/settings.json` (hooks: `hooks.md`). Confirm a new field's name and shape against the
    schema first (<https://www.schemastore.org/claude-code-settings.json>, indexed at
