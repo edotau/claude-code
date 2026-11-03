@@ -28,7 +28,7 @@ func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
 
 // parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
 func (b *claudeLive) Parse(dec *bufio.Reader, sink agent.Sink, lg func(kind, text string)) (agent.Result, error) {
-	res, err := parseClaudeEvents(dec, true, sink, lg)
+	res, err := parseClaudeEvents(dec, true, nil, sink, lg)
 	total := res.Usage.CostUSD
 	res.Usage.CostUSD = max(total-b.prevCost, 0)
 	b.prevCost = max(b.prevCost, total)
