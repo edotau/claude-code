@@ -1,17 +1,8 @@
 package cli
 
-// extractBool pulls a `--name` boolean flag out of args wherever it appears (NAME --flag and
-// --flag NAME must both work — the stdlib `flag` package only accepts flags before positionals).
+import "github.com/edotau/claude-code/internal/ui/helptext"
+
+// extractBool delegates to helptext.ExtractBool; providers.go still calls it until that file adopts the helper.
 func extractBool(args []string, name string) (bool, []string) {
-	flag := "--" + name
-	found := false
-	rest := make([]string, 0, len(args))
-	for _, a := range args {
-		if a == flag {
-			found = true
-			continue
-		}
-		rest = append(rest, a)
-	}
-	return found, rest
+	return helptext.ExtractBool(args, name)
 }
