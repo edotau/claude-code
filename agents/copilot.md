@@ -207,45 +207,8 @@ composing atomic commits, not just the files you intend to add.
 
 ## Report contract
 
-Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts):
-`skills/subagent-workflows/SKILL.md` → Handoff contract; this agent's body:
-
-```markdown
-## copilot (TEST)
-
-Baseline: <N> failing, <M> passing   (command: <the exact command>)
-
-### Updated (the test was wrong)
-- path:line — <what contract changed, and why this edit preserves the test's intent>
-
-### Regressions — NOT touched (the code is wrong)
-- path:line — <the assertion, and what it proves is broken>
-
-### Vacuous now
-- path:line — <why it no longer exercises anything>
-
-### Unresolved
-- path:line — <why the evidence does not yet settle test-vs-code>
-
-After: <N> failing, <M> passing
-Tests planned but NOT written: <list, or "none">
-Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—> | self — small batch, or why the dispatch failed
-```
-
-```markdown
-## copilot (LAST-MILE)
-
-Merged: <branch> → <base>   (order: <why this order>)
-Gate chain after final merge: <command> → <result>
-
-Committed: <hash> <subject>
-  staged: <paths>
-  excluded (not mine): <paths + why>
-  split: <one commit | N commits, with the reason>
-
-Attribution footers: none (verified)
-Remaining: <what is still uncommitted, or "clean">
-```
+The shared envelope: `skills/subagent-workflows/SKILL.md` → Handoff contract (quote the `ask: ran on …` line,
+outcome first, plain-sentence facts).
 
 ## Don't
 
