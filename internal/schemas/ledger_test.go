@@ -146,6 +146,7 @@ var writers = map[string]string{
 	"internal/agent/tools/version.go:writeVersionCache":                "agentversion",
 	"internal/agent/tools/install.go:runInstallScript":                 unversioned("foreign: temp installer script"),
 	"internal/agent/tools/tools.go:installBinary":                      unversioned("foreign: installed binary"),
+	"internal/agent/tools/science.go:installScienceApp":                unversioned("foreign: downloaded DMG temp file"),
 	"internal/transcript/summary_cache.go:Save":                        "transcript-summary",
 	"internal/usage/claude.go:writeClaudeUsageCache":                   "oauth-usage-cache",
 	"internal/usage/budget.go:writeBudgetCache":                        "gateway-budget-cache",
