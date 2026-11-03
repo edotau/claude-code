@@ -136,6 +136,9 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
 	v.After(&p, req)
+	if err := CheckRouteNames(p.Env, req.OverlaySet); err != nil {
+		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
+	}
 	p.Env = append(p.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
 }

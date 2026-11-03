@@ -41,6 +41,7 @@ type RunOptions struct {
 	Env                                                 []string `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
 	EnvNames                                            []string `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
 	Unset                                               []string `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged
+	OverlaySet                                          []string `json:"-"`                   // names an overlay file sets; refused where the route sets them
 	OutputSchema                                        string   // JSON Schema text the answer must satisfy
 	Persona                                             *Schema  `json:"persona,omitempty"` // claude: native agent definition; others: emulated
 	Timeout                                             time.Duration
