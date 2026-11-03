@@ -132,8 +132,9 @@ if (a.agent === 'claude') {
     agentType: 'code-worker',
     model: routeModel(CLAUDE_MODEL),
     effort: 'medium',
-  }).catch(() => null)
-  return { ok: !!out, agent: 'claude', model: CLAUDE_MODEL, answer: typeof out === 'string' ? out : JSON.stringify(out || ''), status: out ? 'ok' : 'error', provider: 'anthropic' }
+  }).catch(e => ({ failed: String((e && e.message) || e) }))
+  if (!out || out.failed) return { ok: false, agent: 'claude', model: CLAUDE_MODEL, answer: '', error: (out && out.failed) || 'claude leaf returned no result', status: 'error', provider: 'anthropic' }
+  return { ok: true, agent: 'claude', model: CLAUDE_MODEL, answer: typeof out === 'string' ? out : JSON.stringify(out), status: 'ok', provider: 'anthropic' }
 }
 if (!AGENTS.includes(a.agent)) return { error: 'code-agent needs args.agent in ' + AGENTS.join('|') + (routed ? ' (route picked none)' : '') }
 if (a.task.length > 90 * 1024) return { error: 'code-agent: task over 90 KiB (ask rejects prompts over 96 KiB); pass excerpts, not whole diffs' }
