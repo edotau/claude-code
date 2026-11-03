@@ -542,41 +542,69 @@ func ReadSettingsBackup(name string) (value string, found bool, err error) {
 	return readSealed(SettingsBackups, name)
 }
 
+// ReadSecrets opens several records in one View and one key lookup; absent names are left out of the map.
+func ReadSecrets(names []string) (map[string]string, error) {
+	return readSealedAll(Secrets, names)
+}
+
 func readSealed(bucket, name string) (value string, found bool, err error) {
+	vals, err := readSealedAll(bucket, []string{name})
+	if err != nil {
+		return "", false, err
+	}
+	value, found = vals[name]
+	return value, found, nil
+}
+
+// readSealedAll reads names and their kid in one coherent View, then opens them with that kid's key, retrying once
+// if a concurrent rotation invalidated the key mid-read (R3).
+func readSealedAll(bucket string, names []string) (map[string]string, error) {
 	for attempt := range 2 {
 		var id, kid, command string
-		var record Record
-		var ok bool
+		records := map[string]Record{}
 		if verr := View(func(t *Tx) error {
 			id = vaultID(t)
 			kid, _ = t.Get(Meta, "kid")
 			command, _ = t.Get(Meta, "key_command")
-			var rerr error
-			record, ok, rerr = t.RecordIn(bucket, name)
-			return rerr
+			for _, name := range names {
+				r, ok, rerr := t.RecordIn(bucket, name)
+				if rerr != nil {
+					return rerr
+				}
+				if ok {
+					records[name] = r
+				}
+			}
+			return nil
 		}); verr != nil {
-			return "", false, verr
+			return nil, verr
 		}
-		if !ok {
-			return "", false, nil
+		vals, err := openAll(bucket, records, id, kid, command)
+		if errors.Is(err, ErrWrongKey) && attempt == 0 {
+			invalidateKey()
+			continue
 		}
-		k, _, kerr := resolveKey(id, kid, command)
-		if kerr != nil {
-			if errors.Is(kerr, ErrWrongKey) && attempt == 0 {
-				invalidateKey()
-				continue
-			}
-			return "", false, kerr
-		}
-		v, oerr := k.openIn(bucket, name, record)
-		if oerr != nil {
-			if errors.Is(oerr, ErrWrongKey) && attempt == 0 {
-				invalidateKey()
-				continue
-			}
-			return "", false, oerr
-		}
-		return v, true, nil
+		return vals, err
 	}
-	return "", false, ErrWrongKey
+	return nil, ErrWrongKey
+}
+
+// openAll decrypts records with the key for kid; no records means no key lookup.
+func openAll(bucket string, records map[string]Record, id, kid, command string) (map[string]string, error) {
+	vals := make(map[string]string, len(records))
+	if len(records) == 0 {
+		return vals, nil
+	}
+	k, _, err := resolveKey(id, kid, command)
+	if err != nil {
+		return nil, err
+	}
+	for name, r := range records {
+		v, err := k.openIn(bucket, name, r)
+		if err != nil {
+			return nil, err
+		}
+		vals[name] = v
+	}
+	return vals, nil
 }

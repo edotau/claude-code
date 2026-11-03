@@ -79,23 +79,39 @@ func LoadOverlay(path string) (Overlay, error) {
 }
 
 func readOverlayFile(path string) ([]byte, error) {
+	if info, err := os.Stat(path); err == nil && !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file") // before Open: opening a FIFO would block
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	if err := checkOverlayInfo(f.Stat()); err != nil { // the opened file's own mode: no stat-to-read swap
+		return nil, err
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, overlayMaxBytes+1))
+	if err == nil && len(raw) > overlayMaxBytes {
+		return nil, fmt.Errorf("over %d bytes", overlayMaxBytes) // grew after the stat
+	}
+	return raw, err
+}
+
+func checkOverlayInfo(info os.FileInfo, err error) error {
 	switch {
 	case err != nil:
-		return nil, err
+		return err
 	case !info.Mode().IsRegular():
-		return nil, errors.New("not a regular file")
+		return errors.New("not a regular file")
 	case runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0:
-		return nil, errors.New("group- or world-writable: chmod go-w it")
+		return errors.New("group- or world-writable: chmod go-w it")
 	case info.Size() > overlayMaxBytes:
-		return nil, fmt.Errorf("over %d bytes", overlayMaxBytes)
+		return fmt.Errorf("over %d bytes", overlayMaxBytes)
 	}
-	return io.ReadAll(io.LimitReader(f, overlayMaxBytes+1))
+	if uid, ok := ownerUID(info); ok && uid != 0 && uid != os.Getuid() {
+		return errors.New("owned by another user")
+	}
+	return nil
 }
 
 // ParseOverlay decodes one document strictly and checks it; errors name keys, never values.
@@ -139,33 +155,36 @@ func FlagOverlay(env, keep []string) (Overlay, error) {
 	return o, o.validate(flagSrc)
 }
 
-// MergeOverlays layers top (the flags) over base: top's set wins per name; keep and unset are unioned and re-checked.
-func MergeOverlays(base, top Overlay) (Overlay, error) {
-	out := Overlay{Set: maps.Clone(base.Set), Keep: slices.Concat(base.Keep, top.Keep), Unset: slices.Concat(base.Unset, top.Unset)}
-	if out.Set == nil && len(top.Set) > 0 {
-		out.Set = map[string]string{}
-	}
-	maps.Copy(out.Set, top.Set)
-	return out, out.validate(fileSrc)
-}
-
 // Empty reports an overlay that changes nothing.
 func (o Overlay) Empty() bool { return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 }
 
 // ResolveOverlay swaps each @secret ref for its vault value, failing closed; it never reads the process env.
 func ResolveOverlay(o Overlay) (Resolved, error) {
 	out := Resolved{Set: maps.Clone(o.Set), Unset: slices.Clone(o.Unset), Keep: slices.Clone(o.Keep)}
-	for k, v := range o.Set {
-		ref, ok := providers.SecretRefName(k, v)
+	refs := map[string]string{} // set name -> vault name
+	route := providers.RouteSecretGuard()
+	for _, k := range slices.Sorted(maps.Keys(o.Set)) {
+		ref, ok := providers.SecretRefName(k, o.Set[k])
 		if !ok {
 			continue
 		}
-		s, found, err := vault.ReadSecret(ref)
-		switch {
-		case err != nil:
-			return Resolved{}, fmt.Errorf("overlay set %s: @secret:%s: %w", k, ref, err)
-		case !found || s == "":
-			return Resolved{}, fmt.Errorf("overlay set %s: @secret:%s is not in the vault", k, ref)
+		if err := setRule(k, o.Set[k], nil, false, route); err != nil { // re-checked: o may never have been validated
+			return Resolved{}, fmt.Errorf("%s %s: %w", fileSrc.set, k, err)
+		}
+		refs[k] = ref
+	}
+	if len(refs) == 0 {
+		return out, nil
+	}
+	names := slices.Sorted(maps.Keys(refs))
+	vals, err := vault.ReadSecrets(slices.Collect(maps.Values(refs))) // one View and one key lookup for every ref
+	if err != nil {
+		return Resolved{}, fmt.Errorf("overlay set %s: @secret:%s: %w", names[0], refs[names[0]], err)
+	}
+	for _, k := range names {
+		s := vals[refs[k]]
+		if s == "" {
+			return Resolved{}, fmt.Errorf("overlay set %s: @secret:%s is not in the vault", k, refs[k])
 		}
 		out.Set[k] = s
 	}
@@ -179,7 +198,7 @@ func (o Overlay) validate(src overlaySrc) error {
 	if len(o.Files) > 0 {
 		return errors.New("overlay files: not supported yet")
 	}
-	keep := map[string]bool{}
+	keep, route := map[string]bool{}, providers.RouteSecretGuard()
 	for _, n := range o.Keep {
 		if err := keepRule(n); err != nil {
 			return fmt.Errorf("%s %s: %w", src.keep, n, err)
@@ -187,7 +206,7 @@ func (o Overlay) validate(src overlaySrc) error {
 		keep[n] = true
 	}
 	for _, n := range slices.Sorted(maps.Keys(o.Set)) {
-		if err := setRule(n, o.Set[n], keep, src.flag); err != nil {
+		if err := setRule(n, o.Set[n], keep, src.flag, route); err != nil {
 			return fmt.Errorf("%s %s: %w", src.set, n, err)
 		}
 	}
@@ -225,12 +244,12 @@ func flagSetRule(name string) error {
 	switch {
 	case name == "" || strings.ContainsAny(name, " \t"):
 		return errors.New("want NAME=VALUE")
+	case strings.HasSuffix(up, "_BASE_URL"): // before the scrub check: a route endpoint gets its own reason
+		return errBaseURL
 	case proc.EnvBlocked(name) || proc.EnvBlocked(up):
 		return errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command")
 	case strings.HasPrefix(up, OverlayVar): // a flag must not point a coworker at another overlay or debug file
 		return errors.New("harness-owned")
-	case strings.HasSuffix(up, "_BASE_URL"):
-		return errBaseURL
 	case flagCredentialName(up):
 		return errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line")
 	}
@@ -245,7 +264,8 @@ func flagCredentialName(up string) bool {
 
 var errBaseURL = errors.New("a route endpoint: pick it with --profile; an override would send the route's credential there")
 
-func setRule(name, val string, keep map[string]bool, flag bool) error {
+// setRule checks one set entry; route reports a profile's route credential (providers.RouteSecretGuard).
+func setRule(name, val string, keep map[string]bool, flag bool, route func(string) bool) error {
 	if flag {
 		return flagSetRule(name)
 	}
@@ -255,7 +275,7 @@ func setRule(name, val string, keep map[string]bool, flag bool) error {
 	switch {
 	case !envNameRE.MatchString(name):
 		return errors.New("want NAME=VALUE")
-	case strings.HasPrefix(up, "HARNESS_") || strings.HasPrefix(name, OverlayVar):
+	case strings.HasPrefix(up, "HARNESS_") || strings.HasPrefix(up, OverlayVar):
 		return errors.New("harness-owned")
 	case strings.HasSuffix(up, "_BASE_URL"):
 		return errBaseURL
@@ -264,7 +284,7 @@ func setRule(name, val string, keep map[string]bool, flag bool) error {
 	case reserved && !keep[name]:
 		return errors.New("reserved by the credential scrub: add it to keep to pass your own value")
 	case isRef:
-		return refRule(ref)
+		return refRule(ref, route)
 	case strings.ContainsRune(val, 0):
 		return errors.New("value holds a NUL byte")
 	case strings.HasPrefix(val, providers.SecretRef):
@@ -276,30 +296,14 @@ func setRule(name, val string, keep map[string]bool, flag bool) error {
 }
 
 // refRule refuses a vault name an overlay may not pass on: harness-internal secrets and any profile's route credential.
-func refRule(ref string) error {
+func refRule(ref string, route func(string) bool) error {
 	switch {
 	case !envNameRE.MatchString(ref):
 		return errors.New("want @secret:<NAME> with an env-style NAME")
 	case providers.InternalSecretName(ref):
 		return fmt.Errorf("@secret:%s is harness-internal", ref)
-	case routeCredential(ref):
+	case route(ref):
 		return fmt.Errorf("@secret:%s is a profile's route credential: use --profile", ref)
 	}
 	return nil
-}
-
-func routeCredential(name string) bool {
-	if name == "CLAUDE_CODE_OAUTH_TOKEN" || name == "COPILOT_GITHUB_TOKEN" {
-		return true
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		return true // fail closed
-	}
-	for _, p := range reg.Providers {
-		if p != nil && slices.Contains(providers.CredentialNames(p), name) {
-			return true
-		}
-	}
-	return false
 }

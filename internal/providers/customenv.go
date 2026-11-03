@@ -34,10 +34,15 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 	if err != nil {
 		return vals, nil, err
 	}
+	route := RouteSecretGuard()
 	for k, v := range raw {
 		name, ok := SecretRefName(k, v)
 		if !ok {
 			vals[k] = v
+			continue
+		}
+		if name != k && (InternalSecretName(name) || route(name)) { // a named ref must not alias past the scrub
+			missing = append(missing, k)
 			continue
 		}
 		if s, ok := get(name); ok {
