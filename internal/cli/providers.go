@@ -244,7 +244,11 @@ func cmdSwitch(args []string) int {
 	}
 	if dryRun {
 		apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, args[0]) }
-		return printRecordDiff(apply, keptOff(reg, vault.AgentRecords(agent.RosterNames()), args[0]))
+		recs, err := vault.ReadAgentRecords(agent.RosterNames())
+		if err != nil {
+			return fail("switch preview: %v", err)
+		}
+		return printRecordDiff(apply, keptOff(reg, recs, args[0]))
 	}
 	if err := configure.SwitchProfile(reg, args[0]); err != nil {
 		return fail("%v", err)
@@ -311,7 +315,10 @@ func keptOff(reg *providers.Registry, recs map[string]vault.AgentRecord, profile
 
 // printRecordDiff is the shared --dry-run body for switch and models.
 func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) int {
-	before := vault.AgentRecords(agent.RosterNames())
+	before, err := vault.ReadAgentRecords(agent.RosterNames())
+	if err != nil {
+		return fail("agent record preview: %v", err)
+	}
 	after := maps.Clone(before)
 	apply(after)
 	printLines(providers.DryRunLines(before, after, notes))

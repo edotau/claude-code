@@ -52,7 +52,10 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 		return Plan{}, err
 	}
 	flagModel := o.Model // the flag alone; the agent's model pin is applied after the target resolves
-	o = launchProfile(name, o)
+	o, err = launchProfile(name, o)
+	if err != nil {
+		return Plan{}, err
+	}
 	reg, sel, err := selection(o)
 	if err != nil {
 		if hint := spec.eng().ProfileHint(o); hint != nil {
@@ -124,23 +127,27 @@ func cliTarget(spec Schema, name string, reg *providers.Registry, sel providers.
 }
 
 // launchProfile resolves an agent CLI launch's profile: --profile > this workspace's last-used > the agent pin.
-func launchProfile(name string, o LaunchOptions) LaunchOptions {
+func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 	return withAgentPins(name, withLastProfile(name, o))
 }
 
 // withAgentPins fills the profile the flags left empty from the agent's vault pin: --profile > pin > default.
 // The model pin is applied after the target resolves (agentModelTarget).
-func withAgentPins(name string, o LaunchOptions) LaunchOptions {
-	pin, ok := AgentPins()[name]
+func withAgentPins(name string, o LaunchOptions) (LaunchOptions, error) {
+	pins, err := AgentPins()
+	if err != nil {
+		return LaunchOptions{}, err
+	}
+	pin, ok := pins[name]
 	if !ok || pin.Off {
-		return o
+		return o, nil
 	}
 	if o.Provider == "" && pin.Profile != "" {
 		if reg, err := providers.Load(); err == nil && ValidAgentPin(reg, name, pin.Profile) == nil && reg.Providers[pin.Profile] != nil {
 			o.Provider = pin.Profile
 		}
 	}
-	return o
+	return o, nil
 }
 
 // registryPlan is the interactive launch on a CLI's native model registry (copilot on Databricks). It fails closed:

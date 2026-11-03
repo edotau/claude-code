@@ -617,3 +617,33 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 		t.Error("switch left the repo last-profile cache")
 	}
 }
+
+func TestAgentRecordCommandsRejectUnreadableRecords(t *testing.T) {
+	for _, args := range [][]string{{"openai", "--dry-run"}, {"openai"}} {
+		t.Run(strings.Join(args, "/"), func(t *testing.T) {
+			cliScratch(t)
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
+			code, out, stderr := captureOutput(t, func() int { return cmdSwitch(args) })
+			context := "switch profile: "
+			if len(args) > 1 {
+				context = "switch preview: "
+			}
+			if code != 1 || out != "" || !strings.Contains(stderr, context+"vault: agent-records is corrupt") {
+				t.Fatalf("switch: exit=%d stdout=%q stderr=%q", code, out, stderr)
+			}
+		})
+	}
+}
+
+func TestPrintRecordDiffRejectsUnreadableRecords(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
+	applied := false
+	code, out, stderr := captureOutput(t, func() int {
+		return printRecordDiff(func(map[string]vault.AgentRecord) { applied = true }, nil)
+	})
+	if code != 1 || applied || out != "" || !strings.Contains(stderr, "agent record preview: vault: agent-records is corrupt") {
+		t.Fatalf("preview: exit=%d applied=%v stdout=%q stderr=%q", code, applied, out, stderr)
+	}
+}

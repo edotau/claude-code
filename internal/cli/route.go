@@ -59,7 +59,11 @@ func gatewayRoute(args []string, withProxy bool) int {
 	}
 	src := routeSources{Weights: providers.RouteWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
-	rj := newRouteJSON(res, src)
+	pins, err := routePins()
+	if err != nil {
+		return fail(name+": %v", err)
+	}
+	rj := newRouteJSON(res, src, pins)
 	var ps proxyState
 	if withProxy {
 		if ps, err = loadProxyState(context.Background()); err != nil {
@@ -79,7 +83,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 		}
 		return 0
 	}
-	printRoute(res, src)
+	printRoute(res, src, pins)
 	if withProxy {
 		printProxyState(ps)
 	}
@@ -129,18 +133,22 @@ type pinJSON struct {
 var pinAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
 
 // routePins maps agent.AgentPins onto the emitted shape.
-func routePins() map[string]pinJSON {
+func routePins() (map[string]pinJSON, error) {
+	pins, err := agent.AgentPins()
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]pinJSON{}
-	for a, p := range agent.AgentPins() {
+	for a, p := range pins {
 		out[a] = pinJSON{Profile: p.Profile, Model: p.Model, Active: !p.Off}
 	}
-	return out
+	return out, nil
 }
 
 // newRouteJSON maps a pick onto the emitted shape (agent for agent, <provider>·<profile> account keys).
-func newRouteJSON(res router.PickResult, src routeSources) routeJSON {
+func newRouteJSON(res router.PickResult, src routeSources, pins map[string]pinJSON) routeJSON {
 	out := routeJSON{Model: res.Alias, Want: res.Want, Weights: res.Weights, Sources: src,
-		Candidates: make([]router.Candidate, 0, len(res.Candidates)), Skipped: res.Skipped, Pins: routePins()}
+		Candidates: make([]router.Candidate, 0, len(res.Candidates)), Skipped: res.Skipped, Pins: pins}
 	for _, c := range res.Candidates {
 		out.Candidates = append(out.Candidates, c)
 		if c.Agent == "claude" {
@@ -152,7 +160,7 @@ func newRouteJSON(res router.PickResult, src routeSources) routeJSON {
 
 // printRoute renders the pick: weights (and their source), one scored row per candidate, then each
 // skip's gate and reason, then the subagents switch and its source.
-func printRoute(res router.PickResult, src routeSources) {
+func printRoute(res router.PickResult, src routeSources, pins map[string]pinJSON) {
 	var ws []string
 	for _, d := range router.Dimensions {
 		ws = append(ws, fmt.Sprintf("%s=%.2f", d.Name(), res.Weights[d.Name()]))
@@ -160,7 +168,7 @@ func printRoute(res router.PickResult, src routeSources) {
 	fmt.Printf("model %s  weights %s (%s)\n", res.Alias, strings.Join(ws, " "), src.Weights)
 	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
 	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
-	printPins(routePins())
+	printPins(pins)
 	if len(res.Candidates) == 0 {
 		fmt.Println("no agent passes the gates")
 	}

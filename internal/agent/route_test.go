@@ -464,7 +464,11 @@ func TestSessionProfileAgents(t *testing.T) {
 	st := router.State{github: {UsedPct: 100, Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}}
 	opts := router.PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
 	pickAgent := func(agent string, state router.State, opts router.PickOpts) router.PickResult {
-		return tb.Pick(context.Background(), "sonnet", agent, state, RosterPick(opts))
+		opts, err := RosterPick(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tb.Pick(context.Background(), "sonnet", agent, state, opts)
 	}
 	models := func(r router.PickResult, agent, account string) []router.Candidate {
 		var out []router.Candidate

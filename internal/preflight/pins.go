@@ -21,6 +21,7 @@ const (
 	StatusUnpinned = "unpinned" // no profile resolves: the agent runs on its own login
 	StatusStale    = "stale"    // the pin names a missing profile, or the cached listing is past its TTL
 	StatusUnserved = "unserved" // the workspace does not serve the model (or the profile has no credential)
+	StatusError    = "error"    // the vault could not be read; no pins were resolved
 )
 
 // Pin is one agent's resolved profile and model pin and what the workspace says about it.
@@ -47,9 +48,12 @@ func (p Pin) Line() string {
 	return s
 }
 
-// Check resolves every agent's pins against the cached workspace listings; it never calls the network or edits a pin.
+// Check resolves cached pins without network or writes; an unreadable vault returns one StatusError diagnostic.
 func Check(reg *providers.Registry, now time.Time) []Pin {
-	pins := agent.AgentPins()
+	pins, err := agent.AgentPins()
+	if err != nil {
+		return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
+	}
 	session := pins["claude"].Profile
 	var out []Pin
 	if session != "" { // claude's session profile is always warmed

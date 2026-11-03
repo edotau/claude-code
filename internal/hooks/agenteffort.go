@@ -276,7 +276,12 @@ var (
 			return ""
 		}
 		c, _ := t.Cell(agent, alias)
-		pin := agentpkg.AgentPins()[agent]
+		pins, err := agentpkg.AgentPins()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
+			return ""
+		}
+		pin := pins[agent]
 		if pin.Profile == "" && pin.Model == "" {
 			return c.Model
 		}

@@ -92,7 +92,15 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if nativeLead {
 		pickWant = ""
 	}
-	pick := tb.Pick(ctx, alias, pickWant, loadState(), RosterPick(o))
+	o, err = RosterPick(o)
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	pins, err := AgentPins()
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	pick := tb.Pick(ctx, alias, pickWant, loadState(), o)
 	reg, _ := providers.Load()
 	c := Chain{Want: want}
 	if nativeLead {
@@ -107,7 +115,6 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		}
 	}
 	current, _ := models.Alias(alias)
-	pins := AgentPins()
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, row: row, exact: exact, callerModel: callerModel,
 		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native}
@@ -627,12 +634,16 @@ func noteAuth(disp Dispatch, err error) {
 }
 
 // RosterPick fills o's unset Configured, Pins, CanServe and CodexModel from the roster (the router imports no agent).
-func RosterPick(o router.PickOpts) router.PickOpts {
+func RosterPick(o router.PickOpts) (router.PickOpts, error) {
 	if o.Configured == nil {
 		o.Configured = Configured
 	}
 	if o.Pins == nil {
-		o.Pins = AgentPins()
+		pins, err := AgentPins()
+		if err != nil {
+			return router.PickOpts{}, err
+		}
+		o.Pins = pins
 	}
 	if o.CanServe == nil {
 		o.CanServe = CanServe
@@ -643,7 +654,7 @@ func RosterPick(o router.PickOpts) router.PickOpts {
 			return t
 		}
 	}
-	return o
+	return o, nil
 }
 
 // PreviewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;

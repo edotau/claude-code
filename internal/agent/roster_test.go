@@ -1,11 +1,17 @@
 package agent
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -234,5 +240,32 @@ func TestOwnLoginProfilesMatchBuiltInDefaults(t *testing.T) {
 		if !ownLogin(func() *providers.Registry { return reg }, a, want) {
 			t.Errorf("%s: %q is not a built-in row with auth.login == %s", a, want, a)
 		}
+	}
+}
+
+func TestAgentPinsRejectUnreadableRecords(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
+	pins, err := AgentPins()
+	if err == nil || !strings.Contains(err.Error(), "agent pins: vault: agent-records is corrupt") || pins != nil {
+		t.Fatalf("AgentPins = %v, %v; want no pins and the vault read error", pins, err)
+	}
+	if _, err := RosterPick(router.PickOpts{}); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
+		t.Fatalf("RosterPick error = %v", err)
+	}
+	if _, err := LaunchPlan(context.Background(), "codex", LaunchOptions{PrintEnv: true}, nil); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
+		t.Fatalf("LaunchPlan error = %v", err)
+	}
+}
+
+func TestAgentPinsRejectVaultIOError(t *testing.T) {
+	dir := vaulttest.Use(t)
+	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	pins, err := AgentPins()
+	var pathErr *os.PathError
+	if pins != nil || !errors.As(err, &pathErr) {
+		t.Fatalf("AgentPins = %v, %v; want no pins and the wrapped filesystem error", pins, err)
 	}
 }
