@@ -31,7 +31,7 @@ func askLiveCheck(fs *flag.FlagSet, name string) error {
 		return errors.New("--live takes no task: start it, then claude-code agents send <id> <task>")
 	}
 	for _, f := range liveExclusive {
-		if flagExplicit(fs, f) {
+		if helptext.Explicit(fs, f) {
 			return fmt.Errorf("--live cannot be combined with --%s", f)
 		}
 	}
@@ -102,7 +102,7 @@ func cmdAgentsSend(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	prompt, err := resolveAskPrompt(strings.Join(pos[1:], " "))
+	prompt, err := agent.ResolveAskPrompt(strings.Join(pos[1:], " "))
 	if err != nil {
 		return fail("agents send: %v", err)
 	}

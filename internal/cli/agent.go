@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -88,44 +86,6 @@ func (a *agentsFlag) Placeholder() string { return "JSON|FILE" }
 func (a *agentsFlag) Set(s string) error {
 	*a = agentsFlag(s)
 	return nil
-}
-
-// flagExplicit delegates to helptext.Explicit; other cli files still call it until they adopt the helper.
-func flagExplicit(fs *flag.FlagSet, name string) bool { return helptext.Explicit(fs, name) }
-
-// timeoutExplicit is true when --timeout was typed, so it always beats the tools-aware default.
-func timeoutExplicit(fs *flag.FlagSet) bool { return helptext.Explicit(fs, "timeout") }
-
-func validateAskFlags(format, fallback string) error {
-	if !slices.Contains([]string{helptext.Text, helptext.JSON, formatStreamJSON}, format) {
-		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
-	}
-	if !slices.Contains(router.FallbackModes, fallback) {
-		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(router.FallbackModes, "|"))
-	}
-	return nil
-}
-
-// readFramedPrompt reads the prompt up to the NUL that ends it and returns the reader, whose remaining EOF is the cancel signal.
-func readFramedPrompt(in io.Reader) (*bufio.Reader, string, error) {
-	rd := bufio.NewReader(in)
-	p, err := rd.ReadString(0)
-	if err != nil {
-		return nil, "", fmt.Errorf("--stdin-framed: stdin ended before the NUL that ends the prompt: %w", err)
-	}
-	return rd, strings.TrimSuffix(p, "\x00"), nil
-}
-
-// resolveAskPrompt reads stdin when the prompt is empty or the literal "-".
-func resolveAskPrompt(prompt string) (string, error) {
-	if prompt != "" && prompt != "-" {
-		return prompt, nil
-	}
-	raw, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		return "", fmt.Errorf("read stdin: %w", err)
-	}
-	return string(raw), nil
 }
 
 func newClient() *agent.Client {

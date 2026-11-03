@@ -410,17 +410,9 @@ func agentTransfer(name string, args []string) int {
 		return code
 	}
 	cwd, _ := os.Getwd()
-	src := *source
-	if src != "" {
-		if err := transcript.ValidateSource(src); err != nil {
-			return fail("%s transfer: %v", name, err)
-		}
-	} else {
-		var err error
-		src, err = transcript.DefaultSource(cwd)
-		if err != nil {
-			return fail("%s transfer: %v", name, err)
-		}
+	src, err := transcript.ResolveSource(*source, cwd)
+	if err != nil {
+		return fail("%s transfer: %v", name, err)
 	}
 	fmt.Fprintf(os.Stderr, "transfer: source %s\n", src)
 	note := strings.Join(fs.Args(), " ")

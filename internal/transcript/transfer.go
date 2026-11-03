@@ -141,3 +141,11 @@ func ValidateSource(source string) error {
 	}
 	return nil
 }
+
+// ResolveSource validates an explicit --source, or picks the newest session for cwd when source is empty.
+func ResolveSource(source, cwd string) (string, error) {
+	if source == "" {
+		return DefaultSource(cwd)
+	}
+	return source, ValidateSource(source)
+}

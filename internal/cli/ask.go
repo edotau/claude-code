@@ -31,20 +31,6 @@ var askPage = helptext.Page{
 	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
 }
 
-// askAs validates --as; it applies to claude only, other agents follow the profile's identity setting.
-func askAs(as, ag string) error {
-	if as == "" {
-		return nil
-	}
-	if as != providers.IdentityUser && as != providers.IdentitySP {
-		return fmt.Errorf("--as %q must be user or sp", as)
-	}
-	if ag != "claude" {
-		return fmt.Errorf("--as applies to claude only; %s follows the profile's identity setting", ag)
-	}
-	return nil
-}
-
 func cmdAsk(args []string) int { return runAsk(args, false) }
 
 // runAsk is cmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
@@ -150,13 +136,13 @@ func runAsk(args []string, resume bool) int {
 		base = agent.ApplyOverlay(base, ov)
 		return runAskBatch(fs, resume, *batchSrc, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native}, base)
 	}
-	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
+	if helptext.Explicit(fs, "jobs") || helptext.Explicit(fs, "fail-fast") {
 		return failAskCode(*format, *name, errors.New("--jobs and --fail-fast need --batch"), 2)
 	}
 	if *showLog {
 		return printDispatchLog(*format)
 	}
-	positional, err := askPositional(fs.Args(), resume, session)
+	positional, err := agent.AskPositional(fs.Args(), resume, session)
 	if err != nil {
 		return failAsk(*format, *name, err)
 	}
@@ -175,7 +161,7 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if ref, ag, err = askReselect(ref, ag, name, &persona, defs); err != nil {
+	if ref, ag, err = agent.AskReselect(ref, ag, name, &persona, defs); err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
 	if err := askOverlayLocal(fileOv, *live, *host); err != nil { // a --retry/--job record may carry a --host
@@ -241,13 +227,13 @@ func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback, as, name 
 	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
 		return 2, err
 	}
-	if err := validateAskFlags(format, fallback); err != nil {
+	if err := agent.ValidateAskFlags(format, fallback); err != nil {
 		return 1, err
 	}
-	if err := askAs(as, name); err != nil {
+	if err := agent.ValidateAs(as, name); err != nil {
 		return 2, err
 	}
-	return 1, askExclusive(background, job, tools, noTools)
+	return 1, agent.AskExclusive(background, job, tools, noTools)
 }
 
 // askOverlay checks the --env/--keep-env shorthand and resolves the file overlay's vault refs, failing closed; a
@@ -304,46 +290,18 @@ func askCheckCombos(fs *flag.FlagSet, name string, live, hasPersona bool, host s
 	return nil
 }
 
-// askPositional is the task words; on resume the first positional sets session.
-func askPositional(positional []string, resume bool, session *string) ([]string, error) {
-	if !resume {
-		return positional, nil
-	}
-	if len(positional) < 1 {
-		return nil, errors.New("resume needs a session id: <agent> resume [flags] <id> <task>")
-	}
-	*session = positional[0]
-	return positional[1:], nil
-}
-
-// askReselect re-resolves the agent after --job/--retry; it returns the new selector and agent.
-func askReselect(ref, ag string, name *string, persona **agent.Schema, defs map[string]*agent.Schema) (string, string, error) {
-	if *name != ag { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
-		ref = *name
-	}
-	rest, p, err := agent.SelectAgent(ref, defs) // a --retry re-parse puts the raw --agent value back
-	if err != nil {
-		return ref, ag, err
-	}
-	*name = rest
-	if p != nil { // an explicit persona beats the record's
-		*persona = p
-	}
-	return ref, rest, nil
-}
-
 // askReadPrompt reads the framed stdin prompt, or resolves prompt; framed reader is nil when not framed.
 func askReadPrompt(framed bool, prompt string) (*bufio.Reader, string, error) {
 	if framed {
-		return readFramedPrompt(os.Stdin)
+		return agent.ReadFramedPrompt(os.Stdin)
 	}
-	p, err := resolveAskPrompt(prompt)
+	p, err := agent.ResolveAskPrompt(prompt)
 	return nil, p, err
 }
 
 // askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 45m.
 func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
-	if retry == "" && job == "" && tools && !timeoutExplicit(fs) {
+	if retry == "" && job == "" && tools && !helptext.Explicit(fs, "timeout") {
 		return 45 * time.Minute
 	}
 	return timeout
@@ -373,17 +331,6 @@ func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, n
 	}
 	reportBackgroundStart(format, prepared.Record)
 	return 0
-}
-
-// askExclusive rejects flag pairs that cannot be combined.
-func askExclusive(background bool, job string, tools, noTools bool) error {
-	if background && job != "" {
-		return errors.New("--background and --job are mutually exclusive")
-	}
-	if tools && noTools {
-		return errors.New("--tools and --no-tools are mutually exclusive")
-	}
-	return nil
 }
 
 // absDebugFile pins the path now: --workdir moves the child's cwd.
@@ -418,7 +365,7 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 }
 
 // The ask --format values.
-const formatStreamJSON = "stream-json"
+const formatStreamJSON = agent.FormatStreamJSON
 
 // askStdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
 func askStdoutSink(format, dispatchID string) agent.Sink {
