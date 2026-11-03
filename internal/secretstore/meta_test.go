@@ -187,7 +187,7 @@ func TestBadRecordSurfacesErrorsWithoutMutation(t *testing.T) {
 
 func TestLoadMetaRejectsNewerSchema(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
+	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 	before, err := os.ReadFile(vault.Path())
 	if err != nil {
 		t.Fatal(err)

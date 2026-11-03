@@ -211,7 +211,11 @@ func vaultDoctorChecks() []Check {
 	} else {
 		if err == nil {
 			err = vault.View(func(t *vault.Tx) error {
-				retired = len(vault.Retired(t))
+				kids, err := vault.Retired(t)
+				if err != nil {
+					return err
+				}
+				retired = len(kids)
 				return nil
 			})
 		}

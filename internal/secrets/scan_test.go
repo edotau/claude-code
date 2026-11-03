@@ -11,10 +11,22 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func currentVaultSchema(t *testing.T) int {
+	t.Helper()
+	for _, f := range schemas.All() {
+		if f.Name == "vault" {
+			return f.Version
+		}
+	}
+	t.Fatal("vault schema is not registered")
+	return 0
+}
 
 func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Use(t)
@@ -77,12 +89,12 @@ func TestScanVaultClean(t *testing.T) {
 
 func TestScanVaultReadErrorIsFinding(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
+	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 	var out bytes.Buffer
 	scanner := &Scanner{Out: &out}
 	scanner.ScanVault()
 	if len(scanner.Findings) != 1 || !strings.Contains(scanner.Findings[0], "vault — could not read:") ||
-		!strings.Contains(scanner.Findings[0], "schema "+strconv.Itoa(vault.SchemaVersion+1)) || strings.Contains(out.String(), "vault — clean") {
+		!strings.Contains(scanner.Findings[0], "schema "+strconv.Itoa(currentVaultSchema(t)+1)) || strings.Contains(out.String(), "vault — clean") {
 		t.Fatalf("ScanVault must report unreadable vault: %v, %s", scanner.Findings, out.String())
 	}
 }

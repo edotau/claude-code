@@ -16,9 +16,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func currentVaultSchema(t *testing.T) int {
+	t.Helper()
+	for _, f := range schemas.All() {
+		if f.Name == "vault" {
+			return f.Version
+		}
+	}
+	t.Fatal("vault schema is not registered")
+	return 0
+}
 
 // The subprocess inherits the parent's t.TempDir-backed vault and master key.
 func TestConcurrentStoreHelperStoreOneValue(t *testing.T) {
@@ -348,7 +360,7 @@ func TestLookupMissingAndEmptyValue(t *testing.T) {
 
 func TestNamesUnreadableVault(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
+	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 	if got := Names(); got != nil {
 		t.Fatalf("Names unreadable vault = %v, want nil", got)
 	}

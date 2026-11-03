@@ -857,6 +857,17 @@ func TestVaultDoctorChecks(t *testing.T) {
 			t.Error("doctor printed a secret")
 		}
 	})
+	t.Run("corrupt retired metadata", func(t *testing.T) {
+		hermetic(t, "")
+		vaulttest.Put(t, vault.Meta, "retired", `["old", 42]`)
+		checks := vaultDoctorChecks()
+		for _, name := range []string{"vault", "vault retired keys"} {
+			c := findCheck(checks, name)
+			if c == nil || c.OK || !strings.Contains(c.Detail, "retired key IDs are corrupt") {
+				t.Errorf("%s row = %+v, want corruption diagnostic", name, c)
+			}
+		}
+	})
 	t.Run("one vault row, not two", func(t *testing.T) {
 		hermetic(t, "")
 		t.Setenv("HARNESS_VAULT_KEY", "")
