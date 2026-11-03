@@ -17,7 +17,7 @@ import (
 )
 
 // Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-// LegacyOriginFile is the pre-vault per-store record; resolveOrigins imports it into the vault once and removes it.
+// LegacyOriginFile is the pre-vault per-store record; it is ignored (neither imported nor removed) and only skipped.
 const LegacyOriginFile = ".origin"
 
 // OriginVersion is the schema version ReadOrigin accepts.
@@ -41,9 +41,12 @@ func ReadOrigin(dir string) (Origin, error) {
 	if err != nil {
 		return Origin{}, err
 	}
-	found, errs, _ := resolveOrigins([]string{key})
+	found, errs, verr := resolveOrigins([]string{key})
 	if o, ok := found[key]; ok {
 		return o, nil
+	}
+	if verr != nil && errors.Is(errs[key], fs.ErrNotExist) {
+		return Origin{}, fmt.Errorf("%s: origin vault unreadable: %w", dir, verr) // not "no record": callers must not write
 	}
 	return Origin{}, errs[key]
 }
@@ -126,7 +129,7 @@ func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]err
 }
 
 // Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-// importOrigins writes the rows still absent in one transaction, .
+// importOrigins writes the rows still absent in one transaction.
 func importOrigins(origins []Origin) error {
 	return vault.Update(func(t *vault.Tx) error {
 		for _, o := range origins {

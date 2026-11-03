@@ -36,10 +36,14 @@ func Resolve(root string) Identity {
 	}
 	origin, ok := identities.Load(root)
 	if !ok {
-		origin = MainCheckout(root)
-		if origin == "" {
-			origin = workspaceOrigin(root)
+		o := MainCheckout(root)
+		if o == "" {
+			var err error
+			if o, err = workspaceOrigin(root); err != nil {
+				return Identity{HomeBank: true} // transient vault failure: answer now, memoize nothing
+			}
 		}
+		origin = o
 		identities.Store(root, origin)
 	}
 	o := origin.(string)
@@ -62,7 +66,10 @@ func storeIdentity(root string) (Identity, bool) {
 	if within(canon, ResolvePath(HarnessStoreDir())) {
 		return harnessIdentity(), true
 	}
-	entries, _ := RepoDirs()
+	entries, err := RepoDirs()
+	if err != nil {
+		return Identity{HomeBank: true}, true // never memoized by Resolve, so a recovered vault re-resolves
+	}
 	for _, e := range entries {
 		if o := e.Origin.Origin; o != "" && within(canon, ResolvePath(e.Dir)) {
 			if paths.SamePath(o, paths.ConfigDir()) {
@@ -79,21 +86,21 @@ func within(p, dir string) bool {
 }
 
 // workspaceOrigin is the pinned non-git workspace (a store whose origin names root or an ancestor of it), or "".
-func workspaceOrigin(root string) string {
+func workspaceOrigin(root string) (string, error) {
 	canon := ResolvePath(root)
 	entries, err := RepoDirs()
 	if err != nil {
-		return ""
+		return "", err
 	}
-	best := ""
+	best, bestLen := "", 0
 	for _, e := range entries {
 		for _, o := range append([]string{e.Origin.Origin}, e.Origin.Aliases...) {
-			if o != "" && len(o) > len(best) && (paths.SamePath(o, canon) || strings.HasPrefix(canon, o+string(filepath.Separator))) {
-				best = e.Origin.Origin
+			if o != "" && len(o) > bestLen && (paths.SamePath(o, canon) || strings.HasPrefix(canon, o+string(filepath.Separator))) {
+				best, bestLen = e.Origin.Origin, len(o)
 			}
 		}
 	}
-	return best
+	return best, nil
 }
 
 func harnessIdentity() Identity {
