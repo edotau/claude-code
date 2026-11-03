@@ -23,6 +23,8 @@ type fakeSignin struct {
 	login func(string)
 }
 
+func (fakeSignin) Status() providers.AuthState { return providers.AuthState{} }
+
 func (f fakeSignin) Check(context.Context) (providers.AuthVerdict, string) {
 	if f.check == nil {
 		return providers.VerdictOK, ""
@@ -242,6 +244,8 @@ type outSignin struct {
 	logins *int
 }
 
+func (outSignin) Status() providers.AuthState { return providers.AuthState{} }
+
 func (s outSignin) Check(context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictNeedsLogin, ""
 }
@@ -322,6 +326,8 @@ type verdictSignin struct {
 	checks *[]string
 	logins *[]string
 }
+
+func (verdictSignin) Status() providers.AuthState { return providers.AuthState{} }
 
 func (s verdictSignin) Check(context.Context) (providers.AuthVerdict, string) {
 	s.mu.Lock()

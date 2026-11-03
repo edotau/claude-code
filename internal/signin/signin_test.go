@@ -51,7 +51,7 @@ func TestForPicksKind(t *testing.T) {
 		{"oauth-m2m service principal", row("d", providers.Auth{Type: providers.AuthM2M, ClientID: "x"}), "signin.secretSignin"},
 		{"bearer env", row("e", providers.Auth{Type: providers.AuthKey, Env: "E_KEY"}), "signin.secretSignin"},
 		{"x-api-key env", row("f", providers.Auth{Type: "x-api-key", Env: "F_KEY"}), "signin.secretSignin"},
-		{"subscription", row("g", providers.Auth{Type: providers.AuthCLI}), "signin.claudeSignin"},
+		{"subscription", row("g", providers.Auth{Type: providers.AuthCLI}), "signin.cliSignin"},
 		{"codex", row("h", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "signin.cliSignin"},
 		{"copilot", row("i", providers.Auth{Type: providers.AuthCLI, Login: "copilot"}), "signin.cliSignin"},
 		{"gemini", row("j", providers.Auth{Type: providers.AuthCLI, Login: "gemini"}), "signin.cliSignin"},
@@ -60,7 +60,7 @@ func TestForPicksKind(t *testing.T) {
 		{"method m2m", row("m", providers.Auth{Type: providers.AuthM2M}), "signin.secretSignin"},
 		{"method pat", row("n", providers.Auth{Type: providers.AuthPAT}), "signin.secretSignin"},
 		{"method key", row("o", providers.Auth{Type: providers.AuthKey}), "signin.secretSignin"},
-		{"method cli", row("p", providers.Auth{Type: providers.AuthCLI}), "signin.claudeSignin"},
+		{"method cli", row("p", providers.Auth{Type: providers.AuthCLI}), "signin.cliSignin"},
 		{"method cli login", row("q", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "signin.cliSignin"},
 	} {
 		if got := fmt.Sprintf("%T", SigninFor(c.p)); got != c.want {
@@ -185,21 +185,6 @@ func TestValidateSecret(t *testing.T) {
 	}
 	if err := ValidateSecret("SOME_KEY", "value"); err != nil {
 		t.Errorf("plain secret rejected: %v", err)
-	}
-}
-
-func TestClaudeProbeFailureIsTransient(t *testing.T) {
-	o := claudeStatus
-	t.Cleanup(func() { claudeStatus = o })
-	sub := row("s", providers.Auth{Type: providers.AuthCLI})
-	claudeStatus = func() (bool, string, error) { return false, "", errors.New("exec: not found") }
-	v, d := SigninFor(sub).Check(context.Background())
-	if v != providers.VerdictTransient || !strings.Contains(d, "claude auth status failed") {
-		t.Errorf("probe failure = %s %q, want transient", v, d)
-	}
-	claudeStatus = func() (bool, string, error) { return false, "", nil }
-	if v, _ := SigninFor(sub).Check(context.Background()); v != providers.VerdictNeedsLogin {
-		t.Errorf("definite logged-out = %s", v)
 	}
 }
 
