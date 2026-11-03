@@ -38,6 +38,9 @@ else is a routed task: `claude-code ask --agent opencode --tools "<task>"` (defa
 call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb that lacks a flag
 errors, so relay it.
 
+`/opencode <verb|task>` (`commands/opencode.md`) runs the CLI straight from the prompt box with no subagent (bare task =
+`ask`); use `@agent-opencode` or `/coworkers` when the task needs a brief and a checked answer.
+
 ## Owns
 
 - **DOC-UPDATE** — keep existing READMEs/guides current with the code, drafted on

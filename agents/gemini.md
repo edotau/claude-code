@@ -38,6 +38,9 @@ mode below). A leading `ask resume explore transfer status tail result cancel se
 -- "<task>"`. `--profile <p>` and `--model <m>` in the request ride on every `claude-code gemini` call you make (`<p>`
 a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb that lacks a flag errors, so relay it.
 
+`/gemini <verb|task>` (`commands/gemini.md`) runs the CLI straight from the prompt box with no subagent (bare task =
+`ask`); use `@agent-gemini` or `/coworkers` when the task needs a brief and a checked answer.
+
 ## Owns
 
 - **Explore + research brief** — `claude-code gemini explore <question>` (`--no-web` for code only,

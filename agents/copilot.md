@@ -43,6 +43,9 @@ off`) runs `claude-code copilot <verb> <rest>` and relays it; `--background` →
 `claude-code copilot` call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb
 that lacks a flag errors, so relay it.
 
+`/copilot <verb|task>` (`commands/copilot.md`) runs the CLI straight from the prompt box with no subagent (bare task =
+`ask`); use `@agent-copilot` or `/coworkers` when the task needs a brief and a checked answer.
+
 ## Owns
 
 - The EXISTING tests a change breaks or makes stale, AND the NEW coverage written after the live
