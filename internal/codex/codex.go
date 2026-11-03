@@ -122,7 +122,13 @@ func (codexEngine) LoginStatus() (bool, string) {
 	return false, ""
 }
 
-func (codexEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, string) {
+// CheckLogin is the Driver form of Verify; W4 deletes it.
+func (e codexEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, string) {
+	return e.Verify(ctx)
+}
+
+// Verify runs `codex login status`; a deadline or a killed process is transient, never "not signed in".
+func (codexEngine) Verify(ctx context.Context) (providers.AuthVerdict, string) {
 	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return providers.VerdictTransient, err.Error()
@@ -136,10 +142,110 @@ func (codexEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, strin
 		line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 		line, _, _ = strings.Cut(line, " - ") // drop the account/key tail codex appends
 		return providers.VerdictOK, line
-	case errors.As(err, &ee):
+	case ctx.Err() != nil:
+		return providers.VerdictTransient, ctx.Err().Error()
+	case errors.As(err, &ee) && ee.ExitCode() >= 0:
 		return providers.VerdictNeedsLogin, ""
 	}
 	return providers.VerdictTransient, err.Error()
+}
+
+var _ agent.Authenticator = codexEngine{}
+
+// codexAuthSource is the AuthState.Source of a ChatGPT sign-in.
+const codexAuthSource = "ChatGPT login (codex login)"
+
+// authKey identifies one version of auth.json for the memos below.
+type authKey struct {
+	path  string
+	mtime time.Time
+	size  int64
+}
+
+// authFileKey stats $CODEX_HOME/auth.json; ok is false when it is absent (keyring-backed logins have no key).
+func authFileKey() (authKey, bool) {
+	path := filepath.Join(codexHome(), "auth.json")
+	fi, err := os.Stat(path)
+	if err != nil {
+		return authKey{}, false
+	}
+	return authKey{path, fi.ModTime(), fi.Size()}, true
+}
+
+var (
+	authDataMu   sync.Mutex
+	authDataKey  authKey
+	authDataMemo []byte
+
+	authStateMu   sync.Mutex // held across the CLI fallback so concurrent callers spawn it once
+	authStateKey  authKey
+	authStateMemo *providers.AuthState
+)
+
+// codexTokensPresent reports whether an auth.json body holds a non-null "tokens" object (a ChatGPT login).
+func codexTokensPresent(b []byte) bool {
+	var auth struct {
+		Tokens json.RawMessage `json:"tokens"`
+	}
+	return b != nil && json.Unmarshal(b, &auth) == nil && len(auth.Tokens) > 0 && string(auth.Tokens) != "null"
+}
+
+// AuthStatus reads auth.json or the keyring first (memoized by mtime); `codex login status` runs only as fallback.
+func (codexEngine) AuthStatus() providers.AuthState {
+	key, keyed := authFileKey()
+	authStateMu.Lock()
+	defer authStateMu.Unlock()
+	if keyed && authStateMemo != nil && authStateKey == key {
+		return *authStateMemo
+	}
+	st := codexAuthState()
+	if keyed && st.Err == nil {
+		authStateKey, authStateMemo = key, &st
+	}
+	return st
+}
+
+func codexAuthState() providers.AuthState {
+	b, keyringNote := codexAuthJSON()
+	if codexTokensPresent(b) {
+		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: CodexPlan()}
+	}
+	bin, err := paths.AgentBin("codex")
+	if err != nil { // no CLI to ask: a failed keyring lookup is the only unknown left
+		if keyringNote != "" {
+			return providers.AuthState{Method: providers.AuthNone, Err: errors.New("codex keyring: " + keyringNote)}
+		}
+		return providers.AuthState{Method: providers.AuthNone}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := codexStatus(ctx, bin)
+	switch {
+	case err == nil && strings.Contains(strings.ToLower(string(out)), "chatgpt"):
+		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: CodexPlan()}
+	case err == nil:
+		return providers.AuthState{Method: providers.AuthNone} // signed in with an API key, not ChatGPT
+	case ctx.Err() != nil:
+		return providers.AuthState{Method: providers.AuthNone, Err: fmt.Errorf("codex login status: %w", ctx.Err())}
+	}
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok && ee.ExitCode() >= 0 {
+		return providers.AuthState{Method: providers.AuthNone} // codex answered: not signed in
+	}
+	return providers.AuthState{Method: providers.AuthNone, Err: fmt.Errorf("codex login status: %w", err)}
+}
+
+// Plan is codex's ChatGPT plan ("Plus", "Pro"), read offline from the login's id token.
+func (codexEngine) Plan(context.Context, providers.AuthState) providers.Subscription {
+	raw := CodexPlan()
+	return providers.Subscription{Raw: raw, Name: title(raw)}
+}
+
+// title upper-cases the first letter of s.
+func title(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o render.RenderOptions, out io.Writer) (bool, error) {
@@ -514,7 +620,7 @@ var codexKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error)
 // when neither holds a login; keyringNote is "" normally, or the reason a keyring lookup
 // failed for something other than "nothing stored", for a caller that wants to say why.
 func codexAuthJSON() (data []byte, keyringNote string) {
-	if b, err := os.ReadFile(filepath.Join(codexHome(), "auth.json")); err == nil {
+	if b, ok := codexAuthFile(); ok {
 		return b, ""
 	}
 	if b, note := codexKeyringAuthJSON(); b != nil {
@@ -523,6 +629,25 @@ func codexAuthJSON() (data []byte, keyringNote string) {
 		return nil, note
 	}
 	return nil, ""
+}
+
+// codexAuthFile is auth.json's body, re-read only when its path, mtime or size changes.
+func codexAuthFile() ([]byte, bool) {
+	key, ok := authFileKey()
+	if !ok {
+		return nil, false
+	}
+	authDataMu.Lock()
+	defer authDataMu.Unlock()
+	if authDataMemo != nil && authDataKey == key {
+		return authDataMemo, true
+	}
+	b, err := os.ReadFile(key.path)
+	if err != nil {
+		return nil, false
+	}
+	authDataKey, authDataMemo = key, b
+	return b, true
 }
 
 // codexKeyringAuthJSON looks up the "Codex Auth" keyring item; an item with several accounts answers
