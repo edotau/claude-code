@@ -1,42 +1,19 @@
 # Dispatching Parallel Agents
 
-For two or more tasks with no dependency, shared state or overlapping writes. Not when one fix may resolve the
-others, or the agents need the same evolving context. Dispatch, shared-tree and fan-in rules: [SKILL.md](../SKILL.md).
+For two or more tasks with no dependency, shared state or overlapping writes — not when one fix may resolve the
+others or the agents need the same evolving context. Rules: [SKILL.md](../SKILL.md).
 
-## Same package, disjoint new files
-
-"Same package" and "same file" are different problems. Split package work so each agent creates its own new file
-and may not edit existing ones; the manager makes the one integration edit afterwards.
+- **Same question, many angles** (research, model comparison, a wide sweep): one `claude-code dispatch
+  explore|compare|fleet` call fans out up to 12 legs and returns one report — no hand-split leaves.
+- **Code changes**: partition by file ownership, not topic. In one package each lane creates its own new file and edits
+  nothing existing; the manager makes the one integration edit after both report, from the API surface each returned.
 
 ```text
 LANE 1  -> internal/proxy/tokencache.go   (new, owned)
 LANE 2  -> internal/proxy/authretry.go    (new, owned)
-MANAGER -> internal/proxy/proxy.go       (integration, one writer, after both report)
+MANAGER -> internal/proxy/proxy.go        (integration, one writer, after both report)
 ```
 
-Ask each lane to report the exact API surface it produced, so integration needs no re-reading.
-
-## Process
-
-1. Partition by file ownership, not topic.
-2. One brief per agent (contract in SKILL.md), all `Agent` calls plus `copilot` in one message.
-3. When an implementer reports, send `copilot` the "landed" message with files and signatures.
-4. Integrate, simplify the integrated diff, run the fan-in checks.
-
-## Example brief
-
-```text
-Agent(subagent_type="code-worker", description="Token cache for the proxy", prompt="""
-Agent: codex
-Own ONLY: internal/proxy/tokencache.go (new). Do NOT edit proxy.go — other agents are in this package.
-Objective: in-memory, provider-keyed credential cache with single-flight and a refresher.
-Constraints: keyed by provider name, never process-global; providers/creds.go's TTL stays authoritative;
-  never log a credential. Tests: a test agent per `rules/standards/testing-guidelines.md`.
-Verify: gofmt -l <files> && go build ./... && go vet ./internal/proxy
-Shared tree: per ../SKILL.md → Shared tree.
-Return: files, exact API surface to wire, verification output, risks.
-""")
-```
-
-The `Agent: codex` line makes the hook label this leaf `code-worker  codex: Token cache for the proxy`
-([SKILL.md → Leaf types](../SKILL.md#leaf-types)).
+Process: one brief per lane (contract in SKILL.md), all `Agent` calls in one message; integrate, simplify the merged
+diff, run the fan-in checks. A brief's `Agent: <name>` line routes the leaf and labels it
+(`code-worker  codex: <task>`, [SKILL.md → Leaf types](../SKILL.md#leaf-types)).
