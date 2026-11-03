@@ -26,7 +26,7 @@ type EnvSpec struct {
 	Mode  EnvMode
 	Base  []string // nil means os.Environ(), except under EnvPrescrubbed where it is used as given
 	Keep  []string // names both scrubs keep (--keep-env); the deny scrub also honors HARNESS_KEEP_ENV
-	Unset []string // names dropped from the scrubbed base (Plan.Unset, an overlay unset); Set and Extra still add them
+	Unset []string // names dropped from the scrubbed base (Plan.Unset, an overlay unset); Set and Extra re-add them
 	Set   []string // the launch's own KEY=VALUE, after the scrubs so they are never dropped
 	Extra []string // --env, after Set so it wins
 	PWD   string   // non-empty appends PWD=<dir> last, for a child that reads $PWD

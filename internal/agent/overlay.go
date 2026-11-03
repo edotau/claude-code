@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -30,18 +31,34 @@ func ApplyOverlay(req RunOptions, r agentconfig.Resolved) RunOptions {
 	return req
 }
 
-// WithOverlay layers r over an interactive plan the way ApplyOverlay does for a headless run; set wins over the plan's.
+// CheckOverlay refuses an overlay that sets or unsets a name the plan's launch sets for its route.
+func (p Plan) CheckOverlay(r agentconfig.Resolved) error {
+	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
+		if _, own := p.Set[k]; own {
+			return fmt.Errorf("overlay set %s: set by the launch for its route; use --profile", k)
+		}
+	}
+	for _, k := range r.Unset {
+		if _, own := p.Set[k]; own {
+			return fmt.Errorf("overlay unset %s: set by the launch for its route; use --profile", k)
+		}
+	}
+	return nil
+}
+
+// WithOverlay layers r over an interactive plan the way ApplyOverlay does for a headless run; the launch's own Set wins.
 func (p Plan) WithOverlay(r agentconfig.Resolved) Plan {
 	if overlayIdle(r) {
 		return p
 	}
-	set := maps.Clone(p.Set)
+	set := maps.Clone(r.Set)
 	if set == nil {
 		set = map[string]string{}
 	}
-	maps.Copy(set, r.Set)
+	maps.Copy(set, p.Set)
 	p.Set, p.Keep = set, slices.Concat(p.Keep, r.Keep)
-	p.Unset = slices.Concat(p.Unset, r.Unset, []string{agentconfig.OverlayVar})
+	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { _, own := p.Set[k]; return own })
+	p.Unset = slices.Concat(p.Unset, unset, []string{agentconfig.OverlayVar})
 	return p
 }
 

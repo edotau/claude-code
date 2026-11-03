@@ -129,6 +129,9 @@ func checkOverlayInfo(info os.FileInfo, err error) error {
 // ParseOverlay decodes one document strictly and checks it; errors name keys, never values.
 func ParseOverlay(raw []byte) (Overlay, error) {
 	var o Overlay
+	if err := checkOverlaySchema(raw); err != nil {
+		return Overlay{}, err
+	}
 	if _, err := schemas.Decode(overlayFormat, raw, &o); err != nil {
 		return Overlay{}, overlayJSONErr(err)
 	}
@@ -141,6 +144,27 @@ func ParseOverlay(raw []byte) (Overlay, error) {
 		return Overlay{}, errors.New("trailing data after the JSON object")
 	}
 	return o, o.validate(fileSrc)
+}
+
+// checkOverlaySchema refuses a negative or newer "schema" before schemas.Decode, whose migration loop would walk it.
+func checkOverlaySchema(raw []byte) error {
+	var v struct {
+		Schema int `json:"schema"`
+	}
+	if json.Unmarshal(raw, &v) != nil {
+		return nil // Decode reports malformed JSON
+	}
+	return Overlay{Schema: v.Schema}.checkSchema()
+}
+
+func (o Overlay) checkSchema() error {
+	switch {
+	case o.Schema < 0:
+		return fmt.Errorf("schema %d is not valid", o.Schema)
+	case o.Schema > OverlaySchema:
+		return fmt.Errorf("schema %d is newer than this build", o.Schema)
+	}
+	return nil
 }
 
 // overlayJSONErr drops the offending character a syntax error quotes: it may be part of a value.
@@ -204,8 +228,8 @@ func ResolveOverlay(o Overlay) (Resolved, error) {
 }
 
 func (o Overlay) validate(src overlaySrc) error {
-	if o.Schema > OverlaySchema {
-		return fmt.Errorf("schema %d is newer than this build", o.Schema)
+	if err := o.checkSchema(); err != nil {
+		return err
 	}
 	if len(o.Files) > 0 {
 		return errors.New("overlay files: not supported yet")
@@ -246,9 +270,26 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 		if !envNameRE.MatchString(n) {
 			return fmt.Errorf("%s: want a NAME", src.unset)
 		}
+		if err := unsetRule(n); err != nil {
+			return fmt.Errorf("%s %s: %w", src.unset, n, err)
+		}
 		if _, set := o.Set[n]; set || keep[n] {
 			return fmt.Errorf("%s %s: also set or kept", src.unset, n)
 		}
+	}
+	return nil
+}
+
+// unsetRule refuses dropping a name the launch itself sets for its route: a lost endpoint would keep the credential.
+func unsetRule(name string) error {
+	up := strings.ToUpper(name)
+	switch {
+	case routeRedirectName(up):
+		return errBaseURL
+	case configLocationName(up):
+		return errConfigLocation
+	case strings.HasPrefix(up, "HARNESS_"):
+		return errors.New("harness-owned: the launch sets it for its route; use --profile")
 	}
 	return nil
 }
@@ -287,6 +328,7 @@ func runRules(rules []rule, c *ruleCtx) error {
 var keepRules = []rule{
 	{func(c *ruleCtx) bool { return !envNameRE.MatchString(c.name) }, refuse(errors.New("want a NAME"))},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
+	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") || credentialName(c.up) },
 		refuse(errors.New("a credential name cannot be kept: the scrub withholds it from every agent child"))},
 }
@@ -300,6 +342,7 @@ var flagSetRules = []rule{
 	{func(c *ruleCtx) bool { return c.name == "" || strings.ContainsAny(c.name, " \t") },
 		refuse(errors.New("want NAME=VALUE"))},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)}, // before the scrub check
+	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
 	{func(c *ruleCtx) bool { return proc.EnvBlocked(c.name) || proc.EnvBlocked(c.up) },
 		refuse(errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command"))},
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, OverlayVar) }, // a flag must not point at another overlay
@@ -321,6 +364,19 @@ func flagCredentialName(up string) bool {
 var errBaseURL = errors.New("a route endpoint, proxy or TLS setting: pick the endpoint with --profile; " +
 	"an override would send the route's credential elsewhere")
 
+var errConfigLocation = errors.New("an agent config or routing location: the launch owns it; use --profile")
+
+// configLocationName reports a name that injects or relocates an agent's config or route; refused in set, keep and unset.
+func configLocationName(up string) bool {
+	switch up {
+	case "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_TUI_CONFIG", "COPILOT_PROVIDERS_CONFIG", "COPILOT_HOME",
+		"COPILOT_API_URL", "COPILOT_GH_HOST", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "ANTHROPIC_CUSTOM_HEADERS",
+		"XDG_CONFIG_HOME", "GEMINI_CLI_HOME":
+		return true
+	}
+	return strings.HasSuffix(up, "_CONFIG_CONTENT") || strings.HasPrefix(up, "COPILOT_PROVIDER_")
+}
+
 // routeRedirectName reports a name that can redirect a route credential or weaken TLS; refused in set and keep.
 // DATABRICKS_HOST was allowed by D7 (set+keep); the owner's 2026-11-03 pick supersedes D7 for it.
 func routeRedirectName(up string) bool {
@@ -339,6 +395,7 @@ var setRules = []rule{
 	},
 		refuse(errors.New("harness-owned"))},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
+	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
 	{func(c *ruleCtx) bool { return c.reserved && c.isRef },
 		refuse(errors.New("reserved by the credential scrub: a vault ref cannot replace a route value"))},
 	{func(c *ruleCtx) bool { return c.reserved && !c.keep[c.name] },

@@ -214,6 +214,9 @@ func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) 
 		return fail("%v", err)
 	}
 	ov, oerr := launchOverlay(opts)
+	if oerr == nil {
+		oerr = plan.CheckOverlay(ov) // a launch-owned route name is refused, not silently overridden
+	}
 	if oerr != nil {
 		if plan.OnExecFail != nil {
 			plan.OnExecFail() // a minted session token dies with the refused launch
