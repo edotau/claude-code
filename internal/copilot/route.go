@@ -66,7 +66,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 		if p, ok := agent.LoginProvider(reg, "github", "copilot"); ok {
 			model, _ := providers.CopilotModel(reg)
 			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: model,
-				Reason: "github-copilot (" + a.Label() + ")", OK: true}
+				Reason: "github-copilot (" + providers.AuthState{Account: a.Account, Source: a.Source}.Label() + ")", OK: true}
 		}
 	}
 	if ri := copilotDatabricksFallback(reg, detail); ri.OK {
