@@ -54,7 +54,7 @@ func CheckDroppable(keys []string) error {
 	for _, k := range keys {
 		_, catalogued := Lookup(k)
 		if _, rendered := tp.vals[k]; catalogued || rendered {
-			return fmt.Errorf("%s is owned by the template; edit internal/settings/settings.template.json", k)
+			return fmt.Errorf("%s is owned by the template; edit defaults/claude/settings.json", k)
 		}
 	}
 	return nil
@@ -121,7 +121,7 @@ func validateKey(k string, v json.RawMessage) error {
 		return errors.New("autoMemoryDirectory is retired: it merges every repo's memory into one directory")
 	}
 	if structuralKey(k) {
-		return fmt.Errorf("%s is generated or structural; edit internal/settings/settings.template.json by hand", k)
+		return fmt.Errorf("%s is generated or structural; edit defaults/claude/settings.json by hand", k)
 	}
 	if f, ok := Lookup(k); ok {
 		return f.Validate(v)
@@ -333,7 +333,7 @@ func splitToken(r rune) bool {
 }
 
 // RepoDefaultsRel is the tracked repo defaults file, relative to the config dir.
-const RepoDefaultsRel = "internal/settings/settings.template.json"
+const RepoDefaultsRel = "defaults/claude/settings.json"
 
 // RepoDefaultsFile is the path of the repo defaults file in the live config dir.
 func RepoDefaultsFile() string {

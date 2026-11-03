@@ -4,7 +4,6 @@ package settings
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,12 +11,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-//go:embed settings.template.json
-var templateJSON []byte
 
 // Section groups the default keys shown under one configure-page header.
 type Section struct {
@@ -34,9 +31,9 @@ var (
 // Sections groups the editable keys by section: the defaults file's scalar keys and env variables first,
 // then every sectioned catalog key the file lacks, so a key removed from the file stays on the page.
 func Sections() ([]Section, error) {
-	o, err := parseObject(templateJSON)
+	o, err := parseObject(defaults.Claude)
 	if err != nil {
-		return nil, fmt.Errorf("internal/settings/settings.template.json: %w", err)
+		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
 	}
 	by := map[string][]string{}
 	seen := map[string]bool{}
@@ -50,7 +47,7 @@ func Sections() ([]Section, error) {
 		if k == "env" {
 			env, err := parseObject(o.vals[k])
 			if err != nil {
-				return nil, fmt.Errorf("internal/settings/settings.template.json env: %w", err)
+				return nil, fmt.Errorf("defaults/claude/settings.json env: %w", err)
 			}
 			for _, e := range env.keys {
 				if _, ok := FieldFor(e); ok && !CredentialKey(e) {
@@ -88,10 +85,10 @@ func Sections() ([]Section, error) {
 
 // loadDefaults parses the embedded defaults file, expanding ${HOOK_BIN}.
 func loadDefaults() (*object, error) {
-	expanded := strings.ReplaceAll(string(templateJSON), "${HOOK_BIN}", HookBin)
+	expanded := strings.ReplaceAll(string(defaults.Claude), "${HOOK_BIN}", HookBin)
 	o, err := parseObject([]byte(expanded))
 	if err != nil {
-		return nil, fmt.Errorf("internal/settings/settings.template.json: %w", err)
+		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
 	}
 	return o, nil
 }
@@ -119,8 +116,8 @@ type Summary struct {
 	HarnessHooks int
 }
 
-// runtimeKeys are written by Claude Code itself (/effort, /plugin): merge keeps them, drift ignores them.
-var runtimeKeys = []string{"modelSettings", "enabledPlugins"}
+// runtimeKeys are written by Claude Code itself (e.g. /effort → modelSettings): merge keeps them, drift ignores them.
+var runtimeKeys = []string{"modelSettings"}
 
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
 // lists unioned, harness hooks replaced, foreign hooks kept after them; keys in dropped are removed.
@@ -196,7 +193,6 @@ func mergeObject(base, overlay json.RawMessage) (json.RawMessage, error) {
 var retiredPermissions = []string{
 	"Bash(pytest *)", "Bash(npm *)", "Bash(npx vitest *)", "Bash(git push --force origin main:*)",
 	"Bash(git push -f origin main:*)", "Bash(git push --force origin master:*)", "Bash(git push -f origin master:*)",
-	"Bash(rm -rf /*)",
 }
 
 // mergePermissions unions the allow/ask/deny lists minus retired rules; other existing permission keys stay.
