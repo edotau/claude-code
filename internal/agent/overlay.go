@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 )
@@ -28,7 +29,23 @@ func ApplyOverlay(req RunOptions, r agentconfig.Resolved) RunOptions {
 	req.Env = append(env, req.Env...)
 	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
 	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar})
+	req.OverlaySet = slices.Sorted(maps.Keys(r.Set))
 	return req
+}
+
+// CheckRouteNames refuses a name in names that route (KEY=VALUE, before the overlay is appended) already sets.
+func CheckRouteNames(route, names []string) error {
+	own := map[string]bool{}
+	for _, kv := range route {
+		k, _, _ := strings.Cut(kv, "=")
+		own[k] = true
+	}
+	for _, n := range names {
+		if own[n] {
+			return fmt.Errorf("overlay set %s: set by the launch for its route; use --profile", n)
+		}
+	}
+	return nil
 }
 
 // CheckOverlay refuses an overlay that sets or unsets a name the plan's launch sets for its route.
