@@ -37,9 +37,9 @@ paths:
   refused); `set` values may be `@secret:<NAME>` (harness-internal secrets refused); endpoint, proxy and TLS names
   (`*_BASE_URL`, `*_API_BASE`, `*_ENDPOINT`, `*_GATEWAY_URL`, `*_PROXY_URL`, `*_CA_CERT`, `DATABRICKS_HOST`,
   `HTTP(S)_PROXY`, `ALL_PROXY`, TLS overrides) are refused in `set` and `keep`: use `--profile`; `keep` refuses
-  credential names (`HARNESS_KEEP_ENV` stays the escape hatch). One hop: nested dispatches do not inherit it, `--job`/`--background`/`--batch` relaunches carry it, `--live` and `--host`
-  refuse it. `--env` / `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS refusals; credential names
-  in `--keep-env`, ask and interactive).
+  credential names (`HARNESS_KEEP_ENV` stays the escape hatch). One hop: nested dispatches do not inherit it,
+  `--job`/`--background`/`--batch` relaunches carry it, `--live` and `--host` refuse it. `--env` / `--keep-env` are its
+  one-line shorthand (the same endpoint/proxy/TLS refusals; credential names in `--keep-env`, ask and interactive).
 - The agent subcommand `models` is a compatibility alias for `catalog`; top-level `claude-code models` is separate.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); an off-menu `--model` is refused. An `ai-gateway` row has no openai route, so its chat models are
