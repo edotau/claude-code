@@ -3,10 +3,11 @@ package menu
 
 import (
 	"cmp"
-	"github.com/edotau/claude-code/internal/configure"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/vault"
 
@@ -19,11 +20,17 @@ import (
 // agentPinRows is agent's one Profile row.
 func agentPinRows(d *dialog, agent string) []billingRow {
 	cur := vault.GetAgentRecord(agent).Profile
-	state := Bracket(true, seedLabel(agent, cur), "")
+	provider := "pinned profile"
+	if d.reg != nil {
+		if p := d.reg.Providers[cur]; p != nil && p.Provider != "" {
+			provider = p.Provider
+		}
+	}
+	state := Checked(cur != "", seedLabel(agent, cur)) // green when a profile is pinned
 	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
 		state = "[off, " + why + "]"
 	}
-	return []billingRow{{label: "Profile", desc: "profile " + agent + " runs on " + state,
+	return []billingRow{{label: "Profile", desc: provider + " " + state,
 		run: func() bool {
 			changed, err := pickAgentProfile(d, agent, cur)
 			if err != nil {
