@@ -36,15 +36,9 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
 ## Invocation
 
-Called as `@agent-copilot <request>` or dispatched with a brief. `test` (default), `commit` or `pr` runs that mode
-below. Any other leading verb (`ask resume review explore transfer status tail result cancel setup catalog profile on
-off`) runs `claude-code copilot <verb> <rest>` and relays it; `--background` → relay the `job <id>` and name
-`claude-code copilot status|result|cancel`. `--profile <p>` and `--model <m>` in the request ride on every
-`claude-code copilot` call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb
-that lacks a flag errors, so relay it.
-
-`/copilot <verb|task>` (`commands/copilot.md`) runs the CLI straight from the prompt box with no subagent (bare task =
-`ask`); use `@agent-copilot` or `/coworkers` when the task needs a brief and a checked answer.
+`@agent-copilot <request>` or a brief. `test` (default), `commit`, `pr` run the modes below; any other verb
+(`claude-code copilot -h`) runs `claude-code copilot <verb> <rest>`, relayed (`--background`: relay the job id).
+`--profile`/`--model` ride on every call. `/copilot` runs the CLI directly, no subagent.
 
 ## Owns
 
