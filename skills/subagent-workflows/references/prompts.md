@@ -64,9 +64,8 @@ No style review. Return SPEC_COMPLIANT with brief evidence, or SPEC_ISSUES with 
 ## Simplifier
 
 ```markdown
-Simplify the change, behavior-preserving, by ~/.claude/skills/simplify/SKILL.md (read it first; its references are
-under ~/.claude/skills/simplify/references/). Run the four angles (reuse, simplification, efficiency, altitude) yourself
-in one pass and say so.
+Simplify the change, behavior-preserving: run the built-in `/simplify` (Skill(simplify)) under
+`rules/standards/quality.md` → Simplify. A terminal leaf runs its four angles itself in one pass and says so.
 Scope: base <rev>, head <rev>. Files you may edit: <changed files>; an out-of-diff consolidation only as the skill's
 [extended] case.
 Behavior gate, before AND after (both green): `<task verification command>`

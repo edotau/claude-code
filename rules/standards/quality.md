@@ -21,6 +21,22 @@ leftover debug prints.
 Exempt: provenance/audit blocks, file-header runbooks, gotcha notes. Prose over the cap is cut, not rewrapped: a
 paragraph belongs in the repo's own docs (`docs/`, `ARCHITECTURE.md`, `README.md`), never in source.
 
+## Simplify — extends the built-in `/simplify`
+
+The built-in runs four angles (reuse, simplification, efficiency, altitude) and applies the fixes; on top of it:
+
+1. **Name the assumption before each cut** ("unreachable because ___"); can't finish the sentence → flag, don't cut.
+2. **Never cut** semantic or gotcha comments, distinct test scenarios, error context (`%w`, messages), or a guard whose
+   impossible state you can't prove.
+3. **No covering test → flag, don't cut.** Gate: the scoped tests and live check pass before AND after; a cut near a
+   test's subject re-runs `claude-code test mutate`.
+4. **Reuse first**: grep the call sequence, sibling files and `git log -S`; a near-duplicate is compared with its
+   original for behavior the copy lost (isolation, error handling), then consolidated at the source (say so).
+5. **Altitude**: fix the root cause, not one more special case. Bugs found are reported, not fixed (`/code-review`).
+6. **Thresholds**: this file's checklist (functions < 50 lines, nesting ≤ 4) and `review-simplicity`'s complexity
+   > 10; input: `claude-code review simplify`. Under ~100 changed lines one in-context pass replaces the fan-out.
+7. **Report numbers**: Δ lines and Δ complexity per touched function, plus what was skipped and why.
+
 ## Verification Order — lint first, always
 
 | # | Step | When |
