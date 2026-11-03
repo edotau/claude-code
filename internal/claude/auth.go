@@ -118,7 +118,7 @@ func runClaudeProbe() (loggedIn bool, plan string, err error) {
 	if err != nil {
 		return false, "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, runErr := exec.CommandContext(ctx, bin, "auth", "status").Output()
 	var st struct {

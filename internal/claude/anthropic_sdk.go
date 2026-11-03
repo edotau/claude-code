@@ -70,6 +70,7 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse
 	}
 	var res apiResponse
 	stream := client.Messages.NewStreaming(ctx, params)
+	defer stream.Close()
 	for stream.Next() {
 		switch ev := stream.Current().AsAny().(type) {
 		case anthropic.MessageStartEvent:

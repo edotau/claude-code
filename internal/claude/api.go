@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // apiMaxTokens caps a one-shot answer; reasoning models spend part of it thinking.
@@ -82,6 +82,13 @@ func logAPIRun(ctx context.Context, res agent.Result, err error) {
 	lg.Emit("result", fmt.Sprintf("tokens in=%d out=%d", res.Usage.InputTokens, res.Usage.OutputTokens))
 }
 
+// chatClient bounds the wait for response headers; the body stream stays governed by ctx.
+var chatClient = &http.Client{Transport: func() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = 2 * time.Minute
+	return t
+}()}
+
 // httpError carries an upstream status and Retry-After into Classify.
 type httpError struct {
 	status int
@@ -114,7 +121,7 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	if err := providers.Authorize(ctx, p, hreq.Header); err != nil {
 		return agent.Usage{}, "", err
 	}
-	resp, err := http.DefaultClient.Do(hreq)
+	resp, err := chatClient.Do(hreq)
 	if err != nil {
 		if ctx.Err() != nil {
 			return agent.Usage{}, "", ctx.Err()
@@ -124,8 +131,8 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 600))
-		after, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
-		return agent.Usage{}, "", &httpError{status: resp.StatusCode, after: time.Duration(after) * time.Second,
+		after, _ := textutil.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		return agent.Usage{}, "", &httpError{status: resp.StatusCode, after: max(after, 0),
 			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
 	return parseChatStream(resp.Body, w)
