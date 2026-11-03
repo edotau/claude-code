@@ -47,7 +47,7 @@ func buildSpecTree() map[string]*compNode {
 		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("read-only"), boolFlag("no-tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 		valuedFlag("fallback", func() []string { return router.FallbackModes }),
-		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),
+		flag("attach"), flag("keep-env"), flag("overlay"), boolFlag("autonomous"), boolFlag("enable-memory"),
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), valuedFlag("as", func() []string { return []string{"user", "sp"} }),
 	}
@@ -185,7 +185,7 @@ func buildSpecTree() map[string]*compNode {
 		tree[v] = &compNode{}
 	}
 	tree["anthropic"] = &compNode{flags: []flagInfo{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"),
-		boolFlag("print-env"), flag("keep-env")}}
+		boolFlag("print-env"), flag("keep-env"), flag("overlay")}}
 	// Agent verbs: ask/resume/review/transfer/status/result/cancel/setup/catalog, same shape per agent.
 	for _, v := range []string{"codex", "copilot", "opencode"} {
 		tree[v] = &compNode{sub: agentSubNodes(askFlags)}

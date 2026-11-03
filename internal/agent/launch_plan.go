@@ -30,6 +30,7 @@ type LaunchOptions struct {
 	Direct   bool     // agents only: skip the proxy, hand the CLI the profile route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
+	Overlay  string   // --overlay FILE; empty reads $COWORKER_OVERLAY
 }
 
 // flagValue is the value of the flag at args[i]: val when inline (--flag=val), else the next arg and its index.
@@ -73,6 +74,12 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 				return o, nil, err
 			}
 			o.File = val
+		case name == "--overlay":
+			var err error
+			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
+				return o, nil, err
+			}
+			o.Overlay = val
 		case name == "--keep-env":
 			var err error
 			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
@@ -178,7 +185,7 @@ var customEnv = func() map[string]string {
 		if errored[k] {
 			continue // already warned above with the real error
 		}
-		fmt.Fprintf(NoticeOut, "claude-code: custom env %s=@secret has no vault value; not set\n", k)
+		fmt.Fprintf(NoticeOut, "claude-code: custom env %s: its @secret is missing from the vault or not allowed (route or harness secret); not set\n", k)
 	}
 	return vals
 }

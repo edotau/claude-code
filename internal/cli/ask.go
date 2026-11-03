@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -92,6 +93,7 @@ func runAsk(args []string, resume bool) int {
 	batchSrc := fs.String("batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
 	jobs := fs.Int("jobs", batch.DefaultJobs(), "batch: tasks run at once")
 	failFast := fs.Bool("fail-fast", false, "batch: the first failed task cancels the rest")
+	overlayPath := fs.String("overlay", "", "layer a JSON {set,unset,keep} file over the agent's env")
 	overlayDebug := fs.String("overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -102,8 +104,18 @@ func runAsk(args []string, resume bool) int {
 			return 2
 		}
 	}
+	if *overlayPath != "" {
+		if err := agent.EnableOverlay(*overlayPath); err != nil {
+			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay:", err)
+			return 2
+		}
+	}
+	fileOv, err := agentconfig.LoadOverlay("")
+	if err != nil {
+		return failAskCode(*format, *name, err, 2)
+	}
 	*tools = *tools || *readOnly // read-only tools are still tools
-	if code, err := askCheckFlags(env, *format, *fallback, *as, *name, *background, *job, *tools, *noTools); err != nil {
+	if code, err := askCheckFlags(env, keepEnv, *format, *fallback, *as, *name, *background, *job, *tools, *noTools); err != nil {
 		return failAskCode(*format, *name, err, code)
 	}
 	schema, err := agent.ResolveOutputSchema(*outputSchema)
@@ -123,11 +135,19 @@ func runAsk(args []string, resume bool) int {
 	if err := askCheckCombos(fs, *name, *live, persona != nil, *host, *background, *job, *batchSrc, len(env) > 0); err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
+	if err := askOverlayLocal(fileOv, *live, *host); err != nil {
+		return failAskCode(*format, *name, err, 2)
+	}
 	if *batchSrc != "" {
 		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
 			Env: []string(env), OutputSchema: schema, Agents: defs}
+		ov, err := askOverlay(fileOv, env, keepEnv, false)
+		if err != nil {
+			return failAskCode(*format, *name, err, 2)
+		}
+		base = agent.ApplyOverlay(base, ov)
 		return runAskBatch(fs, resume, *batchSrc, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
@@ -156,6 +176,9 @@ func runAsk(args []string, resume bool) int {
 		}
 	}
 	if ref, ag, err = askReselect(ref, ag, name, &persona, defs); err != nil {
+		return failAskCode(*format, *name, err, 2)
+	}
+	if err := askOverlayLocal(fileOv, *live, *host); err != nil { // a --retry/--job record may carry a --host
 		return failAskCode(*format, *name, err, 2)
 	}
 	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
@@ -192,6 +215,11 @@ func runAsk(args []string, resume bool) int {
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
 		Agent: ref, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
+	ov, err := askOverlay(fileOv, env, keepEnv, *background)
+	if err != nil {
+		return failAskCode(*format, *name, err, 2)
+	}
+	req = agent.ApplyOverlay(req, ov)
 	client := newClient()
 	ctx = providers.WithIdentity(ctx, *as)
 	prepared, err := client.Prepare(ctx, req, jobRec)
@@ -209,8 +237,8 @@ func runAsk(args []string, resume bool) int {
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.
-func askCheckFlags(env envFlag, format, fallback, as, name string, background bool, job string, tools, noTools bool) (int, error) {
-	if err := agent.ValidateEnv(env); err != nil { // names only: the error never carries a value
+func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback, as, name string, background bool, job string, tools, noTools bool) (int, error) {
+	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
 		return 2, err
 	}
 	if err := validateAskFlags(format, fallback); err != nil {
@@ -220,6 +248,26 @@ func askCheckFlags(env envFlag, format, fallback, as, name string, background bo
 		return 2, err
 	}
 	return 1, askExclusive(background, job, tools, noTools)
+}
+
+// askOverlay checks the --env/--keep-env shorthand and resolves the file overlay's vault refs, failing closed; a
+// --background parent leaves the file to its --job child, which inherits $COWORKER_OVERLAY and resolves it itself.
+func askOverlay(file agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {
+	if _, err := agentconfig.FlagOverlay(env, keep); err != nil {
+		return agentconfig.Resolved{}, err
+	}
+	if background {
+		return agentconfig.Resolved{}, nil
+	}
+	return agentconfig.ResolveOverlay(file)
+}
+
+// askOverlayLocal refuses a file overlay on --live or --host: neither carries it, and --host would expose it to ps.
+func askOverlayLocal(file agentconfig.Overlay, live bool, host string) error {
+	if !file.Empty() && (live || host != "") {
+		return errors.New("an overlay cannot reach --live or --host: run the agent locally")
+	}
+	return nil
 }
 
 // askDefs parses --agents; --host cannot carry an inline definition.
@@ -412,7 +460,7 @@ func (s *askState) applyRecord(rec agent.Record) {
 		*s.fallback = rec.FallbackPolicy
 	}
 	if len(rec.Request.EnvNames) > 0 {
-		fmt.Fprintf(os.Stderr, "ask: the logged run set env %s; values are not stored, so pass --env again\n", strings.Join(rec.Request.EnvNames, ","))
+		fmt.Fprintf(os.Stderr, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
 }
 

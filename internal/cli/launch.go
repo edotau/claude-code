@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -84,7 +85,7 @@ func aliasVerb(alias string) func([]string) int {
 
 var anthropicPage = helptext.Page{
 	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model M]\n" +
-		"[--print-env] [--keep-env NAMES] [claude args]",
+		"[--print-env] [--keep-env NAMES] [--overlay FILE] [claude args]",
 	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
 		"value; =NAME picks the vault key.",
 	Hint: "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
@@ -98,6 +99,7 @@ func anthropicHelp(w io.Writer) {
 	fs.String("model", "", "alias (opus), version (opus-5-5) or wire id: the main model")
 	fs.Bool("print-env", false, "print the resolved launch; never prompts")
 	fs.String("keep-env", "", "env names the credential scrub keeps")
+	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
 	p := anthropicPage
 	p.Flags = fs
 	p.Fprint(w)
@@ -238,6 +240,15 @@ func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) 
 	if err != nil {
 		return fail("%v", err)
 	}
+	ov, oerr := launchOverlay(opts)
+	if oerr != nil {
+		if plan.OnExecFail != nil {
+			plan.OnExecFail() // a minted session token dies with the refused launch
+		}
+		fmt.Fprintln(os.Stderr, "claude-code:", oerr)
+		return 2
+	}
+	plan = plan.WithOverlay(ov)
 	if opts.PrintEnv {
 		plan.Print(os.Stdout)
 		if agent.OverlayDebugOn() {
@@ -246,6 +257,19 @@ func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) 
 		return 0
 	}
 	return fail("exec %s: %v", plan.Binary, plan.Exec())
+}
+
+// launchOverlay is the overlay for an interactive launch: --overlay, else $COWORKER_OVERLAY; --print-env keeps vault
+// refs unresolved so it shows their names, never their values.
+func launchOverlay(opts agent.LaunchOptions) (agentconfig.Resolved, error) {
+	o, err := agentconfig.LoadOverlay(opts.Overlay)
+	if err != nil {
+		return agentconfig.Resolved{}, err
+	}
+	if opts.PrintEnv {
+		return agentconfig.Resolved{Set: o.Set, Unset: o.Unset, Keep: o.Keep}, nil
+	}
+	return agentconfig.ResolveOverlay(o)
 }
 
 // hookModules wraps the module names from settings.Specs into help lines under 80 columns.

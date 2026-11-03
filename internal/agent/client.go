@@ -192,6 +192,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d RunRecordedO
 	if d.Notify == nil {
 		d.Notify = c.Notify
 	}
+	ctx = withUnsetEnv(ctx, p.Opts.Unset)
 	res, err := RunRecorded(ctx, &p.Record, p.chain.Want, out, d, func(ctx context.Context, sink Sink) (Result, error) {
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)

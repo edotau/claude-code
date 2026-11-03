@@ -155,7 +155,7 @@ func dropHarnessCredential(plan *agent.Plan) {
 	for _, k := range []string{"ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", oauthKey} {
 		delete(plan.Set, k)
 	}
-	plan.Warnings = append(plan.Warnings, "shell ANTHROPIC_BASE_URL kept: the profile credential is withheld; pass your own with --keep-env")
+	plan.Warnings = append(plan.Warnings, "shell ANTHROPIC_BASE_URL kept: the profile credential is withheld; export HARNESS_KEEP_ENV=<name> to pass your own")
 }
 
 // configDirEnvIsDefault: an explicit CLAUDE_CONFIG_DIR=~/.claude makes claude write a stray ~/.claude/.claude.json.

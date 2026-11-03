@@ -40,6 +40,7 @@ type RunOptions struct {
 	SystemPrompt, AppendSystemPrompt                    string   // claude only: replace / extend the system prompt
 	Env                                                 []string `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
 	EnvNames                                            []string `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
+	Unset                                               []string `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged
 	OutputSchema                                        string   // JSON Schema text the answer must satisfy
 	Persona                                             *Schema  `json:"persona,omitempty"` // claude: native agent definition; others: emulated
 	Timeout                                             time.Duration
