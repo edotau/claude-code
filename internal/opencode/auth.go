@@ -105,7 +105,7 @@ func opencodeMajorLocked(key string) int {
 
 // OpencodeAuth lists opencode's stored logins, sorted by integration ID: 2.x via `opencode auth list --format
 // json --standalone`, 1.x (or unknown version) via auth.json. A failed 2.x call still returns the auth.json data,
-// plus an error describing the failure. Cached per process (and per binary/auth.json state); see InvalidateOpencodeAuth.
+// plus an error describing the failure. Successes are cached per process (and per binary/auth.json state); see InvalidateOpencodeAuth.
 func OpencodeAuth() ([]OpencodeIntegration, error) {
 	bin, file, key := opencodeAuthKeys()
 	opencodeMu.Lock()
@@ -130,7 +130,9 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 			err = nil
 		}
 	}
-	opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthIsSet = key, ints, err, true
+	if err == nil { // a failed probe is not cached: the next call retries rather than pinning the failure
+		opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthIsSet = key, ints, nil, true
+	}
 	return ints, err
 }
 
@@ -272,14 +274,20 @@ func readOpencodeAuthJSON(file string) ([]OpencodeIntegration, error) {
 
 // OpencodeLogins lists the integration IDs opencode has at least one connection for (any version), sorted.
 func OpencodeLogins() []string {
-	ints, _ := OpencodeAuth()
+	names, _ := opencodeLoginsErr()
+	return names
+}
+
+// opencodeLoginsErr is OpencodeLogins plus the probe error, so a failed `auth list` is not read as logged out.
+func opencodeLoginsErr() ([]string, error) {
+	ints, err := OpencodeAuth()
 	var names []string
 	for _, in := range ints {
 		if len(in.Conns) > 0 {
 			names = append(names, in.ID)
 		}
 	}
-	return names
+	return names, err
 }
 
 // OpencodeLogoutArgv is the non-interactive logout command: 2.x needs the credential, 1.x only the
