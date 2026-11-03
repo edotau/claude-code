@@ -248,7 +248,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "trap.sh")
 	// `sleep 30 &` + `wait` (not a tail-call `sleep 30`) keeps this shell's own pid alive and
 	// trapping SIGINT instead of POSIX sh exec-optimizing the last command away.
-	body := "#!/bin/sh\ntrap '' INT\nsleep 30 &\nwait\n"
+	body := "#!/bin/sh\ntrap '' INT\necho ready\nsleep 30 &\nwait\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -266,9 +266,15 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	if !Alive(rec) {
 		t.Fatal("Alive(rec) = false right after Spawn, want true")
 	}
-	// give the shell time to run `trap '' INT` before signalling it, else SIGINT can race the
-	// trap installation and kill it on the default disposition instead of exercising escalation.
-	time.Sleep(200 * time.Millisecond)
+	// wait for the shell's ready line (printed after `trap '' INT`), else SIGINT can beat the trap installation.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if b, _ := os.ReadFile(rec.Log); strings.Contains(string(b), "ready") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child never printed ready")
+		}
+	}
 
 	if err := Cancel(&rec); err != nil {
 		t.Fatalf("Cancel() = %v, want nil (SIGKILL escalation must end a SIGINT-trapping child)", err)

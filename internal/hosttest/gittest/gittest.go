@@ -31,11 +31,18 @@ func Cleanup() {
 // Repo returns a fresh repo on branch main with one empty commit, in a globally unique directory name.
 func Repo(t *testing.T) string {
 	t.Helper()
+	dir := filepath.Join(t.TempDir(), fmt.Sprintf("repo%d", seq.Add(1)))
+	RepoAt(t, dir)
+	return dir
+}
+
+// RepoAt makes dir (and parents) a repo like Repo's, for callers that need a chosen directory name.
+func RepoAt(t *testing.T, dir string) string {
+	t.Helper()
 	once.Do(buildTemplate)
 	if tmplErr != nil {
 		t.Fatal(tmplErr)
 	}
-	dir := filepath.Join(t.TempDir(), fmt.Sprintf("repo%d", seq.Add(1)))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/tree"
@@ -31,6 +32,7 @@ type hub struct {
 	build       func() ([]byte, error) // full rebuild, marshalled exactly as writeJSON would
 	fingerprint func() uint64          // cheap change detector over what build reads
 	logf        func(format string, args ...any)
+	ticks       atomic.Int64  // fingerprint ticks completed; tests wait on it instead of sleeping
 	done        chan struct{} // closed when the scanner exits, so SSE handlers return on shutdown
 
 	mu   sync.Mutex
@@ -114,11 +116,11 @@ func (h *hub) run(ctx context.Context) {
 		h.mu.Lock()
 		same := h.fp == fp
 		h.mu.Unlock()
-		if same && time.Since(lastBuild) < scanHeartbeat {
-			continue
+		if !same || time.Since(lastBuild) >= scanHeartbeat {
+			h.rebuild(fp)
+			lastBuild = time.Now()
 		}
-		h.rebuild(fp)
-		lastBuild = time.Now()
+		h.ticks.Add(1)
 	}
 }
 

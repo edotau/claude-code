@@ -2,15 +2,13 @@ package recall
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // canonTemp resolves symlinks so fixture paths match what the package resolves at runtime.
@@ -42,61 +40,17 @@ func initStore(t *testing.T) {
 	}
 }
 
-// fixtureGit runs git on dir minus inherited GIT_* (GIT_DIR beats -C), user/system config, hooks and signing.
-func fixtureGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	full := append([]string{"-C", dir, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
-		"-c", "user.email=t@example.com", "-c", "user.name=t"}, args...)
-	cmd := exec.Command("git", full...)
-	cmd.Env = append(proc.GitEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v %s", args, err, out)
-	}
-}
-
-// gitRepo makes a real disposable repository with one commit at <parent>/<name>, copied from a once-built template.
+// gitRepo makes a real disposable repository with one commit at <parent>/<name>.
 func gitRepo(t *testing.T, parent, name string) string {
 	t.Helper()
-	root := filepath.Join(parent, name)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	tmpl := gitRepoTemplate(t)
-	if out, err := exec.Command("cp", "-a", filepath.Join(tmpl, ".git"), root).CombinedOutput(); err != nil {
-		t.Fatalf("copy template repo: %v %s", err, out)
-	}
-	return root
-}
-
-var (
-	gitTmplOnce sync.Once
-	gitTmplDir  string
-)
-
-func gitRepoTemplate(t *testing.T) string {
-	t.Helper()
-	gitTmplOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "memory-gittmpl-")
-		if err != nil {
-			t.Fatal(err)
-		}
-		gitTmplDir = dir
-		fixtureGit(t, dir, "init", "-q", "-b", "main")
-		fixtureGit(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
-	})
-	if gitTmplDir == "" {
-		t.Fatal("git template repo unavailable")
-	}
-	return gitTmplDir
+	return gittest.RepoAt(t, filepath.Join(parent, name))
 }
 
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	code := m.Run()
 	cleanup()
-	if gitTmplDir != "" {
-		os.RemoveAll(gitTmplDir)
-	}
+	gittest.Cleanup()
 	os.Exit(code)
 }
 

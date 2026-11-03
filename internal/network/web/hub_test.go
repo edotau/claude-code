@@ -166,12 +166,19 @@ func TestEventsStreamsTreeThenChange(t *testing.T) {
 	}
 }
 
+// waitTicks blocks until the hub has completed n more fingerprint ticks.
+func waitTicks(t *testing.T, h *hub, n int64) {
+	t.Helper()
+	want := h.ticks.Load() + n
+	waitFor(t, 10*time.Second, "scan ticks", func() bool { return h.ticks.Load() >= want })
+}
+
 // Subscribers share the scanner: N streams after the first scan cause no extra builds.
 func TestEventsSubscribersShareOneBuild(t *testing.T) {
 	f := newHubFixture(t)
 	h := f.s.treeHub()
 	waitFor(t, 5*time.Second, "first scan", func() bool { return h.latest() != nil })
-	time.Sleep(100 * time.Millisecond) // let any in-flight tick settle
+	waitTicks(t, h, 2) // an in-flight tick has finished
 	before := f.builds.Load()
 
 	const n = 5
@@ -186,7 +193,7 @@ func TestEventsSubscribersShareOneBuild(t *testing.T) {
 			t.Fatalf("subscriber frame lacks sessions: %.200s", got)
 		}
 	}
-	time.Sleep(150 * time.Millisecond) // several scan ticks with unchanged files
+	waitTicks(t, h, 5) // several scan ticks with unchanged files
 	if got := f.builds.Load() - before; got != 0 {
 		t.Fatalf("%d builds for %d subscribers on unchanged files, want 0", got, n)
 	}
@@ -197,7 +204,7 @@ func TestTreeServesHubCache(t *testing.T) {
 	f := newHubFixture(t)
 	h := f.s.treeHub()
 	waitFor(t, 5*time.Second, "first scan", func() bool { return h.latest() != nil })
-	time.Sleep(100 * time.Millisecond)
+	waitTicks(t, h, 2)
 	before := f.builds.Load()
 
 	req, _ := http.NewRequest("GET", f.ts.URL+"/api/tree", nil)
