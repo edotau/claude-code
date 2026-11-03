@@ -10,10 +10,12 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -430,4 +432,22 @@ func WaitLiveReady(id string, pid int) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("no socket after %s (holder pid %d)", liveReadyWait, pid)
+}
+
+// serveLive is the ServeLive seam of RunHolder.
+var serveLive = ServeLive
+
+// RunHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.
+func RunHolder(rec *agent.Record, launcher agent.Launcher) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
+	rec.Request.Launcher = launcher // json:"-", so the record loaded from disk has none
+	if err := serveLive(ctx, rec, notify); err != nil {
+		rec.Status, rec.Error = "error", err.Error()
+		_ = rec.Save()
+		fmt.Fprintf(os.Stderr, "claude-code: ask --live: %v\n", err)
+		return 1
+	}
+	return 0
 }
