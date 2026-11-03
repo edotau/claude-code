@@ -241,7 +241,7 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 		return nil
 	}
 	idW := idWidth(len(results), func(i int) string { return results[i].ID })
-	fmt.Printf("%-*s  %-7s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")
+	fmt.Printf("%-*s  %-9s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")
 	for _, r := range results {
 		code, lat := "-", "-"
 		if r.HTTP > 0 {
@@ -251,8 +251,8 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 			lat = fmt.Sprintf("%dms", r.LatencyMS)
 		}
 		tools := cmp.Or(r.Tools, "-")
-		fmt.Printf("%-*s  %-7s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, tools)
-		if r.Status == "fail" && r.Error != "" {
+		fmt.Printf("%-*s  %-9s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, tools)
+		if (r.Status == "fail" || r.Status == "transient") && r.Error != "" {
 			fmt.Print("  " + r.Error)
 		}
 		fmt.Println()

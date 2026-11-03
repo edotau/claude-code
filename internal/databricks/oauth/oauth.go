@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -65,10 +66,10 @@ func IsLoginRequired(err error) bool {
 	return errors.As(err, &oe) && loginCodes[oe.Code]
 }
 
-// IsRejected reports a token endpoint that answered 401 or 403 (credentials refused, not a transient failure).
+// IsRejected reports a token endpoint that answered 401, or 403 with an OAuth error code (a bare 403 is a WAF/proxy).
 func IsRejected(err error) bool {
 	var oe *oauthError
-	return errors.As(err, &oe) && (oe.Status == http.StatusUnauthorized || oe.Status == http.StatusForbidden)
+	return errors.As(err, &oe) && (oe.Status == http.StatusUnauthorized || (oe.Status == http.StatusForbidden && oe.Code != ""))
 }
 
 // normHost trims host to scheme://authority[/path]; plain http is accepted only for loopback hosts.
@@ -136,12 +137,19 @@ func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 
 // postOnce is one attempt; status is 0 when no HTTP response arrived and written is true once the request went out.
 func postOnce(ctx context.Context, r tokenRequest) (reply tokenReply, status int, written bool, err error) {
+	var wrote atomic.Bool // set by the transport's write goroutine, possibly after Do has returned
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		WroteRequest: func(info httptrace.WroteRequestInfo) { written = info.Err == nil },
+		WroteRequest: func(info httptrace.WroteRequestInfo) { wrote.Store(info.Err == nil) },
 	})
+	reply, status, err = doPost(ctx, r)
+	return reply, status, wrote.Load(), err
+}
+
+// doPost sends the token request on ctx and decodes the reply.
+func doPost(ctx context.Context, r tokenRequest) (reply tokenReply, status int, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.host+tokenPath, strings.NewReader(r.form.Encode()))
 	if err != nil {
-		return reply, 0, written, fmt.Errorf("oauth: %s at %s: %w", r.op, r.host, err)
+		return reply, 0, fmt.Errorf("oauth: %s at %s: %w", r.op, r.host, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -150,12 +158,12 @@ func postOnce(ctx context.Context, r tokenRequest) (reply tokenReply, status int
 	}
 	resp, err := tokenClient.Do(req)
 	if err != nil {
-		return reply, 0, written, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
+		return reply, 0, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		return reply, 0, written, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
+		return reply, 0, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e struct {
@@ -163,12 +171,12 @@ func postOnce(ctx context.Context, r tokenRequest) (reply tokenReply, status int
 			Description string `json:"error_description"`
 		}
 		_ = json.Unmarshal(raw, &e)
-		return reply, resp.StatusCode, written, &oauthError{Host: r.host, Op: r.op, Code: e.Error, Desc: e.Description, Status: resp.StatusCode}
+		return reply, resp.StatusCode, &oauthError{Host: r.host, Op: r.op, Code: e.Error, Desc: e.Description, Status: resp.StatusCode}
 	}
 	if json.Unmarshal(raw, &reply) != nil || reply.AccessToken == "" {
-		return reply, resp.StatusCode, written, fmt.Errorf("oauth: %s at %s: response had no access_token", r.op, r.host)
+		return reply, resp.StatusCode, fmt.Errorf("oauth: %s at %s: response had no access_token", r.op, r.host)
 	}
-	return reply, resp.StatusCode, written, nil
+	return reply, resp.StatusCode, nil
 }
 
 // token converts a reply into a Token whose Expiry is zero when the server sent no lifetime.
@@ -201,7 +209,7 @@ func RefreshU2M(ctx context.Context, host, refreshToken string) (Token, error) {
 	return reply.token(refreshToken), nil
 }
 
-var m2mLocks sync.Map // host -> *sync.Mutex
+var m2mLocks sync.Map // host -> chan struct{} (a 1-slot semaphore, so the wait can honor ctx)
 
 // MintM2M runs the service-principal client-credentials grant (scope all-apis); Refresh is always empty.
 func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, error) {
@@ -212,9 +220,13 @@ func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, e
 	if clientID == "" || clientSecret == "" {
 		return Token{}, fmt.Errorf("oauth: m2m at %s: client id and secret are required", h)
 	}
-	mu, _ := m2mLocks.LoadOrStore(h, new(sync.Mutex))
-	mu.(*sync.Mutex).Lock()
-	defer mu.(*sync.Mutex).Unlock()
+	sem, _ := m2mLocks.LoadOrStore(h, make(chan struct{}, 1))
+	select {
+	case sem.(chan struct{}) <- struct{}{}:
+		defer func() { <-sem.(chan struct{}) }()
+	case <-ctx.Done():
+		return Token{}, fmt.Errorf("oauth: m2m at %s: waiting for a concurrent mint: %w", h, ctx.Err())
+	}
 	reply, err := postToken(ctx, tokenRequest{
 		host: h, op: "client-credentials grant", user: clientID, secret: clientSecret, replay: true,
 		form: url.Values{"grant_type": {"client_credentials"}, "scope": {"all-apis"}},

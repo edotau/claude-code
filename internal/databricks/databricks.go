@@ -4,12 +4,15 @@ package databricks
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
@@ -189,21 +192,44 @@ func launch(self string, p Plan) int {
 	return code
 }
 
-// capture runs one prompt through the provider and returns combined stdout+stderr (a start error is appended).
-func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...string) string {
-	var buf bytes.Buffer
-	argv := append([]string{"--profile", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
-	if _, err := spawn(self, argv, childEnv(p), stdin, &buf, &buf); err != nil {
-		fmt.Fprint(&buf, err)
+// checkTimeout bounds one smoke call so a hung endpoint cannot stall `check` (or a --all sweep).
+const checkTimeout = 2 * time.Minute
+
+// spawnCtx is spawn with a deadline: the child is killed when ctx ends; a package var so tests never launch it.
+var spawnCtx = func(ctx context.Context, bin string, argv, env []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
+	cmd := exec.CommandContext(ctx, bin, argv...)
+	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = env, stdin, stdout, stderr
+	cmd.WaitDelay = 5 * time.Second
+	err := cmd.Run()
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		return ee.ExitCode(), nil
 	}
-	return buf.String()
+	return 0, err
 }
 
-// check runs the smoke reply; exit 0 only if it passes.
+// capture runs one prompt through the provider and returns combined stdout+stderr and the exit code;
+// a start error or timeout is appended to the output with code -1.
+func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...string) (string, int) {
+	var buf bytes.Buffer
+	argv := append([]string{"--profile", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
+	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
+	defer cancel()
+	code, err := spawnCtx(ctx, self, argv, childEnv(p), stdin, &buf, &buf)
+	if err != nil {
+		fmt.Fprint(&buf, err)
+		code = -1
+	} else if ctx.Err() != nil {
+		fmt.Fprintf(&buf, "\ntimed out after %s", checkTimeout)
+		code = -1
+	}
+	return buf.String(), code
+}
+
+// check runs the smoke reply; exit 0 only if the child exits 0 and its last line is OK.
 func check(self string, p Plan) int {
 	rc := 0
 	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
-	if out := capture(self, p, smokePrompt, nil); lastLine(out) == "OK" {
+	if out, code := capture(self, p, smokePrompt, nil); code == 0 && lastLine(out) == "OK" {
 		fmt.Println("PASS smoke")
 	} else {
 		fmt.Printf("FAIL smoke: %s\n", tail(out, 5))

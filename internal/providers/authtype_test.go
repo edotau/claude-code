@@ -260,7 +260,7 @@ func TestVerdictFromRealMintErrors(t *testing.T) {
 		{"u2m invalid_grant needs login", AuthOAuth, 400, map[string]any{"error": "invalid_grant"}, VerdictNeedsLogin},
 		{"m2m invalid_client needs login", AuthM2M, 400, map[string]any{"error": "invalid_client"}, VerdictNeedsLogin},
 		{"u2m bare 401 is rejected", AuthOAuth, 401, map[string]any{}, VerdictRejected},
-		{"u2m bare 403 is rejected", AuthOAuth, 403, map[string]any{}, VerdictRejected},
+		{"u2m bare 403 is transient", AuthOAuth, 403, map[string]any{}, VerdictTransient},
 		{"u2m 503 is transient", AuthOAuth, 503, map[string]any{}, VerdictTransient},
 		{"u2m 429 is transient", AuthOAuth, 429, map[string]any{"error": "rate_limited"}, VerdictTransient},
 	}

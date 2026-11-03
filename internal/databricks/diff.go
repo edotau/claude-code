@@ -45,7 +45,7 @@ func maskPair(o, n any, secret bool, key string) (any, any) {
 	om, ook := o.(map[string]any)
 	nm, nok := n.(map[string]any)
 	if ook || nok {
-		return maskMaps(o, n, om, nm, ook, nok, secret)
+		return maskMaps(o, n, om, nm, ook, nok, secret, key)
 	}
 	oa, ook := o.([]any)
 	na, nok := n.([]any)
@@ -55,8 +55,8 @@ func maskPair(o, n any, secret bool, key string) (any, any) {
 	return maskLeaf(o, n, secret, key)
 }
 
-// maskMaps masks two objects key by key; a side that is not an object is returned as it came.
-func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool) (any, any) {
+// maskMaps masks two objects key by key; a side that is not an object is masked as a leaf.
+func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool, key string) (any, any) {
 	oo, nn := map[string]any{}, map[string]any{}
 	maps.Copy(oo, om)
 	maps.Copy(nn, nm)
@@ -79,9 +79,11 @@ func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool) (any, any)
 		nn[k] = nv
 	}
 	if !ook {
+		o, _ = maskLeaf(o, nil, secret, key)
 		return o, nn
 	}
 	if !nok {
+		_, n = maskLeaf(nil, n, secret, key)
 		return oo, n
 	}
 	return oo, nn

@@ -101,8 +101,8 @@ func CheckCell(cache map[string]serving.CheckResult, id string) string {
 		return "ok no-tools"
 	case r.Status == "ok":
 		return "ok tools"
-	case r.Status == "fail" && r.HTTP > 0:
-		return fmt.Sprintf("fail %d", r.HTTP)
+	case (r.Status == "fail" || r.Status == serving.StatusTransient) && r.HTTP > 0:
+		return fmt.Sprintf("%s %d", r.Status, r.HTTP)
 	}
 	return r.Status
 }

@@ -2,6 +2,7 @@ package databricks
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"flag"
@@ -46,7 +47,11 @@ func useFake(t *testing.T, f *fakeChild) {
 	t.Helper()
 	old := spawn
 	spawn = f.spawn
-	t.Cleanup(func() { spawn = old })
+	oldCtx := spawnCtx
+	spawnCtx = func(_ context.Context, bin string, argv, env []string, in io.Reader, out, errw io.Writer) (int, error) {
+		return f.spawn(bin, argv, env, in, out, errw)
+	}
+	t.Cleanup(func() { spawn, spawnCtx = old, oldCtx })
 }
 
 // argValue returns the element after flag in argv, or "".
