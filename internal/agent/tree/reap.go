@@ -82,6 +82,9 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		if rec.Status != "running" || rec.Alive() {
 			continue
 		}
+		if cur, err := agent.LoadRecord(rec.ID); err == nil && cur.Status != "running" {
+			continue // the owner finished after the snapshot; keep its real result
+		}
 		rec.Status, rec.Error = "error", lostError
 		if !dryRun {
 			if err := rec.Save(); err != nil {
@@ -99,12 +102,11 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "agents reap:", err)
 		code = 1
 	}
-	markers += socks
-	if records+markers == 0 {
+	if records+markers+socks == 0 {
 		fmt.Fprintln(out, "agents reap: nothing to reap")
 		return code
 	}
-	fmt.Fprintf(out, "%s %d dispatches, %d markers\n", verb, records, markers)
+	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets\n", verb, records, markers, socks)
 	return code
 }
 

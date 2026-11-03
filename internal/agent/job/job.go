@@ -103,11 +103,6 @@ func Resolve(recs []agent.Record, ref string, pred func(agent.Record) bool) (age
 	return agent.Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
 }
 
-// Alive reports a running record whose PID is still alive.
-func Alive(rec agent.Record) bool {
-	return rec.Alive()
-}
-
 // jobArgvSettled reads pid's argv, retrying for ~500ms while it does not match: a child spawned a moment ago
 // has forked but not yet exec'd, so /proc still shows the parent's argv.
 func jobArgvSettled(pid int, id string) ([]string, error) {
@@ -284,7 +279,7 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 		return agent.Record{}, err
 	}
 	f, err := os.Open(rec.LogPath())
-	for follow && errors.Is(err, os.ErrNotExist) && Alive(rec) { // the CLI child may not have started yet
+	for follow && errors.Is(err, os.ErrNotExist) && rec.Alive() { // the CLI child may not have started yet
 		if err = sleepCtx(ctx, tailPoll); err != nil {
 			return rec, err
 		}
@@ -302,7 +297,7 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 		return reloaded(rec), err
 	}
 	lastOut, lastBeat := time.Now(), time.Time{}
-	for Alive(rec) {
+	for rec.Alive() {
 		if err := sleepCtx(ctx, tailPoll); err != nil {
 			return rec, err
 		}
@@ -327,7 +322,7 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 // leaves running, printing a heartbeat event per tailBeat of silence. It returns the record as last seen.
 func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer) (agent.Record, error) {
 	f, err := os.Open(rec.EventsPath())
-	for follow && errors.Is(err, os.ErrNotExist) && Alive(rec) { // the job may not have started yet
+	for follow && errors.Is(err, os.ErrNotExist) && rec.Alive() { // the job may not have started yet
 		if err = sleepCtx(ctx, tailPoll); err != nil {
 			return rec, err
 		}
@@ -352,7 +347,7 @@ func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer)
 		if n > 0 {
 			lastOut = time.Now()
 		}
-		if !Alive(rec) { // the writer is gone: one last drain, then stop
+		if !rec.Alive() { // the writer is gone: one last drain, then stop
 			_, _, err = copyEventLines(br, &pend, w)
 			return rec, err
 		}
@@ -374,7 +369,10 @@ func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (n int, done bo
 		chunk, rerr := br.ReadBytes('\n')
 		*pend = append(*pend, chunk...)
 		if rerr != nil { // EOF: the rest of the line has not landed yet
-			return n, done, nil
+			if errors.Is(rerr, io.EOF) {
+				return n, done, nil
+			}
+			return n, done, rerr
 		}
 		if _, err := w.Write(*pend); err != nil {
 			return n, done, err
@@ -417,11 +415,11 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error)
 		return agent.Record{}, err
 	}
 	recs := List(name, agent.RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return Alive(r) })
+	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return r.Alive() })
 	if err != nil {
 		return agent.Record{}, err
 	}
-	if !Alive(rec) {
+	if !rec.Alive() {
 		return agent.Record{}, fmt.Errorf("job %s is not running", rec.ID)
 	}
 	if err := Cancel(&rec); err != nil {
@@ -430,10 +428,10 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error)
 	return rec, nil
 }
 
-// toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/cli/agent.go).
+// toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/cli/ask.go).
 func toRow(r agent.Record) Row {
 	status := r.Status
-	if status == "running" && !Alive(r) {
+	if status == "running" && !r.Alive() {
 		status = "lost"
 	}
 	elapsed := r.Elapsed()

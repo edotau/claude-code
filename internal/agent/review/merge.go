@@ -33,7 +33,7 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 		n := 0
 		for _, l := range lines {
 			t := strings.TrimSpace(l)
-			if t == "" || t == cleanVerdict || seen[t] {
+			if t == "" || strings.TrimSuffix(t, ".") == cleanVerdict || seen[t] {
 				continue
 			}
 			seen[t] = true

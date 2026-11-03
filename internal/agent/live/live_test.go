@@ -85,7 +85,7 @@ func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Dur
 		t.Fatal(err)
 	}
 	done, id := make(chan error, 1), rec.ID
-	go func() { done <- ServeLive(ctx, &rec, nil) }()
+	go func() { done <- ServeLive(ctx, &rec) }()
 	for range 200 {
 		if socketAccepts(LiveSocket(id)) {
 			break
@@ -340,7 +340,7 @@ func TestServeLiveRejectsAgentWithoutLive(t *testing.T) {
 	liveEnv(t)
 	rec := agent.ClaimRecord("codex", agent.RunOptions{}, time.Now())
 	rec.Live = true
-	if err := ServeLive(context.Background(), &rec, nil); err == nil || !strings.Contains(err.Error(), "no live mode") {
+	if err := ServeLive(context.Background(), &rec); err == nil || !strings.Contains(err.Error(), "no live mode") {
 		t.Errorf("ServeLive(codex) = %v, want a no-live-mode error", err)
 	}
 }
@@ -392,7 +392,7 @@ func startAgy(t *testing.T, script string, req agent.RunOptions) (string, func()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- ServeLive(ctx, &rec, nil) }()
+	go func() { done <- ServeLive(ctx, &rec) }()
 	for range 200 {
 		if socketAccepts(LiveSocket(rec.ID)) {
 			break

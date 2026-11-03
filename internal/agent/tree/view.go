@@ -119,6 +119,17 @@ func resolveAgent(claudeDir string, opts ViewOptions, now time.Time) (agentLocat
 			}
 		}
 	}
+	if len(matches) > 1 { // an exact id wins over longer ids it prefixes
+		var exact []agentLocation
+		for _, m := range matches {
+			if subagentIDFromPath(m.TranscriptPath) == opts.Agent {
+				exact = append(exact, m)
+			}
+		}
+		if len(exact) == 1 {
+			matches = exact
+		}
+	}
 	if len(matches) != 1 {
 		return agentLocation{}, fmt.Errorf("agent %q: %d matches (use --session to narrow, or the full id)", opts.Agent, len(matches))
 	}
@@ -254,16 +265,23 @@ func Follow(ctx context.Context, opts ViewOptions, emit func(Event)) error {
 	seen := len(events(loc.TranscriptPath, loc.Cwd, 0))
 	ticker := time.NewTicker(followPollInterval)
 	defer ticker.Stop()
-	for {
+	drain := func() {
 		all := events(loc.TranscriptPath, loc.Cwd, 0)
+		if len(all) == 0 && seen > 0 {
+			return // an empty read after events is a failed open, not a rewrite: keep seen and retry
+		}
 		if len(all) < seen {
-			seen = 0
+			seen = 0 // the transcript was truncated or rewritten
 		}
 		for _, e := range all[seen:] {
 			emit(e)
 		}
 		seen = len(all)
+	}
+	for {
+		drain()
 		if done, result := followDone(loc); done {
+			drain() // events written between the read and the terminal check
 			if result != nil {
 				emit(*result)
 			}

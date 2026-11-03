@@ -20,6 +20,8 @@ const (
 // scienceRun and scienceAppRoots are seams: tests stub the macOS tools and point the app install at a temp dir.
 var (
 	scienceRun = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
+		defer cancel()
 		return exec.CommandContext(ctx, name, args...).CombinedOutput()
 	}
 	scienceAppRoots = func() []string {
@@ -113,7 +115,11 @@ func replaceApp(ctx context.Context, src, root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = os.RemoveAll(stage) }()
+	defer func() {
+		if stage != "" {
+			_ = os.RemoveAll(stage)
+		}
+	}()
 	staged := filepath.Join(stage, scienceAppName)
 	if out, err := scienceRun(ctx, "ditto", src, staged); err != nil {
 		return "", fmt.Errorf("ditto into %s: %w: %s", root, err, bytes.TrimSpace(out))
@@ -122,7 +128,11 @@ func replaceApp(ctx context.Context, src, root string) (string, error) {
 	hadOld := os.Rename(dest, old) == nil
 	if err := os.Rename(staged, dest); err != nil {
 		if hadOld {
-			_ = os.Rename(old, dest)
+			if rerr := os.Rename(old, dest); rerr != nil {
+				// keep stage/old.app: it is the only copy of the previous app
+				stage = ""
+				return "", errors.Join(err, fmt.Errorf("restore previous app from %s: %w", old, rerr))
+			}
 		}
 		return "", err
 	}
@@ -139,7 +149,7 @@ func linkScienceCLI(w io.Writer, dir, app string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmpLink := link + ".new"
+	tmpLink := fmt.Sprintf("%s.%d.new", link, os.Getpid())
 	_ = os.Remove(tmpLink)
 	if err := os.Symlink(target, tmpLink); err != nil {
 		return err
