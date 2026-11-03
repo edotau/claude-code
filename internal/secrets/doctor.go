@@ -2,7 +2,9 @@ package secrets
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,11 +53,16 @@ func checkVaultPerms() []Check {
 }
 
 // checkArchivePerms flags vault.db.rolledback-* archives and migration .bak files (from
-// state/vault-migration.json) readable/writable by anyone but their owner.
+// state/vault-migration.json) that are readable beyond the owner; an unreadable manifest is a failing row.
 func checkArchivePerms() []Check {
 	var out []Check
 	matches, _ := filepath.Glob(vault.Path() + ".rolledback-*")
-	for _, m := range append(matches, manifestBackups()...) {
+	backups, err := manifestBackups()
+	if err != nil {
+		out = append(out, Check{Name: "vault archive perms", Gate: true,
+			Detail: "could not read the migration manifest, so its .bak files were not checked: " + err.Error()})
+	}
+	for _, m := range append(matches, backups...) {
 		if c, bad := flagPerm(m); bad {
 			out = append(out, c)
 		}
@@ -63,10 +70,16 @@ func checkArchivePerms() []Check {
 	return out
 }
 
-// flagPerm reports a mode > 0600 file; a missing file is not a finding.
+// flagPerm reports a mode > 0600 file, or one that cannot be inspected; a missing file is not a finding.
 func flagPerm(file string) (Check, bool) {
 	fi, err := os.Stat(file)
-	if err != nil || fi.Mode().Perm()&0o077 == 0 {
+	if errors.Is(err, fs.ErrNotExist) {
+		return Check{}, false
+	}
+	if err != nil {
+		return Check{Name: "vault archive perms", Gate: true, Detail: fmt.Sprintf("could not stat %s: %v", file, err)}, true
+	}
+	if fi.Mode().Perm()&0o077 == 0 {
 		return Check{}, false
 	}
 	return Check{Name: "vault archive perms", Gate: true,
@@ -74,19 +87,22 @@ func flagPerm(file string) (Check, bool) {
 }
 
 // manifestBackups reads state/vault-migration.json directly (not internal/configure, which imports this
-// package) for each item's "backup" path.
-func manifestBackups() []string {
+// package) for each item's "backup" path; an absent manifest is benign, an unreadable or corrupt one is an error.
+func manifestBackups() ([]string, error) {
 	raw, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "state", "vault-migration.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var doc struct {
 		Items []struct {
 			Backup string `json:"backup"`
 		} `json:"items"`
 	}
-	if json.Unmarshal(raw, &doc) != nil {
-		return nil
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
 	var out []string
 	for _, item := range doc.Items {
@@ -94,7 +110,7 @@ func manifestBackups() []string {
 			out = append(out, item.Backup)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // MasterKeyStatus resolves the vault's secret count and master-key source in one place, shared by the
@@ -232,7 +248,7 @@ func checkKeyringTool() Check {
 }
 
 // keyCmdStderr matches the key_command stderr tail vault appends to its error; it could echo key material.
-var keyCmdStderr = regexp.MustCompile(`(key_command: [^:]*): .*`)
+var keyCmdStderr = regexp.MustCompile(`(?s)(key_command: [^:]*): .*`)
 
 // keyErrText is err's text with any key_command stderr withheld, safe for doctor text and JSON rows.
 func keyErrText(err error) string {

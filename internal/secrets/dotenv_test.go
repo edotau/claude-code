@@ -85,8 +85,8 @@ func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 	t.Setenv("ONLY_IN_ENV", "from-env")
 	wrongVaultKey(t)
 	want := []Stored{
-		{Name: "A_KEY", Source: "vault", Prefix: "sk-test-", Len: len(secret)},
-		{Name: "Z_KEY", Source: "vault", Len: 5},
+		{Name: "A_KEY", Prefix: "sk-test-", Len: len(secret)},
+		{Name: "Z_KEY", Len: 5},
 	}
 	got, err := ListStored(nil)
 	for i := range got {

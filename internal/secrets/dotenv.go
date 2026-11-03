@@ -3,6 +3,8 @@ package secrets
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -10,11 +12,13 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -57,9 +61,9 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 
 // Stored is one vault secret's display metadata, never its value.
 type Stored struct {
-	Name, Source, Prefix string
-	Len                  int
-	SetAt                time.Time
+	Name, Prefix string
+	Len          int
+	SetAt        time.Time
 }
 
 func (s Stored) Masked() string {
@@ -101,7 +105,7 @@ func ListStored(only []string) ([]Stored, error) {
 			continue
 		}
 		m := meta[n]
-		out = append(out, Stored{Name: n, Source: "vault", Prefix: m.Prefix, Len: m.Len, SetAt: m.SetAt})
+		out = append(out, Stored{Name: n, Prefix: m.Prefix, Len: m.Len, SetAt: m.SetAt})
 	}
 	return out, nil
 }
@@ -110,6 +114,20 @@ func ListStored(only []string) ([]Stored, error) {
 // it already defines; the file ends 0600 either way. added counts lines written, skipped names the kept ones.
 // path is refused when it is a symlink — this must never write through one to an arbitrary target.
 func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err error) {
+	abs, aerr := filepath.Abs(path)
+	if aerr != nil {
+		return 0, nil, aerr
+	}
+	sum := sha256.Sum256([]byte(abs))
+	lockPath := filepath.Join(paths.ConfigDir(), "state", "dotenv-"+hex.EncodeToString(sum[:8]))
+	err = paths.WithFileLock(lockPath, func() (lerr error) {
+		added, skipped, lerr = appendDotenvLocked(path, pairs)
+		return lerr
+	})
+	return added, skipped, err
+}
+
+func appendDotenvLocked(path string, pairs []Pair) (added int, skipped []string, err error) {
 	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return 0, nil, fmt.Errorf("%s is a symlink; refusing to write through it", path)
 	}
@@ -177,7 +195,9 @@ func warnIfUntrackedDefault(path string) {
 	}
 	// Exit 1 alone means "not ignored"; 0 is ignored and 128 is not a work tree (or another git failure).
 	var exit *exec.ExitError
-	if err := exec.CommandContext(context.Background(), "git", "check-ignore", "-q", path).Run(); !errors.As(err, &exit) || exit.ExitCode() != 1 {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, "git", "check-ignore", "-q", path).Run(); !errors.As(err, &exit) || exit.ExitCode() != 1 {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: warning: %s is not covered by .gitignore here; it holds plaintext secrets\n", path)
