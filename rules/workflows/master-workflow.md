@@ -90,7 +90,7 @@ and stale tests the change left behind; fold near-duplicate tests. Net test coun
 
 ## Phase 9: Commit
 
-Per `rules/standards/worktree-git.md`; `@agent-copilot commit` executes, `@agent-copilot pr` when a PR is requested.
+Per `rules/standards/worktree-git.md`; `@agent-copilot commit` executes.
 Then push the current branch (CLAUDE.md hard rule 5) — `commit` does not push.
 
 ## Quick reference
