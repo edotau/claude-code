@@ -28,7 +28,7 @@ commits. The undated native plan file is a scratch draft; the dated copy is the 
   blocks: the page would vanish on a fresh clone. This repo's `docs/` takes only `images/` and `templates/`;
   any other new page there blocks.
 - Any git-tracked file, any other subdirectory, non-repo paths.
-- An existing git-ignored file (e.g. a `.git/info/exclude` entry such as Impeccable's `DESIGN.md`): the owner's
+- An existing git-ignored file (e.g. a `.git/info/exclude` entry such as `DESIGN.md`): the owner's
   local doc. A new file under an ignored name still blocks.
 
 ## When the gate blocks
