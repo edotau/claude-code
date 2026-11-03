@@ -1109,7 +1109,7 @@ func TestDoctorUnusedProviderMissingKeyIsSoft(t *testing.T) {
 }
 
 // altAuthScratch isolates the machine state altAuth reads: CLAUDE_CONFIG_DIR (keyring/secrets.env),
-// HOME (the gemini agy login marker, and ClaudeLoginProbe has nowhere real to run), and a PATH with
+// HOME (the gemini agy login marker, and claude.ClaudeLoginProbe has nowhere real to run), and a PATH with
 // neither `claude` nor `security`/`secret-tool` on it, so the real Keychain and a real claude login
 // can never answer for this test by accident.
 func altAuthScratch(t *testing.T) (home string) {
