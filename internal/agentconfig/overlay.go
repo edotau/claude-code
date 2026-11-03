@@ -81,7 +81,7 @@ func LoadOverlay(path string) (Overlay, error) {
 
 func readOverlayFile(path string) ([]byte, error) {
 	if info, err := os.Stat(path); err == nil && !info.Mode().IsRegular() {
-		return nil, errors.New("not a regular file") // before Open: opening a FIFO would block
+		return nil, errNotRegular // before Open: opening a FIFO would block
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -98,16 +98,27 @@ func readOverlayFile(path string) ([]byte, error) {
 	return raw, err
 }
 
+var errNotRegular = errors.New("not a regular file")
+
+// infoRules are the opened file's refusals, tested in order.
+var infoRules = []struct {
+	bad func(os.FileInfo) bool
+	err error
+}{
+	{func(i os.FileInfo) bool { return !i.Mode().IsRegular() }, errNotRegular},
+	{func(i os.FileInfo) bool { return runtime.GOOS != "windows" && i.Mode().Perm()&0o022 != 0 },
+		errors.New("group- or world-writable: chmod go-w it")},
+	{func(i os.FileInfo) bool { return i.Size() > overlayMaxBytes }, fmt.Errorf("over %d bytes", overlayMaxBytes)},
+}
+
 func checkOverlayInfo(info os.FileInfo, err error) error {
-	switch {
-	case err != nil:
+	if err != nil {
 		return err
-	case !info.Mode().IsRegular():
-		return errors.New("not a regular file")
-	case runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0:
-		return errors.New("group- or world-writable: chmod go-w it")
-	case info.Size() > overlayMaxBytes:
-		return fmt.Errorf("over %d bytes", overlayMaxBytes)
+	}
+	for _, r := range infoRules {
+		if r.bad(info) {
+			return r.err
+		}
 	}
 	if uid, ok := paths.OwnerUID(info); ok && uid != 0 && uid != os.Getuid() {
 		return errors.New("owned by another user")
@@ -199,18 +210,38 @@ func (o Overlay) validate(src overlaySrc) error {
 	if len(o.Files) > 0 {
 		return errors.New("overlay files: not supported yet")
 	}
-	keep, route := map[string]bool{}, providers.RouteSecretGuard()
+	keep, err := o.checkKeep(src)
+	if err != nil {
+		return err
+	}
+	if err := o.checkSet(src, keep); err != nil {
+		return err
+	}
+	return o.checkUnset(src, keep)
+}
+
+func (o Overlay) checkKeep(src overlaySrc) (map[string]bool, error) {
+	keep := map[string]bool{}
 	for _, n := range o.Keep {
 		if err := keepRule(n); err != nil {
-			return fmt.Errorf("%s %s: %w", src.keep, n, err)
+			return nil, fmt.Errorf("%s %s: %w", src.keep, n, err)
 		}
 		keep[n] = true
 	}
+	return keep, nil
+}
+
+func (o Overlay) checkSet(src overlaySrc, keep map[string]bool) error {
+	route := providers.RouteSecretGuard()
 	for _, n := range slices.Sorted(maps.Keys(o.Set)) {
 		if err := setRule(n, o.Set[n], keep, src.flag, route); err != nil {
 			return fmt.Errorf("%s %s: %w", src.set, n, err)
 		}
 	}
+	return nil
+}
+
+func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 	for _, n := range o.Unset {
 		if !envNameRE.MatchString(n) {
 			return fmt.Errorf("%s: want a NAME", src.unset)
@@ -228,35 +259,57 @@ func credentialName(up string) bool {
 		strings.Contains(up, "AUTH") || secretKeyRE.MatchString(up)
 }
 
-func keepRule(name string) error {
-	up := strings.ToUpper(name)
-	switch {
-	case !envNameRE.MatchString(name):
-		return errors.New("want a NAME")
-	case routeRedirectName(up):
-		return errBaseURL
-	case strings.HasPrefix(up, "HARNESS_") || credentialName(up):
-		return errors.New("a credential name cannot be kept: the scrub withholds it from every agent child")
+// rule is one refusal: the first whose match holds decides the result, even when its err returns nil.
+type rule struct {
+	match func(c *ruleCtx) bool
+	err   func(c *ruleCtx) error
+}
+
+// ruleCtx is one name (and for set, its value) under test; up is the upper-cased name.
+type ruleCtx struct {
+	name, up, val, ref string
+	isRef, reserved    bool
+	keep               map[string]bool
+	route              func(string) bool
+}
+
+func refuse(err error) func(*ruleCtx) error { return func(*ruleCtx) error { return err } }
+
+func runRules(rules []rule, c *ruleCtx) error {
+	for _, r := range rules {
+		if r.match(c) {
+			return r.err(c)
+		}
 	}
 	return nil
 }
 
-// flagSetRule is the --env rule set: name checks only (D6 added), the value is never inspected.
+var keepRules = []rule{
+	{func(c *ruleCtx) bool { return !envNameRE.MatchString(c.name) }, refuse(errors.New("want a NAME"))},
+	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
+	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") || credentialName(c.up) },
+		refuse(errors.New("a credential name cannot be kept: the scrub withholds it from every agent child"))},
+}
+
+func keepRule(name string) error {
+	return runRules(keepRules, &ruleCtx{name: name, up: strings.ToUpper(name)})
+}
+
+// flagSetRules are the --env rule set: name checks only (D6 added), the value is never inspected.
+var flagSetRules = []rule{
+	{func(c *ruleCtx) bool { return c.name == "" || strings.ContainsAny(c.name, " \t") },
+		refuse(errors.New("want NAME=VALUE"))},
+	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)}, // before the scrub check
+	{func(c *ruleCtx) bool { return proc.EnvBlocked(c.name) || proc.EnvBlocked(c.up) },
+		refuse(errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command"))},
+	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, OverlayVar) }, // a flag must not point at another overlay
+		refuse(errors.New("harness-owned"))},
+	{func(c *ruleCtx) bool { return flagCredentialName(c.up) },
+		refuse(errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line"))},
+}
+
 func flagSetRule(name string) error {
-	up := strings.ToUpper(name)
-	switch {
-	case name == "" || strings.ContainsAny(name, " \t"):
-		return errors.New("want NAME=VALUE")
-	case routeRedirectName(up): // before the scrub check: a route endpoint gets its own reason
-		return errBaseURL
-	case proc.EnvBlocked(name) || proc.EnvBlocked(up):
-		return errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command")
-	case strings.HasPrefix(up, OverlayVar): // a flag must not point a coworker at another overlay or debug file
-		return errors.New("harness-owned")
-	case flagCredentialName(up):
-		return errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line")
-	}
-	return nil
+	return runRules(flagSetRules, &ruleCtx{name: name, up: strings.ToUpper(name)})
 }
 
 // flagCredentialName is --env's name-only credential test (today's ValidateEnv): key, token or secret suffix, or AUTH.
@@ -279,6 +332,25 @@ func routeRedirectName(up string) bool {
 	return strings.HasSuffix(up, "_BASE_URL") || strings.HasSuffix(up, "_API_BASE") || strings.HasSuffix(up, "_ENDPOINT")
 }
 
+var setRules = []rule{
+	{func(c *ruleCtx) bool { return !envNameRE.MatchString(c.name) }, refuse(errors.New("want NAME=VALUE"))},
+	{func(c *ruleCtx) bool {
+		return strings.HasPrefix(c.up, "HARNESS_") || strings.HasPrefix(c.up, OverlayVar)
+	},
+		refuse(errors.New("harness-owned"))},
+	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
+	{func(c *ruleCtx) bool { return c.reserved && c.isRef },
+		refuse(errors.New("reserved by the credential scrub: a vault ref cannot replace a route value"))},
+	{func(c *ruleCtx) bool { return c.reserved && !c.keep[c.name] },
+		refuse(errors.New("reserved by the credential scrub: add it to keep to pass your own value"))},
+	{func(c *ruleCtx) bool { return c.isRef }, func(c *ruleCtx) error { return refRule(c.ref, c.route) }},
+	{func(c *ruleCtx) bool { return strings.ContainsRune(c.val, 0) }, refuse(errors.New("value holds a NUL byte"))},
+	{func(c *ruleCtx) bool { return strings.HasPrefix(c.val, providers.SecretRef) },
+		refuse(errors.New("malformed @secret reference: want @secret or @secret:<NAME>"))},
+	{func(c *ruleCtx) bool { return credentialName(c.up) || shapes.Looks(c.val) },
+		refuse(errors.New("looks like a credential: store it with `claude-code vault set`, reference it as @secret:<NAME>"))},
+}
+
 // setRule checks one set entry; route reports a profile's route credential (providers.RouteSecretGuard).
 func setRule(name, val string, keep map[string]bool, flag bool, route func(string) bool) error {
 	if flag {
@@ -286,28 +358,9 @@ func setRule(name, val string, keep map[string]bool, flag bool, route func(strin
 	}
 	up := strings.ToUpper(name)
 	ref, isRef := providers.SecretRefName(name, val)
-	reserved := proc.EnvBlocked(name) || proc.EnvBlocked(up)
-	switch {
-	case !envNameRE.MatchString(name):
-		return errors.New("want NAME=VALUE")
-	case strings.HasPrefix(up, "HARNESS_") || strings.HasPrefix(up, OverlayVar):
-		return errors.New("harness-owned")
-	case routeRedirectName(up):
-		return errBaseURL
-	case reserved && isRef:
-		return errors.New("reserved by the credential scrub: a vault ref cannot replace a route value")
-	case reserved && !keep[name]:
-		return errors.New("reserved by the credential scrub: add it to keep to pass your own value")
-	case isRef:
-		return refRule(ref, route)
-	case strings.ContainsRune(val, 0):
-		return errors.New("value holds a NUL byte")
-	case strings.HasPrefix(val, providers.SecretRef):
-		return errors.New("malformed @secret reference: want @secret or @secret:<NAME>")
-	case credentialName(up) || shapes.Looks(val):
-		return errors.New("looks like a credential: store it with `claude-code vault set`, reference it as @secret:<NAME>")
-	}
-	return nil
+	c := &ruleCtx{name: name, up: up, val: val, ref: ref, isRef: isRef, keep: keep, route: route,
+		reserved: proc.EnvBlocked(name) || proc.EnvBlocked(up)}
+	return runRules(setRules, c)
 }
 
 // refRule refuses a vault name an overlay may not pass on: harness-internal secrets and any profile's route credential.
