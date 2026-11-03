@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no alias step,
@@ -483,5 +484,25 @@ func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 	_, rows := appendDatabricksCopilotRows(cat, "kimi-k3", nil)
 	if rows[0][0] != "databricks-kimi-k3" || !strings.Contains(rows[0][1], "current") {
 		t.Errorf("canonical current model not marked on endpoint row: %v", rows[0])
+	}
+}
+
+// opencode pinned to a registry profile picks that profile's models, not the hub ladder's opencode-go plan.
+func TestModelTargetHonorsAgentPin(t *testing.T) {
+	reg := menuTestEnv(t)
+	pin := ""
+	for name, p := range reg.Providers {
+		if p.Protocol != "" && p.OpencodeID == "" {
+			pin = name
+			break
+		}
+	}
+	if pin == "" {
+		t.Skip("no registry provider to pin")
+	}
+	vaulttest.SetRecord(t, "opencode", "profile", pin)
+	p, claude := modelTarget(&dialog{reg: reg, out: discardWriter{}}, "opencode")
+	if claude || p == nil || p.Name != pin {
+		t.Fatalf("modelTarget(opencode) = %v, claude=%v; want the pinned profile %q", p, claude, pin)
 	}
 }

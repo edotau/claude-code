@@ -37,6 +37,9 @@ func modelTarget(d *dialog, name string) (p *providers.Provider, claude bool) {
 		}
 		return sel.Provider, true
 	}
+	if p := d.reg.Providers[vault.GetAgentRecord(name).Profile]; p != nil && p.Protocol != "" {
+		return p, false // a pinned registry profile (e.g. Databricks dev) owns the pick, not the hub ladder
+	}
 	p, err := opencode.HubStart(d.reg, name, "")
 	if err != nil {
 		return nil, false
@@ -354,9 +357,13 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 // saveModel writes a claude alias pin or the account's models table in the vault overlay/providers.
 func saveModel(d *dialog, p *providers.Provider, claude bool, alias, id string) {
 	var err error
-	if claude {
+	switch {
+	case claude:
 		_, err = writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", id)
-	} else {
+	case p.Protocol == "":
+		d.printf("model: %s is opencode's own plan; pin a profile to save a model\n", p.Name)
+		return
+	default:
 		err = providers.SetProviderModel(p.Name, alias, id)
 	}
 	if err != nil {
