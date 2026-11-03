@@ -38,6 +38,8 @@ At most 2 live leaves while other sessions share the checkout, else the account 
 dispatch cap; test agents count). Independent work goes out in one message; run sequentially when one output feeds the
 next, they share state, or a provider keeps erroring. Each leaf replays its context and tool schemas: a wide fan-out of
 deep-context leaves spends a provider's tokens-per-minute quota (Databricks `429`), so batch those.
+A repo-wide audit runs one read-only `claude-code ask --agent copilot --tools` leg per disjoint package group, each
+tagged hot/warm/cold by usage, merged into one ranked `file:line | category | evidence | impact | fix` list.
 
 ## Handoff contract
 
