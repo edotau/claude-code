@@ -82,7 +82,11 @@ func SwitchRecords(reg *providers.Registry, m map[string]vault.AgentRecord, prof
 
 // SwitchProfile moves claude and every on agent that serves profile onto it, audits it, and forgets last-used.
 func SwitchProfile(reg *providers.Registry, profile string) error {
-	move, _ := SwitchTargets(reg, vault.AgentRecords(agentpkg.RosterNames()), profile)
+	recs, err := vault.ReadAgentRecords(agentpkg.RosterNames())
+	if err != nil {
+		return fmt.Errorf("switch profile: %w", err)
+	}
+	move, _ := SwitchTargets(reg, recs, profile)
 	if _, err := ApplyProfile(move, profile); err != nil {
 		return err
 	}

@@ -153,6 +153,10 @@ func fieldsLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 // RunInstallStep refreshes stale listings, then prints one live pong row per agent; silent without a credential.
 func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, bin string, now time.Time) {
 	ps := Check(reg, now)
+	if slices.ContainsFunc(ps, func(p Pin) bool { return p.Status == StatusError }) {
+		printFixRows(w, ps)
+		return
+	}
 	if !anyCredential(reg, ps) {
 		return // no credential anywhere: nothing to ping
 	}
@@ -221,7 +225,11 @@ func StaticLine(reg *providers.Registry, now time.Time) string {
 		return ""
 	}
 	ps := Check(reg, now)
-	if prov := reg.Providers[agent.AgentPins()["claude"].Profile]; len(profiles(reg, ps)) == 0 &&
+	pins, err := agent.AgentPins()
+	if err != nil {
+		return "Preflight: " + fieldsLine(err.Error())
+	}
+	if prov := reg.Providers[pins["claude"].Profile]; len(profiles(reg, ps)) == 0 &&
 		(prov == nil || prov.Preset != providers.PresetDatabricks) {
 		return "" // no Databricks profile in play
 	}

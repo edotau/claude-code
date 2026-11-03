@@ -119,7 +119,7 @@ func TestPrintRouteWidthsComeFromData(t *testing.T) {
 			{Agent: "claude", Model: "sonnet", Account: "a", State: "ok", Scores: map[string]float64{}},
 			{Agent: "opencode", Model: long, Account: "b", State: "ok", Scores: map[string]float64{}},
 		}}
-	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}); return 0 })
+	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
 	var rows []string
 	for l := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(l, "#") || strings.HasPrefix(l, "1 ") || strings.HasPrefix(l, "2 ") {
@@ -144,12 +144,15 @@ func TestPrintRouteWidthsComeFromData(t *testing.T) {
 func TestPrintRouteSkipHeader(t *testing.T) {
 	res := router.PickResult{Alias: "sonnet", Weights: map[string]float64{},
 		Skipped: []router.Skip{{Agent: "copilot", Gate: "exhausted", Reason: "r1"}, {Agent: "x", Gate: "g", Reason: "r2"}}}
-	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}); return 0 })
+	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
 	if !strings.Contains(out, "SKIP    GATE      REASON\n") ||
 		!strings.Contains(out, "copilot exhausted r1\n") || !strings.Contains(out, "x       g         r2\n") {
 		t.Errorf("skip block wrong:\n%s", out)
 	}
-	_, none, _ := captureOutput(t, func() int { printRoute(router.PickResult{Weights: map[string]float64{}}, routeSources{}); return 0 })
+	_, none, _ := captureOutput(t, func() int {
+		printRoute(router.PickResult{Weights: map[string]float64{}}, routeSources{}, nil)
+		return 0
+	})
 	if strings.Contains(none, "SKIP") {
 		t.Errorf("no skips must print no header:\n%s", none)
 	}

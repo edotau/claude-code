@@ -124,7 +124,12 @@ func Run(o Options, section string) int {
 	}
 	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
-	defer configure.WarmServedOnChange(out, o.Check || o.DryRun, agent.AgentPins(), providers.ServedRoutingOn())
+	pins, err := agent.AgentPins()
+	if err != nil {
+		fmt.Fprintf(out, "configure: %v\n", err)
+		return 1
+	}
+	defer configure.WarmServedOnChange(out, o.Check || o.DryRun, pins, providers.ServedRoutingOn())
 	if len(o.Drop)+len(o.Keep) > 0 {
 		code := runDropKeep(d)
 		if d.changed && !o.Check && !o.DryRun && !rerenderConfigs(d) && code == 0 {

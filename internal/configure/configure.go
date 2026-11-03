@@ -32,7 +32,15 @@ import (
 
 // WarmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
 func WarmServedOnChange(out io.Writer, skip bool, pins map[string]router.PinSpec, wasOn bool) {
-	if skip || !providers.ServedRoutingOn() || (wasOn && maps.Equal(pins, agent.AgentPins())) {
+	if skip || !providers.ServedRoutingOn() {
+		return
+	}
+	current, err := agent.AgentPins()
+	if err != nil {
+		fmt.Fprintf(out, "configure: %v\n", err)
+		return
+	}
+	if wasOn && maps.Equal(pins, current) {
 		return
 	}
 	if reg, err := providers.Load(); err == nil {

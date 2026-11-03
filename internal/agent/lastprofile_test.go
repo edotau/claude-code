@@ -14,7 +14,7 @@ func TestAgentLastProfileIsPerAgent(t *testing.T) {
 	t.Chdir(t.TempDir())
 	vaulttest.SetRecord(t, "opencode", "profile", "nvidia")
 	vaulttest.SetRecord(t, "copilot", "profile", "nvidia")
-	resolved := func(name string) string { return launchProfile(name, LaunchOptions{}).Provider }
+	resolved := func(name string) string { return testLaunchProfile(t, name, LaunchOptions{}).Provider }
 	RecordLastProfile("claude", "anthropic", nil)
 	RecordLastProfile("opencode", "openai", nil)
 	if got := resolved("opencode"); got != "openai" {
@@ -23,7 +23,7 @@ func TestAgentLastProfileIsPerAgent(t *testing.T) {
 	if got := resolved("copilot"); got != "nvidia" {
 		t.Errorf("copilot read another agent's entry: got %q, want its nvidia pin", got)
 	}
-	if got := launchProfile("opencode", LaunchOptions{Provider: "nvidia"}).Provider; got != "nvidia" {
+	if got := testLaunchProfile(t, "opencode", LaunchOptions{Provider: "nvidia"}).Provider; got != "nvidia" {
 		t.Errorf("flag: got %q, want nvidia", got)
 	}
 	if err := ClearLastProfilesFor("opencode"); err != nil {
@@ -57,13 +57,13 @@ func TestCodexReusesLastProfileButOffStaysOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	RecordLastProfile("codex", "chatgpt", nil)
-	if got := launchProfile("codex", LaunchOptions{}).Provider; got != "chatgpt" {
+	if got := testLaunchProfile(t, "codex", LaunchOptions{}).Provider; got != "chatgpt" {
 		t.Errorf("on codex: got %q, want the repo's last-used chatgpt over its record", got)
 	}
 	if err := vault.SetAgentRecord("codex", vault.AgentRecord{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := launchProfile("codex", LaunchOptions{}).Provider; got != "" {
+	if got := testLaunchProfile(t, "codex", LaunchOptions{}).Provider; got != "" {
 		t.Errorf("off codex: got %q, the cache must never turn it on", got)
 	}
 }
@@ -80,10 +80,19 @@ func TestGeminiReusesLastProfile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	vaulttest.SetRecord(t, "gemini", "profile", "gem-a")
 	RecordLastProfile("gemini", "gem-b", nil)
-	if got := launchProfile("gemini", LaunchOptions{}).Provider; got != "gem-b" {
+	if got := testLaunchProfile(t, "gemini", LaunchOptions{}).Provider; got != "gem-b" {
 		t.Errorf("gemini last-used: got %q, want gem-b over the gem-a pin", got)
 	}
-	if got := launchProfile("gemini", LaunchOptions{Provider: "gem-a"}).Provider; got != "gem-a" {
+	if got := testLaunchProfile(t, "gemini", LaunchOptions{Provider: "gem-a"}).Provider; got != "gem-a" {
 		t.Errorf("flag: got %q, want gem-a", got)
 	}
+}
+
+func testLaunchProfile(t *testing.T, name string, o LaunchOptions) LaunchOptions {
+	t.Helper()
+	got, err := launchProfile(name, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
 }

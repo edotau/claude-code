@@ -43,7 +43,12 @@ var routeHint = func(alias string) (agent, model string) {
 	if err != nil {
 		return "", ""
 	}
-	res := tb.Pick(context.Background(), alias, "", router.LoadState(), agentpkg.RosterPick(router.PickOpts{Fallback: router.FallbackAgents}))
+	opts, err := agentpkg.RosterPick(router.PickOpts{Fallback: router.FallbackAgents})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-effort route hint: %v\n", err)
+		return "", ""
+	}
+	res := tb.Pick(context.Background(), alias, "", router.LoadState(), opts)
 	if len(res.Candidates) == 0 {
 		return "", ""
 	}

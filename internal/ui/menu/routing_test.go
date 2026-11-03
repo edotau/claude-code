@@ -47,7 +47,7 @@ func TestWarmServedOnFlipOn(t *testing.T) {
 	n := servedHarness(t, true)
 	putRec(t, "claude", "PROFILE", "qa")
 	var out bytes.Buffer
-	configure.WarmServedOnChange(&out, false, agent.AgentPins(), false)
+	configure.WarmServedOnChange(&out, false, testRoutingPins(t), false)
 	if *n == 0 || !cached(t) {
 		t.Fatalf("flip-on made %d requests, cached=%v, want a warmed cache", *n, cached(t))
 	}
@@ -56,7 +56,7 @@ func TestWarmServedOnFlipOn(t *testing.T) {
 // a pin change with the switch already on warms; the same pins with it already on do not.
 func TestWarmServedOnPinChangeOnly(t *testing.T) {
 	n := servedHarness(t, true)
-	before := agent.AgentPins()
+	before := testRoutingPins(t)
 	var out bytes.Buffer
 	configure.WarmServedOnChange(&out, false, before, true)
 	if *n != 0 {
@@ -72,7 +72,7 @@ func TestWarmServedOnPinChangeOnly(t *testing.T) {
 // with the switch off, even a pin change makes no request.
 func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 	n := servedHarness(t, false)
-	before := agent.AgentPins()
+	before := testRoutingPins(t)
 	putRec(t, "claude", "PROFILE", "qa")
 	configure.WarmServedOnChange(&bytes.Buffer{}, false, before, false)
 	if *n != 0 || cached(t) {
@@ -83,7 +83,7 @@ func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 // --check and --dry-run never warm, whatever changed.
 func TestWarmServedSkippedForCheckAndDryRun(t *testing.T) {
 	n := servedHarness(t, true)
-	before := agent.AgentPins()
+	before := testRoutingPins(t)
 	putRec(t, "claude", "PROFILE", "qa")
 	configure.WarmServedOnChange(&bytes.Buffer{}, true, before, false)
 	if *n != 0 || cached(t) {
@@ -108,4 +108,13 @@ func TestRunProviderPinChangeWarmsUnlessDryRun(t *testing.T) {
 	if vault.GetAgentRecord("claude").Profile != "qa" || *n == 0 || !cached(t) {
 		t.Fatalf("pin=%q requests=%d cached=%v out=%s", vault.GetAgentRecord("claude").Profile, *n, cached(t), out.String())
 	}
+}
+
+func testRoutingPins(t *testing.T) map[string]router.PinSpec {
+	t.Helper()
+	pins, err := agent.AgentPins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pins
 }

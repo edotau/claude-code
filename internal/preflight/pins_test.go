@@ -1,6 +1,7 @@
 package preflight
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -9,6 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // The vendor drivers register their roster rows from their own init, and importing them here would cycle through hooks.
@@ -129,5 +132,24 @@ func TestCheckNoCredentialIsUnserved(t *testing.T) {
 	setPins(t, map[string]string{"CODEX_MODEL": "m"})
 	if c := byAgent(Check(reg, time.Now()))["codex"]; c.Status != StatusUnserved || !strings.Contains(c.Detail, "no credential for dev") {
 		t.Fatalf("codex without a credential = %+v", c)
+	}
+}
+
+func TestUnreadableRecordsSurfaceInPreflight(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
+	reg := preflightRegistry(true)
+	now := time.Now()
+	ps := Check(reg, now)
+	if len(ps) != 1 || ps[0].Status != StatusError || ps[0].Served != "no" || !strings.Contains(ps[0].Detail, "agent-records is corrupt") {
+		t.Fatalf("Check = %+v; want a vault error, not unpinned agents", ps)
+	}
+	var out bytes.Buffer
+	RunInstallStep(context.Background(), &out, reg, "must-not-run", now)
+	if !strings.Contains(out.String(), "vault error: agent pins: vault: agent-records is corrupt") {
+		t.Fatalf("install output = %q", out.String())
+	}
+	if got := StaticLine(reg, now); !strings.Contains(got, "agent-records is corrupt") {
+		t.Fatalf("StaticLine = %q", got)
 	}
 }
