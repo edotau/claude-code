@@ -864,3 +864,27 @@ func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 		t.Fatalf("cold cache = %+v, %q, want m-a accepted", cell, why)
 	}
 }
+
+// A plain 429 (no quota wording) that exhausts the retries holds the account out of the picks for 10 minutes.
+func TestRateLimitedHopMarksAccount(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	b, m := DefaultBaseDelay, DefaultMaxDelay
+	DefaultBaseDelay, DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
+	t.Cleanup(func() { DefaultBaseDelay, DefaultMaxDelay = b, m })
+	e429 := errors.New("rate limited: codex: exit status 1 exceeded retry limit, last status: 429 Too Many Requests")
+	codex := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
+	req := RunOptions{Prompt: "p", Provider: "chatgpt"}
+	if _, err := RunWithFallback(context.Background(), ExplicitChain(codex, req), req, Discard, nil); err == nil {
+		t.Fatal("the 429 must surface")
+	}
+	e := loadState()["openai·chatgpt"]
+	if now := time.Now(); e.Status(now) != router.StateExhausted || e.ExhaustedUntil.After(now.Add(11*time.Minute)) {
+		t.Fatalf("openai·chatgpt = %+v, want exhausted for about 10m", e)
+	}
+	api := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
+	paid := RunOptions{Prompt: "p", Provider: "openai"} // credits billing: one endpoint's 429 must not bench the account
+	_, _ = RunWithFallback(context.Background(), ExplicitChain(api, paid), paid, Discard, nil)
+	if e := loadState()["openai·openai"]; !e.ExhaustedUntil.IsZero() {
+		t.Fatalf("openai·openai = %+v, want no mark on a credits 429", e)
+	}
+}
