@@ -138,6 +138,9 @@ func snapshotHas(p *providers.Provider, model string) bool {
 
 // copilotCatalog fetches the copilot SDK model catalog once per dialog and caches it; err is cached too,
 // so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
+// copilotCatalogFn is the catalog source (tests stub it so no copilot runtime is spawned).
+var copilotCatalogFn = copilot.Catalog
+
 func copilotCatalog(d *dialog) ([]copilot.SDKModel, error) {
 	if d.copilotCatalogLoaded {
 		return d.copilotCatalog, d.copilotCatalogErr
@@ -145,7 +148,7 @@ func copilotCatalog(d *dialog) ([]copilot.SDKModel, error) {
 	d.copilotCatalogLoaded = true
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	d.copilotCatalog, d.copilotCatalogErr = copilot.Catalog(ctx)
+	d.copilotCatalog, d.copilotCatalogErr = copilotCatalogFn(ctx)
 	return d.copilotCatalog, d.copilotCatalogErr
 }
 
