@@ -3,7 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/base64"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -136,4 +139,26 @@ func runPreparedWorkdir(t *testing.T, workdir string) Result {
 		t.Fatalf("dispatch id = %q, want %q", res.DispatchID, p.Record.ID)
 	}
 	return res
+}
+
+// Run keeps going when the dispatch record can't be saved, but says so through Notify instead of dropping it.
+func TestClientRunNotifiesUnsavedRecord(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("PATH", t.TempDir()) // no agent binary: the dispatch itself fails fast
+	state := filepath.Join(cfg, "state", "harness")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "dispatch"), nil, 0o600); err != nil { // a file where the dir goes
+		t.Fatal(err)
+	}
+	var notes []string
+	c := NewClient(nil, nil, func(s string) { notes = append(notes, s) })
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _ = c.Run(ctx, RunOptions{Agent: "claude", Provider: "max", Prompt: "x"}, nil)
+	if !slices.ContainsFunc(notes, func(s string) bool { return strings.Contains(s, "record not saved before the run") }) {
+		t.Fatalf("notes = %q, want the pre-run 'record not saved' notice", notes)
+	}
 }
