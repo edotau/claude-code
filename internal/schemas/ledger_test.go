@@ -35,7 +35,7 @@ var writers = map[string]string{
 	"internal/agent/dispatchlog.go:Save":                               "dispatch-record",
 	"internal/agent/lastprofile.go:writeLastProfiles":                  "last-profile",
 	"internal/agent/overlay_debug.go:appendOverlayDebug":               unversioned("debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values"),
-	"internal/agent/overlay_debug.go:EnableOverlayDebug":               unversioned("debug: the generated fingerprint salt beside the --overlay-debug file"),
+	"internal/agent/overlay_debug.go:overlayDebugSalt":                 unversioned("debug: the generated fingerprint salt beside the --overlay-debug file"),
 	"internal/agent/dispatchlog.go:claimRecord":                        unversioned("claim: the running record, linked in whole"),
 	"internal/agent/dispatchlog.go:openLocked":                         unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/event.go:NewEventLog":                              "dispatch-events",
