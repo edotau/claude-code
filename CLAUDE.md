@@ -40,20 +40,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
    one checkout shared by parallel subagents and every live session. Default is no worktree; when to ask, the
    commands and their gotchas: `rules/standards/worktree-git.md`.
-5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (the pre-push gate
-   runs `make audit`; off during the reorg, see below).
-
-## Reorg mode (temporary; owner, 2026-10-31)
-
-Until the owner ends it, this overrides guideline 3, the test agent and the Verification Order, for every leaf,
-workflow and gate:
-
-- **Lanes run in parallel on disjoint files** (owner, 2026-10-31); one package moved or rewritten per commit.
-- **The gate is `go build ./...` + `go vet`**, so `make install` works. No `go test`, no copilot test agent.
-- **A test that won't compile** gets a simple fix, or is deleted and listed in the lane's test-debt report under
-  `memory/claude-code/reports/`. Never investigate a failing test; the full pass comes at the end.
-- **A security fix** keeps its one reproduction run, not a suite.
-- The pre-push gate is off (`9e5be258`); GitHub Actions is back on (`f2c9adf9`): run the gate yourself before pushing.
+5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (no pre-push gate:
+   run `make audit` yourself before pushing; CI runs it on `main`).
 
 ## Behavioral guidelines
 

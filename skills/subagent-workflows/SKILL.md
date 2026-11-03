@@ -100,8 +100,7 @@ A feature or bug fix gets a test agent (`copilot`, or `code-worker` for a scoped
 implementer; renames, moves, deletions and refactors get none. The main thread owns the live check; the test agent
 repairs broken tests at once, ends its turn after the baseline and resumes on the manager's "landed" `SendMessage` to
 write new ones. One per suite under change; it counts toward the cap; never for exploration, docs or review. A target
-with no suite is reported, not given a framework; planned-but-unwritten tests are listed. Reorg mode (`CLAUDE.md`)
-overrides this: no test agent, build + vet.
+with no suite is reported, not given a framework; planned-but-unwritten tests are listed.
 
 ## Shared tree
 
