@@ -36,7 +36,10 @@ func Resolve(root string) Identity {
 	}
 	origin, ok := identities.Load(root)
 	if !ok {
-		o := MainCheckout(root)
+		o := paths.MainCheckout(root, GitOut)
+		if o != "" {
+			o = ResolvePath(o)
+		}
 		if o == "" {
 			var err error
 			if o, err = workspaceOrigin(root); err != nil {
@@ -116,24 +119,6 @@ func HarnessStoreKey() string {
 		return rb
 	}
 	return filepath.Base(cfg)
-}
-
-// MainCheckout is root's canonical main checkout via git (a linked worktree's common dir is <main>/.git),
-// or "" outside a work tree.
-func MainCheckout(root string) string {
-	out, err := GitOut(root, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
-	if err != nil {
-		return ""
-	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 2 || lines[0] == "" {
-		return ""
-	}
-	top, common := filepath.Clean(lines[0]), filepath.Clean(lines[1])
-	if filepath.Base(common) == ".git" {
-		return ResolvePath(filepath.Dir(common))
-	}
-	return ResolvePath(top)
 }
 
 // RepoDir is root's store directory, read-only: it never creates anything (EnsureRepoDir does).

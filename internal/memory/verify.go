@@ -192,7 +192,10 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 		return nil, err
 	}
 	cwd = memstore.ResolvePath(cwd)
-	root := memstore.MainCheckout(cwd)
+	root := paths.MainCheckout(cwd, memstore.GitOut)
+	if root != "" {
+		root = memstore.ResolvePath(root)
+	}
 	inStore := verifyWithin(memstore.ResolvePath(memstore.StoreDir()), cwd)
 	best, length, home := -1, 0, -1
 	for i, s := range stores {

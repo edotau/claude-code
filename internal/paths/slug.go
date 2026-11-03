@@ -42,9 +42,23 @@ func RepoSlug(root string) string {
 	return Slug(filepath.Base(filepath.Clean(main)), "._-", 0, "")
 }
 
-// MainCheckout resolves a linked worktree's `gitdir: <main>/.git/worktrees/<id>` pointer file to <main>; any
-// other root (a primary checkout, a plain dir) is returned unchanged.
-func MainCheckout(root string) string {
+// MainCheckout resolves a worktree pointer lexically; with a git runner it probes enclosing repos, failing to "".
+func MainCheckout(root string, gitOut ...func(string, ...string) (string, error)) string {
+	if len(gitOut) > 0 {
+		out, err := gitOut[0](root, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+		if err != nil {
+			return ""
+		}
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		if len(lines) != 2 || lines[0] == "" {
+			return ""
+		}
+		top, common := filepath.Clean(lines[0]), filepath.Clean(lines[1])
+		if filepath.Base(common) == ".git" {
+			return filepath.Dir(common)
+		}
+		return top
+	}
 	data, err := os.ReadFile(filepath.Join(root, ".git"))
 	if err != nil {
 		return root

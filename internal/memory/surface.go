@@ -76,8 +76,8 @@ func repoFocus(dir string) []string {
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
 func nativeLinked(root, dir string) bool {
 	r := filepath.Clean(root)
-	if top := memstore.MainCheckout(r); top != "" {
-		r = top
+	if top := paths.MainCheckout(r, memstore.GitOut); top != "" {
+		r = memstore.ResolvePath(top)
 	}
 	cur, err := os.Readlink(memstore.ProjectsMemory(memstore.ProjectSlug(r)))
 	return err == nil && paths.SamePath(cur, dir)
