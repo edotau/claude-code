@@ -68,5 +68,4 @@ jobs:
           fi
           echo "range=$range" >> "$GITHUB_OUTPUT"
       - name: make audit (gofmt, vet, test, build, generated-projection smoke)
-        # Tests skipped for now (owner, 2026-10-31); drop SKIP_TESTS=1 to restore them.
-        run: NO_COLOR=1 make audit SKIP_TESTS=1 AUDIT_GIT_RANGE="${{ steps.range.outputs.range }}"
+        run: NO_COLOR=1 make audit AUDIT_GIT_RANGE="${{ steps.range.outputs.range }}"
