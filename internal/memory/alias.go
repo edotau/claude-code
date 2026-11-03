@@ -49,10 +49,11 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 	if err != nil {
 		return AliasResult{}, err
 	}
-	canon := memstore.MainCheckout(abs)
+	canon := paths.MainCheckout(abs, memstore.GitOut)
 	if canon == "" {
 		return AliasResult{}, fmt.Errorf("%s is not a git checkout", abs)
 	}
+	canon = memstore.ResolvePath(canon)
 	if opt.DryRun {
 		res, _, err := planAlias(opt, canon)
 		return res, err

@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -64,6 +65,56 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	}
 	if got := Resolve(t.TempDir()); !got.HomeBank || got.Origin != "" {
 		t.Errorf("non-repo must be global, got %+v", got)
+	}
+}
+
+func TestMainCheckoutModes(t *testing.T) {
+	tempConfig(t)
+	base := t.TempDir()
+	repo := gitRepo(t, base, "repo")
+	wt, separate, bare := filepath.Join(base, "wt"), filepath.Join(base, "separate"), filepath.Join(base, "bare")
+	fixtureGit(t, repo, "worktree", "add", "-q", wt)
+	write(t, filepath.Join(wt, ".git"), "gitdir: ../repo/.git/worktrees/wt\n")
+	fixtureGit(t, base, "init", "-q", "--separate-git-dir="+filepath.Join(base, "gitdata"), separate)
+	fixtureGit(t, base, "init", "-q", "--bare", bare)
+	for _, dir := range []string{filepath.Join(repo, "sub"), filepath.Join(wt, "sub"), filepath.Join(base, "plain")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(wt, wt+"-link"); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(cwd, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ root, lexical, git string }{
+		{repo, repo, repo}, {filepath.Join(repo, "sub"), filepath.Join(repo, "sub"), repo},
+		{wt, repo, repo}, {filepath.Join(wt, "sub"), filepath.Join(wt, "sub"), repo}, {wt + "-link", repo, repo},
+		{link, link, repo}, {rel, rel, repo}, {filepath.Join(filepath.Dir(rel), "wt"), rel, repo},
+		{separate, separate, separate}, {bare, bare, ""},
+		{filepath.Join(base, "plain"), filepath.Join(base, "plain"), ""},
+		{filepath.Join(base, "missing"), filepath.Join(base, "missing"), ""},
+	} {
+		if got := paths.MainCheckout(tc.root); got != tc.lexical {
+			t.Errorf("MainCheckout(%q) = %q, want lexical %q", tc.root, got, tc.lexical)
+		}
+		got := paths.MainCheckout(tc.root, GitOut)
+		if got != "" {
+			got = ResolvePath(got)
+		}
+		if got != tc.git {
+			t.Errorf("MainCheckout(%q, GitOut) = %q, want canonical %q", tc.root, got, tc.git)
+		}
 	}
 }
 

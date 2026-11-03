@@ -3,6 +3,7 @@ package paths
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +39,62 @@ func TestRepoSlugUsesMainCheckoutForLinkedWorktree(t *testing.T) {
 	}
 	if got := RepoSlug(rel); got != "repo-b" {
 		t.Errorf("RepoSlug(relative gitdir) = %q, want repo-b", got)
+	}
+}
+
+func TestMainCheckoutPointerFallbacks(t *testing.T) {
+	for _, tc := range []struct{ name, pointer, want string }{
+		{"malformed", "not a git pointer", ""},
+		{"empty", "gitdir: ", ""},
+		{"separate git dir", "gitdir: ../gitdata", ""},
+		{"submodule", "gitdir: ../main/.git/modules/sub", ""},
+		{"relative worktree", "gitdir: ../main/.git/worktrees/wt", "main"},
+		{"missing target", "gitdir: /absent/main/.git/worktrees/wt", "/absent/main"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, ".git"), []byte(tc.pointer), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := tc.want
+			if want == "" {
+				want = root
+			} else if !filepath.IsAbs(want) {
+				want = filepath.Join(filepath.Dir(root), want)
+			}
+			if got := MainCheckout(root); got != want {
+				t.Errorf("MainCheckout(%q) = %q, want %q", root, got, want)
+			}
+		})
+	}
+	if got := MainCheckout(""); got != "" {
+		t.Errorf("MainCheckout(empty) = %q, want empty", got)
+	}
+}
+
+func TestMainCheckoutGitOutput(t *testing.T) {
+	for _, tc := range []struct{ name, output, want string }{
+		{"empty", "", ""}, {"missing common", "/repo", ""},
+		{"missing top", "\n/repo/.git", ""}, {"extra line", "/repo\n/repo/.git\nextra", ""},
+		{"main", "/repo\n/repo/.git\n", "/repo"},
+		{"worktree", "/wt\n/repo/.git\n", "/repo"},
+		{"separate git dir", "/repo\n/gitdata\n", "/repo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			probe := func(root string, args ...string) (string, error) {
+				if root != "input" || strings.Join(args, " ") != "rev-parse --path-format=absolute --show-toplevel --git-common-dir" {
+					t.Fatalf("unexpected git probe: %q %q", root, args)
+				}
+				return tc.output, nil
+			}
+			if got := MainCheckout("input", probe); got != tc.want {
+				t.Errorf("MainCheckout git output %q = %q, want %q", tc.output, got, tc.want)
+			}
+		})
+	}
+	probe := func(string, ...string) (string, error) { return "", os.ErrNotExist }
+	if got := MainCheckout("input", probe); got != "" {
+		t.Errorf("MainCheckout failed git = %q, want empty", got)
 	}
 }
 
