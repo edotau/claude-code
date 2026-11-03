@@ -8,12 +8,13 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 // secretName is the router secret's vault record.
-const secretName = "CLAUDE_CODE_ROUTER_SECRET"
+const secretName = providers.RouterSecretName
 
 // ClientSecret reads the vault secret, importing router.secret if needed; remove migration after 2026-11-13.
 func ClientSecret() (string, error) {
