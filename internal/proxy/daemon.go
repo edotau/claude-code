@@ -276,7 +276,8 @@ func ConfigID() string {
 	return hex.EncodeToString(sum[:8])
 }
 
-type holderState struct {
+// HolderState is what a claude-code proxy's /healthz headers report.
+type HolderState struct {
 	PID      int
 	Build    string
 	Sessions int
@@ -284,20 +285,20 @@ type holderState struct {
 	Config   string
 }
 
-// holder identifies who answers on port: router reports a claude-code /healthz, pid its PIDHeader (0 = older build).
-func holder(ctx context.Context, port int) (holderState, bool) {
+// Holder identifies who answers on port: router reports a claude-code /healthz, pid its PIDHeader (0 = older build).
+func Holder(ctx context.Context, port int) (HolderState, bool) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, Base(port)+"/healthz", nil)
 	if err != nil {
-		return holderState{}, false
+		return HolderState{}, false
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return holderState{}, false
+		return HolderState{}, false
 	}
 	_ = resp.Body.Close()
-	var st holderState
+	var st HolderState
 	st.PID, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
 	st.Build = resp.Header.Get(HeaderBuild)
 	st.Config = resp.Header.Get(HeaderConfig)
@@ -308,13 +309,13 @@ func holder(ctx context.Context, port int) (holderState, bool) {
 
 // Inflight counts the requests in flight on port; 0 when unreadable, so a wedged proxy can still be restarted.
 func Inflight(ctx context.Context, port int) int64 {
-	st, _ := holder(ctx, port)
+	st, _ := Holder(ctx, port)
 	return st.Inflight
 }
 
 // Reclaim stops an older claude-code proxy holding port; anything else is an error naming the holder.
 func Reclaim(ctx context.Context, port int, force bool) error {
-	st, router := holder(ctx, port)
+	st, router := Holder(ctx, port)
 	pid := st.PID
 	switch {
 	case !router:

@@ -38,7 +38,7 @@ func TestHolderReadsPIDHeader(t *testing.T) {
 		w.Header().Set(HeaderInflight, "2")
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	got, ok := holder(context.Background(), port)
+	got, ok := Holder(context.Background(), port)
 	if !ok || got.PID != 4242 || got.Build != "previous-build" || got.Sessions != 3 || got.Inflight != 2 {
 		t.Fatalf("holder = %+v, %v; want pid 4242, build previous-build, 3 sessions, 2 in flight, healthy", got, ok)
 	}
