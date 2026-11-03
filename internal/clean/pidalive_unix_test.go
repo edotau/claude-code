@@ -187,10 +187,12 @@ func TestCleanCopilotRegistryTargetKeepsLivePid(t *testing.T) {
 		t.Skip("no tmpfs /run/user/<uid>")
 	}
 	t.Setenv("XDG_RUNTIME_DIR", base)
-	live, err := copilot.WriteCopilotRegistry(os.Getpid(), []byte("{}"))
+	dir, err := copilot.CopilotRuntimeDir()
 	if err != nil {
 		t.Skipf("runtime dir unusable here: %v", err)
 	}
+	live := copilot.CopilotRegistryFile(dir, os.Getpid())
+	_ = os.WriteFile(live, []byte("{}"), 0o600)
 	t.Cleanup(func() { os.Remove(live) })
 	dead := copilot.CopilotRegistryFile(filepath.Dir(live), 1<<22+12346)
 	write(t, dead, "{}")
