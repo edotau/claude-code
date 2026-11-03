@@ -2,24 +2,18 @@ package worktree
 
 import (
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 
 	"os"
 	"testing"
 )
 
-// TestMain pins every state/config path to a temp dir so no test can touch the real ~/.claude, and trims git startup.
+// TestMain pins every state/config path to a temp dir so no test can touch the real ~/.claude, and git startup is trimmed by hosttest.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
-	for k, v := range map[string]string{
-		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull,
-		"GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0",
-	} {
-		os.Setenv(k, v)
-	}
+	StubProcessScanForTest()
 	code := m.Run()
 	cleanup()
-	if tmplDir != "" {
-		os.RemoveAll(tmplDir)
-	}
+	gittest.Cleanup()
 	os.Exit(code)
 }

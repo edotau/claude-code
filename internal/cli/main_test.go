@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,9 +19,11 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
@@ -29,9 +32,11 @@ func TestMain(m *testing.M) {
 	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test") // the moved batch/envelope tests reach the proxy
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
 	desktop.OnWSL = func() bool { return false } // the host's WSL-ness must not decide the desktop tests
 	code := m.Run()
 	cleanup()
+	gittest.Cleanup()
 	os.Exit(code)
 }
 
@@ -137,24 +142,28 @@ func scrubGitEnv(t *testing.T) {
 // gitRun runs git in dir with an author/committer identity set and fails the test on error.
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
+	if err := gitRunErr(dir, args...); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func gitRunErr(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v: %s", args, err, out)
+		return fmt.Errorf("git %v: %v: %s", args, err, out)
 	}
+	return nil
 }
 
 // gitRepoCLI makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepoCLI(t *testing.T) string {
 	t.Helper()
 	scrubGitEnv(t)
-	dir := t.TempDir()
-	gitRun(t, dir, "init", "-q", "-b", "main")
-	gitRun(t, dir, "commit", "--allow-empty", "-q", "-m", "init")
-	return dir
+	return gittest.Repo(t)
 }
 
 func renderHelpPage(page helptext.Page) string {

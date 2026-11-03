@@ -7,9 +7,13 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+func TestMain(m *testing.M) {
+	worktree.StubProcessScanForTest()
+	os.Exit(hosttest.Main(m))
+}
 
 // mustWrite writes content to path, creating parent dirs; shared across clash/nuke/adopt fixtures.
 func mustWrite(t *testing.T, path, content string) {
