@@ -9,7 +9,7 @@ export const meta = {
   name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
-    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), model ("haiku"), conditions (["control","method"]). RETURNS {runs, cells}. PLANNED: steps {run, judge}.',
+    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {model haiku|sonnet|opus, effort} (defaults run haiku, judge sonnet; claude only; replaces the old model arg). RETURNS {runs, cells}.',
   phases: [{ title: 'Execute' }, { title: 'Judge' }],
 }
 
@@ -21,8 +21,59 @@ const BASE = a.base
 const SKILL = a.skill
 const SCENARIOS = Array.isArray(a.scenarios) && a.scenarios.length ? a.scenarios : ['s2', 's9', 's13', 's14']
 const SEEDS = Number.isInteger(a.seeds) && a.seeds > 0 ? a.seeds : 2
-const MODEL = a.model || 'haiku'
 const CONDITIONS = Array.isArray(a.conditions) && a.conditions.length ? a.conditions : ['control', 'method']
+// ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
+// stepOf(steps, name, defaults, {allowed, externalOK, lists}) -> {kind:'claude',model,effort} | {kind:'external',agent,vendorModel,profile}
+// An array value (only for stages named in `lists`) returns an array of those; any bad input throws Error naming stage/field.
+const stepOf = (steps, name, defaults, opt) => {
+  const S_AGENTS = ['claude', 'copilot', 'codex', 'gemini', 'opencode']
+  const S_CLAUDE = ['haiku', 'sonnet', 'opus']
+  const S_EFFORT = ['low', 'medium', 'high', 'xhigh']
+  const S_FIELDS = ['agent', 'model', 'effort', 'profile']
+  const allowed = (opt && opt.allowed) || []
+  const lists = (opt && opt.lists) || []
+  const d = defaults || {}
+  if (steps !== undefined && (!steps || typeof steps !== 'object' || Array.isArray(steps))) throw new Error('steps must be an object')
+  for (const k of Object.keys(steps || {})) if (!allowed.includes(k)) throw new Error(`steps.${k}: unknown stage (allowed: ${allowed.join('|')})`)
+  const one = (v, where) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
+    for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
+    const agentName = v.agent !== undefined ? v.agent : d.agent || 'claude'
+    if (!S_AGENTS.includes(agentName)) throw new Error(`${where}.agent must be ${S_AGENTS.join('|')}`)
+    if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
+    if (v.profile !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(v.profile))) throw new Error(`${where}.profile must be a profile name`)
+    const effort = v.effort !== undefined ? v.effort : d.effort || 'medium'
+    if (agentName === 'claude') {
+      const model = v.model !== undefined ? v.model : d.agent && d.agent !== 'claude' ? 'sonnet' : d.model || 'sonnet'
+      if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')} for agent claude`)
+      return { kind: 'claude', model, effort }
+    }
+    if (!(opt && opt.externalOK)) throw new Error(`${where}.agent: ${agentName} not allowed here (claude only)`)
+    const vendorModel = v.model !== undefined ? v.model : v.agent === undefined ? d.model : undefined
+    if (vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(vendorModel))) throw new Error(`${where}.model must be a model id or alias`)
+    return { kind: 'external', agent: agentName, vendorModel, profile: v.profile !== undefined ? v.profile : d.profile }
+  }
+  const v = (steps || {})[name]
+  if (Array.isArray(v)) {
+    if (!lists.includes(name)) throw new Error(`steps.${name}: a list is not allowed for this stage`)
+    if (!v.length) throw new Error(`steps.${name}: list is empty`)
+    return v.map((x, i) => one(x, `steps.${name}[${i}]`))
+  }
+  return one(v === undefined ? {} : v, `steps.${name}`)
+}
+// ── end stepOf ──
+if (a.model !== undefined) return { error: 'code-evaluator: model was replaced by steps.run.model' }
+let ST
+try {
+  ST = {
+    run: stepOf(a.steps, 'run', { model: 'haiku', effort: 'medium' }, { allowed: ['run', 'judge'], externalOK: false }),
+    judge: stepOf(a.steps, 'judge', { model: 'sonnet', effort: 'high' }, { allowed: ['run', 'judge'], externalOK: false }),
+  }
+} catch (e) {
+  return { error: `code-evaluator: ${e.message}` }
+}
+const RUN_MODEL = ST.run.model
+const JUDGE_MODEL = ST.judge.model
 
 const TASKS = {
   s1: dir => `Customers report that checkout totals come out slightly higher than expected whenever a discount code is used. The relevant code is ${dir}/cart.js. What do you think is going on?`,
@@ -128,8 +179,8 @@ ${report ?? '(agent produced no report)'}
 phase('Execute')
 const results = await pipeline(
   RUNS,
-  item => agent(executorPrompt(item), { label: `exec:${item.run}`, phase: 'Execute', model: MODEL, effort: 'medium' }),
-  (report, item) => agent(judgePrompt(item, report), { label: `judge:${item.run}`, phase: 'Judge', schema: SCORES, model: 'sonnet', effort: 'high' })
+  item => agent(executorPrompt(item), { label: `exec:${item.run}`, phase: 'Execute', model: RUN_MODEL, effort: ST.run.effort }),
+  (report, item) => agent(judgePrompt(item, report), { label: `judge:${item.run}`, phase: 'Judge', schema: SCORES, model: JUDGE_MODEL, effort: ST.judge.effort })
     .then(scores => ({ run: item.run, scenario: item.scenario, condition: item.condition, scores })),
 )
 
