@@ -102,24 +102,15 @@ func cmdModelsDiscover(args []string) int {
 
 func discoverPickerProfile(p *providers.Provider, apply bool) discoverResult {
 	r := discoverResult{Provider: p.Provider, Profile: p.Name, Additions: []providers.ModelInfo{}, Destinations: []string{}, Status: "skipped"}
-	source, skip := providers.DiscoverySource(p)
+	source, skip := copilot.DiscoverySource(p)
 	r.Source = source
-	if p.Provider == "github" {
-		skip = copilot.ProfileCatalogSupport(p)
-	}
 	if skip != "" {
 		r.Note = skip
 		return r
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	var live []providers.ModelInfo
-	var err error
-	if p.Provider == "github" {
-		live, err = copilot.ListProfileModels(ctx, p)
-	} else {
-		live, err = providers.DiscoverModels(ctx, p)
-	}
+	live, err := copilot.DiscoverProfileModels(ctx, p)
 	if err != nil {
 		r.Status = "error"
 		r.Note = err.Error() + " (no fallback saved)"

@@ -226,7 +226,7 @@ var switchPage = helptext.Page{
 }
 
 func cmdSwitch(args []string) int {
-	dryRun, args := extractBool(args, "dry-run")
+	dryRun, args := helptext.ExtractBool(args, "dry-run")
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		switchUsage()
 		return 0

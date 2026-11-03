@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -119,7 +120,7 @@ func TestTimeoutExplicit(t *testing.T) {
 	if err := fs.Parse(nil); err != nil {
 		t.Fatal(err)
 	}
-	if timeoutExplicit(fs) {
+	if helptext.Explicit(fs, "timeout") {
 		t.Error("timeoutExplicit() = true with no flags parsed, want false")
 	}
 
@@ -127,7 +128,7 @@ func TestTimeoutExplicit(t *testing.T) {
 	if err := fs.Parse([]string{"-timeout", "5m"}); err != nil {
 		t.Fatal(err)
 	}
-	if !timeoutExplicit(fs) {
+	if !helptext.Explicit(fs, "timeout") {
 		t.Error("timeoutExplicit() = false with -timeout on the command line, want true")
 	}
 	if *timeout != 5*time.Minute {

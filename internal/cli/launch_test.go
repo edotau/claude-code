@@ -153,7 +153,7 @@ func TestAnthropicSecretMissingNamesKey(t *testing.T) {
 }
 
 func TestTakeAsBeatsProfileIdentity(t *testing.T) {
-	as, rest, err := takeAs([]string{"--model", "x", "--as", "sp", "--", "--as", "user"})
+	as, rest, err := providers.TakeAs([]string{"--model", "x", "--as", "sp", "--", "--as", "user"})
 	if err != nil || as != providers.IdentitySP {
 		t.Fatalf("as=%q err=%v", as, err)
 	}
@@ -164,10 +164,10 @@ func TestTakeAsBeatsProfileIdentity(t *testing.T) {
 	if got, _ := providers.ResolveIdentity(providers.IdentityUser, as); got != providers.IdentitySP {
 		t.Fatalf("resolved %q", got)
 	}
-	if _, _, err := takeAs([]string{"--as=bogus"}); err == nil {
+	if _, _, err := providers.TakeAs([]string{"--as=bogus"}); err == nil {
 		t.Fatal("bogus accepted")
 	}
-	if err := askAs("sp", "codex"); err == nil {
+	if err := agent.ValidateAs("sp", "codex"); err == nil {
 		t.Fatal("--as accepted for codex")
 	}
 }

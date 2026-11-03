@@ -35,7 +35,7 @@ func cmdClaude(args []string) int { return launchClaude("", args) }
 
 // launchClaude launches Claude Code with alias as the main-loop model ("" = opus).
 func launchClaude(alias string, args []string) int {
-	as, args, err := takeAs(args)
+	as, args, err := providers.TakeAs(args)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -49,33 +49,6 @@ func launchClaude(alias string, args []string) int {
 		agent.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile], rest)
 	}
 	return runPlan("claude", plan, opts, err)
-}
-
-// takeAs removes --as user|sp (or --as=V) from args and validates it; it stops at a bare "--".
-func takeAs(args []string) (string, []string, error) {
-	var as string
-	var rest []string
-	for i := 0; i < len(args); i++ {
-		name, val, hasVal := strings.Cut(args[i], "=")
-		switch {
-		case args[i] == "--":
-			rest = append(rest, args[i:]...)
-			i = len(args)
-		case name != "--as":
-			rest = append(rest, args[i])
-		case hasVal:
-			as = val
-		case i+1 < len(args):
-			i++
-			as = args[i]
-		default:
-			return "", nil, errors.New("--as needs user or sp")
-		}
-	}
-	if as != "" && as != providers.IdentityUser && as != providers.IdentitySP {
-		return "", nil, fmt.Errorf("--as %q must be user or sp", as)
-	}
-	return as, rest, nil
 }
 
 // aliasVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
@@ -272,25 +245,11 @@ func launchOverlay(opts agent.LaunchOptions) (agentconfig.Resolved, error) {
 	return agentconfig.ResolveOverlay(o)
 }
 
-// hookModules wraps the module names from settings.Specs into help lines under 80 columns.
-func hookModules() string {
-	var lines []string
-	line := "modules: "
-	for _, sp := range settings.Specs() {
-		if len(line)+len(sp.Name)+1 > 79 {
-			lines = append(lines, line)
-			line = "         "
-		}
-		line += sp.Name + "|"
-	}
-	return strings.Join(append(lines, strings.TrimSuffix(line, "|")), "\n")
-}
-
 // hookPage lists modules in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
 var hookPage = helptext.Page{
 	Usage: "claude-code hook <Event> [--<module>|--all] < payload.json",
 	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
-	Hint:  hookModules() + "\nevents: <Event> runs the dispatcher, --<module> one module, --all every module",
+	Hint:  settings.HookModules() + "\nevents: <Event> runs the dispatcher, --<module> one module, --all every module",
 }
 
 func cmdHook(args []string) int {
@@ -445,27 +404,6 @@ func refreshServed() {
 	}
 }
 
-// discoverProfile re-seals one profile's snapshot by its registry row: github or Databricks.
-func discoverProfile(ctx context.Context, name string) int {
-	reg, err := providers.Load()
-	if err != nil {
-		return fail("preflight: %v", err)
-	}
-	p := reg.Providers[name]
-	switch {
-	case p != nil && p.Provider == "github":
-		_, err = copilot.RefreshCatalog(ctx)
-	case p != nil && p.Preset == providers.PresetDatabricks:
-		err = copilot.RefreshCopilotModels(ctx, name)
-	default:
-		return fail("preflight: %q is not a Databricks or github profile", name)
-	}
-	if err != nil {
-		return fail("preflight: %v", err)
-	}
-	return 0
-}
-
 // cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func cmdPreflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
@@ -483,7 +421,10 @@ func cmdPreflight(args []string) int {
 	if *discover != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
 		defer cancel()
-		return discoverProfile(ctx, *discover)
+		if err := copilot.RefreshProfile(ctx, *discover); err != nil {
+			return fail("preflight: %v", err)
+		}
+		return 0
 	}
 	reg, err := providers.Load()
 	if err != nil {

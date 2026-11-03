@@ -33,11 +33,11 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 		bad = errors.New("--batch takes tasks from the JSONL source, not a session id or a positional task")
 	}
 	for _, f := range batchExclusive {
-		if flagExplicit(fs, f) {
+		if helptext.Explicit(fs, f) {
 			bad = fmt.Errorf("--batch cannot be combined with --%s", f)
 		}
 	}
-	if flagExplicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
+	if helptext.Explicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
 		bad = errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
 	}
 	if bad == nil && o.jobs < 1 {
@@ -68,7 +68,7 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	if as := fs.Lookup("as"); as != nil {
 		bo.Identity = as.Value.String()
 	}
-	id, ok := batch.Run(ctx, lines, bo, base, flagExplicit(fs, "timeout"), newClient, os.Stdout)
+	id, ok := batch.Run(ctx, lines, bo, base, helptext.Explicit(fs, "timeout"), newClient, os.Stdout)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
 		return 1
