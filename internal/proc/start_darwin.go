@@ -13,12 +13,14 @@ import (
 // StartTime returns an opaque token identifying pid's start (ps lstart).
 func StartTime(pid int) (string, error) {
 	out, err := exec.CommandContext(context.Background(), "ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return "", err
-	}
 	s := strings.TrimSpace(string(out))
 	if s == "" {
-		return "", errors.New("proc: no such process")
+		if _, isExit := errors.AsType[*exec.ExitError](err); err == nil || isExit {
+			return "", ErrNoProcess
+		}
+	}
+	if err != nil {
+		return "", err
 	}
 	return s, nil
 }
