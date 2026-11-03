@@ -46,7 +46,10 @@ func ParseFrontmatter(content string) (map[string]any, string) {
 				}
 				continue
 			}
-			existing, _ := fm[currentKey].(string)
+			existing, isString := fm[currentKey].(string)
+			if !isString {
+				continue
+			}
 			fm[currentKey] = strings.TrimSpace(existing + " " + strings.TrimSpace(line))
 			continue
 		}
@@ -107,8 +110,10 @@ func parseScalar(value string) any {
 		return false
 	}
 	if IsDigits(value) {
-		n, _ := strconv.Atoi(value)
-		return n
+		if n, err := strconv.Atoi(value); err == nil {
+			return n
+		}
+		return value
 	}
 	return stripQuotes(value)
 }
