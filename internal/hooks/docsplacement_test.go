@@ -382,6 +382,33 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	}
 }
 
+// TestDocsPlacementExcludedLocalDoc: an existing git-excluded file is editable; a new excluded name still blocks.
+func TestDocsPlacementExcludedLocalDoc(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := ignoredDocsRepo(t)
+	exclude := "DESIGN.md\nNOTES.md\n"
+	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "exclude"), []byte(exclude), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"DESIGN.md", "docs/local.md"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("# local\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		path string
+		want int
+	}{
+		{"DESIGN.md", ExitProceed}, {"docs/local.md", ExitProceed}, {"NOTES.md", ExitBlock}, {"docs/new.md", ExitBlock},
+	} {
+		var stderr bytes.Buffer
+		code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Edit", filepath.Join(repo, c.path))), io.Discard, &stderr)
+		if code != c.want {
+			t.Errorf("%s: code = %d, want %d (stderr: %s)", c.path, code, c.want, stderr.String())
+		}
+	}
+}
+
 // TestDocsPlacementHarnessDocsTreeExempt: the harness docs tree admits only images/ and templates/ — the
 // knowledge/ tier retired out of docs/ entirely, to memory/<bank>/knowledge/, so it blocks here like any
 // other retired home. docs/templates-evil (a sibling, not a child) must still block — a prefix-string bug
