@@ -2,12 +2,22 @@ package providers
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 // SecretRef marks a custom env value held in the vault under the variable's own name.
 const SecretRef = "@secret"
+
+// SecretRefName is the vault name a value references: "@secret" means key itself, "@secret:<NAME>" names it.
+func SecretRefName(key, v string) (string, bool) {
+	if v == SecretRef {
+		return key, true
+	}
+	name, ok := strings.CutPrefix(v, SecretRef+":")
+	return name, ok && name != ""
+}
 
 // CustomEnv is the raw vault env bucket (values unresolved); a read error yields an empty table.
 func CustomEnv() map[string]string {
@@ -25,11 +35,12 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 		return vals, nil, err
 	}
 	for k, v := range raw {
-		if v != SecretRef {
+		name, ok := SecretRefName(k, v)
+		if !ok {
 			vals[k] = v
 			continue
 		}
-		if s, ok := get(k); ok {
+		if s, ok := get(name); ok {
 			vals[k] = s
 		} else {
 			missing = append(missing, k)
