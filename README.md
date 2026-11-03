@@ -28,7 +28,11 @@ claude-code doctor            # check binaries, providers, credentials, proxy
 - `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
   (`CHECK=1` runs `configure --check` instead; `TAILSCALE=1` adds tailscale).
 - `claude-code install --dry-run` previews; foreign hooks in `settings.json` are kept, with a timestamped backup.
-- A missing agent CLI is reported, never downloaded; `install --tools=<name>` installs it.
+- A missing agent CLI is reported, never downloaded. `make agent-clis` installs or updates them all and runs
+  `claude-code doctor` (`TOOLS=copilot,codex` picks; `DRY_RUN=1` previews); `claude-code install --tools=<name>` is
+  the same without the check. Each vendor installer runs with credentials scrubbed and puts its binary in
+  `~/.local/bin` (on `PATH`); install links it as `bin/<agent>`. Confirm with `<agent> --version`, the doctor
+  `<agent> route:` line, or `claude-code ask --agent <agent> "Reply with exactly: ok"`.
 - `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
 
 ![claude-code help menu](docs/images/cli-menu.svg)

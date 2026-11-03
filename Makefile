@@ -116,6 +116,11 @@ bootstrap:  ## Set up a fresh box (TAILSCALE=1 adds tailscale)
 	@$(if $(filter 1,$(TAILSCALE)),$(MAKE) tailscale-cli)
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
 
+.PHONY: agent-clis
+agent-clis: compile  ## Install/update agent CLIs, then doctor (TOOLS=a,b; DRY_RUN=1)
+	$(BIN) install --tools$(if $(TOOLS),=$(TOOLS))$(if $(filter 1,$(DRY_RUN)), --dry-run)
+	@$(if $(filter 1,$(DRY_RUN)),true,$(BIN) doctor)
+
 INTO ?= $(HOME)/.claude
 .PHONY: adopt
 adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
