@@ -172,7 +172,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | Variable | Effect |
 | --- | --- |
 | `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps instead of having them scrubbed |
-| `COWORKER_OVERLAY` | a JSON `{schema,set,unset,keep,files}` file (regular, not group/world-writable, <=64 KiB) layered over every agent child (`ask --overlay <file>`); `set` secrets only as `@secret:<NAME>`; `*_BASE_URL` refused |
+| `COWORKER_OVERLAY` | a JSON `{schema,set,unset,keep,files}` file (regular, not group/world-writable, <=64 KiB) layered over every agent child (`ask --overlay <file>`); `set` secrets only as `@secret:<NAME>`; endpoint, proxy and TLS names (`*_BASE_URL`, `*_API_BASE`, `*_ENDPOINT`, `HTTP(S)_PROXY`, TLS overrides) refused |
 | `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
 | `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |
 | `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
