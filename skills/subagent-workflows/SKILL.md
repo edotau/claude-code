@@ -68,8 +68,9 @@ resend unchanged). Then:
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file, reports the API surface it produced, and the manager makes the one integration edit afterwards. The manager
-owns decisions, integration, verification and commits. Leaves never dispatch subagents, commit or run the suite; an `ask` request is a subprocess and allowed when the brief names it. Watch with
-`claude-code agents tree` and `claude-code <agent> tail -f`.
+owns decisions, integration, verification and commits. Leaves never dispatch subagents, commit or run the suite; an
+`ask` request is a subprocess and allowed when the brief names it. Watch with `claude-code agents tree` and
+`claude-code <agent> tail -f`.
 
 ## Return to owner
 
