@@ -51,7 +51,7 @@ func installScienceApp(ctx context.Context, w io.Writer, dir, url string, dryRun
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	dmg := filepath.Join(tmp, "claude-science.dmg")
 	if err := os.WriteFile(dmg, data, 0o600); err != nil {
 		return err
@@ -113,7 +113,7 @@ func replaceApp(ctx context.Context, src, root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(stage)
+	defer func() { _ = os.RemoveAll(stage) }()
 	staged := filepath.Join(stage, scienceAppName)
 	if out, err := scienceRun(ctx, "ditto", src, staged); err != nil {
 		return "", fmt.Errorf("ditto into %s: %w: %s", root, err, bytes.TrimSpace(out))
