@@ -2,19 +2,16 @@ package cli
 
 import (
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -34,17 +31,6 @@ func toolNames() []string { return tools.Names() }
 
 // configureAgentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
 func configureAgentNames() []string { return append([]string{"claude"}, cliAgentNames()...) }
-
-// hookEvents derives from the hook chain the registry actually declares — never a hand copy of it.
-func hookEvents() []string {
-	var out []string
-	for _, s := range settings.Specs() {
-		if !slices.Contains(out, s.Event) {
-			out = append(out, s.Event)
-		}
-	}
-	return out
-}
 
 func workflowPatterns() []string {
 	return []string{"pipeline", "parallel", "evaluator", "orchestrator"}
@@ -116,91 +102,22 @@ func secretNames() []string {
 	return slices.Compact(out)
 }
 
-// memoryRepoNames lists the catalog's repo keys (dirs under memory/ with a valid origin record).
-func memoryRepoNames() []string {
-	ents, err := memstore.RepoDirs()
-	if err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(ents))
-	for _, e := range ents {
-		out = append(out, e.Key)
-	}
-	return out
-}
+func memoryRepoNames() []string { return memstore.RepoKeys() }
 
-// worktreeNames lists the worktree dirs under this repo's ~/worktrees/<repo> root — a plain
-// directory listing (no git-status classification), fast enough for the Tab path.
 func worktreeNames() []string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil
 	}
-	repo, err := worktree.ResolveRepo(cwd)
-	if err != nil {
-		return nil
-	}
-	ents, err := os.ReadDir(repo.Root)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range ents {
-		if e.IsDir() {
-			out = append(out, e.Name())
-		}
-	}
-	return out
+	return worktree.Names(cwd)
 }
 
-// webViewAgentIDs lists subagent ids from the current project's most recent sessions — a bounded
-// directory glob (no transcript parsing), current session first, fast enough for the Tab path.
 func webViewAgentIDs() []string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil
 	}
-	projectDir := filepath.Join(paths.ConfigDir(), "projects", memstore.ProjectSlug(cwd))
-	sessions, err := filepath.Glob(filepath.Join(projectDir, "*.jsonl"))
-	if err != nil || len(sessions) == 0 {
-		return nil
-	}
-	modTime := make(map[string]time.Time, len(sessions)) // stat each session once, not once per comparison
-	for _, s := range sessions {
-		if fi, err := os.Stat(s); err == nil {
-			modTime[s] = fi.ModTime()
-		}
-	}
-	slices.SortFunc(sessions, func(a, b string) int {
-		at, aok := modTime[a]
-		bt, bok := modTime[b]
-		if !aok || !bok {
-			return 0
-		}
-		return bt.Compare(at)
-	})
-	const maxSessions = 2
-	if len(sessions) > maxSessions {
-		sessions = sessions[:maxSessions]
-	}
-	seen := map[string]bool{}
-	var ids []string
-	for _, s := range sessions {
-		dir := strings.TrimSuffix(s, ".jsonl")
-		patterns := []string{
-			filepath.Join(dir, "subagents", "agent-*.jsonl"),
-			filepath.Join(dir, "subagents", "workflows", "*", "agent-*.jsonl"),
-		}
-		for _, pattern := range patterns {
-			matches, _ := filepath.Glob(pattern)
-			for _, m := range matches {
-				id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), "agent-"), ".jsonl")
-				if !seen[id] {
-					seen[id] = true
-					ids = append(ids, id)
-				}
-			}
-		}
-	}
-	return ids
+	return transcript.AgentIDs(cwd)
 }
+
+func hookEvents() []string { return settings.HookEvents() }

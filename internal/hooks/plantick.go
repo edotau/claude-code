@@ -61,10 +61,7 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 		return nil
 	}
 	top := memstore.GitToplevel(dir)
-	worktree := "" // a linked worktree's name, matched against task claims
-	if main := paths.MainCheckout(top); main != top {
-		worktree = filepath.Base(top)
-	}
+	worktree := plans.WorktreeName(top)
 	files, err := plans.CommitFiles(ctx, dir, sha)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
@@ -212,9 +209,7 @@ func activePlan(cwd string) (plan, worktreeName string, ok bool) {
 	if top == "" {
 		return "", "", false
 	}
-	if paths.MainCheckout(top) != top {
-		worktreeName = filepath.Base(top)
-	}
+	worktreeName = plans.WorktreeName(top)
 	plan, ok = plans.Active(plans.Home(top), worktreeName, MirrorDests())
 	return plan, worktreeName, ok
 }

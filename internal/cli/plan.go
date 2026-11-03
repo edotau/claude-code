@@ -101,11 +101,7 @@ func cmdPlanTick(args []string) int {
 	if top == "" {
 		return fail("plan tick: %s is not in a git checkout", cwd)
 	}
-	worktree := "" // a linked worktree's name, matched against task claims
-	if main := paths.MainCheckout(top); main != top {
-		worktree = filepath.Base(top)
-	}
-	if err := plans.TickRange(context.Background(), top, worktree, *rng, *plan, hooks.MirrorDests(), *dryRun, os.Stdout); err != nil {
+	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, hooks.MirrorDests(), *dryRun, os.Stdout); err != nil {
 		return fail("plan tick: %v", err)
 	}
 	return 0
