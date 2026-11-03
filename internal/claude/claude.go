@@ -119,6 +119,9 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err != nil {
 		return nil, nil, cl, err
 	}
+	if err := agent.CheckRouteNames(launcherSet(cl.Set), req.OverlaySet); err != nil {
+		return nil, nil, cl, err
+	}
 	cmd, tail := agent.ChildCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	keep := append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...)
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Set: launcherSet(cl.Set), Extra: req.Env}.Environ(ctx) // --env last, so it wins
