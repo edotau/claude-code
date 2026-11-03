@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -125,9 +126,14 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 			b.WriteString(skippedSpecialNote(rel, info))
 			continue
 		}
+		if looksSecret(rel) {
+			fmt.Fprintf(&b, "new file: %s (credential-like name, not inlined)\n", rel)
+			continue
+		}
 		data, rerr := readCapped(path)
 		if rerr != nil {
-			continue // skip rather than fail the whole diff
+			fmt.Fprintf(&b, "new file: %s (unreadable, skipped: %v)\n", rel, rerr)
+			continue
 		}
 		if bytes.IndexByte(data[:min(len(data), binarySniff)], 0) >= 0 {
 			fmt.Fprintf(&b, "new file: %s (binary, skipped)\n", rel)
@@ -140,6 +146,17 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 		fmt.Fprintf(&b, "… %d more untracked files not inlined\n", skipped)
 	}
 	return b.String(), nil
+}
+
+// looksSecret reports whether an untracked file's name suggests credentials that must not reach a reviewer.
+func looksSecret(rel string) bool {
+	base := strings.ToLower(filepath.Base(rel))
+	switch {
+	case strings.HasPrefix(base, ".env"), strings.HasPrefix(base, "credentials"), strings.HasPrefix(base, "id_rsa"),
+		strings.HasPrefix(base, "id_ed25519"):
+		return true
+	}
+	return slices.Contains([]string{".pem", ".key", ".p12", ".pfx"}, filepath.Ext(base))
 }
 
 // skippedSpecialNote is the "new file" line for a symlink or other non-regular untracked file.

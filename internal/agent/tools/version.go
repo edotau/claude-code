@@ -167,18 +167,20 @@ func readVersionCache() map[string]string {
 func writeVersionCache(path, key, line string) {
 	versionWriteMu.Lock()
 	defer versionWriteMu.Unlock()
-	cache := readVersionCache()
-	for k := range cache {
-		if strings.HasPrefix(k, path+"|") {
-			delete(cache, k)
+	_ = paths.WithFileLock(versionCacheFile(), func() error {
+		cache := readVersionCache()
+		for k := range cache {
+			if strings.HasPrefix(k, path+"|") {
+				delete(cache, k)
+			}
 		}
-	}
-	cache[key] = line
-	data, err := json.Marshal(versionFile{Schema: schemaVersion, Versions: cache})
-	if err != nil {
-		return
-	}
-	_ = paths.AtomicWrite(versionCacheFile(), data, 0o600)
+		cache[key] = line
+		data, err := json.Marshal(versionFile{Schema: schemaVersion, Versions: cache})
+		if err != nil {
+			return err
+		}
+		return paths.AtomicWrite(versionCacheFile(), data, 0o600)
+	})
 }
 
 // schemaVersion is the agentversion cache's current schema version.

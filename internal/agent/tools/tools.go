@@ -244,6 +244,8 @@ func runNpmUninstall(ctx context.Context, w io.Writer, dryRun bool, prefix, pkg 
 	if dryRun {
 		return
 	}
+	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
+	defer cancel()
 	out, err := exec.CommandContext(ctx, "npm", "uninstall", "-g", "--prefix", prefix, pkg).CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(w, "    npm uninstall failed (best-effort): %v %s\n", err, strings.TrimSpace(string(out)))

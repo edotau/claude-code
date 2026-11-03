@@ -32,6 +32,9 @@ var (
 	claudeScienceBaseURL     = "https://downloads.claude.ai/claude-science/latest"
 )
 
+// installCmdTimeout bounds each installer subprocess so a hung prompt or network never blocks the command forever.
+const installCmdTimeout = 10 * time.Minute
+
 var httpClient = &http.Client{Timeout: 3 * time.Minute}
 
 // goosOverride/goarchOverride pick the codex asset; vars so tests can select another platform.
@@ -78,6 +81,8 @@ func runInstallScript(ctx context.Context, w io.Writer, dryRun bool, url string,
 	if err := f.Close(); err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", append([]string{f.Name()}, args...)...)
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent, Set: env}.Environ(ctx) // a downloaded script gets no provider credential
 	cmd.Stdout, cmd.Stderr = w, w
@@ -119,6 +124,14 @@ func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) 
 		return err
 	}
 	src := filepath.Join(home, ".opencode", "bin", "opencode")
+	if dryRun {
+		return installOpencodeLocked(ctx, w, dir, src, dryRun)
+	}
+	return paths.WithFileLock(src, func() error { return installOpencodeLocked(ctx, w, dir, src, dryRun) })
+}
+
+// installOpencodeLocked is installOpencode's body, run holding the cross-process lock on src.
+func installOpencodeLocked(ctx context.Context, w io.Writer, dir, src string, dryRun bool) error {
 	aside := src + ".prev"
 
 	if !dryRun {
@@ -160,7 +173,7 @@ func restoreOpencodeAside(src, aside string, cause error) error {
 	return cause
 }
 
-// refuseOpencodeMajor blocks linking bin when its major exceeds opencodeMaxMajor; a probe failure is not blocked.
+// refuseOpencodeMajor blocks linking bin when its major exceeds opencodeMaxMajor; a failed or unparsable version probe is refused too.
 func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 	if os.Getenv(opencodeAllowMajorEnv) != "" {
 		return nil
@@ -263,7 +276,14 @@ func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) err
 		fmt.Fprintln(w, "  (dry-run: would download and extract codex + "+strings.Join(codexCompanions, ", ")+")")
 		return nil
 	}
-	if err := installReleaseBinary(ctx, w, dir, "codex", dlURL); err != nil {
+	// Resolve and download every asset before writing any, so a failure leaves the old install untouched.
+	type staged struct {
+		name string
+		bin  []byte
+	}
+	var all []staged
+	codexBin, err := fetchReleaseBinary(ctx, "codex", dlURL)
+	if err != nil {
 		return err
 	}
 	for _, name := range codexCompanions {
@@ -272,24 +292,32 @@ func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) err
 		if i < 0 {
 			return fmt.Errorf("codex: companion asset %s not found in release %s", asset, rel.TagName)
 		}
-		if err := installReleaseBinary(ctx, w, dir, name, rel.Assets[i].URL); err != nil {
+		bin, err := fetchReleaseBinary(ctx, name, rel.Assets[i].URL)
+		if err != nil {
+			return err
+		}
+		all = append(all, staged{name, bin})
+	}
+	all = append(all, staged{"codex", codexBin})
+	for _, s := range all {
+		if err := installBinary(w, dir, s.name, s.bin); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// installReleaseBinary downloads one single-file .tar.gz release asset and installs it as name.
-func installReleaseBinary(ctx context.Context, w io.Writer, dir, name, url string) error {
+// fetchReleaseBinary downloads one single-file .tar.gz release asset and returns the binary inside.
+func fetchReleaseBinary(ctx context.Context, name, url string) ([]byte, error) {
 	tgz, err := httpGet(ctx, url)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	bin, err := extractTarGzSingleFile(tgz)
 	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	return installBinary(w, dir, name, bin)
+	return bin, nil
 }
 
 // claudeScienceAssetName mirrors claude.ai/install.sh's os/arch naming (x64/arm64).
@@ -336,7 +364,10 @@ func runSelfUpdate(ctx context.Context, w io.Writer, bin string, dryRun bool) er
 	if dryRun {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "update")
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // the updater gets no provider credential
 	cmd.Stdout, cmd.Stderr = w, w
 	return cmd.Run()
 }

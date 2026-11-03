@@ -143,7 +143,7 @@ type liveSession struct {
 }
 
 // ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or exit; Timeout is idle.
-func ServeLive(ctx context.Context, rec *agent.Record, notify func(string)) (err error) {
+func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 	req, name := rec.Request, rec.Agent
 	row, _ := agent.LookupSchema(name)
 	lc, ok := row.Live()
@@ -320,6 +320,7 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 		refuse(statusBusy, ErrLiveBusy.Error())
 		return
 	}
+	s.idle.Stop() // the accepted turn must not be killed by idle expiry; release restarts it
 	if ctx.Err() != nil {
 		s.release()
 		refuse(statusRefused, "the session is ending")
@@ -334,8 +335,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink agent.Sin
 	sink = agent.NewRunSink(sink, s.name)
 	_ = sink.Emit(agent.Event{Type: agent.EventStart, DispatchID: s.rec.ID, Status: "running"})
 	var res agent.Result
-	err := s.be.WriteTurn(s.stdin, prompt) // the idle timer keeps running until the write lands
-	s.idle.Stop()
+	err := s.be.WriteTurn(s.stdin, prompt)
 	if err == nil {
 		res, err = s.be.Parse(s.dec, sink, agent.EventLogFor(ctx))
 	}
@@ -441,9 +441,8 @@ var serveLive = ServeLive
 func RunHolder(rec *agent.Record, launcher agent.Launcher) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
 	rec.Request.Launcher = launcher // json:"-", so the record loaded from disk has none
-	if err := serveLive(ctx, rec, notify); err != nil {
+	if err := serveLive(ctx, rec); err != nil {
 		rec.Status, rec.Error = "error", err.Error()
 		_ = rec.Save()
 		fmt.Fprintf(os.Stderr, "claude-code: ask --live: %v\n", err)

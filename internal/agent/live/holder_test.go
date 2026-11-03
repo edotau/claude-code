@@ -13,7 +13,7 @@ func TestRunHolderRestoresLauncher(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var got *agent.Record
 	orig := serveLive
-	serveLive = func(_ context.Context, rec *agent.Record, _ func(string)) error { got = rec; return nil }
+	serveLive = func(_ context.Context, rec *agent.Record) error { got = rec; return nil }
 	t.Cleanup(func() { serveLive = orig })
 
 	rec := &agent.Record{ID: "live-holder-test"}

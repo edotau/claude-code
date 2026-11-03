@@ -133,8 +133,8 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("log mode = %v, want 0600", fi.Mode().Perm())
 	}
-	if !Alive(rec) {
-		t.Fatal("Alive(rec) = false right after Spawn, want true")
+	if !rec.Alive() {
+		t.Fatal("rec.Alive() = false right after Spawn, want true")
 	}
 
 	if err := Cancel(&rec); err != nil {
@@ -143,8 +143,8 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	if rec.Status != "error" || rec.Error == "" {
 		t.Fatalf("after Cancel: status=%q error=%q, want error/cancelled", rec.Status, rec.Error)
 	}
-	if Alive(rec) {
-		t.Error("Alive(rec) = true after Cancel, want false")
+	if rec.Alive() {
+		t.Error("rec.Alive() = true after Cancel, want false")
 	}
 
 	// the saved record on disk must reflect the cancellation too.
@@ -263,8 +263,8 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	if err := Spawn(&rec, nil); err != nil {
 		t.Fatalf("Spawn() = %v", err)
 	}
-	if !Alive(rec) {
-		t.Fatal("Alive(rec) = false right after Spawn, want true")
+	if !rec.Alive() {
+		t.Fatal("rec.Alive() = false right after Spawn, want true")
 	}
 	// wait for the shell's ready line (printed after `trap '' INT`), else SIGINT can beat the trap installation.
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
@@ -282,8 +282,8 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	if rec.Status != "error" || rec.Error == "" {
 		t.Fatalf("after Cancel: status=%q error=%q, want error/cancelled", rec.Status, rec.Error)
 	}
-	if Alive(rec) {
-		t.Error("Alive(rec) = true after Cancel, want false (SIGKILL must have ended the trapping child)")
+	if rec.Alive() {
+		t.Error("rec.Alive() = true after Cancel, want false (SIGKILL must have ended the trapping child)")
 	}
 }
 
@@ -460,7 +460,7 @@ func TestStatusRunningAlive(t *testing.T) {
 }
 
 // TestStatusRunningLostDeadPID: a record still marked running but whose pid has exited reports "lost",
-// not "running" — this is the teeth case: Alive(rec) must actually gate the row, not just echo r.Status.
+// not "running" — this is the teeth case: rec.Alive() must actually gate the row, not just echo r.Status.
 func TestStatusRunningLostDeadPID(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
