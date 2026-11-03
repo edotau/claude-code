@@ -193,6 +193,7 @@ func mergeObject(base, overlay json.RawMessage) (json.RawMessage, error) {
 var retiredPermissions = []string{
 	"Bash(pytest *)", "Bash(npm *)", "Bash(npx vitest *)", "Bash(git push --force origin main:*)",
 	"Bash(git push -f origin main:*)", "Bash(git push --force origin master:*)", "Bash(git push -f origin master:*)",
+	"Bash(rm -rf /*)",
 }
 
 // mergePermissions unions the allow/ask/deny lists minus retired rules; other existing permission keys stay.
