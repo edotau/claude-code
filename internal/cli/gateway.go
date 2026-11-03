@@ -89,7 +89,7 @@ func printProxyState(ps proxyState) {
 // cmdGatewayProxy is `gateway proxy`: at most one lifecycle flag, no flag = --status; stray args are errors.
 func cmdGatewayProxy(args []string) int {
 	fs := helptext.NewFlagSet("gateway proxy", helptext.Page{
-		Usage: "claude-code gateway proxy [--start|--stop|--restart|--status|--serve] [flags]",
+		Usage: "claude-code gateway proxy [--start|--stop|--restart|--status|--serve]", // FLAGS lists the rest
 		About: "The loopback proxy that translates Anthropic requests for OpenAI-style\n" +
 			"providers and falls back across the registry's fallback chain. No flag = --status.",
 	})
