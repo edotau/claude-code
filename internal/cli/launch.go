@@ -47,7 +47,7 @@ func launchClaude(alias string, args []string) int {
 	if err == nil && !opts.PrintEnv {
 		agent.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile], rest)
 	}
-	return runPlan(plan, opts, err)
+	return runPlan("claude", plan, opts, err)
 }
 
 // takeAs removes --as user|sp (or --as=V) from args and validates it; it stops at a bare "--".
@@ -126,7 +126,7 @@ func cmdAnthropic(args []string) int {
 		}
 	}
 	plan, err := claude.Anthropic(context.Background(), o, rest, secret)
-	return runPlan(plan, o.LaunchOptions, err)
+	return runPlan("claude", plan, o.LaunchOptions, err)
 }
 
 // anthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
@@ -198,7 +198,7 @@ func launchAgent(name string, args []string) int {
 			agent.RecordLastProfile(name, plan.Profile, rest)
 		}
 	}
-	return runPlan(plan, opts, err)
+	return runPlan(name, plan, opts, err)
 }
 
 // warnVersion prints the one-line out-of-bounds warning for an interactive launch of the agent binary at path.
@@ -226,10 +226,11 @@ func cmdScience(args []string) int {
 		opts.PrintEnv, args = true, args[1:]
 	}
 	plan, err := claude.ScienceEnv(args)
-	return runPlan(plan, opts, err)
+	return runPlan("claude-science", plan, opts, err)
 }
 
-func runPlan(plan agent.Plan, opts agent.LaunchOptions, err error) int {
+func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) int {
+	plan.Agent = name
 	if usage, ok := errors.AsType[*agent.UsageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
@@ -239,6 +240,9 @@ func runPlan(plan agent.Plan, opts agent.LaunchOptions, err error) int {
 	}
 	if opts.PrintEnv {
 		plan.Print(os.Stdout)
+		if agent.OverlayDebugOn() {
+			plan.RecordEnv() // dry exec: the env Exec would hand the child
+		}
 		return 0
 	}
 	return fail("exec %s: %v", plan.Binary, plan.Exec())
