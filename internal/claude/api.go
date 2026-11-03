@@ -15,7 +15,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 
-	"github.com/edotau/claude-code/internal/anthropicsdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -43,7 +42,7 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink agent.Sink) (
 	var answer strings.Builder
 	w := io.MultiWriter(agent.SinkWriter(sink), &answer)
 	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
-		out, err := anthropicsdk.Stream(ctx, anthropicsdk.Request{
+		out, err := streamMessages(ctx, apiRequest{
 			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,
 			Authorize: func(ctx context.Context, h http.Header) error { return providers.Authorize(ctx, p, h) },
 		}, w)

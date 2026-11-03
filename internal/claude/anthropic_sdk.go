@@ -1,5 +1,5 @@
-// Package anthropicsdk boxes github.com/anthropics/anthropic-sdk-go: one streaming Messages call, stdlib types out.
-package anthropicsdk
+// anthropic_sdk.go — the one place claude calls github.com/anthropics/anthropic-sdk-go: a streaming Messages call.
+package claude
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Request is one single-turn ask. Authorize sets auth headers per request; the SDK's env credential chain is off.
-type Request struct {
+// apiRequest is one single-turn ask. Authorize sets auth headers per request; the SDK's env credential chain is off.
+type apiRequest struct {
 	BaseURL   string
 	Model     string
 	Prompt    string
@@ -25,26 +25,26 @@ type Request struct {
 	Authorize func(context.Context, http.Header) error
 }
 
-// Response is the served model and token usage.
-type Response struct {
+// apiResponse is the served model and token usage.
+type apiResponse struct {
 	Model        string
 	InputTokens  int64
 	OutputTokens int64
 }
 
-// APIError is an HTTP failure with the status and Retry-After the caller's retry loop needs.
-type APIError struct {
+// apiError is an HTTP failure with the status and Retry-After the caller's retry loop needs.
+type apiError struct {
 	Status int
 	After  time.Duration
 	msg    string
 }
 
-func (e *APIError) Error() string             { return e.msg }
-func (e *APIError) StatusCode() int           { return e.Status }
-func (e *APIError) RetryAfter() time.Duration { return e.After }
+func (e *apiError) Error() string             { return e.msg }
+func (e *apiError) StatusCode() int           { return e.Status }
+func (e *apiError) RetryAfter() time.Duration { return e.After }
 
-// Stream sends r and writes text deltas to w as they arrive.
-func Stream(ctx context.Context, r Request, w io.Writer) (Response, error) {
+// streamMessages sends r and writes text deltas to w as they arrive.
+func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse, error) {
 	client := anthropic.NewClient(
 		option.WithoutEnvironmentDefaults(),
 		option.WithBaseURL(r.BaseURL),
@@ -68,7 +68,7 @@ func Stream(ctx context.Context, r Request, w io.Writer) (Response, error) {
 	if r.Effort != "" {
 		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(r.Effort)}
 	}
-	var res Response
+	var res apiResponse
 	stream := client.Messages.NewStreaming(ctx, params)
 	for stream.Next() {
 		switch ev := stream.Current().AsAny().(type) {
@@ -88,15 +88,15 @@ func Stream(ctx context.Context, r Request, w io.Writer) (Response, error) {
 			res.OutputTokens = ev.Usage.OutputTokens
 		}
 	}
-	return res, boxError(stream.Err())
+	return res, boxSDKError(stream.Err())
 }
 
-func boxError(err error) error {
+func boxSDKError(err error) error {
 	var apiErr *anthropic.Error
 	if !errors.As(err, &apiErr) {
 		return err
 	}
-	out := &APIError{Status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
+	out := &apiError{Status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
 	if apiErr.Response != nil {
 		// Keep the SDK caller's integer-only header policy.
 		v := apiErr.Response.Header.Get("Retry-After")
