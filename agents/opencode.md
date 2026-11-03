@@ -149,6 +149,3 @@ outcome first, plain-sentence facts). DOC jobs add `Validated:` (checklist items
 - Commit.
 
 Per `agent-verbs.md` → Don't: don't invent a verb.
-
-Memory proposals:
-[shared discipline and opencode candidates](../skills/subagent-workflows/references/memory-updates.md#opencode).
