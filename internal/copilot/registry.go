@@ -427,7 +427,7 @@ func checkDir(dir string) error {
 	if perm := fi.Mode().Perm(); perm != 0o700 {
 		return fmt.Errorf("copilot registry: %s has mode %o, want 0700", dir, perm)
 	}
-	if uid, ok := ownerUID(fi); !ok || uid != os.Getuid() {
+	if uid, ok := paths.OwnerUID(fi); !ok || uid != os.Getuid() {
 		return fmt.Errorf("copilot registry: %s is not owned by uid %d", dir, os.Getuid())
 	}
 	return nil

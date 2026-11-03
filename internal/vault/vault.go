@@ -155,6 +155,7 @@ func Update(fn func(*Tx) error) error {
 	if err := create(path); err != nil {
 		return err
 	}
+	tightenMode(path)
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: writeLockTimeout})
 	if err != nil {
 		return err

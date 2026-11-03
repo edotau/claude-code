@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -108,7 +109,7 @@ func checkOverlayInfo(info os.FileInfo, err error) error {
 	case info.Size() > overlayMaxBytes:
 		return fmt.Errorf("over %d bytes", overlayMaxBytes)
 	}
-	if uid, ok := ownerUID(info); ok && uid != 0 && uid != os.Getuid() {
+	if uid, ok := paths.OwnerUID(info); ok && uid != 0 && uid != os.Getuid() {
 		return errors.New("owned by another user")
 	}
 	return nil
@@ -232,6 +233,8 @@ func keepRule(name string) error {
 	switch {
 	case !envNameRE.MatchString(name):
 		return errors.New("want a NAME")
+	case routeRedirectName(up):
+		return errBaseURL
 	case strings.HasPrefix(up, "HARNESS_") || credentialName(up):
 		return errors.New("a credential name cannot be kept: the scrub withholds it from every agent child")
 	}
@@ -244,7 +247,7 @@ func flagSetRule(name string) error {
 	switch {
 	case name == "" || strings.ContainsAny(name, " \t"):
 		return errors.New("want NAME=VALUE")
-	case strings.HasSuffix(up, "_BASE_URL"): // before the scrub check: a route endpoint gets its own reason
+	case routeRedirectName(up): // before the scrub check: a route endpoint gets its own reason
 		return errBaseURL
 	case proc.EnvBlocked(name) || proc.EnvBlocked(up):
 		return errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command")
@@ -262,7 +265,19 @@ func flagCredentialName(up string) bool {
 		strings.Contains(up, "AUTH")
 }
 
-var errBaseURL = errors.New("a route endpoint: pick it with --profile; an override would send the route's credential there")
+var errBaseURL = errors.New("a route endpoint, proxy or TLS setting: pick the endpoint with --profile; " +
+	"an override would send the route's credential elsewhere")
+
+// routeRedirectName reports a name that can redirect a route credential or weaken TLS; refused in set and keep.
+// DATABRICKS_HOST was allowed by D7 (set+keep); the owner's 2026-11-03 pick supersedes D7 for it.
+func routeRedirectName(up string) bool {
+	switch up {
+	case "DATABRICKS_HOST", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NODE_TLS_REJECT_UNAUTHORIZED",
+		"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR":
+		return true
+	}
+	return strings.HasSuffix(up, "_BASE_URL") || strings.HasSuffix(up, "_API_BASE") || strings.HasSuffix(up, "_ENDPOINT")
+}
 
 // setRule checks one set entry; route reports a profile's route credential (providers.RouteSecretGuard).
 func setRule(name, val string, keep map[string]bool, flag bool, route func(string) bool) error {
@@ -277,7 +292,7 @@ func setRule(name, val string, keep map[string]bool, flag bool, route func(strin
 		return errors.New("want NAME=VALUE")
 	case strings.HasPrefix(up, "HARNESS_") || strings.HasPrefix(up, OverlayVar):
 		return errors.New("harness-owned")
-	case strings.HasSuffix(up, "_BASE_URL"):
+	case routeRedirectName(up):
 		return errBaseURL
 	case reserved && isRef:
 		return errors.New("reserved by the credential scrub: a vault ref cannot replace a route value")

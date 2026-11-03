@@ -12,6 +12,8 @@ import (
 	"os/user"
 	"runtime"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // sshTimeout bounds one bridge round trip: the Mac side runs osascript per paste (~0.3–1s).
@@ -80,7 +82,7 @@ func checkSocket(sock string) error {
 	case fi.Mode()&os.ModeSocket == 0:
 		return fmt.Errorf("%w (%s is not a socket)", errNoBridge, sock)
 	}
-	if uid, ok := ownerUID(fi); !ok || uid != os.Getuid() {
+	if uid, ok := paths.OwnerUID(fi); !ok || uid != os.Getuid() {
 		return fmt.Errorf("%w (%s is not owned by you)", errNoBridge, sock)
 	}
 	return nil
