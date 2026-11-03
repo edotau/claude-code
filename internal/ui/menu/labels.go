@@ -14,9 +14,6 @@ import (
 // labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).
 const labelMax = 48
 
-// defaultPlanFormat renders lowercase ("anthropic subscription max 20x"); a user's agentPlanFormat renders as written.
-const defaultPlanFormat = "{provider} {mode} {tier}"
-
 // agentMaker is the provider a plan names when its entry gives none.
 var agentMaker = map[string]string{"claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "copilot": "GitHub", "opencode": "opencode"}
 
@@ -35,16 +32,13 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	if !matched && d.reg.AgentPlanFormat == "" {
 		return st.label()
 	}
-	format, lower := d.reg.AgentPlanFormat, false
-	if format == "" {
-		format, lower = defaultPlanFormat, true
+	format := d.reg.AgentPlanFormat
+	if format == "" { // default: the mode, then the plan as its provider names it ("subscription (Google AI Pro)")
+		return textutil.Truncate(withTier(st.mode, cmp.Or(plan.Tier, st.tier.Name)), labelMax)
 	}
 	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentMaker[name]), "{mode}", st.mode,
 		"{tier}", cmp.Or(plan.Tier, st.tier.Name), "{id}", id).Replace(format)
 	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
-	if lower {
-		out = strings.ToLower(out)
-	}
 	return textutil.Truncate(out, labelMax)
 }
 

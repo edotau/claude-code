@@ -66,7 +66,7 @@ func claudeMenu(d *dialog) agentMenu {
 			}
 			return keepOrPin(d, cur, configure.ProfileName(configure.ProfileBy(d.reg, anthropicProvider, providers.AuthCLI)))
 		}},
-		{"API key", "pay per token · paste to set or rotate · no RC " + Bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
+		{"API key", "pay per token · no Remote Control " + Bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
 			kt := configure.KeyTarget{Label: anthropicRow, EnvVar: anthropicKeyEnv, FixCmd: "claude-code vault set " + anthropicKeyEnv,
 				Provider: configure.ProfileBy(fp.reg, anthropicProvider, providers.AuthKey)}
 			if !ensureKey(d, kt, keyOK) {
@@ -75,10 +75,10 @@ func claudeMenu(d *dialog) agentMenu {
 			}
 			return keepOrPin(d, cur, configure.ProfileName(configure.ProfileBy(d.reg, anthropicProvider, providers.AuthKey)))
 		}},
-		{"Login", "claude auth login · browser sign-in, refreshes the session", "", func() bool {
+		{"Login", "browser sign-in (claude auth login)", "", func() bool {
 			return regenerate(d, configure.KeyTarget{Label: anthropicRow}, []string{"claude", "auth", "login"}, false)
 		}},
-		{"OAuth token", "setup-token · mints a token, rotates " + providers.OAuthTokenEnv, "", func() bool {
+		{"OAuth token", "headless token (" + providers.OAuthTokenEnv + ")", "", func() bool {
 			kt := configure.KeyTarget{Label: anthropicRow, EnvVar: providers.OAuthTokenEnv}
 			return regenerate(d, kt, []string{"claude", "setup-token"}, true)
 		}},
@@ -132,5 +132,21 @@ func billingLabel(reg *providers.Registry, cur string) string {
 		}
 		return "API key"
 	}
-	return cur + " (not anthropic)"
+	return backendLabel(reg, cur)
+}
+
+// backendLabel names a non-Anthropic profile as provider-profile and its key type: "databricks-qa · API key".
+func backendLabel(reg *providers.Registry, cur string) string {
+	p, err := reg.Get(cur)
+	if err != nil {
+		return cur
+	}
+	name := cur
+	if p.Provider != "" && p.Provider != cur {
+		name = p.Provider + "-" + cur
+	}
+	if p.Auth.Method() == providers.AuthCLI || p.Auth.Login != "" {
+		return name + " · subscription"
+	}
+	return name + " · API key"
 }
