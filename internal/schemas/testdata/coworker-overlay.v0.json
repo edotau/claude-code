@@ -1,0 +1,1 @@
+{"set": {"LOG_LEVEL": "debug", "API_TOKEN": "@secret:EXAMPLE_API_TOKEN"}, "unset": ["HTTP_PROXY"], "keep": ["LANG"]}
