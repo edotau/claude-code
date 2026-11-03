@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -104,21 +103,18 @@ func cmdVaultSet(args []string) int {
 	return vaultSetSecret(names[0], *dryRun)
 }
 
-// vaultPair is one credential name/value pair waiting to be reported and stored together.
-type vaultPair struct{ Name, Value string }
-
 // vaultSetTailscaleInteractive asks which credential kind, then reads each value hidden.
 func vaultSetTailscaleInteractive(dryRun bool) int {
 	fmt.Fprint(os.Stdout, "OAuth client (o) or API key (a)? ")
 	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	names := tailscale.SetNames(strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "a"))
-	pairs := make([]vaultPair, len(names))
+	pairs := make([]tailscale.Cred, len(names))
 	for i, name := range names {
 		v, err := readSecretValue(name)
 		if err != nil {
 			return fail("vault set: %v", err)
 		}
-		pairs[i] = vaultPair{Name: name, Value: v}
+		pairs[i] = tailscale.Cred{Name: name, Value: v}
 	}
 	return vaultStoreTailscale(dryRun, pairs)
 }
@@ -134,42 +130,33 @@ func vaultSetTailscalePiped(apiKeyOnly, dryRun bool) int {
 		return strings.TrimSpace(line), nil
 	}
 	names := tailscale.SetNames(apiKeyOnly)
-	pairs := make([]vaultPair, len(names))
+	pairs := make([]tailscale.Cred, len(names))
 	for i, name := range names {
 		v, err := readLine()
 		if err != nil {
 			return fail("vault set: %v", err)
 		}
-		pairs[i] = vaultPair{Name: name, Value: v}
+		pairs[i] = tailscale.Cred{Name: name, Value: v}
 	}
 	return vaultStoreTailscale(dryRun, pairs)
 }
 
 // vaultStoreTailscale validates every value before writing any of them, then stores (or dry-run reports) each.
-func vaultStoreTailscale(dryRun bool, pairs []vaultPair) int {
-	for _, p := range pairs {
-		if p.Value == "" {
-			fmt.Fprintf(os.Stderr, "vault set: empty value for %s; nothing written\n", p.Name)
-			return 1
-		}
-		if strings.ContainsAny(p.Value, "\r\n") { // secretstore.Store rejects these; refuse before a half-written pair
-			fmt.Fprintf(os.Stderr, "vault set: %s spans lines; nothing written\n", p.Name)
-			return 1
-		}
+func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
+	if err := tailscale.CheckCreds(creds); err != nil {
+		fmt.Fprintf(os.Stderr, "vault set: %v; nothing written\n", err)
+		return 1
 	}
-	for _, p := range pairs {
-		if dryRun {
-			verb := "add"
-			if slices.Contains(secretstore.Names(), p.Name) {
-				verb = "replace"
-			}
-			fmt.Printf("would %s %s (%d chars); nothing written\n", verb, p.Name, len(p.Value))
-			continue
-		}
-		if err := secretstore.Store(p.Name, p.Value); err != nil {
+	for _, c := range creds {
+		verb, err := tailscale.StoreCred(c, dryRun)
+		if err != nil {
 			return fail("vault set: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s)\n", p.Name, secretstore.Redact(p.Value))
+		if dryRun {
+			fmt.Printf("would %s %s (%d chars); nothing written\n", verb, c.Name, len(c.Value))
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s)\n", c.Name, secretstore.Redact(c.Value))
 	}
 	return 0
 }

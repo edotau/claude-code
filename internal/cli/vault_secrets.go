@@ -182,10 +182,8 @@ func cmdVaultImport(args []string) int {
 	if len(pairs) == 0 {
 		return fail("vault import: %s has no NAME=value lines", name)
 	}
-	for _, p := range pairs {
-		if err := signin.ValidateSecret(p.Name, p.Value); err != nil {
-			return fail("vault import: %s: %v", name, err)
-		}
+	if err := signin.ValidateImport(pairs); err != nil {
+		return fail("vault import: %s: %v", name, err)
 	}
 	for _, p := range pairs {
 		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, secretstore.Preview(p.Value))
@@ -194,11 +192,9 @@ func cmdVaultImport(args []string) int {
 		fmt.Fprintln(os.Stderr, "vault import: nothing written")
 		return 1
 	}
-	for _, p := range pairs {
-		if err := signin.SetSecret(p.Name, p.Value); err != nil {
-			return fail("vault import: %s: %v", p.Name, err)
-		}
-		fmt.Fprintf(os.Stderr, "stored %s in the vault\n", p.Name)
+	err = signin.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
+	if err != nil {
+		return fail("vault import: %v", err)
 	}
 	return 0
 }
