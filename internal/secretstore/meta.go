@@ -64,7 +64,7 @@ func CachedProbe(m Meta, ttl time.Duration, now time.Time) (status string, age t
 		return "", 0, false
 	}
 	age = now.Sub(m.VerifiedAt)
-	if (m.VerifyStatus == "verified" || m.VerifyStatus == "rejected") && age < ttl {
+	if age >= 0 && (m.VerifyStatus == "verified" || m.VerifyStatus == "rejected") && age < ttl {
 		return m.VerifyStatus, age, true
 	}
 	return "", age, false

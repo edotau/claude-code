@@ -76,7 +76,7 @@ type checkResult struct {
 	ok     bool
 }
 
-// OfferLoginOne prompts and signs in when p's check says it must, then rechecks once.
+// offerLoginOne prompts and signs in when p's check says it must, then rechecks once.
 func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader, c checkResult) (loggedIn bool, err error) {
 	s, v, ok := c.s, c.v, c.ok
 	if !ok {
@@ -87,7 +87,10 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader,
 		return false, nil
 	}
 	fmt.Fprintf(loginOut, "%s: login required. Log in now? [Y/n] ", p.Name)
-	line, _ := in.ReadString('\n')
+	line, rerr := in.ReadString('\n')
+	if rerr != nil && strings.TrimSpace(line) == "" {
+		line = "n" // EOF or a read error is no consent to open a login
+	}
 	if a := strings.ToLower(strings.TrimSpace(line)); a != "" && !strings.HasPrefix(a, "y") {
 		if p.Auth.Method() == "" && p.CLIProfile != "" {
 			return false, fmt.Errorf("login skipped; requests will fail until `databricks auth login -p %s` (%s)", p.CLIProfile, v)

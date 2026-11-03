@@ -69,10 +69,8 @@ func Redact(v string) string {
 // Preview shows a just-pasted value so a wrong or doubled paste is visible: the key's own prefix (up to its last
 // -/_ in the first 16 chars, never over a third of it), one * per hidden char up to a cap, and the length.
 // A value that is two identical halves is flagged. Fits an 80-column line after a 10-column label.
-func Preview(v string) string { return PreviewWithin(v, previewStars) }
-
-// PreviewWithin is Preview with prefix+stars capped at width, for tables that need a narrower column.
-func PreviewWithin(v string, width int) string {
+func Preview(v string) string {
+	width := previewStars
 	shown := min(4, len(v)/3)
 	if p := keyPrefix(v); len(p) > shown && len(p) <= len(v)/3 {
 		shown = len(p)
@@ -226,7 +224,11 @@ func LookupAll(names []string) ([]string, error) {
 
 // Remove deletes the sealed secret name and audits it; an unknown name is an error.
 func Remove(name string) error {
-	if !Has(name) {
+	names, err := NamesErr()
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(names, name) {
 		return fmt.Errorf("%s not set", name)
 	}
 	if err := Delete(name); err != nil {

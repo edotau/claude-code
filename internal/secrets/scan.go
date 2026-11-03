@@ -37,8 +37,8 @@ func (s *Scanner) flag(detail string) {
 
 func (s *Scanner) ok(msg string) { fmt.Fprintf(s.out(), "  ✓ %s\n", msg) }
 
-// DefaultScanTargets lists settings.json, settings.local.json, ~/.claude.json and .mcp.json for a scan with no paths.
-func DefaultScanTargets() []string {
+// defaultScanTargets lists settings.json, settings.local.json, ~/.claude.json and .mcp.json for a scan with no paths.
+func defaultScanTargets() []string {
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
 	out := []string{
@@ -189,13 +189,15 @@ func (s *Scanner) ScanVault() {
 				continue
 			}
 			var doc any
-			if json.Unmarshal([]byte(raw), &doc) == nil {
-				walkJSONStrings(nil, doc, func(p []string, val string) {
-					if looksLikeSecret(envPairValue(val), true) {
-						found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
-					}
-				})
+			if json.Unmarshal([]byte(raw), &doc) != nil {
+				found = append(found, "vault:overlay/"+key+" is not valid JSON, so it could not be scanned")
+				continue
 			}
+			walkJSONStrings(nil, doc, func(p []string, val string) {
+				if looksLikeSecret(envPairValue(val), true) {
+					found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
+				}
+			})
 		}
 		for _, bucket := range []string{vault.Pins, vault.Env} {
 			kv := t.All(bucket)
@@ -224,11 +226,11 @@ func (s *Scanner) ScanVault() {
 	}
 }
 
-// ScanConfigs audits targets (DefaultScanTargets plus the vault when empty) and prints the summary line.
+// ScanConfigs audits targets (defaultScanTargets plus the vault when empty) and prints the summary line.
 func (s *Scanner) ScanConfigs(targets []string) int {
 	defaults := len(targets) == 0
 	if defaults {
-		targets = DefaultScanTargets()
+		targets = defaultScanTargets()
 	}
 	fmt.Fprintln(s.out(), "== config-surface credential scan ==")
 	for _, f := range targets {
