@@ -17,7 +17,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 |-------|----------------|--------|------|
 | 0. Classify | inline | Scope tier | Picks the phases below |
 | 1. Review | `Plan`, or another model family via `claude-code ask --agent <a>` | Refined Task Brief | READY / NEEDS CLARIFICATION |
-| 2. Codebase intel | 3 parallel `Explore`, or one `claude-code gemini explore` | Codebase Context Brief | Structure, conventions, deps covered |
+| 2. Codebase intel | 3 parallel `Explore`, or `@agent-gemini` (fans out `gemini explore` jobs) | Codebase Context Brief | Structure, conventions, deps covered |
 | 3. Research | `gh search`, WebFetch, WebSearch, `gemini explore` | Prior art + library refs | ≥1 reference, or "nothing found" stated |
 | 4. Plan | plan mode or `Plan` (plan-only) | Plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test; only with `--refine` |
@@ -50,13 +50,13 @@ The same pass on the finished diff (SHIP IT / NEEDS WORK / BLOCK) is `claude-cod
 Three parallel `Explore` agents — Structure (layout, entry points), Conventions (naming, errors, tests),
 Dependencies (deps, env vars, CLIs) — produce one brief passed to every downstream agent. **Scope the fan-out to the
 directories the task touches**: a repo-wide sweep is the biggest avoidable token cost. Skip if a brief exists this
-session and nothing changed. `gemini explore` (or `bridge` for whole-repo context) gives the same brief off Claude's
-budget.
+session and nothing changed. `@agent-gemini` gives the same brief off Claude's budget: it fans out up to 4
+`gemini explore` jobs (code + web) and merges them; `bridge` for whole-repo context.
 
 ## Phase 3: Research (new implementation, not pure refactor)
 
 `gh search code|repos` → library docs via WebFetch → WebSearch only if those fall short → package registries
-(prefer battle-tested libraries) → `gemini explore` for cited web research.
+(prefer battle-tested libraries) → `@agent-gemini` for cited web and deep research.
 
 ## Phase 4: Plan (MEDIUM+)
 
