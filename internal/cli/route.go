@@ -36,9 +36,13 @@ func gatewayRoute(args []string, withProxy bool) int {
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
 	fallback := fs.String("fallback", router.FallbackAll, "all, agents or none")
+	route := fs.String("route", "", "fallback ladder: default|first-party (default: by session profile)")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if err := applyRoute(*route); err != nil {
+		return fail(name+": %v", err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return badFormat(name, err)
@@ -80,6 +84,17 @@ func gatewayRoute(args []string, withProxy bool) int {
 		printProxyState(ps)
 	}
 	return 0
+}
+
+// applyRoute exports --route as HARNESS_ROUTE, so this process's picks (and the jobs it spawns) follow that ladder.
+func applyRoute(route string) error {
+	if route == "" {
+		return nil
+	}
+	if !slices.Contains(router.RouteModes, route) {
+		return fmt.Errorf("--route %q unknown (%s)", route, strings.Join(router.RouteModes, "|"))
+	}
+	return os.Setenv(router.EnvRoute, route)
 }
 
 // routeSources names where each routing knob printed by `gateway router` came from.

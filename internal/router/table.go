@@ -73,6 +73,10 @@ type RouteTable struct {
 	// OpencodeRowOverridden marks an alias whose Rows["opencode"] cell a route overlay touched directly (set
 	// from the registry in LoadFrom): that explicit operator intent wins over the sub-pick at that alias.
 	OpencodeRowOverridden map[string]bool `json:"-"`
+	// Ladders are the registry's routing.ladders (set in LoadFrom): the fallback order after want, by ladder name.
+	Ladders map[string][]providers.Rung `json:"-"`
+	// ClaudeAnywhere is routing.claudeAnywhere: claude scores into the ladder instead of going last.
+	ClaudeAnywhere bool `json:"-"`
 }
 
 // fileTable is table.json's shape: rows keyed by canonical Claude id, then agent.
@@ -154,6 +158,7 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 	}
 	t.OpencodeLadder = reg.Routing.Opencode.LadderOrder() // already normalized to sub ids by providers.Parse
 	t.OpencodeRouting = reg.Routing.Opencode
+	t.Ladders, t.ClaudeAnywhere = reg.Routing.Ladders, reg.Routing.ClaudeAnywhereOn()
 	return nil
 }
 

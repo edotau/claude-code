@@ -40,6 +40,7 @@ func runAsk(args []string, resume bool) int {
 	var agents agentsFlag
 	fs.Var(&agents, "agents", "agent definitions: --agent takes their keys")
 	fallback := fs.String("fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
+	route := fs.String("route", "", "fallback ladder: default|first-party (default: by session profile)")
 	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
 	provider := fs.String("profile", "", "profile or hub start (default: pin, then registry)")
 	as := fs.String("as", "", "claude on a paired Databricks profile: user|sp, over the profile's identity")
@@ -83,6 +84,9 @@ func runAsk(args []string, resume bool) int {
 	overlayDebug := fs.String("overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if err := applyRoute(*route); err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
 	if code := askEnableOverlays(*overlayDebug, *overlayPath); code != 0 {
 		return code

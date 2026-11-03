@@ -170,6 +170,7 @@ func ghHosts(t *testing.T, user string) {
 // TestRouteEndsNamesResolvedClaudeAccount: the router view resolves claude's actual backend, reported as .ends.
 func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	vaulttest.Use(t)
+	t.Setenv(router.EnvRoute, router.RouteDefault) // claude on a Databricks account means a Databricks session's ladder
 	oldAcct, oldRefresh := agent.ResolveAccount, routeRefresh
 	agent.ResolveAccount = func(ag string, _ router.Cell) (string, string) {
 		if ag == "claude" {
