@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"cmp"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -124,15 +125,20 @@ func GeminiModel() (model, source string) {
 	return "", "default"
 }
 
-// ReadEnvFile parses KEY=VALUE lines (# comments, optional export, optional quotes); a missing file is empty.
+// ReadEnvFile parses KEY=VALUE lines (# comments, optional export, optional quotes); a missing file is empty,
+// any other read error is noted on stderr (path only) with the keys read so far.
 func ReadEnvFile(path string) map[string]string {
 	out := map[string]string{}
 	f, err := os.Open(path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "warning: env file %s unreadable: %v\n", path, err)
+		}
 		return out
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -148,6 +154,9 @@ func ReadEnvFile(path string) map[string]string {
 			v = v[1 : len(v)-1]
 		}
 		out[strings.TrimSpace(k)] = v
+	}
+	if err := sc.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: env file %s read stopped early: %v\n", path, err)
 	}
 	return out
 }

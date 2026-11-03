@@ -54,7 +54,7 @@ func recordTokenExpiry(name, v string) {
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}
-	_ = os.WriteFile(path, b, 0o600)
+	_ = paths.AtomicWrite(path, b, 0o600) // temp+rename: a concurrent TokenExpiry never reads a truncated file
 }
 
 // TokenExpiry is the expiry a provider's JWT credential last reported; false when none is recorded.

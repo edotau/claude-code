@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -103,7 +104,7 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s: %s", url, resp.Status, strings.TrimSpace(string(body)))
+		return nil, &catalogStatusError{url: url, status: resp.Status, code: resp.StatusCode, body: strings.TrimSpace(string(body))}
 	}
 	if p.Preset == PresetDatabricks && strings.HasSuffix(url, "/api/2.0/serving-endpoints") {
 		return decodeServingEndpoints(url, body)
@@ -122,6 +123,27 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 		out[i] = liveModelEntry{id: m.ID, name: m.DisplayName}
 	}
 	return out, nil
+}
+
+// catalogStatusError is a non-200 catalog GET; ProbeCredential classifies by code, never by the body's text.
+type catalogStatusError struct {
+	url, status, body string
+	code              int
+}
+
+func (e *catalogStatusError) Error() string {
+	return fmt.Sprintf("GET %s: %s: %s", e.url, e.status, e.body)
+}
+
+// rejectMarkers are the 403 body fragments that mean the credential itself was refused, not a policy or WAF block.
+var rejectMarkers = []string{"invalid_grant", "invalid_client", "invalid_token", "Invalid access token"}
+
+// rejected reports a 401, or a 403 whose body names a refused credential.
+func (e *catalogStatusError) rejected() bool {
+	if e.code == http.StatusUnauthorized {
+		return true
+	}
+	return e.code == http.StatusForbidden && slices.ContainsFunc(rejectMarkers, func(m string) bool { return strings.Contains(e.body, m) })
 }
 
 // decodeServingEndpoints maps a Databricks /api/2.0/serving-endpoints body to catalog rows (name, task, ready).
@@ -146,7 +168,8 @@ func decodeServingEndpoints(url string, body []byte) ([]liveModelEntry, error) {
 }
 
 // ProbeCredential makes one authenticated catalog GET to tell a present credential from a working one:
-// "login" (passthrough: not probeable here), "verified", "rejected" (401/403), "unreachable" (no connection),
+// "login" (passthrough: not probeable here), "verified", "rejected" (401, or a 403 naming a refused credential),
+// "unreachable" (no connection),
 // or "unverified" with the error. Never fatal; callers surface the status next to the credential.
 func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
 	if p.Auth.Type == AuthCLI || p.Auth.Login != "" {
@@ -154,16 +177,13 @@ func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
 	}
 	_, err := LiveModels(ctx, p)
 	if err != nil {
-		detail = textutil.FirstLine(err.Error())
-		if len(detail) > 160 {
-			detail = detail[:160] + "…"
-		}
+		detail = textutil.CapRunes(textutil.FirstLine(err.Error()), 160, "…")
 	}
+	var se *catalogStatusError
 	switch {
 	case err == nil:
 		return "verified", ""
-	case strings.Contains(err.Error(), " 401 ") || strings.Contains(err.Error(), " 403 ") ||
-		strings.Contains(err.Error(), ": 401") || strings.Contains(err.Error(), ": 403"):
+	case errors.As(err, &se) && se.rejected():
 		return "rejected", detail
 	default:
 		var ne net.Error
