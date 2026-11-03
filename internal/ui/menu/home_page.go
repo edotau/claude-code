@@ -21,7 +21,7 @@ import (
 type homeRow = Row[*dialog]
 
 func toolsRows(d *dialog) []homeRow {
-	return []homeRow{tailscaleRow(), webSearchRow()}
+	return []homeRow{databricksRow(d), tailscaleRow(), webSearchRow()}
 }
 
 func settingsRows(d *dialog) []homeRow {
@@ -31,7 +31,6 @@ func settingsRows(d *dialog) []homeRow {
 		claudeSettingsRow(d),
 		routingRow(d),
 		{Name: "environment", State: fmt.Sprintf("%d vars", n), Check: "injected into every launch", Run: runCustomEnv},
-		databricksRow(d),
 		seedRow(),
 	}
 }
