@@ -30,8 +30,9 @@ type copilotEngine struct{ agent.BaseEngine }
 var copilotAgent = copilotEngine{agent.NewBaseEngine("copilot")}
 
 var (
-	_ agent.Driver = copilotAgent
-	_ agent.Engine = copilotAgent
+	_ agent.Driver        = copilotAgent
+	_ agent.Engine        = copilotAgent
+	_ agent.Authenticator = copilotEngine{}
 )
 
 func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
@@ -249,7 +250,12 @@ func (copilotEngine) Presence(router.Cell) error {
 // LoginPresent stays local to copilot: LoginStatus's label may call api.github.com.
 func (copilotEngine) LoginPresent() bool { return CopilotLoginPresent() }
 
-func (copilotEngine) CheckLogin(context.Context) (providers.AuthVerdict, string) {
+func (e copilotEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, string) {
+	return e.Verify(ctx)
+}
+
+// Verify keeps CheckLogin's config.json verdict (CopilotStoredLogin), not AuthStatus, so provider rows print as before.
+func (copilotEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	if l := CopilotStoredLogin(); l != "" {
 		return providers.VerdictOK, "signed in as " + l
 	}

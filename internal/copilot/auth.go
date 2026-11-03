@@ -3,6 +3,8 @@ package copilot
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -47,15 +49,34 @@ const (
 
 // copilotPinLogin is the pinned copilot profile's GitHub login ("" = unpinned: gh's active account).
 func copilotPinLogin() string {
-	reg, _ := providers.Load()
-	login, _ := providers.CopilotLogin(reg)
+	login, _ := copilotPinLoginErr()
 	return login
+}
+
+// copilotPinLoginErr is copilotPinLogin plus the providers.Load error it would swallow.
+func copilotPinLoginErr() (string, error) {
+	reg, err := providers.Load()
+	login, _ := providers.CopilotLogin(reg)
+	return login, err
 }
 
 // copilotAuthSource (no network): the pinned profile's gh login, a stored token, gh's active account, then
 // copilot's own order (env token, its stored login) when gh holds no account.
 func copilotAuthSource() (CopilotAuth, bool) {
-	if pin := copilotPinLogin(); pin != "" { // a pinned profile with no login falls through to gh's active account
+	a, ok, _ := copilotAuthSourceErr()
+	return a, ok
+}
+
+// copilotAuthSourceErr is copilotAuthSource plus the registry load error; a load error still falls through to gh.
+func copilotAuthSourceErr() (CopilotAuth, bool, error) {
+	pin, loadErr := copilotPinLoginErr()
+	a, ok := authSourceFor(pin)
+	return a, ok, loadErr
+}
+
+// authSourceFor resolves the source for the pinned GitHub login pin ("" = unpinned).
+func authSourceFor(pin string) (CopilotAuth, bool) {
+	if pin != "" { // a pinned profile with no login falls through to gh's active account
 		if slices.Contains(GHAccounts(), pin) {
 			return CopilotAuth{Account: pin, Source: srcPinned}, true
 		}
@@ -211,7 +232,11 @@ var ghActiveTokenCache struct {
 	sync.Mutex
 	key            ghActiveTokenKey
 	account, token string
+	failedAt       time.Time // when `gh auth token` last failed under key; skips a retry for authMemoNegativeTTL
 }
+
+// authMemoNegativeTTL is how long a failed gh lookup is remembered, so a later `gh auth login` is still seen.
+const authMemoNegativeTTL = 30 * time.Second
 
 func ghActiveAccountToken() (account, token string) {
 	dir := os.Getenv("GH_CONFIG_DIR")
@@ -234,6 +259,9 @@ func ghActiveAccountToken() (account, token string) {
 	if ghActiveTokenCache.key == key && ghActiveTokenCache.account != "" {
 		return ghActiveTokenCache.account, ghActiveTokenCache.token
 	}
+	if ghActiveTokenCache.key == key && time.Since(ghActiveTokenCache.failedAt) < authMemoNegativeTTL {
+		return "", ""
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return "", ""
@@ -246,6 +274,8 @@ func ghActiveAccountToken() (account, token string) {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
 	if err != nil {
+		ghActiveTokenCache.key, ghActiveTokenCache.account, ghActiveTokenCache.token = key, "", ""
+		ghActiveTokenCache.failedAt = time.Now()
 		return "", "" // hosts.yml names a user but gh has no usable token for it
 	}
 	// Overrides can make the default token differ from the named account's token; retain the original lookup.
@@ -257,11 +287,48 @@ func ghActiveAccountToken() (account, token string) {
 	}
 	ghActiveTokenCache.key = key
 	ghActiveTokenCache.account, ghActiveTokenCache.token = account, token
+	ghActiveTokenCache.failedAt = time.Time{}
 	return account, token
 }
 
-// GitHubLogin asks api.github.com/user who token belongs to; "" on any failure.
+type authMemoEntry struct {
+	val string
+	at  time.Time
+}
+
+// authMemo remembers lookups for the process; an empty (failed) result is retried after authMemoNegativeTTL.
+type authMemo struct {
+	sync.Mutex
+	m map[string]authMemoEntry
+}
+
+// do returns key's remembered value or runs fn; the lock is held across fn so parallel callers look up once.
+func (c *authMemo) do(key string, fn func() string) string {
+	c.Lock()
+	defer c.Unlock()
+	if e, ok := c.m[key]; ok && (e.val != "" || time.Since(e.at) < authMemoNegativeTTL) {
+		return e.val
+	}
+	if c.m == nil {
+		c.m = map[string]authMemoEntry{}
+	}
+	v := fn()
+	c.m[key] = authMemoEntry{val: v, at: time.Now()}
+	return v
+}
+
+var (
+	gitHubLoginMemo authMemo // keyed by the token's sha256, never the token
+	ghTokenMemo     authMemo // keyed by account plus gh's environment and hosts.yml stamp
+)
+
+// GitHubLogin asks api.github.com/user who token belongs to (memoized per token); "" on any failure.
 func GitHubLogin(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return gitHubLoginMemo.do(hex.EncodeToString(sum[:]), func() string { return fetchGitHubLogin(token) })
+}
+
+func fetchGitHubLogin(token string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
@@ -304,8 +371,22 @@ func GHAccounts() []string {
 	return out
 }
 
-// GHToken is gh's token for one signed-in account (`gh auth token -u`), or "".
+// GHToken is gh's token for one signed-in account (`gh auth token -u`, memoized per account), or "".
 func GHToken(account string) string {
+	dir := os.Getenv("GH_CONFIG_DIR")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config", "gh")
+	}
+	stamp := ""
+	if info, err := os.Stat(filepath.Join(dir, "hosts.yml")); err == nil {
+		stamp = fmt.Sprint(info.Size(), info.ModTime().UnixNano())
+	}
+	key := strings.Join([]string{account, dir, os.Getenv("GH_HOST"), os.Getenv("PATH"), stamp}, "\x00")
+	return ghTokenMemo.do(key, func() string { return fetchGHToken(account) })
+}
+
+func fetchGHToken(account string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token", "-u", account).Output()
@@ -338,4 +419,24 @@ func copilotToken(a CopilotAuth) (tok, how string) {
 		}
 	}
 	return tok, how
+}
+
+// AuthStatus is copilotAuthSource, offline: a token-only source leaves Account for Plan's lookup.
+func (copilotEngine) AuthStatus() providers.AuthState {
+	a, ok, err := copilotAuthSourceErr()
+	if !ok {
+		return providers.AuthState{Err: err}
+	}
+	return providers.AuthState{Present: true, Account: a.Account, Source: a.Source, Method: copilotMethod(a.Source), Err: err}
+}
+
+// copilotMethod: only copilot's own stored login has a sign-in to re-run; gh and pasted tokens are PATs.
+func copilotMethod(src string) string {
+	switch src {
+	case srcCopilot:
+		return providers.AuthCLI
+	case srcPinned, srcActive, SrcStoredToken:
+		return providers.AuthPAT
+	}
+	return providers.AuthKey
 }
