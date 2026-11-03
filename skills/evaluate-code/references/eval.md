@@ -27,7 +27,7 @@ done; done; done
 
 Invoke the Workflow tool by name:
 `Workflow({name: "code-evaluator", args: {base: "<BASE>",
-skill: "<SKILL.md or brief under test>", scenarios: ["s2","s9","s13","s14"], seeds: 2, model: "haiku"}})`.
+skill: "<SKILL.md or brief under test>", scenarios: ["s2","s9","s13","s14"], seeds: 2, steps: {run: {model: "haiku"}}}})`.
 `args.skill` must point at a `SKILL.md` inside a **full copy** of the skill directory — the relative
 `references/` links in problem-solving resolve from the SKILL.md's own directory, and a bare copy of just
 the SKILL.md file breaks every one of them.
