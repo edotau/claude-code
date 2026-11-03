@@ -368,7 +368,11 @@ func copilotFallback(chain []copilot.RouteStep) string {
 	var rest []string
 	for _, s := range chain[first+1:] {
 		if s.OK {
-			rest = append(rest, s.Label+" ("+s.When+")")
+			label := s.Label
+			if s.When != "fallback" { // a plain fallback step needs no note; a conditional one says when
+				label += " (" + s.When + ")"
+			}
+			rest = append(rest, label)
 		}
 	}
 	return strings.Join(rest, " → ")
