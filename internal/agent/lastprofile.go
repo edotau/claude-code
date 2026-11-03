@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -56,12 +57,25 @@ func migrateLastProfile(from int, raw []byte) ([]byte, error) {
 
 func lastProfileFile() string { return filepath.Join(paths.StateDir(), "last-profile.json") }
 
+// workspaceKeys memoizes workspaceKey per cwd, so a launch spawns git at most once per directory.
+var workspaceKeys sync.Map
+
 // workspaceKey is the git repo root of the cwd, else the cwd.
 func workspaceKey() string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
+	if k, ok := workspaceKeys.Load(cwd); ok {
+		return k.(string)
+	}
+	k := gitTopOr(cwd)
+	workspaceKeys.Store(cwd, k)
+	return k
+}
+
+// gitTopOr is cwd's git repo root, else cwd.
+func gitTopOr(cwd string) string {
 	if out, err := exec.CommandContext(context.Background(), "git", "-C", cwd, "rev-parse", "--show-toplevel").Output(); err == nil {
 		if top := strings.TrimSpace(string(out)); top != "" {
 			return top
@@ -95,7 +109,7 @@ func lastProfile(reg *providers.Registry, agentName string) string {
 
 // withLastProfile fills an unset --profile of an agent CLI launch from this workspace's last-used profile (before its pin).
 func withLastProfile(name string, o LaunchOptions) LaunchOptions {
-	if o.Provider != "" || AgentPins()[name].Off || (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") {
+	if o.Provider != "" || (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") || !AgentActive(name) {
 		return o
 	}
 	if reg, err := providers.Load(); err == nil {
