@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/batch"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -65,23 +64,11 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
+	bo := batch.Opts{Jobs: o.jobs, FailFast: o.failFast, Agent: o.agent, Fallback: o.fallback, Native: o.native}
 	if as := fs.Lookup("as"); as != nil {
-		ctx = providers.WithIdentity(ctx, as.Value.String())
+		bo.Identity = as.Value.String()
 	}
-	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
-	timeoutSet := flagExplicit(fs, "timeout")
-	seen := map[string]bool{}
-	tasks := make([]batch.BatchTask, 0, len(lines))
-	for _, l := range lines {
-		t, err := batchTask(l, o, base, timeoutSet, cwd, seen)
-		if err != nil {
-			t.Err = err
-			fail("ask: %v", err)
-		}
-		tasks = append(tasks, t)
-	}
-	id := batch.NewBatchID()
-	ok := batch.RunBatch(ctx, tasks, batch.BatchOptions{ID: id, Jobs: o.jobs, FailFast: o.failFast, Out: os.Stdout, Log: os.Stderr})
+	id, ok := batch.Run(ctx, lines, bo, base, flagExplicit(fs, "timeout"), newClient, os.Stdout)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
 		return 1
@@ -89,22 +76,8 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	return 0
 }
 
-// batchTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
+// batchTask is batch.BuildTask over the cli client.
 func batchTask(l batch.ParsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (batch.BatchTask, error) {
-	t, err := batch.ParseBatchTask(l, o.agent, base, timeoutSet, cwd, seen)
-	if err != nil {
-		return t, err
-	}
-	req := t.Req
-	req.Agent, req.Fallback, req.Native = t.Agent, o.fallback, o.native
-	client := newClient()
-	t.Prepare = func(ctx context.Context) (*agent.Prepared, error) {
-		p, err := client.Prepare(ctx, req, nil)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", l.N, err)
-		}
-		return p, nil
-	}
-	return t, nil
+	return batch.BuildTask(l, batch.Opts{Agent: o.agent, Fallback: o.fallback, Native: o.native}, base, timeoutSet, cwd, seen, newClient)
 }

@@ -80,21 +80,8 @@ func startLive(s *askState, name, format string) int {
 	return 0
 }
 
-var serveLive = live.ServeLive
-
-// runLiveHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.
-func runLiveHolder(rec *agent.Record) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
-	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
-	rec.Request.Launcher = newClient().Launcher // json:"-", so the record loaded from disk has none
-	if err := serveLive(ctx, rec, notify); err != nil {
-		rec.Status, rec.Error = "error", err.Error()
-		_ = rec.Save()
-		return fail("ask --live: %v", err)
-	}
-	return 0
-}
+// runLiveHolder is live.RunHolder over the cli client's launcher.
+func runLiveHolder(rec *agent.Record) int { return live.RunHolder(rec, newClient().Launcher) }
 
 // agentsSendPage is `agents send -h`.
 var agentsSendPage = helptext.Page{
