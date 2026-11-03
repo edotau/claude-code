@@ -9,7 +9,7 @@ export const meta = {
   name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
-    'args (required): {base, skill}; optional: {scenarios: ["s2","s9","s13","s14"], seeds: 2, model: "haiku", conditions: ["control","method"]}. base/pristine/<id> and base/runs/<id>-<cond><seed> must already exist per the setup steps above. Returns {runs, cells}.',
+    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), model ("haiku"), conditions (["control","method"]). RETURNS {runs, cells}. PLANNED: steps {run, judge}.',
   phases: [{ title: 'Execute' }, { title: 'Judge' }],
 }
 

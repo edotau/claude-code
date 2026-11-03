@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-engineer',
   description: 'The house dispatch: parallel Explore intel → implementer → copilot test repair (after impl lands) → scoped gate loop',
   whenToUse:
-    'Any MEDIUM+ code change (CLAUDE.md guideline 3 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, impl → test repair, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, tests? (default true; false skips the copilot test-repair stage), implModel?: "opus" only after a sonnet attempt failed}. Returns status: "blocked" (impl blocked or needs context) | "error" (no gate result) | the gate exit. Works in any repo via cwd. The test agent only repairs existing tests the change broke; the main session owns the live check, then writes new tests. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
+    'USE: a MEDIUM+ code change end to end in one package set: Explore intel, claude implementer, copilot repairs the existing tests, gate loop. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {task, cwd, scope: ["internal/x"]}}). OPTIONAL: packages, gate (auto-detected), maxIterations, tests:false, implModel:"opus" after a failed sonnet try. RETURNS {status: blocked | error | green | stalled | capped}. PLANNED: steps {intel, impl, test, gate}. Details: saved-workflows.md.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
     { title: 'Build', detail: 'implementer (non-test files), then copilot test repair (existing test files only) with the impl result' },
