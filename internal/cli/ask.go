@@ -84,17 +84,8 @@ func runAsk(args []string, resume bool) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *overlayDebug != "" {
-		if err := agent.EnableOverlayDebug(*overlayDebug); err != nil {
-			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay-debug:", err)
-			return 2
-		}
-	}
-	if *overlayPath != "" {
-		if err := agent.EnableOverlay(*overlayPath); err != nil {
-			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay:", err)
-			return 2
-		}
+	if code := askEnableOverlays(*overlayDebug, *overlayPath); code != 0 {
+		return code
 	}
 	fileOv, err := agentconfig.LoadOverlay("")
 	if err != nil {
@@ -129,12 +120,8 @@ func runAsk(args []string, resume bool) int {
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
 			Env: []string(env), OutputSchema: schema, Agents: defs}
-		ov, err := askOverlay(fileOv, env, keepEnv, false)
-		if err != nil {
-			return failAskCode(*format, *name, err, 2)
-		}
-		base = agent.ApplyOverlay(base, ov)
-		return runAskBatch(fs, resume, *batchSrc, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native}, base)
+		return askBatch(fs, resume, *batchSrc, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native},
+			base, fileOv, env, keepEnv, *format, *name)
 	}
 	if helptext.Explicit(fs, "jobs") || helptext.Explicit(fs, "fail-fast") {
 		return failAskCode(*format, *name, errors.New("--jobs and --fail-fast need --batch"), 2)
@@ -167,10 +154,8 @@ func runAsk(args []string, resume bool) int {
 	if err := askOverlayLocal(fileOv, *live, *host); err != nil { // a --retry/--job record may carry a --host
 		return failAskCode(*format, *name, err, 2)
 	}
-	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
-		if schema, err = agent.ResolveOutputSchema(*outputSchema); err != nil {
-			return failAskCode(*format, *name, err, 2)
-		}
+	if schema, err = askRefreshSchema(*outputSchema, schema); err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
 	if *live {
 		return startLive(state, *name, *format)
@@ -201,25 +186,66 @@ func runAsk(args []string, resume bool) int {
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
 		Agent: ref, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
-	ov, err := askOverlay(fileOv, env, keepEnv, *background)
+	return askPrepareAndRun(ctx, fs, req, jobRec, fileOv, env, keepEnv, *as, *format, *name, *background, *native)
+}
+
+// askBatch layers the overlay over base and runs the --batch tasks.
+func askBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions, fileOv agentconfig.Overlay,
+	env envFlag, keepEnv keepEnvFlag, format, name string) int {
+	ov, err := askOverlay(fileOv, env, keepEnv, false)
 	if err != nil {
-		return failAskCode(*format, *name, err, 2)
+		return failAskCode(format, name, err, 2)
+	}
+	return runAskBatch(fs, resume, src, o, agent.ApplyOverlay(base, ov))
+}
+
+// askRefreshSchema re-resolves raw, since a --retry/--job record may carry an already-resolved schema; empty keeps schema.
+func askRefreshSchema(raw, schema string) (string, error) {
+	if raw == "" {
+		return schema, nil
+	}
+	return agent.ResolveOutputSchema(raw)
+}
+
+// askEnableOverlays turns on --overlay-debug and --overlay; it returns the exit code of a failure, else 0.
+func askEnableOverlays(debugPath, overlayPath string) int {
+	if debugPath != "" {
+		if err := agent.EnableOverlayDebug(debugPath); err != nil {
+			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay-debug:", err)
+			return 2
+		}
+	}
+	if overlayPath != "" {
+		if err := agent.EnableOverlay(overlayPath); err != nil {
+			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay:", err)
+			return 2
+		}
+	}
+	return 0
+}
+
+// askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
+func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, fileOv agentconfig.Overlay,
+	env envFlag, keepEnv keepEnvFlag, as, format, name string, background, native bool) int {
+	ov, err := askOverlay(fileOv, env, keepEnv, background)
+	if err != nil {
+		return failAskCode(format, name, err, 2)
 	}
 	req = agent.ApplyOverlay(req, ov)
 	client := newClient()
-	ctx = providers.WithIdentity(ctx, *as)
+	ctx = providers.WithIdentity(ctx, as)
 	prepared, err := client.Prepare(ctx, req, jobRec)
 	if err != nil {
-		return failAskCode(*format, *name, err, prepareExitCode(err))
+		return failAskCode(format, name, err, prepareExitCode(err))
 	}
 	saveErr := prepared.Record.Save()
-	if *background {
+	if background {
 		if saveErr != nil { // the --job child loads this record: without it the job could never start
-			return failAsk(*format, *name, fmt.Errorf("save dispatch record: %w", saveErr))
+			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
 		}
-		return askSpawn(fs, prepared, *native, *format, *name)
+		return askSpawn(fs, prepared, native, format, name)
 	}
-	return runAskAndReport(ctx, client, prepared, jobRec != nil, *format)
+	return runAskAndReport(ctx, client, prepared, jobRec != nil, format)
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.

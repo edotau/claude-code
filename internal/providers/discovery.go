@@ -49,6 +49,56 @@ func DiscoverModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 	if skip != "" {
 		return nil, errors.New(skip)
 	}
+	base, err := discoveryBase(p, source)
+	if err != nil {
+		return nil, err
+	}
+	var out []ModelInfo
+	cursor, cursorKey := "", ""
+	visited := make(map[string]bool)
+	for range 100 {
+		u, err := url.Parse(base)
+		if err != nil {
+			return nil, errors.New("invalid catalog route")
+		}
+		q := u.Query()
+		if cursor != "" {
+			q.Set(cursorKey, cursor)
+		}
+		u.RawQuery = q.Encode()
+		body, err := discoveryGet(ctx, p, u.String(), source)
+		if err != nil {
+			return nil, err
+		}
+		doc, empty, err := decodeCatalogPage(body, source)
+		if err != nil {
+			return nil, err
+		}
+		if empty {
+			return MergePickerModels(nil, out), nil
+		}
+		entries, err := catalogEntries(source, body, doc)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entries...)
+		next, key, err := catalogCursor(source, doc)
+		if err != nil {
+			return nil, err
+		}
+		if next == "" {
+			return MergePickerModels(nil, out), nil
+		}
+		if visited[next] {
+			return nil, errors.New("catalog pagination repeated a cursor")
+		}
+		visited[next], cursor, cursorKey = true, next, key
+	}
+	return nil, errors.New("catalog pagination exceeded 100 pages; no partial catalog saved")
+}
+
+// discoveryBase returns the list URL (without query) for a discovery source.
+func discoveryBase(p *Provider, source string) (string, error) {
 	var base string
 	switch source {
 	case "databricks-serving-endpoints":
@@ -73,123 +123,116 @@ func DiscoverModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 		}
 		base += "/models"
 	default:
-		return nil, errors.New("catalog requires a separate account-specific adapter")
+		return "", errors.New("catalog requires a separate account-specific adapter")
 	}
+	return base, nil
+}
+
+type catalogDoc struct {
+	Data []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+	} `json:"data"`
+	HasMore       bool   `json:"has_more"`
+	LastID        string `json:"last_id"`
+	NextPageToken string `json:"next_page_token"`
+	GeminiNext    string `json:"nextPageToken"`
+	Models        []struct {
+		Name        string   `json:"name"`
+		DisplayName string   `json:"displayName"`
+		Methods     []string `json:"supportedGenerationMethods"`
+	} `json:"models"`
+}
+
+// decodeCatalogPage validates one page; empty reports a bare {} from a source that omits empty arrays.
+func decodeCatalogPage(body []byte, source string) (doc catalogDoc, empty bool, err error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil || fields == nil {
+		return doc, false, errors.New("invalid catalog JSON object")
+	}
+	array := "data"
+	switch source {
+	case "databricks-serving-endpoints":
+		array = "endpoints"
+	case "gemini-models":
+		array = "models"
+	}
+	// Protobuf JSON omits empty repeated fields for Gemini and serving endpoints.
+	if _, ok := fields[array]; !ok && len(fields) == 0 && array != "data" {
+		return doc, true, nil
+	}
+	raw := strings.TrimSpace(string(fields[array]))
+	if len(raw) == 0 || raw[0] != '[' || fields["error"] != nil || fields["error_code"] != nil {
+		return doc, false, errors.New("catalog response missing expected model array or contains an error")
+	}
+	if json.Unmarshal(body, &doc) != nil {
+		return doc, false, errors.New("invalid catalog JSON response")
+	}
+	return doc, false, nil
+}
+
+// catalogEntries converts one decoded page into models for the source.
+func catalogEntries(source string, body []byte, doc catalogDoc) ([]ModelInfo, error) {
 	var out []ModelInfo
-	cursor, cursorKey := "", ""
-	visited := make(map[string]bool)
-	for range 100 {
-		u, err := url.Parse(base)
+	switch source {
+	case "databricks-serving-endpoints":
+		entries, err := decodeServingEndpoints("catalog", body)
 		if err != nil {
-			return nil, errors.New("invalid catalog route")
+			return nil, errors.New("invalid serving endpoints response")
 		}
-		q := u.Query()
-		if cursor != "" {
-			q.Set(cursorKey, cursor)
-		}
-		u.RawQuery = q.Encode()
-		body, err := discoveryGet(ctx, p, u.String(), source)
-		if err != nil {
-			return nil, err
-		}
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(body, &fields) != nil || fields == nil {
-			return nil, errors.New("invalid catalog JSON object")
-		}
-		array := "data"
-		switch source {
-		case "databricks-serving-endpoints":
-			array = "endpoints"
-		case "gemini-models":
-			array = "models"
-		}
-		// Protobuf JSON omits empty repeated fields for Gemini and serving endpoints.
-		if _, ok := fields[array]; !ok && len(fields) == 0 && array != "data" {
-			return MergePickerModels(nil, out), nil
-		}
-		raw := strings.TrimSpace(string(fields[array]))
-		if len(raw) == 0 || raw[0] != '[' || fields["error"] != nil || fields["error_code"] != nil {
-			return nil, errors.New("catalog response missing expected model array or contains an error")
-		}
-		var doc struct {
-			Data []struct {
-				ID          string `json:"id"`
-				DisplayName string `json:"display_name"`
-			} `json:"data"`
-			HasMore       bool   `json:"has_more"`
-			LastID        string `json:"last_id"`
-			NextPageToken string `json:"next_page_token"`
-			GeminiNext    string `json:"nextPageToken"`
-			Models        []struct {
-				Name        string   `json:"name"`
-				DisplayName string   `json:"displayName"`
-				Methods     []string `json:"supportedGenerationMethods"`
-			} `json:"models"`
-		}
-		if json.Unmarshal(body, &doc) != nil {
-			return nil, errors.New("invalid catalog JSON response")
-		}
-		switch source {
-		case "databricks-serving-endpoints":
-			entries, err := decodeServingEndpoints("catalog", body)
-			if err != nil {
-				return nil, errors.New("invalid serving endpoints response")
+		for _, e := range entries {
+			if strings.TrimSpace(e.id) == "" {
+				return nil, errors.New("catalog entry missing model ID")
 			}
-			for _, e := range entries {
-				if strings.TrimSpace(e.id) == "" {
-					return nil, errors.New("catalog entry missing model ID")
-				}
-				out = append(out, ModelInfo{ID: e.id, Name: displayName(e.id), UseCase: models.UseCase(e.id, e.name), Task: e.task, Ready: e.ready})
-			}
-		case "gemini-models":
-			for _, m := range doc.Models {
-				if strings.TrimSpace(strings.TrimPrefix(m.Name, "models/")) == "" {
-					return nil, errors.New("catalog entry missing model ID")
-				}
-				if !slices.Contains(m.Methods, "generateContent") {
-					continue
-				}
-				// generateContent clients take the id without the resource's models/ prefix.
-				id := strings.TrimPrefix(m.Name, "models/")
-				out = append(out, ModelInfo{ID: id, Name: m.DisplayName, UseCase: models.UseCase(id, m.DisplayName)})
-			}
-		default:
-			for _, m := range doc.Data {
-				if strings.TrimSpace(m.ID) == "" {
-					return nil, errors.New("catalog entry missing model ID")
-				}
-				name := m.DisplayName
-				if name == "" {
-					name = displayName(m.ID)
-				}
-				out = append(out, ModelInfo{ID: m.ID, Name: name, UseCase: models.UseCase(m.ID, name), Gateway: source == "databricks-ai-gateway"})
-			}
+			out = append(out, ModelInfo{ID: e.id, Name: displayName(e.id), UseCase: models.UseCase(e.id, e.name), Task: e.task, Ready: e.ready})
 		}
-		next, key := doc.NextPageToken, "page_token"
-		if source == "gemini-models" {
-			next, key = doc.GeminiNext, "pageToken"
-		}
-		if doc.HasMore {
-			next, key = doc.LastID, "after_id"
-			if source == "openai-models" {
-				key = "after"
+	case "gemini-models":
+		for _, m := range doc.Models {
+			if strings.TrimSpace(strings.TrimPrefix(m.Name, "models/")) == "" {
+				return nil, errors.New("catalog entry missing model ID")
 			}
-			if next == "" && len(doc.Data) > 0 {
-				next = doc.Data[len(doc.Data)-1].ID
+			if !slices.Contains(m.Methods, "generateContent") {
+				continue
 			}
-			if next == "" {
-				return nil, errors.New("catalog pagination has no cursor")
+			// generateContent clients take the id without the resource's models/ prefix.
+			id := strings.TrimPrefix(m.Name, "models/")
+			out = append(out, ModelInfo{ID: id, Name: m.DisplayName, UseCase: models.UseCase(id, m.DisplayName)})
+		}
+	default:
+		for _, m := range doc.Data {
+			if strings.TrimSpace(m.ID) == "" {
+				return nil, errors.New("catalog entry missing model ID")
 			}
+			name := m.DisplayName
+			if name == "" {
+				name = displayName(m.ID)
+			}
+			out = append(out, ModelInfo{ID: m.ID, Name: name, UseCase: models.UseCase(m.ID, name), Gateway: source == "databricks-ai-gateway"})
 		}
-		if next == "" {
-			return MergePickerModels(nil, out), nil
-		}
-		if visited[next] {
-			return nil, errors.New("catalog pagination repeated a cursor")
-		}
-		visited[next], cursor, cursorKey = true, next, key
 	}
-	return nil, errors.New("catalog pagination exceeded 100 pages; no partial catalog saved")
+	return out, nil
+}
+
+// catalogCursor returns the next-page cursor and its query key; empty next means the last page.
+func catalogCursor(source string, doc catalogDoc) (next, key string, err error) {
+	next, key = doc.NextPageToken, "page_token"
+	if source == "gemini-models" {
+		next, key = doc.GeminiNext, "pageToken"
+	}
+	if !doc.HasMore {
+		return next, key, nil
+	}
+	next, key = doc.LastID, "after_id"
+	if source == "openai-models" {
+		key = "after"
+	}
+	if next == "" && len(doc.Data) > 0 {
+		next = doc.Data[len(doc.Data)-1].ID
+	}
+	if next == "" {
+		return "", "", errors.New("catalog pagination has no cursor")
+	}
+	return next, key, nil
 }
 
 func discoveryGet(ctx context.Context, p *Provider, u, source string) ([]byte, error) {

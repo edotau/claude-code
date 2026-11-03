@@ -623,13 +623,8 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 		}
 		if i > 0 {
 			reasons = append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err))
-			if notify != nil {
-				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", dispatchLabel(prev), FallbackReason(err), dispatchLabel(disp.Agent), dispatchCell(disp)))
-			}
-			hop := Event{Type: EventRetry, Agent: disp.Agent.Name(),
-				Text: fmt.Sprintf("fallback %s → %s: %s", dispatchLabel(prev), dispatchLabel(disp.Agent), FallbackReason(err))}
-			if serr := sink.Emit(hop); serr != nil {
-				return res, &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: serr}
+			if herr := announceFallback(sink, notify, prev, disp, err); herr != nil {
+				return res, herr
 			}
 		}
 		lreq := dispatchRequest(req, disp, i == 0 && disp.Agent.Name() == c.Want)
@@ -637,54 +632,10 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 		disp = ownLoginActual(disp, lreq)                     // the hop and its quota key name what the agent resolves
 		key := cmp.Or(disp.Account, disp.Agent.Name()+"·own") // own-login dispatches still share one cap and cooldown per agent
 		waitCooldown(ctx, key, DefaultMaxDelay)               // holds nothing
-		panicked := false
-		func() { // the dispatch's scope: fail-fast is decided and a panic caught before the permit is released
-			release, aerr := acquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
-			if aerr != nil {
-				ce := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: aerr}
-				res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
-				hops = append(hops, hopOf(disp, lreq, res, err))
-				return
-			}
-			held := &permit{account: key, release: release,
-				recheck: func() *Error { return cmp.Or(exhaustedSince(disp), authMarkedSince(disp)) }}
-			defer func() {
-				if r := recover(); r != nil {
-					if ctx.Value(limiterKey{}) == nil {
-						held.release()
-						panic(r)
-					}
-					pe := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
-					res, err = Result{Agent: pe.Agent, Status: StatusError, Invoked: lreq.Model}, pe
-					hops = append(hops, hopOf(disp, lreq, res, err))
-					panicked = true
-				}
-				if panicked {
-					tripFailFast(ctx, Chain{}, 0, req, res, err) // a panic is terminal: no later dispatch repeats its side effects
-				} else {
-					tripFailFast(ctx, c, i, req, res, err)
-				}
-				held.release()
-			}()
-			// another task may have marked this account dead while this dispatch waited for its permit
-			if skip := cmp.Or(exhaustedSince(disp), authMarkedSince(disp)); skip != nil {
-				res, err = Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
-				hops = append(hops, hopOf(disp, lreq, res, err))
-				return
-			}
-			res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), disp.Agent, lreq, sink, notify)
-			res.Invoked = lreq.Model
-			if next := retryModel(disp, lreq, err); next != "" { // once: the same agent on the next pool model
-				hops = append(hops, hopOf(disp, lreq, res, err))
-				lreq.Model = next
-				res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), disp.Agent, lreq, sink, notify)
-				res.Invoked = lreq.Model
-			}
-			hops = append(hops, hopOf(disp, lreq, res, err))
-			noteQuota(disp, err)
-			noteAuth(disp, err)
-			noteStall(disp, err)
-		}()
+		var dhops []Hop
+		var panicked bool
+		res, dhops, panicked, err = runDispatch(ctx, c, i, disp, lreq, req, key, sink, notify)
+		hops = append(hops, dhops...)
 		if res.Handoff != handoff {
 			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
 		}
@@ -699,14 +650,82 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 			break
 		}
 	}
+	res, err = chainOutcome(c, res, err, reasons, prevDispatch, ran, stopped)
+	res.Handoff, res.Hops = handoff, hops
+	return res, err
+}
+
+// chainOutcome folds every failed hop into err and marks res as a fallback when a different agent or route answered.
+func chainOutcome(c Chain, res Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (Result, error) {
 	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	if ran > 0 || c.Dispatches[ran].otherRoute || c.Dispatches[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
-	res.Handoff, res.Hops = handoff, hops
 	return res, err
+}
+
+// announceFallback tells notify and the sink that disp takes over from prev after err.
+func announceFallback(sink Sink, notify func(string), prev Engine, disp Dispatch, err error) *Error {
+	if notify != nil {
+		notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", dispatchLabel(prev), FallbackReason(err), dispatchLabel(disp.Agent), dispatchCell(disp)))
+	}
+	hop := Event{Type: EventRetry, Agent: disp.Agent.Name(),
+		Text: fmt.Sprintf("fallback %s → %s: %s", dispatchLabel(prev), dispatchLabel(disp.Agent), FallbackReason(err))}
+	if serr := sink.Emit(hop); serr != nil {
+		return &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: serr}
+	}
+	return nil
+}
+
+// runDispatch is one dispatch's scope: fail-fast is decided and a panic caught before the permit is released.
+func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, sink Sink, notify func(string)) (res Result, hops []Hop, panicked bool, err error) {
+	release, aerr := acquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
+	if aerr != nil {
+		ce := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: aerr}
+		res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
+		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
+	}
+	held := &permit{account: key, release: release,
+		recheck: func() *Error { return cmp.Or(exhaustedSince(disp), authMarkedSince(disp)) }}
+	defer func() {
+		if r := recover(); r != nil {
+			if ctx.Value(limiterKey{}) == nil {
+				held.release()
+				panic(r)
+			}
+			pe := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
+			res, err = Result{Agent: pe.Agent, Status: StatusError, Invoked: lreq.Model}, pe
+			hops = append(hops, hopOf(disp, lreq, res, err))
+			panicked = true
+		}
+		if panicked {
+			tripFailFast(ctx, Chain{}, 0, req, res, err) // a panic is terminal: no later dispatch repeats its side effects
+		} else {
+			tripFailFast(ctx, c, i, req, res, err)
+		}
+		held.release()
+	}()
+	// another task may have marked this account dead while this dispatch waited for its permit
+	if skip := cmp.Or(exhaustedSince(disp), authMarkedSince(disp)); skip != nil {
+		res, err = Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
+		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
+	}
+	runCtx := context.WithValue(withCoolKey(ctx, key), permitKey{}, held)
+	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
+	res.Invoked = lreq.Model
+	if next := retryModel(disp, lreq, err); next != "" { // once: the same agent on the next pool model
+		hops = append(hops, hopOf(disp, lreq, res, err))
+		lreq.Model = next
+		res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
+		res.Invoked = lreq.Model
+	}
+	hops = append(hops, hopOf(disp, lreq, res, err))
+	noteQuota(disp, err)
+	noteAuth(disp, err)
+	noteStall(disp, err)
+	return res, hops, false, err
 }
 
 // promptFromHandoff is the prompt carrying the hand-off doc's progress, else prompt when there is none to read.

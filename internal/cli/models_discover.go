@@ -83,21 +83,25 @@ func cmdModelsDiscover(args []string) int {
 			return fail("models discover: cannot write JSON")
 		}
 	} else {
-		for _, r := range results {
-			fmt.Printf("%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, r.Source, r.Discovered, len(r.Additions))
-			for _, m := range r.Additions {
-				fmt.Printf("  + %s\n", m.ID)
-			}
-			if len(r.Destinations) > 0 {
-				fmt.Printf("  destinations: %v\n", r.Destinations)
-			}
-			if r.Note != "" {
-				fmt.Printf("  %s\n", r.Note)
-			}
-		}
-		fmt.Println("Saved entries are append-only choices, not current availability or inference proof. Native vendor catalogs are unchanged.")
+		printDiscoverText(results)
 	}
 	return code
+}
+
+func printDiscoverText(results []discoverResult) {
+	for _, r := range results {
+		fmt.Printf("%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, r.Source, r.Discovered, len(r.Additions))
+		for _, m := range r.Additions {
+			fmt.Printf("  + %s\n", m.ID)
+		}
+		if len(r.Destinations) > 0 {
+			fmt.Printf("  destinations: %v\n", r.Destinations)
+		}
+		if r.Note != "" {
+			fmt.Printf("  %s\n", r.Note)
+		}
+	}
+	fmt.Println("Saved entries are append-only choices, not current availability or inference proof. Native vendor catalogs are unchanged.")
 }
 
 func discoverPickerProfile(p *providers.Provider, apply bool) discoverResult {

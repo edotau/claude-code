@@ -197,14 +197,8 @@ func pad(s string, w int) string { return s + strings.Repeat(" ", max(0, w-textu
 
 // listLines builds the frame: title, Search line, grouped rows (windowed to fit h-1 lines at cols), blank, footer.
 func listLines(s listState, color bool, cols, h int) []line {
-	var head, body []line
-	if s.spec.Title != "" {
-		head = append(head, line{s.spec.Title, Accent(color, s.spec.Title)})
-	}
-	if s.spec.Search {
-		q := string(s.query)
-		head = append(head, line{"Search: " + q, ansi.Style(color, ansi.Dim, "Search: ") + q})
-	}
+	var body []line
+	head := listHead(s, color)
 	lw, dw := 0, 0 // column widths over every row, so filtering never shifts the columns
 	hasSec := false
 	for _, r := range s.spec.Rows {
@@ -226,44 +220,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 				body = append(body, line{}, line{t, Accent(color, t)}) // a blank line sets each section apart
 			}
 		}
-		if cols > 0 { // clip the status to the row's room (2 = marker prefix, 2 = gap, 2 = "✓ ") so a row never wraps
-			room := cols - 2 - lw - 2 - dw - 2
-			if r.OK {
-				room -= 2
-			}
-			r.Status = table.Truncate(r.Status, max(room, 0))
-		}
-		status := r.Status
-		if r.OK {
-			status = strings.TrimSpace("✓ " + status)
-		}
-		full := strings.TrimRight(pad(r.Label, lw)+"  "+pad(r.Detail, dw)+"  "+status, " ")
-		cells := table.Truncate(full, cols-2) // width <= 0 is unbounded
-		var styled string
-		switch {
-		case i == s.pendRow:
-			styled = ansi.Style(color, ansi.Red, "▸") + " " + ansi.Style(color, ansi.Red+"\x1b[7m", cells)
-		case p == s.cur:
-			styled = AccentMark(color, "▸") + " " + Selected(color, cells)
-		case cells != full: // clipped: print exactly what countLines measured, or the wrap leaves stale frames
-			styled = "  " + cells
-		default:
-			st := ansi.Status(color, r.Status)
-			if r.OK {
-				st = strings.TrimSpace(ansi.Style(color, ansi.Green, "✓") + " " + st)
-			}
-			detail := r.Detail // pad only when a status follows: padding inside the dim escape survives TrimRight
-			if st != "" {
-				detail = pad(r.Detail, dw)
-			}
-			styled = "  " + pad(r.Label, lw)
-			if detail != "" || st != "" {
-				styled += "  " + Muted(color, detail)
-			}
-			if st != "" {
-				styled += "  " + st
-			}
-		}
+		cells, styled := listRow(s, r, i, p, color, cols, lw, dw)
 		if p == s.cur {
 			at = len(body)
 		}
@@ -272,14 +229,74 @@ func listLines(s listState, color bool, cols, h int) []line {
 	if len(s.view) == 0 {
 		body = append(body, line{"  no matches", "  " + ansi.Style(color, ansi.Dim, "no matches")})
 	}
-	foot := line{listFooter(s.spec), ansi.Style(color, ansi.Dim, listFooter(s.spec))}
-	if s.pending >= 0 {
-		p := s.spec.Binds[s.pending].Confirm
-		foot = line{p, ansi.Style(color, ansi.Bold+ansi.Red, p)}
-	}
+	foot := listFootLine(s, color)
 	tail := []line{{"", ""}, foot}
 	body = window(body, max(at, 0), h-1-countLines(head, cols)-countLines(tail, cols), cols)
 	return append(append(head, body...), tail...)
+}
+
+// listHead is the title and Search lines above the rows.
+func listHead(s listState, color bool) []line {
+	var head []line
+	if s.spec.Title != "" {
+		head = append(head, line{s.spec.Title, Accent(color, s.spec.Title)})
+	}
+	if s.spec.Search {
+		q := string(s.query)
+		head = append(head, line{"Search: " + q, ansi.Style(color, ansi.Dim, "Search: ") + q})
+	}
+	return head
+}
+
+// listFootLine is the footer hint, or the pending bind's confirm prompt.
+func listFootLine(s listState, color bool) line {
+	if s.pending >= 0 {
+		p := s.spec.Binds[s.pending].Confirm
+		return line{p, ansi.Style(color, ansi.Bold+ansi.Red, p)}
+	}
+	return line{listFooter(s.spec), ansi.Style(color, ansi.Dim, listFooter(s.spec))}
+}
+
+// listRow renders row r (spec index i, view position p) as its clipped cells and the styled line.
+func listRow(s listState, r ListRow, i, p int, color bool, cols, lw, dw int) (cells, styled string) {
+	if cols > 0 { // clip the status to the row's room (2 = marker prefix, 2 = gap, 2 = "✓ ") so a row never wraps
+		room := cols - 2 - lw - 2 - dw - 2
+		if r.OK {
+			room -= 2
+		}
+		r.Status = table.Truncate(r.Status, max(room, 0))
+	}
+	status := r.Status
+	if r.OK {
+		status = strings.TrimSpace("✓ " + status)
+	}
+	full := strings.TrimRight(pad(r.Label, lw)+"  "+pad(r.Detail, dw)+"  "+status, " ")
+	cells = table.Truncate(full, cols-2) // width <= 0 is unbounded
+	switch {
+	case i == s.pendRow:
+		styled = ansi.Style(color, ansi.Red, "▸") + " " + ansi.Style(color, ansi.Red+"\x1b[7m", cells)
+	case p == s.cur:
+		styled = AccentMark(color, "▸") + " " + Selected(color, cells)
+	case cells != full: // clipped: print exactly what countLines measured, or the wrap leaves stale frames
+		styled = "  " + cells
+	default:
+		st := ansi.Status(color, r.Status)
+		if r.OK {
+			st = strings.TrimSpace(ansi.Style(color, ansi.Green, "✓") + " " + st)
+		}
+		detail := r.Detail // pad only when a status follows: padding inside the dim escape survives TrimRight
+		if st != "" {
+			detail = pad(r.Detail, dw)
+		}
+		styled = "  " + pad(r.Label, lw)
+		if detail != "" || st != "" {
+			styled += "  " + Muted(color, detail)
+		}
+		if st != "" {
+			styled += "  " + st
+		}
+	}
+	return cells, styled
 }
 
 // countLines is how many terminal rows ls occupy at cols columns once long lines wrap.
