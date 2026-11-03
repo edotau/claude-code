@@ -331,20 +331,9 @@ func copilotPinArgv() []string {
 func copilotWire(
 	p *providers.Provider, dialect, base, model string, window int, cred string, routed bool, h *agent.Headless,
 ) ([]string, []string, error) {
-	typ := "openai"
-	if dialect == providers.ProtocolAnthropic {
-		typ = "anthropic"
-	}
-	wire, modelID := "", ""
-	if routed && dialect == providers.ProtocolAnthropic && models.FamilyKind(model) != models.FamilyClaude {
-		w, canonical, ok, why := copilotEndpointWire(p, model)
-		if !ok {
-			return nil, nil, fmt.Errorf("copilot: %s", why)
-		}
-		if w != providers.ProtocolAnthropic { // the router's openai|responses passthrough
-			wire, modelID = w, canonical
-			typ, base = "openai", base+"/"+wire
-		}
+	typ, base, wire, modelID, err := copilotEndpoint(p, dialect, base, model, routed)
+	if err != nil {
+		return nil, nil, err
 	}
 	window, output := copilotCaps(window, model)
 	env := []string{
@@ -367,6 +356,30 @@ func copilotWire(
 		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
 	}
 	return append(env, copilotCredEnv(p, cred)...), copilotArgv(h), nil
+}
+
+// copilotEndpoint picks the BYOK type and base; a non-Claude model on an anthropic dialect takes its openai|responses wire.
+func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed bool) (typ, b, wire, modelID string, err error) {
+	if dialect != providers.ProtocolAnthropic {
+		return "openai", base, "", "", nil
+	}
+	if models.FamilyKind(model) == models.FamilyClaude {
+		return "anthropic", base, "", "", nil
+	}
+	w, canonical, ok, why := copilotEndpointWire(p, model)
+	if !ok {
+		return "", "", "", "", fmt.Errorf("copilot: %s", why)
+	}
+	switch {
+	case w == providers.ProtocolAnthropic:
+		return "anthropic", base, "", "", nil
+	case routed: // the router's openai|responses passthrough
+		return "openai", base + "/" + w, w, canonical, nil
+	}
+	if b, ok = p.Route(w); !ok { // --direct: the profile's own endpoint for that wire
+		return "", "", "", "", fmt.Errorf("copilot: profile %s has no %s route for %s", p.Name, w, model)
+	}
+	return "openai", b, w, "", nil
 }
 
 // copilotCredEnv is the BYOK credential and the provider's extra headers.
