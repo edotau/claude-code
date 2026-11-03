@@ -50,11 +50,14 @@ var overlayFormat = schemas.Register(schemas.Format{
 	New: func() any { return new(Overlay) }, Migrate: schemas.SameShape,
 })
 
-type overlaySrc struct{ set, keep, unset string }
+type overlaySrc struct {
+	set, keep, unset string
+	flag             bool // flags keep today's --env value rules; D5 and D7 bind overlay files only
+}
 
 var (
-	fileSrc     = overlaySrc{"overlay set", "overlay keep", "overlay unset"}
-	flagSrc     = overlaySrc{"--env", "--keep-env", "unset"}
+	fileSrc     = overlaySrc{"overlay set", "overlay keep", "overlay unset", false}
+	flagSrc     = overlaySrc{"--env", "--keep-env", "unset", true}
 	envNameRE   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	secretKeyRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 )
@@ -184,7 +187,7 @@ func (o Overlay) validate(src overlaySrc) error {
 		keep[n] = true
 	}
 	for _, n := range slices.Sorted(maps.Keys(o.Set)) {
-		if err := setRule(n, o.Set[n], keep); err != nil {
+		if err := setRule(n, o.Set[n], keep, src.flag); err != nil {
 			return fmt.Errorf("%s %s: %w", src.set, n, err)
 		}
 	}
@@ -216,7 +219,36 @@ func keepRule(name string) error {
 	return nil
 }
 
-func setRule(name, val string, keep map[string]bool) error {
+// flagSetRule is the --env rule set: name checks only (D6 added), the value is never inspected.
+func flagSetRule(name string) error {
+	up := strings.ToUpper(name)
+	switch {
+	case name == "" || strings.ContainsAny(name, " \t"):
+		return errors.New("want NAME=VALUE")
+	case proc.EnvBlocked(name) || proc.EnvBlocked(up):
+		return errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command")
+	case strings.HasPrefix(up, OverlayVar): // a flag must not point a coworker at another overlay or debug file
+		return errors.New("harness-owned")
+	case strings.HasSuffix(up, "_BASE_URL"):
+		return errBaseURL
+	case flagCredentialName(up):
+		return errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line")
+	}
+	return nil
+}
+
+// flagCredentialName is --env's name-only credential test (today's ValidateEnv): key, token or secret suffix, or AUTH.
+func flagCredentialName(up string) bool {
+	return strings.HasSuffix(up, "_API_KEY") || strings.HasSuffix(up, "_TOKEN") || strings.HasSuffix(up, "_SECRET") ||
+		strings.Contains(up, "AUTH")
+}
+
+var errBaseURL = errors.New("a route endpoint: pick it with --profile; an override would send the route's credential there")
+
+func setRule(name, val string, keep map[string]bool, flag bool) error {
+	if flag {
+		return flagSetRule(name)
+	}
 	up := strings.ToUpper(name)
 	ref, isRef := providers.SecretRefName(name, val)
 	reserved := proc.EnvBlocked(name) || proc.EnvBlocked(up)
@@ -226,7 +258,7 @@ func setRule(name, val string, keep map[string]bool) error {
 	case strings.HasPrefix(up, "HARNESS_") || strings.HasPrefix(name, OverlayVar):
 		return errors.New("harness-owned")
 	case strings.HasSuffix(up, "_BASE_URL"):
-		return errors.New("a route endpoint: pick it with --profile; an override would send the route's credential there")
+		return errBaseURL
 	case reserved && isRef:
 		return errors.New("reserved by the credential scrub: a vault ref cannot replace a route value")
 	case reserved && !keep[name]:
