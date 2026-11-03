@@ -88,7 +88,9 @@ func SaveServed(s Served) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o600)
+	return paths.WithFileLock(path, func() error {
+		return paths.AtomicWrite(path, append(b, '\n'), 0o600)
+	})
 }
 
 // Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.

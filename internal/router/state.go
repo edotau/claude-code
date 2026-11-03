@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -67,27 +68,36 @@ func LoadState() State {
 	return s
 }
 
-// loadState is LoadState plus the decode error; a missing file is empty with no error.
+// loadState is LoadState plus the read or decode error; only a missing file is empty with no error.
 func loadState() (State, error) {
 	raw, err := os.ReadFile(StatePath())
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return State{}, nil
 	}
-	s, err := decodeState(raw)
 	if err != nil {
 		return State{}, err
 	}
-	return s, nil
+	return decodeState(raw)
 }
 
 // Update applies fn to the stored state under the file lock and writes it back (0600); best-effort.
-// A newer-schema document is left untouched and its ErrNewer error returned.
+// A newer-schema document or an unreadable file is left untouched and its error returned; a corrupt one is
+// copied to quota.json.corrupt-<unix> before it is replaced.
 func Update(fn func(State)) error {
 	path := StatePath()
 	return paths.WithFileLock(path, func() error {
 		s, err := loadState()
-		if errors.Is(err, schemas.ErrNewer) {
-			return err
+		if err != nil {
+			if errors.Is(err, schemas.ErrNewer) || !isDecodeErr(err) {
+				return err
+			}
+			raw, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return rerr
+			}
+			if berr := paths.AtomicWrite(fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix()), raw, 0o600); berr != nil {
+				return berr
+			}
 		}
 		fn(s)
 		data, err := json.MarshalIndent(s, "", "  ")
@@ -96,6 +106,12 @@ func Update(fn func(State)) error {
 		}
 		return paths.AtomicWrite(path, data, 0o600)
 	})
+}
+
+// isDecodeErr reports whether err came from decodeState rather than from reading the file.
+func isDecodeErr(err error) bool {
+	var pe *fs.PathError
+	return !errors.As(err, &pe)
 }
 
 // Record stores a fetched window reading for key; an exhaustion remembered from a failure survives a lower read

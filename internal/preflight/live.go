@@ -184,7 +184,7 @@ func Warm(w io.Writer, reg *providers.Registry, now time.Time) {
 	printFixRows(w, Check(reg, now))
 }
 
-// RefreshPinned force re-lists every pinned Databricks profile's endpoints; a registry load failure is the only error.
+// RefreshPinned force re-lists every pinned Databricks profile's endpoints; returns the registry load failure or each profile's listing error.
 func RefreshPinned(ctx context.Context) []error {
 	reg, err := providers.Load()
 	if err != nil {
@@ -262,13 +262,16 @@ func Claim(now time.Time) bool { return ClaimNamed("refresh-attempt", now) }
 // ClaimNamed takes the detached-refresh slot stamped name; false when another attempt started within refreshRetry.
 func ClaimNamed(name string, now time.Time) bool {
 	path := filepath.Join(paths.StateDir(), "preflight", name)
-	if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < refreshRetry {
-		return false
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err == nil {
-		_ = os.WriteFile(path, nil, 0o600) // best effort: an unwritable stamp must not stop the refresh
-	}
-	return true
+	claimed := true
+	err := paths.WithFileLock(path, func() error {
+		if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < refreshRetry {
+			claimed = false
+			return nil
+		}
+		return paths.AtomicWrite(path, nil, 0o600)
+	})
+	_ = err // best effort: an unwritable stamp or lock must not stop the refresh
+	return claimed
 }
 
 // listModels is the live workspace listing; a seam for tests.

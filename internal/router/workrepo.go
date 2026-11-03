@@ -7,9 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
+
+// gitTimeout bounds each git call so a hung one fails closed instead of blocking a pick.
+const gitTimeout = 10 * time.Second
 
 // workRepoMarkers loads the configured work-repo markers (routing.opencode.workRepoMarkers): remote-URL
 // substrings, a host suffix or an owner/org path segment, checked case-insensitively against every
@@ -29,7 +33,9 @@ var gitRemoteURLs = func(dir string) ([]string, error) {
 	if dir == "" {
 		dir = "."
 	}
-	out, err := exec.CommandContext(context.Background(), "git", "-C", dir, "remote", "-v").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "remote", "-v").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +50,9 @@ var gitRemoteURLs = func(dir string) ([]string, error) {
 
 // gitInRepo runs `git rev-parse --git-dir`: only git's "not a git repository" verdict is false; other failures error.
 func gitInRepo(dir string) (bool, error) {
-	cmd := exec.CommandContext(context.Background(), "git", "-C", dir, "rev-parse", "--git-dir")
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--git-dir")
 	cmd.Env = append(os.Environ(), "LC_ALL=C") // pin git's message language for the stderr match
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
