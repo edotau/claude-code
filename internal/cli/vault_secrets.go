@@ -31,8 +31,12 @@ func vaultSetSecret(name string, dryRun bool) int {
 		return fail("vault set: %v", err)
 	}
 	if dryRun {
+		names, err := secretstore.NamesErr()
+		if err != nil {
+			return fail("vault set: %v", err)
+		}
 		verb := "add"
-		if secretstore.Has(name) {
+		if slices.Contains(names, name) {
 			verb = "replace"
 		}
 		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
