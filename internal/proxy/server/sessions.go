@@ -25,6 +25,7 @@ import (
 const (
 	sessionTTL     = 12 * time.Hour  // idle lifetime, renewed per accepted request while the process lives
 	sessionVerify  = 2 * time.Second // how long a liveness check is trusted
+	sessionPersist = time.Hour       // a slid expiry is written to disk once it leads the saved one by this much
 	sessionMax     = 256
 	sessionTokenPf = "cct_"
 )
@@ -35,6 +36,7 @@ type session struct {
 	pid     int
 	start   string
 	expires time.Time
+	saved   time.Time // the expiry last written to disk
 	checked time.Time
 }
 
@@ -83,7 +85,7 @@ func newSessionStore(now func() time.Time) *sessionStore {
 			pruned = true
 			continue
 		}
-		s.m[saved.Hash] = &session{profile: saved.Profile, pid: saved.PID, start: saved.Start, expires: saved.Expires}
+		s.m[saved.Hash] = &session{profile: saved.Profile, pid: saved.PID, start: saved.Start, expires: saved.Expires, saved: saved.Expires}
 	}
 	if pruned {
 		_ = s.saveLocked()
@@ -146,7 +148,7 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 		return "", errors.New("too many live session tokens")
 	}
 	hash := sessionHash(tok)
-	s.m[hash] = &session{profile: profile, pid: pid, start: start, expires: now.Add(sessionTTL), checked: now}
+	s.m[hash] = &session{profile: profile, pid: pid, start: start, expires: now.Add(sessionTTL), saved: now.Add(sessionTTL), checked: now}
 	if err := s.saveLocked(); err != nil {
 		delete(s.m, hash)
 		return "", fmt.Errorf("persist session: %w", err)
@@ -191,8 +193,17 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	if recheck { // only a passed liveness check refreshes the trust window
 		ses.checked = now
 	}
-	ses.expires = now.Add(sessionTTL)
+	s.slideLocked(ses, now)
 	return true
+}
+
+// slideLocked renews ses's TTL and persists the new expiry once it leads the saved one by sessionPersist.
+func (s *sessionStore) slideLocked(ses *session, now time.Time) {
+	ses.expires = now.Add(sessionTTL)
+	if ses.expires.Sub(ses.saved) >= sessionPersist {
+		ses.saved = ses.expires
+		_ = s.saveLocked()
+	}
 }
 
 // count reports live tokens, pruning expired tokens and tokens whose bound process has exited.
@@ -215,7 +226,10 @@ func (s *sessionStore) count() int {
 
 func (s *sessionStore) stillBound(ses *session) bool {
 	start, err := s.procStart(ses.pid)
-	return err == nil && start == ses.start
+	if err != nil {
+		return !errors.Is(err, proc.ErrNoProcess) // a failed probe keeps the token
+	}
+	return start == ses.start
 }
 
 // profileOfPath returns <name> of /p/<name>/..., "" for any other path.
