@@ -1,6 +1,28 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "opus",
+  "outputStyle": "Concise",
+  "switchModelsOnFlag": true,
+  "theme": "auto",
+  "tui": "fullscreen",
+  "prefersReducedMotion": true,
+  "spinnerTipsEnabled": false,
+  "agentPushNotifEnabled": false,
+  "inputNeededNotifEnabled": true,
+  "preferredNotifChannel": "auto",
+  "awaySummaryEnabled": false,
+  "feedbackDrafts": "off",
+  "feedbackSurveyRate": 0,
+  "askUserQuestionTimeout": "10m",
   "cleanupPeriodDays": 30,
+  "autoConnectIde": false,
+  "disableClaudeAiConnectors": true,
+  "useAutoModeDuringPlan": true,
+  "skipWorkflowUsageWarning": true,
+  "idleCompaction": false,
+  "worktree": {
+    "baseRef": "head"
+  },
   "env": {
     "CLAUDE_CODE_SCROLL_SPEED": "1",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
@@ -8,6 +30,7 @@
     "ENABLE_TOOL_SEARCH": "1"
   },
   "permissions": {
+    "defaultMode": "auto",
     "allow": [
       "Edit(*)",
       "Read(*)",
@@ -19,7 +42,12 @@
       "Bash(gofmt -l *)",
       "Bash(systemctl --user is-active *)",
       "Bash(rm -rf /tmp/*)",
-      "Bash(rm -r /tmp/*)"
+      "Bash(rm -r /tmp/*)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(go test *)",
+      "Bash(make lint)",
+      "Bash(make fmt)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -41,7 +69,11 @@
       "Bash(rm -rf * ~*)",
       "Bash(rm -r * ~*)",
       "Bash(git merge)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(rm -rf /*)",
+      "Read(~/.ssh/**)",
+      "Read(**/state/vault.db)",
+      "Read(**/.credentials.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
@@ -54,15 +86,20 @@
       "Bash(pytest)",
       "Bash(npm publish:*)",
       "Bash(npx vitest run)",
-      "Read(~/.ssh/**)",
       "Read(~/.aws/credentials)",
-      "Read(**/state/vault.db)",
-      "Read(**/.credentials.json)"
-    ],
-    "defaultMode": "auto"
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f)",
+      "Bash(git push * -f *)",
+      "Bash(claude-code vault *)",
+      "Bash(go test * ./...*)"
+    ]
   },
-  "model": "opus",
-  "disableClaudeAiConnectors": true,
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
+    "padding": 0
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -200,30 +237,5 @@
         ]
       }
     ]
-  },
-  "worktree": {
-    "baseRef": "head"
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "$HOME/.claude/bin/claude-code theme statusline",
-    "padding": 0
-  },
-  "outputStyle": "Concise",
-  "feedbackSurveyRate": 0,
-  "feedbackDrafts": "off",
-  "spinnerTipsEnabled": false,
-  "awaySummaryEnabled": false,
-  "askUserQuestionTimeout": "10m",
-  "tui": "fullscreen",
-  "prefersReducedMotion": true,
-  "skipWorkflowUsageWarning": true,
-  "theme": "auto",
-  "preferredNotifChannel": "auto",
-  "idleCompaction": false,
-  "switchModelsOnFlag": true,
-  "inputNeededNotifEnabled": true,
-  "agentPushNotifEnabled": false,
-  "useAutoModeDuringPlan": true,
-  "autoConnectIde": false
+  }
 }
