@@ -117,7 +117,7 @@ func MenuCheck(ids []string, all bool, provider string, timeout time.Duration) (
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	results, err = serving.Probe(ctx, p, targets, serving.CheckOptions{Concurrency: 4, Timeout: timeout})
-	if err != nil && results == nil {
+	if err != nil { // an interrupted run is neither cached nor reported as success
 		return nil, nil, err
 	}
 	SortCheckResults(results)

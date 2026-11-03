@@ -155,7 +155,7 @@ func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[
 	return menu
 }
 
-// opencodeRunArgv is opencodeRun exported for the hub agent (internal/agent): one ladder dispatch execs
+// opencodeRunArgv is opencodeRun wrapped in agent.HeadlessLaunch for the hub agent: one ladder dispatch execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
 func opencodeRunArgv(model string, h agent.Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)
@@ -305,10 +305,10 @@ func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) 
 	return id
 }
 
-// opencodeConfigEnv is the env var carrying opencode's inline JSON config.
 // OwnLogin is opencode's own-login profile: the free Zen catalog then the paid ladder, as the old unset pin.
 const OwnLogin = "zen-free"
 
+// opencodeConfigEnv is the env var carrying opencode's inline JSON config.
 const opencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
 
 // opencodeNoModelsFetch skips opencode's startup models.dev fetch; set only when the inline config defines the models.
@@ -322,10 +322,11 @@ func modelsDefined(env []string) []string {
 	return append(env, opencodeNoModelsFetch+"=1")
 }
 
-// mutateOpencodeConfigEnv applies fn to the JSON in each OpencodeConfigEnv entry of env (appending one when absent).
+// mutateOpencodeConfigEnv applies fn to the JSON in each opencodeConfigEnv entry of env (appending one when absent).
 // An unreadable block is an error, or with lenient replaced by an empty config.
 func mutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)) ([]string, error) {
 	found := false
+	env = slices.Clone(env)
 	for i, kv := range env {
 		body, ok := strings.CutPrefix(kv, opencodeConfigEnv+"=")
 		if !ok {
@@ -518,7 +519,7 @@ func (opencodeEngine) RouteDetail() (string, bool) {
 // opencodeSystemAgent is the custom agent whose prompt carries --system-prompt for opencode.
 const opencodeSystemAgent = "harness-system"
 
-// opencodeSystemPrompt defines a primary agent with prompt in OpencodeConfigEnv (merged into any config
+// opencodeSystemPrompt defines a primary agent with prompt in opencodeConfigEnv (merged into any config
 // already there) and selects it with --agent, the one system-prompt channel opencode run has.
 func opencodeSystemPrompt(env, argv []string, prompt string) ([]string, []string) {
 	env, _ = mutateOpencodeConfigEnv(env, true, func(cfg map[string]any) {
@@ -550,13 +551,19 @@ func OpencodeCredID(prefix string) string {
 // vault key as launch env; an error names what is missing. The key value rides env only, never output.
 func opencodeCredential(prefix string) (env []string, err error) {
 	id := OpencodeCredID(prefix)
-	if slices.Contains(OpencodeLogins(), id) {
+	logins, lerr := opencodeLoginsErr()
+	if slices.Contains(logins, id) {
 		return nil, nil
 	}
 	if id == "opencode" {
 		if v, _, ok := secretstore.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
 			return []string{OpencodeAPIKeyEnv + "=" + strings.TrimSpace(v)}, nil
 		}
+	}
+	if lerr != nil { // a failed probe is not "no login": say so rather than sending the user to re-login
+		return nil, fmt.Errorf("opencode logins could not be read: %w", lerr)
+	}
+	if id == "opencode" {
 		return nil, fmt.Errorf("opencode has no opencode login (opencode auth login) and no %s in the vault", OpencodeAPIKeyEnv)
 	}
 	return nil, fmt.Errorf("opencode has no %s login (opencode auth login)", id)
@@ -580,7 +587,7 @@ func OpencodeOwnLoginPresent() bool {
 	_, _, key := opencodeAuthKeys()
 	env := os.Getenv(OpencodeAPIKeyEnv)
 	opencodeMu.Lock()
-	m := ownLogin
+	m, gen := ownLogin, opencodeAuthGen
 	opencodeMu.Unlock()
 	if !m.at.IsZero() && m.key == key && m.env == env && time.Since(m.at) < ownLoginTTL {
 		return m.val
@@ -588,7 +595,9 @@ func OpencodeOwnLoginPresent() bool {
 	_, err := opencodeCredential("opencode-go")
 	m = ownLoginMemo{key: key, env: env, at: time.Now(), val: err == nil}
 	opencodeMu.Lock()
-	ownLogin = m
+	if gen == opencodeAuthGen { // an Invalidate during the vault read must not be overwritten by a stale answer
+		ownLogin = m
+	}
 	opencodeMu.Unlock()
 	return m.val
 }
