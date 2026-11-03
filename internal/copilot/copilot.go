@@ -207,13 +207,6 @@ func (copilotEngine) DescribeRoute(reg *providers.Registry) agent.RouteInfo {
 	return describeCopilotRoute(reg)
 }
 
-func (copilotEngine) LoginStatus() (bool, string) {
-	if a, ok := ResolveCopilotAuth(); ok {
-		return true, a.Label()
-	}
-	return false, ""
-}
-
 func (copilotEngine) Gate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	return copilotGate(reg, t)
 }
@@ -247,14 +240,7 @@ func (copilotEngine) Presence(router.Cell) error {
 	return nil
 }
 
-// LoginPresent stays local to copilot: LoginStatus's label may call api.github.com.
-func (copilotEngine) LoginPresent() bool { return CopilotLoginPresent() }
-
-func (e copilotEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, string) {
-	return e.Verify(ctx)
-}
-
-// Verify keeps CheckLogin's config.json verdict (CopilotStoredLogin), not AuthStatus, so provider rows print as before.
+// Verify is copilot's config.json verdict (CopilotStoredLogin), not AuthStatus, so provider rows print as before.
 func (copilotEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	if l := CopilotStoredLogin(); l != "" {
 		return providers.VerdictOK, "signed in as " + l
@@ -406,12 +392,6 @@ func copilotHeadless(h *agent.Headless) []string {
 		argv = append(argv, "--allow-all-tools")
 	}
 	return argv
-}
-
-// CopilotLoginPresent reports a usable GitHub login: a token env var, the keyring token, copilot's own, or gh's.
-func CopilotLoginPresent() bool {
-	_, ok := copilotAuthSource()
-	return ok
 }
 
 // CopilotCatalog is where `copilot models` lists from: a Databricks row's endpoints, or GitHub's own catalog.

@@ -41,8 +41,6 @@ type Driver interface {
 	FallbackTarget(reg *providers.Registry) (providers.Target, string, bool)
 	// DescribeRoute reports the fallback dispatch the CLI resolves to today.
 	DescribeRoute(reg *providers.Registry) RouteInfo
-	// LoginStatus reports whether the CLI's own login is present and what it is.
-	LoginStatus() (present bool, source string)
 	// PreRoute resolves the target ahead of the session provider; ok reports the CLI decided (err may be ErrOwnLogin).
 	PreRoute(reg *providers.Registry, explicit bool) (t providers.Target, note string, ok bool, err error)
 	// Gate vets a target the session or the caller named, returning the target to run and a notice.
@@ -61,8 +59,6 @@ type Driver interface {
 	Presence(c router.Cell) error
 	// OwnLogin is the headless form of the CLI running on its own stored login.
 	OwnLogin(h Headless) (env, argv []string, err error)
-	// CheckLogin probes the CLI's own sign-in for the provider sign-in rows.
-	CheckLogin(ctx context.Context) (providers.AuthVerdict, string)
 	// Render writes the CLI's config files and reports drift.
 	Render(reg *providers.Registry, sel providers.Selection, home string, o agentrender.RenderOptions, out io.Writer) (bool, error)
 	// ConfigPaths lists the files render writes, for revert.
@@ -102,16 +98,8 @@ func schemaFor(name string) Schema {
 	return Schema{Name: name}
 }
 
-// CheckLogin probes name's own CLI sign-in for the provider sign-in rows.
-func CheckLogin(ctx context.Context, name string) (providers.AuthVerdict, string) {
-	return schemaFor(name).eng().CheckLogin(ctx)
-}
-
 // ProbeTimeout bounds a vendor CLI's login probe; a var so tests stay fast.
 var ProbeTimeout = 8 * time.Second
-
-// LoginStatus reports whether the agent's own login is present and what it is; a row with no engine has none.
-func (s Schema) LoginStatus() (present bool, source string) { return s.eng().LoginStatus() }
 
 // RegistryLaunch is a CLI's native model-registry launch: env to set and unset, argv, args and the token to revoke.
 type RegistryLaunch struct {
@@ -123,15 +111,8 @@ type RegistryLaunch struct {
 // SchemaFor is schemaFor for the vendor packages.
 func SchemaFor(name string) Schema { return schemaFor(name) }
 
-// LoginPresent is LoginStatus's presence bit; an engine whose label is costly (copilot) answers it with LoginPresent.
-func (s Schema) LoginPresent() bool {
-	e := s.eng()
-	if lp, ok := e.(interface{ LoginPresent() bool }); ok {
-		return lp.LoginPresent()
-	}
-	present, _ := e.LoginStatus()
-	return present
-}
+// LoginPresent is the agent's own sign-in presence bit (no network).
+func (s Schema) LoginPresent() bool { return AuthStatus(s.Name).Present }
 
 // WireRoute is the route configure resolved; Target keeps the session model for the [1m] decision.
 type WireRoute struct {
@@ -188,8 +169,6 @@ func (b BaseEngine) DescribeRoute(*providers.Registry) RouteInfo {
 	return RouteInfo{Agent: b.name, Route: RouteNone, Reason: "no fallback chain defined for " + b.name}
 }
 
-func (BaseEngine) LoginStatus() (bool, string) { return false, "" }
-
 func (BaseEngine) PreRoute(*providers.Registry, bool) (providers.Target, string, bool, error) {
 	return providers.Target{}, "", false, nil
 }
@@ -225,10 +204,6 @@ func CheckPrompt(h Headless) error {
 		return errors.New("agents: empty prompt")
 	}
 	return nil
-}
-
-func (b BaseEngine) CheckLogin(context.Context) (providers.AuthVerdict, string) {
-	return providers.VerdictTransient, "unknown sign-in " + b.name
 }
 
 func (BaseEngine) Render(*providers.Registry, providers.Selection, string, agentrender.RenderOptions, io.Writer) (bool, error) {

@@ -115,18 +115,6 @@ func (e codexEngine) FallbackTarget(reg *providers.Registry) (providers.Target, 
 	return providers.Target{}, "", false
 }
 
-func (codexEngine) LoginStatus() (bool, string) {
-	if CodexChatGPTLoginPresent() {
-		return true, "ChatGPT login (codex login)"
-	}
-	return false, ""
-}
-
-// CheckLogin is the Driver form of Verify; W4 deletes it.
-func (e codexEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, string) {
-	return e.Verify(ctx)
-}
-
 // Verify runs `codex login status`; a deadline or a killed process is transient, never "not signed in".
 func (codexEngine) Verify(ctx context.Context) (providers.AuthVerdict, string) {
 	bin, err := paths.AgentBin("codex")

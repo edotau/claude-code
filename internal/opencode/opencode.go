@@ -426,13 +426,6 @@ func (opencodeEngine) DescribeRoute(reg *providers.Registry) agent.RouteInfo {
 	return describeOpenCodeRoute(reg)
 }
 
-func (opencodeEngine) LoginStatus() (bool, string) {
-	if names := OpencodeLogins(); len(names) > 0 {
-		return true, "opencode auth login: " + strings.Join(names, ", ")
-	}
-	return false, ""
-}
-
 var _ agent.Authenticator = opencodeEngine{}
 
 // AuthStatus is opencode's stored `opencode auth login` providers; a failed probe sets Err, never reads as logged out.
