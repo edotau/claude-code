@@ -88,6 +88,7 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 // Plan is a fully resolved launch: exec Binary with Argv under the base env minus Unset plus Set.
 type Plan struct {
 	Binary      string
+	Agent       string // the launched agent, for RecordOverlayDebug at the exec site
 	Argv        []string
 	Set         map[string]string
 	Unset       []string
@@ -286,6 +287,13 @@ func (p Plan) WriteOverlay() error {
 	return paths.AtomicWrite(p.OverlayPath, p.Overlay, 0o600)
 }
 
+// RecordEnv is the env Exec hands the child, recorded to COWORKER_OVERLAY_DEBUG; --print-env calls it as a dry exec.
+func (p Plan) RecordEnv() []string {
+	env := p.Env(os.Environ())
+	RecordOverlayDebug(p.Agent, env)
+	return env
+}
+
 // Exec writes the overlay and replaces this process with the target.
 func (p Plan) Exec() error {
 	if err := p.WriteOverlay(); err != nil {
@@ -295,7 +303,7 @@ func (p Plan) Exec() error {
 	for _, w := range p.Warnings {
 		fmt.Fprintln(os.Stderr, "claude-code: warning:", w)
 	}
-	err := proc.Exec(p.Binary, p.Argv, p.Env(os.Environ()))
+	err := proc.Exec(p.Binary, p.Argv, p.RecordEnv())
 	p.execFailed()
 	return err
 }

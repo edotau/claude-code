@@ -18,6 +18,11 @@ import (
 // OverlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
 const OverlayDebugVar = "COWORKER_OVERLAY_DEBUG"
 
+// OverlayDebugOn reports whether RecordOverlayDebug writes: COWORKER_OVERLAY_DEBUG and its _SALT are both set.
+func OverlayDebugOn() bool {
+	return os.Getenv(OverlayDebugVar) != "" && os.Getenv(OverlayDebugVar+"_SALT") != ""
+}
+
 type overlayDebugRecord struct {
 	Label string            `json:"label"`
 	Agent string            `json:"agent"`
