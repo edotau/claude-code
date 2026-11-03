@@ -22,7 +22,7 @@ func geminiMenu(d *dialog) agentMenu {
 			}
 			return runAgy(d)
 		}},
-		{"Login", "agy · browser sign-in, refreshes the Google session", "", func() bool {
+		{"Login", "browser sign-in (agy)", "", func() bool {
 			return runAgy(d)
 		}},
 	}}

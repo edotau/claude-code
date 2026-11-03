@@ -185,7 +185,7 @@ func codexMenu(d *dialog) agentMenu {
 			st = agentState{mode: modeAPIKey, verified: kt.Provider == nil || configure.KeyVerified(kt.Provider)}
 		}
 	}
-	key := keyRow(d, "codex", "openai", "pay per token · paste to set or rotate OPENAI_API_KEY")
+	key := keyRow(d, "codex", "openai", "pay per token (OPENAI_API_KEY)")
 	ensure := key.run
 	key.run = func() bool {
 		if !ensure() {
@@ -206,10 +206,10 @@ func codexMenu(d *dialog) agentMenu {
 			return signIn(d, "codex", []string{"codex", "login"})
 		}},
 		key,
-		{"Login", "codex login · browser sign-in, refreshes the session", "", func() bool {
+		{"Login", "browser sign-in (codex login)", "", func() bool {
 			return signIn(d, "codex", []string{"codex", "login"})
 		}},
-		{"Settings", "reasoning effort and verbosity · vault preferences", "", func() bool { return runCodexSettings(d) }},
+		{"Settings", "reasoning effort, verbosity", "", func() bool { return runCodexSettings(d) }},
 		{"Models", "discover what " + cmp.Or(pinned, "the pinned profile") + " serves", "", func() bool { return codexModels(d, pinned) }},
 	}}
 }
@@ -298,7 +298,7 @@ func copilotMenu(d *dialog) agentMenu {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
 		copilotKeyRow(d),
-		{"Login", "copilot login · browser device sign-in, refreshes the session", "", func() bool {
+		{"Login", "browser sign-in (copilot login)", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
 		{"User", "the gh account copilot runs as " + Bracket(pinned != "", pinned, "gh active"), "", func() bool {
@@ -444,7 +444,7 @@ func copilotKeyRow(d *dialog) billingRow {
 	env := providers.CopilotTokenEnv
 	_, src, ok := secretstore.Get(env)
 	stored := ok && src != "env"
-	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + Bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
+	return billingRow{modeAPIKey, "GitHub token (" + env + ") " + Bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
 		kt := configure.KeyTarget{Label: "copilot", EnvVar: env, FixCmd: "claude-code vault set " + env}
 		if stored {
 			return ensureKey(d, kt, true)
