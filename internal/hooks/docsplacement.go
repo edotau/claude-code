@@ -112,14 +112,7 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 	if !atRoot && !inDocs {
 		return ExitProceed
 	}
-	// One git spawn per path. A docs/ page the repo COULD own is merely not-yet-added — the project's
-	// business; only a path git refuses to keep (ignored, never tracked) is stranded harness output.
-	if inDocs {
-		if !isIgnored(ctx, root, rel) {
-			return ExitProceed
-		}
-	} else if tracked, err := isTracked(ctx, root, rel); tracked || err != nil || ctx.Err() != nil {
-		// A git error (e.g. a `.git` git itself rejects) fails open: only a clean empty listing blocks.
+	if !stranded(ctx, root, rel, abs, inDocs) {
 		return ExitProceed
 	}
 
@@ -128,6 +121,20 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 		where = dir + ", which this repo gitignores — it vanishes on a fresh clone"
 	}
 	return blockPlacement(stderr, base, where, root)
+}
+
+// stranded: an untracked root file or ignored docs/ page; an existing ignored file is the owner's local doc.
+func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
+	_, statErr := os.Stat(abs)
+	exists := statErr == nil
+	if inDocs {
+		return !exists && isIgnored(ctx, root, rel)
+	}
+	// A git error (e.g. a `.git` git itself rejects) fails open: only a clean empty listing blocks.
+	if tracked, err := isTracked(ctx, root, rel); tracked || err != nil || ctx.Err() != nil {
+		return false
+	}
+	return !exists || !isIgnored(ctx, root, rel)
 }
 
 // blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
