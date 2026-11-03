@@ -1,4 +1,4 @@
-// providers.go — live, account-wide plan quota per provider: GitHub Copilot (every gh login), OpenAI (codex's
+// provider_quotas.go — live, account-wide plan quota per provider: GitHub Copilot (every gh login), OpenAI (codex's
 // ChatGPT sign-in), Google (Antigravity's agy CLI `/usage`). Tokens stay in memory and child env, never printed.
 
 package usage
@@ -146,10 +146,10 @@ func parseCopilot(login string, body []byte) quota {
 		Reset string `json:"quota_reset_date"`
 		Snaps struct {
 			Premium struct {
-				Entitlement float64 `json:"entitlement"`
-				Used        float64 `json:"credits_used"`
-				PctLeft     float64 `json:"percent_remaining"`
-				Unlimited   bool    `json:"unlimited"`
+				Entitlement float64  `json:"entitlement"`
+				Used        float64  `json:"credits_used"`
+				PctLeft     *float64 `json:"percent_remaining"`
+				Unlimited   bool     `json:"unlimited"`
 			} `json:"premium_interactions"`
 		} `json:"quota_snapshots"`
 	}
@@ -168,12 +168,16 @@ func parseCopilot(login string, body []byte) quota {
 		q.Note = "no premium quota reported"
 		return q
 	}
-	q.UsedPct, q.Used, q.Limit = math.Round((100-p.PctLeft)*10)/10, p.Used, p.Entitlement
+	pctLeft := 100 - 100*p.Used/p.Entitlement
+	if p.PctLeft != nil {
+		pctLeft = *p.PctLeft
+	}
+	q.UsedPct, q.Used, q.Limit = math.Round((100-pctLeft)*10)/10, p.Used, p.Entitlement
 	return q
 }
 
-// whamURL is ChatGPT's plan-usage endpoint codex itself polls; a var so tests can point it at httptest.
-var whamURL = "https://chatgpt.com/backend-api/wham/usage"
+// whamURL is ChatGPT's plan-usage endpoint codex itself polls.
+const whamURL = "https://chatgpt.com/backend-api/wham/usage"
 
 // openaiQuotas reads codex's ChatGPT rate-limit windows (5h + weekly).
 func openaiQuotas(ctx context.Context) []quota {
@@ -299,7 +303,7 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 			if show == "used" {
 				detail = fmt.Sprintf("%.0f / %.0f credits", q.Used, q.Limit)
 			} else {
-				detail = fmt.Sprintf("%.0f of %.0f credits left", q.Limit-q.Used, q.Limit)
+				detail = fmt.Sprintf("%.0f of %.0f credits left", max(q.Limit-q.Used, 0), q.Limit)
 			}
 		}
 		rows = append(rows, []string{q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), val, state, dash(q.Resets), detail})

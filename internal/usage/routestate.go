@@ -1,4 +1,4 @@
-// routestate.go — feeds internal/route's quota.json: every fetched account's tightest window, and a targeted
+// routestate.go — feeds internal/router's quota.json: every fetched account's tightest window, and a targeted
 // one-account refresh a pick runs when its entry is stale.
 
 package usage
@@ -45,7 +45,10 @@ func accountKey(q quota) string {
 		return "openai·chatgpt"
 	case "github":
 		if q.Account != "" {
-			reg, _ := providers.Load()
+			reg, err := providers.Load()
+			if err != nil {
+				return "" // an unreadable registry would key the row by raw login; record nothing instead
+			}
 			return "github·" + providers.GithubAccountName(reg, q.Account)
 		}
 	}
@@ -76,7 +79,10 @@ func RefreshAccount(ctx context.Context, key string) bool {
 	case key == "openai·chatgpt":
 		qs = openaiQuotas(ctx)
 	case strings.HasPrefix(key, "github·"):
-		reg, _ := providers.Load()
+		reg, err := providers.Load()
+		if err != nil {
+			return false
+		}
 		qs = []quota{githubQuota(ctx, providers.GithubAccountLogin(reg, strings.TrimPrefix(key, "github·")))}
 	default:
 		return false

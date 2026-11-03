@@ -29,7 +29,7 @@ const (
 )
 
 // budgetCacheTTL is how long a fetched budget stays fresh before `usage` hits the network again.
-var budgetCacheTTL = 5 * time.Minute
+const budgetCacheTTL = 5 * time.Minute
 
 // budgetCache is state/harness/usage/gateway-budget.json: the rows `usage` fetched, read by the status line without I/O to the network.
 type budgetCache struct {
@@ -99,15 +99,22 @@ func withTokenExpiry(rows []quota, profile string) []quota {
 	return rows
 }
 
-// budgetQuotas serves the cache while fresh, else fetches; an unavailable endpoint (404/403/network) yields no rows.
+// errBudgetAbsent is a 404 or 403: the workspace has no budget endpoint, which is normal and shows nothing.
+var errBudgetAbsent = errors.New("budget endpoint absent")
+
+// budgetQuotas serves the cache while fresh, else fetches; a missing or forbidden endpoint (404/403) yields no rows, any other
+// failure one note row so an exceeded budget is never silently absent.
 func budgetQuotas(ctx context.Context, p *providers.Provider, now time.Time) []quota {
 	path := budgetCachePath()
 	if c := readBudgetCache(path); c != nil && c.Profile == p.Name && now.Sub(c.FetchedAt) < budgetCacheTTL {
 		return c.Rows
 	}
 	rows, err := fetchBudgetRows(ctx, p)
-	if err != nil {
+	if errors.Is(err, errBudgetAbsent) {
 		return nil
+	}
+	if err != nil {
+		return []quota{{Provider: "databricks", Account: p.Name, Note: "unavailable: budget " + commandErrorLine(nil, err)}}
 	}
 	writeBudgetCache(path, budgetCache{FetchedAt: now, Profile: p.Name, Rows: rows})
 	return rows
@@ -132,7 +139,7 @@ func fetchBudgetRows(ctx context.Context, p *providers.Provider) ([]quota, error
 	}
 	var rows []quota
 	token := ""
-	for range budgetMaxPages {
+	for page := 1; page <= budgetMaxPages; page++ {
 		u := host + "/api/ai-gateway/v2/budget-spend-statuses?page_size=" + strconv.Itoa(budgetPageSize)
 		if token != "" {
 			u += "&page_token=" + url.QueryEscape(token)
@@ -149,6 +156,9 @@ func fetchBudgetRows(ctx context.Context, p *providers.Provider) ([]quota, error
 		}
 		if token = doc.Next; token == "" {
 			break
+		}
+		if page == budgetMaxPages {
+			rows = append(rows, quota{Provider: "databricks", Account: p.Name, Note: "budget list truncated at page cap"})
 		}
 	}
 	return rows, nil
@@ -168,6 +178,9 @@ func budgetGet(ctx context.Context, p *providers.Provider, u string, into any) e
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
+		return errBudgetAbsent
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("budget statuses: %s", resp.Status)
 	}
