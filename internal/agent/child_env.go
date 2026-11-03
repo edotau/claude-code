@@ -85,23 +85,6 @@ func (s EnvSpec) dropper(ctx context.Context) func(string) bool {
 	return func(kv string) bool { n, _, _ := strings.Cut(kv, "="); return drop[n] }
 }
 
-// BlankForeignCredentials adds NAME= for each foreign credential in the process env that env (the launch's own
-// values) does not set, for a child (the Copilot SDK) that merges os.Environ itself and applies env last.
-func BlankForeignCredentials(ctx context.Context, env, keepEnv []string) []string {
-	kept := map[string]bool{}
-	for _, kv := range scrubIsolated(ctx, os.Environ(), keepEnv) {
-		kept[kv] = true
-	}
-	owned := envNames(env)
-	out := slices.Clone(env)
-	for _, kv := range os.Environ() {
-		if name, _, _ := strings.Cut(kv, "="); !kept[kv] && !slices.Contains(owned, name) {
-			out = append(out, name+"=")
-		}
-	}
-	return out
-}
-
 // scrubIsolated drops other profiles' credentials from the INHERITED env under batch isolation; an own-login hop (no
 // profile) keeps no profile's credentials. Launch-owned values are appended after this, so they are never scrubbed.
 func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
