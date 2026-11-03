@@ -417,3 +417,18 @@ func copilotMethod(src string) string {
 	}
 	return providers.AuthKey
 }
+
+// ShortSource names where an AuthState.Source credential lives, for a menu value: "stored token", "gh active".
+func ShortSource(src string) string {
+	switch src {
+	case SrcStoredToken:
+		return "stored token"
+	case srcPinned:
+		return "gh pinned"
+	case srcActive:
+		return "gh active"
+	case srcCopilot:
+		return "copilot login"
+	}
+	return "$" + src
+}

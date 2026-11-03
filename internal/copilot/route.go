@@ -100,3 +100,38 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	}
 	return detail
 }
+
+// RouteStep is one link of copilot's route chain: what it runs on, when it applies, and whether it is usable now.
+type RouteStep struct {
+	Label, When string
+	OK          bool
+}
+
+// RouteChain is copilot's routes in describeCopilotRoute's try order, offline (no credit lookup).
+func RouteChain(reg *providers.Registry) []RouteStep {
+	if reg == nil {
+		return nil
+	}
+	var steps []RouteStep
+	pin := vault.GetAgentRecord("copilot").Profile
+	if p := reg.Providers[pin]; p != nil && p.Preset == providers.PresetDatabricks {
+		steps = append(steps, RouteStep{Label: "databricks-" + pin, When: "pinned", OK: agent.DatabricksUsable(p)})
+	}
+	a, ok := copilotAuthSource()
+	gh := "GitHub"
+	if a.Account != "" {
+		gh += " " + a.Account
+	}
+	steps = append(steps, RouteStep{Label: gh, When: fmt.Sprintf("under %.0f%% of credits", copilotWorkablePct), OK: ok})
+	for _, name := range append([]string{cmp.Or(providers.SessionProfile(), vault.GetAgentRecord("claude").Profile)},
+		providers.DatabricksProfiles(reg)...) {
+		if p := reg.Providers[name]; name != pin && agent.DatabricksUsable(p) {
+			steps = append(steps, RouteStep{Label: "databricks-" + name, When: "fallback", OK: true})
+			break
+		}
+	}
+	if p, ok := agent.KeyProvider(reg, "anthropic"); ok {
+		steps = append(steps, RouteStep{Label: "ANTHROPIC_API_KEY", When: "BYOK", OK: providers.CredentialPresent(p)})
+	}
+	return steps
+}
