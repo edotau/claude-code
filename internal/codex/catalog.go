@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -124,6 +125,7 @@ func runCodexCatalog(bin, home string, args ...string) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(), "CODEX_HOME="+home)
+	agent.RecordOverlayDebug("codex-catalog", cmd.Env)
 	cmd.Dir = home
 	return cmd.Output()
 }

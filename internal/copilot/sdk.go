@@ -17,6 +17,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -78,6 +79,11 @@ func BuildClientOptions(o SDKOptions) (*copilot.ClientOptions, error) {
 	if o.ReadOnlyTools { // applied last so neither the parent's env nor --env can re-arm a git helper
 		env = registryEnv(env, readOnlyGitEnv, nil, "GIT_")
 	}
+	recorded := env
+	if o.GitHubToken != "" { // the SDK sets it on the child itself (copilot-sdk client.go:2282)
+		recorded = append(slices.Clone(env), "COPILOT_SDK_AUTH_TOKEN="+o.GitHubToken)
+	}
+	agent.RecordOverlayDebug("copilot", recorded)
 	return &copilot.ClientOptions{
 		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: env},
 		WorkingDirectory: o.WorkingDirectory,

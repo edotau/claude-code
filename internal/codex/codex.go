@@ -84,6 +84,7 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 		return agent.RunStream(ctx, e.Name(), cmd, tail, res, sink, parseCodexStream)
 	}
 	cmd.Stdout = agent.TeeWriter(ctx, io.MultiWriter(agent.SinkWriter(sink), &answer))
+	agent.RecordOverlayDebug(e.Name(), cmd.Env)
 	err = cmd.Run()
 	res.Answer = strings.TrimSpace(answer.String())
 	if id := sessionFromBanner(banner.String()); id != "" {
