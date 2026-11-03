@@ -1,59 +1,19 @@
 package worktree
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
-)
 
-var (
-	repoSeq    atomic.Int64
-	tmplOnce   sync.Once
-	tmplDir    string
-	tmplDirErr error
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
-
-// templateRepo builds one init-committed repo per test binary; gitRepo copies it instead of spawning git twice.
-func templateRepo(t *testing.T) string {
-	t.Helper()
-	tmplOnce.Do(func() {
-		tmplDir, tmplDirErr = os.MkdirTemp("", "worktree-tmpl-")
-		if tmplDirErr != nil {
-			return
-		}
-		for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "--allow-empty", "-q", "-m", "init"}} {
-			cmd := exec.Command("git", args...)
-			cmd.Dir = tmplDir
-			cmd.Env = gitEnv("GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				tmplDirErr = fmt.Errorf("git %v: %v: %s", args, err, out)
-				return
-			}
-		}
-	})
-	if tmplDirErr != nil {
-		t.Fatal(tmplDirErr)
-	}
-	return tmplDir
-}
 
 // gitRepo makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	// A globally unique basename: lease/operation slugs key on it, and every TempDir child is "001".
-	dir := filepath.Join(t.TempDir(), fmt.Sprintf("repo%d", repoSeq.Add(1)))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command("cp", "-a", templateRepo(t)+"/.", dir).CombinedOutput(); err != nil {
-		t.Fatalf("copy template repo: %v %s", err, out)
-	}
-	dir, err := canonical(dir)
+	dir, err := canonical(gittest.Repo(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +155,28 @@ func TestResolveWorktreeSymlinkAtDestination(t *testing.T) {
 	}
 	if _, err := ResolveWorktree(repo, "link"); err == nil {
 		t.Fatal("want error for a symlink at the destination")
+	}
+}
+
+func TestCleanAtRefusesSymlinkedDest(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "keep"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(repo.Root, "swapped")
+	if err := os.Symlink(target, dest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cleanAt(repo, "swapped", dest, false, nil); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("cleanAt on a symlinked dest: err = %v, want a symlink refusal", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "keep")); err != nil {
+		t.Fatalf("symlink target was touched: %v", err)
 	}
 }
 

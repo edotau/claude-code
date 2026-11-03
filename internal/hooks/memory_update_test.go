@@ -27,6 +27,7 @@ import (
 // TestMain stubs the detached dream spawn so no SessionStart test launches a real process.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
 	spawnDream = func(string) bool { return true }
 	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }

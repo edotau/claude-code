@@ -177,9 +177,12 @@ func TestInUseByRealProcess(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	origSettle := inUseSettle
+	stubbedIn, stubbedUp, stubbedScan, origSettle := processesIn, parentOf, scanProcs, inUseSettle
+	if platformScan.in != nil { // TestMain stubbed the scan; this test needs the OS one
+		processesIn, parentOf, scanProcs = platformScan.in, platformScan.up, platformScan.procs
+	}
 	inUseSettle = 0 // the sleep never exits on its own; refuse on the first look
-	t.Cleanup(func() { inUseSettle = origSettle })
+	t.Cleanup(func() { processesIn, parentOf, scanProcs, inUseSettle = stubbedIn, stubbedUp, stubbedScan, origSettle })
 	main := gitRepo(t)
 	repo, err := ResolveRepo(main)
 	if err != nil {

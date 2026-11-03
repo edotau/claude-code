@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -121,7 +122,7 @@ func create(path string) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	db, err := bbolt.Open(tmp, 0600, nil)
+	db, err := bbolt.Open(tmp, 0600, &bbolt.Options{NoSync: noSync.Load()})
 	if err != nil {
 		return err
 	}
@@ -150,13 +151,19 @@ func create(path string) error {
 	return err
 }
 
+// noSync skips fsync on commit; only tests turn it on via DisableSyncForTests.
+var noSync atomic.Bool
+
+// DisableSyncForTests makes commits skip fsync, which is slow on darwin.
+func DisableSyncForTests() { noSync.Store(true) }
+
 func Update(fn func(*Tx) error) error {
 	path := Path()
 	if err := create(path); err != nil {
 		return err
 	}
 	tightenMode(path)
-	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: writeLockTimeout})
+	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: writeLockTimeout, NoSync: noSync.Load()})
 	if err != nil {
 		return err
 	}

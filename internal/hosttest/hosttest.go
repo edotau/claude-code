@@ -76,6 +76,13 @@ func Setup() (cleanup func()) {
 	} {
 		_ = os.Setenv(k, v)
 	}
+	for k, v := range map[string]string{ // git skips system/global config, prompts, optional locks and auto maintenance
+		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull, "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0",
+		"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "maintenance.auto", "GIT_CONFIG_VALUE_0": "false",
+		"GIT_CONFIG_KEY_1": "gc.auto", "GIT_CONFIG_VALUE_1": "0",
+	} {
+		_ = os.Setenv(k, v)
+	}
 	_ = os.Setenv(activeEnv, root)
 	return func() { _ = os.RemoveAll(root) }
 }

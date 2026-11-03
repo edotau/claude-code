@@ -28,6 +28,22 @@ var inUseSettle = time.Second
 // parentOf returns pid's parent pid, used only to exclude the calling process's own ancestry below.
 var parentOf func(pid int) (int, error)
 
+// platformScan holds the OS implementations StubProcessScanForTest replaced, so a real-process test can restore them.
+var platformScan struct {
+	in    func(string) ([]Proc, error)
+	up    func(int) (int, error)
+	procs func() ([]procCwd, error)
+}
+
+// StubProcessScanForTest makes the system-wide process scan (lsof, ps) report nothing for a whole test binary
+// (call from TestMain); the caller's own cwd check in InUseBy stays real.
+func StubProcessScanForTest() {
+	platformScan.in, platformScan.up, platformScan.procs = processesIn, parentOf, scanProcs
+	processesIn = func(string) ([]Proc, error) { return nil, nil }
+	parentOf = func(int) (int, error) { return 0, nil }
+	scanProcs = func() ([]procCwd, error) { return nil, nil }
+}
+
 // InUseBy reports a refusal reason if dest is unsafe to remove right now: the calling process's own
 // cwd is inside it ("cd out first"), or another live process (not the caller or an ancestor) has its
 // cwd inside it ("in use by pid N (<comm>)"). "" means clear. Resolves symlinks on both sides first.
