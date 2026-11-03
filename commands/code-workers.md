@@ -5,8 +5,7 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
 Launcher only. The dispatch shape, gates, and report format live in
-`skills/subagent-workflows/SKILL.md` (`references/dispatching-parallel-agents.md` for parallel,
-`SKILL.md` → Sequential plan for sequential).
+`skills/subagent-workflows/SKILL.md` (Ownership for parallel, Sequential plan for sequential).
 
 `$ARGUMENTS` = `help`: print the Usage block below verbatim and stop.
 

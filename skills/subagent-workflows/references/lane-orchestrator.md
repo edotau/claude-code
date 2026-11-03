@@ -26,24 +26,17 @@ Agents per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
-Bug fixes: reproduce on the real surface first (the live before/after run is the RED). Then run each leaf in the
-background:
+Bug fixes: reproduce on the real surface first (the live before/after run is the RED). Then run the lane's disjoint
+leaves as one batch — one JSONL line per leaf (`id`, `agent`, `model`, `prompt`, `workdir`, `tools`, `timeout`):
 
 ```bash
-mkdir -p /tmp/claude-1000/<lane>; s=$(date +%s)
-claude-code ask --agent <agent> --fallback none --tools --autonomous --attach <lane.md> --timeout 45m \
-  --workdir <worktree> "<brief>" > /tmp/claude-1000/<lane>/<leaf>.out 2>&1
-echo "<leaf> exit=$? wall=$(( $(date +%s)-s ))s" >> /tmp/claude-1000/<lane>/status
+claude-code ask --batch <lane>.jsonl --jobs 12 --fallback none --autonomous --attach <lane.md> --format json \
+  > /tmp/claude-1000/<lane>/batch.out    # one envelope per line; per-account caps and isolation apply
 ```
 
-Wait in one foreground call (≤10 min, repeat):
-`until n=$(grep -c exit= <status> 2>/dev/null); [ "${n:-0}" -ge N ]; do timeout 5 tail -f /dev/null; done`.
-Disjoint leaves run concurrently; overlapping ones wait; test repair runs concurrently with its implementer; new
-tests wait for "landed". A small leaf still running at ~10 min needs a look, not more waiting.
-
-Brief: [prompts.md#lane-leaf](prompts.md#lane-leaf); the attached lane plan carries the context.
-
-A finding outside the leaf's files becomes a new line in this lane (same package) or a note to the manager.
+Overlapping leaves go in a later batch; test repair runs beside its implementer, new tests wait for "landed". Brief per
+line: [prompts.md#lane-leaf](prompts.md#lane-leaf); the attached lane plan carries the context. A finding outside the
+leaf's files becomes a new line in this lane (same package) or a note to the manager.
 
 ## Verify each leaf
 

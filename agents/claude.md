@@ -111,7 +111,6 @@ back to sequential self-contained implementation.
 Dispatch mechanics, concurrency, pattern choice, and per-leaf skill naming are
 `skills/subagent-workflows/`'s job, not restated here:
 `skills/subagent-workflows/SKILL.md` → Sequential plan (sequential plan execution),
-`skills/subagent-workflows/references/dispatching-parallel-agents.md` (independent tasks),
 `skills/subagent-workflows/SKILL.md` (pick the shape),
 `skills/subagent-workflows/references/lane-orchestrator.md` (handed a lane plan). Saved Workflows
 (`code-engineer`, `code-analyzer`, `green-keeper-loop`) run only when the user asks. Concurrency
