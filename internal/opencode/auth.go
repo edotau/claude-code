@@ -56,8 +56,12 @@ var (
 	opencodeAuthKey   string
 	opencodeAuthVal   []OpencodeIntegration
 	opencodeAuthErr   error
+	opencodeAuthAt    time.Time // when a failed probe was stored; it is retried after opencodeAuthRetry
 	opencodeAuthIsSet bool
 )
+
+// opencodeAuthRetry is how long a failed `auth list` is reused, so callers in one menu pass spawn it once.
+const opencodeAuthRetry = 30 * time.Second
 
 // opencodeBinKey identifies the installed opencode binary (path+size+mtime), so a change or upgrade re-probes.
 func opencodeBinKey() string {
@@ -105,12 +109,13 @@ func opencodeMajorLocked(key string) int {
 
 // OpencodeAuth lists opencode's stored logins, sorted by integration ID: 2.x via `opencode auth list --format
 // json --standalone`, 1.x (or unknown version) via auth.json. A failed 2.x call still returns the auth.json data,
-// plus an error describing the failure. Successes are cached per process (and per binary/auth.json state); see InvalidateOpencodeAuth.
+// plus an error. Cached per binary/auth.json state, a failure for opencodeAuthRetry; see InvalidateOpencodeAuth.
 func OpencodeAuth() ([]OpencodeIntegration, error) {
 	bin, file, key := opencodeAuthKeys()
 	opencodeMu.Lock()
 	defer opencodeMu.Unlock()
-	if opencodeAuthIsSet && opencodeAuthKey == key {
+	fresh := opencodeAuthErr == nil || time.Since(opencodeAuthAt) < opencodeAuthRetry
+	if opencodeAuthIsSet && opencodeAuthKey == key && fresh {
 		return opencodeAuthVal, opencodeAuthErr
 	}
 	var ints []OpencodeIntegration
@@ -130,9 +135,7 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 			err = nil
 		}
 	}
-	if err == nil { // a failed probe is not cached: the next call retries rather than pinning the failure
-		opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthIsSet = key, ints, nil, true
-	}
+	opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthAt, opencodeAuthIsSet = key, ints, err, time.Now(), true
 	return ints, err
 }
 
