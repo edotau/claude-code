@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.
@@ -265,11 +266,7 @@ func redactDetail(stderr string) string {
 			words[i] = "REDACTED"
 		}
 	}
-	out := strings.Join(words, " ")
-	if len(out) > 160 {
-		out = out[:160] + "…"
-	}
-	return out
+	return textutil.CapRunes(strings.Join(words, " "), 160, "…")
 }
 
 // CredentialPresent checks configured credential sources without decrypting or running commands.

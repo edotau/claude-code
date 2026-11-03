@@ -53,6 +53,11 @@ func DiscoverModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	return discoverPages(ctx, p, source, base)
+}
+
+// discoverPages walks base's catalog pages (base's own query kept) with a cursor-loop guard and a 100-page cap.
+func discoverPages(ctx context.Context, p *Provider, source, base string) ([]ModelInfo, error) {
 	var out []ModelInfo
 	cursor, cursorKey := "", ""
 	visited := make(map[string]bool)
@@ -162,13 +167,19 @@ func decodeCatalogPage(body []byte, source string) (doc catalogDoc, empty bool, 
 		return doc, true, nil
 	}
 	raw := strings.TrimSpace(string(fields[array]))
-	if len(raw) == 0 || raw[0] != '[' || fields["error"] != nil || fields["error_code"] != nil {
+	if len(raw) == 0 || raw[0] != '[' || jsonSet(fields["error"]) || jsonSet(fields["error_code"]) {
 		return doc, false, errors.New("catalog response missing expected model array or contains an error")
 	}
 	if json.Unmarshal(body, &doc) != nil {
 		return doc, false, errors.New("invalid catalog JSON response")
 	}
 	return doc, false, nil
+}
+
+// jsonSet reports a present, non-null JSON field value.
+func jsonSet(raw json.RawMessage) bool {
+	v := strings.TrimSpace(string(raw))
+	return v != "" && v != "null"
 }
 
 // catalogEntries converts one decoded page into models for the source.

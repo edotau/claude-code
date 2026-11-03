@@ -30,8 +30,7 @@ var ErrNeedsLogin = errors.New("login required")
 
 // LoginRequiredError is a u2m row with no sealed refresh token or one the token endpoint rejected.
 type LoginRequiredError struct {
-	Provider string
-	err      error
+	err error
 }
 
 func (e *LoginRequiredError) Error() string { return e.err.Error() }
@@ -189,8 +188,10 @@ func validateAuthType(n string, p *Provider) []string {
 	return errs
 }
 
-// refreshLockWait bounds how long a refresh waits for another process holding the provider's refresh lock.
-const refreshLockWait = 60 * time.Second
+// refreshLockWait outlasts postToken's worst case (3 × 30s client timeout + backoff), so a follower never times out first.
+const refreshLockWait = 2 * time.Minute
+
+var errRefreshLockTimeout = errors.New("timed out waiting for another refresh to finish")
 
 var lockNameRE = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
@@ -206,7 +207,7 @@ func withRefreshLock(p *Provider, fn func() error) error {
 		return err
 	}
 	if !ran {
-		return fmt.Errorf("%s: timed out waiting for another refresh to finish", p.Name)
+		return fmt.Errorf("%s: %w", p.Name, errRefreshLockTimeout)
 	}
 	return nil
 }
@@ -238,7 +239,7 @@ func userCredential(ctx context.Context, p *Provider, force bool) (string, error
 		// mintAuth re-reads the sealed refresh token, so a rotation by another process is picked up.
 		err := withRefreshLock(p, func() error {
 			if !force {
-				if v, ok := sealedAccess(p); ok {
+				if v, ok := sealedAccess(p, expiryMargin); ok {
 					out = v
 					return finishCredential(p, v, time.Time{})
 				}
@@ -247,6 +248,11 @@ func userCredential(ctx context.Context, p *Provider, force bool) (string, error
 			out = v
 			if err == nil {
 				sealAccess(p, v)
+			} else if !force && Verdict(err) == VerdictTransient {
+				if old, ok := staleAccess(p, err); ok {
+					out = old
+					return nil
+				}
 			}
 			return err
 		})
@@ -308,11 +314,13 @@ func spCredential(ctx context.Context, p *Provider, force bool) (string, error) 
 			f = &flight{done: make(chan struct{}), force: force}
 			spFlights[p.Name] = f
 			spFlightMu.Unlock()
+			defer func() {
+				spFlightMu.Lock()
+				delete(spFlights, p.Name)
+				close(f.done)
+				spFlightMu.Unlock()
+			}()
 			f.val, f.err = mintSP(context.WithoutCancel(ctx), p)
-			spFlightMu.Lock()
-			delete(spFlights, p.Name)
-			close(f.done)
-			spFlightMu.Unlock()
 			return f.val, f.err
 		}
 		spFlightMu.Unlock()
@@ -371,15 +379,26 @@ func finishSPCredential(p *Provider, v string, exp time.Time) error {
 	return nil
 }
 
-// sealedAccess returns the sealed access token when it stays valid past the expiry margin.
-func sealedAccess(p *Provider) (string, bool) {
+// staleAccess rides out a transient refresh failure on the sealed access token for one-minute cache windows.
+func staleAccess(p *Provider, err error) (string, bool) {
+	old, ok := sealedAccess(p, time.Minute)
+	if !ok {
+		return "", false
+	}
+	fmt.Fprintf(os.Stderr, "%s: refresh failed (%s); using the cached token until it expires\n", p.Name, textutil.FirstLine(err.Error()))
+	cmdCache.Store(p.Name, cached{value: old, until: time.Now().Add(time.Minute)})
+	return old, true
+}
+
+// sealedAccess returns the sealed access token when it stays valid past margin.
+func sealedAccess(p *Provider, margin time.Duration) (string, bool) {
 	ov, err := readOAuth(p)
 	v := strings.TrimSpace(ov.Access)
 	if err != nil || v == "" {
 		return "", false
 	}
 	exp, ok := jwtExp(v)
-	if !ok || !time.Unix(exp, 0).Add(-expiryMargin).After(time.Now()) {
+	if !ok || !time.Unix(exp, 0).Add(-margin).After(time.Now()) {
 		return "", false
 	}
 	return v, true
@@ -419,7 +438,7 @@ func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
 	if secret == "" {
 		err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
 		if p.Auth.Type == AuthOAuth {
-			err = &LoginRequiredError{Provider: p.Name, err: err}
+			err = &LoginRequiredError{err: err}
 		}
 		return oauth.Token{}, err
 	}
@@ -437,21 +456,47 @@ func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
 	if err != nil {
 		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login --profile %s`)", p.Name, err, p.Name)
 		if oauth.IsLoginRequired(err) {
-			wrapped = &LoginRequiredError{Provider: p.Name, err: wrapped}
+			wrapped = &LoginRequiredError{err: wrapped}
 		}
 		return oauth.Token{}, wrapped
 	}
-	if tok.Refresh != "" && tok.Refresh != secret {
-		if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
-			return oauth.Token{}, fmt.Errorf("%s: re-seal rotated refresh token: %w", p.Name, err)
+	// A carried in-memory token is re-sealed on every mint until the vault takes it.
+	if _, carried := unsealedRefresh.Load(p.Name); carried || (tok.Refresh != "" && tok.Refresh != secret) {
+		if err := sealRotated(p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: re-seal rotated refresh token (%s) failed; kept in memory: %v\n", p.Name, name, err)
 		}
 	}
 	return tok, nil
 }
 
+// unsealedRefresh maps a provider name to a rotated refresh token whose re-seal failed; mintSecret prefers it.
+var unsealedRefresh sync.Map
+
+// sealRetryDelay is the backoff unit between re-seal attempts (1x, then 2x).
+var sealRetryDelay = time.Second
+
+// sealRotated retries the re-seal: a lost rotated refresh token forces a browser login once the old one is spent.
+func sealRotated(p *Provider, tok oauth.Token) error {
+	var err error
+	for i := range 3 {
+		if err = writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err == nil {
+			unsealedRefresh.Delete(p.Name)
+			return nil
+		}
+		if i < 2 {
+			time.Sleep(time.Duration(i+1) * sealRetryDelay)
+		}
+	}
+	unsealedRefresh.Store(p.Name, tok.Refresh)
+	return err
+}
+
 // mintSecret reads the sealed secret; u2m reads the vault only so a stale env value never replays a rotated token.
 func mintSecret(p *Provider) (string, error) {
 	if p.Auth.Type == AuthOAuth {
+		if v, ok := unsealedRefresh.Load(p.Name); ok {
+			return v.(string), nil
+		}
 		ov, err := readOAuth(p)
 		return strings.TrimSpace(ov.Refresh), err
 	}
@@ -485,12 +530,17 @@ func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.D
 	if tok.Refresh == "" {
 		return 0, fmt.Errorf("%s: login returned no refresh token", p.Name)
 	}
-	err = withRefreshLock(p, func() error {
+	// A fresh login supersedes the lock holder's refresh, so a lock timeout still seals it.
+	seal := func() error {
 		if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
 			return fmt.Errorf("%s: seal refresh token: %w", p.Name, err)
 		}
+		unsealedRefresh.Delete(p.Name)
 		return finishCredential(p, tok.Access, tok.Expiry)
-	})
+	}
+	if err = withRefreshLock(p, seal); errors.Is(err, errRefreshLockTimeout) {
+		err = seal()
+	}
 	if err != nil {
 		return 0, err
 	}

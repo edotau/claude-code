@@ -235,11 +235,11 @@ func builtinEntry(name string) (map[string]json.RawMessage, error) {
 }
 
 // overlayAuthTypes maps every overlay row to its sealed auth type (oauth, m2m, pat), or "" when it has none.
-func overlayAuthTypes(doc []byte) map[string]string {
+func overlayAuthTypes(doc []byte) (map[string]string, error) {
 	out := map[string]string{}
 	reg, err := decodeRegistry(doc, builtinProviders())
 	if err != nil {
-		return out
+		return nil, err
 	}
 	for n, p := range reg.Providers {
 		if p == nil {
@@ -250,12 +250,19 @@ func overlayAuthTypes(doc []byte) map[string]string {
 			out[n] = p.Auth.Type
 		}
 	}
-	return out
+	return out, nil
 }
 
 // checkAuthTypeChange refuses a write that changes an existing row's sealed auth.type (add/drop of a row is fine).
 func checkAuthTypeChange(oldDoc, newDoc []byte) error {
-	oldK, newK := overlayAuthTypes(oldDoc), overlayAuthTypes(newDoc)
+	oldK, err := overlayAuthTypes(oldDoc)
+	if err != nil { // fail closed: an undecodable current overlay hides any auth.type change
+		return fmt.Errorf("current provider overlay does not decode (%w); auth.type changes refused without force", err)
+	}
+	newK, err := overlayAuthTypes(newDoc)
+	if err != nil {
+		return err
+	}
 	for n, was := range oldK {
 		if now, ok := newK[n]; ok && now != was {
 			return fmt.Errorf("provider %s: auth.type %q -> %q refused without force (changes how its credential is minted)", n, was, now)
