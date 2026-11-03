@@ -124,7 +124,7 @@ func planFor(t *testing.T, secret string, args ...string) agent.Plan {
 func printed(p agent.Plan) string {
 	var buf bytes.Buffer
 	p.Print(&buf)
-	return buf.String() + string(p.Overlay) + strings.Join(p.Argv, " ")
+	return buf.String() + string(overlayFile(p).Data) + strings.Join(p.Argv, " ")
 }
 
 // --oauth: the vault token rides CLAUDE_CODE_OAUTH_TOKEN, no apiKeyHelper, and Print masks it.
@@ -138,7 +138,7 @@ func TestAnthropicOAuthLaunchPlan(t *testing.T) {
 	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "max" {
 		t.Errorf("set %v", p.Set)
 	}
-	if len(p.Overlay) != 0 || slices.Contains(p.Argv, "--settings") {
+	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
 		t.Errorf("a login profile must not set an apiKeyHelper: %q", p.Argv)
 	}
 	out := printed(p)
@@ -158,8 +158,8 @@ func TestAnthropicNamedAPIKeyLaunchPlan(t *testing.T) {
 	if p.Set["ANTHROPIC_API_KEY"] != fakeToken || p.Set[providers.EnvSessionProfile] != "anthropic" {
 		t.Errorf("set %v", p.Set)
 	}
-	if len(p.Overlay) != 0 || p.OverlayPath != "" || slices.Contains(p.Argv, "--settings") {
-		t.Errorf("a named key drops the apiKeyHelper overlay: %q %s", p.Argv, p.Overlay)
+	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
+		t.Errorf("a named key drops the apiKeyHelper overlay: %q %s", p.Argv, overlayFile(p).Data)
 	}
 	if _, ok := p.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"]; ok {
 		t.Error("helper TTL must be dropped with the helper")
@@ -180,7 +180,7 @@ func TestAnthropicDefaultAPIKeyLaunchPlan(t *testing.T) {
 	if p.Set[providers.EnvSessionProfile] != "anthropic" || p.Set["ANTHROPIC_API_KEY"] != "" {
 		t.Errorf("set %v", p.Set)
 	}
-	if !slices.Contains(p.Argv, "--settings") || !strings.Contains(string(p.Overlay), "apiKeyHelper") {
+	if !slices.Contains(p.Argv, "--settings") || !strings.Contains(string(overlayFile(p).Data), "apiKeyHelper") {
 		t.Errorf("bare --x-api-key should use the apiKeyHelper overlay: %q", p.Argv)
 	}
 	if out := printed(p); strings.Contains(out, "FAKEFAKE") {

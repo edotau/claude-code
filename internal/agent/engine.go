@@ -104,6 +104,7 @@ var ProbeTimeout = 8 * time.Second
 // RegistryLaunch is a CLI's native model-registry launch: env to set and unset, argv, args and the token to revoke.
 type RegistryLaunch struct {
 	Env, Unset, Argv, Args, Warnings []string
+	Files                            []LaunchFile
 	Revoke                           func()
 	Banner                           string
 }

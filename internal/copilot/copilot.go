@@ -275,7 +275,7 @@ func (copilotEngine) RegistryLaunch(
 		return agent.RegistryLaunch{}, err
 	}
 	return agent.RegistryLaunch{Env: cr.Env, Unset: cr.Unset, Argv: cr.Argv, Args: cr.Args, Warnings: cr.Warnings,
-		Revoke: cr.Revoke, Banner: CopilotRegistryBanner}, nil
+		Files: cr.Files, Revoke: cr.Revoke, Banner: CopilotRegistryBanner}, nil
 }
 
 func (copilotEngine) RouteDetail() (string, bool) {

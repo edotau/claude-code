@@ -86,6 +86,13 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	return o, rest, nil
 }
 
+// LaunchFile is a 0600 per-launch config the child reads, written by Exec just before the child starts; a file named
+// for the child's pid (copilot's registry) is swept once it exits (`claude-code clean`).
+type LaunchFile struct {
+	Path string
+	Data []byte
+}
+
 // Plan is a fully resolved launch: exec Binary with Argv under the base env minus Unset plus Set.
 type Plan struct {
 	Binary      string
@@ -93,10 +100,9 @@ type Plan struct {
 	Argv        []string
 	Set         map[string]string
 	Unset       []string
-	Keep        []string // names the credential scrub must not drop, from LaunchOptions.KeepEnv
-	CLI         bool     // true for an agent CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
-	OverlayPath string
-	Overlay     []byte
+	Keep        []string     // names the credential scrub must not drop, from LaunchOptions.KeepEnv
+	CLI         bool         // true for an agent CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
+	Files       []LaunchFile // written 0600 by WriteFiles before the child starts
 	Warnings    []string
 	ForeignBase bool   // the shell's ANTHROPIC_BASE_URL differs from the profile's: no harness credential may go there
 	Profile     string // the profile an agent CLI launch resolved, for RecordLastProfile
@@ -242,8 +248,8 @@ func (p Plan) Print(w io.Writer) {
 			fmt.Fprintf(w, "custom   %s (vault env)\n", k)
 		}
 	}
-	if len(p.Overlay) > 0 {
-		fmt.Fprintf(w, "overlay  %s\n%s\n", p.OverlayPath, p.Overlay)
+	for _, f := range p.Files {
+		fmt.Fprintf(w, "overlay  %s\n%s\n", f.Path, redactQuoted(string(f.Data)))
 	}
 	for _, warn := range p.Warnings {
 		fmt.Fprintf(w, "warning  %s\n", warn)
@@ -268,12 +274,14 @@ func (p Plan) unsetNames() []string {
 	return slices.Sorted(maps.Keys(names))
 }
 
-// WriteOverlay writes the --settings overlay the argv names, when the plan has one.
-func (p Plan) WriteOverlay() error {
-	if len(p.Overlay) == 0 {
-		return nil
+// WriteFiles writes the per-launch files the argv and env name.
+func (p Plan) WriteFiles() error {
+	for _, f := range p.Files {
+		if err := paths.AtomicWrite(f.Path, f.Data, 0o600); err != nil {
+			return err
+		}
 	}
-	return paths.AtomicWrite(p.OverlayPath, p.Overlay, 0o600)
+	return nil
 }
 
 // RecordEnv is the env Exec hands the child, recorded to COWORKER_OVERLAY_DEBUG; --print-env calls it as a dry exec.
@@ -283,9 +291,9 @@ func (p Plan) RecordEnv() []string {
 	return env
 }
 
-// Exec writes the overlay and replaces this process with the target.
+// Exec writes the launch files and replaces this process with the target.
 func (p Plan) Exec() error {
-	if err := p.WriteOverlay(); err != nil {
+	if err := p.WriteFiles(); err != nil {
 		p.execFailed()
 		return err
 	}

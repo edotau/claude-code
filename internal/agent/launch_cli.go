@@ -165,6 +165,7 @@ func registryPlan(
 	fmt.Fprintln(NoticeOut, cr.Banner)
 	return Plan{
 		Binary: bin, Set: envMap(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
+		Files:      cr.Files,
 		Argv:       append(append(lprefix, cr.Argv...), cr.Args...),
 		OnExecFail: cr.Revoke,
 	}, nil

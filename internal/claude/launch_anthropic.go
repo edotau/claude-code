@@ -117,7 +117,7 @@ func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret st
 			if len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" {
 				plan.Argv = plan.Argv[2:]
 			}
-			plan.Overlay, plan.OverlayPath = nil, ""
+			plan.Files = nil
 		}
 	}
 	return plan, nil
