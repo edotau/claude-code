@@ -382,10 +382,15 @@ func configLocationName(up string) bool {
 func routeRedirectName(up string) bool {
 	switch up {
 	case "DATABRICKS_HOST", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NODE_TLS_REJECT_UNAUTHORIZED",
-		"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR":
+		"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "AGY_LLM_GATEWAY_HEADERS":
 		return true
 	}
-	return strings.HasSuffix(up, "_BASE_URL") || strings.HasSuffix(up, "_API_BASE") || strings.HasSuffix(up, "_ENDPOINT")
+	for _, s := range []string{"_BASE_URL", "_API_BASE", "_ENDPOINT", "_GATEWAY_URL", "_PROXY_URL", "_CA_CERT"} {
+		if strings.HasSuffix(up, s) {
+			return true
+		}
+	}
+	return false
 }
 
 var setRules = []rule{
