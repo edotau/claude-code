@@ -92,8 +92,15 @@ func runAsk(args []string, resume bool) int {
 	batchSrc := fs.String("batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
 	jobs := fs.Int("jobs", batch.DefaultJobs(), "batch: tasks run at once")
 	failFast := fs.Bool("fail-fast", false, "batch: the first failed task cancels the rest")
+	overlayDebug := fs.String("overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if *overlayDebug != "" {
+		if err := agent.EnableOverlayDebug(*overlayDebug); err != nil {
+			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay-debug:", err)
+			return 2
+		}
 	}
 	*tools = *tools || *readOnly // read-only tools are still tools
 	if code, err := askCheckFlags(env, *format, *fallback, *as, *name, *background, *job, *tools, *noTools); err != nil {

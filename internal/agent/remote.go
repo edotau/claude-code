@@ -221,6 +221,7 @@ func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 		out, err = cmd.StdoutPipe()
 	}
 	if err == nil {
+		RecordOverlayDebug("remote", cmd.Env)
 		err = cmd.Start()
 	}
 	if err != nil {
