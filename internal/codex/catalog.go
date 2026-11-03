@@ -59,7 +59,7 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 		return "", "", fmt.Errorf("temporary home failed: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(home) }()
-	version, err := runCodexCatalog(ctx, bin, home, "--version")
+	version, err := runCodexCatalog(ctx, bin, home, agent.ProbeTimeout, "--version")
 	if err != nil {
 		return "", "", fmt.Errorf("version failed: %w", err)
 	}
@@ -84,7 +84,7 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 			return path, "", nil
 		}
 	}
-	raw, err := runCodexCatalog(ctx, bin, home, "debug", "models", "--bundled")
+	raw, err := runCodexCatalog(ctx, bin, home, 30*time.Second, "debug", "models", "--bundled")
 	if err != nil {
 		return "", "", fmt.Errorf("bundled dump failed: %w", err)
 	}
@@ -99,7 +99,7 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	if err := os.WriteFile(candidate, body, 0o600); err != nil {
 		return "", "", fmt.Errorf("candidate write failed: %w", err)
 	}
-	if _, err := runCodexCatalog(ctx, bin, home, "-c", "model_catalog_json="+agentconfig.TOMLQuote(candidate), "debug", "models"); err != nil {
+	if _, err := runCodexCatalog(ctx, bin, home, 30*time.Second, "-c", "model_catalog_json="+agentconfig.TOMLQuote(candidate), "debug", "models"); err != nil {
 		return "", "", fmt.Errorf("validation failed: %w", err)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -108,20 +108,26 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", "", fmt.Errorf("directory permissions failed: %w", err)
 	}
-	if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
-		return "", "", fmt.Errorf("cache key invalidation failed: %w", err)
-	}
-	if err := writeCodexCatalog(path, body); err != nil {
-		return "", "", fmt.Errorf("catalog write failed: %w", err)
-	}
-	if err := writeCodexCatalog(keyPath, []byte(key)); err != nil {
-		return "", "", fmt.Errorf("cache key write failed: %w", err)
+	err = paths.WithFileLock(path, func() error { // the catalog and its key must change as one pair
+		if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("cache key invalidation failed: %w", err)
+		}
+		if err := paths.AtomicWrite(path, body, 0o600); err != nil {
+			return fmt.Errorf("catalog write failed: %w", err)
+		}
+		if err := paths.AtomicWrite(keyPath, []byte(key), 0o600); err != nil {
+			return fmt.Errorf("cache key write failed: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", "", err
 	}
 	return path, missing, nil
 }
 
-func runCodexCatalog(ctx context.Context, bin, home string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+func runCodexCatalog(ctx context.Context, bin, home string, timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	spec := agent.EnvSpec{Mode: agent.EnvAgent, Unset: []string{agentconfig.OverlayVar}, Set: []string{"CODEX_HOME=" + home}}
@@ -129,22 +135,6 @@ func runCodexCatalog(ctx context.Context, bin, home string, args ...string) ([]b
 	agent.RecordOverlayDebug("codex-catalog", cmd.Env)
 	cmd.Dir = home
 	return cmd.Output()
-}
-
-func writeCodexCatalog(path string, body []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".catalog-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	if _, err := f.Write(body); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
 }
 
 var (

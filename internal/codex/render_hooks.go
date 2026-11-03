@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,4 +160,26 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o render.Rend
 	}
 	d, err := render.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
 	return drift || d, err
+}
+
+// writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.
+func writeCodexHooks(path string, old, next []byte, existed bool) error {
+	return paths.WithFileLock(path, func() error {
+		current, err := os.ReadFile(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if (err == nil) != existed || !bytes.Equal(current, old) {
+			return errors.New("codex-hooks: hooks.json changed before write; retry to preserve the newer hooks")
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if existed {
+			if _, err := paths.Backup(path, old); err != nil {
+				return err
+			}
+		}
+		return paths.AtomicWrite(path, next, 0o600)
+	})
 }

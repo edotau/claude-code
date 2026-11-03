@@ -10,6 +10,7 @@ func init() {
 	agent.Register(agent.Agent{Row: row, Driver: codexEngine{agent.NewBaseEngine("codex")}})
 	render.RegisterFileOps("codex", render.FileOps{Write: writeCodexConfig, LoadBaseline: LoadCodexBaseline,
 		SaveBaseline: SaveCodexBaseline, Revert: restoreCodexConfig})
+	render.RegisterFileOps("codex-hooks", render.FileOps{Write: writeCodexHooks})
 }
 
 // row is codex's roster entry: binary, dialects, capabilities, events and launch hints.
