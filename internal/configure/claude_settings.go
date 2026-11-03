@@ -4,8 +4,9 @@ package configure
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/launch"
 	"os"
+
+	"github.com/edotau/claude-code/internal/launch"
 )
 
 // RenderObject parses render's output into a top-level key -> value map.

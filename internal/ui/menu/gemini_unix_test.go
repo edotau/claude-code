@@ -4,7 +4,6 @@ package menu
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/gemini"
 )

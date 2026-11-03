@@ -6,11 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
-	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/paths"
 	"io"
 	"io/fs"
 	"os"
@@ -22,6 +17,12 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // webSearchArgs is the claude-code argv every client registers for the web_search MCP server.

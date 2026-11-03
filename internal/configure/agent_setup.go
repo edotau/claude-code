@@ -4,10 +4,11 @@ package configure
 import (
 	"context"
 	"errors"
-	agentpkg "github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/preflight"
 	"strings"
 	"time"
+
+	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/preflight"
 )
 
 // setupVerifyTimeout caps the one small real request the verify step sends.

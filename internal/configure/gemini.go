@@ -4,15 +4,16 @@ package configure
 import (
 	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/gemini"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/ui/tui"
 	"os"
 	"os/exec"
 	"slices"
 	"syscall"
 	"time"
+
+	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // AgyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.

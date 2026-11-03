@@ -2,7 +2,6 @@ package menu
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/configure"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"

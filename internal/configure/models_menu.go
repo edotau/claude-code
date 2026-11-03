@@ -4,6 +4,7 @@ package configure
 
 import (
 	"context"
+
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 )

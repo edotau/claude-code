@@ -3,11 +3,12 @@ package menu
 import (
 	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/configure"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/router"

@@ -2,13 +2,14 @@ package menu
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/configure"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/gemini"
 )

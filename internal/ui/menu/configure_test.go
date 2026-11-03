@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"io"
 	"os"
 	"os/exec"
@@ -17,6 +15,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
