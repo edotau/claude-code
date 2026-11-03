@@ -38,6 +38,8 @@ func (f fakeSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	return providers.Verdict(err), ""
 }
 
+func (fakeSignin) Status() providers.AuthState { return providers.AuthState{} }
+
 func (f fakeSignin) Login(ctx context.Context, _ io.Reader, out io.Writer) error {
 	return testLoginRow(ctx, f.p.Name, out)
 }
@@ -255,6 +257,8 @@ type verdictSignin struct {
 }
 
 func (s verdictSignin) Check(context.Context) (providers.AuthVerdict, string) { return s.v, "" }
+func (s verdictSignin) Status() providers.AuthState                           { return providers.AuthState{} }
+
 func (s verdictSignin) Login(context.Context, io.Reader, io.Writer) error {
 	s.logins.Add(1)
 	return nil
@@ -318,6 +322,8 @@ func (c countSignin) Check(context.Context) (providers.AuthVerdict, string) {
 	c.n.Add(1)
 	return providers.VerdictOK, ""
 }
+func (countSignin) Status() providers.AuthState { return providers.AuthState{} }
+
 func (countSignin) Login(context.Context, io.Reader, io.Writer) error { return nil }
 
 func TestOfferLoginSkippedHintNamesConfigureProviderAll(t *testing.T) {
@@ -358,6 +364,8 @@ func (b barrierSignin) Check(context.Context) (providers.AuthVerdict, string) {
 	}
 	return providers.VerdictNeedsLogin, ""
 }
+
+func (b barrierSignin) Status() providers.AuthState { return providers.AuthState{} }
 
 func (b barrierSignin) Login(context.Context, io.Reader, io.Writer) error {
 	b.mu.Lock()

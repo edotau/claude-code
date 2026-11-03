@@ -28,6 +28,8 @@ type Signin interface {
 	Check(ctx context.Context) (providers.AuthVerdict, string)
 	// Login runs the kind's own sign-in; in and out are the caller's terminal.
 	Login(ctx context.Context, in io.Reader, out io.Writer) error
+	// Status is the credential's local state for status rows; no network.
+	Status() providers.AuthState
 }
 
 // Terminal and sign-in UI seams internal/cli wires at startup; the zero values refuse (no terminal, no login, no prompt).
@@ -39,10 +41,9 @@ var (
 
 // Test seams: the credential mint, the secret store, the agent probes.
 var (
-	credential   = providers.Credential
-	storeSecret  = secretstore.Store
-	claudeStatus = providers.ClaudeLoginProbe
-	runLogin     = runLoginCLI
+	credential  = providers.Credential
+	storeSecret = secretstore.Store
+	runLogin    = runLoginCLI
 )
 
 // SigninFor returns the sign-in for p's kind.
@@ -52,7 +53,7 @@ func SigninFor(p *providers.Provider) Signin {
 	case m == providers.AuthNone:
 		return noneSignin{p}
 	case m == providers.AuthCLI && p.Auth.Login == "":
-		return claudeSignin{}
+		return cliSignin{"claude"}
 	case m == providers.AuthCLI || p.Auth.Login != "":
 		return cliSignin{p.Auth.Login}
 	case m == providers.AuthOAuth || (p.Preset == providers.PresetDatabricks && m == ""):
@@ -101,6 +102,17 @@ func (s u2mSignin) Login(ctx context.Context, _ io.Reader, out io.Writer) error 
 	return LoginRow(ctx, s.p.Name, out)
 }
 
+func (s u2mSignin) Status() providers.AuthState { return credStatus(s.p) }
+
+// credStatus is a stored credential's presence and its last minted token's expiry (no network).
+func credStatus(p *providers.Provider) providers.AuthState {
+	st := providers.AuthState{Present: providers.CredentialPresent(p), Method: p.Auth.Method(), Source: p.Name}
+	if exp, ok := providers.TokenExpiry(p.Name); ok {
+		st.Expires = exp
+	}
+	return st
+}
+
 // secretSignin covers sealed (pat, oauth-m2m) and env/file/command credentials.
 type secretSignin struct{ p *providers.Provider }
 
@@ -126,6 +138,8 @@ func (s secretSignin) Check(ctx context.Context) (providers.AuthVerdict, string)
 	}
 	return v, ""
 }
+
+func (s secretSignin) Status() providers.AuthState { return credStatus(s.p) }
 
 func (s secretSignin) name() string {
 	if n := providers.AuthSecretName(s.p); n != "" {
@@ -185,30 +199,18 @@ func (s noneSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 
 func (noneSignin) Login(context.Context, io.Reader, io.Writer) error { return nil }
 
-// claudeSignin is the passthrough Claude subscription.
-type claudeSignin struct{}
-
-func (claudeSignin) Check(context.Context) (providers.AuthVerdict, string) {
-	ok, plan, err := claudeStatus()
-	switch {
-	case err != nil:
-		return providers.VerdictTransient, "claude auth status failed: " + err.Error()
-	case ok:
-		return providers.VerdictOK, strings.TrimSuffix("logged in "+strings.Trim(plan, " ()"), " ")
-	}
-	return providers.VerdictNeedsLogin, ""
-}
-
-func (claudeSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error {
-	return runLogin(ctx, "claude", []string{"auth", "login"}, in, out)
+func (noneSignin) Status() providers.AuthState {
+	return providers.AuthState{Present: true, Method: providers.AuthNone}
 }
 
 // cliSignin is a passthrough row served by another CLI's own sign-in (codex, copilot, gemini).
 type cliSignin struct{ name string }
 
 func (s cliSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
-	return agent.CheckLogin(ctx, s.name)
+	return agent.Verify(ctx, s.name)
 }
+
+func (s cliSignin) Status() providers.AuthState { return agent.AuthStatus(s.name) }
 
 func (s cliSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error {
 	row, ok := agent.LookupSchema(s.name)
