@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -25,23 +26,49 @@ type overlayDebugRecord struct {
 	FP    map[string]string `json:"fp"`
 }
 
-// EnableOverlayDebug turns recording on for this process and its children (ask --overlay-debug <file>); a missing
-// salt is generated and written beside the file as <file>.salt (0600) so a later leak check can fingerprint secrets.
+// EnableOverlayDebug turns recording on for this process and its children (ask --overlay-debug <file>). The path is
+// made absolute so nested dispatches write the same file; its salt lives beside it as <file>.salt (0600), reused when
+// present so every run appended to one file fingerprints with one salt.
 func EnableOverlayDebug(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
 	if os.Getenv(OverlayDebugVar+"_SALT") == "" {
-		b := make([]byte, 16)
-		if _, err := rand.Read(b); err != nil {
-			return err
-		}
-		salt := hex.EncodeToString(b)
-		if err := os.WriteFile(path+".salt", []byte(salt), 0o600); err != nil {
+		salt, err := overlayDebugSalt(abs + ".salt")
+		if err != nil {
 			return err
 		}
 		if err := os.Setenv(OverlayDebugVar+"_SALT", salt); err != nil {
 			return err
 		}
 	}
-	return os.Setenv(OverlayDebugVar, path)
+	return os.Setenv(OverlayDebugVar, abs)
+}
+
+// overlayDebugSalt reads the salt beside the log, or creates it exclusively (a concurrent first run reads the winner's).
+func overlayDebugSalt(path string) (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		salt := hex.EncodeToString(b)
+		_, werr := f.WriteString(salt)
+		return salt, errors.Join(werr, f.Close())
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", err
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || len(got) == 0 {
+		return "", errors.Join(err, errors.New("empty salt file "+path))
+	}
+	return strings.TrimSpace(string(got)), nil
 }
 
 // RecordOverlayDebug appends env's names and HMAC-SHA256 fingerprints (last duplicate wins, as exec does).
@@ -74,6 +101,9 @@ func appendOverlayDebug(path string, line []byte) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
+	}
+	if err := f.Chmod(0o600); err != nil { // a pre-existing file keeps its mode on open
+		return errors.Join(err, f.Close())
 	}
 	_, werr := f.Write(line)
 	return errors.Join(werr, f.Close())
