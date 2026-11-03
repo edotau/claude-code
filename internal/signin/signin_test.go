@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	_ "github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -177,10 +176,10 @@ func TestU2MLoginUsesLoginRow(t *testing.T) {
 }
 
 func TestValidateSecret(t *testing.T) {
-	if err := ValidateSecret(copilot.CopilotTokenEnv, "not-a-token"); err == nil {
+	if err := ValidateSecret(providers.CopilotTokenEnv, "not-a-token"); err == nil {
 		t.Error("a non-GitHub token must be rejected for the copilot env name")
 	}
-	if err := ValidateSecret(copilot.CopilotTokenEnv, "ghp_"+strings.Repeat("a", 30)); err != nil {
+	if err := ValidateSecret(providers.CopilotTokenEnv, "ghp_"+strings.Repeat("a", 30)); err != nil {
 		t.Errorf("valid copilot token rejected: %v", err)
 	}
 	if err := ValidateSecret("SOME_KEY", "value"); err != nil {
@@ -278,7 +277,7 @@ func TestSecretOKDetail(t *testing.T) {
 }
 
 func TestValidateSecretGitHubVaultNames(t *testing.T) {
-	for _, n := range []string{copilot.CopilotTokenEnv, "GITHUB_PERSONAL_PAT", "GITHUB_PAT"} {
+	for _, n := range []string{providers.CopilotTokenEnv, "GITHUB_PERSONAL_PAT", "GITHUB_PAT"} {
 		if ValidateSecret(n, "not-a-token") == nil {
 			t.Errorf("%s accepted a non-GitHub token", n)
 		}

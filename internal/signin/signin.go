@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -72,7 +71,7 @@ func ValidateSecret(name, value string) error {
 
 // isGitHubToken: the transitional env name, or a vault name GITHUB_[<PROFILE>_]PAT (providers.SecretName).
 func isGitHubToken(name string) bool {
-	return name == copilot.CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
+	return name == providers.CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
 }
 
 type u2mSignin struct{ p *providers.Provider }
@@ -245,7 +244,7 @@ func runLoginCLI(ctx context.Context, name string, args []string, in io.Reader, 
 var copilotTokenPrefixes = []string{"gho_", "ghp_", "ghu_", "github_pat_"}
 
 // ValidCopilotToken reports whether tok has the shape of a real GitHub token, rejecting an obvious
-// typo or truncated paste before it is sealed under copilot.CopilotTokenEnv.
+// typo or truncated paste before it is sealed under providers.CopilotTokenEnv.
 func ValidCopilotToken(tok string) bool {
 	if len(tok) < 20 {
 		return false

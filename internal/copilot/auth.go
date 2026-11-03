@@ -25,11 +25,8 @@ import (
 	"github.com/edotau/claude-code/internal/usage"
 )
 
-// CopilotTokenEnv is copilot's highest-precedence token var; the harness sets it at launch from `gh auth token`.
-const CopilotTokenEnv = "COPILOT_GITHUB_TOKEN"
-
 // copilotTokenEnvs is copilot's documented env precedence (`copilot help environment`).
-var copilotTokenEnvs = []string{CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"}
+var copilotTokenEnvs = []string{providers.CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"}
 
 // CopilotAuth is the GitHub identity copilot authenticates as and where its credential comes from.
 type CopilotAuth struct {
@@ -44,7 +41,7 @@ const (
 	srcActive  = "gh (active)"
 	srcCopilot = "copilot login"
 	// SrcStoredToken is a COPILOT_GITHUB_TOKEN pasted via configure (sealed in the vault).
-	SrcStoredToken = CopilotTokenEnv + " (stored)"
+	SrcStoredToken = providers.CopilotTokenEnv + " (stored)"
 )
 
 // copilotPinLogin is the pinned copilot profile's GitHub login ("" = unpinned: gh's active account).
@@ -82,7 +79,7 @@ func authSourceFor(pin string) (CopilotAuth, bool) {
 		}
 		return CopilotAuth{}, false // a pinned account that can't be used never falls back to another one
 	}
-	if tok, src, ok := secretstore.Get(CopilotTokenEnv); ok && src != "env" {
+	if tok, src, ok := secretstore.Get(providers.CopilotTokenEnv); ok && src != "env" {
 		return CopilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
 	}
 	if login, tok := ghActiveAccountToken(); login != "" {
@@ -206,6 +203,15 @@ func CopilotStoredLogin() string {
 // ghUserRE matches the host-level `user: <name>` line (the active account) in gh's hosts.yml.
 var ghUserRE = regexp.MustCompile(`(?m)^github\.com:\n(?:[ \t]+.*\n)*?[ \t]{1,4}user:[ \t]*(\S+)`)
 
+// ghConfigDir is gh's config directory: $GH_CONFIG_DIR, else ~/.config/gh.
+func ghConfigDir() string {
+	if dir := os.Getenv("GH_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "gh")
+}
+
 // GHActiveAccount is gh's active github.com account from hosts.yml (no network), or "" when gh is not logged in.
 func GHActiveAccount() string {
 	account, _ := ghActiveAccountToken()
@@ -230,11 +236,7 @@ var ghActiveTokenCache struct {
 const authMemoNegativeTTL = 30 * time.Second
 
 func ghActiveAccountToken() (account, token string) {
-	dir := os.Getenv("GH_CONFIG_DIR")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config", "gh")
-	}
+	dir := ghConfigDir()
 	path := filepath.Join(dir, "hosts.yml")
 	info, err := os.Stat(path)
 	if err != nil {
@@ -346,11 +348,7 @@ var ghUsersRE = regexp.MustCompile(`(?m)^[ \t]{8}([A-Za-z0-9_-]+):`)
 
 // GHAccounts lists every github.com account gh is signed in to (hosts.yml, no network).
 func GHAccounts() []string {
-	dir := os.Getenv("GH_CONFIG_DIR")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config", "gh")
-	}
+	dir := ghConfigDir()
 	raw, err := os.ReadFile(filepath.Join(dir, "hosts.yml"))
 	if err != nil {
 		return nil
@@ -364,11 +362,7 @@ func GHAccounts() []string {
 
 // GHToken is gh's token for one signed-in account (`gh auth token -u`, memoized per account), or "".
 func GHToken(account string) string {
-	dir := os.Getenv("GH_CONFIG_DIR")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config", "gh")
-	}
+	dir := ghConfigDir()
 	stamp := ""
 	if info, err := os.Stat(filepath.Join(dir, "hosts.yml")); err == nil {
 		stamp = fmt.Sprint(info.Size(), info.ModTime().UnixNano())

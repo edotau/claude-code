@@ -330,6 +330,9 @@ var copilotPlans = map[string]string{
 	"free": "Free", "individual": "Pro", "individual_pro": "Pro+", "business": "Business", "enterprise": "Enterprise",
 }
 
+// CopilotTokenEnv is copilot's highest-precedence token var; the harness sets it at launch from `gh auth token`.
+const CopilotTokenEnv = "COPILOT_GITHUB_TOKEN"
+
 // CopilotPlanName is the sold name of a copilot_plan value ("individual_pro" → "Pro+"); the raw value when unknown.
 func CopilotPlanName(raw string) string {
 	if name, ok := copilotPlans[raw]; ok {

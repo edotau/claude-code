@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -27,28 +26,20 @@ var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
 	return exec.CommandContext(ctx, "gh", "api", "/copilot_internal/user").Output()
 }
 
-// copilotPlanCache holds one gh lookup per active gh account, so a sign-in or account switch mid-menu re-asks.
-var copilotPlanCache = struct {
-	sync.Mutex
-	plans map[string]string
-}{plans: map[string]string{}}
+// copilotPlanMemo holds one gh lookup per active gh account, so a sign-in or account switch mid-menu re-asks.
+var copilotPlanMemo authMemo
 
 // CopilotRawPlan asks GitHub which Copilot plan the gh login holds ("individual_pro"; 3 s cap); "" when offline.
 func CopilotRawPlan() string {
-	account := GHActiveAccount()
-	copilotPlanCache.Lock() // held across the lookup so parallel home-page builders ask gh once
-	defer copilotPlanCache.Unlock()
-	if v, ok := copilotPlanCache.plans[account]; ok {
-		return v
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	var u struct {
-		Plan string `json:"copilot_plan"`
-	}
-	if out, err := copilotTierCmd(ctx); err == nil {
-		_ = json.Unmarshal(out, &u)
-	}
-	copilotPlanCache.plans[account] = u.Plan
-	return u.Plan
+	return copilotPlanMemo.do(GHActiveAccount(), func() string {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		var u struct {
+			Plan string `json:"copilot_plan"`
+		}
+		if out, err := copilotTierCmd(ctx); err == nil {
+			_ = json.Unmarshal(out, &u)
+		}
+		return u.Plan
+	})
 }

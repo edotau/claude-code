@@ -3,19 +3,19 @@ package menu
 import (
 	"bufio"
 	"fmt"
+	"maps"
+	"os"
+	"slices"
+	"strings"
+
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
-	"maps"
-	"os"
-	"slices"
-	"strings"
 )
 
 // sourceLabel names the effective source and flags an env override of a vault value.
@@ -147,7 +147,7 @@ func addCustom(d *dialog) {
 
 // storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string) bool {
-	if name == copilot.CopilotTokenEnv && !signin.ValidCopilotToken(val) {
+	if name == providers.CopilotTokenEnv && !signin.ValidCopilotToken(val) {
 		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
 		return false
 	}

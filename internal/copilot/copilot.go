@@ -161,7 +161,7 @@ func applyCopilotToken(opts *SDKOptions, own bool, env []string) error {
 		}
 	}
 	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
-		if tok, ok := strings.CutPrefix(kv, CopilotTokenEnv+"="); ok && tok != "" {
+		if tok, ok := strings.CutPrefix(kv, providers.CopilotTokenEnv+"="); ok && tok != "" {
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
 	}
@@ -297,7 +297,7 @@ func copilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
 		return nil, nil, err
 	}
 	if tok != "" { // the harness's chosen account beats any inherited token
-		env = append(env, CopilotTokenEnv+"="+tok)
+		env = append(env, providers.CopilotTokenEnv+"="+tok)
 	}
 	return env, copilotArgv(h), nil
 }
