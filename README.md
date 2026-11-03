@@ -433,7 +433,7 @@ make test                  # full gate, once before pushing (= make audit = CI)
 ```
 
 - `git push` runs the same gate via `.githooks/pre-push`; `--no-verify` bypasses it.
-- `settings.json` is generated: edit `internal/settings/settings.template.json` (or `claude-code configure` →
+- `settings.json` is generated: edit `defaults/claude/settings.json` (or `claude-code configure` →
   "Save to repo defaults"), then `make install`.
   Default keys reset on every install; permission lists are unioned,
   so a removed rule must also be deleted from `settings.json` by hand.

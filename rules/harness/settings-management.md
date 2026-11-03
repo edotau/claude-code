@@ -4,7 +4,7 @@ paths:
   - "internal/agentconfig/render_*.go"
   - "**/settings.json"
   - "**/settings.local.json"
-  - "internal/settings/settings.template.json"
+  - "defaults/claude/settings.json"
 ---
 # Settings Management
 
@@ -12,17 +12,17 @@ paths:
 | --- | --- |
 | Build, install, render `settings.json` | `make install` (`claude-code install --dry-run` previews) |
 | Render settings + agent configs | `claude-code configure --restore [--out f] [--check] [--dry-run] [--agents]` |
-| Change permissions / env / statusLine | edit `internal/settings/settings.template.json` → `configure --restore --dry-run` → `make install` |
+| Change permissions / env / statusLine | edit `defaults/claude/settings.json` → `configure --restore --dry-run` → `make install` |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `settings/hookspec.go` group, `make install` (`hooks.md`) |
 | Lint and auto-fix | `make lint [WHAT=go\|md\|all] [AGENT=on\|<agent>\|off] [MAX=3]`; `on` means Claude Sonnet at medium effort; env `HARNESS_LINT_AGENT` sets the default (`commands/lint-fix.md`) |
 
 **Never edit `~/.claude/settings.json`.** `claude-code configure --restore` (and `make install`) renders it from
-`internal/settings/settings.template.json` (tracked), the vault overlay and the hook chain in
+`defaults/claude/settings.json` (tracked), the vault overlay and the hook chain in
 `internal/settings/hookspec.go`; a direct edit is discarded on the next render. That covers `env`, hooks,
 permissions, `apiKeyHelper`, `statusLine`.
 The defaults derive paths from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR` — never hardcode a machine path there.
 
-1. Edit `internal/settings/settings.template.json` (hooks: `hooks.md`). Confirm a new field's name and shape against the
+1. Edit `defaults/claude/settings.json` (hooks: `hooks.md`). Confirm a new field's name and shape against the
    schema first (<https://www.schemastore.org/claude-code-settings.json>, indexed at
    `internal/settings/claude-code-settings.schema.json`). A new plain-value key also needs an entry in
    `internal/settings/catalog.go` (a test enforces it).

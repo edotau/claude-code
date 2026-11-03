@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -215,7 +216,7 @@ func TestWriteRepoDefaultsKeepsSchemaFirst(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	o, err := parseObject(templateJSON)
+	o, err := parseObject(defaults.Claude)
 	if err != nil {
 		t.Fatal(err)
 	}

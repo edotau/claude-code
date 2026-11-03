@@ -17,7 +17,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. `internal/cli` holds verb handlers only; engines live in `internal/agent` and the other packages; a package more than one area imports stays top-level (`router`, `ledger`), one area's helper nests under it (`agent/tools`), and a provider's own code stays under that provider (`databricks/oauth`) |
 | `internal/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
-| `internal/settings/settings.template.json` | Source of `settings.json` (generated — hard rule 1) |
+| `defaults/claude/settings.json` | Source of `settings.json` (generated — hard rule 1) |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault list\|edit`), sealed secrets (`vault set\|get`) |
 | `agents/<name>.md` | Subagents, flat; `name:` **must equal the file stem** |
 | `commands/<command>.md` | Slash commands, flat — thin launchers into an agent or skill |
@@ -30,7 +30,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 ## Hard rules (always on)
 
-1. **`settings.json` is generated — never hand-edit it.** Edit `internal/settings/settings.template.json`
+1. **`settings.json` is generated — never hand-edit it.** Edit `defaults/claude/settings.json`
    (hooks: `internal/settings/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
 2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code vault set`) or a provider's
    `auth.command`** — never in a plain file, `settings.json`, a commit, or a log line. The vault's master key

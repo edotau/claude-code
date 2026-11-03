@@ -19,11 +19,7 @@ func geminiSettingsPath(home string) string {
 }
 
 // templateDeny is the settings template's bare-command deny list as rendered for gemini (17ff29d5).
-var templateDeny = []any{"command(rm -rf /)", "command(rm -rf ~)", "command(rm -rf /home*)", "command(rm -rf /etc*)",
-	"command(rm -rf /usr*)", "command(rm -rf /var*)", "command(rm -rf /bin*)", "command(rm -rf /opt*)",
-	"command(rm -rf /root*)", "command(rm -rf /mnt*)", "command(rm -rf /boot*)", "command(rm -rf /lib*)",
-	"command(rm -rf *..*)", "command(rm -r *..*)", "command(rm -rf * /*)", "command(rm -r * /*)",
-	"command(rm -rf * ~*)", "command(rm -r * ~*)", "command(git merge)", "command(git merge *)"}
+var templateDeny = []any{"command(rm -rf /)", "command(rm -rf /*)", "command(rm -rf ~)"}
 
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's settings.json,
 // keeping every other key untouched; a second run is byte-identical.

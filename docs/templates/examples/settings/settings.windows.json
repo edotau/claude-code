@@ -30,7 +30,6 @@
     "ENABLE_TOOL_SEARCH": "1"
   },
   "permissions": {
-    "defaultMode": "auto",
     "allow": [
       "Edit(*)",
       "Read(*)",
@@ -41,8 +40,6 @@
       "Bash(claude-code *)",
       "Bash(gofmt -l *)",
       "Bash(systemctl --user is-active *)",
-      "Bash(rm -rf /tmp/*)",
-      "Bash(rm -r /tmp/*)",
       "Bash(go build *)",
       "Bash(go vet *)",
       "Bash(go test *)",
@@ -51,26 +48,8 @@
     ],
     "deny": [
       "Bash(rm -rf /)",
-      "Bash(rm -rf ~)",
-      "Bash(rm -rf /home*)",
-      "Bash(rm -rf /etc*)",
-      "Bash(rm -rf /usr*)",
-      "Bash(rm -rf /var*)",
-      "Bash(rm -rf /bin*)",
-      "Bash(rm -rf /opt*)",
-      "Bash(rm -rf /root*)",
-      "Bash(rm -rf /mnt*)",
-      "Bash(rm -rf /boot*)",
-      "Bash(rm -rf /lib*)",
-      "Bash(rm -rf *..*)",
-      "Bash(rm -r *..*)",
-      "Bash(rm -rf * /*)",
-      "Bash(rm -r * /*)",
-      "Bash(rm -rf * ~*)",
-      "Bash(rm -r * ~*)",
-      "Bash(git merge)",
-      "Bash(git merge *)",
       "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)",
       "Read(~/.ssh/**)",
       "Read(**/state/vault.db)",
       "Read(**/.credentials.json)"
@@ -86,13 +65,17 @@
       "Bash(pytest)",
       "Bash(npm publish:*)",
       "Bash(npx vitest run)",
+      "Read(~/.ssh/**)",
       "Read(~/.aws/credentials)",
+      "Read(**/state/vault.db)",
+      "Read(**/.credentials.json)",
       "Bash(git push --force*)",
       "Bash(git push * --force*)",
       "Bash(git push * -f)",
       "Bash(git push * -f *)",
       "Bash(claude-code vault *)",
       "Bash(go test * ./...*)"
-    ]
+    ],
+    "defaultMode": "auto"
   }
 }

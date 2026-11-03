@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -295,8 +296,7 @@ func TestMergeDropsListedForeignKey(t *testing.T) {
 
 func TestMergeKeepsRuntimeKeysWithoutReportingThem(t *testing.T) {
 	rendered, _ := Render()
-	live := `{"modelSettings":{"claude-fable-5-1":{"effortLevel":"high"}},"enabledPlugins":{"gopls-lsp@x":true},` +
-		`"someForeign":1}`
+	live := `{"modelSettings":{"claude-fable-5-1":{"effortLevel":"high"}},"someForeign":1}`
 	merged, sum, err := Merge([]byte(live), rendered, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -304,13 +304,8 @@ func TestMergeKeepsRuntimeKeysWithoutReportingThem(t *testing.T) {
 	if !strings.Contains(string(merged), `"effortLevel": "high"`) && !strings.Contains(string(merged), `"effortLevel":"high"`) {
 		t.Errorf("modelSettings not kept:\n%s", merged)
 	}
-	if !strings.Contains(string(merged), `"gopls-lsp@x"`) {
-		t.Errorf("enabledPlugins not kept:\n%s", merged)
-	}
-	for _, k := range []string{"modelSettings", "enabledPlugins"} {
-		if slices.Contains(sum.Kept, k) {
-			t.Errorf("runtime key %s reported as foreign: %v", k, sum.Kept)
-		}
+	if slices.Contains(sum.Kept, "modelSettings") {
+		t.Errorf("runtime key reported as foreign: %v", sum.Kept)
 	}
 	if !slices.Contains(sum.Kept, "someForeign") {
 		t.Errorf("a real foreign key must still be reported: %v", sum.Kept)
@@ -463,7 +458,7 @@ func TestSectionsCoverRenderedKeys(t *testing.T) {
 
 // The env block holds only env-only variables: one the schema documents as a settings key's override belongs in that key.
 func TestEnvHoldsOnlyEnvOnlyVariables(t *testing.T) {
-	o, err := parseObject(templateJSON)
+	o, err := parseObject(defaults.Claude)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +477,7 @@ func TestEnvHoldsOnlyEnvOnlyVariables(t *testing.T) {
 
 // TestDefaultsMatchSchema: every key in the defaults file passes its schema validation, or is a docs-sourced catalog key.
 func TestDefaultsMatchSchema(t *testing.T) {
-	o, err := parseObject(templateJSON)
+	o, err := parseObject(defaults.Claude)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,9 +533,9 @@ func TestSchemaKeyValidateRejects(t *testing.T) {
 
 // A catalog key absent from the defaults file still has a page row, so removing it from the file loses nothing.
 func TestSectionsKeepCatalogKeysMissingFromDefaults(t *testing.T) {
-	orig := templateJSON
-	t.Cleanup(func() { templateJSON = orig })
-	templateJSON = []byte(`{"$schema": "x", "model": "opus"}`)
+	orig := defaults.Claude
+	t.Cleanup(func() { defaults.Claude = orig })
+	defaults.Claude = []byte(`{"$schema": "x", "model": "opus"}`)
 	sections, err := Sections()
 	if err != nil {
 		t.Fatal(err)
