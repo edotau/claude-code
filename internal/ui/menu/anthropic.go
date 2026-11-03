@@ -23,18 +23,16 @@ const (
 type firstParty struct {
 	reg                *providers.Registry
 	loginDone, keyDone bool
-	loggedIn, keyOK    bool
-	plan               string
+	keyOK              bool
 	st                 providers.AuthState
 }
 
-func (f *firstParty) login() (loggedIn bool, plan string) {
+func (f *firstParty) login() (loggedIn bool) {
 	if !f.loginDone {
 		f.st = agent.AuthStatus("claude")
-		f.loggedIn, f.plan = f.st.Present, f.st.PlanHint
 		f.loginDone = true
 	}
-	return f.loggedIn, f.plan
+	return f.st.Present
 }
 
 func (f *firstParty) key() bool {
@@ -52,11 +50,11 @@ func (f *firstParty) key() bool {
 func claudeMenu(d *dialog) agentMenu {
 	fp := &firstParty{reg: d.reg}
 	cur := configure.CurrentProvider(d.reg)
-	loggedIn, _ := fp.login()
+	loggedIn := fp.login()
 	keyOK := fp.key()
 	tier := agent.AuthPlan(context.Background(), "claude", fp.st)
 	return agentMenu{claudeState(d, fp, cur, tier), []billingRow{
-		{"Subscription", "OAuth · plan limits · Remote Control " + Bracket(loggedIn, configure.WithTier("logged in", tier.Name), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "OAuth · plan limits · Remote Control " + Bracket(loggedIn, withTier("logged in", tier.Name), "not logged in"), modeSubscription, func() bool {
 			if !loggedIn {
 				if !d.shell().Confirm("Not logged in to claude.ai — run `claude auth login` now?") {
 					return false
@@ -95,8 +93,7 @@ func claudeState(d *dialog, fp *firstParty, cur string, tier providers.Subscript
 	}
 	switch {
 	case p.Provider == anthropicProvider && p.Auth.Method() == providers.AuthCLI:
-		ok, _ := fp.login()
-		return agentState{modeSubscription, tier, ok}
+		return agentState{modeSubscription, tier, fp.login()}
 	case p.Provider == anthropicProvider:
 		return agentState{mode: modeAPIKey, verified: fp.key() && configure.KeyVerified(p)}
 	case p.Auth.Login != "":

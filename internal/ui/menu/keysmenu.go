@@ -1,8 +1,10 @@
 package menu
 
 import (
-	"github.com/edotau/claude-code/internal/configure"
 	"regexp"
+	"sync"
+
+	"github.com/edotau/claude-code/internal/configure"
 
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -13,22 +15,26 @@ var pickKey = tui.PickBack
 // keysMenu lists every credential with its status; picking one opens its Login / OAuth token / API key actions
 // (or the set-up flow when absent), then returns to the list. Back leaves. Nothing changes unless a row is picked.
 func keysMenu(d *dialog) (allOK, changed bool) {
-	start := 0
+	start, stale := 0, true
+	var targets []configure.KeyTarget
+	var rows [][2]string
+	var ok bool
 	for {
-		targets, err := configure.KeyTargets(d.reg, d.o.Agent)
-		if err != nil {
-			d.println(err)
-			return false, changed
+		if stale { // re-probe only after a change: each probe can take seconds
+			var err error
+			if targets, err = configure.KeyTargets(d.reg, d.o.Agent); err != nil {
+				d.println(err)
+				return false, changed
+			}
+			rows, ok = keyRows(targets)
 		}
-		rows, ok := keyRows(targets)
 		idx, err := pickKey("keys — pick a credential to change, or Back to leave", rows, start)
 		if err != nil || idx < 0 {
 			return ok, changed
 		}
 		start = idx
-		if changeKey(d, targets[idx]) {
-			changed = true
-		}
+		stale = changeKey(d, targets[idx])
+		changed = changed || stale
 	}
 }
 
@@ -38,12 +44,14 @@ func keyRows(targets []configure.KeyTarget) ([][2]string, bool) {
 	names := make([]string, len(targets))
 	cols := make([][2]string, len(targets))
 	allOK := true
+	var wg sync.WaitGroup
 	for i, kt := range targets {
 		names[i] = kt.Label
-		cols[i] = keyCols(kt)
-		if cols[i][1] != "verified" {
-			allOK = false
-		}
+		wg.Go(func() { cols[i] = keyCols(kt) }) // probes run in parallel, not one 4s cap after another
+	}
+	wg.Wait()
+	for _, c := range cols {
+		allOK = allOK && c[1] == "verified"
 	}
 	return WithChecks(names, cols), allOK
 }

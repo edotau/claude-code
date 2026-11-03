@@ -40,7 +40,7 @@ type agentState struct {
 // label is the top menu's mode column: "subscription (Max 20x)", "API key" or "not set up".
 func (s agentState) label() string {
 	if s.mode == modeSubscription {
-		return configure.WithTier(s.mode, s.tier.Name)
+		return withTier(s.mode, s.tier.Name)
 	}
 	return s.mode
 }
@@ -198,7 +198,7 @@ func codexMenu(d *dialog) agentMenu {
 	}
 	pinned := vault.GetAgentRecord("codex").Profile
 	return agentMenu{st, []billingRow{
-		{"Subscription", "ChatGPT login · plan limits " + Bracket(loggedIn, configure.WithTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "ChatGPT login · plan limits " + Bracket(loggedIn, withTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s on its ChatGPT login (kept)\n", "codex")
 				return true
@@ -290,7 +290,7 @@ func copilotMenu(d *dialog) agentMenu {
 	}
 	pinned := vault.GetAgentRecord("copilot").Profile
 	rows := []billingRow{
-		{"Subscription", "GitHub Copilot " + Bracket(loggedIn, configure.WithTier(auth.Label(), plan.Name), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "GitHub Copilot " + Bracket(loggedIn, withTier(auth.Label(), plan.Name), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
 				return true
@@ -441,7 +441,7 @@ func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur strin
 
 // copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.
 func copilotKeyRow(d *dialog) billingRow {
-	env := copilot.CopilotTokenEnv
+	env := providers.CopilotTokenEnv
 	_, src, ok := secretstore.Get(env)
 	stored := ok && src != "env"
 	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + Bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
