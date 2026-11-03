@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +28,10 @@ import (
 
 type geminiEngine struct{ agent.BaseEngine }
 
-var _ agent.HeadlessDriver = geminiEngine{}
+var (
+	_ agent.HeadlessDriver = geminiEngine{}
+	_ agent.Authenticator  = geminiEngine{}
+)
 
 func (geminiEngine) Attach(prompt string, paths []string, tools bool) (string, error) {
 	if tools {
@@ -75,7 +79,24 @@ func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target,
 }
 
 func (geminiEngine) LoginStatus() (bool, string) {
-	return GeminiLoginPresent(), "Google login (agy)"
+	if st := (geminiEngine{}).AuthStatus(); st.Present {
+		return true, st.Source
+	}
+	return false, ""
+}
+
+// AuthStatus is agy's cached Google login from disk; Source and Method are empty when absent, Err when unreadable.
+func (geminiEngine) AuthStatus() providers.AuthState {
+	ok, err := geminiLoginProbe()
+	if !ok {
+		return providers.AuthState{Method: providers.AuthNone, Err: err}
+	}
+	return providers.AuthState{Present: true, Source: "Google login (agy)", Method: providers.AuthCLI}
+}
+
+// Plan is empty: agy reports no plan.
+func (geminiEngine) Plan(context.Context, providers.AuthState) providers.Subscription {
+	return providers.Subscription{}
 }
 
 // FollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
@@ -91,7 +112,12 @@ func (geminiEngine) NoRoute(_ *providers.Registry, t providers.Target) error {
 	return nil
 }
 
-func (geminiEngine) CheckLogin(context.Context) (providers.AuthVerdict, string) {
+// CheckLogin delegates to Verify until the Driver drops it.
+func (e geminiEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, string) {
+	return e.Verify(ctx)
+}
+
+func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	if geminiPresent() {
 		return providers.VerdictOK, "agy login present"
 	}
@@ -133,13 +159,23 @@ func geminiLogin(model string, h *agent.Headless) ([]string, []string, error) {
 
 // GeminiLoginPresent reports whether agy's cached Google login is on disk; agy itself owns and refreshes the token.
 func GeminiLoginPresent() bool {
-	home, _ := os.UserHomeDir()
+	ok, _ := geminiLoginProbe()
+	return ok
+}
+
+// geminiLoginProbe is GeminiLoginPresent plus the first real read failure; a missing marker is absent, not an error.
+func geminiLoginProbe() (bool, error) {
+	home, err := os.UserHomeDir()
 	for _, p := range agyLoginMarkers(home) {
-		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
-			return true
+		fi, serr := os.Stat(p)
+		if serr == nil && fi.Size() > 0 {
+			return true, nil
+		}
+		if serr != nil && !errors.Is(serr, fs.ErrNotExist) && err == nil {
+			err = serr
 		}
 	}
-	return false
+	return false, err
 }
 
 // AgyLoginMarker is agy's cached Google OAuth token path under home, the marker a login run leaves behind.
