@@ -36,7 +36,7 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
 ## Invocation
 
-`@agent-copilot <request>` or a brief. `test` (default), `commit`, `pr` run the modes below; any other verb
+`@agent-copilot <request>` or a brief. `test` (default) and `commit` run the modes below; any other verb
 (`claude-code copilot -h`) runs `claude-code copilot <verb> <rest>`, relayed (`--background`: relay the job id).
 `--profile`/`--model` ride on every call. `/copilot` runs the CLI directly, no subagent.
 
@@ -94,7 +94,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 Per `agent-verbs.md` → Procedure skeleton. Delta:
 
-- **Pick the mode from the brief**: TEST (default) or LAST-MILE (`commit`/`pr`); a contract verb
+- **Pick the mode from the brief**: TEST (default) or LAST-MILE (`commit`); a contract verb
   named outright in the brief — run it directly instead of guessing a mode.
 - **Run it.** TEST follows the Workflow below, batched on `copilot ask --tools`.
 - **Verify the result yourself** — re-run the scoped tests, read the diff. Never report a batch or a
@@ -178,32 +178,6 @@ footers, confirm first).
 3. **Verify the staged set builds and tests on its own** where the project allows it — never
    `git stash` (CLAUDE.md hard rule 4: this tree is shared).
 4. Report the hash and the resulting tree state.
-
-#### PR
-
-Only when the user asked for a PR, after Commit:
-
-1. **Preflight** — detect the toolchain and run lint + tests scoped to the staged packages (the full suite
-   is the main thread's; pre-push `make audit` runs it); stop and report on failure, do not commit:
-   `pyproject.toml`→`ruff check . && pytest` · `package.json`→`npm run lint && npm test` ·
-   `Makefile`→`make lint && make test` ·
-   `Cargo.toml`→`cargo clippy && cargo test` · `go.mod`→`go vet ./... && go test ./...`.
-2. Commit (see above).
-3. Push, creating the remote branch if needed: `-u origin <branch>`.
-4. `gh pr create` — title + body: summary of what/why, testing done, notes for reviewers.
-
-Stop and report on any failure in steps 1–4; never retry a push or PR create blindly.
-
-#### Account switching
-
-Switch the GitHub CLI identity with `gh auth switch --user <gh-user>`, then `gh auth status` (first 3 lines).
-With no user named, list the logged-in accounts from `gh auth status` and ask which one.
-
-#### Staging gotcha
-
-`git rm` stages the deletion immediately, and a later `git commit` (without `-a`) commits the whole index — so
-an unrelated deletion silently rides along in the next commit. Run `git status` and inspect the staged set before
-composing atomic commits, not just the files you intend to add.
 
 ## Report contract
 
