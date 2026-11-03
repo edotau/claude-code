@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -155,20 +156,9 @@ type claudeEvent struct {
 	} `json:"usage"`
 }
 
-// claudeMessage is the object shape of claudeEvent.Message, for assistant/user events only.
-type claudeMessage struct {
-	Model   string `json:"model"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-		Name string `json:"name"`
-		ID   string `json:"id"`
-	} `json:"content"`
-}
-
-// object decodes ev.Message as a claudeMessage; a string or absent message yields the zero value.
-func (ev claudeEvent) object() claudeMessage {
-	var m claudeMessage
+// object decodes ev.Message as an anthropic.Message; a string or absent message yields the zero value.
+func (ev claudeEvent) object() anthropic.Message {
+	var m anthropic.Message
 	if len(ev.Message) == 0 || ev.Message[0] != '{' {
 		return m
 	}
@@ -265,30 +255,33 @@ func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.Strea
 	}
 	msg := ev.object()
 	if msg.Model != "" {
-		res.Model = msg.Model
+		res.Model = string(msg.Model)
 	}
 	logClaudeAssistant(lg, msg)
 	return emitClaudeAssistant(sink, msg, wrote)
 }
 
-func logClaudeAssistant(lg agent.StreamLog, msg claudeMessage) {
+func logClaudeAssistant(lg agent.StreamLog, msg anthropic.Message) {
 	for _, b := range msg.Content {
-		switch b.Type {
-		case "text":
+		switch b := b.AsAny().(type) {
+		case anthropic.TextBlock:
 			lg.Emit("assistant", b.Text)
-		case "tool_use":
+		case anthropic.ToolUseBlock:
 			lg.Emit("tool", b.Name)
 		}
 	}
 }
 
-func emitClaudeAssistant(sink agent.Sink, msg claudeMessage, wrote *bool) error {
+func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, wrote *bool) error {
 	for _, b := range msg.Content {
 		var ev agent.Event
-		switch {
-		case b.Type == "tool_use":
+		switch b := b.AsAny().(type) {
+		case anthropic.ToolUseBlock:
 			ev = agent.ToolEvent(b.Name, b.ID)
-		case b.Type == "text" && b.Text != "":
+		case anthropic.TextBlock:
+			if b.Text == "" {
+				continue
+			}
 			ev = agent.Event{Type: agent.EventText, Text: b.Text, Sep: *wrote}
 			*wrote = true
 		default:
