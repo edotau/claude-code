@@ -5,6 +5,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -96,6 +97,12 @@ func isRegularFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
+// isSymlink reports whether path itself is a symbolic link (not followed).
+func isSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
+}
+
 // CollectContext walks dirs and globs patterns, inlining up to maxFiles text files (0 = none, <0 = default),
 // each cut at maxFileBytes (<=0 = default); matches are deduped and sorted so output is deterministic.
 func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes int) (Context, error) {
@@ -111,7 +118,7 @@ func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, ma
 
 	var tracked map[string]bool
 	var inRepo bool
-	if len(dirs) > 0 {
+	if len(dirs) > 0 || len(patterns) > 0 {
 		var err error
 		tracked, inRepo, err = gitTrackedFiles(ctx, cwd)
 		if err != nil {
@@ -119,7 +126,7 @@ func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, ma
 		}
 	}
 	matches, skipped := walkDirs(cwd, dirs, tracked, inRepo)
-	skipped = append(skipped, globPatterns(cwd, patterns, matches)...)
+	skipped = append(skipped, globPatterns(cwd, patterns, matches, tracked, inRepo)...)
 
 	sorted := make([]string, 0, len(matches))
 	for p := range matches {
@@ -220,8 +227,9 @@ func walkDirs(cwd string, dirs []string, tracked map[string]bool, inRepo bool) (
 	return matches, skipped
 }
 
-// globPatterns expands patterns into matches (mutated in place), returning any glob-error skips.
-func globPatterns(cwd string, patterns []string, matches map[string]bool) []SkippedFile {
+// globPatterns expands patterns into matches (mutated in place), returning glob-error and filtered-hit skips;
+// symlinks and, inside a git work tree, untracked-or-ignored hits are never inlined.
+func globPatterns(cwd string, patterns []string, matches map[string]bool, tracked map[string]bool, inRepo bool) []SkippedFile {
 	var skipped []SkippedFile
 	for _, pattern := range patterns {
 		glob := pattern
@@ -234,7 +242,14 @@ func globPatterns(cwd string, patterns []string, matches map[string]bool) []Skip
 			continue
 		}
 		for _, h := range hits {
-			if isRegularFile(h) {
+			rel := relSlash(cwd, h)
+			switch {
+			case isSymlink(h):
+				skipped = append(skipped, SkippedFile{rel, "symlink"})
+			case !isRegularFile(h):
+			case inRepo && !tracked[rel]:
+				skipped = append(skipped, SkippedFile{rel, "gitignored"})
+			default:
 				matches[h] = true
 			}
 		}
@@ -243,10 +258,16 @@ func globPatterns(cwd string, patterns []string, matches map[string]bool) []Skip
 }
 
 // gitTrackedFiles lists cwd's cached + untracked-not-ignored paths (relative, forward-slash) when cwd
-// is inside a git work tree; ok is false outside one, and the caller then walks everything.
+// is inside a git work tree; ok is false only outside one. Any other git failure is an error (fail closed).
 func gitTrackedFiles(ctx context.Context, cwd string) (tracked map[string]bool, ok bool, err error) {
-	if exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--is-inside-work-tree").Run() != nil {
-		return nil, false, ctx.Err()
+	if _, rerr := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--is-inside-work-tree").Output(); rerr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, false, ctxErr
+		}
+		if notARepo(cwd, rerr) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("git rev-parse in %s: %w", cwd, rerr)
 	}
 	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
 	if err != nil {
@@ -262,6 +283,22 @@ func gitTrackedFiles(ctx context.Context, cwd string) (tracked map[string]bool, 
 		}
 	}
 	return tracked, true, nil
+}
+
+// notARepo reports a confirmed non-repo: git's exit 128 "not a git repository", or no .git above cwd at all.
+func notARepo(cwd string, rerr error) bool {
+	var ee *exec.ExitError
+	if errors.As(rerr, &ee) && ee.ExitCode() == 128 && bytes.Contains(ee.Stderr, []byte("not a git repository")) {
+		return true
+	}
+	for dir := cwd; ; dir = filepath.Dir(dir) {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return false
+		}
+		if filepath.Dir(dir) == dir {
+			return true
+		}
+	}
 }
 
 // readInclude stats and bounded-reads abs (at most maxFileBytes+1 bytes), returning either the
@@ -283,8 +320,11 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 	if err != nil {
 		return IncludedFile{}, "read-error: " + err.Error(), nil
 	}
-	if isBinary(abs, data) {
+	if binaryExtensions[strings.ToLower(filepath.Ext(abs))] {
 		return IncludedFile{}, "unsupported-extension", nil
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
+		return IncludedFile{}, "binary-content", nil
 	}
 	truncated := info.Size() > int64(maxFileBytes)
 	content := data
@@ -316,14 +356,6 @@ func isIgnored(rel string) bool {
 	return false
 }
 
-// isBinary reports a binary file: known binary extension or a NUL byte in the content.
-func isBinary(path string, data []byte) bool {
-	if binaryExtensions[strings.ToLower(filepath.Ext(path))] {
-		return true
-	}
-	return bytes.IndexByte(data, 0) >= 0
-}
-
 // isSecretLike reports whether rel names an env file, a secrets file, a key/cert, or lives under a
 // state directory — never inlined even when explicitly matched by --files.
 func isSecretLike(rel string) bool {
@@ -332,10 +364,15 @@ func isSecretLike(rel string) bool {
 	if base == ".env" || strings.HasPrefix(base, ".env.") || base == "secrets.env" {
 		return true
 	}
-	if secretExtensions[strings.ToLower(filepath.Ext(base))] {
+	if secretExtensions[strings.ToLower(filepath.Ext(base))] || isSSHKeyName(base) {
 		return true
 	}
 	return slices.Contains(parts, "state")
+}
+
+// isSSHKeyName reports an OpenSSH private key default name (id_rsa, id_ed25519, ...), not its .pub.
+func isSSHKeyName(base string) bool {
+	return strings.HasPrefix(base, "id_") && filepath.Ext(base) == ""
 }
 
 // mediaType maps a path's extension to a media_type label (default text/plain).

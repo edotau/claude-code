@@ -88,9 +88,9 @@ func TestCollectContext(t *testing.T) {
 	if _, ok := skipReasons["node_modules/pkg/index.js"]; ok {
 		t.Error("files inside a pruned dir must not appear individually in Skipped")
 	}
-	// bin.bin has a NUL byte → unsupported-extension.
-	if r := skipReasons["bin.bin"]; r != "unsupported-extension" {
-		t.Errorf("bin.bin should be unsupported-extension, got %q", r)
+	// bin.bin has a NUL byte → binary-content.
+	if r := skipReasons["bin.bin"]; r != "binary-content" {
+		t.Errorf("bin.bin should be binary-content, got %q", r)
 	}
 	// big.txt exceeds maxFileBytes=10 → truncated, original Bytes preserved.
 	if f, ok := included["big.txt"]; !ok {

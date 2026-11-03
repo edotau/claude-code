@@ -128,8 +128,8 @@ func TestGeminiSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
-		t.Fatalf("Run: %v\n%s", err, out.String())
+	if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err == nil {
+		t.Fatalf("Run: want an error for invalid JSON\n%s", out.String())
 	}
 
 	raw, err := os.ReadFile(path)
@@ -197,8 +197,8 @@ func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 					}
 				}()
 				var out bytes.Buffer
-				if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
-					t.Fatalf("Run: %v\n%s", err, out.String())
+				if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err == nil {
+					t.Fatalf("Run: want an error for %s settings.json\n%s", content, out.String())
 				}
 			}()
 
