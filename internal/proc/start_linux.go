@@ -2,6 +2,7 @@ package proc
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -10,6 +11,9 @@ import (
 // StartTime returns an opaque token identifying pid's start (stat field 22, clock ticks since boot).
 func StartTime(pid int) (string, error) {
 	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", ErrNoProcess
+	}
 	if err != nil {
 		return "", err
 	}
