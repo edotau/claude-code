@@ -154,11 +154,11 @@ func TestSafeName(t *testing.T) {
 	}
 }
 
-// WriteBackup numbers collisions base, base-1, base-2 and never overwrites; files are 0600.
+// writeBackup numbers collisions base, base-1, base-2 and never overwrites; files are 0600.
 func TestWriteBackupNumbersCollisions(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "cfg.bak")
 	for i, want := range []string{base, base + "-1", base + "-2"} {
-		got, err := WriteBackup(base, []byte{byte('a' + i)})
+		got, err := writeBackup(base, []byte{byte('a' + i)})
 		if err != nil || got != want {
 			t.Fatalf("call %d: got %q, %v; want %q", i, got, err, want)
 		}
@@ -244,8 +244,8 @@ func TestTryFileLockContention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lock(f); err != nil {
-		t.Fatal(err)
+	if !TryLock(f) {
+		t.Fatal("could not take the lock")
 	}
 
 	ran, err := TryFileLock(path, 100*time.Millisecond, func() error { return nil })

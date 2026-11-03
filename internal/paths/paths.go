@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -143,6 +144,9 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 	if _, err := f.Write(data); err != nil {
 		return fail(err)
 	}
+	if err := f.Sync(); err != nil {
+		return fail(err)
+	}
 	if err := f.Close(); err != nil {
 		return errors.Join(err, os.Remove(tmp))
 	}
@@ -162,7 +166,7 @@ func WithFileLock(path string, fn func() error) (err error) {
 		return err
 	}
 	defer f.Close()
-	if err := lock(f); err != nil {
+	if err := acquire(f, path); err != nil {
 		return err
 	}
 	defer func() {
@@ -173,18 +177,50 @@ func WithFileLock(path string, fn func() error) (err error) {
 	return fn()
 }
 
+// ErrLockTimeout means WithFileLock gave up waiting for a held lock.
+var ErrLockTimeout = errors.New("timed out waiting for file lock")
+
+// lockTimeout bounds how long WithFileLock waits for a peer to release the lock.
+var lockTimeout = 2 * time.Minute
+
+// TryLock takes the exclusive lock on f without blocking; false means another holder has it (or locking is unsupported).
+func TryLock(f *os.File) bool { ok, _ := tryLock(f); return ok }
+
+// acquire polls tryLock until granted, lockTimeout passes (ErrLockTimeout) or locking itself fails.
+func acquire(f *os.File, path string) error {
+	for deadline := time.Now().Add(lockTimeout); ; time.Sleep(lockPoll()) {
+		ok, err := tryLock(f)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: %s.lock", ErrLockTimeout, path)
+		}
+	}
+}
+
 // lockPoll is a jittered 1-50ms wait: a fixed period keeps contenders in lockstep, one winner per period.
 func lockPoll() time.Duration { return time.Duration(1+rand.IntN(50)) * time.Millisecond }
 
 // TryFileLock runs fn under an exclusive lock on path only if granted within wait; ran=false means fn did not run.
-// For work that must not run unserialized (counting a shared marker dir), unlike the fail-open WithFileLock.
+// For work that must not run unserialized (counting a shared marker dir); a locking error is returned, not swallowed.
 func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, err error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
-	for deadline := time.Now().Add(wait); !TryLock(f); time.Sleep(lockPoll()) {
+	for deadline := time.Now().Add(wait); ; time.Sleep(lockPoll()) {
+		ok, lerr := tryLock(f)
+		if lerr != nil {
+			return false, lerr
+		}
+		if ok {
+			break
+		}
 		if time.Now().After(deadline) {
 			return false, nil
 		}
@@ -237,8 +273,8 @@ func DirSize(p string) int64 {
 	return total
 }
 
-// WriteBackup writes data to base, or base-1, base-2... if taken, never overwriting; returns the path used.
-func WriteBackup(base string, data []byte) (string, error) {
+// writeBackup writes data to base, or base-1, base-2... if taken, never overwriting; returns the path used.
+func writeBackup(base string, data []byte) (string, error) {
 	for i := 0; ; i++ {
 		dest := base
 		if i > 0 {
@@ -265,19 +301,27 @@ func Backup(src string, data []byte) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(base), 0o700); err != nil {
 		return "", fmt.Errorf("backup dir %s: %w", filepath.Dir(base), err)
 	}
-	return WriteBackup(base, data)
+	return writeBackup(base, data)
 }
 
 // ClientSecret returns the 32-byte hex secret in file, minting it 0600 under a file lock on first use.
 func ClientSecret(file string) (string, error) {
-	if s, err := readSecret(file); err == nil {
+	s, err := readSecret(file)
+	if err == nil {
 		return s, nil
 	}
+	if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errEmptySecret) {
+		return "", err
+	}
 	var out string
-	err := WithFileLock(file, func() error {
-		if s, err := readSecret(file); err == nil {
+	err = WithFileLock(file, func() error {
+		s, err := readSecret(file)
+		if err == nil {
 			out = s
 			return nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errEmptySecret) {
+			return err
 		}
 		b := make([]byte, 32)
 		if _, err := cryptorand.Read(b); err != nil {
@@ -289,6 +333,8 @@ func ClientSecret(file string) (string, error) {
 	return out, err
 }
 
+var errEmptySecret = errors.New("empty secret file")
+
 func readSecret(file string) (string, error) {
 	b, err := os.ReadFile(file)
 	if err != nil {
@@ -297,7 +343,7 @@ func readSecret(file string) (string, error) {
 	if s := strings.TrimSpace(string(b)); s != "" {
 		return s, nil
 	}
-	return "", errors.New("empty secret file " + file)
+	return "", fmt.Errorf("%w: %s", errEmptySecret, file)
 }
 
 // VSCodeSettings is the platform's VS Code Machine settings path; outside a vscode-server it is the User scope.

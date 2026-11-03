@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // ErrNoProcess means the pid does not exist; any other StartTime error is a failed probe.
@@ -68,11 +69,18 @@ func RunForwarding(bin string, argv, env []string, stdin io.Reader, stdout, stde
 	// The tty already delivers SIGINT to the child; the parent only survives it and forwards SIGTERM.
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
 	defer signal.Stop(sigs)
+	defer close(done)
 	go func() {
-		for s := range sigs {
-			if s == syscall.SIGTERM {
-				_ = cmd.Process.Signal(s)
+		for {
+			select {
+			case s := <-sigs:
+				if s == syscall.SIGTERM {
+					_ = cmd.Process.Signal(s)
+				}
+			case <-done:
+				return
 			}
 		}
 	}()
@@ -88,7 +96,9 @@ func Argv(pid int) ([]string, error) {
 	if raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
 		return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
 	}
-	out, err := exec.CommandContext(context.Background(), "ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return nil, err
 	}
