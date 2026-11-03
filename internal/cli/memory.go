@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -80,21 +79,8 @@ func memorySynopsis(sub, args string) string {
 	return strings.TrimSpace("claude-code memory " + sub + " [flags] " + args)
 }
 
-// memoryAgent runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
-func memoryAgent() memory.AgentFunc {
-	return func(ctx context.Context, prompt, workdir string) (string, error) {
-		client := newClient()
-		client.Refresh = nil
-		client.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
-		res, err := client.Run(ctx, agent.RunOptions{Agent: "claude", Prompt: prompt,
-			Effort: "medium", Tools: true, WorkDir: workdir}, agent.NewTextSink(os.Stdout))
-		who := res.Agent
-		if res.Fallback != "" {
-			who += "<-" + res.Fallback
-		}
-		return who, err
-	}
-}
+// memoryAgent runs background memory jobs via agent.MemoryRunner.
+func memoryAgent() memory.AgentFunc { return agent.MemoryRunner(newClient) }
 
 // memoryFlagSet builds the per-subcommand flag.FlagSet shared by every handler below.
 func memoryFlagSet(sub string) *flag.FlagSet {
