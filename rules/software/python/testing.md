@@ -40,5 +40,11 @@ Neither sees a subprocess's traffic.
 
 ## Endpoints and contracts
 
-DRF/FastAPI contract suites (`APIClient`/`httpx` patterns; one case per risk found, no matrices):
-`skills/subagent-workflows/references/api-contract-testing.md`.
+- Find routes from code (`router.register`, `path(`, FastAPI `@app.get`…); the serializer is the contract, assert
+  against it, not a hand-typed dict.
+- One spanning test per endpoint, only the branches the view has: 401 missing vs bad token, 403/404 role or non-owner,
+  400 missing/wrong-type/null required field, never a 500 on free text; check response keys and sensitive fields absent.
+- DRF in-process: `APIClient` + `force_authenticate`, `@pytest.mark.django_db` rollback, factories (no hardcoded IDs);
+  `httpx` only for cross-service or deployed checks; throttle tests last and serial.
+- Data jobs: assert output columns and dtypes, empty and malformed input; stub the warehouse client, live calls under
+  `@pytest.mark.integration`.
