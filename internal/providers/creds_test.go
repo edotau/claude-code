@@ -871,7 +871,8 @@ func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
 }
 
 func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
-	cmd, counter := countingCmd(t, "lc", "0.3", "echo survived-token")
+	gate := filepath.Join(t.TempDir(), "gate")
+	cmd, counter := countingCmd(t, "lc", "0", fmt.Sprintf("while [ ! -e %q ]; do sleep 0.02; done; echo survived-token", gate))
 	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthKey, Command: cmd}})
 	lctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -889,8 +890,10 @@ func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
 		wg.Add(1)
 		go func(i int) { defer wg.Done(); vals[i], errs[i] = Credential(context.Background(), p) }(i)
 	}
-	time.Sleep(100 * time.Millisecond)
-	cancel() // leader's ctx dies mid-mint
+	cancel() // leader's ctx dies mid-mint: the command is blocked on the gate and has already logged its start
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	wg.Wait()
 	for i := range vals {
 		if errs[i] != nil || vals[i] != "survived-token" {

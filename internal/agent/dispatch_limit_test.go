@@ -145,8 +145,25 @@ func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	l.limits = lim
 	ctx, cancel := context.WithCancel(context.Background())
 	waited := make(chan error, 1)
+	tried := make(chan struct{}, 1)
+	origClaim := sharedTryClaim
+	sharedTryClaim = func(c inflight.Claim, lim inflight.Limits) (bool, inflight.Snapshot) {
+		ok, err := origClaim(c, lim)
+		if c.Account == full && !ok {
+			select {
+			case tried <- struct{}{}:
+			default:
+			}
+		}
+		return ok, err
+	}
+	t.Cleanup(func() { sharedTryClaim = origClaim })
 	go func() { _, err := l.acquire(ctx, full); waited <- err }()
-	time.Sleep(3 * sharedPoll) // the full-account dispatch is now polling
+	select {
+	case <-tried: // the full-account dispatch was refused and is now polling
+	case <-time.After(5 * time.Second):
+		t.Fatal("full-account dispatch never tried the shared claim")
+	}
 
 	got := make(chan error, 1)
 	go func() {
