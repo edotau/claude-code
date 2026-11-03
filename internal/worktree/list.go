@@ -29,6 +29,7 @@ type Entry struct {
 	ActivityAt     time.Time
 	ActivitySource string // "reflog" | "index" | "filesystem" | "" (no evidence found)
 	Problems       []string
+	gitDir         string // dest's git-dir when the caller already resolved it
 }
 
 // List returns every worktree under repo.Root: the union of git's own registration and the immediate
@@ -182,11 +183,15 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		} // exit status 1 from --is-ancestor is a clean "no", not a failure
 	}
 
-	gitDir, gdErr := gitCmd(ctx, "-C", e.Path, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	gitDir, gdErr := e.gitDir, error(nil)
+	if gitDir == "" {
+		out, err := gitCmd(ctx, "-C", e.Path, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+		gitDir, gdErr = strings.TrimSpace(string(out)), err
+	}
 	if gdErr != nil {
 		e.Problems = append(e.Problems, "git-dir lookup failed: "+gdErr.Error())
 	} else {
-		e.ActivityAt, e.ActivitySource = activity(strings.TrimSpace(string(gitDir)), e.Path)
+		e.ActivityAt, e.ActivitySource = activity(gitDir, e.Path)
 	}
 	e.Stale = !e.ActivityAt.IsZero() && now.Sub(e.ActivityAt) > StaleAfter
 }

@@ -17,6 +17,8 @@ import (
 type Repo struct {
 	Main string // canonical main checkout path
 	Root string // Root(Main): ~/worktrees/<basename(Main)>
+	// CommonDir is the absolute git common dir ResolveRepo saw; "" (a hand-built Repo) means look it up.
+	CommonDir string
 }
 
 // WorktreeRoot is the one worktree home shared with native Claude Code: ~/worktrees, under the
@@ -56,7 +58,7 @@ func ResolveRepo(cwd string) (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Repo{Main: main, Root: Root(main)}, nil
+	return &Repo{Main: main, Root: Root(main), CommonDir: commonDir}, nil
 }
 
 // ResolveWorktree validates name and returns the path a worktree called name occupies under

@@ -161,15 +161,23 @@ func CleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 // WithWorktreeLease for repo+name (the CLI's merge lifecycle, which must not re-acquire the same
 // non-reentrant lease after a resolve or promote already took it). Standalone callers use Clean.
 func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
-	if log == nil {
-		log = io.Discard
-	}
 	dest, err := ResolveWorktree(repo, name)
 	if err != nil {
 		return CleanResult{}, err
 	}
+	return cleanAt(repo, name, dest, dryRun, log)
+}
+
+// cleanAt is CleanInLease's body for a dest the caller already validated under the same lease.
+func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanResult, error) {
+	if log == nil {
+		log = io.Discard
+	}
 	if _, err := os.Stat(dest); err != nil {
 		return CleanResult{}, fmt.Errorf("worktree %q not found at %s", name, dest)
+	}
+	if info, err := os.Lstat(dest); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return CleanResult{}, fmt.Errorf("%s is a symlink, refusing to treat it as a worktree", dest)
 	}
 	branch, _ := currentWorktreeBranch(dest)
 	result := CleanResult{Path: dest, Branch: branch}
@@ -182,7 +190,12 @@ func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 		return result, nil
 	}
 
-	locked, err := isLocked(dest)
+	gitDir, err := gitDirOf(context.Background(), dest)
+	if err != nil {
+		result.Reason = "lock check failed: " + err.Error()
+		return result, nil
+	}
+	locked, err := isLockedAt(dest, gitDir)
 	if err != nil {
 		result.Reason = "lock check failed: " + err.Error()
 		return result, nil
@@ -192,7 +205,7 @@ func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 		return result, nil
 	}
 
-	if op, found, err := inProgressOp(context.Background(), dest); err != nil {
+	if op, found, err := inProgressOp(context.Background(), dest, gitDir); err != nil {
 		result.Reason = "operation check failed: " + err.Error()
 		return result, nil
 	} else if found {
@@ -200,7 +213,7 @@ func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 		return result, nil
 	}
 
-	entry := Entry{Path: dest, Head: headOf(dest)}
+	entry := Entry{Path: dest, Head: headOf(dest), gitDir: gitDir}
 	target, targetErr := currentBranch(repo.Main)
 	Inspect(repo, &entry, target, targetErr, time.Now())
 	switch {
@@ -282,11 +295,16 @@ func headOfContext(ctx context.Context, dest string) (string, error) {
 // `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
 // counts as unlocked; any other stat error is an unknown state and must propagate.
 func isLocked(dest string) (bool, error) {
-	out, err := gitCmd(context.Background(), "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	gitDir, err := gitDirOf(context.Background(), dest)
 	if err != nil {
 		return false, err
 	}
-	_, statErr := os.Stat(filepath.Join(strings.TrimSpace(string(out)), "locked"))
+	return isLockedAt(dest, gitDir)
+}
+
+// isLockedAt is isLocked with dest's git-dir already known.
+func isLockedAt(dest, gitDir string) (bool, error) {
+	_, statErr := os.Stat(filepath.Join(gitDir, "locked"))
 	switch {
 	case statErr == nil:
 		return true, nil

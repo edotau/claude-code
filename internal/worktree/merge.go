@@ -21,7 +21,7 @@ type MergeResult struct {
 // integration commit lands in the worktree's own history. Callers gate on plan.Issues (a predicted
 // conflict) before calling this; resolve handles the ones that stop here instead.
 func IntegrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
-	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.AfterResolution); err != nil {
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("integrate: %s: %v", issue.Code, issue.Detail)
@@ -71,12 +71,12 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 	if branch != plan.TargetRef {
 		return nil, fmt.Errorf("promote: main checkout moved to %q, pinned target was %q — retry from a fresh plan", branch, plan.TargetRef)
 	}
-	if issue, err := checkCheckoutState(ctx, repo.Main, IssueDirtyTarget); err != nil {
+	if issue, err := checkCheckoutState(ctx, repo.Main, plan.MainGitDir, IssueDirtyTarget); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
 	}
-	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.AfterResolution); err != nil {
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
@@ -109,7 +109,7 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 			fmt.Errorf("promote: %s is not an ancestor of the integrated worktree HEAD %s", freshTarget, freshSource)
 	}
 
-	if conflicts, err := SimulateMerge(ctx, repo.Main, freshSource, freshTarget, true); err != nil {
+	if conflicts, err := simulateMerge(ctx, repo.Main, plan.CommonDir, freshSource, freshTarget, true); err != nil {
 		return nil, fmt.Errorf("promote: re-simulation failed: %w", err)
 	} else if len(conflicts) > 0 {
 		return nil, fmt.Errorf("promote: re-simulation predicts a conflict in %v — refusing to fall back to a real merge", conflicts)

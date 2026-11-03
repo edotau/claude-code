@@ -196,7 +196,7 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 // that unexpectedly completes cleanly is reported as Phase "integrate" instead, so the caller knows
 // there's nothing left for an agent to do.
 func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, error) {
-	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, IssueDirtyWorktree); err != nil {
+	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, plan.WorktreeGitDir, IssueDirtyWorktree); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("resolve: %s: %v", issue.Code, issue.Detail)
