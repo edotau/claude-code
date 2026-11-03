@@ -95,7 +95,7 @@ func (geminiEngine) Plan(context.Context, providers.AuthState) providers.Subscri
 
 // FollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
 func (geminiEngine) FollowsPin(p *providers.Provider) bool {
-	return !agent.GeminiGatewayRow(p) || vault.GetAgentRecord("gemini").Profile == p.Name
+	return !agent.GeminiGatewayRow(p) || geminiRecord().Profile == p.Name
 }
 
 // NoRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
@@ -106,9 +106,22 @@ func (geminiEngine) NoRoute(_ *providers.Registry, t providers.Target) error {
 	return nil
 }
 
+// geminiRecord is the gemini pin record; an unreadable vault warns on stderr and reads as unset.
+func geminiRecord() vault.AgentRecord {
+	recs, err := vault.ReadAgentRecords([]string{"gemini"})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gemini: vault unreadable, pins ignored: %v\n", err)
+	}
+	return recs["gemini"]
+}
+
 func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {
-	if geminiPresent() {
+	ok, err := geminiLoginProbe()
+	switch {
+	case ok:
 		return providers.VerdictOK, "agy login present"
+	case err != nil:
+		return providers.VerdictTransient, "agy login marker unreadable: " + err.Error()
 	}
 	return providers.VerdictNeedsLogin, ""
 }
@@ -155,6 +168,9 @@ func GeminiLoginPresent() bool {
 // geminiLoginProbe is GeminiLoginPresent plus the first real read failure; a missing marker is absent, not an error.
 func geminiLoginProbe() (bool, error) {
 	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
 	for _, p := range agyLoginMarkers(home) {
 		fi, serr := os.Stat(p)
 		if serr == nil && fi.Size() > 0 {
@@ -194,7 +210,7 @@ var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
-		base, effort, _ = agyGatewayBase(cmp.Or(vault.GetAgentRecord("gemini").Model, AgyDefaultModel))
+		base, effort, _ = agyGatewayBase(cmp.Or(geminiRecord().Model, AgyDefaultModel))
 	}
 	if effort == "" {
 		return base, base
@@ -216,24 +232,37 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 	return models.Wire("dotted", canonical), "", true
 }
 
-// gatewayTokens holds one router session token per profile for this process; the router drops each when it exits.
+// gatewayEntry is one router+profile token slot; its own lock keeps a slow mint from stalling other profiles.
+type gatewayEntry struct {
+	mu  sync.Mutex
+	tok string
+}
+
+// gatewayTokens holds one router session token per router base and profile; a new router gets a fresh mint.
 var (
 	gatewayMu     sync.Mutex
-	gatewayTokens = map[string]string{}
+	gatewayTokens = map[string]*gatewayEntry{}
 )
 
-// gatewayToken mints profile's token once per process (concurrent --batch jobs share it), under the router's token cap.
-func gatewayToken(ctx context.Context, profile string) (string, error) {
+// gatewayToken mints profile's token once per router (concurrent --batch jobs share it), under the router's token cap.
+func gatewayToken(ctx context.Context, routerBase, profile string) (string, error) {
 	gatewayMu.Lock()
-	defer gatewayMu.Unlock()
-	if t, ok := gatewayTokens[profile]; ok {
-		return t, nil
+	e := gatewayTokens[routerBase+"|"+profile]
+	if e == nil {
+		e = &gatewayEntry{}
+		gatewayTokens[routerBase+"|"+profile] = e
+	}
+	gatewayMu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.tok != "" {
+		return e.tok, nil
 	}
 	tok, err := agent.MintSession(ctx, profile, os.Getpid())
 	if err != nil {
 		return "", err
 	}
-	gatewayTokens[profile] = tok
+	e.tok = tok
 	return tok, nil
 }
 
@@ -244,7 +273,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: router: %w", err)
 	}
-	tok, err := gatewayToken(ctx, p.Name)
+	tok, err := gatewayToken(ctx, rb, p.Name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
@@ -514,7 +543,7 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 	cfg, err := agentconfig.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
-		return false, nil
+		return false, fmt.Errorf("gemini-settings: load agentconfig: %w", err)
 	}
 	if !cfg.Agent("gemini").Permission.UseGuardRules {
 		return false, nil
@@ -532,15 +561,18 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
 	raw, readErr := os.ReadFile(path)
 	existed := readErr == nil
+	if len(rules) == 0 && !existed {
+		return false, nil // nothing to deny: don't create agy's settings.json just to write an empty list
+	}
 	next := map[string]any{}
 	if existed {
 		if err := json.Unmarshal(raw, &next); err != nil {
 			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: %v\n", path, err)
-			return false, nil
+			return false, fmt.Errorf("gemini-settings: %s is not plain JSON: %w", path, err)
 		}
 		if next == nil { // "null" decodes without error but leaves next nil, not an empty object
 			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: not an object\n", path)
-			return false, nil
+			return false, fmt.Errorf("gemini-settings: %s is not plain JSON: not an object", path)
 		}
 	}
 	perms, _ := next["permissions"].(map[string]any)
@@ -594,7 +626,7 @@ func agyModel(req agent.RunOptions, t providers.Target) string {
 	return gt.Model
 }
 
-// agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
+// newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
 func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 	return agyRequest{
 		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
@@ -643,7 +675,7 @@ func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
 	return err
 }
 
-// parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
+// Parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
 func (b *agyLive) Parse(dec *bufio.Reader, sink agent.Sink, lg func(kind, text string)) (agent.Result, error) {
 	res, err := parseAgyEvents(dec, sink, true, lg)
 	total := res.Usage
@@ -656,5 +688,3 @@ func (b *agyLive) Parse(dec *bufio.Reader, sink agent.Sink, lg func(kind, text s
 	b.prev = total
 	return res, err
 }
-
-var geminiPresent = GeminiLoginPresent

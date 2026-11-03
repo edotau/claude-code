@@ -83,6 +83,10 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (age
 		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
 	}
 
+	if o.Provider == "" && len(prompt) > agyTruncateWarnBytes {
+		fmt.Fprintf(stream, "bridge: warning: prompt is %d bytes; agy may silently truncate input past ~%d KB\n", len(prompt), agyTruncateWarnBytes/1024)
+	}
+
 	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
 	if useAgy && !o.PrintCommand {
 		if _, lookErr := paths.AgentBin("agy"); lookErr != nil {
@@ -324,6 +328,9 @@ func stderrOf(err error) string {
 
 // PromptCap bounds the whole rendered prompt (task, inventory, tags), not just file bodies; over it agy cuts the tail.
 const PromptCap = DefaultTotalBytes
+
+// agyTruncateWarnBytes is the stdin size past which agy has been observed to drop input silently (~130 KB, S5).
+const agyTruncateWarnBytes = 130 * 1024
 
 // FitPrompt renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.
 // task is rebuilt per trim so an index reflects what stays inlined; it errors if zero files still exceed limit.
