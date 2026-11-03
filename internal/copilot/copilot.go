@@ -113,7 +113,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if route != nil {
 		route.apply(&opts)
 	}
-	// the SDK merges os.Environ itself, so blank other profiles' credentials the launch does not set itself
+	// the SDK child gets exactly BuildClientOptions' env, whose base skips isolation: blank other profiles' credentials
 	opts.Env = append(agent.BlankForeignCredentials(ctx, opts.Env, req.KeepEnv), req.Env...) // --env goes last so it wins
 	if err := applyCopilotToken(&opts, own, env); err != nil {
 		return opts, nil, done, copilotFatal(err)
