@@ -548,15 +548,38 @@ func authMarkedSince(disp Dispatch) *Error {
 	return &Error{Kind: KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
 }
 
-// noteQuota remembers a KindQuota failure on the dispatch's account until its parsed reset (else the known window).
+// rateLimitHold is how long a plain 429 on a subscription account (no parsed reset) keeps it out of the picks.
+const rateLimitHold = 10 * time.Minute
+
+// noteQuota remembers a KindQuota failure until its reset; a subscription KindRateLimit one for 10m.
 func noteQuota(disp Dispatch, err error) {
-	var e *Error
-	if disp.Account == "" || !errors.As(err, &e) || e.Kind != KindQuota {
+	e, ok := holdable(disp, err)
+	if !ok {
 		return
 	}
 	now := time.Now()
-	until := router.ResetFor(err.Error(), disp.Billing, loadState()[disp.Account], now)
+	until := now.Add(rateLimitHold)
+	if e.Kind == KindQuota {
+		until = router.ResetFor(err.Error(), disp.Billing, loadState()[disp.Account], now)
+	} else if t, ok := router.ParseReset(err.Error(), now); ok {
+		until = t
+	}
 	_ = markExhausted(disp.Account, until, now, FallbackReason(err)) // best-effort: the run's own error still reports it
+}
+
+// holdable is err's *Error when it should bench the account: a quota, or a rate limit on a subscription plan.
+func holdable(disp Dispatch, err error) (*Error, bool) {
+	var e *Error
+	if disp.Account == "" || !errors.As(err, &e) {
+		return nil, false
+	}
+	switch e.Kind {
+	case KindQuota:
+		return e, true
+	case KindRateLimit: // a per-endpoint 429 on a credits account must not bench the whole account
+		return e, disp.Billing == router.BillSubscription
+	}
+	return nil, false
 }
 
 // NoteCopilotQuota marks the pinned copilot account exhausted by cause and returns that account's route-state key.
