@@ -190,7 +190,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 		del := wasSecret && d.shell().Confirm("also delete the sealed secret "+name+"?")
 		return name, envEdit{deleteSecret: del}, true
 	}
-	where, err := d.shell().PickPlain("store "+name+" as", [][2]string{
+	where, err := d.shell().Pick("store "+name+" as", [][2]string{
 		{"plain", "value in the vault env"}, {"secret", "value sealed in vault; vault env name = @secret"}})
 	if err != nil || where < 0 {
 		return "", envEdit{}, false

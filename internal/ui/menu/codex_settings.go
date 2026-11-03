@@ -91,7 +91,7 @@ func runCodexSettingsMenu(d *dialog, ov, live map[string]string) bool {
 			choices = append(choices, [2]string{value, ""})
 		}
 		choices = append(choices, [2]string{"Codex default", "remove harness override"})
-		choice, err := d.shell().PickPlain(f.Key, choices)
+		choice, err := d.shell().Pick(f.Key, choices)
 		if err != nil {
 			d.printf("codex: %v\n", err)
 			return false

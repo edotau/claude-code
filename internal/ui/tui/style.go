@@ -58,3 +58,32 @@ func Selected(on bool, s string) string {
 	}
 	return ansi.Style(on, "\x1b[7m", s)
 }
+
+// mutedRGB is the description column's grey: softer than a row's label, brighter than the dim key hint.
+var mutedRGB = ansi.RGB{0xb4, 0xb4, 0xb4}
+
+// Muted paints s in the description grey; 16-colour terminals fall back to plain white (SGR 37).
+func Muted(on bool, s string) string {
+	if !on || s == "" {
+		return s
+	}
+	if mode := colorMode(); mode != "" {
+		return ansi.Paint(mode, mutedRGB, s, false)
+	}
+	return ansi.Style(on, "\x1b[37m", s)
+}
+
+// muteDetail paints a laid-out row's middle cells (after the label, before a trailing [badge]) in Muted.
+func muteDetail(on bool, row string) string {
+	i := strings.Index(row, "  ")
+	if !on || i < 0 {
+		return row
+	}
+	j := len(row)
+	if strings.HasSuffix(row, "]") {
+		if k := strings.LastIndex(row, " ["); k > i {
+			j = k
+		}
+	}
+	return row[:i] + Muted(on, row[i:j]) + row[j:]
+}

@@ -103,8 +103,8 @@ func panelLines(title string, s pickState, cols int) int {
 	}
 	for i, row := range s.rows {
 		lines += wrappedLines(2+len([]rune(row)), cols)
-		if s.heads[i] {
-			lines++ // the blank line above a section title
+		if s.heads[i] && (i > 0 || title == "") {
+			lines++ // the blank line above a section title (the page title's own blank covers the first)
 		}
 	}
 	if len(s.rows) > 1 {
@@ -129,10 +129,13 @@ func render(title string, s pickState, color bool) string {
 			b.WriteString("\x1b[K\r\n") // every menu's trailing Submit/Back row sits one blank line below the rest
 		}
 		if s.heads[i] {
-			b.WriteString("\x1b[K\r\n" + Accent(color, row) + "\x1b[K\r\n")
+			if i > 0 || title == "" { // the page title already ends in a blank line
+				b.WriteString("\x1b[K\r\n")
+			}
+			b.WriteString(Accent(color, row) + "\x1b[K\r\n")
 			continue
 		}
-		prefix, line := "  ", ansi.Status(color, row)
+		prefix, line := "  ", ansi.Status(color, muteDetail(color, row))
 		if i == s.sel {
 			prefix = AccentMark(color, "▸") + " "
 			line = Selected(color, ansi.Strip(row))
@@ -260,6 +263,23 @@ func sectionLines(sections []Section) (map[int]bool, []int) {
 // columns shared across all sections, then trailing after a blank line. It returns the index among selectable rows
 // in order (trailing = the last), or -1 on Esc/q/Ctrl-C/Left; start is in the same numbering.
 func PickSections(title string, sections []Section, trailing [2]string, start int) (int, error) {
+	return pickSections("", sections, trailing, start)
+}
+
+// PickSectionsBack is PickSections under a page title with a trailing Back row; Back and Esc both return -1.
+func PickSectionsBack(title string, sections []Section, start int) (int, error) {
+	n := 0
+	for _, sec := range sections {
+		n += len(sec.Rows)
+	}
+	idx, err := pickSections(title, sections, [2]string{"Back", "return to the previous menu"}, start)
+	if err != nil || idx == n {
+		return -1, err
+	}
+	return idx, nil
+}
+
+func pickSections(title string, sections []Section, trailing [2]string, start int) (int, error) {
 	var all [][2]string
 	for _, sec := range sections {
 		all = append(all, sec.Rows...)
@@ -279,7 +299,7 @@ func PickSections(title string, sections []Section, trailing [2]string, start in
 	if start >= 0 && start < len(pos) {
 		at = pos[start]
 	}
-	idx, err := pickHeads("", lay, heads, at)
+	idx, err := pickHeads(title, lay, heads, at)
 	if err != nil || idx < 0 {
 		return -1, err
 	}
