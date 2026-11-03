@@ -370,7 +370,7 @@ func statusOf(e *Error) string {
 		return StatusOK
 	case e.Kind == KindQuota:
 		return StatusQuota
-	case errors.Is(e, context.DeadlineExceeded):
+	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, ErrStalled):
 		return StatusStalled
 	case e.Progressed:
 		return StatusPartial

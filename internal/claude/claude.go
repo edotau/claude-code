@@ -64,7 +64,9 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink a
 	if err := cmd.Start(); err != nil {
 		return agent.Result{}, err
 	}
-	res, perr := parseClaudeStream(bufio.NewReader(stdout), sink, agent.EventLogFor(ctx))
+	wd := newStallWatch(claudeIdleLimit, func() { _ = cmd.Cancel() }) // a silent child must not hold the run to --timeout
+	res, perr := parseClaudeEvents(bufio.NewReader(stdout), false, wd, sink, agent.EventLogFor(ctx))
+	wd.stop()
 	if perr != nil {
 		_ = cmd.Cancel() // a dead consumer or bad stream must not leave claude running to --timeout
 	} else {
@@ -72,6 +74,9 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink a
 	}
 	werr := cmd.Wait()
 	res.Provider = cl.Set[providers.EnvSessionProfile]
+	if serr := wd.stalled(); serr != nil {
+		return res, serr
+	}
 	if werr != nil || ctx.Err() != nil {
 		return res, agent.ChildErr(ctx, "claude", errors.Join(werr, perr), tail)
 	}
@@ -178,11 +183,11 @@ func (ev claudeEvent) text() string {
 
 // parseClaudeStream emits top-level assistant text and tool calls to sink and returns the result event's envelope.
 func parseClaudeStream(br *bufio.Reader, sink agent.Sink, logs ...agent.StreamLog) (res agent.Result, _ error) {
-	return parseClaudeEvents(br, false, sink, logs...)
+	return parseClaudeEvents(br, false, nil, sink, logs...)
 }
 
 // parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
-func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink agent.Sink, logs ...agent.StreamLog) (res agent.Result, _ error) {
+func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink agent.Sink, logs ...agent.StreamLog) (res agent.Result, _ error) {
 	lg := agent.PickLog(logs)
 	sawResult, wrote := false, false
 	ts := agent.TransportTracker{Start: agent.Clock()}
@@ -192,6 +197,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink agent.Sink, logs
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			return false, fmt.Errorf("decode stream-json: %w", err)
 		}
+		wd.observe(ev)
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
 		}

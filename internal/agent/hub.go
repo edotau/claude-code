@@ -26,9 +26,9 @@ func firstOutputDeadline() time.Duration {
 	return reg.Routing.Opencode.FirstOutput()
 }
 
-// ErrStalled is the sentinel a free dispatch's Run returns when nothing streamed within its first-output deadline: a
+// ErrStalled is the sentinel a dispatch's Run returns when its stream went silent past the stall deadline: a
 // fatal, unwrapped failure, so Do never retries it but dispatchUnavailable falls through to the chain's backup dispatch.
-var ErrStalled = errors.New("free dispatch stalled: no output within the first-output deadline")
+var ErrStalled = errors.New("dispatch stalled: no output within the stall deadline")
 
 // HubEngine is one hub ladder step: an Engine that names the provider account answering it, so every dispatch of a
 // chain reads the same Result.Agent and only Result.Provider shows which account did.

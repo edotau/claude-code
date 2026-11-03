@@ -566,13 +566,13 @@ func NoteCopilotQuota(cause error) string {
 	return acct
 }
 
-// noteStall remembers a stalled free dispatch for 15 minutes, so the sub-pick skips it instead of hanging again.
+// noteStall remembers a stalled dispatch for 15 minutes, so the sub-pick skips it instead of hanging again.
 func noteStall(disp Dispatch, err error) {
 	if disp.Account == "" || !errors.Is(err, ErrStalled) {
 		return
 	}
 	now := time.Now()
-	reason := fmt.Sprintf("free dispatch stalled (no output in %s)", firstOutputDeadline())
+	reason := fmt.Sprintf("dispatch stalled (no output in %s)", firstOutputDeadline())
 	_ = markExhausted(disp.Account, now.Add(15*time.Minute), now, reason) // best-effort: the run's own error still reports it
 }
 
