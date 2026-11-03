@@ -4,6 +4,7 @@
 package usage
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -166,7 +167,7 @@ func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 		Mix: mixPtr(mix), Daily: scan.daily, ActiveDays: len(scan.daily)}
 }
 
-// codexEventPayload mirrors a codex session line's payload: turn_context carries the model, event_msg
+// codexLine mirrors a codex session line; its payload: turn_context carries the model, event_msg
 // carries token_count with the cumulative total_token_usage for the session so far; Timestamp is the
 // line's own RFC3339 clock, used to date a session by its LAST token_count line.
 type codexLine struct {
@@ -255,8 +256,8 @@ func parseCodexSession(path string, cutoff time.Time, fallbackDay string) codexS
 				return
 			}
 			cur := cumulativeOf(p.Info.TotalTokenUsage)
-			if cur.Tokens == 0 { // info:null lines carry no totals; they must not reset the baseline
-				cur = prev
+			if cur.Tokens == 0 { // info:null lines carry no totals: no baseline reset, no turn
+				return
 			}
 			delta := cur.minus(prev)
 			prev = cur
@@ -368,15 +369,15 @@ var lookPathSqlite3 = func() error {
 	return err
 }
 
-// opencodeSqliteCmd is the opencode.db exec seam; tests replace it so no test shells out to sqlite3.
-var opencodeSqliteCmd = func(ctx context.Context, dbPath, query string) ([]byte, error) {
+func sqliteJSON(ctx context.Context, dbPath, query string) ([]byte, error) {
 	return exec.CommandContext(ctx, "sqlite3", "-readonly", "-json", dbPath, query).Output()
 }
 
+// opencodeSqliteCmd is the opencode.db exec seam; tests replace it so no test shells out to sqlite3.
+var opencodeSqliteCmd = sqliteJSON
+
 // copilotSqliteCmd is the Copilot CLI session-store.db exec seam; tests replace it likewise.
-var copilotSqliteCmd = func(ctx context.Context, dbPath, query string) ([]byte, error) {
-	return exec.CommandContext(ctx, "sqlite3", "-readonly", "-json", dbPath, query).Output()
-}
+var copilotSqliteCmd = sqliteJSON
 
 type opencodeTotalsRow struct {
 	Turns      int     `json:"turns"`
@@ -434,7 +435,12 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + commandErrorLine(totalsOut, totalsErr)}
 	}
 	var totals []opencodeTotalsRow
-	if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil || len(totals) == 0 || totals[0].Turns == 0 {
+	if len(bytes.TrimSpace(totalsOut)) > 0 { // sqlite3 -json prints nothing for zero rows
+		if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil {
+			return agentUsage{Agent: "opencode", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
+		}
+	}
+	if len(totals) == 0 || totals[0].Turns == 0 {
 		return agentUsage{Agent: "opencode", Note: "no sessions in window"}
 	}
 
@@ -443,7 +449,9 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + commandErrorLine(modelsOut, modelsErr)}
 	}
 	var rows []opencodeModelRow
-	_ = json.Unmarshal(modelsOut, &rows)
+	if jsonErr := json.Unmarshal(modelsOut, &rows); jsonErr != nil {
+		return agentUsage{Agent: "opencode", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
+	}
 	models := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
 		models = append(models, agentModel{Provider: r.Provider, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens, CostUSD: r.CostUSD})
@@ -544,7 +552,12 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + commandErrorLine(totalsOut, totalsErr)}
 	}
 	var totals []copilotTotalsRow
-	if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil || len(totals) == 0 || totals[0].Turns == 0 {
+	if len(bytes.TrimSpace(totalsOut)) > 0 { // sqlite3 -json prints nothing for zero rows
+		if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil {
+			return agentUsage{Agent: "copilot", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
+		}
+	}
+	if len(totals) == 0 || totals[0].Turns == 0 {
 		return agentUsage{Agent: "copilot", Note: "no sessions in window"}
 	}
 
@@ -553,7 +566,9 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + commandErrorLine(modelsOut, modelsErr)}
 	}
 	var rows []copilotModelRow
-	_ = json.Unmarshal(modelsOut, &rows)
+	if jsonErr := json.Unmarshal(modelsOut, &rows); jsonErr != nil {
+		return agentUsage{Agent: "copilot", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
+	}
 	byModel := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
 		prov, profile, _ := strings.Cut(copilotProvider(r), "·")

@@ -123,7 +123,7 @@ func TestClaudeQuotasParsesFixture(t *testing.T) {
 // keychain having missed) reports one note row and never calls the usage HTTP endpoint.
 func TestClaudeQuotasExpiredToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("usage endpoint must not be called when the credential is expired")
+		t.Error("usage endpoint must not be called when the credential is stale")
 	}))
 	defer srv.Close()
 	stubClaudeOAuthURL(t, srv.URL)
@@ -138,7 +138,7 @@ func TestClaudeQuotasExpiredToken(t *testing.T) {
 	}
 
 	got := claudeQuotas(context.Background())
-	want := "token expired (run claude /login)"
+	want := "usage unavailable: token stale, refresh pending (use claude)"
 	if len(got) != 1 || got[0].Note != want {
 		t.Errorf("expired token = %+v, want one row with Note %q", got, want)
 	}

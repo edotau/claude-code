@@ -251,11 +251,17 @@ func claudeQuotas(ctx context.Context) []quota {
 	if !ok {
 		return []quota{{Provider: "anthropic", Note: "not logged in (run claude /login)"}}
 	}
-	if creds.ClaudeAiOauth.ExpiresAt > 0 && time.Now().UnixMilli() > creds.ClaudeAiOauth.ExpiresAt {
-		return []quota{{Provider: "anthropic", Note: "token expired (run claude /login)"}}
-	}
-
 	path := claudeUsageCachePath()
+	var rows []quota
+	// The lock spans read, fetch and write, so a concurrent run reads the fresh cache instead of refetching.
+	if err := paths.WithFileLock(path, func() error { rows = claudeFetch(ctx, creds, path); return nil }); err != nil {
+		rows = claudeFetch(ctx, creds, path)
+	}
+	return rows
+}
+
+// claudeFetch serves the cache when fresh or rate limited, else asks the endpoint and rewrites the cache.
+func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quota {
 	cache := readClaudeUsageCache(path)
 	now := claudeNow()
 
@@ -265,6 +271,10 @@ func claudeQuotas(ctx context.Context) []quota {
 	if cache != nil && cache.NotBefore != nil && now.Before(*cache.NotBefore) {
 		return claudeCachedOrNote(cache, "rate limited until "+cache.NotBefore.Local().Format("15:04"),
 			"usage unavailable: rate limited until "+cache.NotBefore.Local().Format("15:04"))
+	}
+
+	if exp := creds.ClaudeAiOauth.ExpiresAt; exp > 0 && now.UnixMilli() > exp { // claude refreshes it on its next use
+		return claudeCachedOrNote(cache, "token stale, refresh pending", "usage unavailable: token stale, refresh pending (use claude)")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeOAuthURL, nil)

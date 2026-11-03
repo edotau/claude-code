@@ -1,7 +1,7 @@
 // Package usage is `claude-code usage`: token totals from subagent transcripts, including Workflow-tool agents
 // (<session>/subagents/workflows/<runId>/agent-*.jsonl); --workflows rolls each run up per phase, with a
 // per-model (MODEL column) split and a per-run plus cross-run model rollup. Live provider plan quotas and the
-// local per-token ledger (API-key providers; ledger.go) follow the table (providers.go); --show picks
+// local per-token ledger (API-key providers; ledger.go) follow the table (provider_quotas.go); --show picks
 // left/used/total for the quota column.
 package usage
 
@@ -57,6 +57,9 @@ type Document struct {
 
 // Report builds the JSON document for one window (session scopes to one id, else the last days days).
 func Report(claudeDir, session string, days int, withQuotas bool, errw io.Writer) (*Document, error) {
+	if session == "" && days <= 0 {
+		days = 1 // the same window scanUsage scans
+	}
 	quotasCh := startQuotaFetch(withQuotas) // overlaps the local scan below
 	scan, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {
@@ -163,7 +166,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	daysFlag := fs.Int("days", 1, "select sessions modified in N days (ignored with --session)")
 	formatFlag := helptext.FormatFlag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
-	providersFlag := fs.Bool("providers", true, "append live plan quotas (GitHub Copilot, OpenAI, Google); =false stays offline")
+	providersFlag := fs.Bool("providers", true, "append live plan quotas for every provider; =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default), left, or total")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -181,6 +184,9 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	if workflowsOut && jsonOut {
 		fmt.Fprintln(errw, "usage: --workflows has no JSON form; drop --format json (the per-model aggregate does)")
 		return 2
+	}
+	if session == "" && days <= 0 {
+		days = 1 // the same window scanUsage scans
 	}
 	if workflowsOut {
 		return runUsageWorkflows(claudeDir, out, errw, session, days)
@@ -251,7 +257,9 @@ func startQuotaFetch(enabled bool) <-chan []quota {
 	go func() {
 		qs := fetchQuotas()
 		for i := range qs {
-			qs[i].LeftPct = 100 - qs[i].UsedPct
+			if qs[i].Note == "" || qs[i].Limit > 0 {
+				qs[i].LeftPct = 100 - qs[i].UsedPct
+			}
 		}
 		setStates(qs, warnThreshold())
 		recordQuotaState(qs)
