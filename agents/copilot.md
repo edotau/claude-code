@@ -68,6 +68,9 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Copilot deltas:
 
 - `resume <id> <task>` equals `ask --session`.
+- `ask --fleet` runs the task in Copilot's fleet mode (its own parallel subagents; experimental SDK call). Prefer it
+  for wide scans, audits and multi-file edits; verify the result with `git diff --stat`, since its subagents are not
+  briefed by us.
 - `ask --agent copilot`: both system-prompt flags are emulated (named in `emulated`), `--env` honored, no `cost_usd`.
   Stream, `--host` and the generic lifecycle verbs: `cost-routing.md` → Ask flags and lifecycle.
 - Resume the underlying CLI session directly with `copilot --resume <id>` (the native flag, not a

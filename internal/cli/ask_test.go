@@ -131,7 +131,7 @@ func newAskState() *askState {
 	s := func() *string { return new(string) }
 	b := func() *bool { return new(bool) }
 	return &askState{name: s(), provider: s(), model: s(), effort: s(), workdir: s(), session: s(), rubric: s(),
-		tools: b(), readOnly: b(), noTools: b(), autonomous: b(), enableMemory: b(), direct: b(),
+		tools: b(), readOnly: b(), noTools: b(), autonomous: b(), fleet: b(), enableMemory: b(), direct: b(),
 		noPersist: b(), safeMode: b(), debugFile: s(), systemPrompt: s(), appendSystemPrompt: s(), outputSchema: s(), host: s(), remoteBin: s(), fallback: s(),
 		timeout: new(time.Duration), attach: new(attachFlag), keepEnv: new(keepEnvFlag)}
 }

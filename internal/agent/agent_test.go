@@ -770,3 +770,12 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 		t.Errorf("hop = %v, want the recovered credential failure in errors", h)
 	}
 }
+
+func TestRunDropsFleetWhenAgentLacksIt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{nil}}
+	res, err := Run(context.Background(), f, RunOptions{Prompt: "p", Fleet: true}, Discard, nil)
+	if err != nil || !reflect.DeepEqual(res.Dropped, []string{"--fleet"}) || f.seen[0].Fleet {
+		t.Fatalf("res=%+v err=%v seen=%+v", res, err, f.seen)
+	}
+}

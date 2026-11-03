@@ -107,7 +107,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
 		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
 		Context:         rec.Context, WorkingDirectory: req.WorkDir,
-		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, UseLoggedInUser: true, Autonomous: req.Autonomous, EnableMemory: req.EnableMemory,
+		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 	}
 	if route != nil {

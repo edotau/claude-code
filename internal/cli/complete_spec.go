@@ -47,7 +47,7 @@ func buildSpecTree() map[string]*compNode {
 		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("read-only"), boolFlag("no-tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 		valuedFlag("fallback", func() []string { return router.FallbackModes }),
-		flag("attach"), flag("keep-env"), flag("overlay"), boolFlag("autonomous"), boolFlag("enable-memory"),
+		flag("attach"), flag("keep-env"), flag("overlay"), boolFlag("autonomous"), boolFlag("fleet"), boolFlag("enable-memory"),
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), valuedFlag("as", func() []string { return []string{"user", "sp"} }),
 	}

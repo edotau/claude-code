@@ -299,3 +299,27 @@ func TestFileAttachments(t *testing.T) {
 		t.Fatalf("attachments = %#v", got)
 	}
 }
+
+type fakeFleet struct {
+	got *rpc.FleetStartRequest
+	res *rpc.FleetStartResult
+}
+
+func (f *fakeFleet) Start(_ context.Context, p *rpc.FleetStartRequest) (*rpc.FleetStartResult, error) {
+	f.got = p
+	return f.res, nil
+}
+
+func TestStartFleetSendsPromptAndWaits(t *testing.T) {
+	f := &fakeFleet{res: &rpc.FleetStartResult{Started: true}}
+	if err := startFleet(context.Background(), f, copilot.MessageOptions{Prompt: "do it", Attachments: fileAttachments([]string{"/a.png"})}); err != nil {
+		t.Fatal(err)
+	}
+	if f.got == nil || *f.got.Prompt != "do it" || f.got.Wait == nil || !*f.got.Wait || len(f.got.Attachments) != 1 {
+		t.Fatalf("request = %+v", f.got)
+	}
+	f.res = &rpc.FleetStartResult{}
+	if err := startFleet(context.Background(), f, copilot.MessageOptions{Prompt: "x"}); err == nil || !strings.Contains(err.Error(), "did not start") {
+		t.Fatalf("Started=false must error, got %v", err)
+	}
+}
