@@ -310,17 +310,23 @@ func TestNoSetenvOrChdirInDispatchPath(t *testing.T) {
 		if perr != nil {
 			t.Fatal(perr)
 		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			c, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
+		for _, d := range f.Decls {
+			// The overlay flags set env once at flag parse, before any dispatch, so --job relaunches inherit (b868a893).
+			if fd, ok := d.(*ast.FuncDecl); ok && (fd.Name.Name == "EnableOverlay" || fd.Name.Name == "EnableOverlayDebug") {
+				continue
 			}
-			if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
-				if id, ok := sel.X.(*ast.Ident); ok && banned[id.Name+"."+sel.Sel.Name] {
-					t.Errorf("%s: %s.%s in the dispatch path: pass env/dir through childCmd instead", p, id.Name, sel.Sel.Name)
+			ast.Inspect(d, func(n ast.Node) bool {
+				c, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
 				}
-			}
-			return true
-		})
+				if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
+					if id, ok := sel.X.(*ast.Ident); ok && banned[id.Name+"."+sel.Sel.Name] {
+						t.Errorf("%s: %s.%s in the dispatch path: pass env/dir through childCmd instead", p, id.Name, sel.Sel.Name)
+					}
+				}
+				return true
+			})
+		}
 	}
 }

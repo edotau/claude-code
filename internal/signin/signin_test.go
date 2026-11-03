@@ -14,7 +14,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -22,6 +24,11 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// internal/claude imports this package, so its roster row is registered here by hand.
+func init() {
+	agent.RegisterRowForTest(agent.Schema{Name: "claude", CLI: agent.CLI{LoginArgv: []string{"claude", "auth", "login"}}})
+}
 
 func env(t *testing.T) {
 	t.Helper()

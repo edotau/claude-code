@@ -127,20 +127,26 @@ func TestRunRotateTwoOptionsPipedPicksSecondOnDecline(t *testing.T) {
 
 // --- regenerate ---
 
-func TestRegenerateMintEnvOnlyRefuses(t *testing.T) {
+// Owner decision (2026-11-03, keeps 22f1342c): an env-only mint is saved to the vault with an override warning.
+func TestRegenerateMintEnvOnlySavesToVault(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ROT_MINT_ENV", "set-via-process-env")
 	d, out := newDialog("")
 	kt := configure.KeyTarget{Label: "x", EnvVar: "ROT_MINT_ENV"}
-	if regenerate(d, kt, []string{"/bin/echo", "sk-ant-oat1-newvaluevalue0123456789abcdef"}, true) {
-		t.Fatal("regenerate(mint) on an env-only credential must refuse")
+	const minted = "sk-ant-oat1-newvaluevalue0123456789abcdef"
+	if !regenerate(d, kt, []string{"/bin/echo", minted}, true) {
+		t.Fatalf("regenerate(mint) on an env-only credential must save the new token:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "env-only") {
-		t.Errorf("output must explain the env-only refusal:\n%s", out.String())
+	if !strings.Contains(out.String(), "still overrides") {
+		t.Errorf("output must warn that the exported var still overrides the vault:\n%s", out.String())
 	}
 	if v := os.Getenv("ROT_MINT_ENV"); v != "set-via-process-env" {
-		t.Errorf("env-only credential must be left untouched, got %q", v)
+		t.Errorf("the exported credential must be left untouched, got %q", v)
+	}
+	os.Unsetenv("ROT_MINT_ENV") // t.Setenv restores it; now the vault copy is visible
+	if v, src, _ := secretstore.Get("ROT_MINT_ENV"); v != minted || src == "env" {
+		t.Errorf("vault must hold the minted token: got %q from %q", v, src)
 	}
 }
 

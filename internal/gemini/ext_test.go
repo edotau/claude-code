@@ -18,6 +18,13 @@ func geminiSettingsPath(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
 }
 
+// templateDeny is the settings template's bare-command deny list as rendered for gemini (17ff29d5).
+var templateDeny = []any{"command(rm -rf /)", "command(rm -rf ~)", "command(rm -rf /home*)", "command(rm -rf /etc*)",
+	"command(rm -rf /usr*)", "command(rm -rf /var*)", "command(rm -rf /bin*)", "command(rm -rf /opt*)",
+	"command(rm -rf /root*)", "command(rm -rf /mnt*)", "command(rm -rf /boot*)", "command(rm -rf /lib*)",
+	"command(rm -rf *..*)", "command(rm -r *..*)", "command(rm -rf * /*)", "command(rm -r * /*)",
+	"command(rm -rf * ~*)", "command(rm -r * ~*)", "command(git merge)", "command(git merge *)"}
+
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's settings.json,
 // keeping every other key untouched; a second run is byte-identical.
 func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
@@ -63,7 +70,7 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	if !ok {
 		t.Fatalf("permissions.deny missing or wrong type: %s", raw)
 	}
-	wantDeny := []any{"command(user rule)", "command(rm -rf /)", "command(rm -rf /*)", "command(rm -rf ~)"}
+	wantDeny := append([]any{"command(user rule)"}, templateDeny...)
 	if !reflect.DeepEqual(deny, wantDeny) {
 		t.Errorf("permissions.deny = %v, want %v", deny, wantDeny)
 	}
@@ -167,7 +174,7 @@ func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
 	if !ok {
 		t.Fatalf("permissions.deny missing: %s", raw)
 	}
-	wantDeny := []any{"command(rm -rf /)", "command(rm -rf /*)", "command(rm -rf ~)"}
+	wantDeny := templateDeny
 	if !reflect.DeepEqual(deny, wantDeny) {
 		t.Errorf("permissions.deny = %v, want %v", deny, wantDeny)
 	}

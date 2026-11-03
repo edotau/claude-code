@@ -29,10 +29,10 @@ func TestModeLabelFormatsDefaultsAndFallsBack(t *testing.T) {
 		"codex":       {{ID: "*"}},
 	}
 	d := &dialog{reg: reg, out: discardWriter{}}
-	if got := modeLabel(d, "gemini", agentState{mode: modeSubscription}); got != "google subscription google ai pro" {
+	if got := modeLabel(d, "gemini", agentState{mode: modeSubscription}); got != "subscription (Google AI Pro)" {
 		t.Errorf("antigravity label = %q", got)
 	}
-	if got := modeLabel(d, "codex", agentState{mode: modeSubscription, tier: providers.Subscription{Name: "Plus"}}); got != "openai subscription plus" {
+	if got := modeLabel(d, "codex", agentState{mode: modeSubscription, tier: providers.Subscription{Name: "Plus"}}); got != "subscription (Plus)" {
 		t.Errorf("codex label (detected tier, vendor default) = %q", got)
 	}
 	if got := modeLabel(d, "copilot", agentState{mode: modeSubscription, tier: providers.Subscription{Name: "Pro+"}}); got != "subscription (Pro+)" {

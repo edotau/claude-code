@@ -38,12 +38,31 @@
       "Bash(go *)",
       "Bash(claude-code *)",
       "Bash(gofmt -l *)",
-      "Bash(systemctl --user is-active *)"
+      "Bash(systemctl --user is-active *)",
+      "Bash(rm -rf /tmp/*)",
+      "Bash(rm -r /tmp/*)"
     ],
     "deny": [
       "Bash(rm -rf /)",
-      "Bash(rm -rf /*)",
-      "Bash(rm -rf ~)"
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf /home*)",
+      "Bash(rm -rf /etc*)",
+      "Bash(rm -rf /usr*)",
+      "Bash(rm -rf /var*)",
+      "Bash(rm -rf /bin*)",
+      "Bash(rm -rf /opt*)",
+      "Bash(rm -rf /root*)",
+      "Bash(rm -rf /mnt*)",
+      "Bash(rm -rf /boot*)",
+      "Bash(rm -rf /lib*)",
+      "Bash(rm -rf *..*)",
+      "Bash(rm -r *..*)",
+      "Bash(rm -rf * /*)",
+      "Bash(rm -r * /*)",
+      "Bash(rm -rf * ~*)",
+      "Bash(rm -r * ~*)",
+      "Bash(git merge)",
+      "Bash(git merge *)"
     ],
     "ask": [
       "Bash(git push --force:*)",

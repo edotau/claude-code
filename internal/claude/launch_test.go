@@ -95,8 +95,8 @@ func TestParseArgs(t *testing.T) {
 
 // --keep-env takes a comma list, repeatable, and accepts both the "--name value" and "--name=value" shapes.
 func TestParseArgsKeepEnv(t *testing.T) {
-	o, _, err := agent.ParseArgs([]string{"--keep-env", "DATABRICKS_HOST,DATABRICKS_TOKEN", "--keep-env=HOME"}, true)
-	if err != nil || !slices.Equal(o.KeepEnv, []string{"DATABRICKS_HOST", "DATABRICKS_TOKEN", "HOME"}) {
+	o, _, err := agent.ParseArgs([]string{"--keep-env", "LANG,LC_ALL", "--keep-env=HOME"}, true)
+	if err != nil || !slices.Equal(o.KeepEnv, []string{"LANG", "LC_ALL", "HOME"}) {
 		t.Fatalf("KeepEnv = %q, err %v", o.KeepEnv, err)
 	}
 	if _, _, err := agent.ParseArgs([]string{"--keep-env"}, true); err == nil {
