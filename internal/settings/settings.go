@@ -119,8 +119,8 @@ type Summary struct {
 	HarnessHooks int
 }
 
-// runtimeKeys are written by Claude Code itself (e.g. /effort → modelSettings): merge keeps them, drift ignores them.
-var runtimeKeys = []string{"modelSettings"}
+// runtimeKeys are written by Claude Code itself (/effort, /plugin): merge keeps them, drift ignores them.
+var runtimeKeys = []string{"modelSettings", "enabledPlugins"}
 
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
 // lists unioned, harness hooks replaced, foreign hooks kept after them; keys in dropped are removed.
