@@ -22,7 +22,7 @@ func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err e
 	}
 	reg, rerr := providers.Load()
 	if rerr != nil {
-		return "", nil
+		return fmt.Sprintf("could not verify pins: provider registry unreadable (pin written anyway): %v", rerr), nil
 	}
 	var ids []string
 	var fetched, catalogDown bool
@@ -85,18 +85,9 @@ func unknownGithubModel(model, profile string, ids []string) error {
 func validateDatabricksCopilotPin(
 	reg *providers.Registry, name, model string, served map[string][]string,
 ) (string, error) {
-	ids, ok := served[name]
+	ids, warn, ok := servedIDs(reg, name, served)
 	if !ok {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		cat, err := CopilotModelSource(ctx, reg, name)
-		cancel()
-		if err != nil {
-			return fmt.Sprintf("could not verify against %s serving endpoints (pin written anyway): %v", name, err), nil
-		}
-		for _, r := range cat.Rows {
-			ids = append(ids, r.ID)
-		}
-		served[name] = ids
+		return warn, nil
 	}
 	want := []string{model, models.DatabricksPrefix + model}
 	if c, _, ok := models.Resolve(model); ok {
@@ -114,6 +105,26 @@ func validateDatabricksCopilotPin(
 			model, name, strings.Join(near, ", "), hint)
 	}
 	return "", fmt.Errorf("%q is not a %s serving endpoint (%s)", model, name, hint)
+}
+
+// servedIDs lists name's serving endpoint ids once per validation; a failed listing is ok=false, warned once.
+func servedIDs(reg *providers.Registry, name string, served map[string][]string) (ids []string, warn string, ok bool) {
+	if ids, seen := served[name]; seen {
+		return ids, "", ids != nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	cat, err := CopilotModelSource(ctx, reg, name)
+	cancel()
+	if err != nil {
+		served[name] = nil // a nil entry marks a failed listing, so later pins don't wait on it again
+		return nil, fmt.Sprintf("could not verify against %s serving endpoints (pin written anyway): %v", name, err), false
+	}
+	ids = make([]string, 0, len(cat.Rows))
+	for _, r := range cat.Rows {
+		ids = append(ids, r.ID)
+	}
+	served[name] = ids
+	return ids, "", true
 }
 
 // nearMatches is a cheap substring match, not full edit distance: enough to catch a typo'd suffix/prefix.

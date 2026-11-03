@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -35,7 +36,7 @@ type CopilotAuth struct {
 	token   string
 }
 
-// Credential sources, highest first; the gh ones resolve a token at launch with `gh auth token --user`.
+// Credential sources, highest first; the gh ones resolve a token at launch with `gh auth token [-u]`.
 const (
 	srcPinned  = "gh (pinned)"
 	srcActive  = "gh (active)"
@@ -58,13 +59,13 @@ func copilotPinLoginErr() (string, error) {
 }
 
 // copilotAuthSource (no network): the pinned profile's gh login, a stored token, gh's active account, then
-// copilot's own order (env token, its stored login) when gh holds no account.
+// copilot's own order (env token, its stored login) when gh holds no account; none when the registry can't load.
 func copilotAuthSource() (CopilotAuth, bool) {
-	a, ok, _ := copilotAuthSourceErr()
-	return a, ok
+	a, ok, err := copilotAuthSourceErr()
+	return a, ok && err == nil // an unreadable registry may hide a pin, so no other account is used
 }
 
-// copilotAuthSourceErr is copilotAuthSource plus the registry load error; a load error still falls through to gh.
+// copilotAuthSourceErr is copilotAuthSource plus the registry load error; for display, a load error falls through.
 func copilotAuthSourceErr() (CopilotAuth, bool, error) {
 	pin, loadErr := copilotPinLoginErr()
 	a, ok := authSourceFor(pin)
@@ -108,7 +109,8 @@ func CopilotLaunchToken() (string, error) {
 	}
 	tok, how := copilotToken(a)
 	if a.Source == srcPinned && tok == "" {
-		return "", fmt.Errorf("copilot: no gh token for pinned GitHub user %s; run `claude-code configure github`", a.Account)
+		return "", fmt.Errorf("copilot: no gh token for pinned GitHub user %s (`gh auth token -u` failed "+
+			"or timed out); when it is signed out, run `claude-code configure github`", a.Account)
 	}
 	fmt.Fprintf(os.Stderr, "copilot: GitHub account %s (%s)\n", cmp.Or(a.Account, "from token"), how)
 	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, a.Source), how)
@@ -118,7 +120,11 @@ func CopilotLaunchToken() (string, error) {
 // copilotPinError is non-nil when the copilot profile's GitHub login is pinned but that user is not a gh login: the harness
 // fails rather than run copilot on a stored token or another account.
 func copilotPinError() error {
-	pin := copilotPinLogin()
+	pin, err := copilotPinLoginErr()
+	if err != nil {
+		return fmt.Errorf("copilot: cannot read the provider registry to check the pinned GitHub account "+
+			"(launch refused): %w", err)
+	}
 	if pin == "" || slices.Contains(GHAccounts(), pin) {
 		return nil
 	}
@@ -255,12 +261,8 @@ func ghActiveAccountToken() (account, token string) {
 	if m == nil {
 		return "", ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
-	if err != nil {
-		ghActiveTokenCache.key, ghActiveTokenCache.account, ghActiveTokenCache.token = key, "", ""
-		ghActiveTokenCache.failedAt = time.Now()
+	out, ok := ghAuthToken(key)
+	if !ok {
 		return "", "" // hosts.yml names a user but gh has no usable token for it
 	}
 	// Overrides can make the default token differ from the named account's token; retain the original lookup.
@@ -274,6 +276,21 @@ func ghActiveAccountToken() (account, token string) {
 	ghActiveTokenCache.account, ghActiveTokenCache.token = account, token
 	ghActiveTokenCache.failedAt = time.Time{}
 	return account, token
+}
+
+// ghAuthToken runs plain `gh auth token` under ghActiveTokenCache's lock; a failure, not a timeout, is remembered.
+func ghAuthToken(key ghActiveTokenKey) ([]byte, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	if err == nil {
+		return out, true
+	}
+	if ctx.Err() == nil {
+		ghActiveTokenCache.key, ghActiveTokenCache.account, ghActiveTokenCache.token = key, "", ""
+		ghActiveTokenCache.failedAt = time.Now()
+	}
+	return nil, false
 }
 
 type authMemoEntry struct {
@@ -335,8 +352,11 @@ func fetchGitHubLogin(token string) string {
 	return u.Login
 }
 
-// ghUsersRE captures the account names under github.com's `users:` map in gh's hosts.yml.
+// ghUsersRE captures the account names under a host's `users:` map in gh's hosts.yml.
 var ghUsersRE = regexp.MustCompile(`(?m)^[ \t]{8}([A-Za-z0-9_-]+):`)
+
+// ghHostBlockRE captures the github.com host block (its indented and blank lines), so other hosts' users stay out.
+var ghHostBlockRE = regexp.MustCompile(`(?m)^github\.com:[ \t]*\r?\n((?:[ \t]+.*(?:\n|$)|\r?\n)*)`)
 
 // GHAccounts lists every github.com account gh is signed in to (hosts.yml, no network).
 func GHAccounts() []string {
@@ -345,8 +365,12 @@ func GHAccounts() []string {
 	if err != nil {
 		return nil
 	}
+	block := ghHostBlockRE.FindSubmatch(raw)
+	if block == nil {
+		return nil
+	}
 	var out []string
-	for _, m := range ghUsersRE.FindAllSubmatch(raw, -1) {
+	for _, m := range ghUsersRE.FindAllSubmatch(block[1], -1) {
 		out = append(out, string(m[1]))
 	}
 	return out
@@ -364,7 +388,7 @@ func GHToken(account string) string {
 }
 
 func fetchGHToken(account string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token", "-u", account).Output()
 	if err != nil {
@@ -387,9 +411,9 @@ func CopilotToken() string {
 func copilotToken(a CopilotAuth) (tok, how string) {
 	how, tok = a.Source, a.token
 	if a.Source == srcPinned || a.Source == srcActive {
-		how = "gh auth token --user " + a.Account
+		how = "gh auth token" // gh's active token came from the plain command
 		if a.Source != srcActive || tok == "" {
-			tok = GHToken(a.Account)
+			how, tok = "gh auth token -u "+a.Account, GHToken(a.Account)
 		}
 		if tok == "" {
 			how = srcCopilot + " (" + how + " failed)"

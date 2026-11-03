@@ -50,10 +50,10 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 		res.Provider = t.Provider.Name
 	}
 	opts, env, done, err := e.options(ctx, cs, req, t, own)
+	defer done() // done is never nil, so an error path still releases a registry route
 	if err != nil {
 		return res, err
 	}
-	defer done()
 	prompt, images, err := copilotPrompt(req)
 	if err != nil {
 		return res, copilotFatal(err)
@@ -76,7 +76,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	return res, sink.Emit(agent.Event{Type: agent.EventText, Text: out.Text})
 }
 
-// options builds the SDK options for target t; env is the BYOK route env and done releases a registry route.
+// options builds the SDK options for target t; env is the BYOK route env; done (never nil) releases a registry route.
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target, own bool,
 ) (opts SDKOptions, env []string, done func(), err error) {
 	done = func() {}
@@ -115,8 +115,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	}
 	// the SDK child gets exactly BuildClientOptions' env; its base drops foreign credentials under ctx isolation
 	if err := agent.CheckRouteNames(slices.Concat(opts.Env, opts.ChildEnv), req.OverlaySet); err != nil {
-		done()
-		return opts, nil, nil, copilotFatal(err)
+		return opts, nil, done, copilotFatal(err)
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
 	if err := applyCopilotToken(&opts, own, env); err != nil {

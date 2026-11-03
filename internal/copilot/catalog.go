@@ -12,7 +12,7 @@ import (
 
 // ListModels lists the GitHub Copilot catalog through the SDK on the launch account's token (its own login, never BYOK).
 func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
-	list, err := launchCatalog(ctx)
+	list, err := launchCatalog(ctx, CopilotToken())
 	if err != nil {
 		return nil, err
 	}
@@ -23,13 +23,13 @@ func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
 	return out, nil
 }
 
-// launchCatalog is the SDK's raw catalog on the launch account's token.
-func launchCatalog(ctx context.Context) ([]SDKModel, error) {
+// launchCatalog is the SDK's raw catalog on token, the launch account's.
+func launchCatalog(ctx context.Context, token string) ([]SDKModel, error) {
 	bin, err := paths.AgentBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}
-	return SDKListModels(ctx, CatalogOptions(bin, CopilotToken()))
+	return SDKListModels(ctx, CatalogOptions(bin, token))
 }
 
 // copilotCapabilities joins copilot's capability flags and premium-billing multiplier into one

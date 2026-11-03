@@ -72,11 +72,15 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 
 // RefreshCatalog lists the catalog live on the launch account's token and seals it, whatever the snapshot's age.
 func RefreshCatalog(ctx context.Context) ([]SDKModel, error) {
-	list, err := launchCatalog(ctx)
+	auth, ok := copilotAuthSource() // read once, so the listing and its seal name the same account
+	tok := ""
+	if ok {
+		tok, _ = copilotToken(auth)
+	}
+	list, err := launchCatalog(ctx, tok)
 	if err != nil {
 		return nil, err
 	}
-	auth, ok := copilotAuthSource()
 	if !ok {
 		return list, nil
 	}
