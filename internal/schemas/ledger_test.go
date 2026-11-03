@@ -55,6 +55,7 @@ var writers = map[string]string{
 	"internal/configure/home.go:RegisterCodexMCP":                      unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agentconfig/project/sync.go:writeProjection":             "projections",
 	"internal/databricks/config.go:writeScratch":                       unversioned("foreign: temp rescue config"),
+	"internal/databricks/export.go:mergeInto":                          unversioned("foreign: export --merge into ~/.databrickscfg"),
 	"internal/databricks/export.go:writeFile0600":                      unversioned("foreign: -o export output"),
 	"internal/desktop/transaction.go:restoreFile":                      "desktop-state",
 	"internal/codex/render_codex_settings.go:restoreCodexConfigLocked": unversioned("foreign: codex config.toml revert in the vendor home"),
@@ -116,7 +117,7 @@ var writers = map[string]string{
 	"internal/testtool/mutate/mutate.go:Check":                         unversioned("foreign: mutation-test scratch copy"),
 	"internal/preflight/live.go:ClaimNamed":                            unversioned("marker: detached refresh attempt stamp"),
 	"internal/preflight/discover.go:SpawnDiscover":                     unversioned("foreign: /dev/null opened for a detached refresh"),
-	"internal/proxy/restart.go:ClaimRestart":                           unversioned("marker: watchdog proxy restart stamp"),
+	"internal/proxy/restart.go:claimRestartLocked":                     unversioned("marker: watchdog proxy restart stamp"),
 	"internal/proxy/restart.go:Hold":                                   unversioned("marker: deliberate proxy stop, watchdog stays off"),
 	"internal/router/served_cache.go:SaveServed":                       "served-models",
 	"internal/opencode/check.go:SaveCheckCache":                        "opencode-models-check",
@@ -173,7 +174,7 @@ var writers = map[string]string{
 
 var writeCalls = map[string]bool{
 	"os.WriteFile": true, "os.Create": true, "os.CreateTemp": true, "os.OpenFile": true,
-	"paths.AtomicWrite": true, "paths.WriteIfChanged": true, "paths.WriteBackup": true, "paths.Backup": true,
+	"paths.AtomicWrite": true, "paths.WriteIfChanged": true, "paths.Backup": true,
 }
 
 func scanWriters(t *testing.T) map[string]bool {
