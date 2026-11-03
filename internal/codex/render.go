@@ -74,14 +74,15 @@ func codexCredStoreKey(existing string, out io.Writer) string {
 }
 
 // codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
-// TOML keys; approval/sandbox skip when unset, an agent config load error is treated as unset.
+// TOML keys; approval/sandbox skip when unset (or the agent config fails to load); the keyring pin never depends on it.
 func codexPermissionKeys(existing string, out io.Writer) string {
+	var perm agentconfig.Permission
 	cfg, err := agentconfig.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
-		return ""
+	} else {
+		perm = cfg.Agent("codex").Permission
 	}
-	perm := cfg.Agent("codex").Permission
 	var b strings.Builder
 	if perm.ApprovalPolicy != "" {
 		fmt.Fprintf(&b, "approval_policy = %q\n", perm.ApprovalPolicy)

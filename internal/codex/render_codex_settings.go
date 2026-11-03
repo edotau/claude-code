@@ -236,10 +236,12 @@ func ApplyCodexSettings(home string) error {
 	if _, err := readCodexSettings(next); err != nil {
 		return err
 	}
-	if err := writeCodexConfig(path, old, []byte(next), existed); err != nil {
-		return err
-	}
-	return SaveCodexBaseline(path, []byte(next))
+	return withCodexLock(path, func() error { // write and baseline under one lock so they cannot interleave
+		if err := writeCodexConfigLocked(path, old, []byte(next), existed); err != nil {
+			return err
+		}
+		return SaveCodexBaseline(path, []byte(next))
+	})
 }
 
 func codexWriteTarget(path string) (string, error) {
@@ -274,39 +276,42 @@ func withCodexLock(path string, fn func() error) error {
 }
 
 func writeCodexConfig(path string, old, next []byte, existed bool) error {
-	return withCodexLock(path, func() error {
-		target, err := codexWriteTarget(path)
+	return withCodexLock(path, func() error { return writeCodexConfigLocked(path, old, next, existed) })
+}
+
+// writeCodexConfigLocked is writeCodexConfig for a caller already inside withCodexLock.
+func writeCodexConfigLocked(path string, old, next []byte, existed bool) error {
+	target, err := codexWriteTarget(path)
+	if err != nil {
+		return err
+	}
+	check := func() error {
+		current, err := os.ReadFile(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if (err == nil) != existed || !bytes.Equal(current, old) {
+			return errors.New("codex: config changed before write; retry to preserve the newer settings")
+		}
+		now, err := codexWriteTarget(path)
 		if err != nil {
 			return err
 		}
-		check := func() error {
-			current, err := os.ReadFile(path)
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			if (err == nil) != existed || !bytes.Equal(current, old) {
-				return errors.New("codex: config changed before write; retry to preserve the newer settings")
-			}
-			now, err := codexWriteTarget(path)
-			if err != nil {
-				return err
-			}
-			if now != target {
-				return errors.New("codex: config symlink changed before write; retry")
-			}
-			return nil
+		if now != target {
+			return errors.New("codex: config symlink changed before write; retry")
 		}
-		if err := check(); err != nil {
-			return err
-		}
-		if err := CodexBackup(path, old, existed); err != nil {
-			return fmt.Errorf("codex: encrypted backup failed: %w", err)
-		}
-		if err := check(); err != nil {
-			return err
-		}
-		return paths.AtomicWrite(target, next, 0o600)
-	})
+		return nil
+	}
+	if err := check(); err != nil {
+		return err
+	}
+	if err := CodexBackup(path, old, existed); err != nil {
+		return fmt.Errorf("codex: encrypted backup failed: %w", err)
+	}
+	if err := check(); err != nil {
+		return err
+	}
+	return paths.AtomicWrite(target, next, 0o600)
 }
 
 func restoreCodexConfig(path string, dryRun bool, out io.Writer) error {

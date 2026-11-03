@@ -29,6 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -207,7 +208,7 @@ func codexAuthState() providers.AuthState {
 		}
 		return providers.AuthState{Method: providers.AuthNone}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, err := codexStatus(ctx, bin)
 	switch {
@@ -263,7 +264,7 @@ var codexHasJSON = sync.OnceValue(func() bool {
 	if err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, _ := exec.CommandContext(ctx, bin, "exec", "--help").CombinedOutput()
 	return strings.Contains(string(out), "--json")
@@ -454,10 +455,11 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	if p.Preset == providers.PresetDatabricks {
 		env = append(env, settings.CodexProfileEnv+"="+p.Name, settings.CodexCatalogEnv+"=")
 	}
+	var envHs [][2]string // env_http_headers: header name -> env var carrying its value
 	if cred != "" {
 		env = append(env, CodexKeyEnv+"="+cred)
 		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
-			fields = append(fields, [2]string{"env_http_headers", agentconfig.TOMLInline([][2]string{{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(CodexKeyEnv)}})})
+			envHs = append(envHs, [2]string{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(CodexKeyEnv)})
 		} else {
 			fields = append(fields, [2]string{"env_key", agentconfig.TOMLQuote(CodexKeyEnv)})
 		}
@@ -465,9 +467,20 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	if len(p.Headers) > 0 {
 		var hs [][2]string
 		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			hs = append(hs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(p.Headers[k])})
+			if !shapes.Looks(p.Headers[k]) {
+				hs = append(hs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(p.Headers[k])})
+				continue
+			}
+			name := codexHeaderEnv(k) // a credential-shaped value rides env, never argv
+			env = append(env, name+"="+p.Headers[k])
+			envHs = append(envHs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(name)})
 		}
-		fields = append(fields, [2]string{"http_headers", agentconfig.TOMLInline(hs)})
+		if len(hs) > 0 {
+			fields = append(fields, [2]string{"http_headers", agentconfig.TOMLInline(hs)})
+		}
+	}
+	if len(envHs) > 0 {
+		fields = append(fields, [2]string{"env_http_headers", agentconfig.TOMLInline(envHs)})
 	}
 	argv := []string{"-c", "model_provider=" + agentconfig.TOMLQuote(id), "-c", "model=" + agentconfig.TOMLQuote(model),
 		"-c", "model_providers." + id + "=" + agentconfig.TOMLInline(fields)}
@@ -477,6 +490,19 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 		env = append(env, settings.CodexCatalogEnv+"="+agentconfig.TOMLString(strings.TrimPrefix(catalog[1], "model_catalog_json=")))
 	}
 	return env, codexHeadless(argv, h), nil
+}
+
+// codexHeaderEnv names the env var that carries header k's value into codex.
+func codexHeaderEnv(k string) string {
+	return "CLAUDE_CODE_CODEX_HDR_" + strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' {
+			return r - 32
+		}
+		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '_'
+	}, k)
 }
 
 // codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
@@ -517,25 +543,32 @@ func codexOwnModel() string {
 
 // codexChatGPTLogin checks the installed CLI's login status, falling back to $CODEX_HOME/auth.json if unavailable.
 func codexChatGPTLogin() error {
+	var probeErr error // set when the CLI could not answer: the verdict is unknown, not "not signed in"
 	if bin, err := paths.AgentBin("codex"); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()
-		if ctx.Err() == nil {
-			text := strings.TrimSpace(string(out))
-			switch {
-			case err == nil && strings.Contains(strings.ToLower(text), "chatgpt"):
-				return nil
-			case err == nil:
-				return fmt.Errorf("codex: signed in with an API key, not ChatGPT (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
-			default:
-				return fmt.Errorf("codex: not signed in (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
-			}
+		out, err := codexStatus(ctx, bin)
+		text := strings.TrimSpace(string(out))
+		ee, exited := errors.AsType[*exec.ExitError](err)
+		switch {
+		case err == nil && strings.Contains(strings.ToLower(text), "chatgpt"):
+			return nil
+		case err == nil:
+			return fmt.Errorf("codex: signed in with an API key, not ChatGPT (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
+		case ctx.Err() == nil && exited && ee.ExitCode() >= 0:
+			return fmt.Errorf("codex: not signed in (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
+		case ctx.Err() != nil:
+			probeErr = fmt.Errorf("codex login status: %w", ctx.Err())
+		default:
+			probeErr = fmt.Errorf("codex login status: %w", err)
 		}
 	}
 	b, keyringNote := codexAuthJSON()
 	if codexTokensPresent(b) {
 		return nil
+	}
+	if probeErr != nil {
+		return fmt.Errorf("codex: could not verify the ChatGPT sign-in (%w); retry", probeErr)
 	}
 	file := filepath.Join(codexHome(), "auth.json")
 	msg := fmt.Sprintf("codex: no ChatGPT sign-in in %s; run `codex login` and choose \"Sign in with ChatGPT\"", file)
@@ -637,7 +670,7 @@ func codexKeyringAuthJSON() (data []byte, note string) {
 	default:
 		return nil, "" // no keyring plane wired up for this OS
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, err := codexKeychainCmd(ctx, args...)
 	if err == nil {
