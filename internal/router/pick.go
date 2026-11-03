@@ -105,8 +105,8 @@ type Dimension interface {
 // Dimensions are the scored axes; table.json's weights must name exactly these.
 var Dimensions = []Dimension{priceDim{}, headroomDim{}}
 
-// Pick gates then scores the agents for alias: want first when it passes the gates, then the other agents by
-// total score (low accounts after all non-low), then claude under FallbackAll. claude itself never falls back.
+// Pick gates then scores the agents for alias: want first when it passes the gates, then the other agents by ladder
+// rung, then total score (low accounts after non-low); claude under FallbackAll goes last unless the ladder places it.
 func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o PickOpts) PickResult {
 	now, configured := time.Now(), o.Configured
 	if o.Now != nil {
@@ -126,17 +126,29 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
+	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(reg), alias: alias, now: now, res: &res}
+	restG, lastG = lp.l.claim(restG, lastG)
+	units := lp.units(restG)
+	restG = make([][]Candidate, len(units))
+	for i, u := range units {
+		restG[i] = u.cs
+	}
 	flatFirst, flatRest, flatLast := flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG)
 	all := t.score(slices.Concat(flatFirst, flatRest, flatLast), st)
 	nf, nr := len(flatFirst), len(flatRest)
 	firstG = regroup(firstG, all[:nf])
-	restG = regroup(restG, all[nf:nf+nr])
+	for i, g := range regroup(restG, all[nf:nf+nr]) {
+		units[i].cs = g
+	}
 	lastG = regroup(lastG, all[nf+nr:])
-	// groups sort together (not their individual candidates), so a free winner keeps its paid backup adjacent.
-	slices.SortStableFunc(restG, func(a, b []Candidate) int {
-		return cmp.Or(cmp.Compare(lowRank(a[0].State), lowRank(b[0].State)), cmp.Compare(b[0].Total, a[0].Total))
-	})
-	res.Candidates = slices.Concat(flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG))
+	// units sort whole (not their individual candidates), so a free winner keeps its paid backup adjacent.
+	lp.l.placeClaude(units)
+	sortUnits(units)
+	res.Candidates = flattenGroups(firstG)
+	for _, u := range units {
+		res.Candidates = append(res.Candidates, u.cs...)
+	}
+	res.Candidates = append(res.Candidates, flattenGroups(lastG)...)
 	seen := make(map[[3]string]bool)
 	res.Candidates = slices.DeleteFunc(res.Candidates, func(c Candidate) bool {
 		key := [3]string{c.Agent, c.Account, c.Model}

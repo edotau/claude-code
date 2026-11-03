@@ -131,9 +131,16 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		disp = rc.byokCandidate(disp, cand, alias)
 		disp.servedRepick = rc.servedRepickFor(cand)
 		disp.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
-		c.Dispatches = append(c.Dispatches, disp)
+		if !slices.ContainsFunc(c.Dispatches, disp.same) { // ladder rung models can collapse onto one cell
+			c.Dispatches = append(c.Dispatches, disp)
+		}
 	}
 	return c, pick, nil
+}
+
+// same reports whether o runs the same agent, account, model and effort as d.
+func (d Dispatch) same(o Dispatch) bool {
+	return d.Agent.Name() == o.Agent.Name() && d.Account == o.Account && d.Model == o.Model && d.Effort == o.Effort
 }
 
 // routeCtx is the per-pick state routeChain's candidate helpers share.
