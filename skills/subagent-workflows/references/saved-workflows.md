@@ -26,8 +26,6 @@ read when a `profile` is named or `fallback` is off); `low`/`exhausted` steps ev
 model through an inline `routeModel()` helper (opus→sonnet, sonnet→haiku, haiku stays haiku), fail-open with a
 `log()` line on a failed or null read — pins stay explicit literals so the `dispatch-effort` pin step still passes.
 
-Reorg mode (CLAUDE.md): pass `tests: false` and an explicit build+vet `gate`.
-
 | Workflow | Owner skill | Shape | Phases | args |
 |----------|-------------|-------|--------|------|
 | `green-keeper-loop` | problem-solving (`../../problem-solving/references/verify.md` Gate Loop) | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error`. Per-call default 3 iterations (this workflow's loop cap; verify.md caps the whole task at 5). The full-suite gate runs here only because the main thread opted in by invoking it. Many repos: one call per repo, in parallel | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |

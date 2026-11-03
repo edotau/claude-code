@@ -24,7 +24,7 @@ let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings : null
 // No range, paths or findings → audit the uncommitted working tree (git diff HEAD).
 const RANGE = a.range || (PATHS.length || PRE ? '' : 'HEAD')
 const FIX = a.fix !== false
-// tests:false skips the per-package test agent for every package (reorg mode: no test agent).
+// tests:false skips the per-package test agent for every package (no test agent).
 if (a.tests !== undefined && typeof a.tests !== 'boolean') return { exit: 'error', error: 'code-analyzer: args.tests must be a boolean', rounds: [] }
 const TESTS = a.tests !== false
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
