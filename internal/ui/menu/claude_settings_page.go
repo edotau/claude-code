@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/tui"
 	"maps"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // pickSettingsPage is the sectioned picker seam; tests replace it.
@@ -151,7 +152,7 @@ func editChoice(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawM
 	}
 	resetIdx := len(rows)
 	rows = append(rows, [2]string{removeLabel(tmplVal), ""})
-	idx, err := d.shell().PickPlain(f.Key, rows)
+	idx, err := d.shell().Pick(f.Key, rows)
 	if err != nil || idx < 0 {
 		return nil, false
 	}

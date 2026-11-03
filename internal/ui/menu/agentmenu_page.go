@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -76,7 +77,40 @@ var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int,
 			rows[i][1] = ansi.Strip(rows[i][1])
 		}
 	}
-	return d.shell().Pick(title, rows, start)
+	if !d.shell().TTY {
+		return d.shell().Pick(title, rows, start)
+	}
+	secs, order := agentSections(rows)
+	at := max(slices.Index(order, start), 0)
+	idx, err := tui.PickSectionsBack(title, secs, at)
+	if err != nil || idx < 0 {
+		return -1, err
+	}
+	return order[idx], nil
+}
+
+// signInRows are the agent page rows that hold a credential; the rest are actions.
+var signInRows = map[string]bool{"Subscription": true, "API key": true, "Login": true, "OAuth token": true, "User": true}
+
+// agentSections groups an agent page's rows under sign-in and actions; order maps a shown index to rows'.
+func agentSections(rows [][2]string) ([]tui.Section, []int) {
+	var signIn, actions tui.Section
+	var a, b []int
+	for i, r := range rows {
+		if signInRows[r[0]] {
+			signIn.Rows, a = append(signIn.Rows, r), append(a, i)
+		} else {
+			actions.Rows, b = append(actions.Rows, r), append(b, i)
+		}
+	}
+	signIn.Title, actions.Title = Heading("sign-in"), Heading("actions")
+	var secs []tui.Section
+	for _, sec := range []tui.Section{signIn, actions} {
+		if len(sec.Rows) > 0 {
+			secs = append(secs, sec)
+		}
+	}
+	return secs, append(a, b...)
 }
 
 // displayLabel is the user-facing name for an agent row: its roster DisplayName, else its own name.

@@ -54,6 +54,17 @@ type ocRow struct {
 	in   opencode.OpencodeIntegration
 	conn *opencode.OpencodeConn
 	run  func(d *dialog) // action rows only
+	back bool            // the trailing Back row
+}
+
+// ocActionRow is an actions-section row; a trailing "[value]" in desc moves to the aligned status column.
+func ocActionRow(label, desc string, run func() bool) ocRow {
+	detail, status := desc, ""
+	if i := strings.LastIndex(desc, " ["); i >= 0 && strings.HasSuffix(desc, "]") {
+		detail, status = desc[:i], desc[i+1:]
+	}
+	return ocRow{row: tui.ListRow{Label: label, Detail: detail, Status: status, Section: "actions"},
+		run: func(*dialog) { run() }}
 }
 
 // opencodePage is one render's data: title and rows.
@@ -102,7 +113,7 @@ func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int
 	}
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Set up", Detail: "sign in, verify, pin the route",
 		Section: "actions"}, run: func(d *dialog) { agentSetUp(d, "opencode") }})
-	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "opencode auth login · browser sign-in",
+	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "browser sign-in (opencode auth login)",
 		Section: "actions"}, run: ocAddAccount})
 	if d.reg != nil {
 		for _, r := range []*billingRow{modelRow(d, "opencode")} {
@@ -110,22 +121,26 @@ func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int
 				continue
 			}
 			run := r.run
-			p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: r.label, Detail: r.desc, Section: "actions"},
-				run: func(*dialog) { run() }})
+			p.rows = append(p.rows, ocActionRow(r.label, r.desc, run))
 		}
 		for _, r := range agentPinRows(d, "opencode") {
-			run := r.run
-			p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: r.label, Detail: r.desc, Section: "actions"},
-				run: func(*dialog) { run() }})
+			p.rows = append(p.rows, ocActionRow(r.label, r.desc, r.run))
 		}
 	}
-	p.title = "opencode  not connected"
+	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Back", Detail: "return to the previous menu"}, back: true})
+	st := opencodeMenu(d).state
+	cur := st.label()
+	if st.verified {
+		cur += " · verified"
+	}
+	p.title = "opencode (current: " + cur + " · not connected"
 	if p.conns > 0 {
-		p.title = fmt.Sprintf("opencode  ✓ %d %s", p.conns, textutil.PluralWord(p.conns, "account", "accounts"))
+		p.title = fmt.Sprintf("opencode (current: %s · %d %s", cur, p.conns, textutil.PluralWord(p.conns, "account", "accounts"))
 	}
 	if major > 0 {
 		p.title += fmt.Sprintf(" · opencode %d.x", major)
 	}
+	p.title += ")"
 	return p
 }
 
@@ -156,6 +171,8 @@ func runOpencodePage(d *dialog) {
 		start = res.Index
 		r := p.rows[res.Index]
 		switch {
+		case r.back:
+			return
 		case r.conn == nil && r.run != nil:
 			if res.Action == "" {
 				r.run(d)

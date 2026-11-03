@@ -217,10 +217,13 @@ func listLines(s listState, color bool, cols, h int) []line {
 		r := s.spec.Rows[i]
 		r.Label, r.Detail, r.Status = oneLine(r.Label), oneLine(r.Detail), oneLine(r.Status)
 		if r.Section != sec {
+			if hasSec && r.Section == "" && sec != "\x00" { // a section-less trailing row (Back) sits below a blank line
+				body = append(body, line{})
+			}
 			sec = r.Section
 			if hasSec && sec != "" {
 				t := "== " + sec + " =="
-				body = append(body, line{t, Accent(color, t)})
+				body = append(body, line{}, line{t, Accent(color, t)}) // a blank line sets each section apart
 			}
 		}
 		if cols > 0 { // clip the status to the row's room (2 = marker prefix, 2 = gap, 2 = "✓ ") so a row never wraps
@@ -255,7 +258,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 			}
 			styled = "  " + pad(r.Label, lw)
 			if detail != "" || st != "" {
-				styled += "  " + ansi.Style(color, ansi.Dim, detail)
+				styled += "  " + Muted(color, detail)
 			}
 			if st != "" {
 				styled += "  " + st

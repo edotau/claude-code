@@ -2,11 +2,12 @@ package menu
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
-	"strings"
 )
 
 // routingRow is the main-menu "routing" row: N overrides from default, or "vault error" on a load failure.
@@ -152,7 +153,7 @@ func editRoutingChoice(d *dialog, f agentconfig.Field, values []string) (string,
 	}
 	resetIdx := len(rows)
 	rows = append(rows, [2]string{"reset to default (" + f.Get(providers.DefaultRouting()) + ")", ""})
-	idx, err := d.shell().PickPlain(f.Key, rows)
+	idx, err := d.shell().Pick(f.Key, rows)
 	if err != nil || idx < 0 {
 		return "", false
 	}
