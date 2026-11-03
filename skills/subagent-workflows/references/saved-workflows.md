@@ -28,11 +28,27 @@ model through an inline `routeModel()` helper (opus→sonnet, sonnet→haiku, ha
 
 | Workflow | Owner skill | Shape | Phases | args |
 |----------|-------------|-------|--------|------|
-| `green-keeper-loop` | problem-solving (`../../problem-solving/references/verify.md` Gate Loop) | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error`. Per-call default 3 iterations (this workflow's loop cap; verify.md caps the whole task at 5). The full-suite gate runs here only because the main thread opted in by invoking it. Many repos: one call per repo, in parallel | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |
-| `code-engineer` | subagent-workflows (the parallel `code-worker` ‖ `copilot` shape) | Parallel intel → implementer → copilot (repairs only) → green-keeper-loop. Scripted exception to `testing-guidelines.md` → Test agent: copilot repairs after the implementer lands. Does not chain into `code-analyzer` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?, tests?}` — `tests: false` skips the copilot test-repair stage; returns `status` = `blocked\|error\|<gate exit>` |
-| `code-analyzer` | evaluate-code (its fix stage follows problem-solving) | Sized scope → chunked auditors → batched refute → fix → test per package → green-keeper-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings (none = working-tree diff), cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, prior?, refuters?, profiles?, auditModel?, refuteModel?, refuteBatch?, tests?}` — `tests: false` skips the per-package test agent; `profiles` = vault profiles the second-agent refuters rotate across by batch (each smoke-tested, a failing one dropped); `auditModel`/`refuteModel` = `haiku\|sonnet\|opus` for the Find auditors / in-workflow refuters (default sonnet) |
+| `green-keeper-loop` | problem-solving (`../../problem-solving/references/verify.md` Gate Loop) | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error`. Per-call default 3 iterations (this workflow's loop cap; verify.md caps the whole task at 5). The full-suite gate runs here only because the main thread opted in by invoking it. Many repos: one call per repo, in parallel | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?, steps?}` — `steps` = `{detect, fix}` |
+| `code-engineer` | subagent-workflows (the parallel `code-worker` ‖ `copilot` shape) | Parallel intel → implementer → copilot (repairs only) → green-keeper-loop. Scripted exception to `testing-guidelines.md` → Test agent: copilot repairs after the implementer lands. Does not chain into `code-analyzer` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, tests?}` — `tests: false` skips the copilot test-repair stage; returns `status` = `blocked\|error\|<gate exit>` |
+| `code-analyzer` | evaluate-code (its fix stage follows problem-solving) | Sized scope → chunked auditors → batched refute → fix → test per package → green-keeper-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings (none = working-tree diff), cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, prior?, refuteBatch?, tests?}` — `tests: false` skips the per-package test agent; `steps` = per-stage `{scope, audit, refute, fix, test, gate}` (`refute` may be a list of second opinions, e.g. `[{model: "opus"}, {agent: "copilot"}]`) |
 | `code-agent` | subagent-workflows (`cost-routing.md`) | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback; no `agent` = the router's pick at `model` (default sonnet); returns `{ok, agent, answer, provider, model, error, status?, transport?, skipped?, fallback?}` (`fallback` = the original agent's name, when the sonnet fallback ran as `claude`) | 1, 6, 8 | `{agent?, model?, vendorModel?, profile?, cwd, task, smoke?, fallback?, tools?, timeoutMin?, agents?}` — `vendorModel` = `ask --model`, `profile` = `ask --profile` (turns the sonnet fallback off) — `agents` = agents-file text, heredoc'd like the task and passed to `ask --agents <file>` |
-| `code-evaluator` | evaluate-code (`../../evaluate-code/references/eval.md`) | Sequential then parallel: each (scenario, condition, seed) trap run executes a mid-tier agent with vs without the skill under test, then judges score every run; returns `{runs, cells}`. Needs the scratch `base` laid out first (eval.md) | 1, 2 | `{base, skill, scenarios?, seeds?, model?, conditions?}` |
+| `code-evaluator` | evaluate-code (`../../evaluate-code/references/eval.md`) | Sequential then parallel: each (scenario, condition, seed) trap run executes a mid-tier agent with vs without the skill under test, then judges score every run; returns `{runs, cells}`. Needs the scratch `base` laid out first (eval.md) | 1, 2 | `{base, skill, scenarios?, seeds?, steps?, conditions?}` |
+
+## Per-stage steps
+
+Every workflow but `code-agent` takes `steps: {<stage>: {agent?, model?, effort?, profile?}}`. A Claude stage (agent
+omitted or `claude`) runs in-workflow at `model` = `haiku|sonnet|opus`. An external stage (`copilot`, `codex`,
+`gemini`, `opencode`) goes through `code-agent`, with `model` as the vendor id (`gpt-6.1-sol`, `kimi-k3`, `byok`).
+An unknown stage or field is an error before any agent runs; an omitted stage keeps today's default. The helper,
+`stepOf`, is copied verbatim from `workflows/code-agent.js` (`args.stepsSelfTest: true` checks it offline). Plan:
+`~/.claude/plans/2026-11-03-workflow-steps.md`.
+
+| Workflow | Stages (external allowed) |
+| --- | --- |
+| `code-analyzer` | `scope` · `audit` (yes) · `refute` (yes, list) · `fix` (yes) · `test` (yes) · `gate` |
+| `code-engineer` | `intel` · `impl` (yes) · `test` (yes) · `gate` |
+| `green-keeper-loop` | `detect` · `fix` (yes, top-level call only) |
+| `code-evaluator` | `run` · `judge` |
 
 ## Run from a leaf
 

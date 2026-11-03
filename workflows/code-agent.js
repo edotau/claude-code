@@ -73,7 +73,7 @@ if (a0.profile !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a0.profile))) r
 if (a0.agents !== undefined && (typeof a0.agents !== 'string' || !a0.agents.trim() || a0.agents.length > 90 * 1024)) return { error: 'code-agent: args.agents must be a non-empty string under 90 KiB' }
 const MODELS = ['opus', 'sonnet', 'haiku']
 if (a0.model && !MODELS.includes(a0.model)) return { error: 'code-agent: args.model must be ' + MODELS.join('|') }
-if (a0.vendorModel !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a0.vendorModel))) return { error: 'code-agent: args.vendorModel must be a model id or alias (e.g. byok)' }
+if (a0.vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(a0.vendorModel))) return { error: 'code-agent: args.vendorModel must be a model id or alias (e.g. byok)' }
 const ROUTE_PICK = {
   type: 'object',
   additionalProperties: false,

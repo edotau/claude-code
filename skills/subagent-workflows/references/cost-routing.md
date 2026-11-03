@@ -150,5 +150,5 @@ assigned an agent that did the work itself is a skipped dispatch, not a success.
 
 The agent CLI starts cold: paste every fact it needs; in `~/.claude` add the shared-tree line from SKILL.md.
 As a `Workflow` stage (only when the user asks for one): `code-agent {agent, cwd, task}`, or
-`code-analyzer {refuters: ["codex"]}`. Interactive agent session: `claude-code codex|gemini|opencode|copilot
-[args]` (`--` forces passthrough).
+`code-analyzer {steps: {refute: [{model: "sonnet"}, {agent: "copilot"}]}}`. Interactive agent session:
+`claude-code codex|gemini|opencode|copilot [args]` (`--` forces passthrough).
