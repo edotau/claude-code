@@ -258,6 +258,7 @@ claude-code gateway router [--model M] [--task "<text>"]   # agent + model pick
 claude-code agents                                     # agents and availability
 claude-code ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
+claude-code dispatch explore|fleet|compare [--part q]… [--models a,b] "<task>"   # parallel legs, one report
 claude-code ask --log | --retry <id>                   # recent dispatches; replay one
 claude-code ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough

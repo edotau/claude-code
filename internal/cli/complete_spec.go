@@ -61,6 +61,8 @@ func buildSpecTree() map[string]*compNode {
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"), flag("range"), boolFlag("secrets"), formatFlag()}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
 		"ask":      {flags: askFlags},
+		"dispatch": {args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, flags: []flagInfo{
+			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background")}},
 		"theme": {args: []func() []string{theme.GradientNames}, flags: []flagInfo{boolFlag("preview")},
 			sub: map[string]*compNode{
 				"apply":      {flags: []flagInfo{boolFlag("dry-run")}},

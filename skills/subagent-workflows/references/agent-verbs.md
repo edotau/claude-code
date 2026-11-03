@@ -21,6 +21,7 @@ only its own deltas (agent-specific rows, flags, and sections).
 | `claude-code <agent> cancel [id]` | interrupt a running job | `cancelled <id>` |
 | `claude-code <agent> setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |
 | `claude-code <agent> catalog` | the agent's own model catalog | list |
+| `claude-code dispatch explore\|fleet\|compare [flags] <task>` | one task as parallel legs by role (gemini, copilot, opencode) | `### label (agent/model) [status]` blocks |
 
 - `<id>` = an exact dispatch id or a unique prefix; omitted = the newest job for the agent in this repo.
 - `--background` on `ask`/`review`/`transfer` prints `job <id> started` — follow with `status`/`result`.

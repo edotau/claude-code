@@ -1,7 +1,7 @@
 ---
 name: gemini
 description: |
-  Extended Explore agent on Gemini (agy) — fans out up to 4 parallel `gemini explore` jobs per wave (code scan + web research each), runs an optional second wave on named gaps ("deep research"), and merges them into one brief citing file:line and URLs. Use for broad codebase intel, web/library research, and before architecture decisions. Also drives `gemini bridge` (1M-token sweeps) and `gemini review [--adversarial]` (diff review on the Gemini family).
+  Extended Explore agent on Gemini (agy) — fans out up to 12 parallel explore legs per wave (`claude-code dispatch explore`) (code scan + web research each), runs an optional second wave on named gaps ("deep research"), and merges them into one brief citing file:line and URLs. Use for broad codebase intel, web/library research, and before architecture decisions. Also drives `gemini bridge` (1M-token sweeps) and `gemini review [--adversarial]` (diff review on the Gemini family).
 
   <example>
   Context: Multi-part question mixing code and web research.
@@ -37,7 +37,7 @@ below), and `bridge` only for a whole-repo sweep. `--profile`/`--model` ride on 
 
 ## Owns
 
-- **Fan-out explore** — up to 4 parallel `claude-code gemini explore [--no-web] --background` jobs per wave,
+- **Fan-out explore** — up to 12 parallel `claude-code gemini explore [--no-web] --background` jobs per wave,
   merged into one Codebase Context Brief with file:line and URLs.
 - **Targeted scans and web lookups** — `claude-code gemini ask --tools --workdir <repo>` (1–20 files, known entry
   points); without `--tools` agy cannot search. Fallback: `skills/web-search/SKILL.md`.
@@ -87,13 +87,16 @@ Per `agent-verbs.md` → Procedure skeleton. agy sign-in: run `agy` once. Delta:
 Default for a bare task, stale context, or "how does X work / what exists for Y". Each job is one agy run
 (code scan, then web research) returning a Codebase Context Brief.
 
+Run `claude-code dispatch explore [--part q]… [--no-web] "<task>"`; it fans out the legs (up to 12) and streams them.
+Without `--part` it splits the task itself. The manual steps below are the fallback.
+
 1. **Split** the question into 2–4 independent sub-questions, each tagged code or web (`--no-web` for code-only).
    A single narrow question is one `explore` job, no fan-out.
-2. **Launch** the whole wave at once (max 4 live jobs), each
+2. **Launch** the whole wave at once (max 12 live jobs), each
    `claude-code gemini explore [--no-web] --background "<sub-question>"`; record every job id.
 3. **Poll** `claude-code gemini status` with sleeps of 30s or more (no tight loop), then collect each
    `claude-code gemini result <id>`. A failed or empty job is reported, never silently dropped.
-4. **Wave 2 (deep research)** — optional, only on named gaps or conflicts from wave 1, max 4 jobs; never a third wave.
+4. **Wave 2 (deep research)** — optional, only on named gaps or conflicts from wave 1, max 12 jobs; never a third wave.
 5. **Merge** — dedupe, keep every claim's citation (file:line or URL), flag conflicts and unverified claims,
    outcome first. Verify 2 cited `file:line` and 1 URL before relaying.
 

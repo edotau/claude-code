@@ -49,6 +49,9 @@ every call. `/opencode` runs the CLI directly, no subagent.
 
 ## Models and routing
 
+Compare runs via `claude-code dispatch compare --models a,b "<task>"`; default set: claude-sonnet-5-5, gpt-6-1-sol,
+gemini-3-8-flash, kimi-k3.
+
 Typical pool (~50 ids; the live list is `claude-code opencode catalog list`, ids as listed there):
 
 | Family | Usual ids | Good for |
