@@ -124,7 +124,9 @@ func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int
 			p.rows = append(p.rows, ocActionRow(r.label, r.desc, run))
 		}
 		for _, r := range agentPinRows(d, "opencode") {
-			p.rows = append(p.rows, ocActionRow(r.label, r.desc, r.run))
+			row := ocActionRow(r.label, r.desc, r.run)
+			row.row.Section = "profile"
+			p.rows = append(p.rows, row)
 		}
 	}
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Back", Detail: "return to the previous menu"}, back: true})

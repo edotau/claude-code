@@ -92,25 +92,28 @@ var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int,
 // signInRows are the agent page rows that hold a credential; the rest are actions.
 var signInRows = map[string]bool{"Subscription": true, "API key": true, "Login": true, "OAuth token": true, "GitHub user": true}
 
-// agentSections groups an agent page's rows under sign-in and actions; order maps a shown index to rows'.
+// agentSections groups an agent page's rows under sign-in, actions and profile; order maps a shown index to rows'.
 func agentSections(rows [][2]string) ([]tui.Section, []int) {
-	var signIn, actions tui.Section
-	var a, b []int
+	secs := []tui.Section{{Title: Heading("sign-in")}, {Title: Heading("actions")}, {Title: Heading("profile")}}
+	idx := make([][]int, len(secs))
 	for i, r := range rows {
-		if signInRows[r[0]] {
-			signIn.Rows, a = append(signIn.Rows, r), append(a, i)
-		} else {
-			actions.Rows, b = append(actions.Rows, r), append(b, i)
+		k := 1
+		switch {
+		case signInRows[r[0]]:
+			k = 0
+		case r[0] == "Profile":
+			k = 2
 		}
+		secs[k].Rows, idx[k] = append(secs[k].Rows, r), append(idx[k], i)
 	}
-	signIn.Title, actions.Title = Heading("sign-in"), Heading("actions")
-	var secs []tui.Section
-	for _, sec := range []tui.Section{signIn, actions} {
+	var out []tui.Section
+	var order []int
+	for k, sec := range secs {
 		if len(sec.Rows) > 0 {
-			secs = append(secs, sec)
+			out, order = append(out, sec), append(order, idx[k]...)
 		}
 	}
-	return secs, append(a, b...)
+	return out, order
 }
 
 // displayLabel is the user-facing name for an agent row: its roster DisplayName, else its own name.
