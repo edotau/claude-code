@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +33,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
@@ -102,7 +102,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(true, false, q.Name, q.Detail)
 	}
 	check(true, false, "in-flight", inflightDoctorDetail())
-	check(true, false, "proxy", proxyStatus())
+	proxyDetail, proxyStale := proxyStatus()
+	check(!proxyStale, false, "proxy", proxyDetail)
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
@@ -376,27 +377,23 @@ func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provide
 	return nil
 }
 
-func proxyStatus() string {
+// proxyStatus is the running proxy's port, pid and build; stale is true when it runs an older binary than this one.
+func proxyStatus() (detail string, stale bool) {
 	st, err := proxy.ReadState()
 	if errors.Is(err, os.ErrNotExist) {
-		return "not running"
+		return "not running", false
 	}
 	if err != nil || st.Port == 0 {
-		return "proxy.json unreadable"
+		return "proxy.json unreadable", false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	url := fmt.Sprintf("http://127.0.0.1:%d/healthz", st.Port)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "bad healthz request: " + err.Error()
+	h, ok := proxy.Holder(context.Background(), st.Port)
+	if !ok {
+		return "stale proxy.json (port " + strconv.Itoa(st.Port) + " not answering)", false
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "stale proxy.json (port " + strconv.Itoa(st.Port) + " not answering)"
+	if h.Build != textutil.BuildVersion() {
+		return fmt.Sprintf("pid %d runs build %s; restart when idle", h.PID, h.Build), true
 	}
-	_ = resp.Body.Close()
-	return fmt.Sprintf("port %d %s", st.Port, resp.Status)
+	return fmt.Sprintf("port %d pid %d, %d sessions", st.Port, h.PID, h.Sessions), false
 }
 
 // vscodeServeDoctorDetail reports the vscode-serve daemon and its tailscale mapping, token redacted.
