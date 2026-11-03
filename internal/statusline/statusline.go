@@ -250,10 +250,18 @@ func providerLabel(name string) string {
 			if p.Name == p.Provider {
 				return p.Provider
 			}
-			return p.Provider + "·" + p.Name
+			return p.Provider + "·" + profileName(p)
 		}
 	}
 	return name
+}
+
+// profileName is the profile's name, "ultra" for the claude.ai login profile on a 20x account.
+func profileName(p *providers.Provider) string {
+	if p.Provider == "anthropic" && p.Auth.Type == providers.AuthCLI && providers.MaxTierName(claudeTier()) == "Ultra" {
+		return "ultra"
+	}
+	return p.Name
 }
 
 // modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".

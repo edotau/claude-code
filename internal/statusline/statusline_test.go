@@ -420,6 +420,26 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 	}
 }
 
+func TestProviderLabelUltra(t *testing.T) {
+	for tier, want := range map[string]string{
+		"default_claude_max_20x": "anthropic·ultra",
+		"default_claude_max_5x":  "anthropic·max",
+		"":                       "anthropic·max",
+	} {
+		dir := hermetic(t)
+		labelRegistry(t)
+		if tier != "" {
+			body := `{"oauthAccount":{"organizationRateLimitTier":"` + tier + `"}}`
+			if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := providerLabel("max"); got != want {
+			t.Errorf("tier %q: providerLabel(max) = %q, want %q", tier, got, want)
+		}
+	}
+}
+
 func TestModelFamily(t *testing.T) {
 	for id, want := range map[string]string{
 		"databricks-claude-opus-5-5":     "databricks",
