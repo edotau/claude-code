@@ -35,13 +35,15 @@ type Issue struct {
 // target branch, and every Issue found. A non-empty Issues means Merge must not proceed — the plan
 // itself is still returned so a caller (notably `worktree merge --dry-run`) can show why.
 type MergePlan struct {
-	CommonDir     string
-	MainPath      string
-	WorktreePath  string
-	TargetRef     string
-	TargetOID     string
-	SourceOID     string
-	IntegratedOID string // set by IntegrateTarget; Promote refuses unless the worktree HEAD still matches
+	CommonDir      string
+	MainGitDir     string // main checkout's own git-dir, resolved once by Preflight ("" = look it up)
+	WorktreeGitDir string // the worktree's own git-dir, resolved once by Preflight ("" = look it up)
+	MainPath       string
+	WorktreePath   string
+	TargetRef      string
+	TargetOID      string
+	SourceOID      string
+	IntegratedOID  string // set by IntegrateTarget; Promote refuses unless the worktree HEAD still matches
 	// AfterResolution: planned after an agent resolution, so untracked tool residue in the worktree is tolerated.
 	AfterResolution bool
 	Issues          []Issue
@@ -93,11 +95,19 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 	if _, err := os.Stat(worktreePath); err != nil {
 		return nil, fmt.Errorf("worktree %q not found at %s", name, worktreePath)
 	}
-	commonDir, err := commonDirOf(ctx, repo.Main)
-	if err != nil {
-		return nil, err
+	commonDir := repo.CommonDir
+	if commonDir == "" {
+		if commonDir, err = commonDirOf(ctx, repo.Main); err != nil {
+			return nil, err
+		}
 	}
 	plan := &MergePlan{CommonDir: commonDir, MainPath: repo.Main, WorktreePath: worktreePath, AfterResolution: trackedOnlyWorktree}
+	if plan.MainGitDir, err = gitDirOf(ctx, repo.Main); err != nil {
+		return nil, err
+	}
+	if plan.WorktreeGitDir, err = gitDirOf(ctx, worktreePath); err != nil {
+		return nil, err
+	}
 
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
@@ -114,12 +124,12 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 		return plan, nil
 	}
 
-	if issue, err := checkCheckoutState(ctx, repo.Main, IssueDirtyTarget); err != nil {
+	if issue, err := checkCheckoutState(ctx, repo.Main, plan.MainGitDir, IssueDirtyTarget); err != nil {
 		return nil, err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
 	}
-	if issue, err := checkWorktreeState(ctx, worktreePath, trackedOnlyWorktree); err != nil {
+	if issue, err := checkWorktreeState(ctx, worktreePath, plan.WorktreeGitDir, trackedOnlyWorktree); err != nil {
 		return nil, err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
@@ -150,7 +160,7 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 		return plan, nil
 	}
 
-	conflicts, err := SimulateMerge(ctx, repo.Main, plan.SourceOID, plan.TargetOID, true)
+	conflicts, err := simulateMerge(ctx, repo.Main, plan.CommonDir, plan.SourceOID, plan.TargetOID, true)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -165,16 +175,17 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 	return plan, nil
 }
 
-// SimulateMerge runs `git merge-tree --write-tree --name-only -z` for source into target and reports
+// simulateMerge runs `git merge-tree --write-tree --name-only -z` for source into target and reports
 // the conflicted paths (nil = clean). A non-nil error means the simulation itself could not be
 // trusted — a capability failure or an exit code outside {0,1} — and is never a signal to proceed as
 // if it were clean. dryRun isolates every object the write side effect produces into a throwaway
 // alternate object directory, removed before return, so repoPath's real store is never touched.
-func SimulateMerge(ctx context.Context, repoPath, sourceOID, targetOID string, dryRun bool) (conflicts []string, err error) {
+// commonDir is repoPath's common dir when already known ("" = look it up).
+func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOID string, dryRun bool) (conflicts []string, err error) {
 	args := []string{"merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", sourceOID, targetOID}
 	var env []string
 	if dryRun {
-		extraEnv, cleanup, err := isolatedObjectDir(ctx, repoPath)
+		extraEnv, cleanup, err := isolatedObjectDir(ctx, repoPath, commonDir)
 		if err != nil {
 			return nil, fmt.Errorf("merge-tree dry-run isolation: %w", err)
 		}
@@ -195,10 +206,12 @@ func SimulateMerge(ctx context.Context, repoPath, sourceOID, targetOID string, d
 // isolatedObjectDir makes a scratch object directory with repoPath's real one layered as an alternate
 // (read access to every existing object, writes landing only in the scratch dir — see
 // git-merge-tree(1) and the GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES env vars it honors).
-func isolatedObjectDir(ctx context.Context, repoPath string) ([]string, func() error, error) {
-	commonDir, err := commonDirOf(ctx, repoPath)
-	if err != nil {
-		return nil, nil, err
+func isolatedObjectDir(ctx context.Context, repoPath, commonDir string) ([]string, func() error, error) {
+	if commonDir == "" {
+		var err error
+		if commonDir, err = commonDirOf(ctx, repoPath); err != nil {
+			return nil, nil, err
+		}
 	}
 	tmp, err := os.MkdirTemp("", "worktree-merge-tree-*")
 	if err != nil {
@@ -236,7 +249,7 @@ func parseConflicts(out []byte) []string {
 
 // checkCheckoutState folds the dirty and in-progress-operation checks for one checkout into a single
 // blocking Issue (dirty wins when both are true; the operation marker is secondary context).
-func checkCheckoutState(ctx context.Context, path, dirtyCode string) (*Issue, error) {
+func checkCheckoutState(ctx context.Context, path, gitDir, dirtyCode string) (*Issue, error) {
 	dirty, err := isDirty(ctx, path)
 	if err != nil {
 		return nil, err
@@ -244,7 +257,7 @@ func checkCheckoutState(ctx context.Context, path, dirtyCode string) (*Issue, er
 	if dirty {
 		return &Issue{Code: dirtyCode, Paths: []string{path}}, nil
 	}
-	op, found, err := inProgressOp(ctx, path)
+	op, found, err := inProgressOp(ctx, path, gitDir)
 	if err != nil {
 		return nil, err
 	}
@@ -255,9 +268,9 @@ func checkCheckoutState(ctx context.Context, path, dirtyCode string) (*Issue, er
 }
 
 // checkWorktreeState is checkCheckoutState for the source worktree; trackedOnly ignores untracked residue.
-func checkWorktreeState(ctx context.Context, path string, trackedOnly bool) (*Issue, error) {
+func checkWorktreeState(ctx context.Context, path, gitDir string, trackedOnly bool) (*Issue, error) {
 	if !trackedOnly {
-		return checkCheckoutState(ctx, path, IssueDirtyWorktree)
+		return checkCheckoutState(ctx, path, gitDir, IssueDirtyWorktree)
 	}
 	tracked, err := changedPaths(ctx, path)
 	if err != nil {
@@ -266,7 +279,7 @@ func checkWorktreeState(ctx context.Context, path string, trackedOnly bool) (*Is
 	if len(tracked) > 0 {
 		return &Issue{Code: IssueDirtyWorktree, Paths: []string{path}}, nil
 	}
-	op, found, err := inProgressOp(ctx, path)
+	op, found, err := inProgressOp(ctx, path, gitDir)
 	if err != nil {
 		return nil, err
 	}
@@ -298,13 +311,14 @@ var opMarkers = []struct{ marker, op string }{
 	{"rebase-apply", "rebase"},
 }
 
-// inProgressOp reports the name of a mid-operation marker found under path's own git-dir, if any. Only
+// inProgressOp reports the name of a mid-operation marker found under path's own git-dir ("" = look it up), if any. Only
 // a confirmed os.IsNotExist counts as "no marker" — any other stat error (e.g. permission denied) is an
 // unknown state and must propagate, never be read as clean.
-func inProgressOp(ctx context.Context, path string) (op string, found bool, err error) {
-	gitDir, err := gitDirOf(ctx, path)
-	if err != nil {
-		return "", false, err
+func inProgressOp(ctx context.Context, path, gitDir string) (op string, found bool, err error) {
+	if gitDir == "" {
+		if gitDir, err = gitDirOf(ctx, path); err != nil {
+			return "", false, err
+		}
 	}
 	for _, m := range opMarkers {
 		_, statErr := os.Stat(filepath.Join(gitDir, m.marker))

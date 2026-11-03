@@ -102,7 +102,7 @@ func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReque
 	if req.NoClean {
 		return &MergeOutcome{}, nil
 	}
-	result, err := CleanInLease(repo, req.Name, false, req.Err)
+	result, err := cleanAt(repo, req.Name, plan.WorktreePath, false, req.Err)
 	if err != nil {
 		return nil, fmt.Errorf("clean: %w", err)
 	}

@@ -348,7 +348,7 @@ func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
 
-	if _, _, err := inProgressOp(context.Background(), wt); err == nil {
+	if _, _, err := inProgressOp(context.Background(), wt, ""); err == nil {
 		t.Fatal("inProgressOp: want a propagated error for a permission-denied stat, got nil")
 	}
 }
