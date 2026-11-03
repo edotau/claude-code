@@ -355,12 +355,30 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 	for _, c := range commits {
 		files = append(files, c.Files...)
 	}
-	type dated struct {
-		path string
-		plan Plan
+	all, newestOpen := loadDatedPlans(entries, home, skip)
+	cands, claimed := bestCandidates(all, newestOpen, worktree, files)
+	if len(cands) == 1 {
+		return cands[0], nil
 	}
-	var all []dated
-	newestOpen := ""
+	var linked []string
+	for _, p := range cands {
+		if claimed[p] {
+			linked = append(linked, p)
+		}
+	}
+	if len(linked) == 1 {
+		return linked[0], nil
+	}
+	return "", cands
+}
+
+type datedPlan struct {
+	path string
+	plan Plan
+}
+
+// loadDatedPlans parses the dated, non-skipped plans and returns them with the newest date holding an open owned task.
+func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []datedPlan, newestOpen string) {
 	for _, e := range entries {
 		p := filepath.Join(home, e.Name())
 		if !e.Type().IsRegular() || !datedName.MatchString(e.Name()) || slices.Contains(skip, p) {
@@ -370,15 +388,19 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 		if err != nil {
 			continue
 		}
-		all = append(all, dated{p, parsed})
+		all = append(all, datedPlan{p, parsed})
 		if hasOpenOwnedTask(parsed) && e.Name()[:10] > newestOpen {
 			newestOpen = e.Name()[:10]
 		}
 	}
+	return all, newestOpen
+}
+
+// bestCandidates returns the plans tied on the best score of the newest touched date, with whether each claims worktree.
+func bestCandidates(all []datedPlan, newestOpen, worktree string, files []string) (cands []string, claimed map[string]bool) {
 	var best planScore
 	var bestDate string
-	var cands []string
-	claimed := map[string]bool{}
+	claimed = map[string]bool{}
 	for _, d := range all {
 		name := filepath.Base(d.path)
 		if name[:10] != newestOpen && !hasLiveClaim(d.plan) { // a stale plan sharing a file is never ticked
@@ -400,19 +422,7 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 		cands = append(cands, d.path)
 		claimed[d.path] = worktree != "" && claimsWorktree(d.plan, worktree)
 	}
-	if len(cands) == 1 {
-		return cands[0], nil
-	}
-	var linked []string
-	for _, p := range cands {
-		if claimed[p] {
-			linked = append(linked, p)
-		}
-	}
-	if len(linked) == 1 {
-		return linked[0], nil
-	}
-	return "", cands
+	return cands, claimed
 }
 
 // Status summarizes every *.md directly in each dir that carries at least one task, sorted by path.
