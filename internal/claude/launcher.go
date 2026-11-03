@@ -15,7 +15,7 @@ func (claudeLauncher) Claude(ctx context.Context, o agent.ClaudeOptions, args []
 	if err != nil {
 		return agent.ClaudeLaunch{}, err
 	}
-	if err := plan.WriteOverlay(); err != nil {
+	if err := plan.WriteFiles(); err != nil {
 		return agent.ClaudeLaunch{}, err
 	}
 	return agent.ClaudeLaunch{Binary: plan.Binary, Argv: plan.Argv, Env: plan.Env(os.Environ()), Set: plan.Set}, nil

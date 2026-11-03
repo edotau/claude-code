@@ -142,15 +142,15 @@ func TestClaudeDirectLaunchPlan(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, p.Set[k], v)
 		}
 	}
-	if !slices.Contains(p.Unset, oauthKey) || !slices.Equal(p.Argv, []string{"--settings", p.OverlayPath, "-p", "hi"}) {
+	if !slices.Contains(p.Unset, oauthKey) || !slices.Equal(p.Argv, []string{"--settings", overlayFile(p).Path, "-p", "hi"}) {
 		t.Errorf("unset %q argv %q", p.Unset, p.Argv)
 	}
-	if !strings.Contains(string(p.Overlay), `"/opt/bin/claude-code resolve --profile gw"`) {
-		t.Errorf("overlay %s", p.Overlay)
+	if !strings.Contains(string(overlayFile(p).Data), `"/opt/bin/claude-code resolve --profile gw"`) {
+		t.Errorf("overlay %s", overlayFile(p).Data)
 	}
 	var buf bytes.Buffer
 	p.Print(&buf)
-	if strings.Contains(buf.String()+string(p.Overlay)+strings.Join(p.Argv, " "), fakeToken) {
+	if strings.Contains(buf.String()+string(overlayFile(p).Data)+strings.Join(p.Argv, " "), fakeToken) {
 		t.Errorf("the key reached the plan:\n%s", buf.String())
 	}
 	after, err := providers.Load()
@@ -177,8 +177,8 @@ func TestClaudeRoutedLaunchPlan(t *testing.T) {
 	if m, ok := p.Set["ANTHROPIC_MODEL"]; ok {
 		t.Errorf("no --model asked, yet ANTHROPIC_MODEL = %q", m)
 	}
-	if !strings.Contains(string(p.Overlay), "claude-code resolve --proxy") || !strings.HasSuffix(p.OverlayPath, "overlay-ollama-proxy.json") {
-		t.Errorf("overlay %s at %s", p.Overlay, p.OverlayPath)
+	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --proxy") || !strings.HasSuffix(overlayFile(p).Path, "overlay-ollama-proxy.json") {
+		t.Errorf("overlay %s at %s", overlayFile(p).Data, overlayFile(p).Path)
 	}
 }
 
@@ -224,8 +224,8 @@ func TestClaudePassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Overlay) != 0 || slices.Contains(p.Argv, "--settings") {
-		t.Errorf("passthrough must not set an apiKeyHelper: %q %s", p.Argv, p.Overlay)
+	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
+		t.Errorf("passthrough must not set an apiKeyHelper: %q %s", p.Argv, overlayFile(p).Data)
 	}
 	// Interactive: the setup-token is withheld so Remote Control sees the /login credential.
 	if !slices.Contains(p.Unset, oauthKey) || p.Set[oauthKey] != "" {
@@ -355,8 +355,8 @@ func TestClaudeShellEndpointGetsNoProfileCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Overlay) != 0 || slices.Contains(p.Argv, "--settings") {
-		t.Errorf("foreign ANTHROPIC_BASE_URL still gets the profile apiKeyHelper: argv %q overlay %s", p.Argv, p.Overlay)
+	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
+		t.Errorf("foreign ANTHROPIC_BASE_URL still gets the profile apiKeyHelper: argv %q overlay %s", p.Argv, overlayFile(p).Data)
 	}
 	if _, ok := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; ok {
 		t.Error("foreign ANTHROPIC_BASE_URL still gets the harness headers")
@@ -393,10 +393,10 @@ func TestKeepShellEndpointDefaultBase(t *testing.T) {
 		foreign bool
 	}{{"https://api.anthropic.com", false}, {"https://API.anthropic.com/", false}, {"https://shell.example", true}} {
 		t.Setenv("ANTHROPIC_BASE_URL", tc.base)
-		plan := agent.Plan{Set: map[string]string{}, OverlayPath: "/tmp/ov.json", Argv: []string{"--settings", "/tmp/ov.json"}}
+		plan := agent.Plan{Set: map[string]string{}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}}, Argv: []string{"--settings", "/tmp/ov.json"}}
 		keepShellEndpoint(&plan, agent.LaunchOptions{})
-		if plan.ForeignBase != tc.foreign || (plan.OverlayPath == "") != tc.foreign {
-			t.Errorf("base %q: ForeignBase=%v overlay=%q, want foreign=%v", tc.base, plan.ForeignBase, plan.OverlayPath, tc.foreign)
+		if plan.ForeignBase != tc.foreign || (len(plan.Files) == 0) != tc.foreign {
+			t.Errorf("base %q: ForeignBase=%v files=%v, want foreign=%v", tc.base, plan.ForeignBase, plan.Files, tc.foreign)
 		}
 	}
 }
@@ -404,11 +404,11 @@ func TestKeepShellEndpointDefaultBase(t *testing.T) {
 // TestKeepShellEndpointInheritedProxyBase: an enclosing session's /p/<other> base must not displace this launch's own proxy base.
 func TestKeepShellEndpointInheritedProxyBase(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/prod")
-	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, OverlayPath: "/tmp/ov.json",
+	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}},
 		Argv: []string{"--settings", "/tmp/ov.json"}}
 	keepShellEndpoint(&plan, agent.LaunchOptions{})
-	if plan.ForeignBase || plan.OverlayPath == "" || plan.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:18765/p/dev" {
-		t.Errorf("inherited proxy base won: foreign=%v overlay=%q set=%q", plan.ForeignBase, plan.OverlayPath, plan.Set["ANTHROPIC_BASE_URL"])
+	if plan.ForeignBase || len(plan.Files) == 0 || plan.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:18765/p/dev" {
+		t.Errorf("inherited proxy base won: foreign=%v files=%v set=%q", plan.ForeignBase, plan.Files, plan.Set["ANTHROPIC_BASE_URL"])
 	}
 	if slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
 		t.Error("inherited proxy base kept through the scrub")
@@ -418,10 +418,18 @@ func TestKeepShellEndpointInheritedProxyBase(t *testing.T) {
 // TestKeepShellEndpointOtherPortProxyBase: a loopback /p/ base on another port is the user's override, not inherited.
 func TestKeepShellEndpointOtherPortProxyBase(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9999/p/prod")
-	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, OverlayPath: "/tmp/ov.json",
+	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}},
 		Argv: []string{"--settings", "/tmp/ov.json"}}
 	keepShellEndpoint(&plan, agent.LaunchOptions{})
-	if !plan.ForeignBase || plan.OverlayPath != "" || !slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
-		t.Errorf("other-port base overridden: foreign=%v overlay=%q keep=%v", plan.ForeignBase, plan.OverlayPath, plan.Keep)
+	if !plan.ForeignBase || len(plan.Files) != 0 || !slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
+		t.Errorf("other-port base overridden: foreign=%v files=%v keep=%v", plan.ForeignBase, plan.Files, plan.Keep)
 	}
+}
+
+// overlayFile is the plan's settings overlay, or the zero file when it has none.
+func overlayFile(p agent.Plan) agent.LaunchFile {
+	if len(p.Files) == 0 {
+		return agent.LaunchFile{}
+	}
+	return p.Files[0]
 }

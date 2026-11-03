@@ -78,11 +78,11 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	set1MOff(&plan, sel, p)
 	plan.Set[providers.EnvSessionProfile] = p.Name
 	signin.OfferLogin(ctx, o, args, sessionProviders(sel), &plan)
-	helper, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
+	helper, settings, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	if err := applyOverlay(&plan, passthrough, args, helper, p.Env); err != nil {
+	if err := applyOverlay(&plan, passthrough, args, helper, settings, p.Env); err != nil {
 		return agent.Plan{}, err
 	}
 	plan.Argv = append(plan.Argv, args...)
@@ -148,10 +148,10 @@ func sameEndpoint(a, b string) bool {
 
 // dropHarnessCredential strips the apiKeyHelper, headers and setup-token so a foreign endpoint never gets them.
 func dropHarnessCredential(plan *agent.Plan) {
-	if len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" && plan.Argv[1] == plan.OverlayPath {
+	if len(plan.Files) > 0 && len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" && plan.Argv[1] == plan.Files[0].Path {
 		plan.Argv = slices.Clone(plan.Argv[2:])
 	}
-	plan.Overlay, plan.OverlayPath = nil, ""
+	plan.Files = nil
 	for _, k := range []string{"ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", oauthKey} {
 		delete(plan.Set, k)
 	}
@@ -215,22 +215,22 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 
 // configureRouting wires the router base URL/headers when needed, else the provider's own route, and
 // returns the apiKeyHelper command for the overlay.
-func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (string, error) {
-	helper := shellQuote(helperBin(self)) + " resolve --profile " + shellQuote(p.Name)
+func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (helper, settings string, err error) {
+	helper = shellQuote(helperBin(self)) + " resolve --profile " + shellQuote(p.Name)
 	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
 	if sel.NeedsRouter(reg) {
 		for _, t := range sel.Aliases {
 			if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
-				return "", fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
+				return "", "", fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
 			}
 		}
 		base, err := agent.EnsureRouter(ctx)
 		if err != nil {
-			return "", fmt.Errorf("proxy: %w", err)
+			return "", "", fmt.Errorf("proxy: %w", err)
 		}
 		plan.Set["ANTHROPIC_BASE_URL"] = proxy.SessionBase(base, p.Name)
 		hdrs := []string{proxy.AgentHeader + ": claude"} // the ledger's agent column; Claude Code adds the session id itself
@@ -238,13 +238,12 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 			// The login stays in Authorization, so the router secret rides in its own header.
 			secret, err := proxy.ClientSecret()
 			if err != nil {
-				return "", fmt.Errorf("proxy secret: %w", err)
+				return "", "", fmt.Errorf("proxy secret: %w", err)
 			}
 			hdrs = append(hdrs, proxy.ClientHeader+": "+secret)
 		}
 		plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(hdrs, "\n")
-		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json")
-		return shellQuote(helperBin(self)) + " resolve --proxy", nil
+		return shellQuote(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
 	}
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
 		plan.Set["ANTHROPIC_BASE_URL"] = route
@@ -255,20 +254,18 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 	if !providers.CredentialPresent(p) {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
 	}
-	plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json")
-	return helper, nil
+	return helper, filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json"), nil
 }
 
 // applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
-func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper string, env map[string]string) error {
+func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper, settings string, env map[string]string) error {
 	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
 	for k, v := range providerEnv(env) {
 		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
 			plan.Set[k] = v
 		}
 	}
-	if passthrough {
-		plan.OverlayPath = "" // Claude Code disables subscription OAuth whenever an apiKeyHelper is set
+	if passthrough { // no overlay: Claude Code disables subscription OAuth whenever an apiKeyHelper is set
 		if !agent.IsHeadless(args) {
 			// Remote Control refuses the inference-only setup-token; the interactive /login credential must win.
 			plan.Unset = append(plan.Unset, oauthKey)
@@ -285,8 +282,8 @@ func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper stri
 	if err != nil {
 		return fmt.Errorf("marshal settings overlay: %w", err)
 	}
-	plan.Overlay = overlay
-	plan.Argv = []string{"--settings", plan.OverlayPath}
+	plan.Files = []agent.LaunchFile{{Path: settings, Data: overlay}}
+	plan.Argv = []string{"--settings", settings}
 	return nil
 }
 

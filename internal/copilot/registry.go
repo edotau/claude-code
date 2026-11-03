@@ -396,19 +396,6 @@ func CopilotRegistryFile(dir string, pid int) string {
 	return filepath.Join(dir, strconv.Itoa(pid)+".json")
 }
 
-// WriteCopilotRegistry atomically writes data as <pid>.json (0600) in a verified runtime dir and returns its path.
-func WriteCopilotRegistry(pid int, data []byte) (string, error) {
-	dir, err := CopilotRuntimeDir()
-	if err != nil {
-		return "", err
-	}
-	file := CopilotRegistryFile(dir, pid)
-	if err := paths.AtomicWrite(file, data, 0o600); err != nil {
-		return "", fmt.Errorf("copilot registry: write registry: %w", err)
-	}
-	return file, nil
-}
-
 // CopilotRuntimeDir creates (0700) and verifies the registry directory: a real dir, owned by this uid, mode 0700,
 // and memory-backed where the platform allows (see backingCheck).
 func CopilotRuntimeDir() (string, error) {
