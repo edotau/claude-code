@@ -54,17 +54,16 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 	if p.Auth.Sealed() {
 		authType = p.Auth.Type
 	}
-	if !providers.CredentialPresent(p) {
-		return authType, "no login", false
-	}
-	exp, has := providers.TokenExpiry(env)
+	st := allSigninFor(p).Status()
 	switch {
-	case !has:
+	case !st.Present:
+		return authType, "no login", false
+	case st.Expires.IsZero():
 		return authType, "logged in", true
-	case time.Until(exp) <= 0:
+	case time.Until(st.Expires) <= 0:
 		return authType, "expired", true
 	}
-	return authType, "expires in " + dbxDur(time.Until(exp)), true
+	return authType, "expires in " + dbxDur(time.Until(st.Expires)), true
 }
 
 // dbxIdentityBadge is the Identity row's check column: the set mode and who signs in now ("[auto → sp]"),

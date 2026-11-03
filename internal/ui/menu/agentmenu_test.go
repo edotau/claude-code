@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -311,9 +312,9 @@ func TestAgentStateLabelAndCheck(t *testing.T) {
 		s            agentState
 		label, check string
 	}{
-		{agentState{modeSubscription, "Max 20x", true}, "subscription (Max 20x)", "verified"},
+		{agentState{modeSubscription, providers.Subscription{Name: "Max 20x"}, true}, "subscription (Max 20x)", "verified"},
 		{agentState{mode: modeSubscription}, "subscription", "not verified"},
-		{agentState{mode: modeAPIKey, tier: "ignored", verified: true}, "API key", "verified"},
+		{agentState{mode: modeAPIKey, tier: providers.Subscription{Name: "ignored"}, verified: true}, "API key", "verified"},
 		{agentState{mode: modeNone}, "not set up", "not verified"},
 	}
 	for _, c := range cases {

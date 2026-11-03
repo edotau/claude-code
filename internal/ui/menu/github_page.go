@@ -1,14 +1,16 @@
 package menu
 
 import (
+	"cmp"
 	"context"
+	"time"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
-	"time"
 )
 
 // printRoute prints one agent.DescribeRoute result: provider/model/small_model and why, never a credential.
@@ -39,8 +41,10 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 		d.printf("%-16s ABSENT: not logged in\n", "gh CLI")
 	}
 
-	auth, copilotOK := copilot.ResolveCopilotAuth()
+	auth := agent.AuthStatus("copilot")
+	copilotOK = auth.Present
 	if copilotOK {
+		auth.Account = cmp.Or(auth.Account, agent.AuthPlan(context.Background(), "copilot", auth).Account)
 		d.printf("%-16s present (%s)\n", "copilot CLI", auth.Label())
 	} else {
 		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")

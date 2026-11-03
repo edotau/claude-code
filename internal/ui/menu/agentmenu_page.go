@@ -2,6 +2,7 @@ package menu
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
@@ -32,15 +32,15 @@ const (
 
 // agentState is how an agent bills today and whether that credential checked out.
 type agentState struct {
-	mode     string // modeSubscription, modeAPIKey, modeNone, or a non-anthropic backend's label
-	tier     string // plan name when the sign-in reports one ("Max 20x", "Plus", "Pro+")
+	mode     string                 // modeSubscription, modeAPIKey, modeNone, or a non-anthropic backend's label
+	tier     providers.Subscription // plan the sign-in reports (Name "Max 20x", "Plus", "Pro+"; Raw for agent_plans)
 	verified bool
 }
 
 // label is the top menu's mode column: "subscription (Max 20x)", "API key" or "not set up".
 func (s agentState) label() string {
 	if s.mode == modeSubscription {
-		return configure.WithTier(s.mode, s.tier)
+		return configure.WithTier(s.mode, s.tier.Name)
 	}
 	return s.mode
 }
@@ -156,8 +156,17 @@ func keyRow(d *dialog, label, provider, desc string) billingRow {
 	}}
 }
 
+// ownLoginState is the home-row state of an agent whose own sign-in is its subscription; plan only when present.
+func ownLoginState(name string) (agentState, providers.AuthState) {
+	st := agent.AuthStatus(name)
+	if !st.Present {
+		return agentState{mode: modeNone}, st
+	}
+	return agentState{modeSubscription, agent.AuthPlan(context.Background(), name, st), true}, st
+}
+
 // loginOrKey is the state of an agent that bills its own login first, else a BYOK key.
-func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
+func loginOrKey(d *dialog, loggedIn bool, tier providers.Subscription) agentState {
 	if loggedIn {
 		return agentState{modeSubscription, tier, true}
 	}
@@ -169,16 +178,12 @@ func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 }
 
 func codexMenu(d *dialog) agentMenu {
-	loggedIn := codex.CodexChatGPTLoginPresent()
-	tier := ""
-	if loggedIn {
-		tier = configure.CodexTier()
-	}
-	st := agentState{mode: modeNone}
-	if loggedIn {
-		st = agentState{modeSubscription, tier, true}
-	} else if kt := configure.AgentKeyTarget(d.reg, "codex"); kt.Present {
-		st = agentState{mode: modeAPIKey, verified: kt.Provider == nil || configure.KeyVerified(kt.Provider)}
+	st, auth := ownLoginState("codex")
+	loggedIn := auth.Present
+	if !loggedIn {
+		if kt := configure.AgentKeyTarget(d.reg, "codex"); kt.Present {
+			st = agentState{mode: modeAPIKey, verified: kt.Provider == nil || configure.KeyVerified(kt.Provider)}
+		}
 	}
 	key := keyRow(d, "codex", "openai", "pay per token · paste to set or rotate OPENAI_API_KEY")
 	ensure := key.run
@@ -193,7 +198,7 @@ func codexMenu(d *dialog) agentMenu {
 	}
 	pinned := vault.GetAgentRecord("codex").Profile
 	return agentMenu{st, []billingRow{
-		{"Subscription", "ChatGPT login · plan limits " + Bracket(loggedIn, configure.WithTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "ChatGPT login · plan limits " + Bracket(loggedIn, configure.WithTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s on its ChatGPT login (kept)\n", "codex")
 				return true
@@ -275,18 +280,17 @@ func codexUseKey(d *dialog) bool {
 }
 
 func copilotMenu(d *dialog) agentMenu {
-	auth, loggedIn := copilot.ResolveCopilotAuth()
-	tier := ""
-	if loggedIn {
-		tier = configure.CopilotTier()
-	}
-	st := loginOrKey(d, loggedIn, tier)
+	auth := agent.AuthStatus("copilot")
+	loggedIn := auth.Present
+	plan := agent.AuthPlan(context.Background(), "copilot", auth)
+	auth.Account = cmp.Or(auth.Account, plan.Account)
+	st := loginOrKey(d, loggedIn, plan)
 	if auth.Source == copilot.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
 	pinned := vault.GetAgentRecord("copilot").Profile
 	rows := []billingRow{
-		{"Subscription", "GitHub Copilot " + Bracket(loggedIn, configure.WithTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "GitHub Copilot " + Bracket(loggedIn, configure.WithTier(auth.Label(), plan.Name), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
 				return true
@@ -451,7 +455,7 @@ func copilotKeyRow(d *dialog) billingRow {
 
 // pickGitHubUser lists gh's accounts; a pick is validated (gh has a token GitHub accepts for that user) and pins
 // only the name, COPILOT_PROFILE — launches fetch the token with `gh auth token --user`.
-func pickGitHubUser(d *dialog, cur copilot.CopilotAuth) bool {
+func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 	gh := copilot.GHAccounts()
 	if !isStdinTTY() || d.o.In != os.Stdin {
 		d.printf("copilot: runs as %s; gh accounts: %s\n", cur.Label(), strings.Join(gh, ", "))
@@ -530,7 +534,7 @@ func pinCopilotProfile(d *dialog, user string) bool {
 // opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
 func opencodeMenu(d *dialog) agentMenu {
 	if opencode.OpencodeOwnLoginPresent() || opencode.OpencodeCopilotLoginPresent() {
-		return agentMenu{state: agentState{modeSubscription, "", true}}
+		return agentMenu{state: agentState{modeSubscription, providers.Subscription{}, true}}
 	}
 	return agentMenu{state: agentState{mode: modeNone}}
 }
