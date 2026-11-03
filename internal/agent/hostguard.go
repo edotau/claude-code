@@ -4,13 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -175,61 +172,6 @@ func checkIsolation(ctx context.Context) error {
 	}
 	_, err := providers.Load()
 	return err
-}
-
-// BlankForeignCredentials adds NAME= for each foreign credential in the process env that env (the launch's own
-// values) does not set, for a child (the Copilot SDK) that merges os.Environ itself and applies env last.
-func BlankForeignCredentials(ctx context.Context, env, keepEnv []string) []string {
-	kept := map[string]bool{}
-	for _, kv := range scrubIsolated(ctx, os.Environ(), keepEnv) {
-		kept[kv] = true
-	}
-	owned := envNames(env)
-	out := slices.Clone(env)
-	for _, kv := range os.Environ() {
-		if name, _, _ := strings.Cut(kv, "="); !kept[kv] && !slices.Contains(owned, name) {
-			out = append(out, name+"=")
-		}
-	}
-	return out
-}
-
-// scrubIsolated drops other profiles' credentials from the INHERITED env under batch isolation; an own-login hop (no
-// profile) keeps no profile's credentials. Launch-owned values are appended after this, so they are never scrubbed.
-func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
-	if p := ownProviderFrom(ctx); p != nil {
-		return scrubForeignCredentials(inherited, p, keepEnv)
-	}
-	if ctx.Value(isolateKey{}) == nil {
-		return inherited
-	}
-	return scrubExcept(inherited, "", keepEnv, keepEnv)
-}
-
-// scrubForeignCredentials drops every other profile's credential env name from env, so a hop holds only its own.
-func scrubForeignCredentials(env []string, own *providers.Provider, keepEnv []string) []string {
-	return scrubExcept(env, own.Name, append(providers.CredentialNames(own), keepEnv...), keepEnv)
-}
-
-// scrubExcept drops every registry credential name of the profiles other than ownName, except those in mine.
-func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string {
-	reg, err := providers.Load()
-	if err != nil {
-		return env
-	}
-	foreign := map[string]bool{}
-	for _, p := range reg.Providers {
-		if p == nil || p.Name == ownName {
-			continue
-		}
-		for _, n := range providers.CredentialNames(p) {
-			if !slices.Contains(mine, n) {
-				foreign[n] = true
-			}
-		}
-	}
-	keep := proc.EnvKeepSet(keepEnv)
-	return proc.Drop(env, keep, slices.Collect(maps.Keys(foreign)))
 }
 
 // withBilling re-keys disp to p's account and billing.

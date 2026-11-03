@@ -520,16 +520,12 @@ func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
-	scrub := proc.Scrub
+	mode := EnvClaude
 	if cli {
-		scrub = proc.ScrubAgent
+		mode = EnvAgent
 	}
-	base, _ := scrub(os.Environ(), proc.EnvKeepSet(keepEnv))
-	cmd.Env = append(scrubIsolated(ctx, base, keepEnv), env...) // the launch's own values go on after the scrub; later wins
+	cmd.Env = EnvSpec{Mode: mode, Keep: keepEnv, Set: env, PWD: dir}.Environ(ctx) // launch values after the scrub
 	cmd.Dir = dir
-	if dir != "" {
-		cmd.Env = append(cmd.Env, "PWD="+dir) // a child that reads $PWD (not getcwd()) still sees dir
-	}
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
