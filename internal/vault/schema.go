@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -53,7 +54,22 @@ func parseSchema(s string) int {
 
 // openReadOnly opens the bbolt file at path read-only, bounded by readLockTimeout.
 func openReadOnly(path string) (*bbolt.DB, error) {
+	tightenMode(path)
 	return bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: readLockTimeout})
+}
+
+// looseMode reports a vault file open to anyone but its owner (never on Windows).
+func looseMode(fi os.FileInfo) bool { return runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 }
+
+// tightenMode chmods an existing vault looser than 0600 to 0600, best-effort; the warning names the path only.
+func tightenMode(path string) {
+	fi, err := os.Stat(path)
+	if err != nil || !looseMode(fi) {
+		return
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "vault: %s is mode %04o and chmod 0600 failed: %v\n", path, fi.Mode().Perm(), err)
+	}
 }
 
 // SetSchema stamps meta/schema.
