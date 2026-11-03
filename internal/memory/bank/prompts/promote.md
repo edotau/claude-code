@@ -128,11 +128,10 @@ Lowercase, hyphenated, 2–4 words, descriptive (e.g. `provider-auth-refresh`,
 `router-fallback-tuning`). Honor `--name` if given. The folder name and the SKILL.md `name:`
 frontmatter must match. Verify no collision with `Glob`.
 
-### Step 3: Dispatch opencode (EXTRACT mode)
+### Step 3: Write the skill
 
-Launch the **opencode** agent (EXTRACT mode) with: the source material, the chosen name, and the
-output path `skills/<name>/`. The agent authors `SKILL.md` (plus any `references/` it needs).
-With `--dry-run`, it previews the SKILL.md and file list without writing.
+From the source material, author `skills/<name>/SKILL.md` (plus any `references/` it needs).
+With `--dry-run`, preview the SKILL.md and file list without writing.
 
 ### Step 4: Quality gate
 

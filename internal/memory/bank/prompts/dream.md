@@ -47,7 +47,7 @@ Run `claude-code memory review` for cap/staleness findings, then:
 
 ## Phase 6: Cross-pollinate (via subagent)
 
-Hand the dream consolidator (opencode) every touched `~/.claude/memory/<repo>/MEMORY.md` (+
+Hand a subagent every touched `~/.claude/memory/<repo>/MEMORY.md` (+
 topic files). Ask it to:
 
 1. Detect rules that recur across **3+ project memories** and are hard prohibitions.

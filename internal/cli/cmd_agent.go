@@ -37,9 +37,9 @@ var agentAbout = map[string]string{
 		"launches it with args forwarded; the commands below run it headless.",
 	"gemini": "Gemini through agy (the Antigravity CLI) on your Google sign-in. Bare launches it " +
 		"with args forwarded; bridge inlines whole directories into one 1M-context call.",
-	"opencode": "The OpenCode CLI for docs and drafting, on its own login or the selected Databricks " +
-		"profile. Bare launches it " +
-		"with args forwarded; the commands below run it headless.",
+	"opencode": "The OpenCode CLI, a general code agent with the widest model pool (catalog), on its " +
+		"own login or the selected Databricks profile. Bare launches it with args forwarded; the " +
+		"commands below run it headless.",
 }
 
 // agentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
