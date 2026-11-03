@@ -44,7 +44,7 @@ func flagValue(args []string, i int, name, val string, hasVal bool) (string, int
 	return args[i+1], i + 1, nil
 }
 
-// ParseArgs strips harness flags from args; the first "--" ends harness parsing and is dropped.
+// ParseArgs strips harness flags from args (the first "--" ends them) and refuses a --keep-env name ask would refuse.
 func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	var o LaunchOptions
 	var rest []string
@@ -89,6 +89,9 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 		default:
 			rest = append(rest, a)
 		}
+	}
+	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
+		return LaunchOptions{}, nil, err
 	}
 	return o, rest, nil
 }

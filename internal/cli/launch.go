@@ -153,19 +153,12 @@ func runSetupToken() {
 	}
 }
 
-// parseLaunchArgs refuses a removed flag (with its hint) and a --keep-env name ask would refuse, then strips harness flags.
+// parseLaunchArgs refuses a removed flag (with its hint) before agent.ParseArgs strips the harness flags.
 func parseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string, error) {
 	if err := databricks.RemovedFlagHint(args); err != nil {
 		return agent.LaunchOptions{}, nil, err
 	}
-	opts, rest, err := agent.ParseArgs(args, claude)
-	if err != nil {
-		return opts, rest, err
-	}
-	if _, err := agentconfig.FlagOverlay(nil, opts.KeepEnv); err != nil { // names only: never a value
-		return agent.LaunchOptions{}, nil, err
-	}
-	return opts, rest, nil
+	return agent.ParseArgs(args, claude)
 }
 
 func launchAgent(name string, args []string) int {
