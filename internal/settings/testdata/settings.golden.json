@@ -24,6 +24,7 @@
     "baseRef": "head"
   },
   "env": {
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage",
     "CLAUDE_CODE_SCROLL_SPEED": "1",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
     "ENABLE_PROMPT_CACHING_1H": "1",

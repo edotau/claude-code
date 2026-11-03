@@ -63,6 +63,7 @@ var catalogSpec = []Field{
 	{Key: "useAutoModeDuringPlan", Section: "session", Source: "schema"},
 	{Key: "skipWorkflowUsageWarning", Section: "session", Kind: KindBool, Source: "docs"},
 	{Key: "idleCompaction", Section: "session", Kind: KindBool, Source: "docs"},
+	{Key: "CLAUDE_CODE_PLUGIN_DIRS", Section: "env", Kind: KindString, Source: "docs"},
 	{Key: "worktree", Section: "session", Source: "schema"},
 
 	// Section "" is overlay-only: set via `claude-code vault edit`, never shown on the configure page.
