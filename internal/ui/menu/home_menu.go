@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/secretstore"
@@ -48,14 +49,17 @@ func runMenu(d *dialog) int {
 	}
 }
 
-// homeSections is the agents block, then tools and settings (both hidden under --agent).
+// homeSections is the agents block, then tools and settings (both hidden under --agent); the two build concurrently.
 func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
-	rows, actions := menuRows(d)
-	sections := []tui.Section{{Title: Heading("agents"), Rows: rows}}
-	if d.o.Agent != "" {
-		return sections, actions
+	var extra []tui.Section
+	var acts []func(*dialog)
+	var wg sync.WaitGroup
+	if d.o.Agent == "" {
+		wg.Go(func() { extra, acts = extraSections(d) })
 	}
-	extra, acts := extraSections(d)
+	rows, actions := menuRows(d)
+	wg.Wait()
+	sections := []tui.Section{{Title: Heading("agents"), Rows: rows}}
 	return append(sections, extra...), append(actions, acts...)
 }
 
@@ -65,22 +69,30 @@ var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
 }
 
 // menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Agent when set.
+// Each agent's status checks (CLI auth, gh, key probes) run in their own goroutine; rows keep roster order.
 func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
-	var rows []homeRow
+	var names []string
 	for _, name := range append([]string{"claude"}, agent.Names()...) {
-		build, ok := agentMenus[name]
-		if !ok || (d.o.Agent != "" && d.o.Agent != name) {
-			continue
+		if _, ok := agentMenus[name]; ok && (d.o.Agent == "" || d.o.Agent == name) {
+			names = append(names, name)
 		}
-		m := build(d) // the page re-renders after every pick, so this build is fresh enough to open
-		n := name
-		rows = append(rows, homeRow{Name: displayLabel(n), State: modeLabel(d, n, m.state), Check: m.state.check(), Run: func(d *dialog) {
+	}
+	menus := make([]agentMenu, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Go(func() { menus[i] = agentMenus[name](d) })
+	}
+	wg.Wait()
+	rows := make([]homeRow, len(names))
+	for i, n := range names {
+		m := menus[i] // the page re-renders after every pick, so this build is fresh enough to open
+		rows[i] = homeRow{Name: displayLabel(n), State: modeLabel(d, n, m.state), Check: m.state.check(), Run: func(d *dialog) {
 			if page, ok := agentPages[n]; ok {
 				page(d)
 				return
 			}
 			runAgentMenu(d, displayLabel(n), m)
-		}})
+		}}
 	}
 	return RowsOf(rows)
 }

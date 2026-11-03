@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/codex"
@@ -57,12 +58,17 @@ var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
 func CopilotTier() string { return providers.CopilotPlanName(CopilotRawPlan()) }
 
 // copilotPlanCache holds one gh lookup per active gh account, so a sign-in or account switch mid-menu re-asks.
-var copilotPlanCache = map[string]string{}
+var copilotPlanCache = struct {
+	sync.Mutex
+	plans map[string]string
+}{plans: map[string]string{}}
 
 // CopilotRawPlan asks GitHub which Copilot plan the gh login holds ("individual_pro"; 3 s cap); "" when offline.
 func CopilotRawPlan() string {
 	account := copilot.GHActiveAccount()
-	if v, ok := copilotPlanCache[account]; ok {
+	copilotPlanCache.Lock() // held across the lookup so parallel home-page builders ask gh once
+	defer copilotPlanCache.Unlock()
+	if v, ok := copilotPlanCache.plans[account]; ok {
 		return v
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -73,7 +79,7 @@ func CopilotRawPlan() string {
 	if out, err := copilotTierCmd(ctx); err == nil {
 		_ = json.Unmarshal(out, &u)
 	}
-	copilotPlanCache[account] = u.Plan
+	copilotPlanCache.plans[account] = u.Plan
 	return u.Plan
 }
 
