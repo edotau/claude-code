@@ -309,12 +309,6 @@ func hint(p *Provider) string {
 	return ""
 }
 
-// ClaudeLoginStatus asks `claude auth status` (JSON) for the interactive session; plan is " (max)"-style or "".
-func ClaudeLoginStatus() (loggedIn bool, plan string) {
-	loggedIn, plan, _ = ClaudeLoginProbe()
-	return loggedIn, plan
-}
-
 // claudeProbeTTL is how long a successful `claude auth status` result is reused.
 const claudeProbeTTL = 10 * time.Second
 
@@ -342,7 +336,7 @@ func resetClaudeProbe() {
 	claudeProbeMemo.at = time.Time{}
 }
 
-// ClaudeLoginProbe is ClaudeLoginStatus plus the error (unknown, not logged out); single-flight, 10s memo.
+// ClaudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown, not logged out. Single-flight, 10s memo.
 func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
 	m := &claudeProbeMemo
 	m.mu.Lock()
