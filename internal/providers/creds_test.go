@@ -28,6 +28,7 @@ import (
 )
 
 func TestClaudeLoginStatusLoggedIn(t *testing.T) {
+	resetClaudeProbe()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	pathstest.FakeVendor(t, "claude", `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
@@ -39,6 +40,7 @@ echo '{"loggedIn":true,"subscriptionType":"max"}'`)
 }
 
 func TestClaudeLoginStatusNoBinary(t *testing.T) {
+	resetClaudeProbe()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	loggedIn, plan := ClaudeLoginStatus()
@@ -216,6 +218,7 @@ func TestClaudeLoginProbeTriState(t *testing.T) {
 		{"missing binary", "", true, false, "", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			resetClaudeProbe()
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			t.Setenv("PATH", t.TempDir())
 			if !c.noBin {

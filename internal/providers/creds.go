@@ -315,8 +315,64 @@ func ClaudeLoginStatus() (loggedIn bool, plan string) {
 	return loggedIn, plan
 }
 
-// ClaudeLoginProbe is ClaudeLoginStatus with the probe error: err != nil means unknown, not logged out.
+// claudeProbeTTL is how long a successful `claude auth status` result is reused.
+const claudeProbeTTL = 10 * time.Second
+
+// probeCall is one in-flight `claude auth status` run that concurrent callers wait on.
+type probeCall struct {
+	done     chan struct{}
+	loggedIn bool
+	plan     string
+	err      error
+}
+
+// claudeProbeMemo holds the last successful probe and the run in flight; errors are never stored.
+var claudeProbeMemo struct {
+	mu       sync.Mutex
+	at       time.Time
+	loggedIn bool
+	plan     string
+	flight   *probeCall
+}
+
+// resetClaudeProbe drops the memo so the next ClaudeLoginProbe runs the binary again.
+func resetClaudeProbe() {
+	claudeProbeMemo.mu.Lock()
+	defer claudeProbeMemo.mu.Unlock()
+	claudeProbeMemo.at = time.Time{}
+}
+
+// ClaudeLoginProbe is ClaudeLoginStatus plus the error (unknown, not logged out); single-flight, 10s memo.
 func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
+	m := &claudeProbeMemo
+	m.mu.Lock()
+	if !m.at.IsZero() && time.Since(m.at) < claudeProbeTTL {
+		defer m.mu.Unlock()
+		return m.loggedIn, m.plan, nil
+	}
+	if c := m.flight; c != nil {
+		m.mu.Unlock()
+		<-c.done
+		return c.loggedIn, c.plan, c.err
+	}
+	c := &probeCall{done: make(chan struct{})}
+	m.flight = c
+	m.mu.Unlock()
+
+	c.loggedIn, c.plan, c.err = runClaudeProbe()
+
+	m.mu.Lock()
+	if c.err == nil {
+		m.at, m.loggedIn, m.plan = time.Now(), c.loggedIn, c.plan
+	}
+	m.flight = nil
+	m.mu.Unlock()
+	close(c.done)
+	return c.loggedIn, c.plan, c.err
+}
+
+// runClaudeProbe spawns `claude auth status` (≤8s) and parses its JSON.
+func runClaudeProbe() (loggedIn bool, plan string, err error) {
 	bin, err := paths.AgentBin("claude")
 	if err != nil {
 		return false, "", err
