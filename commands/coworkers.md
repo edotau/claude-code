@@ -1,6 +1,6 @@
 ---
 description: "Default pool for external-agent work and model discovery: run tasks on copilot, codex, opencode, gemini or claude (single, compare, relay); copilot/opencode can rotate through discovered models (deepseek, kimi, glm…)."
-argument-hint: "[agents=a,b] [model=m|byok] [profile=p] [single|compare|relay] task|…"
+argument-hint: "[agents=a,b] [model=m|byok] [profile=p] [single|compare|relay|team] task|…"
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
@@ -9,7 +9,7 @@ Handoff contract in `skills/subagent-workflows/SKILL.md`.
 
 Empty `$ARGUMENTS` or `help`: print the Usage block below verbatim and stop.
 
-From `$ARGUMENTS`, strip an optional leading mode word (`single`/`compare`/`relay`; default `single`) and
+From `$ARGUMENTS`, strip an optional leading mode word (`single`/`compare`/`relay`/`team`; default `single`) and
 an optional `agents=` list (default: copilot whenever available, then codex; task-class picks per
 `skills/subagent-workflows/references/cost-routing.md`); split the rest on `|` into the task list.
 
@@ -27,19 +27,26 @@ host and auth from the vault.
 A `model=<m>` argument puts `--model <m>` on each brief's `ask` request line (an alias, wire id, discovered
 model, or `byok`).
 
+`team` mode (`/coworkers team <goal>`): a `coworker` leaf with `Agent: gemini` scans (read-only, cites file:line) →
+one with `Agent: codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's approval →
+approved items go to `coworker` leaves with `Agent: opencode` (shared tree; worktree only with the user's yes) ‖ a
+`copilot` test agent (feature/bug fix only) when code changes. `agents=` overrides the three roles in order.
+Watch each dispatch with `claude-code <agent> tail -f`.
+
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
 
 ## Usage
 
 ```text
-/coworkers [agents=<a,b>] [model=<m>|byok] [profile=<p>] [single|compare|relay] <task> [| <task> …]
+/coworkers [agents=<a,b>] [model=<m>|byok] [profile=<p>] [single|compare|relay|team] <task> [| <task> …]
 
   agents=   copilot (first when available) · codex · opencode · gemini · claude
             several names = relay unless a mode word is given
   model=    alias (opus|sonnet|haiku), wire id, or a discovered model (kimi-k3, deepseek-v4-pro, glm-5.3…);
             byok = the router picks a rare model from the discovered pool (copilot/opencode only)
   profile=  vault profile that bills the run (dev, prod, …); omitted = the session profile
-  mode      single (default) · compare (same task, side by side) · relay (each answer feeds the next)
+  mode      single (default) · compare (same task, side by side) · relay (each answer feeds the next) ·
+            team (gemini scan → codex review → your approval → opencode edits)
 
 Model discovery: copilot and opencode take flexible endpoints. On a Databricks profile they serve its
 endpoints; without one, route through the discovered catalogs (claude-code opencode catalog,
@@ -52,4 +59,5 @@ Examples:
   /coworkers agents=opencode model=kimi-k3 summarize docs/             one discovered model
   /coworkers agents=copilot,opencode model=byok compare refactor X     router-picked rare models
   /coworkers profile=prod model=opus fix the flaky watchdog test        billed to prod
+  /coworkers team tighten error handling in internal/usage               scan, review, approve, edit
 ```

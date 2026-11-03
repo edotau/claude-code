@@ -1,6 +1,6 @@
 ---
 description: "Workhorse fan-out: claude and copilot code-worker leaves finish a series of tasks — parallel, sequential (review gate per task) or auto. Other agents and model discovery: /coworkers."
-argument-hint: "[agent=claude|copilot] [profile=p] [parallel|sequential|auto|team] task|…"
+argument-hint: "[agent=claude|copilot] [profile=p] [parallel|sequential|auto] task|…"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
@@ -9,7 +9,7 @@ Launcher only. The dispatch shape, gates, and report format live in
 
 `$ARGUMENTS` = `help`: print the Usage block below verbatim and stop.
 
-Strip an optional leading mode word (`parallel`/`sequential`/`auto`/`team`) from `$ARGUMENTS`; split the
+Strip an optional leading mode word (`parallel`/`sequential`/`auto`) from `$ARGUMENTS`; split the
 rest on `|` into the task list. Blank task list: read the most recent
 `~/.claude/plans/<repo>/*.md` (or `~/.claude/plans/*.md` for this repo) and use its task
 breakdown. `auto` or no mode: infer parallel for independent tasks, sequential for
@@ -27,22 +27,18 @@ gemini or opencode, or a discovered model, go through `/coworkers`.
 
 A `profile=<p>` token (stripped first) adds `Profile: <p>` to every leaf brief, as in `/coworkers`.
 
-`team` mode (`/code-workers team <goal>`): `code-worker` leaves with `Agent: gemini` scan (read-only, cites
-file:line) → `Agent: codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's
-approval → approved items go to `code-worker` leaves with `Agent: opencode`
-(shared tree; worktree only with the user's yes) ‖ a `copilot` test agent (feature/bug fix only) when code changes.
-Watch each dispatch with `claude-code <agent> tail -f`.
+The scan → review → edit pipeline across gemini, codex and opencode is `/coworkers team`.
 
 ## Usage
 
 ```text
-/code-workers [agent=claude|copilot] [profile=<p>] [parallel|sequential|auto|team] <task> [| <task> …]
+/code-workers [agent=claude|copilot] [profile=<p>] [parallel|sequential|auto] <task> [| <task> …]
 
   agent=    claude (in-context; reasoning, integration) · copilot (edits, mechanical work, tests)
             omitted = per task: copilot for mechanical edits and test repair, claude for the rest
   profile=  vault profile that bills the copilot leaves (dev, prod, …); omitted = the session profile
   mode      auto (default: parallel if independent, sequential if coupled or from a plan) · parallel ·
-            sequential (spec → simplify → quality gate per task) · team (gemini scan → codex review → opencode)
+            sequential (spec → simplify → quality gate per task); team mode moved to /coworkers team
   no task   runs the newest plan's task list (~/.claude/plans/…)
 
 Feature and bug-fix tasks also get a copilot test agent in the same message.
