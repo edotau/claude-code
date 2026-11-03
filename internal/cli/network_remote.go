@@ -6,13 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
-	"os/signal"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -30,9 +27,6 @@ var dispatchFlagMode = map[string]string{
 	"dir": "start", "agent": "start", "name": "start", "dry-run": "start",
 	"format": "list", "status": "list", "interval": "list",
 }
-
-// sshTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
-const sshTimeout = 20 * time.Second
 
 func cmdNetworkRemote(args []string) int {
 	remoteAgents := strings.Join(tailscale.RemoteAgents, "|")
@@ -96,12 +90,6 @@ func cmdNetworkRemote(args []string) int {
 	}
 }
 
-// sshCommand builds argv as a command bounded by sshTimeout; the caller picks the output mode.
-func sshCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFunc) {
-	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
-	return exec.CommandContext(cctx, argv[0], argv[1:]...), cancel
-}
-
 func dispatchStart(ctx context.Context, host, dir, agentName, name, task string, dryRun bool) int {
 	if task == "" {
 		return fail("network remote: give a task as the final argument")
@@ -118,9 +106,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 		fmt.Println("attach:", tailscale.AttachCommand(host, session))
 		return 0
 	}
-	cmd, cancel := sshCommand(ctx, argv)
-	defer cancel()
-	out, err := cmd.CombinedOutput()
+	out, err := tailscale.RunRemote(ctx, argv)
 	_, writeErr := os.Stdout.Write(out)
 	if err := errors.Join(err, writeErr); err != nil {
 		return fail("network remote: %v", err)
@@ -142,13 +128,10 @@ func dispatchList(ctx context.Context, host, format string, withStatus bool, int
 }
 
 func dispatchListPlain(ctx context.Context, host, format string) int {
-	cmd, cancel := sshCommand(ctx, tailscale.ExecArgs(ctx, host, tailscale.ListCommand(), false))
-	defer cancel()
-	out, err := cmd.Output()
+	sessions, err := tailscale.ListRemoteSessions(ctx, host)
 	if err != nil {
 		return fail("network remote --list: %v", err)
 	}
-	sessions := tailscale.ParseSessions(string(out))
 	if format == helptext.JSON {
 		return writeJSONOrFail("network remote --list", sessions)
 	}
@@ -160,27 +143,13 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 
 // dispatchListStatus samples pane status once (interval <= 0) or repeatedly until Ctrl-C.
 func dispatchListStatus(ctx context.Context, host, format string, interval time.Duration) int {
-	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
-	defer stop()
-	var prev []tailscale.PaneStatus
-	for {
-		caps, capErr := tailscale.CapturePanes(sigCtx, host, false, tailscale.ExecRunner)
-		prev = tailscale.ObservePanes(prev, caps, capErr, time.Now())
-		if capErr != nil && len(prev) == 0 {
-			return fail("network remote --status: %v", capErr)
-		}
-		if err := printPaneStatus(prev, format); err != nil {
-			return fail("network remote --status: %v", err)
-		}
-		if interval <= 0 {
-			return 0
-		}
-		select {
-		case <-sigCtx.Done():
-			return 0
-		case <-time.After(interval):
-		}
+	err := tailscale.PollPaneStatus(ctx, host, interval, func(s []tailscale.PaneStatus) error {
+		return printPaneStatus(s, format)
+	})
+	if err != nil {
+		return fail("network remote --status: %v", err)
 	}
+	return 0
 }
 
 // printPaneStatus writes one sample of pane statuses in the requested format.
@@ -195,15 +164,7 @@ func printPaneStatus(statuses []tailscale.PaneStatus, format string) error {
 }
 
 func dispatchAttach(host, session string) int {
-	if !tailscale.ValidName(session) {
-		return fail("network remote --attach: session %q must match ^[A-Za-z0-9._-]{1,64}$", session)
-	}
-	argv := tailscale.AttachArgs(host, session)
-	bin, err := exec.LookPath(argv[0])
-	if err != nil {
-		return fail("network remote --attach: %v", err)
-	}
-	if err := proc.Exec(bin, argv[1:], os.Environ()); err != nil {
+	if err := tailscale.AttachSession(host, session); err != nil {
 		return fail("network remote --attach: %v", err)
 	}
 	return 0
