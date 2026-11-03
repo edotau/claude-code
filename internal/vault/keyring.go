@@ -26,9 +26,26 @@ const service = "claude-code"
 // with no agent to answer it.
 var timeout = 3 * time.Second
 
-// down latches once a lookup/store has already timed out this process, so a loop over many
-// names (`configure provider --list`) pays the timeout once, not once per name.
-var down atomic.Bool
+// downFor is how long one keyring timeout fast-fails later calls before the next call re-probes the tool.
+var downFor = time.Minute
+
+// downLatch fast-fails keyring calls for downFor after a timeout, so a loop over many names
+// (`configure provider --list`) pays the timeout once, and a long-lived process recovers after it.
+type downLatch struct{ until atomic.Int64 }
+
+// Store(true) opens the fast-fail window from now; Store(false) closes it.
+func (l *downLatch) Store(on bool) {
+	if !on {
+		l.until.Store(0)
+		return
+	}
+	l.until.Store(time.Now().Add(downFor).UnixNano())
+}
+
+// Load reports whether the fast-fail window is still open.
+func (l *downLatch) Load() bool { return time.Now().UnixNano() < l.until.Load() }
+
+var down downLatch
 
 // ErrKeyringNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
 var ErrKeyringNoAnswer = errors.New("keyring: did not answer")
@@ -119,12 +136,6 @@ func KeyringLookup(name string) (value string, found bool, err error) {
 	}
 	v := strings.TrimSpace(string(out))
 	return v, v != "", nil
-}
-
-// keyringGet is KeyringLookup's "found?" shape, the API most callers want: ErrKeyringNoAnswer reads as a miss too.
-func keyringGet(name string) (string, bool) {
-	v, found, _ := KeyringLookup(name)
-	return v, found
 }
 
 // KeyringSet stores value under name, overwriting any existing entry. The value always goes on stdin, never

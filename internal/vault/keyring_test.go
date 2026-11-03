@@ -42,7 +42,7 @@ func TestDegradesWithoutTool(t *testing.T) {
 	if KeyringAvailable() {
 		t.Fatal("KeyringAvailable() must be false with PATH pointed at an empty dir")
 	}
-	if _, ok := keyringGet("ANYTHING"); ok {
+	if _, ok, _ := KeyringLookup("ANYTHING"); ok {
 		t.Fatal("Get must miss when no keyring tool is available")
 	}
 	if err := KeyringSet("ANYTHING", "v"); err == nil {
