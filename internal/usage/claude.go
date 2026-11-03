@@ -302,13 +302,28 @@ func claudeQuotas(ctx context.Context) []quota {
 	}
 }
 
+// claudePlanName is the plan name ~/.claude.json shows ("Ultra"); "" when absent.
+func claudePlanName() string {
+	b, err := os.ReadFile(paths.ClaudeJSON())
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Account struct {
+			PlanName string `json:"planDisplayName"`
+		} `json:"oauthAccount"`
+	}
+	_ = json.Unmarshal(b, &cfg)
+	return cfg.Account.PlanName
+}
+
 // parseClaudeUsage turns an oauth/usage body into the 5h, weekly, and Fable-weekly rows.
 func parseClaudeUsage(body []byte, subscriptionType string) []quota {
 	var u claudeUsageResponse
 	if err := json.Unmarshal(body, &u); err != nil {
 		return []quota{{Provider: "anthropic", Note: "usage unavailable: unreadable response"}}
 	}
-	plan := textutil.Title(subscriptionType)
+	plan := cmp.Or(claudePlanName(), textutil.Title(subscriptionType))
 	fiveLocal, fiveUTC := claudeResets(u.FiveHour.ResetsAt)
 	weekLocal, weekUTC := claudeResets(u.SevenDay.ResetsAt)
 	out := []quota{

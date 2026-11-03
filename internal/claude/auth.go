@@ -37,9 +37,13 @@ func (claudeEngine) AuthStatus() providers.AuthState {
 	return providers.AuthState{Present: true, Source: "claude.ai login", Method: providers.AuthCLI, PlanHint: strings.Trim(plan, " ()")}
 }
 
-// Plan is the rate limit in ~/.claude.json ("Max 20x"), else the bare plan ("Max"); offline.
+// Plan is the plan name ~/.claude.json shows ("Ultra"), else the rate limit ("Max 20x"), else the bare plan; offline.
 func (claudeEngine) Plan(_ context.Context, st providers.AuthState) providers.Subscription {
-	raw := ClaudeRateTier()
+	acct := claudeAccount()
+	raw := cmp.Or(acct.User, acct.Org)
+	if acct.PlanName != "" {
+		return providers.Subscription{Raw: raw, Name: acct.PlanName}
+	}
 	if m := maxTierRE.FindStringSubmatch(raw); m != nil {
 		return providers.Subscription{Raw: raw, Name: "Max " + m[1]}
 	}
@@ -59,20 +63,30 @@ func (claudeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 
 // ClaudeRateTier is the raw rate-limit tier ~/.claude.json records ("default_claude_max_20x"), user before org.
 func ClaudeRateTier() string {
+	acct := claudeAccount()
+	return cmp.Or(acct.User, acct.Org)
+}
+
+// claudeOAuthAccount is the oauthAccount block of ~/.claude.json the plan label reads.
+type claudeOAuthAccount struct {
+	Org      string `json:"organizationRateLimitTier"`
+	User     string `json:"userRateLimitTier"`
+	PlanName string `json:"planDisplayName"`
+}
+
+// claudeAccount reads ~/.claude.json's oauthAccount; zero when the file is absent or unreadable.
+func claudeAccount() claudeOAuthAccount {
 	b, err := os.ReadFile(paths.ClaudeJSON())
 	if err != nil {
-		return ""
+		return claudeOAuthAccount{}
 	}
 	var cfg struct {
-		Account struct {
-			Org  string `json:"organizationRateLimitTier"`
-			User string `json:"userRateLimitTier"`
-		} `json:"oauthAccount"`
+		Account claudeOAuthAccount `json:"oauthAccount"`
 	}
 	if json.Unmarshal(b, &cfg) != nil {
-		return ""
+		return claudeOAuthAccount{}
 	}
-	return cmp.Or(cfg.Account.User, cfg.Account.Org)
+	return cfg.Account
 }
 
 // claudeProbeTTL is how long a logged-in `claude auth status` result is reused.
