@@ -11,9 +11,8 @@ limit scale with N; keep N within the dispatch cap in [SKILL.md → Concurrency]
 2. **One brief, reused verbatim** for every competitor (same objective, criteria, eval command). To force divergence,
    vary one named constraint per leaf ("no new deps") and say so.
 3. **Dispatch in one message**: `code-worker`, `isolation: "worktree"`, branch `compete/<slug>/<n>`; each commits and
-   reports its measured number. Comparing agents instead: each competitor is
-   `claude-code ask --agent <agent> --format json "<same brief>"` in its own worktree
-   ([cost-routing.md](cost-routing.md)).
+   reports its measured number. Comparing answers, not code: one `claude-code dispatch compare --models a,b "<brief>"`
+   ([cost-routing.md](cost-routing.md)); comparing agents' code: `ask --agent <agent>` per worktree.
 4. **Re-measure yourself** in each worktree; discard red ones. A self-reported number is a claim.
 5. **Rank** on the diff, never the leaf's summary:
 

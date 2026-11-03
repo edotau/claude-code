@@ -11,12 +11,13 @@ The dispatch procedure. The always-on core is `CLAUDE.md` guideline 3; the pipel
 | Shape | Do |
 |---|---|
 | Inline | A one-line edit; anything bigger is dispatched |
-| Parallel leaves, disjoint files | `Agent` calls in one message ([dispatching-parallel-agents.md](references/dispatching-parallel-agents.md)) |
+| Same question, many angles | `claude-code dispatch explore\|fleet\|compare`: up to 12 legs, one report ([cost-routing.md](references/cost-routing.md)) |
+| Parallel leaves, disjoint files | `Agent` calls in one message, split by file ownership ([Ownership](#handoff-contract)) |
 | Sequential plan | One implementer at a time, a gate per task ([Sequential plan](#sequential-plan)) |
 | Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) |
 
 Also: review a diff (`/code-review`) · [lane orchestrator](references/lane-orchestrator.md) ·
-[orchestrate](references/orchestrate.md) · [tournament](references/competition-tournament.md) ·
+[tournament](references/competition-tournament.md) ·
 [test-and-fix](references/test-and-fix.md) · [cost routing](references/cost-routing.md). Brief templates:
 [prompts.md](references/prompts.md). Scope a leaf at the repo root: below it `.git`/`.venv` vanish.
 
@@ -38,8 +39,8 @@ At most 2 live leaves while other sessions share the checkout, else the account 
 dispatch cap; test agents count). Independent work goes out in one message; run sequentially when one output feeds the
 next, they share state, or a provider keeps erroring. Each leaf replays its context and tool schemas: a wide fan-out of
 deep-context leaves spends a provider's tokens-per-minute quota (Databricks `429`), so batch those.
-A repo-wide audit runs one read-only `claude-code ask --agent copilot --tools` leg per disjoint package group, each
-tagged hot/warm/cold by usage, merged into one ranked `file:line | category | evidence | impact | fix` list.
+A repo-wide scan or audit runs as `claude-code dispatch fleet` (Copilot's own fan-out); split it into read-only
+`ask --agent copilot --tools` legs per package group (tagged hot/warm/cold) only when each group needs its own brief.
 
 ## Handoff contract
 
@@ -65,9 +66,9 @@ resend unchanged). Then:
 - `TASK:`/`ISSUE:` facts as plain sentences, anything found outside `Owns:`, tests planned but not written, optional
   memory proposals: durable facts the diff and git history can't show (the main session decides; never write memory).
 
-**Ownership** — one writer per file; one package parallelizes when each leaf owns a new file and the manager makes the
-integration edit. The manager owns decisions, integration, verification and commits. Leaves never dispatch subagents,
-commit or run the suite; an `ask` request is a subprocess and allowed when the brief names it. Watch with
+**Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
+new file, reports the API surface it produced, and the manager makes the one integration edit afterwards. The manager
+owns decisions, integration, verification and commits. Leaves never dispatch subagents, commit or run the suite; an `ask` request is a subprocess and allowed when the brief names it. Watch with
 `claude-code agents tree` and `claude-code <agent> tail -f`.
 
 ## Return to owner
