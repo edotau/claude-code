@@ -97,10 +97,5 @@ func PersonaArgs(p *Schema) []string { return personaArgs(p) }
 // SessionProvider is the session profile agentName runs on.
 func SessionProvider(agentName string) string { return sessionProvider(agentName) }
 
-// ScrubIsolated drops the inherited env an isolated dispatch must not see, except keepEnv.
-func ScrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
-	return scrubIsolated(ctx, inherited, keepEnv)
-}
-
 // CustomEnv is the vault env bucket resolved, as a launch layers it.
 func CustomEnv() map[string]string { return customEnv() }
