@@ -51,7 +51,8 @@ func isReserved(name string) bool {
 }
 
 // parseSections scans INI text into sections in first-appearance order; keys before any header belong to DEFAULT.
-func parseSections(text string) []*section {
+// A scan error (a line over 1MB) is returned with the sections read so far.
+func parseSections(text string) ([]*section, error) {
 	var out []*section
 	byName := map[string]*section{}
 	var cur *section
@@ -95,7 +96,7 @@ func parseSections(text string) []*section {
 			cur.keys[strings.TrimSpace(line[:i])] = readValue(line[i+1:], sc)
 		}
 	}
-	return out
+	return out, sc.Err()
 }
 
 // headerName returns the name of a "[name]" line, tolerating a trailing comment.
@@ -166,7 +167,11 @@ func parse(r io.Reader) ([]profile, bool, error) {
 	}
 	var ps []profile
 	hasDefault := false
-	for _, s := range parseSections(string(b)) {
+	secs, err := parseSections(string(b))
+	if err != nil {
+		return nil, false, err
+	}
+	for _, s := range secs {
 		switch {
 		case strings.EqualFold(s.name, defaultSection):
 			hasDefault = hasDefault || len(s.keys) > 0

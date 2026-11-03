@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -75,23 +76,39 @@ func writeExport(rows []ExportRow, out string, merge, force bool) int {
 	if out == "" {
 		out = DefaultPath()
 	}
+	var msg string
+	if err := paths.WithFileLock(out, func() error {
+		var err error
+		msg, err = mergeInto(out, rows, force)
+		return err
+	}); err != nil {
+		return fail("export: %v", err)
+	}
+	fmt.Fprint(os.Stderr, msg)
+	return 0
+}
+
+// mergeInto merges rows into the config at out (the caller holds its lock) and returns the stderr summary.
+func mergeInto(out string, rows []ExportRow, force bool) (string, error) {
 	old, err := os.ReadFile(out)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fail("export: %v", err)
+		return "", err
+	}
+	if _, err := parseSections(string(old)); err != nil {
+		return "", fmt.Errorf("%s: %w", out, err)
 	}
 	text, notes := Merge(string(old), rows, force)
-	for _, n := range notes {
-		fmt.Fprintln(os.Stderr, n)
+	msg := strings.Join(notes, "\n")
+	if len(notes) > 0 {
+		msg += "\n"
 	}
 	if text == string(old) {
-		fmt.Fprintf(os.Stderr, "%s unchanged\n", out)
-		return 0
+		return msg + out + " unchanged\n", nil
 	}
-	if err := writeFile0600(out, text, true); err != nil {
-		return fail("export: %v", err)
+	if err := paths.AtomicWrite(out, []byte(text), 0o600); err != nil {
+		return "", err
 	}
-	fmt.Fprintf(os.Stderr, "merged into %s\n", out)
-	return 0
+	return msg + "merged into " + out + "\n", nil
 }
 
 func pickExport(rows []ExportRow) ([]ExportRow, error) {
@@ -114,8 +131,10 @@ func pickExport(rows []ExportRow) ([]ExportRow, error) {
 
 // writeFile0600 writes text to path atomically with mode 0600; an existing path needs force.
 func writeFile0600(path, text string, force bool) error {
-	if _, err := os.Lstat(path); err == nil && !force {
-		return fmt.Errorf("%s exists; pass --force to overwrite", path)
-	}
-	return paths.AtomicWrite(path, []byte(text), 0o600)
+	return paths.WithFileLock(path, func() error {
+		if _, err := os.Lstat(path); err == nil && !force {
+			return fmt.Errorf("%s exists; pass --force to overwrite", path)
+		}
+		return paths.AtomicWrite(path, []byte(text), 0o600)
+	})
 }

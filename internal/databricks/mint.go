@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -43,10 +45,7 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 	if err != nil {
 		return MintResult{}, "", err
 	}
-	res := MintResult{Provider: p.Name, AuthType: p.Auth.Method(), Len: len(tok)}
-	if res.AuthType == "" {
-		res.AuthType = "command"
-	}
+	res := MintResult{Provider: p.Name, AuthType: authLabel(p), Len: len(tok)}
 	if exp, ok := providers.TokenExpiry(p.Name); ok {
 		res.Expiry = exp
 	}
@@ -54,11 +53,23 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 }
 
 // SetPAT seals value as the row's PAT (switching authType to pat) and probes it; a rejected PAT is rolled back.
-func SetPAT(ctx context.Context, name, value string) (string, error) {
+func SetPAT(ctx context.Context, name, value string) (status string, err error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", errors.New("empty personal access token")
 	}
+	lockErr := paths.WithFileLock(filepath.Join(paths.StateDir(), "databricks-pat-"+name), func() error {
+		status, err = setPATLocked(ctx, name, value)
+		return nil
+	})
+	if lockErr != nil {
+		return "", fmt.Errorf("%s: lock the personal access token update: %w", name, lockErr)
+	}
+	return status, err
+}
+
+// setPATLocked is SetPAT's read, store, probe and rollback, run while the per-row lock is held.
+func setPATLocked(ctx context.Context, name, value string) (string, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return "", err
@@ -67,7 +78,8 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if p.Auth.Method() != providers.AuthPAT {
+	prevType := p.Auth.Method()
+	if prevType != providers.AuthPAT {
 		if err := switchAuthType(p, providers.AuthPAT, false); err != nil {
 			return "", err
 		}
@@ -95,12 +107,25 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 	if status != "rejected" {
 		return status, nil
 	}
-	if had {
-		_ = secretstore.Store(secret, old)
-	} else {
-		_ = secretstore.Delete(secret)
+	if rbErr := rollbackPAT(p, secret, old, had, prevType); rbErr != nil {
+		return status, fmt.Errorf("%s: personal access token rejected (%s); rollback failed, the rejected value may remain: %w",
+			p.Name, detail, rbErr)
 	}
 	return status, fmt.Errorf("%s: personal access token rejected (%s); kept the previous value", p.Name, detail)
+}
+
+// rollbackPAT restores the previous secret and, when it was oauth or m2m, the previous authType.
+func rollbackPAT(p *providers.Provider, secret, old string, had bool, prevType string) error {
+	var errs []error
+	if had {
+		errs = append(errs, secretstore.Store(secret, old))
+	} else {
+		errs = append(errs, secretstore.Delete(secret))
+	}
+	if prevType == providers.AuthOAuth || prevType == providers.AuthM2M {
+		errs = append(errs, switchAuthType(p, prevType, false))
+	}
+	return errors.Join(errs...)
 }
 
 // mint is `databricks mint [--profile <name>] [--copy] [--clear-after d] [--dry-run]`.
@@ -131,7 +156,7 @@ func mint(args []string) int {
 		if err != nil {
 			return fail("mint: %v", err)
 		}
-		fmt.Printf("would mint a fresh token for %s (%s); copy=%t; nothing written\n", p.Name, authLabel(p), *doCopy)
+		fmt.Printf("would mint a fresh token for %s (%s) as %s; copy=%t; nothing written\n", p.Name, authLabel(p), asLabel(*as), *doCopy)
 		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -145,6 +170,14 @@ func mint(args []string) int {
 		return 0
 	}
 	return copyToken(ctx, tok, *clearAfter)
+}
+
+// asLabel names the identity a mint would use; empty --as means the profile's own setting.
+func asLabel(as string) string {
+	if as == "" {
+		return "the profile's identity"
+	}
+	return as
 }
 
 func authLabel(p *providers.Provider) string {

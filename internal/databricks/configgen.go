@@ -130,7 +130,11 @@ func (o Options) checkModel() error {
 	if err := providers.ClaudeCodeError(o.P, o.Model); err != nil {
 		return err
 	}
-	if wire, ok, _ := providers.WireFor(o.P, o.Model); ok && wire != providers.ProtocolAnthropic {
+	wire, ok, why := providers.WireFor(o.P, o.Model)
+	if !ok && !isClaude {
+		return fmt.Errorf("model %q: %s", o.Model, why)
+	}
+	if ok && wire != providers.ProtocolAnthropic {
 		return fmt.Errorf("model %q: a non-Claude model for Claude Code needs the router, which break-glass avoids", o.Model)
 	}
 	return nil
@@ -157,6 +161,21 @@ func headerLines(h map[string]string) string {
 	return strings.Join(ls, "\n")
 }
 
+// checkHeaders refuses a header whose name marks a credential: the rendered file must hold no token.
+func checkHeaders(h map[string]string) error {
+	for k := range h {
+		switch strings.ToLower(k) {
+		case "authorization", "proxy-authorization", "cookie":
+		default:
+			if !CredentialShaped(k) {
+				continue
+			}
+		}
+		return fmt.Errorf("header %q looks like a credential; auth comes from the token helper, not a rendered header", k)
+	}
+	return nil
+}
+
 func renderClaude(o Options) (Result, error) {
 	raw, err := tmpl("claude.json", o.Host)
 	if err != nil {
@@ -179,6 +198,9 @@ func renderClaude(o Options) (Result, error) {
 		return Result{}, fmt.Errorf("provider %q has no Anthropic route", p.Name)
 	}
 	env["ANTHROPIC_BASE_URL"] = base
+	if err := checkHeaders(p.Headers); err != nil {
+		return Result{}, err
+	}
 	if h := headerLines(p.Headers); h != "" {
 		env["ANTHROPIC_CUSTOM_HEADERS"] = h
 	}
@@ -216,9 +238,12 @@ func renderClaude(o Options) (Result, error) {
 	return Result{Text: string(b) + "\n"}, err
 }
 
+// tomlNumberRE is a TOML decimal integer or float; Go's ParseFloat also takes Infinity and hex floats, TOML does not.
+var tomlNumberRE = regexp.MustCompile(`^[+-]?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+
 // tomlValue writes v raw when it is a bool or number, else as a quoted string.
 func tomlValue(v string) string {
-	if _, err := strconv.ParseFloat(v, 64); err == nil || v == "true" || v == "false" {
+	if tomlNumberRE.MatchString(v) || v == "true" || v == "false" {
 		return v
 	}
 	return strconv.Quote(v)

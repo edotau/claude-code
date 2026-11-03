@@ -259,11 +259,19 @@ func writeScratch(text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer w.Close()
-	if _, err := w.WriteString(text); err != nil {
+	name := w.Name()
+	_, err = w.WriteString(text)
+	if cerr := w.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(name, 0o600)
+	}
+	if err != nil {
+		_ = os.Remove(name)
 		return "", err
 	}
-	return filepath.Clean(w.Name()), os.Chmod(w.Name(), 0o600)
+	return filepath.Clean(name), nil
 }
 
 func rescueUsage() {
@@ -285,7 +293,7 @@ var checkAllPage = helptext.Page{
 		"for any reason other than a budget denial.",
 }
 
-// probeClient is the HTTP client for probes, a var so tests point it at httptest.
+// probeClient is the HTTP client for probes.
 var probeClient = &http.Client{Timeout: probeTimeout}
 
 // checkAll is `databricks check --all`: the profile x wire matrix (one profile with --profile).

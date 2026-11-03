@@ -41,7 +41,7 @@ func login(args []string) int {
 	fs := helptext.NewFlagSet("databricks login", loginPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
 	force := fs.Bool("force", false, "log in again even when the cached token is still valid")
-	authType := fs.String("auth-type", "", "auth type to switch the profile to: oauth, m2m or pat (needed to change a non-oauth profile)")
+	authType := fs.String("auth-type", "", "auth type to switch the profile to: only oauth is accepted (needed to change a non-oauth profile)")
 	fs.StringVar(authType, "t", "", "shorthand for --auth-type")
 	profileName := profileFlag(fs)
 	as := fs.String("as", "", "identity: user (browser login, no SP fallback); sp is refused, it needs no login")
@@ -115,7 +115,7 @@ func login(args []string) int {
 	return 0
 }
 
-// LoginRow runs the u2m browser login for the named row, switching its authType to u2m first if needed.
+// LoginRow runs the u2m browser login for the named row, switching its authType to oauth first if needed.
 func LoginRow(ctx context.Context, name string, out io.Writer) error {
 	reg, err := providers.Load()
 	if err != nil {

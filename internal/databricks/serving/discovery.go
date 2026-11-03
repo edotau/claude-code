@@ -213,7 +213,7 @@ func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapsho
 func SanitizeChecks(checks []CheckResult) []CheckResult {
 	var out []CheckResult
 	for _, c := range checks {
-		if c.Status != "ok" && c.Status != "fail" && c.Status != "missing" {
+		if c.Status != "ok" && c.Status != "fail" && c.Status != "missing" && c.Status != StatusTransient {
 			continue
 		}
 		tools := ""

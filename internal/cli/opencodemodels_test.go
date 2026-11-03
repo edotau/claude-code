@@ -307,10 +307,10 @@ func TestOpencodeCheckProbes(t *testing.T) {
 	if n := f.count("kimi-k3"); n != 2 {
 		t.Errorf("kimi requests = %d, want 2 (with tools, then without)", n)
 	}
-	if r := got["boom-1"]; r.Status != "fail" || r.HTTP != 500 || !strings.HasPrefix(r.Error, "HTTP 500:") {
+	if r := got["boom-1"]; r.Status != "transient" || r.HTTP != 500 || !strings.HasPrefix(r.Error, "HTTP 500:") {
 		t.Errorf("boom = %+v", r)
 	}
-	if r := got["slow-1"]; r.Status != "fail" || !strings.Contains(r.Error, "timeout after") {
+	if r := got["slow-1"]; r.Status != "transient" || !strings.Contains(r.Error, "timeout after") {
 		t.Errorf("slow = %+v", r)
 	}
 	if r := got["ghost"]; r.Status != "missing" || r.HTTP != 0 {
@@ -466,7 +466,7 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 	if code, _, _, stderr := ocCheckJSON(t, "glm-5-2", "kimi-k3", "boom-1", "ghost"); code != 0 {
 		t.Fatalf("check: %d %s", code, stderr)
 	}
-	want := map[string]string{"glm-5-2": "ok tools", "kimi-k3": "ok no-tools", "boom-1": "fail 500", "ghost": "missing"}
+	want := map[string]string{"glm-5-2": "ok tools", "kimi-k3": "ok no-tools", "boom-1": "transient 500", "ghost": "missing"}
 	for id, c := range listJSON() {
 		if c != want[id] {
 			t.Errorf("%s check = %q, want %q", id, c, want[id])

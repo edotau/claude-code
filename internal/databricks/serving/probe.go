@@ -25,7 +25,7 @@ type CheckTarget struct {
 	Missing   bool
 }
 
-// CheckResult is one probe outcome; Status is ok, fail or missing, Tools yes, no or "" (unknown).
+// CheckResult is one probe outcome; Status is ok, fail, transient or missing, Tools yes, no or "" (unknown).
 type CheckResult struct {
 	ID        string `json:"id"`
 	Status    string `json:"status"`
@@ -98,6 +98,14 @@ func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o 
 	return out, ctx.Err()
 }
 
+// StatusTransient marks a probe lost to a passing condition (timeout, 429, 5xx, mint error), not a model verdict.
+const StatusTransient = "transient"
+
+// transientHTTP reports a status that is a passing condition rather than a verdict on the model.
+func transientHTTP(code int) bool {
+	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
+}
+
 func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t CheckTarget, chatBase, respBase string) CheckResult {
 	r := CheckResult{ID: t.ID}
 	url, body := chatBase+"/"+t.Wire+"/invocations", chatBody
@@ -117,11 +125,14 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 	r.HTTP, r.LatencyMS = code, ms
 	switch {
 	case err != nil:
-		r.Status, r.Error = "fail", err.Error()
+		r.Status, r.Error = StatusTransient, err.Error()
 	case code/100 == 2:
 		r.Status, r.Tools = "ok", "yes"
 	default:
 		r.Status, r.Error = "fail", fmt.Sprintf("HTTP %d: %s", code, msg)
+		if transientHTTP(code) {
+			r.Status = StatusTransient
+		}
 		if code2, ms2, _, err2 := probeRequest(ctx, p, o, url, body(false), anthropic); err2 == nil && code2/100 == 2 {
 			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", code2, ms2, "no", ""
 		}
