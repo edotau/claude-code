@@ -78,13 +78,6 @@ func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target,
 	return providers.Target{}, "", false
 }
 
-func (geminiEngine) LoginStatus() (bool, string) {
-	if st := (geminiEngine{}).AuthStatus(); st.Present {
-		return true, st.Source
-	}
-	return false, ""
-}
-
 // AuthStatus is agy's cached Google login from disk; Source and Method are empty when absent, Err when unreadable.
 func (geminiEngine) AuthStatus() providers.AuthState {
 	ok, err := geminiLoginProbe()
@@ -110,11 +103,6 @@ func (geminiEngine) NoRoute(_ *providers.Registry, t providers.Target) error {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
 	return nil
-}
-
-// CheckLogin delegates to Verify until the Driver drops it.
-func (e geminiEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, string) {
-	return e.Verify(ctx)
 }
 
 func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {

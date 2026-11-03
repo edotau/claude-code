@@ -171,15 +171,6 @@ func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) 
 	return fmt.Sprintf("%s %.1f%% of credits used", user, pct), pct < copilotWorkablePct
 }
 
-// ResolveCopilotAuth is copilotAuthSource plus a GitHub /user lookup (3 s) naming a token's account.
-func ResolveCopilotAuth() (CopilotAuth, bool) {
-	a, ok := copilotAuthSource()
-	if ok && a.Account == "" && a.token != "" {
-		a.Account = GitHubLogin(a.token)
-	}
-	return a, ok
-}
-
 // Label renders "account via source", or the source alone when the account is unknown.
 func (a CopilotAuth) Label() string {
 	if a.Account == "" {
