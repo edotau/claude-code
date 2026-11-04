@@ -403,72 +403,91 @@ func parseAgyStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs
 // parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
 func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.StreamLog) (res agent.Result, _ error) {
 	ts := agent.TransportTracker{Start: agent.Clock()}
+	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res}
 	defer func() { res.Transport = ts.Result() }()
-	var ans agent.Answer
-	var pending strings.Builder
-	flush := func() {
-		lg.Emit("assistant", pending.String())
-		pending.Reset()
-	}
-	var response string
-	var sawResult bool
-	var lastStep string // the last step type/state logged, so repeated updates stay one line
-	var openStep string // the last non-response step still running (a backgrounded command), else ""
-	var toolOpen bool   // a tool step is running, so one tool_use is emitted per step, not per update
 	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev agyEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
-			flush()
+			t.flush()
 			_ = agent.EmitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
 			return false, fmt.Errorf("decode agy stream-json: %w", err)
 		}
 		ts.Event(agent.Clock())
-		switch ev.Event {
-		case "init":
-			res.SessionID = ev.ConvID
-		case "step_update":
-			noteAgyStep(ev, &lastStep, &openStep, lg)
-			if err := emitAgyToolStart(ev, &toolOpen, sink); err != nil {
-				return false, err
-			}
-			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
-				return false, nil
-			}
-			pending.WriteString(ev.StepUpdate.TextDelta)
-			if err := ans.Emit(sink, ev.StepUpdate.TextDelta, false); err != nil {
-				return false, err
-			}
-		case "result":
-			sawResult = true
-			response = ev.Result.Response
-			flush()
-			if err := applyAgyResult(&res, ev); err != nil {
-				_ = agent.EmitError(lg, sink, err.Error()) // the agy error returned below aborts
-				if once {
-					err = agent.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
-				}
-				return false, err
-			}
-			lg.Emit("result", cmp.Or(response, ans.String()))
-			if once {
-				return true, nil
-			}
-		}
-		return false, nil
+		return t.handle(ev)
 	})
 	if err != nil {
-		if pending.Len() > 0 { // a decode error already flushed; a sink error did not
-			flush()
+		if t.pending.Len() > 0 { // a decode error already flushed; a sink error did not
+			t.flush()
 		}
-		res.Answer = cmp.Or(ans.String(), strings.TrimSpace(response))
+		res.Answer = cmp.Or(t.ans.String(), strings.TrimSpace(t.response))
 		return res, err
 	}
-	if !sawResult {
-		flush()
-		res.Answer = ans.String()
+	if !t.sawResult {
+		t.flush()
+		res.Answer = t.ans.String()
 		return res, errors.New("agy: stream ended without a result event")
 	}
-	return finishAgyTurn(res, sink, &ans, response, flush, openStep, once)
+	return finishAgyTurn(res, sink, &t.ans, t.response, t.flush, t.openStep, once)
+}
+
+// agyTurn is parseAgyEvents' state across one turn's stream-json events.
+type agyTurn struct {
+	sink      agent.Sink
+	lg        agent.StreamLog
+	once      bool
+	res       *agent.Result
+	ans       agent.Answer
+	pending   strings.Builder
+	response  string
+	sawResult bool
+	lastStep  string // the last step type/state logged, so repeated updates stay one line
+	openStep  string // the last non-response step still running (a backgrounded command), else ""
+	toolOpen  bool   // a tool step is running, so one tool_use is emitted per step, not per update
+}
+
+func (t *agyTurn) flush() {
+	t.lg.Emit("assistant", t.pending.String())
+	t.pending.Reset()
+}
+
+// handle applies one event; done reports that a once-turn reached its result.
+func (t *agyTurn) handle(ev agyEvent) (done bool, _ error) {
+	switch ev.Event {
+	case "init":
+		t.res.SessionID = ev.ConvID
+	case "step_update":
+		return false, t.step(ev)
+	case "result":
+		return t.result(ev)
+	}
+	return false, nil
+}
+
+func (t *agyTurn) step(ev agyEvent) error {
+	noteAgyStep(ev, &t.lastStep, &t.openStep, t.lg)
+	if err := emitAgyToolStart(ev, &t.toolOpen, t.sink); err != nil {
+		return err
+	}
+	if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
+		return nil
+	}
+	t.pending.WriteString(ev.StepUpdate.TextDelta)
+	return t.ans.Emit(t.sink, ev.StepUpdate.TextDelta, false)
+}
+
+func (t *agyTurn) result(ev agyEvent) (bool, error) {
+	t.sawResult = true
+	t.response = ev.Result.Response
+	t.flush()
+	if err := applyAgyResult(t.res, ev); err != nil {
+		_ = agent.EmitError(t.lg, t.sink, err.Error()) // the agy error returned below aborts
+		if t.once {
+			err = agent.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
+		}
+		return false, err
+	}
+	t.lg.Emit("result", cmp.Or(t.response, t.ans.String()))
+	return t.once, nil
 }
 
 // emitAgyToolStart marks progress once per tool step: agy runs tools without tool events, so none can be shown.

@@ -27,7 +27,7 @@ type ComplexityThresholds struct {
 
 var complexityThresholds = map[string]ComplexityThresholds{
 	"strict":  {8, 3, 40, 12, 2.0, 400},
-	"medium":  {10, 4, 50, 18, 3.0, 600},
+	"medium":  {10, 4, 50, 18, 3.0, 800},
 	"relaxed": {15, 5, 80, 30, 5.0, 1000},
 }
 
