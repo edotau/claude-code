@@ -155,39 +155,59 @@ func (n schemaNode) key(name string, env bool) Key {
 	}
 	k.required, k.constVal = n.Required, n.Const
 	k.noExtra = strings.TrimSpace(string(n.AddlProps)) == "false"
-	if t := strings.TrimSpace(string(n.AddlProps)); strings.HasPrefix(t, "{") {
-		var sub schemaNode
-		if json.Unmarshal(n.AddlProps, &sub) == nil {
-			a := sub.key(name+".*", env)
-			k.addl = &a
-		}
-	}
-	k.ref = n.Ref != "" || (k.items != nil && k.items.ref)
-	for _, c := range slices.Concat(k.alts, slices.Collect(maps.Values(k.props))) {
-		k.ref = k.ref || c.ref
-	}
-	k.ref = k.ref || (k.addl != nil && k.addl.ref)
-	typ := n.Type.first()
-	switch {
-	case len(n.Enum) > 0:
-		k.Kind = KindEnum
-	case typ == "boolean":
-		k.Kind = KindBool
-	case typ == "integer":
-		k.Kind = KindInt
-	case typ == "number":
-		k.Kind = KindNumber
-	case typ == "object":
-		k.Kind = KindObject
-	case typ == "array":
-		k.Kind = KindArray
-	default:
-		k.Kind = KindString
-	}
+	k.addl = n.addlKey(name, env)
+	k.ref = n.Ref != "" || k.childRef()
+	k.Kind = n.kind()
 	if n.Pattern != "" {
 		k.pattern, k.patternErr = regexp.Compile(n.Pattern)
 	}
 	return k
+}
+
+// addlKey is the Key of an object-valued additionalProperties schema, or nil.
+func (n schemaNode) addlKey(name string, env bool) *Key {
+	if !strings.HasPrefix(strings.TrimSpace(string(n.AddlProps)), "{") {
+		return nil
+	}
+	var sub schemaNode
+	if json.Unmarshal(n.AddlProps, &sub) != nil {
+		return nil
+	}
+	a := sub.key(name+".*", env)
+	return &a
+}
+
+// childRef reports whether any item, alternative, property or additionalProperties child holds a $ref.
+func (k Key) childRef() bool {
+	if (k.items != nil && k.items.ref) || (k.addl != nil && k.addl.ref) {
+		return true
+	}
+	for _, c := range slices.Concat(k.alts, slices.Collect(maps.Values(k.props))) {
+		if c.ref {
+			return true
+		}
+	}
+	return false
+}
+
+// kind maps the node's enum/type to a Kind; anything else is a string.
+func (n schemaNode) kind() Kind {
+	if len(n.Enum) > 0 {
+		return KindEnum
+	}
+	switch n.Type.first() {
+	case "boolean":
+		return KindBool
+	case "integer":
+		return KindInt
+	case "number":
+		return KindNumber
+	case "object":
+		return KindObject
+	case "array":
+		return KindArray
+	}
+	return KindString
 }
 
 var schemaIndex = sync.OnceValue(func() map[string]Key {

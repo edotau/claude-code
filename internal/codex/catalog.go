@@ -174,23 +174,9 @@ var (
 )
 
 func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, raw []byte) ([]byte, string, error) {
-	var cat struct {
-		Models []map[string]any `json:"models"`
-	}
-	if err := json.Unmarshal(raw, &cat); err != nil {
+	bySlug, byKey, err := indexCodexModels(raw)
+	if err != nil {
 		return nil, "", err
-	}
-	if len(cat.Models) == 0 {
-		return nil, "", errors.New("no models")
-	}
-	bySlug := make(map[string]map[string]any)
-	byKey := make(map[string]map[string]any)
-	for _, m := range cat.Models {
-		slug, ok := m["slug"].(string)
-		if !ok || slug == "" {
-			return nil, "", errors.New("model has no string slug")
-		}
-		bySlug[slug], byKey[codexModelKey(slug)] = m, m
 	}
 	var out []map[string]any
 	var nativeSlugs []string
@@ -211,16 +197,11 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 			}
 			continue
 		}
-		entry := cloneCodexMetadata(base).(map[string]any)
-		slug, label := agentconfig.MenuWire(p, m.ID), m.Label+" · "+p.Name
-		entry["slug"], entry["display_name"] = slug, label
-		entry["visibility"], entry["supported_in_api"], entry["priority"] = "list", true, len(out)
-		entry["service_tiers"], entry["additional_speed_tiers"] = []any{}, []any{}
-		entry["upgrade"], entry["availability_nux"] = nil, nil
+		entry := codexMenuEntry(p, m, base, len(out))
 		out = append(out, entry)
 		nativeSlugs = append(nativeSlugs, base["slug"].(string))
-		listed[slug] = true
-		labels[label]++
+		listed[entry["slug"].(string)] = true
+		labels[entry["display_name"].(string)]++
 	}
 	if len(out) == 0 {
 		return nil, missing, nil
@@ -230,6 +211,13 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 			entry["display_name"] = entry["slug"]
 		}
 	}
+	out = appendNativeAliases(out, nativeSlugs, listed)
+	body, err := json.Marshal(map[string]any{"models": out})
+	return body, missing, err
+}
+
+// appendNativeAliases adds a hidden row under each base model's own slug so codex still resolves it.
+func appendNativeAliases(out []map[string]any, nativeSlugs []string, listed map[string]bool) []map[string]any {
 	for i, native := range nativeSlugs {
 		if listed[native] {
 			continue
@@ -239,8 +227,39 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 		out = append(out, alias)
 		listed[native] = true
 	}
-	body, err := json.Marshal(map[string]any{"models": out})
-	return body, missing, err
+	return out
+}
+
+// indexCodexModels parses codex's bundled catalog into lookups by exact slug and by normalized key.
+func indexCodexModels(raw []byte) (bySlug, byKey map[string]map[string]any, err error) {
+	var cat struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &cat); err != nil {
+		return nil, nil, err
+	}
+	if len(cat.Models) == 0 {
+		return nil, nil, errors.New("no models")
+	}
+	bySlug, byKey = make(map[string]map[string]any), make(map[string]map[string]any)
+	for _, m := range cat.Models {
+		slug, ok := m["slug"].(string)
+		if !ok || slug == "" {
+			return nil, nil, errors.New("model has no string slug")
+		}
+		bySlug[slug], byKey[codexModelKey(slug)] = m, m
+	}
+	return bySlug, byKey, nil
+}
+
+// codexMenuEntry clones base's metadata as a listed menu row at the given priority.
+func codexMenuEntry(p *providers.Provider, m providers.OpencodeModel, base map[string]any, priority int) map[string]any {
+	entry := cloneCodexMetadata(base).(map[string]any)
+	entry["slug"], entry["display_name"] = agentconfig.MenuWire(p, m.ID), m.Label+" · "+p.Name
+	entry["visibility"], entry["supported_in_api"], entry["priority"] = "list", true, priority
+	entry["service_tiers"], entry["additional_speed_tiers"] = []any{}, []any{}
+	entry["upgrade"], entry["availability_nux"] = nil, nil
+	return entry
 }
 
 func codexModelKey(slug string) string {
