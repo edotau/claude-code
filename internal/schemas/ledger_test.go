@@ -84,7 +84,7 @@ var writers = map[string]string{
 	"internal/hooks/watch.go:spawnIdleWatcher":                         unversioned("marker: idle watcher claim file"),
 	"internal/launch/install_steps.go:copyBinary":                      unversioned("foreign: installed binary"),
 	"internal/agent/launch_plan.go:WriteFiles":                         unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
-	"internal/claude/science.go:scienceDefaultsFile":            unversioned("foreign: science TOML defaults for a vendor"),
+	"internal/claude/science.go:scienceDefaultsFile":                   unversioned("foreign: science TOML defaults for a vendor"),
 	"internal/launch/tmux.go:seedTmuxConf":                             unversioned("foreign: user tmux.conf"),
 	"internal/network/mcp/doctor.go:mcpList":                           unversioned("foreign: temp output of claude mcp list"),
 	"internal/memory/recall/accesslog.go:LogAccessBatch":               unversioned("log: memory access log, text lines"),
