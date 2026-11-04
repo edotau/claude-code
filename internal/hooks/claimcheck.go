@@ -280,30 +280,48 @@ func (v claimView) stageVerdict(target, verb string, args []string) Result {
 	if err != nil {
 		return claimWarn(err)
 	}
-	taken, err := v.takenPaths(top, dirty, scopes)
+	taken, claimed, err := v.takenPaths(top, dirty, scopes)
 	if err != nil {
 		return claimWarn(err)
 	}
-	return stageResult(v.in, verb, taken)
+	return stageResult(v.in, verb, taken, stageCount{total: countUnder(dirty, scopes), claimed: claimed})
 }
 
-// takenPaths names each dirty claimed path under scopes with its claimants.
-func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string) ([]string, error) {
+// stageCount sizes a stage: files the git call takes, and how many of them another owner claims.
+type stageCount struct{ total, claimed int }
+
+// countUnder counts the dirty paths under scopes, i.e. the files a git add/commit would take.
+func countUnder(dirty map[string]bool, scopes []string) int {
+	n := 0
+	for p := range dirty {
+		if underAny(p, scopes) {
+			n++
+		}
+	}
+	return n
+}
+
+// takenPaths names each dirty claimed path under scopes with its claimants, plus the distinct claimed paths.
+func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string) ([]string, int, error) {
 	var taken []string
+	claimed := 0
 	for p := range v.claims {
 		if !underAny(p, scopes) {
 			continue
 		}
 		hits, err := v.freshHits(top, p, dirty)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
+		}
+		if len(hits) > 0 {
+			claimed++
 		}
 		for _, h := range hits {
 			taken = append(taken, fmt.Sprintf("%s takes %s's uncommitted hunks (since %s)", relTo(top, p), h.Who,
 				clock(h.TS)))
 		}
 	}
-	return taken, nil
+	return taken, claimed, nil
 }
 
 // warnIf is claimWarn for a non-nil err, else no result.
@@ -315,7 +333,7 @@ func warnIf(err error) Result {
 }
 
 // stageResult renders the ask (main) or block (leaf) for the claimed paths, capped at claimShown.
-func stageResult(in *Input, verb string, taken []string) Result {
+func stageResult(in *Input, verb string, taken []string, n stageCount) Result {
 	if len(taken) == 0 {
 		return Result{}
 	}
@@ -329,8 +347,8 @@ func stageResult(in *Input, verb string, taken []string) Result {
 	if in.AgentID != "" {
 		d = Block
 	}
-	what := fmt.Sprintf("git %s stages files another live session or leaf is editing: %s%s", verb,
-		strings.Join(taken, "; "), more)
+	what := fmt.Sprintf("git %s takes %d file(s), %d of them edited by another live session or leaf: %s%s", verb,
+		max(n.total, n.claimed), n.claimed, strings.Join(taken, "; "), more)
 	hint := "git add -p <path> for your hunks only, or leave the file and tell its owner"
 	if verb == "commit" {
 		hint = "commit only your own files: git commit -- <your files> (a bare commit takes everything staged)"
