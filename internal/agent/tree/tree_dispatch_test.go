@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 const (
@@ -292,15 +293,15 @@ func TestLastActivityStripsHomeAndCwdPerTool(t *testing.T) {
 	}
 }
 
-// (5) dispatchIDs greps every "ask: dispatch <id>" exit line out of a relay transcript, deduped, in
+// (5) transcript.DispatchIDs greps every "ask: dispatch <id>" exit line out of a relay transcript, deduped, in
 // the order they first appear.
 func TestDispatchIDsExtraction(t *testing.T) {
 	path := filepath.Join("testdata", "projects", "-Users-fake-demo-repo", "finished-session-aaaa1111",
 		"subagents", "workflows", "wf_fake0001-abc", "agent-fakewfagent002.jsonl")
-	ids := dispatchIDs(path)
+	ids := transcript.DispatchIDs(path)
 	want := []string{"20261017T231131.948-codex", "20261018T095401.709-gemini", "20261018T150000.000-codex"}
 	if len(ids) != len(want) {
-		t.Fatalf("dispatchIDs = %v, want %v", ids, want)
+		t.Fatalf("DispatchIDs = %v, want %v", ids, want)
 	}
 	for i := range want {
 		if ids[i] != want[i] {
@@ -333,6 +334,20 @@ func withDispatchFixture(t *testing.T) {
 		}
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+}
+
+// A dispatch id printed only as the envelope "dispatch_id" (no `ask: dispatch` line) still yields its Dispatch.
+func TestBuildDispatchesEnvelopeID(t *testing.T) {
+	withDispatchFixture(t)
+	path := filepath.Join(t.TempDir(), "agent.jsonl")
+	line := `{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"dispatch_id\":\"20261017T231131.948-codex\"}"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := buildDispatches(path, "", time.Now(), Activity{})
+	if len(got) != 1 || got[0].ID != "20261017T231131.948-codex" {
+		t.Fatalf("buildDispatches = %+v, want the envelope dispatch", got)
+	}
 }
 
 // (6) A relay subagent's Dispatches carry every vendor dispatch its transcript's exit lines named: plain

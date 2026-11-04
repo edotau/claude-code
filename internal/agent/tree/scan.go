@@ -378,24 +378,6 @@ func StripPaths(s, home, cwd string) string {
 	return s
 }
 
-// dispatchIDPattern matches the `ask` CLI exit line "ask: dispatch <id> (...)" inside tool_result content.
-var dispatchIDPattern = regexp.MustCompile(`ask: dispatch (\S+)`)
-
-// dispatchIDs greps path for every "ask: dispatch <id>" line, deduped, in first-seen order.
-func dispatchIDs(path string) []string {
-	seen := map[string]bool{}
-	var ids []string
-	eachLine(path, func(line []byte) {
-		for _, m := range dispatchIDPattern.FindAllStringSubmatch(string(line), -1) {
-			if id := m[1]; !seen[id] {
-				seen[id] = true
-				ids = append(ids, id)
-			}
-		}
-	})
-	return ids
-}
-
 // pendingAskMarker flags a Bash arg as a relay that launched `ask` and has not seen its exit line yet.
 const pendingAskMarker = "ask --agent"
 
@@ -435,7 +417,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []Dispatch {
 	var dispatches []Dispatch
 	matched := map[string]bool{}
-	for _, id := range dispatchIDs(transcriptPath) {
+	for _, id := range transcript.DispatchIDs(transcriptPath) {
 		rec, err := agent.LoadRecord(id)
 		if err != nil {
 			continue

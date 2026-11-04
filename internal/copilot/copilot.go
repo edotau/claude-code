@@ -62,13 +62,14 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	if err != nil {
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(own, t, err) {
+			res.Usage = out.Usage // tokens the exhausted run spent still count
 			return CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, CredentialValues(env, opts.GitHubToken))
 		}
 		return copilotPartial(res, out, err, sink)
 	}
 	lg.Emit("assistant", out.Text) // the SDK returns the whole text, so one line per run
 	res.Model = cmp.Or(out.Model, res.Model)
-	res.SessionID, res.Answer = out.SessionID, out.Text
+	res.SessionID, res.Answer, res.Usage = out.SessionID, out.Text, out.Usage
 	if strings.TrimSpace(out.Text) == "" {
 		return res, agent.EmptyAnswer("copilot")
 	}
@@ -173,7 +174,7 @@ func markToolRan(out SDKResult, sink agent.Sink, err error) error {
 
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
 func copilotPartial(res agent.Result, out SDKResult, err error, sink agent.Sink) (agent.Result, error) {
-	res.SessionID, res.Answer = cmp.Or(out.SessionID, res.SessionID), out.Text
+	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
 	if strings.TrimSpace(out.Text) != "" {
 		if serr := sink.Emit(agent.Event{Type: agent.EventText, Text: out.Text}); serr != nil {
 			err = errors.Join(err, serr)
