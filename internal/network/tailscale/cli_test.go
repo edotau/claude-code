@@ -202,7 +202,7 @@ func TestMachinesFallsBackToStatusWithoutCredential(t *testing.T) {
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "")
 	t.Setenv("TAILSCALE_API_KEY", "")
 	dir := stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("PATH", dir) // also starves the keyring tool so secretstore.Get can't find a stray credential
+	t.Setenv("PATH", dir) // also starves the keyring tool so vault.Get can't find a stray credential
 	machines, err := Machines(context.Background())
 	if err != nil {
 		t.Fatalf("Machines() err = %v", err)

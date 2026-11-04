@@ -3,7 +3,7 @@ package providers
 import (
 	"slices"
 
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // SecretNames unions every env var the harness itself reads (each enabled provider's auth.env, the
@@ -18,7 +18,7 @@ func SecretNames() []string {
 		}
 	}
 	out = append(out, OAuthTokenEnv)
-	out = append(out, secretstore.Names()...)
+	out = append(out, vault.Names()...)
 	slices.Sort(out)
 	return slices.Compact(out)
 }

@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -213,7 +212,7 @@ func TestSuccessNeverClearsAMarkThisProcessDidNotSet(t *testing.T) {
 // sealedPAT is a Databricks-shaped row (sealed authType): the gateway's 400 "Invalid Token" is an auth rejection.
 func sealedPAT(t *testing.T, base string) string {
 	t.Helper()
-	if err := secretstore.Store(providers.SecretName(providers.GroupDatabricks, "patrow", providers.AuthPAT), "pat-value"); err != nil {
+	if err := vault.Store(providers.SecretName(providers.GroupDatabricks, "patrow", providers.AuthPAT), "pat-value"); err != nil {
 		t.Fatal(err)
 	}
 	return fmt.Sprintf(`{"protocol":"anthropic","base_url":%q,"auth":{"type":"pat"},"models":{"opus":"m1"}}`, base)

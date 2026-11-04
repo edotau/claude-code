@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -223,7 +222,7 @@ func vaultDoctorChecks() []Check {
 		if err == nil {
 			// Shares the "vault master key" row's resolution instead of re-resolving the master key here.
 			var kerr error
-			count, source, kerr = secrets.MasterKeyStatus()
+			count, source, kerr = vault.MasterKeyStatus()
 			err = kerr
 		}
 		row.Detail = fmt.Sprintf("%s · key %s · %d secret(s) · %d retired", vault.Path(), source, count, retired)
@@ -239,11 +238,11 @@ func vaultDoctorChecks() []Check {
 	return append([]Check{row}, checks...)
 }
 
-// secretsDoctorChecks adapts secrets.DoctorChecks to soft doctor rows; gateOK is false when a gating row failed.
+// secretsDoctorChecks adapts providers.DoctorChecks to soft doctor rows; gateOK is false when a gating row failed.
 func secretsDoctorChecks() (checks []Check, gateOK bool) {
 	reg, _ := providers.Load() // a load error is reported by the provider registry row; nil skips name checks
 	gateOK = true
-	for _, c := range secrets.DoctorChecks(reg) {
+	for _, c := range providers.DoctorChecks(reg) {
 		checks = append(checks, Check{Name: c.Name, OK: c.OK, Detail: c.Detail})
 		if c.Gate && !c.OK {
 			gateOK = false

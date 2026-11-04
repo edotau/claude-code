@@ -7,14 +7,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
-
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -175,7 +173,7 @@ func sealImported(path string, rows []Row) int {
 			err = errors.New("no secret in the source section")
 		}
 		if err == nil {
-			err = secretstore.Store(name, val)
+			err = vault.Store(name, val)
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code: seal %s: %v\n", name, err)

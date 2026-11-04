@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -310,7 +309,7 @@ func StoredSecret(name string) string {
 
 // HasSecret reports env or vault presence without resolving a master key; a vault read error reads as absent.
 func HasSecret(name string) string {
-	source, _ := secretstore.HasSecretErr(name)
+	source, _ := vault.HasSecretErr(name)
 	return source
 }
 

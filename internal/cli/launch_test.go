@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -251,7 +251,7 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 				t.Fatal(err)
 			}
 			if finding == "vault" {
-				if err := secretstore.Store("AUDIT_FAKE_KEY", value); err != nil {
+				if err := vault.Store("AUDIT_FAKE_KEY", value); err != nil {
 					t.Fatal(err)
 				}
 				// Opening the vault tightens vault.db (fa2b54af); a loose rolled-back archive is still a finding.
@@ -295,7 +295,7 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no real tool --version probes
 	t.Cleanup(browser.SetCommandTimeout(50 * time.Millisecond))
-	if err := secretstore.Store("PLAIN_DOCTOR_FAKE_KEY", "obviously-fake-doctor-value"); err != nil {
+	if err := vault.Store("PLAIN_DOCTOR_FAKE_KEY", "obviously-fake-doctor-value"); err != nil {
 		t.Fatal(err)
 	}
 	for _, format := range []string{"text", "json"} {

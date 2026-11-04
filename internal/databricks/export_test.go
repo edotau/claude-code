@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 const exportSeedCfg = `[DEFAULT]
@@ -44,11 +44,11 @@ func seedExportVault(t *testing.T) {
 	}); code != 0 {
 		t.Fatalf("seed import: %d %s %s", code, out, errs)
 	}
-	if err := secretstore.Store("DATABRICKS_ALICE_OAUTH", `{"refresh":"REFRESH-SENTINEL"}`); err != nil {
+	if err := vault.Store("DATABRICKS_ALICE_OAUTH", `{"refresh":"REFRESH-SENTINEL"}`); err != nil {
 		t.Fatal(err)
 	}
 	for _, n := range []string{"DATABRICKS_SVC_M2M", "DATABRICKS_TOK_PAT"} {
-		if v, _, err := secretstore.Lookup(n); err != nil || v == "" {
+		if v, _, err := vault.Lookup(n); err != nil || v == "" {
 			t.Fatalf("seed: %s not sealed (%v)", n, err)
 		}
 	}

@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -331,7 +330,7 @@ func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := secretstore.Store("DATABRICKS_DBX_HOST_PAT", secret); err != nil {
+	if err := vault.Store("DATABRICKS_DBX_HOST_PAT", secret); err != nil {
 		t.Fatal(err)
 	}
 	out, _ := providerListCmdJSON(t, "dbx-host")
@@ -405,7 +404,7 @@ func TestProviderCredentialSources(t *testing.T) {
 	t.Setenv("SOURCE_ENV_KEY", value)
 	t.Setenv("SOURCE_VAULT_KEY", "")
 	t.Setenv("SOURCE_MISSING_KEY", "")
-	if err := secretstore.Store("SOURCE_VAULT_KEY", value); err != nil {
+	if err := vault.Store("SOURCE_VAULT_KEY", value); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(t.TempDir(), "fake-token")

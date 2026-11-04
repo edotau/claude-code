@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -51,12 +50,12 @@ func lockVault(t *testing.T, name, value string) {
 	vaulttest.Use(t)
 	vaulttest.Keyring(t)
 	vaulttest.Secret(t, name, value)
-	if v, _, err := secretstore.EffectiveSecret(name); err != nil || v != value {
-		t.Fatalf("precondition: secretstore.EffectiveSecret(%s) = %q, %v; want %q", name, v, err, value)
+	if v, _, err := vault.EffectiveSecret(name); err != nil || v != value {
+		t.Fatalf("precondition: vault.EffectiveSecret(%s) = %q, %v; want %q", name, v, err, value)
 	}
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
-	if _, _, err := secretstore.EffectiveSecret(name); err == nil {
-		t.Fatalf("precondition: secretstore.EffectiveSecret(%s) under the wrong key must error", name)
+	if _, _, err := vault.EffectiveSecret(name); err == nil {
+		t.Fatalf("precondition: vault.EffectiveSecret(%s) under the wrong key must error", name)
 	}
 }
 
@@ -264,7 +263,7 @@ func TestOAuthM2MNeverWritesAccessToken(t *testing.T) {
 		return 200, map[string]any{"access_token": jwtExpIn(time.Hour, "https://x"), "expires_in": 3600}
 	})
 	p := mintRow(t, "ac-m2m", AuthM2M, "sp-client", srv.URL)
-	if err := secretstore.Store(AuthSecretName(p), "sp-secret"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Credential(context.Background(), p); err != nil {
@@ -316,7 +315,7 @@ func sealFor(t *testing.T, p *Provider, secret string) {
 		putOAuth(t, p, oauthValue{Refresh: secret})
 		return
 	}
-	if err := secretstore.Store(AuthSecretName(p), secret); err != nil {
+	if err := vault.Store(AuthSecretName(p), secret); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -354,7 +353,7 @@ func TestAuthOAuthM2MMintsViaOIDC(t *testing.T) {
 		return 200, map[string]any{"access_token": "m2m-minted", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-m2m-ok", AuthM2M, "sp-client", srv.URL)
-	if err := secretstore.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Credential(context.Background(), p)
@@ -377,7 +376,7 @@ func TestAuthOAuthM2MRejectedHidesSecret(t *testing.T) {
 		return 401, map[string]any{"error": "invalid_client", "error_description": "Client authentication failed"}
 	})
 	p := mintRow(t, "kind-m2m-bad", AuthM2M, "sp-client", srv.URL)
-	if err := secretstore.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Credential(context.Background(), p)

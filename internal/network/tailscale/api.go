@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // DefaultBaseURL is the Tailscale admin API.
@@ -84,18 +84,18 @@ type Client struct {
 // apiTimeout bounds one admin-API round trip so a stalled server cannot hang a verb.
 const apiTimeout = 30 * time.Second
 
-// NewClient resolves credentials via secretstore.Get (the vault, then env):
+// NewClient resolves credentials via vault.Get (the vault, then env):
 // TAILSCALE_OAUTH_CLIENT_ID/_SECRET preferred, else TAILSCALE_API_KEY as a bearer directly.
 func NewClient() (*Client, error) {
 	// DefaultClient's transport stays the seam tests swap; only the timeout is added.
 	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}}
-	if id, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
-		if secret, _, ok2 := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
+	if id, _, ok := vault.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
+		if secret, _, ok2 := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
 			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
 			return c, nil
 		}
 	}
-	if key, _, ok := secretstore.Get("TAILSCALE_API_KEY"); ok {
+	if key, _, ok := vault.Get("TAILSCALE_API_KEY"); ok {
 		c.token = func(context.Context) (string, error) { return key, nil }
 		return c, nil
 	}

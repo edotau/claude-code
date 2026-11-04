@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -121,7 +121,7 @@ func TestTailscaleConnectWithoutKeyNotRunningExitsTwo(t *testing.T) {
 func TestTailscaleConnectUsesVaultAuthKey(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscaleOnPATH(t, "Stopped")
-	if err := secretstore.Store("TAILSCALE_AUTHKEY", "tskey-auth-fake"); err != nil {
+	if err := vault.Store("TAILSCALE_AUTHKEY", "tskey-auth-fake"); err != nil {
 		t.Fatal(err)
 	}
 	_, out, stderr := captureOutput(t, func() int { return cmdNetworkTailscale([]string{"--connect"}) })
@@ -235,12 +235,12 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 			if out != key+"\n" {
 				t.Errorf("stdout = %q, want only %q", out, key+"\n")
 			}
-			stored, source, ok := secretstore.Get("TAILSCALE_AUTHKEY")
+			stored, source, ok := vault.Get("TAILSCALE_AUTHKEY")
 			if save {
 				if !ok || stored != key || source != "vault" {
 					t.Errorf("saved key = %q, source=%q, found=%v", stored, source, ok)
 				}
-				want := "saved TAILSCALE_AUTHKEY to the vault (" + secretstore.Redact(key) + ")\n"
+				want := "saved TAILSCALE_AUTHKEY to the vault (" + vault.Redact(key) + ")\n"
 				if stderr != want {
 					t.Errorf("stderr = %q, want %q", stderr, want)
 				}

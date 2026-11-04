@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -67,7 +66,7 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 	if reg.Providers["DEFAULT"] != nil || reg.Providers["__settings__"] != nil {
 		t.Error("DEFAULT/__settings__ imported")
 	}
-	names := secretstore.Names()
+	names := vault.Names()
 	for _, n := range []string{"DATABRICKS_SVC_M2M_M2M", "DATABRICKS_PAT_RENAMED_PAT"} {
 		if !slices.Contains(names, n) {
 			t.Errorf("secret %s not sealed (have %v)", n, names)
@@ -215,7 +214,7 @@ func TestVaultImportDryRunWithSealFlagWritesNothing(t *testing.T) {
 	if after := gapProviderNames(t); len(after) != len(before) || slices.Contains(after, "svc-m2m") {
 		t.Errorf("dry-run created rows: %v", after)
 	}
-	for _, n := range secretstore.Names() {
+	for _, n := range vault.Names() {
 		if strings.HasPrefix(n, "DATABRICKS_") {
 			t.Errorf("dry-run sealed %s", n)
 		}
@@ -235,7 +234,7 @@ func TestVaultImportApplyWithoutSealStoresNoSecrets(t *testing.T) {
 	if !slices.Contains(gapProviderNames(t), "svc-m2m") {
 		t.Fatal("row not written")
 	}
-	for _, n := range secretstore.Names() {
+	for _, n := range vault.Names() {
 		if strings.HasPrefix(n, "DATABRICKS_") {
 			t.Errorf("sealed %s without --seal-secrets", n)
 		}
@@ -251,12 +250,12 @@ func TestVaultImportSealStoresReadableValuesAndNoDefaultLeak(t *testing.T) {
 		"DATABRICKS_SVC_M2M_M2M": "secret-value-1",
 		"DATABRICKS_PAT_ONE_PAT": "dapi-token-value",
 	} {
-		if got, src, err := secretstore.Lookup(name); err != nil || got != want || src != "vault" {
+		if got, src, err := vault.Lookup(name); err != nil || got != want || src != "vault" {
 			t.Errorf("%s = %q (%s) %v", name, got, src, err)
 		}
 	}
-	for _, n := range secretstore.Names() {
-		if v, _, _ := secretstore.Lookup(n); v == "dapi-DEFAULT-LEAK" {
+	for _, n := range vault.Names() {
+		if v, _, _ := vault.Lookup(n); v == "dapi-DEFAULT-LEAK" {
 			t.Errorf("[DEFAULT] token sealed as %s", n)
 		}
 	}
@@ -317,7 +316,7 @@ func TestImportPairedCredential(t *testing.T) {
 			if reg, _ := providers.Load(); reg.Providers["dev"] != nil {
 				t.Fatal("dry-run wrote a profile")
 			}
-			if len(secretstore.Names()) != 0 {
+			if len(vault.Names()) != 0 {
 				t.Fatal("dry-run sealed credentials")
 			}
 			code, out, errs := captureOutput(t, func() int { return importCfg(args) })
@@ -335,14 +334,14 @@ func TestImportPairedCredential(t *testing.T) {
 				t.Fatal("paired SP became a separate row")
 			}
 			if seal {
-				val, source, err := secretstore.Lookup("DATABRICKS_DEV_M2M")
+				val, source, err := vault.Lookup("DATABRICKS_DEV_M2M")
 				if err != nil || val != "test-only-sp-value" || source != "vault" {
 					t.Fatalf("paired credential: %s %v", source, err)
 				}
-				if got := secretstore.Names(); !slices.Equal(got, []string{"DATABRICKS_DEV_M2M"}) {
+				if got := vault.Names(); !slices.Equal(got, []string{"DATABRICKS_DEV_M2M"}) {
 					t.Fatalf("sealed names = %v", got)
 				}
-			} else if len(secretstore.Names()) != 0 {
+			} else if len(vault.Names()) != 0 {
 				t.Fatal("sealed without --seal-secrets")
 			}
 			if code, _, _ := captureOutput(t, func() int { return importCfg(args) }); code != 0 {
@@ -502,12 +501,12 @@ func TestImportFoldSealedCredentials(t *testing.T) {
 			seedLegacyRows(t)
 			old := legacyUserPrefix + "dev"
 			for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
-				if err := secretstore.Store(secretName(old, method), "test-only-legacy-"+method); err != nil {
+				if err := vault.Store(secretName(old, method), "test-only-legacy-"+method); err != nil {
 					t.Fatal(err)
 				}
 			}
 			if collision != "" {
-				if err := secretstore.Store(secretName("dev", collision), "test-only-destination"); err != nil {
+				if err := vault.Store(secretName("dev", collision), "test-only-destination"); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -610,7 +609,7 @@ func TestSealImportedEmptySecretIsNotSealed(t *testing.T) {
 	if code != 1 || strings.Contains(stdout, "sealed") || !strings.Contains(stderr, "no secret in the source section") {
 		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
 	}
-	if _, src, _ := secretstore.Lookup(name); src == "vault" {
+	if _, src, _ := vault.Lookup(name); src == "vault" {
 		t.Errorf("%s stored in the vault", name)
 	}
 }

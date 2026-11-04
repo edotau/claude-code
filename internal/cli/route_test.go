@@ -218,16 +218,6 @@ func TestRouterStrayArgumentIsAUsageError(t *testing.T) {
 	}
 }
 
-func TestVaultStorageHelpPrintsUsage(t *testing.T) {
-	useVaultTest(t)
-	for _, op := range []string{"set", "get", "delete", "import", "export"} {
-		code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{op, "-h"}) })
-		if code != 0 || !strings.Contains(stderr, "usage: claude-code vault "+op) || stdout != "" {
-			t.Errorf("vault %s -h: want usage + exit 0 and no op output, got exit %d", op, code)
-		}
-	}
-}
-
 // parityEnv installs a signed-in Databricks session profile whose menu marks gpt-6-astra Responses-capable or not;
 // every agent binary is a stub that drops a marker if it is run on a prompt (status probes are fine).
 func parityEnv(t *testing.T, profile string, responses bool) (marker string) {

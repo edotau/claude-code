@@ -20,10 +20,10 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // SectionNames runs in this order when no section is named.
@@ -517,5 +517,5 @@ func secretLine(d *dialog, prompt string) (string, error) {
 // pastePreview masks a value for display; a NAME=value paste previews only its value.
 func pastePreview(raw string) string {
 	_, v := configure.ParseAssignment(raw)
-	return secretstore.Preview(v)
+	return vault.Preview(v)
 }

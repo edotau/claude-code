@@ -20,7 +20,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -108,7 +107,7 @@ func writeOAuth(p *Provider, ov oauthValue) error {
 	if err != nil {
 		return err
 	}
-	return secretstore.Store(AuthSecretName(p), string(b))
+	return vault.Store(AuthSecretName(p), string(b))
 }
 
 // sealedAuth reports whether the auth type keeps its credential in the vault.
@@ -341,7 +340,7 @@ func mintSP(ctx context.Context, p *Provider) (string, error) {
 		return "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
 	}
 	name := SecretName(p.provider(), p.Name, AuthM2M)
-	secret, _, err := secretstore.EffectiveSecret(name)
+	secret, _, err := vault.EffectiveSecret(name)
 	if err != nil {
 		return "", fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
@@ -500,7 +499,7 @@ func mintSecret(p *Provider) (string, error) {
 		ov, err := readOAuth(p)
 		return strings.TrimSpace(ov.Refresh), err
 	}
-	v, _, err := secretstore.EffectiveSecret(AuthSecretName(p))
+	v, _, err := vault.EffectiveSecret(AuthSecretName(p))
 	return v, err
 }
 

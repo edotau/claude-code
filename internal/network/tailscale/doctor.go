@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Doctor is one launch-style check line: CLI found/missing, backend state + node, exit-node state,
@@ -49,13 +49,13 @@ type CredState struct {
 }
 
 // credentialNames is the fixed order Credentials and credentialNote report in.
-var credentialNames = secrets.TailscaleNames
+var credentialNames = providers.TailscaleNames
 
 // Credentials reports presence and source for every Tailscale credential name, never a value.
 func Credentials() []CredState {
 	out := make([]CredState, len(credentialNames))
 	for i, name := range credentialNames {
-		_, source, ok := secretstore.Get(name)
+		_, source, ok := vault.Get(name)
 		out[i] = CredState{Name: name, Source: source, Present: ok}
 	}
 	return out
@@ -68,8 +68,8 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
 	switch {
 	case id && sec:
-		idVal, _, _ := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID")
-		secVal, _, _ := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
+		idVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_ID")
+		secVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
 		if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
 			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
 		}
@@ -85,7 +85,7 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 		return "; api credential incomplete: need both TAILSCALE_OAUTH_CLIENT_ID and _SECRET", false
 	}
 	if api {
-		keyVal, _, _ := secretstore.Get("TAILSCALE_API_KEY")
+		keyVal, _, _ := vault.Get("TAILSCALE_API_KEY")
 		if err := shapes.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
 			return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
 		}

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Cred is one Tailscale credential name/value pair waiting to be stored together.
@@ -17,7 +17,7 @@ func CheckCreds(creds []Cred) error {
 		if c.Value == "" {
 			return fmt.Errorf("empty value for %s", c.Name)
 		}
-		if strings.ContainsAny(c.Value, "\r\n") { // secretstore.Store rejects these
+		if strings.ContainsAny(c.Value, "\r\n") { // vault.Store rejects these
 			return fmt.Errorf("%s spans lines", c.Name)
 		}
 	}
@@ -27,10 +27,10 @@ func CheckCreds(creds []Cred) error {
 // StoreCred stores c, or with dryRun only reports; verb is "add" or "replace" for a dry run, else "".
 func StoreCred(c Cred, dryRun bool) (verb string, err error) {
 	if dryRun {
-		if slices.Contains(secretstore.Names(), c.Name) {
+		if slices.Contains(vault.Names(), c.Name) {
 			return "replace", nil
 		}
 		return "add", nil
 	}
-	return "", secretstore.Store(c.Name, c.Value)
+	return "", vault.Store(c.Name, c.Value)
 }

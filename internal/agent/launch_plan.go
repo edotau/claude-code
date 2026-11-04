@@ -12,14 +12,13 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/settings"
-
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // LaunchOptions are the harness flags consumed before passthrough.
@@ -169,12 +168,12 @@ func moduleEnv(base []string) ([]string, map[string]bool) {
 	return out, locked
 }
 
-// customEnv is the vault env bucket resolved (@secret refs via secretstore.Lookup); an unresolved ref is warned, not
+// customEnv is the vault env bucket resolved (@secret refs via vault.Lookup); an unresolved ref is warned, not
 // set — a Lookup error (e.g. a locked vault) also leaves the key out of vals, so a base env value survives.
 var customEnv = func() map[string]string {
 	errored := map[string]bool{}
 	vals, missing, err := providers.ResolveCustomEnv(func(k string) (string, bool) {
-		v, _, err := secretstore.Lookup(k)
+		v, _, err := vault.Lookup(k)
 		if err != nil {
 			fmt.Fprintf(NoticeOut, "claude-code: custom env %s: %v; not set\n", k, err)
 			errored[k] = true

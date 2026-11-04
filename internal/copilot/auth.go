@@ -22,8 +22,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // copilotTokenEnvs is copilot's documented env precedence (`copilot help environment`).
@@ -80,7 +80,7 @@ func authSourceFor(pin string) (CopilotAuth, bool) {
 		}
 		return CopilotAuth{}, false // a pinned account that can't be used never falls back to another one
 	}
-	if tok, src, ok := secretstore.Get(providers.CopilotTokenEnv); ok && src != "env" {
+	if tok, src, ok := vault.Get(providers.CopilotTokenEnv); ok && src != "env" {
 		return CopilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
 	}
 	if login, tok := ghActiveAccountToken(); login != "" {

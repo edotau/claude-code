@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -38,7 +37,7 @@ func SaveDbxIdentity(reg *providers.Registry, env, mode, spID, secret string) er
 		if prev, hadPrev, err = vault.ReadSecret(name); err != nil {
 			return err
 		}
-		if err := secretstore.Store(name, secret); err != nil {
+		if err := vault.Store(name, secret); err != nil {
 			return err
 		}
 	}
@@ -74,11 +73,11 @@ func DbxRestoreSecret(name, wrote, prev string, hadPrev bool) error {
 		}
 		restored = true
 		return tx.PutRecord(name, vault.Record{
-			Sealed: key.Seal(name, prev), Kid: key.Kid, Prefix: secretstore.MetaPrefix(prev), Len: len(prev), SetAt: time.Now(),
+			Sealed: key.Seal(name, prev), Kid: key.Kid, Prefix: vault.MetaPrefix(prev), Len: len(prev), SetAt: time.Now(),
 		})
 	})
 	if err == nil && restored {
-		audit.Log(audit.SecretSet, name, "vault") // secretstore.Store's audit line, which this write bypasses
+		audit.Log(audit.SecretSet, name, "vault") // vault.Store's audit line, which this write bypasses
 	}
 	return err
 }

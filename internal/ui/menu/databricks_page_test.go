@@ -14,13 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/configure"
-
 	"github.com/edotau/claude-code/internal/clipboard"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -594,7 +592,7 @@ func TestDbxSaveIdentityRollsBackSecretOnRowFailure(t *testing.T) {
 		t.Run(tc.label, func(t *testing.T) {
 			d := dbxEnv(t)
 			if tc.prev != "" {
-				if err := secretstore.Store(name, tc.prev); err != nil {
+				if err := vault.Store(name, tc.prev); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -629,7 +627,7 @@ func TestDbxSaveIdentityKeepsConcurrentRotationOnRowFailure(t *testing.T) {
 	d := dbxEnv(t)
 	orig := configure.DbxSetRow
 	configure.DbxSetRow = func(string, map[string]any) error {
-		if err := secretstore.Store(name, "sp-secret-ROTATED"); err != nil {
+		if err := vault.Store(name, "sp-secret-ROTATED"); err != nil {
 			t.Fatal(err)
 		}
 		return errors.New("overlay write failed")

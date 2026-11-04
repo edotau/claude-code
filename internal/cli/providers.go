@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -46,7 +45,7 @@ func configureProviderList(name, format string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	source, note := secrets.CredSource(p)
+	source, note := providers.CredSource(p)
 	printLines(providers.ProfileDetail(p, source, note))
 	return 0
 }
@@ -57,7 +56,7 @@ func printProviderTable(reg *providers.Registry) {
 	for _, v := range agent.Names() {
 		agents = append(agents, providers.AgentServer{Name: v, Serves: func(p *providers.Provider) bool { return agent.CanServe(v, p) }})
 	}
-	ready := func(p *providers.Provider) bool { src, _ := secrets.CredSource(p); return src != "missing" }
+	ready := func(p *providers.Provider) bool { src, _ := providers.CredSource(p); return src != "missing" }
 	printLines(providers.ListTable(reg, ready, agents))
 }
 
@@ -92,7 +91,7 @@ func providerListJSON(reg *providers.Registry, name string) int {
 		}
 		e := providerListEntry{DescribeProvider: dp}
 		e.Group = p.Provider
-		e.Source, e.Note = secrets.CredSource(p)
+		e.Source, e.Note = providers.CredSource(p)
 		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
 		list = append(list, e)
 	}

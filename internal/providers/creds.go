@@ -14,9 +14,9 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.
@@ -42,7 +42,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	}
 	var vaultErr error
 	for _, n := range keyNames(p) {
-		v, _, err := secretstore.EffectiveSecret(n)
+		v, _, err := vault.EffectiveSecret(n)
 		vaultErr = cmp.Or(vaultErr, err)
 		if err == nil && v != "" {
 			return v, nil

@@ -11,11 +11,11 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // sourceLabel names the effective source and flags an env override of a vault value.
@@ -106,7 +106,7 @@ func editSecret(d *dialog, s configure.TrackedSecret) {
 				d.printf("staged delete of %s · Submit removes it from the vault\n", s.Name)
 				return true
 			}
-			if err := secretstore.Delete(s.Name); err != nil {
+			if err := vault.Delete(s.Name); err != nil {
 				d.printf("%s: %v\n", s.Name, err)
 				return false
 			}
@@ -160,14 +160,14 @@ func storeValue(d *dialog, name, val string) bool {
 			return false
 		}
 		delete(d.pendingDeletes, name) // re-picking a staged delete to paste a new value must cancel the delete
-		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secretstore.Redact(val))
+		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, vault.Redact(val))
 		return true
 	}
-	if err := secretstore.Store(name, val); err != nil {
+	if err := vault.Store(name, val); err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
-	d.printf("wrote %s to the vault (%s)\n", name, secretstore.Redact(val))
+	d.printf("wrote %s to the vault (%s)\n", name, vault.Redact(val))
 	return true
 }
 
@@ -180,7 +180,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		if prev, ok := before[name]; ok && prev.val == k.val {
 			continue
 		}
-		if v, _, ok := secretstore.Get(name); ok && v == k.val && k.had && k.prev == v {
+		if v, _, ok := vault.Get(name); ok && v == k.val && k.had && k.prev == v {
 			continue // re-entered the value already stored: not a change
 		}
 		page = append(page, name)
@@ -200,15 +200,15 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	}
 	for _, name := range page {
 		k := d.pending[name]
-		if err := secretstore.Store(name, k.val); err != nil {
+		if err := vault.Store(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue
 		}
-		d.printf("saved %s to the vault (%s)\n", name, secretstore.Redact(k.val))
+		d.printf("saved %s to the vault (%s)\n", name, vault.Redact(k.val))
 		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
 	}
 	for _, name := range deletes {
-		if err := secretstore.Delete(name); err != nil {
+		if err := vault.Delete(name); err != nil {
 			d.printf("%s: not deleted: %v\n", name, err)
 			continue
 		}

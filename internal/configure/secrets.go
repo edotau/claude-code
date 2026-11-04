@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // EnvName is a valid secret name: an env var identifier.
@@ -30,10 +30,10 @@ func TrackedSecrets(reg *providers.Registry) []TrackedSecret {
 			users[env] = append(users[env], n)
 		}
 	}
-	meta, metaErr := secretstore.LoadMeta()
+	meta, metaErr := vault.LoadMeta()
 	if metaErr != nil {
 		// Names reads vault names without decoding records, which may still work when metadata is unreadable.
-		for _, env := range secretstore.Names() {
+		for _, env := range vault.Names() {
 			if _, ok := users[env]; !ok {
 				users[env] = []string{"custom"}
 			}
@@ -49,13 +49,13 @@ func TrackedSecrets(reg *providers.Registry) []TrackedSecret {
 	for name, u := range users {
 		var src, shadowed string
 		if metaErr == nil {
-			src, shadowed = secretstore.Locate(name, meta)
+			src, shadowed = vault.Locate(name, meta)
 		} else {
 			var err error
-			if _, src, err = secretstore.EffectiveSecret(name); err != nil {
+			if _, src, err = vault.EffectiveSecret(name); err != nil {
 				src = "unreadable"
 			} else if src == "env" {
-				_, _, shadowed, _ = secretstore.Effective(name)
+				_, _, shadowed, _ = vault.Effective(name)
 			}
 		}
 		out = append(out, TrackedSecret{Name: name, Source: src, Shadowed: shadowed, Users: strings.Join(u, ", ")})

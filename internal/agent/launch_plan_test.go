@@ -28,7 +28,7 @@ func TestEnvWithCustomLosesToSetAndUnset(t *testing.T) {
 	}
 }
 
-// TestCustomEnvLookupErrorLeavesExportedKeySurviving: a @secret ref that secretstore.Lookup cannot
+// TestCustomEnvLookupErrorLeavesExportedKeySurviving: a @secret ref that vault.Lookup cannot
 // resolve (locked vault, no env fallback available to Lookup itself) must be left out of custom
 // entirely, not merged in as K= — so an already-exported K carried in the base env list passes
 // through Plan.Env untouched instead of being clobbered with an empty value.

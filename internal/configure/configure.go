@@ -24,8 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -148,7 +146,7 @@ func KeyTargets(reg *providers.Registry, agentFilter string) ([]KeyTarget, error
 			fix = "claude-code vault set " + p.Auth.Env
 		}
 		kt := KeyTarget{
-			Label: "claude", Present: providers.CredentialPresent(p), Source: secrets.Resolve(p).Source,
+			Label: "claude", Present: providers.CredentialPresent(p), Source: providers.Resolve(p).Source,
 			EnvVar: p.Auth.Env, FixCmd: fix, Provider: p,
 		}
 		if p.Auth.Method() == providers.AuthCLI {
@@ -228,25 +226,25 @@ func ProbeCached(kt KeyTarget) (status, detail string, age time.Duration) {
 		status, detail = Probe(kt)
 		return status, detail, 0
 	}
-	if cached, cachedAge, ok := secretstore.CachedProbe(meta[env], probeTTL, time.Now()); ok {
+	if cached, cachedAge, ok := vault.CachedProbe(meta[env], probeTTL, time.Now()); ok {
 		return cached, "", cachedAge
 	}
 	setAt := meta[env].SetAt
 	status, detail = Probe(kt)
 	if status == "verified" || status == "rejected" {
-		_ = secretstore.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
+		_ = vault.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
 }
 
 // ProbeSource resolves env's launch source; unreadable vault metadata yields nil, forcing a live probe.
-func ProbeSource(env string) (meta map[string]secretstore.Meta, src string) {
-	meta, err := secretstore.LoadMeta()
+func ProbeSource(env string) (meta map[string]vault.SecretMeta, src string) {
+	meta, err := vault.LoadMeta()
 	if err != nil {
-		_, src, _, _ = secretstore.Effective(env) // meta unreadable: fall back to the live-lookup ladder
+		_, src, _, _ = vault.Effective(env) // meta unreadable: fall back to the live-lookup ladder
 		return nil, src
 	}
-	src, _ = secretstore.Locate(env, meta)
+	src, _ = vault.Locate(env, meta)
 	return meta, src
 }
 
