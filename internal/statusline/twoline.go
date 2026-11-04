@@ -158,7 +158,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 	return b.String()
 }
 
-// renderTwoline draws the two-row style; with a width, row 2 is right-aligned whole.
+// renderTwoline draws the two-row style; with a width, row 1's tail and all of row 2 end at the right edge.
 func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	th := pal.Powerline["minimal"]
 	row1, row2 := twolineRows(v)
@@ -167,11 +167,11 @@ func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, m
 			row1[i].fg = pal.Sem(k)
 		}
 	}
-	head := promptHead(v, cfg, pal, stops, mode)
-	if head != "" { // the PS1 head leads, as the other styles draw it
-		head += paintTwoRow([]twoSeg{{key: "sep", text: sepPath}}, th, stops, mode)
+	v = fitHead(v, cfg, segWidth(row1), width)
+	out := paintTwoRow(row1, th, stops, mode)
+	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads; the rest sits at the right edge
+		out = head + paintTwoRow([]twoSeg{{key: "sep", text: headGap(headWidth(v, cfg), segWidth(row1), width)}}, th, stops, mode) + out
 	}
-	out := head + paintTwoRow(row1, th, stops, mode)
 	if len(row2) == 0 {
 		return out
 	}
@@ -193,4 +193,34 @@ func segWidth(row []twoSeg) (n int) {
 		n += utf8.RuneCountInString(s.text)
 	}
 	return n
+}
+
+// collapsePath keeps the first and last elements: "~/worktrees/.claude" → "~/.../.claude"; short paths stay whole.
+func collapsePath(p string) string {
+	parts := strings.Split(p, "/")
+	if len(parts) <= 2 {
+		return p
+	}
+	return parts[0] + "/.../" + parts[len(parts)-1]
+}
+
+// fitHead shortens the head's path, collapsed then trimmed, until head + " | " + a rest-wide tail fits width.
+func fitHead(v values, cfg Config, rest, width int) values {
+	room := width - rest - utf8.RuneCountInString(sepPath)
+	if width <= 0 || headWidth(v, cfg) <= room {
+		return v
+	}
+	v.path = collapsePath(v.path)
+	if over := headWidth(v, cfg) - room; over > 0 {
+		v.path = truncRunes(v.path, max(utf8.RuneCountInString(v.path)-over, 1))
+	}
+	return v
+}
+
+// headGap is the spaces that push row 1's tail to width, else " | " when there is no room to spare.
+func headGap(head, rest, width int) string {
+	if pad := width - head - rest; width > 0 && pad > utf8.RuneCountInString(sepPath) {
+		return strings.Repeat(" ", pad)
+	}
+	return sepPath
 }

@@ -145,7 +145,7 @@ func Render(raw []byte, style string) string {
 
 // renderFit tries full, then the capped profile, then no branch (velocity stays); the last pick is clipped to width.
 func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
-	if width > 0 {
+	if width > 0 && cfg.Style != "twoline" { // twoline fits each row itself: shorter path, row 2 clipped alone
 		wide := v
 		wide.provider = v.providerFull
 		short := v
