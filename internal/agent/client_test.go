@@ -24,12 +24,17 @@ func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
 	if err := c.resolve(&o); err != nil || o.Model != "mine" || o.Provider != "myprov" || o.Effort != "max" || o.Agent != "claude" {
 		t.Fatalf("explicit options lost: %+v, %v", o, err)
 	}
-	o = RunOptions{Agent: "sec", Agents: defs}
-	if err := c.resolve(&o); err != nil || o.Model != "cm" || o.Provider != "cp" || o.Effort != "low" || o.Persona.Prompt != "client" {
-		t.Fatalf("definition not overlaid: %+v, %v", o, err)
-	}
+	t.Run("definition defaults", func(t *testing.T) { assertDefinitionOverlay(t, c, defs) })
 	if o = (RunOptions{Agent: "ghost"}); c.resolve(&o) == nil {
 		t.Error("an unknown ref must fail resolve")
+	}
+}
+
+func assertDefinitionOverlay(t *testing.T, c *Client, defs map[string]*Schema) {
+	t.Helper()
+	o := RunOptions{Agent: "sec", Agents: defs}
+	if err := c.resolve(&o); err != nil || o.Model != "cm" || o.Provider != "cp" || o.Effort != "low" || o.Persona.Prompt != "client" {
+		t.Fatalf("definition not overlaid: %+v, %v", o, err)
 	}
 }
 

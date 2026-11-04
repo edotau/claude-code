@@ -194,20 +194,24 @@ func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bo
 			continue
 		}
 		bin := filepath.Join(dir, name)
-		info, err := os.Stat(bin)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-			continue
-		}
-		if paths.SamePath(bin, localPath) {
-			continue
-		}
-		prefix := npmPrefixFromBinary(bin)
+		prefix := cleanupPrefix(bin, localPath)
 		if prefix == "" || seen[prefix] {
 			continue
 		}
 		seen[prefix] = true
 		runNpmUninstall(ctx, w, dryRun, prefix, pkg)
 	}
+}
+
+func cleanupPrefix(bin, localPath string) string {
+	info, err := os.Stat(bin)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return ""
+	}
+	if paths.SamePath(bin, localPath) {
+		return ""
+	}
+	return npmPrefixFromBinary(bin)
 }
 
 // cleanupGeminiCLI uninstalls the deprecated @google/gemini-cli on every Install, whichever tools were named.

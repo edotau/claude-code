@@ -55,6 +55,14 @@ func TestRegistryJoin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build with an unparsable registry file: %v", err)
 	}
+	got := registryJoinedSession(t, tree)
+	if !got.Live || got.PID != os.Getpid() || got.Name != "name-live-stale" || got.CLIStatus != "waiting" || got.Mode != "interactive" {
+		t.Errorf("registry fields not joined: %+v", got)
+	}
+}
+
+func registryJoinedSession(t *testing.T, tree *Tree) *Session {
+	t.Helper()
 	var got *Session
 	for i, s := range tree.Sessions {
 		switch s.ID {
@@ -71,9 +79,7 @@ func TestRegistryJoin(t *testing.T) {
 	if got == nil {
 		t.Fatal("live pid with a 40-day-old transcript dropped by --running")
 	}
-	if !got.Live || got.PID != os.Getpid() || got.Name != "name-live-stale" || got.CLIStatus != "waiting" || got.Mode != "interactive" {
-		t.Errorf("registry fields not joined: %+v", got)
-	}
+	return got
 }
 
 // TestReadRegistrySkipsUnusableEntries: a live pid without a sessionId and an unparsable file yield no entry.

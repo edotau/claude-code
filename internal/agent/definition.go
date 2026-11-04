@@ -28,12 +28,9 @@ func personaName(p *Schema) string {
 
 // LoadSchema resolves ref: a bare name is <config dir>/agents/<name>.md, anything else is a file path.
 func LoadSchema(ref string) (*Schema, error) {
-	path := ref
-	if !strings.ContainsAny(ref, `/\`) && !strings.HasSuffix(ref, ".md") {
-		if !personaNameRE.MatchString(ref) {
-			return nil, fmt.Errorf("persona %q: not a valid agent name", ref)
-		}
-		path = filepath.Join(paths.ConfigDir(), "agents", ref+".md")
+	path, err := schemaPath(ref)
+	if err != nil {
+		return nil, err
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -55,21 +52,37 @@ func LoadSchema(ref string) (*Schema, error) {
 	if strings.TrimSpace(p.Prompt) == "" {
 		return nil, fmt.Errorf("persona %q: %s has no body to use as the prompt", ref, path)
 	}
-	switch t := fm["tools"].(type) {
-	case []string:
-		p.Tools = append([]string{}, t...)
-	case string:
-		p.Tools = []string{}
-		for f := range strings.SplitSeq(t, ",") {
-			if f = strings.TrimSpace(f); f != "" {
-				p.Tools = append(p.Tools, f)
-			}
-		}
-	}
+	p.Tools = schemaTools(fm["tools"])
 	if n, ok := fm["maxTurns"].(int); ok && n > 0 {
 		p.MaxTurns = n
 	}
 	return p, nil
+}
+
+func schemaPath(ref string) (string, error) {
+	if strings.ContainsAny(ref, `/\`) || strings.HasSuffix(ref, ".md") {
+		return ref, nil
+	}
+	if !personaNameRE.MatchString(ref) {
+		return "", fmt.Errorf("persona %q: not a valid agent name", ref)
+	}
+	return filepath.Join(paths.ConfigDir(), "agents", ref+".md"), nil
+}
+
+func schemaTools(tools any) []string {
+	switch t := tools.(type) {
+	case []string:
+		return append([]string{}, t...)
+	case string:
+		out := []string{}
+		for f := range strings.SplitSeq(t, ",") {
+			if f = strings.TrimSpace(f); f != "" {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // agentsDef is the strict wire shape of one --agents entry; every key is optional except the prompt.

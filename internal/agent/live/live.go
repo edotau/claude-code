@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -172,6 +173,11 @@ func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 	if err != nil {
 		return err
 	}
+	return serveChild(ctx, cancel, rec, name, be, cmd, tail, profile)
+}
+
+func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *agent.Record, name string,
+	be agent.LiveBackend, cmd *exec.Cmd, tail *agent.TailBuffer, profile string) error {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -194,12 +200,17 @@ func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 	go func() { exited <- cmd.Wait() }()
 	events := agent.NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
-	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(newPumpBuf(stdout)), events: events, idleFor: IdleOf(req),
+	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(newPumpBuf(stdout)), events: events, idleFor: IdleOf(rec.Request),
 		cancel: cancel, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record
 	_ = events.Emit(agent.Event{Type: agent.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
 
+	return s.awaitChild(ctx, ln, exited, stdin, tail)
+}
+
+func (s *liveSession) awaitChild(ctx context.Context, ln net.Listener, exited chan error, stdin io.Closer,
+	tail *agent.TailBuffer) error {
 	var wg sync.WaitGroup
 	go s.accept(ctx, ln, &wg)
 	var cause error
@@ -208,15 +219,15 @@ func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 		cause = context.Cause(ctx)
 	case werr := <-exited:
 		exited <- werr
-		cause = fmt.Errorf("%s exited: %w", name, agent.ChildErr(context.Background(), name, werr, tail))
+		cause = fmt.Errorf("%s exited: %w", s.name, agent.ChildErr(context.Background(), s.name, werr, tail))
 	}
 	s.idle.Stop()
 	_ = ln.Close()
-	cancel(cause) // kills the child process group via CommandContext
-	<-exited      //nolint:errcheck // cancel above ended the child, so its exit error says nothing new
+	s.cancel(cause) // kills the child process group via CommandContext
+	<-exited        //nolint:errcheck // cancel above ended the child, so its exit error says nothing new
 	_ = stdin.Close()
 	wg.Wait()
-	_ = os.Remove(LiveSocket(rec.ID))
+	_ = os.Remove(LiveSocket(s.rec.ID))
 	return s.finish(cause)
 }
 
@@ -381,20 +392,20 @@ func SendLive(ctx context.Context, id, prompt string, sink agent.Sink) (agent.En
 	if err := json.NewEncoder(conn).Encode(agent.LiveRequest{Schema: agent.LiveSchema, Prompt: prompt}); err != nil {
 		return agent.Envelope{}, err
 	}
-	dec := json.NewDecoder(conn)
+	return receiveTurn(ctx, rec.ID, json.NewDecoder(conn), sink)
+}
+
+func receiveTurn(ctx context.Context, id string, dec *json.Decoder, sink agent.Sink) (agent.Envelope, error) {
 	for {
 		var ev agent.Event
 		if err := dec.Decode(&ev); err != nil {
 			if ctx.Err() != nil {
 				return agent.Envelope{}, ctx.Err()
 			}
-			return agent.Envelope{}, fmt.Errorf("live session %s closed before the turn's result: %w", rec.ID, err)
+			return agent.Envelope{}, fmt.Errorf("live session %s closed before the turn's result: %w", id, err)
 		}
-		if ev.Type == agent.EventError && ev.Status == statusBusy {
-			return agent.Envelope{}, ErrLiveBusy
-		}
-		if ev.Type == agent.EventError && ev.Status == statusRefused {
-			return agent.Envelope{}, errors.New(ev.Text)
+		if err := refusalError(ev); err != nil {
+			return agent.Envelope{}, err
 		}
 		if err := sink.Emit(ev); err != nil {
 			return agent.Envelope{}, err
@@ -406,6 +417,19 @@ func SendLive(ctx context.Context, id, prompt string, sink agent.Sink) (agent.En
 			return *ev.Envelope, nil
 		}
 	}
+}
+
+func refusalError(ev agent.Event) error {
+	if ev.Type != agent.EventError {
+		return nil
+	}
+	switch ev.Status {
+	case statusBusy:
+		return ErrLiveBusy
+	case statusRefused:
+		return errors.New(ev.Text)
+	}
+	return nil
 }
 
 // liveReadyWait bounds how long `ask --live` waits for the holder to open its socket.

@@ -148,39 +148,49 @@ func TestInstallSelectedDryRunCleansEveryNpmPrefix(t *testing.T) {
 			)
 
 			if tc.name == "codex" {
-				calls := 0
-				stubToolsInstall(t, tc.name, func(_ context.Context, _ io.Writer, _ string, dryRun bool) error {
-					calls++
-					if !dryRun {
-						t.Error("expected a dry-run installer")
-					}
-					return nil
-				})
-				t.Cleanup(func() {
-					if calls != 1 {
-						t.Errorf("installer calls = %d, want 1", calls)
-					}
-				})
+				stubSingleDryRunInstall(t, tc.name)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			var out bytes.Buffer
-			if err := Install(ctx, &out, []string{tc.name}, true); err != nil {
-				t.Fatal(err)
-			}
-			// The code prints symlink-resolved prefixes; macOS TempDir lives under /var → /private/var.
-			realA, realB := mustEvalSymlinks(t, prefixA), mustEvalSymlinks(t, prefixB)
-			want := []string{
-				"  npm      uninstall -g --prefix " + realA + " " + tc.pkg,
-				"  npm      uninstall -g --prefix " + realB + " " + tc.pkg,
-			}
-			if got := npmCleanupLines(out.String()); !reflect.DeepEqual(got, want) {
-				t.Errorf("cleanup lines = %q, want %q\noutput:\n%s", got, want, out.String())
-			}
-			assertNpmNotRun(t, marker)
+			assertDryRunNpmPrefixes(t, tc.name, tc.pkg, prefixA, prefixB, marker)
 		})
 	}
+}
+
+func stubSingleDryRunInstall(t *testing.T, name string) {
+	t.Helper()
+	calls := 0
+	stubToolsInstall(t, name, func(_ context.Context, _ io.Writer, _ string, dryRun bool) error {
+		calls++
+		if !dryRun {
+			t.Error("expected a dry-run installer")
+		}
+		return nil
+	})
+	t.Cleanup(func() {
+		if calls != 1 {
+			t.Errorf("installer calls = %d, want 1", calls)
+		}
+	})
+}
+
+func assertDryRunNpmPrefixes(t *testing.T, name, pkg, prefixA, prefixB, marker string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var out bytes.Buffer
+	if err := Install(ctx, &out, []string{name}, true); err != nil {
+		t.Fatal(err)
+	}
+	// The code prints symlink-resolved prefixes; macOS TempDir lives under /var → /private/var.
+	realA, realB := mustEvalSymlinks(t, prefixA), mustEvalSymlinks(t, prefixB)
+	want := []string{
+		"  npm      uninstall -g --prefix " + realA + " " + pkg,
+		"  npm      uninstall -g --prefix " + realB + " " + pkg,
+	}
+	if got := npmCleanupLines(out.String()); !reflect.DeepEqual(got, want) {
+		t.Errorf("cleanup lines = %q, want %q\noutput:\n%s", got, want, out.String())
+	}
+	assertNpmNotRun(t, marker)
 }
 
 func TestInstallSelectedFailureSkipsNpmCleanup(t *testing.T) {
@@ -276,13 +286,7 @@ func TestInstallDir(t *testing.T) {
 				writeToolsFixture(t, filepath.Join(paths.BinDir(), tool.Binary), "#!/bin/sh\nexit 0\n", 0o755)
 			}
 
-			want := filepath.Join(env.home, ".local", "bin")
-			if tc.wantVendor {
-				want = paths.BinDir()
-			}
-			if tc.name == "codex" && tc.pathCopy && !tc.direct {
-				want = env.path1
-			}
+			want := expectedInstallDir(env.home, env.path1, tc.name, tc.wantVendor, tc.pathCopy, tc.direct)
 			var oldPath string
 			if tc.pathCopy {
 				oldPath = filepath.Join(env.path1, tool.Binary)
@@ -292,6 +296,17 @@ func TestInstallDir(t *testing.T) {
 			}
 		})
 	}
+}
+
+func expectedInstallDir(home, path1, name string, wantVendor, pathCopy, direct bool) string {
+	want := filepath.Join(home, ".local", "bin")
+	if wantVendor {
+		want = paths.BinDir()
+	}
+	if name == "codex" && pathCopy && !direct {
+		want = path1
+	}
+	return want
 }
 
 func TestInstallSelectedCopilotDryRunReportsInstallDir(t *testing.T) {

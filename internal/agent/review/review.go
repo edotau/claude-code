@@ -117,35 +117,39 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 			skipped++
 			continue
 		}
-		path := filepath.Join(cwd, rel)
-		info, lerr := os.Lstat(path)
-		if lerr != nil {
-			continue // vanished between listing and read
-		}
-		if !info.Mode().IsRegular() {
-			b.WriteString(skippedSpecialNote(rel, info))
-			continue
-		}
-		if looksSecret(rel) {
-			fmt.Fprintf(&b, "new file: %s (credential-like name, not inlined)\n", rel)
-			continue
-		}
-		data, rerr := readCapped(path)
-		if rerr != nil {
-			fmt.Fprintf(&b, "new file: %s (unreadable, skipped: %v)\n", rel, rerr)
-			continue
-		}
-		if bytes.IndexByte(data[:min(len(data), binarySniff)], 0) >= 0 {
-			fmt.Fprintf(&b, "new file: %s (binary, skipped)\n", rel)
-			continue
-		}
-		total += len(data)
-		fmt.Fprintf(&b, "new file: %s\n%s\n", rel, data)
+		total += appendUntracked(&b, cwd, rel)
 	}
 	if skipped > 0 {
 		fmt.Fprintf(&b, "… %d more untracked files not inlined\n", skipped)
 	}
 	return b.String(), nil
+}
+
+func appendUntracked(b *strings.Builder, cwd, rel string) int {
+	path := filepath.Join(cwd, rel)
+	info, lerr := os.Lstat(path)
+	if lerr != nil {
+		return 0 // vanished between listing and read
+	}
+	if !info.Mode().IsRegular() {
+		b.WriteString(skippedSpecialNote(rel, info))
+		return 0
+	}
+	if looksSecret(rel) {
+		fmt.Fprintf(b, "new file: %s (credential-like name, not inlined)\n", rel)
+		return 0
+	}
+	data, rerr := readCapped(path)
+	if rerr != nil {
+		fmt.Fprintf(b, "new file: %s (unreadable, skipped: %v)\n", rel, rerr)
+		return 0
+	}
+	if bytes.IndexByte(data[:min(len(data), binarySniff)], 0) >= 0 {
+		fmt.Fprintf(b, "new file: %s (binary, skipped)\n", rel)
+		return 0
+	}
+	fmt.Fprintf(b, "new file: %s\n%s\n", rel, data)
+	return len(data)
 }
 
 // looksSecret reports whether an untracked file's name suggests credentials that must not reach a reviewer.

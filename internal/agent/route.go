@@ -450,13 +450,20 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 		if ownLoginAccount(agentName, c.Account) {
 			return "", "" // the agent's own login cell keeps its account; a session profile never replaces it
 		}
-		vt, own, _, err := schemaFor(agentName).targetNote(RunOptions{Provider: sessionProvider(agentName), Model: c.Model})
-		if err != nil || own || vt.Provider == nil || vt.Provider.Auth.Login == agentName {
+		t = billedAgentTarget(agentName, c.Model)
+		if t.Provider == nil {
 			return "", ""
 		}
-		t = vt
 	}
 	return profileAccount(t.Provider), billingOf(t.Provider)
+}
+
+func billedAgentTarget(agentName, model string) providers.Target {
+	t, own, _, err := schemaFor(agentName).targetNote(RunOptions{Provider: sessionProvider(agentName), Model: model})
+	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == agentName {
+		return providers.Target{}
+	}
+	return t
 }
 
 // sessionProvider is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
@@ -735,9 +742,22 @@ func PreviewRoute(model, task, want, fallback string, refresh func(context.Conte
 	if err != nil {
 		return router.PickResult{}, err
 	}
+	hint, err := previewHint(tb, model, task)
+	if err != nil {
+		return router.PickResult{}, err
+	}
+	chain, pick, err := RouteChainFor(context.Background(), want, model, hint, fallback, false,
+		router.PickOpts{Refresh: refresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+	if err != nil {
+		return router.PickResult{}, err
+	}
+	return previewOutcome(chain, pick), nil
+}
+
+func previewHint(tb *router.RouteTable, model, task string) (string, error) {
 	id, _, ok := models.Resolve(model)
 	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.AliasOf(model) == "" {
-		return router.PickResult{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
+		return "", fmt.Errorf("--model %q names no alias or version the table routes", model)
 	}
 	hint := tb.AliasOf(model)
 	if hint == "" && task != "" {
@@ -746,11 +766,10 @@ func PreviewRoute(model, task, want, fallback string, refresh func(context.Conte
 	if hint == "" {
 		hint = router.Aliases[1]
 	}
-	chain, pick, err := RouteChainFor(context.Background(), want, model, hint, fallback, false,
-		router.PickOpts{Refresh: refresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
-	if err != nil {
-		return router.PickResult{}, err
-	}
+	return hint, nil
+}
+
+func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
 	res := pick
 	res.Candidates = nil
 	dispatches := chain.Dispatches
@@ -771,5 +790,5 @@ func PreviewRoute(model, task, want, fallback string, refresh func(context.Conte
 		who, why, _ := strings.Cut(s, ": ")
 		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
 	}
-	return res, nil
+	return res
 }

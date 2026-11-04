@@ -10,7 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
+func fallbackTargetFixture(t *testing.T) (string, *providers.Registry, providers.Selection) {
+	t.Helper()
 	t.Setenv("PATH", t.TempDir()) // no real codex: login detection falls back to the auth.json fixture
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -28,7 +29,12 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 		t.Fatal(err)
 	}
 	sel := providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	return dir, reg, sel
+}
 
+func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
+	dir, reg, sel := fallbackTargetFixture(t)
+	sub := sel.Provider
 	// codex: subscription can't serve it, no ChatGPT login present -> target unchanged, no note.
 	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
@@ -59,11 +65,15 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 		t.Fatalf("expected a note naming chatgpt, got %q", note)
 	}
 
-	// The CODEX_MODEL pin beats both the chatgpt provider's own opus alias and codexOwnModel's
-	// config.toml (unset here), once the ChatGPT login fallback applies.
+	assertFallbackModelPinAndExplicitProvider(t, reg, sel)
+}
+
+func assertFallbackModelPinAndExplicitProvider(t *testing.T, reg *providers.Registry, sel providers.Selection) {
+	t.Helper()
+	// The CODEX_MODEL pin beats chatgpt's opus alias and codexOwnModel's config.toml (unset here).
 	vaulttest.SetRecord(t, "codex", "model", "")
 	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
-	target, _, err = schemaFor("codex").ResolveTarget(reg, sel, false)
+	target, _, err := schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,11 +82,11 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	}
 
 	// An explicit provider choice is never overridden by a fallback.
-	target, note, err = schemaFor("codex").ResolveTarget(reg, sel, true)
+	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if note != "" || target.Provider != sub {
+	if note != "" || target.Provider != sel.Provider {
 		t.Fatalf("explicit provider must not fall back, got target=%v note=%q", target.Provider, note)
 	}
 }

@@ -3,6 +3,7 @@ package agent
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
@@ -45,7 +46,7 @@ func PrepareConfigs(o agentrender.RenderOptions) (*agentrender.RenderPlan, bool,
 			return nil, false, fmt.Errorf("generate: %w", err)
 		}
 	}
-	if !o.ForceHomes && !paths.ConfigDirIsDefault() && !paths.ConfigDirIsInstall() {
+	if skipConfigHomes(o) {
 		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is neither ~/.claude nor an install clone); pass --agents to include them\n", paths.ConfigDir())
 		return p, false, nil
 	}
@@ -57,6 +58,19 @@ func PrepareConfigs(o agentrender.RenderOptions) (*agentrender.RenderPlan, bool,
 	if err != nil {
 		return nil, false, fmt.Errorf("generate: %w", err)
 	}
+	drift, err = prepareSelectedConfigs(agents, reg, sel, home, o, out)
+	if err != nil {
+		return nil, drift, err
+	}
+	return p, drift, nil
+}
+
+func skipConfigHomes(o agentrender.RenderOptions) bool {
+	return !o.ForceHomes && !paths.ConfigDirIsDefault() && !paths.ConfigDirIsInstall()
+}
+
+func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel providers.Selection, home string, o agentrender.RenderOptions, out io.Writer) (bool, error) {
+	var drift bool
 	want := map[string]bool{}
 	for _, a := range agents {
 		want[a] = true
@@ -67,11 +81,11 @@ func PrepareConfigs(o agentrender.RenderOptions) (*agentrender.RenderPlan, bool,
 		}
 		d, err := schemaFor(name).eng().Render(reg, sel, home, o, out)
 		if err != nil {
-			return nil, drift, err
+			return drift, err
 		}
 		drift = drift || d
 	}
-	return p, drift, nil
+	return drift, nil
 }
 
 // RevertConfigs restores each selected agent's files to their newest backup version, removing the restored version so a second revert steps one version further back.

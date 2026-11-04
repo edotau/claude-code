@@ -62,14 +62,7 @@ func runLeg(ctx context.Context, c *agent.Client, leg Leg, progress io.Writer, m
 	for ev := range streamLeg(c, ctx, leg.Opts) {
 		switch {
 		case ev.Type == agent.EventText && progress != nil:
-			if ev.Sep && len(line) > 0 {
-				line = append(line, '\n')
-			}
-			line = append(line, ev.Text...)
-			for i := bytes.IndexByte(line, '\n'); i >= 0; i = bytes.IndexByte(line, '\n') {
-				flush(line[:i])
-				line = line[i+1:]
-			}
+			line = progressLines(line, ev, flush)
 		case ev.Type == agent.EventResult && ev.Envelope != nil:
 			env = *ev.Envelope
 		}
@@ -78,6 +71,18 @@ func runLeg(ctx context.Context, c *agent.Client, leg Leg, progress io.Writer, m
 		flush(line)
 	}
 	return LegResult{Label: leg.Label, Envelope: env}
+}
+
+func progressLines(line []byte, ev agent.Event, flush func([]byte)) []byte {
+	if ev.Sep && len(line) > 0 {
+		line = append(line, '\n')
+	}
+	line = append(line, ev.Text...)
+	for i := bytes.IndexByte(line, '\n'); i >= 0; i = bytes.IndexByte(line, '\n') {
+		flush(line[:i])
+		line = line[i+1:]
+	}
+	return line
 }
 
 func failed(leg Leg, msg string) agent.Envelope {

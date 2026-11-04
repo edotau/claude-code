@@ -114,10 +114,15 @@ func checkSchema(path string, v, sch any) error {
 	case map[string]any:
 		return checkSchemaObject(path, x, m)
 	case []any:
-		for i, el := range x {
-			if err := checkSchema(fmt.Sprintf("%s[%d]", path, i), el, m["items"]); err != nil {
-				return err
-			}
+		return checkSchemaArray(path, x, m["items"])
+	}
+	return nil
+}
+
+func checkSchemaArray(path string, values []any, items any) error {
+	for i, el := range values {
+		if err := checkSchema(fmt.Sprintf("%s[%d]", path, i), el, items); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -36,6 +36,24 @@ func TestListAgentsRegistryLoadErrorNoPanic(t *testing.T) {
 	}
 }
 
+type capabilitySchemaRow struct {
+	Name, Binary string
+	Caps         map[string]string
+	Events       []string
+}
+
+func assertCapabilitySchemaRow(t *testing.T, r capabilitySchemaRow) {
+	t.Helper()
+	for _, k := range []string{"cost", "background", "live", "remote", "env", "system-prompt"} {
+		if r.Caps[k] == "" {
+			t.Errorf("%s: caps lacks %s", r.Name, k)
+		}
+	}
+	if r.Binary == "" || !slices.Contains(r.Events, "start") || !slices.Contains(r.Events, "result") {
+		t.Errorf("%s: binary %q events %v", r.Name, r.Binary, r.Events)
+	}
+}
+
 // agents --format json carries each agent's binary, the cost/background/live/remote levels and its event kinds.
 func TestAgentsJSONCapabilitySchema(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -43,25 +61,14 @@ func TestAgentsJSONCapabilitySchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rows []struct {
-		Name, Binary string
-		Caps         map[string]string
-		Events       []string
-	}
+	var rows []capabilitySchemaRow
 	if err := json.Unmarshal(out, &rows); err != nil {
 		t.Fatal(err, string(out))
 	}
 	byName := map[string]int{}
 	for i, r := range rows {
 		byName[r.Name] = i
-		for _, k := range []string{"cost", "background", "live", "remote", "env", "system-prompt"} {
-			if r.Caps[k] == "" {
-				t.Errorf("%s: caps lacks %s", r.Name, k)
-			}
-		}
-		if r.Binary == "" || !slices.Contains(r.Events, "start") || !slices.Contains(r.Events, "result") {
-			t.Errorf("%s: binary %q events %v", r.Name, r.Binary, r.Events)
-		}
+		assertCapabilitySchemaRow(t, r)
 	}
 	if c := rows[byName["claude"]]; c.Caps["live"] != "native" || c.Caps["cost"] != "native" {
 		t.Errorf("claude caps = %v, want live and cost native", c.Caps)

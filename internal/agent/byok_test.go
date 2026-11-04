@@ -33,15 +33,20 @@ func TestByokRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	if got := retryModel(disp, RunOptions{Model: "dbx:m-b"}, schemaErr); got != "" {
 		t.Errorf("tool-schema retry with the pool exhausted = %q, want none", got)
 	}
-	if router.LoadState()[router.ProviderAccount(p.Name)].BYOKSkip["opencode|m-b"].IsZero() {
-		t.Error("tool-schema rejection did not mark m-b skipped for opencode")
-	}
-	at := router.LoadState()[router.ProviderAccount(p.Name)].BYOKSkip["opencode|m-a"]
-	if time.Since(at) > time.Minute || at.IsZero() {
-		t.Errorf("m-a not marked skipped for opencode: %v", at)
-	}
+	assertByokSkippedModels(t, p.Name)
 	if got := retryModel(Dispatch{}, RunOptions{Model: "x"}, capErr); got != "" {
 		t.Errorf("dispatch without a byok repick retried on %q", got)
+	}
+}
+
+func assertByokSkippedModels(t *testing.T, provider string) {
+	t.Helper()
+	if router.LoadState()[router.ProviderAccount(provider)].BYOKSkip["opencode|m-b"].IsZero() {
+		t.Error("tool-schema rejection did not mark m-b skipped for opencode")
+	}
+	at := router.LoadState()[router.ProviderAccount(provider)].BYOKSkip["opencode|m-a"]
+	if time.Since(at) > time.Minute || at.IsZero() {
+		t.Errorf("m-a not marked skipped for opencode: %v", at)
 	}
 }
 

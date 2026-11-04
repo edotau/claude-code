@@ -81,6 +81,11 @@ func TestSelectAgent(t *testing.T) {
 			t.Errorf("SelectAgent(%q) = %q, %+v, %v; want %q persona %q", c.ref, v, p, err, c.agent, c.persona)
 		}
 	}
+	assertSelectAgentUnknownRefs(t)
+}
+
+func assertSelectAgentUnknownRefs(t *testing.T) {
+	t.Helper()
 	for _, ref := range []string{"notvendor:helper", "nosuch"} {
 		if _, _, err := SelectAgent(ref, nil); err == nil || !strings.Contains(err.Error(), "codex") {
 			t.Errorf("SelectAgent(%q) err = %v, want one listing the vendors", ref, err)
@@ -164,11 +169,24 @@ func TestParseAgentsInlineAndFile(t *testing.T) {
 	}
 	for _, arg := range []string{body, file} {
 		got, err := ParseAgents(arg)
-		d := got["sec"]
-		if err != nil || d == nil || d.Name != "sec" || d.Agent != "codex" || d.Model != "m" || d.Profile != "p" ||
-			d.Effort != "high" || d.MaxTurns != 4 || d.Tools == nil || len(d.Tools) != 0 {
-			t.Errorf("ParseAgents(%.20q) = %+v, %v", arg, d, err)
-		}
+		assertParsedAgentDefinition(t, arg, got["sec"], err)
+	}
+}
+
+func assertParsedAgentDefinition(t *testing.T, arg string, d *Schema, err error) {
+	t.Helper()
+	if err != nil || d == nil {
+		t.Errorf("ParseAgents(%.20q) = %+v, %v", arg, d, err)
+		return
+	}
+	assertParsedAgentFields(t, arg, d, err)
+}
+
+func assertParsedAgentFields(t *testing.T, arg string, d *Schema, err error) {
+	t.Helper()
+	if d.Name != "sec" || d.Agent != "codex" || d.Model != "m" || d.Profile != "p" ||
+		d.Effort != "high" || d.MaxTurns != 4 || d.Tools == nil || len(d.Tools) != 0 {
+		t.Errorf("ParseAgents(%.20q) = %+v, %v", arg, d, err)
 	}
 }
 
@@ -181,6 +199,11 @@ func TestSelectAgentRejectionsAndVendorPrefix(t *testing.T) {
 			t.Errorf("SelectAgent(%q) = %q, %v, want an error", ref, r, d)
 		}
 	}
+	assertSelectAgentVendorPrecedence(t, agents)
+}
+
+func assertSelectAgentVendorPrecedence(t *testing.T, agents map[string]*Schema) {
+	t.Helper()
 	if r, d, err := SelectAgent("sec", agents); err != nil || r != "codex" || d != agents["sec"] {
 		t.Errorf("sec = %q, %v, %v, want codex with the definition", r, d, err)
 	}

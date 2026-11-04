@@ -104,13 +104,12 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 	if ok, why := Serves(name, p, ""); !ok {
 		return nil, nil, fmt.Errorf("%s: %s", name, why)
 	}
-	dialect, base := "", ""
-	for _, d := range s.CLI.Dialects {
-		if r, ok := p.Route(d); ok {
-			dialect, base = d, r
-			break
-		}
-	}
+	return s.configureWire(ctx, e, t, h)
+}
+
+func (s Schema) configureWire(ctx context.Context, e Driver, t providers.Target, h *Headless) ([]string, []string, error) {
+	p := t.Provider
+	dialect, base := s.firstRoute(p)
 	model := p.WireModel(models.Strip1M(t.Model)) // idempotent: targets not built by ResolveAgent get the wire id too
 	var cred string
 	var err error
@@ -125,6 +124,15 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 		return nil, nil, err
 	}
 	return e.Wire(ctx, WireRoute{Target: t, Provider: p, Dialect: dialect, Base: base, Model: model, Cred: cred, Routed: routed}, h)
+}
+
+func (s Schema) firstRoute(p *providers.Provider) (string, string) {
+	for _, d := range s.CLI.Dialects {
+		if base, ok := p.Route(d); ok {
+			return d, base
+		}
+	}
+	return "", ""
 }
 
 // Router seams (tests stub these so no daemon is spawned).

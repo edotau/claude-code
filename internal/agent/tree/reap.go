@@ -62,12 +62,16 @@ func matchesClaudeDispatch(s Session, dispatches []Dispatch) bool {
 		if l.sessionID != "" && l.sessionID == s.ID {
 			return true
 		}
-		if l.cwd != "" && l.cwd == s.Cwd && !s.Updated.Before(l.started) && s.Title != "" &&
-			strings.HasPrefix(oneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…")) {
+		if matchesDispatchTitle(s, l) {
 			return true
 		}
 	}
 	return false
+}
+
+func matchesDispatchTitle(s Session, l Dispatch) bool {
+	return l.cwd != "" && l.cwd == s.Cwd && !s.Updated.Before(l.started) && s.Title != "" &&
+		strings.HasPrefix(oneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…"))
 }
 
 // Reap errors out lost running dispatches and removes dead inflight markers; dryRun only prints. Returns 1 on failure.
@@ -76,8 +80,23 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	if dryRun {
 		verb = "would reap"
 	}
-	code := 0
-	records := 0
+	records, code := reapRecords(dryRun, verb, out, errw)
+	socks := reapSockets(dryRun, verb, out)
+	markers, err := reapMarkers(dryRun, verb, out)
+	if err != nil {
+		fmt.Fprintln(errw, "agents reap:", err)
+		code = 1
+	}
+	if records+markers+socks == 0 {
+		fmt.Fprintln(out, "agents reap: nothing to reap")
+		return code
+	}
+	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets\n", verb, records, markers, socks)
+	return code
+}
+
+func reapRecords(dryRun bool, verb string, out, errw io.Writer) (int, int) {
+	code, records := 0, 0
 	for _, rec := range agent.RecentRecords(scanAllRecords) {
 		if rec.Status != "running" || rec.Alive() {
 			continue
@@ -96,18 +115,7 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		fmt.Fprintf(out, "%s dispatch %s (%s, pid %d)\n", verb, rec.ID, rec.Agent, rec.PID)
 		records++
 	}
-	socks := reapSockets(dryRun, verb, out)
-	markers, err := reapMarkers(dryRun, verb, out)
-	if err != nil {
-		fmt.Fprintln(errw, "agents reap:", err)
-		code = 1
-	}
-	if records+markers+socks == 0 {
-		fmt.Fprintln(out, "agents reap: nothing to reap")
-		return code
-	}
-	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets\n", verb, records, markers, socks)
-	return code
+	return records, code
 }
 
 // reapSockets removes live-session sockets whose holder is gone (no record, or not alive); a live holder keeps its own.
@@ -136,24 +144,9 @@ func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 	}
 	n := 0
 	sweep := func() error {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return err
-		}
-		live := inflight.Liveness(time.Now())
-		for _, e := range entries {
-			if _, ok := inflight.Owner(e.Name()); !ok || live(e.Name()) {
-				continue
-			}
-			if !dryRun {
-				if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
-					continue
-				}
-			}
-			fmt.Fprintf(out, "%s marker %s\n", verb, e.Name())
-			n++
-		}
-		return nil
+		var err error
+		n, err = sweepMarkers(dir, dryRun, verb, out)
+		return err
 	}
 	if dryRun {
 		return n, sweep()
@@ -163,4 +156,26 @@ func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 		err = errors.New("agent-inflight marker dir is locked; markers skipped")
 	}
 	return n, err
+}
+
+func sweepMarkers(dir string, dryRun bool, verb string, out io.Writer) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	live := inflight.Liveness(time.Now())
+	n := 0
+	for _, e := range entries {
+		if _, ok := inflight.Owner(e.Name()); !ok || live(e.Name()) {
+			continue
+		}
+		if !dryRun {
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+				continue
+			}
+		}
+		fmt.Fprintf(out, "%s marker %s\n", verb, e.Name())
+		n++
+	}
+	return n, nil
 }

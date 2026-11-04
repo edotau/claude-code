@@ -197,16 +197,7 @@ func TestReviewArgsCleanupLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReviewArgs(background=%v): %v", background, err)
 		}
-		idx := -1
-		for i, a := range args {
-			if a == "--attach" {
-				idx = i + 1
-			}
-		}
-		if idx < 0 || idx >= len(args) {
-			t.Fatalf("args = %v, missing --attach", args)
-		}
-		tmp := args[idx]
+		tmp := reviewAttachPath(t, args)
 		data, err := os.ReadFile(tmp)
 		if err != nil || string(data) != "diff content" {
 			t.Fatalf("temp file content = %q, err %v, want %q", data, err, "diff content")
@@ -226,6 +217,20 @@ func TestReviewArgsCleanupLifecycle(t *testing.T) {
 	}
 }
 
+func reviewAttachPath(t *testing.T, args []string) string {
+	t.Helper()
+	idx := -1
+	for i, a := range args {
+		if a == "--attach" {
+			idx = i + 1
+		}
+	}
+	if idx < 0 || idx >= len(args) {
+		t.Fatalf("args = %v, missing --attach", args)
+	}
+	return args[idx]
+}
+
 func TestReviewArgsShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "")
@@ -233,9 +238,7 @@ func TestReviewArgsShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	if len(args) < 6 || args[0] != "--agent" || args[1] != "codex" || args[2] != "--fallback" || args[3] != "agents" || args[4] != "--attach" {
-		t.Fatalf("args = %v, want [--agent codex --fallback agents --attach <tmp> <prompt>]", args)
-	}
+	assertReviewArgsPrefix(t, args)
 	if args[len(args)-1] != ReviewPrompt(false, "") {
 		t.Errorf("last arg = %q, want the review prompt", args[len(args)-1])
 	}
@@ -243,6 +246,13 @@ func TestReviewArgsShape(t *testing.T) {
 		if a == "--background" {
 			t.Error("foreground run must not carry --background")
 		}
+	}
+}
+
+func assertReviewArgsPrefix(t *testing.T, args []string) {
+	t.Helper()
+	if len(args) < 6 || args[0] != "--agent" || args[1] != "codex" || args[2] != "--fallback" || args[3] != "agents" || args[4] != "--attach" {
+		t.Fatalf("args = %v, want [--agent codex --fallback agents --attach <tmp> <prompt>]", args)
 	}
 }
 

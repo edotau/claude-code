@@ -235,103 +235,6 @@ func RefuseReadOnly(c Caps, agentName string, readOnly bool) error {
 	return errors.New(agentName + " has no read-only mode (" + s.CLI.Binary + " cannot restrict tools); use --tools or another agent")
 }
 
-// Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
-func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(string)) (Result, error) {
-	if sink == nil {
-		sink = Discard
-	}
-	err := RefusePersona(r.Caps(), r.Name(), req.Persona)
-	if err == nil {
-		err = RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly)
-	}
-	if err != nil {
-		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
-	}
-	req, dropped, emulated := applyCaps(r.Caps(), req)
-	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped, Emulated: emulated}
-	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
-	if !req.NoTools {
-		if err := r.Available(); err != nil {
-			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
-		}
-	}
-	p := runPolicy(ctx, req, notify)
-	var recoverErr error
-	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
-		p.Recover = func(ctx context.Context) error {
-			_, recoverErr = providers.Refresh(ctx, t.Provider)
-			return recoverErr
-		}
-	}
-	start := time.Now()
-	attempts := 0
-	var failed []*Error
-	e := Do(ctx, p, func(actx context.Context, attempt int) *Error {
-		attempts = attempt
-		note := func(e *Error) *Error { // every failed attempt, guard failures included, rides on the answering hop
-			snap := *e
-			snap.Earlier = nil
-			failed = append(failed, &snap)
-			return e
-		}
-		// every attempt resumes after a possible idle (cooldown or backoff): another task may have marked the account dead
-		if h, _ := ctx.Value(permitKey{}).(*permit); h != nil && h.recheck != nil {
-			if skip := h.recheck(); skip != nil {
-				skip.terminal = true
-				return note(skip)
-			}
-		}
-		actx, gerr := guardAttempt(actx, r, req)
-		if gerr != nil {
-			return note(gerr)
-		}
-		cw := &runSink{Sink: sink, agent: r.Name()}
-		out, err := r.Run(actx, req, cw)
-		// An agent that delegated to another names the actual agent itself;
-		// only default to r.Name() when it left Agent unset, so the envelope doesn't lie about who ran.
-		out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, res.Agent), append(slices.Clone(dropped), out.Dropped...), emulated
-		res = out
-		e := Classify(r.Name(), err, cw.progressed)
-		fallToNextAlias(r, &req, e, notify)
-		if e != nil {
-			_ = note(e)
-		}
-		return e
-	})
-	res.DurationMs = time.Since(start).Milliseconds()
-	res.Status = statusOf(e)
-	if res.Transport == nil {
-		res.Transport = &Transport{}
-	}
-	res.Transport.Attempts = attempts
-	if e == nil {
-		res.recovered = failed
-		if req.OutputSchema != "" { // every agent's answer is checked, native or emulated, so structured behaves alike
-			e = checkStructured(&res, req.OutputSchema, r.Name())
-		}
-	}
-	if e != nil {
-		e.Agent = cmp.Or(e.Agent, r.Name())
-		condemnAuth(e, recoverErr)
-		return res, e
-	}
-	return res, nil
-}
-
-// runPolicy is DefaultPolicy under req's timeout, ctx's cooldown key and ctx's permit.
-func runPolicy(ctx context.Context, req RunOptions, notify func(string)) Policy {
-	p := DefaultPolicy()
-	if req.Timeout > 0 {
-		p.AttemptTimeout = req.Timeout
-	}
-	p.Notify = notify
-	p.Key, _ = ctx.Value(coolKey{}).(string)
-	if h, _ := ctx.Value(permitKey{}).(*permit); h != nil {
-		p.Idle = h.idle
-	}
-	return p
-}
-
 // fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.
 func fallToNextAlias(r Engine, req *RunOptions, e *Error, notify func(string)) {
 	if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
@@ -388,10 +291,7 @@ func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error
 	if err != nil {
 		return nil, providers.Target{}, err
 	}
-	// "<profile>:<alias>" resolves like --provider <profile> --model <alias>
-	if name, alias, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
-		req.Provider, req.Model = name, alias
-	}
+	req = profileAliasRequest(reg, req)
 	sel, err := providers.Select(reg, cmp.Or(req.Provider, registeredSession(reg)))
 	if sel.Provider == nil || (err != nil && req.Model == "") {
 		return nil, providers.Target{}, err
@@ -406,6 +306,14 @@ func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error
 		return reg, t, nil
 	}
 	return reg, providers.ParseTarget(reg, req.Model, sel.Provider), nil
+}
+
+// "<profile>:<alias>" resolves like --provider <profile> --model <alias>.
+func profileAliasRequest(reg *providers.Registry, req RunOptions) RunOptions {
+	if name, alias, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
+		req.Provider, req.Model = name, alias
+	}
+	return req
 }
 
 // aliasTarget is the session's target for a canonical Claude id that an alias backs (any spelling), [1m] kept.
@@ -603,58 +511,16 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 	if shown := askedSkips(reasons, c.Want); len(shown) > 0 && notify != nil { // other agents' skips stay in the record
 		notify("skipped without an attempt — " + strings.Join(shown, "; "))
 	}
-	var res Result
-	var err error
-	var prev Engine
-	var prevDispatch Dispatch
-	stopped := false   // the loop ended on a fail-fast, not by running out of dispatches
-	ran := 0           // index of the last dispatch that ran
-	var handoff string // a copilot quota hand-off survives the dispatches that run after it
-	var hops []Hop
+	s := fallbackState{req: req, reasons: reasons}
 	for i, disp := range c.Dispatches {
-		if i > 0 && !dispatchUnavailable(prev, res, err) { // an answer (or a final failure) ends the chain before any cancel check
-			stopped = true
-			break
-		}
-		if cerr := ctx.Err(); cerr != nil { // a cancelled batch must not start another dispatch
-			ce := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: cerr}
-			if i == 0 {
-				return Result{Agent: ce.Agent, Status: statusOf(ce)}, ce
-			}
-			err, res.Status, stopped = ce, statusOf(ce), true
-			break
-		}
-		if i > 0 {
-			reasons = append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err))
-			if herr := announceFallback(sink, notify, prev, disp, err); herr != nil {
-				return res, herr
-			}
-		}
-		lreq := dispatchRequest(req, disp, i == 0 && disp.Agent.Name() == c.Want)
-		ctx, disp := freezeCopilot(ctx, disp, lreq)           // per dispatch: the gate's real target, before any permit or cooldown key
-		disp = ownLoginActual(disp, lreq)                     // the hop and its quota key name what the agent resolves
-		key := cmp.Or(disp.Account, disp.Agent.Name()+"·own") // own-login dispatches still share one cap and cooldown per agent
-		waitCooldown(ctx, key, DefaultMaxDelay)               // holds nothing
-		var dhops []Hop
-		var panicked bool
-		res, dhops, panicked, err = runDispatch(ctx, c, i, disp, lreq, req, key, sink, notify)
-		hops = append(hops, dhops...)
-		if res.Handoff != handoff {
-			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
-		}
-		handoff = cmp.Or(res.Handoff, handoff)
-		prev, prevDispatch, ran = disp.Agent, disp, i
-		if panicked { // after the bookkeeping, so a panicking fallback dispatch is still reported as the fallback
-			stopped = true
-			break
-		}
-		if i == 0 && ExplicitBackend(req) {
-			stopped = true
+		if done, err := s.step(ctx, c, i, disp, sink, notify); err != nil {
+			return s.res, err
+		} else if done {
 			break
 		}
 	}
-	res, err = chainOutcome(c, res, err, reasons, prevDispatch, ran, stopped)
-	res.Handoff, res.Hops = handoff, hops
+	res, err := chainOutcome(c, s.res, s.err, s.reasons, s.prevDispatch, s.ran, s.stopped)
+	res.Handoff, res.Hops = s.handoff, s.hops
 	return res, err
 }
 

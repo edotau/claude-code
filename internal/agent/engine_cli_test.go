@@ -235,6 +235,11 @@ echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"o
 	if args[0] != "exec" || !slices.Contains(args, "--output-schema") {
 		t.Errorf("argv %q: want exec first and --output-schema", args)
 	}
+	assertCodexSchemaCleanup(t, capture)
+}
+
+func assertCodexSchemaCleanup(t *testing.T, capture string) {
+	t.Helper()
 	schema, err := os.ReadFile(capture)
 	if err != nil {
 		t.Fatal(err)

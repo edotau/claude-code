@@ -90,6 +90,11 @@ func TestDoKeepsEveryAttemptError(t *testing.T) {
 	if e == nil || e.Attempts != 3 || e.Kind != KindFatal {
 		t.Fatalf("final error = %+v, want a terminal timeout on attempt 3", e)
 	}
+	assertEarlierAttemptErrors(t, e)
+}
+
+func assertEarlierAttemptErrors(t *testing.T, e *Error) {
+	t.Helper()
 	if len(e.Earlier) != 2 || e.Earlier[0].Kind != KindRateLimit || e.Earlier[1].Kind != KindTransient ||
 		!strings.Contains(e.Earlier[0].Error(), "429") || !strings.Contains(e.Earlier[1].Error(), "529") {
 		t.Errorf("Earlier = %+v, want the 429 then the 529", e.Earlier)
@@ -295,6 +300,37 @@ func TestDoPublishesCooldownOnFinalAttempt(t *testing.T) {
 	}
 }
 
+func assertDispatchSourceGlobals(t *testing.T, p string, banned map[string]bool) {
+	t.Helper()
+	f, perr := parser.ParseFile(token.NewFileSet(), p, nil, 0)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	for _, d := range f.Decls {
+		// Overlay flags set env at flag parse, before dispatch, so --job relaunches inherit (b868a893).
+		if fd, ok := d.(*ast.FuncDecl); ok && (fd.Name.Name == "EnableOverlay" || fd.Name.Name == "EnableOverlayDebug") {
+			continue
+		}
+		ast.Inspect(d, func(n ast.Node) bool { return assertDispatchCallGlobals(t, p, n, banned) })
+	}
+}
+
+func assertDispatchCallGlobals(t *testing.T, p string, n ast.Node, banned map[string]bool) bool {
+	t.Helper()
+	c, ok := n.(*ast.CallExpr)
+	if !ok {
+		return true
+	}
+	sel, ok := c.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return true
+	}
+	if id, ok := sel.X.(*ast.Ident); ok && banned[id.Name+"."+sel.Sel.Name] {
+		t.Errorf("%s: %s.%s in the dispatch path: pass env/dir through childCmd instead", p, id.Name, sel.Sel.Name)
+	}
+	return true
+}
+
 // Guarantee 4: the dispatch path never mutates process-global env or cwd (concurrent tasks would race on it).
 func TestNoSetenvOrChdirInDispatchPath(t *testing.T) {
 	banned := map[string]bool{"os.Setenv": true, "os.Unsetenv": true, "os.Clearenv": true, "os.Chdir": true}
@@ -306,27 +342,6 @@ func TestNoSetenvOrChdirInDispatchPath(t *testing.T) {
 		if strings.HasSuffix(p, "_test.go") {
 			continue
 		}
-		f, perr := parser.ParseFile(token.NewFileSet(), p, nil, 0)
-		if perr != nil {
-			t.Fatal(perr)
-		}
-		for _, d := range f.Decls {
-			// The overlay flags set env once at flag parse, before any dispatch, so --job relaunches inherit (b868a893).
-			if fd, ok := d.(*ast.FuncDecl); ok && (fd.Name.Name == "EnableOverlay" || fd.Name.Name == "EnableOverlayDebug") {
-				continue
-			}
-			ast.Inspect(d, func(n ast.Node) bool {
-				c, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
-					if id, ok := sel.X.(*ast.Ident); ok && banned[id.Name+"."+sel.Sel.Name] {
-						t.Errorf("%s: %s.%s in the dispatch path: pass env/dir through childCmd instead", p, id.Name, sel.Sel.Name)
-					}
-				}
-				return true
-			})
-		}
+		assertDispatchSourceGlobals(t, p, banned)
 	}
 }

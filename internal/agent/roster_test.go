@@ -56,20 +56,7 @@ func TestRosterFacts(t *testing.T) {
 			if s.External() != (s.Name != "claude") {
 				t.Errorf("External() = %v", s.External())
 			}
-			if s.Name == "claude" {
-				if s.CLI.Binary != "" || s.CLI.Dialects != nil || s.CLI.RouterSuffix != nil {
-					t.Errorf("claude wire facts = %+v", s.CLI)
-				}
-				return
-			}
-			want := catalogs[s.Name]
-			if s.ResumeHint("session") != want.ResumeFormat {
-				t.Error("resume command changed")
-			}
-			if !slices.Equal(s.CLI.ModelsArgv, want.ModelsArgv) || s.CLI.ModelsProvider != want.ModelsProvider ||
-				s.CLI.ReadNeedsTools != want.ReadNeedsTools || !slices.Equal(s.CLI.ExtraUsage, want.ExtraUsage) {
-				t.Error("catalog, tools or help facts changed")
-			}
+			assertRosterWireFacts(t, s, catalogs[s.Name])
 		})
 	}
 	if s, ok := LookupSchema("unknown"); ok || !reflect.DeepEqual(s, Schema{}) {
@@ -77,6 +64,23 @@ func TestRosterFacts(t *testing.T) {
 	}
 	if (Schema{}).External() {
 		t.Error("zero schema is external")
+	}
+}
+
+func assertRosterWireFacts(t *testing.T, s Schema, want CLI) {
+	t.Helper()
+	if s.Name == "claude" {
+		if s.CLI.Binary != "" || s.CLI.Dialects != nil || s.CLI.RouterSuffix != nil {
+			t.Errorf("claude wire facts = %+v", s.CLI)
+		}
+		return
+	}
+	if s.ResumeHint("session") != want.ResumeFormat {
+		t.Error("resume command changed")
+	}
+	if !slices.Equal(s.CLI.ModelsArgv, want.ModelsArgv) || s.CLI.ModelsProvider != want.ModelsProvider ||
+		s.CLI.ReadNeedsTools != want.ReadNeedsTools || !slices.Equal(s.CLI.ExtraUsage, want.ExtraUsage) {
+		t.Error("catalog, tools or help facts changed")
 	}
 }
 
