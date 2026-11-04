@@ -57,6 +57,12 @@ type Input struct {
 		FiveHour *rateWindow `json:"five_hour"`
 		SevenDay *rateWindow `json:"seven_day"`
 	} `json:"rate_limits"`
+	Effort *struct {
+		Level string `json:"level"`
+	} `json:"effort"`
+	Thinking *struct {
+		Enabled bool `json:"enabled"`
+	} `json:"thinking"`
 }
 
 // rateWindow is one rate-limit window from the statusline payload's rate_limits object.
@@ -81,6 +87,7 @@ type values struct {
 	contextPct   int
 	adds         int
 	dels         int
+	two          twoData // payload facts only the twoline style reads
 }
 
 // text returns a plain segment's value; context, git and path are drawn by each style itself.
@@ -164,6 +171,8 @@ func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 	mode := cfg.Mode()
 	width := lineWidth(cfg)
 	switch cfg.Style {
+	case "twoline":
+		return renderTwoline(v, pal, stops, mode)
 	case "dashboard":
 		return renderDashboard(v, cfg, pal, stops, mode, width)
 	case "powerline", "capsule", "minimal":
@@ -194,6 +203,9 @@ func collect(in Input, cfg Config) values {
 		v.branch = gitBranch(cwd)
 	}
 	v.collectUsage(in, cfg, cwd, provider)
+	if cfg.Style == "twoline" {
+		v.two = collectTwoline(in, provider)
+	}
 	return v
 }
 
