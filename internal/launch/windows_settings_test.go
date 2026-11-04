@@ -395,7 +395,7 @@ func TestCheckWindowsSettingsDrift_ForeignKeptNotDrift(t *testing.T) {
 	if drift.Drifted() || len(drift.Foreign) != 0 {
 		t.Errorf("Drifted() = %v, Foreign = %v; want a kept key, not drift", drift.Drifted(), drift.Foreign)
 	}
-	want := "settings (windows): remote is kept (not in the template)"
+	want := "settings (windows): remote is kept (not in the defaults)"
 	if lines := drift.LinesLabeled("settings (windows)"); !slices.Contains(lines, want) {
 		t.Errorf("lines = %v, want %q", lines, want)
 	}
@@ -454,7 +454,7 @@ func TestCheckWindowsSettingsDrift_LocalDupNoteOmitsHomeClaim(t *testing.T) {
 	if len(drift.LocalDup) != 1 {
 		t.Fatalf("LocalDup = %q, want one entry", drift.LocalDup)
 	}
-	if got, want := drift.LocalDup[0], "settings.local.json theme repeats the template"; got != want {
+	if got, want := drift.LocalDup[0], "settings.local.json theme repeats the defaults"; got != want {
 		t.Errorf("LocalDup = %q, want %q", got, want)
 	}
 	for _, l := range drift.LinesLabeled("settings (windows)") {

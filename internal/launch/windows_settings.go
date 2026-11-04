@@ -97,7 +97,7 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	existing, bom, err := readStrippingBOM(file)
+	existing, _, err := readStrippingBOM(file)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -111,20 +111,22 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 		fmt.Fprintln(w, "  unchanged")
 		return nil
 	}
-	out := merged
-	if bom {
-		out = append(bomBytes, merged...)
-	}
 	if dryRun {
-		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(out), len(existing))
+		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
 		return nil
 	}
-	// A Windows-side writer (Claude Desktop) may have saved since the read; never overwrite its edit.
-	if now, nowBOM, rerr := readStrippingBOM(file); (rerr == nil || !errors.Is(rerr, fs.ErrNotExist)) &&
-		(rerr != nil || nowBOM != bom || !bytes.Equal(now, existing)) {
-		return fmt.Errorf("%s changed during install; re-run claude-code install", file)
-	}
-	backup, err := settings.WriteWithBackup(file, out)
+	// Re-merge from the bytes read under the file lock, so a Windows-side writer's concurrent edit survives.
+	backup, err := settings.UpdateWithBackup(file, func(old []byte) ([]byte, error) {
+		hadBOM := bytes.HasPrefix(old, bomBytes)
+		m, _, err := settings.Merge(bytes.TrimPrefix(old, bomBytes), winRendered)
+		if err != nil {
+			return nil, err
+		}
+		if hadBOM {
+			return append(append([]byte{}, bomBytes...), m...), nil
+		}
+		return m, nil
+	})
 	if backup != "" {
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
@@ -190,7 +192,7 @@ func checkSettingsDriftAt(file, localFile string, rendered []byte, dupNote strin
 	if local, lerr := os.ReadFile(localFile); lerr == nil {
 		if dups, derr := settings.LocalDuplicates(local, rendered); derr == nil {
 			for _, k := range dups {
-				d.LocalDup = append(d.LocalDup, fmt.Sprintf("settings.local.json %s repeats the template%s", k, dupNote))
+				d.LocalDup = append(d.LocalDup, fmt.Sprintf("settings.local.json %s repeats the defaults%s", k, dupNote))
 			}
 		}
 	}
