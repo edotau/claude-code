@@ -14,20 +14,6 @@ import (
 //go:embed agents.json
 var defaultsJSON []byte
 
-// GuardRules are prompts carried over into an agent opted in via Permission.UseGuardRules.
-type GuardRules struct {
-	Ask  []string `json:"ask"`
-	Deny []string `json:"deny"`
-}
-
-// Permission is one agent's approval policy: agent-native knobs only that agent's renderer consumes.
-type Permission struct {
-	UseGuardRules         bool   `json:"useGuardRules,omitempty"`
-	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
-	SandboxMode           string `json:"sandboxMode,omitempty"`
-	DefaultPermissionMode string `json:"defaultPermissionMode,omitempty"`
-}
-
 // MCP is the explicit allowlist an agent's config is rendered with; omitted servers aren't wired.
 type MCP struct {
 	Allow []string `json:"allow"`

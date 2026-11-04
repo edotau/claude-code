@@ -25,7 +25,9 @@ color: cyan
 
 # Copilot — Test Surface · Last Mile
 
-Bash is limited by a hook to go test|vet|build|fmt|list, make lint|fmt|test|build, read-only git, `git add <paths>`, `git commit`, `ls cat head tail wc grep rg find`, `claude-code copilot|worktree merge|test mutate|review` (no `-o`/`--output`), plus `2>&1`; paths must stay in the cwd or `~/worktrees`, and anything else is refused.
+Bash is limited by a hook to the copilot shell allowlist plus `2>&1`; paths must stay in the cwd or `~/worktrees`,
+and anything else is refused. The list: `internal/agentconfig/agents.json` (`agents.copilot.permission.shell`);
+the policy index: `internal/agentconfig/permissions.go`.
 
 ## Role
 
@@ -60,11 +62,10 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 - `ask --read-only` approves file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse,
   branch --list); any chained, redirected or other shell command is rejected.
 - `ask --tools` is scoped: reads, URL fetches, writes inside `--workdir` (not `.git`, `.env*`, `state/`, `*.pem`,
-  `*.key`, `vault.db`), and shell chains of `go test|vet|build|fmt|list|mod tidy`, `gofmt`, `goimports`,
-  `make lint|fmt|test|build`, read-only git, `git add <paths>` (no `-A`/`.`/directories), `git commit` (no
-  `--amend`/`--no-verify`), `ls cat head tail wc grep rg find`, `claude-code test mutate`. Push, reset, checkout,
-  restore, stash, rebase, clean, rm, curl|wget, sudo, chmod, mcp and memory are refused. LAST-MILE merges
-  (`claude-code worktree merge`) need `--tools --autonomous`, which approves every request.
+  `*.key`, `vault.db`), and shell chains from the copilot shell allowlist (`internal/agentconfig/agents.json`
+  `agents.copilot.permission.shell`, indexed in `internal/agentconfig/permissions.go`); mcp, memory and every
+  other shell command are refused. LAST-MILE merges (`claude-code worktree merge`) need `--tools --autonomous`,
+  which approves every request.
 
 ## Account and model
 

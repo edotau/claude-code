@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -417,25 +418,16 @@ func copilotHeadless(h *agent.Headless) []string {
 	case h.Tools && h.Autonomous:
 		argv = append(argv, "--allow-all-tools")
 	case h.Tools:
-		argv = append(argv, scopedCLIArgs...)
+		argv = append(argv, scopedCLIArgs()...)
 	}
 	return argv
 }
 
 // scopedCLIArgs approximates approveScoped; the CLI cannot confine write to the workdir or ban git add -A beyond a prefix.
-var scopedCLIArgs = slices.Concat([]string{"--disallow-temp-dir", "--allow-tool=read", "--allow-tool=write"}, toolFlags("--allow-tool", scopedShellAllow...),
-	toolFlags("--deny-tool", scopedShellDeny...))
-
-var scopedShellAllow = []string{
-	"go test", "go vet", "go build", "go fmt", "go list", "go mod tidy", "gofmt", "goimports",
-	"make lint", "make fmt", "make test", "make build",
-	"git status", "git diff", "git log", "git show", "git blame", "git rev-parse", "git branch --list",
-	"git add", "git commit", "ls", "cat", "head", "tail", "wc", "grep", "rg", "find", "claude-code test mutate",
-}
-
-var scopedShellDeny = []string{
-	"git push", "git reset", "git checkout", "git restore", "git stash", "git rebase", "git clean", "git add -A", "git add --all", "git add .",
-	"git commit --amend", "git commit --no-verify", "rm", "sudo", "chmod", "chown", "curl", "wget", "find -delete", "find -exec",
+func scopedCLIArgs() []string {
+	p := agentconfig.ShellPolicy()
+	return slices.Concat([]string{"--disallow-temp-dir", "--allow-tool=read", "--allow-tool=write"},
+		toolFlags("--allow-tool", p.CLIAllow()...), toolFlags("--deny-tool", p.CLIDeny...))
 }
 
 // toolFlags spells each shell command prefix as one flag=shell(prefix:*) argument.
