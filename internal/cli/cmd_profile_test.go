@@ -26,8 +26,14 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 		t.Fatalf("copilot profile: code=%d out=%q", code, out)
 	}
 
+	checkCopilotProfileActivation(t)
+	checkClaudeAndCodexProfiles(t)
+}
+
+func checkCopilotProfileActivation(t *testing.T) {
+	t.Helper()
 	// on is a profile: with none recorded the agent stays off, and setting one switches it on.
-	code, _, errOut = captureOutput(t, func() int { return cmdAgentProfile("copilot", []string{"personal"}) })
+	code, _, errOut := captureOutput(t, func() int { return cmdAgentProfile("copilot", []string{"personal"}) })
 	if code != 0 || !agent.AgentActive("copilot") {
 		t.Fatalf("copilot profile personal: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
 	}
@@ -35,9 +41,12 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 	if code != 0 || agent.AgentActive("copilot") {
 		t.Fatalf("copilot off with a profile: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
 	}
+}
 
+func checkClaudeAndCodexProfiles(t *testing.T) {
+	t.Helper()
 	// claude has no active pin.
-	code, _, errOut = captureOutput(t, func() int { return cmdAgentOnOff("claude", false, nil) })
+	code, _, errOut := captureOutput(t, func() int { return cmdAgentOnOff("claude", false, nil) })
 	if code == 0 || !strings.Contains(errOut, "always on") {
 		t.Fatalf("claude off: code=%d err=%q", code, errOut)
 	}

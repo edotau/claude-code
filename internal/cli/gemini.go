@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -35,40 +36,43 @@ var geminiBridgePage = helptext.Page{
 		"answer. --diff narrows to files changed vs HEAD; --index prepends a path index.",
 }
 
-func cmdGeminiBridge(args []string) int {
+type geminiBridgeOpts struct {
+	gemini.GeminiOptions
+	dirs, files, format string
+}
+
+func geminiBridgeFlags() (*flag.FlagSet, *geminiBridgeOpts) {
 	fs := helptext.NewFlagSet("gemini bridge", geminiBridgePage)
-	task := fs.String("task", "", "explicit task text (else trailing args)")
-	model := fs.String("model", "", "alias (opus), version (opus-5-5) or wire id")
-	provider := fs.String("profile", "", "API-key profile instead of agy's Google sign-in")
-	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh")
-	dirs := fs.String("dirs", "", "comma-separated dirs to ingest recursively")
-	files := fs.String("files", "", "comma-separated file globs to ingest")
-	format := fs.String("format", "text", "output format: text|json")
-	maxFiles := fs.Int("max-files", gemini.DefaultMaxFiles, "max files to inline")
-	maxFileBytes := fs.Int("max-file-bytes", gemini.DefaultMaxFileBytes, "max bytes per file")
-	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline")
-	printCommand := fs.Bool("print-command", false, "print the resolved request and exit")
-	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
-	index := fs.Bool("index", false, "prepend a nested path index of every matched path")
-	diff := fs.Bool("diff", false, "ingest only files changed vs HEAD")
+	o := &geminiBridgeOpts{}
+	fs.StringVar(&o.Task, "task", "", "explicit task text (else trailing args)")
+	fs.StringVar(&o.Model, "model", "", "alias (opus), version (opus-5-5) or wire id")
+	fs.StringVar(&o.Provider, "profile", "", "API-key profile instead of agy's Google sign-in")
+	fs.StringVar(&o.Effort, "effort", "", "reasoning effort: low|medium|high|xhigh")
+	fs.StringVar(&o.dirs, "dirs", "", "comma-separated dirs to ingest recursively")
+	fs.StringVar(&o.files, "files", "", "comma-separated file globs to ingest")
+	fs.StringVar(&o.format, "format", "text", "output format: text|json")
+	fs.IntVar(&o.MaxFiles, "max-files", gemini.DefaultMaxFiles, "max files to inline")
+	fs.IntVar(&o.MaxFileBytes, "max-file-bytes", gemini.DefaultMaxFileBytes, "max bytes per file")
+	fs.DurationVar(&o.Timeout, "timeout", 10*time.Minute, "per-attempt deadline")
+	fs.BoolVar(&o.PrintCommand, "print-command", false, "print the resolved request and exit")
+	fs.StringVar(&o.Rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
+	fs.BoolVar(&o.Index, "index", false, "prepend a nested path index of every matched path")
+	fs.BoolVar(&o.Diff, "diff", false, "ingest only files changed vs HEAD")
+	return fs, o
+}
+
+func cmdGeminiBridge(args []string) int {
+	fs, o := geminiBridgeFlags()
 	// Interspersed: `bridge "task" --dirs d` must ingest d, not append "--dirs d" to the task.
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if *format != "text" && *format != "json" {
-		return fail("gemini bridge: --format %q unknown (text|json)", *format)
+	if code := checkGeminiBridge(o, pos); code != 0 {
+		return code
 	}
-	if *maxFiles < 0 || *maxFileBytes < 0 {
-		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --max-files and --max-file-bytes must not be negative")
-		return 2
-	}
-	if *task != "" && len(pos) > 0 {
-		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --task and trailing positional args are mutually exclusive")
-		return 2
-	}
-	taskText := cmp.Or(*task, strings.Join(pos, " "))
-	if strings.TrimSpace(taskText) == "" {
+	o.Task = cmp.Or(o.Task, strings.Join(pos, " "))
+	if strings.TrimSpace(o.Task) == "" {
 		fs.Usage()
 		if len(args) == 0 {
 			return 0 // bare `gemini bridge` is a help request
@@ -79,20 +83,35 @@ func cmdGeminiBridge(args []string) int {
 	if err != nil {
 		return fail("gemini bridge: %v", err)
 	}
-	var stream io.Writer = os.Stdout
-	if *format == "json" {
-		stream = io.Discard
+	o.Cwd, o.Dirs, o.Files = cwd, textutil.SplitCSV(o.dirs), textutil.SplitCSV(o.files)
+	o.IndexOnly = o.MaxFiles == 0
+	return runGeminiBridge(o.GeminiOptions, o.format)
+}
+
+func checkGeminiBridge(o *geminiBridgeOpts, pos []string) int {
+	if o.format != "text" && o.format != "json" {
+		return fail("gemini bridge: --format %q unknown (text|json)", o.format)
 	}
-	opts := gemini.GeminiOptions{
-		Task: taskText, Model: *model, Provider: *provider, Effort: *effort, Rubric: *rubric, Cwd: cwd,
-		Dirs: textutil.SplitCSV(*dirs), Files: textutil.SplitCSV(*files),
-		MaxFiles: *maxFiles, MaxFileBytes: *maxFileBytes, Timeout: *timeout, IndexOnly: *maxFiles == 0,
-		Index: *index, Diff: *diff, PrintCommand: *printCommand,
+	if o.MaxFiles < 0 || o.MaxFileBytes < 0 {
+		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --max-files and --max-file-bytes must not be negative")
+		return 2
+	}
+	if o.Task != "" && len(pos) > 0 {
+		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --task and trailing positional args are mutually exclusive")
+		return 2
+	}
+	return 0
+}
+
+func runGeminiBridge(opts gemini.GeminiOptions, format string) int {
+	var stream io.Writer = os.Stdout
+	if format == "json" {
+		stream = io.Discard
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	res, err := gemini.RunGemini(ctx, opts, stream, os.Stderr)
-	if *format == "json" {
+	if format == "json" {
 		body, merr := json.Marshal(agent.NewEnvelope(res, err, ""))
 		if merr != nil {
 			return fail("gemini bridge: encoding result: %v", merr)

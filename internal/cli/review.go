@@ -100,11 +100,15 @@ func cmdWorkflow(args []string) int {
 	case "skeleton":
 		return planlint.RunSkeleton(args[1:], os.Stdout, os.Stderr)
 	case "lint":
-		if len(args) == 1 {
-			return planlint.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
-		}
-		return planlint.RunWorkflowLint(args[1:], os.Stdout, os.Stderr)
+		return workflowLint(args[1:])
 	}
 	workflowPage.Fprint(os.Stderr)
 	return 2
+}
+
+func workflowLint(args []string) int {
+	if len(args) == 0 {
+		return planlint.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
+	}
+	return planlint.RunWorkflowLint(args, os.Stdout, os.Stderr)
 }

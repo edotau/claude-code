@@ -55,11 +55,15 @@ func cmdAgentsJob(verb string, args []string) int {
 	case "tail":
 		return agentsTail(rec, *format, *follow, cwd)
 	}
-	rec, err = job.CancelJob(context.Background(), rec.Agent, cwd, rec.ID)
+	return agentsCancel(rec, *format, cwd)
+}
+
+func agentsCancel(rec agent.Record, format, cwd string) int {
+	rec, err := job.CancelJob(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
 		return fail("agents cancel: %v", err)
 	}
-	if *format == helptext.JSON {
+	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			ID     string `json:"id"`
 			Status string `json:"status"`

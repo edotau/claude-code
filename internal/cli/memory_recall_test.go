@@ -38,6 +38,11 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 		[]byte("# Active Context\n\n- rule stamped id-marked never settled here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	checkMemoryRecallUnstampedRefs(t, repo)
+}
+
+func checkMemoryRecallUnstampedRefs(t *testing.T, repo string) {
+	t.Helper()
 	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"recall", "--repo", repo, "stamped", "id-marked", "rule"}) })
 	if code != 0 {
 		t.Fatalf("memory recall: code=%d stderr=%q", code, stderr)
@@ -48,18 +53,23 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	if strings.Contains(out, "\n- —") || strings.Contains(out, "\n — ") {
 		t.Errorf("an unstamped hit printed the old bare-dash format: %q", out)
 	}
-	var contentRef string
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if ref, _, ok := strings.Cut(line, " — "); ok && ref != "deadbeef" {
-			contentRef = ref
-		}
-	}
+	contentRef := unstampedRecallRef(out)
 	if contentRef == "" || !strings.HasPrefix(contentRef, "z") {
 		t.Fatalf("recall output missing a content-derived ref for the unstamped hit: %q", out)
 	}
 	if _, block, err := bank.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
 		t.Errorf("memory show %s = %q, %v; want the unstamped block", contentRef, block, err)
 	}
+}
+
+func unstampedRecallRef(out string) string {
+	var contentRef string
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if ref, _, ok := strings.Cut(line, " — "); ok && ref != "deadbeef" {
+			contentRef = ref
+		}
+	}
+	return contentRef
 }
 
 // TestMemoryRecallLoadResolvesUnstampedHitByContentRef: `memory recall --load` fetches an unstamped

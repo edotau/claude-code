@@ -45,26 +45,19 @@ func cmdNetwork(args []string) int {
 		networkPage.Fprint(os.Stderr)
 		return 0
 	}
-	rest := args[1:]
-	switch args[0] {
-	case "tailscale":
-		return cmdNetworkTailscale(rest)
-	case "browser":
-		return cmdNetworkBrowser(rest)
-	case "websearch":
-		return cmdNetworkWebsearch(rest)
-	case "mcp":
-		return cmdNetworkMCP(rest)
-	case "page":
-		return cmdNetworkPage(rest)
-	case "view":
-		return cmdNetworkView(rest)
-	case "remote":
-		return cmdNetworkRemote(rest)
-	case "restart":
-		return cmdRestart(args[1:])
-	case "vscode":
-		return cmdNetworkVSCode(rest)
+	handlers := map[string]func([]string) int{
+		"tailscale": cmdNetworkTailscale,
+		"browser":   cmdNetworkBrowser,
+		"websearch": cmdNetworkWebsearch,
+		"mcp":       cmdNetworkMCP,
+		"page":      cmdNetworkPage,
+		"view":      cmdNetworkView,
+		"remote":    cmdNetworkRemote,
+		"restart":   cmdRestart,
+		"vscode":    cmdNetworkVSCode,
+	}
+	if handler, ok := handlers[args[0]]; ok {
+		return handler(args[1:])
 	}
 	names := make([]string, len(networkPage.Commands))
 	for i, c := range networkPage.Commands {

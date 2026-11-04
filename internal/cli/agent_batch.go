@@ -28,6 +28,13 @@ var batchExclusive = []string{"retry", "job", "background", "session", "log", "a
 
 // runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool and streams one envelope per line.
 func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions) int {
+	if err := checkBatchFlags(fs, resume, o); err != nil {
+		return failAskCode("text", o.agent, err, 2)
+	}
+	return runAskBatchInput(fs, src, o, base)
+}
+
+func checkBatchFlags(fs *flag.FlagSet, resume bool, o batchOpts) error {
 	var bad error
 	if resume || fs.NArg() > 0 {
 		bad = errors.New("--batch takes tasks from the JSONL source, not a session id or a positional task")
@@ -43,9 +50,10 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	if bad == nil && o.jobs < 1 {
 		bad = fmt.Errorf("--jobs %d: need at least 1", o.jobs)
 	}
-	if bad != nil {
-		return failAskCode("text", o.agent, bad, 2)
-	}
+	return bad
+}
+
+func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunOptions) int {
 	in := io.Reader(os.Stdin)
 	if src != "-" {
 		f, err := os.Open(src)

@@ -66,7 +66,10 @@ func cmdTheme(args []string) int {
 	if fs.Args()[0] == "apply" {
 		return themeApply(fs.Args()[1:])
 	}
-	name := fs.Args()[0]
+	return setThemePalette(fs.Args()[0])
+}
+
+func setThemePalette(name string) int {
 	names := theme.GradientNames()
 	if !slices.Contains(names, name) {
 		fmt.Fprintf(os.Stderr, "claude-code: unknown palette %q — valid palettes: %s\n", name, strings.Join(names, ", "))

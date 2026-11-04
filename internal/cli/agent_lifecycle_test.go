@@ -73,6 +73,11 @@ func TestAgentsJobLifecycleClaude(t *testing.T) {
 	}
 
 	out = captureStdout(t, func() { code = cmdAgentsJob("tail", []string{rec.ID, "--format", "json", "-f"}) })
+	checkJobTailEvents(t, code, out)
+}
+
+func checkJobTailEvents(t *testing.T, code int, out string) {
+	t.Helper()
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if code != 0 || len(lines) != 3 {
 		t.Fatalf("tail = %d, %d lines %q, want 3 events then exit", code, len(lines), out)

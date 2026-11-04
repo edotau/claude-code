@@ -28,19 +28,30 @@ var dispatchFlagMode = map[string]string{
 	"format": "list", "status": "list", "interval": "list",
 }
 
+type remoteFlags struct {
+	host, dir, agent, name, format string
+	dryRun, list, status, attach   bool
+	interval                       time.Duration
+}
+
+func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
+	f := &remoteFlags{}
+	fs.StringVar(&f.host, "host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
+	fs.StringVar(&f.dir, "dir", "", "remote working directory (default ~)")
+	fs.StringVar(&f.agent, "agent", "claude", "agent CLI: "+strings.Join(tailscale.RemoteAgents, "|"))
+	fs.StringVar(&f.name, "name", "", "tmux session name (default cc-<agent>-<id>)")
+	fs.BoolVar(&f.dryRun, "dry-run", false, "print the ssh argv instead of running it")
+	fs.BoolVar(&f.list, "list", false, "list cc-* tmux sessions on --host")
+	fs.BoolVar(&f.status, "status", false, "with --list, classify each pane's state")
+	fs.DurationVar(&f.interval, "interval", 0, "with --status, sample every interval (0 = once)")
+	fs.BoolVar(&f.attach, "attach", false, "attach to a session on --host (positional: session name)")
+	fs.StringVar(&f.format, "format", helptext.Text, "--list output format: text|json")
+	return f
+}
+
 func cmdNetworkRemote(args []string) int {
-	remoteAgents := strings.Join(tailscale.RemoteAgents, "|")
 	fs := helptext.NewFlagSet("network remote", remotePage)
-	host := fs.String("host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
-	dir := fs.String("dir", "", "remote working directory (default ~)")
-	agentName := fs.String("agent", "claude", "agent CLI: "+remoteAgents)
-	name := fs.String("name", "", "tmux session name (default cc-<agent>-<id>)")
-	dryRun := fs.Bool("dry-run", false, "print the ssh argv instead of running it")
-	list := fs.Bool("list", false, "list cc-* tmux sessions on --host")
-	status := fs.Bool("status", false, "with --list, classify each pane's state")
-	interval := fs.Duration("interval", 0, "with --status, sample every interval (0 = once)")
-	attach := fs.Bool("attach", false, "attach to a session on --host (positional: session name)")
-	format := fs.String("format", helptext.Text, "--list output format: text|json")
+	f := addRemoteFlags(fs)
 	// Interspersed: a trailing --dry-run must not join the task and run it for real.
 	if len(args) == 0 || args[0] == "help" {
 		fs.Usage()
@@ -50,43 +61,55 @@ func cmdNetworkRemote(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if *host == "" {
+	if f.host == "" {
 		return fail("network remote: --host is required")
 	}
-	mode := "start"
-	switch {
-	case *list:
-		mode = "list"
-	case *attach:
-		mode = "attach"
+	mode := f.mode()
+	if wrong := remoteModeFlags(fs, mode); wrong != nil {
+		return fail("network remote: %v", wrong)
 	}
+	ctx := context.Background()
+	resolved, err := tailscale.ResolveHost(ctx, f.host)
+	if err != nil {
+		return fail("%v", err)
+	}
+	return dispatchRemoteMode(ctx, resolved, mode, f, rest)
+}
+
+func (f remoteFlags) mode() string {
+	if f.list {
+		return "list"
+	}
+	if f.attach {
+		return "attach"
+	}
+	return "start"
+}
+
+func remoteModeFlags(fs *flag.FlagSet, mode string) error {
 	var wrong error
 	fs.Visit(func(f *flag.Flag) {
 		if owner, ok := dispatchFlagMode[f.Name]; ok && owner != mode && wrong == nil {
 			wrong = fmt.Errorf("--%s applies to --%s mode only, not --%s", f.Name, owner, mode)
 		}
 	})
-	if wrong != nil {
-		return fail("network remote: %v", wrong)
-	}
-	ctx := context.Background()
-	resolved, err := tailscale.ResolveHost(ctx, *host)
-	if err != nil {
-		return fail("%v", err)
-	}
+	return wrong
+}
+
+func dispatchRemoteMode(ctx context.Context, host, mode string, f *remoteFlags, rest []string) int {
 	switch mode {
 	case "list":
-		return dispatchList(ctx, resolved, *format, *status, *interval)
+		return dispatchList(ctx, host, f.format, f.status, f.interval)
 	case "attach":
 		if len(rest) != 1 {
 			return fail("network remote --attach: give exactly one session name")
 		}
-		return dispatchAttach(resolved, rest[0])
+		return dispatchAttach(host, rest[0])
 	default:
-		if !tailscale.ValidAgent(*agentName) {
-			return fail("network remote: --agent %q must be one of %s", *agentName, remoteAgents)
+		if !tailscale.ValidAgent(f.agent) {
+			return fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(tailscale.RemoteAgents, "|"))
 		}
-		return dispatchStart(ctx, resolved, *dir, *agentName, *name, strings.Join(rest, " "), *dryRun)
+		return dispatchStart(ctx, host, f.dir, f.agent, f.name, strings.Join(rest, " "), f.dryRun)
 	}
 }
 

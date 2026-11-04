@@ -52,7 +52,7 @@ const (
 )
 
 func commands() []command {
-	return []command{
+	return append([]command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
 		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: aliasVerb(models.Opus)},
 		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: aliasVerb(models.Sonnet)},
@@ -87,6 +87,11 @@ func commands() []command {
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json", run: cmdInstall},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets to your defaults", run: cmdConfigure},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme},
+	}, hiddenCommands()...)
+}
+
+func hiddenCommands() []command {
+	return []command{
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
@@ -109,16 +114,19 @@ func commands() []command {
 // AgentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
 // `ask` = `ask --agent <v>`, a word in agentSubverbs = agentSub, else launch with args forwarded.
 func AgentVerb(name string, args []string) int {
-	if len(args) > 0 && args[0] == "--" {
+	if len(args) == 0 {
+		return launchAgent(name, args)
+	}
+	if args[0] == "--" {
 		return launchAgent(name, args[1:])
 	}
-	if len(args) > 0 && args[0] == "ask" {
+	if args[0] == "ask" {
 		return cmdAsk(append([]string{"--agent", name}, args[1:]...))
 	}
-	if len(args) > 0 && agentSubverbs[args[0]] {
+	if agentSubverbs[args[0]] {
 		return agentSub(name, args)
 	}
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+	if len(args) == 1 && slices.Contains([]string{"-h", "--help", "help"}, args[0]) {
 		agentPage(name).Fprint(os.Stderr)
 		return 0
 	}

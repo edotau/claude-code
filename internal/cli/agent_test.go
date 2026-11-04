@@ -313,15 +313,7 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("reap exit %d, stderr=%s", code, stderr)
 	}
-	for _, p := range []string{dead, old0} {
-		m := readDispatch(t, p)
-		if m["status"] != "error" || m["error"] != "lost: process gone" {
-			t.Errorf("%s: status/error = %v/%v, want error/lost: process gone", filepath.Base(p), m["status"], m["error"])
-		}
-		if m["duration_ms"] != float64(3000) || m["agent"] != "codex" {
-			t.Errorf("%s: other fields not preserved: %v", filepath.Base(p), m)
-		}
-	}
+	checkLostDispatches(t, []string{dead, old0})
 	for _, p := range []string{live, young} {
 		if m := readDispatch(t, p); m["status"] != "running" {
 			t.Errorf("%s: alive/in-grace record was reaped: %v", filepath.Base(p), m["status"])
@@ -332,6 +324,19 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "000001") {
 		t.Errorf("reap output should name the reaped dispatch, got %q", stdout)
+	}
+}
+
+func checkLostDispatches(t *testing.T, paths []string) {
+	t.Helper()
+	for _, p := range paths {
+		m := readDispatch(t, p)
+		if m["status"] != "error" || m["error"] != "lost: process gone" {
+			t.Errorf("%s: status/error = %v/%v, want error/lost: process gone", filepath.Base(p), m["status"], m["error"])
+		}
+		if m["duration_ms"] != float64(3000) || m["agent"] != "codex" {
+			t.Errorf("%s: other fields not preserved: %v", filepath.Base(p), m)
+		}
 	}
 }
 

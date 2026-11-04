@@ -267,14 +267,18 @@ func cmdConfigureDesktop(args []string) int {
 		return fail("configure desktop: open Claude Desktop once first (missing directory %s)", root)
 	}
 	opts := desktop.Options{Root: root, Revert: *revert, DryRun: *dryRun}
-	if !*revert {
+	return configureDesktopOptions(opts, *profile)
+}
+
+func configureDesktopOptions(opts desktop.Options, profile string) int {
+	if !opts.Revert {
 		reg, err := providers.Load()
 		if err != nil {
 			return fail("configure desktop: %v", err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if opts, err = desktop.BuildOptions(ctx, reg, *profile, *dryRun, opts, desktopHelper, desktopEnsure); err != nil {
+		if opts, err = desktop.BuildOptions(ctx, reg, profile, opts.DryRun, opts, desktopHelper, desktopEnsure); err != nil {
 			return fail("configure desktop: %v", err)
 		}
 	}

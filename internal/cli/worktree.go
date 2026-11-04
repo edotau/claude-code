@@ -52,22 +52,23 @@ func cmdWorktree(args []string) int {
 	if err != nil && (len(rest) == 0 || (rest[0] != "-h" && rest[0] != "--help")) {
 		return fail("worktree: %v", err)
 	}
-	switch sub {
-	case "list":
-		return cmdWorktreeList(repo, rest)
-	case "create":
-		return cmdWorktreeCreate(repo, rest)
-	case "merge":
-		return cmdWorktreeMerge(repo, rest)
-	case "clean":
-		return cmdWorktreeClean(repo, rest)
-	case "clean-all":
-		return cmdWorktreeCleanAll(repo, rest)
-	default:
-		fail("worktree: unknown subcommand %q", sub)
-		worktreePage.Fprint(os.Stderr)
-		return 2
+	return dispatchWorktree(repo, sub, rest)
+}
+
+func dispatchWorktree(repo *worktree.Repo, sub string, args []string) int {
+	handlers := map[string]func(*worktree.Repo, []string) int{
+		"list":      cmdWorktreeList,
+		"create":    cmdWorktreeCreate,
+		"merge":     cmdWorktreeMerge,
+		"clean":     cmdWorktreeClean,
+		"clean-all": cmdWorktreeCleanAll,
 	}
+	if handler, ok := handlers[sub]; ok {
+		return handler(repo, args)
+	}
+	fail("worktree: unknown subcommand %q", sub)
+	worktreePage.Fprint(os.Stderr)
+	return 2
 }
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {

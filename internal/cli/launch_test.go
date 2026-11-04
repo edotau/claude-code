@@ -195,24 +195,7 @@ func TestDoctorSecretAuditExitCodes(t *testing.T) {
 	for _, mode := range []string{"scan", "git", "secrets"} {
 		for _, finding := range []bool{false, true} {
 			t.Run(mode+map[bool]string{false: "/clean", true: "/finding"}[finding], func(t *testing.T) {
-				cfg := useVaultTest(t)
-				t.Setenv("HOME", t.TempDir())
-				t.Chdir(doctorGitFixture(t, finding && mode != "scan"))
-				const value = "gh" + "p_obviouslyFAKEfixtureToken1234567890"
-				data := `{"env":{"FAKE_TOKEN":"${FAKE_TOKEN}"}}`
-				if finding && mode != "git" {
-					data = `{"env":{"FAKE_TOKEN":"` + value + `"}}`
-				}
-				path := filepath.Join(cfg, "settings.json")
-				if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				args := []string{"--" + mode}
-				if mode == "scan" {
-					args = append(args, path)
-				} else {
-					args = append(args, "--since", "1")
-				}
+				args, value := doctorSecretAuditFixture(t, mode, finding)
 				code, stdout, stderr := captureOutput(t, func() int { return cmdDoctor(args) })
 				want := 0
 				if finding {
@@ -234,6 +217,27 @@ func TestDoctorSecretAuditExitCodes(t *testing.T) {
 			})
 		}
 	}
+}
+
+func doctorSecretAuditFixture(t *testing.T, mode string, finding bool) ([]string, string) {
+	t.Helper()
+	cfg := useVaultTest(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(doctorGitFixture(t, finding && mode != "scan"))
+	const value = "gh" + "p_obviouslyFAKEfixtureToken1234567890"
+	data := `{"env":{"FAKE_TOKEN":"${FAKE_TOKEN}"}}`
+	if finding && mode != "git" {
+		data = `{"env":{"FAKE_TOKEN":"` + value + `"}}`
+	}
+	path := filepath.Join(cfg, "settings.json")
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--" + mode}
+	if mode == "scan" {
+		return append(args, path), value
+	}
+	return append(args, "--since", "1"), value
 }
 
 func TestDoctorSecretsWorstExitWins(t *testing.T) {
@@ -307,42 +311,52 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 			t.Fatalf("doctor exit %d", code)
 		}
 		if format == "text" {
-			for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
-				if !strings.Contains(stdout, name) {
-					t.Errorf("plain doctor missing %s", name)
-				}
-			}
-			if n := strings.Count(stdout, "vault master key"); n != 0 {
-				t.Errorf("plain doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
-			}
+			checkDoctorVaultText(t, stdout)
 			continue
 		}
-		var doc struct {
-			Checks []struct {
-				Name string `json:"name"`
-			} `json:"checks"`
+		checkDoctorVaultJSON(t, stdout)
+	}
+}
+
+func checkDoctorVaultText(t *testing.T, stdout string) {
+	t.Helper()
+	for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
+		if !strings.Contains(stdout, name) {
+			t.Errorf("plain doctor missing %s", name)
 		}
-		if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
-			t.Fatal(err)
+	}
+	if n := strings.Count(stdout, "vault master key"); n != 0 {
+		t.Errorf("plain doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
+	}
+}
+
+func checkDoctorVaultJSON(t *testing.T, stdout string) {
+	t.Helper()
+	var doc struct {
+		Checks []struct {
+			Name string `json:"name"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, c := range doc.Checks {
+		names = append(names, c.Name)
+	}
+	for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
+		if !slices.Contains(names, name) {
+			t.Errorf("JSON doctor missing %s", name)
 		}
-		var names []string
-		for _, c := range doc.Checks {
-			names = append(names, c.Name)
+	}
+	n := 0
+	for _, name := range names {
+		if name == "vault master key" {
+			n++
 		}
-		for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
-			if !slices.Contains(names, name) {
-				t.Errorf("JSON doctor missing %s", name)
-			}
-		}
-		n := 0
-		for _, name := range names {
-			if name == "vault master key" {
-				n++
-			}
-		}
-		if n != 0 {
-			t.Errorf("JSON doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
-		}
+	}
+	if n != 0 {
+		t.Errorf("JSON doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
 	}
 }
 

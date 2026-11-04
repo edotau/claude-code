@@ -135,39 +135,28 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 
 // agentSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/catalog).
 func agentSub(name string, args []string) int {
-	switch args[0] {
-	case "resume":
-		return agentResume(name, args[1:])
-	case "status":
-		return agentStatus(name, args[1:])
-	case "tail":
-		return agentTail(name, args[1:])
-	case "result":
-		return agentResult(name, args[1:])
-	case "cancel":
-		return agentCancel(name, args[1:])
-	case "setup":
-		return agentSetup(name, args[1:])
-	case "catalog":
-		if isOpencodeMenuVerb(name, args[1:]) {
-			return cmdOpencodeMenu(args[1:])
-		}
-		if agentSubHelp(name, "catalog", args[1:]) {
-			return 0
-		}
-		return agentModels(name, args[1:])
-	case "review":
-		return agentReview(name, args[1:])
-	case "explore":
-		return agentExplore(name, args[1:])
-	case "transfer":
-		return agentTransfer(name, args[1:])
-	case "profile":
-		return cmdAgentProfile(name, args[1:])
-	case "on", "off":
-		return cmdAgentOnOff(name, args[0] == "on", args[1:])
+	handlers := map[string]func(string, []string) int{
+		"resume": agentResume, "status": agentStatus, "tail": agentTail,
+		"result": agentResult, "cancel": agentCancel, "setup": agentSetup,
+		"catalog": agentCatalog, "review": agentReview, "explore": agentExplore,
+		"transfer": agentTransfer, "profile": cmdAgentProfile,
+		"on":  func(name string, args []string) int { return cmdAgentOnOff(name, true, args) },
+		"off": func(name string, args []string) int { return cmdAgentOnOff(name, false, args) },
+	}
+	if run := handlers[args[0]]; run != nil {
+		return run(name, args[1:])
 	}
 	return fail("%s: unknown subcommand %q", name, args[0])
+}
+
+func agentCatalog(name string, args []string) int {
+	if isOpencodeMenuVerb(name, args) {
+		return cmdOpencodeMenu(args)
+	}
+	if agentSubHelp(name, "catalog", args) {
+		return 0
+	}
+	return agentModels(name, args)
 }
 
 // agentResume is `claude-code <v> resume <id> <task…>` = `ask --agent <v> --session <id> <task…>`.
@@ -438,37 +427,51 @@ func agentModels(name string, args []string) int {
 	}
 	format := helptext.Text
 	if name == "copilot" {
-		fs := newAgentFlags(name, "catalog")
-		profile := fs.String("profile", "", "list this profile's models (default: the session profile)")
-		f := helptext.FormatFlag(fs)
-		if code, done := helptext.Parse(fs, args); done {
+		var code int
+		var done bool
+		format, code, done = copilotCatalog(args)
+		if done {
 			return code
-		}
-		if err := helptext.CheckFormat(*f); err != nil {
-			return badFormat(name+" catalog", err)
-		}
-		format = *f
-		reg, err := providers.Load()
-		if err != nil {
-			return fail("%v", err)
-		}
-		cat, err := copilot.CopilotModelSource(context.Background(), reg, *profile)
-		if err != nil {
-			return fail("%s catalog: %v", name, err)
-		}
-		if cat.Databricks {
-			if err := cat.Write(os.Stdout, format); err != nil {
-				return fail("%s catalog: %v", name, err)
-			}
-			return 0
-		}
-		if format == helptext.Text {
-			fmt.Println(cat.Source)
 		}
 	} else if len(args) > 0 {
 		fmt.Fprintf(os.Stderr, "error: %s catalog: unexpected argument %q\n", name, args[0])
 		return 2
 	}
+	return launchAgentCatalog(name, s, format)
+}
+
+func copilotCatalog(args []string) (string, int, bool) {
+	name := "copilot"
+	fs := newAgentFlags(name, "catalog")
+	profile := fs.String("profile", "", "list this profile's models (default: the session profile)")
+	format := helptext.FormatFlag(fs)
+	if code, done := helptext.Parse(fs, args); done {
+		return "", code, true
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return "", badFormat(name+" catalog", err), true
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return "", fail("%v", err), true
+	}
+	cat, err := copilot.CopilotModelSource(context.Background(), reg, *profile)
+	if err != nil {
+		return "", fail("%s catalog: %v", name, err), true
+	}
+	if cat.Databricks {
+		if err := cat.Write(os.Stdout, *format); err != nil {
+			return "", fail("%s catalog: %v", name, err), true
+		}
+		return "", 0, true
+	}
+	if *format == helptext.Text {
+		fmt.Println(cat.Source)
+	}
+	return *format, 0, false
+}
+
+func launchAgentCatalog(name string, s agent.Schema, format string) int {
 	switch {
 	case s.CLI.ModelsProvider != "":
 		reg, err := providers.Load()

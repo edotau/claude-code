@@ -28,21 +28,39 @@ var (
 // (subVerbs/positionals/flagsFor) are gone — this is the one place they're declared, nested instead
 // of parallel.
 func buildSpecTree() map[string]*compNode {
-	flag := func(name string) flagInfo { return flagInfo{name: name} }
-	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
-	valuedFlag := func(name string, values func() []string) flagInfo { return flagInfo{name: name, values: values} }
-	formatFlag := func() flagInfo { return valuedFlag("format", formatValues) }
-	// gateway router's flags, which bare `gateway` also takes.
-	gatewayRouteFlags := func() []flagInfo {
-		return []flagInfo{valuedFlag("model", func() []string { return router.Aliases }),
-			valuedFlag("agent", func() []string { return router.TableAgents }),
-			flag("task"), valuedFlag("fallback", func() []string { return router.FallbackModes }), formatFlag()}
+	askFlags := askSpecFlags()
+	tree := coreSpecNodes(askFlags)
+	for _, nodes := range []map[string]*compNode{networkSpecNodes(), integrationSpecNodes(), workspaceSpecNodes(), memorySpecNodes()} {
+		for name, node := range nodes {
+			tree[name] = node
+		}
 	}
-	vaultSections := func() []string {
-		return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
-	}
+	addLauncherSpecNodes(tree, askFlags)
+	return tree
+}
 
-	askFlags := []flagInfo{
+func specFlag(name string) flagInfo     { return flagInfo{name: name} }
+func specBoolFlag(name string) flagInfo { return flagInfo{name: name, isBool: true} }
+func specValuedFlag(name string, values func() []string) flagInfo {
+	return flagInfo{name: name, values: values}
+}
+func specFormatFlag() flagInfo { return specValuedFlag("format", formatValues) }
+
+// gateway router's flags, which bare `gateway` also takes.
+func gatewayRouteFlags() []flagInfo {
+	flag, valuedFlag, formatFlag := specFlag, specValuedFlag, specFormatFlag
+	return []flagInfo{valuedFlag("model", func() []string { return router.Aliases }),
+		valuedFlag("agent", func() []string { return router.TableAgents }),
+		flag("task"), valuedFlag("fallback", func() []string { return router.FallbackModes }), formatFlag()}
+}
+
+func vaultSections() []string {
+	return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
+}
+
+func askSpecFlags() []flagInfo {
+	flag, boolFlag, valuedFlag := specFlag, specBoolFlag, specValuedFlag
+	return []flagInfo{
 		valuedFlag("agent", agentNames), flag("agents"), valuedFlag("profile", providerNames), flag("model"),
 		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("read-only"), boolFlag("no-tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
@@ -51,8 +69,11 @@ func buildSpecTree() map[string]*compNode {
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), valuedFlag("as", func() []string { return []string{"user", "sp"} }),
 	}
+}
 
-	tree := map[string]*compNode{
+func coreSpecNodes(askFlags []flagInfo) map[string]*compNode {
+	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
+	return map[string]*compNode{
 		"resolve":  {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("proxy")}},
 		"switch":   {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("dry-run")}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
@@ -73,6 +94,12 @@ func buildSpecTree() map[string]*compNode {
 		"configure": {args: []func() []string{configureSections, providerNames}, flags: []flagInfo{
 			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
 			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), formatFlag()}},
+	}
+}
+
+func networkSpecNodes() map[string]*compNode {
+	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
+	return map[string]*compNode{
 		"network": {sub: map[string]*compNode{
 			"restart": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("force"), formatFlag()}},
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
@@ -93,6 +120,12 @@ func buildSpecTree() map[string]*compNode {
 			"vscode": {flags: []flagInfo{flag("port"), boolFlag("stop"), boolFlag("status"), boolFlag("no-tailscale"),
 				boolFlag("funnel"), flag("folder"), formatFlag()}},
 		}},
+	}
+}
+
+func integrationSpecNodes() map[string]*compNode {
+	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
+	return map[string]*compNode{
 		"models": {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinAliases), boolFlag("dry-run"), formatFlag()}},
 		"gateway": {flags: gatewayRouteFlags(), sub: map[string]*compNode{
@@ -127,6 +160,12 @@ func buildSpecTree() map[string]*compNode {
 			"config": {args: []func() []string{func() []string { return []string{"claude", "codex"} }}, flags: dbxCfgFlags(true)},
 			"rescue": {flags: append(dbxCfgFlags(false), boolFlag("print"))},
 		}},
+	}
+}
+
+func workspaceSpecNodes() map[string]*compNode {
+	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
+	return map[string]*compNode{
 		"history": {sub: map[string]*compNode{
 			"snapshot": {flags: []flagInfo{flag("note")}},
 			"log":      {flags: []flagInfo{flag("n"), formatFlag()}},
@@ -156,6 +195,12 @@ func buildSpecTree() map[string]*compNode {
 			"status": {flags: []flagInfo{boolFlag("all"), formatFlag()}},
 			"tick":   {flags: []flagInfo{flag("range"), flag("plan"), boolFlag("dry-run")}},
 		}},
+	}
+}
+
+func memorySpecNodes() map[string]*compNode {
+	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
+	return map[string]*compNode{
 		"memory": {sub: map[string]*compNode{
 			"recall": {flags: []flagInfo{valuedFlag("repo", memoryRepoNames), boolFlag("all"), flag("k"),
 				flag("load"), formatFlag()}},
@@ -181,7 +226,10 @@ func buildSpecTree() map[string]*compNode {
 			"alias": {flags: []flagInfo{flag("repo"), valuedFlag("into", memoryRepoNames), boolFlag("dry-run")}},
 		}},
 	}
+}
 
+func addLauncherSpecNodes(tree map[string]*compNode, askFlags []flagInfo) {
+	flag, boolFlag, valuedFlag := specFlag, specBoolFlag, specValuedFlag
 	// Launchers that only ever get a bare node (no flags of their own — see noComplete).
 	for _, v := range []string{"opus", "sonnet", "haiku", "fable", "science"} {
 		tree[v] = &compNode{}
@@ -205,7 +253,6 @@ func buildSpecTree() map[string]*compNode {
 		}
 	}
 	tree["hook"] = &compNode{args: []func() []string{hookEvents}}
-	return tree
 }
 
 // dbxCfgFlags are the flags `databricks config` (withOut) and `databricks rescue` share.

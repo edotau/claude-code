@@ -80,6 +80,15 @@ func startLive(s *askState, name, format string) int {
 	return 0
 }
 
+func printLiveEnvelope(env agent.Envelope, format string) {
+	if format == helptext.JSON {
+		body, _ := json.Marshal(env)
+		fmt.Println(string(body))
+	} else if format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
+		fmt.Println()
+	}
+}
+
 // runLiveHolder is live.RunHolder over the cli client's launcher.
 func runLiveHolder(rec *agent.Record) int { return live.RunHolder(rec, newClient().Launcher) }
 
@@ -116,12 +125,7 @@ func cmdAgentsSend(args []string) int {
 	if err != nil {
 		return fail("agents send: %v", err)
 	}
-	if *format == helptext.JSON {
-		body, _ := json.Marshal(env)
-		fmt.Println(string(body))
-	} else if *format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
-		fmt.Println()
-	}
+	printLiveEnvelope(env, *format)
 	if env.Status != agent.StatusOK {
 		return 1
 	}
