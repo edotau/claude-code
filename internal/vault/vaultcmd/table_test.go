@@ -42,14 +42,7 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	} {
 		vaulttest.SetRecord(t, r[0], r[1], r[2])
 	}
-	raw, err := configure.Export()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc configure.Doc
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
+	doc := exportDoc(t)
 	text := Text(doc, nil, []string{"pins", "agents"}, 200, false)
 	flat := strings.Join(strings.Fields(text), " ")
 	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex personal high", "gemini (off)"} {
@@ -67,6 +60,20 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	if colored := Text(doc, nil, []string{"agents"}, 200, true); !strings.Contains(colored, ansi.Dim+"  gemini") {
 		t.Errorf("off agent with no other fields not dimmed:\n%q", colored)
 	}
+}
+
+// exportDoc decodes configure.Export()'s object for the current test vault.
+func exportDoc(t *testing.T) configure.Doc {
+	t.Helper()
+	raw, err := configure.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc configure.Doc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
 }
 
 func TestTailscaleAPIVerdict(t *testing.T) {

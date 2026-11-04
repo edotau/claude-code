@@ -37,28 +37,8 @@ func SetRecord(t testing.TB, agent, field, val string) {
 		if err != nil {
 			return err
 		}
-		r := recs[agent]
-		switch alias, isAlias := strings.CutPrefix(field, "aliases."); {
-		case isAlias:
-			aliases := maps.Clone(r.Aliases)
-			if aliases == nil {
-				aliases = map[string]string{}
-			}
-			if aliases[alias] = val; val == "" {
-				delete(aliases, alias)
-			}
-			r.Aliases = aliases
-		case field == "profile":
-			r.Profile = val
-		case field == "model":
-			r.Model = val
-		case field == "effort":
-			r.Effort = val
-		case field == "context":
-			r.Context = val
-		case field == "account":
-			r.Account = val
-		default:
+		r, ok := setRecordField(recs[agent], field, val)
+		if !ok {
 			t.Fatalf("vaulttest.SetRecord: unknown field %q", field)
 		}
 		recs[agent] = r
@@ -67,6 +47,34 @@ func SetRecord(t testing.TB, agent, field, val string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// setRecordField returns r with field set to val ("" clears it); ok is false for an unknown field.
+func setRecordField(r vault.AgentRecord, field, val string) (vault.AgentRecord, bool) {
+	switch alias, isAlias := strings.CutPrefix(field, "aliases."); {
+	case isAlias:
+		aliases := maps.Clone(r.Aliases)
+		if aliases == nil {
+			aliases = map[string]string{}
+		}
+		if aliases[alias] = val; val == "" {
+			delete(aliases, alias)
+		}
+		r.Aliases = aliases
+	case field == "profile":
+		r.Profile = val
+	case field == "model":
+		r.Model = val
+	case field == "effort":
+		r.Effort = val
+	case field == "context":
+		r.Context = val
+	case field == "account":
+		r.Account = val
+	default:
+		return r, false
+	}
+	return r, true
 }
 
 // FakeKeyring is an in-memory stand-in for the OS keyring; Down makes every call look like a

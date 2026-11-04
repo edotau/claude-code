@@ -60,32 +60,37 @@ func findNestedOpens(t *testing.T, dir string) []string {
 			t.Fatal(err)
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
+			if call, ok := n.(*ast.CallExpr); ok {
+				violations = append(violations, nestedInCall(fset, call)...)
+			}
+			return true
+		})
+	}
+	return violations
+}
+
+// nestedInCall reports banned calls inside any func-literal argument of call when call opens a transaction.
+func nestedInCall(fset *token.FileSet, call *ast.CallExpr) []string {
+	ident, ok := call.Fun.(*ast.Ident)
+	if !ok || !txOpeners[ident.Name] {
+		return nil
+	}
+	var violations []string
+	for _, arg := range call.Args {
+		lit, ok := arg.(*ast.FuncLit)
+		if !ok {
+			continue
+		}
+		ast.Inspect(lit.Body, func(inner ast.Node) bool {
+			innerCall, ok := inner.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
-			ident, ok := call.Fun.(*ast.Ident)
-			if !ok || !txOpeners[ident.Name] {
-				return true
-			}
-			for _, arg := range call.Args {
-				lit, ok := arg.(*ast.FuncLit)
-				if !ok {
-					continue
-				}
-				ast.Inspect(lit.Body, func(inner ast.Node) bool {
-					innerCall, ok := inner.(*ast.CallExpr)
-					if !ok {
-						return true
-					}
-					if innerIdent, ok := innerCall.Fun.(*ast.Ident); ok && bannedInCallback[innerIdent.Name] {
-						pos := fset.Position(innerCall.Pos())
-						violations = append(violations, fmt.Sprintf(
-							"%s:%d: a %s callback calls %s directly, nesting a vault transaction",
-							pos.Filename, pos.Line, ident.Name, innerIdent.Name))
-					}
-					return true
-				})
+			if innerIdent, ok := innerCall.Fun.(*ast.Ident); ok && bannedInCallback[innerIdent.Name] {
+				pos := fset.Position(innerCall.Pos())
+				violations = append(violations, fmt.Sprintf(
+					"%s:%d: a %s callback calls %s directly, nesting a vault transaction",
+					pos.Filename, pos.Line, ident.Name, innerIdent.Name))
 			}
 			return true
 		})
@@ -137,12 +142,31 @@ func ledgerLines(t *testing.T) []map[string]any {
 	return out
 }
 
-// TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine pins: schema 2 -> 3 on first Update with one ledger line; a fresh vault logs none.
-func TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine(t *testing.T) {
-	useZeroRootVault(t)
+// noopUpdate runs an empty Update, which still applies any pending re-stamp.
+func noopUpdate(t *testing.T) {
+	t.Helper()
 	if err := Update(func(tx *Tx) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// checkStoredSchema reports meta/schema with format unless it equals want.
+func checkStoredSchema(t *testing.T, want, format string) {
+	t.Helper()
+	if err := View(func(tx *Tx) error {
+		if s, _ := tx.Get(Meta, "schema"); s != want {
+			t.Errorf(format, s)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine pins: schema 2 -> 3 on first Update with one ledger line; a fresh vault logs none.
+func TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine(t *testing.T) {
+	useZeroRootVault(t)
+	noopUpdate(t)
 	if l := ledgerLines(t); len(l) != 0 {
 		t.Fatalf("fresh vault wrote ledger lines: %v", l)
 	}
@@ -150,25 +174,14 @@ func TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine(t *testing.T) {
 	if err := Update(func(tx *Tx) error { return tx.SetSchema(2) }); err != nil {
 		t.Fatal(err)
 	}
-	if err := Update(func(tx *Tx) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if err := View(func(tx *Tx) error {
-		if s, _ := tx.Get(Meta, "schema"); s != strconv.Itoa(schemaVersion) {
-			t.Errorf("schema after Update = %q, want current", s)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	noopUpdate(t)
+	checkStoredSchema(t, strconv.Itoa(schemaVersion), "schema after Update = %q, want current")
 	l := ledgerLines(t)
 	if len(l) != 1 || l[0]["format"] != "vault" || l[0]["from"] != float64(2) || l[0]["to"] != float64(schemaVersion) {
 		t.Fatalf("ledger = %v, want one {format:vault from:2 to:current}", l)
 	}
 
-	if err := Update(func(tx *Tx) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
+	noopUpdate(t)
 	if n := len(ledgerLines(t)); n != 1 {
 		t.Errorf("a second Update added ledger lines: %d total", n)
 	}
@@ -187,14 +200,7 @@ func TestUpdateErrorLeavesNoLedgerLine(t *testing.T) {
 	if err := Update(func(tx *Tx) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("Update err = %v, want boom", err)
 	}
-	if err := View(func(tx *Tx) error {
-		if s, _ := tx.Get(Meta, "schema"); s != strconv.Itoa(2) {
-			t.Errorf("schema after failed Update = %q, want 2", s)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	checkStoredSchema(t, strconv.Itoa(2), "schema after failed Update = %q, want 2")
 	if n := len(ledgerLines(t)); n != base {
 		t.Fatalf("failed Update logged %d ledger line(s), want 0", n-base)
 	}

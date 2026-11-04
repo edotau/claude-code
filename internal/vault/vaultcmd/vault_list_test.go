@@ -20,57 +20,17 @@ func TestVaultListSections(t *testing.T) {
 	seedVaultListFixture(t)
 	for _, format := range []string{"text", "json"} {
 		t.Run(format, func(t *testing.T) {
-			run := func(names ...string) string {
-				t.Helper()
-				args := append([]string{"list", "--format", format}, names...)
-				code, stdout, _ := captureOutput(t, func() int { return Run(args) })
-				if code != 0 {
-					t.Fatalf("list sections %v exit %d", names, code)
-				}
-				if strings.Contains(stdout, "tvly-dev-secret-leak-me-not") {
-					t.Fatal("list leaked a raw value")
-				}
-				return stdout
-			}
+			run := listRunner(t, format)
 			bare := run()
 			if bare != run("all") {
 				t.Error("all differs from bare list")
 			}
 			filtered := run("PINS", "SeCrEtS", "pins")
 			if format == "json" {
-				var doc map[string]json.RawMessage
-				if err := json.Unmarshal([]byte(filtered), &doc); err != nil {
-					t.Fatal(err)
-				}
-				if len(doc) != 2 || doc["secrets"] == nil || doc["pins"] == nil {
-					t.Error("filtered JSON must contain only secrets and pins")
-				}
-				doc = nil
-				if err := json.Unmarshal([]byte(run("pins")), &doc); err != nil {
-					t.Fatal(err)
-				}
-				if _, ok := doc["secrets"]; ok {
-					t.Error("pins-only JSON includes secrets")
-				}
+				checkFilteredJSON(t, filtered, run("pins"))
 				return
 			}
-			var headings []string
-			for line := range strings.SplitSeq(bare, "\n") {
-				if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}, line) {
-					headings = append(headings, line)
-				}
-			}
-			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) {
-				t.Errorf("section order = %v", headings)
-			}
-			if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
-				t.Error("filtered sections must retain canonical order")
-			}
-			for _, head := range []string{"ENV", "PROVIDERS", "SETTINGS", "VAULT"} {
-				if strings.Contains(filtered, "\n"+head+"\n") {
-					t.Errorf("filtered text includes %s", head)
-				}
-			}
+			checkFilteredText(t, bare, filtered)
 		})
 	}
 	for _, names := range [][]string{{"bogus"}, {"all", "bogus"}, {"bogus", "all"}} {
@@ -78,6 +38,63 @@ func TestVaultListSections(t *testing.T) {
 		if code != 2 || !strings.Contains(stderr, "bogus") {
 			t.Errorf("unknown section %v: exit %d, missing invalid-name hint=%v",
 				names, code, !strings.Contains(stderr, "bogus"))
+		}
+	}
+}
+
+// listRunner runs `vault list --format format <names>`, failing on a non-zero exit or a leaked raw value.
+func listRunner(t *testing.T, format string) func(names ...string) string {
+	return func(names ...string) string {
+		t.Helper()
+		args := append([]string{"list", "--format", format}, names...)
+		code, stdout, _ := captureOutput(t, func() int { return Run(args) })
+		if code != 0 {
+			t.Fatalf("list sections %v exit %d", names, code)
+		}
+		if strings.Contains(stdout, "tvly-dev-secret-leak-me-not") {
+			t.Fatal("list leaked a raw value")
+		}
+		return stdout
+	}
+}
+
+// checkFilteredJSON asserts the secrets+pins selection holds exactly those keys and pins-only omits secrets.
+func checkFilteredJSON(t *testing.T, filtered, pinsOnly string) {
+	t.Helper()
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(filtered), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc) != 2 || doc["secrets"] == nil || doc["pins"] == nil {
+		t.Error("filtered JSON must contain only secrets and pins")
+	}
+	doc = nil
+	if err := json.Unmarshal([]byte(pinsOnly), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc["secrets"]; ok {
+		t.Error("pins-only JSON includes secrets")
+	}
+}
+
+// checkFilteredText asserts bare text lists sections in canonical order and the filtered text keeps only SECRETS and PINS.
+func checkFilteredText(t *testing.T, bare, filtered string) {
+	t.Helper()
+	var headings []string
+	for line := range strings.SplitSeq(bare, "\n") {
+		if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}, line) {
+			headings = append(headings, line)
+		}
+	}
+	if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) {
+		t.Errorf("section order = %v", headings)
+	}
+	if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
+		t.Error("filtered sections must retain canonical order")
+	}
+	for _, head := range []string{"ENV", "PROVIDERS", "SETTINGS", "VAULT"} {
+		if strings.Contains(filtered, "\n"+head+"\n") {
+			t.Errorf("filtered text includes %s", head)
 		}
 	}
 }
@@ -228,27 +245,33 @@ func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
 		delete(got, "routing")
 	}
 	for _, row := range rows {
-		if len(row) != 3 || row["name"] == nil || row["masked"] == nil || row["length"] == nil {
-			t.Fatal("secret keys must be exactly length, masked, name")
-		}
-		var name, masked string
-		var length int
-		_ = json.Unmarshal(row["name"], &name)
-		_ = json.Unmarshal(row["masked"], &masked)
-		_ = json.Unmarshal(row["length"], &length)
-		stored, err := vault.ListStored(nil)
-		if err != nil || len(stored) != 1 {
-			t.Fatal("could not read fixture metadata")
-		}
-		if name != "TAVILY_API_KEY" || masked != stored[0].Masked() || length != stored[0].Len {
-			t.Fatal("secret metadata differs from stored masked metadata")
-		}
+		checkSecretRow(t, row)
 	}
 	delete(got, "secrets")
 	a, _ := json.Marshal(got)
 	b, _ := json.Marshal(want)
 	if !bytes.Equal(a, b) {
 		t.Fatal("list JSON changed configure.Export sections")
+	}
+}
+
+// checkSecretRow asserts a JSON secret row has exactly name/masked/length matching the fixture's stored metadata.
+func checkSecretRow(t *testing.T, row map[string]json.RawMessage) {
+	t.Helper()
+	if len(row) != 3 || row["name"] == nil || row["masked"] == nil || row["length"] == nil {
+		t.Fatal("secret keys must be exactly length, masked, name")
+	}
+	var name, masked string
+	var length int
+	_ = json.Unmarshal(row["name"], &name)
+	_ = json.Unmarshal(row["masked"], &masked)
+	_ = json.Unmarshal(row["length"], &length)
+	stored, err := vault.ListStored(nil)
+	if err != nil || len(stored) != 1 {
+		t.Fatal("could not read fixture metadata")
+	}
+	if name != "TAVILY_API_KEY" || masked != stored[0].Masked() || length != stored[0].Len {
+		t.Fatal("secret metadata differs from stored masked metadata")
 	}
 }
 
@@ -307,6 +330,12 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 			t.Errorf("stdout missing row %s=%s; stdout = %q", tc.key, tc.value, stdout)
 		}
 	}
+	checkAgentAndProviderTables(t, stdout)
+}
+
+// checkAgentAndProviderTables asserts text list output has an AGENT table and the fixture's provider rows.
+func checkAgentAndProviderTables(t *testing.T, stdout string) {
+	t.Helper()
 	if !strings.Contains(stdout, "AGENT\n  claude\n") || strings.Contains(stdout, "AGENTS") {
 		t.Errorf("stdout = %q, want an AGENT table with no AGENTS heading", stdout)
 	}

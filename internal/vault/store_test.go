@@ -50,6 +50,13 @@ func TestConcurrentStoreAllLand(t *testing.T) {
 	for i := range names {
 		names[i] = fmt.Sprintf("CONC_%02d", i)
 	}
+	runStoreHelpers(t, names)
+	checkAllLanded(t, names)
+}
+
+// runStoreHelpers runs one TestConcurrentStoreHelperStoreOneValue process per name at once and fails on any error.
+func runStoreHelpers(t *testing.T, names []string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -79,7 +86,11 @@ func TestConcurrentStoreAllLand(t *testing.T) {
 			t.Fatalf("helper %s failed: %v", names[i], err)
 		}
 	}
+}
 
+// checkAllLanded asserts every name is listed, readable as v-<name> from the vault, and has a metadata row.
+func checkAllLanded(t *testing.T, names []string) {
+	t.Helper()
 	if got := vault.Names(); !slices.Equal(got, names) {
 		t.Fatalf("Names = %v, want %v", got, names)
 	}
@@ -118,12 +129,26 @@ func TestEffectiveEnvOverVault(t *testing.T) {
 	if !ok || v != "env-value" || src != "env" || shadowed != "vault" {
 		t.Fatalf("Effective = (%q, %q, %q, %v), want (env-value, env, vault, true)", v, src, shadowed, ok)
 	}
-	if gv, gsrc, gok := vault.Get("ENV_OVER_VAULT"); !gok || gv != "vault-value" || gsrc != "vault" {
-		t.Fatalf("Get = (%q, %q, %v), want (vault-value, vault, true)", gv, gsrc, gok)
-	}
+	checkGet(t, "ENV_OVER_VAULT", "vault-value", "vault", true, "Get", "(vault-value, vault, true)")
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 	if v, src, sh, ok := vault.Effective("ENV_OVER_VAULT"); !ok || v != "env-value" || src != "env" || sh != "vault" {
 		t.Fatalf("Effective must detect shadowed vault without a key: (%q, %q, %q, %v)", v, src, sh, ok)
+	}
+}
+
+// checkLookup fails with "<what> = (value, source, err), want <want>" unless Lookup(name) returns exactly those.
+func checkLookup(t *testing.T, name, value, source string, wantErr error, what, want string) {
+	t.Helper()
+	if v, src, err := vault.Lookup(name); !errors.Is(err, wantErr) || v != value || src != source {
+		t.Fatalf("%s = (%q, %q, %v), want %s", what, v, src, err, want)
+	}
+}
+
+// checkGet fails with "<what> = (value, source, ok), want <want>" unless Get(name) returns exactly those.
+func checkGet(t *testing.T, name, value, source string, ok bool, what, want string) {
+	t.Helper()
+	if v, src, gok := vault.Get(name); gok != ok || v != value || src != source {
+		t.Fatalf("%s = (%q, %q, %v), want %s", what, v, src, gok, want)
 	}
 }
 
@@ -313,49 +338,32 @@ func TestLookupVaultBeforeEnvAndPreservesError(t *testing.T) {
 	vaulttest.Secret(t, "LOOKUP", "vault-value")
 	vaulttest.Secret(t, "LOOKUP_NO_ENV", "vault-value")
 	t.Setenv("LOOKUP", "env-value")
-	if value, source, err := vault.Lookup("LOOKUP"); err != nil || value != "vault-value" || source != "vault" {
-		t.Fatalf("Lookup = (%q, %q, %v), want (vault-value, vault, nil)", value, source, err)
-	}
+	checkLookup(t, "LOOKUP", "vault-value", "vault", nil, "Lookup", "(vault-value, vault, nil)")
 
 	// A vault read error with a non-empty env var falls back to it rather than failing outright.
 	wrongVaultKey(t)
-	if value, source, err := vault.Lookup("LOOKUP"); err != nil || value != "env-value" || source != "env" {
-		t.Fatalf("Lookup with wrong key, env set = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
-	}
-	if value, source, ok := vault.Get("LOOKUP"); !ok || value != "env-value" || source != "env" {
-		t.Fatalf("Get with wrong key, env set = (%q, %q, %v), want (env-value, env, true)", value, source, ok)
-	}
+	checkLookup(t, "LOOKUP", "env-value", "env", nil, "Lookup with wrong key, env set", "(env-value, env, nil)")
+	checkGet(t, "LOOKUP", "env-value", "env", true, "Get with wrong key, env set", "(env-value, env, true)")
 
 	// Same locked vault, no env var: the read error surfaces.
-	if value, source, err := vault.Lookup("LOOKUP_NO_ENV"); !errors.Is(err, vault.ErrWrongKey) || value != "" || source != "" {
-		t.Fatalf("Lookup with wrong key, no env = (%q, %q, %v), want empty, empty, ErrWrongKey", value, source, err)
-	}
-	if value, source, ok := vault.Get("LOOKUP_NO_ENV"); ok || value != "" || source != "" {
-		t.Fatalf("Get with wrong key, no env = (%q, %q, %v), want empty, empty, false", value, source, ok)
-	}
+	checkLookup(t, "LOOKUP_NO_ENV", "", "", vault.ErrWrongKey,
+		"Lookup with wrong key, no env", "empty, empty, ErrWrongKey")
+	checkGet(t, "LOOKUP_NO_ENV", "", "", false, "Get with wrong key, no env", "empty, empty, false")
 
 	t.Setenv("ENV_FALLBACK", " env-value ")
-	if value, source, err := vault.Lookup("ENV_FALLBACK"); err != nil || value != "env-value" || source != "env" {
-		t.Fatalf("Lookup absent record = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
-	}
+	checkLookup(t, "ENV_FALLBACK", "env-value", "env", nil, "Lookup absent record", "(env-value, env, nil)")
 }
 
 func TestLookupMissingAndEmptyValue(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("LOOKUP_EMPTY", "")
-	if value, source, err := vault.Lookup("LOOKUP_EMPTY"); err != nil || value != "" || source != "" {
-		t.Fatalf("Lookup missing = (%q, %q, %v), want empty, empty, nil", value, source, err)
-	}
+	checkLookup(t, "LOOKUP_EMPTY", "", "", nil, "Lookup missing", "empty, empty, nil")
 	if err := vault.Store("LOOKUP_EMPTY", ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("LOOKUP_EMPTY", "env-value")
-	if value, source, err := vault.Lookup("LOOKUP_EMPTY"); err != nil || value != "" || source != "vault" {
-		t.Fatalf("Lookup empty record = (%q, %q, %v), want empty, vault, nil", value, source, err)
-	}
-	if value, source, ok := vault.Get("LOOKUP_EMPTY"); ok || value != "" || source != "vault" {
-		t.Fatalf("Get empty record = (%q, %q, %v), want empty, vault, false", value, source, ok)
-	}
+	checkLookup(t, "LOOKUP_EMPTY", "", "vault", nil, "Lookup empty record", "empty, vault, nil")
+	checkGet(t, "LOOKUP_EMPTY", "", "vault", false, "Get empty record", "empty, vault, false")
 }
 
 func TestNamesUnreadableVault(t *testing.T) {

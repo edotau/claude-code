@@ -95,14 +95,19 @@ func cmdVaultGet(args []string) int {
 	if masterKey {
 		return fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
 	}
+	printVaultValues(names, values, *export)
+	return 0
+}
+
+// printVaultValues prints NAME=value lines, or shell-quoted export lines with export.
+func printVaultValues(names, values []string, export bool) {
 	for i, name := range names {
-		if *export {
+		if export {
 			fmt.Printf("export %s=%s\n", name, textutil.ShellQuote(values[i]))
 		} else {
 			fmt.Printf("%s=%s\n", name, values[i])
 		}
 	}
-	return 0
 }
 
 // vaultGetKey prints the master key only to a pipe, never a terminal, so it never lands in scrollback.
@@ -160,23 +165,11 @@ func cmdVaultImport(args []string) int {
 		return 2
 	}
 	name := rest[0]
-	var r io.Reader
-	if name == "-" {
-		if tui.StdinIsTerminal() {
-			return fail("vault import -: refusing, stdin is a terminal (pipe data in)")
-		}
-		if !*yes {
-			return fail("vault import -: needs --yes (no confirm prompt possible on piped stdin)")
-		}
-		r = os.Stdin
-	} else {
-		f, err := os.Open(name)
-		if err != nil {
-			return fail("vault import: %v", err)
-		}
-		defer f.Close()
-		r = f
+	r, code := openImport(name, *yes)
+	if r == nil {
+		return code
 	}
+	defer r.Close()
 	pairs, problems := vault.ParseDotenv(r)
 	if len(problems) > 0 {
 		return fail("vault import: %s: nothing written\n  %s", name, strings.Join(problems, "\n  "))
@@ -187,11 +180,7 @@ func cmdVaultImport(args []string) int {
 	if err := signin.ValidateImport(pairs); err != nil {
 		return fail("vault import: %s: %v", name, err)
 	}
-	for _, p := range pairs {
-		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, vault.Preview(p.Value))
-	}
-	if tui.StdinIsTerminal() && !tui.ConfirmKey(fmt.Sprintf("Store %d secret(s)?", len(pairs)), true) {
-		fmt.Fprintln(os.Stderr, "vault import: nothing written")
+	if !confirmImport(pairs) {
 		return 1
 	}
 	err = signin.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
@@ -199,6 +188,36 @@ func cmdVaultImport(args []string) int {
 		return fail("vault import: %v", err)
 	}
 	return 0
+}
+
+// openImport opens FILE, or piped stdin for "-" after the terminal and --yes checks; a nil reader carries the exit code.
+func openImport(name string, yes bool) (io.ReadCloser, int) {
+	if name != "-" {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, fail("vault import: %v", err)
+		}
+		return f, 0
+	}
+	if tui.StdinIsTerminal() {
+		return nil, fail("vault import -: refusing, stdin is a terminal (pipe data in)")
+	}
+	if !yes {
+		return nil, fail("vault import -: needs --yes (no confirm prompt possible on piped stdin)")
+	}
+	return io.NopCloser(os.Stdin), 0
+}
+
+// confirmImport previews each pair (masked) and, on a terminal, asks before storing; false means nothing written.
+func confirmImport(pairs []vault.Pair) bool {
+	for _, p := range pairs {
+		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, vault.Preview(p.Value))
+	}
+	if tui.StdinIsTerminal() && !tui.ConfirmKey(fmt.Sprintf("Store %d secret(s)?", len(pairs)), true) {
+		fmt.Fprintln(os.Stderr, "vault import: nothing written")
+		return false
+	}
+	return true
 }
 
 // cmdVaultExport appends stored secrets (all, or the NAMEs given) to --out (default ./.env): names the file

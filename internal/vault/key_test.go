@@ -61,17 +61,7 @@ func TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch(t *testing.T) {
 	if err := Update(func(tx *Tx) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(newBytes))
-	nextKey, source, err := MasterKey()
-	if err != nil {
-		t.Fatalf("load next key from env for crash fixture: %v", err)
-	}
-	if nextKey == nil {
-		t.Fatal("MasterKey returned nil for the fixture key")
-	}
-	if source != "env" || nextKey.Kid != newKid {
-		t.Fatalf("fixture key: source=%q kid=%q, want env and %q", source, nextKey.Kid, newKid)
-	}
+	nextKey := envFixtureKey(t, newBytes, newKid)
 	record := Record{Sealed: nextKey.Seal("ROTATED_TOKEN", "rotation-resume-value"), Kid: newKid}
 	// Crash after the re-seal transaction commits, before the convenience pointer is advanced.
 	if err := Update(func(tx *Tx) error {
@@ -82,20 +72,7 @@ func TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var id string
-	if err := View(func(tx *Tx) error {
-		id, _ = tx.Get(Meta, "vault_id")
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if id == "" {
-		t.Fatal("new vault has no vault_id")
-	}
-	acct := "vault-key/" + id
-	ring.values[acct] = base64.StdEncoding.EncodeToString(oldBytes)            // stale pointer
-	ring.values[acct+"."+newKid] = base64.StdEncoding.EncodeToString(newBytes) // durable, per-kid
-	t.Setenv("HARNESS_VAULT_KEY", "")
+	acct := stalePointerRing(t, ring, oldBytes, newBytes, newKid)
 
 	key, source, err := MasterKey()
 	if err != nil {
@@ -111,12 +88,49 @@ func TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch(t *testing.T) {
 	if err != nil || got != "rotation-resume-value" {
 		t.Errorf("resumed key cannot decrypt committed record: got=%q err=%v", got, err)
 	}
+	checkPointerThenPerKid(t, ring, acct, newKid)
+}
+
+// stalePointerRing points the current-key account at oldRoot, stores newRoot under newKid, and clears the env key.
+func stalePointerRing(t *testing.T, ring *specKeyring, oldRoot, newRoot []byte, newKid string) string {
+	t.Helper()
+	id := currentVaultID(t)
+	if id == "" {
+		t.Fatal("new vault has no vault_id")
+	}
+	acct := "vault-key/" + id
+	ring.values[acct] = base64.StdEncoding.EncodeToString(oldRoot)            // stale pointer
+	ring.values[acct+"."+newKid] = base64.StdEncoding.EncodeToString(newRoot) // durable, per-kid
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	return acct
+}
+
+// envFixtureKey resolves root through HARNESS_VAULT_KEY and asserts it came from env with kid.
+func envFixtureKey(t *testing.T, root []byte, kid string) *Key {
+	t.Helper()
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(root))
+	k, source, err := MasterKey()
+	if err != nil {
+		t.Fatalf("load next key from env for crash fixture: %v", err)
+	}
+	if k == nil {
+		t.Fatal("MasterKey returned nil for the fixture key")
+	}
+	if source != "env" || k.Kid != kid {
+		t.Fatalf("fixture key: source=%q kid=%q, want env and %q", source, k.Kid, kid)
+	}
+	return k
+}
+
+// checkPointerThenPerKid asserts ring saw lookups of both the current-key pointer and kid's per-kid account.
+func checkPointerThenPerKid(t *testing.T, ring *specKeyring, acct, kid string) {
+	t.Helper()
 	ring.mu.Lock()
 	defer ring.mu.Unlock()
 	seenCurrent, seenPerKid := false, false
 	for _, name := range ring.lookups {
 		seenCurrent = seenCurrent || name == acct
-		seenPerKid = seenPerKid || name == acct+"."+newKid
+		seenPerKid = seenPerKid || name == acct+"."+kid
 	}
 	if !seenCurrent || !seenPerKid {
 		t.Errorf("MasterKey must try the pointer then the per-kid account on kid mismatch; lookups=%v", ring.lookups)

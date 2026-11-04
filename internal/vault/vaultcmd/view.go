@@ -95,38 +95,47 @@ func JSON(raw []byte, stored []vault.Stored, sel []string) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteString("{")
 	for i, s := range sel {
-		val := doc[s]
-		switch s {
-		case "secrets":
-			v, err := json.Marshal(rows)
-			if err != nil {
-				return nil, err
-			}
-			val = v
-		case "routing":
-			v, err := vaultRoutingJSON(doc["providers"])
-			if err != nil {
-				return nil, err
-			}
-			val = v
-		}
-		if len(val) == 0 {
-			val = json.RawMessage("null")
-		}
-		var compact, ind bytes.Buffer
-		if err := json.Compact(&compact, val); err != nil {
-			return nil, err
-		}
-		if err := json.Indent(&ind, compact.Bytes(), "  ", "  "); err != nil {
+		ind, err := sectionJSON(s, doc, rows)
+		if err != nil {
 			return nil, err
 		}
 		if i > 0 {
 			b.WriteString(",")
 		}
-		fmt.Fprintf(&b, "\n  %q: %s", s, ind.Bytes())
+		fmt.Fprintf(&b, "\n  %q: %s", s, ind)
 	}
 	b.WriteString("\n}\n")
 	return b.Bytes(), nil
+}
+
+// sectionJSON is section s re-indented for JSON's object: secrets masked, routing derived, absent as null.
+func sectionJSON(s string, doc map[string]json.RawMessage, rows []secretJSON) ([]byte, error) {
+	val := doc[s]
+	switch s {
+	case "secrets":
+		v, err := json.Marshal(rows)
+		if err != nil {
+			return nil, err
+		}
+		val = v
+	case "routing":
+		v, err := vaultRoutingJSON(doc["providers"])
+		if err != nil {
+			return nil, err
+		}
+		val = v
+	}
+	if len(val) == 0 {
+		val = json.RawMessage("null")
+	}
+	var compact, ind bytes.Buffer
+	if err := json.Compact(&compact, val); err != nil {
+		return nil, err
+	}
+	if err := json.Indent(&ind, compact.Bytes(), "  ", "  "); err != nil {
+		return nil, err
+	}
+	return ind.Bytes(), nil
 }
 
 // paintMarks colors the ✓ (verified) and ✗ (unverified) env marks green and red.
