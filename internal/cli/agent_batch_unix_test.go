@@ -59,6 +59,11 @@ func TestBatchClosedStdoutCancelsAndReapsChildren(t *testing.T) {
 	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); !ok || ws.Signaled() || ws.ExitStatus() == 0 {
 		t.Fatalf("exit status %v, want a normal non-zero exit (SIGPIPE must not kill the process)", cmd.ProcessState)
 	}
+	checkBatchChildReaped(t, pidfile)
+}
+
+func checkBatchChildReaped(t *testing.T, pidfile string) {
+	t.Helper()
 	raw, err := os.ReadFile(pidfile)
 	if err != nil {
 		t.Fatalf("the slow child never started: %v", err)

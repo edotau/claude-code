@@ -39,14 +39,18 @@ func cmdAgentProfile(agent string, args []string) int {
 		fmt.Println(configure.ProfileStatus(agent))
 		return 0
 	}
+	return setAgentProfile(agent, pos[0])
+}
+
+func setAgentProfile(agent, profile string) int {
 	reg, err := providers.Load()
 	if err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
-	if _, err := configure.ApplyProfile([]string{agent}, pos[0]); err != nil {
+	if _, err := configure.ApplyProfile([]string{agent}, profile); err != nil {
 		return fail("%s profile: %v (see claude-code configure provider --list)", agent, err)
 	}
-	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", agent, pos[0], agent)
+	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", agent, profile, agent)
 	preflight.Warm(os.Stdout, reg, time.Now())
 	if agent == "codex" {
 		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")

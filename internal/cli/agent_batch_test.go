@@ -144,6 +144,12 @@ func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
 	if len(envs) != 4 {
 		t.Fatalf("got %d envelopes, want 4 (one per input line, bad lines included)\n%s", len(envs), out)
 	}
+	byID := indexBatchEnvelopes(t, envs)
+	checkMixedBatchResults(t, byID, envs, out)
+}
+
+func indexBatchEnvelopes(t *testing.T, envs []map[string]any) map[string]map[string]any {
+	t.Helper()
 	byID := map[string]map[string]any{}
 	batchIDs := map[string]bool{}
 	dispatchIDs := map[string]bool{}
@@ -169,6 +175,11 @@ func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
 	if len(batchIDs) != 1 {
 		t.Errorf("batch_ids = %v, want exactly one shared id", batchIDs)
 	}
+	return byID
+}
+
+func checkMixedBatchResults(t *testing.T, byID map[string]map[string]any, envs []map[string]any, out string) {
+	t.Helper()
 	for _, id := range []string{"slow", "fast", "bad"} {
 		if byID[id] == nil {
 			t.Fatalf("no envelope tagged task_id %q\n%s", id, out)
@@ -280,20 +291,24 @@ func TestBatchConcurrentProfilesKeepEnvsApart(t *testing.T) {
 	seen := map[string]bool{}
 	for _, f := range dumps {
 		raw, _ := os.ReadFile(f)
-		env := string(raw)
-		a, b := strings.Contains(env, "TOKEN-AAAA-1111"), strings.Contains(env, "TOKEN-BBBB-2222")
-		ra, rb := strings.Contains(env, "127.0.0.1:11111"), strings.Contains(env, "127.0.0.1:22222")
-		switch {
-		case a && !b && ra && !rb:
-			seen["a"] = true
-		case b && !a && rb && !ra:
-			seen["b"] = true
-		default:
-			t.Errorf("child env mixes profiles (token a=%v b=%v, route a=%v b=%v)", a, b, ra, rb)
-		}
+		recordBatchChildProfile(t, seen, string(raw))
 	}
 	if !seen["a"] || !seen["b"] {
 		t.Errorf("children seen = %v, want one per profile", seen)
+	}
+}
+
+func recordBatchChildProfile(t *testing.T, seen map[string]bool, env string) {
+	t.Helper()
+	a, b := strings.Contains(env, "TOKEN-AAAA-1111"), strings.Contains(env, "TOKEN-BBBB-2222")
+	ra, rb := strings.Contains(env, "127.0.0.1:11111"), strings.Contains(env, "127.0.0.1:22222")
+	switch {
+	case a && !b && ra && !rb:
+		seen["a"] = true
+	case b && !a && rb && !ra:
+		seen["b"] = true
+	default:
+		t.Errorf("child env mixes profiles (token a=%v b=%v, route a=%v b=%v)", a, b, ra, rb)
 	}
 }
 
@@ -404,36 +419,46 @@ func TestEnvelopeContractSuccess(t *testing.T) {
 				t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
 			}
 			env := decodeEnvelope(t, out)
-			if env["schema"] != float64(1) {
-				t.Errorf("schema = %v, want 1", env["schema"])
-			}
-			if env["status"] != "ok" {
-				t.Errorf("status = %v, want ok", env["status"])
-			}
-			if env["agent"] != name {
-				t.Errorf("agent = %v, want %s", env["agent"], name)
-			}
-			// opencode on its own login picks its own model and reports none; the key must still be present.
-			if m, ok := env["model"].(string); !ok || (m == "" && name != "opencode") {
-				t.Errorf("model = %v, want non-empty", env["model"])
-			}
-			if id, _ := env["dispatch_id"].(string); id == "" {
-				t.Errorf("dispatch_id = %v, want non-empty", env["dispatch_id"])
-			}
-			if v, ok := env["fallback"]; !ok || v != nil {
-				t.Errorf("fallback = %v (present=%v), want explicit null", v, ok)
-			}
-			if d, _ := env["duration_ms"].(float64); d <= 0 {
-				t.Errorf("duration_ms = %v, want > 0", env["duration_ms"])
-			}
-			if noUsage[name] {
-				if v, ok := env["usage"]; !ok || v != nil {
-					t.Errorf("usage = %v (present=%v), want explicit null: %s reports none", v, ok, name)
-				}
-			} else if _, ok := env["usage"].(map[string]any); !ok {
-				t.Errorf("usage = %v, want an object", env["usage"])
-			}
+			checkSuccessEnvelopeFields(t, env, name)
+			checkSuccessEnvelopeUsage(t, env, name, noUsage[name])
 		})
+	}
+}
+
+func checkSuccessEnvelopeFields(t *testing.T, env map[string]any, name string) {
+	t.Helper()
+	if env["schema"] != float64(1) {
+		t.Errorf("schema = %v, want 1", env["schema"])
+	}
+	if env["status"] != "ok" {
+		t.Errorf("status = %v, want ok", env["status"])
+	}
+	if env["agent"] != name {
+		t.Errorf("agent = %v, want %s", env["agent"], name)
+	}
+	// opencode on its own login picks its own model and reports none; the key must still be present.
+	if m, ok := env["model"].(string); !ok || (m == "" && name != "opencode") {
+		t.Errorf("model = %v, want non-empty", env["model"])
+	}
+	if id, _ := env["dispatch_id"].(string); id == "" {
+		t.Errorf("dispatch_id = %v, want non-empty", env["dispatch_id"])
+	}
+}
+
+func checkSuccessEnvelopeUsage(t *testing.T, env map[string]any, name string, noUsage bool) {
+	t.Helper()
+	if v, ok := env["fallback"]; !ok || v != nil {
+		t.Errorf("fallback = %v (present=%v), want explicit null", v, ok)
+	}
+	if d, _ := env["duration_ms"].(float64); d <= 0 {
+		t.Errorf("duration_ms = %v, want > 0", env["duration_ms"])
+	}
+	if noUsage {
+		if v, ok := env["usage"]; !ok || v != nil {
+			t.Errorf("usage = %v (present=%v), want explicit null: %s reports none", v, ok, name)
+		}
+	} else if _, ok := env["usage"].(map[string]any); !ok {
+		t.Errorf("usage = %v, want an object", env["usage"])
 	}
 }
 

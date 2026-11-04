@@ -43,6 +43,11 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("help exit = %d, stderr = %q", code, stderr)
 	}
+	checkClaudeHiddenFromUsage(t, stdout)
+}
+
+func checkClaudeHiddenFromUsage(t *testing.T, stdout string) {
+	t.Helper()
 	for line := range strings.SplitSeq(stdout, "\n") {
 		if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "claude" {
 			t.Errorf("usage advertises hidden claude verb: %q", line)
@@ -230,12 +235,17 @@ func checkCommandRows(t *testing.T, text string) {
 			continue
 		}
 		label, row = match[1], line
-		if len(strings.Fields(label)) != 1 || strings.ContainsAny(label, "[<") {
-			t.Errorf("COMMANDS label %q must be one bare word; row %q", label, row)
-		}
-		if width := termWidth(line); width > 80 {
-			t.Errorf("COMMANDS label %q row %q has %d columns, want <=80", label, row, width)
-		}
+		checkCommandLabel(t, label, row)
+	}
+}
+
+func checkCommandLabel(t *testing.T, label, row string) {
+	t.Helper()
+	if len(strings.Fields(label)) != 1 || strings.ContainsAny(label, "[<") {
+		t.Errorf("COMMANDS label %q must be one bare word; row %q", label, row)
+	}
+	if width := termWidth(row); width > 80 {
+		t.Errorf("COMMANDS label %q row %q has %d columns, want <=80", label, row, width)
 	}
 }
 
@@ -249,6 +259,27 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 		t.Errorf("%s: exit %d, want 0:\n%s", strings.Join(argv, " "), code, text)
 	}
 	checkCommandRows(t, text)
+	checkHelpHeader(t, text)
+	subs, rows := checkHelpRows(t, text)
+	if rows == 0 && !helpAllowsNoRows(path) {
+		t.Errorf("help has no rows under COMMANDS or FLAGS:\n%s", text)
+	}
+	// Parent-page help is intentional for some flagless actions; never dispatch its rows again.
+	if slices.Contains(parents, text) || path[0] == "hook" {
+		return
+	}
+	if len(path) >= 8 && len(subs) > 0 {
+		t.Fatal("help command nesting exceeds eight levels")
+	}
+	for _, sub := range subs {
+		t.Run(sub, func(t *testing.T) {
+			checkHelpFormat(t, append(append([]string{}, path...), sub), append(parents, text))
+		})
+	}
+}
+
+func checkHelpHeader(t *testing.T, text string) {
+	t.Helper()
 	first := ""
 	for line := range strings.SplitSeq(text, "\n") {
 		if strings.TrimSpace(line) != "" {
@@ -262,12 +293,16 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	if strings.Contains(text, "Usage of") {
 		t.Errorf("legacy Usage of header:\n%s", text)
 	}
-	repeatsParent := false
-	for _, parent := range parents {
-		repeatsParent = repeatsParent || text == parent
-	}
-	var subs []string
-	seenCommands, seenFlags := map[string]bool{}, map[string]bool{}
+}
+
+type helpRowChecks struct {
+	subs                    []string
+	seenCommands, seenFlags map[string]bool
+}
+
+func checkHelpRows(t *testing.T, text string) ([]string, int) {
+	t.Helper()
+	checks := helpRowChecks{seenCommands: map[string]bool{}, seenFlags: map[string]bool{}}
 	section, rows := "", 0
 	for line := range strings.SplitSeq(text, "\n") {
 		if n := termWidth(line); n > 80 {
@@ -290,54 +325,44 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 			continue
 		}
 		rows++
-		word := strings.Fields(match[1])[0]
-		switch section {
-		case "COMMANDS":
-			if seenCommands[word] {
-				t.Errorf("duplicate command row %q", word)
-				continue
-			}
-			seenCommands[word] = true
-			subs = append(subs, word)
-		case "FLAGS":
-			if !helpFormatFlag.MatchString(match[1]) {
-				t.Errorf("malformed flag label: %q", match[1])
-			}
-			// Run does not expose its FlagSet; validate generated rows for shape and uniqueness.
-			if seenFlags[word] {
-				t.Errorf("duplicate flag row %q", word)
-			}
-			seenFlags[word] = true
-		}
+		checks.checkRow(t, section, match[1])
 	}
+	return checks.subs, rows
+}
+
+func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
+	t.Helper()
+	word := strings.Fields(label)[0]
+	switch section {
+	case "COMMANDS":
+		if checks.seenCommands[word] {
+			t.Errorf("duplicate command row %q", word)
+			return
+		}
+		checks.seenCommands[word] = true
+		checks.subs = append(checks.subs, word)
+	case "FLAGS":
+		if !helpFormatFlag.MatchString(label) {
+			t.Errorf("malformed flag label: %q", label)
+		}
+		// Run does not expose its FlagSet; validate generated rows for shape and uniqueness.
+		if checks.seenFlags[word] {
+			t.Errorf("duplicate flag row %q", word)
+		}
+		checks.seenFlags[word] = true
+	}
+}
+
+func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true,
 		"vault delete": true, "vault edit": true, "gateway token": true, "test ramdisk": true,
 	}
-	if len(path) == 2 {
-		switch path[0] {
-		case "copilot", "codex", "gemini", "opencode":
-			switch path[1] {
-			case "cancel", "catalog", "models", "resume", "on", "off":
-				flagless[strings.Join(path, " ")] = true
-			}
-		}
+	if len(path) == 2 && slices.Contains([]string{"copilot", "codex", "gemini", "opencode"}, path[0]) &&
+		slices.Contains([]string{"cancel", "catalog", "models", "resume", "on", "off"}, path[1]) {
+		return true
 	}
-	if rows == 0 && !flagless[strings.Join(path, " ")] {
-		t.Errorf("help has no rows under COMMANDS or FLAGS:\n%s", text)
-	}
-	// Parent-page help is intentional for some flagless actions; never dispatch its rows again.
-	if repeatsParent || path[0] == "hook" {
-		return
-	}
-	if len(path) >= 8 && len(subs) > 0 {
-		t.Fatal("help command nesting exceeds eight levels")
-	}
-	for _, sub := range subs {
-		t.Run(sub, func(t *testing.T) {
-			checkHelpFormat(t, append(append([]string{}, path...), sub), append(parents, text))
-		})
-	}
+	return flagless[strings.Join(path, " ")]
 }
 
 // AUTH, SESSION, DIAGNOSTICS and SETTINGS list verbs A→Z; ANTHROPIC keeps its tier order.

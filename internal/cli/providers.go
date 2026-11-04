@@ -243,12 +243,7 @@ func cmdSwitch(args []string) int {
 		return fail("%v", err)
 	}
 	if dryRun {
-		apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, args[0]) }
-		recs, err := vault.ReadAgentRecords(agent.RosterNames())
-		if err != nil {
-			return fail("switch preview: %v", err)
-		}
-		return printRecordDiff(apply, keptOff(reg, recs, args[0]))
+		return previewSwitchProfile(reg, args[0])
 	}
 	if err := configure.SwitchProfile(reg, args[0]); err != nil {
 		return fail("%v", err)
@@ -256,6 +251,15 @@ func cmdSwitch(args []string) int {
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
 	preflight.Warm(os.Stdout, reg, time.Now())
 	return 0
+}
+
+func previewSwitchProfile(reg *providers.Registry, profile string) int {
+	apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, profile) }
+	recs, err := vault.ReadAgentRecords(agent.RosterNames())
+	if err != nil {
+		return fail("switch preview: %v", err)
+	}
+	return printRecordDiff(apply, keptOff(reg, recs, profile))
 }
 
 // switchUsage prints switch's page; its one flag is pulled out by helptext.ExtractBool, so this FlagSet only renders it.

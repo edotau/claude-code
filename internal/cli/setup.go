@@ -144,24 +144,29 @@ func cmdSetupWorkspace(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if args[0] != "init" && (*with != "" || *dryRun) { // link would write despite --dry-run; refuse
-		fmt.Fprintf(os.Stderr, "claude-code: setup workspace %s: --with/--dry-run apply to init only\n", args[0])
+	return runSetupWorkspace(args[0], pos, *with, *dryRun)
+}
+
+func runSetupWorkspace(op string, pos []string, with string, dryRun bool) int {
+	if op != "init" && (with != "" || dryRun) { // link would write despite --dry-run; refuse
+		fmt.Fprintf(os.Stderr, "claude-code: setup workspace %s: --with/--dry-run apply to init only\n", op)
 		return 2
 	}
-	switch args[0] {
-	case "init":
-		return setupWorkspaceInit(pos, *with, *dryRun)
-	case "link":
-		if len(pos) < 2 || len(pos) > 3 {
-			setupWorkspacePage.Fprint(os.Stderr)
-			return 2
-		}
-		return setupExit(setup.WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
-	case "status":
+	if op == "init" {
+		return setupWorkspaceInit(pos, with, dryRun)
+	}
+	return setupWorkspaceReadOrLink(op, pos)
+}
+
+func setupWorkspaceReadOrLink(op string, pos []string) int {
+	if op == "status" {
 		return setupExit(setup.WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout), "setup workspace")
 	}
-	setupWorkspacePage.Fprint(os.Stderr)
-	return 2
+	if len(pos) < 2 || len(pos) > 3 {
+		setupWorkspacePage.Fprint(os.Stderr)
+		return 2
+	}
+	return setupExit(setup.WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
 }
 
 // setupWorkspaceInit runs init on the optional positional root.

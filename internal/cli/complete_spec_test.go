@@ -60,6 +60,12 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 			t.Errorf("%s subwords = %v, want %v", verb, got, want)
 		}
 	}
+	checkInstallSetupSpec(t, tree)
+	checkReviewSubwordSpec(t, tree)
+}
+
+func checkInstallSetupSpec(t *testing.T, tree map[string]*compNode) {
+	t.Helper()
 	// install --setup <mode> is its own sub-dispatch, nested under install's "--setup" node.
 	installNode := tree["install"]
 	if installNode == nil {
@@ -79,6 +85,10 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	if !slices.Equal(gotSetup, wantSetup) {
 		t.Errorf("install --setup subwords = %v, want %v", gotSetup, wantSetup)
 	}
+}
+
+func checkReviewSubwordSpec(t *testing.T, tree map[string]*compNode) {
+	t.Helper()
 	// review derives its subwords from reviewTools itself (same source its dispatch switch reads),
 	// so there is no separate hand list to drift — assert the derivation is wired, not duplicate it.
 	reviewNode := tree["review"]

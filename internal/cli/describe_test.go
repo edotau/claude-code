@@ -31,6 +31,11 @@ func TestDescribeCoversVerbsAndHooks(t *testing.T) {
 	if len(d.Hooks) == 0 || len(d.Agents) == 0 || len(d.Providers.List) == 0 {
 		t.Fatalf("empty section: hooks=%d runners=%d providers=%d", len(d.Hooks), len(d.Agents), len(d.Providers.List))
 	}
+	checkDescribeCredentials(t, d)
+}
+
+func checkDescribeCredentials(t *testing.T, d any) {
+	t.Helper()
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)

@@ -63,9 +63,14 @@ func cmdPlanStatus(args []string) int {
 		}
 		return 0
 	}
+	printPlanSummaries(summaries)
+	return 0
+}
+
+func printPlanSummaries(summaries []plans.Summary) {
 	if len(summaries) == 0 {
 		fmt.Println("no plans")
-		return 0
+		return
 	}
 	root := filepath.Join(paths.ConfigDir(), "plans")
 	for _, s := range summaries {
@@ -79,7 +84,6 @@ func cmdPlanStatus(args []string) int {
 			fmt.Printf("  %s\n", c)
 		}
 	}
-	return 0
 }
 
 func cmdPlanTick(args []string) int {

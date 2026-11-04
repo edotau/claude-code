@@ -32,13 +32,7 @@ func cmdNetworkBrowser(args []string) int {
 		if *setup {
 			return failUsage("network browser: --extract and --setup are mutually exclusive")
 		}
-		fmtSet := ""
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "format" {
-				fmtSet = *format
-			}
-		})
-		return networkBrowserExtract(ex, fmtSet)
+		return networkBrowserExtract(ex, explicitBrowserFormat(fs, *format))
 	}
 	if bad := extractFlagsSet(fs); bad != "" {
 		return failUsage("network browser: --%s belongs to --extract", bad)
@@ -59,6 +53,16 @@ func cmdNetworkBrowser(args []string) int {
 		return networkBrowserList(*format)
 	}
 	return networkBrowserSetup(*name, *dryRun, *format)
+}
+
+func explicitBrowserFormat(fs *flag.FlagSet, format string) string {
+	value := ""
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "format" {
+			value = format
+		}
+	})
+	return value
 }
 
 func networkBrowserList(format string) int {

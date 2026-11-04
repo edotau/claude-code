@@ -176,32 +176,38 @@ func completionCandidates(words []string) []string {
 
 	// "--flag=value": the current word itself carries the flag name before "=".
 	if strings.HasPrefix(cur, "-") && strings.Contains(cur, "=") {
-		name, valPrefix, _ := strings.Cut(cur, "=")
-		var out []string
-		for _, v := range flagValues(path, node, name) {
-			if strings.HasPrefix(v, valPrefix) {
-				out = append(out, name+"="+v)
-			}
-		}
-		return out
+		return inlineFlagCandidates(path, node, cur)
 	}
 
-	var cands []string
+	var out []string
+	for _, c := range nextCompletionCandidates(path, node, rest, cur) {
+		if strings.HasPrefix(c, cur) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func nextCompletionCandidates(path []string, node *compNode, rest []string, cur string) []string {
 	switch {
 	case len(rest) > 0 && strings.HasPrefix(rest[len(rest)-1], "-") && !strings.HasPrefix(cur, "-") &&
 		!flagIsBool(path, node, rest[len(rest)-1]):
-		cands = flagValues(path, node, rest[len(rest)-1]) // the value of the flag just typed
+		return flagValues(path, node, rest[len(rest)-1]) // the value of the flag just typed
 	case len(path) == 0 && len(rest) == 0:
-		cands = topLevelCandidates(cur)
+		return topLevelCandidates(cur)
 	case strings.HasPrefix(cur, "-"):
-		cands = remainingFlags(path, node, rest)
+		return remainingFlags(path, node, rest)
 	default:
-		cands = positionAwareCandidates(path, node, rest, cur)
+		return positionAwareCandidates(path, node, rest, cur)
 	}
+}
+
+func inlineFlagCandidates(path []string, node *compNode, cur string) []string {
+	name, valPrefix, _ := strings.Cut(cur, "=")
 	var out []string
-	for _, c := range cands {
-		if strings.HasPrefix(c, cur) {
-			out = append(out, c)
+	for _, v := range flagValues(path, node, name) {
+		if strings.HasPrefix(v, valPrefix) {
+			out = append(out, name+"="+v)
 		}
 	}
 	return out

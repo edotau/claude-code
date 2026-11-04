@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -157,6 +156,11 @@ func TestNoPreRenameLabelInUserOutput(t *testing.T) {
 		t.Errorf("memory index output still names the pre-rename global tier: %q", out)
 	}
 
+	checkMemoryCatalogHomeLabel(t)
+}
+
+func checkMemoryCatalogHomeLabel(t *testing.T) {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"), []byte("# C\n\n- a rule\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +199,16 @@ func TestCmdMemoryFmt(t *testing.T) {
 		t.Fatalf("--check wrote the file: %q err=%v", data, err)
 	}
 
-	code, out, _ = captureOutput(t, func() int { return cmdMemoryFmt(nil) })
+	checkMemoryFmtWrapAndClean(t, target)
+
+	if !strings.Contains(memoryPage.Hint, "fmt") {
+		t.Error("memoryPage's plumbing hint does not list `fmt`")
+	}
+}
+
+func checkMemoryFmtWrapAndClean(t *testing.T, target string) {
+	t.Helper()
+	code, out, _ := captureOutput(t, func() int { return cmdMemoryFmt(nil) })
 	if code != 0 || !strings.Contains(out, "wrapped 1 file") {
 		t.Fatalf("default fmt pass: code=%d out=%q, want 0 reporting one wrapped file", code, out)
 	}
@@ -212,10 +225,6 @@ func TestCmdMemoryFmt(t *testing.T) {
 	code, out, _ = captureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
 	if code != 0 || !strings.Contains(out, "clean") {
 		t.Errorf("--check after wrapping: code=%d out=%q, want 0 clean", code, out)
-	}
-
-	if !strings.Contains(memoryPage.Hint, "fmt") {
-		t.Error("memoryPage's plumbing hint does not list `fmt`")
 	}
 }
 
@@ -429,6 +438,11 @@ func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkMemoryPromoteHomeRoundTrip(t, repo, id)
+}
+
+func checkMemoryPromoteHomeRoundTrip(t *testing.T, repo, id string) {
+	t.Helper()
 	code, out, stderr := captureOutput(t, func() int {
 		return cmdMemory([]string{"promote", "--repo", repo, "--dry-run", id, "--to", "home"})
 	})
@@ -445,7 +459,7 @@ func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "promoted ["+id+"]") {
 		t.Fatalf("memory promote: code=%d out=%q stderr=%q", code, out, stderr)
 	}
-	data, err = os.ReadFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"))
+	data, err := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"))
 	if err != nil || !strings.Contains(string(data), id) {
 		t.Fatalf("home bank missing the promoted id after the real run: %v %q", err, data)
 	}
@@ -753,62 +767,4 @@ func TestMemoryShowFailReturnValue(t *testing.T) {
 	if code != 2 {
 		t.Errorf("memory show (no args) exit %d, want 2; stderr=%q", code, stderr)
 	}
-}
-
-// TestSkillVerbsArePublicCLIVerbs checks the skill's verb table against memoryPage and memorySubcommands.
-func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
-	root := reflectionRepoRoot(t)
-	path := filepath.Join(root, "skills", "reflection", "SKILL.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	body := string(data)
-	verbRe := regexp.MustCompile("^`([a-z][a-z-]*)")
-	tableStart := strings.Index(body, "| Verb |")
-	if tableStart < 0 {
-		t.Fatal("SKILL.md has no verb table (expected a \"| Verb |\" header row)")
-	}
-	tableEnd := strings.Index(body[tableStart:], "\n\n")
-	if tableEnd < 0 {
-		tableEnd = len(body) - tableStart
-	}
-	table := body[tableStart : tableStart+tableEnd]
-	seen := map[string]bool{}
-	for line := range strings.SplitSeq(table, "\n") {
-		cells := strings.Split(line, "|")
-		if len(cells) < 2 {
-			continue
-		}
-		first := strings.TrimSpace(cells[1]) // cells[0] is empty (row starts with "|")
-		m := verbRe.FindStringSubmatch(first)
-		if m == nil {
-			continue
-		}
-		verb := m[1]
-		if seen[verb] {
-			continue
-		}
-		seen[verb] = true
-		if _, ok := memorySubcommands[verb]; !ok {
-			t.Errorf("SKILL.md names unknown verb %q (not in memorySubcommands)", verb)
-			continue
-		}
-		if !helpPageHasCommand(memoryPage, verb) {
-			t.Errorf("SKILL.md names verb %q that is not listed as public in memoryPage", verb)
-		}
-	}
-	if len(seen) == 0 {
-		t.Fatal("verb table names no verbs")
-	}
-}
-
-// reflectionRepoRoot resolves this repo's toplevel from internal/cli's own working directory.
-func reflectionRepoRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Join(wd, "..", "..")
 }

@@ -58,6 +58,10 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if err != nil {
 		return fail(name+": %v", err)
 	}
+	return renderGatewayRoute(name, res, *format, withProxy)
+}
+
+func renderGatewayRoute(name string, res router.PickResult, format string, withProxy bool) int {
 	src := routeSources{Weights: providers.RouteWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	pins, err := routePins()
@@ -71,7 +75,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 			return fail(name+": %v", err)
 		}
 	}
-	if *format == helptext.JSON {
+	if format == helptext.JSON {
 		var payload any = rj
 		if withProxy {
 			payload = struct {

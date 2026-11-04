@@ -180,6 +180,23 @@ func TestConfigureRestoreBareCheckDoesNotWrite(t *testing.T) {
 // TestConfigureRestoreSpansDefaultsOverlayAndHistory: defaults + vault overlay (a catalog key and an env
 // variable), three hand-changed live keys, then --restore leaves exactly the render and a "before restore" snapshot.
 func TestConfigureRestoreSpansDefaultsOverlayAndHistory(t *testing.T) {
+	file, want := configureRestoreDriftFixture(t)
+	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--no-agents"}) })
+	if code != 0 {
+		t.Fatalf("--restore exit %d: %s", code, stderr)
+	}
+	got, err := os.ReadFile(file)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("settings.json != render (err %v):\n%s", err, got)
+	}
+	if !strings.Contains(string(got), `"DISABLE_TELEMETRY": "1"`) {
+		t.Errorf("overlay env variable missing from the restored file:\n%s", got)
+	}
+	checkConfigureRestoreHistory(t, file, stdout)
+}
+
+func configureRestoreDriftFixture(t *testing.T) (string, []byte) {
+	t.Helper()
 	dir := vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
 	ov := map[string]json.RawMessage{
@@ -208,17 +225,11 @@ func TestConfigureRestoreSpansDefaultsOverlayAndHistory(t *testing.T) {
 	if keys, err := settings.DefaultsDrift(); err != nil || !slices.Equal(keys, []string{"model", "prefersReducedMotion", "zzExtra"}) {
 		t.Fatalf("DefaultsDrift before = %v, %v", keys, err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--no-agents"}) })
-	if code != 0 {
-		t.Fatalf("--restore exit %d: %s", code, stderr)
-	}
-	got, err := os.ReadFile(file)
-	if err != nil || string(got) != string(want) {
-		t.Fatalf("settings.json != render (err %v):\n%s", err, got)
-	}
-	if !strings.Contains(string(got), `"DISABLE_TELEMETRY": "1"`) {
-		t.Errorf("overlay env variable missing from the restored file:\n%s", got)
-	}
+	return file, want
+}
+
+func checkConfigureRestoreHistory(t *testing.T, file, stdout string) {
+	t.Helper()
 	log, err := (&history.Store{Dir: history.Dir()}).Log(1, "config")
 	if err != nil || len(log) != 1 || !strings.Contains(log[0], "before restore") {
 		t.Errorf("history log = %v, %v; want a before-restore snapshot", log, err)

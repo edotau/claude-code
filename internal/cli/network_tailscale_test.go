@@ -204,17 +204,7 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 			hermeticTailscaleSecrets(t)
 			t.Setenv("TAILSCALE_API_KEY", "test-api-key")
 			const key = "tskey-auth-xyz"
-			// Reuse the CreateAuthKey response pattern from internal/network/tailscale/api_test.go.
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodPost || r.URL.Path != "/api/v2/tailnet/-/keys" {
-					t.Errorf("unexpected admin API request: %s %s", r.Method, r.URL.Path)
-					http.Error(w, "unexpected request", http.StatusNotFound)
-					return
-				}
-				if err := json.NewEncoder(w).Encode(tailscale.AuthKey{ID: "k1", Key: key}); err != nil {
-					t.Error(err)
-				}
-			}))
+			ts := tailscaleAuthKeyServer(t, key)
 			defer ts.Close()
 			originalClient := http.DefaultClient
 			t.Cleanup(func() { http.DefaultClient = originalClient })
@@ -235,24 +225,44 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 			if out != key+"\n" {
 				t.Errorf("stdout = %q, want only %q", out, key+"\n")
 			}
-			stored, source, ok := vault.Get("TAILSCALE_AUTHKEY")
-			if save {
-				if !ok || stored != key || source != "vault" {
-					t.Errorf("saved key = %q, source=%q, found=%v", stored, source, ok)
-				}
-				want := "saved TAILSCALE_AUTHKEY to the vault (" + vault.Redact(key) + ")\n"
-				if stderr != want {
-					t.Errorf("stderr = %q, want %q", stderr, want)
-				}
-			} else {
-				if ok {
-					t.Error("key without --save must not store TAILSCALE_AUTHKEY")
-				}
-				if stderr != "" {
-					t.Errorf("key without --save stderr = %q, want empty", stderr)
-				}
-			}
+			checkTailscaleSavedKey(t, save, key, stderr)
 		})
+	}
+}
+
+// Reuse the CreateAuthKey response pattern from internal/network/tailscale/api_test.go.
+func tailscaleAuthKeyServer(t *testing.T, key string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v2/tailnet/-/keys" {
+			t.Errorf("unexpected admin API request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(tailscale.AuthKey{ID: "k1", Key: key}); err != nil {
+			t.Error(err)
+		}
+	}))
+}
+
+func checkTailscaleSavedKey(t *testing.T, save bool, key, stderr string) {
+	t.Helper()
+	stored, source, ok := vault.Get("TAILSCALE_AUTHKEY")
+	if save {
+		if !ok || stored != key || source != "vault" {
+			t.Errorf("saved key = %q, source=%q, found=%v", stored, source, ok)
+		}
+		want := "saved TAILSCALE_AUTHKEY to the vault (" + vault.Redact(key) + ")\n"
+		if stderr != want {
+			t.Errorf("stderr = %q, want %q", stderr, want)
+		}
+		return
+	}
+	if ok {
+		t.Error("key without --save must not store TAILSCALE_AUTHKEY")
+	}
+	if stderr != "" {
+		t.Errorf("key without --save stderr = %q, want empty", stderr)
 	}
 }
 

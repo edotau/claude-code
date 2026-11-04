@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -106,14 +107,7 @@ func cmdAnthropic(args []string) int {
 
 // anthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
 func anthropicSecret(o claude.AnthropicOptions) (string, error) {
-	read := func() (string, error) {
-		if o.Mode == claude.AuthOAuth {
-			return providers.StoredSecret(o.Name), nil
-		}
-		v, _, err := vault.EffectiveSecret(o.Name)
-		return v, err
-	}
-	if v, err := read(); err != nil {
+	if v, err := readAnthropicSecret(o); err != nil {
 		return "", fmt.Errorf("%s: %w", o.Name, err)
 	} else if v != "" {
 		return v, nil
@@ -125,18 +119,33 @@ func anthropicSecret(o claude.AnthropicOptions) (string, error) {
 	if !tui.Confirm(o.Name+" is not in the vault — set it now?", true) {
 		return "", missing
 	}
-	if o.Mode == claude.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
-		runSetupToken()
+	if err := storeAnthropicSecret(o); err != nil {
+		return "", err
 	}
-	if code := vaultcmd.Run([]string{"set", o.Name}); code != 0 {
-		return "", fmt.Errorf("%s was not stored", o.Name)
-	}
-	if v, err := read(); err != nil {
+	if v, err := readAnthropicSecret(o); err != nil {
 		return "", fmt.Errorf("%s: %w", o.Name, err)
 	} else if v != "" {
 		return v, nil
 	}
 	return "", missing
+}
+
+func readAnthropicSecret(o claude.AnthropicOptions) (string, error) {
+	if o.Mode == claude.AuthOAuth {
+		return providers.StoredSecret(o.Name), nil
+	}
+	v, _, err := vault.EffectiveSecret(o.Name)
+	return v, err
+}
+
+func storeAnthropicSecret(o claude.AnthropicOptions) error {
+	if o.Mode == claude.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
+		runSetupToken()
+	}
+	if code := vaultcmd.Run([]string{"set", o.Name}); code != 0 {
+		return fmt.Errorf("%s was not stored", o.Name)
+	}
+	return nil
 }
 
 // runSetupToken runs `claude setup-token` on the inherited terminal; a failure only means the user pastes a token.
@@ -342,7 +351,14 @@ func cmdInstall(args []string) int {
 // doctorChecks is a test seam over the slow, probing launch.DoctorChecks.
 var doctorChecks = launch.DoctorChecks
 
-func cmdDoctor(args []string) int {
+type doctorOpts struct {
+	format                                 *string
+	auditMode, scan, gitScan, refresh, all bool
+	days, since                            int
+	rev                                    string
+}
+
+func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs := helptext.NewFlagSet("doctor", helptext.Page{
 		Usage: "claude-code doctor [flags] [--scan [path...]]",
 		About: "Check binaries, providers, credentials and the proxy without changing anything; " +
@@ -350,41 +366,45 @@ func cmdDoctor(args []string) int {
 			"and proxy failovers instead. --scan, --git and --secrets audit for plaintext " +
 			"credentials instead and exit 1 on any finding.",
 	})
-	format := helptext.FormatFlag(fs)
-	auditMode := fs.Bool("audit", false, "print the typed action log instead of health checks")
-	days := fs.Int("days", 7, "with --audit: events from the last N days")
-	scan := fs.Bool("scan", false, "scan paths given, else configs and vault, for inline secrets")
-	gitScan := fs.Bool("git", false, "scan this repo's git history for committed secrets")
-	since := fs.Int("since", 0, "with --git or --secrets: only the last N commits (0 = all)")
-	rev := fs.String("range", "", "with --git or --secrets: only this revision range, e.g. @{u}..HEAD")
-	refresh := fs.Bool("refresh", false, "re-list each pinned Databricks workspace's served models before the checks")
-	all := fs.Bool("secrets", false, "--scan, --git and the vault checks together; worst exit wins")
+	o := &doctorOpts{format: helptext.FormatFlag(fs)}
+	fs.BoolVar(&o.auditMode, "audit", false, "print the typed action log instead of health checks")
+	fs.IntVar(&o.days, "days", 7, "with --audit: events from the last N days")
+	fs.BoolVar(&o.scan, "scan", false, "scan paths given, else configs and vault, for inline secrets")
+	fs.BoolVar(&o.gitScan, "git", false, "scan this repo's git history for committed secrets")
+	fs.IntVar(&o.since, "since", 0, "with --git or --secrets: only the last N commits (0 = all)")
+	fs.StringVar(&o.rev, "range", "", "with --git or --secrets: only this revision range, e.g. @{u}..HEAD")
+	fs.BoolVar(&o.refresh, "refresh", false, "re-list each pinned Databricks workspace's served models before the checks")
+	fs.BoolVar(&o.all, "secrets", false, "--scan, --git and the vault checks together; worst exit wins")
+	return fs, o
+}
+
+func cmdDoctor(args []string) int {
+	fs, o := doctorFlags()
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
+	if err := helptext.CheckFormat(*o.format); err != nil {
 		return badFormat("doctor", err)
 	}
-	if len(fs.Args()) > 0 && !*scan {
+	if len(fs.Args()) > 0 && !o.scan {
 		fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
 		return 2
 	}
-	if *scan || *gitScan || *all {
-		if *format == helptext.JSON {
-			fail("doctor: --scan, --git and --secrets print text only")
-			return 2
-		}
-		return providers.RunAudits(os.Stdout, providers.AuditOpts{Scan: *scan || *all, Git: *gitScan || *all, Vault: *all,
-			Targets: fs.Args(), Rev: *rev, Since: *since, VaultDoctor: launch.VaultDoctor})
+	return runDoctor(o, fs.Args())
+}
+
+func runDoctor(o *doctorOpts, targets []string) int {
+	if o.scan || o.gitScan || o.all {
+		return runDoctorAudits(o, targets)
 	}
-	if *auditMode {
-		return printAudit(*days, *format)
+	if o.auditMode {
+		return printAudit(o.days, *o.format)
 	}
-	if *refresh {
+	if o.refresh {
 		refreshServed()
 	}
 	checks, ok := doctorChecks()
-	if *format == helptext.JSON {
+	if *o.format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			OK     bool           `json:"ok"`
 			Checks []launch.Check `json:"checks"`
@@ -398,6 +418,15 @@ func cmdDoctor(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runDoctorAudits(o *doctorOpts, targets []string) int {
+	if *o.format == helptext.JSON {
+		fail("doctor: --scan, --git and --secrets print text only")
+		return 2
+	}
+	return providers.RunAudits(os.Stdout, providers.AuditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
+		Targets: targets, Rev: o.rev, Since: o.since, VaultDoctor: launch.VaultDoctor})
 }
 
 // refreshServed re-lists every pinned Databricks profile's endpoints into the served-models cache.

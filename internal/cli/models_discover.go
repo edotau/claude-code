@@ -59,11 +59,30 @@ func cmdModelsDiscover(args []string) int {
 		}
 		names = []string{*profile}
 	}
+	results, code := discoverPickerProfiles(reg, names, *apply)
+	return printDiscoverResults(results, *apply, *format, code)
+}
+
+func printDiscoverResults(results []discoverResult, apply bool, format string, code int) int {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, struct {
+			Apply   bool             `json:"apply"`
+			Results []discoverResult `json:"results"`
+		}{apply, results}); err != nil {
+			return fail("models discover: cannot write JSON")
+		}
+	} else {
+		printDiscoverText(results)
+	}
+	return code
+}
+
+func discoverPickerProfiles(reg *providers.Registry, names []string, apply bool) ([]discoverResult, int) {
 	results := make([]discoverResult, 0, len(names))
 	code, completed := 0, 0
 	for _, name := range names {
 		p, _ := reg.Get(name)
-		r := discoverPickerProfile(p, *apply)
+		r := discoverPickerProfile(p, apply)
 		if r.Status == "error" {
 			code = 1
 		}
@@ -75,17 +94,7 @@ func cmdModelsDiscover(args []string) int {
 	if completed == 0 {
 		code = 1
 	}
-	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
-			Apply   bool             `json:"apply"`
-			Results []discoverResult `json:"results"`
-		}{*apply, results}); err != nil {
-			return fail("models discover: cannot write JSON")
-		}
-	} else {
-		printDiscoverText(results)
-	}
-	return code
+	return results, code
 }
 
 func printDiscoverText(results []discoverResult) {

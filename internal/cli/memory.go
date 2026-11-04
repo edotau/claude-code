@@ -154,17 +154,21 @@ func cmdMemorySearch(args []string) int {
 		}
 		return 0
 	}
-	if len(res.Hits) == 0 {
+	printMemorySearchHits(res.Hits)
+	return 0
+}
+
+func printMemorySearchHits(hits []bank.SearchHit) {
+	if len(hits) == 0 {
 		fmt.Println("no matching blocks (banks empty or query all stopwords)")
 	}
-	for _, h := range res.Hits {
+	for _, h := range hits {
 		id := ""
 		if h.ID != "" {
 			id = " [" + h.ID + "]"
 		}
 		fmt.Printf("%5.2f  %-7s %-18s %s%s\n", h.Score, h.Bank, h.File, h.Title(), id)
 	}
-	return 0
 }
 
 func cmdMemoryShow(args []string) int {
