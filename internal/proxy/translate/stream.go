@@ -10,17 +10,19 @@ import (
 	"strings"
 )
 
+type streamChoice struct {
+	Delta struct {
+		Content   json.RawMessage `json:"content"`
+		Refusal   string          `json:"refusal"`
+		ToolCalls []inToolCall    `json:"tool_calls"`
+	} `json:"delta"`
+	FinishReason string `json:"finish_reason"`
+}
+
 type streamChunk struct {
-	Choices []struct {
-		Delta struct {
-			Content   json.RawMessage `json:"content"`
-			Refusal   string          `json:"refusal"`
-			ToolCalls []inToolCall    `json:"tool_calls"`
-		} `json:"delta"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *chatUsage      `json:"usage"`
-	Error json.RawMessage `json:"error"`
+	Choices []streamChoice  `json:"choices"`
+	Usage   *chatUsage      `json:"usage"`
+	Error   json.RawMessage `json:"error"`
 }
 
 type toolState struct {
@@ -174,11 +176,7 @@ func (s *streamer) handle(payload []byte) (bool, error) {
 		return false, s.fail(500, "malformed upstream stream chunk", err)
 	}
 	if len(c.Error) > 0 && string(c.Error) != "null" {
-		body := FromChatError(streamErrorStatus(c.Error), payload)
-		if err := s.event("error", json.RawMessage(body)); err != nil {
-			return false, err
-		}
-		return false, fmt.Errorf("%w: %s", errUpstream, c.Error)
+		return false, s.upstreamError(c.Error, payload)
 	}
 	if err := s.start(); err != nil {
 		return false, err
@@ -187,21 +185,38 @@ func (s *streamer) handle(payload []byte) (bool, error) {
 		s.usage = c.Usage
 	}
 	for _, ch := range c.Choices[:min(len(c.Choices), 1)] {
-		if text := contentText(ch.Delta.Content) + ch.Delta.Refusal; text != "" {
-			if err := s.text(text); err != nil {
-				return false, err
-			}
-		}
-		for _, tc := range ch.Delta.ToolCalls {
-			if err := s.tool(tc); err != nil {
-				return false, err
-			}
-		}
-		if ch.FinishReason != "" {
-			s.finish = ch.FinishReason
+		if err := s.choice(ch); err != nil {
+			return false, err
 		}
 	}
 	return false, nil
+}
+
+// upstreamError writes an in-band upstream error as an error event and returns it wrapped in errUpstream.
+func (s *streamer) upstreamError(raw json.RawMessage, payload []byte) error {
+	body := FromChatError(streamErrorStatus(raw), payload)
+	if err := s.event("error", json.RawMessage(body)); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %s", errUpstream, raw)
+}
+
+// choice emits the text and tool-call deltas of one stream choice and records its finish reason.
+func (s *streamer) choice(ch streamChoice) error {
+	if text := contentText(ch.Delta.Content) + ch.Delta.Refusal; text != "" {
+		if err := s.text(text); err != nil {
+			return err
+		}
+	}
+	for _, tc := range ch.Delta.ToolCalls {
+		if err := s.tool(tc); err != nil {
+			return err
+		}
+	}
+	if ch.FinishReason != "" {
+		s.finish = ch.FinishReason
+	}
+	return nil
 }
 
 func (s *streamer) text(t string) error {
@@ -220,6 +235,32 @@ func (s *streamer) text(t string) error {
 }
 
 func (s *streamer) tool(tc inToolCall) error {
+	t := s.toolFor(tc)
+	s.last = t
+	if t.id == "" {
+		t.id = tc.ID
+	}
+	if t.name == "" {
+		t.name = tc.Function.Name
+	}
+	args := argsText(tc.Function.Arguments)
+	if t.block < 0 {
+		var started bool
+		var err error
+		if args, started, err = s.startTool(t, args); err != nil || !started {
+			return err
+		}
+	} else if s.openTool != t {
+		return nil // fragment for an already-closed block: Anthropic blocks cannot be reopened
+	}
+	if args == "" {
+		return nil
+	}
+	return s.delta(inputJSONDelta{Type: "input_json_delta", PartialJSON: args})
+}
+
+// toolFor finds the tool call tc continues, or registers a new one.
+func (s *streamer) toolFor(tc inToolCall) *toolState {
 	var t *toolState
 	if tc.Index != nil {
 		t = s.tools[*tc.Index]
@@ -232,40 +273,31 @@ func (s *streamer) tool(tc inToolCall) error {
 			s.tools[*tc.Index] = t
 		}
 	}
-	s.last = t
-	if t.id == "" {
-		t.id = tc.ID
-	}
+	return t
+}
+
+// startTool opens t's tool_use block once its name is known; until then args are buffered and started is false.
+// On start it returns the buffered args joined with args.
+func (s *streamer) startTool(t *toolState, args string) (full string, started bool, err error) {
 	if t.name == "" {
-		t.name = tc.Function.Name
+		t.pending.WriteString(args)
+		return "", false, nil
 	}
-	args := argsText(tc.Function.Arguments)
-	if t.block < 0 {
-		if t.name == "" {
-			t.pending.WriteString(args)
-			return nil
-		}
-		if err := s.closeBlock(); err != nil {
-			return err
-		}
-		if t.id == "" {
-			t.id = newID("toolu_")
-		}
-		if err := s.event("content_block_start", blockStartEvent{Type: "content_block_start", Index: s.next,
-			ContentBlock: toolBlock{Type: "tool_use", ID: t.id, Name: t.name, Input: json.RawMessage("{}")}}); err != nil {
-			return err
-		}
-		t.block, s.open, s.openTool, s.usedTools = s.next, s.next, t, true
-		s.next++
-		args = t.pending.String() + args
-		t.pending.Reset()
-	} else if s.openTool != t {
-		return nil // fragment for an already-closed block: Anthropic blocks cannot be reopened
+	if err := s.closeBlock(); err != nil {
+		return "", false, err
 	}
-	if args == "" {
-		return nil
+	if t.id == "" {
+		t.id = newID("toolu_")
 	}
-	return s.delta(inputJSONDelta{Type: "input_json_delta", PartialJSON: args})
+	if err := s.event("content_block_start", blockStartEvent{Type: "content_block_start", Index: s.next,
+		ContentBlock: toolBlock{Type: "tool_use", ID: t.id, Name: t.name, Input: json.RawMessage("{}")}}); err != nil {
+		return "", false, err
+	}
+	t.block, s.open, s.openTool, s.usedTools = s.next, s.next, t, true
+	s.next++
+	full = t.pending.String() + args
+	t.pending.Reset()
+	return full, true, nil
 }
 
 func (s *streamer) delta(d any) error {

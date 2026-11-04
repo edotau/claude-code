@@ -211,26 +211,36 @@ func upstreamMessage(body []byte) string {
 	}
 	var v any
 	if json.Unmarshal(body, &v) == nil {
-		if arr, ok := v.([]any); ok && len(arr) > 0 {
-			v = arr[0]
-		}
-		if obj, ok := v.(map[string]any); ok {
-			if e, ok := obj["error"].(map[string]any); ok {
-				obj = e
-			} else if s, ok := obj["error"].(string); ok && s != "" {
-				return s
-			}
-			for _, k := range []string{"message", "detail"} {
-				if s, ok := obj[k].(string); ok && s != "" {
-					return s
-				}
-			}
+		if s := structuredMessage(v); s != "" {
+			return s
 		}
 	}
 	if len(text) > maxErrorText {
 		text = text[:maxErrorText]
 	}
 	return text
+}
+
+// structuredMessage digs a message out of a decoded JSON error body; "" when none is found.
+func structuredMessage(v any) string {
+	if arr, ok := v.([]any); ok && len(arr) > 0 {
+		v = arr[0]
+	}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return ""
+	}
+	if e, ok := obj["error"].(map[string]any); ok {
+		obj = e
+	} else if s, ok := obj["error"].(string); ok && s != "" {
+		return s
+	}
+	for _, k := range []string{"message", "detail"} {
+		if s, ok := obj[k].(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // streamErrorStatus reads a numeric error.code from an in-band stream error, defaulting to 500.

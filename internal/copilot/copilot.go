@@ -43,12 +43,9 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	if err != nil {
 		return agent.Result{}, err
 	}
-	res := agent.Result{Provider: cs.OwnProfile(), Model: models.Strip1M(t.Model)}
-	if !own {
-		if t.Provider == nil {
-			return res, copilotFatal(errors.New("agent target resolved to no provider"))
-		}
-		res.Provider = t.Provider.Name
+	res, err := initialResult(cs, t, own)
+	if err != nil {
+		return res, err
 	}
 	opts, env, done, err := e.options(ctx, cs, req, t, own)
 	defer done() // done is never nil, so an error path still releases a registry route
@@ -64,7 +61,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	err = markToolRan(out, sink, err)
 	if err != nil {
 		lg.Emit("error", err.Error())
-		if (own || t.Provider.Auth.Login == "copilot") && agent.Classify("copilot", err, false).Kind == agent.KindQuota {
+		if quotaHandoffEligible(own, t, err) {
 			return CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, CredentialValues(env, opts.GitHubToken))
 		}
 		return copilotPartial(res, out, err, sink)
@@ -78,40 +75,40 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	return res, sink.Emit(agent.Event{Type: agent.EventText, Text: out.Text})
 }
 
+// initialResult seeds the run result with the provider and model of target t.
+func initialResult(cs agent.Schema, t providers.Target, own bool) (agent.Result, error) {
+	res := agent.Result{Provider: cs.OwnProfile(), Model: models.Strip1M(t.Model)}
+	if own {
+		return res, nil
+	}
+	if t.Provider == nil {
+		return res, copilotFatal(errors.New("agent target resolved to no provider"))
+	}
+	res.Provider = t.Provider.Name
+	return res, nil
+}
+
+// quotaHandoffEligible reports whether err is a quota failure on a copilot-billed route, so the task can hand off.
+func quotaHandoffEligible(own bool, t providers.Target, err error) bool {
+	return (own || t.Provider.Auth.Login == "copilot") && agent.Classify("copilot", err, false).Kind == agent.KindQuota
+}
+
 // options builds the SDK options for target t; env is the BYOK route env; done (never nil) releases a registry route.
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target, own bool,
 ) (opts SDKOptions, env []string, done func(), err error) {
 	done = func() {}
-	var route *copilotRegistryRoute
-	switch {
-	case own:
-	case copilotRegistryEligible(req.Direct, t):
-		if route, err = prepareCopilotRegistry(ctx, t); err != nil {
-			return opts, nil, done, copilotFatal(err)
-		}
+	route, env, err := e.routeEnv(ctx, cs, req, t, own)
+	if err != nil {
+		return opts, nil, done, copilotFatal(err)
+	}
+	if route != nil {
 		done = route.close
-	default:
-		if env, _, err = cs.Configure(ctx, t, ""); err != nil {
-			return opts, nil, done, copilotFatal(err)
-		}
 	}
 	bin, err := e.Bin()
 	if err != nil {
 		return opts, nil, done, err
 	}
-	var model string
-	if own || (t.Provider != nil && t.Provider.Auth.Login != "") {
-		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
-	}
-	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
-	rec := vault.GetAgentRecord("copilot")
-	opts = SDKOptions{
-		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
-		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
-		Context:         rec.Context, WorkingDirectory: req.WorkDir,
-		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
-		SessionID: req.SessionID,
-	}
+	opts = newSDKOptions(bin, env, req, t, own)
 	if route != nil {
 		route.apply(&opts)
 	}
@@ -124,6 +121,36 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 		return opts, nil, done, copilotFatal(err)
 	}
 	return opts, env, done, nil
+}
+
+// routeEnv prepares the registry route (own: none) or the BYOK route env for target t.
+func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target, own bool,
+) (route *copilotRegistryRoute, env []string, err error) {
+	switch {
+	case own:
+	case copilotRegistryEligible(req.Direct, t):
+		route, err = prepareCopilotRegistry(ctx, t)
+	default:
+		env, _, err = cs.Configure(ctx, t, "")
+	}
+	return route, env, err
+}
+
+// newSDKOptions builds the SDK options for one run from the CLI path, route env and request.
+func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.Target, own bool) SDKOptions {
+	var model string
+	if own || (t.Provider != nil && t.Provider.Auth.Login != "") {
+		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
+	}
+	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
+	rec := vault.GetAgentRecord("copilot")
+	return SDKOptions{
+		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
+		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
+		Context:         rec.Context, WorkingDirectory: req.WorkDir,
+		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
+		SessionID: req.SessionID,
+	}
 }
 
 // copilotPrompt inlines text attachments; the SDK never resolves @<path>, so images ride as absolute file paths.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -179,27 +180,47 @@ func TestVendorAndGuardAreNilSafe(t *testing.T) {
 	}
 }
 
-// TestDefaults pins the shipped defaults.json values each vendor consumer relies on.
-func TestDefaults(t *testing.T) {
+// loadDefaults loads the shipped defaults with no user overlay.
+func loadDefaults(t *testing.T) *Config {
+	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return cfg
+}
 
-	codex := cfg.Agent("codex")
+// TestDefaults pins the shipped defaults.json values each vendor consumer relies on.
+func TestDefaults(t *testing.T) {
+	cfg := loadDefaults(t)
+	t.Run("codex", func(t *testing.T) { checkCodexDefaults(t, cfg.Agent("codex")) })
+	t.Run("copilot", func(t *testing.T) { checkCopilotDefaults(t, cfg.Agent("copilot")) })
+	t.Run("opencode", func(t *testing.T) { checkOpencodeDefaults(t, cfg.Agent("opencode")) })
+	t.Run("gemini", func(t *testing.T) { checkGeminiDefaults(t, cfg.Agent("gemini")) })
+	t.Run("guard", func(t *testing.T) {
+		g := cfg.Guard()
+		if !slices.Contains(g.Deny, "Bash(rm -rf /)") {
+			t.Errorf("Guard().Deny = %v, want to contain Bash(rm -rf /)", g.Deny)
+		}
+	})
+}
+
+func checkCodexDefaults(t *testing.T, codex AgentConfig) {
+	t.Helper()
 	if codex.Permission.ApprovalPolicy != "never" {
 		t.Errorf("codex.Permission.ApprovalPolicy = %q, want never", codex.Permission.ApprovalPolicy)
 	}
 	if codex.Permission.SandboxMode != "danger-full-access" {
 		t.Errorf("codex.Permission.SandboxMode = %q, want danger-full-access", codex.Permission.SandboxMode)
 	}
-
 	if len(codex.Launch.Args) != 0 {
 		t.Errorf("codex.Launch.Args = %v, want none (config.toml carries approval/sandbox)", codex.Launch.Args)
 	}
+}
 
-	copilot := cfg.Agent("copilot")
+func checkCopilotDefaults(t *testing.T, copilot AgentConfig) {
+	t.Helper()
 	if copilot.Permission.DefaultPermissionMode != "allow-all" {
 		t.Errorf("copilot.Permission.DefaultPermissionMode = %q, want allow-all", copilot.Permission.DefaultPermissionMode)
 	}
@@ -207,39 +228,30 @@ func TestDefaults(t *testing.T) {
 	if !reflect.DeepEqual(copilot.Launch.Args, wantCopilotArgs) {
 		t.Errorf("copilot.Launch.Args = %v, want %v", copilot.Launch.Args, wantCopilotArgs)
 	}
+}
 
-	opencode := cfg.Agent("opencode")
+func checkOpencodeDefaults(t *testing.T, opencode AgentConfig) {
+	t.Helper()
 	wantEnv := []string{"OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1"}
 	if len(opencode.Launch.Env) != len(wantEnv) || opencode.Launch.Env[0] != wantEnv[0] {
 		t.Errorf("opencode.Launch.Env = %v, want %v", opencode.Launch.Env, wantEnv)
 	}
-	for _, e := range opencode.Launch.Env {
-		if e == "OPENCODE_DISABLE_EXTERNAL_SKILLS" {
-			t.Errorf("opencode.Launch.Env contains OPENCODE_DISABLE_EXTERNAL_SKILLS, want absent")
-		}
+	if slices.Contains(opencode.Launch.Env, "OPENCODE_DISABLE_EXTERNAL_SKILLS") {
+		t.Errorf("opencode.Launch.Env contains OPENCODE_DISABLE_EXTERNAL_SKILLS, want absent")
 	}
 	if len(opencode.Launch.Args) != 0 {
 		t.Errorf("opencode.Launch.Args = %v, want none", opencode.Launch.Args)
 	}
+}
 
-	gemini := cfg.Agent("gemini")
+func checkGeminiDefaults(t *testing.T, gemini AgentConfig) {
+	t.Helper()
 	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
 	if !reflect.DeepEqual(gemini.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v", gemini.Launch.Args, wantGeminiArgs)
 	}
 	if !gemini.Permission.UseGuardRules {
 		t.Error("gemini.Permission.UseGuardRules = false, want true")
-	}
-
-	g := cfg.Guard()
-	found := false
-	for _, d := range g.Deny {
-		if d == "Bash(rm -rf /)" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("Guard().Deny = %v, want to contain Bash(rm -rf /)", g.Deny)
 	}
 }
 

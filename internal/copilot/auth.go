@@ -245,6 +245,12 @@ func ghActiveAccountToken() (account, token string) {
 			os.Getenv("GH_HOST"), os.Getenv("PATH")},
 		path: path, size: info.Size(), modTime: info.ModTime(),
 	}
+	return ghLookupCached(key)
+}
+
+// ghLookupCached serves the memoized account/token for key, else reads hosts.yml, runs gh and memoizes.
+func ghLookupCached(key ghActiveTokenKey) (account, token string) {
+	path := key.path
 	ghActiveTokenCache.Lock()
 	defer ghActiveTokenCache.Unlock()
 	if ghActiveTokenCache.key == key && ghActiveTokenCache.account != "" {
@@ -266,16 +272,20 @@ func ghActiveAccountToken() (account, token string) {
 		return "", "" // hosts.yml names a user but gh has no usable token for it
 	}
 	// Overrides can make the default token differ from the named account's token; retain the original lookup.
-	if os.Getenv("GH_TOKEN") != "" || os.Getenv("GITHUB_TOKEN") != "" ||
-		(os.Getenv("GH_HOST") != "" && os.Getenv("GH_HOST") != "github.com") {
-		account = string(m[1])
-	} else {
-		account, token = string(m[1]), strings.TrimSpace(string(out))
+	account = string(m[1])
+	if !ghEnvOverridesToken() {
+		token = strings.TrimSpace(string(out))
 	}
 	ghActiveTokenCache.key = key
 	ghActiveTokenCache.account, ghActiveTokenCache.token = account, token
 	ghActiveTokenCache.failedAt = time.Time{}
 	return account, token
+}
+
+// ghEnvOverridesToken reports whether GH_TOKEN, GITHUB_TOKEN or a non-default GH_HOST can change gh's default token.
+func ghEnvOverridesToken() bool {
+	host := os.Getenv("GH_HOST")
+	return os.Getenv("GH_TOKEN") != "" || os.Getenv("GITHUB_TOKEN") != "" || (host != "" && host != "github.com")
 }
 
 // ghAuthToken runs plain `gh auth token` under ghActiveTokenCache's lock; a failure, not a timeout, is remembered.

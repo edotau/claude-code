@@ -58,6 +58,13 @@ func (r *syncResult) add(o syncResult) {
 	r.pruned += o.pruned
 }
 
+// syncInputs is everything Sync discovers before it writes anything.
+type syncInputs struct {
+	home, root, skillsDir string
+	names                 []string
+	agents, skills        []Source
+}
+
 // Sync projects agents/ and skills/ into every agent home and prunes stale output. Exit 0 ok, 1 error or stale.
 func Sync(opts Options) int {
 	out := opts.Out
@@ -65,56 +72,65 @@ func Sync(opts Options) int {
 		out = os.Stdout
 	}
 	dryRun := opts.DryRun || opts.Check
+	in, code, ok := loadSyncInputs(opts)
+	if !ok {
+		return code
+	}
+	prune := !opts.NoPrune && len(in.agents)+len(in.skills) > 0
+	if !opts.NoPrune && !prune {
+		fmt.Fprintln(os.Stderr, "sync: no agents/skills discovered; refusing to prune")
+	}
+
+	docs, hasDocs, err := renderDocs(in.root, in.agents)
+	if err != nil {
+		return syncFail(err)
+	}
+	var res syncResult
+	for _, pname := range in.names {
+		res.add(syncProjectionAssets(out, pname, in.root, in.home, in.skillsDir, in.agents, in.skills, docs, hasDocs, dryRun, prune))
+	}
+	fmt.Fprintln(out, "== skills ==")
+	agentsSkills := AgentsSkillsDir(in.home)
+	res.add(syncSkillLinks(out, in.skills, in.skillsDir, agentsSkills, prune, dryRun))
+	if prune {
+		res.add(pruneLegacyGeminiSkills(out, LegacyGeminiSkillsDir(in.home), dryRun))
+	}
+	return finishSync(out, opts, dryRun, res)
+}
+
+// loadSyncInputs resolves HOME, the vendor roster and the discovered agents/skills; ok is false with the exit code.
+func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
 	home, _ := os.UserHomeDir()
 	root := paths.ConfigDir()
 	if home == "" {
 		fmt.Fprintln(os.Stderr, "sync: HOME is not set")
-		return 1
+		return in, 1, false
 	}
 	names := Names()
 	if opts.Agent != "" {
-		if _, ok := targets[opts.Agent]; !ok {
+		if _, known := targets[opts.Agent]; !known {
 			fmt.Fprintf(os.Stderr, "sync: unknown vendor %q (want one of %s)\n", opts.Agent, strings.Join(names, ", "))
-			return 2
+			return in, 2, false
 		}
 		names = []string{opts.Agent}
 	}
 	agentsDir, skillsDir := filepath.Join(root, "agents"), filepath.Join(root, "skills")
 	if !paths.IsDir(agentsDir) {
 		fmt.Fprintf(os.Stderr, "sync: agents directory not found: %s\n", agentsDir)
-		return 1
+		return in, 1, false
 	}
 	agents, err := DiscoverAgents(agentsDir)
 	if err != nil {
-		return syncFail(err)
+		return in, syncFail(err), false
 	}
 	skills, err := DiscoverSkills(skillsDir)
 	if err != nil {
-		return syncFail(err)
+		return in, syncFail(err), false
 	}
 	if err := validateUniqueNames(skills); err != nil {
-		return syncFail(err)
+		return in, syncFail(err), false
 	}
-	prune := !opts.NoPrune && len(agents)+len(skills) > 0
-	if !opts.NoPrune && !prune {
-		fmt.Fprintln(os.Stderr, "sync: no agents/skills discovered; refusing to prune")
-	}
-
-	docs, hasDocs, err := renderDocs(root, agents)
-	if err != nil {
-		return syncFail(err)
-	}
-	var res syncResult
-	for _, pname := range names {
-		res.add(syncProjectionAssets(out, pname, root, home, skillsDir, agents, skills, docs, hasDocs, dryRun, prune))
-	}
-	fmt.Fprintln(out, "== skills ==")
-	agentsSkills := AgentsSkillsDir(home)
-	res.add(syncSkillLinks(out, skills, skillsDir, agentsSkills, prune, dryRun))
-	if prune {
-		res.add(pruneLegacyGeminiSkills(out, LegacyGeminiSkillsDir(home), dryRun))
-	}
-	return finishSync(out, opts, dryRun, res)
+	return syncInputs{home: home, root: root, skillsDir: skillsDir, names: names, agents: agents, skills: skills}, 0, true
 }
 
 // syncFail reports a fatal sync error on stderr and returns the exit code.

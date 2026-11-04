@@ -70,26 +70,7 @@ func DecodeRawEvents(raw json.RawMessage) (map[string][]json.RawMessage, error) 
 func MergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) (*T, bool)) map[string][]T {
 	merged := map[string][]T{}
 	for event, items := range existing {
-		var out []T
-		insertAt := -1
-		for _, item := range items {
-			remainder, harnessOwned := classify(item)
-			if harnessOwned && insertAt == -1 {
-				insertAt = len(out)
-			}
-			if remainder != nil {
-				out = append(out, *remainder)
-			}
-		}
-		if insertAt == -1 {
-			insertAt = 0 // no harness-owned item in this event: prepend, as if nothing existed before
-		}
-		block := rendered[event]
-		result := make([]T, 0, len(out)+len(block))
-		result = append(result, out[:insertAt]...)
-		result = append(result, block...)
-		result = append(result, out[insertAt:]...)
-		merged[event] = result
+		merged[event] = spliceEvent(items, rendered[event], classify)
 	}
 	for event, items := range rendered {
 		if _, ok := existing[event]; !ok {
@@ -102,6 +83,29 @@ func MergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) 
 		}
 	}
 	return merged
+}
+
+// spliceEvent drops each item's harness-owned part per classify and splices block in at the first owned position.
+func spliceEvent[T any](items, block []T, classify func(T) (*T, bool)) []T {
+	var out []T
+	insertAt := -1
+	for _, item := range items {
+		remainder, harnessOwned := classify(item)
+		if harnessOwned && insertAt == -1 {
+			insertAt = len(out)
+		}
+		if remainder != nil {
+			out = append(out, *remainder)
+		}
+	}
+	if insertAt == -1 {
+		insertAt = 0 // no harness-owned item in this event: prepend, as if nothing existed before
+	}
+	result := make([]T, 0, len(out)+len(block))
+	result = append(result, out[:insertAt]...)
+	result = append(result, block...)
+	result = append(result, out[insertAt:]...)
+	return result
 }
 
 // MergeHooksTop merges body's "hooks" over existingRaw's per classify; next is the existing top level, updated.

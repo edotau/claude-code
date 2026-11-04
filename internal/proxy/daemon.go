@@ -317,6 +317,18 @@ func Inflight(ctx context.Context, port int) int64 {
 func Reclaim(ctx context.Context, port int, force bool) error {
 	st, router := Holder(ctx, port)
 	pid := st.PID
+	if err := checkReclaimable(st, router, port, force); err != nil {
+		return err
+	}
+	if err := terminateHolder(pid); err != nil {
+		return fmt.Errorf("proxy: stop older proxy pid %d on :%d: %w", pid, port, err)
+	}
+	return awaitHolderExit(pid, port)
+}
+
+// checkReclaimable returns nil when the holder st on port is an older proxy of this config that may be stopped.
+func checkReclaimable(st HolderState, router bool, port int, force bool) error {
+	pid := st.PID
 	switch {
 	case !router:
 		return fmt.Errorf("%w (127.0.0.1:%d is held by another process); free it or pass --port", ErrForeignHolder, port)
@@ -333,9 +345,11 @@ func Reclaim(ctx context.Context, port int, force bool) error {
 			pid, st.Build, textutil.BuildVersion())
 		return ErrKeptHolder
 	}
-	if err := terminateHolder(pid); err != nil {
-		return fmt.Errorf("proxy: stop older proxy pid %d on :%d: %w", pid, port, err)
-	}
+	return nil
+}
+
+// awaitHolderExit waits for pid to exit after it was told to stop.
+func awaitHolderExit(pid, port int) error {
 	for deadline := time.Now().Add(ShutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if !alive(pid) {
 			fmt.Fprintf(os.Stderr, "proxy: replaced older proxy pid %d on :%d\n", pid, port)

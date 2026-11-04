@@ -58,16 +58,23 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 	if auth, ok := copilotAuthSource(); ok {
 		if s, hit := readCatalogSnapshot(auth); hit {
 			if time.Since(s.DiscoveredAt) >= serving.CacheTTL() {
-				if reg, err := providers.Load(); err == nil {
-					if name := preflight.GithubProfile(reg); name != "" {
-						preflight.SpawnDiscover(name, false)
-					}
-				}
+				spawnCatalogRefresh()
 			}
 			return s.Models, nil
 		}
 	}
 	return RefreshCatalog(ctx)
+}
+
+// spawnCatalogRefresh starts a detached discovery for the GitHub profile, when the registry names one.
+func spawnCatalogRefresh() {
+	reg, err := providers.Load()
+	if err != nil {
+		return
+	}
+	if name := preflight.GithubProfile(reg); name != "" {
+		preflight.SpawnDiscover(name, false)
+	}
 }
 
 // RefreshCatalog lists the catalog live on the launch account's token and seals it, whatever the snapshot's age.

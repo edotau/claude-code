@@ -45,22 +45,34 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
+	got := waitLedger(t)
+	if len(got) != 1 {
+		t.Fatalf("ledger = %+v, want 1 entry", got)
+	}
+	checkNonKeyLedgerEntry(t, got[0])
+	if in, out, cr := tokenledger.TotalsBySession("sess-1"); in != 7 || out != 3 || cr != 2 {
+		t.Errorf("totals = %d %d %d", in, out, cr)
+	}
+}
+
+// checkNonKeyLedgerEntry asserts the entry carries the prod profile, databricks provider, session, agent and usage.
+func checkNonKeyLedgerEntry(t *testing.T, e tokenledger.Entry) {
+	t.Helper()
+	if e.Profile != "prod" || e.Provider != "databricks" || e.Session != "sess-1" || e.Agent != "code-worker" || e.Input != 7 || e.Output != 3 || e.CacheRead != 2 {
+		t.Errorf("entry = %+v", e)
+	}
+}
+
+// waitLedger polls until the ledger has an entry; the append lands just after the relay returns.
+func waitLedger(t *testing.T) []tokenledger.Entry {
+	t.Helper()
 	var got []tokenledger.Entry
-	for i := 0; i < 100 && len(got) == 0; i++ { // the append lands just after the relay returns
+	for i := 0; i < 100 && len(got) == 0; i++ {
 		if got, _ = tokenledger.Read(); len(got) == 0 {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	if len(got) != 1 {
-		t.Fatalf("ledger = %+v, want 1 entry", got)
-	}
-	e := got[0]
-	if e.Profile != "prod" || e.Provider != "databricks" || e.Session != "sess-1" || e.Agent != "code-worker" || e.Input != 7 || e.Output != 3 || e.CacheRead != 2 {
-		t.Errorf("entry = %+v", e)
-	}
-	if in, out, cr := tokenledger.TotalsBySession("sess-1"); in != 7 || out != 3 || cr != 2 {
-		t.Errorf("totals = %d %d %d", in, out, cr)
-	}
+	return got
 }
 
 func TestDeadKeyCanonicalizesOneMarker(t *testing.T) {

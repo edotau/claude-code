@@ -83,109 +83,136 @@ func TestProviderFromEnvResponsesWire(t *testing.T) {
 	}
 }
 
-// ListModels maps the SDK's raw catalog into the harness's own Model shape, field for field.
-func TestSDKListModelsMapsFields(t *testing.T) {
-	mult := 2.5
+// stubListModels swaps listModelsFn for one returning models, restored when the test ends.
+func stubListModels(t *testing.T, models []copilot.ModelInfo) {
+	t.Helper()
 	old := listModelsFn
-	defer func() { listModelsFn = old }()
-	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
-		return []copilot.ModelInfo{
-			{
-				ID:   "claude-sonnet-5",
-				Name: "Claude Sonnet 5",
-				Capabilities: copilot.ModelCapabilities{
-					Supports: copilot.ModelSupports{Vision: true, ReasoningEffort: false},
-				},
-				Billing: &copilot.ModelBilling{Multiplier: &mult},
-			},
-			{
-				ID:   "gpt-5-mini",
-				Name: "GPT-5 mini",
-				Capabilities: copilot.ModelCapabilities{
-					Supports: copilot.ModelSupports{Vision: false, ReasoningEffort: true},
-				},
-			},
-		}, nil
-	}
+	t.Cleanup(func() { listModelsFn = old })
+	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) { return models, nil }
+}
+
+// listStubbedModels runs SDKListModels against the stub and requires want models back.
+func listStubbedModels(t *testing.T, want int) []SDKModel {
+	t.Helper()
 	got, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
 	if err != nil {
 		t.Fatalf("SDKListModels: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("got %d models, want 2", len(got))
+	if len(got) != want {
+		t.Fatalf("got %d models, want %d", len(got), want)
 	}
-	if got[0].ID != "claude-sonnet-5" || got[0].Name != "Claude Sonnet 5" || !got[0].Vision || got[0].ReasoningEffort {
-		t.Errorf("model[0] = %+v", got[0])
+	return got
+}
+
+// fieldsFixture is a two-model raw catalog: one with vision and billing, one with reasoning effort and none.
+func fieldsFixture(mult *float64) []copilot.ModelInfo {
+	return []copilot.ModelInfo{
+		{
+			ID:   "claude-sonnet-5",
+			Name: "Claude Sonnet 5",
+			Capabilities: copilot.ModelCapabilities{
+				Supports: copilot.ModelSupports{Vision: true, ReasoningEffort: false},
+			},
+			Billing: &copilot.ModelBilling{Multiplier: mult},
+		},
+		{
+			ID:   "gpt-5-mini",
+			Name: "GPT-5 mini",
+			Capabilities: copilot.ModelCapabilities{
+				Supports: copilot.ModelSupports{Vision: false, ReasoningEffort: true},
+			},
+		},
 	}
-	if got[0].Multiplier == nil || *got[0].Multiplier != mult {
-		t.Errorf("model[0].Multiplier = %v, want %v", got[0].Multiplier, mult)
+}
+
+// ListModels maps the SDK's raw catalog into the harness's own Model shape, field for field.
+func TestSDKListModelsMapsFields(t *testing.T) {
+	mult := 2.5
+	stubListModels(t, fieldsFixture(&mult))
+	got := listStubbedModels(t, 2)
+	t.Run("sonnet fields", func(t *testing.T) { checkSonnetFields(t, got[0], mult) })
+	t.Run("mini fields", func(t *testing.T) { checkMiniFields(t, got[1]) })
+}
+
+func checkSonnetFields(t *testing.T, m SDKModel, mult float64) {
+	t.Helper()
+	if m.ID != "claude-sonnet-5" || m.Name != "Claude Sonnet 5" || !m.Vision || m.ReasoningEffort {
+		t.Errorf("model[0] = %+v", m)
 	}
-	if got[1].ID != "gpt-5-mini" || got[1].Vision || !got[1].ReasoningEffort {
-		t.Errorf("model[1] = %+v", got[1])
+	if m.Multiplier == nil || *m.Multiplier != mult {
+		t.Errorf("model[0].Multiplier = %v, want %v", m.Multiplier, mult)
 	}
-	if got[1].Multiplier != nil {
-		t.Errorf("model[1].Multiplier = %v, want nil (no billing block)", *got[1].Multiplier)
+}
+
+func checkMiniFields(t *testing.T, m SDKModel) {
+	t.Helper()
+	if m.ID != "gpt-5-mini" || m.Vision || !m.ReasoningEffort {
+		t.Errorf("model[1] = %+v", m)
+	}
+	if m.Multiplier != nil {
+		t.Errorf("model[1].Multiplier = %v, want nil (no billing block)", *m.Multiplier)
+	}
+}
+
+// policyFixture is a four-model raw catalog covering efforts, context limit and each Policy.State shape.
+func policyFixture(ctxTokens *int) []copilot.ModelInfo {
+	return []copilot.ModelInfo{
+		{ // no Policy at all: enabled by default
+			ID: "claude-sonnet-5",
+			Capabilities: copilot.ModelCapabilities{
+				Limits: copilot.ModelLimits{MaxContextWindowTokens: ctxTokens},
+			},
+			SupportedReasoningEfforts: []string{"low", "medium", "high"},
+			DefaultReasoningEffort:    "medium",
+		},
+		{ // explicit Policy.State == "enabled"
+			ID:     "gpt-5-mini",
+			Policy: &copilot.ModelPolicy{State: "enabled"},
+		},
+		{ // disabled by policy
+			ID:     "retired-model",
+			Policy: &copilot.ModelPolicy{State: "disabled"},
+		},
+		{ // no context limit reported at all
+			ID: "auto",
+		},
 	}
 }
 
 // SDKListModels also maps SupportedReasoningEfforts/DefaultReasoningEffort, MaxContextWindowTokens, and the
 // Policy.State enabled gate — Policy nil and Policy.State=="enabled" both count as enabled.
 func TestSDKListModelsMapsEffortsContextAndEnabled(t *testing.T) {
-	old := listModelsFn
-	defer func() { listModelsFn = old }()
 	ctxTokens := 1_000_000
-	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
-		return []copilot.ModelInfo{
-			{ // no Policy at all: enabled by default
-				ID: "claude-sonnet-5",
-				Capabilities: copilot.ModelCapabilities{
-					Limits: copilot.ModelLimits{MaxContextWindowTokens: &ctxTokens},
-				},
-				SupportedReasoningEfforts: []string{"low", "medium", "high"},
-				DefaultReasoningEffort:    "medium",
-			},
-			{ // explicit Policy.State == "enabled"
-				ID:     "gpt-5-mini",
-				Policy: &copilot.ModelPolicy{State: "enabled"},
-			},
-			{ // disabled by policy
-				ID:     "retired-model",
-				Policy: &copilot.ModelPolicy{State: "disabled"},
-			},
-			{ // no context limit reported at all
-				ID: "auto",
-			},
-		}, nil
-	}
-	got, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
-	if err != nil {
-		t.Fatalf("SDKListModels: %v", err)
-	}
-	if len(got) != 4 {
-		t.Fatalf("got %d models, want 4", len(got))
-	}
-	sonnet := got[0]
-	if want := []string{"low", "medium", "high"}; !reflect.DeepEqual(sonnet.Efforts, want) {
-		t.Errorf("sonnet Efforts = %v, want %v", sonnet.Efforts, want)
-	}
-	if sonnet.DefaultEffort != "medium" {
-		t.Errorf("sonnet DefaultEffort = %q, want medium", sonnet.DefaultEffort)
-	}
-	if sonnet.ContextTokens != ctxTokens {
-		t.Errorf("sonnet ContextTokens = %d, want %d", sonnet.ContextTokens, ctxTokens)
-	}
-	if !sonnet.Enabled {
-		t.Error("sonnet (no Policy) Enabled = false, want true (nil policy means enabled)")
-	}
-	if !got[1].Enabled {
-		t.Error(`gpt-5-mini (Policy.State=="enabled") Enabled = false, want true`)
-	}
-	if got[2].Enabled {
-		t.Error(`retired-model (Policy.State=="disabled") Enabled = true, want false`)
-	}
-	if got[3].ContextTokens != 0 {
-		t.Errorf("auto ContextTokens = %d, want 0 (no limit reported)", got[3].ContextTokens)
-	}
+	stubListModels(t, policyFixture(&ctxTokens))
+	got := listStubbedModels(t, 4)
+	t.Run("efforts and context", func(t *testing.T) {
+		sonnet := got[0]
+		if want := []string{"low", "medium", "high"}; !reflect.DeepEqual(sonnet.Efforts, want) {
+			t.Errorf("sonnet Efforts = %v, want %v", sonnet.Efforts, want)
+		}
+		if sonnet.DefaultEffort != "medium" {
+			t.Errorf("sonnet DefaultEffort = %q, want medium", sonnet.DefaultEffort)
+		}
+		if sonnet.ContextTokens != ctxTokens {
+			t.Errorf("sonnet ContextTokens = %d, want %d", sonnet.ContextTokens, ctxTokens)
+		}
+	})
+	t.Run("enabled gate", func(t *testing.T) {
+		if !got[0].Enabled {
+			t.Error("sonnet (no Policy) Enabled = false, want true (nil policy means enabled)")
+		}
+		if !got[1].Enabled {
+			t.Error(`gpt-5-mini (Policy.State=="enabled") Enabled = false, want true`)
+		}
+		if got[2].Enabled {
+			t.Error(`retired-model (Policy.State=="disabled") Enabled = true, want false`)
+		}
+	})
+	t.Run("no context limit", func(t *testing.T) {
+		if got[3].ContextTokens != 0 {
+			t.Errorf("auto ContextTokens = %d, want 0 (no limit reported)", got[3].ContextTokens)
+		}
+	})
 }
 
 // CatalogOptions prefers an explicit token (GitHubToken) over UseLoggedInUser whenever the token is

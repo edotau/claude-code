@@ -83,24 +83,7 @@ func newRouter(secret string) *Router {
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if !loopbackHost(req.Host) {
-		writeError(w, http.StatusForbidden, "proxy: Host must be 127.0.0.1, localhost or [::1]")
-		return
-	}
-	if req.URL.Path == "/healthz" {
-		r.health(w)
-		return
-	}
-	if req.URL.Path == proxy.SessionPath || req.URL.Path == proxy.SessionRevokePath {
-		if !r.secretOK(req) { // a session token never mints or revokes
-			writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret")
-			return
-		}
-		r.serveSession(w, req)
-		return
-	}
-	if !r.authorized(req) {
-		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
+	if r.serveGate(w, req) {
 		return
 	}
 	r.inflight.Add(1)
@@ -108,13 +91,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if !r.secretOK(req) { // a session token: pin its profile for the resolved target and fallbacks
 		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
 	}
-	// Past auth, Authorization survives only as the client's own credential (secret sent in proxy.ClientHeader).
-	if req.Header.Get(proxy.ClientHeader) == "" && req.Header.Get(proxy.LegacyClientHeader) == "" {
-		req.Header.Del("Authorization")
-		req.Header.Del("X-Api-Key")
-	}
-	req.Header.Del(proxy.ClientHeader)
-	req.Header.Del(proxy.LegacyClientHeader)
+	stripClientAuth(req)
 	if prov, dialect, rest, ok := parsePassthrough(req.URL.Path); ok {
 		r.passthrough(w, req, prov, dialect, rest)
 		return
@@ -128,6 +105,41 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
 	provider, model, attempts := r.route(sw, req, session, count)
 	fmt.Fprintf(r.log, "%s %s %s %d %d %s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts, time.Since(start).Round(time.Millisecond))
+}
+
+// serveGate answers the host check, health, session and auth-failure requests; true when it wrote the response.
+func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
+	if !loopbackHost(req.Host) {
+		writeError(w, http.StatusForbidden, "proxy: Host must be 127.0.0.1, localhost or [::1]")
+		return true
+	}
+	if req.URL.Path == "/healthz" {
+		r.health(w)
+		return true
+	}
+	if req.URL.Path == proxy.SessionPath || req.URL.Path == proxy.SessionRevokePath {
+		if !r.secretOK(req) { // a session token never mints or revokes
+			writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret")
+			return true
+		}
+		r.serveSession(w, req)
+		return true
+	}
+	if !r.authorized(req) {
+		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
+		return true
+	}
+	return false
+}
+
+// stripClientAuth drops the proxy secret headers; Authorization survives only as the client's own credential.
+func stripClientAuth(req *http.Request) {
+	if req.Header.Get(proxy.ClientHeader) == "" && req.Header.Get(proxy.LegacyClientHeader) == "" {
+		req.Header.Del("Authorization")
+		req.Header.Del("X-Api-Key")
+	}
+	req.Header.Del(proxy.ClientHeader)
+	req.Header.Del(proxy.LegacyClientHeader)
 }
 
 // fallbackError keeps audit metadata separate from upstream error text, which may contain credentials.
@@ -218,18 +230,7 @@ func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body []byte, la
 
 // attempts is the target then each usable fallback provider; cooling-down providers sink to the end.
 func (r *Router) attempts(reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
-	out := []providers.Target{target}
-	seen := map[*providers.Provider]bool{target.Provider: true}
-	for _, name := range reg.Fallback {
-		p := reg.Providers[name]
-		if p == nil || seen[p] || unroutable(p, clientAuth) != "" || !r.credentialPresent(p) {
-			continue
-		}
-		if ft, ok := providers.FailoverTarget(target.Provider, target.Model, p); ok {
-			seen[p] = true
-			out = append(out, ft)
-		}
-	}
+	out := r.failoverLadder(reg, target, clientAuth)
 	// A model this key cannot use at all is replaced by its provider's next slot up front.
 	for i, t := range out {
 		if r.isDead(t) {
@@ -244,6 +245,23 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 	defer r.mu.Unlock()
 	cooling := func(t providers.Target) bool { return now.Before(r.cool[t.Provider.Name]) }
 	sort.SliceStable(out, func(i, j int) bool { return !cooling(out[i]) && cooling(out[j]) })
+	return out
+}
+
+// failoverLadder is the target followed by one failover target per usable fallback provider, in registry order.
+func (r *Router) failoverLadder(reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
+	out := []providers.Target{target}
+	seen := map[*providers.Provider]bool{target.Provider: true}
+	for _, name := range reg.Fallback {
+		p := reg.Providers[name]
+		if p == nil || seen[p] || unroutable(p, clientAuth) != "" || !r.credentialPresent(p) {
+			continue
+		}
+		if ft, ok := providers.FailoverTarget(target.Provider, target.Model, p); ok {
+			seen[p] = true
+			out = append(out, ft)
+		}
+	}
 	return out
 }
 

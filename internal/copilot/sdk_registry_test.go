@@ -37,21 +37,8 @@ func fakeCopilotCLI(in io.Reader, out io.Writer) {
 		fmt.Fprintf(out, "Content-Length: %d\r\n\r\n%s", len(b), b)
 	}
 	for {
-		n := 0
-		for {
-			line, err := r.ReadString('\n')
-			if err != nil {
-				return
-			}
-			if line = strings.TrimSpace(line); line == "" {
-				break
-			}
-			if v, ok := strings.CutPrefix(line, "Content-Length:"); ok {
-				n, _ = strconv.Atoi(strings.TrimSpace(v))
-			}
-		}
-		body := make([]byte, n)
-		if _, err := io.ReadFull(r, body); err != nil {
+		body, ok := readFramedBody(r)
+		if !ok {
 			return
 		}
 		var req struct {
@@ -63,27 +50,58 @@ func fakeCopilotCLI(in io.Reader, out io.Writer) {
 			continue // a response or notification: nothing to answer
 		}
 		fmt.Fprintf(logf, "%s %s\n", req.Method, req.Params)
-		var p struct {
-			SessionID string `json:"sessionId"`
-			ModelID   string `json:"modelId"`
-		}
-		_ = json.Unmarshal(req.Params, &p)
-		res := map[string]any{}
-		switch req.Method {
-		case "connect":
-			res = map[string]any{"ok": true, "protocolVersion": 3, "version": os.Getenv("FAKE_COPILOT_VERSION")}
-		case "status.get":
-			res = map[string]any{"version": os.Getenv("FAKE_COPILOT_VERSION"), "protocolVersion": 3}
-		case "session.create", "session.resume":
-			res = map[string]any{"sessionId": cmpOr(p.SessionID, "fake-session")}
-		case "session.model.switchTo":
-			if !slices.Contains(known, p.ModelID) {
-				send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": "unknown model " + p.ModelID}})
-				continue
-			}
+		res, errMsg := fakeCopilotReply(req.Method, req.Params, known)
+		if errMsg != "" {
+			send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": errMsg}})
+			continue
 		}
 		send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
 	}
+}
+
+// readFramedBody reads one Content-Length framed message body; ok is false at EOF or a short read.
+func readFramedBody(r *bufio.Reader) (body []byte, ok bool) {
+	n := 0
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return nil, false
+		}
+		if line = strings.TrimSpace(line); line == "" {
+			break
+		}
+		if v, found := strings.CutPrefix(line, "Content-Length:"); found {
+			n, _ = strconv.Atoi(strings.TrimSpace(v))
+		}
+	}
+	body = make([]byte, n)
+	if _, err := io.ReadFull(r, body); err != nil {
+		return nil, false
+	}
+	return body, true
+}
+
+// fakeCopilotReply answers one method; a non-empty errMsg is a JSON-RPC error (an unknown switchTo model).
+func fakeCopilotReply(method string, params json.RawMessage, known []string) (res map[string]any, errMsg string) {
+	var p struct {
+		SessionID string `json:"sessionId"`
+		ModelID   string `json:"modelId"`
+	}
+	_ = json.Unmarshal(params, &p)
+	res = map[string]any{}
+	switch method {
+	case "connect":
+		res = map[string]any{"ok": true, "protocolVersion": 3, "version": os.Getenv("FAKE_COPILOT_VERSION")}
+	case "status.get":
+		res = map[string]any{"version": os.Getenv("FAKE_COPILOT_VERSION"), "protocolVersion": 3}
+	case "session.create", "session.resume":
+		res = map[string]any{"sessionId": cmpOr(p.SessionID, "fake-session")}
+	case "session.model.switchTo":
+		if !slices.Contains(known, p.ModelID) {
+			return nil, "unknown model " + p.ModelID
+		}
+	}
+	return res, ""
 }
 
 func cmpOr(a, b string) string {

@@ -55,18 +55,7 @@ func TestSyncProjectsAgentsToEveryVendorAndLinksSkills(t *testing.T) {
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	for _, vendor := range Names() {
-		tg := targets[vendor]
-		for _, name := range []string{"unique-agent", "shared"} {
-			dist := filepath.Join(Dir(claude, vendor), name+tg.ext)
-			installed := filepath.Join(tg.home(home), name+tg.ext)
-			a, err1 := os.ReadFile(dist)
-			b, err2 := os.ReadFile(installed)
-			if err1 != nil || err2 != nil || string(a) != string(b) {
-				t.Errorf("%s/%s: projection and home copies differ or missing (%v, %v)", vendor, name, err1, err2)
-			}
-		}
-	}
+	assertAgentsProjectedEverywhere(t, home, claude, "unique-agent", "shared")
 	for link, dir := range map[string]string{"shared": "shared-skill", "real-only": "real-only"} {
 		dest, err := os.Readlink(filepath.Join(AgentsSkillsDir(home), link))
 		if err != nil || dest != filepath.Join(claude, "skills", dir) {
@@ -75,6 +64,23 @@ func TestSyncProjectsAgentsToEveryVendorAndLinksSkills(t *testing.T) {
 	}
 	if code := Sync(Options{Check: true, Out: io.Discard}); code != 0 {
 		t.Errorf("--check right after a full sync = %d, want 0 (sync must be idempotent)", code)
+	}
+}
+
+// assertAgentsProjectedEverywhere requires every named agent to exist, identical, in each vendor's dist and home.
+func assertAgentsProjectedEverywhere(t *testing.T, home, claude string, agents ...string) {
+	t.Helper()
+	for _, vendor := range Names() {
+		tg := targets[vendor]
+		for _, name := range agents {
+			dist := filepath.Join(Dir(claude, vendor), name+tg.ext)
+			installed := filepath.Join(tg.home(home), name+tg.ext)
+			a, err1 := os.ReadFile(dist)
+			b, err2 := os.ReadFile(installed)
+			if err1 != nil || err2 != nil || string(a) != string(b) {
+				t.Errorf("%s/%s: projection and home copies differ or missing (%v, %v)", vendor, name, err1, err2)
+			}
+		}
 	}
 }
 
@@ -297,17 +303,7 @@ func TestSyncPrunesOrphansButKeepsHandAuthoredFiles(t *testing.T) {
 	if code := Sync(Options{Out: &out}); code != 0 {
 		t.Fatalf("prune Sync exit = %d, want 0\n%s", code, out.String())
 	}
-	for _, vendor := range Names() {
-		tg := targets[vendor]
-		for _, p := range []string{filepath.Join(Dir(claude, vendor), "doomed"+tg.ext), filepath.Join(tg.home(home), "doomed"+tg.ext)} {
-			if _, err := os.Lstat(p); !os.IsNotExist(err) {
-				t.Errorf("orphan survived prune: %s", p)
-			}
-		}
-		if _, err := os.Stat(filepath.Join(tg.home(home), "keeper"+tg.ext)); err != nil {
-			t.Errorf("%s: keeper pruned: %v", vendor, err)
-		}
-	}
+	assertOrphanPrunedKeeperKept(t, home, claude, "doomed", "keeper")
 	if _, err := os.Stat(hand); err != nil {
 		t.Errorf("hand-authored codex agent pruned: %v", err)
 	}
@@ -316,6 +312,22 @@ func TestSyncPrunesOrphansButKeepsHandAuthoredFiles(t *testing.T) {
 	}
 	if code := Sync(Options{Check: true, Out: io.Discard}); code != 0 {
 		t.Errorf("--check after prune = %d, want 0", code)
+	}
+}
+
+// assertOrphanPrunedKeeperKept requires orphan gone from every vendor dist and home, and keeper still in each home.
+func assertOrphanPrunedKeeperKept(t *testing.T, home, claude, orphan, keeper string) {
+	t.Helper()
+	for _, vendor := range Names() {
+		tg := targets[vendor]
+		for _, p := range []string{filepath.Join(Dir(claude, vendor), orphan+tg.ext), filepath.Join(tg.home(home), orphan+tg.ext)} {
+			if _, err := os.Lstat(p); !os.IsNotExist(err) {
+				t.Errorf("orphan survived prune: %s", p)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(tg.home(home), keeper+tg.ext)); err != nil {
+			t.Errorf("%s: keeper pruned: %v", vendor, err)
+		}
 	}
 }
 

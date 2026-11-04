@@ -40,6 +40,21 @@ func cleanDescription(raw string) string {
 func stripMemorySection(body string) string {
 	src := []byte(body)
 	root := markdown.ParseContext(src, parser.NewContext())
+	target := findMemoryHeading(root, src)
+	if target == nil {
+		return strings.TrimLeft(body, "\n")
+	}
+	start := lineStart(src, target.Lines().At(0).Start)
+	end := len(src)
+	if next := nextLevel2Heading(target); next != nil {
+		end = lineStart(src, next.Lines().At(0).Start) - 1
+	}
+	edited := markdown.Splice(src, []markdown.Edit{{Start: start, End: end}})
+	return strings.TrimLeft(string(edited), "\n")
+}
+
+// findMemoryHeading returns the first level-2 "Memory" heading in root, or nil.
+func findMemoryHeading(root mdast.Node, src []byte) *mdast.Heading {
 	var target *mdast.Heading
 	_ = mdast.Walk(root, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) {
 		if !entering || target != nil {
@@ -51,21 +66,17 @@ func stripMemorySection(body string) string {
 		}
 		return mdast.WalkContinue, nil
 	})
-	if target == nil {
-		return strings.TrimLeft(body, "\n")
-	}
-	start := lineStart(src, target.Lines().At(0).Start)
-	end := len(src)
-	for sib := target.NextSibling(); sib != nil; sib = sib.NextSibling() {
-		h, ok := sib.(*mdast.Heading)
-		if !ok || h.Level != 2 || h.Lines().Len() == 0 {
-			continue
+	return target
+}
+
+// nextLevel2Heading returns the first following sibling level-2 heading that has source lines, or nil.
+func nextLevel2Heading(from mdast.Node) *mdast.Heading {
+	for sib := from.NextSibling(); sib != nil; sib = sib.NextSibling() {
+		if h, ok := sib.(*mdast.Heading); ok && h.Level == 2 && h.Lines().Len() > 0 {
+			return h
 		}
-		end = lineStart(src, h.Lines().At(0).Start) - 1
-		break
 	}
-	edited := markdown.Splice(src, []markdown.Edit{{Start: start, End: end}})
-	return strings.TrimLeft(string(edited), "\n")
+	return nil
 }
 
 // lineStart returns the byte offset of the start of the line containing pos in src.

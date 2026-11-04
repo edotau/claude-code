@@ -393,43 +393,58 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 		}
 	}()
 
-	var (
-		mu    sync.Mutex
-		text  strings.Builder
-		model string
-	)
-	unsubscribe := session.On(func(ev copilot.SessionEvent) {
-		d, ok := ev.Data.(*copilot.AssistantMessageData)
-		if !ok {
-			return
-		}
-		mu.Lock()
-		text.WriteString(d.Content)
-		if d.Model != nil {
-			model = *d.Model
-		}
-		mu.Unlock()
-	})
+	var col assistantCollector
+	unsubscribe := session.On(col.onEvent)
 	defer unsubscribe()
 
-	msgOpts := copilot.MessageOptions{Prompt: prompt, Attachments: fileAttachments(images)}
-	if o.Autonomous {
-		msgOpts.AgentMode = copilot.AgentModeAutopilot
-	}
 	start := time.Now()
-	var sendErr error
-	if o.Fleet {
-		sendErr = startFleet(ctx, session.RPC.Fleet, msgOpts)
-	} else {
-		_, sendErr = session.SendAndWait(ctx, msgOpts)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	res := SDKResult{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start), ToolRan: approved.Load()}
+	sendErr := sendPrompt(ctx, session, o, prompt, images)
+	text, model := col.snapshot()
+	res := SDKResult{Text: text, SessionID: session.SessionID, Model: model, Duration: time.Since(start), ToolRan: approved.Load()}
 	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}
 	return res, nil
+}
+
+// assistantCollector accumulates assistant text and model; events arrive on the SDK goroutine, hence the mutex.
+type assistantCollector struct {
+	mu    sync.Mutex
+	text  strings.Builder
+	model string
+}
+
+func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
+	d, ok := ev.Data.(*copilot.AssistantMessageData)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.text.WriteString(d.Content)
+	if d.Model != nil {
+		c.model = *d.Model
+	}
+}
+
+// snapshot returns the trimmed text and last model seen so far.
+func (c *assistantCollector) snapshot() (text, model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return strings.TrimSpace(c.text.String()), c.model
+}
+
+// sendPrompt sends the prompt (fleet mode when asked) and waits for the turn to finish.
+func sendPrompt(ctx context.Context, session *copilot.Session, o SDKOptions, prompt string, images []string) error {
+	msgOpts := copilot.MessageOptions{Prompt: prompt, Attachments: fileAttachments(images)}
+	if o.Autonomous {
+		msgOpts.AgentMode = copilot.AgentModeAutopilot
+	}
+	if o.Fleet {
+		return startFleet(ctx, session.RPC.Fleet, msgOpts)
+	}
+	_, err := session.SendAndWait(ctx, msgOpts)
+	return err
 }
 
 // fileAttachments wraps absolute paths as SDK file attachments (the runtime reads and sends images natively).

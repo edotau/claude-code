@@ -79,10 +79,7 @@ func newSessionStore(now func() time.Time) *sessionStore {
 	}
 	pruned := false
 	for _, saved := range state.Sessions {
-		hash, err := hex.DecodeString(saved.Hash)
-		if err != nil || len(hash) != sha256.Size || saved.Hash != strings.ToLower(saved.Hash) ||
-			saved.Profile == "" || strings.ContainsAny(saved.Profile, "/?#") || saved.PID <= 0 || saved.Start == "" ||
-			!now().Before(saved.Expires) {
+		if !validSavedSession(saved, now()) {
 			pruned = true
 			continue
 		}
@@ -92,6 +89,20 @@ func newSessionStore(now func() time.Time) *sessionStore {
 		_ = s.saveLocked()
 	}
 	return s
+}
+
+// validProfile reports whether profile is non-empty and free of URL-structure characters.
+func validProfile(profile string) bool {
+	return profile != "" && !strings.ContainsAny(profile, "/?#")
+}
+
+// validSavedSession reports whether a persisted record is well-formed and unexpired at now.
+func validSavedSession(saved persistedSession, now time.Time) bool {
+	hash, err := hex.DecodeString(saved.Hash)
+	if err != nil || len(hash) != sha256.Size || saved.Hash != strings.ToLower(saved.Hash) {
+		return false
+	}
+	return validProfile(saved.Profile) && saved.PID > 0 && saved.Start != "" && now.Before(saved.Expires)
 }
 
 // saveLocked writes the current hashes atomically; the caller holds mu or is constructing the store.
@@ -112,7 +123,7 @@ func (s *sessionStore) saveLocked() error {
 
 // mint binds a new token to pid's current identity; a missing process is an error.
 func (s *sessionStore) mint(profile string, pid int) (string, error) {
-	if profile == "" || strings.ContainsAny(profile, "/?#") || pid <= 0 {
+	if !validProfile(profile) || pid <= 0 {
 		return "", errors.New("profile and pid are required")
 	}
 	start, err := s.procStart(pid)
@@ -126,21 +137,9 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 	tok := sessionTokenPf + hex.EncodeToString(b)
 	now := s.now()
 	s.mu.Lock()
-	pruned := s.pruneExpiredLocked(now)
-	var probe map[string]*session
-	if len(s.m) >= sessionMax { // exited-but-unexpired sessions must not block a new mint
-		probe = maps.Clone(s.m)
-	}
-	s.mu.Unlock()
-	dead := s.unbound(probe)
-	s.mu.Lock()
 	defer s.mu.Unlock()
-	pruned = s.dropLocked(dead) || pruned
-	if len(s.m) >= sessionMax {
-		if pruned {
-			_ = s.saveLocked()
-		}
-		return "", errors.New("too many live session tokens")
+	if err := s.makeRoomLocked(now); err != nil {
+		return "", err
 	}
 	hash := sessionHash(tok)
 	s.m[hash] = &session{profile: profile, pid: pid, start: start, expires: now.Add(sessionTTL), saved: now.Add(sessionTTL), checked: now}
@@ -149,6 +148,26 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 		return "", fmt.Errorf("persist session: %w", err)
 	}
 	return tok, nil
+}
+
+// makeRoomLocked drops expired and exited sessions so a mint fits; mu is held on entry and exit (released to probe).
+func (s *sessionStore) makeRoomLocked(now time.Time) error {
+	pruned := s.pruneExpiredLocked(now)
+	var probe map[string]*session
+	if len(s.m) >= sessionMax { // exited-but-unexpired sessions must not block a new mint
+		probe = maps.Clone(s.m)
+	}
+	s.mu.Unlock()
+	dead := s.unbound(probe)
+	s.mu.Lock()
+	pruned = s.dropLocked(dead) || pruned
+	if len(s.m) >= sessionMax {
+		if pruned {
+			_ = s.saveLocked()
+		}
+		return errors.New("too many live session tokens")
+	}
+	return nil
 }
 
 func (s *sessionStore) revoke(tok string) error {
