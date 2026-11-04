@@ -197,13 +197,14 @@ func collect(in Input, cfg Config) values {
 		provider, routed = sessionProvider()
 	}
 	v.collectRouting(in, cfg, provider, routed)
-	if cfg.seg("git", true) && worktree != "" {
+	if git := cfg.seg("git", true) && cfg.Style != "twoline"; git && worktree != "" { // twoline shows no branch
 		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
-	} else if cfg.seg("git", true) {
+	} else if git {
 		v.branch = gitBranch(cwd)
 	}
 	v.collectUsage(in, cfg, cwd, provider)
 	if cfg.Style == "twoline" {
+		v.path = filepath.Base(cwd) // twoline's head names only the current directory
 		v.two = collectTwoline(in, provider)
 	}
 	return v
