@@ -1,12 +1,34 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "opus",
+  "outputStyle": "Concise",
+  "switchModelsOnFlag": true,
+  "theme": "auto",
+  "tui": "fullscreen",
+  "prefersReducedMotion": true,
+  "spinnerTipsEnabled": false,
+  "agentPushNotifEnabled": false,
+  "inputNeededNotifEnabled": true,
+  "preferredNotifChannel": "auto",
+  "awaySummaryEnabled": false,
+  "feedbackDrafts": "off",
+  "feedbackSurveyRate": 0,
+  "askUserQuestionTimeout": "10m",
   "cleanupPeriodDays": 30,
+  "autoConnectIde": false,
+  "disableClaudeAiConnectors": true,
+  "useAutoModeDuringPlan": true,
+  "skipWorkflowUsageWarning": true,
+  "idleCompaction": false,
+  "worktree": {
+    "baseRef": "head"
+  },
   "env": {
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage",
     "CLAUDE_CODE_SCROLL_SPEED": "1",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
     "ENABLE_PROMPT_CACHING_1H": "1",
-    "ENABLE_TOOL_SEARCH": "1",
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage"
+    "ENABLE_TOOL_SEARCH": "1"
   },
   "permissions": {
     "allow": [
@@ -35,11 +57,8 @@
       "Read(**/state/vault.db)",
       "Read(**/.credentials.json)",
       "Edit(~/.ssh/**)",
-      "Write(~/.ssh/**)",
       "Edit(**/state/vault.db)",
-      "Write(**/state/vault.db)",
-      "Edit(**/.credentials.json)",
-      "Write(**/.credentials.json)"
+      "Edit(**/.credentials.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
@@ -65,8 +84,11 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "opus",
-  "disableClaudeAiConnectors": true,
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
+    "padding": 0
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -204,30 +226,5 @@
         ]
       }
     ]
-  },
-  "worktree": {
-    "baseRef": "head"
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "$HOME/.claude/bin/claude-code theme statusline",
-    "padding": 0
-  },
-  "outputStyle": "Concise",
-  "feedbackSurveyRate": 0,
-  "feedbackDrafts": "off",
-  "spinnerTipsEnabled": false,
-  "awaySummaryEnabled": false,
-  "askUserQuestionTimeout": "10m",
-  "tui": "fullscreen",
-  "prefersReducedMotion": true,
-  "skipWorkflowUsageWarning": true,
-  "theme": "auto",
-  "preferredNotifChannel": "auto",
-  "idleCompaction": false,
-  "switchModelsOnFlag": true,
-  "inputNeededNotifEnabled": true,
-  "agentPushNotifEnabled": false,
-  "useAutoModeDuringPlan": true,
-  "autoConnectIde": false
+  }
 }

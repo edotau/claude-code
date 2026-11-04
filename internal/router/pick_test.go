@@ -101,7 +101,7 @@ func TestParseReset(t *testing.T) {
 			t.Errorf("ParseReset(%q) = %v %v, want %v", c.text, got, ok, c.want)
 		}
 	}
-	if got, _ := ParseReset("resets 2026-10-25T09:00:00Z", now0); !got.Equal(time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)) {
+	if got, _ := ParseReset("resets 2026-10-26T09:00:00Z", now0); !got.Equal(time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)) {
 		t.Errorf("a Z timestamp must keep UTC, got %v", got)
 	}
 	ny, _ := time.LoadLocation("America/New_York")

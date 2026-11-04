@@ -57,11 +57,8 @@
       "Read(**/state/vault.db)",
       "Read(**/.credentials.json)",
       "Edit(~/.ssh/**)",
-      "Write(~/.ssh/**)",
       "Edit(**/state/vault.db)",
-      "Write(**/state/vault.db)",
-      "Edit(**/.credentials.json)",
-      "Write(**/.credentials.json)"
+      "Edit(**/.credentials.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
