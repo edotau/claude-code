@@ -86,89 +86,130 @@ func printProxyState(ps proxyState) {
 	}
 }
 
-// cmdGatewayProxy is `gateway proxy`: at most one lifecycle flag, no flag = --status; stray args are errors.
-func cmdGatewayProxy(args []string) int {
+// proxyOpts are `gateway proxy`'s flag values.
+type proxyOpts struct {
+	start, stop, restart, status, serve bool
+	port                                int
+	format                              *string
+}
+
+func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 	fs := helptext.NewFlagSet("gateway proxy", helptext.Page{
 		Usage: "claude-code gateway proxy [--start|--stop|--restart|--status|--serve]", // FLAGS lists the rest
 		About: "The loopback proxy that translates Anthropic requests for OpenAI-style\n" +
 			"providers and falls back across the registry's fallback chain. No flag = --status.",
 	})
-	start := fs.Bool("start", false, "start the background proxy if needed; print its base URL")
-	stop := fs.Bool("stop", false, "stop the background proxy; stays down until the next start")
-	restart := fs.Bool("restart", false, "stop the proxy if running, then start it; print its base URL")
-	status := fs.Bool("status", false, "proxy pid, URL and the profile fallback chain; exit 1 when not running")
-	serve := fs.Bool("serve", false, "run the proxy in the foreground until interrupted")
-	port := fs.Int("port", proxy.DefaultPort, "with --serve: loopback port (a busy port held by an older proxy is reclaimed, else an error)")
-	format := helptext.FormatFlag(fs)
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
+	o := &proxyOpts{}
+	fs.BoolVar(&o.start, "start", false, "start the background proxy if needed; print its base URL")
+	fs.BoolVar(&o.stop, "stop", false, "stop the background proxy; stays down until the next start")
+	fs.BoolVar(&o.restart, "restart", false, "stop the proxy if running, then start it; print its base URL")
+	fs.BoolVar(&o.status, "status", false, "proxy pid, URL and the profile fallback chain; exit 1 when not running")
+	fs.BoolVar(&o.serve, "serve", false, "run the proxy in the foreground until interrupted")
+	fs.IntVar(&o.port, "port", proxy.DefaultPort, "with --serve: loopback port (a busy port held by an older proxy is reclaimed, else an error)")
+	o.format = helptext.FormatFlag(fs)
+	return fs, o
+}
+
+// check rejects stray args and flag combinations; ok is false when code is the exit status.
+func (o *proxyOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	if fs.NArg() > 0 {
-		return fail("gateway proxy: unexpected argument %q", fs.Arg(0))
+		return fail("gateway proxy: unexpected argument %q", fs.Arg(0)), false
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("gateway proxy", err)
+	if err := helptext.CheckFormat(*o.format); err != nil {
+		return badFormat("gateway proxy", err), false
 	}
+	return o.checkCombos(fs)
+}
+
+func (o *proxyOpts) modeCount() int {
 	n := 0
-	for _, b := range []bool{*start, *stop, *restart, *status, *serve} {
+	for _, b := range []bool{o.start, o.stop, o.restart, o.status, o.serve} {
 		if b {
 			n++
 		}
 	}
-	if n > 1 {
-		return fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve")
+	return n
+}
+
+func (o *proxyOpts) checkCombos(fs *flag.FlagSet) (code int, ok bool) {
+	if o.modeCount() > 1 {
+		return fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve"), false
 	}
 	portSet := false
 	fs.Visit(func(f *flag.Flag) { portSet = portSet || f.Name == "port" })
-	if portSet && !*serve {
-		return fail("gateway proxy: --port needs --serve")
+	if portSet && !o.serve {
+		return fail("gateway proxy: --port needs --serve"), false
 	}
-	if *format == helptext.JSON && (*start || *stop || *restart || *serve) {
-		return fail("gateway proxy: --format json applies to --status only")
+	if *o.format == helptext.JSON && (o.start || o.stop || o.restart || o.serve) {
+		return fail("gateway proxy: --format json applies to --status only"), false
+	}
+	return 0, true
+}
+
+// cmdGatewayProxy is `gateway proxy`: at most one lifecycle flag, no flag = --status; stray args are errors.
+func cmdGatewayProxy(args []string) int {
+	fs, o := proxyFlags()
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if code, ok := o.check(fs); !ok {
+		return code
 	}
 	ctx := context.Background()
 	switch {
-	case *serve:
-		return proxyServe(ctx, *port)
-	case *start:
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		base, err := proxy.Ensure(ctx)
-		if err != nil {
-			return fail("proxy: %v", err)
-		}
-		fmt.Println(base)
-		return 0
-	case *restart:
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		if st, err := proxy.Stop(ctx); err == nil {
-			fmt.Printf("proxy: stopped pid %d\n", st.PID)
-		} else if !errors.Is(err, proxy.ErrNotRunning) {
-			return fail("proxy: %v", err)
-		}
-		base, err := proxy.Ensure(ctx)
-		if err != nil {
-			return fail("proxy: %v", err)
-		}
-		fmt.Println(base)
-		return 0
-	case *stop:
-		if err := proxy.Hold(); err != nil {
-			return fail("proxy: hold: %v", err)
-		}
-		st, err := proxy.Stop(ctx)
-		if errors.Is(err, proxy.ErrNotRunning) {
-			fmt.Println("proxy: not running")
-			return 0
-		}
-		if err != nil {
-			return fail("proxy: %v", err)
-		}
+	case o.serve:
+		return proxyServe(ctx, o.port)
+	case o.start:
+		return proxyStart(ctx)
+	case o.restart:
+		return proxyRestart(ctx)
+	case o.stop:
+		return proxyStop(ctx)
+	}
+	return proxyStatus(ctx, *o.format)
+}
+
+func proxyStart(ctx context.Context) int {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	base, err := proxy.Ensure(ctx)
+	if err != nil {
+		return fail("proxy: %v", err)
+	}
+	fmt.Println(base)
+	return 0
+}
+
+func proxyRestart(ctx context.Context) int {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if st, err := proxy.Stop(ctx); err == nil {
 		fmt.Printf("proxy: stopped pid %d\n", st.PID)
+	} else if !errors.Is(err, proxy.ErrNotRunning) {
+		return fail("proxy: %v", err)
+	}
+	base, err := proxy.Ensure(ctx)
+	if err != nil {
+		return fail("proxy: %v", err)
+	}
+	fmt.Println(base)
+	return 0
+}
+
+func proxyStop(ctx context.Context) int {
+	if err := proxy.Hold(); err != nil {
+		return fail("proxy: hold: %v", err)
+	}
+	st, err := proxy.Stop(ctx)
+	if errors.Is(err, proxy.ErrNotRunning) {
+		fmt.Println("proxy: not running")
 		return 0
 	}
-	return proxyStatus(ctx, *format)
+	if err != nil {
+		return fail("proxy: %v", err)
+	}
+	fmt.Printf("proxy: stopped pid %d\n", st.PID)
+	return 0
 }
 
 // proxyServe runs the proxy in the foreground until SIGINT/SIGTERM.

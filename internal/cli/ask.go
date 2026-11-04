@@ -33,148 +33,231 @@ var askPage = helptext.Page{
 
 func cmdAsk(args []string) int { return runAsk(args, false) }
 
+// askFlags are the values of ask's flags.
+type askFlags struct {
+	name, fallback, route, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, overlayPath, overlayDebug string
+	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast                                                                  bool
+	timeout                                                                                                                                                                                                           time.Duration
+	jobs                                                                                                                                                                                                              int
+	agents                                                                                                                                                                                                            agentsFlag
+	attach                                                                                                                                                                                                            attachFlag
+	keepEnv                                                                                                                                                                                                           keepEnvFlag
+	env                                                                                                                                                                                                               envFlag
+}
+
+func askFlagSet() (*flag.FlagSet, *askFlags) {
+	fs := helptext.NewFlagSet("ask", askPage)
+	f := &askFlags{}
+	fs.StringVar(&f.name, "agent", "claude", "vendor, agents/<name>.md, vendor:name, or an --agents key")
+	fs.Var(&f.agents, "agents", "agent definitions: --agent takes their keys")
+	fs.StringVar(&f.fallback, "fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
+	fs.StringVar(&f.route, "route", "", "fallback ladder: default|first-party (default: by session profile)")
+	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
+	fs.StringVar(&f.provider, "profile", "", "profile or hub start (default: pin, then registry)")
+	fs.StringVar(&f.as, "as", "", "claude on a paired Databricks profile: user|sp, over the profile's identity")
+	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
+	fs.StringVar(&f.effort, "effort", "", "reasoning effort: low|medium|high|xhigh|max")
+	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
+	fs.StringVar(&f.session, "session", "", "resume this session id")
+	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
+	fs.BoolVar(&f.readOnly, "read-only", false, "tools may read files but never write, run shell or commit; implies --tools")
+	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
+	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
+	fs.BoolVar(&f.safeMode, "safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
+	fs.StringVar(&f.debugFile, "debug-file", "", "claude, gemini: write the agent's debug log to this path")
+	fs.Var(&f.attach, "attach", "attach a file (repeatable); task text precedes every attachment")
+	fs.Var(&f.keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
+	fs.Var(&f.env, "env", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused")
+	askRunFlags(fs, f)
+	return fs, f
+}
+
+func askRunFlags(fs *flag.FlagSet, f *askFlags) {
+	fs.StringVar(&f.systemPrompt, "system-prompt", "", "claude only: replace the system prompt")
+	fs.StringVar(&f.appendSystemPrompt, "append-system-prompt", "", "claude only: append to the system prompt")
+	fs.StringVar(&f.outputSchema, "output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
+	fs.BoolVar(&f.direct, "direct", false, "agents: hand the CLI the profile route, skip the proxy")
+	fs.BoolVar(&f.autonomous, "autonomous", false, "drive the run without stopping to ask, per agent")
+	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
+	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
+	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
+	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
+	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
+	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
+	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
+	fs.StringVar(&f.rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
+	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
+	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
+	fs.BoolVar(&f.showLog, "log", false, "list the 20 most recent dispatches and exit")
+	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
+	fs.StringVar(&f.job, "job", "", "internal: run saved dispatch <id> in place")
+	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
+	fs.IntVar(&f.jobs, "jobs", batch.DefaultJobs(), "batch: tasks run at once")
+	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
+	fs.StringVar(&f.overlayPath, "overlay", "", "layer a JSON {set,unset,keep} file over the agent's env")
+	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
+}
+
+// askRun is one ask invocation: its flags plus what the setup phases resolve.
+type askRun struct {
+	f       *askFlags
+	fs      *flag.FlagSet
+	args    []string
+	resume  bool
+	ref     string // the raw selector Prepare resolves; f.name becomes the agent so envelopes publish it
+	ag      string
+	persona *agent.Schema
+	defs    map[string]*agent.Schema
+	fileOv  agentconfig.Overlay
+	schema  string
+	jobRec  *agent.Record
+	prompt  string
+	state   *askState
+}
+
 // runAsk is cmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
 func runAsk(args []string, resume bool) int {
-	fs := helptext.NewFlagSet("ask", askPage)
-	name := fs.String("agent", "claude", "vendor, agents/<name>.md, vendor:name, or an --agents key")
-	var agents agentsFlag
-	fs.Var(&agents, "agents", "agent definitions: --agent takes their keys")
-	fallback := fs.String("fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
-	route := fs.String("route", "", "fallback ladder: default|first-party (default: by session profile)")
-	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
-	provider := fs.String("profile", "", "profile or hub start (default: pin, then registry)")
-	as := fs.String("as", "", "claude on a paired Databricks profile: user|sp, over the profile's identity")
-	model := fs.String("model", "", "alias (opus), version (opus-5-5) or wire id")
-	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
-	workdir := fs.String("workdir", "", "working directory for the agent")
-	session := fs.String("session", "", "resume this session id")
-	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
-	readOnly := fs.Bool("read-only", false, "tools may read files but never write, run shell or commit; implies --tools")
-	noTools := fs.Bool("no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
-	noPersist := fs.Bool("no-persist", false, "claude, codex: do not save the session for later resume")
-	safeMode := fs.Bool("safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
-	debugFile := fs.String("debug-file", "", "claude, gemini: write the agent's debug log to this path")
-	var attach attachFlag
-	fs.Var(&attach, "attach", "attach a file (repeatable); task text precedes every attachment")
-	var keepEnv keepEnvFlag
-	fs.Var(&keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
-	var env envFlag
-	fs.Var(&env, "env", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused")
-	systemPrompt := fs.String("system-prompt", "", "claude only: replace the system prompt")
-	appendSystemPrompt := fs.String("append-system-prompt", "", "claude only: append to the system prompt")
-	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
-	direct := fs.Bool("direct", false, "agents: hand the CLI the profile route, skip the proxy")
-	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
-	fleet := fs.Bool("fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
-	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
-	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
-	stdinFramed := fs.Bool("stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
-	host := fs.String("host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
-	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
-	format := fs.String("format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
-	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
-	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
-	live := fs.Bool("live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
-	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
-	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
-	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
-	batchSrc := fs.String("batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
-	jobs := fs.Int("jobs", batch.DefaultJobs(), "batch: tasks run at once")
-	failFast := fs.Bool("fail-fast", false, "batch: the first failed task cancels the rest")
-	overlayPath := fs.String("overlay", "", "layer a JSON {set,unset,keep} file over the agent's env")
-	overlayDebug := fs.String("overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
+	fs, f := askFlagSet()
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := applyRoute(*route); err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	if code := askEnableOverlays(*overlayDebug, *overlayPath); code != 0 {
-		return code
-	}
-	fileOv, err := agentconfig.LoadOverlay("")
-	if err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	*tools = *tools || *readOnly // read-only tools are still tools
-	if code, err := askCheckFlags(env, keepEnv, *format, *fallback, *as, *name, *background, *job, *tools, *noTools); err != nil {
-		return failAskCode(*format, *name, err, code)
-	}
-	schema, err := agent.ResolveOutputSchema(*outputSchema)
-	if err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	defs, err := askDefs(agents, *host)
-	if err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	ref := *name // the raw selector Prepare resolves; *name becomes the agent so envelopes publish it
-	ag, persona, err := agent.SelectAgent(ref, defs)
-	if err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	*name = ag
-	if err := askCheckCombos(fs, *name, *live, persona != nil, *host, *background, *job, *batchSrc, len(env) > 0); err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	if err := askOverlayLocal(fileOv, *live, *host); err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	if *batchSrc != "" {
-		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools,
-			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, Fleet: *fleet, EnableMemory: *enableMemory, Direct: *direct,
-			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
-			Env: []string(env), OutputSchema: schema, Agents: defs}
-		return askBatch(fs, resume, *batchSrc, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native},
-			base, fileOv, env, keepEnv, *format, *name)
-	}
-	if helptext.Explicit(fs, "jobs") || helptext.Explicit(fs, "fail-fast") {
-		return failAskCode(*format, *name, errors.New("--jobs and --fail-fast need --batch"), 2)
-	}
-	if *showLog {
-		return printDispatchLog(*format)
-	}
-	positional, err := agent.AskPositional(fs.Args(), resume, session)
-	if err != nil {
-		return failAsk(*format, *name, err)
-	}
-	prompt := strings.Join(positional, " ")
-	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
-		session: session, tools: tools, readOnly: readOnly, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv, env: &env,
-		autonomous: autonomous, fleet: fleet, enableMemory: enableMemory, rubric: rubric, direct: direct,
-		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile, systemPrompt: systemPrompt,
-		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema, persona: &persona, host: host, remoteBin: remoteBin, fallback: fallback}
-	jobRec, rc, done := loadAskJob(*job, *format, state, &prompt)
-	if done {
-		return rc
-	}
-	if jobRec == nil {
-		if rc, done := loadAskRetry(fs, args, *retry, *format, state, &prompt); done {
-			return rc
+	r := &askRun{f: f, fs: fs, args: args, resume: resume}
+	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.dispatchMode, r.resolveRecord} {
+		if code, done := phase(); done {
+			return code
 		}
 	}
-	if ref, ag, err = agent.AskReselect(ref, ag, name, &persona, defs); err != nil {
-		return failAskCode(*format, *name, err, 2)
+	return r.execute()
+}
+
+func (r *askRun) fail(err error, code int) (int, bool) {
+	return failAskCode(r.f.format, r.f.name, err, code), true
+}
+
+// prelude applies the route and overlays and validates the flags.
+func (r *askRun) prelude() (int, bool) {
+	f := r.f
+	if err := applyRoute(f.route); err != nil {
+		return r.fail(err, 2)
 	}
-	if err := askOverlayLocal(fileOv, *live, *host); err != nil { // a --retry/--job record may carry a --host
-		return failAskCode(*format, *name, err, 2)
+	if code := askEnableOverlays(f.overlayDebug, f.overlayPath); code != 0 {
+		return code, true
 	}
-	if schema, err = askRefreshSchema(*outputSchema, schema); err != nil {
-		return failAskCode(*format, *name, err, 2)
+	var err error
+	if r.fileOv, err = agentconfig.LoadOverlay(""); err != nil {
+		return r.fail(err, 2)
 	}
-	if *live {
-		return startLive(state, *name, *format)
+	f.tools = f.tools || f.readOnly // read-only tools are still tools
+	if code, err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.as, f.name, f.background, f.job, f.tools, f.noTools); err != nil {
+		return r.fail(err, code)
 	}
-	if jobRec != nil && jobRec.Live {
-		return runLiveHolder(jobRec)
+	if r.schema, err = agent.ResolveOutputSchema(f.outputSchema); err != nil {
+		return r.fail(err, 2)
 	}
-	framed, prompt, err := askReadPrompt(*stdinFramed, prompt)
+	return 0, false
+}
+
+// selectAgent resolves the --agent selector and checks the flag combinations it enables.
+func (r *askRun) selectAgent() (int, bool) {
+	f := r.f
+	var err error
+	if r.defs, err = askDefs(f.agents, f.host); err != nil {
+		return r.fail(err, 2)
+	}
+	r.ref = f.name
+	if r.ag, r.persona, err = agent.SelectAgent(r.ref, r.defs); err != nil {
+		return r.fail(err, 2)
+	}
+	f.name = r.ag
+	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
+		return r.fail(err, 2)
+	}
+	if err := askOverlayLocal(r.fileOv, f.live, f.host); err != nil {
+		return r.fail(err, 2)
+	}
+	return 0, false
+}
+
+// dispatchMode handles --batch and --log, which end the run before a single task is built.
+func (r *askRun) dispatchMode() (int, bool) {
+	f := r.f
+	if f.batchSrc != "" {
+		return askBatch(r.fs, r.resume, f.batchSrc, batchOpts{jobs: f.jobs, failFast: f.failFast, agent: r.ref, fallback: f.fallback, native: f.native},
+			r.batchBase(), r.fileOv, f.env, f.keepEnv, f.format, f.name), true
+	}
+	if helptext.Explicit(r.fs, "jobs") || helptext.Explicit(r.fs, "fail-fast") {
+		return r.fail(errors.New("--jobs and --fail-fast need --batch"), 2)
+	}
+	if f.showLog {
+		return printDispatchLog(f.format), true
+	}
+	return 0, false
+}
+
+func (r *askRun) batchBase() agent.RunOptions {
+	f := r.f
+	return agent.RunOptions{Model: f.model, Provider: f.provider, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
+		Timeout: f.timeout, KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
+		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
+		Env: []string(f.env), OutputSchema: r.schema, Agents: r.defs}
+}
+
+// resolveRecord reads the task and applies a --job or --retry record over the flags.
+func (r *askRun) resolveRecord() (int, bool) {
+	f := r.f
+	positional, err := agent.AskPositional(r.fs.Args(), r.resume, &f.session)
 	if err != nil {
-		return failAsk(*format, *name, err)
+		return failAsk(f.format, f.name, err), true
+	}
+	r.prompt = strings.Join(positional, " ")
+	r.state = r.askState()
+	var rc int
+	var done bool
+	if r.jobRec, rc, done = loadAskJob(f.job, f.format, r.state, &r.prompt); done {
+		return rc, true
+	}
+	if r.jobRec == nil {
+		if rc, done := loadAskRetry(r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
+			return rc, true
+		}
+	}
+	if r.ref, r.ag, err = agent.AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
+		return r.fail(err, 2)
+	}
+	if err := askOverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
+		return r.fail(err, 2)
+	}
+	if r.schema, err = askRefreshSchema(f.outputSchema, r.schema); err != nil {
+		return r.fail(err, 2)
+	}
+	return 0, false
+}
+
+func (r *askRun) askState() *askState {
+	f := r.f
+	return &askState{name: &f.name, provider: &f.provider, model: &f.model, effort: &f.effort, workdir: &f.workdir,
+		session: &f.session, tools: &f.tools, readOnly: &f.readOnly, noTools: &f.noTools, timeout: &f.timeout, attach: &f.attach, keepEnv: &f.keepEnv, env: &f.env,
+		autonomous: &f.autonomous, fleet: &f.fleet, enableMemory: &f.enableMemory, rubric: &f.rubric, direct: &f.direct,
+		noPersist: &f.noPersist, safeMode: &f.safeMode, debugFile: &f.debugFile, systemPrompt: &f.systemPrompt,
+		appendSystemPrompt: &f.appendSystemPrompt, outputSchema: &f.outputSchema, persona: &r.persona, host: &f.host, remoteBin: &f.remoteBin, fallback: &f.fallback}
+}
+
+// execute starts a live session or runs the one task.
+func (r *askRun) execute() int {
+	f := r.f
+	if f.live {
+		return startLive(r.state, f.name, f.format)
+	}
+	if r.jobRec != nil && r.jobRec.Live {
+		return runLiveHolder(r.jobRec)
+	}
+	framed, prompt, err := askReadPrompt(f.stdinFramed, r.prompt)
+	if err != nil {
+		return failAsk(f.format, f.name, err)
 	}
 	if strings.TrimSpace(prompt) == "" {
-		fs.Usage()
-		printAskFailure(*format, *name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
+		r.fs.Usage()
+		printAskFailure(f.format, f.name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
@@ -182,16 +265,20 @@ func runAsk(args []string, resume bool) int {
 	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
 		go func() { _, _ = io.Copy(io.Discard, framed); stop() }()
 	}
-	*timeout = askTimeout(fs, *timeout, *retry, *job, *tools)
-	warnAskMemory(ag, *enableMemory)
-	*debugFile = absDebugFile(*debugFile)
-	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
-		WorkDir: *workdir, SessionID: *session, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools, Timeout: *timeout,
-		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, Fleet: *fleet, EnableMemory: *enableMemory, Direct: *direct,
-		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
-		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
-		Agent: ref, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
-	return askPrepareAndRun(ctx, fs, req, jobRec, fileOv, env, keepEnv, *as, *format, *name, *background, *native)
+	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
+	warnAskMemory(r.ag, f.enableMemory)
+	f.debugFile = absDebugFile(f.debugFile)
+	return askPrepareAndRun(ctx, r.fs, r.request(prompt), r.jobRec, r.fileOv, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native)
+}
+
+func (r *askRun) request(prompt string) agent.RunOptions {
+	f := r.f
+	return agent.RunOptions{Prompt: prompt, Model: f.model, Provider: f.provider, Effort: f.effort,
+		WorkDir: f.workdir, SessionID: f.session, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools, Timeout: f.timeout,
+		Attach: []string(f.attach), KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
+		NoPersist: f.noPersist, SafeMode: f.safeMode, DebugFile: f.debugFile, SystemPrompt: f.systemPrompt,
+		AppendSystemPrompt: f.appendSystemPrompt, Env: []string(f.env), OutputSchema: r.schema, Persona: r.persona,
+		Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background}
 }
 
 // askBatch layers the overlay over base and runs the --batch tasks.

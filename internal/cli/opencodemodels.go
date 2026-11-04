@@ -60,94 +60,133 @@ func opencodeSyncArgs(pos []string, apply, dryRun bool, provider string) error {
 	return nil
 }
 
+// menuOpts are the flag values of one `opencode catalog` verb.
+type menuOpts struct {
+	verb                                                   string
+	live, force, apply, responses, dryRun, refresh, verify bool
+	all                                                    bool
+	provider                                               string
+	timeout                                                time.Duration
+	format                                                 *string
+	fs                                                     *flag.FlagSet
+}
+
+func (m *menuOpts) fail(f string, a ...any) int { return fail("opencode catalog "+m.verb+": "+f, a...) }
+
+func (m *menuOpts) done(err error) int {
+	if err != nil {
+		return m.fail("%v", err)
+	}
+	return 0
+}
+
+// bind registers the flags the verb takes: the shared ones first, then its own.
+func (m *menuOpts) bind() {
+	fs, verb := m.fs, m.verb
+	if verb == "list" || verb == "check" {
+		m.format = helptext.FormatFlag(fs)
+	}
+	if verb == "list" || verb == "check" || verb == "add" {
+		fs.StringVar(&m.provider, "profile", "", "workspace profile (default: opencode's record profile)")
+	}
+	m.bindVerb()
+}
+
+func (m *menuOpts) bindVerb() {
+	fs := m.fs
+	switch m.verb {
+	case "list":
+		fs.BoolVar(&m.live, "live", false, "mark each entry served or missing on the workspace")
+	case "check":
+		fs.BoolVar(&m.all, "all", false, "probe every chat endpoint, not just the menu")
+		fs.DurationVar(&m.timeout, "timeout", m.timeout, "per-request timeout")
+	case "add":
+		fs.BoolVar(&m.responses, "responses", false, "serve through the Responses API")
+		fs.BoolVar(&m.force, "force", false, "skip the workspace check")
+	case "import":
+		fs.BoolVar(&m.apply, "apply", false, "write the change (default: print the diff)")
+	case "sync":
+		fs.StringVar(&m.provider, "profile", "", "Databricks serving profile (required)")
+		fs.BoolVar(&m.apply, "apply", false, "seal discovery and persist menu additions")
+		fs.BoolVar(&m.dryRun, "dry-run", false, "preview additions without writing (default)")
+		fs.BoolVar(&m.refresh, "refresh", false, "rediscover instead of using cached models")
+		fs.BoolVar(&m.verify, "verify", false, "probe eligible models; exclude failed additions")
+	}
+}
+
 // cmdOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check|sync`.
 func cmdOpencodeMenu(args []string) int {
 	verb, rest := args[0], args[1:]
-	fs := opencodeMenuFlags(verb)
-	var live, force, apply, responses, dryRun, refresh, verify bool
-	var provider string
-	var all bool
-	timeout := 30 * time.Second
-	format := new(string)
-	if verb == "list" || verb == "check" {
-		format = helptext.FormatFlag(fs)
-	}
-	if verb == "list" || verb == "check" || verb == "add" {
-		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
-	}
-	switch verb {
-	case "list":
-		fs.BoolVar(&live, "live", false, "mark each entry served or missing on the workspace")
-	case "check":
-		fs.BoolVar(&all, "all", false, "probe every chat endpoint, not just the menu")
-		fs.DurationVar(&timeout, "timeout", timeout, "per-request timeout")
-	case "add":
-		fs.BoolVar(&responses, "responses", false, "serve through the Responses API")
-		fs.BoolVar(&force, "force", false, "skip the workspace check")
-	case "import":
-		fs.BoolVar(&apply, "apply", false, "write the change (default: print the diff)")
-	case "sync":
-		fs.StringVar(&provider, "profile", "", "Databricks serving profile (required)")
-		fs.BoolVar(&apply, "apply", false, "seal discovery and persist menu additions")
-		fs.BoolVar(&dryRun, "dry-run", false, "preview additions without writing (default)")
-		fs.BoolVar(&refresh, "refresh", false, "rediscover instead of using cached models")
-		fs.BoolVar(&verify, "verify", false, "probe eligible models; exclude failed additions")
-	}
-	pos, err := helptext.ParseArgs(fs, rest)
+	m := &menuOpts{verb: verb, timeout: 30 * time.Second, format: new(string), fs: opencodeMenuFlags(verb)}
+	m.bind()
+	pos, err := helptext.ParseArgs(m.fs, rest)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if verb == "list" || verb == "check" {
-		if err := helptext.CheckFormat(*format); err != nil {
+		if err := helptext.CheckFormat(*m.format); err != nil {
 			return badFormat("opencode catalog "+verb, err)
 		}
 	}
-	fail := func(f string, a ...any) int { return fail("opencode catalog "+verb+": "+f, a...) }
-	done := func(err error) int {
-		if err != nil {
-			return fail("%v", err)
-		}
-		return 0
-	}
-	switch verb {
+	return m.run(pos)
+}
+
+func (m *menuOpts) run(pos []string) int {
+	switch m.verb {
 	case "sync":
-		if err := opencodeSyncArgs(pos, apply, dryRun, provider); err != nil {
-			return done(err)
-		}
-		return done(opencodeMenuSync(provider, opencode.SyncOptions{Apply: apply, Refresh: refresh, Verify: verify}))
+		return m.sync(pos)
 	case "list":
-		return done(opencodeMenuList(live, provider, *format))
+		return m.done(opencodeMenuList(m.live, m.provider, *m.format))
 	case "check":
-		if all && len(pos) > 0 {
-			return fail("--all and explicit ids are exclusive")
-		}
-		return done(opencodeMenuCheck(pos, all, provider, timeout, *format))
+		return m.check(pos)
 	case "add":
-		if len(pos) != 1 {
-			return fail("usage: claude-code opencode catalog add <id>[=Label]")
-		}
-		set := false
-		fs.Visit(func(f *flag.Flag) { set = set || f.Name == "responses" })
-		return done(opencodeMenuAdd(pos[0], responses, set, force, provider))
+		return m.add(pos)
 	case "remove":
-		if len(pos) != 1 {
-			return fail("usage: claude-code opencode catalog remove <id>")
-		}
-		next, ok := opencode.MenuRemove(providers.OpencodeMenu(), pos[0])
-		if !ok {
-			return fail("%s is not in the menu", opencode.MenuID(pos[0]))
-		}
-		return done(opencodeMenuWrite(next, "removed "+opencode.MenuID(pos[0])))
+		return m.remove(pos)
 	case "import":
 		if len(pos) != 1 {
-			return fail("usage: claude-code opencode catalog import <file> [--apply]")
+			return m.fail("usage: claude-code opencode catalog import <file> [--apply]")
 		}
-		return done(opencodeMenuImport(pos[0], apply))
+		return m.done(opencodeMenuImport(pos[0], m.apply))
 	}
 	if len(pos) != 0 {
-		return fail("takes no arguments")
+		return m.fail("takes no arguments")
 	}
-	return done(opencodeMenuWrite(nil, "reset to the built-in menu"))
+	return m.done(opencodeMenuWrite(nil, "reset to the built-in menu"))
+}
+
+func (m *menuOpts) sync(pos []string) int {
+	if err := opencodeSyncArgs(pos, m.apply, m.dryRun, m.provider); err != nil {
+		return m.done(err)
+	}
+	return m.done(opencodeMenuSync(m.provider, opencode.SyncOptions{Apply: m.apply, Refresh: m.refresh, Verify: m.verify}))
+}
+
+func (m *menuOpts) check(pos []string) int {
+	if m.all && len(pos) > 0 {
+		return m.fail("--all and explicit ids are exclusive")
+	}
+	return m.done(opencodeMenuCheck(pos, m.all, m.provider, m.timeout, *m.format))
+}
+
+func (m *menuOpts) add(pos []string) int {
+	if len(pos) != 1 {
+		return m.fail("usage: claude-code opencode catalog add <id>[=Label]")
+	}
+	set := false
+	m.fs.Visit(func(f *flag.Flag) { set = set || f.Name == "responses" })
+	return m.done(opencodeMenuAdd(pos[0], m.responses, set, m.force, m.provider))
+}
+
+func (m *menuOpts) remove(pos []string) int {
+	if len(pos) != 1 {
+		return m.fail("usage: claude-code opencode catalog remove <id>")
+	}
+	next, ok := opencode.MenuRemove(providers.OpencodeMenu(), pos[0])
+	if !ok {
+		return m.fail("%s is not in the menu", opencode.MenuID(pos[0]))
+	}
+	return m.done(opencodeMenuWrite(next, "removed "+opencode.MenuID(pos[0])))
 }
 
 // opencodeMenuWrite stores next; launches rebuild their config from the menu, so nothing else is refreshed.
