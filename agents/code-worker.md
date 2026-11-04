@@ -52,9 +52,11 @@ one task:
    report — don't stall.
 2. **Stay inside your scope.** Edit only the files the handoff names. No drive-by refactors, no
    reaching into a sibling leaf's territory (parallel leaves collide otherwise).
-3. **At the action point, write the forced notes** — `TASK:` before a behavior-changing edit, `ISSUE:` after a
+3. **Prefix every tool call's `description` with who runs the work**: the `Agent:` the handoff names, else your own
+   model (`sonnet: running go test`). The task list shows it beside `code-worker`, matching the dispatch label.
+4. **At the action point, write the forced notes** — `TASK:` before a behavior-changing edit, `ISSUE:` after a
    defect fix (searched pattern, other sites): `skills/problem-solving/references/notes.md`.
-4. **Verify before reporting done.** Run the exact verification command you were given (`make`,
+5. **Verify before reporting done.** Run the exact verification command you were given (`make`,
    `go test`, `pytest`, …). A green result is the bar; report failures with the output, don't hide them.
 
 When the handoff names a skill, read `skills/<name>/SKILL.md` and the `references/` it points to
