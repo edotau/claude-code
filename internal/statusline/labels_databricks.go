@@ -15,7 +15,7 @@ var databricksLabeler = labeler{
 	auth:     func(Input, string, *providers.Provider) string { return "" },
 }
 
-// databricksModel is "<model id>·<u2m|m2m>@<host id>[:<time left>]", e.g. "…opus-5-5·u2m@dbx-host:50min".
+// databricksModel is "<model id> · <u2m|m2m>@<host id>[:<time left>]", e.g. "…opus-5-5 · u2m@dbx-host:50min".
 func databricksModel(in Input, session string) string {
 	p := rowOf(session)
 	if p == nil {
@@ -25,7 +25,7 @@ func databricksModel(in Input, session string) string {
 	if exp, ok := providers.TokenExpiry(session); ok {
 		cred = tokenLeft(cred, exp, time.Now())
 	}
-	return modelSegment(in, session) + "·" + cred
+	return modelSegment(in, session) + " · " + cred
 }
 
 // hostID is the workspace id from the host ("dbc-dbx-host.cloud…" → "dbx-host"); the profile name without one.

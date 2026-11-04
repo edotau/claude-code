@@ -511,7 +511,7 @@ func TestLabelDatabricksModelCell(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	if got := renderPayload(t, "databricks-claude-opus-5"); strings.Contains(got, "databricks·") || !strings.Contains(got, "databricks-claude-opus-5·u2m@dbx-host") {
+	if got := renderPayload(t, "databricks-claude-opus-5"); strings.Contains(got, "databricks·") || !strings.Contains(got, "databricks-claude-opus-5 · u2m@dbx-host") {
 		t.Errorf("databricks line: %q", got)
 	}
 }
