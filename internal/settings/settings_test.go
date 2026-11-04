@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/paths"
@@ -600,5 +603,39 @@ func TestKeyValidateRefusesUncompiledPattern(t *testing.T) {
 	k := Key{Name: "x", Kind: KindString, patternErr: errors.New("bad")}
 	if err := k.Validate(json.RawMessage(`"a"`)); err == nil {
 		t.Error("a key whose pattern failed to compile validated a value")
+	}
+}
+
+// UpdateWithBackup holds the file lock across read-merge-write, so concurrent writers' keys all survive.
+func TestUpdateWithBackupKeepsConcurrentKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const n = 8
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := UpdateWithBackup(path, func(old []byte) ([]byte, error) {
+				var m map[string]int
+				if err := json.Unmarshal(old, &m); err != nil {
+					return nil, err
+				}
+				time.Sleep(2 * time.Millisecond)
+				m[fmt.Sprintf("k%d", i)] = i
+				return json.Marshal(m)
+			})
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	b, _ := os.ReadFile(path)
+	var got map[string]int
+	if err := json.Unmarshal(b, &got); err != nil || len(got) != n {
+		t.Errorf("settings keys = %v (%v), want %d", got, err, n)
 	}
 }

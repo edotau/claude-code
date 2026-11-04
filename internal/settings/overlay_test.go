@@ -460,3 +460,29 @@ func TestSaveOverlayReplacesCorruptEntry(t *testing.T) {
 		t.Errorf("overlay = %v, %v; want theme dark", got, err)
 	}
 }
+
+// Concurrent UpdateOverlay writers each read inside the vault transaction, so every key survives.
+func TestUpdateOverlayConcurrentWritersAllSurvive(t *testing.T) {
+	vaulttest.Use(t)
+	keys := []string{"verbose", "prefersReducedMotion", "inputNeededNotifEnabled", "disableClaudeAiConnectors",
+		"useAutoModeDuringPlan", "skipWorkflowUsageWarning"}
+	var wg sync.WaitGroup
+	for _, k := range keys {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := UpdateOverlay(func(cur map[string]json.RawMessage) map[string]json.RawMessage {
+				cur[k] = json.RawMessage(`true`)
+				return cur
+			})
+			if err != nil {
+				t.Errorf("UpdateOverlay %s: %v", k, err)
+			}
+		}()
+	}
+	wg.Wait()
+	got, err := LoadOverlay()
+	if err != nil || len(got) != len(keys) {
+		t.Errorf("overlay = %v (%v), want %d keys", got, err, len(keys))
+	}
+}
