@@ -45,19 +45,32 @@ func inertSegment(seg string) bool {
 	if len(toks) == 0 {
 		return false
 	}
-	switch toks[0] {
-	case "echo", "printf": // a redirect can plant the text in a file that later runs (~/.bashrc)
-		return !slices.ContainsFunc(toks, func(t string) bool { return strings.Contains(t, ">") })
-	case "grep", "rg":
-		return !slices.ContainsFunc(toks, func(t string) bool {
-			return strings.HasPrefix(t, "--pre") || strings.HasPrefix(t, "--hostname-bin")
-		})
-	case "git":
-		return len(toks) > 1 && (toks[1] == "commit" || toks[1] == "tag")
-	case "gh":
-		return len(toks) > 3 && (toks[1] == "pr" || toks[1] == "issue") && slices.Contains([]string{"create", "edit", "comment"}, toks[2])
-	}
-	return false
+	inert, ok := inertCommands[toks[0]]
+	return ok && inert(toks)
+}
+
+// inertCommands judge, per command name, whether a segment's words are only data.
+var inertCommands = map[string]func(toks []string) bool{
+	"echo": inertEcho, "printf": inertEcho, "grep": inertGrep, "rg": inertGrep, "git": inertGit, "gh": inertGh,
+}
+
+// inertEcho: a redirect can plant the text in a file that later runs (~/.bashrc).
+func inertEcho(toks []string) bool {
+	return !slices.ContainsFunc(toks, func(t string) bool { return strings.Contains(t, ">") })
+}
+
+func inertGrep(toks []string) bool {
+	return !slices.ContainsFunc(toks, func(t string) bool {
+		return strings.HasPrefix(t, "--pre") || strings.HasPrefix(t, "--hostname-bin")
+	})
+}
+
+func inertGit(toks []string) bool {
+	return len(toks) > 1 && (toks[1] == "commit" || toks[1] == "tag")
+}
+
+func inertGh(toks []string) bool {
+	return len(toks) > 3 && (toks[1] == "pr" || toks[1] == "issue") && slices.Contains([]string{"create", "edit", "comment"}, toks[2])
 }
 
 // dropInertHeredocs removes bodies of file-only heredocs (`cat <<EOF > f`, `tee f <<EOF`); all other lines stay.
@@ -70,20 +83,30 @@ func dropInertHeredocs(cmd string) string {
 		if !ok {
 			continue
 		}
-		end := -1
-		for j := i + 1; j < len(lines) && end < 0; j++ {
-			if l := lines[j]; l == delim || dash && strings.TrimLeft(l, "\t") == delim {
-				end = j
-			}
-		}
+		end := heredocEnd(lines, i+1, delim, dash)
 		// An unquoted delimiter expands substitutions in the body, so a body holding one is not inert.
 		body := strings.Join(lines[i+1:max(end, i+1)], "\n")
-		if end < 0 || !quoted && (strings.Contains(body, "$(") || strings.Contains(body, "`")) {
+		if end < 0 || !quoted && expandsSubstitution(body) {
 			continue
 		}
 		i = end - 1
 	}
 	return strings.Join(out, "\n")
+}
+
+// heredocEnd is the index of the first line from lines[from] that closes the heredoc on delim, or -1.
+func heredocEnd(lines []string, from int, delim string, dash bool) int {
+	for j := from; j < len(lines); j++ {
+		if l := lines[j]; l == delim || dash && strings.TrimLeft(l, "\t") == delim {
+			return j
+		}
+	}
+	return -1
+}
+
+// expandsSubstitution reports a heredoc body holding a `$(…)` or backtick substitution.
+func expandsSubstitution(body string) bool {
+	return strings.Contains(body, "$(") || strings.Contains(body, "`")
 }
 
 // inertHeredocStart parses a lone `cat|tee … <<DELIM` line that only writes a file; anything fancier is not inert.
@@ -108,16 +131,20 @@ func inertHeredocStart(line string) (delim string, quoted, dash, ok bool) {
 func writesFile(toks []string) bool {
 	switch toks[0] {
 	case "tee":
-		for _, t := range toks[1:] {
-			if t != "" && t[0] != '-' && !strings.ContainsAny(t, "<>") {
-				return true
-			}
-		}
+		return slices.ContainsFunc(toks[1:], func(t string) bool {
+			return t != "" && t[0] != '-' && !strings.ContainsAny(t, "<>")
+		})
 	case "cat":
-		for i, t := range toks {
-			if (t == ">" || t == ">>") && i+1 < len(toks) || len(t) > 1 && t[0] == '>' {
-				return true
-			}
+		return catRedirects(toks)
+	}
+	return false
+}
+
+// catRedirects reports a `>`/`>>` token followed by a file, or a `>file` token.
+func catRedirects(toks []string) bool {
+	for i, t := range toks {
+		if (t == ">" || t == ">>") && i+1 < len(toks) || len(t) > 1 && t[0] == '>' {
+			return true
 		}
 	}
 	return false
@@ -139,36 +166,42 @@ func shellTokens(seg string) []string {
 	for i := 0; i < len(seg); i++ {
 		c := seg[i]
 		if quote != 0 {
-			if quote == '"' && c == '\\' && i+1 < len(seg) && dqEscapable(seg[i+1]) {
-				i++
-				b.WriteByte(seg[i])
-				continue
-			}
-			if c == quote {
-				quote = 0
-			} else {
-				b.WriteByte(c)
-			}
+			i, quote = unquoteStep(&b, seg, i, quote)
 			continue
 		}
 		switch {
 		case c == '\'' || c == '"':
 			quote = c
-			started = true
 		case c == '\\' && i+1 < len(seg):
 			i++
 			b.WriteByte(seg[i])
-			started = true
-		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
-			flush()
-		case c == ')' || c == '}':
-			flush() // unquoted close of a subshell/group: a word boundary, never part of the word
+		case strings.IndexByte(" \t\r\n)}", c) >= 0:
+			flush() // whitespace, or an unquoted close of a subshell/group: a word boundary, never part of the word
+			continue
 		default:
 			b.WriteByte(c)
-			started = true
 		}
+		started = true
 	}
 	flush()
+	return trimGroupOpen(out)
+}
+
+// unquoteStep writes quoted byte seg[i] to b, resolving a double-quote escape and dropping the closing quote.
+func unquoteStep(b *strings.Builder, seg string, i int, quote byte) (int, byte) {
+	if quote == '"' && seg[i] == '\\' && i+1 < len(seg) && dqEscapable(seg[i+1]) {
+		b.WriteByte(seg[i+1])
+		return i + 1, quote
+	}
+	if seg[i] == quote {
+		return i, 0
+	}
+	b.WriteByte(seg[i])
+	return i, quote
+}
+
+// trimGroupOpen drops a leading `(`/`{` from the first word, and the word itself when nothing else is left.
+func trimGroupOpen(out []string) []string {
 	if len(out) > 0 {
 		out[0] = strings.TrimLeft(out[0], "({")
 		if out[0] == "" {
