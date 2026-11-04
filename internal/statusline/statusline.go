@@ -76,7 +76,6 @@ type values struct {
 	total      string
 	duration   string
 	session    string
-	agents     string
 	limits     string
 	contextPct int
 	adds       int
@@ -100,8 +99,6 @@ func (v values) text(key string) string {
 		return v.duration
 	case "session":
 		return v.session
-	case "agents":
-		return v.agents
 	case "limits":
 		return v.limits
 	}
@@ -187,9 +184,6 @@ func collect(in Input, cfg Config) values {
 		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
 	} else if cfg.seg("git", true) {
 		v.branch = gitBranch(cwd)
-	}
-	if cfg.seg("agents", true) {
-		v.agents = runningSegment(in)
 	}
 	if cfg.seg("limits", true) {
 		v.limits = limitsSegment(in, provider)

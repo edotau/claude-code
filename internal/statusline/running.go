@@ -2,7 +2,6 @@ package statusline
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,13 +14,6 @@ import (
 
 // runningTTL caps the marker + dispatch sweep at one per 3s across renders.
 const runningTTL = 3 * time.Second
-
-// runningSegment is "N ◉": N = the main thread + this session's live subagent markers + this
-// session's live dispatch dispatches. Always shown while the "agents" segment is enabled.
-func runningSegment(in Input) string {
-	agents, dispatches := runningCounts(in)
-	return fmt.Sprintf("%d ◉", 1+agents+dispatches)
-}
 
 // runningCounts is the live subagent markers and live dispatch dispatches, cached for runningTTL.
 func runningCounts(in Input) (agents, dispatches int) {

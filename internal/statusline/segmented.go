@@ -50,16 +50,13 @@ func segLabel(key string, v values) string {
 	return ""
 }
 
-// renderSegmented renders the powerline, capsule, or minimal style over cfg.Order, then agents and git.
+// renderSegmented renders the powerline, capsule, or minimal style over cfg.Order, then git.
 func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) string {
 	var order []string
 	for _, k := range cfg.Order {
-		if k != "path" && k != "agents" && cfg.seg(k, true) {
+		if k != "path" && cfg.seg(k, true) {
 			order = append(order, k)
 		}
-	}
-	if cfg.seg("agents", true) {
-		order = append(order, "agents") // the agent count sits just before the branch
 	}
 	if cfg.seg("git", true) && v.branch != "" {
 		order = append(order, "git")
