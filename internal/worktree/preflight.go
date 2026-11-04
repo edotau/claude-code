@@ -7,7 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/notices"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Issue codes Preflight (and Promote's recheck) can append to a MergePlan; each names one condition
@@ -304,7 +308,7 @@ func checkTargetState(ctx context.Context, path, gitDir, commitRange string) (*I
 		}
 		if len(overlap) > 0 {
 			return &Issue{Code: IssueDirtyTarget, Paths: overlap,
-				Detail: "uncommitted target changes overlap promoted files: " + strings.Join(overlap, ", ")}, nil
+				Detail: "uncommitted target changes overlap promoted files: " + withHolders(path, overlap)}, nil
 		}
 	}
 	op, found, err := inProgressOp(ctx, path, gitDir)
@@ -315,6 +319,28 @@ func checkTargetState(ctx context.Context, path, gitDir, commitRange string) (*I
 		return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
 	}
 	return nil, nil
+}
+
+// withHolders lists rels, each followed by the live sessions or leaves the claims ledger says are editing it.
+func withHolders(top string, rels []string) string {
+	root, err := canonicalExistingPrefix(top)
+	if err != nil {
+		root = top
+	}
+	abs := make([]string, len(rels))
+	for i, r := range rels {
+		abs[i] = filepath.Join(root, r)
+	}
+	held := notices.Holders(proc.Alive, abs)
+	out := make([]string, len(rels))
+	for i, r := range rels {
+		out[i] = r
+		if who := held[abs[i]]; len(who) > 0 {
+			slices.Sort(who)
+			out[i] += " (held by " + strings.Join(who, ", ") + ")"
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // targetDirtyPaths reads NUL-delimited status, including both names of a rename or copy.

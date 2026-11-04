@@ -2,12 +2,16 @@ package worktree
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/notices"
 )
 
 // mergeFixtureWrite writes content to file in dir and commits it with msg; a shared helper for every
@@ -479,4 +483,76 @@ func itoa(n int) string {
 
 func containsPath(paths []string, want string) bool {
 	return slices.Contains(paths, want)
+}
+
+// TestPlanOrResolveConflictNotifiesLedgerOwner: a blocked merge queues one conflict notice for the owning session.
+func TestPlanOrResolveConflictNotifiesLedgerOwner(t *testing.T) {
+	repo := conflictedOwnedWorktree(t, "owner-S")
+	req := MergeRequest{Name: "feat", Err: io.Discard, ShowPlan: func(*MergePlan) {}}
+	if plan, err := PlanOrResolve(context.Background(), repo, req, true); plan != nil || err != nil {
+		t.Fatalf("dry run = %v, %v; want blocked", plan, err)
+	}
+	if got := notices.Drain("owner-S"); len(got) != 0 {
+		t.Fatalf("dry run queued %+v, want nothing", got)
+	}
+	if plan, err := PlanOrResolve(context.Background(), repo, req, false); plan != nil || err != nil {
+		t.Fatalf("merge = %v, %v; want blocked", plan, err)
+	}
+	got := notices.Drain("owner-S")
+	if len(got) != 1 || got[0].Kind != "conflict" || !strings.Contains(got[0].Text, "conflict in f.txt") {
+		t.Fatalf("owner notices = %+v, want one conflict notice naming f.txt", got)
+	}
+}
+
+// conflictedOwnedWorktree is a repo whose worktree "feat", opened by session, conflicts with main on f.txt.
+func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
+	t.Helper()
+	home, err := canonical(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
+	main := gitRepo(t)
+	mergeFixtureRun(t, main, "config", "user.email", "t@t.com")
+	mergeFixtureRun(t, main, "config", "user.name", "t")
+	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := Create(repo, "feat", CreateOptions{Session: session, Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeFixtureWrite(t, wt, "f.txt", "feature\n", "feature edits f")
+	mergeFixtureWrite(t, main, "f.txt", "main\n", "main edits f")
+	return repo
+}
+
+// TestPreflightDirtyTargetNamesClaimHolder: an overlapping dirty file names the live session that claims it.
+func TestPreflightDirtyTargetNamesClaimHolder(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo, main, wt := preflightFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "f.txt", "feature edit\n", "feature edits f")
+	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claims := filepath.Join(notices.ClaimsDir(), fmt.Sprintf("%d-peer-session.jsonl", os.Getpid()))
+	if err := os.MkdirAll(filepath.Dir(claims), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := fmt.Sprintf(`{"schema":1,"path":%q,"ts":1}`+"\n", filepath.Join(main, "f.txt"))
+	if err := os.WriteFile(claims, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDirtyTargetIssue(t, plan, "f.txt")
+	want := fmt.Sprintf("f.txt (held by session peer-ses (pid %d))", os.Getpid())
+	if !strings.Contains(plan.Issues[0].Detail, want) {
+		t.Fatalf("detail = %q, want %q", plan.Issues[0].Detail, want)
+	}
 }

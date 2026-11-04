@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -149,7 +150,11 @@ func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun boo
 	if len(plan.Issues) == 0 {
 		return plan, nil
 	}
-	if dryRun || req.ResolveAgent == "" || !onlyConflictIssue(plan.Issues) {
+	if dryRun || !onlyConflictIssue(plan.Issues) {
+		return nil, nil
+	}
+	if req.ResolveAgent == "" {
+		notifyConflict(plan, req.Err)
 		return nil, nil
 	}
 
@@ -213,6 +218,25 @@ func resumeMerge(ctx context.Context, repo *Repo, req MergeRequest) (*MergePlan,
 			op.TargetRef, ShortOID(op.TargetOID), fresh.TargetRef, ShortOID(fresh.TargetOID))
 	}
 	return fresh, nil
+}
+
+// notifyConflict appends a conflict notice to the session owning the worktree's ledger; a failure only warns.
+func notifyConflict(plan *MergePlan, errOut io.Writer) {
+	s := LedgerSession(plan.WorktreePath)
+	if s == "" {
+		return
+	}
+	var files []string
+	for _, iss := range plan.Issues {
+		files = append(files, iss.Paths...)
+	}
+	err := notices.Append(s, notices.Notice{TS: time.Now().Unix(), Kind: "conflict", From: "worktree merge",
+		Text: fmt.Sprintf("merge of %s into %s predicts a conflict in %s; rebase it or run "+
+			"`claude-code worktree merge --resolve-agent codex %s`", plan.WorktreePath, plan.TargetRef,
+			strings.Join(files, ", "), filepath.Base(plan.WorktreePath))})
+	if err != nil && errOut != nil {
+		fmt.Fprintf(errOut, "worktree merge: warning: conflict notice: %v\n", err)
+	}
 }
 
 // onlyConflictIssue reports whether every blocking Issue is a predicted conflict, the one case --resolve-agent acts on.

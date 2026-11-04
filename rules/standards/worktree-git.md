@@ -30,6 +30,7 @@ when another session joins the checkout. Never create one without the user's yes
 - **Never rewrite shared history** — no `commit --amend`, `rebase`, `reset <commit>` in a tree another session or
   your leaves share (always `~/.claude`): commit anew or `git revert`; rewrite only in your own linked worktree
   (`safety-scan` blocks). Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
+- A `notice (…)` or `local <branch> diverged` context line is from a peer or a merge: act on it before committing.
 - No `git stash` anywhere — the stash list is shared by every worktree. Never run a worktree-built binary as the proxy.
 - `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR` points
   at it (`rules/harness/settings-management.md` → Worktree render).

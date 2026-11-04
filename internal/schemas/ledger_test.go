@@ -70,6 +70,7 @@ var writers = map[string]string{
 	"internal/hooks/checkpoint.go:contextCheckpoint":                  unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/codexaudit.go:appendCodexRoute":                   "codex-routing",
 	"internal/hooks/claims.go:appendClaims":                           "claims",
+	"internal/notices/notices.go:Append":                              "notices",
 	"internal/hooks/claimcheck.go:firstSighting":                      unversioned("marker: per-session claim advisory dedupe lines"),
 	"internal/inflight/limiter.go:writeMarker":                        unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/worktree.go:busyLine":                             unversioned("marker: per-session worktree-busy dedupe stamp"),
