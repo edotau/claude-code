@@ -118,16 +118,21 @@ func ContextWindow(id string) int {
 // ThinkingKnobs returns (MAX_THINKING_TOKENS, CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING); adaptive-only models reject a budget.
 func ThinkingKnobs(id string) (maxTokens, disableAdaptive string) {
 	f, maj, min, ok := ParseClaudeID(id)
-	if !ok {
+	if !ok || (f != Haiku && atLeast(maj, min, 4, 8)) {
 		return "", ""
 	}
-	if f != Haiku && atLeast(maj, min, 4, 8) {
-		return "", ""
+	if f == Opus && maj == 4 {
+		return opus4Knobs(id, min)
 	}
-	if f == Opus && maj == 4 && min == 7 && ContextWindow(id) == ContextWindow1M {
+	return thinkingStd, ""
+}
+
+// opus4Knobs: Opus 4.7 at 1M takes the high budget; Opus 4.6 takes the standard one with adaptive thinking off.
+func opus4Knobs(id string, min int) (maxTokens, disableAdaptive string) {
+	if min == 7 && ContextWindow(id) == ContextWindow1M {
 		return thinkingHigh, ""
 	}
-	if f == Opus && maj == 4 && min == 6 {
+	if min == 6 {
 		return thinkingStd, "1"
 	}
 	return thinkingStd, ""
@@ -222,25 +227,18 @@ const (
 // non-chat kind. Pure and table-driven: no vendor exposes alias metadata, so this goes by id markers.
 func UseCase(id, name string) string {
 	s := strings.ToLower(id + " " + name)
-	switch {
-	case id == "auto":
+	if id == "auto" {
 		return UseAuto
-	case containsAny(s, "whisper", "tts", "speech", "audio"):
-		return UseSpeech
-	case containsAny(s, "embed"):
-		return UseEmbedding
-	case containsAny(s, "dall-e", "dalle", "imagen", "image-gen", "-image"):
-		return UseImage
-	case containsAny(s, "video", "veo"):
-		return UseVideo
-	case FamilyOf(id) == Fable:
-		return UseFrontier
-	case FamilyOf(id) == Opus:
-		return UseAgentic
-	case FamilyOf(id) == Sonnet:
-		return UseBalanced
-	case FamilyOf(id) == Haiku:
-		return UseHighVol
+	}
+	for _, k := range kindKeywords {
+		if containsAny(s, k.words...) {
+			return k.use
+		}
+	}
+	if use, ok := familyUse[FamilyOf(id)]; ok {
+		return use
+	}
+	switch {
 	case containsAny(s, "gemini", "gemma"):
 		return geminiUseCase(s)
 	case containsAny(s, "gpt", "o1", "o3", "o4"):
@@ -249,6 +247,20 @@ func UseCase(id, name string) string {
 		return UseGeneral
 	}
 }
+
+// kindKeywords lists the non-chat kinds in match order; the first group whose marker appears in the id or name wins.
+var kindKeywords = []struct {
+	use   string
+	words []string
+}{
+	{UseSpeech, []string{"whisper", "tts", "speech", "audio"}},
+	{UseEmbedding, []string{"embed"}},
+	{UseImage, []string{"dall-e", "dalle", "imagen", "image-gen", "-image"}},
+	{UseVideo, []string{"video", "veo"}},
+}
+
+// familyUse maps a Claude family onto its use-case label.
+var familyUse = map[string]string{Fable: UseFrontier, Opus: UseAgentic, Sonnet: UseBalanced, Haiku: UseHighVol}
 
 func geminiUseCase(s string) string {
 	switch {

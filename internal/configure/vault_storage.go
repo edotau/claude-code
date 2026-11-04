@@ -130,22 +130,36 @@ func validateOverlaySections(d *Doc) error {
 		}
 	}
 	if len(d.Settings) != 0 {
-		var ov map[string]json.RawMessage
-		if err := json.Unmarshal(d.Settings, &ov); err != nil {
-			return sectionError("settings", err)
-		}
-		if err := settings.ValidateOverlay(ov); err != nil {
-			return sectionError("settings", err)
+		if err := validateSettingsSection(d.Settings); err != nil {
+			return err
 		}
 	}
-	if d.Vault.KeyCommand != "" {
-		var argv []string
-		if err := json.Unmarshal([]byte(d.Vault.KeyCommand), &argv); err != nil {
-			return sectionError("vault.key_command", err)
-		}
-		if len(argv) == 0 || argv[0] == "" {
-			return errors.New("vault.key_command: must be a JSON array of strings with non-empty argv[0]")
-		}
+	return validateKeyCommand(d.Vault.KeyCommand)
+}
+
+// validateSettingsSection checks the settings overlay parses as an object of valid overlay keys.
+func validateSettingsSection(raw json.RawMessage) error {
+	var ov map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &ov); err != nil {
+		return sectionError("settings", err)
+	}
+	if err := settings.ValidateOverlay(ov); err != nil {
+		return sectionError("settings", err)
+	}
+	return nil
+}
+
+// validateKeyCommand checks vault.key_command, when set, is a JSON argv array with a non-empty argv[0].
+func validateKeyCommand(keyCommand string) error {
+	if keyCommand == "" {
+		return nil
+	}
+	var argv []string
+	if err := json.Unmarshal([]byte(keyCommand), &argv); err != nil {
+		return sectionError("vault.key_command", err)
+	}
+	if len(argv) == 0 || argv[0] == "" {
+		return errors.New("vault.key_command: must be a JSON array of strings with non-empty argv[0]")
 	}
 	return nil
 }
@@ -187,39 +201,53 @@ func applyOverlaySections(t *vault.Tx, cur, d Doc) error {
 		{"providers", cur.Providers, d.Providers}, {"agents", cur.Agents, d.Agents},
 		{"settings", cur.Settings, d.Settings},
 	} {
-		var old, next bytes.Buffer
-		if raw := presentJSON(section.old); len(raw) != 0 {
-			if err := json.Compact(&old, raw); err != nil {
-				return err
-			}
-		}
-		if len(section.next) != 0 {
-			if err := json.Compact(&next, section.next); err != nil {
-				return err
-			}
-		}
-		if bytes.Equal(old.Bytes(), next.Bytes()) {
-			continue
-		}
-		if section.name == "providers" {
-			stored, _ := t.Get(vault.Overlay, section.name)
-			if err := t.Put(vault.Overlay, "providers.prev", stored); err != nil {
-				return err
-			}
-		}
-		var stored string
-		if len(section.next) != 0 {
-			var indented bytes.Buffer
-			if err := json.Indent(&indented, next.Bytes(), "", "  "); err != nil {
-				return err
-			}
-			stored = indented.String() + "\n"
-		}
-		if err := t.Put(vault.Overlay, section.name, stored); err != nil {
+		if err := applyOverlaySection(t, section.name, section.old, section.next); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// compactJSON compacts raw, or returns nil for an absent section.
+func compactJSON(raw json.RawMessage) ([]byte, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// applyOverlaySection writes one overlay section when its compacted form changed; providers keep a prev copy.
+func applyOverlaySection(t *vault.Tx, name string, oldRaw, nextRaw json.RawMessage) error {
+	old, err := compactJSON(presentJSON(oldRaw))
+	if err != nil {
+		return err
+	}
+	next, err := compactJSON(nextRaw)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(old, next) {
+		return nil
+	}
+	if name == "providers" {
+		stored, _ := t.Get(vault.Overlay, name)
+		if err := t.Put(vault.Overlay, "providers.prev", stored); err != nil {
+			return err
+		}
+	}
+	var stored string
+	if len(nextRaw) != 0 {
+		var indented bytes.Buffer
+		if err := json.Indent(&indented, next, "", "  "); err != nil {
+			return err
+		}
+		stored = indented.String() + "\n"
+	}
+	return t.Put(vault.Overlay, name, stored)
 }
 
 // Import validates edited, then compares against orig and writes the changed sections in one transaction (R11).
@@ -240,39 +268,47 @@ func Import(orig, edited []byte) error {
 	}
 	var curRecs map[string]vault.AgentRecord
 	err = vault.Update(func(t *vault.Tx) error {
-		cur, err := docFrom(t)
-		if err != nil {
-			return err
-		}
-		raw, err := render(cur)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(raw, orig) {
-			return ErrChanged
-		}
-		if cur.Agents, curRecs, err = splitAgentRecords(cur.Agents); err != nil {
-			return err
-		}
-		if err := applyAgentRecords(t, curRecs, recs); err != nil {
-			return err
-		}
-		if err := applyPinsEnv(t, cur, d); err != nil {
-			return err
-		}
-		if err := applyOverlaySections(t, cur, d); err != nil {
-			return err
-		}
-		if cur.Vault.KeyCommand != d.Vault.KeyCommand {
-			return t.Put(vault.Meta, "key_command", d.Vault.KeyCommand)
-		}
-		return nil
+		var txErr error
+		curRecs, txErr = importTx(t, orig, d, recs)
+		return txErr
 	})
 	if err != nil {
 		return err
 	}
 	providers.AuditRecords(curRecs, recs)
 	return nil
+}
+
+// importTx applies the validated doc d inside the vault transaction when the stored config still equals orig;
+// it returns the agent records that were stored before the write.
+func importTx(t *vault.Tx, orig []byte, d Doc, recs map[string]vault.AgentRecord) (curRecs map[string]vault.AgentRecord, err error) {
+	cur, err := docFrom(t)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := render(cur)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(raw, orig) {
+		return nil, ErrChanged
+	}
+	if cur.Agents, curRecs, err = splitAgentRecords(cur.Agents); err != nil {
+		return curRecs, err
+	}
+	if err := applyAgentRecords(t, curRecs, recs); err != nil {
+		return curRecs, err
+	}
+	if err := applyPinsEnv(t, cur, d); err != nil {
+		return curRecs, err
+	}
+	if err := applyOverlaySections(t, cur, d); err != nil {
+		return curRecs, err
+	}
+	if cur.Vault.KeyCommand != d.Vault.KeyCommand {
+		return curRecs, t.Put(vault.Meta, "key_command", d.Vault.KeyCommand)
+	}
+	return curRecs, nil
 }
 
 // presentJSON maps a JSON null section to absent.
@@ -317,22 +353,58 @@ func Edit(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp("", "claude-code-config-*.json")
+	name, err := writeEditorScratch(orig)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(f.Name()) }() // best-effort cleanup of the temp file
+	defer func() { _ = os.Remove(name) }() // best-effort cleanup of the temp file
+	argv := editorArgv()
+	for {
+		if err := runEditor(argv, name); err != nil {
+			return err
+		}
+		edited, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(edited, orig) {
+			fmt.Fprintln(stdout, "no changes")
+			return nil
+		}
+		retry, err := importEdited(stdout, stderr, orig, edited)
+		if !retry {
+			return err
+		}
+	}
+}
+
+// writeEditorScratch writes orig to a 0600 temp file and returns its name; the caller removes it.
+func writeEditorScratch(orig []byte) (string, error) {
+	f, err := os.CreateTemp("", "claude-code-config-*.json")
+	if err != nil {
+		return "", err
+	}
 	defer f.Close()
+	if err := writeScratchBody(f, orig); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// writeScratchBody restricts f to its owner, writes body and closes it.
+func writeScratchBody(f *os.File, body []byte) error {
 	if err := f.Chmod(0600); err != nil {
 		return err
 	}
-	if _, err := f.Write(orig); err != nil {
+	if _, err := f.Write(body); err != nil {
 		return err
 	}
-	if err := f.Close(); err != nil {
-		return err
-	}
+	return f.Close()
+}
 
+// editorArgv is $VISUAL, else $EDITOR, else the platform's default editor.
+func editorArgv() []string {
 	argv := strings.Fields(os.Getenv("VISUAL"))
 	if len(argv) == 0 {
 		argv = strings.Fields(os.Getenv("EDITOR"))
@@ -343,38 +415,36 @@ func Edit(stdout, stderr io.Writer) error {
 			argv[0] = "notepad"
 		}
 	}
-	for {
-		cmd := exec.CommandContext(context.Background(), argv[0], append(argv[1:], f.Name())...) // top-level: interactive editor, no caller ctx
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		swallow := make(chan os.Signal, 1) // caught, not ignored: SIG_IGN would stick and be inherited by later children
-		signal.Notify(swallow, os.Interrupt)
-		err := cmd.Run()
-		signal.Stop(swallow)
-		if err != nil {
-			return fmt.Errorf("editor %s: %w", argv[0], err)
-		}
-		edited, err := os.ReadFile(f.Name())
-		if err != nil {
-			return err
-		}
-		if bytes.Equal(edited, orig) {
-			fmt.Fprintln(stdout, "no changes")
-			return nil
-		}
-		err = Import(orig, edited)
-		if err == nil {
-			fmt.Fprintln(stdout, "saved")
-			return nil
-		}
-		if errors.Is(err, ErrChanged) {
-			return err
-		}
-		if !isTerminal() {
-			return err
-		}
-		fmt.Fprintln(stderr, "config:", err)
-		if !confirmEdit("Re-edit?") {
-			return err
-		}
+	return argv
+}
+
+// runEditor runs the editor on file with the terminal attached, swallowing SIGINT meant for the editor.
+func runEditor(argv []string, file string) error {
+	cmd := exec.CommandContext(context.Background(), argv[0], append(argv[1:], file)...) // top-level: interactive editor, no caller ctx
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	swallow := make(chan os.Signal, 1) // caught, not ignored: SIG_IGN would stick and be inherited by later children
+	signal.Notify(swallow, os.Interrupt)
+	err := cmd.Run()
+	signal.Stop(swallow)
+	if err != nil {
+		return fmt.Errorf("editor %s: %w", argv[0], err)
 	}
+	return nil
+}
+
+// importEdited imports the edited doc; retry is true only when the import failed and the user chose to re-edit.
+func importEdited(stdout, stderr io.Writer, orig, edited []byte) (retry bool, err error) {
+	err = Import(orig, edited)
+	if err == nil {
+		fmt.Fprintln(stdout, "saved")
+		return false, nil
+	}
+	if errors.Is(err, ErrChanged) || !isTerminal() {
+		return false, err
+	}
+	fmt.Fprintln(stderr, "config:", err)
+	if !confirmEdit("Re-edit?") {
+		return false, err
+	}
+	return true, nil
 }

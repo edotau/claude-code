@@ -128,6 +128,18 @@ func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, ma
 	matches, skipped := walkDirs(cwd, dirs, tracked, inRepo)
 	skipped = append(skipped, globPatterns(cwd, patterns, matches, tracked, inRepo)...)
 
+	c := collector{maxFiles: maxFiles, maxFileBytes: maxFileBytes, budget: DefaultTotalBytes}
+	c.out.Skipped = append(c.out.Skipped, skipped...)
+	for _, abs := range sortedMatches(cwd, matches) {
+		if err := c.add(abs, relSlash(cwd, abs)); err != nil {
+			return c.out, err
+		}
+	}
+	return c.out, nil
+}
+
+// sortedMatches orders matched paths by path, then stably by groupRank.
+func sortedMatches(cwd string, matches map[string]bool) []string {
 	sorted := make([]string, 0, len(matches))
 	for p := range matches {
 		sorted = append(sorted, p)
@@ -136,40 +148,55 @@ func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, ma
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return groupRank(relSlash(cwd, sorted[i])) < groupRank(relSlash(cwd, sorted[j]))
 	})
+	return sorted
+}
 
-	budget := DefaultTotalBytes
+// collector accumulates inlined and skipped files against the file-count and byte budgets.
+type collector struct {
+	out                    Context
+	totalBytes, budget     int
+	maxFiles, maxFileBytes int
+}
 
-	var collected Context
-	var totalBytes int
-	collected.Skipped = append(collected.Skipped, skipped...)
-	for _, abs := range sorted {
-		rel := relSlash(cwd, abs)
-		switch {
-		case isIgnored(rel):
-			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "ignored-path"})
-		case isSecretLike(rel):
-			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "secret-like"})
-		case len(collected.Included) >= maxFiles:
-			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "max-files-exceeded"})
-		case totalBytes >= budget:
-			collected.Skipped = append(collected.Skipped, SkippedFile{rel, "budget-exceeded"})
-		default:
-			inc, reason, err := readInclude(abs, rel, maxFileBytes)
-			if err != nil {
-				return collected, err
-			}
-			switch {
-			case reason != "":
-				collected.Skipped = append(collected.Skipped, SkippedFile{rel, reason})
-			case totalBytes+len(inc.Content) > budget:
-				collected.Skipped = append(collected.Skipped, SkippedFile{rel, "budget-exceeded"})
-			default:
-				totalBytes += len(inc.Content)
-				collected.Included = append(collected.Included, inc)
-			}
-		}
+func (c *collector) skip(rel, reason string) {
+	c.out.Skipped = append(c.out.Skipped, SkippedFile{rel, reason})
+}
+
+// preSkipReason is why rel is skipped before reading it, or "".
+func (c *collector) preSkipReason(rel string) string {
+	switch {
+	case isIgnored(rel):
+		return "ignored-path"
+	case isSecretLike(rel):
+		return "secret-like"
+	case len(c.out.Included) >= c.maxFiles:
+		return "max-files-exceeded"
+	case c.totalBytes >= c.budget:
+		return "budget-exceeded"
 	}
-	return collected, nil
+	return ""
+}
+
+// add inlines abs, or records why it was skipped.
+func (c *collector) add(abs, rel string) error {
+	if reason := c.preSkipReason(rel); reason != "" {
+		c.skip(rel, reason)
+		return nil
+	}
+	inc, reason, err := readInclude(abs, rel, c.maxFileBytes)
+	if err != nil {
+		return err
+	}
+	switch {
+	case reason != "":
+		c.skip(rel, reason)
+	case c.totalBytes+len(inc.Content) > c.budget:
+		c.skip(rel, "budget-exceeded")
+	default:
+		c.totalBytes += len(inc.Content)
+		c.out.Included = append(c.out.Included, inc)
+	}
+	return nil
 }
 
 // groupRank orders inlining candidates: non-test source (0) before tests (1) before

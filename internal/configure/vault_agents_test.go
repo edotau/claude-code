@@ -41,17 +41,8 @@ func TestExportImportAgentRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	orig := exportTestDoc(t)
-	var d Doc
-	if err := json.Unmarshal(orig, &d); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(d.Agents), `"records"`) || !strings.Contains(string(d.Agents), `"chatgpt"`) || !strings.Contains(string(d.Agents), `"launch"`) {
-		t.Fatalf("agents section = %s, want the overlay plus records", d.Agents)
-	}
-	before := vaultTestState(t)
-	if err := Import(orig, orig); err != nil || !reflect.DeepEqual(vaultTestState(t), before) {
-		t.Fatalf("unchanged Import err=%v, vault changed=%v", err, !reflect.DeepEqual(vaultTestState(t), before))
-	}
+	assertExportShowsRecords(t, orig)
+	assertUnchangedImportIsNoop(t, orig)
 	edited := editRecords(t, orig, func(recs map[string]any) {
 		recs["codex"] = map[string]any{"profile": "openai", "model": "m1"}
 		recs["copilot"] = map[string]any{"profile": "personal", "effort": "high"}
@@ -59,6 +50,33 @@ func TestExportImportAgentRecords(t *testing.T) {
 	if err := Import(orig, edited); err != nil {
 		t.Fatal(err)
 	}
+	assertRecordEditsLanded(t)
+}
+
+// assertExportShowsRecords fails unless the exported agents section holds the overlay plus the stored records.
+func assertExportShowsRecords(t *testing.T, orig []byte) {
+	t.Helper()
+	var d Doc
+	if err := json.Unmarshal(orig, &d); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(d.Agents), `"records"`) || !strings.Contains(string(d.Agents), `"chatgpt"`) || !strings.Contains(string(d.Agents), `"launch"`) {
+		t.Fatalf("agents section = %s, want the overlay plus records", d.Agents)
+	}
+}
+
+// assertUnchangedImportIsNoop fails when importing the exported doc unchanged errors or writes the vault.
+func assertUnchangedImportIsNoop(t *testing.T, orig []byte) {
+	t.Helper()
+	before := vaultTestState(t)
+	if err := Import(orig, orig); err != nil || !reflect.DeepEqual(vaultTestState(t), before) {
+		t.Fatalf("unchanged Import err=%v, vault changed=%v", err, !reflect.DeepEqual(vaultTestState(t), before))
+	}
+}
+
+// assertRecordEditsLanded fails unless the edited records are stored and the overlay kept without records.
+func assertRecordEditsLanded(t *testing.T) {
+	t.Helper()
 	if got := vault.GetAgentRecord("codex"); got.Profile != "openai" || got.Model != "m1" {
 		t.Errorf("codex record = %+v, want profile openai", got)
 	}

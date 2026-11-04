@@ -187,7 +187,7 @@ func TestContextPct(t *testing.T) {
 	}
 }
 
-func TestProviderAndModelSegments(t *testing.T) {
+func TestSessionProvider(t *testing.T) {
 	hermetic(t)
 	if name, routed := sessionProvider(); name != registryDefault(t) || routed {
 		t.Errorf("registry default: %q %v", name, routed)
@@ -204,7 +204,10 @@ func TestProviderAndModelSegments(t *testing.T) {
 	if name, routed := sessionProvider(); name != "openrouter" || !routed {
 		t.Errorf("routed base: %q %v", name, routed)
 	}
+}
 
+func TestModelSegment(t *testing.T) {
+	hermetic(t)
 	model := func(id, display string) string {
 		var in Input
 		in.Model.ID, in.Model.DisplayName = id, display
@@ -313,6 +316,12 @@ func TestGitSegments(t *testing.T) {
 	if a, d := codeVelocity(in, dir, raw); a != 999 || d != 999 {
 		t.Errorf("raw mode reads the ledger: +%d -%d", a, d)
 	}
+}
+
+func TestGitSegmentsOutsideRepo(t *testing.T) {
+	hermetic(t)
+	var in Input
+	in.Cost.LinesAdded, in.Cost.LinesRemoved = 999, 999
 	notRepo := t.TempDir()
 	if b := gitBranch(notRepo); b != "" {
 		t.Errorf("non-repo branch %q", b)
@@ -320,6 +329,9 @@ func TestGitSegments(t *testing.T) {
 	if a, d := codeVelocity(in, notRepo, embeddedConfig()); a != 999 || d != 999 {
 		t.Errorf("non-repo falls back to the ledger: +%d -%d", a, d)
 	}
+}
+
+func TestTruncRunes(t *testing.T) {
 	if got := truncRunes("feature/statusline", 8); got != "feature…" {
 		t.Errorf("truncRunes %q", got)
 	}

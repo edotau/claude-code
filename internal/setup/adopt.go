@@ -115,11 +115,8 @@ func Adopt(opts AdoptOpts) error {
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
-	if _, err := os.Stat(filepath.Join(opts.Into, ".git")); err == nil {
-		return ErrAlreadyCheckout
-	}
-	if _, err := os.Stat(filepath.Join(opts.From, ".git")); err != nil {
-		return fmt.Errorf("%s: %w", opts.From, ErrNotAClone)
+	if err := adoptPreflight(opts); err != nil {
+		return err
 	}
 
 	clashes, err := Clashes(opts.From, opts.Into)
@@ -138,15 +135,48 @@ func Adopt(opts AdoptOpts) error {
 		return nil
 	}
 
-	if len(clashes) > 0 {
-		relPaths := make([]string, len(clashes))
-		for i, c := range clashes {
-			relPaths[i] = c.Path
-		}
-		if _, err := Backup(opts.Into, relPaths, label, now); err != nil {
-			return err
-		}
+	if err := backupClashes(opts.Into, clashes, label, now); err != nil {
+		return err
 	}
+	if err := installCheckout(opts); err != nil {
+		return err
+	}
+
+	st := State{Mode: "adopt", Date: now, Commit: commitHash(opts.Into), BackupDir: backupDir, ClashCount: len(clashes)}
+	if err := Record(st); err != nil {
+		return err
+	}
+	audit.Log(audit.SetupAdopt, opts.Into, fmt.Sprintf("clashes=%d", len(clashes)))
+	fmt.Fprintf(opts.Out, "\nadopted into %s\nnext:\n  make -C %s install\n  claude-code configure --check\n", opts.Into, opts.Into)
+	return nil
+}
+
+// adoptPreflight refuses an Into that is already a checkout and a From that is not a clone.
+func adoptPreflight(opts AdoptOpts) error {
+	if _, err := os.Stat(filepath.Join(opts.Into, ".git")); err == nil {
+		return ErrAlreadyCheckout
+	}
+	if _, err := os.Stat(filepath.Join(opts.From, ".git")); err != nil {
+		return fmt.Errorf("%s: %w", opts.From, ErrNotAClone)
+	}
+	return nil
+}
+
+// backupClashes backs up every clashing path under into; no clashes means no backup.
+func backupClashes(into string, clashes []Clash, label string, now time.Time) error {
+	if len(clashes) == 0 {
+		return nil
+	}
+	relPaths := make([]string, len(clashes))
+	for i, c := range clashes {
+		relPaths[i] = c.Path
+	}
+	_, err := Backup(into, relPaths, label, now)
+	return err
+}
+
+// installCheckout moves the staged .git into Into and drops the stage.
+func installCheckout(opts AdoptOpts) error {
 	if err := os.MkdirAll(opts.Into, 0o755); err != nil {
 		return err
 	}
@@ -156,13 +186,6 @@ func Adopt(opts AdoptOpts) error {
 	if err := os.RemoveAll(opts.From); err != nil { // the checkout is in; a leftover stage must not skip the record
 		fmt.Fprintf(opts.Out, "warning: could not remove staged clone %s: %v\n", opts.From, err)
 	}
-
-	st := State{Mode: "adopt", Date: now, Commit: commitHash(opts.Into), BackupDir: backupDir, ClashCount: len(clashes)}
-	if err := Record(st); err != nil {
-		return err
-	}
-	audit.Log(audit.SetupAdopt, opts.Into, fmt.Sprintf("clashes=%d", len(clashes)))
-	fmt.Fprintf(opts.Out, "\nadopted into %s\nnext:\n  make -C %s install\n  claude-code configure --check\n", opts.Into, opts.Into)
 	return nil
 }
 

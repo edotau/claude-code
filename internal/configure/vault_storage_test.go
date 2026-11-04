@@ -117,52 +117,62 @@ func TestImportRoundTrip(t *testing.T) {
 	}
 }
 
-func TestImportValidation(t *testing.T) {
-	tests := []struct {
-		name string
-		edit func(*Doc)
-		raw  func([]byte) []byte
-	}{
-		{name: "bad pin name", edit: func(d *Doc) { d.Pins["foo-bar"] = "x" }},
-		{name: "bad env name", edit: func(d *Doc) { d.Env["foo-bar"] = "x" }},
-		{name: "multiline env", edit: func(d *Doc) { d.Env["X"] = "one\ntwo" }},
-		{name: "carriage return env", edit: func(d *Doc) { d.Env["X"] = "one\rtwo" }},
-		{name: "multiline pin", edit: func(d *Doc) { d.Pins["X"] = "one\ntwo" }},
-		{name: "empty env", edit: func(d *Doc) { d.Env["X"] = "" }},
-		{name: "empty pin", edit: func(d *Doc) { d.Pins["X"] = "" }},
-		{name: "unknown field", raw: func(b []byte) []byte {
-			return bytes.Replace(b, []byte("{"), []byte(`{"unknown":true,`), 1)
-		}},
-		{name: "trailing object", raw: func(b []byte) []byte { return append(b, []byte(" {}")...) }},
-		{name: "trailing junk", raw: func(b []byte) []byte { return append(b, []byte(" junk")...) }},
-		{name: "malformed JSON", raw: func([]byte) []byte { return []byte("{") }},
-		{name: "providers", edit: func(d *Doc) {
-			d.Providers = json.RawMessage(`{"providers":{"x":{"base_url":"nope"}}}`)
-		}},
-		{name: "agents", edit: func(d *Doc) {
-			d.Agents = json.RawMessage(`{"agents":{"codex":{"launch":{"args":42}}}}`)
-		}},
-		{name: "key command not array", edit: func(d *Doc) { d.Vault.KeyCommand = `"pass show x"` }},
-		{name: "key command empty array", edit: func(d *Doc) { d.Vault.KeyCommand = `[]` }},
-		{name: "key command empty executable", edit: func(d *Doc) { d.Vault.KeyCommand = `[""]` }},
+// importValidationCase is one invalid document: edit mutates the decoded doc, raw then mangles the encoded bytes.
+type importValidationCase struct {
+	name string
+	edit func(*Doc)
+	raw  func([]byte) []byte
+}
+
+var importValidationCases = []importValidationCase{
+	{name: "bad pin name", edit: func(d *Doc) { d.Pins["foo-bar"] = "x" }},
+	{name: "bad env name", edit: func(d *Doc) { d.Env["foo-bar"] = "x" }},
+	{name: "multiline env", edit: func(d *Doc) { d.Env["X"] = "one\ntwo" }},
+	{name: "carriage return env", edit: func(d *Doc) { d.Env["X"] = "one\rtwo" }},
+	{name: "multiline pin", edit: func(d *Doc) { d.Pins["X"] = "one\ntwo" }},
+	{name: "empty env", edit: func(d *Doc) { d.Env["X"] = "" }},
+	{name: "empty pin", edit: func(d *Doc) { d.Pins["X"] = "" }},
+	{name: "unknown field", raw: func(b []byte) []byte {
+		return bytes.Replace(b, []byte("{"), []byte(`{"unknown":true,`), 1)
+	}},
+	{name: "trailing object", raw: func(b []byte) []byte { return append(b, []byte(" {}")...) }},
+	{name: "trailing junk", raw: func(b []byte) []byte { return append(b, []byte(" junk")...) }},
+	{name: "malformed JSON", raw: func([]byte) []byte { return []byte("{") }},
+	{name: "providers", edit: func(d *Doc) {
+		d.Providers = json.RawMessage(`{"providers":{"x":{"base_url":"nope"}}}`)
+	}},
+	{name: "agents", edit: func(d *Doc) {
+		d.Agents = json.RawMessage(`{"agents":{"codex":{"launch":{"args":42}}}}`)
+	}},
+	{name: "key command not array", edit: func(d *Doc) { d.Vault.KeyCommand = `"pass show x"` }},
+	{name: "key command empty array", edit: func(d *Doc) { d.Vault.KeyCommand = `[]` }},
+	{name: "key command empty executable", edit: func(d *Doc) { d.Vault.KeyCommand = `[""]` }},
+}
+
+// editedInvalid builds the edited bytes for tt: a would-be valid change plus the case's invalid part.
+func editedInvalid(t *testing.T, orig []byte, tt importValidationCase) []byte {
+	t.Helper()
+	edited := editTestDoc(t, orig, func(d *Doc) {
+		d.Pins["HARNESS_PROVIDER"] = "openai"
+		d.Env["NEW_ENV"] = "must-not-land"
+		if tt.edit != nil {
+			tt.edit(d)
+		}
+	})
+	if tt.raw != nil {
+		edited = tt.raw(edited)
 	}
-	for _, tt := range tests {
+	return edited
+}
+
+func TestImportValidation(t *testing.T) {
+	for _, tt := range importValidationCases {
 		t.Run(tt.name, func(t *testing.T) {
 			vaulttest.Use(t)
 			seedTestDoc(t)
 			orig := exportTestDoc(t)
 			before := vaultTestState(t)
-			edited := editTestDoc(t, orig, func(d *Doc) {
-				d.Pins["HARNESS_PROVIDER"] = "openai"
-				d.Env["NEW_ENV"] = "must-not-land"
-				if tt.edit != nil {
-					tt.edit(d)
-				}
-			})
-			if tt.raw != nil {
-				edited = tt.raw(edited)
-			}
-			if err := Import(orig, edited); err == nil {
+			if err := Import(orig, editedInvalid(t, orig, tt)); err == nil {
 				t.Error("Import accepted invalid document")
 			}
 			if got := exportTestDoc(t); !bytes.Equal(got, orig) {
@@ -239,21 +249,7 @@ func TestImportSettings(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Import() = %v, want nil", err)
 				}
-				after := exportTestDoc(t)
-				var got Doc
-				if err := json.Unmarshal(after, &got); err != nil {
-					t.Fatal(err)
-				}
-				var gotVal, wantVal any
-				if err := json.Unmarshal(got.Settings, &gotVal); err != nil {
-					t.Fatal(err)
-				}
-				if err := json.Unmarshal(tt.settings, &wantVal); err != nil {
-					t.Fatal(err)
-				}
-				if !reflect.DeepEqual(gotVal, wantVal) {
-					t.Errorf("Export settings = %s, want %s", got.Settings, tt.settings)
-				}
+				assertSettingsExported(t, tt.settings)
 				return
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
@@ -266,6 +262,25 @@ func TestImportSettings(t *testing.T) {
 				t.Error("invalid settings Import changed a vault bucket")
 			}
 		})
+	}
+}
+
+// assertSettingsExported fails unless the exported settings section equals want as JSON values.
+func assertSettingsExported(t *testing.T, want json.RawMessage) {
+	t.Helper()
+	var got Doc
+	if err := json.Unmarshal(exportTestDoc(t), &got); err != nil {
+		t.Fatal(err)
+	}
+	var gotVal, wantVal any
+	if err := json.Unmarshal(got.Settings, &gotVal); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(want, &wantVal); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotVal, wantVal) {
+		t.Errorf("Export settings = %s, want %s", got.Settings, want)
 	}
 }
 
@@ -330,19 +345,7 @@ func TestImportAudit(t *testing.T) {
 			orig := exportTestDoc(t)
 			edited := orig
 			if tt.key != "" {
-				edited = editTestDoc(t, orig, func(d *Doc) {
-					rest, recs, err := splitAgentRecords(d.Agents)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if recs == nil {
-						recs = map[string]vault.AgentRecord{}
-					}
-					recs["claude"] = recs["claude"].WithPin(tt.key, tt.value)
-					if d.Agents, err = mergeAgentRecords(rest, recs); err != nil {
-						t.Fatal(err)
-					}
-				})
+				edited = editClaudePin(t, orig, tt.key, tt.value)
 			}
 			if err := Import(orig, edited); err != nil {
 				t.Fatal(err)
@@ -357,27 +360,57 @@ func TestImportAudit(t *testing.T) {
 				}
 				return
 			}
-			if len(events) != 1 {
-				t.Fatalf("Import appended %d events, want 1", len(events))
-			}
-			if e := events[0]; e.Action != tt.action || e.Resource != tt.resource {
-				t.Errorf("audit event = %+v, want %s / %s", e, tt.action, tt.resource)
-			}
-			if tt.action == audit.ModelPin && events[0].Detail != tt.value {
-				t.Errorf("model audit detail = %q, want %q", events[0].Detail, tt.value)
-			}
-			saved := exportTestDoc(t)
-			if err := Import(saved, saved); err != nil {
-				t.Fatal(err)
-			}
-			after, err := audit.Read(time.Time{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(after, events) {
-				t.Error("unchanged Import appended audit events")
-			}
+			assertSingleAuditEvent(t, events, tt.action, tt.resource, tt.value)
+			assertReimportQuiet(t, events)
 		})
+	}
+}
+
+// assertSingleAuditEvent fails unless events is exactly one event with the wanted action and resource (and detail for pins).
+func assertSingleAuditEvent(t *testing.T, events []audit.Event, action audit.Action, resource, value string) {
+	t.Helper()
+	if len(events) != 1 {
+		t.Fatalf("Import appended %d events, want 1", len(events))
+	}
+	if e := events[0]; e.Action != action || e.Resource != resource {
+		t.Errorf("audit event = %+v, want %s / %s", e, action, resource)
+	}
+	if action == audit.ModelPin && events[0].Detail != value {
+		t.Errorf("model audit detail = %q, want %q", events[0].Detail, value)
+	}
+}
+
+// editClaudePin returns orig with the claude agent record's pin key set to value.
+func editClaudePin(t *testing.T, orig []byte, key, value string) []byte {
+	t.Helper()
+	return editTestDoc(t, orig, func(d *Doc) {
+		rest, recs, err := splitAgentRecords(d.Agents)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if recs == nil {
+			recs = map[string]vault.AgentRecord{}
+		}
+		recs["claude"] = recs["claude"].WithPin(key, value)
+		if d.Agents, err = mergeAgentRecords(rest, recs); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// assertReimportQuiet re-imports the saved doc unchanged and fails if it appends audit events beyond events.
+func assertReimportQuiet(t *testing.T, events []audit.Event) {
+	t.Helper()
+	saved := exportTestDoc(t)
+	if err := Import(saved, saved); err != nil {
+		t.Fatal(err)
+	}
+	after, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after, events) {
+		t.Error("unchanged Import appended audit events")
 	}
 }
 
@@ -397,33 +430,7 @@ func TestHelperEditor(t *testing.T) {
 	if err := os.WriteFile(os.Getenv("CONFIG_TEST_EDITOR_SEEN"), []byte("seen"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	switch mode {
-	case "noop":
-		os.Exit(0)
-	case "fail":
-		os.Exit(3)
-	case "retry":
-		marker := os.Getenv("CONFIG_TEST_EDITOR_RETRY")
-		if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
-			if err := os.WriteFile(marker, []byte("retry"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			mode = "bad"
-		} else if err != nil {
-			t.Fatal(err)
-		} else {
-			mode = "pin"
-		}
-	case "race":
-		if err := vault.Update(func(tx *vault.Tx) error {
-			return tx.Put(vault.Pins, "HARNESS_OPUS_MODEL", "concurrent-model")
-		}); err != nil {
-			t.Fatal(err)
-		}
-	case "pin", "bad":
-	default:
-		t.Fatalf("unknown helper editor mode %q", mode)
-	}
+	mode = helperEditorMode(t, mode)
 	raw := []byte("{")
 	if mode != "bad" {
 		// A retry must replace the invalid file rather than try to decode it.
@@ -437,6 +444,46 @@ func TestHelperEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Exit(0)
+}
+
+// helperEditorMode runs the mode's side effect (exiting for noop/fail) and returns the mode that picks the file content.
+func helperEditorMode(t *testing.T, mode string) string {
+	t.Helper()
+	switch mode {
+	case "noop":
+		os.Exit(0)
+	case "fail":
+		os.Exit(3)
+	case "retry":
+		return helperRetryMode(t)
+	case "race":
+		if err := vault.Update(func(tx *vault.Tx) error {
+			return tx.Put(vault.Pins, "HARNESS_OPUS_MODEL", "concurrent-model")
+		}); err != nil {
+			t.Fatal(err)
+		}
+	case "pin", "bad":
+	default:
+		t.Fatalf("unknown helper editor mode %q", mode)
+	}
+	return mode
+}
+
+// helperRetryMode writes an invalid doc the first time it runs and a valid one afterwards.
+func helperRetryMode(t *testing.T) string {
+	t.Helper()
+	marker := os.Getenv("CONFIG_TEST_EDITOR_RETRY")
+	_, err := os.Stat(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(marker, []byte("retry"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return "bad"
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "pin"
 }
 
 func setupTestEditor(t *testing.T, mode, env string, terminal bool, answer bool) (string, *int) {
@@ -511,27 +558,41 @@ func TestEdit(t *testing.T) {
 			if seen, err := os.ReadFile(filepath.Join(tmp, "seen")); err != nil || string(seen) != "seen" {
 				t.Fatalf("helper did not inspect the temp file: %q, %v", seen, err)
 			}
-			switch tt.mode {
-			case "pin":
-				if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_PROVIDER": "openai"}) {
-					t.Errorf("saved pins = %v", pins)
-				}
-			case "race":
-				if !errors.Is(err, ErrChanged) {
-					t.Errorf("Edit() = %v, want ErrChanged", err)
-				}
-				if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_OPUS_MODEL": "concurrent-model"}) {
-					t.Errorf("conflicting Edit wrote pins: %v", pins)
-				}
-			default:
-				if after := exportTestDoc(t); !bytes.Equal(before, after) {
-					t.Error("unsaved Edit changed config")
-				}
-			}
-			if tt.mode == "fail" && (err == nil || !strings.Contains(err.Error(), "editor "+os.Args[0]) || !strings.Contains(err.Error(), "exit status 3")) {
-				t.Errorf("editor failure did not name editor and exit status: %v", err)
-			}
+			assertEditEffect(t, tt.mode, err, before)
 		})
+	}
+}
+
+// assertEditEffect checks what an Edit in the given helper mode did (or refused to do) to the vault.
+func assertEditEffect(t *testing.T, mode string, err error, before []byte) {
+	t.Helper()
+	switch mode {
+	case "pin":
+		if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_PROVIDER": "openai"}) {
+			t.Errorf("saved pins = %v", pins)
+		}
+	case "race":
+		if !errors.Is(err, ErrChanged) {
+			t.Errorf("Edit() = %v, want ErrChanged", err)
+		}
+		if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_OPUS_MODEL": "concurrent-model"}) {
+			t.Errorf("conflicting Edit wrote pins: %v", pins)
+		}
+	default:
+		if after := exportTestDoc(t); !bytes.Equal(before, after) {
+			t.Error("unsaved Edit changed config")
+		}
+	}
+	if mode == "fail" {
+		assertEditorFailureNamed(t, err)
+	}
+}
+
+// assertEditorFailureNamed fails unless err names the editor binary and its exit status.
+func assertEditorFailureNamed(t *testing.T, err error) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), "editor "+os.Args[0]) || !strings.Contains(err.Error(), "exit status 3") {
+		t.Errorf("editor failure did not name editor and exit status: %v", err)
 	}
 }
 
@@ -556,26 +617,9 @@ func TestEditReedit(t *testing.T) {
 				t.Errorf("confirmEdit called %d times, want %d", *calls, tt.calls)
 			}
 			if tt.saved {
-				if err != nil || stdout.String() != "saved\n" {
-					t.Errorf("re-edit = %v, stdout %q", err, stdout.String())
-				}
-				if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_PROVIDER": "openai"}) {
-					t.Errorf("re-edit saved pins = %v", pins)
-				}
+				assertReeditSaved(t, err, stdout.String())
 			} else {
-				if err == nil || stdout.Len() != 0 {
-					t.Errorf("unsaved re-edit = %v, stdout %q", err, stdout.String())
-				}
-				if tt.mode == "race" {
-					if !errors.Is(err, ErrChanged) {
-						t.Errorf("re-edit = %v, want ErrChanged", err)
-					}
-					if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_OPUS_MODEL": "concurrent-model"}) {
-						t.Errorf("conflicting re-edit wrote pins: %v", pins)
-					}
-				} else if after := exportTestDoc(t); !bytes.Equal(after, before) {
-					t.Error("declined re-edit changed config")
-				}
+				assertReeditRefused(t, tt.mode, err, stdout.String(), before)
 			}
 			if tt.calls > 0 && !strings.Contains(stderr.String(), "config:") {
 				t.Errorf("missing validation diagnostic: %q", stderr.String())
@@ -584,5 +628,36 @@ func TestEditReedit(t *testing.T) {
 				t.Errorf("conflict printed stderr: %q", stderr.String())
 			}
 		})
+	}
+}
+
+// assertReeditSaved fails unless the re-edit succeeded and stored the corrected pins.
+func assertReeditSaved(t *testing.T, err error, stdout string) {
+	t.Helper()
+	if err != nil || stdout != "saved\n" {
+		t.Errorf("re-edit = %v, stdout %q", err, stdout)
+	}
+	if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_PROVIDER": "openai"}) {
+		t.Errorf("re-edit saved pins = %v", pins)
+	}
+}
+
+// assertReeditRefused fails unless the re-edit errored without saving and left the vault as it should be.
+func assertReeditRefused(t *testing.T, mode string, err error, stdout string, before []byte) {
+	t.Helper()
+	if err == nil || stdout != "" {
+		t.Errorf("unsaved re-edit = %v, stdout %q", err, stdout)
+	}
+	if mode != "race" {
+		if after := exportTestDoc(t); !bytes.Equal(after, before) {
+			t.Error("declined re-edit changed config")
+		}
+		return
+	}
+	if !errors.Is(err, ErrChanged) {
+		t.Errorf("re-edit = %v, want ErrChanged", err)
+	}
+	if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_OPUS_MODEL": "concurrent-model"}) {
+		t.Errorf("conflicting re-edit wrote pins: %v", pins)
 	}
 }

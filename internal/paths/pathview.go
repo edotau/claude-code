@@ -65,6 +65,11 @@ func (r *Resolver) Resolve(p string) (string, bool) {
 	case isDrivePath(p):
 		return r.resolveDrive(p)
 	}
+	return r.resolveForm(p)
+}
+
+// resolveForm handles the non-prefix forms of p: URL, //host UNC, POSIX absolute and host:path.
+func (r *Resolver) resolveForm(p string) (string, bool) {
 	if scheme, rest, ok := strings.Cut(p, "://"); ok {
 		return r.resolveURL(strings.ToLower(scheme), rest)
 	}
@@ -184,28 +189,36 @@ func (r *Resolver) resolveUNC(p string) (string, bool) {
 func (r *Resolver) resolveURL(scheme, rest string) (string, bool) {
 	switch scheme {
 	case "file":
-		u, err := url.Parse("file://" + rest)
-		if err != nil {
-			return "", false
-		}
-		if u.Host != "" && !strings.EqualFold(u.Host, "localhost") {
-			return r.resolveUNC("//" + u.Host + u.Path)
-		}
-		if len(u.Path) > 2 && u.Path[0] == '/' && isDrivePath(u.Path[1:]) {
-			return r.resolveDrive(u.Path[1:])
-		}
-		return cleanLocal(u.Path), u.Path != ""
+		return r.resolveFileURL(rest)
 	case "smb", "nfs":
-		u, err := url.Parse(scheme + "://" + rest)
-		if err != nil || u.Hostname() == "" {
-			return "", false
-		}
-		if scheme == "smb" {
-			return r.fromRemote(u.Hostname(), strings.TrimPrefix(u.Path, "/"), KindSMB)
-		}
-		return r.fromRemote(u.Hostname(), u.Path, KindNFS)
+		return r.resolveRemoteURL(scheme, rest)
 	}
 	return "", false
+}
+
+func (r *Resolver) resolveFileURL(rest string) (string, bool) {
+	u, err := url.Parse("file://" + rest)
+	if err != nil {
+		return "", false
+	}
+	if u.Host != "" && !strings.EqualFold(u.Host, "localhost") {
+		return r.resolveUNC("//" + u.Host + u.Path)
+	}
+	if len(u.Path) > 2 && u.Path[0] == '/' && isDrivePath(u.Path[1:]) {
+		return r.resolveDrive(u.Path[1:])
+	}
+	return cleanLocal(u.Path), u.Path != ""
+}
+
+func (r *Resolver) resolveRemoteURL(scheme, rest string) (string, bool) {
+	u, err := url.Parse(scheme + "://" + rest)
+	if err != nil || u.Hostname() == "" {
+		return "", false
+	}
+	if scheme == "smb" {
+		return r.fromRemote(u.Hostname(), strings.TrimPrefix(u.Path, "/"), KindSMB)
+	}
+	return r.fromRemote(u.Hostname(), u.Path, KindNFS)
 }
 
 // fromRemote maps host plus a remote path onto the most specific unobscured mount of one of kinds.
@@ -239,25 +252,37 @@ func rawRest(p, prefix string, fold bool) string {
 	if pre[0] == "" {
 		pre = nil
 	}
-	if len(raw) < len(pre) {
+	if len(raw) < len(pre) || !segsHavePrefix(raw, pre, fold) {
 		return ""
 	}
-	for i, s := range pre {
-		if raw[i] != s && (!fold || !strings.EqualFold(raw[i], s)) {
-			return ""
-		}
-	}
-	rest, depth := raw[len(pre):], 0
-	for _, s := range rest {
-		if s == ".." {
-			if depth--; depth < 0 {
-				return "" // climbs out of the mount root: the lexical result decides
-			}
-		} else {
-			depth++
-		}
+	rest := raw[len(pre):]
+	if climbsOut(rest) {
+		return "" // climbs out of the mount root: the lexical result decides
 	}
 	return strings.Join(rest, "/")
+}
+
+// segsHavePrefix reports whether raw starts with the segments pre (case-folded when fold).
+func segsHavePrefix(raw, pre []string, fold bool) bool {
+	for i, s := range pre {
+		if raw[i] != s && (!fold || !strings.EqualFold(raw[i], s)) {
+			return false
+		}
+	}
+	return true
+}
+
+// climbsOut reports whether the `..` segments in rest rise above its own root.
+func climbsOut(rest []string) bool {
+	depth := 0
+	for _, s := range rest {
+		if s != ".." {
+			depth++
+		} else if depth--; depth < 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func hasKind(kinds []Kind, k Kind) bool {
@@ -322,23 +347,31 @@ func (r *Resolver) mountFor(local string) (*Mount, string) {
 }
 
 func (r *Resolver) render(m *Mount, rest, local string, style Style) (string, error) {
-	switch {
-	case m != nil && m.Kind == KindSMB:
-		if style == StyleURL {
-			return (&url.URL{Scheme: "smb", Host: m.Host, Path: "/" + path.Join(m.RemotePath, rest)}).String(), nil
-		}
-		return `\\` + m.Host + `\` + strings.ReplaceAll(path.Join(m.RemotePath, rest), "/", `\`), nil
-	case m != nil && m.Kind == KindNFS && style == StyleURL:
-		return (&url.URL{Scheme: "nfs", Host: m.Host, Path: path.Join(m.RemotePath, rest)}).String(), nil
-	case m != nil && m.Kind == KindSSHFS, m != nil && m.Kind == KindNFS:
-		return "", ErrNotReachable
-	case style == StyleURL:
+	if m != nil && isRemote(m.Kind) {
+		return renderRemote(m, rest, style)
+	}
+	if style == StyleURL {
 		if m != nil && m.Kind == KindDrvFS {
 			return (&url.URL{Scheme: "file", Path: "/" + m.Drive + ":/" + strings.TrimPrefix(path.Join(m.Root, rest), "/")}).String(), nil
 		}
 		return (&url.URL{Scheme: "file", Path: local}).String(), nil
-	case r.Distro != "":
+	}
+	if r.Distro != "" {
 		return `\\wsl.localhost\` + r.Distro + strings.ReplaceAll(local, "/", `\`), nil
+	}
+	return "", ErrNotReachable
+}
+
+// renderRemote renders a path on a remote-kind mount: SMB in any style, NFS only as a URL, SSHFS never.
+func renderRemote(m *Mount, rest string, style Style) (string, error) {
+	switch {
+	case m.Kind == KindSMB:
+		if style == StyleURL {
+			return (&url.URL{Scheme: "smb", Host: m.Host, Path: "/" + path.Join(m.RemotePath, rest)}).String(), nil
+		}
+		return `\\` + m.Host + `\` + strings.ReplaceAll(path.Join(m.RemotePath, rest), "/", `\`), nil
+	case m.Kind == KindNFS && style == StyleURL:
+		return (&url.URL{Scheme: "nfs", Host: m.Host, Path: path.Join(m.RemotePath, rest)}).String(), nil
 	}
 	return "", ErrNotReachable
 }

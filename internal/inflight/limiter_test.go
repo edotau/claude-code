@@ -42,23 +42,45 @@ func markerExists(owner int, id string) bool {
 	return err == nil
 }
 
+// writeFile writes body to path or fails the test.
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setMtime stamps path's modification time or fails the test.
+func setMtime(t *testing.T, path string, mod time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, mod, mod); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// mkdirAll creates dir or fails the test.
+func mkdirAll(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// probeClaim claims one slot for owner so the prune pass runs, failing the test when it is refused.
+func probeClaim(t *testing.T, owner int, transcript string) {
+	t.Helper()
+	if ok, _ := TryClaim(Claim{Owner: owner, ID: "probe", Account: "a", Transcript: transcript}, Limits{Base: Base, Total: 100}); !ok {
+		t.Fatal("probe claim refused")
+	}
+}
+
 // Claim burst: of 30 racers on one account with For=12, exactly 12 win, 12 markers hold the
 // account key, a second account still admits, and Total binds across accounts.
 func TestTryClaimBurst(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
 	lim := Limits{Base: Base, Total: 10000}
-	var wins atomic.Int32
-	var wg sync.WaitGroup
-	for i := range 30 {
-		wg.Go(func() {
-			if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch." + strconv.Itoa(i), Account: "acct-a"}, lim); ok {
-				wins.Add(1)
-			}
-		})
-	}
-	wg.Wait()
-	if got := wins.Load(); got != 12 {
+	if got := raceClaims(owner, lim, 30); got != 12 {
 		t.Fatalf("winners = %d, want exactly 12", got)
 	}
 	files := markers(t)
@@ -75,16 +97,33 @@ func TestTryClaimBurst(t *testing.T) {
 		t.Fatalf("Count().Per[acct-a] = %d, want 12", got)
 	}
 
-	// Per-account isolation: a second account has its own headroom.
-	ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b1", Account: "acct-b"}, lim)
-	if !ok {
-		t.Fatal("second account refused despite a full first account")
+	t.Run("per-account isolation", func(t *testing.T) {
+		ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b1", Account: "acct-b"}, lim)
+		if !ok {
+			t.Fatal("second account refused despite a full first account")
+		}
+	})
+	t.Run("total binds across accounts", func(t *testing.T) {
+		tight := Limits{Base: Base, Total: 13} // 12 + 1 live leaves no room
+		if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b2", Account: "acct-b"}, tight); ok {
+			t.Fatal("claim admitted past Total even though the per-account cap had room")
+		}
+	})
+}
+
+// raceClaims runs n concurrent claims on acct-a and returns how many were admitted.
+func raceClaims(owner int, lim Limits, n int) int32 {
+	var wins atomic.Int32
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch." + strconv.Itoa(i), Account: "acct-a"}, lim); ok {
+				wins.Add(1)
+			}
+		})
 	}
-	// Total binds across accounts: 12 + 1 live, Total 13 leaves no room.
-	tight := Limits{Base: Base, Total: 13}
-	if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b2", Account: "acct-b"}, tight); ok {
-		t.Fatal("claim admitted past Total even though the per-account cap had room")
-	}
+	wg.Wait()
+	return wins.Load()
 }
 
 // TryClaim N>1 writes the N leaf markers as one decision: refused whole when N does not fit,
@@ -96,6 +135,31 @@ func TestTryClaimN(t *testing.T) {
 	if ok, _ := TryClaim(Claim{Owner: owner, ID: "wf", Account: "a", N: 3}, lim); !ok {
 		t.Fatal("N=3 claim refused with room")
 	}
+	assertLeaves(t, owner)
+
+	t.Run("Fits does not write", func(t *testing.T) {
+		if fits, _ := Fits(Claim{Owner: owner, ID: "fit", Account: "a", N: 3}, lim); !fits {
+			t.Fatal("Fits refused with room")
+		}
+		assertNoMarker(t, "fit", "Fits wrote marker %s")
+	})
+	t.Run("refused whole when N does not fit", func(t *testing.T) {
+		// 3 slots of 4 used on "a": an N=2 claim does not fit.
+		tight := Limits{Base: Base, Total: 100, Override: map[string]int{"a": 4}}
+		if ok, _ := TryClaim(Claim{Owner: owner, ID: "no", Account: "a", N: 2}, tight); ok {
+			t.Fatal("N=2 claim admitted with only 1 slot left")
+		}
+		assertNoMarker(t, "-no", "refused claim left marker %s behind")
+	})
+	t.Run("Release removes every leaf", func(t *testing.T) {
+		Release(owner, "wf")
+		assertNoMarker(t, "wf", "Release left leaf %s behind")
+	})
+}
+
+// assertLeaves checks the N=3 claim wrote leaves .1..3 holding the account key and no base marker.
+func assertLeaves(t *testing.T, owner int) {
+	t.Helper()
 	for i := 1; i <= 3; i++ {
 		name := markerName(owner, "wf") + "." + strconv.Itoa(i)
 		b, err := os.ReadFile(filepath.Join(Dir(), name))
@@ -108,32 +172,14 @@ func TestTryClaimN(t *testing.T) {
 	if markerExists(owner, "wf") {
 		t.Error("base marker written for an N>1 claim; only .1..N leaves are expected")
 	}
+}
 
-	// Fits is the cap check: it must not write.
-	if fits, _ := Fits(Claim{Owner: owner, ID: "fit", Account: "a", N: 3}, lim); !fits {
-		t.Fatal("Fits refused with room")
-	}
+// assertNoMarker fails with format (taking the marker name) for any marker whose name contains sub.
+func assertNoMarker(t *testing.T, sub, format string) {
+	t.Helper()
 	for _, f := range markers(t) {
-		if strings.Contains(f, "fit") {
-			t.Errorf("Fits wrote marker %s", f)
-		}
-	}
-
-	// 3 slots of 4 used on "a": an N=2 claim does not fit and must be refused whole.
-	tight := Limits{Base: Base, Total: 100, Override: map[string]int{"a": 4}}
-	if ok, _ := TryClaim(Claim{Owner: owner, ID: "no", Account: "a", N: 2}, tight); ok {
-		t.Fatal("N=2 claim admitted with only 1 slot left")
-	}
-	for _, f := range markers(t) {
-		if strings.Contains(f, "-no") {
-			t.Errorf("refused claim left marker %s behind", f)
-		}
-	}
-
-	Release(owner, "wf")
-	for _, f := range markers(t) {
-		if strings.Contains(f, "wf") {
-			t.Errorf("Release left leaf %s behind", f)
+		if strings.Contains(f, sub) {
+			t.Errorf(format, f)
 		}
 	}
 }
@@ -224,57 +270,25 @@ func TestRetireAgent(t *testing.T) {
 func TestSelfSpawnPrune(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
-	tmp := t.TempDir()
-	transcript := filepath.Join(tmp, "sess.jsonl")
+	transcript := filepath.Join(t.TempDir(), "sess.jsonl")
 	subDir := SubagentDir(transcript)
-	if err := os.MkdirAll(subDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	session := "{\"tool_use_id\":\"toolu_b\"}\n{\"tool_use_id\":\"toolu_c\"}\n{\"tool_use_id\":\"toolu_e\"}\n"
-	if err := os.WriteFile(transcript, []byte(session), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	writeMeta := func(agent, id string, finished bool) {
-		t.Helper()
-		m := `{"toolUseId":"` + id + `"}`
-		if finished {
-			m = `{"toolUseId":"` + id + `","finished":true}`
-		}
-		if err := os.WriteFile(filepath.Join(subDir, "agent-"+agent+".meta.json"), []byte(m), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeMeta("a1", "toolu_a", false)
-	writeMeta("c1", "toolu_c", false)
-	writeMeta("d1", "toolu_d", true)
+	mkdirAll(t, subDir)
+	writeFile(t, transcript, "{\"tool_use_id\":\"toolu_b\"}\n{\"tool_use_id\":\"toolu_c\"}\n{\"tool_use_id\":\"toolu_e\"}\n")
+	writeSpawnMeta(t, subDir, "a1", "toolu_a", false)
+	writeSpawnMeta(t, subDir, "c1", "toolu_c", false)
+	writeSpawnMeta(t, subDir, "d1", "toolu_d", true)
 	idleLog := filepath.Join(subDir, "agent-a1.jsonl")
-	if err := os.WriteFile(idleLog, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	stale := time.Now().Add(-2 * Idle)
-	if err := os.Chtimes(idleLog, stale, stale); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(subDir, "agent-c1.jsonl"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(subDir, "agent-d1.jsonl"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, idleLog, "{}\n")
+	setMtime(t, idleLog, time.Now().Add(-2*Idle))
+	writeFile(t, filepath.Join(subDir, "agent-c1.jsonl"), "{}\n")
+	writeFile(t, filepath.Join(subDir, "agent-d1.jsonl"), "{}\n")
 	for _, id := range []string{"toolu_a", "toolu_b", "toolu_c", "toolu_d", "toolu_e"} {
-		if err := os.WriteFile(filepath.Join(Dir(), markerName(owner, id)), []byte("a\n"+transcript), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writeFile(t, filepath.Join(Dir(), markerName(owner, id)), "a\n"+transcript)
 	}
-	past := time.Now().Add(-30 * time.Second) // past Settle, inside Grace
-	if err := os.Chtimes(filepath.Join(Dir(), markerName(owner, "toolu_b")), past, past); err != nil {
-		t.Fatal(err)
-	}
+	// past Settle, inside Grace
+	setMtime(t, filepath.Join(Dir(), markerName(owner, "toolu_b")), time.Now().Add(-30*time.Second))
 
-	lim := Limits{Base: Base, Total: 100}
-	if ok, _ := TryClaim(Claim{Owner: owner, ID: "probe", Account: "a", Transcript: transcript}, lim); !ok {
-		t.Fatal("probe claim refused")
-	}
+	probeClaim(t, owner, transcript)
 	if markerExists(owner, "toolu_a") {
 		t.Error("spawn marker with an idle agent transcript survived the prune")
 	}
@@ -292,6 +306,16 @@ func TestSelfSpawnPrune(t *testing.T) {
 	}
 }
 
+// writeSpawnMeta writes agent-<agent>.meta.json under subDir tying the agent to a tool_use_id.
+func writeSpawnMeta(t *testing.T, subDir, agent, id string, finished bool) {
+	t.Helper()
+	m := `{"toolUseId":"` + id + `"}`
+	if finished {
+		m = `{"toolUseId":"` + id + `","finished":true}`
+	}
+	writeFile(t, filepath.Join(subDir, "agent-"+agent+".meta.json"), m)
+}
+
 // A sibling session's long-running agent keeps counting past TTL (its marker carries that session's transcript),
 // and its finished agent is pruned by the same rule, whoever scans.
 func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
@@ -307,41 +331,52 @@ func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
 	sib := helper.Process.Pid
 	transcript := filepath.Join(t.TempDir(), "sib.jsonl")
 	sub := SubagentDir(transcript)
-	if err := os.MkdirAll(sub, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	mkdirAll(t, sub)
 	for agent, body := range map[string]string{
 		"long": `{"toolUseId":"toolu_long"}`,
 		"done": `{"toolUseId":"toolu_done","finished":true}`,
 	} {
-		if err := os.WriteFile(filepath.Join(sub, "agent-"+agent+".meta.json"), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(sub, "agent-"+agent+".jsonl"), []byte("{}\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writeFile(t, filepath.Join(sub, "agent-"+agent+".meta.json"), body)
+		writeFile(t, filepath.Join(sub, "agent-"+agent+".jsonl"), "{}\n")
 	}
 	old := time.Now().Add(-2 * TTL)
 	for _, id := range []string{"toolu_long", "toolu_done"} {
 		path := filepath.Join(Dir(), markerName(sib, id))
-		if err := os.WriteFile(path, []byte("a\n"+transcript), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(path, old, old); err != nil {
-			t.Fatal(err)
-		}
+		writeFile(t, path, "a\n"+transcript)
+		setMtime(t, path, old)
 	}
 	live := Liveness(time.Now()) // the read-only rule `agents reap` and the status line use
 	if !live(markerName(sib, "toolu_long")) || live(markerName(sib, "toolu_done")) {
 		t.Error("Liveness disagrees with the limiter on a sibling's long and finished agents")
 	}
-	if ok, _ := TryClaim(Claim{Owner: os.Getpid(), ID: "probe", Account: "a"}, Limits{Base: Base, Total: 100}); !ok {
-		t.Fatal("probe claim refused")
-	}
+	probeClaim(t, os.Getpid(), "")
 	if !markerExists(sib, "toolu_long") {
 		t.Error("a live sibling's active agent stopped counting after TTL (cap overrun)")
 	}
 	if markerExists(sib, "toolu_done") {
 		t.Error("a sibling's finished agent still counts")
+	}
+}
+
+// A leaf marker (<tool_use_id>.<n>) follows its base id's agent: a finished agent prunes the leaf too.
+func TestSpawnLeafFollowsBaseAgent(t *testing.T) {
+	setupDir(t)
+	owner := os.Getpid()
+	transcript := filepath.Join(t.TempDir(), "sess.jsonl")
+	subDir := SubagentDir(transcript)
+	mkdirAll(t, subDir)
+	writeFile(t, transcript, "")
+	writeSpawnMeta(t, subDir, "d1", "toolu_d", true)
+	writeSpawnMeta(t, subDir, "l1", "toolu_l", false)
+	writeFile(t, filepath.Join(subDir, "agent-l1.jsonl"), "{}\n")
+	for _, id := range []string{"toolu_d.1", "toolu_l.1"} {
+		writeFile(t, filepath.Join(Dir(), markerName(owner, id)), "a\n"+transcript)
+	}
+	probeClaim(t, owner, transcript)
+	if markerExists(owner, "toolu_d.1") {
+		t.Error("leaf of a finished agent survived the prune")
+	}
+	if !markerExists(owner, "toolu_l.1") {
+		t.Error("leaf of a live agent was pruned")
 	}
 }

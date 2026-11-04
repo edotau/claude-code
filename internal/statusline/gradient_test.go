@@ -20,42 +20,46 @@ func TestEaseAt(t *testing.T) {
 	}
 }
 
+// gradRun is a run of characters sharing one paint kind.
+type gradRun struct{ text, kind string }
+
+var gradientCellCases = []struct {
+	name   string
+	order  []string
+	path   bool
+	before bool
+	want   []gradRun
+}{
+	{
+		name:  "ordered segments and separator tones",
+		order: []string{"path", "provider", "model", "context", "total", "session"},
+		path:  true,
+		want: []gradRun{
+			{"~/proj ", "g"}, {"|", "sep"}, {" openrouter ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
+			{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
+			{"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
+			{" 1.23M", "g"}, {" | ", "sep"}, {"feature/statusline", "g"},
+		},
+	},
+	{
+		name:   "context first with percent before",
+		order:  []string{"context", "model"},
+		before: true,
+		want: []gradRun{
+			{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
+			{"++", "filled"}, {"--", "empty"}, {" ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
+			{" | ", "sep"}, {"feature/statusline", "g"},
+		},
+	},
+	{
+		name:  "missing and disabled segments",
+		order: []string{"path", "session", "duration", "unknown"},
+		want:  []gradRun{{" | ", "sep"}, {"feature/statusline", "g"}},
+	},
+}
+
 func TestGradientCells(t *testing.T) {
-	type run struct{ text, kind string }
-	for _, tc := range []struct {
-		name   string
-		order  []string
-		path   bool
-		before bool
-		want   []run
-	}{
-		{
-			name:  "ordered segments and separator tones",
-			order: []string{"path", "provider", "model", "context", "total", "session"},
-			path:  true,
-			want: []run{
-				{"~/proj ", "g"}, {"|", "sep"}, {" openrouter ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
-				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
-				{"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
-				{" 1.23M", "g"}, {" | ", "sep"}, {"feature/statusline", "g"},
-			},
-		},
-		{
-			name:   "context first with percent before",
-			order:  []string{"context", "model"},
-			before: true,
-			want: []run{
-				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
-				{"++", "filled"}, {"--", "empty"}, {" ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
-				{" | ", "sep"}, {"feature/statusline", "g"},
-			},
-		},
-		{
-			name:  "missing and disabled segments",
-			order: []string{"path", "session", "duration", "unknown"},
-			want:  []run{{" | ", "sep"}, {"feature/statusline", "g"}},
-		},
-	} {
+	for _, tc := range gradientCellCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := embeddedConfig()
 			cfg.Order = tc.order

@@ -24,39 +24,38 @@ func kindFor(val string) (prefix, kind string, ok bool) {
 	return "", "", false
 }
 
+// credentialPrefixes maps each prefixed Tailscale credential to the tskey- prefix and kind name it must have.
+var credentialPrefixes = map[string]struct{ prefix, kind string }{
+	"TAILSCALE_OAUTH_CLIENT_SECRET": {"tskey-client-", "OAuth client secret"},
+	"TAILSCALE_API_KEY":             {"tskey-api-", "API key"},
+	"TAILSCALE_AUTHKEY":             {"tskey-auth-", "auth key"},
+}
+
 // ValidCredential reports whether value has the documented shape for the named Tailscale
 // credential; names it doesn't know are always valid. Never echoes value in its error.
 func ValidCredential(name, value string) error {
-	switch name {
-	case "TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY":
-		if strings.ContainsAny(value, " \t\n\r") {
-			return fmt.Errorf("%s: must not contain whitespace", name)
-		}
-	default:
+	want, prefixed := credentialPrefixes[name]
+	if !prefixed && name != "TAILSCALE_OAUTH_CLIENT_ID" {
 		return nil
 	}
-	switch name {
-	case "TAILSCALE_OAUTH_CLIENT_ID":
-		if len(value) < 10 || len(value) > 40 || !strings.HasPrefix(value, "k") || !isAlnum(value) {
-			if prefix, kind, ok := kindFor(value); ok {
-				return fmt.Errorf("%s: looks like %s (%s); want a client ID (starts with k, 10-40 alnum chars)", name, kind, prefix)
-			}
-			return fmt.Errorf("%s: want a client ID (starts with k, 10-40 alphanumeric chars)", name)
-		}
-	case "TAILSCALE_OAUTH_CLIENT_SECRET":
-		if err := wantPrefix(name, value, "tskey-client-", "OAuth client secret"); err != nil {
-			return err
-		}
-	case "TAILSCALE_API_KEY":
-		if err := wantPrefix(name, value, "tskey-api-", "API key"); err != nil {
-			return err
-		}
-	case "TAILSCALE_AUTHKEY":
-		if err := wantPrefix(name, value, "tskey-auth-", "auth key"); err != nil {
-			return err
-		}
+	if strings.ContainsAny(value, " \t\n\r") {
+		return fmt.Errorf("%s: must not contain whitespace", name)
 	}
-	return nil
+	if prefixed {
+		return wantPrefix(name, value, want.prefix, want.kind)
+	}
+	return validClientID(name, value)
+}
+
+// validClientID checks a Tailscale OAuth client ID: k-prefixed, 10-40 alphanumeric chars.
+func validClientID(name, value string) error {
+	if len(value) >= 10 && len(value) <= 40 && strings.HasPrefix(value, "k") && isAlnum(value) {
+		return nil
+	}
+	if prefix, kind, ok := kindFor(value); ok {
+		return fmt.Errorf("%s: looks like %s (%s); want a client ID (starts with k, 10-40 alnum chars)", name, kind, prefix)
+	}
+	return fmt.Errorf("%s: want a client ID (starts with k, 10-40 alphanumeric chars)", name)
 }
 
 // isAlnum reports whether s is ASCII letters/digits only.

@@ -96,9 +96,14 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sessi
 		p.Fix = "claude-code configure provider --list " + p.Profile
 		return p
 	}
-	if prov.Preset != providers.PresetDatabricks {
-		return p
+	if prov.Preset == providers.PresetDatabricks {
+		checkServed(&p, prov, name, now)
 	}
+	return p
+}
+
+// checkServed fills p's served state for a Databricks pin from the cached workspace listing.
+func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 	p.Served = "unknown"
 	cat, ok := router.LoadServed(p.Profile)
 	switch {
@@ -123,7 +128,6 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sessi
 			p.Fix = fmt.Sprintf("claude-code models --live --profile %s; then claude-code configure (%s model)", p.Profile, name)
 		}
 	}
-	return p
 }
 
 // profiles lists the Databricks profiles any checked pin resolves to, sorted and de-duplicated.

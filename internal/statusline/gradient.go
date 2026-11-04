@@ -68,47 +68,66 @@ func joinsMetrics(prev, key string) bool {
 	return (key == "limits" || key == "total") && (prev == "context" || prev == "limits" || prev == "total")
 }
 
+// cellBuf accumulates the gradient line's characters with their paint kinds.
+type cellBuf struct{ cells []cell }
+
+func (b *cellBuf) push(s, kind string) {
+	for _, ch := range s {
+		b.cells = append(b.cells, cell{ch, kind})
+	}
+}
+
+// pushSep pushes a separator, tagging the dot and bar glyphs so they take their own tone.
+func (b *cellBuf) pushSep(s string) {
+	for _, ch := range s {
+		kind := "g"
+		switch ch {
+		case '●':
+			kind = "dot"
+		case '|', '│':
+			kind = "sep"
+		}
+		b.cells = append(b.cells, cell{ch, kind})
+	}
+}
+
+// pushContext pushes the context bar (filled, empty, then the percent unless it leads the bar).
+func (b *cellBuf) pushContext(v values, cfg Config) {
+	filled, empty := contextBarParts(v.contextPct, cfg.Bar)
+	b.push(filled, "filled")
+	b.push(empty, "empty")
+	if cfg.Bar.Percent != "before" {
+		b.push(" "+strconv.Itoa(v.contextPct)+"%", "g")
+	}
+}
+
 func gradientCells(v values, cfg Config) []cell {
+	var b cellBuf
+	if cfg.seg("path", true) {
+		b.push(v.path, "g")
+		b.pushSep(sepPath)
+	}
+	b.pushMetrics(v, cfg)
+	if cfg.seg("git", true) && v.branch != "" { // the git section: the branch
+		b.push(cfg.sep("git", " │ "), "sep")
+		b.push(v.branch, "g")
+	}
+	return b.cells
+}
+
+// pushMetrics pushes every enabled segment in cfg.Order but path: the context bar after the major separator, the
+// rest as text joined by the minor separator (a space inside the context/limits/total group).
+func (b *cellBuf) pushMetrics(v values, cfg Config) {
 	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")
-	sepGit := cfg.sep("git", " │ ")
-
-	var cells []cell
-	push := func(s, kind string) {
-		for _, ch := range s {
-			cells = append(cells, cell{ch, kind})
-		}
-	}
-	pushSep := func(s string) {
-		for _, ch := range s {
-			switch ch {
-			case '●':
-				cells = append(cells, cell{ch, "dot"})
-			case '|', '│':
-				cells = append(cells, cell{ch, "sep"})
-			default:
-				cells = append(cells, cell{ch, "g"})
-			}
-		}
-	}
-
-	if cfg.seg("path", true) {
-		push(v.path, "g")
-		pushSep(sepPath)
-	}
 	emitted, prev := false, ""
 	for _, key := range cfg.Order {
 		if key == "path" || !cfg.seg(key, true) {
 			continue
 		}
 		if key == "context" {
-			pushSep(sepMajor)
-			filled, empty := contextBarParts(v.contextPct, cfg.Bar)
-			push(filled, "filled")
-			push(empty, "empty")
-			if cfg.Bar.Percent != "before" {
-				push(" "+strconv.Itoa(v.contextPct)+"%", "g")
-			}
+			b.pushSep(sepMajor)
+			b.pushContext(v, cfg)
 			emitted, prev = true, key
 			continue
 		}
@@ -118,27 +137,13 @@ func gradientCells(v values, cfg Config) []cell {
 		}
 		switch {
 		case emitted && joinsMetrics(prev, key):
-			push(" ", "g")
+			b.push(" ", "g")
 		case emitted:
-			pushSep(sepMinor)
+			b.pushSep(sepMinor)
 		}
-		push(text, "g")
+		b.push(text, "g")
 		emitted, prev = true, key
 	}
-	var right []string // the git section: the branch
-	if cfg.seg("git", true) && v.branch != "" {
-		right = append(right, v.branch)
-	}
-	for i, s := range right {
-		if i == 0 {
-			push(sepGit, "sep")
-		} else {
-			pushSep(sepMinor)
-		}
-		push(s, "g")
-	}
-
-	return cells
 }
 
 // velocityText paints "+A -D" in the add/del tones, omitting a zero side.

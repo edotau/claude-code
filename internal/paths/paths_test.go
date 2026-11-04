@@ -103,14 +103,22 @@ func TestStatHelpers(t *testing.T) {
 	}
 	missing := filepath.Join(dir, "nope")
 
-	if !IsFile(file) || IsFile(dir) || IsFile(missing) {
-		t.Errorf("IsFile: file=%v dir=%v missing=%v", IsFile(file), IsFile(dir), IsFile(missing))
+	tests := []struct {
+		name               string
+		fn                 func(string) bool
+		file, dir, missing bool
+	}{
+		{"IsFile", IsFile, true, false, false},
+		{"IsDir", IsDir, false, true, false},
+		{"FileExists", FileExists, true, true, false},
 	}
-	if !IsDir(dir) || IsDir(file) || IsDir(missing) {
-		t.Errorf("IsDir: dir=%v file=%v missing=%v", IsDir(dir), IsDir(file), IsDir(missing))
-	}
-	if !FileExists(file) || !FileExists(dir) || FileExists(missing) {
-		t.Errorf("FileExists: file=%v dir=%v missing=%v", FileExists(file), FileExists(dir), FileExists(missing))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := [3]bool{tt.fn(file), tt.fn(dir), tt.fn(missing)}
+			if want := [3]bool{tt.file, tt.dir, tt.missing}; got != want {
+				t.Errorf("%s: file/dir/missing = %v, want %v", tt.name, got, want)
+			}
+		})
 	}
 }
 

@@ -153,20 +153,32 @@ func TestVendorLogin(t *testing.T) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return nil
 	}
-	for login, want := range map[string]string{"codex": "codex login", "copilot": "copilot login"} {
-		calls = nil
-		if err := SigninFor(row(login, providers.Auth{Type: providers.AuthCLI, Login: login})).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != want {
-			t.Errorf("%s: err=%v calls=%v want %q", login, err, calls, want)
-		}
+	cases := []struct {
+		name, vendor string
+		auth         providers.Auth
+		wantCall     string // "" = no CLI may run
+		wantErr      string // "" = no error
+	}{
+		{"codex", "codex", providers.Auth{Type: providers.AuthCLI, Login: "codex"}, "codex login", ""},
+		{"copilot", "copilot", providers.Auth{Type: providers.AuthCLI, Login: "copilot"}, "copilot login", ""},
+		{"subscription", "sub", providers.Auth{Type: providers.AuthCLI}, "claude auth login", ""},
+		{"gemini errors without running a CLI", "g", providers.Auth{Type: providers.AuthCLI, Login: "gemini"}, "", "agy"},
 	}
-	calls = nil
-	if err := SigninFor(row("sub", providers.Auth{Type: providers.AuthCLI})).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != "claude auth login" {
-		t.Errorf("subscription: err=%v calls=%v", err, calls)
-	}
-	calls = nil
-	err := SigninFor(row("g", providers.Auth{Type: providers.AuthCLI, Login: "gemini"})).Login(context.Background(), nil, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "agy") || len(calls) != 0 {
-		t.Errorf("gemini must error without running a CLI: %v %v", err, calls)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			calls = nil
+			err := SigninFor(row(c.vendor, c.auth)).Login(context.Background(), nil, io.Discard)
+			if (c.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.wantErr)) {
+				t.Errorf("err=%v, want containing %q", err, c.wantErr)
+			}
+			wantCalls := 0
+			if c.wantCall != "" {
+				wantCalls = 1
+			}
+			if len(calls) != wantCalls || (wantCalls == 1 && calls[0] != c.wantCall) {
+				t.Errorf("calls=%v want %q", calls, c.wantCall)
+			}
+		})
 	}
 }
 

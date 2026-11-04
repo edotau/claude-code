@@ -57,33 +57,33 @@ func classify(point, source, fstype string) (Mount, bool) {
 		source = strings.ReplaceAll(source, `\`, "/")
 	}
 	m := Mount{Point: point, Source: source, FSType: fstype}
+	ok := true
 	switch {
 	case isDriveSource(source):
 		m.Kind, m.Drive = KindDrvFS, strings.ToUpper(source[:1])
 	case isSMB(source, fstype):
-		host, share, ok := splitSMB(source)
-		if !ok {
-			return Mount{}, false
-		}
-		m.Kind, m.Host, m.RemotePath = KindSMB, host, share
+		m.Kind = KindSMB
+		m.Host, m.RemotePath, ok = splitSMB(source)
 	case strings.HasPrefix(fstype, "nfs"):
-		host, p, ok := splitHostPath(source)
-		if !ok {
-			return Mount{}, false
-		}
-		m.Kind, m.Host, m.RemotePath = KindNFS, host, p
-	case strings.Contains(fstype, "sshfs") || (strings.Contains(fstype, "fuse") && strings.Contains(source, "@")):
-		host, p, ok := splitHostPath(source)
-		if !ok {
-			return Mount{}, false
-		}
-		m.Kind, m.Host, m.RemotePath = KindSSHFS, host, p
+		m.Kind = KindNFS
+		m.Host, m.RemotePath, ok = splitHostPath(source)
+	case isSSHFS(source, fstype):
+		m.Kind = KindSSHFS
+		m.Host, m.RemotePath, ok = splitHostPath(source)
 	case strings.HasPrefix(point, "/Volumes/") && !strings.HasPrefix(source, "/dev/"):
 		m.Kind = KindVolume
 	default:
+		ok = false
+	}
+	if !ok {
 		return Mount{}, false
 	}
 	return m, true
+}
+
+// isSSHFS matches an sshfs mount, or a fuse mount whose source names a user@host.
+func isSSHFS(source, fstype string) bool {
+	return strings.Contains(fstype, "sshfs") || (strings.Contains(fstype, "fuse") && strings.Contains(source, "@"))
 }
 
 // isDriveSource matches a WSL drvfs source: "C:" or "C:\".

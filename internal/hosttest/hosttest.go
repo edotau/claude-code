@@ -43,13 +43,7 @@ func Setup() (cleanup func()) {
 		return func() {}
 	}
 	keepGo()
-	root, err := os.MkdirTemp("", "hosttest-")
-	if err != nil {
-		panic(err)
-	}
-	if root, err = filepath.EvalSymlinks(root); err != nil {
-		panic(err)
-	}
+	root := makeRoot()
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		if scrubbed(name) {
@@ -64,6 +58,25 @@ func Setup() (cleanup func()) {
 		}
 	}
 	linkTools(bin)
+	setHostEnv(bin, home)
+	_ = os.Setenv(activeEnv, root)
+	return func() { _ = os.RemoveAll(root) }
+}
+
+// makeRoot creates the host's temp dir with symlinks resolved.
+func makeRoot() string {
+	root, err := os.MkdirTemp("", "hosttest-")
+	if err != nil {
+		panic(err)
+	}
+	if root, err = filepath.EvalSymlinks(root); err != nil {
+		panic(err)
+	}
+	return root
+}
+
+// setHostEnv points PATH, HOME, the XDG dirs, the vault key and git's config at the hermetic host.
+func setHostEnv(bin, home string) {
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		panic(err)
@@ -83,8 +96,6 @@ func Setup() (cleanup func()) {
 	} {
 		_ = os.Setenv(k, v)
 	}
-	_ = os.Setenv(activeEnv, root)
-	return func() { _ = os.RemoveAll(root) }
 }
 
 func scrubbed(name string) bool {

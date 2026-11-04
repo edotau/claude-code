@@ -28,20 +28,7 @@ func modelName(id string) string {
 
 // ModelList is the Claude catalog Desktop offers for profile p: the gateway listing, else the profile's pins.
 func ModelList(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]Model, error) {
-	var infos []providers.ModelInfo
-	if p.IsAIGateway() {
-		var err error
-		infos, err = gatewayModels(ctx, p)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "configure desktop: gateway catalog unavailable; using profile model pins")
-		}
-	}
-	if len(infos) == 0 {
-		for _, id := range p.Models {
-			id = models.Strip1M(id)
-			infos = append(infos, providers.ModelInfo{ID: id, Name: modelName(id)})
-		}
-	}
+	infos := catalogInfos(ctx, p)
 	var out []Model
 	seen := map[string]bool{}
 	for _, info := range infos {
@@ -61,6 +48,25 @@ func ModelList(ctx context.Context, reg *providers.Registry, p *providers.Provid
 		return nil, fmt.Errorf("profile %s has no Claude models in its catalog", p.Name)
 	}
 	return out, nil
+}
+
+// catalogInfos lists the gateway catalog, falling back to the profile's model pins.
+func catalogInfos(ctx context.Context, p *providers.Provider) []providers.ModelInfo {
+	var infos []providers.ModelInfo
+	if p.IsAIGateway() {
+		var err error
+		infos, err = gatewayModels(ctx, p)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "configure desktop: gateway catalog unavailable; using profile model pins")
+		}
+	}
+	if len(infos) == 0 {
+		for _, id := range p.Models {
+			id = models.Strip1M(id)
+			infos = append(infos, providers.ModelInfo{ID: id, Name: modelName(id)})
+		}
+	}
+	return infos
 }
 
 // resolves mirrors the proxy: the id must route to profile p on /p/<profile>.

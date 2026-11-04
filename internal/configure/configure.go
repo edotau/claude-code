@@ -165,25 +165,6 @@ func KeyTargets(reg *providers.Registry, agentFilter string) ([]KeyTarget, error
 
 func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
 	s, known := agent.LookupSchema(name)
-	fallback := func() KeyTarget {
-		if sel, err := providers.Select(reg, ""); err == nil { // only when the agent's own sign-in is absent
-			target, note, rerr := s.ResolveTarget(reg, sel, false)
-			// The agent's own stored config/login is a working setup, not a missing key.
-			if errors.Is(rerr, agent.ErrOwnLogin) {
-				return KeyTarget{Label: name, Present: true, Source: AfterUsing(note)}
-			}
-			// A passthrough provider carries another agent's login, never a key this agent can use.
-			if rerr == nil && target.Provider.Auth.Method() != providers.AuthCLI && providers.CredentialPresent(target.Provider) {
-				return KeyTarget{Label: name, Present: true, Source: target.Provider.Name + " key",
-					EnvVar: target.Provider.Auth.Env, Provider: target.Provider}
-			}
-		}
-		hint := "run `claude-code configure agents`"
-		if known {
-			hint = s.CLI.ConfigureHint
-		}
-		return KeyTarget{Label: name, Present: false, FixCmd: hint}
-	}
 	if st := agent.AuthStatus(name); st.Present {
 		kt := KeyTarget{Label: name, Present: true, Source: st.Label()}
 		if st.Method == providers.AuthCLI { // a gh account or env token has no sign-in to re-run
@@ -194,11 +175,33 @@ func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
 	if name == "gemini" { // agy has no key route, so nothing to fall back to
 		return KeyTarget{Label: name, Present: false, LoginArgv: s.CLI.LoginArgv, FixCmd: "run `agy` to sign in with Google"}
 	}
-	kt := fallback()
+	kt := fallbackKeyTarget(reg, name, s, known)
 	if !kt.Present {
 		kt.LoginArgv = s.CLI.LoginArgv
 	}
 	return kt
+}
+
+// fallbackKeyTarget is the key target for an agent whose own sign-in is absent: the selected provider's key
+// when it is usable, the agent's own stored login, or the configure hint.
+func fallbackKeyTarget(reg *providers.Registry, name string, s agent.Schema, known bool) KeyTarget {
+	if sel, err := providers.Select(reg, ""); err == nil { // only when the agent's own sign-in is absent
+		target, note, rerr := s.ResolveTarget(reg, sel, false)
+		// The agent's own stored config/login is a working setup, not a missing key.
+		if errors.Is(rerr, agent.ErrOwnLogin) {
+			return KeyTarget{Label: name, Present: true, Source: AfterUsing(note)}
+		}
+		// A passthrough provider carries another agent's login, never a key this agent can use.
+		if rerr == nil && target.Provider.Auth.Method() != providers.AuthCLI && providers.CredentialPresent(target.Provider) {
+			return KeyTarget{Label: name, Present: true, Source: target.Provider.Name + " key",
+				EnvVar: target.Provider.Auth.Env, Provider: target.Provider}
+		}
+	}
+	hint := "run `claude-code configure agents`"
+	if known {
+		hint = s.CLI.ConfigureHint
+	}
+	return KeyTarget{Label: name, Present: false, FixCmd: hint}
 }
 
 // Probe live-checks a present keyed credential (4s cap); "" when there is nothing to Probe.

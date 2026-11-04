@@ -127,26 +127,8 @@ func TestAdoptBacksUpClashesAndLeavesRestAlone(t *testing.T) {
 		t.Fatal("Into should now be a git checkout")
 	}
 
-	want := map[string]string{"CLAUDE.md": "repo claude\n", "agents/a.md": "agent a\n", "rules/r.md": "rule r\n"}
-	for rel, content := range want {
-		got, err := os.ReadFile(filepath.Join(dir, rel))
-		if err != nil {
-			t.Fatalf("%s: %v", rel, err)
-		}
-		if string(got) != content {
-			t.Fatalf("%s = %q, want %q", rel, got, content)
-		}
-	}
-
-	if _, err := os.Stat(filepath.Join(dir, "skills", "mine", "SKILL.md")); err != nil {
-		t.Fatal("untracked skill should survive adopt")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "projects", "p1", "transcript.jsonl")); err != nil {
-		t.Fatal("projects/ runtime state should survive adopt")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "sessions", "s1.json")); err != nil {
-		t.Fatal("sessions/ runtime state should survive adopt")
-	}
+	assertTrackedRestored(t, dir)
+	assertUserStateSurvives(t, dir)
 	vaultAfter, err := os.ReadFile(vault.Path())
 	if err != nil {
 		t.Fatal(err)
@@ -162,13 +144,48 @@ func TestAdoptBacksUpClashesAndLeavesRestAlone(t *testing.T) {
 	if st.ClashCount != 2 {
 		t.Fatalf("ClashCount = %d, want 2", st.ClashCount)
 	}
-	entries := collectFiles(t, st.BackupDir)
-	wantBackup := map[string]bool{"CLAUDE.md": true, "agents/a.md": true}
-	if len(entries) != len(wantBackup) {
-		t.Fatalf("backup has %v, want exactly %v", entries, wantBackup)
+	assertBackupHolds(t, st.BackupDir, map[string]bool{"CLAUDE.md": true, "agents/a.md": true})
+}
+
+// assertTrackedRestored checks the repo's tracked files now hold the repo content in dir.
+func assertTrackedRestored(t *testing.T, dir string) {
+	t.Helper()
+	want := map[string]string{"CLAUDE.md": "repo claude\n", "agents/a.md": "agent a\n", "rules/r.md": "rule r\n"}
+	for rel, content := range want {
+		got, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		if string(got) != content {
+			t.Fatalf("%s = %q, want %q", rel, got, content)
+		}
+	}
+}
+
+// assertUserStateSurvives checks the untracked skill and the runtime state dirs are still in dir.
+func assertUserStateSurvives(t *testing.T, dir string) {
+	t.Helper()
+	survivors := []struct{ rel, what string }{
+		{filepath.Join("skills", "mine", "SKILL.md"), "untracked skill should survive adopt"},
+		{filepath.Join("projects", "p1", "transcript.jsonl"), "projects/ runtime state should survive adopt"},
+		{filepath.Join("sessions", "s1.json"), "sessions/ runtime state should survive adopt"},
+	}
+	for _, sv := range survivors {
+		if _, err := os.Stat(filepath.Join(dir, sv.rel)); err != nil {
+			t.Fatal(sv.what)
+		}
+	}
+}
+
+// assertBackupHolds checks backupDir holds exactly the want entries and never the vault or legacy secrets.
+func assertBackupHolds(t *testing.T, backupDir string, want map[string]bool) {
+	t.Helper()
+	entries := collectFiles(t, backupDir)
+	if len(entries) != len(want) {
+		t.Fatalf("backup has %v, want exactly %v", entries, want)
 	}
 	for _, e := range entries {
-		if !wantBackup[e] {
+		if !want[e] {
 			t.Fatalf("unexpected backup entry %q", e)
 		}
 	}

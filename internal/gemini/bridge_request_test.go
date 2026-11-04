@@ -45,7 +45,19 @@ func TestBridgeRequestContract(t *testing.T) {
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("err = %v, hits = %d, want nil and 1", err, len(hits))
 	}
-	prompt := promptContent(t, hits[0])
+	checkContractPrompt(t, promptContent(t, hits[0]))
+	checkContractWire(t, hits[0])
+	if res.Answer != "hello" || res.Usage != (agent.Usage{InputTokens: 5, OutputTokens: 2}) {
+		t.Errorf("answer = %q, usage = %+v, want hello and {5 2}", res.Answer, res.Usage)
+	}
+	if !strings.Contains(log, "2 path(s) indexed, 1 inlined") || !strings.Contains(log, "  a.go\n") {
+		t.Errorf("log missing the stats line and inlined path:\n%s", log)
+	}
+}
+
+// checkContractPrompt requires the inlined file, index, task marker and rubric framing in the prompt.
+func checkContractPrompt(t *testing.T, prompt string) {
+	t.Helper()
 	for _, want := range []string{`<file path="a.go"`, "Repository index", "b.go", "TASKMARKER987"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q:\n%s", want, prompt)
@@ -54,14 +66,13 @@ func TestBridgeRequestContract(t *testing.T) {
 	if strings.Contains(prompt, `<file path="b.go"`) || !strings.HasPrefix(taskSection(prompt), "You are reviewing against a fixed standard") {
 		t.Errorf("b.go must be indexed only and the task must lead with the rubric framing:\n%s", prompt)
 	}
-	if m := decodeBody(t, hits[0]).Model; m != "g-flash" || hits[0].auth != "Bearer gem-key" {
-		t.Errorf("model = %q, auth = %q, want g-flash and Bearer gem-key", m, hits[0].auth)
-	}
-	if res.Answer != "hello" || res.Usage != (agent.Usage{InputTokens: 5, OutputTokens: 2}) {
-		t.Errorf("answer = %q, usage = %+v, want hello and {5 2}", res.Answer, res.Usage)
-	}
-	if !strings.Contains(log, "2 path(s) indexed, 1 inlined") || !strings.Contains(log, "  a.go\n") {
-		t.Errorf("log missing the stats line and inlined path:\n%s", log)
+}
+
+// checkContractWire requires the table model and bearer auth on the request.
+func checkContractWire(t *testing.T, hit gotRequest) {
+	t.Helper()
+	if m := decodeBody(t, hit).Model; m != "g-flash" || hit.auth != "Bearer gem-key" {
+		t.Errorf("model = %q, auth = %q, want g-flash and Bearer gem-key", m, hit.auth)
 	}
 }
 

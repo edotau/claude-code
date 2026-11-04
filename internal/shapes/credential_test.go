@@ -5,42 +5,44 @@ import (
 	"testing"
 )
 
+// validCredentialCases: each credential name's documented shape, plus the two real failures seen live.
+var validCredentialCases = []struct {
+	name    string
+	envName string
+	value   string
+	wantErr bool
+}{
+	{"unknown name always valid", "TAILSCALE_SOMETHING_ELSE", "anything at all", false},
+
+	{"client id valid shape", "TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL", false},
+	{"client id too short", "TAILSCALE_OAUTH_CLIENT_ID", "kshort1", true},
+	{"client id too long", "TAILSCALE_OAUTH_CLIENT_ID", "k" + strings.Repeat("a", 41), true},
+	{"client id not starting with k", "TAILSCALE_OAUTH_CLIENT_ID", "jaxHLLXzN11CNTRLx", true},
+	{"client id non-alnum", "TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLX-N11CNTRL", true},
+	{"client id whitespace", "TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLX N11CNTRL", true},
+	// real failure seen live: a full pbpaste'd shell pipeline, not a key.
+	{"client id real failure: pasted shell pipeline", "TAILSCALE_OAUTH_CLIENT_ID",
+		"! pbpaste | claude-code vault set TAILSCALE_OAUTH_CLIENT_ID", true},
+
+	{"client secret valid shape", "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-abc123XYZ", false},
+	{"client secret wrong prefix", "TAILSCALE_OAUTH_CLIENT_SECRET", "not-a-secret", true},
+	{"client secret whitespace", "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-abc 123", true},
+	// real failure seen live: an auth key pasted into the client-secret slot.
+	{"client secret real failure: auth key in secret slot", "TAILSCALE_OAUTH_CLIENT_SECRET",
+		"tskey-auth-kXXXXXCNTRL-abcdefghijklmnopqrstuvwxyz", true},
+
+	{"api key valid shape", "TAILSCALE_API_KEY", "tskey-api-abc123XYZ", false},
+	{"api key wrong prefix", "TAILSCALE_API_KEY", "tskey-auth-abc123XYZ", true},
+	{"api key whitespace", "TAILSCALE_API_KEY", "tskey-api-abc 123", true},
+
+	{"authkey valid shape", "TAILSCALE_AUTHKEY", "tskey-auth-abc123XYZ", false},
+	{"authkey wrong prefix", "TAILSCALE_AUTHKEY", "tskey-api-abc123XYZ", true},
+	{"authkey whitespace", "TAILSCALE_AUTHKEY", "tskey-auth-abc\t123", true},
+}
+
 // ValidCredential: each credential name's documented shape, plus the two real failures seen live.
 func TestValidCredential(t *testing.T) {
-	cases := []struct {
-		name    string
-		envName string
-		value   string
-		wantErr bool
-	}{
-		{"unknown name always valid", "TAILSCALE_SOMETHING_ELSE", "anything at all", false},
-
-		{"client id valid shape", "TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL", false},
-		{"client id too short", "TAILSCALE_OAUTH_CLIENT_ID", "kshort1", true},
-		{"client id too long", "TAILSCALE_OAUTH_CLIENT_ID", "k" + strings.Repeat("a", 41), true},
-		{"client id not starting with k", "TAILSCALE_OAUTH_CLIENT_ID", "jaxHLLXzN11CNTRLx", true},
-		{"client id non-alnum", "TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLX-N11CNTRL", true},
-		{"client id whitespace", "TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLX N11CNTRL", true},
-		// real failure seen live: a full pbpaste'd shell pipeline, not a key.
-		{"client id real failure: pasted shell pipeline", "TAILSCALE_OAUTH_CLIENT_ID",
-			"! pbpaste | claude-code vault set TAILSCALE_OAUTH_CLIENT_ID", true},
-
-		{"client secret valid shape", "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-abc123XYZ", false},
-		{"client secret wrong prefix", "TAILSCALE_OAUTH_CLIENT_SECRET", "not-a-secret", true},
-		{"client secret whitespace", "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-abc 123", true},
-		// real failure seen live: an auth key pasted into the client-secret slot.
-		{"client secret real failure: auth key in secret slot", "TAILSCALE_OAUTH_CLIENT_SECRET",
-			"tskey-auth-kXXXXXCNTRL-abcdefghijklmnopqrstuvwxyz", true},
-
-		{"api key valid shape", "TAILSCALE_API_KEY", "tskey-api-abc123XYZ", false},
-		{"api key wrong prefix", "TAILSCALE_API_KEY", "tskey-auth-abc123XYZ", true},
-		{"api key whitespace", "TAILSCALE_API_KEY", "tskey-api-abc 123", true},
-
-		{"authkey valid shape", "TAILSCALE_AUTHKEY", "tskey-auth-abc123XYZ", false},
-		{"authkey wrong prefix", "TAILSCALE_AUTHKEY", "tskey-api-abc123XYZ", true},
-		{"authkey whitespace", "TAILSCALE_AUTHKEY", "tskey-auth-abc\t123", true},
-	}
-	for _, c := range cases {
+	for _, c := range validCredentialCases {
 		t.Run(c.name, func(t *testing.T) {
 			err := ValidCredential(c.envName, c.value)
 			if (err != nil) != c.wantErr {

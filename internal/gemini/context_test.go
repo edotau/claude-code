@@ -75,7 +75,18 @@ func TestCollectContext(t *testing.T) {
 	if _, ok := included["sub/b.go"]; !ok {
 		t.Error("sub/b.go should be included (recursive walk)")
 	}
+	checkCollectSkips(t, ctx)
+	// big.txt exceeds maxFileBytes=10 → truncated, original Bytes preserved.
+	if f, ok := included["big.txt"]; !ok {
+		t.Error("big.txt should be included")
+	} else if !f.Truncated || len(f.Content) != 10 || f.Bytes != 100 {
+		t.Errorf("big.txt truncation wrong: truncated=%t len=%d bytes=%d", f.Truncated, len(f.Content), f.Bytes)
+	}
+}
 
+// checkCollectSkips requires the pruned-dir and binary skip reasons from TestCollectContext's tree.
+func checkCollectSkips(t *testing.T, ctx Context) {
+	t.Helper()
 	skipReasons := map[string]string{}
 	for _, s := range ctx.Skipped {
 		skipReasons[s.Path] = s.Reason
@@ -91,12 +102,6 @@ func TestCollectContext(t *testing.T) {
 	// bin.bin has a NUL byte → binary-content.
 	if r := skipReasons["bin.bin"]; r != "binary-content" {
 		t.Errorf("bin.bin should be binary-content, got %q", r)
-	}
-	// big.txt exceeds maxFileBytes=10 → truncated, original Bytes preserved.
-	if f, ok := included["big.txt"]; !ok {
-		t.Error("big.txt should be included")
-	} else if !f.Truncated || len(f.Content) != 10 || f.Bytes != 100 {
-		t.Errorf("big.txt truncation wrong: truncated=%t len=%d bytes=%d", f.Truncated, len(f.Content), f.Bytes)
 	}
 }
 

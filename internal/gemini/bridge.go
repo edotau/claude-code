@@ -35,24 +35,42 @@ type GeminiOptions struct {
 	Launcher                                   agent.Launcher
 }
 
+// bridgeTask applies the rubric, when set, to the task text.
+func bridgeTask(o GeminiOptions) (string, error) {
+	if o.Rubric == "" {
+		return o.Task, nil
+	}
+	return agent.RubricPrompt(o.Rubric, o.Task)
+}
+
+// bridgeMaxFiles is the inlined-file cap: 0 for an index-only run, else o.MaxFiles or the default.
+func bridgeMaxFiles(o GeminiOptions) int {
+	switch {
+	case o.IndexOnly:
+		return 0
+	case o.MaxFiles <= 0:
+		return DefaultMaxFiles
+	}
+	return o.MaxFiles
+}
+
+// warnPrompt writes the over-cap and agy-truncation warnings for the fitted prompt to stream.
+func warnPrompt(stream io.Writer, o GeminiOptions, prompt string, dropped []string) {
+	if len(dropped) > 0 {
+		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
+	}
+	if o.Provider == "" && len(prompt) > agyTruncateWarnBytes {
+		fmt.Fprintf(stream, "bridge: warning: prompt is %d bytes; agy may silently truncate input past ~%d KB\n", len(prompt), agyTruncateWarnBytes/1024)
+	}
+}
+
 // bridgePrompt builds the task (rubric applied), inlines the workspace context under PromptCap, and warns on stream.
 func bridgePrompt(ctx context.Context, o GeminiOptions, files []string, stream, log io.Writer) (string, Context, error) {
-	var err error
-	task := o.Task
-	if o.Rubric != "" {
-		task, err = agent.RubricPrompt(o.Rubric, task)
-		if err != nil {
-			return "", Context{}, err
-		}
+	task, err := bridgeTask(o)
+	if err != nil {
+		return "", Context{}, err
 	}
-
-	maxFiles := o.MaxFiles
-	if o.IndexOnly {
-		maxFiles = 0
-	} else if maxFiles <= 0 {
-		maxFiles = DefaultMaxFiles
-	}
-	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, maxFiles, o.MaxFileBytes)
+	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, bridgeMaxFiles(o), o.MaxFileBytes)
 	if err != nil {
 		return "", Context{}, err
 	}
@@ -69,14 +87,19 @@ func bridgePrompt(ctx context.Context, o GeminiOptions, files []string, stream, 
 	if w := CoverageWarning(ctxFiles); w != "" {
 		fmt.Fprintln(stream, w)
 	}
-	if len(dropped) > 0 {
-		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
-	}
-
-	if o.Provider == "" && len(prompt) > agyTruncateWarnBytes {
-		fmt.Fprintf(stream, "bridge: warning: prompt is %d bytes; agy may silently truncate input past ~%d KB\n", len(prompt), agyTruncateWarnBytes/1024)
-	}
+	warnPrompt(stream, o, prompt, dropped)
 	return prompt, ctxFiles, nil
+}
+
+// requireAgy fails fast when the agy binary is missing or not signed in.
+func requireAgy() error {
+	if _, lookErr := paths.AgentBin("agy"); lookErr != nil {
+		return fmt.Errorf("gemini bridge: %w", lookErr)
+	}
+	if !GeminiLoginPresent() {
+		return errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
+	}
+	return nil
 }
 
 // RunGemini resolves the provider/model, collects workspace context into one prompt, and dispatches the
@@ -86,12 +109,10 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (age
 	if err != nil {
 		return agent.Result{}, err
 	}
-
 	files, err := diffFiles(ctx, o)
 	if err != nil {
 		return agent.Result{}, err
 	}
-
 	prompt, ctxFiles, err := bridgePrompt(ctx, o, files, stream, log)
 	if err != nil {
 		return agent.Result{}, err
@@ -99,62 +120,26 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (age
 
 	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
 	if useAgy && !o.PrintCommand {
-		if _, lookErr := paths.AgentBin("agy"); lookErr != nil {
-			return agent.Result{}, fmt.Errorf("gemini bridge: %w", lookErr)
-		}
-		if !GeminiLoginPresent() {
-			return agent.Result{}, errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
+		if err := requireAgy(); err != nil {
+			return agent.Result{}, err
 		}
 	}
-
 	if o.PrintCommand {
 		if useAgy {
 			return printAgyCommand(reg, sel, p, model, o, ctxFiles, prompt, log), nil
 		}
 		return printCommand(reg, sel, p, model, ctxFiles, prompt, log), nil
 	}
-
 	if useAgy {
 		fmt.Fprintln(log, "gemini bridge: agy (Google login)")
-		model := geminiAgyModel(reg, sel, p, o.Model)
-		agyReq := agyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
-		// agy's own stdin-NDJSON path, not Run/cliEngine.Run: that agent's argv-prompt cap
-		// (MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
-		// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
-		// the context byte budget (DefaultTotalBytes), not a quota step-down, bounds this prompt's size.
-		policy := agent.DefaultPolicy()
-		if o.Timeout > 0 {
-			policy.AttemptTimeout = o.Timeout
-		}
-		policy.Notify = func(s string) { fmt.Fprintln(log, s) }
-
-		// The Record never carries the full inlined prompt (MiBs of source): a compact summary instead.
-		rec := agent.ClaimRecord(bridgeDispatchLabel, agent.RunOptions{
-			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
-		}, time.Now())
-		rec.Owner = inflight.SessionOwner()
-		rec.Log = rec.LogPath()
-		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
-
-		cw := &countingWriter{w: stream}
-		return agent.RunRecorded(ctx, &rec, bridgeDispatchLabel, agent.NewTextSink(cw),
-			agent.RunRecordedOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
-			func(ctx context.Context, sink agent.Sink) (agent.Result, error) {
-				var res agent.Result
-				aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
-					cw.n = 0
-					out, err := runAgy(actx, agyReq, sink)
-					res = out
-					return agent.Classify("gemini", err, cw.n > 0)
-				})
-				res.Provider, res.Model = cmp.Or(res.Provider, "agy"), cmp.Or(res.Model, model)
-				if aerr != nil {
-					return res, aerr
-				}
-				return res, nil
-			})
+		return runAgyBridge(ctx, o, geminiAgyModel(reg, sel, p, o.Model), ctxFiles, prompt, stream, log)
 	}
+	return runAPIBridge(ctx, o, p, model, prompt, stream, log)
+}
 
+// runAPIBridge sends the prompt through the shared claude agent against an API-key provider.
+func runAPIBridge(ctx context.Context, o GeminiOptions, p *providers.Provider, model, prompt string,
+	stream, log io.Writer) (agent.Result, error) {
 	r, err := agent.Lookup("claude")
 	if err != nil {
 		return agent.Result{}, err
@@ -165,6 +150,52 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (age
 	return agent.Run(ctx, r, agent.RunOptions{
 		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true, Launcher: o.Launcher,
 	}, agent.NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
+}
+
+// runAgyBridge runs the prompt on agy's own stdin-NDJSON path, recorded as a compact dispatch Record.
+func runAgyBridge(ctx context.Context, o GeminiOptions, model string, ctxFiles Context, prompt string,
+	stream, log io.Writer) (agent.Result, error) {
+	agyReq := agyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
+	// agy's own stdin-NDJSON path, not Run/cliEngine.Run: that agent's argv-prompt cap
+	// (MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
+	// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
+	// the context byte budget (DefaultTotalBytes), not a quota step-down, bounds this prompt's size.
+	policy := agent.DefaultPolicy()
+	if o.Timeout > 0 {
+		policy.AttemptTimeout = o.Timeout
+	}
+	policy.Notify = func(s string) { fmt.Fprintln(log, s) }
+
+	// The Record never carries the full inlined prompt (MiBs of source): a compact summary instead.
+	rec := agent.ClaimRecord(bridgeDispatchLabel, agent.RunOptions{
+		Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
+	}, time.Now())
+	rec.Owner = inflight.SessionOwner()
+	rec.Log = rec.LogPath()
+	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+
+	cw := &countingWriter{w: stream}
+	return agent.RunRecorded(ctx, &rec, bridgeDispatchLabel, agent.NewTextSink(cw),
+		agent.RunRecordedOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
+		func(ctx context.Context, sink agent.Sink) (agent.Result, error) {
+			return agyAttempts(ctx, policy, agyReq, cw, sink)
+		})
+}
+
+// agyAttempts runs agy under the retry policy; a retry never fires once output has streamed.
+func agyAttempts(ctx context.Context, policy agent.Policy, req agyRequest, cw *countingWriter, sink agent.Sink) (agent.Result, error) {
+	var res agent.Result
+	aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
+		cw.n = 0
+		out, err := runAgy(actx, req, sink)
+		res = out
+		return agent.Classify("gemini", err, cw.n > 0)
+	})
+	res.Provider, res.Model = cmp.Or(res.Provider, "agy"), cmp.Or(res.Model, req.Model)
+	if aerr != nil {
+		return res, aerr
+	}
+	return res, nil
 }
 
 // resolvedModelID resolves an alias name or provider:model to the concrete model id agy expects.

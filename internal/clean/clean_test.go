@@ -25,6 +25,64 @@ func write(t *testing.T, path, contents string) {
 	}
 }
 
+// agedDebris are the seeded entries, one or more per target, that a default sweep must remove.
+var agedDebris = []string{
+	"state/harness/memory/update-20260101-000000.log",
+	"state/harness/memory/stamp-sess-aaa",
+	"state/harness/memory/update-result-sess-aaa",
+	"state/harness/memory/recall-seen/sess-aaa",
+	"state/harness/checkpoint/sess-aaa",
+	"state/harness/plans-scratch/x.md.dest",
+	"state/harness/stop-format/abc123.json",
+	"state/harness/agents-inflight/agent-123-aaa",
+	"state/harness/router.log",
+	"state/harness/dispatch/20260101-aaaa.log",
+	"state/harness/backups/settings.json.bak-20260101-000000",
+	"backups/.claude.json.backup.1700000000000",
+	"jobs/job-aaa/output.log",
+	"file-history/f-aaa/v1",
+	"session-env/sess-aaa.json",
+	"paste-cache/p-aaa.txt",
+	"shell-snapshots/snap-aaa.sh",
+	"todos/sess-aaa.json",
+	"cache/model-x.json",
+	"image-cache/img-aaa.png",
+	"debug/debug-aaa.log",
+	"statsig/stat-aaa.json",
+	"logs/log-aaa.log",
+	"usage-data/usage-aaa.json",
+	"stats-cache.json",
+	"mcp-needs-auth-cache.json",
+}
+
+// protectedDebris must never be candidates, at any age — credentials, live config, and the memory bank
+// (including its archive subtrees, which are never a clean target at all).
+var protectedDebris = []string{
+	"docs/memory/bank/activeContext.md", "docs/memory/bank/decisionLog.md",
+	"docs/memory/bank/archive/sessionHistory-2025-01.md",
+	"docs/memory/bank/archive/native/some-project/topic.md",
+	"state/vault.db.key", "settings.json", "providers.json", ".credentials.json",
+	"state/harness/router.json", "state/harness/router.secret",
+}
+
+// seedFiles writes each rel under dir and ages the file (and, when ageDir, its containing dir) to old.
+func seedFiles(t *testing.T, dir string, rels []string, contents string, old time.Time, ageDir bool) {
+	t.Helper()
+	for _, rel := range rels {
+		p := filepath.Join(dir, rel)
+		write(t, p, contents)
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+		if !ageDir {
+			continue
+		}
+		if err := os.Chtimes(filepath.Dir(p), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // seedDebris lays down one aged entry per target, plus everything that must survive at any age,
 // and returns the isolated config dir.
 func seedDebris(t *testing.T) string {
@@ -36,60 +94,10 @@ func seedDebris(t *testing.T) string {
 	if err := os.Chtimes(vault.Path(), old, old); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{
-		"state/harness/memory/update-20260101-000000.log",
-		"state/harness/memory/stamp-sess-aaa",
-		"state/harness/memory/update-result-sess-aaa",
-		"state/harness/memory/recall-seen/sess-aaa",
-		"state/harness/checkpoint/sess-aaa",
-		"state/harness/plans-scratch/x.md.dest",
-		"state/harness/stop-format/abc123.json",
-		"state/harness/agents-inflight/agent-123-aaa",
-		"state/harness/router.log",
-		"state/harness/dispatch/20260101-aaaa.log",
-		"state/harness/backups/settings.json.bak-20260101-000000",
-		"backups/.claude.json.backup.1700000000000",
-		"jobs/job-aaa/output.log",
-		"file-history/f-aaa/v1",
-		"session-env/sess-aaa.json",
-		"paste-cache/p-aaa.txt",
-		"shell-snapshots/snap-aaa.sh",
-		"todos/sess-aaa.json",
-		"cache/model-x.json",
-		"image-cache/img-aaa.png",
-		"debug/debug-aaa.log",
-		"statsig/stat-aaa.json",
-		"logs/log-aaa.log",
-		"usage-data/usage-aaa.json",
-		"stats-cache.json",
-		"mcp-needs-auth-cache.json",
-	} {
-		p := filepath.Join(dir, rel)
-		write(t, p, "x")
-		// Age the containing dir too: clean ages a subtree by its NEWEST entry, so a dir that gained a
-		// file yesterday must survive even though this seeded file is old.
-		if err := os.Chtimes(p, old, old); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(filepath.Dir(p), old, old); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Must never be candidates, at any age — credentials, live config, and the memory bank (including
-	// its archive subtrees, which are never a clean target at all).
-	for _, rel := range []string{
-		"docs/memory/bank/activeContext.md", "docs/memory/bank/decisionLog.md",
-		"docs/memory/bank/archive/sessionHistory-2025-01.md",
-		"docs/memory/bank/archive/native/some-project/topic.md",
-		"state/vault.db.key", "settings.json", "providers.json", ".credentials.json",
-		"state/harness/router.json", "state/harness/router.secret",
-	} {
-		p := filepath.Join(dir, rel)
-		write(t, p, "keep")
-		if err := os.Chtimes(p, old, old); err != nil {
-			t.Fatal(err)
-		}
-	}
+	// Age the containing dir too: clean ages a subtree by its NEWEST entry, so a dir that gained a
+	// file yesterday must survive even though this seeded file is old.
+	seedFiles(t, dir, agedDebris, "x", old, true)
+	seedFiles(t, dir, protectedDebris, "keep", old, false)
 	return dir
 }
 
@@ -254,33 +262,45 @@ func (t target) roots() []string {
 // credentials are never touched, and the memory bank (including its archive) is never a target.
 func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tg := range targets() {
+		for _, pattern := range tg.globs() {
+			checkNoVaultMatch(t, tg, pattern)
+		}
+		for _, root := range tg.roots() {
+			checkRootAllowed(t, tg, root)
+		}
+	}
+}
+
+// checkNoVaultMatch fails when a target glob matches the vault or its key.
+func checkNoVaultMatch(t *testing.T, tg target, pattern string) {
+	t.Helper()
+	for _, path := range []string{vault.Path(), vault.Path() + ".key"} {
+		matched, err := filepath.Match(pattern, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if matched {
+			t.Errorf("target %q matches protected vault path %q", tg.name, path)
+		}
+	}
+}
+
+// checkRootAllowed fails when a target root resolves under the memory bank, env.d or the memory store.
+func checkRootAllowed(t *testing.T, tg target, root string) {
+	t.Helper()
 	bank := filepath.Join(paths.ConfigDir(), "docs", "memory", "bank")
 	envDir := filepath.Join(paths.ConfigDir(), "env.d")
 	store := memstore.StoreDir()
-	for _, tg := range targets() {
-		for _, pattern := range tg.globs() {
-			for _, path := range []string{vault.Path(), vault.Path() + ".key"} {
-				matched, err := filepath.Match(pattern, path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if matched {
-					t.Errorf("target %q matches protected vault path %q", tg.name, path)
-				}
-			}
-		}
-		for _, root := range tg.roots() {
-			if strings.HasPrefix(root, bank) {
-				t.Errorf("target %q resolves under the memory bank %q", tg.name, root)
-			}
-			if strings.HasPrefix(root, envDir) {
-				t.Errorf("target %q resolves under env.d %q", tg.name, root)
-			}
-			// Invariant 2 (updated): no target glob may resolve under the local memory Git store either.
-			if root == store || strings.HasPrefix(root, store+string(filepath.Separator)) {
-				t.Errorf("target %q resolves under the memory store %q", tg.name, root)
-			}
-		}
+	if strings.HasPrefix(root, bank) {
+		t.Errorf("target %q resolves under the memory bank %q", tg.name, root)
+	}
+	if strings.HasPrefix(root, envDir) {
+		t.Errorf("target %q resolves under env.d %q", tg.name, root)
+	}
+	// Invariant 2 (updated): no target glob may resolve under the local memory Git store either.
+	if root == store || strings.HasPrefix(root, store+string(filepath.Separator)) {
+		t.Errorf("target %q resolves under the memory store %q", tg.name, root)
 	}
 }
 
@@ -291,17 +311,7 @@ func TestPruneAgedNeverSweepsVault(t *testing.T) {
 			vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "a")
 			keep := []string{vault.Path(), vault.Path() + ".key", vault.Path() + ".backup"}
 			old := time.Now().Add(-400 * 24 * time.Hour)
-			for _, path := range keep {
-				if path != vault.Path() {
-					write(t, path, "keep")
-				}
-				if err := os.Chtimes(path, old, old); err != nil {
-					t.Fatal(err)
-				}
-				if !protected(path) {
-					t.Errorf("protected(%s) = false", path)
-				}
-			}
+			ageProtected(t, keep, old)
 			debris := filepath.Join(dir, "state", "vault.db-old")
 			write(t, debris, "debris")
 			if err := os.Chtimes(debris, old, old); err != nil {
@@ -322,15 +332,37 @@ func TestPruneAgedNeverSweepsVault(t *testing.T) {
 			if exists(t, debris) == apply {
 				t.Errorf("debris existence does not match apply=%v", apply)
 			}
-			if err := vault.View(func(tx *vault.Tx) error {
-				if pin, _ := tx.Get(vault.Pins, "HARNESS_OPUS_MODEL"); pin != "a" {
-					t.Errorf("vault pin changed after prune: %q", pin)
-				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
+			assertPinIntact(t, "HARNESS_OPUS_MODEL", "a")
 		})
+	}
+}
+
+// ageProtected backdates each vault path (creating the non-vault ones) and asserts protected() covers it.
+func ageProtected(t *testing.T, keep []string, old time.Time) {
+	t.Helper()
+	for _, path := range keep {
+		if path != vault.Path() {
+			write(t, path, "keep")
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+		if !protected(path) {
+			t.Errorf("protected(%s) = false", path)
+		}
+	}
+}
+
+// assertPinIntact fails when the vault pin no longer reads want.
+func assertPinIntact(t *testing.T, name, want string) {
+	t.Helper()
+	if err := vault.View(func(tx *vault.Tx) error {
+		if pin, _ := tx.Get(vault.Pins, name); pin != want {
+			t.Errorf("vault pin changed after prune: %q", pin)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -479,24 +511,11 @@ func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
 func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	old := time.Now().Add(-40 * 24 * time.Hour)
+	transcript, sessDir := seedAgedSession(t, dir)
 	slug := filepath.Join(dir, "projects", "-Users-me-repo")
-	transcript := filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd.jsonl")
-	sessDir := filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd", "subagents", "a.jsonl")
 	memory := filepath.Join(slug, "memory", "MEMORY.md")
 	pointer := filepath.Join(slug, "bridge-pointer.json")
-	for _, p := range []string{transcript, sessDir, memory, pointer} {
-		write(t, p, "x")
-		if err := os.Chtimes(p, old, old); err != nil {
-			t.Fatal(err)
-		}
-		// Age every ancestor up to the slug: a subtree is aged by its newest entry, dirs included.
-		for d := filepath.Dir(p); strings.HasPrefix(d, slug); d = filepath.Dir(d) {
-			if err := os.Chtimes(d, old, old); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
+	ageUnder(t, slug, time.Now().Add(-40*24*time.Hour), memory, pointer)
 	var out, errw bytes.Buffer
 	if code := Run(nil, &out, &errw); code != 0 {
 		t.Fatalf("bare Run = %d, want 0: %s", code, errw.String())
@@ -517,6 +536,22 @@ func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
 	}
 }
 
+// ageUnder writes each file and backdates it and every ancestor up to root: a subtree is aged by its newest entry.
+func ageUnder(t *testing.T, root string, old time.Time, files ...string) {
+	t.Helper()
+	for _, p := range files {
+		write(t, p, "x")
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+		for d := filepath.Dir(p); strings.HasPrefix(d, root); d = filepath.Dir(d) {
+			if err := os.Chtimes(d, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
 // seedAgedSession lays down one aged transcript + session dir under projects/<slug> and returns their paths.
 func seedAgedSession(t *testing.T, dir string) (transcript, sessDir string) {
 	t.Helper()
@@ -524,17 +559,7 @@ func seedAgedSession(t *testing.T, dir string) (transcript, sessDir string) {
 	slug := filepath.Join(dir, "projects", "-Users-me-repo")
 	transcript = filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd.jsonl")
 	sessDir = filepath.Join(slug, "0ca90491-da59-4309-8468-2e8af18844cd", "subagents", "a.jsonl")
-	for _, p := range []string{transcript, sessDir} {
-		write(t, p, "x")
-		if err := os.Chtimes(p, old, old); err != nil {
-			t.Fatal(err)
-		}
-		for d := filepath.Dir(p); strings.HasPrefix(d, slug); d = filepath.Dir(d) {
-			if err := os.Chtimes(d, old, old); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
+	ageUnder(t, slug, old, transcript, sessDir)
 	return transcript, sessDir
 }
 

@@ -52,7 +52,7 @@ var writers = map[string]string{
 	"internal/clipboard/launchd.go:installLaunchAgentAt":              unversioned("foreign: launchd plist (Apple format)"),
 	"internal/clipboard/wlproxy.go:installProxyAt":                    unversioned("foreign: wl-paste shim binary"),
 	"internal/completion/completion.go:Install":                       unversioned("foreign: shell completion script in the user's shell dirs"),
-	"internal/configure/vault_storage.go:Edit":                        unversioned("foreign: editor scratch temp file"),
+	"internal/configure/vault_storage.go:writeEditorScratch":          unversioned("foreign: editor scratch temp file"),
 	"internal/configure/home.go:RegisterCodexMCP":                     unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agentconfig/project/sync.go:writeProjection":            "projections",
 	"internal/databricks/config.go:writeScratch":                      unversioned("foreign: temp rescue config"),
@@ -116,7 +116,7 @@ var writers = map[string]string{
 	"internal/memory/bank/txn.go:captureNative":                       unversioned("memory-bank: txn native copy"),
 	"internal/memory/bank/txn.go:commit":                              unversioned("memory-bank: txn receipt in the memory repo"),
 	"internal/memory/bank/txn.go:save":                                "memory-journal",
-	"internal/testtool/mutate/mutate.go:Check":                        unversioned("foreign: mutation-test scratch copy"),
+	"internal/testtool/mutate/mutate.go:writeOverlay":                 unversioned("foreign: mutation-test scratch copy"),
 	"internal/preflight/live.go:ClaimNamed":                           unversioned("marker: detached refresh attempt stamp"),
 	"internal/preflight/discover.go:SpawnDiscover":                    unversioned("foreign: /dev/null opened for a detached refresh"),
 	"internal/proxy/restart.go:claimRestartLocked":                    unversioned("marker: watchdog proxy restart stamp"),
@@ -171,7 +171,7 @@ var writers = map[string]string{
 	"internal/worktree/ledger.go:CloseLedger":                         unversioned("memory-bank: worktree ledger close"),
 	"internal/worktree/ledger.go:OpenLedger":                          unversioned("memory-bank: worktree ledger open"),
 	"internal/worktree/operation.go:SaveOperation":                    "worktree-merge-op",
-	"internal/worktree/seed.go:seedPath":                              unversioned("text: .env copied into a new worktree"),
+	"internal/worktree/seed.go:copyEnvFile":                           unversioned("text: .env copied into a new worktree"),
 }
 
 var writeCalls = map[string]bool{

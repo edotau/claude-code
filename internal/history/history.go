@@ -141,17 +141,8 @@ func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error
 func (s *Store) stageFile(f HistoryFile, plane string, res *Result) error {
 	data, err := readFile(f)
 	dest := filepath.Join(s.Dir, plane, f.Label)
-	switch {
-	case err != nil && errors.Is(err, fs.ErrNotExist):
-		res.Absent = append(res.Absent, f.Label)
-		// A file that vanished must LEAVE the store, or the log shows it as still present.
-		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	case err != nil:
-		res.Skipped = append(res.Skipped, Skip{f.Label, err.Error()})
-		return nil
+	if err != nil {
+		return stageUnreadable(f, dest, err, res)
 	}
 	if loc := secretRE.FindIndex(data); loc != nil {
 		res.Skipped = append(res.Skipped, Skip{f.Label,
@@ -168,6 +159,20 @@ func (s *Store) stageFile(f HistoryFile, plane string, res *Result) error {
 		return err
 	}
 	res.Changed = append(res.Changed, f.Label)
+	return nil
+}
+
+// stageUnreadable records a watched file that could not be read: absent (and removed from the store) or skipped.
+func stageUnreadable(f HistoryFile, dest string, readErr error, res *Result) error {
+	if !errors.Is(readErr, fs.ErrNotExist) {
+		res.Skipped = append(res.Skipped, Skip{f.Label, readErr.Error()})
+		return nil
+	}
+	res.Absent = append(res.Absent, f.Label)
+	// A file that vanished must LEAVE the store, or the log shows it as still present.
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 

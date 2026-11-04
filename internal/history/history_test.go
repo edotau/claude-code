@@ -31,15 +31,7 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 	overlay := `{"providers":{}}`
 	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "a")
-	var files []HistoryFile
-	for _, f := range ConfigFiles() {
-		if f.Label == "providers.json" || f.Label == "provider.env" {
-			files = append(files, f)
-		}
-	}
-	if len(files) != 2 {
-		t.Fatalf("want both vault config labels, got %v", files)
-	}
+	files := vaultConfigFiles(t)
 	s := &Store{Dir: filepath.Join(root, "history")}
 	first, err := s.Snapshot(files, "config", "first")
 	if err != nil {
@@ -49,6 +41,50 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 		!slices.Contains(first.Changed, "providers.json") || !slices.Contains(first.Changed, "provider.env") {
 		t.Fatalf("Snapshot = %+v, want both vault config files committed", first)
 	}
+	assertSnapshotMatchesVault(t, s, overlay)
+	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "b")
+	second, err := s.Snapshot(files, "config", "changed pin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Commit == "" || !slices.Equal(second.Changed, []string{"provider.env"}) {
+		t.Fatalf("Snapshot = %+v, want only provider.env changed", second)
+	}
+	assertPinDiff(t, s)
+}
+
+// assertPinDiff fails unless the latest config diff shows the opus pin moving from a to b.
+func assertPinDiff(t *testing.T, s *Store) {
+	t.Helper()
+	diff, err := s.Diff("", "config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"-HARNESS_OPUS_MODEL=a", "+HARNESS_OPUS_MODEL=b"} {
+		if !slices.Contains(strings.Split(diff, "\n"), want) {
+			t.Errorf("Diff missing %q:\n%s", want, diff)
+		}
+	}
+}
+
+// vaultConfigFiles returns the two vault-backed watched files, failing unless both are present.
+func vaultConfigFiles(t *testing.T) []HistoryFile {
+	t.Helper()
+	var files []HistoryFile
+	for _, f := range ConfigFiles() {
+		if f.Label == "providers.json" || f.Label == "provider.env" {
+			files = append(files, f)
+		}
+	}
+	if len(files) != 2 {
+		t.Fatalf("want both vault config labels, got %v", files)
+	}
+	return files
+}
+
+// assertSnapshotMatchesVault fails when a stored snapshot differs from the vault's own rendering.
+func assertSnapshotMatchesVault(t *testing.T, s *Store, overlay string) {
+	t.Helper()
 	pins, err := providers.RenderPins()
 	if err != nil {
 		t.Fatal(err)
@@ -60,23 +96,6 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 		}
 		if !bytes.Equal(got, want) {
 			t.Errorf("%s snapshot differs from vault rendering", label)
-		}
-	}
-	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "b")
-	second, err := s.Snapshot(files, "config", "changed pin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Commit == "" || !slices.Equal(second.Changed, []string{"provider.env"}) {
-		t.Fatalf("Snapshot = %+v, want only provider.env changed", second)
-	}
-	diff, err := s.Diff("", "config")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"-HARNESS_OPUS_MODEL=a", "+HARNESS_OPUS_MODEL=b"} {
-		if !slices.Contains(strings.Split(diff, "\n"), want) {
-			t.Errorf("Diff missing %q:\n%s", want, diff)
 		}
 	}
 }
@@ -132,12 +151,7 @@ func TestSnapshotCreatesRepoAndCommitsWatchedFiles(t *testing.T) {
 	if len(res.Absent) != 1 || res.Absent[0] != "missing.json" {
 		t.Errorf("Absent = %v, want [missing.json]", res.Absent)
 	}
-	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
-		t.Errorf("shadow repo not created: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(s.Dir, "config", "settings.json")); err != nil {
-		t.Errorf("watched file not copied into the store: %v", err)
-	}
+	assertShadowRepoHolds(t, s, "settings.json")
 
 	again, err := s.Snapshot(files, "config", "unchanged")
 	if err != nil {
@@ -145,6 +159,17 @@ func TestSnapshotCreatesRepoAndCommitsWatchedFiles(t *testing.T) {
 	}
 	if again.Commit != "" {
 		t.Errorf("unchanged snapshot committed anyway: %+v", again)
+	}
+}
+
+// assertShadowRepoHolds fails unless the shadow repo exists and the plane's store holds label.
+func assertShadowRepoHolds(t *testing.T, s *Store, label string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
+		t.Errorf("shadow repo not created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Dir, "config", label)); err != nil {
+		t.Errorf("watched file not copied into the store: %v", err)
 	}
 }
 
