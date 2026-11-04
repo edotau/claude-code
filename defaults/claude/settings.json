@@ -45,8 +45,14 @@
       "Read(~/.ssh/**)",
       "Read(**/state/vault.db)",
       "Read(**/.credentials.json)",
-      "Bash(claude-code vault *)",
-      "Bash(go test * ./...*)"
+      "Bash(go test * ./...*)",
+      "Bash(claude-code vault set*)",
+      "Bash(claude-code vault delete*)",
+      "Bash(claude-code vault import*)",
+      "Bash(claude-code vault edit*)",
+      "Bash(claude-code vault rotate-secret*)",
+      "Bash(claude-code vault get*)",
+      "Bash(claude-code vault export*)"
     ],
     "defaultMode": "auto"
   },
