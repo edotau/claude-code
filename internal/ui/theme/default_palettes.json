@@ -13,10 +13,21 @@
     "rose-pine":        ["#9CCFD8", "#C4A7E7", "#EB6F92"],
     "aurora":           ["#3AA6FF", "#46D9B5", "#FFD166", "#FF6B9D"],
     "ocean":            ["#2EC5CE", "#3A86FF", "#5E60CE", "#7400B8"],
-    "sunset":           ["#FFB454", "#FF7A5C", "#E5446D", "#9D4EDD"]
+    "sunset":           ["#FFB454", "#FF7A5C", "#E5446D", "#9D4EDD"],
+    "minimal":          ["#9CC09F", "#EED49F", "#F5A97F", "#8AADF4", "#E89B9E", "#A6DA95"]
   },
 
   "powerline": {
+    "minimal": {
+      "cwd":     { "bg": "#1E2A22", "fg": "#9CC09F" },
+      "branch":  { "bg": "#2E2820", "fg": "#EED49F" },
+      "model":   { "bg": "#2E2820", "fg": "#F5A97F" },
+      "effort":  { "bg": "#1E2A36", "fg": "#CAD3F5" },
+      "context": { "bg": "#1E2A36", "fg": "#8AADF4" },
+      "tokens":  { "bg": "#3A1F21", "fg": "#E89B9E" },
+      "limit7d": { "bg": "#1E2A22", "fg": "#A6DA95" },
+      "sep":     { "fg": "#CAD3F5" }
+    },
     "dark": {
       "directory": { "bg": "#3B4252", "fg": "#ECEFF4" },
       "git":       { "bg": "#434C5E", "fg": "#A3BE8C" },
