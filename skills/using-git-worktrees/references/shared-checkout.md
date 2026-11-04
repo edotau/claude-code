@@ -1,8 +1,8 @@
 # Sharing One Checkout Without a Worktree
 
-With `HARNESS_WORKTREE=off`, several sessions and their leaves edit the same tree on `main`. Git sees one working
-copy, so nothing stops two sessions writing the same file; collisions surface as a red build or a commit that
-carries another session's half-done hunks.
+Whenever several sessions share one tree (always `~/.claude`; any repo where you declined a worktree), they and
+their leaves edit the same tree on `main`. Git sees one working copy, so nothing stops two sessions writing the
+same file; collisions surface as a red build or a commit that carries another session's half-done hunks.
 
 ## Before planning
 
@@ -26,6 +26,19 @@ carries another session's half-done hunks.
 - A peer's hunk in your file: commit without that file and tell the peer, or agree they commit it first.
 - Check the commit stands alone: `git archive HEAD | tar -x -C "$(mktemp -d)"`, then in that dir
   `go test -count=1` for the touched packages. A pass in the live tree can lean on uncommitted files.
+
+## Never rewrite shared history
+
+Every session in the checkout shares one HEAD: an amend rewrites *their* commit too. `safety-scan` blocks
+`commit --amend`, `rebase` and `reset <commit>` in a shared tree: `~/.claude`, a tree a peer session works in, or a
+main tree where your session has live leaves (a leaf there is always blocked). Fix a bad commit with a new commit or
+`git revert`; to rewrite history, do it in your own linked worktree (`claude-code worktree create <slug>`), pushed
+or not. Path resets (`git reset -- <file>`), `rebase --continue`/`--abort` and an infra error (with a warning) pass.
+
+## Incident (2026-11-04)
+
+One session amended another's pushed `8ca4f03c` into local `76a11afa` (folding in its own two files): origin
+stayed intact, local `main` diverged, and any commit by either session would have stacked on the rewrite.
 
 ## Incident (2026-10-30)
 
