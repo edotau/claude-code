@@ -21,12 +21,12 @@ func funcName(f any) string {
 // EnableMemory turns into SessionConfig.Memory only when set, and permissionHandler follows AllowAllTools
 // alone — a session (new or resumed) must carry both consistently.
 func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
-	cfg := BuildSessionConfig(SDKOptions{EnableMemory: true, AllowAllTools: true})
+	cfg := BuildSessionConfig(SDKOptions{EnableMemory: true, AllowAllTools: true, Autonomous: true})
 	if cfg.Memory == nil || !cfg.Memory.Enabled {
 		t.Errorf("Memory = %+v, want enabled", cfg.Memory)
 	}
 	if funcName(cfg.OnPermissionRequest) != funcName(approveToolOnce) {
-		t.Errorf("OnPermissionRequest = %s, want approveToolOnce (AllowAllTools=true)", funcName(cfg.OnPermissionRequest))
+		t.Errorf("OnPermissionRequest = %s, want approveToolOnce (AllowAllTools+Autonomous)", funcName(cfg.OnPermissionRequest))
 	}
 
 	off := BuildSessionConfig(SDKOptions{})

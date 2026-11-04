@@ -280,6 +280,9 @@ func eventOf(name string) string { return specOf(name).Event }
 
 // RunArgs is `hook <Event> [--<module>|--all]`; an unknown event or module fails closed only when it reads as a guard.
 func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if event == CopilotBashHook {
+		return copilotBash(stdin, stderr)
+	}
 	if !IsEvent(event) {
 		return unknownHook(event, "unknown hook event", stderr)
 	}
