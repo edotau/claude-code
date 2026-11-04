@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
@@ -64,9 +65,9 @@ func gatewayRoute(args []string, withProxy bool) int {
 		return fail(name+": %v", err)
 	}
 	rj := newRouteJSON(res, src, pins)
-	var ps proxyState
+	var ps proxy.Status
 	if withProxy {
-		if ps, err = loadProxyState(context.Background()); err != nil {
+		if ps, err = proxy.LoadStatus(context.Background()); err != nil {
 			return fail(name+": %v", err)
 		}
 	}
@@ -74,8 +75,8 @@ func gatewayRoute(args []string, withProxy bool) int {
 		var payload any = rj
 		if withProxy {
 			payload = struct {
-				Route routeJSON  `json:"route"`
-				Proxy proxyState `json:"proxy"`
+				Route routeJSON    `json:"route"`
+				Proxy proxy.Status `json:"proxy"`
 			}{rj, ps}
 		}
 		return writeJSONOrFail("gateway router", payload)

@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/server"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -49,35 +48,11 @@ func cmdGateway(args []string) int {
 	return gatewayRoute(args, true)
 }
 
-// proxyState is the loopback proxy's status: the payload of `gateway proxy --format json` and bare `gateway`'s "proxy".
-type proxyState struct {
-	Running  bool     `json:"running"`
-	PID      int      `json:"pid,omitempty"`
-	URL      string   `json:"url,omitempty"`
-	Started  string   `json:"started,omitempty"`
-	Fallback []string `json:"fallback"`
-	log      string
-}
-
-func loadProxyState(ctx context.Context) (proxyState, error) {
-	ps := proxyState{log: proxy.LogFile()}
-	if st, ok := proxy.Running(ctx); ok {
-		ps.Running, ps.PID, ps.URL = true, st.PID, proxy.Base(st.Port)
-		ps.Started = st.Started.Local().Format(time.RFC3339)
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		return ps, err
-	}
-	ps.Fallback = append([]string{}, reg.Fallback...)
-	return ps, nil
-}
-
-func printProxyState(ps proxyState) {
+func printProxyState(ps proxy.Status) {
 	if ps.Running {
 		fmt.Printf("proxy     running  pid %d  %s  since %s\n", ps.PID, ps.URL, ps.Started)
 	} else {
-		fmt.Printf("proxy     not running  (log %s)\n", ps.log)
+		fmt.Printf("proxy     not running  (log %s)\n", ps.Log)
 	}
 	if len(ps.Fallback) == 0 {
 		fmt.Println("fallback  none")
@@ -223,7 +198,7 @@ func proxyServe(ctx context.Context, port int) int {
 }
 
 func proxyStatus(ctx context.Context, format string) int {
-	ps, err := loadProxyState(ctx)
+	ps, err := proxy.LoadStatus(ctx)
 	if err != nil {
 		return fail("%v", err)
 	}
