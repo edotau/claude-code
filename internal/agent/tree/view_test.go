@@ -60,7 +60,7 @@ func TestFollowResetsSeenWhenEventCountShrinks(t *testing.T) {
 	followPollInterval = 100 * time.Millisecond
 	t.Cleanup(func() { followPollInterval = saved })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 260*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // a ceiling, not the expected run time
 	defer cancel()
 
 	shrunk := make(chan struct{})
@@ -80,15 +80,17 @@ func TestFollowResetsSeenWhenEventCountShrinks(t *testing.T) {
 				panicked <- nil
 			}
 		}()
-		_ = Follow(ctx, opts, func(e Event) { fmt.Fprintln(&buf, FormatEvent(e)) }) // blocks until ctx's deadline (followDone is pinned false)
+		_ = Follow(ctx, opts, func(e Event) { // seen starts at 3, so the first emit is the post-shrink re-read
+			fmt.Fprintln(&buf, FormatEvent(e))
+			cancel()
+		})
 	}()
 	<-shrunk
 
 	if r := <-panicked; r != nil {
 		t.Fatalf("Follow panicked on a shrinking event count: %v", r)
 	}
-	// The second poll (t=200ms) sees all=1 < seen=3, resets to 0, and re-prints the one event the
-	// third line now holds, rather than panicking or printing nothing.
+	// The first poll after the shrink sees all=1 < seen=3, resets to 0 and re-prints the one remaining event.
 	if !strings.Contains(buf.String(), `"linea"`) {
 		t.Errorf("output = %q, want it to contain the re-seen event after the reset", buf.String())
 	}

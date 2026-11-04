@@ -112,8 +112,12 @@ func TestMainCheckoutModes(t *testing.T) {
 		if got != "" {
 			got = ResolvePath(got)
 		}
-		if got != tc.git {
-			t.Errorf("MainCheckout(%q, GitOut) = %q, want canonical %q", tc.root, got, tc.git)
+		want := tc.git
+		if want != "" {
+			want = ResolvePath(want) // git reports the real path: macOS TempDir /var is /private/var
+		}
+		if got != want {
+			t.Errorf("MainCheckout(%q, GitOut) = %q, want canonical %q", tc.root, got, want)
 		}
 	}
 }
