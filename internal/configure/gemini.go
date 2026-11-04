@@ -31,11 +31,11 @@ var AgySignInPoll = 500 * time.Millisecond
 // AgySignInTimeout bounds how long AgySignIn waits for a sign-in before giving up and stopping agy.
 var AgySignInTimeout = 10 * time.Minute
 
-// AgyStopGrace is how long SIGINT gets to land before AgySignIn escalates to SIGTERM.
+// AgyStopGrace is how long SIGINT gets to land before AgySignIn escalates to SIGTERM, then to SIGKILL.
 var AgyStopGrace = 3 * time.Second
 
-// AgySignIn starts agy on the real terminal, polls for its login marker every agySignInPoll, and stops it
-// (SIGINT, then SIGTERM after agyStopGrace) the moment the marker appears — or on agySignInTimeout, or
+// AgySignIn starts agy on the real terminal, polls for its login marker every AgySignInPoll, and stops it
+// (SIGINT, SIGTERM, SIGKILL, each after AgyStopGrace) once the marker appears, on AgySignInTimeout, or when
 // agy exits on its own. The caller never has to return to a menu with agy's own TUI still on screen.
 func AgySignIn() (ok bool, msg string) {
 	defer tui.Preserve()()
@@ -85,7 +85,7 @@ func agySignedInSince(marker string, before []byte, beforeInfo os.FileInfo) bool
 	return err == nil && (beforeInfo == nil || !afterInfo.ModTime().Equal(beforeInfo.ModTime()))
 }
 
-// stopAgy asks a still-running agy and its descendants to exit: SIGINT, SIGTERM after agyStopGrace.
+// stopAgy stops a still-running agy and its descendants: SIGINT, then SIGTERM, then SIGKILL, each after AgyStopGrace.
 func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
 	desc := proc.Descendants(cmd.Process.Pid)
 	_ = cmd.Process.Signal(syscall.SIGINT)
@@ -96,7 +96,13 @@ func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
 	case <-time.After(AgyStopGrace):
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		signalAliveDescendants(desc, syscall.SIGTERM)
-		<-done
+		select {
+		case <-done:
+		case <-time.After(AgyStopGrace):
+			_ = cmd.Process.Kill()
+			signalAliveDescendants(desc, syscall.SIGKILL)
+			<-done
+		}
 	}
 }
 

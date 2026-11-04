@@ -69,7 +69,7 @@ func TrackedSecrets(reg *providers.Registry) []TrackedSecret {
 func ParseAssignment(raw string) (name, value string) {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimSpace(strings.TrimPrefix(s, "export "))
-	if k, v, ok := strings.Cut(s, "="); ok && v != "" && EnvName.MatchString(k) && strings.ToUpper(k) == k {
+	if k, v, ok := strings.Cut(s, "="); ok && strings.Trim(v, "=") != "" && EnvName.MatchString(k) && strings.ToUpper(k) == k {
 		name, s = k, strings.TrimSpace(v)
 	}
 	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {

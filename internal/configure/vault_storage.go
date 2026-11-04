@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
 	"runtime"
 	"strings"
 
@@ -24,9 +23,6 @@ import (
 
 // ErrChanged reports that the vault moved between Export and Import; Import wrote nothing.
 var ErrChanged = errors.New("vault changed while you edited; nothing saved")
-
-// namePattern is the shell-identifier rule for pins and env names.
-var namePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Doc is the editable, non-secret vault view: secrets and overlay/providers.prev never appear (D-a).
 // Agents is the agents overlay plus the agent records under "records".
@@ -107,8 +103,8 @@ func decodeDoc(edited []byte) (Doc, error) {
 func validatePinsEnv(d Doc) error {
 	for section, values := range map[string]map[string]string{"pins": d.Pins, "env": d.Env} {
 		for name, value := range values {
-			if !namePattern.MatchString(name) {
-				return sectionError(section+"."+strings.NewReplacer("\n", " ", "\r", " ").Replace(name), fmt.Errorf("name must match %s", namePattern))
+			if !EnvName.MatchString(name) {
+				return sectionError(section+"."+strings.NewReplacer("\n", " ", "\r", " ").Replace(name), fmt.Errorf("name must match %s", EnvName))
 			}
 			if value == "" || strings.ContainsAny(value, "\n\r") {
 				return fmt.Errorf("%s.%s: value must be non-empty and single-line", section, name)
