@@ -132,14 +132,15 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
 	writeTokenExpiry(t, "max", time.Now().Add(42*time.Minute))
 
-	if got := limitsSegment(in, "dbx-u2m"); got != "u2m:42min" {
-		t.Errorf("oauth profile with a record: %q, want u2m:42min", got)
-	}
-	if got := limitsSegment(in, "dbx-m2m"); got != "m2m:1h05min" {
-		t.Errorf("m2m profile with a record: %q, want m2m:1h05m", got)
-	}
-	if got := limitsSegment(in, "dbx-key"); got != "u2m:42min" {
-		t.Errorf("key+command profile with a record: %q, want u2m:42min", got)
+	// Databricks carries the countdown in the model cell; its auth cell stays empty.
+	for name, want := range map[string]string{"dbx-u2m": "·u2m@dbx-u2m:42min", "dbx-m2m": "·m2m@dbx-m2m:1h05min",
+		"dbx-key": "·u2m@dbx-key:42min"} {
+		if got := databricksModel(in, name); got != want {
+			t.Errorf("%s model cell: %q, want %q", name, got, want)
+		}
+		if got := limitsSegment(in, name); got != "" {
+			t.Errorf("%s auth cell: %q, want empty", name, got)
+		}
 	}
 	if got := limitsSegment(in, "openai"); got != "" {
 		t.Errorf("non-subscription profile without a record: %q, want empty", got)
@@ -179,7 +180,7 @@ func useSessions(t *testing.T, rows ...*providers.Provider) {
 	registry = func() *providers.Registry { return reg }
 }
 
-// A databricks key+command session never shows 5h/7d from a fresh subscription cache; with a record it shows u2m, never tok.
+// A databricks key+command session never shows 5h/7d from a fresh subscription cache; with a record its model cell shows u2m.
 func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour)
@@ -190,9 +191,9 @@ func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
 		t.Errorf("no record, fresh cache: %q, want empty", got)
 	}
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
-	got := limitsSegment(Input{}, "dbx-key")
-	if got != "u2m:42min" || strings.Contains(got, "tok") {
-		t.Errorf("with record: %q, want u2m:42min", got)
+	got := databricksModel(Input{}, "dbx-key")
+	if got != "·u2m@dbx-key:42min" || strings.Contains(got, "7d") {
+		t.Errorf("with record: %q, want ·u2m@dbx-key:42min", got)
 	}
 }
 

@@ -411,7 +411,8 @@ func labelRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg.Providers["qa"] = &providers.Provider{Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks}
+	reg.Providers["qa"] = &providers.Provider{Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks,
+		Host: "https://dbc-0a1b2c3d-4e5f.cloud.databricks.com"}
 	prev := registry
 	t.Cleanup(func() { registry = prev })
 	registry = func() *providers.Registry { return reg }
@@ -505,12 +506,12 @@ func TestLabelProviderBeforeModel(t *testing.T) {
 	}
 }
 
-// A databricks session drops the provider cell; the model id leads the line.
-func TestLabelDatabricksNoProviderCell(t *testing.T) {
+// A databricks session drops the provider cell; the model cell names the credential and workspace host id.
+func TestLabelDatabricksModelCell(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	if got := renderPayload(t, "databricks-claude-opus-5"); strings.Contains(got, "databricks·") || !strings.HasPrefix(strings.TrimLeft(got[strings.Index(got, "|")+1:], " "), "databricks-claude-opus-5") {
+	if got := renderPayload(t, "databricks-claude-opus-5"); strings.Contains(got, "databricks·") || !strings.Contains(got, "databricks-claude-opus-5·u2m@0a1b2c3d-4e5f") {
 		t.Errorf("databricks line: %q", got)
 	}
 }

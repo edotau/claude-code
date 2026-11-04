@@ -26,11 +26,15 @@ func tokenAuth(_ Input, session string, p *providers.Provider) string {
 	if !ok {
 		return ""
 	}
-	method := "u2m" // a recorded expiry is a user OAuth JWT unless the row is a service principal
+	return tokenLeft(credMethod(p), exp, time.Now())
+}
+
+// credMethod is "m2m" for a service principal, else "u2m" (a recorded expiry is a user OAuth JWT).
+func credMethod(p *providers.Provider) string {
 	if p != nil && p.Auth.Method() == providers.AuthM2M {
-		method = providers.AuthM2M
+		return providers.AuthM2M
 	}
-	return tokenLeft(method, exp, time.Now())
+	return "u2m"
 }
 
 // tokenLeft renders the time until exp: "u2m:42min", "m2m:1h05min", "u2m:<1min", or "u2m:exp" once past.
