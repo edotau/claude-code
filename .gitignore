@@ -111,3 +111,6 @@ coverage.*
 # Mods: engine-generated types; per-session dev mods
 mods/*/.claude-plugin/types/
 dev-mods/
+
+# settings.WriteWithBackup lock beside the generated settings.json
+/settings.json.lock

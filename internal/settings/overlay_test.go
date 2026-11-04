@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/defaults"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -424,5 +425,38 @@ func TestStructuralKeysRefusedAndObjectConstraintsEnforced(t *testing.T) {
 		if err := k.Validate(json.RawMessage(val)); (err == nil) != want {
 			t.Errorf("subagentStatusLine=%s: err = %v, want accepted=%v", val, err, want)
 		}
+	}
+}
+
+// UpdateOverlay folds a change into the stored overlay, so two writers' keys both survive.
+func TestUpdateOverlayKeepsConcurrentKeys(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := SaveOverlay(map[string]json.RawMessage{"theme": json.RawMessage(`"light"`)}); err != nil {
+		t.Fatal(err)
+	}
+	err := UpdateOverlay(func(cur map[string]json.RawMessage) map[string]json.RawMessage {
+		cur["verbose"] = json.RawMessage(`true`)
+		return cur
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadOverlay()
+	if string(got["theme"]) != `"light"` || string(got["verbose"]) != `true` {
+		t.Errorf("overlay after update = %v, want theme and verbose", got)
+	}
+}
+
+// TestSaveOverlayReplacesCorruptEntry: SaveOverlay writes whole, so an unparseable stored overlay never blocks a repair.
+func TestSaveOverlayReplacesCorruptEntry(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, overlayBucketKey, "{not json") }); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveOverlay(map[string]json.RawMessage{"theme": json.RawMessage(`"dark"`)}); err != nil {
+		t.Fatalf("SaveOverlay over a corrupt entry: %v", err)
+	}
+	if got, err := LoadOverlay(); err != nil || string(got["theme"]) != `"dark"` {
+		t.Errorf("overlay = %v, %v; want theme dark", got, err)
 	}
 }

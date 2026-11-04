@@ -110,7 +110,7 @@ func Render() ([]byte, error) {
 // Summary describes what Merge did, for `install --dry-run`.
 type Summary struct {
 	Kept         []string // existing top-level keys the template does not own
-	Dropped      []string // existing keys removed by the vault drop list
+	Dropped      []string // existing keys removed: the vault drop list plus the retired autoMemoryDirectory
 	Owned        []string // template keys written (env/permissions unioned, others replaced)
 	ForeignHooks int      // non-harness hook commands preserved
 	HarnessHooks int
@@ -315,21 +315,32 @@ func foreignHookGroups(event string, raw json.RawMessage, sum *Summary) ([]json.
 
 // WriteWithBackup copies to the cache-mirrored backup path (numbered on collision), then writes data atomically.
 func WriteWithBackup(path string, data []byte) (backup string, err error) {
-	mode := os.FileMode(0o644)
-	old, rerr := os.ReadFile(path)
-	switch {
-	case rerr == nil:
-		if fi, serr := os.Stat(path); serr == nil {
-			mode = fi.Mode().Perm()
+	return UpdateWithBackup(path, func([]byte) ([]byte, error) { return data, nil })
+}
+
+// UpdateWithBackup holds the file lock while it reads path (nil if absent), backs it up and writes merge(old).
+func UpdateWithBackup(path string, merge func(old []byte) ([]byte, error)) (backup string, err error) {
+	err = paths.WithFileLock(path, func() error {
+		mode := os.FileMode(0o644)
+		old, rerr := os.ReadFile(path)
+		switch {
+		case rerr == nil:
+			if fi, serr := os.Stat(path); serr == nil {
+				mode = fi.Mode().Perm()
+			}
+			if backup, err = paths.Backup(path, old); err != nil {
+				return fmt.Errorf("backup %s: %w", path, err)
+			}
+		case !os.IsNotExist(rerr):
+			return fmt.Errorf("read %s: %w", path, rerr)
 		}
-		backup, err = paths.Backup(path, old)
+		data, err := merge(old)
 		if err != nil {
-			return "", fmt.Errorf("backup %s: %w", path, err)
+			return err
 		}
-	case !os.IsNotExist(rerr):
-		return "", fmt.Errorf("read %s: %w", path, rerr)
-	}
-	return backup, paths.AtomicWrite(path, data, mode)
+		return paths.AtomicWrite(path, data, mode)
+	})
+	return backup, err
 }
 
 // object is a JSON object that remembers key order, so a merge leaves the user's layout intact.

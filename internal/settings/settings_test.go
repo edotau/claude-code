@@ -3,6 +3,7 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"maps"
 	"os"
@@ -197,8 +198,8 @@ func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(siblings) != 1 {
-		t.Errorf("files beside dest = %v, want only settings.json itself", siblings)
+	if len(siblings) != 2 { // settings.json and its advisory lock file
+		t.Errorf("files beside dest = %v, want only settings.json and its .lock", siblings)
 	}
 }
 
@@ -578,5 +579,26 @@ func TestDocsTemplateExampleSettings(t *testing.T) {
 	if string(got) != string(want) {
 		t.Errorf("docs/templates/examples/settings/settings.json drifted from testdata/settings.golden.json " +
 			"(go test ./internal/settings -run TestDocsTemplateExampleSettings -update)")
+	}
+}
+
+func TestUpdateWithBackupMergesFromLockedRead(t *testing.T) {
+	hermeticCacheDir(t)
+	file := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(file, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var seen string
+	b, err := UpdateWithBackup(file, func(old []byte) ([]byte, error) { seen = string(old); return []byte("new"), nil })
+	got, _ := os.ReadFile(file)
+	if err != nil || seen != "old" || string(got) != "new" || b == "" {
+		t.Fatalf("seen=%q file=%q backup=%q err=%v", seen, got, b, err)
+	}
+}
+
+func TestKeyValidateRefusesUncompiledPattern(t *testing.T) {
+	k := Key{Name: "x", Kind: KindString, patternErr: errors.New("bad")}
+	if err := k.Validate(json.RawMessage(`"a"`)); err == nil {
+		t.Error("a key whose pattern failed to compile validated a value")
 	}
 }
