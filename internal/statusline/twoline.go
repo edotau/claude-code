@@ -69,6 +69,9 @@ const twoSep = " · "
 // twolineRows builds row 1 after the head (branch, model, effort, velocity) and row 2 (auth, context, tokens, 7d) as segment lists.
 func twolineRows(v values) (row1, row2 []twoSeg) {
 	d := v.two
+	if v.provider != "" {
+		row1 = append(row1, twoSeg{key: "cwd", text: v.provider + " "})
+	}
 	if v.branch != "" {
 		row1 = append(row1, twoSeg{key: "branch", text: ":" + v.branch})
 	}
@@ -90,12 +93,12 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	return row1, row2
 }
 
-// appendVelocity adds " · +A -D" after row 1's model and effort, omitting a zero side and the cell when both are 0.
+// appendVelocity adds " | +A -D" after row 1's model and effort, omitting a zero side and the cell when both are 0.
 func appendVelocity(row []twoSeg, adds, dels int) []twoSeg {
 	if adds == 0 && dels == 0 {
 		return row
 	}
-	row = append(row, twoSeg{key: "sep", text: twoSep})
+	row = append(row, twoSeg{key: "sep", text: sepPath})
 	if adds != 0 {
 		row = append(row, twoSeg{key: "add", text: "+" + strconv.Itoa(adds)})
 	}
@@ -163,9 +166,9 @@ func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, m
 			row1[i].fg = pal.Sem(k)
 		}
 	}
-	out := promptHead(v, cfg, pal, stops, mode) + paintTwoRow(row1, th, stops, mode) // head as the other styles draw it
-	if v.provider != "" {
-		out = paintTwoRow([]twoSeg{{key: "cwd", text: v.provider + " "}}, th, stops, mode) + out
+	out := paintTwoRow(row1, th, stops, mode)
+	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads, as the other styles draw it
+		out = head + paintTwoRow([]twoSeg{{key: "sep", text: sepPath}}, th, stops, mode) + out
 	}
 	if len(row2) == 0 {
 		return out
