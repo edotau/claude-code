@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -278,7 +281,9 @@ func cmdMemoryDigest(args []string) int {
 		return code
 	}
 	claudeBin, _ := claude.ClaudeBinary()
-	path, err := memory.DigestRepo(*repo, claudeBin)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	path, err := memory.DigestRepo(ctx, *repo, claudeBin)
 	if err != nil {
 		return fail("memory digest: %v", err)
 	}

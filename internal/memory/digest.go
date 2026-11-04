@@ -55,7 +55,7 @@ func DigestInput(dir string) (string, []string, error) {
 
 // Digest summarizes dir's raw archive into archive/digest.md with one bounded headless call; the model runs
 // outside the bank lock, the write and commit run under it. On any failure the previous digest stays.
-func Digest(dir, claude string) (string, error) {
+func Digest(ctx context.Context, dir, claude string) (string, error) {
 	if claude == "" {
 		return "", errors.New("claude binary not found")
 	}
@@ -66,9 +66,10 @@ func Digest(dir, claude string) (string, error) {
 		}
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), digestTimeout)
+	ctx, cancel := context.WithTimeout(ctx, digestTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, claude, "-p", fmt.Sprintf(digestPromptFmt, digestMaxLines, input), "--model", digestModel, "--max-turns", "1")
+	cmd := exec.CommandContext(ctx, claude, "-p", fmt.Sprintf(digestPromptFmt, digestMaxLines, input), "--model", digestModel, "--max-turns", "1",
+		"--tools", "", "--setting-sources", "") // untrusted archive text: no tools, no user settings
 	cmd.Dir = dir
 	cmd.WaitDelay = 5 * time.Second // a grandchild holding the pipe must not outlive the timeout
 	cmd.Env = append(os.Environ(), bank.UpdateChildEnv+"=1")
