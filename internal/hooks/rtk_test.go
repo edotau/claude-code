@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -321,10 +322,11 @@ func rtkCwdIn(cmd, cwd string) string {
 	return string(b)
 }
 
-func TestRTKGitInLinkedWorktreeIsNotRewritten(t *testing.T) {
-	bin := fakeRTK(t)
+// rtkWorktreeFixture builds a main checkout and a linked worktree (with a sub dir) whose .git points into main.
+func rtkWorktreeFixture(t *testing.T) (main, wt string) {
+	t.Helper()
 	base := t.TempDir()
-	main, wt := filepath.Join(base, "main"), filepath.Join(base, "wt")
+	main, wt = filepath.Join(base, "main"), filepath.Join(base, "wt")
 	for _, d := range []string{filepath.Join(main, ".git", "worktrees", "x"), filepath.Join(wt, "sub")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -334,25 +336,33 @@ func TestRTKGitInLinkedWorktreeIsNotRewritten(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte(ptr), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return main, wt
+}
+
+// requireRTKWrapped asserts cmd run from cwd is rewritten to want.
+func requireRTKWrapped(t *testing.T, label, cmd, cwd, want string) {
+	t.Helper()
+	if got, ok := rtkOut(t, rtkCwdIn(cmd, cwd)); !ok || got != want {
+		t.Errorf("%s = %q (emitted=%v), want %q", label, got, ok, want)
+	}
+}
+
+func TestRTKGitInLinkedWorktreeIsNotRewritten(t *testing.T) {
+	bin := fakeRTK(t)
+	main, wt := rtkWorktreeFixture(t)
 	for _, cwd := range []string{wt, filepath.Join(wt, "sub")} {
 		if got, ok := rtkOut(t, rtkCwdIn("git log --oneline -5", cwd)); ok {
 			t.Errorf("git in worktree %q rewritten to %q", cwd, got)
 		}
 	}
-	if got, ok := rtkOut(t, rtkCwdIn("npm ls", wt)); !ok || got != bin+" npm ls" {
-		t.Errorf("npm in worktree = %q (emitted=%v), want wrapped", got, ok)
-	}
-	if got, ok := rtkOut(t, rtkCwdIn("git log --oneline -5", main)); !ok || got != bin+" git log --oneline -5" {
-		t.Errorf("git in main checkout = %q (emitted=%v), want wrapped", got, ok)
-	}
+	requireRTKWrapped(t, "npm in worktree", "npm ls", wt, bin+" npm ls")
+	requireRTKWrapped(t, "git in main checkout", "git log --oneline -5", main, bin+" git log --oneline -5")
 	for _, cmd := range []string{"cd " + wt + " && git status", "git -C " + wt + " status"} {
 		if got, ok := rtkOut(t, rtkCwdIn(cmd, main)); ok {
 			t.Errorf("%q from the main checkout rewritten to %q", cmd, got)
 		}
 	}
-	if got, ok := rtkOut(t, rtkCwdIn("git log -1 && ls", main)); !ok || got != bin+" git log -1 && ls" {
-		t.Errorf("chain in main = %q (emitted=%v), want rewritten", got, ok)
-	}
+	requireRTKWrapped(t, "chain in main", "git log -1 && ls", main, bin+" git log -1 && ls")
 }
 
 // rtkHermetic points the config dir (and the vault it holds) at throwaway temp dirs, the way
@@ -366,7 +376,9 @@ func rtkHermetic(t *testing.T) {
 
 // The rtk hook lives in its own non-gate group on PreToolUse/Bash, and settings.json reaches it
 // only through the event dispatcher — never as its own `hook PreToolUse --rtk-rewrite` entry.
-func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
+// requireRTKGroupShape asserts the rtk group is a vendor-neutral non-gate group on PreToolUse/Bash.
+func requireRTKGroupShape(t *testing.T) {
+	t.Helper()
 	g, ok := settings.GroupOf("rtk-rewrite")
 	if !ok {
 		t.Fatal(`settings.GroupOf("rtk-rewrite") found no group`)
@@ -383,8 +395,11 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 	if len(g.Events) != 1 || g.Events[0].Event != settings.EventPreToolUse || g.Events[0].Matcher != "Bash" {
 		t.Errorf("rtk group events = %+v, want exactly PreToolUse/Bash", g.Events)
 	}
+}
 
-	want := settings.DispatcherCommand(settings.EventPreToolUse)
+// rtkDispatcherGroup returns the PreToolUse dispatcher entry, flagging any event that runs rtk as its own command.
+func rtkDispatcherGroup(t *testing.T, want string) *settings.MatcherGroup {
+	t.Helper()
 	own := settings.EventSpec{Name: "rtk-rewrite", Event: settings.EventPreToolUse}.Command()
 	var disp *settings.MatcherGroup
 	for event, groups := range settings.Events() {
@@ -399,16 +414,19 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 			}
 		}
 	}
+	return disp
+}
+
+// The rtk hook lives in its own non-gate group on PreToolUse/Bash, and settings.json reaches it
+// only through the event dispatcher — never as its own `hook PreToolUse --rtk-rewrite` entry.
+func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
+	requireRTKGroupShape(t)
+	want := settings.DispatcherCommand(settings.EventPreToolUse)
+	disp := rtkDispatcherGroup(t, want)
 	if disp == nil {
 		t.Fatalf("PreToolUse has no %q dispatcher entry", want)
 	}
-	var bash bool
-	for m := range strings.SplitSeq(disp.Matcher, "|") {
-		if m == "Bash" {
-			bash = true
-		}
-	}
-	if !bash {
+	if !slices.Contains(strings.Split(disp.Matcher, "|"), "Bash") {
 		t.Errorf("dispatcher matcher = %q, want it to include Bash", disp.Matcher)
 	}
 }

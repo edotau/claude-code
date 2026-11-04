@@ -47,29 +47,39 @@ func docsPlacement(in *Input, stderr io.Writer) int {
 		defer cancel()
 	}
 	if tool == "apply_patch" {
-		var patch string
-		for _, key := range []string{"patch", "input", "command"} {
-			text := in.nested("tool_input", key)
-			if key == "command" {
-				text = in.ToolCommand()
-			}
-			if strings.Contains(text, "*** Begin Patch") {
-				patch = text
-				break
-			}
-		}
-		for line := range strings.SplitSeq(patch, "\n") {
-			for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
-				if path, ok := strings.CutPrefix(line, prefix); ok {
-					if code := docsPlacementPath(ctx, in, strings.TrimSpace(path), stderr); code != ExitProceed {
-						return code
-					}
-				}
-			}
-		}
-		return ExitProceed
+		return docsPlacementPatch(ctx, in, stderr)
 	}
 	return docsPlacementPath(ctx, in, in.nested("tool_input", "file_path"), stderr)
+}
+
+// applyPatchText returns the first apply_patch payload carrying a patch header ("" when there is none).
+func applyPatchText(in *Input) string {
+	for _, key := range []string{"patch", "input", "command"} {
+		text := in.nested("tool_input", key)
+		if key == "command" {
+			text = in.ToolCommand()
+		}
+		if strings.Contains(text, "*** Begin Patch") {
+			return text
+		}
+	}
+	return ""
+}
+
+// docsPlacementPatch checks every file an apply_patch payload adds, updates or moves to.
+func docsPlacementPatch(ctx context.Context, in *Input, stderr io.Writer) int {
+	for line := range strings.SplitSeq(applyPatchText(in), "\n") {
+		for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
+			path, ok := strings.CutPrefix(line, prefix)
+			if !ok {
+				continue
+			}
+			if code := docsPlacementPath(ctx, in, strings.TrimSpace(path), stderr); code != ExitProceed {
+				return code
+			}
+		}
+	}
+	return ExitProceed
 }
 
 func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Writer) int {
@@ -89,17 +99,13 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := canonDeep(paths.ConfigDir())
 	if harnessDocs := canonDeep(filepath.Join(config, "docs")); underDir(harnessDocs, abs) {
-		for _, tier := range []string{"images", "templates"} {
-			if underDir(filepath.Join(harnessDocs, tier), abs) {
-				return ExitProceed
-			}
-		}
-		if tracked, err := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || err != nil || ctx.Err() != nil {
-			return ExitProceed
-		}
-		return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
+		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
-	// Two gated shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
+	return repoDocsPlacement(ctx, stderr, dir, base, abs)
+}
+
+// repoDocsPlacement gates the two shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
+func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs string) int {
 	root := repoRootOf(dir)
 	if root == "" {
 		return ExitProceed
@@ -122,6 +128,19 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 		where = dir + ", which this repo gitignores — it vanishes on a fresh clone"
 	}
 	return blockPlacement(stderr, base, where, root)
+}
+
+// harnessDocsPlacement gates a write under the harness's own docs/: images and templates and tracked files pass.
+func harnessDocsPlacement(ctx context.Context, stderr io.Writer, config, harnessDocs, abs, base string) int {
+	for _, tier := range []string{"images", "templates"} {
+		if underDir(filepath.Join(harnessDocs, tier), abs) {
+			return ExitProceed
+		}
+	}
+	if tracked, err := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || err != nil || ctx.Err() != nil {
+		return ExitProceed
+	}
+	return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
 }
 
 // stranded: an untracked root file or ignored docs/ page; an existing ignored file is the owner's local doc.

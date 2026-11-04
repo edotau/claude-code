@@ -133,22 +133,32 @@ func grabFrom(t *testing.T, value string) []Row {
 	return rows
 }
 
-func TestExtractPipeline(t *testing.T) {
-	// raw rows: dirty whitespace, zero-width chars, null selector, whitespace-only, duplicate key, null key twice
-	rows := grabFrom(t, `[
+// pipelineRows grabs raw rows with dirty whitespace, zero-width chars, a null selector, a whitespace-only value,
+// a duplicate key and a null key twice.
+func pipelineRows(t *testing.T) []Row {
+	t.Helper()
+	return grabFrom(t, `[
  ["  Alpha \n\t Beta ", "/a"],
  ["Gam\u200bma\ufeff", null],
  ["   ", "/c"],
  ["Alpha Beta", "/dup"],
  [null, "/n1"],
  [null, "/n2"]]`)
+}
+
+var pipelineFields = []Field{{Name: "title", Selector: "h2"}, {Name: "link", Selector: "a", Attr: "href"}}
+
+func TestExtractPipelineCleansRows(t *testing.T) {
+	rows := pipelineRows(t)
 	want := []Row{{new("Alpha Beta"), new("/a")}, {new("Gamma"), nil}, {nil, new("/c")},
 		{new("Alpha Beta"), new("/dup")}, {nil, new("/n1")}, {nil, new("/n2")}}
 	if !reflect.DeepEqual(rows, want) {
 		t.Fatalf("cleaned rows = %s", dump(rows))
 	}
+}
 
-	fields := []Field{{Name: "title", Selector: "h2"}, {Name: "link", Selector: "a", Attr: "href"}}
+func TestExtractPipelineDedupe(t *testing.T) {
+	rows := pipelineRows(t)
 	deduped := dedupe(rows, 0)
 	if len(deduped) != 5 || *deduped[0][1] != "/a" || deduped[3][1] == nil || *deduped[3][1] != "/n1" {
 		t.Fatalf("dedupe(key=title) = %s; later duplicate dropped, null keys kept", dump(deduped))
@@ -156,17 +166,22 @@ func TestExtractPipeline(t *testing.T) {
 	if len(dedupe(rows, -1)) != 6 {
 		t.Fatal("no key must keep every row")
 	}
+}
 
+func TestExtractPipelineCSV(t *testing.T) {
+	deduped := dedupe(pipelineRows(t), 0)
 	var csvOut bytes.Buffer
-	if err := writeRows(&csvOut, ExtractOptions{Fields: fields, Format: "csv"}, deduped[:2]); err != nil {
+	if err := writeRows(&csvOut, ExtractOptions{Fields: pipelineFields, Format: "csv"}, deduped[:2]); err != nil {
 		t.Fatal(err)
 	}
 	if got := csvOut.String(); got != "title,link\nAlpha Beta,/a\nGamma,\n" {
 		t.Fatalf("csv = %q", got)
 	}
+}
 
+func TestExtractPipelineJSON(t *testing.T) {
 	var js bytes.Buffer
-	if err := writeRows(&js, ExtractOptions{Fields: fields, Format: "json"}, []Row{{new("a&b"), nil}}); err != nil {
+	if err := writeRows(&js, ExtractOptions{Fields: pipelineFields, Format: "json"}, []Row{{new("a&b"), nil}}); err != nil {
 		t.Fatal(err)
 	}
 	var arr []map[string]*string
@@ -177,12 +192,16 @@ func TestExtractPipeline(t *testing.T) {
 		t.Fatal("HTML escaping must stay off")
 	}
 	var empty bytes.Buffer
-	_ = writeRows(&empty, ExtractOptions{Fields: fields, Format: "json"}, nil)
+	_ = writeRows(&empty, ExtractOptions{Fields: pipelineFields, Format: "json"}, nil)
 	if empty.String() != "[]\n" {
 		t.Fatalf("empty json = %q", empty.String())
 	}
+}
+
+func TestExtractPipelineJSONL(t *testing.T) {
+	deduped := dedupe(pipelineRows(t), 0)
 	var jl bytes.Buffer
-	_ = writeRows(&jl, ExtractOptions{Fields: fields, Format: "jsonl"}, deduped[:2])
+	_ = writeRows(&jl, ExtractOptions{Fields: pipelineFields, Format: "jsonl"}, deduped[:2])
 	if jl.String() != "{\"title\":\"Alpha Beta\",\"link\":\"/a\"}\n{\"title\":\"Gamma\",\"link\":null}\n" {
 		t.Fatalf("jsonl = %q", jl.String())
 	}
@@ -300,107 +319,121 @@ func (s *site) handle(method string, params json.RawMessage) (string, bool) {
 	return `{}`, false
 }
 
-func TestExtractPagination(t *testing.T) {
-	origin := httptest.NewServer(http.NotFoundHandler()) // robots.txt 404 = allowed
-	t.Cleanup(origin.Close)
-	rowsFor := func(tag string, n int) string {
-		var rs []string
-		for i := range n {
-			rs = append(rs, fmt.Sprintf(`["%s%d"]`, tag, i))
-		}
-		return "[" + strings.Join(rs, ",") + "]"
-	}
-	run := func(t *testing.T, s *site, o ExtractOptions) (lines []string, sleeps int) {
-		o.CDPBase = fakeCDPFn(t, s.handle)
-		o.Container, o.Fields, o.Format = "li", []Field{{Name: "t", Selector: "a"}}, "jsonl"
-		var out bytes.Buffer
-		env := Env{Sleep: func(time.Duration) { sleeps++ }}
-		if err := Extract(context.Background(), env, o, &out); err != nil {
-			t.Fatal(err)
-		}
-		return strings.Split(strings.TrimSpace(out.String()), "\n"), sleeps
-	}
+// paginationEnv is an origin whose robots.txt 404s (allowed) plus helpers to run Extract against a simulated site.
+type paginationEnv struct{ origin string }
 
-	t.Run("next follows the href until absent, capped by max-pages", func(t *testing.T) {
-		mk := func() *site {
-			return &site{
-				rows: func(u string, _ int) string { return rowsFor(strings.TrimPrefix(u, origin.URL+"/"), 2) },
-				next: func(u string) string {
-					return map[string]string{origin.URL + "/p1": origin.URL + "/p2", origin.URL + "/p2": origin.URL + "/p3"}[u]
-				},
+func newPaginationEnv(t *testing.T) paginationEnv {
+	t.Helper()
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	return paginationEnv{origin: srv.URL}
+}
+
+func rowsFor(tag string, n int) string {
+	var rs []string
+	for i := range n {
+		rs = append(rs, fmt.Sprintf(`["%s%d"]`, tag, i))
+	}
+	return "[" + strings.Join(rs, ",") + "]"
+}
+
+// run extracts from the simulated site as jsonl and returns the output lines and the polite-delay count.
+func (pe paginationEnv) run(t *testing.T, s *site, o ExtractOptions) (lines []string, sleeps int) {
+	t.Helper()
+	o.CDPBase = fakeCDPFn(t, s.handle)
+	o.Container, o.Fields, o.Format = "li", []Field{{Name: "t", Selector: "a"}}, "jsonl"
+	var out bytes.Buffer
+	env := Env{Sleep: func(time.Duration) { sleeps++ }}
+	if err := Extract(context.Background(), env, o, &out); err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(out.String()), "\n"), sleeps
+}
+
+// chain links /p1 -> /p2 -> /p3 and ends there.
+func (pe paginationEnv) chain(u string) string {
+	return map[string]string{pe.origin + "/p1": pe.origin + "/p2", pe.origin + "/p2": pe.origin + "/p3"}[u]
+}
+
+func TestExtractPaginationNextFollowsHrefUntilAbsent(t *testing.T) {
+	pe := newPaginationEnv(t)
+	mk := func() *site {
+		return &site{
+			rows: func(u string, _ int) string { return rowsFor(strings.TrimPrefix(u, pe.origin+"/"), 2) },
+			next: pe.chain,
+		}
+	}
+	s := mk()
+	lines, sleeps := pe.run(t, s, ExtractOptions{URL: pe.origin + "/p1", Next: "a.n"})
+	if want := []string{pe.origin + "/p1", pe.origin + "/p2", pe.origin + "/p3"}; !reflect.DeepEqual(s.navs, want) {
+		t.Fatalf("navs = %v, want %v", s.navs, want)
+	}
+	if len(lines) != 6 || lines[2] != `{"t":"p20"}` || sleeps != 3 {
+		t.Fatalf("lines = %v sleeps = %d (want 6 rows, 3 polite delays, one before each next probe)", lines, sleeps)
+	}
+	s = mk()
+	lines, _ = pe.run(t, s, ExtractOptions{URL: pe.origin + "/p1", Next: "a.n", MaxPages: 2})
+	if len(s.navs) != 2 || len(lines) != 4 {
+		t.Fatalf("max-pages 2: navs = %v, %d rows", s.navs, len(lines))
+	}
+}
+
+func TestExtractPaginationNextStopsOnRepeatedRows(t *testing.T) {
+	pe := newPaginationEnv(t)
+	s := &site{
+		rows: func(string, int) string { return rowsFor("same", 2) },
+		next: pe.chain,
+	}
+	lines, _ := pe.run(t, s, ExtractOptions{URL: pe.origin + "/p1", Next: "a.n"})
+	if len(lines) != 2 || len(s.navs) != 2 {
+		t.Fatalf("navs = %v, rows = %v; want the repeat page dropped", s.navs, lines)
+	}
+}
+
+func TestExtractPaginationTemplateStopsAtFirstEmptyPage(t *testing.T) {
+	pe := newPaginationEnv(t)
+	mk := func() *site {
+		return &site{rows: func(u string, _ int) string {
+			if strings.HasSuffix(u, "p=3") {
+				return "[]"
 			}
-		}
-		s := mk()
-		lines, sleeps := run(t, s, ExtractOptions{URL: origin.URL + "/p1", Next: "a.n"})
-		if want := []string{origin.URL + "/p1", origin.URL + "/p2", origin.URL + "/p3"}; !reflect.DeepEqual(s.navs, want) {
-			t.Fatalf("navs = %v, want %v", s.navs, want)
-		}
-		if len(lines) != 6 || lines[2] != `{"t":"p20"}` || sleeps != 3 {
-			t.Fatalf("lines = %v sleeps = %d (want 6 rows, 3 polite delays, one before each next probe)", lines, sleeps)
-		}
-		s = mk()
-		lines, _ = run(t, s, ExtractOptions{URL: origin.URL + "/p1", Next: "a.n", MaxPages: 2})
-		if len(s.navs) != 2 || len(lines) != 4 {
-			t.Fatalf("max-pages 2: navs = %v, %d rows", s.navs, len(lines))
-		}
-	})
+			return rowsFor(u[len(u)-1:], 2)
+		}}
+	}
+	tmpl := pe.origin + "/list?p={page}"
+	s := mk()
+	lines, _ := pe.run(t, s, ExtractOptions{URL: pe.origin + "/list", Template: tmpl})
+	if len(s.navs) != 3 || s.navs[2] != pe.origin+"/list?p=3" || len(lines) != 4 {
+		t.Fatalf("navs = %v, rows = %v", s.navs, lines)
+	}
+	s = mk()
+	lines, _ = pe.run(t, s, ExtractOptions{URL: pe.origin + "/list", Template: tmpl, MaxPages: 2})
+	if len(s.navs) != 2 || len(lines) != 4 {
+		t.Fatalf("max-pages 2: navs = %v, %d rows", s.navs, len(lines))
+	}
+}
 
-	t.Run("next stops when a page repeats the previous rows", func(t *testing.T) {
-		s := &site{
-			rows: func(string, int) string { return rowsFor("same", 2) },
-			next: func(u string) string {
-				return map[string]string{origin.URL + "/p1": origin.URL + "/p2", origin.URL + "/p2": origin.URL + "/p3"}[u]
+func TestExtractPaginationScrollStopsAfterNoGrowthRounds(t *testing.T) {
+	pe := newPaginationEnv(t)
+	mk := func() *site {
+		return &site{
+			rows: func(string, int) string { return rowsFor("s", 4) },
+			count: func(n int) int {
+				if n >= 1 {
+					return 4
+				}
+				return 2
 			},
 		}
-		lines, _ := run(t, s, ExtractOptions{URL: origin.URL + "/p1", Next: "a.n"})
-		if len(lines) != 2 || len(s.navs) != 2 {
-			t.Fatalf("navs = %v, rows = %v; want the repeat page dropped", s.navs, lines)
-		}
-	})
-
-	t.Run("pages template stops at the first empty page", func(t *testing.T) {
-		mk := func() *site {
-			return &site{rows: func(u string, _ int) string {
-				if strings.HasSuffix(u, "p=3") {
-					return "[]"
-				}
-				return rowsFor(u[len(u)-1:], 2)
-			}}
-		}
-		tmpl := origin.URL + "/list?p={page}"
-		s := mk()
-		lines, _ := run(t, s, ExtractOptions{URL: origin.URL + "/list", Template: tmpl})
-		if len(s.navs) != 3 || s.navs[2] != origin.URL+"/list?p=3" || len(lines) != 4 {
-			t.Fatalf("navs = %v, rows = %v", s.navs, lines)
-		}
-		s = mk()
-		lines, _ = run(t, s, ExtractOptions{URL: origin.URL + "/list", Template: tmpl, MaxPages: 2})
-		if len(s.navs) != 2 || len(lines) != 4 {
-			t.Fatalf("max-pages 2: navs = %v, %d rows", s.navs, len(lines))
-		}
-	})
-
-	t.Run("scroll stops after 3 no-growth rounds, capped by max-pages", func(t *testing.T) {
-		mk := func() *site {
-			return &site{
-				rows: func(string, int) string { return rowsFor("s", 4) },
-				count: func(n int) int {
-					if n >= 1 {
-						return 4
-					}
-					return 2
-				},
-			}
-		}
-		s := mk()
-		lines, _ := run(t, s, ExtractOptions{URL: origin.URL + "/feed", Scroll: true})
-		if s.scrolls != 4 || len(lines) != 4 { // 1 growing round + 3 stalls, one grab at the end
-			t.Fatalf("scrolls = %d, rows = %d; want 4 scrolls, 4 rows", s.scrolls, len(lines))
-		}
-		s = mk()
-		_, _ = run(t, s, ExtractOptions{URL: origin.URL + "/feed", Scroll: true, MaxPages: 2})
-		if s.scrolls != 2 {
-			t.Fatalf("max-pages 2: scrolls = %d, want 2", s.scrolls)
-		}
-	})
+	}
+	s := mk()
+	lines, _ := pe.run(t, s, ExtractOptions{URL: pe.origin + "/feed", Scroll: true})
+	if s.scrolls != 4 || len(lines) != 4 { // 1 growing round + 3 stalls, one grab at the end
+		t.Fatalf("scrolls = %d, rows = %d; want 4 scrolls, 4 rows", s.scrolls, len(lines))
+	}
+	s = mk()
+	_, _ = pe.run(t, s, ExtractOptions{URL: pe.origin + "/feed", Scroll: true, MaxPages: 2})
+	if s.scrolls != 2 {
+		t.Fatalf("max-pages 2: scrolls = %d, want 2", s.scrolls)
+	}
 }

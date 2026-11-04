@@ -163,8 +163,17 @@ func RouteSubagentsOn() (on bool, source string) {
 // validateRouting checks a routing object's shape: weight names/sum, cell agent/alias/account names, and
 // opencode's own freeTiers/freeFirstOutput.
 func validateRouting(r Routing) []string {
+	errs := validateRouteCells(r.Cells)
+	if err := ValidateRouteWeights(r.Weights); err != nil {
+		errs = append(errs, err.Error())
+	}
+	return append(errs, validateOpencodeRouting(r.Opencode)...)
+}
+
+// validateRouteCells checks each cell's agent, alias and account names.
+func validateRouteCells(cells map[string]map[string]RouteCell) []string {
 	var errs []string
-	for agent, aliases := range r.Cells {
+	for agent, aliases := range cells {
 		if !slices.Contains(RouteAgents, agent) {
 			errs = append(errs, fmt.Sprintf("routing.cells names unknown agent %q", agent))
 			continue
@@ -173,29 +182,38 @@ func validateRouting(r Routing) []string {
 			if !validRouteRow(alias) {
 				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown alias or Claude id", agent, alias))
 			}
-			switch {
-			case cell.Account != "" && !validRouteAccountKey(cell.Account):
-				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", agent, alias, cell.Account))
-			case cell.Account == "" && agent == "opencode" && cell.Model != "" &&
-				!slices.Contains(RouteOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
-				errs = append(errs, fmt.Sprintf("routing.cells opencode/%s model %q prefix has no known billing account; set account_key explicitly", alias, cell.Model))
-			}
+			errs = append(errs, validateCellAccount(agent, alias, cell)...)
 		}
 	}
-	if err := ValidateRouteWeights(r.Weights); err != nil {
-		errs = append(errs, err.Error())
+	return errs
+}
+
+// validateCellAccount checks one cell's account_key, or the billing account its opencode model prefix implies.
+func validateCellAccount(agent, alias string, cell RouteCell) []string {
+	switch {
+	case cell.Account != "" && !validRouteAccountKey(cell.Account):
+		return []string{fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", agent, alias, cell.Account)}
+	case cell.Account == "" && agent == "opencode" && cell.Model != "" &&
+		!slices.Contains(RouteOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
+		return []string{fmt.Sprintf("routing.cells opencode/%s model %q prefix has no known billing account; set account_key explicitly", alias, cell.Model)}
 	}
-	for _, n := range r.Opencode.LadderOrder() {
+	return nil
+}
+
+// validateOpencodeRouting checks opencode's ladder, freeTiers and freeFirstOutput.
+func validateOpencodeRouting(o OpencodeRouting) []string {
+	var errs []string
+	for _, n := range o.LadderOrder() {
 		if !slices.Contains(RouteOpencodeSubIDs, n) {
 			errs = append(errs, fmt.Sprintf("routing.opencode.ladder names unknown opencode sub id %q (%s)", n, strings.Join(RouteOpencodeSubIDs, ", ")))
 		}
 	}
-	if r.Opencode.FreeTierOK("opus") {
+	if o.FreeTierOK("opus") {
 		errs = append(errs, "routing.opencode.freeTiers cannot include \"opus\"")
 	}
-	if r.Opencode.FreeFirstOutput != "" {
-		if d, err := time.ParseDuration(r.Opencode.FreeFirstOutput); err != nil || d <= 0 {
-			errs = append(errs, fmt.Sprintf("routing.opencode.freeFirstOutput %q must be a positive Go duration", r.Opencode.FreeFirstOutput))
+	if o.FreeFirstOutput != "" {
+		if d, err := time.ParseDuration(o.FreeFirstOutput); err != nil || d <= 0 {
+			errs = append(errs, fmt.Sprintf("routing.opencode.freeFirstOutput %q must be a positive Go duration", o.FreeFirstOutput))
 		}
 	}
 	return errs
@@ -228,13 +246,7 @@ func validateRung(r *Registry, label string, g Rung) []string {
 	if g.Agent == "" && g.Provider == "" {
 		return []string{label + " names neither an agent nor a provider"}
 	}
-	var errs []string
-	if g.Agent != "" && !slices.Contains(RouteAgents, g.Agent) {
-		errs = append(errs, fmt.Sprintf("%s names unknown agent %q (%s)", label, g.Agent, strings.Join(RouteAgents, ", ")))
-	}
-	if g.Provider != "" && !slices.Contains(ProviderKeys, g.Provider) {
-		errs = append(errs, fmt.Sprintf("%s names unknown provider %q (%s)", label, g.Provider, strings.Join(ProviderKeys, ", ")))
-	}
+	errs := rungNameErrors(label, g)
 	if len(g.Models) > 0 && g.Agent == "" {
 		return append(errs, label+" lists models without an agent")
 	}
@@ -242,6 +254,18 @@ func validateRung(r *Registry, label string, g Rung) []string {
 		if !rungModelOK(r, g.Agent, m) {
 			errs = append(errs, fmt.Sprintf("%s model %q is no alias or model a row serves", label, m))
 		}
+	}
+	return errs
+}
+
+// rungNameErrors checks that a rung's agent and provider, when set, are known.
+func rungNameErrors(label string, g Rung) []string {
+	var errs []string
+	if g.Agent != "" && !slices.Contains(RouteAgents, g.Agent) {
+		errs = append(errs, fmt.Sprintf("%s names unknown agent %q (%s)", label, g.Agent, strings.Join(RouteAgents, ", ")))
+	}
+	if g.Provider != "" && !slices.Contains(ProviderKeys, g.Provider) {
+		errs = append(errs, fmt.Sprintf("%s names unknown provider %q (%s)", label, g.Provider, strings.Join(ProviderKeys, ", ")))
 	}
 	return errs
 }
@@ -312,35 +336,8 @@ func NormalizeOpencodeLadder(r *Registry) *[]string {
 func UpdateRouting(fn func(*Routing) error) error {
 	return vault.Update(func(tx *vault.Tx) error {
 		old, _ := tx.Get(vault.Overlay, "providers")
-		doc := map[string]json.RawMessage{}
-		if len(old) > 0 {
-			if err := json.Unmarshal([]byte(old), &doc); err != nil {
-				return fmt.Errorf("vault overlay/providers: %w", err)
-			}
-		}
-		if doc == nil {
-			doc = map[string]json.RawMessage{}
-		}
-		var r Routing
-		if b, ok := doc["routing"]; ok {
-			if err := json.Unmarshal(b, &r); err != nil {
-				return fmt.Errorf("vault overlay/providers: routing: %w", err)
-			}
-		}
-		if err := fn(&r); err != nil {
-			return err
-		}
-		b, err := json.Marshal(r)
+		newDoc, err := routingDoc(old, fn)
 		if err != nil {
-			return err
-		}
-		doc["routing"] = b
-		newDoc, err := json.MarshalIndent(doc, "", "  ")
-		if err != nil {
-			return err
-		}
-		newDoc = append(newDoc, '\n')
-		if err := Validate(newDoc); err != nil {
 			return err
 		}
 		if err := tx.Put(vault.Overlay, "providers.prev", old); err != nil {
@@ -348,4 +345,40 @@ func UpdateRouting(fn func(*Routing) error) error {
 		}
 		return tx.Put(vault.Overlay, "providers", string(newDoc))
 	})
+}
+
+// routingDoc applies fn to the routing object in the stored overlay doc old and returns the validated new doc.
+func routingDoc(old string, fn func(*Routing) error) ([]byte, error) {
+	doc := map[string]json.RawMessage{}
+	if len(old) > 0 {
+		if err := json.Unmarshal([]byte(old), &doc); err != nil {
+			return nil, fmt.Errorf("vault overlay/providers: %w", err)
+		}
+	}
+	if doc == nil {
+		doc = map[string]json.RawMessage{}
+	}
+	var r Routing
+	if b, ok := doc["routing"]; ok {
+		if err := json.Unmarshal(b, &r); err != nil {
+			return nil, fmt.Errorf("vault overlay/providers: routing: %w", err)
+		}
+	}
+	if err := fn(&r); err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	doc["routing"] = b
+	newDoc, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	newDoc = append(newDoc, '\n')
+	if err := Validate(newDoc); err != nil {
+		return nil, err
+	}
+	return newDoc, nil
 }

@@ -63,30 +63,42 @@ func lockVault(t *testing.T, name, value string) {
 func TestCredentialLockedVaultFallsThrough(t *testing.T) {
 	lockVault(t, "LOCKED_KEY", "sealed-value")
 	t.Setenv("LOCKED_KEY", "")
-	ctx := context.Background()
+	t.Run("auth.file", lockedVaultAuthFile)
+	t.Run("auth.command", lockedVaultAuthCommand)
+	t.Run("nothing else", lockedVaultNothingElse)
+	t.Run("env over locked vault", lockedVaultEnvWins)
+}
 
+func lockedVaultAuthFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(file, []byte("  from-file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	p := &Provider{Name: "lk", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", File: file}}
-	if v, err := Credential(ctx, p); err != nil || v != "from-file" {
+	if v, err := Credential(context.Background(), p); err != nil || v != "from-file" {
 		t.Errorf("Credential (locked vault, auth.file) = %q, %v; want from-file", v, err)
 	}
+}
 
-	p = &Provider{Name: "lk-cmd", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", Command: "echo minted-locked"}}
-	if v, err := Credential(ctx, p); err != nil || v != "minted-locked" {
+func lockedVaultAuthCommand(t *testing.T) {
+	p := &Provider{Name: "lk-cmd", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", Command: "echo minted-locked"}}
+	if v, err := Credential(context.Background(), p); err != nil || v != "minted-locked" {
 		t.Errorf("Credential (locked vault, auth.command) = %q, %v; want minted-locked", v, err)
 	}
+}
 
-	p = &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
-	v, err := Credential(ctx, p)
+func lockedVaultNothingElse(t *testing.T) {
+	p := &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
+	v, err := Credential(context.Background(), p)
 	if err == nil || v != "" || !strings.Contains(err.Error(), "lk-none: no credential (vault:") {
 		t.Errorf("Credential (locked vault, nothing else) = %q, %v; want a \"no credential (vault: …)\" error", v, err)
 	}
+}
 
+func lockedVaultEnvWins(t *testing.T) {
+	p := &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
 	t.Setenv("LOCKED_KEY", "from-env")
-	if v, err := Credential(ctx, p); err != nil || v != "from-env" {
+	if v, err := Credential(context.Background(), p); err != nil || v != "from-env" {
 		t.Errorf("Credential (env over a locked vault) = %q, %v; want from-env", v, err)
 	}
 }
@@ -343,32 +355,55 @@ func oidcServer(t *testing.T, h func(r *http.Request, form url.Values) (status i
 	return srv
 }
 
-func TestAuthOAuthM2MMintsViaOIDC(t *testing.T) {
-	var user, pass, grant string
-	var posts atomic.Int32
+// m2mRig is an m2m row on an OIDC server that records the last basic-auth pair and grant and counts posts.
+type m2mRig struct {
+	user, pass, grant string
+	posts             atomic.Int32
+	p                 *Provider
+}
+
+func newM2MRig(t *testing.T) *m2mRig {
+	rig := &m2mRig{}
 	srv := oidcServer(t, func(r *http.Request, f url.Values) (int, map[string]any) {
-		user, pass, _ = r.BasicAuth()
-		grant = f.Get("grant_type")
-		posts.Add(1)
+		rig.user, rig.pass, _ = r.BasicAuth()
+		rig.grant = f.Get("grant_type")
+		rig.posts.Add(1)
 		return 200, map[string]any{"access_token": "m2m-minted", "expires_in": 3600}
 	})
-	p := mintRow(t, "kind-m2m-ok", AuthM2M, "sp-client", srv.URL)
-	if err := vault.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
+	rig.p = mintRow(t, "kind-m2m-ok", AuthM2M, "sp-client", srv.URL)
+	if err := vault.Store(AuthSecretName(rig.p), "sp-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Credential(context.Background(), p)
+	return rig
+}
+
+func (r *m2mRig) mint(t *testing.T) {
+	got, err := Credential(context.Background(), r.p)
 	if err != nil || got != "m2m-minted" {
 		t.Fatalf("Credential = %q, %v", got, err)
 	}
-	if user != "sp-client" || pass != "sp-secret-xyz" || grant != "client_credentials" {
-		t.Errorf("basic %q/%q grant %q", user, pass, grant)
+	if r.user != "sp-client" || r.pass != "sp-secret-xyz" || r.grant != "client_credentials" {
+		t.Errorf("basic %q/%q grant %q", r.user, r.pass, r.grant)
 	}
-	if _, err := Credential(context.Background(), p); err != nil || posts.Load() != 1 {
-		t.Errorf("second call should hit the cache: posts=%d err=%v", posts.Load(), err)
+}
+
+func (r *m2mRig) cache(t *testing.T) {
+	if _, err := Credential(context.Background(), r.p); err != nil || r.posts.Load() != 1 {
+		t.Errorf("second call should hit the cache: posts=%d err=%v", r.posts.Load(), err)
 	}
-	if _, err := Refresh(context.Background(), p); err != nil || posts.Load() != 2 {
-		t.Errorf("Refresh should re-mint: posts=%d err=%v", posts.Load(), err)
+}
+
+func (r *m2mRig) refresh(t *testing.T) {
+	if _, err := Refresh(context.Background(), r.p); err != nil || r.posts.Load() != 2 {
+		t.Errorf("Refresh should re-mint: posts=%d err=%v", r.posts.Load(), err)
 	}
+}
+
+func TestAuthOAuthM2MMintsViaOIDC(t *testing.T) {
+	rig := newM2MRig(t)
+	t.Run("mint", rig.mint)
+	t.Run("cache", rig.cache)
+	t.Run("refresh", rig.refresh)
 }
 
 func TestAuthOAuthM2MRejectedHidesSecret(t *testing.T) {
@@ -588,27 +623,7 @@ func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 	putOAuth(t, p, oauthValue{Refresh: idp.rotate()})
 
 	const n = 16
-	var wg sync.WaitGroup
-	errs := make(chan error, n)
-	start := make(chan struct{})
-	for i := range n {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			var err error
-			if i%2 == 0 {
-				_, err = Refresh(context.Background(), p)
-			} else {
-				_, err = Credential(context.Background(), p)
-			}
-			errs <- err
-		}(i)
-	}
-	close(start)
-	wg.Wait()
-	close(errs)
-	for err := range errs {
+	for err := range concurrentRefreshes(p, n) {
 		if err != nil {
 			t.Errorf("concurrent call failed: %v", err)
 		}
@@ -632,6 +647,31 @@ func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 	if ov, err := readOAuth(p); err != nil || ov.Refresh != idp.valid {
 		t.Errorf("sealed token = %q, %v; want last issued %q", ov.Refresh, err, idp.valid)
 	}
+}
+
+// concurrentRefreshes fires n calls released together (even: Refresh, odd: Credential) and returns their closed error channel.
+func concurrentRefreshes(p *Provider, n int) <-chan error {
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	start := make(chan struct{})
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			var err error
+			if i%2 == 0 {
+				_, err = Refresh(context.Background(), p)
+			} else {
+				_, err = Credential(context.Background(), p)
+			}
+			errs <- err
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	return errs
 }
 
 func TestValidU2MCannotReplayInflightRefresh(t *testing.T) {
@@ -704,22 +744,7 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 
-	open := func(authURL string) error {
-		u, err := url.Parse(authURL)
-		if err != nil {
-			return err
-		}
-		q := u.Query()
-		cb := "http://127.0.0.1:" + strconv.Itoa(port) + "/?code=the-code&state=" + url.QueryEscape(q.Get("state"))
-		go func() {
-			resp, err := http.Get(cb)
-			if err == nil {
-				_ = resp.Body.Close()
-			}
-		}()
-		return nil
-	}
-	d, err := LoginU2M(context.Background(), p, oauth.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second})
+	d, err := LoginU2M(context.Background(), p, oauth.LoginOptions{Open: callbackOpener(port), Port: port, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,190 +762,21 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	}
 }
 
-// countingCmd returns an auth command that appends a line to a counter file, sleeps, then runs tail.
-func countingCmd(t *testing.T, name, sleep, tail string) (cmd, counter string) {
-	t.Helper()
-	counter = filepath.Join(t.TempDir(), name+".count")
-	return fmt.Sprintf("echo x >> %q; sleep %s; %s", counter, sleep, tail), counter
-}
-
-func runCount(t *testing.T, counter string) int {
-	t.Helper()
-	b, err := os.ReadFile(counter)
-	if os.IsNotExist(err) {
-		return 0
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.Count(string(b), "x\n")
-}
-
-func freshProvider(t *testing.T, p *Provider) *Provider {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cmdCache.Delete(p.Name)
-	t.Cleanup(func() { cmdCache.Delete(p.Name) })
-	return p
-}
-
-// herd fires n concurrent Credential calls released together.
-func herd(p *Provider, n int) ([]string, []error) {
-	vals, errs := make([]string, n), make([]error, n)
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for i := range n {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			vals[i], errs[i] = Credential(context.Background(), p)
-		}(i)
-	}
-	close(start)
-	wg.Wait()
-	return vals, errs
-}
-
-func TestCommandCredentialSingleFlightValue(t *testing.T) {
-	cmd, counter := countingCmd(t, "sf", "0.2", "echo shared-token")
-	p := freshProvider(t, &Provider{Name: "sf-value", Auth: Auth{Type: AuthKey, Command: cmd}})
-	vals, errs := herd(p, 20)
-	for i := range vals {
-		if errs[i] != nil || vals[i] != "shared-token" {
-			t.Fatalf("caller %d: %q, %v", i, vals[i], errs[i])
+// callbackOpener stands in for the browser: it GETs the loopback callback with the code and the login's own state.
+func callbackOpener(port int) func(string) error {
+	return func(authURL string) error {
+		u, err := url.Parse(authURL)
+		if err != nil {
+			return err
 		}
-	}
-	if c := runCount(t, counter); c != 1 {
-		t.Fatalf("auth command ran %d times, want 1", c)
-	}
-}
-
-func TestCommandCredentialSingleFlightSharesError(t *testing.T) {
-	cmd, counter := countingCmd(t, "sfe", "0.2", "exit 3")
-	p := freshProvider(t, &Provider{Name: "sf-err", Auth: Auth{Type: AuthKey, Command: cmd}})
-	_, errs := herd(p, 20)
-	for i, err := range errs {
-		if err == nil || !strings.Contains(err.Error(), "auth command failed") {
-			t.Fatalf("caller %d: want shared auth failure, got %v", i, err)
-		}
-	}
-	if c := runCount(t, counter); c != 1 {
-		t.Fatalf("failing command ran %d times, want 1", c)
-	}
-	if _, ok := cmdCache.Load(p.Name); ok {
-		t.Fatal("a failed mint must not be cached")
-	}
-}
-
-func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
-	cmd, counter := countingCmd(t, "rf", "1", "echo stale-token")
-	forced := counter + ".forced"
-	refresh := fmt.Sprintf("echo forced >> %q; echo fresh-token", forced)
-	p := freshProvider(t, &Provider{Name: "sf-refresh",
-		Auth: Auth{Type: AuthKey, Command: cmd, RefreshCommand: refresh}})
-	done := make(chan struct{})
-	go func() { _, _ = Credential(context.Background(), p); close(done) }()
-	deadline := time.Now().Add(5 * time.Second)
-	for runCount(t, counter) == 0 { // wait until the non-forced mint is truly in flight
-		if time.Now().After(deadline) {
-			t.Fatal("non-forced mint never started")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	got, err := Refresh(context.Background(), p)
-	if err != nil || got != "fresh-token" {
-		t.Fatalf("Refresh = %q, %v; want fresh-token (forced mint, not the in-flight result)", got, err)
-	}
-	if b, _ := os.ReadFile(forced); strings.Count(string(b), "forced") != 1 {
-		t.Fatalf("refresh command ran %q, want once", b)
-	}
-	<-done
-}
-
-func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cases := []struct{ name, typ, header, wantHdr, wantVal string }{
-		{"apikey", AuthKey, HeaderXAPIKey, "X-Api-Key", "minted"},
-		{"bearer", AuthKey, HeaderBearer, "Authorization", "Bearer minted"},
-		{"none", AuthNone, "", "", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p := &Provider{Name: "az-" + c.name, Auth: Auth{Type: c.typ, Header: c.header, Command: "echo minted"}}
-			cmdCache.Delete(p.Name)
-			h := http.Header{}
-			h.Set("Authorization", "Bearer client")
-			h.Set("X-Api-Key", "client-key")
-			h.Set("x-goog-api-key", "client-goog")
-			if err := Authorize(context.Background(), p, h); err != nil {
-				t.Fatal(err)
+		q := u.Query()
+		cb := "http://127.0.0.1:" + strconv.Itoa(port) + "/?code=the-code&state=" + url.QueryEscape(q.Get("state"))
+		go func() {
+			resp, err := http.Get(cb)
+			if err == nil {
+				_ = resp.Body.Close()
 			}
-			for _, k := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key"} {
-				want := ""
-				if strings.EqualFold(k, c.wantHdr) {
-					want = c.wantVal
-				}
-				if got := h.Get(k); got != want {
-					t.Errorf("%s = %q, want %q", k, got, want)
-				}
-			}
-		})
-	}
-}
-
-func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
-	gate := filepath.Join(t.TempDir(), "gate")
-	cmd, counter := countingCmd(t, "lc", "0", fmt.Sprintf("while [ ! -e %q ]; do sleep 0.02; done; echo survived-token", gate))
-	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthKey, Command: cmd}})
-	lctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _, _ = Credential(lctx, p) }() // leader
-	deadline := time.Now().Add(5 * time.Second)
-	for runCount(t, counter) == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("leader mint never started")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	vals, errs := make([]string, 5), make([]error, 5)
-	var wg sync.WaitGroup
-	for i := range vals {
-		wg.Add(1)
-		go func(i int) { defer wg.Done(); vals[i], errs[i] = Credential(context.Background(), p) }(i)
-	}
-	cancel() // leader's ctx dies mid-mint: the command is blocked on the gate and has already logged its start
-	if err := os.WriteFile(gate, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	wg.Wait()
-	for i := range vals {
-		if errs[i] != nil || vals[i] != "survived-token" {
-			t.Fatalf("follower %d: %q, %v", i, vals[i], errs[i])
-		}
-	}
-	if c := runCount(t, counter); c != 1 {
-		t.Fatalf("auth command ran %d times, want 1", c)
-	}
-}
-
-func TestMintOncePanicDoesNotWedgeLaterCallers(t *testing.T) {
-	p := &Provider{Name: "flight-panic"}
-	func() {
-		defer func() { _ = recover() }()
-		_, _ = mintOnce(context.Background(), p, true, func(context.Context) (string, error) { panic("boom") })
-	}()
-	done := make(chan string, 1)
-	go func() {
-		v, _ := mintOnce(context.Background(), p, true, func(context.Context) (string, error) { return "ok", nil })
-		done <- v
-	}()
-	select {
-	case v := <-done:
-		if v != "ok" {
-			t.Errorf("got %q", v)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("second mintOnce hung after a panicking mint")
+		}()
+		return nil
 	}
 }

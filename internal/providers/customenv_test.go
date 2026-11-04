@@ -10,10 +10,12 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+const seededEnv = `raw "quotes" and \slashes`
+
 func TestCustomEnvRoundTripAndSecretRefs(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.Put(t, vault.Env, "SEEDED", `raw "quotes" and \slashes`)
-	if got := CustomEnv()["SEEDED"]; got != `raw "quotes" and \slashes` {
+	vaulttest.Put(t, vault.Env, "SEEDED", seededEnv)
+	if got := CustomEnv()["SEEDED"]; got != seededEnv {
 		t.Fatalf("vault env read = %q, want raw value", got)
 	}
 	for k, v := range map[string]string{"PLAIN": "a b#c", "VAULTED": SecretRef, "GONE": SecretRef} {
@@ -27,29 +29,42 @@ func TestCustomEnvRoundTripAndSecretRefs(t *testing.T) {
 	if SecretRef != "@secret" {
 		t.Errorf("SecretRef = %q, want @secret", SecretRef)
 	}
+	t.Run("resolve", resolveCustomEnvRefs)
+	t.Run("delete", deleteCustomEnvKey)
+}
+
+func resolveCustomEnvRefs(t *testing.T) {
 	vals, missing, err := ResolveCustomEnv(func(k string) (string, bool) { return "secret", k == "VAULTED" })
-	if err != nil || vals["VAULTED"] != "secret" || vals["PLAIN"] != "a b#c" || vals["SEEDED"] != `raw "quotes" and \slashes` ||
+	if err != nil || vals["VAULTED"] != "secret" || vals["PLAIN"] != "a b#c" || vals["SEEDED"] != seededEnv ||
 		!slices.Equal(missing, []string{"GONE"}) {
 		t.Errorf("vals=%v missing=%v err=%v", vals, missing, err)
 	}
 	if _, ok := vals["GONE"]; ok {
 		t.Errorf("an unresolved secret ref must not be set: %v", vals)
 	}
+}
+
+func deleteCustomEnvKey(t *testing.T) {
 	if err := SetCustomEnv("PLAIN", ""); err != nil || CustomEnv()["PLAIN"] != "" {
 		t.Errorf("delete failed: %v %v", err, CustomEnv())
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
-		if got, ok := tx.Get(vault.Env, "PLAIN"); ok {
-			t.Errorf("deleted env key still present: %q", got)
-		}
-		for key, want := range map[string]string{"SEEDED": `raw "quotes" and \slashes`, "VAULTED": SecretRef} {
-			if got, ok := tx.Get(vault.Env, key); !ok || got != want {
-				t.Errorf("vault env %s = %q, present %v; want %q", key, got, ok, want)
-			}
-		}
+		checkEnvBucketAfterDelete(t, tx)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func checkEnvBucketAfterDelete(t *testing.T, tx *vault.Tx) {
+	t.Helper()
+	if got, ok := tx.Get(vault.Env, "PLAIN"); ok {
+		t.Errorf("deleted env key still present: %q", got)
+	}
+	for key, want := range map[string]string{"SEEDED": seededEnv, "VAULTED": SecretRef} {
+		if got, ok := tx.Get(vault.Env, key); !ok || got != want {
+			t.Errorf("vault env %s = %q, present %v; want %q", key, got, ok, want)
+		}
 	}
 }
 

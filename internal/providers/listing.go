@@ -24,43 +24,10 @@ type AgentServer struct {
 // ListTable renders the `configure provider --list` summary: one row per provider family, then one per agent CLI,
 // over the profiles whose credential is ready (m2m service principals excluded), then the fallback chain.
 func ListTable(reg *Registry, ready func(*Provider) bool, agents []AgentServer) []string {
-	groups := map[string][]string{}
-	modes := map[string][]string{}
-	for _, n := range reg.Names() {
-		p := reg.Providers[n]
-		if !ready(p) {
-			continue
-		}
-		g := p.Provider
-		modes[g] = appendUnique(modes[g], providerMode(p))
-		if p.Auth.Method() == AuthM2M {
-			continue // a service principal mints oauth logins from a cold start; it is an auth, not a profile
-		}
-		groups[g] = append(groups[g], n)
-	}
-	var rows [][3]string
-	var live []*Provider // provider order, so the agent rows read like the provider rows
-	for _, g := range providerGroups {
-		if len(groups[g]) > 0 {
-			names := sortProfiles(g, groups[g])
-			rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
-			for _, n := range names {
-				live = append(live, reg.Providers[n])
-			}
-		}
-	}
+	groups, modes := readyGroups(reg, ready)
+	rows, live := providerRows(reg, groups, modes)
 	rows = append(rows, [3]string{})
-	for _, a := range agents {
-		var names, vm []string
-		for _, p := range live {
-			if a.Serves(p) {
-				names, vm = append(names, p.Name), appendUnique(vm, providerMode(p))
-			}
-		}
-		if len(names) > 0 {
-			rows = append(rows, [3]string{a.Name, familyProfiles(reg, names), strings.Join(vm, ", ")})
-		}
-	}
+	rows = append(rows, agentRows(reg, agents, live)...)
 	w0, w1 := len("PROVIDERS"), len("PROFILES")
 	for _, r := range rows {
 		w0, w1 = max(w0, len(r[0])), max(w1, len(r[1]))
@@ -73,6 +40,56 @@ func ListTable(reg *Registry, ready func(*Provider) bool, agents []AgentServer) 
 		lines = append(lines, "", "fallback: "+strings.Join(reg.Fallback, " → "))
 	}
 	return lines
+}
+
+// readyGroups files the ready profile names and auth modes under their provider family.
+func readyGroups(reg *Registry, ready func(*Provider) bool) (groups, modes map[string][]string) {
+	groups, modes = map[string][]string{}, map[string][]string{}
+	for _, n := range reg.Names() {
+		p := reg.Providers[n]
+		if !ready(p) {
+			continue
+		}
+		g := p.Provider
+		modes[g] = appendUnique(modes[g], providerMode(p))
+		if p.Auth.Method() == AuthM2M {
+			continue // a service principal mints oauth logins from a cold start; it is an auth, not a profile
+		}
+		groups[g] = append(groups[g], n)
+	}
+	return groups, modes
+}
+
+// providerRows is one row per non-empty family, plus the live profiles in provider order.
+func providerRows(reg *Registry, groups, modes map[string][]string) (rows [][3]string, live []*Provider) {
+	for _, g := range providerGroups {
+		if len(groups[g]) == 0 {
+			continue
+		}
+		names := sortProfiles(g, groups[g])
+		rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
+		for _, n := range names {
+			live = append(live, reg.Providers[n])
+		}
+	}
+	return rows, live
+}
+
+// agentRows is one row per agent CLI that serves at least one live profile.
+func agentRows(reg *Registry, agents []AgentServer, live []*Provider) [][3]string {
+	var rows [][3]string
+	for _, a := range agents {
+		var names, vm []string
+		for _, p := range live {
+			if a.Serves(p) {
+				names, vm = append(names, p.Name), appendUnique(vm, providerMode(p))
+			}
+		}
+		if len(names) > 0 {
+			rows = append(rows, [3]string{a.Name, familyProfiles(reg, names), strings.Join(vm, ", ")})
+		}
+	}
+	return rows
 }
 
 // ProfileDetail renders one provider's `--list <name>` view; source and note are its resolved credential origin.

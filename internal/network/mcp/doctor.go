@@ -378,6 +378,16 @@ func Doctor(w io.Writer, o Options) int {
 
 // printReport renders rep as the human-readable, section-per-check report.
 func printReport(w io.Writer, rep Report) {
+	printDefsSection(w, rep)
+	fmt.Fprintln(w)
+	printHealthSection(w, rep.Health)
+	fmt.Fprintln(w)
+	printConflictsSection(w, rep.Conflicts)
+	fmt.Fprintln(w)
+	printSecretsSection(w, rep)
+}
+
+func printDefsSection(w io.Writer, rep Report) {
 	fmt.Fprintln(w, "== MCP servers (all scopes) ==")
 	if len(rep.Defs) == 0 {
 		fmt.Fprintln(w, "  no MCP servers defined anywhere")
@@ -385,33 +395,35 @@ func printReport(w io.Writer, rep Report) {
 	for _, d := range rep.Defs {
 		fmt.Fprintf(w, "  [%s] %s: %s\n", d.Scope, d.Server, d.D.display())
 	}
+}
 
-	fmt.Fprintln(w)
+func printHealthSection(w io.Writer, h HealthResult) {
 	fmt.Fprintln(w, "== MCP server health ==")
-	switch {
-	case rep.Health.Skipped != "":
-		fmt.Fprintln(w, "  live health:", rep.Health.Skipped)
-	default:
-		for _, ln := range rep.Health.Lines {
-			fmt.Fprintln(w, "  "+ln)
-		}
-		if rep.Health.Error != "" {
-			fmt.Fprintf(w, "  ⚠ `claude mcp list` failed: %s\n", rep.Health.Error)
-		} else if rep.Health.Failed > 0 {
-			fmt.Fprintf(w, "  ⚠ %d server(s) failed to connect\n", rep.Health.Failed)
-			fmt.Fprintln(w, "  note: npx-launched servers can false-negative on a cold-start timeout")
-		} else {
-			fmt.Fprintf(w, "  ✓ all reachable servers connected (%d)\n", rep.Health.Connected)
-		}
+	if h.Skipped != "" {
+		fmt.Fprintln(w, "  live health:", h.Skipped)
+		return
 	}
+	for _, ln := range h.Lines {
+		fmt.Fprintln(w, "  "+ln)
+	}
+	switch {
+	case h.Error != "":
+		fmt.Fprintf(w, "  ⚠ `claude mcp list` failed: %s\n", h.Error)
+	case h.Failed > 0:
+		fmt.Fprintf(w, "  ⚠ %d server(s) failed to connect\n", h.Failed)
+		fmt.Fprintln(w, "  note: npx-launched servers can false-negative on a cold-start timeout")
+	default:
+		fmt.Fprintf(w, "  ✓ all reachable servers connected (%d)\n", h.Connected)
+	}
+}
 
-	fmt.Fprintln(w)
+func printConflictsSection(w io.Writer, conflicts []Conflict) {
 	fmt.Fprintln(w, "== scope conflicts (same server in >1 scope) ==")
-	if len(rep.Conflicts) == 0 {
+	if len(conflicts) == 0 {
 		fmt.Fprintln(w, "  ✓ no server defined in more than one scope")
 	}
 	realConflicts := 0
-	for _, c := range rep.Conflicts {
+	for _, c := range conflicts {
 		for _, r := range c.Rows {
 			fmt.Fprintf(w, "      [%s] %s\n", r.Scope, r.D.display())
 		}
@@ -423,11 +435,12 @@ func printReport(w io.Writer, rep Report) {
 			fmt.Fprintf(w, "    · '%s' appears in multiple scopes but with the SAME command — intentional layering, benign.\n", c.Server)
 		}
 	}
-	if len(rep.Conflicts) > 0 && realConflicts == 0 {
+	if len(conflicts) > 0 && realConflicts == 0 {
 		fmt.Fprintln(w, "  ✓ no conflicting endpoints (only benign same-command layering)")
 	}
+}
 
-	fmt.Fprintln(w)
+func printSecretsSection(w io.Writer, rep Report) {
 	fmt.Fprintln(w, "== inline credential scan (MCP env/headers/url) ==")
 	if len(rep.Secrets) == 0 && len(rep.Unscanned) == 0 {
 		fmt.Fprintln(w, "  ✓ no inline secrets found")

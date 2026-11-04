@@ -70,15 +70,9 @@ func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 type liveModelEntry struct{ id, name, task, ready string }
 
 func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error) {
-	url, anthropicDialect := "", false
-	if host := PresetHost(p.Host); p.Preset == PresetDatabricks && host != "" {
-		url = host + "/api/2.0/serving-endpoints"
-	} else if r, ok := p.Route(ProtocolAnthropic); ok {
-		url, anthropicDialect = r+"/v1/models", true
-	} else if r, ok := p.Route(ProtocolOpenAI); ok {
-		url = r + "/models"
-	} else {
-		return nil, fmt.Errorf("%s has no route that lists models", p.Name)
+	url, anthropicDialect, err := catalogURL(p)
+	if err != nil {
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -87,14 +81,7 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if anthropicDialect {
 		req.Header.Set("anthropic-version", "2023-06-01") // required by api.anthropic.com on every direct call
 	}
-	if p.Auth.Type == AuthCLI {
-		tok := HeadlessOAuthToken()
-		if tok == "" {
-			return nil, ErrPassthrough
-		}
-		req.Header.Set("Authorization", "Bearer "+tok)
-		req.Header.Set("anthropic-beta", anthropicOAuthBeta)
-	} else if err := Authorize(ctx, p, req.Header); err != nil {
+	if err := authorizeCatalog(ctx, p, req); err != nil {
 		return nil, err
 	}
 	resp, err := httpClient().Do(req)
@@ -109,6 +96,39 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if p.Preset == PresetDatabricks && strings.HasSuffix(url, "/api/2.0/serving-endpoints") {
 		return decodeServingEndpoints(url, body)
 	}
+	return decodeModelsList(url, body)
+}
+
+// catalogURL picks the model-listing URL for p and whether it speaks the Anthropic dialect.
+func catalogURL(p *Provider) (url string, anthropicDialect bool, err error) {
+	if host := PresetHost(p.Host); p.Preset == PresetDatabricks && host != "" {
+		return host + "/api/2.0/serving-endpoints", false, nil
+	}
+	if r, ok := p.Route(ProtocolAnthropic); ok {
+		return r + "/v1/models", true, nil
+	}
+	if r, ok := p.Route(ProtocolOpenAI); ok {
+		return r + "/models", false, nil
+	}
+	return "", false, fmt.Errorf("%s has no route that lists models", p.Name)
+}
+
+// authorizeCatalog sets the credential headers on a catalog GET: the setup-token for a passthrough provider.
+func authorizeCatalog(ctx context.Context, p *Provider, req *http.Request) error {
+	if p.Auth.Type != AuthCLI {
+		return Authorize(ctx, p, req.Header)
+	}
+	tok := HeadlessOAuthToken()
+	if tok == "" {
+		return ErrPassthrough
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("anthropic-beta", anthropicOAuthBeta)
+	return nil
+}
+
+// decodeModelsList decodes an Anthropic/OpenAI {"data":[{id,display_name}]} listing.
+func decodeModelsList(url string, body []byte) ([]liveModelEntry, error) {
 	var doc struct {
 		Data []struct {
 			ID          string `json:"id"`

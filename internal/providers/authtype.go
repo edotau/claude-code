@@ -153,6 +153,22 @@ var (
 
 // validateAuthType checks a sealed row's companion fields and the account/workspace ids for one provider.
 func validateAuthType(n string, p *Provider) []string {
+	errs := validateAuthIDs(n, p)
+	k := p.Auth.Type
+	if sealedAuth(k) {
+		if err := checkAuthScheme(p); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	errs = append(errs, validateClientID(n, p)...)
+	if _, err := ResolveIdentity(p.Identity, ""); err != nil {
+		errs = append(errs, n+": "+err.Error())
+	}
+	return append(errs, validateSPClientID(n, p)...)
+}
+
+// validateAuthIDs checks the account and workspace id shapes.
+func validateAuthIDs(n string, p *Provider) []string {
 	var errs []string
 	if id := p.Auth.AccountID; id != "" && !accountIDRE.MatchString(id) {
 		errs = append(errs, fmt.Sprintf("%s: auth.accountId %q must match [0-9a-fA-F-]{8,64}", n, id))
@@ -160,12 +176,13 @@ func validateAuthType(n string, p *Provider) []string {
 	if id := p.Auth.WorkspaceID; id != "" && !workspaceIDRE.MatchString(id) {
 		errs = append(errs, fmt.Sprintf("%s: auth.workspaceId %q must be digits only", n, id))
 	}
+	return errs
+}
+
+// validateClientID checks auth.clientId against the m2m type and its allowed characters.
+func validateClientID(n string, p *Provider) []string {
+	var errs []string
 	k := p.Auth.Type
-	if sealedAuth(k) {
-		if err := checkAuthScheme(p); err != nil {
-			errs = append(errs, err.Error())
-		}
-	}
 	if k == AuthM2M && p.Auth.ClientID == "" {
 		errs = append(errs, n+": auth.type "+AuthM2M+" needs auth.clientId")
 	}
@@ -175,13 +192,16 @@ func validateAuthType(n string, p *Provider) []string {
 	if k != AuthM2M && p.Auth.ClientID != "" {
 		errs = append(errs, n+": auth.clientId needs auth.type "+AuthM2M)
 	}
-	if _, err := ResolveIdentity(p.Identity, ""); err != nil {
-		errs = append(errs, n+": "+err.Error())
-	}
+	return errs
+}
+
+// validateSPClientID checks auth.spClientId against the oauth type and its allowed characters.
+func validateSPClientID(n string, p *Provider) []string {
+	var errs []string
 	if strings.ContainsAny(p.Auth.SPClientID, "\r\n[=") {
 		errs = append(errs, n+": auth.spClientId must not contain CR, LF, '[' or '='")
 	}
-	if k != AuthOAuth && p.Auth.SPClientID != "" {
+	if p.Auth.Type != AuthOAuth && p.Auth.SPClientID != "" {
 		errs = append(errs, n+": auth.spClientId needs auth.type "+AuthOAuth)
 	}
 	return errs
@@ -435,11 +455,7 @@ func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
 		return oauth.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
 	if secret == "" {
-		err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
-		if p.Auth.Type == AuthOAuth {
-			err = &LoginRequiredError{err: err}
-		}
-		return oauth.Token{}, err
+		return oauth.Token{}, noSecretError(p, name)
 	}
 	if err := checkAuthScheme(p); err != nil {
 		return oauth.Token{}, err
@@ -451,6 +467,20 @@ func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
 	case AuthM2M:
 		return mintM2M(ctx, host, p.Auth.ClientID, secret)
 	}
+	return mintU2M(ctx, p, host, name, secret)
+}
+
+// noSecretError is the missing-credential error; an oauth row's is a LoginRequiredError.
+func noSecretError(p *Provider, name string) error {
+	err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
+	if p.Auth.Type == AuthOAuth {
+		err = &LoginRequiredError{err: err}
+	}
+	return err
+}
+
+// mintU2M exchanges the sealed refresh token and re-seals a rotated one.
+func mintU2M(ctx context.Context, p *Provider, host, name, secret string) (oauth.Token, error) {
 	tok, err := refreshU2M(ctx, host, secret)
 	if err != nil {
 		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login --profile %s`)", p.Name, err, p.Name)

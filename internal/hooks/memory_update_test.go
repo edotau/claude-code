@@ -8,9 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -89,56 +86,76 @@ func updatePayload(tr, cwd string) string {
 	return fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q}`, cwd, tr)
 }
 
-func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
+// updateRun drives the Stop / SessionEnd gates against one transcript with the detached spawn stubbed.
+type updateRun struct {
+	t     *testing.T
+	tr    string
+	cwd   string
+	calls *atomic.Int64
+}
+
+func newUpdateRun(t *testing.T) *updateRun {
+	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(bank.UpdateChildEnv, "")
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
-	run := func() int {
-		return sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
-	}
+	return &updateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: stubSpawn(t, true)}
+}
 
-	writeEdits(t, tr, 2)
-	if run() != ExitProceed || calls.Load() != 0 {
-		t.Fatal("under the edit floor must not spawn")
+func (u *updateRun) stop() int {
+	return sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(u.tr, u.cwd))), &bytes.Buffer{})
+}
+
+func (u *updateRun) end() {
+	runDirect("memory-end", strings.NewReader(updatePayload(u.tr, u.cwd)), io.Discard, io.Discard)
+}
+
+// wantSpawns fails the test unless exactly want detached updates have been dispatched so far.
+func (u *updateRun) wantSpawns(want int64, msg string) {
+	u.t.Helper()
+	if got := u.calls.Load(); got != want {
+		u.t.Errorf("%s: calls=%d, want %d", msg, got, want)
 	}
-	writeEdits(t, tr, 3)
-	if run() != ExitProceed || calls.Load() != 1 {
-		t.Fatalf("3 edits must spawn once, calls=%d", calls.Load())
+}
+
+func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
+	u := newUpdateRun(t)
+
+	writeEdits(t, u.tr, 2)
+	if u.stop() != ExitProceed {
+		t.Error("under the edit floor must proceed")
 	}
-	writeEdits(t, tr, 20)
-	if run(); calls.Load() != 1 {
-		t.Error("re-update inside the cooldown")
+	u.wantSpawns(0, "under the edit floor must not spawn")
+	writeEdits(t, u.tr, 3)
+	if u.stop() != ExitProceed {
+		t.Error("3 edits must proceed")
 	}
+	u.wantSpawns(1, "3 edits must spawn once")
+	writeEdits(t, u.tr, 20)
+	u.stop()
+	u.wantSpawns(1, "re-update inside the cooldown")
 	stamp := stampPath("s1")
 	writeStamp(stamp, time.Now().Add(-16*time.Minute), "bg", 3)
-	writeEdits(t, tr, 12)
-	if run(); calls.Load() != 1 {
-		t.Error("re-update with fewer than 10 new edits")
-	}
-	writeEdits(t, tr, 13)
-	if run(); calls.Load() != 2 {
-		t.Error("10 new edits after the cooldown must re-update")
-	}
+	writeEdits(t, u.tr, 12)
+	u.stop()
+	u.wantSpawns(1, "re-update with fewer than 10 new edits")
+	writeEdits(t, u.tr, 13)
+	u.stop()
+	u.wantSpawns(2, "10 new edits after the cooldown must re-update")
 	if st, _ := readStamp(stamp); !st.bg || st.edits != 13 {
 		t.Errorf("stamp %+v", st)
 	}
 
 	// SessionEnd: nothing new since the last dispatch → no spawn; new edits → final update.
-	if runDirect("memory-end", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard); calls.Load() != 2 {
-		t.Error("session end with no new edits spawned")
-	}
-	writeEdits(t, tr, 14)
-	if runDirect("memory-end", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard); calls.Load() != 3 {
-		t.Error("session end with new edits must spawn")
-	}
+	u.end()
+	u.wantSpawns(2, "session end with no new edits spawned")
+	writeEdits(t, u.tr, 14)
+	u.end()
+	u.wantSpawns(3, "session end with new edits must spawn")
 
 	t.Setenv(bank.UpdateChildEnv, "1")
 	_ = os.Remove(stamp)
-	if run(); calls.Load() != 3 {
-		t.Error("an update child must never spawn another")
-	}
+	u.stop()
+	u.wantSpawns(3, "an update child must never spawn another")
 }
 
 func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
@@ -172,34 +189,43 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	}
 }
 
-func TestSessionStartAutoInitAndNotice(t *testing.T) {
+// sessionStartContext runs the memory-start hook and returns the additionalContext it injected ("" when silent).
+func sessionStartContext(t *testing.T, session, cwd string) string {
+	t.Helper()
+	var out bytes.Buffer
+	runDirect("memory-start", strings.NewReader(fmt.Sprintf(`{"session_id":%q,"cwd":%q}`, session, cwd)), &out, io.Discard)
+	if out.Len() == 0 {
+		return ""
+	}
+	var doc struct {
+		H struct{ AdditionalContext string } `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc.H.AdditionalContext
+}
+
+// memoryGitRepo git-inits a fresh repo under a temp dir, skipping the test when git is missing.
+func memoryGitRepo(t *testing.T) string {
+	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv(bank.UpdateChildEnv, "")
-	cutoverStore(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
 	}
+	return repo
+}
+
+func TestSessionStartAutoInitAndNotice(t *testing.T) {
+	repo := memoryGitRepo(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(bank.UpdateChildEnv, "")
+	cutoverStore(t)
 	sub := filepath.Join(repo, "sub")
 	_ = os.MkdirAll(sub, 0o755)
-	start := func(session, cwd string) string {
-		var out bytes.Buffer
-		runDirect("memory-start", strings.NewReader(fmt.Sprintf(`{"session_id":%q,"cwd":%q}`, session, cwd)), &out, io.Discard)
-		if out.Len() == 0 {
-			return ""
-		}
-		var doc struct {
-			H struct{ AdditionalContext string } `json:"hookSpecificOutput"`
-		}
-		if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-			t.Fatal(err)
-		}
-		return doc.H.AdditionalContext
-	}
 	// Real session ids are UUID-shaped; memoryContext only advances the chain/ResetSeen for those
 	// (probe/test payloads like "probe-x" must not clobber it) — see recall.LooksLikeSessionID.
 	const (
@@ -207,24 +233,29 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		s1 = "11111111-1111-4111-8111-111111111111"
 		s2 = "22222222-2222-4222-8222-222222222222"
 	)
-	if got := start(s0, sub); got != "" || memory.HasBank(sub) {
+	if got := sessionStartContext(t, s0, sub); got != "" || memory.HasBank(sub) {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
 	// the unified surface is catalog + focus only; seed a catalog so the scaffold notice has a surface to ride on
 	if err := os.WriteFile(filepath.Join(memstore.StoreDir(), memstore.CatalogFile), []byte("# Memory catalog\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := start(s1, repo)
+	got := sessionStartContext(t, s1, repo)
 	if !strings.Contains(got, "Memory bank scaffolded at") {
 		t.Fatalf("auto-init surface: %q", got)
 	}
 	_ = memory.WriteUpdateResult(s1, memory.UpdateResult{Status: memory.UpdateFailed, Time: time.Now(), Log: "/x.log"})
-	got = start(s2, repo)
-	if strings.Contains(got, "scaffolded") || !strings.Contains(got, "Previous session id: "+s1) || !strings.Contains(got, "did not complete (failed) (log: /x.log)") {
-		t.Errorf("notice: %q", got[:min(len(got), 500)])
+	got = sessionStartContext(t, s2, repo)
+	if strings.Contains(got, "scaffolded") {
+		t.Errorf("notice must not re-announce the scaffold: %q", got[:min(len(got), 500)])
+	}
+	for _, want := range []string{"Previous session id: " + s1, "did not complete (failed) (log: /x.log)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notice lacks %q: %q", want, got[:min(len(got), 500)])
+		}
 	}
 	t.Setenv(bank.UpdateChildEnv, "1")
-	start("child", repo) // a non-UUID update-child id: excluded by IsUpdateChild regardless of shape
+	sessionStartContext(t, "child", repo) // a non-UUID update-child id: excluded by IsUpdateChild regardless of shape
 	if e, ok := readChain(filepath.Join(memstore.StateDir(), "last-session")); !ok || e.sessionID != s2 {
 		t.Errorf("an update child advanced the session chain: %+v ok=%v", e, ok)
 	}
@@ -495,403 +526,6 @@ func TestReadChainLegacyOneLineFormat(t *testing.T) {
 	}
 }
 
-// TestCountEditsIncludesSubagentEdits: a dispatched subagent's own agent-*.jsonl transcript counts toward
-// the parent session's edits, and that combined total is what arms the Stop update gate.
-func TestCountEditsIncludesSubagentEdits(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 1)
-	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 2)
-
-	if got := countEdits(tr, countPath("sub-session")); got != 3 {
-		t.Fatalf("countEdits = %d, want 3 (1 main edit + 2 subagent edits)", got)
-	}
-
-	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
-	payload := fmt.Sprintf(`{"session_id":"sub-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionUpdateCode(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
-		t.Fatalf("subagent edits must arm the update gate: code=%d calls=%d", code, calls.Load())
-	}
-}
-
-// TestCountEditsGitCommitWeightArmsGate: a single `git commit` Bash call, with zero Edit/Write calls,
-// counts for updateMinEdits on its own and arms the Stop gate.
-func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
-	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := countEdits(tr, countPath("commit-session")); got != updateMinEdits {
-		t.Fatalf("countEdits = %d, want %d (one git commit)", got, updateMinEdits)
-	}
-
-	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
-	payload := fmt.Sprintf(`{"session_id":"commit-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionUpdateCode(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
-		t.Fatalf("a bare git commit must arm the update gate: code=%d calls=%d", code, calls.Load())
-	}
-}
-
-// TestCountStateOldFormatReadsAndNewFieldsRoundTrip: a pre-upgrade "edits|offset" count file forces a
-// full rescan from 0 (its offset sits past commit lines the old binary never weighted), and
-// writeCountState's 3-field format round-trips exactly.
-func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	path := filepath.Join(t.TempDir(), "count-x")
-	if err := os.WriteFile(path, []byte("5|120"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cs, ok := readCountState(path)
-	if !ok || cs != (countState{}) {
-		t.Fatalf("old-format read = %+v ok=%v, want zero state forcing a full rescan", cs, ok)
-	}
-
-	want := countState{edits: 7, offset: 240, subEdits: 4, subBytes: 999}
-	writeCountState(path, want)
-	got, ok := readCountState(path)
-	if !ok || got != want {
-		t.Fatalf("round trip = %+v ok=%v, want %+v", got, ok, want)
-	}
-}
-
-// TestCountEditsOldFormatCountFileRescansUnweightedCommit: an old 2-field count file's offset already sits
-// past a `git commit` the old binary never weighted. Upgrading must force a full rescan from 0 so that
-// commit is counted at CommitEditWeight, and the count file is rewritten in the new 4-field format.
-func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
-	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	countFile := filepath.Join(t.TempDir(), "count-old")
-	if err := os.WriteFile(countFile, fmt.Appendf(nil, "0|%d", len(commit)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := countEdits(tr, countFile); got != updateMinEdits {
-		t.Fatalf("countEdits after old-format upgrade = %d, want %d (the commit, now weighted)", got, updateMinEdits)
-	}
-	raw, err := os.ReadFile(countFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if parts := strings.Split(strings.TrimSpace(string(raw)), "|"); len(parts) != 4 {
-		t.Fatalf("count file after upgrade = %q, want the 4-field format", raw)
-	}
-}
-
-// TestCountEditsThreeFieldCountFileRescansTurns: a 3-field pre-upgrade count file's offset sits past
-// user turns that format never counted, so upgrading must force a full rescan from 0 — the turns are
-// re-weighted — and the count file is rewritten in the 4-field format.
-func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeUserTurns(t, tr, 4)
-	fi, err := os.Stat(tr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	countFile := filepath.Join(t.TempDir(), "count-3field")
-	// Pre-upgrade "edits|offset|subEdits:subBytes": offset past every (uncounted) user turn.
-	if err := os.WriteFile(countFile, fmt.Appendf(nil, "0|%d|0:0", fi.Size()), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := countEdits(tr, countFile); got != 2 { // 4 turns / 2 per work unit
-		t.Fatalf("countEdits after 3-field upgrade = %d, want 2 (the 4 turns, now weighted)", got)
-	}
-	raw, err := os.ReadFile(countFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if parts := strings.Split(strings.TrimSpace(string(raw)), "|"); len(parts) != 4 {
-		t.Fatalf("count file after upgrade = %q, want the 4-field format", raw)
-	}
-}
-
-// TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth: subagentEdits trusts a cached edit count
-// outright when the summed subagent file size hasn't moved, and only rescans once it grows.
-func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
-	dir := t.TempDir()
-	tr := filepath.Join(dir, "t.jsonl")
-	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	agent := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, agent, 2)
-	fi, err := os.Stat(agent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	size := fi.Size()
-
-	edits, bytes := subagentEdits(tr, 0, 0, true)
-	if edits != 2 || bytes != size {
-		t.Fatalf("initial scan = (%d,%d), want (2,%d)", edits, bytes, size)
-	}
-
-	// A deliberately wrong cached edit count, paired with the SAME cached size, must be trusted as-is:
-	// this is the only way to prove the unchanged-size path skips the rescan rather than coincidentally
-	// recomputing the same answer.
-	edits2, bytes2 := subagentEdits(tr, size, 999, true)
-	if edits2 != 999 || bytes2 != size {
-		t.Fatalf("unchanged size must skip the rescan: got (%d,%d), want (999,%d)", edits2, bytes2, size)
-	}
-
-	writeEdits(t, agent, 5) // grows the file: the cached size no longer matches
-	fi2, err := os.Stat(agent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	size2 := fi2.Size()
-	if size2 == size {
-		t.Fatal("test setup: file did not grow")
-	}
-	edits3, bytes3 := subagentEdits(tr, size, 999, true)
-	if edits3 != 5 || bytes3 != size2 {
-		t.Fatalf("grown file must be rescanned: got (%d,%d), want (5,%d)", edits3, bytes3, size2)
-	}
-}
-
-// subagentFixture returns a fresh session transcript path + its subagents dir, created on disk.
-func subagentFixture(t *testing.T) (tr, subDir string) {
-	t.Helper()
-	dir := t.TempDir()
-	tr = filepath.Join(dir, "t.jsonl")
-	subDir = filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return tr, subDir
-}
-
-// TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry: with 3 sibling files, growing one must
-// only rescan (and advance the sidecar offset of) that file — the other two entries come back unchanged.
-func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) {
-	tr, subDir := subagentFixture(t)
-	a := filepath.Join(subDir, "agent-a.jsonl")
-	b := filepath.Join(subDir, "agent-b.jsonl")
-	c := filepath.Join(subDir, "agent-c.jsonl")
-	writeEdits(t, a, 1)
-	writeEdits(t, b, 2)
-	writeEdits(t, c, 3)
-
-	edits, totalBytes := subagentEdits(tr, 0, 0, true)
-	if want := 1 + 2 + 3; edits != want {
-		t.Fatalf("initial scan edits = %d, want %d", edits, want)
-	}
-	sidecar := sidecarPath(subDir)
-	before := readSidecar(sidecar)
-	if before[a].Edits != 1 || before[b].Edits != 2 || before[c].Edits != 3 {
-		t.Fatalf("sidecar after initial scan = %+v, want 1/2/3 edits", before)
-	}
-
-	writeEdits(t, a, 4) // only a grows (overwritten with more lines, same identical-line trick as above)
-	fi, err := os.Stat(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	edits2, totalBytes2 := subagentEdits(tr, totalBytes, edits, true)
-	if totalBytes2 == totalBytes {
-		t.Fatal("test setup: total size did not move")
-	}
-	if want := 4 + 2 + 3; edits2 != want {
-		t.Fatalf("after growing a: edits = %d, want %d", edits2, want)
-	}
-	after := readSidecar(sidecar)
-	if after[a].Edits != 4 || after[a].Offset != fi.Size() {
-		t.Fatalf("grown file a's sidecar entry = %+v, want 4 edits at offset %d", after[a], fi.Size())
-	}
-	if after[b] != before[b] || after[c] != before[c] {
-		t.Fatalf("sibling sidecar entries moved: b=%+v (was %+v), c=%+v (was %+v)", after[b], before[b], after[c], before[c])
-	}
-}
-
-// TestCountSubagentEditsOffsetPastFileSizeRescansFromZero: a sidecar offset larger than the file's
-// current size (truncation/rotation) must rescan that file from 0, not skip it or go negative.
-func TestCountSubagentEditsOffsetPastFileSizeRescansFromZero(t *testing.T) {
-	tr, subDir := subagentFixture(t)
-	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 3)
-	fi, err := os.Stat(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeSidecar(sidecarPath(subDir), map[string]subFileState{a: {Offset: fi.Size() + 1_000, Edits: 999}})
-
-	edits, totalBytes := subagentEdits(tr, 0, 0, true) // cachedBytes=0 forces the rescan path
-	if edits != 3 || totalBytes != fi.Size() {
-		t.Fatalf("stale-offset rescan = (%d,%d), want (3,%d)", edits, totalBytes, fi.Size())
-	}
-	got := readSidecar(sidecarPath(subDir))
-	if got[a].Edits != 3 || got[a].Offset != fi.Size() {
-		t.Fatalf("sidecar after stale-offset rescan = %+v, want 3 edits at offset %d", got[a], fi.Size())
-	}
-}
-
-// TestCountSubagentEditsGarbageSidecarTreatedAsEmpty: unparsable sidecar JSON must not panic and must
-// behave as if no cache existed — every file rescanned from 0.
-func TestCountSubagentEditsGarbageSidecarTreatedAsEmpty(t *testing.T) {
-	tr, subDir := subagentFixture(t)
-	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 2)
-	if err := os.WriteFile(sidecarPath(subDir), []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	edits, totalBytes := subagentEdits(tr, 0, 0, true)
-	fi, err := os.Stat(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if edits != 2 || totalBytes != fi.Size() {
-		t.Fatalf("garbage-sidecar scan = (%d,%d), want (2,%d)", edits, totalBytes, fi.Size())
-	}
-	got := readSidecar(sidecarPath(subDir))
-	if got[a].Edits != 2 {
-		t.Fatalf("sidecar rewritten after garbage input = %+v, want 2 edits for a", got[a])
-	}
-}
-
-// TestCountSubagentEditsDeletedFileDropsFromSidecar: a subagent file removed between Stops must not
-// survive in the rewritten sidecar (it would otherwise leak a stale entry forever).
-func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
-	tr, subDir := subagentFixture(t)
-	a := filepath.Join(subDir, "agent-a.jsonl")
-	b := filepath.Join(subDir, "agent-b.jsonl")
-	writeEdits(t, a, 1)
-	writeEdits(t, b, 2)
-
-	edits, totalBytes := subagentEdits(tr, 0, 0, true)
-	if edits != 3 {
-		t.Fatalf("initial scan edits = %d, want 3", edits)
-	}
-	if err := os.Remove(a); err != nil {
-		t.Fatal(err)
-	}
-	writeEdits(t, b, 5) // move the total size so the cache is invalidated and a rescan actually runs
-
-	edits2, totalBytes2 := subagentEdits(tr, totalBytes, edits, true)
-	if totalBytes2 == totalBytes {
-		t.Fatal("test setup: total size did not move")
-	}
-	if edits2 != 5 {
-		t.Fatalf("after deleting a: edits = %d, want 5 (b only)", edits2)
-	}
-	got := readSidecar(sidecarPath(subDir))
-	if _, present := got[a]; present {
-		t.Fatalf("deleted file a still present in rewritten sidecar: %+v", got)
-	}
-	if _, present := got[b]; !present {
-		t.Fatalf("surviving file b missing from rewritten sidecar: %+v", got)
-	}
-}
-
-// TestCountSubagentEditsConcurrentCallsCountOnce: Stop and SessionEnd can call in for the same session at
-// once; two concurrent calls racing the same growth must serialize through the sidecar lock so the total
-// is counted once each, not doubled, and both land on the same final offset.
-func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
-	tr, subDir := subagentFixture(t)
-	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 2)
-
-	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
-	if edits0 != 2 {
-		t.Fatalf("seed scan edits = %d, want 2", edits0)
-	}
-
-	writeEdits(t, a, 7) // grows past the cached size: both goroutines will try the lock
-	fi, err := os.Stat(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var wg sync.WaitGroup
-	results := make([]struct {
-		edits int
-		bytes int64
-	}, 2)
-	for i := range results {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			e, b := subagentEdits(tr, bytes0, edits0, true)
-			results[i] = struct {
-				edits int
-				bytes int64
-			}{e, b}
-		}(i)
-	}
-	wg.Wait()
-
-	for i, r := range results {
-		if r.edits != 7 || r.bytes != fi.Size() {
-			t.Errorf("goroutine %d = (%d,%d), want (7,%d) — the race must not double- or under-count", i, r.edits, r.bytes, fi.Size())
-		}
-	}
-	got := readSidecar(sidecarPath(subDir))
-	if got[a].Edits != 7 || got[a].Offset != fi.Size() {
-		t.Fatalf("sidecar after concurrent calls = %+v, want 7 edits at offset %d (one writer, consistent offset)", got[a], fi.Size())
-	}
-}
-
-// TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting: when the sidecar lock is held by
-// another writer, subagentEdits must fall back to the caller's cached totals, write nothing, and
-// return within its (test-shortened) lock wait rather than hang.
-func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testing.T) {
-	oldWait := sidecarLockWait
-	sidecarLockWait = 100 * time.Millisecond
-	t.Cleanup(func() { sidecarLockWait = oldWait })
-	tr, subDir := subagentFixture(t)
-	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 2)
-	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
-	before := readSidecar(sidecarPath(subDir))
-
-	writeEdits(t, a, 9) // grows past the cached size: subagentEdits must attempt the lock
-
-	held := make(chan struct{})
-	release := make(chan struct{})
-	go func() {
-		paths.WithFileLock(sidecarPath(subDir), func() error {
-			close(held)
-			<-release
-			return nil
-		})
-	}()
-	<-held
-	defer close(release)
-
-	start := time.Now()
-	edits, bytes := subagentEdits(tr, bytes0, edits0, true)
-	elapsed := time.Since(start)
-
-	// The lock-busy path keeps the caller's cached totals entirely (edits AND bytes): caching the new
-	// totalBytes against stale edits would make the next call's fast-path skip the recount permanently.
-	if edits != edits0 || bytes != bytes0 {
-		t.Fatalf("lock held elsewhere: subagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, bytes0)
-	}
-	if elapsed > time.Second {
-		t.Fatalf("subagentEdits took %s waiting on a held lock, want it to give up near its %s wait", elapsed, sidecarLockWait)
-	}
-	after := readSidecar(sidecarPath(subDir))
-	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("sidecar written while the lock was held elsewhere: before=%+v after=%+v", before, after)
-	}
-}
-
 // TestReadStampCatchupStateDoesNotBreakParsing: a "catchup" stamp still parses through the same 3-field
 // format the Stop gate reads, with blocks defaulting to 0 (not crashing on a non-numeric second field).
 func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
@@ -1105,30 +739,6 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	}
 	if got := sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
 		t.Errorf("an unwritable stamp cannot count blocks, so Stop must fail open; got %d", got)
-	}
-}
-
-// TestReadOnlyEditsMatchesCountEditsWithoutWriting: the dry-run count includes subagent edits and persists nothing.
-func TestReadOnlyEditsMatchesCountEditsWithoutWriting(t *testing.T) {
-	dir := t.TempDir()
-	tr := filepath.Join(dir, "t.jsonl")
-	writeEdits(t, tr, 1)
-	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
-	countFile := filepath.Join(dir, "count")
-
-	dry := readOnlyEdits(tr, countFile)
-	if entries, _ := os.ReadDir(subDir); len(entries) != 1 {
-		t.Errorf("dry count wrote into the subagents dir: %v", entries)
-	}
-	if _, err := os.Stat(countFile); err == nil {
-		t.Error("dry count wrote the count file")
-	}
-	if real := countEdits(tr, countFile); dry != 4 || real != dry {
-		t.Errorf("dry = %d, real = %d, want both 4", dry, real)
 	}
 }
 

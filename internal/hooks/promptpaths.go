@@ -107,45 +107,53 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 // collectReports resolves every path token to a report through the mount-table resolver. Ordered
 // foreign forms (Windows, UNC, URL, ~) first, then POSIX, each in prompt order.
 func collectReports(prompt string, res *paths.Resolver) []pathReport {
-	seen := map[string]bool{}
-	var reps []pathReport
-	add := func(orig string, toks ...string) {
-		var p, detail string
-		var isImage, found bool
-		for _, tok := range toks { // the token as written first, then punctuation-stripped
-			rp, ok := res.Resolve(tok)
-			if !ok {
-				continue
-			}
-			if seen[rp] {
-				return // the preferred reading is already reported
-			}
-			if d, img, ok := describe(rp); ok {
-				p, detail, isImage, found = rp, d, img, true
-				if orig != "" {
-					orig = tok
-				}
-				break
-			}
-		}
-		if !found {
-			return
-		}
-		seen[p] = true
-		if orig != "" && orig == p {
-			orig = ""
-		}
-		reps = append(reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage})
-	}
+	c := &reportCollector{res: res, seen: map[string]bool{}}
 	for _, tok := range scanWinTokens(prompt) {
-		add(tok.trimmed, tok.raw, tok.trimmed)
+		c.add(tok.trimmed, tok.raw, tok.trimmed)
 		// the POSIX scan must not re-read inside a foreign token
 		prompt = strings.ReplaceAll(prompt, tok.raw, strings.Repeat(" ", len(tok.raw)))
 	}
 	for _, tok := range scanPosixTokens(prompt) {
-		add("", tok.raw, tok.trimmed)
+		c.add("", tok.raw, tok.trimmed)
 	}
-	return reps
+	return c.reps
+}
+
+// reportCollector accumulates path reports, skipping paths it has already reported.
+type reportCollector struct {
+	res  *paths.Resolver
+	seen map[string]bool
+	reps []pathReport
+}
+
+// add reports the first token (as written, then punctuation-stripped) that resolves to a describable path.
+func (c *reportCollector) add(orig string, toks ...string) {
+	var p, detail string
+	var isImage, found bool
+	for _, tok := range toks {
+		rp, ok := c.res.Resolve(tok)
+		if !ok {
+			continue
+		}
+		if c.seen[rp] {
+			return // the preferred reading is already reported
+		}
+		if d, img, ok := describe(rp); ok {
+			p, detail, isImage, found = rp, d, img, true
+			if orig != "" {
+				orig = tok
+			}
+			break
+		}
+	}
+	if !found {
+		return
+	}
+	c.seen[p] = true
+	if orig != "" && orig == p {
+		orig = ""
+	}
+	c.reps = append(c.reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage})
 }
 
 // feedbackMessage is the user-visible body: one line per resolved path, images first so an

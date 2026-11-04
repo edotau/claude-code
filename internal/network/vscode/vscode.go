@@ -73,13 +73,8 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 
 func merge(dest string, overlay map[string]any, claudeWrapper string, check bool) (Result, error) {
 	base := map[string]any{}
-	rawBase, err := os.ReadFile(dest)
-	switch {
-	case err == nil && len(rawBase) > 0:
-		if err := json.Unmarshal(textutil.StripJSONC(rawBase), &base); err != nil {
-			return Result{}, fmt.Errorf("live settings: %w", err)
-		}
-	case err != nil && !os.IsNotExist(err):
+	rawBase, err := readBase(dest, "settings", &base)
+	if err != nil {
 		return Result{}, err
 	}
 	merged := cloneMap(base)
@@ -98,20 +93,38 @@ func merge(dest string, overlay map[string]any, claudeWrapper string, check bool
 		return Result{}, err
 	}
 	body = append(body, '\n')
+	return writeGuarded(dest, "settings", rawBase, body)
+}
+
+// readBase loads dest's JSONC into into (a missing or empty file leaves it untouched) and returns the raw bytes.
+func readBase(dest, label string, into any) ([]byte, error) {
+	rawBase, err := os.ReadFile(dest)
+	switch {
+	case err == nil && len(rawBase) > 0:
+		if err := json.Unmarshal(textutil.StripJSONC(rawBase), into); err != nil {
+			return nil, fmt.Errorf("live %s: %w", label, err)
+		}
+	case err != nil && !os.IsNotExist(err):
+		return nil, err
+	}
+	return rawBase, nil
+}
+
+// writeGuarded backs dest up and atomically replaces it with body, but only while rawBase is still on disk.
+func writeGuarded(dest, label string, rawBase, body []byte) (Result, error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return Result{}, err
 	}
 	if BeforeWrite != nil {
 		BeforeWrite(dest)
 	}
-	// VS Code holds no lock of ours, so re-read: this merge is only safe to write while the bytes it
-	// merged are still the bytes on disk. A missing file reads as nil, matching a dest that never existed.
+	// VS Code takes no lock of ours: write only while the merged bytes are still on disk (missing reads as nil).
 	fresh, err := os.ReadFile(dest)
 	if err != nil && !os.IsNotExist(err) {
 		return Result{}, err
 	}
 	if !bytes.Equal(fresh, rawBase) {
-		return Result{}, fmt.Errorf("live settings changed under the merge (%s) — re-run to merge the newer file", dest)
+		return Result{}, fmt.Errorf("live %s changed under the merge (%s) — re-run to merge the newer file", label, dest)
 	}
 	backup := ""
 	if len(rawBase) > 0 {

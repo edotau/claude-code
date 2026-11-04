@@ -92,11 +92,14 @@ func TestCodexAgentRouteFreshSpawnPreservesArgumentsAndWireModel(t *testing.T) {
 	}
 }
 
-func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
-	cases := []struct {
-		name string
-		edit func(*testing.T, map[string]any, map[string]any, string)
-	}{
+type codexIneligibleCase struct {
+	name string
+	edit func(*testing.T, map[string]any, map[string]any, string)
+}
+
+// codexIneligibleSpawnCases lists edits that make a spawn ineligible for routing.
+func codexIneligibleSpawnCases() []codexIneligibleCase {
+	return []codexIneligibleCase{
 		{"implicit fork", func(_ *testing.T, _, a map[string]any, _ string) { delete(a, "fork_turns") }},
 		{"full history", func(_ *testing.T, _, a map[string]any, _ string) { a["fork_turns"] = "all" }},
 		{"fork context", func(_ *testing.T, _, a map[string]any, _ string) { delete(a, "fork_turns"); a["fork_context"] = true }},
@@ -127,7 +130,10 @@ func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
 			}
 		}},
 	}
-	for _, tc := range cases {
+}
+
+func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
+	for _, tc := range codexIneligibleSpawnCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			catalog := setupCodexRoute(t)
 			args := map[string]any{"fork_turns": "none", "message": "add a --verbose flag"}

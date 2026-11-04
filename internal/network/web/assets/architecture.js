@@ -42,25 +42,28 @@
     list.sort(function (a, b) { return (a.dir === b.dir ? 0 : a.dir ? -1 : 1) || (a.name < b.name ? -1 : 1); });
     list.forEach(function (n) { sortKids(n.kids); });
   }
+  // Adds the node for segment i of a file path (once per key) and returns it as the next parent.
+  function addDirNode(roots, byKey, par, segs, i, f) {
+    const s = segs[i];
+    const key = segs.slice(0, i + 1).join('/');
+    const leaf = i === segs.length - 1;
+    if (!byKey[key]) {
+      const n = node(par, key, s, !leaf);
+      n.hash = hashFor('dir', key);
+      if (leaf) n.lines = f.lines || 0;
+      else { n.label = s + '/'; n.comment = sentence(cdir(key).purpose); }
+      (par ? par.kids : roots).push(n);
+      byKey[key] = n;
+    }
+    return byKey[key];
+  }
   function dirModel() {
     const roots = [];
     const byKey = {};
     (scan().files || []).forEach(function (f) {
       const segs = f.path.split('/');
       let par = null;
-      segs.forEach(function (s, i) {
-        const key = segs.slice(0, i + 1).join('/');
-        const leaf = i === segs.length - 1;
-        if (!byKey[key]) {
-          const n = node(par, key, s, !leaf);
-          n.hash = hashFor('dir', key);
-          if (leaf) n.lines = f.lines || 0;
-          else { n.label = s + '/'; n.comment = sentence(cdir(key).purpose); }
-          (par ? par.kids : roots).push(n);
-          byKey[key] = n;
-        }
-        par = byKey[key];
-      });
+      segs.forEach(function (s, i) { par = addDirNode(roots, byKey, par, segs, i, f); });
     });
     sortKids(roots);
     return { roots: roots, byKey: byKey, detail: dirDetail, home: dirHome };

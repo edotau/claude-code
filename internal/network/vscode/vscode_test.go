@@ -20,37 +20,51 @@ func hermeticVSCode(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }
 
-func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
-	hermeticVSCode(t)
-	dir := t.TempDir()
-	tmpl := filepath.Join(dir, "template.json")
-	dest := filepath.Join(dir, "settings.json")
-	if err := os.WriteFile(tmpl, []byte(`{
-  "chatgpt.cliExecutable": "__CLAUDE_BIN__/codex",
-  "terminal.integrated.copyOnSelection": true,
-  "nested": {"template": true}
-}`), 0o600); err != nil {
+// writeFile writes content to path, failing the test on error.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	original := `{
+}
+
+const jsoncOriginal = `{
   // local setting must survive
   "local.only": true,
   "terminal.integrated.copyOnSelection": false,
   "nested": {"local": 1,},
 }`
-	if err := os.WriteFile(dest, []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
+// jsoncMergeFixture writes a template and a JSONC live settings file into one directory.
+func jsoncMergeFixture(t *testing.T) (dir, tmpl, dest string) {
+	t.Helper()
+	hermeticVSCode(t)
+	dir = t.TempDir()
+	tmpl = filepath.Join(dir, "template.json")
+	dest = filepath.Join(dir, "settings.json")
+	writeFile(t, tmpl, `{
+  "chatgpt.cliExecutable": "__CLAUDE_BIN__/codex",
+  "terminal.integrated.copyOnSelection": true,
+  "nested": {"template": true}
+}`)
+	writeFile(t, dest, jsoncOriginal)
+	return dir, tmpl, dest
+}
+
+func TestSyncCheckLeavesJSONCUntouched(t *testing.T) {
+	_, tmpl, dest := jsoncMergeFixture(t)
 	result, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", true)
 	if err != nil || !result.Changed || result.Backup != "" {
 		t.Fatalf("check = %+v err %v", result, err)
 	}
-	if body, _ := os.ReadFile(dest); string(body) != original {
+	if body, _ := os.ReadFile(dest); string(body) != jsoncOriginal {
 		t.Fatal("--check rewrote Machine settings")
 	}
+}
 
-	result, err = Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
+func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
+	dir, tmpl, dest := jsoncMergeFixture(t)
+	result, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
 	if err != nil || !result.Changed || result.Backup == "" {
 		t.Fatalf("sync = %+v err %v", result, err)
 	}
@@ -63,7 +77,7 @@ func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
 			t.Errorf("merged settings missing %q:\n%s", want, body)
 		}
 	}
-	if saved, _ := os.ReadFile(result.Backup); string(saved) != original {
+	if saved, _ := os.ReadFile(result.Backup); string(saved) != jsoncOriginal {
 		t.Fatal("backup did not preserve the original JSONC")
 	}
 	if !strings.HasPrefix(result.Backup, filepath.Join(paths.CacheDir(), "backups")) {
@@ -72,9 +86,15 @@ func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
 	if siblings, _ := os.ReadDir(dir); len(siblings) != 2 {
 		t.Errorf("files beside dest = %v, want only template.json and settings.json", siblings)
 	}
+}
 
-	// A second sync against the now-merged file has nothing left to change.
-	result, err = Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
+// A second sync against the now-merged file has nothing left to change.
+func TestSyncJSONCIsIdempotent(t *testing.T) {
+	_, tmpl, dest := jsoncMergeFixture(t)
+	if _, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
 	if err != nil || result.Changed {
 		t.Fatalf("idempotent re-sync = %+v err %v", result, err)
 	}
@@ -146,36 +166,32 @@ func TestSyncCheckCreatesNoLockFile(t *testing.T) {
 	}
 }
 
-// User entries and a leading header comment survive a merge; template entries append in order.
-func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *testing.T) {
-	hermeticVSCode(t)
-	dir := t.TempDir()
-	tmpl := filepath.Join(dir, "keybindings.template.json")
-	dest := filepath.Join(dir, "keybindings.json")
-	if err := os.WriteFile(tmpl, []byte(`[
-  {"key": "ctrl+alt+1", "command": "workbench.action.terminal.newWithProfile", "args": {"profileName": "Claude"}}
-]`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	original := `// Place your key bindings in this file to override the defaults
+const userKeybindings = `// Place your key bindings in this file to override the defaults
 [
   {"key": "ctrl+k ctrl+t", "command": "myExtension.doThing"}
 ]`
-	if err := os.WriteFile(dest, []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
+// readKeybindingEntries parses a (possibly JSONC) keybindings file.
+func readKeybindingEntries(t *testing.T, path string) (entries []map[string]any, body []byte) {
+	t.Helper()
+	body, _ = os.ReadFile(path)
+	if err := json.Unmarshal(textutil.StripJSONC(body), &entries); err != nil {
+		t.Fatalf("merged keybindings did not parse: %v\n%s", err, body)
+	}
+	return entries, body
+}
+
+// User entries and a leading header comment survive a merge; template entries append in order.
+func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *testing.T) {
+	tmpl, dest := keybindingsFixture(t, userKeybindings)
+	dir := filepath.Dir(dest)
 	result, err := SyncKeybindings(tmpl, dest, false)
 	if err != nil || !result.Changed || result.Backup == "" {
 		t.Fatalf("SyncKeybindings = %+v err %v", result, err)
 	}
-	body, _ := os.ReadFile(dest)
+	entries, body := readKeybindingEntries(t, dest)
 	if !strings.HasPrefix(string(body), "// Place your key bindings in this file to override the defaults") {
 		t.Errorf("leading comment not preserved:\n%s", body)
-	}
-	var entries []map[string]any
-	if err := json.Unmarshal(textutil.StripJSONC(body), &entries); err != nil {
-		t.Fatalf("merged keybindings did not parse: %v\n%s", err, body)
 	}
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2 (user + template):\n%s", len(entries), body)
@@ -357,40 +373,133 @@ func TestSyncDefaultTemplateRoutesTerminalProfiles(t *testing.T) {
 	}
 	for _, platform := range []string{"linux", "osx"} {
 		t.Run(platform, func(t *testing.T) {
-			key := "terminal.integrated.profiles." + platform
-			profiles, ok := settings[key].(map[string]any)
-			if !ok {
-				t.Fatalf("missing profiles in %s", key)
-			}
-			for _, vendor := range []struct {
-				profile string
-				verb    string
-			}{
-				{"Claude", "claude"},
-				{"Codex", "codex"},
-				{"OpenCode", "opencode"},
-				{"Gemini", "gemini"},
-				{"Copilot", "copilot"},
-			} {
-				profile, ok := profiles[vendor.profile].(map[string]any)
-				if !ok {
-					t.Errorf("missing %s profile", vendor.profile)
-					continue
-				}
-				if profile["path"] != "bash" {
-					t.Errorf("%s path = %v, want bash", vendor.profile, profile["path"])
-				}
-				want := []any{"-lic", "exec " + claudeBin + "/claude-code " + vendor.verb}
-				if !reflect.DeepEqual(profile["args"], want) {
-					t.Errorf("%s args = %v, want %v", vendor.profile, profile["args"], want)
-				}
-			}
+			checkTerminalProfiles(t, settings, "terminal.integrated.profiles."+platform, claudeBin)
 		})
 	}
 }
 
+// checkTerminalProfiles asserts every vendor profile under key launches its claude-code verb via bash.
+func checkTerminalProfiles(t *testing.T, settings map[string]any, key, claudeBin string) {
+	t.Helper()
+	profiles, ok := settings[key].(map[string]any)
+	if !ok {
+		t.Fatalf("missing profiles in %s", key)
+	}
+	for _, vendor := range []struct {
+		profile string
+		verb    string
+	}{
+		{"Claude", "claude"},
+		{"Codex", "codex"},
+		{"OpenCode", "opencode"},
+		{"Gemini", "gemini"},
+		{"Copilot", "copilot"},
+	} {
+		profile, ok := profiles[vendor.profile].(map[string]any)
+		if !ok {
+			t.Errorf("missing %s profile", vendor.profile)
+			continue
+		}
+		if profile["path"] != "bash" {
+			t.Errorf("%s path = %v, want bash", vendor.profile, profile["path"])
+		}
+		want := []any{"-lic", "exec " + claudeBin + "/claude-code " + vendor.verb}
+		if !reflect.DeepEqual(profile["args"], want) {
+			t.Errorf("%s args = %v, want %v", vendor.profile, profile["args"], want)
+		}
+	}
+}
+
+const wrapperKey = "claudeCode.claudeProcessWrapper"
+
+type wrapperMigration struct {
+	dir, tmpl, dest string
+	original        []byte
+	claudeBin       string
+	wrapper         string
+	remove          bool
+}
+
+// checkNoRewrite runs --check and asserts it reports the drift but leaves dest untouched.
+func (m wrapperMigration) checkNoRewrite(t *testing.T) {
+	t.Helper()
+	result, err := Sync(m.tmpl, m.dest, m.dir, m.claudeBin, true)
+	if err != nil || result.Changed != m.remove || result.Backup != "" {
+		t.Fatalf("check = %+v, err %v; want Changed=%v and no backup", result, err, m.remove)
+	}
+	body, err := os.ReadFile(m.dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != string(m.original) {
+		t.Fatal("--check rewrote settings")
+	}
+}
+
+// checkBackup asserts a migration backs up the original settings and an untouched wrapper makes no backup.
+func (m wrapperMigration) checkBackup(t *testing.T, result Result) {
+	t.Helper()
+	if !m.remove {
+		if result.Backup != "" {
+			t.Errorf("unchanged user wrapper produced backup %q", result.Backup)
+		}
+		return
+	}
+	saved, err := os.ReadFile(result.Backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(saved) != string(m.original) {
+		t.Fatal("backup did not preserve the original settings")
+	}
+}
+
+// checkMigrated asserts the wrapper key was removed (harness) or kept (user) and local.only survived.
+func (m wrapperMigration) checkMigrated(t *testing.T) {
+	t.Helper()
+	body, err := os.ReadFile(m.dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(body, &settings); err != nil {
+		t.Fatal(err)
+	}
+	value, exists := settings[wrapperKey]
+	if m.remove {
+		if exists {
+			t.Errorf("harness wrapper survived migration: %v", value)
+		}
+	} else if !exists || value != m.wrapper {
+		t.Errorf("user wrapper = %v (exists %v), want %q", value, exists, m.wrapper)
+	}
+	if settings["local.only"] != true {
+		t.Error("migration did not preserve the unrelated setting")
+	}
+}
+
+func newWrapperMigration(t *testing.T, claudeBin, wrapper string, remove bool) wrapperMigration {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	m := wrapperMigration{
+		dir: dir, tmpl: filepath.Join(dir, "template.json"), dest: filepath.Join(dir, "settings.json"),
+		claudeBin: claudeBin, wrapper: wrapper, remove: remove,
+	}
+	writeFile(t, m.tmpl, `{}`)
+	original, err := json.Marshal(map[string]any{
+		wrapperKey:   wrapper,
+		"local.only": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.original = original
+	writeFile(t, m.dest, string(original))
+	return m
+}
+
 func TestSyncMigratesOnlyHarnessClaudeProcessWrapper(t *testing.T) {
-	const wrapperKey = "claudeCode.claudeProcessWrapper"
 	const claudeBin = "/opt/harness/bin"
 	for _, tc := range []struct {
 		name    string
@@ -404,71 +513,16 @@ func TestSyncMigratesOnlyHarnessClaudeProcessWrapper(t *testing.T) {
 		{"empty", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			dir := t.TempDir()
-			tmpl := filepath.Join(dir, "template.json")
-			dest := filepath.Join(dir, "settings.json")
-			if err := os.WriteFile(tmpl, []byte(`{}`), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			original, err := json.Marshal(map[string]any{
-				wrapperKey:   tc.wrapper,
-				"local.only": true,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(dest, original, 0o600); err != nil {
-				t.Fatal(err)
-			}
+			m := newWrapperMigration(t, claudeBin, tc.wrapper, tc.remove)
+			m.checkNoRewrite(t)
 
-			result, err := Sync(tmpl, dest, dir, claudeBin, true)
-			if err != nil || result.Changed != tc.remove || result.Backup != "" {
-				t.Fatalf("check = %+v, err %v; want Changed=%v and no backup", result, err, tc.remove)
-			}
-			body, err := os.ReadFile(dest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(body) != string(original) {
-				t.Fatal("--check rewrote settings")
-			}
-
-			result, err = Sync(tmpl, dest, dir, claudeBin, false)
+			result, err := Sync(m.tmpl, m.dest, m.dir, claudeBin, false)
 			if err != nil || result.Changed != tc.remove {
 				t.Fatalf("sync = %+v, err %v; want Changed=%v", result, err, tc.remove)
 			}
-			if tc.remove {
-				saved, err := os.ReadFile(result.Backup)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if string(saved) != string(original) {
-					t.Fatal("backup did not preserve the original settings")
-				}
-			} else if result.Backup != "" {
-				t.Errorf("unchanged user wrapper produced backup %q", result.Backup)
-			}
-			body, err = os.ReadFile(dest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var settings map[string]any
-			if err := json.Unmarshal(body, &settings); err != nil {
-				t.Fatal(err)
-			}
-			value, exists := settings[wrapperKey]
-			if tc.remove {
-				if exists {
-					t.Errorf("harness wrapper survived migration: %v", value)
-				}
-			} else if !exists || value != tc.wrapper {
-				t.Errorf("user wrapper = %v (exists %v), want %q", value, exists, tc.wrapper)
-			}
-			if settings["local.only"] != true {
-				t.Error("migration did not preserve the unrelated setting")
-			}
-			result, err = Sync(tmpl, dest, dir, claudeBin, false)
+			m.checkBackup(t, result)
+			m.checkMigrated(t)
+			result, err = Sync(m.tmpl, m.dest, m.dir, claudeBin, false)
 			if err != nil || result.Changed || result.Backup != "" {
 				t.Fatalf("idempotent sync = %+v, err %v", result, err)
 			}

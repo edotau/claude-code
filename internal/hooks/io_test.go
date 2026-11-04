@@ -25,12 +25,14 @@ func bashPayload(cmd string) *strings.Reader {
 	return strings.NewReader(string(b))
 }
 
-func TestSafety(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
-	cases := []struct {
-		cmd  string
-		want Decision
-	}{
+type safetyBasicCase struct {
+	cmd  string
+	want Decision
+}
+
+// safetyBasicCases lists destructive, exfiltrating and harmless Bash commands with their expected decision.
+func safetyBasicCases() []safetyBasicCase {
+	return []safetyBasicCase{
 		{"rm -rf /", Block},
 		{"rm -rf /*", Block},
 		{"rm -rf ~", Block},
@@ -72,7 +74,11 @@ func TestSafety(t *testing.T) {
 		{"ls -la", Allow},
 		{"", Allow},
 	}
-	for _, c := range cases {
+}
+
+func TestSafety(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
+	for _, c := range safetyBasicCases() {
 		if got, stderr := safetyScanDecision(t, bashPayload(c.cmd)); got != c.want {
 			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, stderr)
 		}
@@ -85,8 +91,19 @@ func TestSafety(t *testing.T) {
 	}
 }
 
-// Hard rule 4: tree-writing git verbs require approval only when their target tree is the config checkout.
-func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
+// treeGitCase is one command run from cwd; skip is a confirmed guard bypass, reported rather than silently asserted.
+type treeGitCase struct {
+	cmd, cwd string
+	want     Decision
+	skip     string
+}
+
+// treeGitDirs are the directories the tree-writing git cases run in or point at.
+type treeGitDirs struct{ harness, worktree, elsewhere, link string }
+
+// treeGitSetup builds the fake HOME/config checkout and points the environment at it.
+func treeGitSetup(t *testing.T) treeGitDirs {
+	t.Helper()
 	home := t.TempDir()
 	harness := filepath.Join(home, ".claude")
 	_ = os.MkdirAll(filepath.Join(harness, "internal"), 0o755)
@@ -100,11 +117,13 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 	if err := os.Symlink(harness, link); err != nil {
 		t.Skip("symlink unsupported:", err)
 	}
-	cases := []struct {
-		cmd, cwd string
-		want     Decision
-		skip     string // non-empty: a confirmed guard bypass, reported rather than silently asserted
-	}{
+	return treeGitDirs{harness: harness, worktree: worktree, elsewhere: elsewhere, link: link}
+}
+
+// treeGitPathCases covers verbs, -C/--git-dir/cd targets and the linked-worktree exemption.
+func treeGitPathCases(d treeGitDirs) []treeGitCase {
+	harness, worktree, elsewhere, link := d.harness, d.worktree, d.elsewhere, d.link
+	return []treeGitCase{
 		{"git stash", harness, Ask, ""},
 		{"git checkout -- foo.go", filepath.Join(harness, "internal"), Ask, ""},
 		{"git -C " + harness + " restore x", elsewhere, Ask, ""},
@@ -125,6 +144,13 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 		{"cd " + worktree + " && git stash", elsewhere, Allow, ""},
 		{"git stash", filepath.Join(harness, ".claude"), Ask, ""},
 		{"git checkout .", filepath.Join(harness, ".claude", "worktrees"), Ask, ""},
+	}
+}
+
+// treeGitWrapperCases covers git verbs hidden inside bash -c / eval arguments.
+func treeGitWrapperCases(d treeGitDirs) []treeGitCase {
+	harness, elsewhere := d.harness, d.elsewhere
+	return []treeGitCase{
 		// A git verb hidden inside a shell -c / eval string argument is still a real invocation.
 		{`bash -c "cd ` + harness + ` && git stash"`, elsewhere, Ask, ""},
 		{`sh -c "git -C ` + harness + ` reset --hard"`, elsewhere, Ask, ""},
@@ -155,6 +181,13 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 		{`FOO=1 make test`, harness, Allow, ""},
 		// --login is a long flag distinct from -c; must not block -lc's -c recognition on this wrapper.
 		{`bash --login -c "cd ` + harness + ` && git stash"`, elsewhere, Ask, ""},
+	}
+}
+
+// treeGitSubshellCases covers subshell/group forms and quoted look-alikes.
+func treeGitSubshellCases(d treeGitDirs) []treeGitCase {
+	harness, elsewhere := d.harness, d.elsewhere
+	return []treeGitCase{
 		// Subshell/group forms: an unquoted trailing `)`/`}` must not glue onto the verb word.
 		{"(cd ~/.claude && git stash)", elsewhere, Ask, ""},
 		{"(cd ~/.claude && git restore)", elsewhere, Ask, ""},
@@ -171,6 +204,13 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 		// Quoted look-alikes: the `)` sits inside quotes, so it must stay part of the word, not a boundary.
 		{`echo "git stash)"`, harness, Allow, ""},
 		{`echo 'git stash)'`, harness, Allow, ""},
+	}
+}
+
+// treeGitSubstitutionCases covers $(...) and backtick command substitutions.
+func treeGitSubstitutionCases(d treeGitDirs) []treeGitCase {
+	harness, elsewhere := d.harness, d.elsewhere
+	return []treeGitCase{
 		// Command substitutions: `$(...)` and backtick spans are pulled out and checked as their own nested
 		// command with independent cd tracking, masked from the outer segment so neighboring tokens don't glue.
 		{"`cd ~/.claude && git stash`", harness, Ask, ""},
@@ -185,16 +225,32 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 		{`echo "$(cd ~/.claude && git stash)"`, harness, Ask, ""},
 		{`echo "$(cd ~/.claude && git stash)"`, elsewhere, Ask, ""},
 	}
-	for i, c := range cases {
-		t.Run(fmt.Sprintf("%02d", i), func(t *testing.T) {
-			if c.skip != "" {
-				t.Skip(c.skip)
-			}
-			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "tool_input": map[string]string{"command": c.cmd}})
-			if got, stderr := safetyScanDecision(t, bytes.NewReader(payload)); got != c.want {
-				t.Errorf("%q in %s: got %d want %d (%s)", c.cmd, c.cwd, got, c.want, stderr)
-			}
-		})
+}
+
+// Hard rule 4: tree-writing git verbs require approval only when their target tree is the config checkout.
+func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
+	d := treeGitSetup(t)
+	groups := []struct {
+		name  string
+		cases []treeGitCase
+	}{
+		{"paths", treeGitPathCases(d)},
+		{"wrappers", treeGitWrapperCases(d)},
+		{"subshells", treeGitSubshellCases(d)},
+		{"substitutions", treeGitSubstitutionCases(d)},
+	}
+	for _, g := range groups {
+		for i, c := range g.cases {
+			t.Run(fmt.Sprintf("%s/%02d", g.name, i), func(t *testing.T) {
+				if c.skip != "" {
+					t.Skip(c.skip)
+				}
+				payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "tool_input": map[string]string{"command": c.cmd}})
+				if got, stderr := safetyScanDecision(t, bytes.NewReader(payload)); got != c.want {
+					t.Errorf("%q in %s: got %d want %d (%s)", c.cmd, c.cwd, got, c.want, stderr)
+				}
+			})
+		}
 	}
 }
 

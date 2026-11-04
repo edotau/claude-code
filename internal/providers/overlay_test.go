@@ -29,28 +29,34 @@ func TestUpdateOverlayDocDryRunWritesNothing(t *testing.T) {
 		top["marker"] = json.RawMessage(`"changed"`)
 		return nil
 	}
-	oldDoc, newDoc, err := UpdateOverlayDoc(false, mutate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(oldDoc) != before || string(newDoc) == before || !json.Valid(newDoc) {
-		t.Fatalf("dry run docs wrong: old=%q new=%q", oldDoc, newDoc)
-	}
-	if got := readOverlay(t, "providers"); got != before {
-		t.Errorf("dry run wrote providers: %q", got)
-	}
-	if got := readOverlay(t, "providers.prev"); got != prevBefore {
-		t.Errorf("dry run wrote providers.prev: %q", got)
-	}
+	var newDoc []byte
+	t.Run("dry run", func(t *testing.T) {
+		var oldDoc []byte
+		var err error
+		oldDoc, newDoc, err = UpdateOverlayDoc(false, mutate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(oldDoc) != before || string(newDoc) == before || !json.Valid(newDoc) {
+			t.Fatalf("dry run docs wrong: old=%q new=%q", oldDoc, newDoc)
+		}
+		wantOverlay(t, "providers", before, "dry run wrote providers: %q")
+		wantOverlay(t, "providers.prev", prevBefore, "dry run wrote providers.prev: %q")
+	})
+	t.Run("apply", func(t *testing.T) {
+		if _, _, err := UpdateOverlayDoc(true, mutate); err != nil {
+			t.Fatal(err)
+		}
+		wantOverlay(t, "providers.prev", before, "apply: providers.prev = %q, want old doc")
+		wantOverlay(t, "providers", string(newDoc), "apply: providers = %q, want the new doc")
+	})
+}
 
-	if _, _, err := UpdateOverlayDoc(true, mutate); err != nil {
-		t.Fatal(err)
-	}
-	if got := readOverlay(t, "providers.prev"); got != before {
-		t.Errorf("apply: providers.prev = %q, want old doc", got)
-	}
-	if got := readOverlay(t, "providers"); got != string(newDoc) {
-		t.Errorf("apply: providers = %q, want %q", got, newDoc)
+// wantOverlay fails with format (one %q for the stored value) unless the overlay key holds want.
+func wantOverlay(t *testing.T, key, want, format string) {
+	t.Helper()
+	if got := readOverlay(t, key); got != want {
+		t.Errorf(format, got)
 	}
 }
 

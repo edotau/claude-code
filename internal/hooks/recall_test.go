@@ -51,12 +51,7 @@ func TestMemoryRecall(t *testing.T) {
 	cwd := t.TempDir()
 	long := strings.Repeat("alpha bravo charlie delta padding ", 40)
 	body := "# Conventions\n\n- alpha bravo charlie delta strong match " + long + "\n- alpha weak\n- unrelated rule entirely\n"
-	if err := os.MkdirAll(memstore.HomeBankDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeBank(t, "conventions.md", body)
 	for _, p := range []string{"", "/compact alpha bravo charlie delta", "alpha bravo charlie", "zzz yyy xxx www vvv"} {
 		if got := recall(t, p, cwd); got != "" {
 			t.Errorf("prompt %q must be silent, got %q", p, got)
@@ -165,6 +160,38 @@ func recallEnv(t *testing.T) {
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 }
 
+// wantRecallBodies requires lines to lead with the 2 strongest matches as bodies, regardless of entry type.
+func wantRecallBodies(t *testing.T, got string, lines []string) {
+	t.Helper()
+	bodies := 0
+	for _, l := range lines {
+		if strings.HasPrefix(l, "- [home/") {
+			bodies++
+		}
+	}
+	if bodies != 2 || !strings.HasPrefix(lines[0], "- [home/conventions.md] aaaa0005") || !strings.HasPrefix(lines[1], "- [home/sessionHistory.md] aaaa0004") {
+		t.Errorf("want the 2 strongest matches as bodies regardless of type:\n%s", got)
+	}
+}
+
+// wantRecallPointers requires every line to be an expandable `id · date · title` pointer, newest decision first.
+func wantRecallPointers(t *testing.T, got string, pointers []string) {
+	t.Helper()
+	pointer := regexp.MustCompile(`^- (\S+) · (\d{4}-\d{2}-\d{2}|undated) · \S`)
+	for _, l := range pointers {
+		m := pointer.FindStringSubmatch(l)
+		if m == nil {
+			t.Fatalf("not an `id · date · title` pointer: %q", l)
+		}
+		if _, _, err := bank.ShowBlock(m[1]); err != nil {
+			t.Errorf("pointer id %s does not expand: %v", m[1], err)
+		}
+	}
+	if !strings.Contains(pointers[0], "aaaa0002") || !strings.Contains(pointers[1], "aaaa0001") {
+		t.Errorf("newest decision must win an exact relevance tie among pointers:\n%s", got)
+	}
+}
+
 // One spanning pass over a fixture bank: struck entries drop, decisions lead newest first, two bodies then
 // expandable pointers, and archive answers only when nothing current matches.
 func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
@@ -192,28 +219,8 @@ func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
 	if len(lines) != 4 {
 		t.Fatalf("want 4 entries (2 bodies + 2 pointers), got %d:\n%s", len(lines), got)
 	}
-	bodies := 0
-	for _, l := range lines {
-		if strings.HasPrefix(l, "- [home/") {
-			bodies++
-		}
-	}
-	if bodies != 2 || !strings.HasPrefix(lines[0], "- [home/conventions.md] aaaa0005") || !strings.HasPrefix(lines[1], "- [home/sessionHistory.md] aaaa0004") {
-		t.Errorf("want the 2 strongest matches as bodies regardless of type:\n%s", got)
-	}
-	pointer := regexp.MustCompile(`^- (\S+) · (\d{4}-\d{2}-\d{2}|undated) · \S`)
-	for _, l := range lines[2:] {
-		m := pointer.FindStringSubmatch(l)
-		if m == nil {
-			t.Fatalf("not an `id · date · title` pointer: %q", l)
-		}
-		if _, _, err := bank.ShowBlock(m[1]); err != nil {
-			t.Errorf("pointer id %s does not expand: %v", m[1], err)
-		}
-	}
-	if !strings.Contains(lines[2], "aaaa0002") || !strings.Contains(lines[3], "aaaa0001") {
-		t.Errorf("newest decision must win an exact relevance tie among pointers:\n%s", got)
-	}
+	wantRecallBodies(t, got, lines)
+	wantRecallPointers(t, got, lines[2:])
 	if again := recallAs(t, "s1", "zebra quota limiter fallback", cwd); strings.Contains(again, "aaaa0005") || strings.Contains(again, "aaaa0004") {
 		t.Errorf("bodies already in context must not repeat:\n%s", again)
 	}

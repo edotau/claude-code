@@ -26,17 +26,23 @@ func TestRoutingOverlayMergesWeightsCellsAndOpencode(t *testing.T) {
 	if c := reg.Routing.Cells["opencode"]["sonnet"]; c.Model != "opencode-go/y" {
 		t.Errorf("cells = %+v", c)
 	}
-	if ladder := reg.Routing.Opencode.LadderOrder(); len(ladder) != 1 || ladder[0] != "openai" {
+	checkMergedOpencode(t, reg.Routing.Opencode)
+}
+
+// checkMergedOpencode asserts the opencode.* fields of the routing overlay above landed whole.
+func checkMergedOpencode(t *testing.T, oc OpencodeRouting) {
+	t.Helper()
+	if ladder := oc.LadderOrder(); len(ladder) != 1 || ladder[0] != "openai" {
 		t.Errorf("ladder = %v", ladder)
 	}
-	if m := reg.Routing.Opencode.Markers(); len(m) != 1 || m[0] != "git.corp.example" {
+	if m := oc.Markers(); len(m) != 1 || m[0] != "git.corp.example" {
 		t.Errorf("workRepoMarkers = %v", m)
 	}
-	if reg.Routing.Opencode.FreeTierOK("sonnet") || !reg.Routing.Opencode.FreeTierOK("haiku") {
-		t.Errorf("freeTiers = %v, want haiku only", reg.Routing.Opencode.FreeTiers)
+	if oc.FreeTierOK("sonnet") || !oc.FreeTierOK("haiku") {
+		t.Errorf("freeTiers = %v, want haiku only", oc.FreeTiers)
 	}
-	if reg.Routing.Opencode.FirstOutput().String() != "45s" {
-		t.Errorf("freeFirstOutput = %v, want 45s", reg.Routing.Opencode.FirstOutput())
+	if oc.FirstOutput().String() != "45s" {
+		t.Errorf("freeFirstOutput = %v, want 45s", oc.FirstOutput())
 	}
 }
 

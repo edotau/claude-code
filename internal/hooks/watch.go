@@ -84,33 +84,50 @@ func IdleUpdateWatch(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", *cwd)
 		return 2
 	}
+	w := &watchLoop{tr: *tr, cwd: *cwd, session: *session, idle: *idle, owner: *owner, stderr: stderr}
 	deadline := time.Now().Add(updateWatchLife)
-	var seen time.Time // mtime last evaluated: the transcript is append-only, so unchanged ⇒ same edit count
 	for time.Now().Before(deadline) {
 		time.Sleep(updateWatchPoll)
-		if ownerDead(*owner) {
-			return 0 // session process gone: SessionEnd (or the last Stop) already had its chance
-		}
-		fi, err := os.Stat(*tr)
-		if err != nil {
-			return 0 // transcript gone: nothing left to update
-		}
-		if time.Since(fi.ModTime()) < *idle {
-			continue // main transcript alone is still active: skip the subagent globs entirely
-		}
-		latest := newestActivity(*tr, fi.ModTime())
-		if time.Since(latest) < *idle || !latest.After(seen) {
-			continue // a subagent is still active, or already evaluated at this mtime
-		}
-		dispatched, spawnFailed := idleUpdateOnce(*tr, *cwd, *session, stderr)
-		if !spawnFailed {
-			seen = latest // a failed spawn leaves seen behind so the next poll retries
-		}
-		if dispatched {
-			fmt.Fprintf(stderr, "memory watch: %s quiet for %s — final update dispatched\n", *session, idle.String())
+		if w.poll() {
+			return 0
 		}
 	}
 	return 0
+}
+
+// watchLoop is the watcher's per-session state across polls.
+type watchLoop struct {
+	tr, cwd, session string
+	idle             time.Duration
+	owner            int
+	seen             time.Time // mtime last evaluated: the transcript is append-only, so unchanged ⇒ same edit count
+	stderr           io.Writer
+}
+
+// poll runs one watch iteration and reports whether the watcher should exit.
+func (w *watchLoop) poll() (exit bool) {
+	if ownerDead(w.owner) {
+		return true // session process gone: SessionEnd (or the last Stop) already had its chance
+	}
+	fi, err := os.Stat(w.tr)
+	if err != nil {
+		return true // transcript gone: nothing left to update
+	}
+	if time.Since(fi.ModTime()) < w.idle {
+		return false // main transcript alone is still active: skip the subagent globs entirely
+	}
+	latest := newestActivity(w.tr, fi.ModTime())
+	if time.Since(latest) < w.idle || !latest.After(w.seen) {
+		return false // a subagent is still active, or already evaluated at this mtime
+	}
+	dispatched, spawnFailed := idleUpdateOnce(w.tr, w.cwd, w.session, w.stderr)
+	if !spawnFailed {
+		w.seen = latest // a failed spawn leaves seen behind so the next poll retries
+	}
+	if dispatched {
+		fmt.Fprintf(w.stderr, "memory watch: %s quiet for %s — final update dispatched\n", w.session, w.idle.String())
+	}
+	return false
 }
 
 // newestActivity is the newest mtime across the main transcript and this session's subagent transcripts

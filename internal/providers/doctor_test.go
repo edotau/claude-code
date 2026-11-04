@@ -74,42 +74,50 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 // TestMasterKeyStatus exercises MasterKeyStatus directly (the seam shared by checkMasterKey and
 // launch's "vault" row): unreadable vault, empty vault, a good key, and a key that won't open it.
 func TestMasterKeyStatus(t *testing.T) {
-	t.Run("unreadable vault", func(t *testing.T) {
-		doctorTestVault(t)
-		vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
-		count, source, err := vault.MasterKeyStatus()
-		if count != 0 || source != "" || err == nil {
-			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"\", err)", count, source, err)
-		}
-	})
-	t.Run("empty vault", func(t *testing.T) {
-		doctorTestVault(t)
-		count, source, err := vault.MasterKeyStatus()
-		if count != 0 || source != "not needed" || err != nil {
-			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"not needed\", nil)", count, source, err)
-		}
-	})
-	t.Run("secrets and good key", func(t *testing.T) {
-		doctorTestVault(t)
-		if err := vault.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
-			t.Fatal(err)
-		}
-		count, source, err := vault.MasterKeyStatus()
-		if count != 1 || source != "env" || err != nil {
-			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, \"env\", nil)", count, source, err)
-		}
-	})
-	t.Run("secrets and bad key", func(t *testing.T) {
-		doctorTestVault(t)
-		if err := vault.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
-			t.Fatal(err)
-		}
-		wrongVaultKey(t)
-		count, source, err := vault.MasterKeyStatus()
-		if count != 1 || err == nil {
-			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, _, err)", count, source, err)
-		}
-	})
+	t.Run("unreadable vault", masterKeyUnreadableVault)
+	t.Run("empty vault", masterKeyEmptyVault)
+	t.Run("secrets and good key", masterKeyGoodKey)
+	t.Run("secrets and bad key", masterKeyBadKey)
+}
+
+func masterKeyUnreadableVault(t *testing.T) {
+	doctorTestVault(t)
+	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
+	count, source, err := vault.MasterKeyStatus()
+	if count != 0 || source != "" || err == nil {
+		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"\", err)", count, source, err)
+	}
+}
+
+func masterKeyEmptyVault(t *testing.T) {
+	doctorTestVault(t)
+	count, source, err := vault.MasterKeyStatus()
+	if count != 0 || source != "not needed" || err != nil {
+		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"not needed\", nil)", count, source, err)
+	}
+}
+
+func masterKeyGoodKey(t *testing.T) {
+	doctorTestVault(t)
+	if err := vault.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
+		t.Fatal(err)
+	}
+	count, source, err := vault.MasterKeyStatus()
+	if count != 1 || source != "env" || err != nil {
+		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, \"env\", nil)", count, source, err)
+	}
+}
+
+func masterKeyBadKey(t *testing.T) {
+	doctorTestVault(t)
+	if err := vault.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
+		t.Fatal(err)
+	}
+	wrongVaultKey(t)
+	count, source, err := vault.MasterKeyStatus()
+	if count != 1 || err == nil {
+		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, _, err)", count, source, err)
+	}
 }
 
 func TestDoctorMasterKeySources(t *testing.T) {
@@ -196,6 +204,26 @@ func TestDoctorRetiredKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fakeRetiredKeyTool(t, kid)
+	for _, tc := range []struct{ mode, want string }{
+		{"retained", "vault retired key " + kid + ": retained"},
+		{"missing", "vault retired key " + kid + ": missing from the keyring"},
+		{"error", "vault retired key " + kid + ": keyring: unavailable: lookup-failed"},
+	} {
+		t.Setenv("RETIRED_MODE", tc.mode)
+		rc, out := doctorTestResult(&Registry{})
+		if rc != vault.ExitClean {
+			t.Fatalf("Doctor = %d: %s", rc, out)
+		}
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("missing %q: %s", tc.want, out)
+		}
+	}
+}
+
+// fakeRetiredKeyTool puts a fake keyring tool first on PATH that answers for the retired key kid per RETIRED_MODE.
+func fakeRetiredKeyTool(t *testing.T, kid string) {
+	t.Helper()
 	var id string
 	if err := vault.View(func(tx *vault.Tx) error {
 		id, _ = tx.Get(vault.Meta, "vault_id")
@@ -217,20 +245,6 @@ func TestDoctorRetiredKeys(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("EXPECTED_ACCOUNT", "vault-key/"+id+"."+kid)
-	for _, tc := range []struct{ mode, want string }{
-		{"retained", "vault retired key " + kid + ": retained"},
-		{"missing", "vault retired key " + kid + ": missing from the keyring"},
-		{"error", "vault retired key " + kid + ": keyring: unavailable: lookup-failed"},
-	} {
-		t.Setenv("RETIRED_MODE", tc.mode)
-		rc, out := doctorTestResult(&Registry{})
-		if rc != vault.ExitClean {
-			t.Fatalf("Doctor = %d: %s", rc, out)
-		}
-		if !strings.Contains(out, tc.want) {
-			t.Errorf("missing %q: %s", tc.want, out)
-		}
-	}
 }
 
 // TestDoctorUnreadableVaultIsFailure: a vault whose schema the running binary refuses to read must
@@ -255,26 +269,17 @@ func TestDoctorFlagsArchivePerms(t *testing.T) {
 		t.Fatal(err)
 	}
 	loose := vault.Path() + ".rolledback-20260101-000000"
-	if err := os.WriteFile(loose, []byte("archive"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	tight := vault.Path() + ".rolledback-20260102-000000"
-	if err := os.WriteFile(tight, []byte("archive"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestFile(t, loose, "archive", 0o644)
+	writeTestFile(t, tight, "archive", 0o600)
 	bak := filepath.Join(dir, "providers.json.bak-20260101-000000")
-	if err := os.WriteFile(bak, []byte("backup"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTestFile(t, bak, "backup", 0o644)
 	stateDir := filepath.Join(dir, "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	manifest := filepath.Join(stateDir, "vault-migration.json")
 	manifestJSON := `{"items":[{"backup":"` + strings.ReplaceAll(bak, `\`, `\\`) + `"}]}`
-	if err := os.WriteFile(manifest, []byte(manifestJSON), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestFile(t, filepath.Join(stateDir, "vault-migration.json"), manifestJSON, 0o600)
 	rc, out := doctorTestResult(&Registry{})
 	if rc != vault.ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
@@ -287,6 +292,14 @@ func TestDoctorFlagsArchivePerms(t *testing.T) {
 	}
 	if !strings.Contains(out, bak+" is 0644") {
 		t.Errorf("Doctor missing loose manifest backup finding: %s", out)
+	}
+}
+
+// writeTestFile writes content to path with perm, failing the test on error.
+func writeTestFile(t *testing.T, path, content string, perm os.FileMode) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), perm); err != nil {
+		t.Fatal(err)
 	}
 }
 

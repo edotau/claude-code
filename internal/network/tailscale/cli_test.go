@@ -147,6 +147,22 @@ func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	if err := Connect(context.Background(), "tskey-auth-secretvalue", true); err != nil {
 		t.Fatalf("Connect() err = %v", err)
 	}
+	keyFile := authKeyFileFromArgv(t, argvFile)
+	content, err := os.ReadFile(keyContentFile)
+	if err != nil {
+		t.Fatalf("tailscale up never read the --auth-key=file: path: %v", err)
+	}
+	if string(content) != "tskey-auth-secretvalue" {
+		t.Fatalf("key file content = %q, want the auth key", content)
+	}
+	if _, err := os.Stat(keyFile); !os.IsNotExist(err) {
+		t.Fatalf("key temp file %q should be removed once Connect returns, stat err = %v", keyFile, err)
+	}
+}
+
+// authKeyFileFromArgv reads the recorded `tailscale up` argv, asserts the key never rode on it and returns the key file path.
+func authKeyFileFromArgv(t *testing.T, argvFile string) string {
+	t.Helper()
 	argv, err := os.ReadFile(argvFile)
 	if err != nil {
 		t.Fatalf("`tailscale up` was not invoked: %v", err)
@@ -158,17 +174,7 @@ func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	if len(fields) != 3 || fields[0] != "up" || !strings.HasPrefix(fields[1], "--auth-key=file:") || fields[2] != "--advertise-exit-node" {
 		t.Fatalf("up argv = %q, want up + --auth-key=file:<path> + --advertise-exit-node", argv)
 	}
-	keyFile := strings.TrimPrefix(fields[1], "--auth-key=file:")
-	content, err := os.ReadFile(keyContentFile)
-	if err != nil {
-		t.Fatalf("tailscale up never read the --auth-key=file: path: %v", err)
-	}
-	if string(content) != "tskey-auth-secretvalue" {
-		t.Fatalf("key file content = %q, want the auth key", content)
-	}
-	if _, err := os.Stat(keyFile); !os.IsNotExist(err) {
-		t.Fatalf("key temp file %q should be removed once Connect returns, stat err = %v", keyFile, err)
-	}
+	return strings.TrimPrefix(fields[1], "--auth-key=file:")
 }
 
 func TestAdvertiseExitNodeFlags(t *testing.T) {
@@ -307,5 +313,27 @@ func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
 	}
 	if upBudget <= defaultExecTimeout {
 		t.Errorf("`up` deadline budget = %v, want > %v", upBudget, defaultExecTimeout)
+	}
+}
+
+// peersByAddr indexes every peer address, and this node's own addresses carry its Running state.
+func TestPeersByAddrIndexesPeersAndSelf(t *testing.T) {
+	st := Local{
+		BackendState: "Running", IPs: []string{"100.0.0.1"}, ExitNodeOption: true,
+		Peers: []Peer{{IPs: []string{"100.0.0.2", "fd7a::2"}, Online: true, ExitNode: true}},
+	}
+	got := peersByAddr(st)
+	if len(got) != 3 {
+		t.Fatalf("peersByAddr = %+v, want 3 addresses", got)
+	}
+	if p := got["fd7a::2"]; !p.Online || !p.ExitNode {
+		t.Errorf("peer address = %+v, want the online exit-node peer", p)
+	}
+	if self := got["100.0.0.1"]; !self.Online || !self.ExitNode {
+		t.Errorf("self address = %+v, want Online (Running) and ExitNode from ExitNodeOption", self)
+	}
+	st.BackendState = "Stopped"
+	if got := peersByAddr(st)["100.0.0.1"]; got.Online {
+		t.Errorf("stopped self = %+v, want offline", got)
 	}
 }

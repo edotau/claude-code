@@ -48,6 +48,22 @@ func (o ExtractOptions) Validate() error {
 	if o.URL == "" || o.Container == "" || len(o.Fields) == 0 {
 		return errors.New("--extract needs a URL, --container and at least one --field")
 	}
+	if err := o.validateModes(); err != nil {
+		return err
+	}
+	if err := o.validateFields(); err != nil {
+		return err
+	}
+	switch o.Format {
+	case "jsonl", "csv", "json":
+	default:
+		return fmt.Errorf("--format %q: want jsonl, csv or json in extract mode", o.Format)
+	}
+	return nil
+}
+
+// validateModes rejects more than one pagination mode and a template without its placeholder.
+func (o ExtractOptions) validateModes() error {
 	modes := 0
 	for _, set := range []bool{o.Next != "", o.Template != "", o.Scroll, o.LoadMore != ""} {
 		if set {
@@ -60,6 +76,11 @@ func (o ExtractOptions) Validate() error {
 	if o.Template != "" && !strings.Contains(o.Template, "{page}") {
 		return errors.New("--pages needs a {page} placeholder")
 	}
+	return nil
+}
+
+// validateFields rejects duplicate field names and a --key that names no field.
+func (o ExtractOptions) validateFields() error {
 	seen := map[string]bool{}
 	for _, f := range o.Fields {
 		if seen[f.Name] {
@@ -69,11 +90,6 @@ func (o ExtractOptions) Validate() error {
 	}
 	if o.Key != "" && !seen[o.Key] {
 		return fmt.Errorf("--key %q is not a --field name", o.Key)
-	}
-	switch o.Format {
-	case "jsonl", "csv", "json":
-	default:
-		return fmt.Errorf("--format %q: want jsonl, csv or json in extract mode", o.Format)
 	}
 	return nil
 }
@@ -186,38 +202,51 @@ func Extract(ctx context.Context, env Env, o ExtractOptions, w io.Writer) error 
 	}
 	defer func() { _ = c.Close() }()
 	rows, runErr := paginate(ctx, env, c, gate, o, start, js)
+	if werr := writeRows(w, o, dedupe(rows, o.keyIndex())); werr != nil && runErr == nil {
+		runErr = werr
+	}
+	return runErr
+}
+
+// keyIndex is the position of the last field named Key, or -1 when there is none.
+func (o ExtractOptions) keyIndex() int {
 	keyIdx := -1
 	for i, f := range o.Fields {
 		if f.Name == o.Key {
 			keyIdx = i
 		}
 	}
-	if werr := writeRows(w, o, dedupe(rows, keyIdx)); werr != nil && runErr == nil {
-		runErr = werr
-	}
-	return runErr
+	return keyIdx
 }
 
 func writeRows(w io.Writer, o ExtractOptions, rows []Row) error {
 	if o.Format == "csv" {
-		cw := csv.NewWriter(w)
-		head := make([]string, len(o.Fields))
-		for i, f := range o.Fields {
-			head[i] = f.Name
-		}
-		_ = cw.Write(head)
-		for _, r := range rows {
-			rec := make([]string, len(r))
-			for i, v := range r {
-				if v != nil {
-					rec[i] = *v
-				}
-			}
-			_ = cw.Write(rec)
-		}
-		cw.Flush()
-		return cw.Error()
+		return writeCSV(w, o.Fields, rows)
 	}
+	return writeJSONRows(w, o, rows)
+}
+
+func writeCSV(w io.Writer, fields []Field, rows []Row) error {
+	cw := csv.NewWriter(w)
+	head := make([]string, len(fields))
+	for i, f := range fields {
+		head[i] = f.Name
+	}
+	_ = cw.Write(head)
+	for _, r := range rows {
+		rec := make([]string, len(r))
+		for i, v := range r {
+			if v != nil {
+				rec[i] = *v
+			}
+		}
+		_ = cw.Write(rec)
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+func writeJSONRows(w io.Writer, o ExtractOptions, rows []Row) error {
 	var sb strings.Builder
 	for i, r := range rows {
 		line, err := rowJSON(o.Fields, r)

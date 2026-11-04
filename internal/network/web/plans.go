@@ -146,11 +146,7 @@ func (s *Server) handlePlans(w http.ResponseWriter, r *http.Request) {
 
 // resolvePlan maps a request path to a real .md file inside the plans root; false means reject.
 func (s *Server) resolvePlan(rel string) (string, bool) {
-	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") || strings.Contains(rel, "\\") ||
-		!strings.HasSuffix(rel, ".md") {
-		return "", false
-	}
-	if slices.Contains(strings.Split(rel, "/"), "..") {
+	if !plainPlanRel(rel) {
 		return "", false
 	}
 	root, err := filepath.EvalSymlinks(s.plansRoot())
@@ -165,6 +161,15 @@ func (s *Server) resolvePlan(rel string) (string, bool) {
 		return "", false
 	}
 	return full, true
+}
+
+// plainPlanRel accepts only a relative, slash-separated .md path with no ".." element.
+func plainPlanRel(rel string) bool {
+	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") || strings.Contains(rel, "\\") ||
+		!strings.HasSuffix(rel, ".md") {
+		return false
+	}
+	return !slices.Contains(strings.Split(rel, "/"), "..")
 }
 
 func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {

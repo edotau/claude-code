@@ -268,16 +268,7 @@ func Machines(ctx context.Context) ([]Machine, error) {
 		return nil, err
 	}
 	st, _ := Status(ctx) // best-effort online/exit-node overlay; a status error leaves the API-only view
-	byAddr := map[string]Peer{}
-	for _, p := range st.Peers {
-		for _, a := range p.IPs {
-			byAddr[a] = p
-		}
-	}
-	// This node is never in its own peer list: Running is its online state.
-	for _, a := range st.IPs {
-		byAddr[a] = Peer{Online: st.BackendState == "Running", ExitNode: st.ExitNodeOption}
-	}
+	byAddr := peersByAddr(st)
 	out := make([]Machine, 0, len(devices))
 	for _, d := range devices {
 		m := Machine{Name: d.Name, Addresses: d.Addresses, OS: d.OS, LastSeen: d.LastSeen, Tags: d.Tags, Source: "api"}
@@ -290,6 +281,21 @@ func Machines(ctx context.Context) ([]Machine, error) {
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// peersByAddr indexes the status peers (and this node) by tailnet address.
+func peersByAddr(st Local) map[string]Peer {
+	byAddr := map[string]Peer{}
+	for _, p := range st.Peers {
+		for _, a := range p.IPs {
+			byAddr[a] = p
+		}
+	}
+	// This node is never in its own peer list: Running is its online state.
+	for _, a := range st.IPs {
+		byAddr[a] = Peer{Online: st.BackendState == "Running", ExitNode: st.ExitNodeOption}
+	}
+	return byAddr
 }
 
 // machinesFromStatus is the no-credential fallback: self plus every CLI-visible peer.

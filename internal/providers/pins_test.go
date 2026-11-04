@@ -80,6 +80,17 @@ func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 	t.Setenv("CLAUDE_MODEL", "  all-from-env  ")
 	t.Setenv("CLAUDE_OPUS_MODEL", "env-opus")
 
+	checkSelectIgnoresEnv(t, reg)
+
+	t.Setenv(EnvSessionProfile, "")
+	vaulttest.SetRecord(t, "claude", "profile", "gw")
+	vaulttest.SetRecord(t, "claude", "model", "")
+	vaulttest.SetRecord(t, "claude", "aliases.opus", "opus-from-vault")
+	checkFlagBeatsPin(t, reg)
+}
+
+func checkSelectIgnoresEnv(t *testing.T, reg *Registry) {
+	t.Helper()
 	sel, err := Select(reg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -93,11 +104,10 @@ func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 	if got := sel.Aliases[models.Sonnet]; got.Provider != sel.Provider || got.Model != "all-from-vault" {
 		t.Errorf("sonnet = %+v, want the vault all-model pin, not the env", got)
 	}
+}
 
-	t.Setenv(EnvSessionProfile, "")
-	vaulttest.SetRecord(t, "claude", "profile", "gw")
-	vaulttest.SetRecord(t, "claude", "model", "")
-	vaulttest.SetRecord(t, "claude", "aliases.opus", "opus-from-vault")
+func checkFlagBeatsPin(t *testing.T, reg *Registry) {
+	t.Helper()
 	flagSel, err := Select(reg, "gateway")
 	if err != nil {
 		t.Fatal(err)
@@ -131,17 +141,23 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, alias := range models.AliasNames {
-		want := sel.Provider.Models[alias]
-		got, ok := sel.Aliases[alias]
-		if want == "" {
-			if ok {
-				t.Errorf("alias %s = %+v, want no provider default", alias, got)
-			}
-			continue
+		checkProviderDefault(t, sel, alias)
+	}
+}
+
+// checkProviderDefault asserts alias resolves to the provider's own default model, or to nothing when it has none.
+func checkProviderDefault(t *testing.T, sel Selection, alias string) {
+	t.Helper()
+	want := sel.Provider.Models[alias]
+	got, ok := sel.Aliases[alias]
+	if want == "" {
+		if ok {
+			t.Errorf("alias %s = %+v, want no provider default", alias, got)
 		}
-		if !ok || got.Provider != sel.Provider || got.Model != want {
-			t.Errorf("alias %s = %+v, want provider default %q", alias, got, want)
-		}
+		return
+	}
+	if !ok || got.Provider != sel.Provider || got.Model != want {
+		t.Errorf("alias %s = %+v, want provider default %q", alias, got, want)
 	}
 }
 
@@ -545,15 +561,7 @@ func TestSetProviderFieldsPreservesPreviousDoc(t *testing.T) {
 	if err := SetProviderFields("openai", map[string]any{"base_url": "https://second.example/v1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := vault.View(func(tx *vault.Tx) error {
-		prev, ok := tx.Get(vault.Overlay, "providers.prev")
-		if !ok || !bytes.Equal([]byte(prev), first) {
-			t.Errorf("providers.prev = %q, present %v; want %q", prev, ok, first)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	checkPrevOverlay(t, first)
 	current, err := OverlayDoc()
 	if err != nil {
 		t.Fatal(err)
@@ -567,6 +575,20 @@ func TestSetProviderFieldsPreservesPreviousDoc(t *testing.T) {
 	}
 	if got := reg.Providers["openai"].BaseURL; got != "https://second.example/v1" {
 		t.Errorf("second base_url = %q", got)
+	}
+}
+
+// checkPrevOverlay asserts overlay/providers.prev holds the doc written before the latest write.
+func checkPrevOverlay(t *testing.T, first []byte) {
+	t.Helper()
+	if err := vault.View(func(tx *vault.Tx) error {
+		prev, ok := tx.Get(vault.Overlay, "providers.prev")
+		if !ok || !bytes.Equal([]byte(prev), first) {
+			t.Errorf("providers.prev = %q, present %v; want %q", prev, ok, first)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -636,16 +658,7 @@ func TestPinDiffNeverWritesVault(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			var before fs.FileInfo
 			if existing {
-				vaulttest.Put(t, vault.Pins, "A", "1")
-				past := time.Unix(1, 0)
-				if err := os.Chtimes(vault.Path(), past, past); err != nil {
-					t.Fatal(err)
-				}
-				var err error
-				before, err = os.Stat(vault.Path())
-				if err != nil {
-					t.Fatal(err)
-				}
+				before = seedPastVault(t)
 			}
 			diff, err := PinDiff(map[string]string{"B": "2"})
 			if err != nil {
@@ -654,21 +667,42 @@ func TestPinDiffNeverWritesVault(t *testing.T) {
 			if want := []string{"B: (unset) \u2192 2"}; !reflect.DeepEqual(diff, want) {
 				t.Fatalf("PinDiff = %q, want %q", diff, want)
 			}
-			after, err := os.Stat(vault.Path())
-			if !existing {
-				if !errors.Is(err, fs.ErrNotExist) {
-					t.Fatalf("PinDiff created a vault: stat error = %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
-				t.Fatalf("PinDiff changed vault mtime/size: %v/%d -> %v/%d",
-					before.ModTime(), before.Size(), after.ModTime(), after.Size())
-			}
+			checkVaultUntouched(t, existing, before)
 		})
+	}
+}
+
+// seedPastVault writes pin A, backdates the vault file to 1970 and returns its stat.
+func seedPastVault(t *testing.T) fs.FileInfo {
+	t.Helper()
+	vaulttest.Put(t, vault.Pins, "A", "1")
+	past := time.Unix(1, 0)
+	if err := os.Chtimes(vault.Path(), past, past); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return before
+}
+
+// checkVaultUntouched asserts a preview left the vault absent (existing=false) or with its mtime and size unchanged.
+func checkVaultUntouched(t *testing.T, existing bool, before fs.FileInfo) {
+	t.Helper()
+	after, err := os.Stat(vault.Path())
+	if !existing {
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("PinDiff created a vault: stat error = %v", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+		t.Fatalf("PinDiff changed vault mtime/size: %v/%d -> %v/%d",
+			before.ModTime(), before.Size(), after.ModTime(), after.Size())
 	}
 }
 

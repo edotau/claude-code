@@ -52,31 +52,10 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 		memstore.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(memstore.StateDir(), "last-session")
-	out := ""
-	drift := driftNotice()
-	if bank := memory.SessionSurface(cwd); bank != "" {
-		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice(cwd)
-		out = strings.TrimSpace(note+"\n"+drift) + "\n\n" + bank
-	} else {
-		if prefix != "" {
-			out = prefix // a fresh scaffold has no surface yet; still say where the bank went
-		}
-		out = strings.TrimSpace(out + "\n" + drift)
-	}
-	// The daily dream (consolidate) runs detached on Claude; never blocks launch.
-	if !bank.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
-		spawnDream(cwd)
-	}
-	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
-	if !bank.IsUpdateChild() && memrecall.LooksLikeSessionID(sessionID) {
-		spawnCatchup(cwd, sessionID)
-	}
-	// A stale served-endpoint cache is re-listed detached; needs no memory bank.
-	if !bank.IsUpdateChild() && servedRefreshDue(now) {
-		spawnServed(cwd)
-	}
-	// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
+	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now)
 	if !bank.IsUpdateChild() {
+		spawnStartWorkers(cwd, sessionID, now)
+		// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
 		memrecall.ResetSeen(sessionID, cwd, out)
 	}
 	// An update worker is a session too; it must not become the "previous session" of the user's next one. Non-UUID ids (probe/test payloads) must not clobber the real previous-session pointer.
@@ -84,6 +63,33 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 		writeChain(chain, chainEntry{sessionID: sessionID, transcriptPath: transcriptPath, cwd: cwd})
 	}
 	return out
+}
+
+// sessionSurfaceText renders the start-of-session note, drift notice and (when a bank exists) its surface.
+func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) string {
+	drift := driftNotice()
+	if surface := memory.SessionSurface(cwd); surface != "" {
+		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice(cwd)
+		return strings.TrimSpace(note+"\n"+drift) + "\n\n" + surface
+	}
+	// a fresh scaffold has no surface yet; still say where the bank went
+	return strings.TrimSpace(prefix + "\n" + drift)
+}
+
+// spawnStartWorkers launches the detached dream, catch-up sweep and served-endpoint refresh a start may owe.
+func spawnStartWorkers(cwd, sessionID string, now time.Time) {
+	// The daily dream (consolidate) runs detached on Claude; never blocks launch.
+	if memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
+		spawnDream(cwd)
+	}
+	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
+	if memrecall.LooksLikeSessionID(sessionID) {
+		spawnCatchup(cwd, sessionID)
+	}
+	// A stale served-endpoint cache is re-listed detached; needs no memory bank.
+	if servedRefreshDue(now) {
+		spawnServed(cwd)
+	}
 }
 
 // bankLoadNote is the fixed "session memory bank loaded" line, with an optional scaffold/pause prefix.

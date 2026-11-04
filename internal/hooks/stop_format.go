@@ -162,8 +162,13 @@ func changedFiles(ctx context.Context, cwd string) []string {
 	if root == "" {
 		return nil
 	}
+	return porcelainPaths(strings.Split(string(data), "\x00"), cwd, root)
+}
+
+// porcelainPaths maps `status --porcelain=v1 -z` records to paths relative to cwd, dropping clean, ignored and
+// outside-cwd entries; the extra path after a rename or copy record is skipped.
+func porcelainPaths(records []string, cwd, root string) []string {
 	var out []string
-	records := strings.Split(string(data), "\x00")
 	for i := 0; i < len(records); i++ {
 		record := records[i]
 		if len(record) < 4 {

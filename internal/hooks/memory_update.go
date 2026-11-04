@@ -232,32 +232,45 @@ func readCountState(path string) (countState, bool) {
 		return countState{}, false
 	}
 	parts := strings.Split(strings.TrimSpace(string(b)), "|")
-	if len(parts) == 2 || len(parts) == 3 {
+	switch len(parts) {
+	case 2, 3:
 		// Pre-upgrade formats: offset sits past lines the old binary never weighted or turns never counted.
 		return countState{}, true
+	case 4:
+		return parseCountFields(parts)
 	}
-	if len(parts) != 4 {
-		return countState{}, false
-	}
+	return countState{}, false
+}
+
+// parseCountFields decodes the current four-field count line: edits|offset|subEdits:subBytes|turns.
+func parseCountFields(parts []string) (countState, bool) {
 	edits, err1 := strconv.Atoi(parts[0])
 	offset, err2 := strconv.ParseInt(parts[1], 10, 64)
 	if err1 != nil || err2 != nil || edits < 0 || offset < 0 {
 		return countState{}, false
 	}
 	cs := countState{edits: edits, offset: offset}
-	subEditsStr, subBytesStr, ok := strings.Cut(parts[2], ":")
-	subEdits, err3 := strconv.Atoi(subEditsStr)
-	subBytes, err4 := strconv.ParseInt(subBytesStr, 10, 64)
-	if !ok || err3 != nil || err4 != nil || subEdits < 0 || subBytes < 0 {
+	var ok bool
+	if cs.subEdits, cs.subBytes, ok = parseSubCache(parts[2]); !ok {
 		return countState{}, false
 	}
-	cs.subEdits, cs.subBytes = subEdits, subBytes
-	turns, err5 := strconv.Atoi(parts[3])
-	if err5 != nil || turns < 0 {
+	turns, err := strconv.Atoi(parts[3])
+	if err != nil || turns < 0 {
 		return countState{}, false
 	}
 	cs.turns = turns
 	return cs, true
+}
+
+// parseSubCache decodes the "subEdits:subBytes" field.
+func parseSubCache(field string) (subEdits int, subBytes int64, ok bool) {
+	subEditsStr, subBytesStr, ok := strings.Cut(field, ":")
+	subEdits, err1 := strconv.Atoi(subEditsStr)
+	subBytes, err2 := strconv.ParseInt(subBytesStr, 10, 64)
+	if !ok || err1 != nil || err2 != nil || subEdits < 0 || subBytes < 0 {
+		return 0, 0, false
+	}
+	return subEdits, subBytes, true
 }
 
 func writeCountState(path string, cs countState) {
@@ -282,26 +295,11 @@ func countWork(transcriptPath, countFile string, write bool) int {
 	}
 	cs, _ := readCountState(countFile)
 	if fi.Size() < cs.offset {
-		if write {
-			_ = os.Remove(countFile)
-		}
-		cs = countState{}
+		cs = resetCountState(countFile, write)
 	}
 	mainProgressed := false
 	if fi.Size() != cs.offset {
-		deltaEdits, deltaTurns, next := transcript.CountWorkFrom(transcriptPath, cs.offset)
-		if next < cs.offset {
-			if write {
-				_ = os.Remove(countFile)
-			}
-			cs = countState{}
-		}
-		cs.edits += deltaEdits
-		cs.turns += deltaTurns
-		if next != cs.offset {
-			cs.offset = next
-			mainProgressed = true
-		}
+		cs, mainProgressed = advanceMainCount(cs, transcriptPath, countFile, write)
 	}
 	subEdits, subBytes := subagentEdits(transcriptPath, cs.subBytes, cs.subEdits, write)
 	if write && (mainProgressed || subEdits != cs.subEdits || subBytes != cs.subBytes) {
@@ -309,6 +307,29 @@ func countWork(transcriptPath, countFile string, write bool) int {
 		writeCountState(countFile, cs)
 	}
 	return cs.edits + subEdits + cs.turns/userTurnsPerEdit
+}
+
+// resetCountState drops the cache (the transcript shrank or rotated) and returns a zero state.
+func resetCountState(countFile string, write bool) countState {
+	if write {
+		_ = os.Remove(countFile)
+	}
+	return countState{}
+}
+
+// advanceMainCount folds the transcript bytes appended since cs.offset into cs and reports whether the offset moved.
+func advanceMainCount(cs countState, transcriptPath, countFile string, write bool) (countState, bool) {
+	deltaEdits, deltaTurns, next := transcript.CountWorkFrom(transcriptPath, cs.offset)
+	if next < cs.offset {
+		cs = resetCountState(countFile, write)
+	}
+	cs.edits += deltaEdits
+	cs.turns += deltaTurns
+	moved := next != cs.offset
+	if moved {
+		cs.offset = next
+	}
+	return cs, moved
 }
 
 // subFileState is one subagent file's offset + edits already counted past that offset, cached in the count file's sidecar so a size bump only rescans the bytes appended since the last Stop.
@@ -358,35 +379,12 @@ func subagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int, wr
 		return cachedEdits, totalBytes
 	}
 	sidecar := sidecarPath(dir)
-	// recount rescans each file past its cached offset and sums the edits; write controls whether the sidecar is persisted, so an unlocked fallback (read-only subagents dir) never writes a stale state.
-	recount := func(write bool) int {
-		prevState := readSidecar(sidecar)
-		next := make(map[string]subFileState, len(matches))
-		sum := 0
-		for _, m := range matches {
-			st := prevState[m] // nil map read: zero value, no rescan skipped
-			if sizes[m] < st.Offset {
-				st = subFileState{} // shrank or rotated: rescan from 0
-			}
-			if sizes[m] != st.Offset {
-				delta, off := transcript.CountEditsFrom(m, st.Offset)
-				st.Edits += delta
-				st.Offset = off
-			}
-			sum += st.Edits
-			next[m] = st
-		}
-		if write {
-			writeSidecar(sidecar, next)
-		}
-		return sum
-	}
 	if !write {
-		return recount(false), totalBytes
+		return recountSubagents(matches, sizes, sidecar, false), totalBytes
 	}
 	// Stop and SessionEnd can both call in for the same session: serialize the read-compute-write so neither writer regresses the other's offsets; a lock timeout keeps hooks fast by skipping the write.
 	ran, lockErr := paths.TryFileLock(sidecar+".lock", sidecarLockWait, func() error {
-		edits = recount(true)
+		edits = recountSubagents(matches, sizes, sidecar, true)
 		return nil
 	})
 	if ran {
@@ -394,10 +392,35 @@ func subagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int, wr
 	}
 	if lockErr != nil {
 		// Lock file couldn't even be opened (e.g. read-only subagents dir): compute unlocked, skip the sidecar write rather than freezing the count forever.
-		return recount(false), totalBytes
+		return recountSubagents(matches, sizes, sidecar, false), totalBytes
 	}
 	// Timeout from contention: retry on the next call rather than caching the new totalBytes against stale edits, which would make the next call's fast-path skip the recount permanently.
 	return cachedEdits, cachedBytes
+}
+
+// recountSubagents rescans each file past its cached offset and sums the edits; write controls whether the sidecar is
+// persisted, so an unlocked fallback (read-only subagents dir) never writes a stale state.
+func recountSubagents(matches []string, sizes map[string]int64, sidecar string, write bool) int {
+	prevState := readSidecar(sidecar)
+	next := make(map[string]subFileState, len(matches))
+	sum := 0
+	for _, m := range matches {
+		st := prevState[m] // nil map read: zero value, no rescan skipped
+		if sizes[m] < st.Offset {
+			st = subFileState{} // shrank or rotated: rescan from 0
+		}
+		if sizes[m] != st.Offset {
+			delta, off := transcript.CountEditsFrom(m, st.Offset)
+			st.Edits += delta
+			st.Offset = off
+		}
+		sum += st.Edits
+		next[m] = st
+	}
+	if write {
+		writeSidecar(sidecar, next)
+	}
+	return sum
 }
 
 func sessionRootInput(in *Input) *Input {

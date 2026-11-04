@@ -49,8 +49,9 @@ func archDirByPath(sc archScan, p string) (archDir, bool) {
 	return archDir{}, false
 }
 
-func TestArchitectureEndToEnd(t *testing.T) {
-	root := t.TempDir()
+// writeArchFixture lays out a module with a leaf, an a<->b import cycle, a parse error, an empty dir and testdata.
+func writeArchFixture(t *testing.T, root string) {
+	t.Helper()
 	writeArchFile(t, root, "go.mod", "module example.com/fx\n\ngo 1.22\n")
 	writeArchFile(t, root, "internal/c/c.go", "// Package c is a leaf.\npackage c\n")
 	writeArchFile(t, root, "internal/a/a.go", "package a\n\nimport _ \"example.com/fx/internal/c\"\nimport _ \"example.com/fx/internal/b\"\n")
@@ -63,7 +64,63 @@ func TestArchitectureEndToEnd(t *testing.T) {
 	}
 	writeArchFile(t, root, "skills/synced/child/f.txt", "x")
 	writeArchFile(t, root, "skills/other/child/f.txt", "x")
+}
 
+// checkArchDirs asserts the listed directories: the Go ones present, no testdata, relative paths, no empty dir.
+func checkArchDirs(t *testing.T, sc archScan) {
+	t.Helper()
+	for _, p := range []string{"internal/bad", "internal/c"} {
+		if _, ok := archDirByPath(sc, p); !ok {
+			t.Errorf("dirs missing %s", p)
+		}
+	}
+	for _, d := range sc.Dirs {
+		if strings.Contains(d.Path, "testdata") || filepath.IsAbs(d.Path) {
+			t.Errorf("unexpected dir path %q", d.Path)
+		}
+	}
+	if _, ok := archDirByPath(sc, "internal/empty"); ok {
+		t.Errorf("dirs must hold only directories with Go files")
+	}
+}
+
+// checkArchScanShape asserts the scan-level facts: parse errors, listed dirs and the files list.
+func checkArchScanShape(t *testing.T, r archResp) {
+	t.Helper()
+	if r.Scan.ParseErrors != 1 {
+		t.Errorf("parseErrors = %d, want 1", r.Scan.ParseErrors)
+	}
+	checkArchDirs(t, r.Scan)
+	if len(r.Scan.Files) != 3 || r.Scan.Files[0] != (archFile{Path: "README.md"}) || r.Scan.Files[1] != (archFile{Path: "internal/a/a.go", Lines: 4}) {
+		t.Errorf("files = %+v, want sorted list with lines on .go only", r.Scan.Files)
+	}
+}
+
+// checkArchLayers asserts layer, doc, import and external facts of the c, a and b fixture packages.
+func checkArchLayers(t *testing.T, r archResp) {
+	t.Helper()
+	c, _ := archDirByPath(r.Scan, "internal/c")
+	a, _ := archDirByPath(r.Scan, "internal/a")
+	b, _ := archDirByPath(r.Scan, "internal/b")
+	if c.Layer != 0 || !c.HasDoc || strings.Join(c.ImportedBy, ",") != "internal/a" {
+		t.Errorf("leaf c = %+v, want layer 0, doc, importedBy [internal/a]", c)
+	}
+	if a.Layer < 1 || len(a.TestImports) != 1 || a.TestFiles != 1 || a.Files != 1 {
+		t.Errorf("a = %+v, want layer>=1, one test import, 1 file + 1 test file", a)
+	}
+	checkArchImports(t, a, b)
+}
+
+func checkArchImports(t *testing.T, a, b archDir) {
+	t.Helper()
+	if strings.Join(a.ImportedBy, ",") != "internal/b" || len(b.External) != 1 || b.External[0] != "github.com/x/y" {
+		t.Errorf("a.importedBy=%v b.external=%v", a.ImportedBy, b.External)
+	}
+}
+
+func TestArchitectureEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	writeArchFixture(t, root)
 	orig := gitListFiles
 	gitListFiles = func(string) ([]string, error) {
 		return []string{"internal/a/a.go", "internal/c/c.go", "README.md"}, nil
@@ -75,40 +132,11 @@ func TestArchitectureEndToEnd(t *testing.T) {
 	if strings.Contains(body, root) {
 		t.Errorf("body leaks absolute tempdir %q", root)
 	}
-	if r.Scan.ParseErrors != 1 {
-		t.Errorf("parseErrors = %d, want 1", r.Scan.ParseErrors)
-	}
 	if len(r.Verbs) != 1 {
 		t.Errorf("verbs = %v, want the injected tree", r.Verbs)
 	}
-	for _, p := range []string{"internal/bad", "internal/c"} {
-		if _, ok := archDirByPath(r.Scan, p); !ok {
-			t.Errorf("dirs missing %s", p)
-		}
-	}
-	for _, d := range r.Scan.Dirs {
-		if strings.Contains(d.Path, "testdata") || filepath.IsAbs(d.Path) {
-			t.Errorf("unexpected dir path %q", d.Path)
-		}
-	}
-	c, _ := archDirByPath(r.Scan, "internal/c")
-	a, _ := archDirByPath(r.Scan, "internal/a")
-	b, _ := archDirByPath(r.Scan, "internal/b")
-	if c.Layer != 0 || !c.HasDoc || strings.Join(c.ImportedBy, ",") != "internal/a" {
-		t.Errorf("leaf c = %+v, want layer 0, doc, importedBy [internal/a]", c)
-	}
-	if a.Layer < 1 || len(a.TestImports) != 1 || a.TestFiles != 1 || a.Files != 1 {
-		t.Errorf("a = %+v, want layer>=1, one test import, 1 file + 1 test file", a)
-	}
-	if strings.Join(a.ImportedBy, ",") != "internal/b" || len(b.External) != 1 || b.External[0] != "github.com/x/y" {
-		t.Errorf("a.importedBy=%v b.external=%v", a.ImportedBy, b.External)
-	}
-	if _, ok := archDirByPath(r.Scan, "internal/empty"); ok {
-		t.Errorf("dirs must hold only directories with Go files")
-	}
-	if len(r.Scan.Files) != 3 || r.Scan.Files[0] != (archFile{Path: "README.md"}) || r.Scan.Files[1] != (archFile{Path: "internal/a/a.go", Lines: 4}) {
-		t.Errorf("files = %+v, want sorted list with lines on .go only", r.Scan.Files)
-	}
+	checkArchScanShape(t, r)
+	checkArchLayers(t, r)
 }
 
 func TestArchitectureMissingInternal(t *testing.T) {
@@ -151,17 +179,11 @@ type curatedDoc struct {
 	Proposal []struct{ ID string } `json:"proposals"`
 }
 
-func TestArchitectureCuratedCoversRealPackages(t *testing.T) {
-	raw, err := assetsFS.ReadFile("assets/architecture.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc curatedDoc
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
-	root := filepath.Join("..", "..", "..", "internal")
-	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+// goPackageDirs lists the slash-relative directories under root's parent that hold Go files, skipping vendored names.
+func goPackageDirs(t *testing.T, root string) []string {
+	t.Helper()
+	var dirs []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return err
 		}
@@ -173,19 +195,42 @@ func TestArchitectureCuratedCoversRealPackages(t *testing.T) {
 		for _, e := range ents {
 			hasGo = hasGo || (!e.IsDir() && strings.HasSuffix(e.Name(), ".go"))
 		}
-		if !hasGo {
-			return nil
-		}
-		rel, _ := filepath.Rel(filepath.Join(root, ".."), p)
-		rel = filepath.ToSlash(rel)
-		if e, ok := doc.Dirs[rel]; !ok || strings.TrimSpace(e.Purpose) == "" {
-			t.Errorf("architecture.json dirs[%q] missing or empty purpose", rel)
+		if hasGo {
+			rel, _ := filepath.Rel(filepath.Join(root, ".."), p)
+			dirs = append(dirs, filepath.ToSlash(rel))
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return dirs
+}
+
+func loadCuratedDoc(t *testing.T) curatedDoc {
+	t.Helper()
+	raw, err := assetsFS.ReadFile("assets/architecture.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc curatedDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func TestArchitectureCuratedCoversRealPackages(t *testing.T) {
+	doc := loadCuratedDoc(t)
+	for _, rel := range goPackageDirs(t, filepath.Join("..", "..", "..", "internal")) {
+		if e, ok := doc.Dirs[rel]; !ok || strings.TrimSpace(e.Purpose) == "" {
+			t.Errorf("architecture.json dirs[%q] missing or empty purpose", rel)
+		}
+	}
+}
+
+func TestArchitectureCuratedIDsAreUniqueAndReferenced(t *testing.T) {
+	doc := loadCuratedDoc(t)
 	props := map[string]bool{}
 	for _, p := range doc.Proposal {
 		if props[p.ID] {

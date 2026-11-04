@@ -201,6 +201,13 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 	if len(Native) == 0 {
 		t.Fatal("Native is empty")
 	}
+	wantNativeBindings(t)
+	wantPathsResolveResult(t)
+}
+
+// wantNativeBindings requires every Native runner to be bound by Bind to the same function pointer.
+func wantNativeBindings(t *testing.T) {
+	t.Helper()
 	seen := map[string]bool{}
 	for _, b := range Bind() {
 		native, ok := Native[b.Spec.Name]
@@ -217,9 +224,12 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 			t.Errorf("%s: declared in Native but never bound", name)
 		}
 	}
+}
 
-	dir := t.TempDir()
-	f := filepath.Join(dir, "notes.md")
+// wantPathsResolveResult runs the bound paths-resolve Runner and requires a Result carrying Context + SystemMessage.
+func wantPathsResolveResult(t *testing.T) {
+	t.Helper()
+	f := filepath.Join(t.TempDir(), "notes.md")
 	if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -231,6 +241,25 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 		r := b.Run(in) // a Result straight from the Runner
 		if r.Context == "" || r.SystemMessage == "" {
 			t.Errorf("path-resolver Result = %+v, want Context and SystemMessage", r)
+		}
+	}
+}
+
+// wantVendorPromptDoc checks the vendor-specific shape of the paths-resolve JSON document.
+func wantVendorPromptDoc(t *testing.T, vendor string, doc map[string]any) {
+	t.Helper()
+	switch vendor {
+	case AgentClaude:
+		h, _ := doc["hookSpecificOutput"].(map[string]any)
+		sys, _ := doc["systemMessage"].(string)
+		ctx, _ := h["additionalContext"].(string)
+		if sys == "" || ctx == "" {
+			t.Errorf("claude doc = %v, want systemMessage + hookSpecificOutput.additionalContext", doc)
+		}
+	case AgentCopilot:
+		ctx, _ := doc["additionalContext"].(string)
+		if ctx == "" || len(doc) != 1 {
+			t.Errorf("copilot doc = %v, want only additionalContext", doc)
 		}
 	}
 }
@@ -260,21 +289,7 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 			if directOut.String() != eventOut.String() {
 				t.Fatalf("direct %q != dispatched %q", &directOut, &eventOut)
 			}
-			doc := oneDoc(t, directOut.String())
-			switch vendor {
-			case AgentClaude:
-				h, _ := doc["hookSpecificOutput"].(map[string]any)
-				sys, _ := doc["systemMessage"].(string)
-				ctx, _ := h["additionalContext"].(string)
-				if sys == "" || ctx == "" {
-					t.Errorf("claude doc = %v, want systemMessage + hookSpecificOutput.additionalContext", doc)
-				}
-			case AgentCopilot:
-				ctx, _ := doc["additionalContext"].(string)
-				if ctx == "" || len(doc) != 1 {
-					t.Errorf("copilot doc = %v, want only additionalContext", doc)
-				}
-			}
+			wantVendorPromptDoc(t, vendor, oneDoc(t, directOut.String()))
 		})
 	}
 }

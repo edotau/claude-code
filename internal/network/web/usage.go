@@ -55,31 +55,43 @@ type usageEntry struct {
 // get returns the cached body for key, or builds it with build when missing, stale, or (fresh and old enough).
 func (c *usageCache) get(key usageKey, fresh bool, now func() time.Time, build func() ([]byte, error)) ([]byte, error) {
 	for {
-		c.mu.Lock()
-		if e, ok := c.entries[key]; ok {
-			age := now().Sub(e.at)
-			if age < usageTTL && (!fresh || age < usageFreshMin) {
-				c.mu.Unlock()
-				return e.body, nil
-			}
+		body, hit, wait, own := c.acquire(key, fresh, now)
+		if hit {
+			return body, nil
 		}
-		f, building := c.flights[key]
-		if !building {
-			break
+		if own != nil {
+			return c.runBuild(key, own, now, build)
 		}
-		c.mu.Unlock()
-		<-f.done
-		if f.err != nil {
-			return nil, f.err
+		<-wait.done
+		if wait.err != nil {
+			return nil, wait.err
 		}
+	}
+}
+
+// acquire returns a usable cached body (hit), a flight to wait on, or a new flight the caller must build.
+func (c *usageCache) acquire(key usageKey, fresh bool, now func() time.Time) (body []byte, hit bool, wait, own *usageFlight) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.entries[key]; ok {
+		age := now().Sub(e.at)
+		if age < usageTTL && (!fresh || age < usageFreshMin) {
+			return e.body, true, nil, nil
+		}
+	}
+	if f, building := c.flights[key]; building {
+		return nil, false, f, nil
 	}
 	f := &usageFlight{done: make(chan struct{})}
 	if c.flights == nil {
 		c.flights = map[usageKey]*usageFlight{}
 	}
 	c.flights[key] = f
-	c.mu.Unlock()
+	return nil, false, nil, f
+}
 
+// runBuild runs build outside the lock, caches a successful body and releases the flight's waiters.
+func (c *usageCache) runBuild(key usageKey, f *usageFlight, now func() time.Time, build func() ([]byte, error)) ([]byte, error) {
 	body, err := build()
 
 	c.mu.Lock()

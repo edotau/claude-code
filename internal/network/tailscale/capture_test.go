@@ -33,6 +33,12 @@ func TestCapturePanes_ParsesMultipleRecords(t *testing.T) {
 	if len(caps) != 2 {
 		t.Fatalf("got %d captures, want 2: %+v", len(caps), caps)
 	}
+	checkParsedCaptures(t, caps)
+}
+
+// checkParsedCaptures asserts the two records of TestCapturePanes_ParsesMultipleRecords and their host.
+func checkParsedCaptures(t *testing.T, caps []PaneCapture) {
+	t.Helper()
 	if caps[0].Session != "cc-claude-a" || caps[0].PaneID != "%1" || caps[0].Agent != "claude" || caps[0].Text != "line1\nline2" {
 		t.Errorf("caps[0] = %+v, unexpected", caps[0])
 	}

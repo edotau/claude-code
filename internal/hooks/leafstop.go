@@ -72,7 +72,18 @@ func leafStopBlock(in *Input, agentID string) (Result, bool) {
 	if err != nil {
 		return Result{}, false
 	}
-	var expired Result
+	expired, block := liveDispatchVerdict(ids, agentID)
+	if block {
+		return expired, true
+	}
+	if res, block := coworkerRanOnVerdict(in, agentID); block || expired.SystemMessage == "" {
+		return res, block
+	}
+	return expired, false
+}
+
+// liveDispatchVerdict blocks on the first live dispatch within its wait limit, else carries the first expiry note.
+func liveDispatchVerdict(ids []string, agentID string) (expired Result, block bool) {
 	for _, id := range ids {
 		rec, err := loadDispatch(id)
 		if err != nil || !inflight.DispatchAlive(rec.Status, rec.PID, rec.Time) {
@@ -85,9 +96,6 @@ func leafStopBlock(in *Input, agentID string) (Result, bool) {
 		if expired.SystemMessage == "" {
 			expired = res
 		}
-	}
-	if res, block := coworkerRanOnVerdict(in, agentID); block || expired.SystemMessage == "" {
-		return res, block
 	}
 	return expired, false
 }

@@ -75,13 +75,8 @@ func SyncKeybindings(template, dest string, check bool) (Result, error) {
 
 func mergeKeybindings(dest string, overlay []map[string]any, check bool) (Result, error) {
 	var base []map[string]any
-	rawBase, err := os.ReadFile(dest)
-	switch {
-	case err == nil && len(rawBase) > 0:
-		if err := json.Unmarshal(textutil.StripJSONC(rawBase), &base); err != nil {
-			return Result{}, fmt.Errorf("live keybindings: %w", err)
-		}
-	case err != nil && !os.IsNotExist(err):
+	rawBase, err := readBase(dest, "keybindings", &base)
+	if err != nil {
 		return Result{}, err
 	}
 	merged := mergeKeybindingEntries(base, overlay)
@@ -95,31 +90,7 @@ func mergeKeybindings(dest string, overlay []map[string]any, check bool) (Result
 	if err != nil {
 		return Result{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return Result{}, err
-	}
-	if BeforeWrite != nil {
-		BeforeWrite(dest)
-	}
-	// Same re-read guard as settings: only safe to write while the bytes merged are still on disk.
-	fresh, err := os.ReadFile(dest)
-	if err != nil && !os.IsNotExist(err) {
-		return Result{}, err
-	}
-	if !bytes.Equal(fresh, rawBase) {
-		return Result{}, fmt.Errorf("live keybindings changed under the merge (%s) — re-run to merge the newer file", dest)
-	}
-	backup := ""
-	if len(rawBase) > 0 {
-		var err error
-		if backup, err = paths.Backup(dest, rawBase); err != nil {
-			return Result{}, err
-		}
-	}
-	if err := paths.AtomicWrite(dest, body, 0o600); err != nil {
-		return Result{Backup: backup}, err
-	}
-	return Result{Changed: true, Backup: backup}, nil
+	return writeGuarded(dest, "keybindings", rawBase, body)
 }
 
 // mergeKeybindingEntries replaces a matching template entry in place (by command + profile) and

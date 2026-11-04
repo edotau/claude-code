@@ -100,21 +100,8 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 
 // commitRepoDir is the candidate dir (commit -C args, leading cd, cwd) whose HEAD is sha, else the first whose repo holds it.
 func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
-	var cands []string
-	for _, seg := range cmdSegment.Split(cmd, -1) { // only commit invocations name a candidate repo
-		if !gitCommitCmd.MatchString(seg) {
-			continue
-		}
-		if m := gitDirArg.FindStringSubmatch(seg); m != nil {
-			cands = append(cands, strings.Trim(m[1], `"'`))
-		}
-	}
-	if m := leadingCD.FindStringSubmatch(cmd); m != nil {
-		cands = append(cands, strings.Trim(m[1], `"'`))
-	}
-	cands = append(cands, cwd)
 	var holders []string
-	for _, d := range cands {
+	for _, d := range commitCandidates(cwd, cmd) {
 		if strings.HasPrefix(d, "~/") {
 			d = paths.ExpandHome(d)
 		}
@@ -134,6 +121,23 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 		return holders[0]
 	}
 	return ""
+}
+
+// commitCandidates lists the dirs a commit command may have run in: -C args, a leading cd, then cwd.
+func commitCandidates(cwd, cmd string) []string {
+	var cands []string
+	for _, seg := range cmdSegment.Split(cmd, -1) { // only commit invocations name a candidate repo
+		if !gitCommitCmd.MatchString(seg) {
+			continue
+		}
+		if m := gitDirArg.FindStringSubmatch(seg); m != nil {
+			cands = append(cands, strings.Trim(m[1], `"'`))
+		}
+	}
+	if m := leadingCD.FindStringSubmatch(cmd); m != nil {
+		cands = append(cands, strings.Trim(m[1], `"'`))
+	}
+	return append(cands, cwd)
 }
 
 // recordPartials appends "<path>\\t<plan>: <task>" lines for the Stop reminder.
@@ -233,16 +237,22 @@ func normTask(s string) string {
 // matchBriefTask returns the one open task a `Task:` line names by id, else the one a description matches by title.
 func matchBriefTask(p plans.Plan, brief, description string) (plans.Task, bool) {
 	if m := briefTaskRe.FindStringSubmatch(brief); m != nil {
-		want := normTask(m[1])
-		var hit []plans.Task
-		for _, t := range p.Tasks {
-			if !t.Done && want != "" && (normTask(t.ID) == want || normTask(t.Title) == want) {
-				hit = append(hit, t)
-			}
-		}
-		return only(hit)
+		return matchTaskByID(p, normTask(m[1]))
 	}
-	want := normTask(description)
+	return matchTaskByTitle(p, normTask(description))
+}
+
+func matchTaskByID(p plans.Plan, want string) (plans.Task, bool) {
+	var hit []plans.Task
+	for _, t := range p.Tasks {
+		if !t.Done && want != "" && (normTask(t.ID) == want || normTask(t.Title) == want) {
+			hit = append(hit, t)
+		}
+	}
+	return only(hit)
+}
+
+func matchTaskByTitle(p plans.Plan, want string) (plans.Task, bool) {
 	if len(strings.Fields(want)) < 3 {
 		return plans.Task{}, false
 	}
