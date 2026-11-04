@@ -179,14 +179,17 @@ func targetPath(p string) (string, error) {
 	return win, nil
 }
 
-// desktopRunning is a var so tests can stub the process probe.
+// desktopRunning is a var so tests can stub the process probe; it only gates an advisory warning, so a
+// probe error or timeout fails open (reports not running) rather than blocking configure.
 var desktopRunning = func() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	switch {
 	case OnWSL() || runtime.GOOS == "windows":
-		out, err := exec.Command("cmd.exe", "/c", "tasklist", "/FI", "IMAGENAME eq Claude.exe", "/NH").Output()
+		out, err := exec.CommandContext(ctx, "cmd.exe", "/c", "tasklist", "/FI", "IMAGENAME eq Claude.exe", "/NH").Output()
 		return err == nil && strings.Contains(strings.ToLower(string(out)), "claude.exe")
 	case runtime.GOOS == "darwin":
-		return exec.Command("pgrep", "-x", "Claude").Run() == nil
+		return exec.CommandContext(ctx, "pgrep", "-x", "Claude").Run() == nil
 	}
 	return false
 }
