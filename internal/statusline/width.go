@@ -107,7 +107,7 @@ func visibleWidth(s string) int {
 // longestLine is the widest line of s in visible cells.
 func longestLine(s string) int {
 	w := 0
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		w = max(w, visibleWidth(l))
 	}
 	return w

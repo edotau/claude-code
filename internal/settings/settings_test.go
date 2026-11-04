@@ -562,9 +562,7 @@ func TestUpdateWithBackupKeepsConcurrentKeys(t *testing.T) {
 	const n = 8
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := UpdateWithBackup(path, func(old []byte) ([]byte, error) {
 				var m map[string]int
 				if err := json.Unmarshal(old, &m); err != nil {
@@ -577,7 +575,7 @@ func TestUpdateWithBackupKeepsConcurrentKeys(t *testing.T) {
 			if err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	b, _ := os.ReadFile(path)

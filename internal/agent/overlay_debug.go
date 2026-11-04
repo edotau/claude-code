@@ -62,7 +62,7 @@ func overlayDebugSalt(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }() // the temp name only; path keeps the hard link
 	_, werr := tmp.WriteString(salt)
 	if err := errors.Join(werr, tmp.Chmod(0o600), tmp.Close()); err != nil {
 		return "", err

@@ -402,9 +402,7 @@ func TestUpdateOverlayConcurrentWritersAllSurvive(t *testing.T) {
 		"useAutoModeDuringPlan", "skipWorkflowUsageWarning"}
 	var wg sync.WaitGroup
 	for _, k := range keys {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := UpdateOverlay(func(cur map[string]json.RawMessage) map[string]json.RawMessage {
 				cur[k] = json.RawMessage(`true`)
 				return cur
@@ -412,7 +410,7 @@ func TestUpdateOverlayConcurrentWritersAllSurvive(t *testing.T) {
 			if err != nil {
 				t.Errorf("UpdateOverlay %s: %v", k, err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	got, err := LoadOverlay()
