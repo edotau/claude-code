@@ -69,6 +69,8 @@ var writers = map[string]string{
 	"internal/history/history.go:stageFile":                           unversioned("text: session history snapshot of a transcript"),
 	"internal/hooks/checkpoint.go:contextCheckpoint":                  unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/codexaudit.go:appendCodexRoute":                   "codex-routing",
+	"internal/hooks/claims.go:appendClaims":                           "claims",
+	"internal/hooks/claimcheck.go:firstSighting":                      unversioned("marker: per-session claim advisory dedupe lines"),
 	"internal/inflight/limiter.go:writeMarker":                        unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/worktree.go:busyLine":                             unversioned("marker: per-session worktree-busy dedupe stamp"),
 	"internal/memory/recall/sessionroot.go:RecordSessionRoot":         unversioned("text: per-session launch repository root"),

@@ -165,8 +165,8 @@ func assessRewrite(in *Input, target, verb string, rng []string) (rewriteRisk, b
 	if n == 0 {
 		return rewriteRisk{}, false // not a repo, a non-commit operand or an empty range: git rewrites nothing
 	}
-	_, branch, others := checkoutOf(ctx, top)
-	reasons, err := shareReasons(ctx, in, top, linked, nestedIn(top, others))
+	_, branch, nested := checkoutOf(ctx, top)
+	reasons, err := shareReasons(ctx, in, top, linked, nested)
 	r := rewriteRisk{verb: verb, branch: branch, commits: n, reasons: reasons}
 	if err != nil {
 		r.warn = rewriteWarn(verb, err)

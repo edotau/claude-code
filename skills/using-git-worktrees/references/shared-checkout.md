@@ -8,7 +8,7 @@ same file; collisions surface as a red build or a commit that carries another se
 
 - List what else is live: `git status --short` (uncommitted files you didn't write), other sessions'
   `plans/*.md`, and `ListAgents` for peers in the same checkout.
-- Check each task's `owns:` files against that list. Registry-shaped files (`internal/schemas/writers_test.go`,
+- Check each task's `owns:` files against that list. Registry-shaped files (`internal/schemas/ledger_test.go`,
   `internal/settings/hookspec.go`, `internal/providers/defaults.json`) are edited by every lane that adds an
   entry; assume they overlap.
 - Name each overlap in the plan's Risks with the holder and who goes first, or message the peer to agree an
@@ -19,6 +19,22 @@ same file; collisions surface as a red build or a commit that carries another se
 - Edit only your `owns:` files; a build break in someone else's file is reported to its owner, not fixed.
 - Lint autofixes on save can rewrite your line without its import (`perfsprint` turned `fmt.Errorf` into
   `errors.New`): rebuild after every edit, not just at the end.
+
+## Claims: who has uncommitted edits in a file
+
+Every Write/Edit is recorded per session and leaf; a claim lasts while the file is dirty, its owner is live and the
+file has no newer commit. Before you edit a claimed file the hook says who holds it; staging it (`git add`,
+`git commit -a`/paths) asks, and blocks in a leaf; `git add -p` passes. Inspect by hand:
+`tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered: edits made by Bash (`sed -i`, formatters) and
+by external agents (codex/copilot/opencode coworkers) — check `git diff <file>` before staging, as below.
+
+## Registry files: the orchestrator owns them
+
+Files every lane appends to (`internal/schemas/ledger_test.go`, `internal/schemas/testdata/registry.golden`,
+`internal/settings/hookspec.go`, `internal/hooks/io.go`'s handler map, `rules/harness/hooks.md`) are never in a
+leaf's `owns:`. The leaf's report carries its entry as a fenced block (file, anchor line, exact text); main applies
+every lane's entries in one commit after the leaves land. Leaves share the tree by default; one that must compile
+against a new entry before main applies it gets its own linked worktree (`claude-code worktree create <slug>`).
 
 ## Before committing
 

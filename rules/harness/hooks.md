@@ -51,6 +51,8 @@ every module on the event, the gate included.
 | `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the first dispatch claims one detached `memory watch` that updates after 10 quiet minutes, so a crash loses nothing |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create at `~/worktrees/<repo>/<name>` (honors `worktree.baseRef`, seeds `.venv`/`.env`, opens ledger `memory/<repo>/worktrees/<name>.md`); remove refuses a dirty tree and `branch -d`s only a merged branch |
 | `worktree-mode` / `worktree-busy` | SessionStart / UserPromptSubmit | Vault env `HARNESS_WORKTREE`: unset asks once at a fresh session start (not resume/clear/compact) and when a peer joins the checkout (not this session's own tree, a linked worktree, or an `agy --hub` daemon); `off`/`false`/`0` is silent. Never creates a worktree; no yes means keep working in place |
+| `worktree-claim` | PostToolUse (Write\|Edit\|Bash) | Appends each written path, or each sha a landed `git commit` printed, to `state/harness/hooks/claims/<pid>-<session>.jsonl`; never blocks |
+| `worktree-claim-check` | PreToolUse (Write\|Edit\|Bash) | Once per file, notes before an edit that a dirty file is claimed by another live session (owner pid alive) or sibling leaf (transcript fresh) and not committed since; asks on a `git add`/`commit` that stages one (`-p` passes), blocks in a leaf; an infra error allows with a warning. Dead owners' files are removed |
 
 ## Authoring a gate
 

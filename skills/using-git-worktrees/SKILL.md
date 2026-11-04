@@ -19,11 +19,11 @@ reliable parallel sessions that never step on each other or pollute git status.
 | Need 2+ branches open locally at once | New worktree per branch |
 | Hotfix needed while feature branch is dirty | Dedicated hotfix worktree (no stash) |
 | Human terminal or long-running background agent owning its own branch | One worktree per agent |
-| Parallel fan-out leaves in one session | The orchestration skill decides (often one shared tree) |
+| Parallel fan-out leaves in one session | One shared tree; registry files stay main's (references/shared-checkout.md) |
 | Reproducing a bug on another branch | Temporary worktree, clean up same day |
 | Quick local diff review only | Stay on current tree — no worktree |
 
-Staying put while other sessions edit the same tree — the rewrite guard, registry-shaped files:
+Staying put while other sessions edit the same tree — the rewrite guard, file claims, registry files:
 [references/shared-checkout.md](references/shared-checkout.md).
 
 ## In this harness: use `claude-code worktree` (the paved road)

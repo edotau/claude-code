@@ -97,7 +97,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook PostToolUse",
-            "timeout": 45
+            "timeout": 50
           }
         ]
       }
@@ -143,7 +143,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook PreToolUse",
-            "timeout": 20
+            "timeout": 25
           }
         ]
       }
