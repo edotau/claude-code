@@ -300,20 +300,10 @@ func gitInvocation(toks []string, cwd string) (target, verb string, args []strin
 	var gitDir, workTree string
 	i := 0
 	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
-		t := toks[i]
-		i++
-		name, val := t, ""
-		if n, v, ok := strings.Cut(t, "="); ok {
-			name, val = n, v
-		} else if gitValueOpts[t] {
-			if i < len(toks) {
-				val = toks[i]
-				i++
-			}
-		} else if after, ok0 := strings.CutPrefix(t, "-C"); ok0 {
-			name, val = "-C", after
-		} else {
-			continue // valueless global option: --no-pager, --bare…
+		var name, val string
+		var ok bool
+		if name, val, i, ok = gitGlobalOpt(toks, i); !ok {
+			continue
 		}
 		switch name {
 		case "-C":
@@ -327,19 +317,43 @@ func gitInvocation(toks []string, cwd string) (target, verb string, args []strin
 	if i < len(toks) {
 		verb, args = toks[i], toks[i+1:]
 	}
-	target = cwd
+	return gitTarget(cwd, gitDir, workTree, cPaths), verb, args
+}
+
+// gitGlobalOpt splits the global option at toks[i] into name and value, returning the next index; false if valueless.
+func gitGlobalOpt(toks []string, i int) (name, val string, next int, ok bool) {
+	t := toks[i]
+	i++
+	if n, v, found := strings.Cut(t, "="); found {
+		return n, v, i, true
+	}
+	if gitValueOpts[t] {
+		if i < len(toks) {
+			return t, toks[i], i + 1, true
+		}
+		return t, "", i, true
+	}
+	if after, found := strings.CutPrefix(t, "-C"); found {
+		return "-C", after, i, true
+	}
+	return "", "", i, false // valueless global option: --no-pager, --bare…
+}
+
+// gitTarget is the tree git acts on: --work-tree, else a .git --git-dir's parent, else the -C chain from cwd.
+func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
 	if p, ok := resolveShellPath(workTree, cwd); workTree != "" && ok {
-		return p, verb, args
+		return p
 	}
 	if p, ok := resolveShellPath(gitDir, cwd); gitDir != "" && ok && filepath.Base(p) == ".git" {
-		return filepath.Dir(p), verb, args
+		return filepath.Dir(p)
 	}
+	target := cwd
 	for _, c := range cPaths { // successive -C paths apply relative to each other
 		if p, ok := resolveShellPath(c, target); ok {
 			target = p
 		}
 	}
-	return target, verb, args
+	return target
 }
 
 // cdTarget reports the cwd a `cd`/`pushd` segment leaves behind; a dynamic target keeps the cwd we had.
@@ -411,51 +425,68 @@ func extractSubstitutions(s string) (string, []string) {
 	var quote byte
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if quote == '\'' {
-			out.WriteByte(c)
+		switch {
+		case quote == '\'':
 			if c == '\'' {
 				quote = 0
 			}
-			continue
-		}
-		if c == '\\' && i+1 < len(s) && (quote == 0 || dqEscapable(s[i+1])) {
+		case escapedAt(s, i, quote):
 			out.WriteByte(c)
 			i++
-			out.WriteByte(s[i])
-			continue
-		}
-		switch {
+			c = s[i]
 		case c == '\'':
 			quote = '\''
-			out.WriteByte(c)
 		case c == '"':
-			if quote == '"' {
-				quote = 0
-			} else {
-				quote = '"'
-			}
-			out.WriteByte(c)
-		case c == '$' && i+1 < len(s) && s[i+1] == '(':
-			if end := matchParen(s, i+1); end >= 0 {
-				subs = append(subs, s[i+2:end])
-				i = end
-				out.WriteByte(' ')
-				continue
-			}
-			out.WriteByte(c)
-		case c == '`':
-			if end := matchBacktick(s, i); end >= 0 {
-				subs = append(subs, s[i+1:end])
-				i = end
-				out.WriteByte(' ')
-				continue
-			}
-			out.WriteByte(c)
+			quote = toggleDoubleQuote(quote)
 		default:
-			out.WriteByte(c)
+			if body, end, ok := substitutionAt(s, i); ok {
+				subs = append(subs, body)
+				i = end
+				c = ' '
+			}
 		}
+		out.WriteByte(c)
 	}
 	return out.String(), subs
+}
+
+// escapedAt reports a backslash at s[i] that escapes the next byte (always outside quotes, dqEscapable inside).
+func escapedAt(s string, i int, quote byte) bool {
+	return s[i] == '\\' && i+1 < len(s) && (quote == 0 || dqEscapable(s[i+1]))
+}
+
+// toggleDoubleQuote opens a double quote outside quotes and closes an open one.
+func toggleDoubleQuote(quote byte) byte {
+	if quote == '"' {
+		return 0
+	}
+	return '"'
+}
+
+// substitutionAt reports a complete `$(…)` or backtick substitution starting at s[i]: its body and closing index.
+func substitutionAt(s string, i int) (string, int, bool) {
+	switch {
+	case s[i] == '$' && i+1 < len(s) && s[i+1] == '(':
+		if end := matchParen(s, i+1); end >= 0 {
+			return s[i+2 : end], end, true
+		}
+	case s[i] == '`':
+		if end := matchBacktick(s, i); end >= 0 {
+			return s[i+1 : end], end, true
+		}
+	}
+	return "", i, false
+}
+
+// quotedStep advances over s[i] inside quote: a double-quote escape consumes the next byte, the closing quote ends it.
+func quotedStep(s string, i int, quote byte) (int, byte) {
+	if s[i] == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
+		return i + 1, quote
+	}
+	if s[i] == quote {
+		return i, 0
+	}
+	return i, quote
 }
 
 // matchParen returns the index of the `)` matching the `(` at s[open], or -1; nested parens/quotes count.
@@ -464,11 +495,7 @@ func matchParen(s string, open int) int {
 	for i := open; i < len(s); i++ {
 		c := s[i]
 		if quote != 0 {
-			if c == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
-				i++
-			} else if c == quote {
-				quote = 0
-			}
+			i, quote = quotedStep(s, i, quote)
 			continue
 		}
 		switch c {
@@ -492,11 +519,7 @@ func matchBacktick(s string, start int) int {
 	for i := start + 1; i < len(s); i++ {
 		c := s[i]
 		if quote != 0 {
-			if c == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
-				i++
-			} else if c == quote {
-				quote = 0
-			}
+			i, quote = quotedStep(s, i, quote)
 			continue
 		}
 		switch c {
@@ -526,39 +549,36 @@ func shellSegmentsSep(cmd string) (out, seps []string) {
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		if quote != 0 {
-			if quote == '"' && c == '\\' && i+1 < len(cmd) && dqEscapable(cmd[i+1]) {
-				b.WriteByte(c)
-				i++
-				b.WriteByte(cmd[i])
-				continue
-			}
-			if c == quote {
-				quote = 0
-			}
-			b.WriteByte(c)
+			j, q := quotedStep(cmd, i, quote)
+			b.WriteString(cmd[i : j+1])
+			i, quote = j, q
 			continue
 		}
 		switch {
 		case c == '\'' || c == '"':
 			quote = c
-			b.WriteByte(c)
 		case c == '\\' && i+1 < len(cmd):
 			b.WriteByte(c)
 			i++
-			b.WriteByte(cmd[i])
-		case c == ';' || c == '|' || c == '&' || c == '\n':
-			sep := string(c)
-			if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
-				i++
-				sep += string(cmd[i])
-			}
+			c = cmd[i]
+		case strings.IndexByte(";|&\n", c) >= 0:
+			sep, end := separatorAt(cmd, i)
 			out, seps = append(out, b.String()), append(seps, sep)
 			b.Reset()
-		default:
-			b.WriteByte(c)
+			i = end
+			continue
 		}
+		b.WriteByte(c)
 	}
 	return append(out, b.String()), append(seps, "")
+}
+
+// separatorAt is the separator starting at cmd[i] (one byte, or two when `|`/`&` follows) and its last index.
+func separatorAt(cmd string, i int) (string, int) {
+	if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
+		return cmd[i : i+2], i + 1
+	}
+	return cmd[i : i+1], i
 }
 
 // dropRemoteHeredocs removes heredoc bodies fed to ssh: they run on the remote host, not in this checkout.
@@ -572,12 +592,8 @@ func dropRemoteHeredocs(cmd string) string {
 		if m == nil || len(toks) == 0 || toks[0] != "ssh" || strings.Contains(lines[i], "|") {
 			continue
 		}
-		delim, dash := m[2]+m[3]+m[4], m[1] == "-"
-		for j := i + 1; j < len(lines); j++ {
-			if l := lines[j]; l == delim || dash && strings.TrimLeft(l, "\t") == delim {
-				i = j - 1
-				break
-			}
+		if end := heredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-"); end >= 0 {
+			i = end - 1
 		}
 	}
 	return strings.Join(out, "\n")

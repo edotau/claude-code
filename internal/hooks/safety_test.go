@@ -393,26 +393,32 @@ func TestSafetyAskDocumentExactShape(t *testing.T) {
 	if len(top) != 1 || top["hookSpecificOutput"] == nil {
 		t.Fatalf("top-level keys = %v, want exactly [hookSpecificOutput]", keys(top))
 	}
+	event, decision, reason := askDocFields(t, top["hookSpecificOutput"])
+	if event != "PreToolUse" || decision != "ask" || reason == "" {
+		t.Errorf("event=%q decision=%q reason=%q, want PreToolUse/ask/non-empty", event, decision, reason)
+	}
+}
+
+// askDocFields decodes hookSpecificOutput, failing unless it holds exactly the three string keys.
+func askDocFields(t *testing.T, raw json.RawMessage) (event, decision, reason string) {
+	t.Helper()
 	var inner map[string]json.RawMessage
-	if err := json.Unmarshal(top["hookSpecificOutput"], &inner); err != nil {
+	if err := json.Unmarshal(raw, &inner); err != nil {
 		t.Fatalf("hookSpecificOutput is not an object: %v", err)
 	}
 	if len(inner) != 3 {
 		t.Fatalf("inner keys = %v, want exactly [hookEventName permissionDecision permissionDecisionReason]", keys(inner))
 	}
-	var event, decision, reason string
 	for k, dst := range map[string]*string{"hookEventName": &event, "permissionDecision": &decision, "permissionDecisionReason": &reason} {
-		raw, ok := inner[k]
+		v, ok := inner[k]
 		if !ok {
 			t.Fatalf("inner keys = %v, missing %s", keys(inner), k)
 		}
-		if err := json.Unmarshal(raw, dst); err != nil {
+		if err := json.Unmarshal(v, dst); err != nil {
 			t.Fatalf("%s is not a string: %v", k, err)
 		}
 	}
-	if event != "PreToolUse" || decision != "ask" || reason == "" {
-		t.Errorf("event=%q decision=%q reason=%q, want PreToolUse/ask/non-empty", event, decision, reason)
-	}
+	return event, decision, reason
 }
 
 func keys(m map[string]json.RawMessage) []string {
