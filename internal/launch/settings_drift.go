@@ -53,14 +53,14 @@ func (s SettingsDrift) LinesLabeled(label string) []string {
 		add(label + ": " + s.File + " is missing (run claude-code install)")
 	default:
 		for _, k := range s.Differs {
-			addKey(k, " differs from the template")
+			addKey(k, " differs from the defaults")
 		}
 	}
 	for _, k := range s.Foreign {
-		addKey(k, " is a foreign key not in the template")
+		addKey(k, " is a foreign key not in the defaults")
 	}
 	for _, k := range s.Kept {
-		addKey(k, " is kept (not in the template)")
+		addKey(k, " is kept (not in the defaults)")
 	}
 	for _, l := range s.LocalDup {
 		add(label + ": " + l)
@@ -80,7 +80,7 @@ func CheckSettingsDrift() (SettingsDrift, error) {
 	return CheckSettingsDriftWith(rendered)
 }
 
-// CheckSettingsDriftWith compares the live settings.json against an already-rendered template, flags
+// CheckSettingsDriftWith compares the live settings.json against an already-rendered defaults, flags
 // settings.local.json entries that only repeat it, and reports a nested <config dir>/.claude.
 func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 	file := SettingsFile()

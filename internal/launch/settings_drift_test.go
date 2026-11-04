@@ -214,7 +214,7 @@ func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
 	}
 	var line string
 	for _, l := range d.Lines() {
-		if strings.Contains(l, "is a foreign key not in the template") {
+		if strings.Contains(l, "is a foreign key not in the defaults") {
 			line = l
 		}
 	}
@@ -224,7 +224,7 @@ func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
 	if !strings.HasPrefix(line, "settings: ") {
 		t.Errorf("line %q must carry the settings: prefix", line)
 	}
-	embedded := strings.TrimSuffix(strings.TrimPrefix(line, "settings: "), " is a foreign key not in the template")
+	embedded := strings.TrimSuffix(strings.TrimPrefix(line, "settings: "), " is a foreign key not in the defaults")
 	if n := len([]rune(embedded)); n > 80 {
 		t.Errorf("embedded key is %d runes, want <=80", n)
 	}
@@ -276,7 +276,7 @@ func TestSettingsDriftLinesCapAssembledLongFindings(t *testing.T) {
 		Invalid:  errors.New("parse " + long),
 		Foreign:  []string{long},
 		Kept:     []string{long},
-		LocalDup: []string{"settings.local.json " + long + " repeats the template"},
+		LocalDup: []string{"settings.local.json " + long + " repeats the defaults"},
 		Nested:   long,
 	}
 	lines := d.Lines()
@@ -297,7 +297,7 @@ func TestSettingsDriftLinesCapAssembledLongFindings(t *testing.T) {
 func TestSettingsDriftLinesKeepVerbForLongKey(t *testing.T) {
 	long := strings.Repeat("k", 120)
 	d := SettingsDrift{Differs: []string{long}, Foreign: []string{long}, Kept: []string{long}}
-	want := []string{" differs from the template", " is a foreign key not in the template", " is kept (not in the template)"}
+	want := []string{" differs from the defaults", " is a foreign key not in the defaults", " is kept (not in the defaults)"}
 	lines := d.Lines()
 	if len(lines) != len(want) {
 		t.Fatalf("lines = %q", lines)

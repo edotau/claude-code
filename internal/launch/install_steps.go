@@ -68,7 +68,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 		PreflightStep(w, target)
 	}
 	if settingsErr != nil {
-		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
+		fmt.Fprintf(w, "settings skip  %v (agent sync and installGitHooks still ran)\n", settingsErr)
 	}
 	return settingsErr
 }
@@ -105,7 +105,7 @@ func installCompact(w io.Writer) error {
 	installGitHooks(w, false)
 	PreflightStep(w, target)
 	if settingsErr != nil {
-		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
+		fmt.Fprintf(w, "settings skip  %v (agent sync and installGitHooks still ran)\n", settingsErr)
 	}
 	return settingsErr
 }
@@ -251,7 +251,14 @@ func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum setti
 	if string(merged) == string(existing) || dryRun {
 		return file, existing, merged, sum, "", nil
 	}
-	backup, err = settings.WriteWithBackup(file, merged)
+	backup, err = settings.UpdateWithBackup(file, func(old []byte) ([]byte, error) {
+		var mergeErr error // re-merge the bytes read under the lock, so a concurrent writer's update survives
+		merged, sum, mergeErr = settings.Merge(old, rendered)
+		return merged, mergeErr
+	})
+	if len(existing) > 0 {
+		sum.Drift = driftExceptHooks(merged, rendered)
+	}
 	return file, existing, merged, sum, backup, err
 }
 
@@ -492,21 +499,23 @@ func installClipBridge(w io.Writer, bin string, dryRun bool) {
 	}
 }
 
-// installGitHooks points core.hooksPath at the repo's .githooks (pre-push runs the CI gate); best-effort.
+// installGitHooks points core.hooksPath at the repo's .githooks (its pre-push is a no-op by choice); best-effort.
 func installGitHooks(w io.Writer, dryRun bool) {
 	root := paths.ConfigDir()
 	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
 		return
 	}
-	cur, _ := exec.CommandContext(context.Background(), "git", "-C", root, "config", "--get", "core.hooksPath").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cur, _ := exec.CommandContext(ctx, "git", "-C", root, "config", "--get", "core.hooksPath").Output()
 	if strings.TrimSpace(string(cur)) == ".githooks" {
 		return
 	}
-	fmt.Fprintln(w, "githooks core.hooksPath → .githooks (pre-push runs make audit)")
+	fmt.Fprintln(w, "githooks core.hooksPath → .githooks")
 	if dryRun {
 		return
 	}
-	if out, err := exec.CommandContext(context.Background(), "git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
 		fmt.Fprintf(w, "  githooks skip  %v %s\n", err, strings.TrimSpace(string(out)))
 	}
 }
@@ -542,8 +551,7 @@ func linkOnPath(w io.Writer, target string, dryRun bool) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	_ = os.Remove(link)
-	return os.Symlink(target, link)
+	return paths.SwapSymlink(target, link) // the link is never missing, racers don't collide
 }
 
 // sameFile is true when target already is, or holds the same bytes as, self.

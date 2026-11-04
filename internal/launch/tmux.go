@@ -2,8 +2,10 @@ package launch
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -41,7 +43,16 @@ func seedTmuxConf(w io.Writer, dryRun bool) {
 		fmt.Fprintf(w, "tmux     would write %s (skipped: --dry-run)\n", paths[0])
 		return
 	}
-	if err := os.WriteFile(paths[0], tmuxConf, 0o644); err != nil {
+	f, err := os.OpenFile(paths[0], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) // O_EXCL: never truncate a racing writer's config
+	if errors.Is(err, fs.ErrExist) {
+		fmt.Fprintf(w, "tmux     %s exists (kept)\n", paths[0])
+		return
+	}
+	if err == nil {
+		_, err = f.Write(tmuxConf)
+		err = errors.Join(err, f.Close())
+	}
+	if err != nil {
 		fmt.Fprintf(w, "tmux     skip  %v\n", err)
 		return
 	}
