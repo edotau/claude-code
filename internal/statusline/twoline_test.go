@@ -2,6 +2,7 @@ package statusline
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/ui/theme"
 	"strings"
 	"testing"
 	"time"
@@ -116,5 +117,19 @@ func TestTwolineFitHead(t *testing.T) {
 	got := fitHead(v, cfg, 10, 25)
 	if w := headWidth(got, cfg); w > 25-10-3 || !strings.HasSuffix(got.path, "…") {
 		t.Errorf("trim: path = %q (head %d wide), want ≤ 12 ending in …", got.path, w)
+	}
+}
+
+// Row 1 opens with the bare branch (no ":"); with a width, row 2 keeps auth at the left and the rest at the right edge.
+func TestTwolineBranchFirstAuthLeft(t *testing.T) {
+	v := values{branch: "main", provider: "databricks·dbx-u2m", two: twoData{model: "M", auth: "auth:u2m 9min", hasCtx: true, week: -1}}
+	row1, auth, row2 := twolineRows(v)
+	if got := row1[0].text + row1[1].text; got != "main databricks·dbx-u2m" {
+		t.Errorf("row 1 opens %q, want the bare branch then the provider", got)
+	}
+	out := plain(renderTwoline(v, embeddedConfig(), theme.Palettes{}, nil, "none", 60))
+	line2 := strings.Split(out, "\n")[1]
+	if !strings.HasPrefix(line2, auth+"  ") || !strings.HasSuffix(line2, row2[len(row2)-1].text) || len([]rune(line2)) != 60 {
+		t.Errorf("row 2 = %q, want auth left, tail at the right edge, 60 wide", line2)
 	}
 }
