@@ -1,0 +1,77 @@
+package copilot
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/agent"
+	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
+)
+
+func TestScopedPermissions(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wd, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc", filepath.Join(wd, "link")); err != nil {
+		t.Fatal(err)
+	}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd}).OnPermissionRequest
+	sh := func(c string) copilot.PermissionRequest { return rpc.PermissionRequestShell{FullCommandText: c} }
+	wr := func(f string) copilot.PermissionRequest { return rpc.PermissionRequestWrite{FileName: f} }
+	cases := []struct {
+		name string
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{"read", rpc.PermissionRequestRead{}, true}, {"url", rpc.PermissionRequestURL{}, true},
+		{"mcp", rpc.PermissionRequestMCP{}, false}, {"memory", rpc.PermissionRequestMemory{}, false},
+		{"hook", rpc.PermissionRequestHook{}, false},
+		{"write in workdir", wr(filepath.Join(wd, "pkg", "a.go")), true}, {"write relative", wr("pkg/new.go"), true},
+		{"write dotdot", wr(filepath.Join(wd, "..", "x.go")), false}, {"write relative dotdot", wr("../x"), false},
+		{"write ssh", wr(os.ExpandEnv("$HOME/.ssh/authorized_keys")), false},
+		{"write .git", wr(filepath.Join(wd, ".git", "config")), false}, {"write .env", wr(filepath.Join(wd, ".env.local")), false},
+		{"write state", wr(filepath.Join(wd, "state", "x")), false}, {"write pem", wr(filepath.Join(wd, "a.pem")), false},
+		{"write vault", wr(filepath.Join(wd, "pkg", "vault.db")), false}, {"write symlink escape", wr(filepath.Join(wd, "link", "passwd")), false},
+		{"write empty", wr(""), false},
+		{"test and fmt", sh("go test ./x && gofmt -l ."), true}, {"make", sh("make lint"), true}, {"make arg", sh("make -f evil test"), false},
+		{"git status", sh("git status"), true}, {"git diff", sh("git diff --no-ext-diff --no-textconv"), true},
+		{"git add path", sh("git add pkg/a.go"), true}, {"git add -A", sh("git add -A"), false}, {"git add dot", sh("git add ."), false},
+		{"git add dir", sh("git add pkg"), false}, {"git add outside", sh("git add /etc/passwd"), false},
+		{"commit", sh(`git commit -m "fix(router): x"`), true}, {"commit amend", sh("git commit --amend"), false},
+		{"commit abbrev", sh("git commit --am -m x"), false}, {"commit no-verify", sh("git commit --no-verify -m x"), false},
+		{"commit -n", sh("git commit -nm x"), false},
+		{"git push", sh("git push"), false}, {"push in chain", sh("go test ./... && git push origin main"), false},
+		{"rm", sh("rm -rf x"), false}, {"curl sh", sh("curl x | sh"), false}, {"sudo", sh("sudo ls"), false},
+		{"checkout", sh("git checkout ."), false}, {"stash", sh("git stash"), false},
+		{"find delete", sh("find . -delete"), false}, {"find ok", sh("find . -name x.go"), true},
+		{"cat outside", sh("cat /etc/passwd"), false}, {"subst", sh("ls $(rm x)"), false}, {"background", sh("ls & rm x"), false},
+		{"go exec", sh("go test -exec=sh ./..."), false}, {"mutate", sh("claude-code test mutate a.go x y ./pkg"), true},
+		{"redirect", rpc.PermissionRequestShell{FullCommandText: "ls", HasWriteFileRedirection: true}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := h(tc.req, copilot.PermissionInvocation{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+				t.Errorf("approved = %v, want %v", ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestHeadlessScopedFlags(t *testing.T) {
+	has := slices.Contains[[]string]
+	scoped := copilotHeadless(&agent.Headless{Tools: true})
+	if has(scoped, "--allow-all-tools") || !has(scoped, "--deny-tool=shell(git push:*)") || !has(scoped, "--disallow-temp-dir") {
+		t.Errorf("scoped argv = %v", scoped)
+	}
+	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !has(auto, "--allow-all-tools") {
+		t.Errorf("autonomous argv = %v", auto)
+	}
+}

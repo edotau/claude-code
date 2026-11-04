@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/shellscope"
 )
 
 // DefaultClientName identifies this host in the SDK's User-Agent.
@@ -137,8 +138,11 @@ func permissionHandler(o SDKOptions) copilot.PermissionHandlerFunc {
 	if o.AllowAllTools && o.ReadOnlyTools {
 		return approveReadOnly
 	}
-	if o.AllowAllTools {
+	if o.AllowAllTools && o.Autonomous {
 		return approveToolOnce
+	}
+	if o.AllowAllTools {
+		return approveScoped(o.WorkingDirectory)
 	}
 	return denyAllTools
 }
@@ -197,28 +201,6 @@ var readOnlyKinds = map[rpc.PermissionRequestKind]bool{rpc.PermissionRequestKind
 
 const readOnlyFeedback = "This run is read-only: only file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse, branch --list) are allowed. git diff, log and show must start with --no-ext-diff --no-textconv, git blame with --no-textconv (git log --no-ext-diff --no-textconv -p). Report instead of changing anything."
 
-// readOnlyGit are the git subcommands a read-only run may shell out to.
-var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "show": true, "blame": true, "rev-parse": true, "branch": true}
-
-// gitBannedFlags also match any abbreviation git would accept (--out=x is --output=x).
-var gitBannedFlags = []string{
-	"--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager",
-	"--textconv", "--remerge-diff", "--diff-merges", "--submodule", // each still reaches a textconv or merge driver
-}
-
-// gitLeadingFlags must open the verb's args: later, a value option or -- swallows them (git diff -- --no-textconv).
-var gitLeadingFlags = map[string][]string{
-	"diff": {"--no-ext-diff", "--no-textconv"}, "log": {"--no-ext-diff", "--no-textconv"},
-	"show": {"--no-ext-diff", "--no-textconv"}, "blame": {"--no-textconv"},
-}
-
-// gitVerbFlags are those verbs' only dash args: branch must carry --list or -l, and `git status -v` runs textconv.
-var gitVerbFlags = map[string]map[string]bool{
-	"branch": {"--list": true, "-l": true, "-a": true, "--all": true, "-r": true, "--remotes": true, "-v": true, "-vv": true},
-	"status": {"--short": true, "-s": true, "--branch": true, "-b": true, "--long": true, "--porcelain": true, "--porcelain=v2": true,
-		"-z": true, "--ignored": true, "-uno": true, "-uall": true, "--": true},
-}
-
 // readOnlyGitEnv replaces all inherited GIT_*; GIT_PAGER beats pager.<verb>, command-scope config beats repo files.
 var readOnlyGitEnv = slices.Concat([]string{
 	"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat",
@@ -240,47 +222,6 @@ func gitConfigEnv(pairs ...string) []string {
 	return out
 }
 
-// readOnlyGitCommand reports whether cmd is a single allowlisted read-only git invocation (fail closed).
-func readOnlyGitCommand(cmd string) bool {
-	for _, r := range cmd {
-		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && !strings.ContainsRune(" _./:=@%+,^-~", r) {
-			return false
-		}
-	}
-	f := strings.Fields(cmd)
-	if len(f) < 2 || f[0] != "git" || !readOnlyGit[f[1]] {
-		return false
-	}
-	args, lead := f[2:], gitLeadingFlags[f[1]]
-	if len(args) < len(lead) || !slices.Equal(args[:len(lead)], lead) {
-		return false
-	}
-	allowed, list := gitVerbFlags[f[1]], false
-	for _, a := range args {
-		if a == "-c" || strings.HasPrefix(a, "~") || bannedGitFlag(a) {
-			return false
-		}
-		if allowed != nil && strings.HasPrefix(a, "-") && !allowed[a] {
-			return false
-		}
-		list = list || a == "--list" || a == "-l"
-	}
-	return f[1] != "branch" || list
-}
-
-func bannedGitFlag(arg string) bool {
-	name, _, _ := strings.Cut(arg, "=")
-	if !strings.HasPrefix(name, "--") || len(name) < 3 {
-		return false
-	}
-	for _, b := range gitBannedFlags {
-		if strings.HasPrefix(b, name) {
-			return true
-		}
-	}
-	return false
-}
-
 func shellCommand(req copilot.PermissionRequest) (string, bool) {
 	switch r := req.(type) {
 	case rpc.PermissionRequestShell:
@@ -293,7 +234,7 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	cmd, ok := shellCommand(req)
-	if !readOnlyKinds[req.Kind()] && (!ok || !readOnlyGitCommand(cmd)) {
+	if !readOnlyKinds[req.Kind()] && (!ok || !shellscope.ReadOnlyGit(cmd)) {
 		feedback := readOnlyFeedback
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}
