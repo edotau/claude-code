@@ -314,8 +314,8 @@ type agySinkRec struct{ types []string }
 
 func (s *agySinkRec) Emit(ev agent.Event) error { s.types = append(s.types, ev.Type); return nil }
 
-// A tool step marks progress (one tool_use per step) before a later decode failure; planning steps do not.
-func TestParseAgyToolStepEmitsToolUse(t *testing.T) {
+// A tool step marks progress (one progress mark per step, never a tool_use) before a later decode failure; planning steps do not.
+func TestParseAgyToolStepMarksProgress(t *testing.T) {
 	run := func(stepType string) []string {
 		stream := `{"event":"step_update","step_update":{"step_type":"` + stepType + `","state":"ACTIVE"}}
 {"event":"step_update","step_update":{"step_type":"` + stepType + `","state":"ACTIVE"}}
@@ -325,19 +325,16 @@ func TestParseAgyToolStepEmitsToolUse(t *testing.T) {
 		if _, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), sink, nil); err == nil {
 			t.Fatal("want the decode error")
 		}
-		var tools []string
-		for _, ty := range sink.types {
-			if ty == agent.EventToolUse {
-				tools = append(tools, ty)
-			}
+		if slices.Contains(sink.types, agent.EventToolUse) {
+			t.Errorf("%s step: placeholder tool_use reached the sink: %v", stepType, sink.types)
 		}
-		return tools
+		return slices.DeleteFunc(sink.types, func(ty string) bool { return ty != agent.EventProgress })
 	}
 	if got := run("tool"); len(got) != 1 {
-		t.Errorf("tool step: %d tool_use events, want 1", len(got))
+		t.Errorf("tool step: %d progress marks, want 1", len(got))
 	}
 	if got := run("planner"); len(got) != 0 {
-		t.Errorf("planning step: %d tool_use events, want 0", len(got))
+		t.Errorf("planning step: %d progress marks, want 0", len(got))
 	}
 }
 

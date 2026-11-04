@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"os/exec"
 	"slices"
@@ -66,14 +65,10 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink a
 		return agent.Result{}, err
 	}
 	wd := newStallWatch(claudeIdleLimit, func() { _ = cmd.Cancel() }) // a silent child must not hold the run to --timeout
-	res, perr := parseClaudeEvents(bufio.NewReader(stdout), false, wd, sink, agent.EventLogFor(ctx))
+	out := &agent.EOFReader{R: stdout}
+	res, perr := parseClaudeEvents(bufio.NewReader(out), false, wd, sink, agent.EventLogFor(ctx))
 	wd.stop()
-	if perr != nil {
-		_ = cmd.Cancel() // a dead consumer or bad stream must not leave claude running to --timeout
-	} else {
-		_, _ = io.Copy(io.Discard, stdout) // no drain after a kill: a grandchild holding stdout would block it; Wait closes it
-	}
-	werr := cmd.Wait()
+	werr := agent.ReapChild(cmd, out, perr)
 	res.Provider = cl.Set[providers.EnvSessionProfile]
 	if serr := wd.stalled(); serr != nil {
 		return res, serr
@@ -191,12 +186,12 @@ func parseClaudeStream(br *bufio.Reader, sink agent.Sink, logs ...agent.StreamLo
 func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink agent.Sink, logs ...agent.StreamLog) (res agent.Result, _ error) {
 	lg := agent.PickLog(logs)
 	sawResult := false
-	var seen strings.Builder // top-level assistant text, the answer when no result event delivers one
+	seen := agent.Answer{Join: "\n\n"} // top-level assistant text, the answer when no result event delivers one
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
 	partial := func(err error) (agent.Result, error) {
 		if res.Answer == "" {
-			res.Answer = strings.TrimSpace(seen.String())
+			res.Answer = seen.String()
 		}
 		return res, err
 	}
@@ -263,7 +258,7 @@ func applyClaudeSystem(ev claudeEvent, res *agent.Result, ts *agent.TransportTra
 }
 
 // applyClaudeAssistantEvent logs and emits a top-level assistant message; a subagent's is ignored.
-func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.StreamLog, sink agent.Sink, seen *strings.Builder) error {
+func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.StreamLog, sink agent.Sink, seen *agent.Answer) error {
 	if ev.ParentToolUseID != "" {
 		return nil
 	}
@@ -286,27 +281,19 @@ func logClaudeAssistant(lg agent.StreamLog, msg anthropic.Message) {
 	}
 }
 
-// emitClaudeAssistant records each text block in seen before emitting it, so a failed emit keeps the text.
-func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, seen *strings.Builder) error {
+// emitClaudeAssistant emits each text block through seen and each tool call to sink.
+func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, seen *agent.Answer) error {
 	for _, b := range msg.Content {
-		var ev agent.Event
+		var err error
 		switch b := b.AsAny().(type) {
 		case anthropic.ToolUseBlock:
-			ev = agent.ToolEvent(b.Name, b.ID)
+			err = sink.Emit(agent.ToolEvent(b.Name, b.ID))
 		case anthropic.TextBlock:
-			if b.Text == "" {
-				continue
+			if b.Text != "" {
+				err = seen.Emit(sink, b.Text, true)
 			}
-			sep := seen.Len() > 0
-			if sep {
-				seen.WriteString("\n\n")
-			}
-			seen.WriteString(b.Text)
-			ev = agent.Event{Type: agent.EventText, Text: b.Text, Sep: sep}
-		default:
-			continue
 		}
-		if err := sink.Emit(ev); err != nil {
+		if err != nil {
 			return err
 		}
 	}

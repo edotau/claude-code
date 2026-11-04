@@ -157,3 +157,51 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 		t.Fatalf("final record status = %q, want %q", got.Status, StatusOK)
 	}
 }
+
+type recSink struct{ got []Event }
+
+func (s *recSink) Emit(ev Event) error { s.got = append(s.got, ev); return nil }
+
+// A progress mark flips runSink's flag with no text or tool call; an empty text event does not.
+func TestRunSinkCountsProgressMark(t *testing.T) {
+	rs := &runSink{Sink: Discard, agent: "x"}
+	_ = rs.Emit(Event{Type: EventText})
+	if rs.progressed {
+		t.Fatal("empty text counted as progress")
+	}
+	_ = rs.Emit(Event{Type: EventProgress})
+	if !rs.progressed {
+		t.Fatal("progress mark not counted")
+	}
+}
+
+// The mark reaches no renderer or reader: not the text sink, the event file or a Client stream.
+func TestProgressMarkIsInvisible(t *testing.T) {
+	var sb strings.Builder
+	_ = NewTextSink(&sb).Emit(Event{Type: EventProgress})
+	path := filepath.Join(t.TempDir(), "x.events.jsonl")
+	l := NewEventLog(path, "id1")
+	_ = l.Emit(Event{Type: EventStart})
+	_ = l.Emit(Event{Type: EventProgress})
+	l.Close()
+	cs := newChanSink(func(error) {})
+	_ = cs.Emit(Event{Type: EventProgress})
+	if sb.Len() != 0 || len(cs.ch) != 0 {
+		t.Errorf("text sink wrote %q, stream queued %d events; want neither", sb.String(), len(cs.ch))
+	}
+	for _, ev := range readEvents(t, path) {
+		if ev.Type == EventProgress {
+			t.Errorf("event file kept the mark: %+v", ev)
+		}
+	}
+}
+
+// A remote's progress mark counts as streamed output, so a failed remote tool-only run is not replayed.
+func TestRelayCountsProgressMark(t *testing.T) {
+	line := `{"schema":1,"seq":2,"type":"progress"}` + "\n"
+	rec := &recSink{}
+	_, streamed, err := remoteEngine{agent: "copilot"}.relay(context.Background(), strings.NewReader(line), rec, func() {}, func() {})
+	if err != nil || !streamed || len(rec.got) != 1 {
+		t.Fatalf("streamed=%v err=%v events=%v; want the mark relayed and counted", streamed, err, rec.got)
+	}
+}

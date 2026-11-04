@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -93,5 +94,24 @@ func TestClaudeExecStallsBeforeFirstEvent(t *testing.T) {
 	_, err := runFakeClaude(t, "exec sleep 30\n")
 	if !errors.Is(err, agent.ErrStalled) || !strings.Contains(err.Error(), "last event: none") {
 		t.Fatalf("err = %v, want ErrStalled with no event seen", err)
+	}
+}
+
+// Given the stream ends without a result and claude then exits 7, Then the exit status survives: EOF means no kill.
+func TestClaudeExecParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
+	_, err := runFakeClaude(t, "echo '"+initLine+"'\nexec >&-\nsleep 0.1\nexit 7\n")
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 7 || !errors.Is(err, errNoResult) {
+		t.Fatalf("err = %v; want exit code 7 (not a kill) joined with errNoResult", err)
+	}
+}
+
+// Given claude emits an error result and keeps running, Then the run fails promptly with that error, not the stall.
+func TestClaudeExecMidStreamParseErrorKillsChild(t *testing.T) {
+	start := time.Now()
+	errLine := `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"s"}`
+	_, err := runFakeClaude(t, "echo '"+initLine+"'\necho '"+errLine+"'\nexec sleep 30\n")
+	if err == nil || !strings.Contains(err.Error(), "boom") || errors.Is(err, agent.ErrStalled) || time.Since(start) > 5*time.Second {
+		t.Fatalf("took %v, err = %v; want a prompt kill keeping the result error", time.Since(start), err)
 	}
 }

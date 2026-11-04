@@ -135,10 +135,10 @@ func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err er
 	return prompt, images, err
 }
 
-// markToolRan emits one tool_use when the SDK run approved a tool, so a run that acted is not replayed.
+// markToolRan marks progress when the SDK run approved a tool, so a run that acted is not replayed.
 func markToolRan(out SDKResult, sink agent.Sink, err error) error {
 	if out.ToolRan {
-		err = errors.Join(err, sink.Emit(agent.ToolEvent("copilot", "")))
+		err = errors.Join(err, sink.Emit(agent.Event{Type: agent.EventProgress}))
 	}
 	return err
 }

@@ -404,7 +404,8 @@ func parseAgyStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs
 func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.StreamLog) (res agent.Result, _ error) {
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
-	var answer, pending strings.Builder
+	var ans agent.Answer
+	var pending strings.Builder
 	flush := func() {
 		lg.Emit("assistant", pending.String())
 		pending.Reset()
@@ -433,9 +434,8 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
 				return false, nil
 			}
-			answer.WriteString(ev.StepUpdate.TextDelta) // before the emit: a dead sink must not lose the parsed text
 			pending.WriteString(ev.StepUpdate.TextDelta)
-			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
+			if err := ans.Emit(sink, ev.StepUpdate.TextDelta, false); err != nil {
 				return false, err
 			}
 		case "result":
@@ -444,13 +444,12 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 			flush()
 			if err := applyAgyResult(&res, ev); err != nil {
 				_ = agent.EmitError(lg, sink, err.Error()) // the agy error returned below aborts
-				res.Answer = strings.TrimSpace(answer.String())
 				if once {
 					err = agent.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
 				}
 				return false, err
 			}
-			lg.Emit("result", cmp.Or(response, answer.String()))
+			lg.Emit("result", cmp.Or(response, ans.String()))
 			if once {
 				return true, nil
 			}
@@ -461,18 +460,18 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 		if pending.Len() > 0 { // a decode error already flushed; a sink error did not
 			flush()
 		}
-		res.Answer = cmp.Or(res.Answer, strings.TrimSpace(answer.String()), strings.TrimSpace(response))
+		res.Answer = cmp.Or(ans.String(), strings.TrimSpace(response))
 		return res, err
 	}
 	if !sawResult {
 		flush()
-		res.Answer = strings.TrimSpace(answer.String())
+		res.Answer = ans.String()
 		return res, errors.New("agy: stream ended without a result event")
 	}
-	return finishAgyTurn(res, sink, &answer, response, flush, openStep, once)
+	return finishAgyTurn(res, sink, &ans, response, flush, openStep, once)
 }
 
-// emitAgyToolStart emits one tool_use per tool step: agy runs tools without tool events, so this marks progress.
+// emitAgyToolStart marks progress once per tool step: agy runs tools without tool events, so none can be shown.
 func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink agent.Sink) error {
 	if ev.StepUpdate.StepType != agyToolStep {
 		return nil
@@ -483,7 +482,7 @@ func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink agent.Sink) error {
 	if !start {
 		return nil
 	}
-	return sink.Emit(agent.ToolEvent("agy", ""))
+	return sink.Emit(agent.Event{Type: agent.EventProgress})
 }
 
 // noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
@@ -503,16 +502,16 @@ func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg agent.StreamLog) {
 
 // finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in
 // result.response (no agent_response deltas) still answers.
-func finishAgyTurn(res agent.Result, sink agent.Sink, answer *strings.Builder, response string, flush func(), openStep string, once bool) (agent.Result, error) {
+func finishAgyTurn(res agent.Result, sink agent.Sink, ans *agent.Answer, response string, flush func(), openStep string, once bool) (agent.Result, error) {
 	flush()
-	if answer.Len() == 0 && response != "" {
-		answer.WriteString(response)
-		if err := sink.Emit(agent.Event{Type: agent.EventText, Text: response}); err != nil {
-			res.Answer = strings.TrimSpace(response)
-			return res, err
-		}
+	var emitErr error
+	if ans.Empty() && response != "" {
+		emitErr = ans.Emit(sink, response, false)
 	}
-	res.Answer = strings.TrimSpace(answer.String())
+	res.Answer = ans.String()
+	if emitErr != nil {
+		return res, emitErr
+	}
 	if !once && ((res.Answer == "" && len(res.Structured) == 0) || openStep != "") {
 		why := "empty answer"
 		if openStep != "" {

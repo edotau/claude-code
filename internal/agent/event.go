@@ -23,6 +23,7 @@ const (
 	EventToolUse    = "tool_use"
 	EventToolResult = "tool_result"
 	EventRetry      = "retry"
+	EventProgress   = "progress" // a bare "the attempt acted" mark: counts as progress, no renderer shows it
 	EventResult     = "result"
 	EventError      = "error"
 )
@@ -186,9 +187,11 @@ func (r *runSink) Emit(ev Event) error {
 	return r.Sink.Emit(ev)
 }
 
-// progress is true for an event a replay could repeat: answer text, or a tool call that may have had effects.
+// progress is true for an event a replay could repeat: answer text, a tool call that may have had effects, or a mark.
 func (ev Event) progress() bool {
 	switch ev.Type {
+	case EventProgress:
+		return true
 	case EventText:
 		return ev.Text != ""
 	case EventToolUse, EventToolResult:
@@ -246,6 +249,9 @@ func (l *EventLog) Emit(ev Event) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.sink == nil {
+		return nil
+	}
+	if ev.Type == EventProgress {
 		return nil
 	}
 	if ev.Type != EventText {
