@@ -106,6 +106,23 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(raw)
+	assertCodexApprovalBeforeForeignTables(t, content)
+
+	var out2 bytes.Buffer
+	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("second agent.RenderConfigs: %v\n%s", err, out2.String())
+	}
+	raw2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw2) != content {
+		t.Errorf("second run not byte-identical:\nfirst:\n%s\nsecond:\n%s", content, raw2)
+	}
+}
+
+func assertCodexApprovalBeforeForeignTables(t *testing.T, content string) {
+	t.Helper()
 	firstTable := strings.Index(content, "[")
 	if firstTable < 0 {
 		t.Fatalf("no table header found at all:\n%s", content)
@@ -125,18 +142,6 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 	if !strings.Contains(content, "[hooks.state.\"k\"]") || !strings.Contains(content, "trusted_hash = \"sha256:deadbeef\"") {
 		t.Errorf("foreign [hooks.state] table was dropped or altered:\n%s", content)
-	}
-
-	var out2 bytes.Buffer
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
-		t.Fatalf("second agent.RenderConfigs: %v\n%s", err, out2.String())
-	}
-	raw2, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(raw2) != content {
-		t.Errorf("second run not byte-identical:\nfirst:\n%s\nsecond:\n%s", content, raw2)
 	}
 }
 

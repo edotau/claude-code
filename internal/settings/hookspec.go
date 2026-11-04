@@ -199,20 +199,45 @@ type MatcherGroup struct {
 	Hooks   []Hook `json:"hooks"`
 }
 
+type dispatcherSlot struct {
+	matchers []string
+	any      bool // some handler has no matcher, so the entry carries none
+	seconds  int
+	n        int
+	status   string
+	nstatus  int // modules on the event that set a status; the spinner shows only when exactly one does
+	pos      int
+}
+
+func (d *dispatcherSlot) add(s EventSpec) {
+	d.n++
+	d.seconds += s.Seconds()
+	if s.StatusMessage != "" {
+		d.status, d.nstatus = s.StatusMessage, d.nstatus+1
+	}
+	if s.Matcher == "" {
+		d.any = true
+	} else if !slices.Contains(d.matchers, s.Matcher) {
+		d.matchers = append(d.matchers, s.Matcher)
+	}
+}
+
+func (d *dispatcherSlot) group(event string) MatcherGroup {
+	mg := MatcherGroup{Hooks: []Hook{{Type: "command", Command: DispatcherCommand(event), Timeout: d.seconds}}}
+	if !d.any {
+		mg.Matcher = strings.Join(d.matchers, "|")
+	}
+	if d.nstatus == 1 {
+		mg.Hooks[0].StatusMessage = d.status
+	}
+	return mg
+}
+
 // Events renders the registry as event → entries: one dispatcher entry per event carrying the union of its groups'
 // matchers, plus one entry each for a gate group's handlers and async handlers.
 func Events() map[string][]MatcherGroup {
 	block := map[string][]MatcherGroup{}
-	type slot struct {
-		matchers []string
-		any      bool // some handler has no matcher, so the entry carries none
-		seconds  int
-		n        int
-		status   string
-		nstatus  int // modules on the event that set a status; the spinner shows only when exactly one does
-		pos      int
-	}
-	disp := map[string]*slot{}
+	disp := map[string]*dispatcherSlot{}
 	for _, g := range Registry {
 		if g.AgentOnly {
 			continue
@@ -225,31 +250,15 @@ func Events() map[string][]MatcherGroup {
 			}
 			d := disp[s.Event]
 			if d == nil {
-				d = &slot{pos: len(block[s.Event])}
+				d = &dispatcherSlot{pos: len(block[s.Event])}
 				disp[s.Event] = d
 				block[s.Event] = append(block[s.Event], MatcherGroup{})
 			}
-			d.n++
-			d.seconds += s.Seconds()
-			if s.StatusMessage != "" {
-				d.status, d.nstatus = s.StatusMessage, d.nstatus+1
-			}
-			if s.Matcher == "" {
-				d.any = true
-			} else if !slices.Contains(d.matchers, s.Matcher) {
-				d.matchers = append(d.matchers, s.Matcher)
-			}
+			d.add(s)
 		}
 	}
 	for event, d := range disp {
-		mg := MatcherGroup{Hooks: []Hook{{Type: "command", Command: DispatcherCommand(event), Timeout: d.seconds}}}
-		if !d.any {
-			mg.Matcher = strings.Join(d.matchers, "|")
-		}
-		if d.nstatus == 1 {
-			mg.Hooks[0].StatusMessage = d.status
-		}
-		block[event][d.pos] = mg
+		block[event][d.pos] = d.group(event)
 	}
 	return block
 }

@@ -104,6 +104,17 @@ func Lookup(key string) (Field, bool) {
 // Parse turns user-typed text into a validated JSON value for this field.
 func (f Field) Parse(input string) (json.RawMessage, error) {
 	input = strings.TrimSpace(input)
+	raw, err := f.parseValue(input)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Validate(raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func (f Field) parseValue(input string) (json.RawMessage, error) {
 	var raw json.RawMessage
 	switch f.Kind {
 	case KindBool:
@@ -122,11 +133,7 @@ func (f Field) Parse(input string) (json.RawMessage, error) {
 		}
 		raw = json.RawMessage(strconv.Itoa(n))
 	case KindNumber:
-		n, err := strconv.ParseFloat(input, 64)
-		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
-			return nil, fmt.Errorf("%s: want a number, got %q", f.Key, input)
-		}
-		raw = json.RawMessage(strconv.FormatFloat(n, 'g', -1, 64))
+		return f.parseNumber(input)
 	case KindEnum, KindString:
 		b, err := json.Marshal(input)
 		if err != nil {
@@ -138,10 +145,15 @@ func (f Field) Parse(input string) (json.RawMessage, error) {
 	default:
 		return nil, fmt.Errorf("%s: unknown kind", f.Key)
 	}
-	if err := f.Validate(raw); err != nil {
-		return nil, err
-	}
 	return raw, nil
+}
+
+func (f Field) parseNumber(input string) (json.RawMessage, error) {
+	n, err := strconv.ParseFloat(input, 64)
+	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
+		return nil, fmt.Errorf("%s: want a number, got %q", f.Key, input)
+	}
+	return json.RawMessage(strconv.FormatFloat(n, 'g', -1, 64)), nil
 }
 
 // Validate checks raw against this field's kind, enum values, or minimum. theme additionally
@@ -150,6 +162,10 @@ func (f Field) Validate(raw json.RawMessage) error {
 	if strings.TrimSpace(string(raw)) == "null" {
 		return fmt.Errorf("%s: want a value, got null", f.Key)
 	}
+	return f.validateKind(raw)
+}
+
+func (f Field) validateKind(raw json.RawMessage) error {
 	switch f.Kind {
 	case KindBool:
 		var b bool
@@ -157,31 +173,11 @@ func (f Field) Validate(raw json.RawMessage) error {
 			return fmt.Errorf("%s: want a boolean", f.Key)
 		}
 	case KindInt:
-		var n int
-		if err := json.Unmarshal(raw, &n); err != nil {
-			return fmt.Errorf("%s: want an integer", f.Key)
-		}
-		if n < f.Min {
-			return fmt.Errorf("%s: must be >= %d, got %d", f.Key, f.Min, n)
-		}
-		return f.schemaCheck(raw)
+		return f.validateInteger(raw)
 	case KindNumber:
-		var n float64
-		if err := json.Unmarshal(raw, &n); err != nil {
-			return fmt.Errorf("%s: want a number", f.Key)
-		}
-		return f.schemaCheck(raw)
+		return f.validateNumber(raw)
 	case KindEnum:
-		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return fmt.Errorf("%s: want a string", f.Key)
-		}
-		if f.Key == "theme" && strings.HasPrefix(s, "custom:") && s != "custom:" {
-			return nil
-		}
-		if !slices.Contains(f.Values, s) {
-			return fmt.Errorf("%s: want one of %v, got %q", f.Key, f.Values, s)
-		}
+		return f.validateEnum(raw)
 	case KindString:
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
@@ -194,6 +190,39 @@ func (f Field) Validate(raw json.RawMessage) error {
 		}
 	default:
 		return fmt.Errorf("%s: unknown kind", f.Key)
+	}
+	return nil
+}
+
+func (f Field) validateNumber(raw json.RawMessage) error {
+	var n float64
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return fmt.Errorf("%s: want a number", f.Key)
+	}
+	return f.schemaCheck(raw)
+}
+
+func (f Field) validateInteger(raw json.RawMessage) error {
+	var n int
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return fmt.Errorf("%s: want an integer", f.Key)
+	}
+	if n < f.Min {
+		return fmt.Errorf("%s: must be >= %d, got %d", f.Key, f.Min, n)
+	}
+	return f.schemaCheck(raw)
+}
+
+func (f Field) validateEnum(raw json.RawMessage) error {
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return fmt.Errorf("%s: want a string", f.Key)
+	}
+	if f.Key == "theme" && strings.HasPrefix(s, "custom:") && s != "custom:" {
+		return nil
+	}
+	if !slices.Contains(f.Values, s) {
+		return fmt.Errorf("%s: want one of %v, got %q", f.Key, f.Values, s)
 	}
 	return nil
 }

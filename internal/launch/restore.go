@@ -16,9 +16,7 @@ import (
 // Restore is `configure --restore`: write settings.json whole from the defaults, then render the agent configs.
 // Under check, drift reports that any rendered file differs from the render.
 func Restore(w io.Writer, agents, out string, check, dryRun, forceHomes, noAgents bool) (drift bool, err error) {
-	if out == "" && !check && !dryRun { // bare --restore writes the live settings.json
-		out = SettingsFile()
-	}
+	out = restoreOutputPath(out, check, dryRun)
 	data, err := settings.RenderLive()
 	if err != nil {
 		return false, err
@@ -29,15 +27,32 @@ func Restore(w io.Writer, agents, out string, check, dryRun, forceHomes, noAgent
 			return false, err
 		}
 	}
-	var outDrift bool
-	if out != "" && !check && !dryRun {
-		err = restoreSettingsFile(w, out)
-	} else {
-		outDrift, err = writeSettingsOutput(w, out, check, dryRun, data)
-	}
+	outDrift, err := restoreSettingsOutput(w, out, check, dryRun, data)
 	if err != nil {
 		return false, err
 	}
+	winDrift, err := finishRestore(w, out, check, prepared)
+	if err != nil {
+		return false, err
+	}
+	return check && (drift || outDrift || winDrift), nil
+}
+
+func restoreOutputPath(out string, check, dryRun bool) string {
+	if out == "" && !check && !dryRun { // bare --restore writes the live settings.json
+		return SettingsFile()
+	}
+	return out
+}
+
+func restoreSettingsOutput(w io.Writer, out string, check, dryRun bool, data []byte) (bool, error) {
+	if out != "" && !check && !dryRun {
+		return false, restoreSettingsFile(w, out)
+	}
+	return writeSettingsOutput(w, out, check, dryRun, data)
+}
+
+func finishRestore(w io.Writer, out string, check bool, prepared *render.RenderPlan) (bool, error) {
 	winDrift, err := writeWindowsSettingsOutput(w, out, check)
 	if err != nil {
 		return false, err
@@ -47,7 +62,7 @@ func Restore(w io.Writer, agents, out string, check, dryRun, forceHomes, noAgent
 			return false, err
 		}
 	}
-	return check && (drift || outDrift || winDrift), nil
+	return winDrift, nil
 }
 
 // writeWindowsSettingsOutput reports Windows settings.json drift under --check; the Windows file path
@@ -94,7 +109,7 @@ func restoreSettingsFile(w io.Writer, file string) error {
 func writeSettingsOutput(w io.Writer, out string, check, dryRun bool, data []byte) (bool, error) {
 	switch {
 	case out != "" && check: // drift report only: the rendered settings against the --out file
-		if cur, err := os.ReadFile(out); err != nil || !bytes.Equal(cur, data) {
+		if settingsOutputDrifted(out, data) {
 			fmt.Fprintf(w, "settings: %s has drifted from the render\n", out)
 			return true, nil
 		}
@@ -116,6 +131,11 @@ func writeSettingsOutput(w io.Writer, out string, check, dryRun bool, data []byt
 		fmt.Fprintln(w)
 		return false, nil
 	}
+}
+
+func settingsOutputDrifted(out string, data []byte) bool {
+	cur, err := os.ReadFile(out)
+	return err != nil || !bytes.Equal(cur, data)
 }
 
 // checkLiveSettings prints the drift findings for settings.json and reports whether it has drifted.

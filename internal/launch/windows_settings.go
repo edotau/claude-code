@@ -88,11 +88,7 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	existing, _, err := readStrippingBOM(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	merged, sum, err := settings.Merge(existing, winRendered)
+	existing, merged, sum, err := mergeWindowsSettings(file, winRendered)
 	if err != nil {
 		return err
 	}
@@ -106,6 +102,19 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
 		return nil
 	}
+	return updateWindowsSettings(w, file, winRendered)
+}
+
+func mergeWindowsSettings(file string, rendered []byte) ([]byte, []byte, settings.Summary, error) {
+	existing, _, err := readStrippingBOM(file)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, settings.Summary{}, err
+	}
+	merged, sum, err := settings.Merge(existing, rendered)
+	return existing, merged, sum, err
+}
+
+func updateWindowsSettings(w io.Writer, file string, winRendered []byte) error {
 	// Re-merge from the bytes read under the file lock, so a Windows-side writer's concurrent edit survives.
 	backup, err := settings.UpdateWithBackup(file, func(old []byte) ([]byte, error) {
 		hadBOM := bytes.HasPrefix(old, bomBytes)
@@ -187,20 +196,15 @@ func checkSettingsDriftAt(file string, rendered []byte) (SettingsDrift, error) {
 // transforming the value), and remarshals indented like the rest of the settings package.
 func filterObject(raw []byte, keep func(key string, val json.RawMessage) (json.RawMessage, bool, error)) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+	if !objectStart(dec) {
 		return nil, errors.New("not a JSON object")
 	}
 	var buf bytes.Buffer
 	buf.WriteString("{")
 	first := true
 	for dec.More() {
-		tok, err := dec.Token()
+		key, val, err := decodeObjectEntry(dec)
 		if err != nil {
-			return nil, err
-		}
-		key, _ := tok.(string)
-		var val json.RawMessage
-		if err := dec.Decode(&val); err != nil {
 			return nil, err
 		}
 		newVal, ok, err := keep(key, val)
@@ -214,14 +218,7 @@ func filterObject(raw []byte, keep func(key string, val json.RawMessage) (json.R
 			buf.WriteString(",")
 		}
 		first = false
-		kb, err := json.Marshal(key)
-		if err != nil {
-			return nil, err
-		}
-		buf.WriteString("\n  ")
-		buf.Write(kb)
-		buf.WriteString(": ")
-		if err := json.Indent(&buf, bytes.TrimSpace(newVal), "  ", "  "); err != nil {
+		if err := writeObjectEntry(&buf, key, newVal); err != nil {
 			return nil, err
 		}
 	}
@@ -233,6 +230,33 @@ func filterObject(raw []byte, keep func(key string, val json.RawMessage) (json.R
 	}
 	buf.WriteString("}\n")
 	return buf.Bytes(), nil
+}
+
+func objectStart(dec *json.Decoder) bool {
+	tok, err := dec.Token()
+	return err == nil && tok == json.Delim('{')
+}
+
+func decodeObjectEntry(dec *json.Decoder) (string, json.RawMessage, error) {
+	tok, err := dec.Token()
+	if err != nil {
+		return "", nil, err
+	}
+	key, _ := tok.(string)
+	var val json.RawMessage
+	err = dec.Decode(&val)
+	return key, val, err
+}
+
+func writeObjectEntry(buf *bytes.Buffer, key string, val json.RawMessage) error {
+	kb, err := json.Marshal(key)
+	if err != nil {
+		return err
+	}
+	buf.WriteString("\n  ")
+	buf.Write(kb)
+	buf.WriteString(": ")
+	return json.Indent(buf, bytes.TrimSpace(val), "  ", "  ")
 }
 
 // isLinuxString reports a JSON string value naming a Linux path (not an array/object value).

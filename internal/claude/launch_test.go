@@ -137,11 +137,7 @@ func TestClaudeDirectLaunchPlan(t *testing.T) {
 		"ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
 		"MAX_THINKING_TOKENS": "31999", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
 		"CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000", providers.EnvSessionProfile: "gw"}
-	for k, v := range want {
-		if p.Set[k] != v {
-			t.Errorf("%s = %q, want %q", k, p.Set[k], v)
-		}
-	}
+	assertDirectLaunchEnv(t, p, want)
 	if !slices.Contains(p.Unset, oauthKey) || !slices.Equal(p.Argv, []string{"--settings", overlayFile(p).Path, "-p", "hi"}) {
 		t.Errorf("unset %q argv %q", p.Unset, p.Argv)
 	}
@@ -156,6 +152,15 @@ func TestClaudeDirectLaunchPlan(t *testing.T) {
 	after, err := providers.Load()
 	if err != nil || !reflect.DeepEqual(before.Providers["gw"], after.Providers["gw"]) {
 		t.Errorf("registry provider mutated by the launch: %v", err)
+	}
+}
+
+func assertDirectLaunchEnv(t *testing.T, p agent.Plan, want map[string]string) {
+	t.Helper()
+	for k, v := range want {
+		if p.Set[k] != v {
+			t.Errorf("%s = %q, want %q", k, p.Set[k], v)
+		}
 	}
 }
 
@@ -243,6 +248,11 @@ func TestClaudePassthrough(t *testing.T) {
 	if _, ok := p.Set["ANTHROPIC_BASE_URL"]; ok || p.Set["ANTHROPIC_CUSTOM_HEADERS"] != "" {
 		t.Errorf("passthrough must launch direct: base %q headers %q", p.Set["ANTHROPIC_BASE_URL"], p.Set["ANTHROPIC_CUSTOM_HEADERS"])
 	}
+	t.Run("reject vendor login", testClaudeRejectsVendorLogin)
+}
+
+func testClaudeRejectsVendorLogin(t *testing.T) {
+	t.Helper()
 	if _, err := Claude(context.Background(), agent.LaunchOptions{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "claude-code codex") {
 		t.Errorf("a vendor-login provider must not back Claude Code: %v", err)
 	}

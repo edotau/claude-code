@@ -204,30 +204,11 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
 		}
-		switch ev.Type {
-		case "stream_event":
-			ts.Event(agent.Clock())
-		case "system":
-			return false, applyClaudeSystem(ev, &res, &ts, lg, sink)
-		case "assistant":
-			return false, applyClaudeAssistantEvent(ev, &res, lg, sink, &seen)
-		case "result":
+		if ev.Type == "result" {
 			sawResult = true
-			if err := applyClaudeResult(&res, ev); err != nil {
-				_ = agent.EmitError(lg, sink, err.Error())
-				return false, err
-			}
-			lg.Emit("result", ev.Result)
-			if untilResult {
-				return true, nil
-			}
-		case "error":
-			if t := ev.text(); t != "" {
-				_ = agent.EmitError(lg, sink, t)
-				return false, fmt.Errorf("claude: %s", t)
-			}
 		}
-		return false, nil
+		state := claudeStreamState{res: &res, transport: &ts, log: lg, sink: sink, seen: &seen}
+		return state.apply(ev, untilResult)
 	})
 	if err != nil {
 		return partial(err)
@@ -236,6 +217,38 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 		return partial(errNoResult)
 	}
 	return res, nil
+}
+
+type claudeStreamState struct {
+	res       *agent.Result
+	transport *agent.TransportTracker
+	log       agent.StreamLog
+	sink      agent.Sink
+	seen      *agent.Answer
+}
+
+func (s claudeStreamState) apply(ev claudeEvent, untilResult bool) (bool, error) {
+	switch ev.Type {
+	case "stream_event":
+		s.transport.Event(agent.Clock())
+	case "system":
+		return false, applyClaudeSystem(ev, s.res, s.transport, s.log, s.sink)
+	case "assistant":
+		return false, applyClaudeAssistantEvent(ev, s.res, s.log, s.sink, s.seen)
+	case "result":
+		if err := applyClaudeResult(s.res, ev); err != nil {
+			_ = agent.EmitError(s.log, s.sink, err.Error())
+			return false, err
+		}
+		s.log.Emit("result", ev.Result)
+		return untilResult, nil
+	case "error":
+		if t := ev.text(); t != "" {
+			_ = agent.EmitError(s.log, s.sink, t)
+			return false, fmt.Errorf("claude: %s", t)
+		}
+	}
+	return false, nil
 }
 
 var errNoResult = errors.New("claude: stream ended without a result event")

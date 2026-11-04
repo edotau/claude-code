@@ -55,23 +55,9 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 			kept = append(kept, a)
 			continue
 		}
-		mode, def := AuthOAuth, DefaultOAuthName
-		if name == "--x-api-key" {
-			mode, def = AuthAPIKey, DefaultAPIKeyName
+		if err := applyAnthropicAuthArg(&o, name, val, hasVal); err != nil {
+			return o, nil, err
 		}
-		if o.Mode == mode {
-			return o, nil, fmt.Errorf("%s given more than once; pass it a single time", name)
-		}
-		if o.Mode != AuthLogin {
-			return o, nil, errors.New("--oauth and --x-api-key cannot be combined; pick one auth mode")
-		}
-		if hasVal {
-			if err := checkKeyName(name, val); err != nil {
-				return o, nil, err
-			}
-			def = val
-		}
-		o.Mode, o.Name = mode, def
 	}
 	base, rest, err := agent.ParseArgs(kept, true)
 	if err != nil {
@@ -82,6 +68,27 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 	}
 	o.LaunchOptions = base
 	return o, rest, nil
+}
+
+func applyAnthropicAuthArg(o *AnthropicOptions, name, val string, hasVal bool) error {
+	mode, def := AuthOAuth, DefaultOAuthName
+	if name == "--x-api-key" {
+		mode, def = AuthAPIKey, DefaultAPIKeyName
+	}
+	if o.Mode == mode {
+		return fmt.Errorf("%s given more than once; pass it a single time", name)
+	}
+	if o.Mode != AuthLogin {
+		return errors.New("--oauth and --x-api-key cannot be combined; pick one auth mode")
+	}
+	if hasVal {
+		if err := checkKeyName(name, val); err != nil {
+			return err
+		}
+		def = val
+	}
+	o.Mode, o.Name = mode, def
+	return nil
 }
 
 // checkKeyName accepts only an env-var-shaped vault key name; a credential-shaped value is refused unechoed.
@@ -113,11 +120,17 @@ func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret st
 	if err != nil || plan.ForeignBase { // a foreign shell endpoint never receives the vault secret
 		return plan, err
 	}
+	applyAnthropicSecret(&plan, o, secret)
+	return plan, nil
+}
+
+func applyAnthropicSecret(plan *agent.Plan, o AnthropicOptions, secret string) {
 	switch o.Mode {
 	case AuthOAuth:
 		plan.Set[oauthKey] = secret
 	case AuthAPIKey:
-		if o.Name != DefaultAPIKeyName { // the apiKeyHelper reads the registry's env name, so carry this key directly
+		// The apiKeyHelper reads the registry's env name, so carry this key directly.
+		if o.Name != DefaultAPIKeyName {
 			plan.Set[DefaultAPIKeyName] = secret
 			delete(plan.Set, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS")
 			if len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" {
@@ -126,7 +139,6 @@ func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret st
 			plan.Files = nil
 		}
 	}
-	return plan, nil
 }
 
 // anthropicProfile is the first anthropic-provider profile signing in by method ("" when none).
@@ -173,16 +185,7 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse
 		option.WithoutEnvironmentDefaults(),
 		option.WithBaseURL(r.BaseURL),
 		option.WithMaxRetries(0), // the caller's dispatch loop owns retries
-		option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-			req.Header.Del("X-Api-Key")
-			req.Header.Del("Authorization")
-			if r.Authorize != nil {
-				if err := r.Authorize(req.Context(), req.Header); err != nil {
-					return nil, err
-				}
-			}
-			return next(req)
-		}),
+		option.WithMiddleware(anthropicAuthorization(r)),
 	)
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(r.Model),
@@ -214,6 +217,19 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse
 		}
 	}
 	return res, boxSDKError(stream.Err())
+}
+
+func anthropicAuthorization(r apiRequest) option.Middleware {
+	return func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		req.Header.Del("X-Api-Key")
+		req.Header.Del("Authorization")
+		if r.Authorize != nil {
+			if err := r.Authorize(req.Context(), req.Header); err != nil {
+				return nil, err
+			}
+		}
+		return next(req)
+	}
 }
 
 func boxSDKError(err error) error {

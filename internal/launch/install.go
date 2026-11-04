@@ -74,6 +74,15 @@ func DoctorChecks() (checks []Check, ok bool) {
 	for _, c := range codex.CodexConfigChecks() {
 		check(c.State == "ok", false, c.Name, c.Detail)
 	}
+	checkProviderHealth(check)
+	checkToolHealth(check)
+	checkHostHealth(check)
+	checks = append(checks, vaultDoctorChecks()...)
+	checks = append(checks, formatsDoctorChecks()...)
+	return checks, ok
+}
+
+func checkProviderHealth(check func(bool, bool, string, string)) {
 	reg, err := providers.Load()
 	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
 	if reg != nil {
@@ -91,6 +100,9 @@ func DoctorChecks() (checks []Check, ok bool) {
 			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
 		}
 	}
+}
+
+func checkToolHealth(check func(bool, bool, string, string)) {
 	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
 	}
@@ -101,6 +113,9 @@ func DoctorChecks() (checks []Check, ok bool) {
 	for _, q := range quotaDoctorRows(time.Now()) {
 		check(true, false, q.Name, q.Detail)
 	}
+}
+
+func checkHostHealth(check func(bool, bool, string, string)) {
 	check(true, false, "in-flight", inflightDoctorDetail())
 	proxyDetail, proxyStale := proxyStatus()
 	check(!proxyStale, false, "proxy", proxyDetail)
@@ -124,9 +139,6 @@ func DoctorChecks() (checks []Check, ok bool) {
 	if wdrift, wok, werr := CheckWindowsSettingsDrift(); wok {
 		check(werr == nil && !wdrift.Drifted(), false, "settings (windows)", settingsDriftDetailLabeled(wdrift, werr, "settings (windows)"))
 	}
-	checks = append(checks, vaultDoctorChecks()...)
-	checks = append(checks, formatsDoctorChecks()...)
-	return checks, ok
 }
 
 // routeDetail is the "<agent> route" row; the caller loaded the registry already, so a miss is not a doctor failure.
@@ -171,40 +183,52 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 	}
 	present := providers.CredentialPresent(p)
 	if present {
-		pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		status, detail := probeCredential(pctx, p)
-		cancel()
-		switch status {
-		case "login":
-			if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
-				if providers.HeadlessOAuthToken() != "" {
-					label += " · headless token set"
-				} else {
-					label += " · no headless token (claude-code configure → claude mints one)"
-				}
-			}
-		case "verified":
-			label += " · verified"
-		case "rejected":
-			present = false                           // stored, but the provider refuses it: as unusable as a missing key
-			detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
-			label += " · REJECTED: " + detail
-		default:
-			label += " · " + status + ": " + detail
-		}
+		present, label = probeCredentialLabel(p, label)
 	}
 	if !present {
-		if alt := altAuth(reg, name); alt != "" {
-			if !strings.Contains(label, "REJECTED") {
-				label += " · no key"
-			}
-			present, label = true, label+" · "+alt
-		}
+		present, label = alternativeCredentialLabel(reg, name, label)
 	}
 	if !present && !session && !profileInUse(reg, name) {
 		present, label = true, label+" · unused"
 	}
 	return Check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
+}
+
+func alternativeCredentialLabel(reg *providers.Registry, name, label string) (bool, string) {
+	alt := altAuth(reg, name)
+	if alt == "" {
+		return false, label
+	}
+	if !strings.Contains(label, "REJECTED") {
+		label += " · no key"
+	}
+	return true, label + " · " + alt
+}
+
+func probeCredentialLabel(p *providers.Provider, label string) (bool, string) {
+	present := true
+	pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	status, detail := probeCredential(pctx, p)
+	cancel()
+	switch status {
+	case "login":
+		if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
+			if providers.HeadlessOAuthToken() != "" {
+				label += " · headless token set"
+			} else {
+				label += " · no headless token (claude-code configure → claude mints one)"
+			}
+		}
+	case "verified":
+		label += " · verified"
+	case "rejected":
+		present = false                           // stored, but the provider refuses it: as unusable as a missing key
+		detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
+		label += " · REJECTED: " + detail
+	default:
+		label += " · " + status + ": " + detail
+	}
+	return present, label
 }
 
 // profileInUse reports whether the registry default/fallback chain or any agent's profile pin names the profile.
@@ -554,22 +578,30 @@ func toolPATHCopies(name string) []string {
 			continue
 		}
 		candidate := filepath.Join(dir, name)
-		info, err := os.Stat(candidate)
-		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
-			continue
-		}
-		real, err := filepath.EvalSymlinks(candidate)
-		if err != nil {
-			continue
-		}
-		real, err = filepath.Abs(real)
-		if err != nil || real == self || filepath.Base(real) == "claude-code" || seen[real] {
+		real := executableRealPath(candidate)
+		if real == "" || real == self || filepath.Base(real) == "claude-code" || seen[real] {
 			continue
 		}
 		seen[real] = true
 		copies = append(copies, candidate)
 	}
 	return copies
+}
+
+func executableRealPath(candidate string) string {
+	info, err := os.Stat(candidate)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		return ""
+	}
+	real, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return ""
+	}
+	real, err = filepath.Abs(real)
+	if err != nil {
+		return ""
+	}
+	return real
 }
 
 // toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.

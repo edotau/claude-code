@@ -69,13 +69,12 @@ func TestStripWindowsOnly(t *testing.T) {
 	if v, ok := m["theme"]; !ok || !rawEqual(t, v, json.RawMessage(`"auto"`)) {
 		t.Errorf("theme = %s, want kept as \"auto\"", v)
 	}
-	perms, ok := m["permissions"]
-	if !ok {
-		t.Fatal("permissions dropped, want kept")
-	}
-	if want := []byte(`{"allow": ["Bash(ls:*)"]}`); !rawEqual(t, perms, want) {
-		t.Errorf("permissions = %s, want %s", perms, want)
-	}
+	assertWindowsPermissions(t, m)
+	assertWindowsEnvironment(t, m)
+}
+
+func assertWindowsEnvironment(t *testing.T, m map[string]json.RawMessage) {
+	t.Helper()
 	envRaw, ok := m["env"]
 	if !ok {
 		t.Fatal("env dropped, want kept (filtered)")
@@ -88,6 +87,17 @@ func TestStripWindowsOnly(t *testing.T) {
 	}
 	if v, ok := env["PLAIN_VAR"]; !ok || !rawEqual(t, v, json.RawMessage(`"hello"`)) {
 		t.Errorf("env.PLAIN_VAR = %s, want kept as \"hello\"", v)
+	}
+}
+
+func assertWindowsPermissions(t *testing.T, m map[string]json.RawMessage) {
+	t.Helper()
+	perms, ok := m["permissions"]
+	if !ok {
+		t.Fatal("permissions dropped, want kept")
+	}
+	if want := []byte(`{"allow": ["Bash(ls:*)"]}`); !rawEqual(t, perms, want) {
+		t.Errorf("permissions = %s, want %s", perms, want)
 	}
 }
 
@@ -118,6 +128,16 @@ func winHermetic(t *testing.T) string {
 	return profile
 }
 
+func writeWindowsFixture(t *testing.T, file string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func winSettingsPath(profile string) string {
 	return filepath.Join(profile, ".claude", "settings.json")
 }
@@ -128,13 +148,8 @@ func winSettingsPath(profile string) string {
 func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	existing := `{"remote":{"defaultEnvironmentId":"abc"},"statusLine":{"type":"command","command":"my-custom-status"},"theme":"light"}`
-	if err := os.WriteFile(file, []byte(existing), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeWindowsFixture(t, file, []byte(existing))
 	var out bytes.Buffer
 	if err := InstallWindowsSettings(&out, false); err != nil {
 		t.Fatal(err)
@@ -144,12 +159,7 @@ func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := decodeObj(t, b)
-	if v, ok := m["remote"]; !ok || !rawEqual(t, v, json.RawMessage(`{"defaultEnvironmentId":"abc"}`)) {
-		t.Errorf("remote = %s, want kept foreign key unchanged", v)
-	}
-	if v, ok := m["statusLine"]; !ok || !rawEqual(t, v, json.RawMessage(`{"type":"command","command":"my-custom-status"}`)) {
-		t.Errorf("statusLine = %s, want the user's own kept (harness statusLine never reaches the Windows file)", v)
-	}
+	assertWindowsForeignValues(t, m)
 	if _, ok := m["hooks"]; ok {
 		t.Error("hooks present in Windows settings.json, want absent (no hook runner on Windows)")
 	}
@@ -161,17 +171,22 @@ func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
 	}
 }
 
+func assertWindowsForeignValues(t *testing.T, m map[string]json.RawMessage) {
+	t.Helper()
+	if v, ok := m["remote"]; !ok || !rawEqual(t, v, json.RawMessage(`{"defaultEnvironmentId":"abc"}`)) {
+		t.Errorf("remote = %s, want kept foreign key unchanged", v)
+	}
+	if v, ok := m["statusLine"]; !ok || !rawEqual(t, v, json.RawMessage(`{"type":"command","command":"my-custom-status"}`)) {
+		t.Errorf("statusLine = %s, want the user's own kept (harness statusLine never reaches the Windows file)", v)
+	}
+}
+
 // TestInstallWindowsSettings_BackupCreated proves a changed write leaves a backup under
 // CacheDir()/backups, mirrored by file's path, and nothing new beside the file itself.
 func TestInstallWindowsSettings_BackupCreated(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(file, []byte(`{"theme":"light"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeWindowsFixture(t, file, []byte(`{"theme":"light"}`))
 	before, err := filepath.Glob(filepath.Join(filepath.Dir(file), "*"))
 	if err != nil {
 		t.Fatal(err)
@@ -210,13 +225,8 @@ func TestInstallWindowsSettings_BOMPreserved(t *testing.T) {
 	t.Run("BOM in -> BOM out", func(t *testing.T) {
 		profile := winHermetic(t)
 		file := winSettingsPath(profile)
-		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-			t.Fatal(err)
-		}
 		withBOM := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"theme":"light"}`)...)
-		if err := os.WriteFile(file, withBOM, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeWindowsFixture(t, file, withBOM)
 		var out bytes.Buffer
 		if err := InstallWindowsSettings(&out, false); err != nil {
 			t.Fatal(err)
@@ -232,12 +242,7 @@ func TestInstallWindowsSettings_BOMPreserved(t *testing.T) {
 	t.Run("no BOM in -> no BOM out", func(t *testing.T) {
 		profile := winHermetic(t)
 		file := winSettingsPath(profile)
-		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(file, []byte(`{"theme":"light"}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeWindowsFixture(t, file, []byte(`{"theme":"light"}`))
 		var out bytes.Buffer
 		if err := InstallWindowsSettings(&out, false); err != nil {
 			t.Fatal(err)

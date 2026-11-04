@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"bufio"
 	"cmp"
 	"context"
 	"encoding/base64"
@@ -57,13 +56,7 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	if err != nil {
 		return res, err
 	}
-	var extra []string
-	if req.SystemPrompt != "" {
-		extra = append(extra, "-c", "instructions="+agentconfig.TOMLQuote(req.SystemPrompt))
-	}
-	if req.AppendSystemPrompt != "" {
-		extra = append(extra, "-c", "developer_instructions="+agentconfig.TOMLQuote(req.AppendSystemPrompt))
-	}
+	extra := codexInstructionArgs(req)
 	if req.OutputSchema != "" {
 		file, err := codexSchemaFile(req.OutputSchema)
 		if err != nil {
@@ -302,18 +295,7 @@ func codexSchemaFile(schema string) (string, error) {
 func codexStrict(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
-		for _, k := range codexSchemaMaps {
-			if m, ok := x[k].(map[string]any); ok {
-				for n, c := range m {
-					m[n] = codexStrict(c)
-				}
-			}
-		}
-		for _, k := range codexSubschemas {
-			if c, ok := x[k]; ok {
-				x[k] = codexStrict(c)
-			}
-		}
+		codexStrictChildren(x)
 		if props, ok := x["properties"].(map[string]any); ok {
 			req := make([]string, 0, len(props))
 			for k := range props {
@@ -336,88 +318,6 @@ var (
 	codexSubschemas = []string{"items", "prefixItems", "additionalProperties", "unevaluatedProperties", "contains",
 		"not", "if", "then", "else", "anyOf", "oneOf", "allOf"}
 )
-
-// codexEvent mirrors `codex exec --json`: thread.started, item.started|completed, turn.completed|failed, error.
-type codexEvent struct {
-	Type     string `json:"type"`
-	ThreadID string `json:"thread_id"`
-	Item     struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"` // agent_message | command_execution | error | reasoning | ...
-		Text    string `json:"text"`
-		Command string `json:"command"`
-		Status  string `json:"status"`
-	} `json:"item"`
-	Usage struct {
-		InputTokens       int `json:"input_tokens"`
-		CachedInputTokens int `json:"cached_input_tokens"`
-		OutputTokens      int `json:"output_tokens"`
-	} `json:"usage"`
-	Error struct {
-		Message string `json:"message"`
-	} `json:"error"`
-}
-
-// parseCodexStream reads `codex exec --json`: agent messages become text events (the last is the answer),
-// command executions become tool events, turn.completed adds usage and turn.failed fails the run.
-func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (res agent.Result, _ error) {
-	ts := agent.TransportTracker{Start: agent.Clock()}
-	defer func() { res.Transport = ts.Result() }()
-	lg := agent.PickLog(logs)
-	var ans agent.Answer
-	var failure string
-	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
-		var ev codexEvent
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			return false, fmt.Errorf("decode codex json: %w", err)
-		}
-		ts.Event(agent.Clock())
-		it := ev.Item
-		switch {
-		case ev.Type == "thread.started":
-			res.SessionID = ev.ThreadID
-		case ev.Type == "item.completed" && it.Type == "agent_message" && it.Text != "":
-			if onMeaningful != nil {
-				onMeaningful()
-			}
-			if err := ans.Emit(sink, it.Text, true); err != nil {
-				return false, err
-			}
-			lg.Emit("assistant", it.Text)
-		case ev.Type == "item.started" && it.Type == "command_execution":
-			tool := agent.ToolEvent("shell", it.ID)
-			tool.Text = it.Command
-			if err := sink.Emit(tool); err != nil {
-				return false, err
-			}
-			lg.Emit("tool", it.Command)
-		case ev.Type == "item.completed" && it.Type == "command_execution":
-			if err := sink.Emit(agent.Event{Type: agent.EventToolResult, Tool: &agent.ToolRef{Name: "shell", ID: it.ID}, Status: it.Status}); err != nil {
-				return false, err
-			}
-		case ev.Type == "turn.completed":
-			u := ev.Usage
-			res.Usage.InputTokens += u.InputTokens - u.CachedInputTokens
-			res.Usage.CacheReadTokens += u.CachedInputTokens
-			res.Usage.OutputTokens += u.OutputTokens
-			lg.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
-		case ev.Type == "turn.failed":
-			failure = cmp.Or(ev.Error.Message, "codex turn failed")
-			if err := agent.EmitError(lg, sink, failure); err != nil {
-				return false, err
-			}
-		}
-		return false, nil
-	})
-	res.Answer = ans.Last()
-	if err != nil {
-		return res, err
-	}
-	if failure != "" {
-		return res, errors.New(failure)
-	}
-	return res, nil
-}
 
 // codexResponsesModel swaps a model Responses cannot serve (the row's opus alias, gpt-oss) for the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
@@ -461,21 +361,7 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 			fields = append(fields, [2]string{"env_key", agentconfig.TOMLQuote(CodexKeyEnv)})
 		}
 	}
-	if len(p.Headers) > 0 {
-		var hs [][2]string
-		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			if !shapes.Looks(p.Headers[k]) {
-				hs = append(hs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(p.Headers[k])})
-				continue
-			}
-			name := codexHeaderEnv(k) // a credential-shaped value rides env, never argv
-			env = append(env, name+"="+p.Headers[k])
-			envHs = append(envHs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(name)})
-		}
-		if len(hs) > 0 {
-			fields = append(fields, [2]string{"http_headers", agentconfig.TOMLInline(hs)})
-		}
-	}
+	env, envHs, fields = codexProviderHeaders(p, env, envHs, fields)
 	if len(envHs) > 0 {
 		fields = append(fields, [2]string{"env_http_headers", agentconfig.TOMLInline(envHs)})
 	}
@@ -545,20 +431,11 @@ func codexChatGPTLogin() error {
 		ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 		defer cancel()
 		out, err := codexStatus(ctx, bin)
-		text := strings.TrimSpace(string(out))
-		ee, exited := errors.AsType[*exec.ExitError](err)
-		switch {
-		case err == nil && strings.Contains(strings.ToLower(text), "chatgpt"):
-			return nil
-		case err == nil:
-			return fmt.Errorf("codex: signed in with an API key, not ChatGPT (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
-		case ctx.Err() == nil && exited && ee.ExitCode() >= 0:
-			return fmt.Errorf("codex: not signed in (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text)
-		case ctx.Err() != nil:
-			probeErr = fmt.Errorf("codex login status: %w", ctx.Err())
-		default:
-			probeErr = fmt.Errorf("codex login status: %w", err)
+		verdict, transient := codexLoginVerdict(ctx, out, err)
+		if !transient {
+			return verdict
 		}
+		probeErr = verdict
 	}
 	b, keyringNote := codexAuthJSON()
 	if codexTokensPresent(b) {
@@ -677,15 +554,8 @@ func codexKeyringAuthJSON() (data []byte, note string) {
 		return nil, "" // empty value reads as nothing stored
 	}
 	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
-		switch runtime.GOOS {
-		case "darwin":
-			if exit.ExitCode() == 44 { // errSecItemNotFound
-				return nil, ""
-			}
-		case "linux":
-			if exit.ExitCode() == 1 && strings.TrimSpace(string(exit.Stderr)) == "" {
-				return nil, "" // secret-tool's plain "not found" exit
-			}
+		if codexKeyringNotFound(exit) {
+			return nil, ""
 		}
 		if stderr := strings.TrimSpace(string(exit.Stderr)); stderr != "" {
 			return nil, stderr
@@ -758,3 +628,74 @@ func codexSchema() agent.Schema {
 
 // CodexKeyEnv carries the credential codex's config names (the config text names the variable, not the secret).
 const CodexKeyEnv = "HARNESS_CODEX_API_KEY"
+
+func codexInstructionArgs(req agent.RunOptions) []string {
+	var extra []string
+	if req.SystemPrompt != "" {
+		extra = append(extra, "-c", "instructions="+agentconfig.TOMLQuote(req.SystemPrompt))
+	}
+	if req.AppendSystemPrompt != "" {
+		extra = append(extra, "-c", "developer_instructions="+agentconfig.TOMLQuote(req.AppendSystemPrompt))
+	}
+	return extra
+}
+
+func codexStrictChildren(x map[string]any) {
+	for _, k := range codexSchemaMaps {
+		if m, ok := x[k].(map[string]any); ok {
+			for n, c := range m {
+				m[n] = codexStrict(c)
+			}
+		}
+	}
+	for _, k := range codexSubschemas {
+		if c, ok := x[k]; ok {
+			x[k] = codexStrict(c)
+		}
+	}
+}
+
+func codexProviderHeaders(p *providers.Provider, env []string, envHs, fields [][2]string) ([]string, [][2]string, [][2]string) {
+	var hs [][2]string
+	for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
+		if !shapes.Looks(p.Headers[k]) {
+			hs = append(hs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(p.Headers[k])})
+			continue
+		}
+		name := codexHeaderEnv(k) // A credential-shaped value rides env, never argv.
+		env = append(env, name+"="+p.Headers[k])
+		envHs = append(envHs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(name)})
+	}
+	if len(hs) > 0 {
+		fields = append(fields, [2]string{"http_headers", agentconfig.TOMLInline(hs)})
+	}
+	return env, envHs, fields
+}
+
+func codexLoginVerdict(ctx context.Context, out []byte, err error) (error, bool) {
+	text := strings.TrimSpace(string(out))
+	ee, exited := errors.AsType[*exec.ExitError](err)
+	switch {
+	case err == nil && strings.Contains(strings.ToLower(text), "chatgpt"):
+		return nil, false
+	case err == nil:
+		return fmt.Errorf("codex: signed in with an API key, not ChatGPT (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text), false
+	case ctx.Err() == nil && exited && ee.ExitCode() >= 0:
+		return fmt.Errorf("codex: not signed in (%s); run `codex login` and choose \"Sign in with ChatGPT\"", text), false
+	case ctx.Err() != nil:
+		return fmt.Errorf("codex login status: %w", ctx.Err()), true
+	default:
+		return fmt.Errorf("codex login status: %w", err), true
+	}
+}
+
+func codexKeyringNotFound(exit *exec.ExitError) bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return exit.ExitCode() == 44 // errSecItemNotFound
+	case "linux":
+		return exit.ExitCode() == 1 && strings.TrimSpace(string(exit.Stderr)) == ""
+	default:
+		return false
+	}
+}

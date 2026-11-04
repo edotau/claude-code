@@ -35,8 +35,16 @@ func TestParseClaudeStreamGolden(t *testing.T) {
 		t.Fatalf("golden stream: %v", err)
 	}
 	const answer = "Hi! Here's what `ls` shows in `/home/user/project`."
-	if text.String() != answer || res.Answer != answer {
-		t.Errorf("text = %q, answer = %q", text.String(), res.Answer)
+	assertGoldenClaudeResult(t, res, text.String(), answer, tools)
+	if deltas := goldenStreamDeltas(t, raw); deltas != answer {
+		t.Errorf("stream_event text deltas = %q", deltas)
+	}
+}
+
+func assertGoldenClaudeResult(t *testing.T, res agent.Result, text, answer string, tools []string) {
+	t.Helper()
+	if text != answer || res.Answer != answer {
+		t.Errorf("text = %q, answer = %q", text, res.Answer)
 	}
 	if len(tools) != 1 || tools[0] != "Bash" {
 		t.Errorf("tool events = %q, want one Bash", tools)
@@ -44,6 +52,10 @@ func TestParseClaudeStreamGolden(t *testing.T) {
 	if res.SessionID != "uuid_01" || res.Model != "claude-opus-5-5" || res.Usage.CostUSD != 0.359989 || res.Usage.OutputTokens != 470 {
 		t.Errorf("res = %+v", res)
 	}
+}
+
+func goldenStreamDeltas(t *testing.T, raw []byte) string {
+	t.Helper()
 	var deltas strings.Builder
 	for line := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
 		var inner struct {
@@ -63,7 +75,5 @@ func TestParseClaudeStreamGolden(t *testing.T) {
 			}
 		}
 	}
-	if deltas.String() != answer {
-		t.Errorf("stream_event text deltas = %q", deltas.String())
-	}
+	return deltas.String()
 }

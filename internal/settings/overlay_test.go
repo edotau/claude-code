@@ -209,6 +209,9 @@ func TestCredentialKeyRefusedEverywhere(t *testing.T) {
 			t.Errorf("CredentialKey(%q) = true", k)
 		}
 	}
+}
+
+func TestCredentialsRefusedByWriters(t *testing.T) {
 	dir := vaulttest.Use(t)
 	file := filepath.Join(dir, filepath.FromSlash(RepoDefaultsRel))
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
@@ -341,6 +344,9 @@ func TestStructuralKeysRefusedAndObjectConstraintsEnforced(t *testing.T) {
 	if err := SaveOverlay(map[string]json.RawMessage{"MAX_THINKING_TOKENS": json.RawMessage(`"5"`)}); err != nil {
 		t.Errorf("an env variable must stay editable: %v", err)
 	}
+}
+
+func TestSchemaReferencesRemainStructural(t *testing.T) {
 	for _, k := range SchemaKeys() {
 		if k.HasRef() && !StructuralKey(k.Name) {
 			t.Errorf("%s uses $ref but is still editable", k.Name)
@@ -349,6 +355,9 @@ func TestStructuralKeysRefusedAndObjectConstraintsEnforced(t *testing.T) {
 	if pk, _ := SchemaKey("permissions"); !pk.HasRef() {
 		t.Error("permissions should be flagged as using $ref")
 	}
+}
+
+func TestObjectConstraintsEnforced(t *testing.T) {
 	k, _ := SchemaKey("subagentStatusLine")
 	for val, want := range map[string]bool{
 		`{"type":"command","command":"c"}`:           true,
