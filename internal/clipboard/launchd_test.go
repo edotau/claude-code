@@ -21,6 +21,27 @@ func TestLaunchAgentInstall(t *testing.T) {
 	t.Setenv("PATH", bindir+":/usr/bin:/bin")
 	bin := "/opt/cc/claude-code"
 
+	var calls, reloaded []byte
+	if !t.Run("install", func(t *testing.T) {
+		calls = checkLaunchAgentInstall(t, home, bin, log)
+	}) {
+		return
+	}
+	if !t.Run("unloaded", func(t *testing.T) {
+		reloaded = checkLaunchAgentReload(t, home, bin, log, calls)
+	}) {
+		return
+	}
+	t.Run("current", func(t *testing.T) {
+		if err := os.WriteFile(loaded, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		checkLaunchAgentCurrent(t, home, bin, log, reloaded)
+	})
+}
+
+func checkLaunchAgentInstall(t *testing.T, home, bin, log string) []byte {
+	t.Helper()
 	var out bytes.Buffer
 	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
 		t.Fatal(err)
@@ -42,8 +63,13 @@ func TestLaunchAgentInstall(t *testing.T) {
 		t.Fatalf("launchctl calls = %q", got)
 	}
 
-	// Current plist, agent not loaded (booted out): rerun bootstraps it instead of reporting current.
-	out.Reset()
+	return calls
+}
+
+// Current plist, agent not loaded (booted out): rerun bootstraps it instead of reporting current.
+func checkLaunchAgentReload(t *testing.T, home, bin, log string, calls []byte) []byte {
+	t.Helper()
+	var out bytes.Buffer
 	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
 		t.Fatal(err)
 	}
@@ -51,11 +77,12 @@ func TestLaunchAgentInstall(t *testing.T) {
 	if want := string(calls) + "bootstrap gui/501 " + launchPlistPath(home) + "\n"; string(reloaded) != want {
 		t.Fatalf("unloaded agent: launchctl calls = %q, want a bootstrap", reloaded)
 	}
+	return reloaded
+}
 
-	if err := os.WriteFile(loaded, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
+func checkLaunchAgentCurrent(t *testing.T, home, bin, log string, reloaded []byte) {
+	t.Helper()
+	var out bytes.Buffer
 	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
 		t.Fatal(err)
 	}

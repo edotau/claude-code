@@ -30,23 +30,53 @@ func TestDefaultMenuLabel(t *testing.T) {
 func TestMenuAddRemove(t *testing.T) {
 	base := []providers.OpencodeModel{{ID: "kimi-k3", Label: "Kimi K3"}}
 	got := MenuAdd(base, "databricks-glm-5-2", "", nil)
+	t.Run("add", func(t *testing.T) { testMenuAdd(t, base, got) })
+	t.Run("responses default", testMenuResponsesDefault)
+	t.Run("responses override", testMenuResponsesOverride)
+	t.Run("update", func(t *testing.T) { testMenuUpdate(t, got) })
+	t.Run("remove", func(t *testing.T) { testMenuRemove(t, got) })
+	t.Run("absent", func(t *testing.T) { testMenuAbsent(t, got) })
+}
+
+func testMenuAdd(t *testing.T, base, got []providers.OpencodeModel) {
+	t.Helper()
 	if len(base) != 1 || len(got) != 2 || got[1] != (providers.OpencodeModel{ID: "glm-5-2", Label: "GLM 5.2"}) {
 		t.Fatalf("add: base=%v got=%v", base, got)
 	}
+}
+
+func testMenuResponsesDefault(t *testing.T) {
+	t.Helper()
 	if g := MenuAdd(nil, "gpt-5-5", "", nil); !g[0].Responses {
 		t.Error("gpt- ids must default to Responses")
 	}
+}
+
+func testMenuResponsesOverride(t *testing.T) {
+	t.Helper()
 	no := false
 	if g := MenuAdd(nil, "gpt-5-5", "", &no); g[0].Responses {
 		t.Error("explicit responses=false must win")
 	}
+}
+
+func testMenuUpdate(t *testing.T, got []providers.OpencodeModel) {
+	t.Helper()
 	if g := MenuAdd(got, "glm-5-2", "Mine", nil); len(g) != 2 || g[1].Label != "Mine" {
 		t.Errorf("update in place: %v", g)
 	}
+}
+
+func testMenuRemove(t *testing.T, got []providers.OpencodeModel) {
+	t.Helper()
 	out, ok := MenuRemove(got, "databricks-glm-5-2")
 	if !ok || len(out) != 1 || out[0].ID != "kimi-k3" || len(got) != 2 {
 		t.Errorf("remove: ok=%v out=%v got=%v", ok, out, got)
 	}
+}
+
+func testMenuAbsent(t *testing.T, got []providers.OpencodeModel) {
+	t.Helper()
 	if _, ok := MenuRemove(got, "nope"); ok {
 		t.Error("removing an absent id must report false")
 	}

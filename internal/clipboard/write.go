@@ -103,12 +103,7 @@ const psClear = psPre + "[System.Windows.Forms.Clipboard]::Clear()"
 
 func pick() (tool, error) {
 	has := func(n string) bool { _, err := exec.LookPath(n); return err == nil }
-	ps := "powershell.exe"
-	if !has(ps) {
-		if _, err := os.Stat(wslPowerShell); err == nil {
-			ps = wslPowerShell
-		}
-	}
+	ps := powerShellPath(has)
 	switch {
 	case onWSL() && (has(ps) || ps == wslPowerShell):
 		return tool{ps, psCmd(psWrite), psCmd(psRead), psCmd(psClear)}, nil
@@ -120,6 +115,17 @@ func pick() (tool, error) {
 		return tool{"xclip", []string{"-selection", "clipboard", "-i"}, []string{"-selection", "clipboard", "-o"}, nil}, nil
 	}
 	return tool{}, ErrNoClipboard
+}
+
+func powerShellPath(has func(string) bool) string {
+	ps := "powershell.exe"
+	if has(ps) {
+		return ps
+	}
+	if _, err := os.Stat(wslPowerShell); err == nil {
+		return wslPowerShell
+	}
+	return ps
 }
 
 // WriteSecret puts value on the clipboard; the value travels on stdin only, never argv.

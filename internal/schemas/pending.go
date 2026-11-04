@@ -84,15 +84,17 @@ func MigrateAll(dryRun bool) ([]Stale, error) {
 		}
 		files := map[int]int{} // from -> files rewritten
 		for _, s := range scan(f) {
-			if !dryRun {
-				if err := rewrite(f, &s); err != nil {
-					s.Err = err.Error()
-					if firstErr == nil {
-						firstErr = err
-					}
-				} else {
-					files[s.From]++
+			if dryRun {
+				done = append(done, s)
+				continue
+			}
+			if err := rewrite(f, &s); err != nil {
+				s.Err = err.Error()
+				if firstErr == nil {
+					firstErr = err
 				}
+			} else {
+				files[s.From]++
 			}
 			done = append(done, s)
 		}

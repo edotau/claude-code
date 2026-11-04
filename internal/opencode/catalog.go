@@ -269,27 +269,35 @@ func ParseMenuImport(data []byte) ([]providers.OpencodeModel, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		f := strings.Split(line, ",")
-		for i := range f {
-			f[i] = strings.TrimSpace(f[i])
-		}
-		id := MenuID(f[0])
-		if id == "" {
-			return nil, fmt.Errorf("line %d: empty id", n)
-		}
-		m := providers.OpencodeModel{ID: id, Responses: models.ResponsesOnly(id)}
-		if len(f) > 1 && f[1] != "" && f[1] != "responses" {
-			m.Label = f[1]
-		}
-		if slices.Contains(f[1:], "responses") {
-			m.Responses = true
-		}
-		if m.Label == "" {
-			m.Label = DefaultMenuLabel(id)
+		m, err := parseMenuLine(line, n)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, m)
 	}
 	return dedupeMenu(out), sc.Err()
+}
+
+func parseMenuLine(line string, n int) (providers.OpencodeModel, error) {
+	f := strings.Split(line, ",")
+	for i := range f {
+		f[i] = strings.TrimSpace(f[i])
+	}
+	id := MenuID(f[0])
+	if id == "" {
+		return providers.OpencodeModel{}, fmt.Errorf("line %d: empty id", n)
+	}
+	m := providers.OpencodeModel{ID: id, Responses: models.ResponsesOnly(id)}
+	if len(f) > 1 && f[1] != "" && f[1] != "responses" {
+		m.Label = f[1]
+	}
+	if slices.Contains(f[1:], "responses") {
+		m.Responses = true
+	}
+	if m.Label == "" {
+		m.Label = DefaultMenuLabel(id)
+	}
+	return m, nil
 }
 
 // parseOpencodeJSON takes every provider whose id contains "databricks" (or has a models map when none does).
