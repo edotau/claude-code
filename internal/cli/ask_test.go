@@ -111,6 +111,11 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			if len(records) != wantRecords {
 				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
 			}
+			wantDispatch := "ask: dispatch " + records[0].ID +
+				" (agents result <id> reprints it; ask --retry <id> replays it)"
+			if lineCount(stderr, wantDispatch) != 1 {
+				t.Errorf("stderr = %q, want one line %q", stderr, wantDispatch)
+			}
 			assertAskRetryRequest(t, dir, tt, records[0].Request)
 		})
 	}

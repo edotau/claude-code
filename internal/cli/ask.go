@@ -449,7 +449,7 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}
 	}
-	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(claude-code ask --retry <id> replays it)")
+	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; ask --retry <id> replays it)")
 	if err != nil {
 		return fail("ask: %v", err)
 	}
