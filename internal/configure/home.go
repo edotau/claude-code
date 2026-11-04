@@ -48,7 +48,7 @@ func ClaudeJSONWired(path string) bool {
 }
 
 // codexMCPBlock matches config.toml's [mcp_servers.web_search] table up to the next table.
-var codexMCPBlock = regexp.MustCompile(`(?m)^\[mcp_servers\.web_search\]\n(?:[^\[\n].*\n|\n)*`)
+var codexMCPBlock = regexp.MustCompile(`(?m)^\[mcp_servers\.web_search\]\n(?:[^\[\n].*(?:\n|\z)|\n)*`)
 
 func CodexWired(path string) bool {
 	raw, err := os.ReadFile(path)
