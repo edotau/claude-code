@@ -1,6 +1,7 @@
 package schemas_test
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -197,31 +198,47 @@ func scanWriters(t *testing.T) map[string]bool {
 		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 			return nil
 		}
-		f, perr := parser.ParseFile(token.NewFileSet(), p, nil, 0)
-		if perr != nil {
-			return perr
-		}
-		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				c, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				if name := callName(c); writeCalls[name] && (name != "os.OpenFile" || createsFile(c)) {
-					found[rel+":"+fn.Name.Name] = true
-				}
-				return true
-			})
-		}
-		return nil
+		return scanWriterFile(p, rel, found)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return found
+}
+
+func scanWriterFile(path, rel string, found map[string]bool) error {
+	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		return err
+	}
+	scanWriterDeclarations(f, rel, found)
+	return nil
+}
+
+func scanWriterDeclarations(f *ast.File, rel string, found map[string]bool) {
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		if functionWrites(fn) {
+			found[rel+":"+fn.Name.Name] = true
+		}
+	}
+}
+
+func functionWrites(fn *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		c, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if name := callName(c); writeCalls[name] && (name != "os.OpenFile" || createsFile(c)) {
+			found = true
+		}
+		return true
+	})
 	return found
 }
 
@@ -260,24 +277,70 @@ func TestWriters(t *testing.T) {
 		names[f.Name] = true
 	}
 	found := scanWriters(t)
+	for _, issue := range registeredWriterIssues(found, writers, names) {
+		t.Error(issue)
+	}
+	for _, issue := range staleWriterIssues(found, writers) {
+		t.Error(issue)
+	}
+}
+
+func registeredWriterIssues(found map[string]bool, registry map[string]string, names map[string]bool) []string {
+	var issues []string
 	keys := make([]string, 0, len(found))
 	for k := range found {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		v, ok := writers[k]
+		v, ok := registry[k]
 		if !ok {
-			t.Errorf("%s writes a file: register it in internal/schemas or classify it in writers_test.go", k)
+			issues = append(issues, fmt.Sprintf("%s writes a file: register it in internal/schemas or classify it in writers_test.go", k))
 			continue
 		}
 		if !names[v] && !strings.HasPrefix(v, "unversioned: ") {
-			t.Errorf("%s maps to %q: not a registered format name nor unversioned(...)", k, v)
+			issues = append(issues, fmt.Sprintf("%s maps to %q: not a registered format name nor unversioned(...)", k, v))
 		}
 	}
-	for k := range writers {
+	return issues
+}
+
+func staleWriterIssues(found map[string]bool, registry map[string]string) []string {
+	var issues []string
+	for k := range registry {
 		if !found[k] {
-			t.Errorf("writers entry %s no longer has a write site: remove it", k)
+			issues = append(issues, fmt.Sprintf("writers entry %s no longer has a write site: remove it", k))
 		}
 	}
+	return issues
+}
+
+func TestWriterRegistryRejectsUnregisteredAndStale(t *testing.T) {
+	const source = `package fixture
+	func write() { _ = os.WriteFile("file", nil, 0600) }
+	func read() { _, _ = os.OpenFile("file", os.O_RDONLY, 0600) }
+	func appendFile() { _, _ = os.OpenFile("file", os.O_APPEND, 0600) }`
+	f, err := parser.ParseFile(token.NewFileSet(), "fixture.go", source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	scanWriterDeclarations(f, "fixture.go", found)
+	t.Run("unregistered", func(t *testing.T) {
+		issues := registeredWriterIssues(found, map[string]string{}, map[string]bool{})
+		want := []string{
+			"fixture.go:appendFile writes a file: register it in internal/schemas or classify it in writers_test.go",
+			"fixture.go:write writes a file: register it in internal/schemas or classify it in writers_test.go",
+		}
+		if strings.Join(issues, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("unregistered writer issues = %v, want %v", issues, want)
+		}
+	})
+	t.Run("stale", func(t *testing.T) {
+		registry := map[string]string{"fixture.go:read": unversioned("foreign: fixture")}
+		issues := staleWriterIssues(found, registry)
+		if len(issues) != 1 || issues[0] != "writers entry fixture.go:read no longer has a write site: remove it" {
+			t.Fatalf("stale writer issues = %v", issues)
+		}
+	})
 }

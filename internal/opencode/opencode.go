@@ -28,6 +28,35 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	if err != nil {
 		return nil, nil, err
 	}
+	npm, options, env := opencodeProviderOptions(p, dialect, base, cred)
+	if p.Preset == providers.PresetDatabricks {
+		return opencodeDatabricksLaunch(p, id, dialect, base, model, cred, routed, env, h)
+	}
+	menu := opencodeModels(p, model, h)
+	if routed && dialect == providers.ProtocolAnthropic {
+		opencodeDisableToolStreaming(menu)
+	}
+	cfg := map[string]any{
+		"$schema": "https://opencode.ai/config.json",
+		"model":   id + "/" + model,
+		"provider": map[string]any{id: map[string]any{
+			"npm": npm, "name": "claude-code", "options": options,
+			"models": menu,
+		}},
+	}
+	opencodeHarnessConfig(h)(cfg)
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	env = append(modelsDefined(env), opencodeConfigEnv+"="+string(body))
+	if h == nil {
+		return env, nil, nil
+	}
+	return env, opencodeArgv(id+"/"+model, *h), nil
+}
+
+func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) (string, map[string]any, []string) {
 	options := map[string]any{"baseURL": base}
 	npm := "@ai-sdk/openai-compatible"
 	headers := map[string]any{}
@@ -54,36 +83,16 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	if len(headers) > 0 {
 		options["headers"] = headers
 	}
-	if p.Preset == providers.PresetDatabricks {
-		return opencodeDatabricksLaunch(p, id, dialect, base, model, cred, routed, env, h)
-	}
-	menu := opencodeModels(p, model, h)
-	if routed && dialect == providers.ProtocolAnthropic {
-		for id, m := range menu { // the router cannot relay fine-grained tool streaming
-			if entry, ok := m.(map[string]any); ok {
-				entry["options"] = map[string]any{"toolStreaming": false}
-				menu[id] = entry
-			}
+	return npm, options, env
+}
+
+func opencodeDisableToolStreaming(menu map[string]any) {
+	for id, m := range menu { // the router cannot relay fine-grained tool streaming
+		if entry, ok := m.(map[string]any); ok {
+			entry["options"] = map[string]any{"toolStreaming": false}
+			menu[id] = entry
 		}
 	}
-	cfg := map[string]any{
-		"$schema": "https://opencode.ai/config.json",
-		"model":   id + "/" + model,
-		"provider": map[string]any{id: map[string]any{
-			"npm": npm, "name": "claude-code", "options": options,
-			"models": menu,
-		}},
-	}
-	opencodeHarnessConfig(h)(cfg)
-	body, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	env = append(modelsDefined(env), opencodeConfigEnv+"="+string(body))
-	if h == nil {
-		return env, nil, nil
-	}
-	return env, opencodeArgv(id+"/"+model, *h), nil
 }
 
 // opencodeDatabricksLaunch is the databricks split's env, plus the harness config and (headless) the run argv.

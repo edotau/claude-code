@@ -126,25 +126,10 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 	if len(req.Prompt) > agent.MaxPromptBytes {
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.PromptTooLarge(len(req.Prompt))}
 	}
-	bin, err := paths.AgentBin("opencode")
+	bin, env, argv, err := l.prepareLaunch(req, model)
 	if err != nil {
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
 	}
-	h := agent.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
-		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir, SafeMode: req.SafeMode}
-	cred, err := opencodeCredential(l.provider.OpencodeID)
-	if err != nil {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
-	}
-	env, argv := opencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
-	env = append(env, cred...)
-	if req.SystemPrompt != "" {
-		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
-	}
-	if err := agent.CheckRouteNames(env, req.OverlaySet); err != nil {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
-	}
-	env = append(env, req.Env...) // --env goes last so it wins
 	cctx := ctx
 	var onFirstByte, onStep func()
 	if l.firstOutput > 0 {
@@ -153,7 +138,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 		defer stop()
 	}
 	host := newHookHost(req)
-	argv, err = host.before(argv, h.Prompt)
+	argv, err = host.before(argv, req.Prompt)
 	if err != nil {
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
 	}
@@ -168,6 +153,29 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.ErrStalled}
 	}
 	return res, runErr
+}
+
+func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, []string, []string, error) {
+	bin, err := paths.AgentBin("opencode")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	h := agent.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir, SafeMode: req.SafeMode}
+	cred, err := opencodeCredential(l.provider.OpencodeID)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	env, argv := opencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
+	env = append(env, cred...)
+	if req.SystemPrompt != "" {
+		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
+	}
+	if err := agent.CheckRouteNames(env, req.OverlaySet); err != nil {
+		return "", nil, nil, err
+	}
+	env = append(env, req.Env...) // --env goes last so it wins
+	return bin, env, argv, nil
 }
 
 // armFirstOutput is the stall watchdog: cctx is cancelled with agent.ErrStalled if nothing real streams within d.

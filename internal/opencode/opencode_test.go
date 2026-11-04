@@ -93,8 +93,8 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	}
 }
 
-// A copilot-only opencode launch renders github-copilot/<id> models, never an opencode-go id.
-func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
+func copilotOnlyOverlayRegistry(t *testing.T) *providers.Registry {
+	t.Helper()
 	data, _ := isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
 	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
@@ -113,6 +113,12 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return reg
+}
+
+// A copilot-only opencode launch renders github-copilot/<id> models, never an opencode-go id.
+func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
+	reg := copilotOnlyOverlayRegistry(t)
 	main, small, ok := OpencodeCopilotModelIDs(reg)
 	if !ok {
 		t.Fatal("no copilot model ids")
@@ -125,14 +131,18 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 	if err := json.Unmarshal(body, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["model"] != "github-copilot/"+main || doc["small_model"] != "github-copilot/"+small {
-		t.Errorf("model=%v small_model=%v, want github-copilot/%s and github-copilot/%s", doc["model"], doc["small_model"], main, small)
-	}
-	for _, k := range []string{"model", "small_model"} {
-		if s, _ := doc[k].(string); strings.HasPrefix(s, "opencode-go/") {
-			t.Errorf("%s = %q, an opencode-go id on a copilot-only login", k, s)
+	t.Run("model ids", func(t *testing.T) {
+		if doc["model"] != "github-copilot/"+main || doc["small_model"] != "github-copilot/"+small {
+			t.Errorf("model=%v small_model=%v, want github-copilot/%s and github-copilot/%s", doc["model"], doc["small_model"], main, small)
 		}
-	}
+	})
+	t.Run("no opencode-go ids", func(t *testing.T) {
+		for _, k := range []string{"model", "small_model"} {
+			if s, _ := doc[k].(string); strings.HasPrefix(s, "opencode-go/") {
+				t.Errorf("%s = %q, an opencode-go id on a copilot-only login", k, s)
+			}
+		}
+	})
 }
 
 // TestOpencodeOverlayModelsFollowTable checks the opencode overlay's model/small_model are the table's opencode cells,

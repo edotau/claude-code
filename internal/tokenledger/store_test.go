@@ -94,6 +94,16 @@ func TestEntryFieldShape(t *testing.T) {
 	if err := json.Unmarshal(full, &fm); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("attribution", func(t *testing.T) {
+		checkEntryAttribution(t, m, fm, b, full)
+	})
+	t.Run("required fields", func(t *testing.T) {
+		checkEntryFields(t, m, want, b)
+	})
+}
+
+func checkEntryAttribution(t *testing.T, m, fm map[string]json.RawMessage, b, full []byte) {
+	t.Helper()
 	for _, k := range []string{"profile", "agent", "session"} {
 		if _, ok := fm[k]; !ok {
 			t.Errorf("populated entry missing %q: %s", k, full)
@@ -102,6 +112,10 @@ func TestEntryFieldShape(t *testing.T) {
 			t.Errorf("empty %q must be omitted: %s", k, b)
 		}
 	}
+}
+
+func checkEntryFields(t *testing.T, m map[string]json.RawMessage, want map[string]bool, b []byte) {
+	t.Helper()
 	for k := range m {
 		if !want[k] {
 			t.Errorf("ledger entry has unexpected field %q (secret/content leak risk): %s", k, b)

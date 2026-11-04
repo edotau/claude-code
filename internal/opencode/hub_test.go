@@ -41,17 +41,33 @@ func hubRegistry() *providers.Registry {
 	return reg
 }
 
-// TestHubStart covers HubStart's login-aware ladder walk through the opencodeLogins seam: an explicit
-// provider is forced regardless of login or quota; with no explicit provider, the first opencodeLadder
-// entry carrying a login wins, else the ladder's first entry at all (including opencode's own synthetic
-// opencode-go provider); an empty ladder errors.
+// TestHubStart covers forced providers and login-aware ladder selection through the opencodeLogins seam.
 func TestHubStart(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"explicit", testHubStartExplicit},
+		{"fallback", testHubStartFallback},
+		{"logins", testHubStartLogins},
+	} {
+		t.Run(tc.name, tc.run)
+	}
+}
+
+func hubStartRegistry(t *testing.T) *providers.Registry {
+	t.Helper()
 	reg := hubRegistry()
 	reg.Routing.Opencode.Ladder = &[]string{"opencode-go", "github-copilot", "openai"} // defaults.json order: Go, then Copilot, then ChatGPT
 	orig := opencodeLogins
 	t.Cleanup(func() { opencodeLogins = orig })
 	opencodeLogins = func() []string { return nil }
+	return reg
+}
 
+func testHubStartExplicit(t *testing.T) {
+	t.Helper()
+	reg := hubStartRegistry(t)
 	// explicit provider is forced regardless of login state — "gemini" (OpencodeID "google") has no login.
 	p, err := HubStart(reg, "codex", "gemini")
 	if err != nil || p.Name != "gemini" {
@@ -62,16 +78,31 @@ func TestHubStart(t *testing.T) {
 	if _, err := HubStart(reg, "codex", "nvidia"); err == nil {
 		t.Error("explicit provider without an OpencodeID must error")
 	}
+}
 
+func testHubStartFallback(t *testing.T) {
+	t.Helper()
+	reg := hubStartRegistry(t)
 	// no logins anywhere: falls to the ladder's first entry — opencode's own synthetic opencode-go provider.
-	p, err = HubStart(reg, "opencode", "")
+	p, err := HubStart(reg, "opencode", "")
 	if err != nil || p.OpencodeID != "opencode-go" {
 		t.Errorf("no logins: p=%v err=%v, want the ladder's first entry opencode-go", p, err)
 	}
 
+	// an empty ladder errors — nothing to fall back to.
+	empty := hubRegistry()
+	empty.Routing.Opencode.Ladder = nil
+	if _, err := HubStart(empty, "opencode", ""); err == nil {
+		t.Error("an empty opencodeLadder must error")
+	}
+}
+
+func testHubStartLogins(t *testing.T) {
+	t.Helper()
+	reg := hubStartRegistry(t)
 	// a login further down the ladder wins over the login-less first entry.
 	opencodeLogins = func() []string { return []string{"github-copilot"} }
-	p, err = HubStart(reg, "opencode", "")
+	p, err := HubStart(reg, "opencode", "")
 	if err != nil || p.Name != "github-copilot" {
 		t.Errorf("github-copilot login: p=%v err=%v, want github-copilot", p, err)
 	}
@@ -81,13 +112,6 @@ func TestHubStart(t *testing.T) {
 	p, err = HubStart(reg, "opencode", "")
 	if err != nil || p.OpencodeID != "opencode-go" {
 		t.Errorf("opencode-go login: p=%v err=%v, want opencode-go", p, err)
-	}
-
-	// an empty ladder errors — nothing to fall back to.
-	empty := hubRegistry()
-	empty.Routing.Opencode.Ladder = nil
-	if _, err := HubStart(empty, "opencode", ""); err == nil {
-		t.Error("an empty opencodeLadder must error")
 	}
 }
 

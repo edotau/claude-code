@@ -145,7 +145,8 @@ func stamp(from int, raw []byte) ([]byte, error) {
 	return json.Marshal(m)
 }
 
-func TestPendingAndMigrateAllSpanFormats(t *testing.T) {
+func migrationFiles(t *testing.T) (rw, ro []string) {
+	t.Helper()
 	cfg := hermetic(t)
 	dir := filepath.Join(cfg, "data")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -157,39 +158,62 @@ func TestPendingAndMigrateAllSpanFormats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rw := writeN(t, rwDir, "r", 2, `{"name":"a"}`)
-	ro := writeN(t, roDir, "r", 1, `{"name":"b"}`)
+	rw = writeN(t, rwDir, "r", 2, `{"name":"a"}`)
+	ro = writeN(t, roDir, "r", 1, `{"name":"b"}`)
 	reg(t, Format{Name: "t-mig-rewrite", Owner: "test", Kind: "record", Version: 1, Rewrite: true,
 		Glob: func() string { return filepath.Join(rwDir, "*.json") }, New: func() any { return &rec{} },
 		Clean: "x", Migrate: stamp})
 	reg(t, Format{Name: "t-mig-readonly", Owner: "test", Kind: "record", Version: 1,
 		Glob: func() string { return filepath.Join(roDir, "*.json") }, New: func() any { return &rec{} },
 		Clean: "x", Migrate: stamp})
+	return rw, ro
+}
 
-	if p := fmt.Sprintf("%+v", Pending()); !strings.Contains(p, "t-mig-rewrite") || !strings.Contains(p, "t-mig-readonly") {
-		t.Fatalf("Pending misses old-version files: %s", p)
-	}
-
-	snap := func() string {
-		var sb strings.Builder
-		for _, p := range append(append([]string{}, rw...), ro...) {
-			b, _ := os.ReadFile(p)
-			sb.Write(b)
+func TestPendingAndMigrateAllSpanFormats(t *testing.T) {
+	rw, ro := migrationFiles(t)
+	if !t.Run("pending", func(t *testing.T) {
+		if p := fmt.Sprintf("%+v", Pending()); !strings.Contains(p, "t-mig-rewrite") || !strings.Contains(p, "t-mig-readonly") {
+			t.Fatalf("Pending misses old-version files: %s", p)
 		}
-		return sb.String()
+	}) {
+		return
 	}
-	before := snap()
+	if !t.Run("dry run", func(t *testing.T) {
+		checkMigrationDryRun(t, append(append([]string{}, rw...), ro...))
+	}) {
+		return
+	}
+	t.Run("rewrite", func(t *testing.T) {
+		checkMigrationRewrite(t, rw, ro)
+	})
+}
+
+func migrationSnapshot(files []string) string {
+	var sb strings.Builder
+	for _, p := range files {
+		b, _ := os.ReadFile(p)
+		sb.Write(b)
+	}
+	return sb.String()
+}
+
+func checkMigrationDryRun(t *testing.T, files []string) {
+	t.Helper()
+	before := migrationSnapshot(files)
 
 	if _, err := MigrateAll(true); err != nil {
 		t.Fatal(err)
 	}
-	if snap() != before {
+	if migrationSnapshot(files) != before {
 		t.Fatal("dry run changed files on disk")
 	}
 	if _, err := os.Stat(LedgerPath()); !os.IsNotExist(err) {
 		t.Fatalf("dry run wrote the ledger (stat err=%v)", err)
 	}
+}
 
+func checkMigrationRewrite(t *testing.T, rw, ro []string) {
+	t.Helper()
 	if _, err := MigrateAll(false); err != nil {
 		t.Fatal(err)
 	}

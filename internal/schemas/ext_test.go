@@ -188,31 +188,38 @@ func TestContractCleanSweeps(t *testing.T) {
 			if !strings.HasPrefix(path, dir) {
 				t.Fatalf("glob %s outside %s", path, dir)
 			}
-			sweep := func() string {
-				var out, errw bytes.Buffer
-				if code := clean.Run([]string{"--target", f.Clean, "--dry-run", "--older-than", "30d"}, &out, &errw); code != 0 {
-					t.Fatalf("clean exit %d: %s", code, errw.String())
-				}
-				return out.String() + errw.String()
-			}
-			if got := sweep(); strings.Contains(got, f.Clean+" ") && strings.Contains(got, "would remove") {
+			if got := cleanSweep(t, f.Clean); strings.Contains(got, f.Clean+" ") && strings.Contains(got, "would remove") {
 				t.Fatalf("empty tree already reports a removal: %s", got)
 			}
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			old := time.Now().AddDate(0, 0, -400)
-			if err := os.Chtimes(path, old, old); err != nil {
-				t.Fatal(err)
-			}
-			got := sweep()
+			writeOldCleanFixture(t, path)
+			got := cleanSweep(t, f.Clean)
 			if !strings.Contains(got, f.Clean) || !strings.Contains(got, "would remove 1 entr") {
 				t.Fatalf("clean --target %s does not sweep %s:\n%s", f.Clean, path, got)
 			}
 		})
+	}
+}
+
+func cleanSweep(t *testing.T, target string) string {
+	t.Helper()
+	var out, errw bytes.Buffer
+	if code := clean.Run([]string{"--target", target, "--dry-run", "--older-than", "30d"}, &out, &errw); code != 0 {
+		t.Fatalf("clean exit %d: %s", code, errw.String())
+	}
+	return out.String() + errw.String()
+}
+
+func writeOldCleanFixture(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().AddDate(0, 0, -400)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
 	}
 }
 

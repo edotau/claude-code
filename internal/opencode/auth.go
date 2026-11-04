@@ -132,19 +132,9 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 	var ints []OpencodeIntegration
 	var err error
 	if major >= 2 {
-		ints, err = opencodeAuthV2Cached(bin)
-		if err != nil {
-			fallback, ferr := readOpencodeAuthJSON(file)
-			if ferr != nil && !errors.Is(ferr, os.ErrNotExist) {
-				err = errors.Join(err, ferr)
-			}
-			ints = fallback
-		}
+		ints, err = opencodeAuthWithFallback(bin, file)
 	} else {
-		ints, err = readOpencodeAuthJSON(file)
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
-		}
+		ints, err = opencodeAuthV1(file)
 		if merr != nil && bin != "" { // version unknown, so these 1.x files may not be the login store
 			return ints, errors.Join(merr, err)
 		}
@@ -155,6 +145,26 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 	}
 	opencodeMu.Unlock()
 	return ints, err
+}
+
+func opencodeAuthV1(file string) ([]OpencodeIntegration, error) {
+	ints, err := readOpencodeAuthJSON(file)
+	if errors.Is(err, os.ErrNotExist) {
+		err = nil
+	}
+	return ints, err
+}
+
+func opencodeAuthWithFallback(bin, file string) ([]OpencodeIntegration, error) {
+	ints, err := opencodeAuthV2Cached(bin)
+	if err == nil {
+		return ints, nil
+	}
+	fallback, ferr := readOpencodeAuthJSON(file)
+	if ferr != nil && !errors.Is(ferr, os.ErrNotExist) {
+		err = errors.Join(err, ferr)
+	}
+	return fallback, err
 }
 
 // opencodeAuthKeys is the binary key, the auth.json path and the cache key spanning both plus auth.json's stamp.
