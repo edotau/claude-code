@@ -43,6 +43,24 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkMergedSettings(t, raw)
+
+	var out2 bytes.Buffer
+	if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"gemini"}}); err != nil {
+		t.Fatalf("second agent.RenderConfigs: %v\n%s", err, out2.String())
+	}
+	raw2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw2) != string(raw) {
+		t.Errorf("second run not byte-identical:\nfirst:\n%s\nsecond:\n%s", raw, raw2)
+	}
+}
+
+// checkMergedSettings requires foreign keys intact and the user's deny rule followed by the template denies.
+func checkMergedSettings(t *testing.T, raw []byte) {
+	t.Helper()
 	var got map[string]any
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("settings.json not valid JSON: %v\n%s", err, raw)
@@ -54,6 +72,12 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	if !ok || len(tw) != 1 || tw[0] != "/a" {
 		t.Errorf("foreign key \"trustedWorkspaces\" dropped or altered: %s", raw)
 	}
+	checkMergedPermissions(t, got, raw)
+}
+
+// checkMergedPermissions requires allow untouched and deny as the user's rule plus the template denies.
+func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
+	t.Helper()
 	perms, ok := got["permissions"].(map[string]any)
 	if !ok {
 		t.Fatalf("permissions key missing or wrong type: %s", raw)
@@ -69,18 +93,6 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	wantDeny := append([]any{"command(user rule)"}, templateDeny...)
 	if !reflect.DeepEqual(deny, wantDeny) {
 		t.Errorf("permissions.deny = %v, want %v", deny, wantDeny)
-	}
-
-	var out2 bytes.Buffer
-	if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"gemini"}}); err != nil {
-		t.Fatalf("second agent.RenderConfigs: %v\n%s", err, out2.String())
-	}
-	raw2, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(raw2) != string(raw) {
-		t.Errorf("second run not byte-identical:\nfirst:\n%s\nsecond:\n%s", raw, raw2)
 	}
 }
 

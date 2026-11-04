@@ -112,6 +112,13 @@ func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 	if !slices.Contains(plan.UserContent, "state/vault.db") {
 		t.Fatalf("plan must archive the vault: %v", plan.UserContent)
 	}
+	assertPlanClasses(t, plan)
+	assertPlanOutputNamesOnly(t, plan)
+}
+
+// assertPlanClasses checks CLAUDE.md plans as tracked and skills as untracked.
+func assertPlanClasses(t *testing.T, plan NukePlan) {
+	t.Helper()
 	byName := map[string]Entry{}
 	for _, e := range plan.Entries {
 		byName[e.Name] = e
@@ -122,7 +129,11 @@ func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 	if byName["skills"].Class != "untracked" {
 		t.Fatalf("skills class = %q, want untracked", byName["skills"].Class)
 	}
+}
 
+// assertPlanOutputNamesOnly checks the printed plan lists secret names and never a secret value.
+func assertPlanOutputNamesOnly(t *testing.T, plan NukePlan) {
+	t.Helper()
 	var out bytes.Buffer
 	printPlan(&out, plan)
 	if strings.Contains(out.String(), "sk-super-secret") || strings.Contains(out.String(), "other-test-value") {
@@ -242,7 +253,14 @@ func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 			t.Fatalf("tarball entry %q must not contain plaintext secret values", name)
 		}
 	}
-	manifest := string(entries["manifest.json"])
+	secretNames := assertManifest(t, entries["manifest.json"], id, kid)
+	assertArchivedVault(t, entries["state/vault.db"], secretNames, id, kid)
+}
+
+// assertManifest checks the manifest names the secrets, carries the vault identity and never a secret value.
+func assertManifest(t *testing.T, raw []byte, id, kid string) (secretNames []string) {
+	t.Helper()
+	manifest := string(raw)
 	if strings.Contains(manifest, "sk-super-secret") || strings.Contains(manifest, "other-test-value") {
 		t.Fatal("manifest must never contain the secret value")
 	}
@@ -254,7 +272,7 @@ func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 		VaultID     string   `json:"vaultId"`
 		Kid         string   `json:"kid"`
 	}
-	if err := json.Unmarshal(entries["manifest.json"], &metadata); err != nil {
+	if err := json.Unmarshal(raw, &metadata); err != nil {
 		t.Fatal(err)
 	}
 	if metadata.VaultID != id || metadata.Kid != kid {
@@ -263,11 +281,17 @@ func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 	if !slices.Equal(metadata.SecretNames, []string{"API_KEY", "Z_API_KEY"}) {
 		t.Fatalf("manifest secret names = %v", metadata.SecretNames)
 	}
+	return metadata.SecretNames
+}
+
+// assertArchivedVault restores the archived vault bytes and checks its secret names, pin, overlay and identity.
+func assertArchivedVault(t *testing.T, data []byte, secretNames []string, id, kid string) {
+	t.Helper()
 	restored := filepath.Join(t.TempDir(), "state", "vault.db")
-	mustWrite(t, restored, string(entries["state/vault.db"]))
+	mustWrite(t, restored, string(data))
 	if err := vault.ViewAt(restored, func(tx *vault.Tx) error {
-		if names := tx.Names(vault.Secrets); !slices.Equal(names, metadata.SecretNames) {
-			t.Errorf("archived vault secret names = %v, want %v", names, metadata.SecretNames)
+		if names := tx.Names(vault.Secrets); !slices.Equal(names, secretNames) {
+			t.Errorf("archived vault secret names = %v, want %v", names, secretNames)
 		}
 		if pin, _ := tx.Get(vault.Pins, "HARNESS_PROVIDER"); pin != "foo" {
 			t.Errorf("archived provider pin = %q, want foo", pin)
@@ -472,16 +496,7 @@ func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"memory/.git/HEAD", "memory/repo/MEMORY.md", "projects/-real/memory/MEMORY.md", "docs/memory/bank/repo/progress.md"} {
-		if !slices.Contains(got, want) {
-			t.Errorf("keepMemoryPaths missing %s: %v", want, got)
-		}
-	}
-	for _, p := range got {
-		if strings.HasPrefix(p, "projects/-linked/") || strings.HasSuffix(p, "escape.md") {
-			t.Errorf("keepMemoryPaths followed a symlink: %s", p)
-		}
-	}
+	assertKeepMemoryPaths(t, got)
 	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -491,6 +506,21 @@ func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(escape); string(b) != "outside\n" {
 		t.Error("symlink target outside the config dir was touched")
+	}
+}
+
+// assertKeepMemoryPaths checks the kept set holds the store, the native memory and the bank but followed no symlink.
+func assertKeepMemoryPaths(t *testing.T, got []string) {
+	t.Helper()
+	for _, want := range []string{"memory/.git/HEAD", "memory/repo/MEMORY.md", "projects/-real/memory/MEMORY.md", "docs/memory/bank/repo/progress.md"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("keepMemoryPaths missing %s: %v", want, got)
+		}
+	}
+	for _, p := range got {
+		if strings.HasPrefix(p, "projects/-linked/") || strings.HasSuffix(p, "escape.md") {
+			t.Errorf("keepMemoryPaths followed a symlink: %s", p)
+		}
 	}
 }
 

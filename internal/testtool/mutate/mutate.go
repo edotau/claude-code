@@ -83,43 +83,51 @@ func Classify(out string, runErr error) (Verdict, string) {
 	return Invalid, ""
 }
 
-// Check mutates o.File through an overlay in a temp dir, runs go test, and never writes the tree.
-func Check(o Options) (Result, error) {
-	abs, err := filepath.Abs(o.File)
+// source is the file under mutation: its resolved and given paths, contents, stat and hash before the run.
+type source struct {
+	abs, given string
+	data       []byte
+	info       os.FileInfo
+	sum        [32]byte
+}
+
+// readSource resolves file and snapshots its contents, stat and hash.
+func readSource(file string) (source, error) {
+	abs, err := filepath.Abs(file)
 	if err != nil {
-		return Result{Verdict: Invalid}, err
+		return source{}, err
 	}
 	given := abs // go keys the overlay by the path it sees; on macOS /var vs /private/var both occur
 	if real, err := filepath.EvalSymlinks(abs); err == nil {
 		abs = real
 	}
-	src, err := os.ReadFile(abs)
+	data, err := os.ReadFile(abs)
 	if err != nil {
-		return Result{Verdict: Invalid}, err
+		return source{}, err
 	}
-	before, err := os.Stat(abs)
+	info, err := os.Stat(abs)
 	if err != nil {
-		return Result{Verdict: Invalid}, err
+		return source{}, err
 	}
-	sum := sha256.Sum256(src)
-	mutated, err := Apply(string(src), o.Old, o.New)
-	if err != nil {
-		return Result{Verdict: Invalid}, err
-	}
-	tmp, err := os.MkdirTemp("", "cc-mutate-")
-	if err != nil {
-		return Result{Verdict: Invalid}, err
-	}
-	defer func() { _ = os.RemoveAll(tmp) }()
-	copyPath := filepath.Join(tmp, filepath.Base(abs))
+	return source{abs: abs, given: given, data: data, info: info, sum: sha256.Sum256(data)}, nil
+}
+
+// writeOverlay writes the mutated copy and the go overlay that swaps it in for src under tmp; returns the overlay path.
+func writeOverlay(tmp string, src source, mutated string) (string, error) {
+	copyPath := filepath.Join(tmp, filepath.Base(src.abs))
 	if err := os.WriteFile(copyPath, []byte(mutated), 0o600); err != nil {
-		return Result{Verdict: Invalid}, err
+		return "", err
 	}
-	ov, _ := json.Marshal(map[string]map[string]string{"Replace": {abs: copyPath, given: copyPath}})
+	ov, _ := json.Marshal(map[string]map[string]string{"Replace": {src.abs: copyPath, src.given: copyPath}})
 	ovPath := filepath.Join(tmp, "overlay.json")
 	if err := os.WriteFile(ovPath, ov, 0o600); err != nil {
-		return Result{Verdict: Invalid}, err
+		return "", err
 	}
+	return ovPath, nil
+}
+
+// goTest runs go test over o.Pkgs with the overlay and returns its combined output and run error.
+func goTest(o Options, ovPath string) (string, error) {
 	args := []string{"test", "-overlay", ovPath, "-count=1"}
 	if o.Run != "" {
 		args = append(args, "-run", o.Run)
@@ -129,11 +137,34 @@ func Check(o Options) (Result, error) {
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	runErr := cmd.Run()
-	if err := assertUntouched(abs, before, sum); err != nil {
+	return buf.String(), runErr
+}
+
+// Check mutates o.File through an overlay in a temp dir, runs go test, and never writes the tree.
+func Check(o Options) (Result, error) {
+	src, err := readSource(o.File)
+	if err != nil {
 		return Result{Verdict: Invalid}, err
 	}
-	v, pkg := Classify(buf.String(), runErr)
-	return Result{Verdict: v, Pkg: pkg, Output: buf.String()}, nil
+	mutated, err := Apply(string(src.data), o.Old, o.New)
+	if err != nil {
+		return Result{Verdict: Invalid}, err
+	}
+	tmp, err := os.MkdirTemp("", "cc-mutate-")
+	if err != nil {
+		return Result{Verdict: Invalid}, err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	ovPath, err := writeOverlay(tmp, src, mutated)
+	if err != nil {
+		return Result{Verdict: Invalid}, err
+	}
+	out, runErr := goTest(o, ovPath)
+	if err := assertUntouched(src.abs, src.info, src.sum); err != nil {
+		return Result{Verdict: Invalid}, err
+	}
+	v, pkg := Classify(out, runErr)
+	return Result{Verdict: v, Pkg: pkg, Output: out}, nil
 }
 
 // assertUntouched fails if the source file's mtime or hash changed during the run.

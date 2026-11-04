@@ -129,9 +129,10 @@ func windowsAbsolute(s string) bool {
 		parts := strings.Split(after, `\`)
 		return len(parts) >= 2 && parts[0] != "" && parts[1] != ""
 	}
-	return len(s) >= 3 && ((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
-		s[1] == ':' && (s[2] == '\\' || s[2] == '/')
+	return len(s) >= 3 && isASCIILetter(s[0]) && s[1] == ':' && (s[2] == '\\' || s[2] == '/')
 }
+
+func isASCIILetter(b byte) bool { return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') }
 
 const wslExe = `C:\Windows\System32\wsl.exe`
 
@@ -141,24 +142,36 @@ func helperFor(goos string, wsl bool, exe, distro, config, profile string) (stri
 	}
 	tail := []string{"gateway", "token", "--profile", profile}
 	if wsl {
-		if !strings.HasPrefix(exe, "/") || distro == "" {
-			return "", nil, false, errors.New("WSL helper requires an absolute Linux executable and WSL_DISTRO_NAME")
-		}
-		args := []string{"--distribution", distro, "--exec", "/usr/bin/env"}
-		if config != "" {
-			args = append(args, "CLAUDE_CONFIG_DIR="+config)
-		}
-		return wslExe, append(append(args, exe), tail...), true, nil
+		return wslHelper(exe, distro, config, tail)
 	}
 	if goos == "windows" {
-		if !windowsAbsolute(exe) {
-			return "", nil, false, errors.New("helper executable must be absolute")
-		}
-		if config != "" {
-			tail = append(tail, "--config-dir", config)
-		}
-		return exe, tail, true, nil
+		return windowsHelper(exe, config, tail)
 	}
+	return unixHelper(exe, config, tail)
+}
+
+func wslHelper(exe, distro, config string, tail []string) (string, []string, bool, error) {
+	if !strings.HasPrefix(exe, "/") || distro == "" {
+		return "", nil, false, errors.New("WSL helper requires an absolute Linux executable and WSL_DISTRO_NAME")
+	}
+	args := []string{"--distribution", distro, "--exec", "/usr/bin/env"}
+	if config != "" {
+		args = append(args, "CLAUDE_CONFIG_DIR="+config)
+	}
+	return wslExe, append(append(args, exe), tail...), true, nil
+}
+
+func windowsHelper(exe, config string, tail []string) (string, []string, bool, error) {
+	if !windowsAbsolute(exe) {
+		return "", nil, false, errors.New("helper executable must be absolute")
+	}
+	if config != "" {
+		tail = append(tail, "--config-dir", config)
+	}
+	return exe, tail, true, nil
+}
+
+func unixHelper(exe, config string, tail []string) (string, []string, bool, error) {
 	if !filepath.IsAbs(exe) {
 		return "", nil, false, errors.New("helper executable must be absolute")
 	}

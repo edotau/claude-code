@@ -32,8 +32,13 @@ func Descendants(pid int) []int {
 	if err != nil {
 		return nil
 	}
+	return walkChildren(parseChildren(string(out)), pid)
+}
+
+// parseChildren maps each parent pid to its child pids from `ps -A -o pid=,ppid=` output.
+func parseChildren(out string) map[int][]int {
 	children := make(map[int][]int)
-	for line := range strings.SplitSeq(string(out), "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Fields(line)
 		if len(f) != 2 {
 			continue
@@ -44,6 +49,11 @@ func Descendants(pid int) []int {
 			children[ppid] = append(children[ppid], cpid)
 		}
 	}
+	return children
+}
+
+// walkChildren returns every descendant of pid, breadth first.
+func walkChildren(children map[int][]int, pid int) []int {
 	var res []int
 	seen := map[int]bool{pid: true}
 	queue := []int{pid}

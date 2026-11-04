@@ -41,19 +41,14 @@ func capture(p string) (snapshot, error) {
 }
 
 func transact(changes []change, before map[string]snapshot, ops fileOps, library string) error {
-	created := false
-	if _, err := os.Stat(library); errors.Is(err, os.ErrNotExist) {
-		if err := os.Mkdir(library, 0o700); err != nil {
-			return err
-		}
-		created = true
-	} else if err != nil {
+	created, err := ensureLibrary(library)
+	if err != nil {
 		return err
 	}
 	touched := []string{}
 	for _, c := range changes {
 		s := before[c.path]
-		if (c.remove && !s.exists) || (!c.remove && s.exists && bytes.Equal(s.data, c.data)) {
+		if isNoop(c, s) {
 			continue
 		}
 		touched = append(touched, c.path)
@@ -62,6 +57,29 @@ func transact(changes []change, before map[string]snapshot, ops fileOps, library
 		}
 	}
 	return nil
+}
+
+// ensureLibrary creates library when absent and reports whether this call made it.
+func ensureLibrary(library string) (bool, error) {
+	_, err := os.Stat(library)
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	if err := os.Mkdir(library, 0o700); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// isNoop reports a change that leaves the file as it already is.
+func isNoop(c change, s snapshot) bool {
+	if c.remove {
+		return !s.exists
+	}
+	return s.exists && bytes.Equal(s.data, c.data)
 }
 
 // applyChange writes or removes c's file; a new file is 0600, an existing one keeps its mode.

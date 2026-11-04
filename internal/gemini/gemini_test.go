@@ -120,100 +120,117 @@ func TestGeminiCanceledContext(t *testing.T) {
 	}
 }
 
+type cancelCase struct {
+	name  string
+	stage string
+	run   func(context.Context, string) (Context, error)
+}
+
+func collectRun(ctx context.Context, dir string) (Context, error) {
+	return CollectContext(ctx, dir, []string{"."}, nil, 40, 100)
+}
+
+func changedRun(ctx context.Context, dir string) (Context, error) {
+	_, err := ChangedFilesVsHEAD(ctx, dir)
+	return Context{}, err
+}
+
+func bridgeDiffRun(ctx context.Context, dir string) (Context, error) {
+	_, err := diffFiles(ctx, GeminiOptions{Cwd: dir, Diff: true})
+	return Context{}, err
+}
+
+// fakeGitScript is a git stand-in that touches $GEMINI_TEST_GIT_MARKER and sleeps when run at stage.
+func fakeGitScript(sleep, stage string) string {
+	return "#!/bin/sh\n" +
+		"if [ \"$3\" = \"" + stage + "\" ]; then\n" +
+		"  : > \"$GEMINI_TEST_GIT_MARKER\"\n" +
+		"  exec \"" + sleep + "\" 3\n" +
+		"fi\n" +
+		"case \"$3\" in\n" +
+		"  rev-parse) printf 'true\\n' ;;\n" +
+		"  diff) printf 'changed.go\\n' ;;\n" +
+		"  ls-files) printf 'tracked.go\\000' ;;\n" +
+		"  *) exit 1 ;;\n" +
+		"esac\n"
+}
+
+type cancelResult struct {
+	context Context
+	err     error
+}
+
+// waitForMarker blocks until marker exists, failing if the run returns or 2s pass first.
+func waitForMarker(t *testing.T, marker string, done <-chan cancelResult) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			return
+		}
+		select {
+		case <-tick.C:
+		case got := <-done:
+			t.Fatalf("git returned before synchronization: %+v, %v", got.context, got.err)
+		case <-deadline.C:
+			t.Fatal("git did not reach the cancellation synchronization marker")
+		}
+	}
+}
+
+func runCancellationCase(t *testing.T, sleep string, tc cancelCase) {
+	t.Helper()
+	dir, bin := t.TempDir(), t.TempDir()
+	marker := filepath.Join(dir, "git-started")
+	write(t, filepath.Join(dir, ".gitignore"), "ignored.txt\n")
+	write(t, filepath.Join(dir, "ignored.txt"), "must not be inlined")
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(fakeGitScript(sleep, tc.stage)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("GEMINI_TEST_GIT_MARKER", marker)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan cancelResult, 1)
+	go func() {
+		got, err := tc.run(ctx, dir)
+		done <- cancelResult{got, err}
+	}()
+	waitForMarker(t, marker, done)
+	canceledAt := time.Now()
+	cancel()
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, context.Canceled) {
+			t.Errorf("error = %v, want cancellation", got.err)
+		}
+		if len(got.context.Included) != 0 {
+			t.Errorf("canceled scan included files: %+v", got.context.Included)
+		}
+		if elapsed := time.Since(canceledAt); elapsed > time.Second {
+			t.Errorf("git took %s to stop after cancellation", elapsed)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("git command did not stop after cancellation")
+	}
+}
+
 func TestGeminiGitCommandCancellation(t *testing.T) {
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Skip("sleep not on PATH")
 	}
-	for _, tc := range []struct {
-		name  string
-		stage string
-		run   func(context.Context, string) (Context, error)
-	}{
-		{"collect probe", "rev-parse", func(ctx context.Context, dir string) (Context, error) {
-			return CollectContext(ctx, dir, []string{"."}, nil, 40, 100)
-		}},
-		{"collect list", "ls-files", func(ctx context.Context, dir string) (Context, error) {
-			return CollectContext(ctx, dir, []string{"."}, nil, 40, 100)
-		}},
-		{"changed diff", "diff", func(ctx context.Context, dir string) (Context, error) {
-			_, err := ChangedFilesVsHEAD(ctx, dir)
-			return Context{}, err
-		}},
-		{"changed list", "ls-files", func(ctx context.Context, dir string) (Context, error) {
-			_, err := ChangedFilesVsHEAD(ctx, dir)
-			return Context{}, err
-		}},
-		{"bridge diff", "diff", func(ctx context.Context, dir string) (Context, error) {
-			_, err := diffFiles(ctx, GeminiOptions{Cwd: dir, Diff: true})
-			return Context{}, err
-		}},
+	for _, tc := range []cancelCase{
+		{"collect probe", "rev-parse", collectRun},
+		{"collect list", "ls-files", collectRun},
+		{"changed diff", "diff", changedRun},
+		{"changed list", "ls-files", changedRun},
+		{"bridge diff", "diff", bridgeDiffRun},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir, bin := t.TempDir(), t.TempDir()
-			marker := filepath.Join(dir, "git-started")
-			write(t, filepath.Join(dir, ".gitignore"), "ignored.txt\n")
-			write(t, filepath.Join(dir, "ignored.txt"), "must not be inlined")
-			script := "#!/bin/sh\n" +
-				"if [ \"$3\" = \"" + tc.stage + "\" ]; then\n" +
-				"  : > \"$GEMINI_TEST_GIT_MARKER\"\n" +
-				"  exec \"" + sleep + "\" 3\n" +
-				"fi\n" +
-				"case \"$3\" in\n" +
-				"  rev-parse) printf 'true\\n' ;;\n" +
-				"  diff) printf 'changed.go\\n' ;;\n" +
-				"  ls-files) printf 'tracked.go\\000' ;;\n" +
-				"  *) exit 1 ;;\n" +
-				"esac\n"
-			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", bin)
-			t.Setenv("GEMINI_TEST_GIT_MARKER", marker)
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-			type result struct {
-				context Context
-				err     error
-			}
-			done := make(chan result, 1)
-			go func() {
-				got, err := tc.run(ctx, dir)
-				done <- result{got, err}
-			}()
-			deadline := time.NewTimer(2 * time.Second)
-			defer deadline.Stop()
-			tick := time.NewTicker(5 * time.Millisecond)
-			defer tick.Stop()
-			for {
-				if _, err := os.Stat(marker); err == nil {
-					break
-				}
-				select {
-				case <-tick.C:
-				case got := <-done:
-					t.Fatalf("git returned before synchronization: %+v, %v", got.context, got.err)
-				case <-deadline.C:
-					t.Fatal("git did not reach the cancellation synchronization marker")
-				}
-			}
-			canceledAt := time.Now()
-			cancel()
-			select {
-			case got := <-done:
-				if !errors.Is(got.err, context.Canceled) {
-					t.Errorf("error = %v, want cancellation", got.err)
-				}
-				if len(got.context.Included) != 0 {
-					t.Errorf("canceled scan included files: %+v", got.context.Included)
-				}
-				if elapsed := time.Since(canceledAt); elapsed > time.Second {
-					t.Errorf("git took %s to stop after cancellation", elapsed)
-				}
-			case <-time.After(4 * time.Second):
-				t.Fatal("git command did not stop after cancellation")
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { runCancellationCase(t, sleep, tc) })
 	}
 }
 
@@ -275,6 +292,12 @@ func TestBridgeLogCapturesRedactedAgyOutput(t *testing.T) {
 	if logPath != recs[0].LogPath() {
 		t.Errorf("record.Log = %q, want %q", logPath, recs[0].LogPath())
 	}
+	checkBridgeLogFile(t, logPath)
+}
+
+// checkBridgeLogFile requires a 0600 log holding the agy output with the secret redacted and no duplicates.
+func checkBridgeLogFile(t *testing.T, logPath string) {
+	t.Helper()
 	info, err := os.Stat(logPath)
 	if err != nil {
 		t.Fatalf("log file missing: %v", err)

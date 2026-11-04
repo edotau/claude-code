@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -61,19 +62,32 @@ func TestClassify(t *testing.T) {
 }
 
 func TestParseArgs(t *testing.T) {
-	o, code, done := ParseArgs([]string{"f.go", "old", "new", "--run", "TestX", "./p", "./q"})
-	if done || code != 0 || o.File != "f.go" || o.Old != "old" || o.New != "new" || o.Run != "TestX" ||
-		len(o.Pkgs) != 2 || o.Pkgs[0] != "./p" {
-		t.Fatalf("got %+v code=%d done=%v", o, code, done)
+	cases := []struct {
+		name                string
+		args                []string
+		wantDone            bool
+		wantCode            int
+		file, old, new, run string
+		pkgs                []string
+	}{
+		{"full", []string{"f.go", "old", "new", "--run", "TestX", "./p", "./q"}, false, 0, "f.go", "old", "new", "TestX", []string{"./p", "./q"}},
+		{"leading --run", []string{"--run", "R", "f", "a", "b", "./p"}, false, 0, "f", "a", "b", "R", []string{"./p"}},
+		{"too few", []string{"f", "a", "b"}, true, ExitUsage, "", "", "", "", nil},
+		{"-h", []string{"-h"}, true, 0, "", "", "", "", nil},
 	}
-	if o, _, _ = ParseArgs([]string{"--run", "R", "f", "a", "b", "./p"}); o.Run != "R" || o.File != "f" {
-		t.Errorf("leading --run: %+v", o)
-	}
-	if _, code, done = ParseArgs([]string{"f", "a", "b"}); !done || code != ExitUsage {
-		t.Errorf("too few: code=%d done=%v", code, done)
-	}
-	if _, code, done = ParseArgs([]string{"-h"}); !done || code != 0 {
-		t.Errorf("-h: code=%d done=%v", code, done)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o, code, done := ParseArgs(c.args)
+			if done != c.wantDone || code != c.wantCode {
+				t.Fatalf("code=%d done=%v, want code=%d done=%v", code, done, c.wantCode, c.wantDone)
+			}
+			if c.wantDone {
+				return
+			}
+			if o.File != c.file || o.Old != c.old || o.New != c.new || o.Run != c.run || !slices.Equal(o.Pkgs, c.pkgs) {
+				t.Errorf("got %+v", o)
+			}
+		})
 	}
 }
 
@@ -163,7 +177,11 @@ func TestCheck(t *testing.T) {
 			}
 		})
 	}
-	// Apply errors surface as (Invalid, err).
+}
+
+// Apply errors surface as (Invalid, err).
+func TestCheckApplyErrors(t *testing.T) {
+	dir, file := sharedModule(t)
 	for _, old := range []string{"nope-absent", "int"} {
 		r, err := Check(Options{File: file, Old: old, New: "x", Dir: dir, Pkgs: []string{"./..."}})
 		if !errors.Is(err, ErrNotOnce) || r.Verdict != Invalid {

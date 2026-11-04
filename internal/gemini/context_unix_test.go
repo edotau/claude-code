@@ -37,33 +37,37 @@ func TestWalkDirsSkipsFIFO(t *testing.T) {
 		if r.err != nil {
 			t.Fatalf("CollectContext err = %v", r.err)
 		}
-		for _, inc := range r.ctx.Included {
-			if inc.Path == "a.fifo" {
-				t.Fatalf("FIFO was opened and included: %+v", inc)
-			}
-		}
-		found := false
-		for _, s := range r.ctx.Skipped {
-			if s.Path == "a.fifo" {
-				found = true
-				if s.Reason != "non-regular-file" {
-					t.Errorf("skip reason = %q, want %q", s.Reason, "non-regular-file")
-				}
-			}
-		}
-		if !found {
-			t.Error("a.fifo not reported in Skipped at all")
-		}
-		foundReal := false
-		for _, inc := range r.ctx.Included {
-			if inc.Path == "real.txt" {
-				foundReal = true
-			}
-		}
-		if !foundReal {
-			t.Error("real.txt (a genuine regular file alongside the FIFO) must still be included")
-		}
+		checkFIFOContext(t, r.ctx)
 	case <-time.After(5 * time.Second):
 		t.Fatal("CollectContext hung — the FIFO was opened for read instead of skipped by dir-entry type")
+	}
+}
+
+// checkFIFOContext requires the FIFO skipped as non-regular and the sibling regular file still included.
+func checkFIFOContext(t *testing.T, ctx Context) {
+	t.Helper()
+	foundReal := false
+	for _, inc := range ctx.Included {
+		if inc.Path == "a.fifo" {
+			t.Fatalf("FIFO was opened and included: %+v", inc)
+		}
+		if inc.Path == "real.txt" {
+			foundReal = true
+		}
+	}
+	found := false
+	for _, s := range ctx.Skipped {
+		if s.Path == "a.fifo" {
+			found = true
+			if s.Reason != "non-regular-file" {
+				t.Errorf("skip reason = %q, want %q", s.Reason, "non-regular-file")
+			}
+		}
+	}
+	if !found {
+		t.Error("a.fifo not reported in Skipped at all")
+	}
+	if !foundReal {
+		t.Error("real.txt (a genuine regular file alongside the FIFO) must still be included")
 	}
 }

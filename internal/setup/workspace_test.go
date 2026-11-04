@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,20 +60,7 @@ func TestWorkspaceInitCreatesLayoutAndIsIdempotent(t *testing.T) {
 	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"agents/.gitkeep", "commands/.gitkeep", "skills/.gitkeep"} {
-		if !wsExists(filepath.Join(root, ".claude", p)) {
-			t.Errorf("missing %s", p)
-		}
-	}
-	if b, _ := os.ReadFile(filepath.Join(root, ".claude", "settings.json")); !strings.Contains(string(b), "go test") {
-		t.Error("init overwrote an existing settings.json")
-	}
-	if !strings.Contains(out.String(), "keep    "+filepath.Join(root, ".claude", "settings.json")) {
-		t.Errorf("settings.json not reported kept:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "hint    no CLAUDE.md") {
-		t.Errorf("missing CLAUDE.md hint:\n%s", out.String())
-	}
+	assertInitLayout(t, root, out.String())
 	// A second init appends the gitignore line no twice and creates nothing.
 	out.Reset()
 	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
@@ -84,6 +72,25 @@ func TestWorkspaceInitCreatesLayoutAndIsIdempotent(t *testing.T) {
 	ig, _ := os.ReadFile(filepath.Join(root, ".gitignore"))
 	if n := strings.Count(string(ig), workspaceIgnoreLine); n != 1 {
 		t.Errorf(".gitignore has %d copies of the line, want 1:\n%s", n, ig)
+	}
+}
+
+// assertInitLayout checks the first init made the layout, kept an existing settings.json and hinted at CLAUDE.md.
+func assertInitLayout(t *testing.T, root, out string) {
+	t.Helper()
+	for _, p := range []string{"agents/.gitkeep", "commands/.gitkeep", "skills/.gitkeep"} {
+		if !wsExists(filepath.Join(root, ".claude", p)) {
+			t.Errorf("missing %s", p)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, ".claude", "settings.json")); !strings.Contains(string(b), "go test") {
+		t.Error("init overwrote an existing settings.json")
+	}
+	if !strings.Contains(out, "keep    "+filepath.Join(root, ".claude", "settings.json")) {
+		t.Errorf("settings.json not reported kept:\n%s", out)
+	}
+	if !strings.Contains(out, "hint    no CLAUDE.md") {
+		t.Errorf("missing CLAUDE.md hint:\n%s", out)
 	}
 }
 
@@ -148,16 +155,22 @@ func TestWorkspaceLinkKindsAndRefusals(t *testing.T) {
 			t.Errorf("link %s → %q (%v), want %s", c.rel, got, err, filepath.Join(cfg, c.rel))
 		}
 	}
-	if err := WorkspaceLink(root, "agents", "a", &out); err == nil || !strings.Contains(err.Error(), "already exists") {
+	assertLinkRefusals(t, root, &out)
+}
+
+// assertLinkRefusals checks a duplicate, a missing source, a bare command name and a traversal name are all refused.
+func assertLinkRefusals(t *testing.T, root string, out io.Writer) {
+	t.Helper()
+	if err := WorkspaceLink(root, "agents", "a", out); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("duplicate link: err = %v", err)
 	}
-	if err := WorkspaceLink(root, "agents", "nope", &out); err == nil || !strings.Contains(err.Error(), "no global agent") {
+	if err := WorkspaceLink(root, "agents", "nope", out); err == nil || !strings.Contains(err.Error(), "no global agent") {
 		t.Errorf("missing source: err = %v", err)
 	}
-	if err := WorkspaceLink(root, "commands", "c", &out); err == nil {
+	if err := WorkspaceLink(root, "commands", "c", out); err == nil {
 		t.Error("command without namespace accepted")
 	}
-	if err := WorkspaceLink(root, "agents", "../x", &out); err == nil {
+	if err := WorkspaceLink(root, "agents", "../x", out); err == nil {
 		t.Error("traversal name accepted")
 	}
 }

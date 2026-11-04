@@ -50,8 +50,8 @@ func segLabel(key string, v values) string {
 	return ""
 }
 
-// renderSegmented renders the powerline, capsule, or minimal style over cfg.Order, then git.
-func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) string {
+// segmentOrder is the configured order minus path, plus git last when there is a branch.
+func segmentOrder(v values, cfg Config) []string {
 	var order []string
 	for _, k := range cfg.Order {
 		if k != "path" && cfg.seg(k, true) {
@@ -61,10 +61,14 @@ func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) stri
 	if cfg.seg("git", true) && v.branch != "" {
 		order = append(order, "git")
 	}
-	th := themeColors(cfg, pal)
+	return order
+}
 
+// segmentBlocks resolves each non-empty segment to its themed block.
+func segmentBlocks(v values, cfg Config, pal theme.Palettes) []block {
+	th := themeColors(cfg, pal)
 	var blocks []block
-	for _, key := range order {
+	for _, key := range segmentOrder(v, cfg) {
 		txt := segLabel(key, v)
 		if strings.TrimSpace(txt) == "" {
 			continue
@@ -75,24 +79,19 @@ func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) stri
 		}
 		blocks = append(blocks, block{ansi.Hex(c["bg"]), ansi.Hex(c["fg"]), txt})
 	}
+	return blocks
+}
+
+// renderSegmented renders the powerline, capsule, or minimal style over cfg.Order, then git.
+func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) string {
+	blocks := segmentBlocks(v, cfg, pal)
 	if len(blocks) == 0 {
 		return ""
 	}
 
 	var out strings.Builder
 	if cfg.Style == "capsule" {
-		capL, capR := glyphCapL, glyphCapR
-		if cfg.Charset == "text" {
-			capL, capR = "(", ")"
-		}
-		for i, b := range blocks {
-			if i > 0 {
-				out.WriteString(" ")
-			}
-			out.WriteString(ansi.FgSeq(mode, b.bg, false) + capL + ansi.Reset +
-				ansi.BgSeq(mode, b.bg) + ansi.FgSeq(mode, b.fg, true) + b.txt + ansi.Reset +
-				ansi.FgSeq(mode, b.bg, false) + capR + ansi.Reset)
-		}
+		renderCapsules(&out, blocks, cfg, mode)
 	} else {
 		renderBlocks(&out, blocks, cfg, pal, mode)
 	}
@@ -100,6 +99,22 @@ func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) stri
 		out.WriteString(" " + velocityText(v, mode, pal))
 	}
 	return out.String()
+}
+
+// renderCapsules writes each block between round caps (parentheses in the text charset), space-separated.
+func renderCapsules(out *strings.Builder, blocks []block, cfg Config, mode string) {
+	capL, capR := glyphCapL, glyphCapR
+	if cfg.Charset == "text" {
+		capL, capR = "(", ")"
+	}
+	for i, b := range blocks {
+		if i > 0 {
+			out.WriteString(" ")
+		}
+		out.WriteString(ansi.FgSeq(mode, b.bg, false) + capL + ansi.Reset +
+			ansi.BgSeq(mode, b.bg) + ansi.FgSeq(mode, b.fg, true) + b.txt + ansi.Reset +
+			ansi.FgSeq(mode, b.bg, false) + capR + ansi.Reset)
+	}
 }
 
 // renderBlocks joins powerline blocks with arrows (nerd charset) or minimal blocks with the minor separator.
@@ -204,50 +219,46 @@ func layoutDashboard(built []builtCol, gutter, W int) (hdr, val []cell) {
 	return hdr, val
 }
 
-// renderDashboard renders the two-line column dashboard; the head opens the value row and a same-width
-// indent keeps the header row aligned over it.
-func renderDashboard(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
-	dash := cfg.Dashboard
-	cols := dash.Columns
-	if len(cols) == 0 {
-		cols = []string{"workspace", "model", "provider", "branch", "context"}
+// dashboardColumns is the configured dashboard columns, or the default five.
+func dashboardColumns(dash DashboardConfig) []string {
+	if len(dash.Columns) == 0 {
+		return []string{"workspace", "model", "provider", "branch", "context"}
 	}
-	gutter := dash.Gutter
-	if gutter <= 0 {
-		gutter = 3
-	}
-	head := promptHead(v, cfg, pal, stops, mode)
-	indentW := 0
-	if head != "" {
-		indentW = headWidth(v, cfg) + utf8.RuneCountInString(sepPath)
-	}
-	W := dash.Width
-	if W <= 0 {
-		W = 100
-		if width > 0 {
-			W = width - indentW
-		}
-	}
+	return dash.Columns
+}
 
+// dashboardWidth is the row width: the configured one, else the terminal width less the head indent, else 100.
+func dashboardWidth(dash DashboardConfig, width, indentW int) int {
+	if dash.Width > 0 {
+		return dash.Width
+	}
+	if width > 0 {
+		return width - indentW
+	}
+	return 100
+}
+
+// buildDashboardCols resolves cols to non-empty columns; the workspace column drops when a head carries the path.
+func buildDashboardCols(cols []string, v values, cfg Config, hasHead bool) []builtCol {
 	var built []builtCol
 	for _, c := range cols {
-		if c == "workspace" && head != "" { // the head already carries the path
+		if c == "workspace" && hasHead { // the head already carries the path
 			continue
 		}
 		if hdr, cells := dashboardValueCells(c, v, cfg); cells != nil {
 			built = append(built, builtCol{c, hdr, cells})
 		}
 	}
-	if len(built) == 0 {
-		return head
-	}
-	hdr, val := layoutDashboard(built, gutter, W)
-	dim := ansi.Hex(pal.Sem("dim"))
+	return built
+}
+
+// paintDashboardValues paints the value row with the gradient, behind the head when present.
+func paintDashboardValues(val []cell, head string, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	trough := troughTone(cfg.Bar)
 	total := max(len(val)-1, 1)
 	var vb strings.Builder
 	if head != "" {
-		vb.WriteString(head + ansi.Paint(mode, dim, sepPath, false))
+		vb.WriteString(head + ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), sepPath, false))
 	}
 	for i, c := range val {
 		rgb := ansi.GradAt(stops, float64(i)/float64(total))
@@ -256,9 +267,12 @@ func renderDashboard(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB,
 		}
 		vb.WriteString(ansi.Paint(mode, rgb, string(c.ch), c.kind != "empty"))
 	}
-	if !dash.Headers {
-		return vb.String()
-	}
+	return vb.String()
+}
+
+// paintDashboardHeaders paints the header row, dimming header text, under an indentW indent.
+func paintDashboardHeaders(hdr []cell, indentW int, pal theme.Palettes, mode string) string {
+	dim := ansi.Hex(pal.Sem("dim"))
 	var hb strings.Builder
 	hb.WriteString(strings.Repeat(" ", indentW))
 	for _, c := range hdr {
@@ -268,5 +282,30 @@ func renderDashboard(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB,
 			hb.WriteString(string(c.ch))
 		}
 	}
-	return hb.String() + "\n" + vb.String()
+	return hb.String()
+}
+
+// renderDashboard renders the two-line column dashboard; the head opens the value row and a same-width
+// indent keeps the header row aligned over it.
+func renderDashboard(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
+	dash := cfg.Dashboard
+	gutter := dash.Gutter
+	if gutter <= 0 {
+		gutter = 3
+	}
+	head := promptHead(v, cfg, pal, stops, mode)
+	indentW := 0
+	if head != "" {
+		indentW = headWidth(v, cfg) + utf8.RuneCountInString(sepPath)
+	}
+	built := buildDashboardCols(dashboardColumns(dash), v, cfg, head != "")
+	if len(built) == 0 {
+		return head
+	}
+	hdr, val := layoutDashboard(built, gutter, dashboardWidth(dash, width, indentW))
+	row := paintDashboardValues(val, head, cfg, pal, stops, mode)
+	if !dash.Headers {
+		return row
+	}
+	return paintDashboardHeaders(hdr, indentW, pal, mode) + "\n" + row
 }

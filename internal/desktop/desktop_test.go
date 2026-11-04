@@ -66,107 +66,164 @@ func object(t *testing.T, p string) map[string]json.RawMessage {
 	return m
 }
 
+// revertFixture is one apply/revert scenario rooted in a throwaway Desktop dir.
+type revertFixture struct {
+	root, metaPath, profilePath, statePath string
+	opts                                   Options
+}
+
+func newRevertFixture(t *testing.T, previous string) *revertFixture {
+	t.Helper()
+	root := testRoot(t)
+	f := &revertFixture{root: root, opts: options(root)}
+	f.metaPath = filepath.Join(root, "configLibrary", "_meta.json")
+	f.profilePath = filepath.Join(root, "configLibrary", ProfileID+".json")
+	f.statePath = filepath.Join(root, stateName)
+	original := `{"unknown":{"future":true},"profiles":[{"id":"other","name":"Other","extra":42}]`
+	if previous != "" {
+		original += `,"appliedId":` + previous
+	}
+	original += "}"
+	write(t, f.metaPath, original, 0o640)
+	return f
+}
+
+// apply runs configure once and checks the written profile and that no header leaked into the preview.
+func (f *revertFixture) apply(t *testing.T) {
+	t.Helper()
+	var out bytes.Buffer
+	if err := run(f.opts, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "secret-tenant") {
+		t.Fatal("header leaked")
+	}
+	var p profile
+	if err := json.Unmarshal(read(t, f.profilePath), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !profileFixed(p) || !profileFollowsOptions(p, f.opts) {
+		t.Fatalf("unexpected profile: %+v", p)
+	}
+}
+
+// profileFixed checks the profile fields configure always sets the same way.
+func profileFixed(p profile) bool {
+	return p.InferenceProvider == "gateway" && !p.ModelDiscoveryEnabled && p.InferenceGatewayAuthScheme == "bearer" &&
+		p.InferenceCredentialKind == "helper-script" && p.InferenceCredentialHelperTTL == 900 && p.InferenceCredentialHelperSilent
+}
+
+// profileFollowsOptions checks the profile fields copied from opts.
+func profileFollowsOptions(p profile, opts Options) bool {
+	return p.InferenceCredentialHelper == opts.HelperPath && reflect.DeepEqual(p.InferenceCredentialHelperArgs, opts.HelperArgs) &&
+		reflect.DeepEqual(p.InferenceModels, opts.Models) && p.InferenceCustomHeaders["X-Workspace"] == "secret-tenant"
+}
+
+// reapplyIsNoop configures again with write spying and requires zero writes and identical files.
+func (f *revertFixture) reapplyIsNoop(t *testing.T) {
+	t.Helper()
+	state, meta, prof := read(t, f.statePath), read(t, f.metaPath), read(t, f.profilePath)
+	writes := 0
+	spy := fileOps{write: func(p string, b []byte, m os.FileMode) error { writes++; return paths.AtomicWrite(p, b, m) }, remove: os.Remove}
+	if err := configure(f.opts, io.Discard, spy, func(p string) (string, error) { return p, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 0 {
+		t.Fatalf("idempotent configure wrote %d files", writes)
+	}
+	if !bytes.Equal(state, read(t, f.statePath)) || !bytes.Equal(meta, read(t, f.metaPath)) || !bytes.Equal(prof, read(t, f.profilePath)) {
+		t.Fatal("idempotence failed")
+	}
+}
+
+// changeAndCheck re-applies with a new name and models, then checks preservation of foreign data.
+func (f *revertFixture) changeAndCheck(t *testing.T) {
+	t.Helper()
+	state := read(t, f.statePath)
+	f.opts.Profile = "New name"
+	f.opts.Models = []Model{{Name: "model-2"}}
+	if err := run(f.opts, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(state, read(t, f.statePath)) {
+		t.Fatal("original saved state overwritten")
+	}
+	entries := checkMetaKeepsForeign(t, object(t, f.metaPath))
+	checkProfileHelper(t, object(t, f.profilePath))
+	var first map[string]any
+	_ = json.Unmarshal(entries[0], &first)
+	if first["extra"] != float64(42) {
+		t.Fatal("unknown profile fields lost")
+	}
+}
+
+// checkMetaKeepsForeign requires unknown metadata kept and the entries list under "entries" only.
+func checkMetaKeepsForeign(t *testing.T, m map[string]json.RawMessage) []json.RawMessage {
+	t.Helper()
+	var unknown map[string]bool
+	if json.Unmarshal(m["unknown"], &unknown) != nil || !unknown["future"] {
+		t.Fatal("unknown metadata lost")
+	}
+	entries, err := profileEntries(m)
+	if err != nil || len(entries) != 2 || m["entries"] == nil || m[legacyEntriesKey] != nil {
+		t.Fatalf("entries %s (legacy %s), %v: want the list under entries only", m["entries"], m[legacyEntriesKey], err)
+	}
+	return entries
+}
+
+func checkProfileHelper(t *testing.T, pf map[string]json.RawMessage) {
+	t.Helper()
+	if string(pf["inferenceCredentialHelper"]) == `""` || pf["inferenceCredentialHelper"] == nil ||
+		string(pf["inferenceCredentialHelperTimeoutSec"]) != "300" {
+		t.Fatalf("helper %s timeout %s, want both set", pf["inferenceCredentialHelper"], pf["inferenceCredentialHelperTimeoutSec"])
+	}
+}
+
+// revertAndCheck reverts and requires the previous appliedId, the other entry, removals and the meta mode back.
+func (f *revertFixture) revertAndCheck(t *testing.T, previous string) {
+	t.Helper()
+	f.opts.Revert = true
+	f.opts.BaseURL = ""
+	f.opts.HelperPath = ""
+	f.opts.Models = nil
+	if err := run(f.opts, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	checkRestoredMeta(t, object(t, f.metaPath), previous)
+	for _, p := range []string{f.profilePath, f.statePath} {
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("not removed: %s", p)
+		}
+	}
+	fi, err := os.Stat(f.metaPath)
+	if err != nil || fi.Mode().Perm() != 0o640 {
+		t.Fatal("metadata mode lost")
+	}
+	if err := run(f.opts, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkRestoredMeta(t *testing.T, restored map[string]json.RawMessage, previous string) {
+	t.Helper()
+	raw, present := restored["appliedId"]
+	if present != (previous != "") || (present && string(raw) != previous) {
+		t.Fatalf("restored appliedId %s, %v", raw, present)
+	}
+	entries, err := profileEntries(restored)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("unrelated entries not preserved")
+	}
+}
+
 func TestConfigureIdempotentRevert(t *testing.T) {
 	for _, previous := range []string{`"previous"`, `null`, ""} {
 		t.Run("previous="+previous, func(t *testing.T) {
-			root := testRoot(t)
-			opts := options(root)
-			metaPath := filepath.Join(root, "configLibrary", "_meta.json")
-			original := `{"unknown":{"future":true},"profiles":[{"id":"other","name":"Other","extra":42}]`
-			if previous != "" {
-				original += `,"appliedId":` + previous
-			}
-			original += "}"
-			write(t, metaPath, original, 0o640)
-			var out bytes.Buffer
-			if err := run(opts, &out); err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(out.String(), "secret-tenant") {
-				t.Fatal("header leaked")
-			}
-			profilePath := filepath.Join(root, "configLibrary", ProfileID+".json")
-			var p profile
-			if err := json.Unmarshal(read(t, profilePath), &p); err != nil {
-				t.Fatal(err)
-			}
-			if p.InferenceProvider != "gateway" || p.ModelDiscoveryEnabled || p.InferenceGatewayAuthScheme != "bearer" ||
-				p.InferenceCredentialKind != "helper-script" || p.InferenceCredentialHelperTTL != 900 || !p.InferenceCredentialHelperSilent ||
-				p.InferenceCredentialHelper != opts.HelperPath || !reflect.DeepEqual(p.InferenceCredentialHelperArgs, opts.HelperArgs) ||
-				!reflect.DeepEqual(p.InferenceModels, opts.Models) ||
-				p.InferenceCustomHeaders["X-Workspace"] != "secret-tenant" {
-				t.Fatalf("unexpected profile: %+v", p)
-			}
-			statePath := filepath.Join(root, stateName)
-			state := read(t, statePath)
-			meta := read(t, metaPath)
-			prof := read(t, profilePath)
-			writes := 0
-			spy := fileOps{write: func(p string, b []byte, m os.FileMode) error { writes++; return paths.AtomicWrite(p, b, m) }, remove: os.Remove}
-			if err := configure(opts, io.Discard, spy, func(p string) (string, error) { return p, nil }); err != nil {
-				t.Fatal(err)
-			}
-			if writes != 0 {
-				t.Fatalf("idempotent configure wrote %d files", writes)
-			}
-			if !bytes.Equal(state, read(t, statePath)) || !bytes.Equal(meta, read(t, metaPath)) || !bytes.Equal(prof, read(t, profilePath)) {
-				t.Fatal("idempotence failed")
-			}
-			opts.Profile = "New name"
-			opts.Models = []Model{{Name: "model-2"}}
-			if err := run(opts, io.Discard); err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(state, read(t, statePath)) {
-				t.Fatal("original saved state overwritten")
-			}
-			m := object(t, metaPath)
-			var unknown map[string]bool
-			if json.Unmarshal(m["unknown"], &unknown) != nil || !unknown["future"] {
-				t.Fatal("unknown metadata lost")
-			}
-			entries, err := profileEntries(m)
-			if err != nil || len(entries) != 2 || m["entries"] == nil || m[legacyEntriesKey] != nil {
-				t.Fatalf("entries %s (legacy %s), %v: want the list under entries only", m["entries"], m[legacyEntriesKey], err)
-			}
-			pf := object(t, profilePath)
-			if string(pf["inferenceCredentialHelper"]) == `""` || pf["inferenceCredentialHelper"] == nil ||
-				string(pf["inferenceCredentialHelperTimeoutSec"]) != "300" {
-				t.Fatalf("helper %s timeout %s, want both set", pf["inferenceCredentialHelper"], pf["inferenceCredentialHelperTimeoutSec"])
-			}
-			var first map[string]any
-			_ = json.Unmarshal(entries[0], &first)
-			if first["extra"] != float64(42) {
-				t.Fatal("unknown profile fields lost")
-			}
-			opts.Revert = true
-			opts.BaseURL = ""
-			opts.HelperPath = ""
-			opts.Models = nil
-			if err := run(opts, io.Discard); err != nil {
-				t.Fatal(err)
-			}
-			restored := object(t, metaPath)
-			raw, present := restored["appliedId"]
-			if present != (previous != "") || (present && string(raw) != previous) {
-				t.Fatalf("restored appliedId %s, %v", raw, present)
-			}
-			entries, err = profileEntries(restored)
-			if err != nil || len(entries) != 1 {
-				t.Fatal("unrelated entries not preserved")
-			}
-			for _, p := range []string{profilePath, statePath} {
-				if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("not removed: %s", p)
-				}
-			}
-			fi, err := os.Stat(metaPath)
-			if err != nil || fi.Mode().Perm() != 0o640 {
-				t.Fatal("metadata mode lost")
-			}
-			if err := run(opts, io.Discard); err != nil {
-				t.Fatal(err)
-			}
+			f := newRevertFixture(t, previous)
+			f.apply(t)
+			f.reapplyIsNoop(t)
+			f.changeAndCheck(t)
+			f.revertAndCheck(t, previous)
 		})
 	}
 }
@@ -248,67 +305,87 @@ func TestMalformedFilesRefused(t *testing.T) {
 	}
 }
 
+// failingOps wraps real file ops and fails the failAt-th successful mutation with failure.
+func failingOps(failAt int, failure error) fileOps {
+	count := 0
+	tick := func() error {
+		count++
+		if count == failAt {
+			return failure
+		}
+		return nil
+	}
+	return fileOps{
+		write: func(p string, b []byte, m os.FileMode) error {
+			if err := paths.AtomicWrite(p, b, m); err != nil {
+				return err
+			}
+			return tick()
+		},
+		remove: func(p string) error {
+			if err := os.Remove(p); err != nil {
+				return err
+			}
+			return tick()
+		},
+	}
+}
+
+func captureFiles(t *testing.T, files ...string) map[string]snapshot {
+	t.Helper()
+	before := map[string]snapshot{}
+	for _, p := range files {
+		s, err := capture(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[p] = s
+	}
+	return before
+}
+
+func checkRolledBack(t *testing.T, before map[string]snapshot) {
+	t.Helper()
+	for p, want := range before {
+		got, err := capture(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("rollback did not restore %s: got %+v want %+v", p, got, want)
+		}
+	}
+}
+
+func runRollbackCase(t *testing.T, revert bool, failAt int) {
+	t.Helper()
+	root := testRoot(t)
+	opts := options(root)
+	meta := filepath.Join(root, "configLibrary", "_meta.json")
+	write(t, meta, `{"appliedId":"previous","profiles":[],"unknown":42}`, 0o640)
+	profilePath := filepath.Join(root, "configLibrary", ProfileID+".json")
+	write(t, profilePath, "{\"old\":true}\r\n", 0o644)
+	statePath := filepath.Join(root, stateName)
+	if revert {
+		if err := run(opts, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		opts.Revert = true
+	}
+	before := captureFiles(t, meta, profilePath, statePath)
+	failure := errors.New("injected failure")
+	err := configure(opts, io.Discard, failingOps(failAt, failure), func(p string) (string, error) { return p, nil })
+	if !errors.Is(err, failure) {
+		t.Fatalf("expected injected failure, got %v", err)
+	}
+	checkRolledBack(t, before)
+}
+
 func TestRollbackEveryMutation(t *testing.T) {
 	for _, revert := range []bool{false, true} {
 		for failAt := 1; failAt <= 3; failAt++ {
-			t.Run(string(rune('0'+failAt))+map[bool]string{false: "write", true: "revert"}[revert], func(t *testing.T) {
-				root := testRoot(t)
-				opts := options(root)
-				meta := filepath.Join(root, "configLibrary", "_meta.json")
-				write(t, meta, `{"appliedId":"previous","profiles":[],"unknown":42}`, 0o640)
-				profilePath := filepath.Join(root, "configLibrary", ProfileID+".json")
-				write(t, profilePath, "{\"old\":true}\r\n", 0o644)
-				statePath := filepath.Join(root, stateName)
-				if revert {
-					if err := run(opts, io.Discard); err != nil {
-						t.Fatal(err)
-					}
-					opts.Revert = true
-				}
-				before := map[string]snapshot{}
-				for _, p := range []string{meta, profilePath, statePath} {
-					s, err := capture(p)
-					if err != nil {
-						t.Fatal(err)
-					}
-					before[p] = s
-				}
-				count := 0
-				failure := errors.New("injected failure")
-				ops := fileOps{write: func(p string, b []byte, m os.FileMode) error {
-					if err := paths.AtomicWrite(p, b, m); err != nil {
-						return err
-					}
-					count++
-					if count == failAt {
-						return failure
-					}
-					return nil
-				},
-					remove: func(p string) error {
-						if err := os.Remove(p); err != nil {
-							return err
-						}
-						count++
-						if count == failAt {
-							return failure
-						}
-						return nil
-					}}
-				err := configure(opts, io.Discard, ops, func(p string) (string, error) { return p, nil })
-				if !errors.Is(err, failure) {
-					t.Fatalf("expected injected failure, got %v", err)
-				}
-				for p, want := range before {
-					got, err := capture(p)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if !reflect.DeepEqual(got, want) {
-						t.Fatalf("rollback did not restore %s: got %+v want %+v", p, got, want)
-					}
-				}
-			})
+			name := string(rune('0'+failAt)) + map[bool]string{false: "write", true: "revert"}[revert]
+			t.Run(name, func(t *testing.T) { runRollbackCase(t, revert, failAt) })
 		}
 	}
 }
@@ -346,8 +423,13 @@ func TestDeduplicateOwnedEntry(t *testing.T) {
 	}
 }
 
-func TestWindowsResolutionAndHelpers(t *testing.T) {
-	resolver := &paths.Resolver{Mounts: []paths.Mount{{Point: "/windows", Drive: "C", Root: "/", Kind: paths.KindDrvFS}}}
+func windowsResolver() *paths.Resolver {
+	return &paths.Resolver{Mounts: []paths.Mount{{Point: "/windows", Drive: "C", Root: "/", Kind: paths.KindDrvFS}}}
+}
+
+func checkWSLRoot(t *testing.T) {
+	t.Helper()
+	resolver := windowsResolver()
 	query := func() (string, error) { return `C:\Users\A Person\AppData\Local`, nil }
 	root, err := rootFor("linux", true, "/home/me", "", query, resolver.Resolve)
 	if err != nil || root != "/windows/Users/A Person/AppData/Local/Claude-3p" {
@@ -364,12 +446,22 @@ func TestWindowsResolutionAndHelpers(t *testing.T) {
 	if _, err := rootFor("linux", true, "/home/me", "", func() (string, error) { return "", errors.New("cmd.exe failed") }, resolver.Resolve); err == nil {
 		t.Fatal("fell back to Linux")
 	}
+}
+
+func checkNativeRoots(t *testing.T) {
+	t.Helper()
+	resolver := windowsResolver()
+	query := func() (string, error) { return `C:\Users\A Person\AppData\Local`, nil }
 	for _, tc := range []struct{ goos, local, want string }{{"darwin", "", "/home/me/Library/Application Support/Claude-3p"}, {"linux", "", "/home/me/.config/Claude-3p"}, {"windows", `C:\Users\Me\AppData\Local`, `C:\Users\Me\AppData\Local\Claude-3p`}} {
 		got, err := rootFor(tc.goos, false, "/home/me", tc.local, query, resolver.Resolve)
 		if err != nil || got != tc.want {
 			t.Fatalf("%s: %s %v", tc.goos, got, err)
 		}
 	}
+}
+
+func checkWSLHelper(t *testing.T) {
+	t.Helper()
 	path, args, win, err := helperFor("linux", true, "/home/a b/bin/claude-code", "Ubuntu Work", "/home/a b/.claude", "dev")
 	wantArgs := []string{"--distribution", "Ubuntu Work", "--exec", "/usr/bin/env", "CLAUDE_CONFIG_DIR=/home/a b/.claude",
 		"/home/a b/bin/claude-code", "gateway", "token", "--profile", "dev"}
@@ -382,7 +474,11 @@ func TestWindowsResolutionAndHelpers(t *testing.T) {
 	if _, _, _, err := helperFor("linux", true, "claude-code", "Ubuntu", "", "dev"); err == nil {
 		t.Fatal("relative executable accepted")
 	}
-	path, args, win, err = helperFor("darwin", false, "/opt/claude-code", "", "/Users/me/Claude Config", "dev")
+}
+
+func checkMacAndWindowsHelper(t *testing.T) {
+	t.Helper()
+	path, args, win, err := helperFor("darwin", false, "/opt/claude-code", "", "/Users/me/Claude Config", "dev")
 	if err != nil || win || path != "/usr/bin/env" || args[0] != "CLAUDE_CONFIG_DIR=/Users/me/Claude Config" || args[1] != "/opt/claude-code" {
 		t.Fatalf("Mac config directory not preserved: %s %q %v", path, args, err)
 	}
@@ -390,6 +486,13 @@ func TestWindowsResolutionAndHelpers(t *testing.T) {
 	if err != nil || !win || path != `C:\Program Files\claude-code.exe` {
 		t.Fatalf("%s %v", path, err)
 	}
+}
+
+func TestWindowsResolutionAndHelpers(t *testing.T) {
+	t.Run("wsl-root", checkWSLRoot)
+	t.Run("native-roots", checkNativeRoots)
+	t.Run("wsl-helper", checkWSLHelper)
+	t.Run("mac-windows-helper", checkMacAndWindowsHelper)
 }
 
 func TestSchemasRegistered(t *testing.T) {

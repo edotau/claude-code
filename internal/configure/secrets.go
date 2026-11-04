@@ -31,37 +31,46 @@ func TrackedSecrets(reg *providers.Registry) []TrackedSecret {
 		}
 	}
 	meta, metaErr := vault.LoadMeta()
-	if metaErr != nil {
-		// Names reads vault names without decoding records, which may still work when metadata is unreadable.
-		for _, env := range vault.Names() {
-			if _, ok := users[env]; !ok {
-				users[env] = []string{"custom"}
-			}
-		}
-	} else {
-		for env := range meta {
-			if _, ok := users[env]; !ok {
-				users[env] = []string{"custom"}
-			}
-		}
-	}
+	addCustomUsers(users, meta, metaErr)
 	out := make([]TrackedSecret, 0, len(users))
 	for name, u := range users {
-		var src, shadowed string
-		if metaErr == nil {
-			src, shadowed = vault.Locate(name, meta)
-		} else {
-			var err error
-			if _, src, err = vault.EffectiveSecret(name); err != nil {
-				src = "unreadable"
-			} else if src == "env" {
-				_, _, shadowed, _ = vault.Effective(name)
-			}
-		}
+		src, shadowed := locateSecret(name, meta, metaErr)
 		out = append(out, TrackedSecret{Name: name, Source: src, Shadowed: shadowed, Users: strings.Join(u, ", ")})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// addCustomUsers marks every stored secret no provider reads as "custom".
+func addCustomUsers(users map[string][]string, meta map[string]vault.SecretMeta, metaErr error) {
+	var names []string
+	if metaErr != nil {
+		// Names reads vault names without decoding records, which may still work when metadata is unreadable.
+		names = vault.Names()
+	} else {
+		for env := range meta {
+			names = append(names, env)
+		}
+	}
+	for _, env := range names {
+		if _, ok := users[env]; !ok {
+			users[env] = []string{"custom"}
+		}
+	}
+}
+
+// locateSecret resolves where name comes from today and any vault value an env var shadows.
+func locateSecret(name string, meta map[string]vault.SecretMeta, metaErr error) (src, shadowed string) {
+	if metaErr == nil {
+		return vault.Locate(name, meta)
+	}
+	var err error
+	if _, src, err = vault.EffectiveSecret(name); err != nil {
+		src = "unreadable"
+	} else if src == "env" {
+		_, _, shadowed, _ = vault.Effective(name)
+	}
+	return src, shadowed
 }
 
 // ParseAssignment splits a pasted secret: `export NAME="value"`, `NAME=value`, or a bare value (name "").

@@ -98,59 +98,100 @@ func configure(opts Options, w io.Writer, ops fileOps, display func(string) (str
 	return paths.WithFileLock(filepath.Join(root, ".claude-code-desktop"), run)
 }
 
+// layout names the files configureLocked reads and rewrites.
+type layout struct{ profile, meta, state string }
+
+func newLayout(library, root string) layout {
+	return layout{
+		profile: filepath.Join(library, ProfileID+".json"),
+		meta:    filepath.Join(library, "_meta.json"),
+		state:   filepath.Join(root, stateName),
+	}
+}
+
+func (l layout) tracked() []string {
+	return []string{l.profile, l.meta, l.meta + ".bak", l.meta + ".revert.bak", l.state}
+}
+
+func captureAll(l layout) (map[string]snapshot, error) {
+	snapshots := map[string]snapshot{}
+	for _, p := range l.tracked() {
+		s, err := capture(p)
+		if err != nil {
+			return nil, err
+		}
+		snapshots[p] = s
+	}
+	return snapshots, nil
+}
+
+// loadMeta decodes _meta.json; a missing file is an empty object.
+func loadMeta(snap snapshot) (map[string]json.RawMessage, error) {
+	meta := map[string]json.RawMessage{}
+	if !snap.exists {
+		return meta, nil
+	}
+	if err := decodeObject(snap.data, &meta); err != nil {
+		return nil, fmt.Errorf("invalid Desktop metadata: %w", err)
+	}
+	return meta, nil
+}
+
+// current is everything configureLocked reads before planning a change.
+type current struct {
+	lay       layout
+	snapshots map[string]snapshot
+	meta      map[string]json.RawMessage
+	entries   []json.RawMessage
+	state     savedState
+	hasState  bool
+}
+
+func loadCurrent(lay layout) (current, error) {
+	cur := current{lay: lay}
+	var err error
+	if cur.snapshots, err = captureAll(lay); err != nil {
+		return cur, err
+	}
+	if cur.meta, err = loadMeta(cur.snapshots[lay.meta]); err != nil {
+		return cur, err
+	}
+	if cur.entries, err = profileEntries(cur.meta); err != nil {
+		return cur, err
+	}
+	if cur.state, err = loadSavedState(cur.snapshots[lay.state]); err != nil {
+		return cur, err
+	}
+	cur.hasState = cur.snapshots[lay.state].exists
+	if !cur.hasState && appliedIsOurs(cur.meta["appliedId"]) {
+		return cur, errors.New("desktop profile is already applied without saved revert state")
+	}
+	return cur, nil
+}
+
 func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string) (string, error)) error {
 	library := filepath.Join(opts.Root, "configLibrary")
 	if err := checkLibrary(library); err != nil {
 		return err
 	}
-	profilePath := filepath.Join(library, ProfileID+".json")
-	metaPath := filepath.Join(library, "_meta.json")
-	statePath := filepath.Join(opts.Root, stateName)
-	snapshots := map[string]snapshot{}
-	for _, p := range []string{profilePath, metaPath, metaPath + ".bak", metaPath + ".revert.bak", statePath} {
-		s, err := capture(p)
-		if err != nil {
-			return err
-		}
-		snapshots[p] = s
-	}
-	meta := map[string]json.RawMessage{}
-	if snapshots[metaPath].exists {
-		if err := decodeObject(snapshots[metaPath].data, &meta); err != nil {
-			return fmt.Errorf("invalid Desktop metadata: %w", err)
-		}
-	}
-	entries, err := profileEntries(meta)
+	cur, err := loadCurrent(newLayout(library, opts.Root))
 	if err != nil {
 		return err
 	}
-	state, err := loadSavedState(snapshots[statePath])
-	if err != nil {
-		return err
-	}
-	hasState := snapshots[statePath].exists
-	if !hasState {
-		var currentID string
-		if json.Unmarshal(meta["appliedId"], &currentID) == nil && currentID == ProfileID {
-			return errors.New("desktop profile is already applied without saved revert state")
-		}
-	}
-	filtered := withoutOurProfile(entries)
+	filtered := withoutOurProfile(cur.entries)
 	var changes []change
 	if opts.Revert {
-		if !hasState {
-			if snapshots[profilePath].exists || len(filtered) != len(entries) {
-				return errors.New("cannot revert Desktop profile without saved state")
-			}
-			_, err := fmt.Fprintln(w, "Desktop profile is not configured; nothing to revert")
-			return err
+		if !cur.hasState {
+			return nothingToRevert(w, cur.snapshots[cur.lay.profile].exists || len(filtered) != len(cur.entries))
 		}
-		changes = revertChanges(meta, state, filtered, snapshots[metaPath], profilePath, metaPath, statePath)
+		lay := cur.lay
+		changes = revertChanges(cur.meta, cur.state, filtered, cur.snapshots[lay.meta], lay.profile, lay.meta, lay.state)
 	} else {
 		if err := validateOptions(&opts); err != nil {
 			return err
 		}
-		changes = applyChanges(opts, meta, hasState, filtered, snapshots, profilePath, metaPath, statePath)
+		lay := cur.lay
+		changes = applyChanges(opts, cur.meta, cur.hasState, filtered, cur.snapshots, lay.profile, lay.meta, lay.state)
 	}
 	if err := previewChanges(w, changes, opts.Headers, display); err != nil {
 		return err
@@ -158,7 +199,16 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 	if opts.DryRun {
 		return nil
 	}
-	return transact(changes, snapshots, ops, library)
+	return transact(changes, cur.snapshots, ops, library)
+}
+
+// nothingToRevert reports a revert with no saved state: an error when our files exist, else a notice.
+func nothingToRevert(w io.Writer, leftovers bool) error {
+	if leftovers {
+		return errors.New("cannot revert Desktop profile without saved state")
+	}
+	_, err := fmt.Fprintln(w, "Desktop profile is not configured; nothing to revert")
+	return err
 }
 
 // checkLibrary refuses a configLibrary that exists as anything but a real directory.
@@ -189,14 +239,23 @@ func loadSavedState(snap snapshot) (savedState, error) {
 	if err := dec.Decode(&state); err != nil {
 		return state, fmt.Errorf("invalid Desktop state: %w", err)
 	}
-	presence, present := fields["previousPresent"]
-	validPresence := bytes.Equal(presence, []byte("true")) || bytes.Equal(presence, []byte("false"))
-	if state.Schema != 1 || state.ProfileID != ProfileID || !present || !validPresence || state.PreviousAppliedID == nil ||
-		!validAppliedID(state.PreviousAppliedID) ||
-		(!state.PreviousPresent && !bytes.Equal(bytes.TrimSpace(state.PreviousAppliedID), []byte("null"))) {
+	if !validSavedState(state, fields) {
 		return state, errors.New("invalid Desktop state fields")
 	}
 	return state, nil
+}
+
+// validSavedState checks the decoded revert state against its raw fields.
+func validSavedState(state savedState, fields map[string]json.RawMessage) bool {
+	presence := fields["previousPresent"]
+	if !bytes.Equal(presence, []byte("true")) && !bytes.Equal(presence, []byte("false")) {
+		return false
+	}
+	if state.Schema != 1 || state.ProfileID != ProfileID || state.PreviousAppliedID == nil ||
+		!validAppliedID(state.PreviousAppliedID) {
+		return false
+	}
+	return state.PreviousPresent || bytes.Equal(bytes.TrimSpace(state.PreviousAppliedID), []byte("null"))
 }
 
 // withoutOurProfile drops this harness's row; capacity leaves room to re-add it.
@@ -368,16 +427,24 @@ func profileEntries(meta map[string]json.RawMessage) ([]json.RawMessage, error) 
 		entries = append(entries, list...)
 	}
 	for _, entry := range entries {
-		var row map[string]json.RawMessage
-		if err := decodeObject(entry, &row); err != nil {
-			return nil, errors.New("invalid Desktop profile entry")
-		}
-		var id string
-		if json.Unmarshal(row["id"], &id) != nil || id == "" {
-			return nil, errors.New("invalid Desktop profile id")
+		if err := checkEntry(entry); err != nil {
+			return nil, err
 		}
 	}
 	return entries, nil
+}
+
+// checkEntry requires a JSON object with a nonempty string id.
+func checkEntry(entry json.RawMessage) error {
+	var row map[string]json.RawMessage
+	if err := decodeObject(entry, &row); err != nil {
+		return errors.New("invalid Desktop profile entry")
+	}
+	var id string
+	if json.Unmarshal(row["id"], &id) != nil || id == "" {
+		return errors.New("invalid Desktop profile id")
+	}
+	return nil
 }
 
 func validAppliedID(raw []byte) bool {

@@ -379,6 +379,19 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 // A walk error (e.g. an unreadable subdir) propagates instead of silently truncating the archive plan.
 // Migration: remove after 2026-11-13 once every machine has run a post-2026-10-26 build.
 func keepMemoryPaths(dir string) ([]string, error) {
+	var out []string
+	for _, root := range memoryRoots(dir) {
+		files, err := regularFilesUnder(dir, root)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, files...)
+	}
+	return out, nil
+}
+
+// memoryRoots returns the existing real (non-symlink) directories under dir that keepMemoryPaths archives.
+func memoryRoots(dir string) []string {
 	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), "plans", filepath.Join("docs", "knowledge")} // docs/knowledge is the pre-44aab60 knowledge location
 	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {
 		for _, m := range matches {
@@ -393,23 +406,26 @@ func keepMemoryPaths(dir string) ([]string, error) {
 			roots = append(roots, filepath.Join(dir, rel))
 		}
 	}
+	return roots
+}
+
+// regularFilesUnder lists the regular files under root as slash paths relative to dir; symlinks are skipped.
+func regularFilesUnder(dir, root string) ([]string, error) {
 	var out []string
-	for _, root := range roots {
-		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !d.Type().IsRegular() {
-				return nil // symlinks are never read: tarWriteFile would follow an escape link
-			}
-			if rel, relErr := filepath.Rel(dir, p); relErr == nil {
-				out = append(out, filepath.ToSlash(rel))
-			}
-			return nil
-		})
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil, fmt.Errorf("walk %s: %w", root, err)
+			return err
 		}
+		if !d.Type().IsRegular() {
+			return nil // symlinks are never read: tarWriteFile would follow an escape link
+		}
+		if rel, relErr := filepath.Rel(dir, p); relErr == nil {
+			out = append(out, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk %s: %w", root, err)
 	}
 	return out, nil
 }

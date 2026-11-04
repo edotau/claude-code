@@ -179,13 +179,7 @@ func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 
 // collect resolves every enabled segment; disabled ones skip their IO.
 func collect(in Input, cfg Config) values {
-	cwd := in.Workspace.CurrentDir
-	if cwd == "" {
-		cwd = in.CWD
-	}
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
+	cwd := sessionCwd(in)
 	root, worktree := checkoutOf(cwd) // the path names the repo, so it holds still across worktrees and subdirs
 	v := values{userHost: promptUser(), path: shortenDir(root)}
 	var provider string
@@ -193,6 +187,30 @@ func collect(in Input, cfg Config) values {
 	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("proxy", true) || cfg.seg("limits", true) {
 		provider, routed = sessionProvider()
 	}
+	v.collectRouting(in, cfg, provider, routed)
+	if cfg.seg("git", true) && worktree != "" {
+		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
+	} else if cfg.seg("git", true) {
+		v.branch = gitBranch(cwd)
+	}
+	v.collectUsage(in, cfg, cwd, provider)
+	return v
+}
+
+// sessionCwd is the session's working dir: the workspace's current dir, then the payload cwd, then the process cwd.
+func sessionCwd(in Input) string {
+	cwd := in.Workspace.CurrentDir
+	if cwd == "" {
+		cwd = in.CWD
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	return cwd
+}
+
+// collectRouting fills the provider, model and proxy segments.
+func (v *values) collectRouting(in Input, cfg Config, provider string, routed bool) {
 	if cfg.seg("provider", true) {
 		v.providerFull = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
 		v.provider = capProfile(v.providerFull, cfg.ProfileMax)
@@ -205,11 +223,10 @@ func collect(in Input, cfg Config) values {
 			v.proxy = seg
 		}
 	}
-	if cfg.seg("git", true) && worktree != "" {
-		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
-	} else if cfg.seg("git", true) {
-		v.branch = gitBranch(cwd)
-	}
+}
+
+// collectUsage fills the limits, context, total, duration, session and code-velocity segments.
+func (v *values) collectUsage(in Input, cfg Config, cwd, provider string) {
 	if cfg.seg("limits", true) {
 		v.limits = limitsSegment(in, provider)
 	}
@@ -224,7 +241,6 @@ func collect(in Input, cfg Config) values {
 		v.session = id[:min(8, len(id))]
 	}
 	v.adds, v.dels = codeVelocity(in, cwd, cfg)
-	return v
 }
 
 // registry is loaded at most once per render, and only when a segment needs it.

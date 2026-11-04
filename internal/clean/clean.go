@@ -51,11 +51,28 @@ type target struct {
 	keep func(path string) bool
 }
 
+// cfgPath and statePath join under the config and state dirs; the target lists below resolve them fresh per call.
+func cfgPath(parts ...string) string {
+	return filepath.Join(append([]string{paths.ConfigDir()}, parts...)...)
+}
+
+func statePath(parts ...string) string {
+	return filepath.Join(append([]string{paths.StateDir()}, parts...)...)
+}
+
 // targets are the harness's own debris plus the Claude Code CLI's per-session runtime state — this
 // repo's own .gitignore is the inventory of what the CLI writes at the config dir it treats as home.
 func targets() []target {
-	g := func(parts ...string) string { return filepath.Join(append([]string{paths.ConfigDir()}, parts...)...) }
-	s := func(parts ...string) string { return filepath.Join(append([]string{paths.StateDir()}, parts...)...) }
+	var all []target
+	for _, group := range []func() []target{stateTargets, daemonTargets, cliSessionTargets, cliCacheTargets} {
+		all = append(all, group()...)
+	}
+	return all
+}
+
+// stateTargets are the harness's dispatch, codex, memory and hook state under state/harness.
+func stateTargets() []target {
+	s := statePath
 	return []target{
 		{
 			name: "dispatch-log", doc: "state/harness/dispatch: ask records (newest 200 kept), their logs + review-*.diff attachments",
@@ -89,11 +106,17 @@ func targets() []target {
 				}
 			},
 		},
+	}
+}
+
+// daemonTargets are the proxy and copilot daemon leftovers plus settings backups and stale plugin versions.
+func daemonTargets() []target {
+	return []target{
 		{
 			// proxy.json/router.secret are the DAEMON's live state (removed by the daemon itself on
 			// exit); only its log is debris, and an active proxy keeps rewriting it past any cutoff.
 			name: "proxy-log", doc: "proxy.log and the pre-rename router.log (daemon stdio; state and secret are never swept)",
-			globs: func() []string { return []string{s("proxy.log"), s("router.log")} },
+			globs: func() []string { return []string{statePath("proxy.log"), statePath("router.log")} },
 		},
 		{
 			// <pid>.json registries in the runtime dir carry a session token; a dead pid's file is garbage at any age.
@@ -110,7 +133,7 @@ func targets() []target {
 		{
 			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",
 			globs: func() []string {
-				return []string{filepath.Join(paths.CacheDir(), "backups", "setup", "*"), g("backups", ".claude.json.backup.*")}
+				return []string{filepath.Join(paths.CacheDir(), "backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
 			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
 		},
 		{
@@ -119,6 +142,13 @@ func targets() []target {
 			name: "plugin-versions", doc: "plugins/cache/<marketplace>/<plugin>/<version> dirs no longer named by installed_plugins.json",
 			globs: stalePluginVersions,
 		},
+	}
+}
+
+// cliSessionTargets are the CLI's per-session debris, projections and the session registry.
+func cliSessionTargets() []target {
+	g := cfgPath
+	return []target{
 		{
 			// jobs/, file-history/, session-env/, paste-cache/, shell-snapshots/, todos/ are the Claude
 			// Code CLI's own per-session debris (see .gitignore); nothing in this binary prunes them.
@@ -144,6 +174,13 @@ func targets() []target {
 			ageless: true,
 			keep:    keepLiveSession,
 		},
+	}
+}
+
+// cliCacheTargets are the opt-in transcripts and the CLI's rebuildable caches.
+func cliCacheTargets() []target {
+	g := cfgPath
+	return []target{
 		{
 			// Transcripts feed `claude --resume` and `usage`; opt-in so a bare sweep never drops a session
 			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob.
@@ -207,51 +244,74 @@ func Run(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "clean: sessions not confirmed — nothing deleted")
 		return 0
 	}
-	var totalFiles int
-	var totalBytes int64
 	// The nested config dir is wrong at any age, so it is checked on every run, outside --target/--older-than.
-	if n := NestedConfig(); n.Dir != "" {
-		if len(n.Keep) > 0 {
-			fmt.Fprintf(errw, "%-16s kept %s: move %s into defaults/claude/settings.json, make install, re-run\n",
-				"nested-config", n.Dir, strings.Join(n.Keep, ", "))
-		} else if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), apply, nil); len(hits) > 0 {
-			totalFiles, totalBytes = len(hits), size
-			verb := "would remove"
-			if apply {
-				verb = "removed"
-			}
-			fmt.Fprintf(errw, "%-16s %s %s\n", "nested-config", verb, n.Dir)
-		}
-	}
+	tot := sweepTotals{}
+	reportNested(errw, apply, &tot)
 	for _, t := range selected {
-		tcut := cutoff
-		if t.ageless {
-			tcut = time.Now().Add(time.Hour)
-		}
-		hits, size := pruneAged(t.globs(), tcut, apply, t.keep)
-		if len(hits) == 0 {
-			continue
-		}
-		totalFiles += len(hits)
-		totalBytes += size
-		verb := "would remove"
-		if apply {
-			verb = "removed"
-		}
-		fmt.Fprintf(errw, "%-16s %s %d entr%s (%s)\n", t.name, verb, len(hits), textutil.PluralWord(len(hits), "y", "ies"), textutil.HumanBytes(size))
+		sweepTarget(errw, t, cutoff, apply, &tot)
 	}
-	if totalFiles == 0 {
-		fmt.Fprintf(errw, "clean: nothing older than %s in %d target(s) — already clean\n", *olderThan, len(selected))
-		return 0
-	}
-	if apply {
-		fmt.Fprintf(errw, "\nreclaimed %s across %d entries. Credentials, user settings, and the memory bank were not touched.\n",
-			textutil.HumanBytes(totalBytes), totalFiles)
-		return 0
-	}
-	fmt.Fprintf(errw, "\ndry run — nothing deleted. %s across %d entries would go; re-run without --dry-run to apply.\n",
-		textutil.HumanBytes(totalBytes), totalFiles)
+	printSummary(errw, tot, *olderThan, len(selected), apply)
 	return 0
+}
+
+// sweepTotals accumulates what a run removed (or would remove) across the nested dir and every target.
+type sweepTotals struct {
+	files int
+	bytes int64
+}
+
+// removeVerb is the report verb for an applied or a dry run.
+func removeVerb(apply bool) string {
+	if apply {
+		return "removed"
+	}
+	return "would remove"
+}
+
+// reportNested sweeps the nested config dir when it is safe, or says why it was kept.
+func reportNested(errw io.Writer, apply bool, tot *sweepTotals) {
+	n := NestedConfig()
+	if n.Dir == "" {
+		return
+	}
+	if len(n.Keep) > 0 {
+		fmt.Fprintf(errw, "%-16s kept %s: move %s into defaults/claude/settings.json, make install, re-run\n",
+			"nested-config", n.Dir, strings.Join(n.Keep, ", "))
+		return
+	}
+	if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), apply, nil); len(hits) > 0 {
+		tot.files, tot.bytes = len(hits), size
+		fmt.Fprintf(errw, "%-16s %s %s\n", "nested-config", removeVerb(apply), n.Dir)
+	}
+}
+
+// sweepTarget prunes one target past its cutoff (ageless targets go at any age) and reports it.
+func sweepTarget(errw io.Writer, t target, cutoff time.Time, apply bool, tot *sweepTotals) {
+	tcut := cutoff
+	if t.ageless {
+		tcut = time.Now().Add(time.Hour)
+	}
+	hits, size := pruneAged(t.globs(), tcut, apply, t.keep)
+	if len(hits) == 0 {
+		return
+	}
+	tot.files += len(hits)
+	tot.bytes += size
+	fmt.Fprintf(errw, "%-16s %s %d entr%s (%s)\n", t.name, removeVerb(apply), len(hits), textutil.PluralWord(len(hits), "y", "ies"), textutil.HumanBytes(size))
+}
+
+// printSummary closes the run: the nothing-to-do line, or the reclaimed / dry-run total.
+func printSummary(errw io.Writer, tot sweepTotals, olderThan string, nTargets int, apply bool) {
+	switch {
+	case tot.files == 0:
+		fmt.Fprintf(errw, "clean: nothing older than %s in %d target(s) — already clean\n", olderThan, nTargets)
+	case apply:
+		fmt.Fprintf(errw, "\nreclaimed %s across %d entries. Credentials, user settings, and the memory bank were not touched.\n",
+			textutil.HumanBytes(tot.bytes), tot.files)
+	default:
+		fmt.Fprintf(errw, "\ndry run — nothing deleted. %s across %d entries would go; re-run without --dry-run to apply.\n",
+			textutil.HumanBytes(tot.bytes), tot.files)
+	}
 }
 
 // confirmSessions gates the opt-in "sessions" target behind an explicit yes: a [y/N] prompt on a
@@ -325,26 +385,33 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool, keep func(string
 	for _, pattern := range patterns {
 		matches, _ := filepath.Glob(pattern)
 		for _, m := range matches {
-			mt, ok := newestMTime(m)
-			if !ok || !mt.Before(cutoff) {
-				continue
+			if sz, ok := pruneMatch(m, cutoff, apply, keep); ok {
+				size += sz
+				hit = append(hit, m)
 			}
-			if strings.HasSuffix(m, ".lock") || protected(m) || (keep != nil && keep(m)) {
-				continue // live bookkeeping, memory stores/migration state, live sessions: never debris
-			}
-			sz := paths.DirSize(m)
-			if apply {
-				if err := os.RemoveAll(m); err != nil {
-					fmt.Fprintf(os.Stderr, "clean: could not remove %s: %v\n", m, err)
-					continue
-				}
-			}
-			size += sz
-			hit = append(hit, m)
 		}
 	}
 	sort.Strings(hit)
 	return hit, size
+}
+
+// pruneMatch removes (when apply) one glob match that is old enough and not protected; ok is false when it was skipped.
+func pruneMatch(m string, cutoff time.Time, apply bool, keep func(string) bool) (size int64, ok bool) {
+	mt, found := newestMTime(m)
+	if !found || !mt.Before(cutoff) {
+		return 0, false
+	}
+	if strings.HasSuffix(m, ".lock") || protected(m) || (keep != nil && keep(m)) {
+		return 0, false // live bookkeeping, memory stores/migration state, live sessions: never debris
+	}
+	sz := paths.DirSize(m)
+	if apply {
+		if err := os.RemoveAll(m); err != nil {
+			fmt.Fprintf(os.Stderr, "clean: could not remove %s: %v\n", m, err)
+			return 0, false
+		}
+	}
+	return sz, true
 }
 
 // protected guards the vault and memory store behind the sweep globs.
@@ -500,27 +567,32 @@ func NestedConfig() Nested {
 	user := readJSON(filepath.Join(paths.ConfigDir(), "settings.json"))
 	for _, e := range entries {
 		n.Files = append(n.Files, e.Name())
-		if e.IsDir() && e.Name() == "worktrees" {
-			n.Keep = append(n.Keep, KeepWorktrees)
-			continue
-		}
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "settings") || filepath.Ext(e.Name()) != ".json" {
-			n.Keep = append(n.Keep, e.Name()+" (not a settings file)")
-			continue
-		}
-		local := readJSON(filepath.Join(dir, e.Name()))
-		if local == nil {
-			n.Keep = append(n.Keep, e.Name()+" (unreadable JSON)")
-			continue
-		}
-		for k, v := range local {
-			if uv, ok := user[k]; !ok || !reflect.DeepEqual(uv, v) {
-				n.Keep = append(n.Keep, e.Name()+":"+k)
-			}
-		}
+		n.Keep = append(n.Keep, nestedKeepReasons(dir, e, user)...)
 	}
 	sort.Strings(n.Keep)
 	return n
+}
+
+// nestedKeepReasons lists why one nested-dir entry cannot be removed: nothing when it is a settings
+// file whose every key already matches user settings.
+func nestedKeepReasons(dir string, e os.DirEntry, user map[string]any) []string {
+	if e.IsDir() && e.Name() == "worktrees" {
+		return []string{KeepWorktrees}
+	}
+	if e.IsDir() || !strings.HasPrefix(e.Name(), "settings") || filepath.Ext(e.Name()) != ".json" {
+		return []string{e.Name() + " (not a settings file)"}
+	}
+	local := readJSON(filepath.Join(dir, e.Name()))
+	if local == nil {
+		return []string{e.Name() + " (unreadable JSON)"}
+	}
+	var keep []string
+	for k, v := range local {
+		if uv, ok := user[k]; !ok || !reflect.DeepEqual(uv, v) {
+			keep = append(keep, e.Name()+":"+k)
+		}
+	}
+	return keep
 }
 
 // readJSON returns a file's top-level object, or nil when it is missing or not an object.

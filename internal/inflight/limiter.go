@@ -254,23 +254,33 @@ func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 	if s.trusted && owner > 0 && !proc.Alive(owner) {
 		return false
 	}
-	base := id
-	if i := strings.LastIndex(id, "."); i >= 0 && isLeafSuffix(id[i:]) {
-		base = id[:i]
-	}
+	base := spawnBase(id)
 	if a, ok := s.agents(transcript)[base]; ok {
-		if a.finished || (!s.trusted && s.now.Sub(mod) > TTL) {
-			return false // Claude Code marks a done agent's meta finished, SubagentStop or not
-		}
-		fi, err := os.Stat(filepath.Join(SubagentDir(transcript), "agent-"+a.id+".jsonl"))
-		missing := os.IsNotExist(err) && s.now.Sub(mod) > Grace
-		idle := err == nil && s.now.Sub(fi.ModTime()) > Idle
-		return !missing && !idle
+		return s.agentLive(a, mod, transcript)
 	}
 	if s.now.Sub(mod) > Settle && s.answered(transcript, base) {
 		return false // refused or failed before an agent existed; Settle covers a meta.json not yet written
 	}
 	return ownerLive(name, mod, s.now, s.trusted)
+}
+
+// spawnBase strips a trailing leaf suffix from a spawn marker id, leaving the tool_use_id.
+func spawnBase(id string) string {
+	if i := strings.LastIndex(id, "."); i >= 0 && isLeafSuffix(id[i:]) {
+		return id[:i]
+	}
+	return id
+}
+
+// agentLive: a spawn marker with a meta.json lives while its agent is unfinished and its transcript is fresh.
+func (s *scanner) agentLive(a metaAgent, mod time.Time, transcript string) bool {
+	if a.finished || (!s.trusted && s.now.Sub(mod) > TTL) {
+		return false // Claude Code marks a done agent's meta finished, SubagentStop or not
+	}
+	fi, err := os.Stat(filepath.Join(SubagentDir(transcript), "agent-"+a.id+".jsonl"))
+	missing := os.IsNotExist(err) && s.now.Sub(mod) > Grace
+	idle := err == nil && s.now.Sub(fi.ModTime()) > Idle
+	return !missing && !idle
 }
 
 // metaAgent is one agent-*.meta.json: the agent id and whether Claude Code marked it finished.

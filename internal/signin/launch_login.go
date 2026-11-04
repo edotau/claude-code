@@ -30,28 +30,8 @@ func OfferLogin(ctx context.Context, o agent.LaunchOptions, args []string, ps []
 	if o.PrintEnv || agent.IsHeadless(args) || !canPrompt() {
 		return
 	}
-	seen := map[string]bool{}
-	var todo []*providers.Provider
-	for _, p := range ps {
-		if p == nil || seen[p.Name] {
-			continue
-		}
-		if p.Auth.Method() == providers.AuthCLI && p.Auth.Login == "" { // Claude Code shows its own login screen
-			continue
-		}
-		seen[p.Name] = true
-		todo = append(todo, p)
-	}
-	checks := make([]checkResult, len(todo))
-	var wg sync.WaitGroup
-	for i, p := range todo {
-		wg.Go(func() {
-			s := signinFor(p)
-			v, d, ok := checkSignin(ctx, s)
-			checks[i] = checkResult{s, v, d, ok}
-		})
-	}
-	wg.Wait()
+	todo := loginCandidates(ps)
+	checks := runChecks(ctx, todo)
 	in := bufio.NewReader(loginIn) // one reader: a per-provider reader would swallow the next prompt's answer
 	loggedIn := false
 	for i, p := range todo {
@@ -66,6 +46,38 @@ func OfferLogin(ctx context.Context, o agent.LaunchOptions, args []string, ps []
 			preflight.DiscoverAfterAuth(reg)
 		}
 	}
+}
+
+// loginCandidates dedups ps by name and drops nil entries and Claude Code's own login screen.
+func loginCandidates(ps []*providers.Provider) []*providers.Provider {
+	seen := map[string]bool{}
+	var todo []*providers.Provider
+	for _, p := range ps {
+		if p == nil || seen[p.Name] {
+			continue
+		}
+		if p.Auth.Method() == providers.AuthCLI && p.Auth.Login == "" { // Claude Code shows its own login screen
+			continue
+		}
+		seen[p.Name] = true
+		todo = append(todo, p)
+	}
+	return todo
+}
+
+// runChecks runs every provider's sign-in check concurrently, results in todo order.
+func runChecks(ctx context.Context, todo []*providers.Provider) []checkResult {
+	checks := make([]checkResult, len(todo))
+	var wg sync.WaitGroup
+	for i, p := range todo {
+		wg.Go(func() {
+			s := signinFor(p)
+			v, d, ok := checkSignin(ctx, s)
+			checks[i] = checkResult{s, v, d, ok}
+		})
+	}
+	wg.Wait()
+	return checks
 }
 
 // checkResult is one provider's concurrent pre-launch check.
@@ -86,16 +98,8 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader,
 	if !v.Condemns() {
 		return false, nil
 	}
-	fmt.Fprintf(loginOut, "%s: login required. Log in now? [Y/n] ", p.Name)
-	line, rerr := in.ReadString('\n')
-	if rerr != nil && strings.TrimSpace(line) == "" {
-		line = "n" // EOF or a read error is no consent to open a login
-	}
-	if a := strings.ToLower(strings.TrimSpace(line)); a != "" && !strings.HasPrefix(a, "y") {
-		if p.Auth.Method() == "" && p.CLIProfile != "" {
-			return false, fmt.Errorf("login skipped; requests will fail until `databricks auth login -p %s` (%s)", p.CLIProfile, v)
-		}
-		return false, fmt.Errorf("login skipped; requests will fail until `claude-code configure provider --all %s` (%s)", p.Name, v)
+	if !consentToLogin(p, in) {
+		return false, loginSkipped(p, v)
 	}
 	if err := s.Login(ctx, loginIn, loginOut); err != nil {
 		return false, fmt.Errorf("login: %w", err)
@@ -109,6 +113,25 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader,
 		return true, fmt.Errorf("still %s after login: %s", v, detail)
 	}
 	return true, nil
+}
+
+// consentToLogin prompts for a login; EOF or a read error is no consent, and an empty answer means yes.
+func consentToLogin(p *providers.Provider, in *bufio.Reader) bool {
+	fmt.Fprintf(loginOut, "%s: login required. Log in now? [Y/n] ", p.Name)
+	line, rerr := in.ReadString('\n')
+	if rerr != nil && strings.TrimSpace(line) == "" {
+		line = "n" // EOF or a read error is no consent to open a login
+	}
+	a := strings.ToLower(strings.TrimSpace(line))
+	return a == "" || strings.HasPrefix(a, "y")
+}
+
+// loginSkipped is the warning for a declined login, naming the manual command.
+func loginSkipped(p *providers.Provider, v providers.AuthVerdict) error {
+	if p.Auth.Method() == "" && p.CLIProfile != "" {
+		return fmt.Errorf("login skipped; requests will fail until `databricks auth login -p %s` (%s)", p.CLIProfile, v)
+	}
+	return fmt.Errorf("login skipped; requests will fail until `claude-code configure provider --all %s` (%s)", p.Name, v)
 }
 
 // checkSignin runs the check, giving up after credCheckTimeout (ok=false); an abandoned one dies with the exec.

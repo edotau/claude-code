@@ -35,6 +35,21 @@ func TestParseAndKnobs(t *testing.T) {
 	}
 }
 
+func TestThinkingKnobsOpus4(t *testing.T) {
+	cases := []struct{ id, tokens, disableAdaptive string }{
+		{"claude-opus-4-6", "31999", "1"},
+		{"claude-opus-4-7[1m]", "64000", ""},
+		{"claude-opus-4-7", "31999", ""},
+		{"claude-opus-4-5", "31999", ""},
+	}
+	for _, c := range cases {
+		tokens, disable := ThinkingKnobs(c.id)
+		if tokens != c.tokens || disable != c.disableAdaptive {
+			t.Errorf("ThinkingKnobs(%q) = %q, %q; want %q, %q", c.id, tokens, disable, c.tokens, c.disableAdaptive)
+		}
+	}
+}
+
 func TestUseCase(t *testing.T) {
 	cases := []struct {
 		id, name string
@@ -65,6 +80,7 @@ func TestUseCase(t *testing.T) {
 		{"text-embedding-3-large", "", UseEmbedding},
 		{"whisper-1", "", UseSpeech},
 		{"dall-e-3", "", UseImage},
+		{"veo-3", "", UseVideo},
 		// Name-only signal still resolves a kind when the id alone carries nothing.
 		{"some-vendor-id-123", "Veo 3 Video Generation", UseVideo},
 		// Unknown id and name: General, never empty.

@@ -19,30 +19,22 @@ var bearerAuth = regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`)
 // Looks reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
 // references, file paths, and obvious placeholders are never flagged.
 func Looks(val string) bool {
-	switch {
-	case val == "":
-		return false
-	case strings.HasPrefix(val, "$"): // ${ENV} reference
-		return false
-	case strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/"): // file path
-		return false
-	case strings.Contains(val, "PLACEHOLDER") || strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx"):
-		return false
-	case HasGitHubPrefix(val):
-		return true
-	case matchSlack(val):
-		return true
-	case strings.HasPrefix(val, "AKIA"): // AWS
-		return true
-	case strings.HasPrefix(val, "dapi"): // Databricks PAT
-		return true
-	case strings.HasPrefix(val, "sk-"): // OpenAI-style
-		return true
-	case bearerToken.MatchString(val):
-		return true
-	default:
+	if val == "" || notCredentialShaped(val) {
 		return false
 	}
+	return HasGitHubPrefix(val) || matchSlack(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-") || bearerToken.MatchString(val)
+}
+
+// notCredentialShaped reports an env reference, file path or obvious placeholder.
+func notCredentialShaped(val string) bool {
+	return strings.HasPrefix(val, "$") || // ${ENV} reference
+		strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/") || // file path
+		strings.Contains(val, "PLACEHOLDER") || strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx")
+}
+
+// hasAnyPrefix reports whether v starts with any of prefixes (AWS, Databricks PAT, OpenAI-style).
+func hasAnyPrefix(v string, prefixes ...string) bool {
+	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(v, p) })
 }
 
 // GitHubPrefixes are every GitHub token family: OAuth, PAT, user-to-server, server-to-server, refresh, fine-grained.
@@ -50,7 +42,7 @@ var GitHubPrefixes = []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pa
 
 // HasGitHubPrefix reports a value starting with any GitHub token prefix.
 func HasGitHubPrefix(v string) bool {
-	return slices.ContainsFunc(GitHubPrefixes, func(p string) bool { return strings.HasPrefix(v, p) })
+	return hasAnyPrefix(v, GitHubPrefixes...)
 }
 
 // GitHubPattern is a regex alternation matching any GitHub token with at least minLen body characters.

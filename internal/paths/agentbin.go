@@ -32,33 +32,49 @@ func AgentBin(name string) (string, error) {
 		return "", fmt.Errorf("unknown vendor %q", name)
 	}
 	p := filepath.Join(BinDir(), bin)
+	if err := checkVendorLink(bin, p); err != nil {
+		return "", err
+	}
+	if err := checkVendorExec(bin, p); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+// checkVendorLink rejects a missing, broken or retired-shim entry at p.
+func checkVendorLink(bin, p string) error {
 	fi, err := os.Lstat(p)
 	if os.IsNotExist(err) {
-		return "", fmt.Errorf("%s: not installed at %s (claude-code install --tools=%s)", bin, p, Vendors[bin])
+		return fmt.Errorf("%s: not installed at %s (claude-code install --tools=%s)", bin, p, Vendors[bin])
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
 	real, err := filepath.EvalSymlinks(p)
 	if fi.Mode()&os.ModeSymlink != 0 && os.IsNotExist(err) {
-		return "", fmt.Errorf("%s: %s is a broken link (run claude-code install)", bin, p)
+		return fmt.Errorf("%s: %s is a broken link (run claude-code install)", bin, p)
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
 	self, _ := os.Executable()
 	self, _ = filepath.EvalSymlinks(self)
 	if real == self || filepath.Base(real) == "claude-code" {
-		return "", fmt.Errorf("%s: %s is the retired claude-code shim (run claude-code install)", bin, p)
+		return fmt.Errorf("%s: %s is the retired claude-code shim (run claude-code install)", bin, p)
 	}
-	fi, err = os.Stat(p)
+	return nil
+}
+
+// checkVendorExec rejects a p that is not an executable regular file.
+func checkVendorExec(bin, p string) error {
+	fi, err := os.Stat(p)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if fi.IsDir() || fi.Mode()&0o111 == 0 {
-		return "", fmt.Errorf("%s: %s is not executable", bin, p)
+		return fmt.Errorf("%s: %s is not executable", bin, p)
 	}
-	return p, nil
+	return nil
 }
 
 // LookPathReal finds name on PATH skipping BinDir and any symlink to the running executable, so a

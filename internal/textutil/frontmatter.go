@@ -29,45 +29,55 @@ func ParseFrontmatter(content string) (map[string]any, string) {
 	yaml := strings.TrimSuffix(strings.TrimPrefix(string(prefix), "---\n"), "---\n")
 	body := strings.TrimSpace(string(rest))
 
-	fm := map[string]any{}
-	currentKey := ""
-	var currentList []string
-	haveList := false
-
+	p := fmParser{fm: map[string]any{}}
 	for line := range strings.SplitSeq(yaml, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if currentKey != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
-			if haveList {
-				if lm := fmRes().list.FindStringSubmatch(line); lm != nil {
-					currentList = append(currentList, stripQuotes(strings.TrimSpace(lm[1])))
-					fm[currentKey] = currentList
-				}
-				continue
-			}
-			existing, isString := fm[currentKey].(string)
-			if !isString {
-				continue
-			}
-			fm[currentKey] = strings.TrimSpace(existing + " " + strings.TrimSpace(line))
-			continue
-		}
-
-		kv := fmRes().kv.FindStringSubmatch(line)
-		if kv == nil {
-			currentKey, currentList, haveList = "", nil, false
-			continue
-		}
-		key, value := kv[1], strings.TrimSpace(kv[2])
-		currentKey, currentList, haveList = key, nil, false
-		fm[key] = parseScalar(value)
-		if value == "" {
-			currentList, haveList = []string{}, true
-			fm[key] = currentList
+		if strings.TrimSpace(line) != "" {
+			p.feed(line)
 		}
 	}
-	return fm, body
+	return p.fm, body
+}
+
+// fmParser is the line-by-line frontmatter state: the open key and, for a block list, its items so far.
+type fmParser struct {
+	fm       map[string]any
+	key      string
+	list     []string
+	haveList bool
+}
+
+// feed consumes one non-blank frontmatter line.
+func (p *fmParser) feed(line string) {
+	if p.key != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+		p.continuation(line)
+		return
+	}
+	kv := fmRes().kv.FindStringSubmatch(line)
+	if kv == nil {
+		p.key, p.list, p.haveList = "", nil, false
+		return
+	}
+	key, value := kv[1], strings.TrimSpace(kv[2])
+	p.key, p.list, p.haveList = key, nil, false
+	p.fm[key] = parseScalar(value)
+	if value == "" {
+		p.list, p.haveList = []string{}, true
+		p.fm[key] = p.list
+	}
+}
+
+// continuation handles an indented line: a list item under a block list, else a folded string continuation.
+func (p *fmParser) continuation(line string) {
+	if p.haveList {
+		if lm := fmRes().list.FindStringSubmatch(line); lm != nil {
+			p.list = append(p.list, stripQuotes(strings.TrimSpace(lm[1])))
+			p.fm[p.key] = p.list
+		}
+		return
+	}
+	if existing, isString := p.fm[p.key].(string); isString {
+		p.fm[p.key] = strings.TrimSpace(existing + " " + strings.TrimSpace(line))
+	}
 }
 
 // stripFrontMatter splits a leading "---\n" ... "\n---\n" block (delimiters included) from source; prefix is nil if absent.
