@@ -28,7 +28,7 @@ func Split(ctx context.Context, c *agent.Client, question string) []string {
 		return []string{question}
 	}
 	var parts []string
-	for _, l := range strings.Split(res.Answer, "\n") {
+	for l := range strings.SplitSeq(res.Answer, "\n") {
 		if l = listMarker.ReplaceAllString(strings.TrimSpace(l), ""); l != "" && len(parts) < MaxParts {
 			parts = append(parts, l)
 		}

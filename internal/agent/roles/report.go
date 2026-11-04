@@ -39,11 +39,9 @@ func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, pro
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for i, leg := range legs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			rep.Legs[i] = runLeg(ctx, c, leg, progress, &mu)
-		}()
+		})
 	}
 	wg.Wait()
 	rep.Status = status(rep.Legs)
