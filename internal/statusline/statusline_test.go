@@ -57,16 +57,16 @@ func registryDefault(t *testing.T) string {
 
 func sample() values {
 	return values{userHost: "tester", path: "~/proj", model: "Opus 5 [1m]", provider: "openrouter",
-		proxy: "proxy:18765", branch: "main", total: "total:1.23M", duration: "12m", contextPct: 42, adds: 10, dels: 3}
+		proxy: "proxy:18765", branch: "main", total: "1.23M", duration: "12m", contextPct: 42, adds: 10, dels: 3}
 }
 
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | openrouter · Opus 5 [1m] · proxy:18765 · ██████████ 42% · total:1.23M · 12m │ main · +10 -3",
-		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  proxy:18765  42%  total:1.23M  12m   main  +10 -3",
-		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( total:1.23M ) ( 12m ) (  main ) +10 -3",
-		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  total:1.23M  ·  12m  ·   main  +10 -3",
+		"gradient":  "tester:~/proj | openrouter · Opus 5 [1m] · proxy:18765 · █████ 42% 1.23M · 12m │ main · +10 -3",
+		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  proxy:18765  42%  1.23M  12m   main  +10 -3",
+		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( 1.23M ) ( 12m ) (  main ) +10 -3",
+		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  1.23M  ·  12m  ·   main  +10 -3",
 	}
 	for style, want := range cases {
 		cfg := embeddedConfig()
@@ -100,7 +100,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 		t.Fatalf("want header + value rows, got %q", lines)
 	}
 	hdr, val := []rune(lines[0]), []rune(lines[1])
-	if !strings.HasPrefix(lines[1], "tester:~/proj | Opus 5 [1m]") || !strings.HasSuffix(lines[1], "██████████ 42%") {
+	if !strings.HasPrefix(lines[1], "tester:~/proj | Opus 5 [1m]") || !strings.HasSuffix(lines[1], "█████ 42%") {
 		t.Errorf("value row %q", lines[1])
 	}
 	if len(val) != len("tester:~/proj | ")+100 {
@@ -341,7 +341,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( anthropic·max ) ( Opus 5 ) ( 0% ) ( total:51.4k ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
+	want := "tester:/nowhere/proj | ( anthropic·max ) ( Opus 5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -373,13 +373,13 @@ func TestTotalSegment(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"session_id":"s1","context_window":{"total_input_tokens":41200,"total_output_tokens":4800}}`), &in); err != nil {
 		t.Fatal(err)
 	}
-	if got := totalSegment(in); got != "total:46.0k" {
-		t.Errorf("payload only = %q, want total:46.0k", got)
+	if got := totalSegment(in); got != "46.0k" {
+		t.Errorf("payload only = %q, want 46.0k", got)
 	}
 	tokenledger.Append(tokenledger.Entry{Session: "s1", Input: 1000, Output: 500})
 	tokenledger.Append(tokenledger.Entry{Session: "other", Input: 9_000_000})
-	if got := totalSegment(in); got != "total:47.5k" {
-		t.Errorf("with ledger = %q, want total:47.5k", got)
+	if got := totalSegment(in); got != "47.5k" {
+		t.Errorf("with ledger = %q, want 47.5k", got)
 	}
 	if got := totalSegment(Input{SessionID: "none"}); got != "" {
 		t.Errorf("zero total = %q, want empty", got)

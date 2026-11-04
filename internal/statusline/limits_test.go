@@ -28,7 +28,7 @@ func writeLimitsCache(t *testing.T, fetchedAt time.Time, fiveUtil, sevenUtil flo
 	}
 }
 
-// The payload's own rate_limits wins and renders "5h:N% 7d:N%".
+// The payload's own rate_limits wins and renders only "7d:N%".
 func TestLimitsSegmentFromPayload(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(time.Hour).Unix()
@@ -36,25 +36,20 @@ func TestLimitsSegmentFromPayload(t *testing.T) {
 		"rate_limits":{"five_hour":{"used_percentage":23.4,"resets_at":%d},"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`,
 		future, future)
 	got := plain(Render([]byte(payload), "gradient"))
-	if want := "5h:23% 7d:41%"; !strings.Contains(got, want) {
-		t.Errorf("want %q in %q", want, got)
+	if want := "7d:41%"; !strings.Contains(got, want) || strings.Contains(got, "5h:") {
+		t.Errorf("want only %q in %q", want, got)
 	}
 }
 
-// A payload window whose reset already passed is omitted, even while the other window is fresh.
+// A payload 7d window whose reset already passed is omitted.
 func TestLimitsSegmentPayloadWindowExpired(t *testing.T) {
 	hermetic(t)
 	past := time.Now().Add(-time.Hour).Unix()
-	future := time.Now().Add(time.Hour).Unix()
 	payload := fmt.Sprintf(`{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"},
-		"rate_limits":{"five_hour":{"used_percentage":23.4,"resets_at":%d},"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`,
-		past, future)
+		"rate_limits":{"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`, past)
 	got := plain(Render([]byte(payload), "gradient"))
-	if strings.Contains(got, "5h:") {
+	if strings.Contains(got, "7d:") {
 		t.Errorf("expired window rendered: %q", got)
-	}
-	if !strings.Contains(got, "7d:41%") {
-		t.Errorf("fresh window dropped alongside the expired one: %q", got)
 	}
 }
 
@@ -64,8 +59,8 @@ func TestLimitsSegmentFromCache(t *testing.T) {
 	future := time.Now().Add(24 * time.Hour)
 	writeLimitsCache(t, time.Now(), 23, 41, future, future)
 	got := plain(Render([]byte(runningPayload), "gradient"))
-	if want := "5h:23% 7d:41%"; !strings.Contains(got, want) {
-		t.Errorf("want %q in %q", want, got)
+	if want := "7d:41%"; !strings.Contains(got, want) || strings.Contains(got, "5h:") {
+		t.Errorf("want only %q in %q", want, got)
 	}
 }
 
@@ -89,21 +84,21 @@ func TestLimitsSegmentEmptyWhenNeitherSource(t *testing.T) {
 	}
 }
 
-// tokenLeft boundaries: expired at 0, "<1m" under a minute, then whole minutes, then hours and minutes.
+// tokenLeft boundaries: expired at 0, "<1min" under a minute, then whole minutes, then hours and minutes.
 func TestTokenLeftBoundaries(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	for left, want := range map[time.Duration]string{
-		-time.Second:                    "oauth:exp",
-		0:                               "oauth:exp",
-		time.Second:                     "oauth:<1m",
-		59 * time.Second:                "oauth:<1m",
-		time.Minute:                     "oauth:1m",
-		42 * time.Minute:                "oauth:42m",
-		59*time.Minute + 59*time.Second: "oauth:59m",
-		time.Hour:                       "oauth:1h00m",
-		65 * time.Minute:                "oauth:1h05m",
+		-time.Second:                    "u2m:exp",
+		0:                               "u2m:exp",
+		time.Second:                     "u2m:<1min",
+		59 * time.Second:                "u2m:<1min",
+		time.Minute:                     "u2m:1min",
+		42 * time.Minute:                "u2m:42min",
+		59*time.Minute + 59*time.Second: "u2m:59min",
+		time.Hour:                       "u2m:1h00min",
+		65 * time.Minute:                "u2m:1h05min",
 	} {
-		if got := tokenLeft("oauth", now.Add(left), now); got != want {
+		if got := tokenLeft("u2m", now.Add(left), now); got != want {
 			t.Errorf("tokenLeft(+%v) = %q, want %q", left, got, want)
 		}
 	}
@@ -137,19 +132,19 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
 	writeTokenExpiry(t, "max", time.Now().Add(42*time.Minute))
 
-	if got := limitsSegment(in, "dbx-u2m"); got != "oauth:42m" {
-		t.Errorf("oauth profile with a record: %q, want oauth:42m", got)
+	if got := limitsSegment(in, "dbx-u2m"); got != "u2m:42min" {
+		t.Errorf("oauth profile with a record: %q, want u2m:42min", got)
 	}
-	if got := limitsSegment(in, "dbx-m2m"); got != "m2m:1h05m" {
+	if got := limitsSegment(in, "dbx-m2m"); got != "m2m:1h05min" {
 		t.Errorf("m2m profile with a record: %q, want m2m:1h05m", got)
 	}
-	if got := limitsSegment(in, "dbx-key"); got != "oauth:42m" {
-		t.Errorf("key+command profile with a record: %q, want oauth:42m", got)
+	if got := limitsSegment(in, "dbx-key"); got != "u2m:42min" {
+		t.Errorf("key+command profile with a record: %q, want u2m:42min", got)
 	}
 	if got := limitsSegment(in, "openai"); got != "" {
 		t.Errorf("non-subscription profile without a record: %q, want empty", got)
 	}
-	if got := limitsSegment(in, "max"); got != "5h:23% 7d:41%" {
+	if got := limitsSegment(in, "max"); got != "7d:41%" {
 		t.Errorf("subscription session: %q, want 5h/7d only, even with an expiry record", got)
 	}
 	if got := limitsSegment(in, "no-such-provider"); got != "" {
@@ -184,7 +179,7 @@ func useSessions(t *testing.T, rows ...*providers.Provider) {
 	registry = func() *providers.Registry { return reg }
 }
 
-// A databricks key+command session never shows 5h/7d from a fresh subscription cache; with a record it shows oauth, never tok.
+// A databricks key+command session never shows 5h/7d from a fresh subscription cache; with a record it shows u2m, never tok.
 func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour)
@@ -196,8 +191,8 @@ func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
 	}
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
 	got := limitsSegment(Input{}, "dbx-key")
-	if got != "oauth:42m" || strings.Contains(got, "tok") {
-		t.Errorf("with record: %q, want oauth:42m", got)
+	if got != "u2m:42min" || strings.Contains(got, "tok") {
+		t.Errorf("with record: %q, want u2m:42min", got)
 	}
 }
 
