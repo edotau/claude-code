@@ -91,35 +91,38 @@ func editSecret(d *dialog, s configure.TrackedSecret) {
 		acts = append(acts, uidialog.Row{Name: o.Action, Detail: o.Desc, Run: func() bool { return runAuthOption(d, kt, o) }})
 	}
 	if s.Source == "vault" {
-		acts = append(acts, uidialog.Row{Name: "Delete", Detail: "remove from the vault", Run: func() bool {
-			if !d.shell().Confirm("Delete " + s.Name + "?") {
-				return false
-			}
-			if d.pending != nil {
-				if _, staged := d.pending[s.Name]; staged {
-					restoreStaged(d, s.Name, map[string]stagedKey{}) // drop any staged Store of the same name
-				}
-				if d.pendingDeletes == nil {
-					d.pendingDeletes = map[string]bool{}
-				}
-				d.pendingDeletes[s.Name] = true
-				d.printf("staged delete of %s · Submit removes it from the vault\n", s.Name)
-				return true
-			}
-			if err := vault.Delete(s.Name); err != nil {
-				d.printf("%s: %v\n", s.Name, err)
-				return false
-			}
-			audit.Log(audit.SecretDelete, s.Name, "")
-			d.printf("deleted %s\n", s.Name)
-			return true
-		}})
+		acts = append(acts, uidialog.Row{Name: "Delete", Detail: "remove from the vault", Run: func() bool { return deleteSecret(d, s.Name) }})
 	}
 	idx, err := d.shell().Pick(s.Name+" ("+sourceLabel(s.Source, s.Shadowed)+")", uidialog.Pairs(acts))
 	if err != nil || idx < 0 || idx >= len(acts) {
 		return
 	}
 	acts[idx].Run()
+}
+
+// deleteSecret confirms, then deletes name from the vault, or stages the delete inside the configure menu.
+func deleteSecret(d *dialog, name string) bool {
+	if !d.shell().Confirm("Delete " + name + "?") {
+		return false
+	}
+	if d.pending != nil {
+		if _, staged := d.pending[name]; staged {
+			restoreStaged(d, name, map[string]stagedKey{}) // drop any staged Store of the same name
+		}
+		if d.pendingDeletes == nil {
+			d.pendingDeletes = map[string]bool{}
+		}
+		d.pendingDeletes[name] = true
+		d.printf("staged delete of %s · Submit removes it from the vault\n", name)
+		return true
+	}
+	if err := vault.Delete(name); err != nil {
+		d.printf("%s: %v\n", name, err)
+		return false
+	}
+	audit.Log(audit.SecretDelete, name, "")
+	d.printf("deleted %s\n", name)
+	return true
 }
 
 // addCustom reads a NAME (visible) and its value (hidden); a pasted NAME=value or `export NAME="value"` line is
@@ -175,17 +178,7 @@ func storeValue(d *dialog, name, val string) bool {
 // now (y) or drop it (N); keys staged before the page opened are left for configure's own Submit. Staged
 // deletes (editSecret's Delete, in staged mode) are decided in the same prompt.
 func confirmPageKeys(d *dialog, before map[string]stagedKey) {
-	var page []string
-	for name, k := range d.pending {
-		if prev, ok := before[name]; ok && prev.val == k.val {
-			continue
-		}
-		if v, _, ok := vault.Get(name); ok && v == k.val && k.had && k.prev == v {
-			continue // re-entered the value already stored: not a change
-		}
-		page = append(page, name)
-	}
-	slices.Sort(page)
+	page := changedPageKeys(d, before)
 	deletes := slices.Sorted(maps.Keys(d.pendingDeletes))
 	if len(page) == 0 && len(deletes) == 0 {
 		return
@@ -217,6 +210,22 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	}
 	d.pendingDeletes = nil
 	d.changed = true
+}
+
+// changedPageKeys lists, sorted, the keys staged during this page: not as before it, and not the value already stored.
+func changedPageKeys(d *dialog, before map[string]stagedKey) []string {
+	var page []string
+	for name, k := range d.pending {
+		if prev, ok := before[name]; ok && prev.val == k.val {
+			continue
+		}
+		if v, _, ok := vault.Get(name); ok && v == k.val && k.had && k.prev == v {
+			continue // re-entered the value already stored: not a change
+		}
+		page = append(page, name)
+	}
+	slices.Sort(page)
+	return page
 }
 
 // restoreStaged undoes one page-staged key: back to its pre-page staging, or out of pending with its env restored.

@@ -85,6 +85,19 @@ var (
 )
 
 func (o Options) validate() error {
+	if err := o.checkBasics(); err != nil {
+		return err
+	}
+	for _, kv := range o.Set {
+		if err := checkSetPair(kv); err != nil {
+			return err
+		}
+	}
+	return o.checkModel()
+}
+
+// checkBasics validates the target, provider row, auth mode, host and harness prerequisites, in that order.
+func (o Options) checkBasics() error {
 	if o.Target != TargetClaude && o.Target != TargetCodex {
 		return fmt.Errorf("target must be claude or codex (got %q)", o.Target)
 	}
@@ -100,19 +113,22 @@ func (o Options) validate() error {
 	if o.Auth == AuthHarness && (o.P.Name == "" || o.Self == "") {
 		return errors.New("--auth harness needs a named provider and the claude-code binary path")
 	}
-	for _, kv := range o.Set {
-		k, _, ok := strings.Cut(kv, "=")
-		if !ok || k == "" {
-			return fmt.Errorf("--set wants K=V (got %q)", kv)
-		}
-		if !setKeyRE.MatchString(k) {
-			return fmt.Errorf("--set %q: keys must match [A-Za-z0-9_.-]+ (a bare TOML/env key)", k)
-		}
-		if CredentialShaped(k) {
-			return fmt.Errorf("--set %s: credential keys are refused; auth comes from the token helper", k)
-		}
+	return nil
+}
+
+// checkSetPair validates one --set K=V pair: shape, key charset, and no credential-shaped key.
+func checkSetPair(kv string) error {
+	k, _, ok := strings.Cut(kv, "=")
+	if !ok || k == "" {
+		return fmt.Errorf("--set wants K=V (got %q)", kv)
 	}
-	return o.checkModel()
+	if !setKeyRE.MatchString(k) {
+		return fmt.Errorf("--set %q: keys must match [A-Za-z0-9_.-]+ (a bare TOML/env key)", k)
+	}
+	if CredentialShaped(k) {
+		return fmt.Errorf("--set %s: credential keys are refused; auth comes from the token helper", k)
+	}
+	return nil
 }
 
 // checkModel enforces which models each target can reach without the router.
@@ -192,20 +208,40 @@ func renderClaude(o Options) (Result, error) {
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_GATEWAY", "ANTHROPIC_AUTH_TOKEN"} {
 		delete(env, k)
 	}
+	if err := claudeProviderEnv(env, o); err != nil {
+		return Result{}, err
+	}
+	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
+	if o.Auth == AuthHarness {
+		doc["apiKeyHelper"] = textutil.QuoteSH(o.Self) + " resolve --profile " + textutil.QuoteSH(o.P.Name)
+	}
+	for _, kv := range o.Set {
+		k, v, _ := strings.Cut(kv, "=")
+		env[k] = v
+	}
+	for _, k := range o.Unset {
+		delete(env, k)
+	}
+	delete(env, "ANTHROPIC_AUTH_TOKEN")
+	b, err := json.MarshalIndent(doc, "", "  ")
+	return Result{Text: string(b) + "\n"}, err
+}
+
+// claudeProviderEnv layers the provider's route, headers, models and env onto the template env block.
+func claudeProviderEnv(env map[string]any, o Options) error {
 	p := o.P
 	base, ok := p.Route(providers.ProtocolAnthropic)
 	if !ok {
-		return Result{}, fmt.Errorf("provider %q has no Anthropic route", p.Name)
+		return fmt.Errorf("provider %q has no Anthropic route", p.Name)
 	}
 	env["ANTHROPIC_BASE_URL"] = base
 	if err := checkHeaders(p.Headers); err != nil {
-		return Result{}, err
+		return err
 	}
 	if h := headerLines(p.Headers); h != "" {
 		env["ANTHROPIC_CUSTOM_HEADERS"] = h
 	}
-	gw := p.Options.Wire == WireAIGateway
-	if gw {
+	if p.Options.Wire == WireAIGateway {
 		env["CLAUDE_CODE_USE_GATEWAY"] = "1"
 	}
 	if !p.Serves1M() {
@@ -222,20 +258,7 @@ func renderClaude(o Options) (Result, error) {
 	}
 	env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
 	env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = helperTTL
-	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
-	if o.Auth == AuthHarness {
-		doc["apiKeyHelper"] = textutil.QuoteSH(o.Self) + " resolve --profile " + textutil.QuoteSH(p.Name)
-	}
-	for _, kv := range o.Set {
-		k, v, _ := strings.Cut(kv, "=")
-		env[k] = v
-	}
-	for _, k := range o.Unset {
-		delete(env, k)
-	}
-	delete(env, "ANTHROPIC_AUTH_TOKEN")
-	b, err := json.MarshalIndent(doc, "", "  ")
-	return Result{Text: string(b) + "\n"}, err
+	return nil
 }
 
 // tomlNumberRE is a TOML decimal integer or float; Go's ParseFloat also takes Infinity and hex floats, TOML does not.
@@ -331,19 +354,25 @@ func editTopLevel(head string, o Options) string {
 	}
 	for _, kv := range o.Set {
 		k, v, _ := strings.Cut(kv, "=")
-		replaced := false
-		for j, l := range lines {
-			if strings.Contains(l, "=") && keyOf(l) == k {
-				lines[j], replaced = k+" = "+tomlValue(v), true
-			}
-		}
-		if !replaced {
-			lines = append(lines, k+" = "+tomlValue(v))
-		}
+		lines = setTopLevel(lines, k, v)
 	}
 	out := strings.Join(lines, "\n") + "\n"
 	if rest != "" {
 		out += "\n" + rest
 	}
 	return out
+}
+
+// setTopLevel rewrites every `k = ...` line to the TOML value v, or appends the pair when none exists.
+func setTopLevel(lines []string, k, v string) []string {
+	replaced := false
+	for j, l := range lines {
+		if strings.Contains(l, "=") && keyOf(l) == k {
+			lines[j], replaced = k+" = "+tomlValue(v), true
+		}
+	}
+	if !replaced {
+		lines = append(lines, k+" = "+tomlValue(v))
+	}
+	return lines
 }

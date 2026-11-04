@@ -37,24 +37,14 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 		}
 		return dest, nil // `--worktree <name>` again resumes the existing checkout; ResolveWorktree already verified it's ours
 	}
-	branch := opt.Branch
-	if branch == "" {
-		branch = "worktree-" + name
-	}
-	if gitCmd(context.Background(), "check-ref-format", "--branch", branch).Run() != nil {
-		return "", fmt.Errorf("%q is not a valid branch name; pass --branch <name>", branch)
+	branch, err := createBranchName(name, opt.Branch)
+	if err != nil {
+		return "", err
 	}
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
 		return "", err
 	}
-	args := []string{"-C", repo.Main, "worktree", "add", dest}
-	baseRef := branch
-	if branchExists(repo.Main, branch) {
-		args = append(args, branch) // reuse an existing branch rather than failing on -b
-	} else {
-		baseRef = createBase(repo.Main, log)
-		args = append(args, "--no-track", "-b", branch, baseRef) // no upstream: branch -d checks merged into HEAD
-	}
+	args, baseRef := worktreeAddArgs(repo.Main, dest, branch, log)
 	base, baseErr := gitCmd(context.Background(), "-C", repo.Main, "rev-parse", "--verify", baseRef+"^{commit}").Output()
 	if out, err := gitCmd(context.Background(), args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
@@ -68,6 +58,28 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 		fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
 	}
 	return dest, nil
+}
+
+// createBranchName is the branch a new worktree name gets: want, else worktree-<name>; it must be a valid ref name.
+func createBranchName(name, want string) (string, error) {
+	branch := want
+	if branch == "" {
+		branch = "worktree-" + name
+	}
+	if gitCmd(context.Background(), "check-ref-format", "--branch", branch).Run() != nil {
+		return "", fmt.Errorf("%q is not a valid branch name; pass --branch <name>", branch)
+	}
+	return branch, nil
+}
+
+// worktreeAddArgs builds the `git worktree add` arguments for branch and the ref the worktree starts from.
+func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, baseRef string) {
+	args = []string{"-C", main, "worktree", "add", dest}
+	if branchExists(main, branch) {
+		return append(args, branch), branch // reuse an existing branch rather than failing on -b
+	}
+	baseRef = createBase(main, log)
+	return append(args, "--no-track", "-b", branch, baseRef), baseRef // no upstream: branch -d checks merged into HEAD
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {

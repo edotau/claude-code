@@ -184,6 +184,25 @@ type block struct {
 	lines []string
 }
 
+// detachHeaderPrefix removes from prev the pairing comment (and blank lines after it) that belongs to the next
+// header and returns those lines; without a pairing comment the trailing blanks stay with prev's body.
+func detachHeaderPrefix(prev *block) []string {
+	start := len(prev.lines)
+	for start > 0 && strings.TrimSpace(prev.lines[start-1]) == "" {
+		start--
+	}
+	if start > 0 {
+		if _, ok := pairingComment(prev.lines[start-1]); ok {
+			start--
+		} else {
+			start = len(prev.lines)
+		}
+	}
+	prefix := slices.Clone(prev.lines[start:])
+	prev.lines = prev.lines[:start]
+	return prefix
+}
+
 func splitBlocks(text string) []block {
 	blocks := []block{{}}
 	for _, l := range strings.SplitAfter(text, "\n") {
@@ -191,24 +210,9 @@ func splitBlocks(text string) []block {
 			continue
 		}
 		t := strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))
-		if strings.HasPrefix(t, "[") {
-			if name, ok := headerName(t); ok {
-				prev := &blocks[len(blocks)-1]
-				start := len(prev.lines)
-				for start > 0 && strings.TrimSpace(prev.lines[start-1]) == "" {
-					start--
-				}
-				if start > 0 {
-					if _, ok := pairingComment(prev.lines[start-1]); ok {
-						start--
-					} else {
-						start = len(prev.lines)
-					}
-				}
-				prefix := slices.Clone(prev.lines[start:])
-				prev.lines = prev.lines[:start]
-				blocks = append(blocks, block{name: name, lines: prefix})
-			}
+		if name, ok := headerName(t); ok {
+			prefix := detachHeaderPrefix(&blocks[len(blocks)-1])
+			blocks = append(blocks, block{name: name, lines: prefix})
 		}
 		last := &blocks[len(blocks)-1]
 		last.lines = append(last.lines, l)
@@ -227,44 +231,56 @@ func Merge(existing string, rows []ExportRow, force bool) (string, []string) {
 	for _, s := range secs {
 		have[s.name] = s
 	}
-	blocks := splitBlocks(existing)
-	var notes []string
-	var appended []string
+	m := &merger{have: have, blocks: splitBlocks(existing), force: force}
 	for _, r := range rows {
-		sig, exists := have[r.Section]
-		if exists && sig.pairSet {
-			r.Pair, r.PairSet = sig.pair, true
-		}
-		switch {
-		case isReserved(r.Section):
-			notes = append(notes, "keep ["+r.Section+"]: reserved, never written")
-		case !exists:
-			appended = append(appended, sectionText(r))
-			notes = append(notes, "add ["+r.Section+"]")
-		case sig.keys["auth_type"] == CLIAuthU2M:
-			notes = append(notes, "keep ["+r.Section+"]: an existing databricks-cli login section is never overwritten")
-		case !force:
-			notes = append(notes, "keep ["+r.Section+"]: exists (--force replaces it)")
-		default:
-			blocks = replaceBlocks(blocks, r.Section, sectionText(r))
-			notes = append(notes, "replace ["+r.Section+"]")
-		}
+		m.apply(r)
 	}
 	var b strings.Builder
-	for _, bl := range blocks {
+	for _, bl := range m.blocks {
 		b.WriteString(strings.Join(bl.lines, ""))
 	}
 	out := b.String()
-	if len(appended) > 0 {
+	if len(m.appended) > 0 {
 		if out != "" && !strings.HasSuffix(out, "\n") {
 			out += "\n"
 		}
 		if out != "" && !strings.HasSuffix(out, "\n\n") {
 			out += "\n"
 		}
-		out += strings.Join(appended, "\n")
+		out += strings.Join(m.appended, "\n")
 	}
-	return out, notes
+	return out, m.notes
+}
+
+// merger accumulates Merge's edits: the rewritten blocks, the sections to append and the per-row notes.
+type merger struct {
+	have     map[string]*section
+	blocks   []block
+	notes    []string
+	appended []string
+	force    bool
+}
+
+// apply merges one row: keep reserved and databricks-cli sections, add new ones, replace only with force.
+func (m *merger) apply(r ExportRow) {
+	sig, exists := m.have[r.Section]
+	if exists && sig.pairSet {
+		r.Pair, r.PairSet = sig.pair, true
+	}
+	switch {
+	case isReserved(r.Section):
+		m.notes = append(m.notes, "keep ["+r.Section+"]: reserved, never written")
+	case !exists:
+		m.appended = append(m.appended, sectionText(r))
+		m.notes = append(m.notes, "add ["+r.Section+"]")
+	case sig.keys["auth_type"] == CLIAuthU2M:
+		m.notes = append(m.notes, "keep ["+r.Section+"]: an existing databricks-cli login section is never overwritten")
+	case !m.force:
+		m.notes = append(m.notes, "keep ["+r.Section+"]: exists (--force replaces it)")
+	default:
+		m.blocks = replaceBlocks(m.blocks, r.Section, sectionText(r))
+		m.notes = append(m.notes, "replace ["+r.Section+"]")
+	}
 }
 
 // replaceBlocks puts text where the first [name] block was and drops its duplicates.

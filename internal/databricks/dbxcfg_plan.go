@@ -229,13 +229,7 @@ func pairRows(rows []Row, choices map[string]string, names map[string]string) []
 		}
 		users, countSP := sameHostRows(rows, *sp)
 		target, explicit := pairTarget(rows, *sp, users, countSP, choices)
-		paired := false
-		for _, j := range users {
-			if rows[j].Name == target && attachSP(&rows[j], sp, names) {
-				paired = true
-				break
-			}
-		}
+		paired := attachToTarget(rows, users, target, sp, names)
 		if !paired && len(users) > 0 && !explicit && sp.Action != "skip" {
 			sp.Reason = "unpaired; choose a service principal in configure"
 		}
@@ -243,6 +237,16 @@ func pairRows(rows []Row, choices map[string]string, names map[string]string) []
 
 	markDeclinedPairings(rows, choices)
 	return rows
+}
+
+// attachToTarget attaches sp to the same-host user row named target, reporting whether one took it.
+func attachToTarget(rows []Row, users []int, target string, sp *Row, names map[string]string) bool {
+	for _, j := range users {
+		if rows[j].Name == target && attachSP(&rows[j], sp, names) {
+			return true
+		}
+	}
+	return false
 }
 
 // pairOrder is rows' indexes with explicit choices and saved pairings first, otherwise stable.
@@ -342,15 +346,20 @@ func pairTarget(rows []Row, sp Row, users []int, principals int, choices map[str
 	return "", false
 }
 
-// attachSP never replaces a stored pairing decision or borrows a credential from a different host.
-func attachSP(u, sp *Row, names map[string]string) bool {
+// canAttachSP is the row-state half of attachSP's guard: no stored decision or foreign credential is overridden.
+func canAttachSP(u, sp *Row) bool {
 	if u.Action == "skip" && (!u.existed || u.SPClientID != sp.ClientID) {
 		return false
 	}
 	if u.PairingSet && (u.SPClientID == "" || u.SPClientID != sp.ClientID || u.previousHost != sp.Host) {
 		return false
 	}
-	if u.SPProfile != "" || (u.Action != "skip" && sp.Action == "skip") {
+	return u.SPProfile == "" && (u.Action == "skip" || sp.Action != "skip")
+}
+
+// attachSP never replaces a stored pairing decision or borrows a credential from a different host.
+func attachSP(u, sp *Row, names map[string]string) bool {
+	if !canAttachSP(u, sp) {
 		return false
 	}
 	name := secretName(u.ID, providers.AuthM2M)

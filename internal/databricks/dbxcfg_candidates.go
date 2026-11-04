@@ -57,35 +57,41 @@ func classifyProfile(p profile) Candidate {
 		HasSecret: p.clientSecret != "" || p.token != ""}
 	host, ok := normalizeHost(p.host)
 	c.Host = host
-	auth := p.authType
-	if auth == "" {
-		switch {
-		case p.clientID != "" && p.clientSecret != "":
-			auth = CLIAuthM2M
-		case p.token != "":
-			auth = CLIAuthPAT
-		default:
-			auth = CLIAuthU2M
-		}
-	}
-	switch {
-	case !ok:
-		c.Skip = "no usable https host"
-	case auth == CLIAuthU2M:
-		c.Auth = providers.AuthOAuth
-	case auth == CLIAuthM2M && p.clientID == "":
-		c.Skip = "oauth-m2m profile without client_id"
-	case auth == CLIAuthM2M:
-		c.Auth = providers.AuthM2M
-	case auth == CLIAuthPAT:
-		c.Auth = providers.AuthPAT
-	default:
-		c.Skip = fmt.Sprintf("unsupported auth_type %q", p.authType)
-	}
+	c.Auth, c.Skip = rowAuth(p, effectiveCLIAuth(p), ok)
 	if c.Auth != providers.AuthM2M && c.Auth != providers.AuthPAT {
 		c.HasSecret = false // only these two seal a secret from the file
 	}
 	return c
+}
+
+// effectiveCLIAuth is the explicit auth_type, else inferred from the credential keys present.
+func effectiveCLIAuth(p profile) string {
+	switch {
+	case p.authType != "":
+		return p.authType
+	case p.clientID != "" && p.clientSecret != "":
+		return CLIAuthM2M
+	case p.token != "":
+		return CLIAuthPAT
+	}
+	return CLIAuthU2M
+}
+
+// rowAuth maps a CLI auth type to a row auth, or the reason the profile is skipped.
+func rowAuth(p profile, auth string, hostOK bool) (row, skip string) {
+	switch {
+	case !hostOK:
+		return "", "no usable https host"
+	case auth == CLIAuthU2M:
+		return providers.AuthOAuth, ""
+	case auth == CLIAuthM2M && p.clientID == "":
+		return "", "oauth-m2m profile without client_id"
+	case auth == CLIAuthM2M:
+		return providers.AuthM2M, ""
+	case auth == CLIAuthPAT:
+		return providers.AuthPAT, ""
+	}
+	return "", fmt.Sprintf("unsupported auth_type %q", p.authType)
 }
 
 // normalizeHost reduces a workspace host to https://host; a bare host gets the scheme.

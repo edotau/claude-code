@@ -159,10 +159,9 @@ func TestListBackKeys(t *testing.T) {
 	}
 }
 
-func TestListDoublePressConfirm(t *testing.T) {
+func TestListDoublePressConfirmFires(t *testing.T) {
 	d := ctrl('d')
-	s := newListState(sampleSpec(true), 2)
-	s, _, done := listKey(s, d)
+	s, _, done := listKey(newListState(sampleSpec(true), 2), d)
 	if done || s.pending != 0 || s.pendRow != 2 {
 		t.Fatalf("first press: done=%v pending=%d row=%d", done, s.pending, s.pendRow)
 	}
@@ -172,27 +171,38 @@ func TestListDoublePressConfirm(t *testing.T) {
 	if _, res, done := listKey(s, d); !done || res != (ListResult{Index: 2, Action: "logout"}) {
 		t.Errorf("second press = %+v,%v, want row 2 logout", res, done)
 	}
-	// Any other key cancels; a later press starts over.
-	s, _, _ = listKey(newListState(sampleSpec(true), 2), d)
+}
+
+func TestListDoublePressAnotherKeyCancels(t *testing.T) {
+	d := ctrl('d')
+	s, _, _ := listKey(newListState(sampleSpec(true), 2), d)
 	s = feed(t, s, ctrl('x')) // unbound and not a filter keystroke, so the row stays selected
 	if s.pending != -1 {
 		t.Errorf("another key must cancel the pending confirm")
 	}
-	if s, _, done = listKey(s, d); done || s.pending != 0 {
+	if s, _, done := listKey(s, d); done || s.pending != 0 {
 		t.Errorf("press after cancel must re-arm, not fire")
 	}
-	// A filter keystroke cancels too, even when the marked row survives the filter.
-	s, _, _ = listKey(newListState(sampleSpec(true), 2), d)
+}
+
+// A filter keystroke cancels too, even when the marked row survives the filter.
+func TestListDoublePressTypingCancels(t *testing.T) {
+	d := ctrl('d')
+	s, _, _ := listKey(newListState(sampleSpec(true), 2), d)
 	if s = feed(t, s, runes("n")...); s.pending != -1 || s.selected() != 2 {
 		t.Errorf("typing must cancel: pending=%d sel=%d", s.pending, s.selected())
 	}
-	// Moving the cursor cancels, so the second press lands on a fresh row and only arms.
-	s, _, _ = listKey(newListState(sampleSpec(true), 2), d)
+}
+
+// Moving the cursor cancels, so the next press lands on a fresh row and only arms.
+func TestListDoublePressCursorMoveCancels(t *testing.T) {
+	d := ctrl('d')
+	s, _, _ := listKey(newListState(sampleSpec(true), 2), d)
 	s = feed(t, s, Key{Kind: KeyDown})
 	if s.pending != -1 {
 		t.Errorf("cursor move must cancel the pending confirm")
 	}
-	if s, _, done = listKey(s, d); done || s.pendRow != 3 {
+	if s, _, done := listKey(s, d); done || s.pendRow != 3 {
 		t.Errorf("press on the new row must only arm it: done=%v row=%d", done, s.pendRow)
 	}
 }

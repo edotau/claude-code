@@ -202,30 +202,39 @@ func flagRows(fs *flag.FlagSet) [][2]string {
 		if p, ok := f.Value.(Placeholder); ok {
 			name = p.Placeholder()
 		}
-		label := "--" + f.Name
-		if len(f.Name) == 1 {
-			label = "-" + f.Name
-		}
-		if s := short[f.Name]; s != "" {
-			label = "-" + s + ", " + label
-		}
-		if name != "" {
-			label += " " + name
-		}
-		switch f.DefValue {
-		case "", "0", "false", "0s", "[]":
-		default:
-			if !strings.Contains(usage, "(default") {
-				if fmt.Sprintf("%T", f.Value) == "*flag.stringValue" {
-					usage += fmt.Sprintf(" (default %q)", f.DefValue)
-				} else {
-					usage += fmt.Sprintf(" (default %v)", f.DefValue)
-				}
-			}
-		}
-		rows = append(rows, [2]string{label, usage})
+		rows = append(rows, [2]string{flagLabel(f, name, short[f.Name]), withDefault(f, usage)})
 	})
 	return rows
+}
+
+// flagLabel renders "-s, --long NAME": alias is the flag's one-letter shorthand, name its value placeholder.
+func flagLabel(f *flag.Flag, name, alias string) string {
+	label := "--" + f.Name
+	if len(f.Name) == 1 {
+		label = "-" + f.Name
+	}
+	if alias != "" {
+		label = "-" + alias + ", " + label
+	}
+	if name != "" {
+		label += " " + name
+	}
+	return label
+}
+
+// withDefault appends " (default X)" to usage unless the default is zero-ish or usage already names one.
+func withDefault(f *flag.Flag, usage string) string {
+	switch f.DefValue {
+	case "", "0", "false", "0s", "[]":
+		return usage
+	}
+	if strings.Contains(usage, "(default") {
+		return usage
+	}
+	if fmt.Sprintf("%T", f.Value) == "*flag.stringValue" {
+		return usage + fmt.Sprintf(" (default %q)", f.DefValue)
+	}
+	return usage + fmt.Sprintf(" (default %v)", f.DefValue)
 }
 
 // WantsHelp reports a -h/-help/--help token before any literal "--" terminator, so a caller can route

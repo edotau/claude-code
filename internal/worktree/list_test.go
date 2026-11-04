@@ -33,6 +33,25 @@ func TestListEmptyRepo(t *testing.T) {
 	}
 }
 
+// requireFlag reports a mismatch of one boolean entry field against want.
+func requireFlag(t *testing.T, got, want bool, name string) {
+	t.Helper()
+	if got != want {
+		t.Errorf("want %s = %v", name, want)
+	}
+}
+
+// listedAs reports whether entries has one named name that is registered (and not orphaned) or the reverse.
+func listedAs(entries []Entry, name string, registered bool) bool {
+	seen := false
+	for _, e := range entries {
+		if filepath.Base(e.Path) == name {
+			seen = e.Registered == registered && e.Orphaned == !registered
+		}
+	}
+	return seen
+}
+
 func TestListCleanMergedWorktree(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
@@ -58,15 +77,9 @@ func TestListCleanMergedWorktree(t *testing.T) {
 	if !e.Registered || !e.Exists {
 		t.Fatalf("Registered/Exists = %v/%v, want true/true", e.Registered, e.Exists)
 	}
-	if e.Dirty {
-		t.Error("want Dirty = false")
-	}
-	if !e.Merged {
-		t.Error("want Merged = true (no new commits in the worktree)")
-	}
-	if e.Orphaned {
-		t.Error("want Orphaned = false")
-	}
+	requireFlag(t, e.Dirty, false, "Dirty")
+	requireFlag(t, e.Merged, true, "Merged (no new commits in the worktree)")
+	requireFlag(t, e.Orphaned, false, "Orphaned")
 	if len(e.Problems) != 0 {
 		t.Errorf("unexpected Problems: %v", e.Problems)
 	}
@@ -230,16 +243,7 @@ func TestListUnionsFilesystemAndRegistration(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2: %+v", len(entries), entries)
 	}
-	var sawRegistered, sawUnregistered bool
-	for _, e := range entries {
-		switch filepath.Base(e.Path) {
-		case "registered":
-			sawRegistered = e.Registered && !e.Orphaned
-		case "unregistered":
-			sawUnregistered = !e.Registered && e.Orphaned
-		}
-	}
-	if !sawRegistered || !sawUnregistered {
+	if !listedAs(entries, "registered", true) || !listedAs(entries, "unregistered", false) {
 		t.Fatalf("entries = %+v, missing expected registered/unregistered pair", entries)
 	}
 }

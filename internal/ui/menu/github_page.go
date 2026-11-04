@@ -3,6 +3,8 @@ package menu
 import (
 	"cmp"
 	"context"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -114,28 +116,10 @@ func runGithubLogin(d *dialog, argv []string, label string) {
 // alias resolved to "auto", a concrete opencode_fallback (opencode's own catalog has no "auto"), then
 // writes the github-copilot overlay.
 func pickCopilotModels(d *dialog) {
-	bin, err := paths.AgentBin("copilot")
-	if err != nil {
-		d.printf("copilot models: copilot CLI not found: %v\n", err)
+	list, ok := copilotCatalogModels(d)
+	if !ok {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	opts := copilot.CatalogOptions(bin, copilot.CopilotToken())
-	tok, err := copilot.CopilotLaunchToken()
-	if err != nil {
-		d.printf("copilot models: %v\n", err)
-		return
-	}
-	if tok != "" {
-		opts.GitHubToken, opts.UseLoggedInUser = tok, false
-	}
-	list, err := copilot.SDKListModels(ctx, opts)
-	if err != nil {
-		d.printf("copilot models: %v\n", err)
-		return
-	}
-
 	ids := []string{"auto"}
 	rows := [][2]string{{"auto", "proxy alias — resolve automatically (needs opencode_fallback for opencode)"}}
 	for _, m := range list {
@@ -143,24 +127,12 @@ func pickCopilotModels(d *dialog) {
 		rows = append(rows, [2]string{m.ID, m.Name})
 	}
 
-	picks := map[string]string{}
-	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		idx, err := d.shell().Pick("github fallback — "+alias+" model", rows)
-		if err != nil || idx < 0 {
-			d.printf("github fallback: cancelled at the %s model; nothing written\n", alias)
-			return
-		}
-		picks[alias] = ids[idx]
+	picks, ok := pickAliasModels(d, ids, rows)
+	if !ok {
+		return
 	}
-
 	fallback := ""
-	needsFallback := false
-	for _, id := range picks {
-		if id == "auto" {
-			needsFallback = true
-		}
-	}
-	if needsFallback {
+	if slices.Contains(slices.Collect(maps.Values(picks)), "auto") {
 		idx, err := d.shell().Pick("github fallback — opencode_fallback (auto needs a concrete id)", rows[1:])
 		if err != nil || idx < 0 {
 			d.printf("github fallback: cancelled at opencode_fallback; nothing written\n")
@@ -179,4 +151,44 @@ func pickCopilotModels(d *dialog) {
 	}
 	d.printf("github fallback: wrote vault overlay/providers (opus=%s sonnet=%s haiku=%s%s)\n",
 		picks[models.Opus], picks[models.Sonnet], picks[models.Haiku], suffix)
+}
+
+// pickAliasModels asks for a model id per opus/sonnet/haiku alias; false (after saying so) when any pick is cancelled.
+func pickAliasModels(d *dialog, ids []string, rows [][2]string) (map[string]string, bool) {
+	picks := map[string]string{}
+	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
+		idx, err := d.shell().Pick("github fallback — "+alias+" model", rows)
+		if err != nil || idx < 0 {
+			d.printf("github fallback: cancelled at the %s model; nothing written\n", alias)
+			return nil, false
+		}
+		picks[alias] = ids[idx]
+	}
+	return picks, true
+}
+
+// copilotCatalogModels lists the live copilot catalog, printing the reason and returning false when it is unavailable.
+func copilotCatalogModels(d *dialog) (list []copilot.SDKModel, ok bool) {
+	bin, err := paths.AgentBin("copilot")
+	if err != nil {
+		d.printf("copilot models: copilot CLI not found: %v\n", err)
+		return nil, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	opts := copilot.CatalogOptions(bin, copilot.CopilotToken())
+	tok, err := copilot.CopilotLaunchToken()
+	if err != nil {
+		d.printf("copilot models: %v\n", err)
+		return nil, false
+	}
+	if tok != "" {
+		opts.GitHubToken, opts.UseLoggedInUser = tok, false
+	}
+	list, err = copilot.SDKListModels(ctx, opts)
+	if err != nil {
+		d.printf("copilot models: %v\n", err)
+		return nil, false
+	}
+	return list, true
 }

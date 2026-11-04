@@ -32,16 +32,23 @@ func replaceKey(d *dialog, kt configure.KeyTarget) bool {
 		return false
 	}
 	_, v := configure.ParseAssignment(val)
-	if kt.Provider != nil {
-		status, detail := configure.ProbeValue(kt.Provider, kt.EnvVar, v)
-		if status == "rejected" || status == "unreachable" {
-			d.printf("%s: new value %s (%s)\n", kt.EnvVar, status, detail)
-			if d.shell().Confirm("Keep the old key and discard this paste?") {
-				return false
-			}
-		}
+	if keepOldKey(d, kt, v) {
+		return false
 	}
 	return storeValue(d, kt.EnvVar, v)
+}
+
+// keepOldKey probes the pasted value v live; true when it is rejected or unreachable and the user keeps the old key.
+func keepOldKey(d *dialog, kt configure.KeyTarget, v string) bool {
+	if kt.Provider == nil {
+		return false
+	}
+	status, detail := configure.ProbeValue(kt.Provider, kt.EnvVar, v)
+	if status != "rejected" && status != "unreachable" {
+		return false
+	}
+	d.printf("%s: new value %s (%s)\n", kt.EnvVar, status, detail)
+	return d.shell().Confirm("Keep the old key and discard this paste?")
 }
 
 // runMint asks first (a stray Enter must never start a mint), then runs the token-minting CLI.
@@ -88,18 +95,9 @@ func runRotate(d *dialog, kt configure.KeyTarget) bool {
 	}
 	chosen := 0
 	if len(opts) > 1 {
-		if isStdinTTY() && d.o.In == os.Stdin {
-			rows := make([]uidialog.Row, len(opts))
-			for i, o := range opts {
-				rows[i] = uidialog.Row{Name: o.Action, Detail: o.Desc}
-			}
-			idx, err := d.shell().Pick(kt.Label+" — rotate which credential?", uidialog.Pairs(rows))
-			if err != nil || idx < 0 {
-				return false
-			}
-			chosen = idx
-		} else if !d.shell().Confirm(opts[0].Label() + "?") {
-			chosen = 1
+		var ok bool
+		if chosen, ok = chooseRotateOption(d, kt, opts); !ok {
+			return false
 		}
 	}
 	o := opts[chosen]
@@ -111,6 +109,26 @@ func runRotate(d *dialog, kt configure.KeyTarget) bool {
 	default:
 		return replaceKey(d, kt)
 	}
+}
+
+// chooseRotateOption picks among several rotate options: a picker on a terminal, else a confirm on the first
+// (no selects the second); ok is false when the picker is cancelled.
+func chooseRotateOption(d *dialog, kt configure.KeyTarget, opts []configure.AuthOption) (chosen int, ok bool) {
+	if !isStdinTTY() || d.o.In != os.Stdin {
+		if d.shell().Confirm(opts[0].Label() + "?") {
+			return 0, true
+		}
+		return 1, true
+	}
+	rows := make([]uidialog.Row, len(opts))
+	for i, o := range opts {
+		rows[i] = uidialog.Row{Name: o.Action, Detail: o.Desc}
+	}
+	idx, err := d.shell().Pick(kt.Label+" — rotate which credential?", uidialog.Pairs(rows))
+	if err != nil || idx < 0 {
+		return 0, false
+	}
+	return idx, true
 }
 
 // ensureKey makes sure kt's keyed credential is usable before a sub-picker pins it: absent asks to add

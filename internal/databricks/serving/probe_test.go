@@ -13,36 +13,43 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// clientRouteCase is one model's expected client route, path and request body.
+type clientRouteCase struct {
+	name, id, path, body string
+	responses            bool
+	anthropic            bool
+}
+
+// seenProbe is what the fake workspace saw of one probe call.
+type seenProbe struct {
+	method, path string
+	header       http.Header
+	body         map[string]any
+}
+
+var clientRouteCases = []clientRouteCase{
+	{"chat", "gpt-5-1", "/serving-endpoints/custom/chat/chat/completions",
+		`{"messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":256,"tools":[{"type":"function","function":{"name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}}],"tool_choice":"auto"}`, false, false},
+	{"native-claude", "claude-sonnet-5-5", "/serving-endpoints/custom/v1/messages",
+		`{"messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":32,"tools":[{"name":"ping","description":"Return pong.","input_schema":{"type":"object","properties":{}}}],"tool_choice":{"type":"auto"}}`, false, true},
+	{"responses", "gpt-5-5-pro", "/serving-endpoints/custom-responses/responses",
+		`{"input":"Reply with OK.","max_output_tokens":128,"tools":[{"type":"function","name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}]}`, true, false},
+	{"explicit-responses-before-claude", "claude-sonnet-5-5", "/serving-endpoints/custom-responses/responses",
+		`{"input":"Reply with OK.","max_output_tokens":128,"tools":[{"type":"function","name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}]}`, true, false},
+}
+
 func TestProbeClientRouteParity(t *testing.T) {
-	for _, tc := range []struct {
-		name, id, path, body string
-		responses            bool
-		anthropic            bool
-	}{
-		{"chat", "gpt-5-1", "/serving-endpoints/custom/chat/chat/completions",
-			`{"messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":256,"tools":[{"type":"function","function":{"name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}}],"tool_choice":"auto"}`, false, false},
-		{"native-claude", "claude-sonnet-5-5", "/serving-endpoints/custom/v1/messages",
-			`{"messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":32,"tools":[{"name":"ping","description":"Return pong.","input_schema":{"type":"object","properties":{}}}],"tool_choice":{"type":"auto"}}`, false, true},
-		{"responses", "gpt-5-5-pro", "/serving-endpoints/custom-responses/responses",
-			`{"input":"Reply with OK.","max_output_tokens":128,"tools":[{"type":"function","name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}]}`, true, false},
-		{"explicit-responses-before-claude", "claude-sonnet-5-5", "/serving-endpoints/custom-responses/responses",
-			`{"input":"Reply with OK.","max_output_tokens":128,"tools":[{"type":"function","name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}]}`, true, false},
-	} {
+	for _, tc := range clientRouteCases {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.Use(t)
 			t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
-			type request struct {
-				method, path string
-				header       http.Header
-				body         map[string]any
-			}
-			requests := make(chan request, 4)
+			requests := make(chan seenProbe, 4)
 			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Errorf("probe body: %v", err)
 				}
-				requests <- request{r.Method, r.URL.RequestURI(), r.Header.Clone(), body}
+				requests <- seenProbe{r.Method, r.URL.RequestURI(), r.Header.Clone(), body}
 				_, _ = w.Write([]byte(`{"ok":true}`))
 			}))
 			t.Cleanup(srv.Close)
@@ -59,26 +66,31 @@ func TestProbeClientRouteParity(t *testing.T) {
 			if len(requests) != 1 {
 				t.Fatalf("requests = %d, want one", len(requests))
 			}
-			r := <-requests
-			if r.method != "POST" || r.path != tc.path || r.header.Get("Content-Type") != "application/json" || r.header.Get("Authorization") != "Bearer synthetic-route-token" {
-				t.Errorf("wrong method/route/headers: %s %s", r.method, r.path)
-			}
-			version := ""
-			if tc.anthropic {
-				version = "2023-06-01"
-			}
-			if r.header.Get("anthropic-version") != version {
-				t.Errorf("anthropic-version = %q, want %q", r.header.Get("anthropic-version"), version)
-			}
-			var want map[string]any
-			if err := json.Unmarshal([]byte(tc.body), &want); err != nil {
-				t.Fatal(err)
-			}
-			want["model"] = target.Wire
-			if !reflect.DeepEqual(r.body, want) {
-				t.Errorf("client body = %#v, want %#v", r.body, want)
-			}
+			checkProbeRequest(t, <-requests, tc, target.Wire)
 		})
+	}
+}
+
+// checkProbeRequest checks the probe's method, route, headers and body against the case's expectations.
+func checkProbeRequest(t *testing.T, r seenProbe, tc clientRouteCase, wire string) {
+	t.Helper()
+	if r.method != "POST" || r.path != tc.path || r.header.Get("Content-Type") != "application/json" || r.header.Get("Authorization") != "Bearer synthetic-route-token" {
+		t.Errorf("wrong method/route/headers: %s %s", r.method, r.path)
+	}
+	version := ""
+	if tc.anthropic {
+		version = "2023-06-01"
+	}
+	if r.header.Get("anthropic-version") != version {
+		t.Errorf("anthropic-version = %q, want %q", r.header.Get("anthropic-version"), version)
+	}
+	var want map[string]any
+	if err := json.Unmarshal([]byte(tc.body), &want); err != nil {
+		t.Fatal(err)
+	}
+	want["model"] = wire
+	if !reflect.DeepEqual(r.body, want) {
+		t.Errorf("client body = %#v, want %#v", r.body, want)
 	}
 }
 

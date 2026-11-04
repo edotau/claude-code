@@ -92,12 +92,24 @@ func TestLoginU2MSuccessAndPKCE(t *testing.T) {
 	}
 	aq, _ := url.Parse(authURL)
 	q := aq.Query()
+	checkAuthorizeQuery(t, q)
+	checkPKCEExchange(t, q, gotForm)
+}
+
+// checkAuthorizeQuery checks the authorize request's method, client, scope and loopback redirect.
+func checkAuthorizeQuery(t *testing.T, q url.Values) {
+	t.Helper()
 	if q.Get("code_challenge_method") != "S256" || q.Get("client_id") != ClientID || q.Get("scope") != "all-apis offline_access" {
 		t.Errorf("authorize query = %v", q)
 	}
 	if !strings.HasPrefix(q.Get("redirect_uri"), "http://localhost:") {
 		t.Errorf("redirect = %q", q.Get("redirect_uri"))
 	}
+}
+
+// checkPKCEExchange checks the token exchange form carries the verifier matching the authorize challenge.
+func checkPKCEExchange(t *testing.T, q, gotForm url.Values) {
+	t.Helper()
 	// Server-side PKCE: challenge == base64url(sha256(verifier)).
 	verifier := gotForm.Get("code_verifier")
 	sum := sha256.Sum256([]byte(verifier))
@@ -218,18 +230,23 @@ func TestCallbackBindsLoopbackOnly(t *testing.T) {
 	}
 }
 
-func TestRefreshU2MRotationAndNonRotation(t *testing.T) {
-	rotate := true
-	var form url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// refreshServer answers refresh requests with a rotated token when *rotate is set, else without a refresh token.
+func refreshServer(rotate *bool, form *url.Values) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
-		form = r.PostForm
-		if rotate {
+		*form = r.PostForm
+		if *rotate {
 			tokenJSON(w, "acc2", "ref-new")
 			return
 		}
 		tokenJSON(w, "acc3", "")
 	}))
+}
+
+func TestRefreshU2MRotationAndNonRotation(t *testing.T) {
+	rotate := true
+	var form url.Values
+	srv := refreshServer(&rotate, &form)
 	defer srv.Close()
 	tok, err := RefreshU2M(context.Background(), srv.URL, "ref-old")
 	if err != nil || tok.Access != "acc2" || tok.Refresh != "ref-new" {
@@ -243,7 +260,13 @@ func TestRefreshU2MRotationAndNonRotation(t *testing.T) {
 	if err != nil || tok.Refresh != "ref-old" {
 		t.Fatalf("non-rotated: %+v %v", tok, err)
 	}
-	if _, err := RefreshU2M(context.Background(), srv.URL, ""); err == nil {
+	checkEmptyRefreshRefused(t, srv.URL)
+}
+
+// checkEmptyRefreshRefused fails when RefreshU2M accepts an empty refresh token.
+func checkEmptyRefreshRefused(t *testing.T, host string) {
+	t.Helper()
+	if _, err := RefreshU2M(context.Background(), host, ""); err == nil {
 		t.Error("empty refresh token accepted")
 	}
 }

@@ -26,6 +26,25 @@ func ledgerPath(main, name string) string {
 	return filepath.Join(memstore.Dir(main), "worktrees", name+".md")
 }
 
+// requireContains fails when text lacks any of wants; what names the text in the message.
+func requireContains(t *testing.T, what, text string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%s missing %q:\n%s", what, want, text)
+		}
+	}
+}
+
+// ledgerLifecycle is the shared state of TestLedgerLifecycle's ordered phases.
+type ledgerLifecycle struct {
+	repo         *Repo
+	main, dest   string
+	base, wtHead string
+}
+
+// TestLedgerLifecycle walks one worktree ledger through open, append, close, second close and reopen; the
+// subtests run in order and share the one repo.
 func TestLedgerLifecycle(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -37,75 +56,70 @@ func TestLedgerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fx := &ledgerLifecycle{repo: repo, main: main}
+	t.Run("create opens the ledger", fx.create)
+	t.Run("append lands only from inside the worktree", fx.appendLines)
+	t.Run("merge closes the ledger", fx.mergeClose)
+	t.Run("second close appends one removal line", fx.secondClose)
+	t.Run("open reopens a closed ledger", fx.reopen)
+}
 
-	// Create opens the ledger: Status open and the base sha recorded.
+func (fx *ledgerLifecycle) create(t *testing.T) {
 	var log bytes.Buffer
-	dest, err := Create(repo, "ledgered", CreateOptions{Log: &log})
+	var err error
+	fx.dest, err = Create(fx.repo, "ledgered", CreateOptions{Log: &log})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if log.Len() != 0 {
 		t.Fatalf("create warnings: %s", log.String())
 	}
-	text := ledgerFile(t, main, "ledgered")
-	base := revParse(t, main, "HEAD")
-	for _, want := range []string{"# Worktree ledgered\n", "- Status: open\n", "- Base: " + base + " (HEAD)\n"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("fresh ledger missing %q:\n%s", want, text)
-		}
-	}
+	fx.base = revParse(t, fx.main, "HEAD")
+	requireContains(t, "fresh ledger", ledgerFile(t, fx.main, "ledgered"),
+		"# Worktree ledgered\n", "- Status: open\n", "- Base: "+fx.base+" (HEAD)\n")
+}
 
-	// Append from inside the worktree lands in the log; from a non-worktree dir it is a no-op.
-	ok, err := AppendLedger(dest, "update note", time.Now())
+func (fx *ledgerLifecycle) appendLines(t *testing.T) {
+	ok, err := AppendLedger(fx.dest, "update note", time.Now())
 	if err != nil || !ok {
 		t.Fatalf("AppendLedger(worktree) = %v, %v; want true, nil", ok, err)
 	}
-	if text := ledgerFile(t, main, "ledgered"); !strings.Contains(text, "update note") {
-		t.Fatalf("ledger missing the appended line:\n%s", text)
-	}
-	ok, err = AppendLedger(main, "must not land", time.Now())
+	requireContains(t, "ledger", ledgerFile(t, fx.main, "ledgered"), "update note")
+	ok, err = AppendLedger(fx.main, "must not land", time.Now())
 	if err != nil || ok {
 		t.Fatalf("AppendLedger(main checkout) = %v, %v; want false, nil", ok, err)
 	}
-	if text := ledgerFile(t, main, "ledgered"); strings.Contains(text, "must not land") {
+	if text := ledgerFile(t, fx.main, "ledgered"); strings.Contains(text, "must not land") {
 		t.Fatalf("non-worktree append reached the ledger:\n%s", text)
 	}
+}
 
-	// A merge closes the ledger: ## Closed carries the via, merge sha and the base..head commit list.
-	commitIn(t, dest, "commit", "--allow-empty", "-q", "-m", "work on ledger")
-	wtHead := revParse(t, dest, "HEAD")
-	commitIn(t, main, "merge", "-q", "--no-edit", "worktree-ledgered")
-	mergeSHA := revParse(t, main, "HEAD")
-	if err := CloseLedger(main, "ledgered", LedgerClose{Via: "merge", MergeSHA: mergeSHA, Head: wtHead}); err != nil {
+func (fx *ledgerLifecycle) mergeClose(t *testing.T) {
+	commitIn(t, fx.dest, "commit", "--allow-empty", "-q", "-m", "work on ledger")
+	fx.wtHead = revParse(t, fx.dest, "HEAD")
+	commitIn(t, fx.main, "merge", "-q", "--no-edit", "worktree-ledgered")
+	mergeSHA := revParse(t, fx.main, "HEAD")
+	if err := CloseLedger(fx.main, "ledgered", LedgerClose{Via: "merge", MergeSHA: mergeSHA, Head: fx.wtHead}); err != nil {
 		t.Fatal(err)
 	}
-	text = ledgerFile(t, main, "ledgered")
-	for _, want := range []string{"- Status: closed\n", "## Closed\n", "- Via: merge\n", "- Merge: " + mergeSHA + "\n", "work on ledger"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("closed ledger missing %q:\n%s", want, text)
-		}
-	}
+	requireContains(t, "closed ledger", ledgerFile(t, fx.main, "ledgered"),
+		"- Status: closed\n", "## Closed\n", "- Via: merge\n", "- Merge: "+mergeSHA+"\n", "work on ledger")
+}
 
-	// A second close (the Clean after a merge) only appends one removal line to the log.
-	if err := CloseLedger(main, "ledgered", LedgerClose{Via: "clean", Head: wtHead, BranchDeleted: true}); err != nil {
+func (fx *ledgerLifecycle) secondClose(t *testing.T) {
+	if err := CloseLedger(fx.main, "ledgered", LedgerClose{Via: "clean", Head: fx.wtHead, BranchDeleted: true}); err != nil {
 		t.Fatal(err)
 	}
-	if text = ledgerFile(t, main, "ledgered"); !strings.Contains(text, "removed via clean, branch deleted") {
-		t.Fatalf("second close did not append the removal line:\n%s", text)
-	}
+	requireContains(t, "ledger", ledgerFile(t, fx.main, "ledgered"), "removed via clean, branch deleted")
+}
 
-	// OpenLedger on a closed ledger reopens it.
-	if err := OpenLedger(main, "ledgered", LedgerInfo{
-		Path: dest, Branch: "worktree-ledgered", Base: base, BaseRef: "HEAD", Session: "s2",
+func (fx *ledgerLifecycle) reopen(t *testing.T) {
+	if err := OpenLedger(fx.main, "ledgered", LedgerInfo{
+		Path: fx.dest, Branch: "worktree-ledgered", Base: fx.base, BaseRef: "HEAD", Session: "s2",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	text = ledgerFile(t, main, "ledgered")
-	for _, want := range []string{"- Status: open\n", "reopened"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("reopened ledger missing %q:\n%s", want, text)
-		}
-	}
+	requireContains(t, "reopened ledger", ledgerFile(t, fx.main, "ledgered"), "- Status: open\n", "reopened")
 }
 
 // TestCleanForceClosesLedger is the regression test for the CloseLedger call in lifecycle.go:
@@ -197,9 +211,10 @@ func TestLedgerResumeAfterMergeKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := ledgerFile(t, main, "fx")
-	if ledgerField(text, "Status") != "open" || !strings.Contains(text, "\n## Opened\n") || !strings.Contains(text, "- Session: s2\n") {
+	if ledgerField(text, "Status") != "open" {
 		t.Fatalf("resume did not reopen with a new Opened section:\n%s", text)
 	}
+	requireContains(t, "resumed ledger", text, "\n## Opened\n", "- Session: s2\n")
 	commitIn(t, main, "merge", "-q", "--no-edit", "worktree-fx")
 	var warn bytes.Buffer
 	res, err := CleanWithLog(repo, "fx", false, &warn)

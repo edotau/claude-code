@@ -161,20 +161,9 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 	if err != nil {
 		return nil, err
 	}
-	skip := map[int]bool{}
-	skipDirs := append([]string{filepath.Join(checkout, ".git")}, linked...)
-	for _, p := range all {
-		if slices.ContainsFunc(skipDirs, func(d string) bool { return within(p.Cwd, d) }) {
-			skip[p.PID] = true
-		}
-	}
+	skip := pidsWithin(all, append([]string{filepath.Join(checkout, ".git")}, linked...))
 	mine := ancestry(os.Getpid())
-	own := map[int]bool{}
-	for pid := range mine {
-		if commKnown(pid) {
-			own[pid] = true
-		}
-	}
+	own := knownAgents(mine)
 	var out []Proc
 	for _, p := range filterProcs(all, checkout) {
 		if !agentComms[p.Comm] || skip[p.PID] || mine[p.PID] || descendsFrom(p.PID, own) || isDaemon(p.PID) {
@@ -183,6 +172,28 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// knownAgents keeps the pids of pids that are themselves agent processes by name.
+func knownAgents(pids map[int]bool) map[int]bool {
+	own := map[int]bool{}
+	for pid := range pids {
+		if commKnown(pid) {
+			own[pid] = true
+		}
+	}
+	return own
+}
+
+// pidsWithin returns the pids of all whose cwd is inside any of dirs.
+func pidsWithin(all []procCwd, dirs []string) map[int]bool {
+	pids := map[int]bool{}
+	for _, p := range all {
+		if slices.ContainsFunc(dirs, func(d string) bool { return within(p.Cwd, d) }) {
+			pids[p.PID] = true
+		}
+	}
+	return pids
 }
 
 // isDaemon reports a background agent server rather than a working session (agy's `--hub` from the IDE extension).

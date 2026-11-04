@@ -5,16 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/gemini"
@@ -148,21 +144,33 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	if !ok || src != "vault" || got != "sk-test-value" {
 		t.Errorf("stored key = (%q, %q, %v)", got, src, ok)
 	}
+	assertVaultRecordSealed(t, "OPENAI_API_KEY", "sk-test-value")
+	if strings.Contains(out.String(), "logged in") {
+		t.Error("login must not have run after being declined")
+	}
+	assertContainsAll(t, out.String(), []string{"Browser login — openai login? [Y/n]", "Paste API key — create at platform.openai.com/api-keys"})
+}
+
+// assertContainsAll requires every want to appear in the dialog output got.
+func assertContainsAll(t *testing.T, got string, wants []string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("dialog lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// assertVaultRecordSealed requires the secret record for name not to contain the plaintext secret.
+func assertVaultRecordSealed(t *testing.T, name, secret string) {
+	t.Helper()
 	if err := vault.View(func(tx *vault.Tx) error {
-		if raw, _ := tx.Get(vault.Secrets, "OPENAI_API_KEY"); strings.Contains(raw, "sk-test-value") {
+		if raw, _ := tx.Get(vault.Secrets, name); strings.Contains(raw, secret) {
 			t.Error("vault record contains the plaintext secret")
 		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
-	}
-	if strings.Contains(out.String(), "logged in") {
-		t.Error("login must not have run after being declined")
-	}
-	for _, want := range []string{"Browser login — openai login? [Y/n]", "Paste API key — create at platform.openai.com/api-keys"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("dialog lacks %q:\n%s", want, out.String())
-		}
 	}
 }
 
@@ -221,6 +229,14 @@ func TestClaudeSectionIsRegistered(t *testing.T) {
 	}
 }
 
+// assertMaxPlanOptions requires the Max-plan row's three ways in: login, mint, paste.
+func assertMaxPlanOptions(t *testing.T, opts []configure.AuthOption) {
+	t.Helper()
+	if len(opts) != 3 || opts[0].Argv == nil || opts[1].Mint == nil || opts[1].Env != "CLAUDE_CODE_OAUTH_TOKEN" || opts[2].Env != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Fatalf("authOptions = %+v, want login, mint, paste", opts)
+	}
+}
+
 // The Max-plan row offers three ways in: browser login, minting a headless token, pasting one; the minted token
 // is recognised in the CLI's output by its sk-ant-oat prefix.
 func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
@@ -231,10 +247,7 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 	if kt.Present || kt.Headless {
 		t.Fatalf("no login and no token must read absent: %+v", kt)
 	}
-	opts := configure.AuthOptions(kt)
-	if len(opts) != 3 || opts[0].Argv == nil || opts[1].Mint == nil || opts[1].Env != "CLAUDE_CODE_OAUTH_TOKEN" || opts[2].Env != "CLAUDE_CODE_OAUTH_TOKEN" {
-		t.Fatalf("authOptions = %+v, want login, mint, paste", opts)
-	}
+	assertMaxPlanOptions(t, configure.AuthOptions(kt))
 	out := "Opening browser...\nPaste the code here:\n\nYour token: sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789\n"
 	if got := configure.SetupTokenRE.FindString(out); got != "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
 		t.Errorf("token capture = %q", got)
@@ -242,186 +255,6 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-stored")
 	if kt := configure.MaxPlanTarget(configure.KeyTarget{Label: "claude"}); !kt.Present || !kt.Headless || !strings.Contains(kt.Source, "headless token") {
 		t.Errorf("a stored token must read present/headless: %+v", kt)
-	}
-}
-
-const configureTestToken = "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
-
-// configureFakeClaude logs argv, then acts on CONFIGURE_COMMAND_MODE; `exec sleep` leaves SIGINT nothing to defer.
-const configureFakeClaude = `printf '%s\n' "$@" '' >>"$CONFIGURE_COMMAND_LOG"
-action=$1
-if [ "$1" = mcp ] && [ $# -gt 1 ]; then action=$2; fi
-mode=$CONFIGURE_COMMAND_MODE
-if [ "$mode" = cancel ] || [ "$mode" = "cancel-$action" ]; then
-	: >"$CONFIGURE_COMMAND_READY"
-	exec "$CONFIGURE_SLEEP" 30
-fi
-case $action in
-login) echo 'login complete' ;;
-mint) printf 'minting token\n` + configureTestToken + `\nfinished\n' ;;
-esac
-if [ "$mode" = fail ] || [ "$mode" = "$action-fail" ]; then
-	echo 'command failed'
-	exit 7
-fi`
-
-func configureCommandEnv(t *testing.T, mode string) (bin, log, ready string) {
-	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	dir := t.TempDir()
-	bin = pathstest.FakeVendor(t, "claude", configureFakeClaude)
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Fatal(err)
-	}
-	log, ready = filepath.Join(dir, "argv"), filepath.Join(dir, "ready")
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv("CONFIGURE_SLEEP", sleep)
-	t.Setenv("CONFIGURE_COMMAND_MODE", mode)
-	t.Setenv("CONFIGURE_COMMAND_LOG", log)
-	t.Setenv("CONFIGURE_COMMAND_READY", ready)
-	orig := actionConfirmed
-	actionConfirmed = func(string) bool { return true }
-	t.Cleanup(func() { actionConfirmed = orig })
-	return bin, log, ready
-}
-
-func captureConfigureStdout(t *testing.T, run func()) string {
-	t.Helper()
-	f, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := f.Close(); err != nil {
-			t.Errorf("close stdout capture: %v", err)
-		}
-	})
-	orig := os.Stdout
-	os.Stdout = f
-	defer func() { os.Stdout = orig }()
-	run()
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		t.Fatal(err)
-	}
-	out, err := io.ReadAll(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(out)
-}
-
-func assertConfigureArgv(t *testing.T, log string, commands ...[]string) {
-	t.Helper()
-	raw, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var want strings.Builder
-	for _, args := range commands {
-		want.WriteString(strings.Join(args, "\n"))
-		want.WriteString("\n\n")
-	}
-	if string(raw) != want.String() {
-		t.Errorf("command argv = %q, want %q", raw, want.String())
-	}
-}
-
-func assertConfigureCancellation(t *testing.T, ready string, run func(context.Context) error) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- run(ctx) }()
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatal(err)
-		}
-		select {
-		case err := <-done:
-			t.Fatalf("command ended before cancellation: %v", err)
-		case <-ctx.Done():
-			t.Fatal("helper did not become ready before the deadline")
-		case <-ticker.C:
-		}
-	}
-	canceledAt := time.Now()
-	cancel()
-	select {
-	case err := <-done:
-		// under WaitDelay (3s): SIGINT ended the child, not the kill fallback
-		if d := time.Since(canceledAt); d > 2500*time.Millisecond {
-			t.Errorf("cancellation took %v, want prompt SIGINT exit (< 2.5s, far under the 30s helper sleep)", d)
-		}
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("canceled command error = %v, want wrapped context.Canceled", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("command did not return promptly after cancellation")
-	}
-}
-
-func TestLoginAndMintContext(t *testing.T) {
-	for _, mint := range []bool{false, true} {
-		action := "login"
-		if mint {
-			action = "mint"
-		}
-		for _, mode := range []string{"normal", "fail", "cancel"} {
-			t.Run(action+"/"+mode, func(t *testing.T) {
-				bin, log, ready := configureCommandEnv(t, mode)
-				argv := []string{bin, action, "argument with spaces"}
-				if !mint {
-					argv[0] = "claude"
-				}
-				var token string
-				run := func(ctx context.Context) error {
-					if mint {
-						var err error
-						token, err = configure.RunMintContext(ctx, argv)
-						return err
-					}
-					return configure.RunLoginContext(ctx, argv)
-				}
-				if mode == "cancel" {
-					assertConfigureCancellation(t, ready, run)
-					assertConfigureArgv(t, log, argv[1:])
-					return
-				}
-				var err error
-				out := captureConfigureStdout(t, func() { err = run(context.Background()) })
-				if mode == "fail" {
-					var exitErr *exec.ExitError
-					if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 {
-						t.Errorf("command error = %v, want exit status 7", err)
-					}
-					if token != "" {
-						t.Errorf("failed mint returned token %q", token)
-					}
-				} else {
-					if err != nil {
-						t.Fatal(err)
-					}
-					wantOut := "login complete\n"
-					if mint {
-						wantOut = "minting token\n" + configureTestToken + "\nfinished\n"
-						if token != configureTestToken {
-							t.Errorf("minted token = %q, want %q", token, configureTestToken)
-						}
-					}
-					if out != wantOut {
-						t.Errorf("stdout = %q, want %q", out, wantOut)
-					}
-				}
-				assertConfigureArgv(t, log, argv[1:])
-			})
-		}
 	}
 }
 

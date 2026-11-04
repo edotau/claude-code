@@ -168,65 +168,86 @@ func TestTemplatesOnlyPlaceholderHost(t *testing.T) {
 
 // TestMatrix renders every target x wire x auth and checks the invariants each cell must hold.
 func TestMatrix(t *testing.T) {
-	const h = "https://x.example.com"
 	for _, target := range []string{TargetClaude, TargetCodex} {
 		for _, wire := range []string{"serving", "ai-gateway"} {
 			for _, auth := range []string{AuthHarness, AuthCLI} {
-				o := base(t, target, wire)
-				o.Auth = auth
-				r, err := Render(o)
 				name := target + "/" + wire + "/" + auth
-				if err != nil {
-					t.Fatalf("%s: %v", name, err)
-				}
-				if strings.Contains(r.Text, "ANTHROPIC_AUTH_TOKEN") || strings.Contains(r.Text, "eyJ") ||
-					strings.Contains(r.Text, "your_token") || strings.Contains(r.Text, "example.cloud") {
-					t.Errorf("%s: forbidden string in\n%s", name, r.Text)
-				}
-				wantURL := h + "/serving-endpoints"
-				if wire == "ai-gateway" {
-					wantURL = h + "/ai-gateway"
-				}
-				if !strings.Contains(r.Text, wantURL) {
-					t.Errorf("%s: missing %s", name, wantURL)
-				}
-				helper := "/bin/cc resolve --profile databricks-dev"
-				if auth == AuthCLI {
-					helper = "databricks auth token --host " + h + " --output json | jq -r '.access_token'"
-				}
-				if target == TargetClaude {
-					var d struct {
-						K   string            `json:"apiKeyHelper"`
-						Env map[string]string `json:"env"`
-					}
-					if err := json.Unmarshal([]byte(r.Text), &d); err != nil {
+				t.Run(name, func(t *testing.T) {
+					o := base(t, target, wire)
+					o.Auth = auth
+					r, err := Render(o)
+					if err != nil {
 						t.Fatalf("%s: %v", name, err)
 					}
-					if d.K != helper || d.Env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] != "300000" ||
-						d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "1" {
-						t.Errorf("%s: helper/env %q %v", name, d.K, d.Env)
+					checkMatrixCommon(t, name, r.Text, wire)
+					if target == TargetClaude {
+						checkMatrixClaude(t, name, r.Text, wire, auth)
+						return
 					}
-					if (d.Env["CLAUDE_CODE_USE_GATEWAY"] == "1") != (wire == "ai-gateway") {
-						t.Errorf("%s: gateway flag %v", name, d.Env)
-					}
-					continue
-				}
-				for _, w := range []string{`wire_api = "responses"`, "[model_providers.databricks.auth]", "refresh_interval_ms = 1800000"} {
-					if !strings.Contains(r.Text, w) {
-						t.Errorf("%s: missing %q", name, w)
-					}
-				}
-				wantCmd := `command = "/bin/cc"`
-				if auth == AuthCLI {
-					wantCmd = `command = "sh"`
-				}
-				if !strings.Contains(r.Text, wantCmd) {
-					t.Errorf("%s: missing %q", name, wantCmd)
-				}
-				checkTOML(t, name, r.Text)
+					checkMatrixCodex(t, name, r.Text, auth)
+				})
 			}
 		}
 	}
+}
+
+const matrixHost = "https://x.example.com"
+
+// checkMatrixCommon holds the invariants every cell shares: no token-like text and the wire's route.
+func checkMatrixCommon(t *testing.T, name, text, wire string) {
+	t.Helper()
+	if strings.Contains(text, "ANTHROPIC_AUTH_TOKEN") || strings.Contains(text, "eyJ") ||
+		strings.Contains(text, "your_token") || strings.Contains(text, "example.cloud") {
+		t.Errorf("%s: forbidden string in\n%s", name, text)
+	}
+	wantURL := matrixHost + "/serving-endpoints"
+	if wire == "ai-gateway" {
+		wantURL = matrixHost + "/ai-gateway"
+	}
+	if !strings.Contains(text, wantURL) {
+		t.Errorf("%s: missing %s", name, wantURL)
+	}
+}
+
+// checkMatrixClaude checks the claude cell's key helper and env flags.
+func checkMatrixClaude(t *testing.T, name, text, wire, auth string) {
+	t.Helper()
+	helper := "/bin/cc resolve --profile databricks-dev"
+	if auth == AuthCLI {
+		helper = "databricks auth token --host " + matrixHost + " --output json | jq -r '.access_token'"
+	}
+	var d struct {
+		K   string            `json:"apiKeyHelper"`
+		Env map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal([]byte(text), &d); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	if d.K != helper || d.Env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] != "300000" ||
+		d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "1" {
+		t.Errorf("%s: helper/env %q %v", name, d.K, d.Env)
+	}
+	if (d.Env["CLAUDE_CODE_USE_GATEWAY"] == "1") != (wire == "ai-gateway") {
+		t.Errorf("%s: gateway flag %v", name, d.Env)
+	}
+}
+
+// checkMatrixCodex checks the codex cell's required TOML lines and command.
+func checkMatrixCodex(t *testing.T, name, text, auth string) {
+	t.Helper()
+	for _, w := range []string{`wire_api = "responses"`, "[model_providers.databricks.auth]", "refresh_interval_ms = 1800000"} {
+		if !strings.Contains(text, w) {
+			t.Errorf("%s: missing %q", name, w)
+		}
+	}
+	wantCmd := `command = "/bin/cc"`
+	if auth == AuthCLI {
+		wantCmd = `command = "sh"`
+	}
+	if !strings.Contains(text, wantCmd) {
+		t.Errorf("%s: missing %q", name, wantCmd)
+	}
+	checkTOML(t, name, text)
 }
 
 // checkTOML is a dependency-free sanity pass: every non-comment line is blank, a [table], or key = value.

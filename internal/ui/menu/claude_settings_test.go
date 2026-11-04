@@ -271,22 +271,8 @@ func TestCheckAndDryRunNeverWriteOrPrompt(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeLiveSettings(t, rendered)
-			before, err := os.ReadFile(launch.SettingsFile())
-			if err != nil {
-				t.Fatal(err)
-			}
-			ovBefore, err := settings.LoadOverlay()
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			calls := 0
-			orig := pickSettingsPage
-			t.Cleanup(func() { pickSettingsPage = orig })
-			pickSettingsPage = func(title string, secs []tui.Section, trailing [2]string, start int) (int, error) {
-				calls++
-				return -1, nil
-			}
+			before, ovBefore := liveSettingsAndOverlay(t)
+			calls := countPickerCalls(t)
 
 			o := Options{In: strings.NewReader(""), Out: &bytes.Buffer{}}
 			if mode == "check" {
@@ -296,25 +282,45 @@ func TestCheckAndDryRunNeverWriteOrPrompt(t *testing.T) {
 			}
 			Run(o, "claude")
 
-			if calls != 0 {
-				t.Errorf("picker seam called %d time(s), want 0 under --%s", calls, mode)
+			if *calls != 0 {
+				t.Errorf("picker seam called %d time(s), want 0 under --%s", *calls, mode)
 			}
-			after, err := os.ReadFile(launch.SettingsFile())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(after) != string(before) {
+			after, ovAfter := liveSettingsAndOverlay(t)
+			if after != before {
 				t.Errorf("settings.json changed under --%s", mode)
-			}
-			ovAfter, err := settings.LoadOverlay()
-			if err != nil {
-				t.Fatal(err)
 			}
 			if len(ovAfter) != len(ovBefore) {
 				t.Errorf("overlay changed under --%s: before=%v after=%v", mode, ovBefore, ovAfter)
 			}
 		})
 	}
+}
+
+// liveSettingsAndOverlay reads the live settings.json (as text) and the vault overlay.
+func liveSettingsAndOverlay(t *testing.T) (string, map[string]json.RawMessage) {
+	t.Helper()
+	raw, err := os.ReadFile(launch.SettingsFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ov, err := settings.LoadOverlay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw), ov
+}
+
+// countPickerCalls swaps pickSettingsPage for a seam that cancels at once and counts its calls.
+func countPickerCalls(t *testing.T) *int {
+	t.Helper()
+	calls := 0
+	orig := pickSettingsPage
+	t.Cleanup(func() { pickSettingsPage = orig })
+	pickSettingsPage = func(title string, secs []tui.Section, trailing [2]string, start int) (int, error) {
+		calls++
+		return -1, nil
+	}
+	return &calls
 }
 
 // TestCheckExitsNonzeroOnLiveDiffers: Run(..., "claude") with Check must exit nonzero when the live
@@ -492,18 +498,7 @@ func TestAddSettingThenRemoveItAndSaveAsDefault(t *testing.T) {
 	if !spec.Search || len(spec.Rows) == 0 {
 		t.Fatalf("add picker spec = %+v, want a searchable list", spec)
 	}
-	widest := 0
-	for _, r := range spec.Rows {
-		widest = max(widest, len([]rune(r.Label)))
-		if r.Label == "model" || r.Label == "prefersReducedMotion" {
-			t.Errorf("add picker lists %q, which the page already shows", r.Label)
-		}
-	}
-	for _, r := range spec.Rows {
-		if w := rowRenderedWidth([]string{strings.Repeat("x", widest)}, r.Detail); w > 80 {
-			t.Errorf("add row %q is %d cols, want <=80", r.Label, w)
-		}
-	}
+	assertAddRows(t, spec.Rows)
 	ov, err := settings.LoadOverlay()
 	if err != nil {
 		t.Fatal(err)
@@ -525,6 +520,23 @@ func TestAddSettingThenRemoveItAndSaveAsDefault(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "1 setting(s) saved as default") {
 		t.Errorf("output lacks the Save as default line:\n%s", out.String())
+	}
+}
+
+// assertAddRows requires the add picker's rows to omit keys the page shows and to fit 80 columns.
+func assertAddRows(t *testing.T, rows []tui.ListRow) {
+	t.Helper()
+	widest := 0
+	for _, r := range rows {
+		widest = max(widest, len([]rune(r.Label)))
+		if r.Label == "model" || r.Label == "prefersReducedMotion" {
+			t.Errorf("add picker lists %q, which the page already shows", r.Label)
+		}
+	}
+	for _, r := range rows {
+		if w := rowRenderedWidth([]string{strings.Repeat("x", widest)}, r.Detail); w > 80 {
+			t.Errorf("add row %q is %d cols, want <=80", r.Label, w)
+		}
 	}
 }
 
@@ -629,12 +641,7 @@ func TestPageRowsSchemaHiddenAndObjectFlattened(t *testing.T) {
 		"worktree": json.RawMessage(`{"baseRef":"head","bgIsolation":"none"}`),
 	}
 	secs, fields, _ := pageSections(sections, tmpl, map[string]json.RawMessage{}, nil)
-	var labels []string
-	for _, s := range secs {
-		for _, r := range s.Rows {
-			labels = append(labels, r[0])
-		}
-	}
+	labels := sectionLabels(secs)
 	if slices.Contains(labels, "$schema") {
 		t.Errorf("$schema must not be a page row: %v", labels)
 	}
@@ -648,13 +655,30 @@ func TestPageRowsSchemaHiddenAndObjectFlattened(t *testing.T) {
 	if err := stageField(ov, staged, reset, map[string]json.RawMessage{}, tmpl, "worktree.baseRef", json.RawMessage(`"fresh"`)); err != nil {
 		t.Fatal(err)
 	}
-	var got map[string]string
-	if err := json.Unmarshal(staged["worktree"], &got); err != nil || got["baseRef"] != "fresh" || got["bgIsolation"] != "none" {
-		t.Errorf("staged worktree = %s (%v); want baseRef fresh with bgIsolation none kept", staged["worktree"], err)
-	}
+	assertStagedWorktree(t, staged["worktree"])
 	if string(tmpl["worktree"]) != `{"baseRef":"head","bgIsolation":"none"}` {
 		t.Errorf("template mutated: %s", tmpl["worktree"])
 	}
+}
+
+// assertStagedWorktree requires the staged parent object to carry baseRef fresh with bgIsolation none kept.
+func assertStagedWorktree(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var got map[string]string
+	if err := json.Unmarshal(raw, &got); err != nil || got["baseRef"] != "fresh" || got["bgIsolation"] != "none" {
+		t.Errorf("staged worktree = %s (%v); want baseRef fresh with bgIsolation none kept", raw, err)
+	}
+}
+
+// sectionLabels lists every row label of secs in order.
+func sectionLabels(secs []tui.Section) []string {
+	var labels []string
+	for _, s := range secs {
+		for _, r := range s.Rows {
+			labels = append(labels, r[0])
+		}
+	}
+	return labels
 }
 
 func TestStageFieldRefusesNonObjectParent(t *testing.T) {

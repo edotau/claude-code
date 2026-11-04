@@ -41,50 +41,65 @@ func TestPageLayout(t *testing.T) {
 	if !strings.HasPrefix(got, "usage: claude-code demo [flags]\n\n") {
 		t.Errorf("missing opening synopsis:\n%s", got)
 	}
-	for _, want := range []string{
+	assertContainsAll(t, got, []string{
 		"\n\nCOMMANDS\n", "\n\nFLAGS\n", "  show", "--format kind",
 		`output kind: text|json (default "text")`, "no-op for --check and e-mail-style",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing %q in:\n%s", want, got)
-		}
-	}
+	})
 	if !strings.Contains(strings.Join(strings.Fields(got), " "), "no-op for --check and e-mail-style text") {
 		t.Errorf("description changed while wrapping:\n%s", got)
 	}
-	fs.VisitAll(func(f *flag.Flag) {
-		count := 0
-		label := "--" + f.Name
-		if utf8.RuneCountInString(f.Name) == 1 {
-			label = "-" + f.Name
-		}
-		for line := range strings.SplitSeq(got, "\n") {
-			words := strings.Fields(line)
-			if len(words) > 0 && words[0] == label {
-				count++
-				if f.Name != "format" && strings.Contains(line, "(default") {
-					t.Errorf("zero-valued flag has a default: %q", line)
-				}
-			}
-		}
-		if count != 1 {
-			t.Errorf("--%s has %d rows, want 1", f.Name, count)
-		}
-	})
+	fs.VisitAll(func(f *flag.Flag) { assertOneFlagRow(t, got, f) })
 	if !strings.Contains(got, "--very-long-flag-name-for-the-label string  long label description") {
 		t.Errorf("overlong label lacks two-space separator:\n%s", got)
 	}
-	for line := range strings.SplitSeq(got, "\n") {
-		if n := utf8.RuneCountInString(line); n > 80 {
-			t.Errorf("line has %d columns: %q", n, line)
-		}
-	}
+	assertMaxColumns(t, got, 80)
 	about := strings.Split(got, "\n\n")[1]
 	if strings.Join(strings.Fields(about), " ") != strings.TrimSpace(p.About) {
 		t.Errorf("About changed while wrapping: %q", about)
 	}
 	if !strings.HasSuffix(got, "\n\n"+p.Hint) {
 		t.Errorf("Hint is not the last section:\n%s", got)
+	}
+}
+
+func assertContainsAll(t *testing.T, got string, wants []string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// assertOneFlagRow requires the flag f to head exactly one row of the rendered page got.
+func assertOneFlagRow(t *testing.T, got string, f *flag.Flag) {
+	t.Helper()
+	count := 0
+	label := "--" + f.Name
+	if utf8.RuneCountInString(f.Name) == 1 {
+		label = "-" + f.Name
+	}
+	for line := range strings.SplitSeq(got, "\n") {
+		words := strings.Fields(line)
+		if len(words) == 0 || words[0] != label {
+			continue
+		}
+		count++
+		if f.Name != "format" && strings.Contains(line, "(default") {
+			t.Errorf("zero-valued flag has a default: %q", line)
+		}
+	}
+	if count != 1 {
+		t.Errorf("--%s has %d rows, want 1", f.Name, count)
+	}
+}
+
+func assertMaxColumns(t *testing.T, got string, max int) {
+	t.Helper()
+	for line := range strings.SplitSeq(got, "\n") {
+		if n := utf8.RuneCountInString(line); n > max {
+			t.Errorf("line has %d columns: %q", n, line)
+		}
 	}
 }
 
@@ -282,23 +297,29 @@ func TestWrapRow(t *testing.T) {
 			if !strings.HasPrefix(got[0], "  name"+strings.Repeat(" ", lw-6)) {
 				t.Errorf("first line label not padded to %d: %q", lw, got[0])
 			}
-			var words []string
-			for i, l := range got {
-				if i > 0 && lead(l) != lw {
-					t.Errorf("continuation %d starts at col %d, want %d: %q", i, lead(l), lw, l)
-				}
-				if utf8.RuneCountInString(l) > w && len(strings.Fields(l[lw:])) > 1 {
-					t.Errorf("line %d is %d cols with several words: %q", i, utf8.RuneCountInString(l), l)
-				}
-				words = append(words, strings.Fields(l[min(lw, len(l)):])...)
-			}
-			if strings.Join(words, " ") != strings.Join(strings.Fields(tc.desc), " ") {
-				t.Errorf("words changed or split: %q", words)
-			}
+			assertWrapContinuations(t, got, tc.desc, lw, w)
 		})
 	}
 	if got := WrapRow("  name", "one short description", lw, w); got[0] != "  name"+strings.Repeat(" ", 12)+"one short description" {
 		t.Errorf("short row changed: %q", got[0])
+	}
+}
+
+// assertWrapContinuations checks every wrapped line of got keeps the label column and the description's words.
+func assertWrapContinuations(t *testing.T, got []string, desc string, lw, w int) {
+	t.Helper()
+	var words []string
+	for i, l := range got {
+		if i > 0 && lead(l) != lw {
+			t.Errorf("continuation %d starts at col %d, want %d: %q", i, lead(l), lw, l)
+		}
+		if utf8.RuneCountInString(l) > w && len(strings.Fields(l[lw:])) > 1 {
+			t.Errorf("line %d is %d cols with several words: %q", i, utf8.RuneCountInString(l), l)
+		}
+		words = append(words, strings.Fields(l[min(lw, len(l)):])...)
+	}
+	if strings.Join(words, " ") != strings.Join(strings.Fields(desc), " ") {
+		t.Errorf("words changed or split: %q", words)
 	}
 }
 
@@ -357,48 +378,82 @@ func isHelpPage(e ast.Expr, pages map[string]ast.Expr, depth int) bool {
 	case *ast.UnaryExpr:
 		return isHelpPage(x.X, pages, depth+1)
 	case *ast.Ident:
-		if x.Obj != nil {
-			switch d := x.Obj.Decl.(type) {
-			case *ast.AssignStmt:
-				for i, lhs := range d.Lhs {
-					if id, ok := lhs.(*ast.Ident); ok && id.Name == x.Name && i < len(d.Rhs) {
-						return isHelpPage(d.Rhs[i], pages, depth+1)
-					}
-				}
-			case *ast.ValueSpec:
-				if isSel(d.Type, "helptext", "Page") {
-					return true
-				}
-				for i, name := range d.Names {
-					if name.Name == x.Name && i < len(d.Values) {
-						return isHelpPage(d.Values[i], pages, depth+1)
-					}
-				}
-			case *ast.Field:
-				return isSel(d.Type, "helptext", "Page")
-			}
-		}
-		return isHelpPage(pages[x.Name], pages, depth+1)
+		return identIsHelpPage(x, pages, depth)
 	}
 	return false
 }
 
-func pageDecls(files []*ast.File) map[string]ast.Expr {
-	out := map[string]ast.Expr{}
+// identIsHelpPage resolves an identifier through its declaration, then through the package-level pages.
+func identIsHelpPage(x *ast.Ident, pages map[string]ast.Expr, depth int) bool {
+	if x.Obj != nil {
+		if r, decided := declIsHelpPage(x, pages, depth); decided {
+			return r
+		}
+	}
+	return isHelpPage(pages[x.Name], pages, depth+1)
+}
+
+// declIsHelpPage answers from x's declaration; decided is false when the declaration says nothing about x.
+func declIsHelpPage(x *ast.Ident, pages map[string]ast.Expr, depth int) (result, decided bool) {
+	switch d := x.Obj.Decl.(type) {
+	case *ast.AssignStmt:
+		return assignIsHelpPage(d, x, pages, depth)
+	case *ast.ValueSpec:
+		return specIsHelpPage(d, x, pages, depth)
+	case *ast.Field:
+		return isSel(d.Type, "helptext", "Page"), true
+	}
+	return false, false
+}
+
+func assignIsHelpPage(d *ast.AssignStmt, x *ast.Ident, pages map[string]ast.Expr, depth int) (result, decided bool) {
+	for i, lhs := range d.Lhs {
+		if id, ok := lhs.(*ast.Ident); ok && id.Name == x.Name && i < len(d.Rhs) {
+			return isHelpPage(d.Rhs[i], pages, depth+1), true
+		}
+	}
+	return false, false
+}
+
+func specIsHelpPage(d *ast.ValueSpec, x *ast.Ident, pages map[string]ast.Expr, depth int) (result, decided bool) {
+	if isSel(d.Type, "helptext", "Page") {
+		return true, true
+	}
+	for i, name := range d.Names {
+		if name.Name == x.Name && i < len(d.Values) {
+			return isHelpPage(d.Values[i], pages, depth+1), true
+		}
+	}
+	return false, false
+}
+
+// valueSpecs lists every package-level const/var spec of files, in source order.
+func valueSpecs(files []*ast.File) []*ast.ValueSpec {
+	var out []*ast.ValueSpec
 	for _, f := range files {
 		for _, decl := range f.Decls {
-			if gd, ok := decl.(*ast.GenDecl); ok {
-				for _, spec := range gd.Specs {
-					if vs, ok := spec.(*ast.ValueSpec); ok {
-						for i, name := range vs.Names {
-							if isSel(vs.Type, "helptext", "Page") {
-								out[name.Name] = &ast.CompositeLit{Type: vs.Type}
-							} else if i < len(vs.Values) {
-								out[name.Name] = vs.Values[i]
-							}
-						}
-					}
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				if vs, ok := spec.(*ast.ValueSpec); ok {
+					out = append(out, vs)
 				}
+			}
+		}
+	}
+	return out
+}
+
+func pageDecls(files []*ast.File) map[string]ast.Expr {
+	out := map[string]ast.Expr{}
+	for _, vs := range valueSpecs(files) {
+		for i, name := range vs.Names {
+			if isSel(vs.Type, "helptext", "Page") {
+				out[name.Name] = &ast.CompositeLit{Type: vs.Type}
+			} else if i < len(vs.Values) {
+				out[name.Name] = vs.Values[i]
 			}
 		}
 	}
@@ -408,22 +463,10 @@ func pageDecls(files []*ast.File) map[string]ast.Expr {
 // strDecls collects package-level string const/var literals by name, per directory.
 func strDecls(files []*ast.File) map[string]string {
 	out := map[string]string{}
-	for _, f := range files {
-		for _, d := range f.Decls {
-			gd, ok := d.(*ast.GenDecl)
-			if !ok {
-				continue
-			}
-			for _, s := range gd.Specs {
-				vs, ok := s.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for i, n := range vs.Names {
-					if i < len(vs.Values) {
-						out[n.Name] = firstString(vs.Values[i])
-					}
-				}
+	for _, vs := range valueSpecs(files) {
+		for i, n := range vs.Names {
+			if i < len(vs.Values) {
+				out[n.Name] = firstString(vs.Values[i])
 			}
 		}
 	}
@@ -463,29 +506,33 @@ func funcsCallingHelptext(files []*ast.File, pages map[string]ast.Expr) map[stri
 func usageAssigned(body ast.Node, flagset string, themedFuncs map[string]bool, pages map[string]ast.Expr) bool {
 	ok := false
 	ast.Inspect(body, func(n ast.Node) bool {
-		as, isAs := n.(*ast.AssignStmt)
-		if !isAs {
-			return true
-		}
-		for i, l := range as.Lhs {
-			sel, isSel := l.(*ast.SelectorExpr)
-			if !isSel || sel.Sel.Name != "Usage" || i >= len(as.Rhs) {
-				continue
-			}
-			id, isID := sel.X.(*ast.Ident)
-			if !isID || flagset == "" || id.Name != flagset {
-				continue
-			}
-			switch r := as.Rhs[i].(type) {
-			case *ast.FuncLit:
-				ok = ok || callsHelptext(r, pages)
-			case *ast.Ident:
-				ok = ok || themedFuncs[r.Name]
+		if as, isAs := n.(*ast.AssignStmt); isAs {
+			for i := range as.Lhs {
+				ok = usageRendererAt(as, i, flagset, themedFuncs, pages) || ok
 			}
 		}
 		return true
 	})
 	return ok
+}
+
+// usageRendererAt reports whether as.Lhs[i] is flagset.Usage assigned a function that renders shared help.
+func usageRendererAt(as *ast.AssignStmt, i int, flagset string, themedFuncs map[string]bool, pages map[string]ast.Expr) bool {
+	sel, isSel := as.Lhs[i].(*ast.SelectorExpr)
+	if !isSel || sel.Sel.Name != "Usage" || i >= len(as.Rhs) {
+		return false
+	}
+	id, isID := sel.X.(*ast.Ident)
+	if !isID || flagset == "" || id.Name != flagset {
+		return false
+	}
+	switch r := as.Rhs[i].(type) {
+	case *ast.FuncLit:
+		return callsHelptext(r, pages)
+	case *ast.Ident:
+		return themedFuncs[r.Name]
+	}
+	return false
 }
 
 var flagDefMethods = map[string]int{ // method -> index of the usage argument
@@ -526,70 +573,104 @@ func scanHelpGuard(t *testing.T, root string) []guardFinding {
 	return out
 }
 
+// guardScan accumulates the findings of one file.
+type guardScan struct {
+	fset          *token.FileSet
+	decls         map[string]string
+	themed        map[string]bool
+	pages         map[string]ast.Expr
+	allowFlagSets bool
+	out           []guardFinding
+}
+
+func (g *guardScan) add(n ast.Node, msg string) {
+	g.out = append(g.out, guardFinding{g.fset.Position(n.Pos()).String(), msg})
+}
+
 func scanFile(fset *token.FileSet, f *ast.File, decls map[string]string, themed map[string]bool, pages map[string]ast.Expr, allowFlagSets bool) []guardFinding {
-	var out []guardFinding
-	add := func(n ast.Node, msg string) {
-		out = append(out, guardFinding{fset.Position(n.Pos()).String(), msg})
-	}
+	g := &guardScan{fset: fset, decls: decls, themed: themed, pages: pages, allowFlagSets: allowFlagSets}
 	ast.Inspect(f, func(n ast.Node) bool {
 		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 			if s, _ := strconv.Unquote(lit.Value); strings.Contains(s, "Usage of") {
-				add(lit, `legacy "Usage of" string literal: use helptext.Page`)
+				g.add(lit, `legacy "Usage of" string literal: use helptext.Page`)
 			}
 		}
 		return true
 	})
 	for _, d := range f.Decls {
-		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Body == nil {
-			continue
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+			g.scanFunc(fd)
 		}
-		flagsets := map[*ast.CallExpr]string{}
-		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			switch d := n.(type) {
-			case *ast.AssignStmt:
-				for i, rhs := range d.Rhs {
-					if c, ok := rhs.(*ast.CallExpr); ok && i < len(d.Lhs) {
-						if id, ok := d.Lhs[i].(*ast.Ident); ok {
-							flagsets[c] = id.Name
-						}
-					}
-				}
-			case *ast.ValueSpec:
-				for i, value := range d.Values {
-					if c, ok := value.(*ast.CallExpr); ok && i < len(d.Names) {
-						flagsets[c] = d.Names[i].Name
-					}
-				}
-			}
-			return true
-		})
-		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			c, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			if isSel(c.Fun, "flag", "NewFlagSet") && !allowFlagSets && !usageAssigned(fd.Body, flagsets[c], themed, pages) {
-				add(c, "flag.NewFlagSet without shared help: use helptext.NewFlagSet or assign Usage calling helptext.Page.Fprint/helptext.Fprint")
-			}
-			if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
-				if idx, isDef := flagDefMethods[sel.Sel.Name]; isDef && len(c.Args) > idx {
-					if lit, isLit := c.Args[idx].(*ast.BasicLit); isLit && lit.Kind == token.STRING {
-						if s, _ := strconv.Unquote(lit.Value); strings.Contains(s, "`") {
-							add(c, "flag usage string contains a backtick (flag renames the value type after it): "+s)
-						}
-					}
-				}
-			}
-			if isSel(c.Fun, "fmt", "Fprint") || isSel(c.Fun, "fmt", "Fprintln") || isSel(c.Fun, "fmt", "Fprintf") {
-				if len(c.Args) >= 2 && isSel(c.Args[0], "os", "Stderr") && usageText(c.Args[1], decls) {
-					add(c, `plain fmt write of a "usage:" string to os.Stderr: use helptext.Fprint`)
-				}
-			}
-			return true
-		})
 	}
-	return out
+	return g.out
+}
+
+func (g *guardScan) scanFunc(fd *ast.FuncDecl) {
+	flagsets := flagsetNames(fd.Body)
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			g.checkCall(fd.Body, c, flagsets[c])
+		}
+		return true
+	})
+}
+
+// flagsetNames maps each call expression assigned to a variable in body to that variable's name.
+func flagsetNames(body *ast.BlockStmt) map[*ast.CallExpr]string {
+	flagsets := map[*ast.CallExpr]string{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch d := n.(type) {
+		case *ast.AssignStmt:
+			for i, rhs := range d.Rhs {
+				c, ok := rhs.(*ast.CallExpr)
+				if !ok || i >= len(d.Lhs) {
+					continue
+				}
+				if id, ok := d.Lhs[i].(*ast.Ident); ok {
+					flagsets[c] = id.Name
+				}
+			}
+		case *ast.ValueSpec:
+			for i, value := range d.Values {
+				if c, ok := value.(*ast.CallExpr); ok && i < len(d.Names) {
+					flagsets[c] = d.Names[i].Name
+				}
+			}
+		}
+		return true
+	})
+	return flagsets
+}
+
+func (g *guardScan) checkCall(body *ast.BlockStmt, c *ast.CallExpr, flagset string) {
+	if isSel(c.Fun, "flag", "NewFlagSet") && !g.allowFlagSets && !usageAssigned(body, flagset, g.themed, g.pages) {
+		g.add(c, "flag.NewFlagSet without shared help: use helptext.NewFlagSet or assign Usage calling helptext.Page.Fprint/helptext.Fprint")
+	}
+	g.checkBacktick(c)
+	if isSel(c.Fun, "fmt", "Fprint") || isSel(c.Fun, "fmt", "Fprintln") || isSel(c.Fun, "fmt", "Fprintf") {
+		if len(c.Args) >= 2 && isSel(c.Args[0], "os", "Stderr") && usageText(c.Args[1], g.decls) {
+			g.add(c, `plain fmt write of a "usage:" string to os.Stderr: use helptext.Fprint`)
+		}
+	}
+}
+
+// checkBacktick flags a flag-definition call whose literal usage string contains a backtick.
+func (g *guardScan) checkBacktick(c *ast.CallExpr) {
+	sel, ok := c.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+	idx, isDef := flagDefMethods[sel.Sel.Name]
+	if !isDef || len(c.Args) <= idx {
+		return
+	}
+	lit, isLit := c.Args[idx].(*ast.BasicLit)
+	if !isLit || lit.Kind != token.STRING {
+		return
+	}
+	if s, _ := strconv.Unquote(lit.Value); strings.Contains(s, "`") {
+		g.add(c, "flag usage string contains a backtick (flag renames the value type after it): "+s)
+	}
 }
 
 func usageText(e ast.Expr, decls map[string]string) bool {
@@ -606,45 +687,48 @@ func TestHelpGuard(t *testing.T) {
 	}
 }
 
+// helpGuardFixtures are source snippets and the number of guard findings each must produce.
+var helpGuardFixtures = []struct {
+	name, source string
+	findings     int
+}{
+	{"constructor", `func run() { fs := helptext.NewFlagSet("demo", helptext.Page{}); _ = fs }`, 0},
+	{"function renderer", `func run() {
+		fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+		fs.Usage = func() { helptext.Fprint(fs.Output(), "usage: claude-code demo") }
+	}`, 0},
+	{"page renderer", `func run() {
+		p := helptext.Page{Usage: "claude-code demo"}
+		fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+		fs.Usage = func() { p.Fprint(fs.Output()) }
+	}`, 0},
+	{"inline page renderer", `func run() {
+		fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+		fs.Usage = func() { (helptext.Page{}).Fprint(fs.Output()) }
+	}`, 0},
+	{"named renderer", `var page = helptext.Page{}
+	func render() { page.Fprint(os.Stderr) }
+	func run() {
+		fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+		fs.Usage = render
+	}`, 0},
+	{"unwired", `func run() { fs := flag.NewFlagSet("demo", flag.ContinueOnError); _ = fs }`, 1},
+	{"unrelated renderer", `func run() {
+		fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+		fs.Usage = func() { other.Fprint(fs.Output()) }
+	}`, 1},
+	{"other flagset wired", `func run() {
+		first := flag.NewFlagSet("first", flag.ContinueOnError)
+		second := flag.NewFlagSet("second", flag.ContinueOnError)
+		first.Usage = func() { helptext.Fprint(first.Output(), "help") }
+		_ = second
+	}`, 1},
+	{"legacy literal outside function", `const text = "Usage of demo:"`, 1},
+	{"legacy literal inside function", `func run() { println("Usage of demo:") }`, 1},
+}
+
 func TestHelpGuardFixtures(t *testing.T) {
-	for _, tc := range []struct {
-		name, source string
-		findings     int
-	}{
-		{"constructor", `func run() { fs := helptext.NewFlagSet("demo", helptext.Page{}); _ = fs }`, 0},
-		{"function renderer", `func run() {
-			fs := flag.NewFlagSet("demo", flag.ContinueOnError)
-			fs.Usage = func() { helptext.Fprint(fs.Output(), "usage: claude-code demo") }
-		}`, 0},
-		{"page renderer", `func run() {
-			p := helptext.Page{Usage: "claude-code demo"}
-			fs := flag.NewFlagSet("demo", flag.ContinueOnError)
-			fs.Usage = func() { p.Fprint(fs.Output()) }
-		}`, 0},
-		{"inline page renderer", `func run() {
-			fs := flag.NewFlagSet("demo", flag.ContinueOnError)
-			fs.Usage = func() { (helptext.Page{}).Fprint(fs.Output()) }
-		}`, 0},
-		{"named renderer", `var page = helptext.Page{}
-		func render() { page.Fprint(os.Stderr) }
-		func run() {
-			fs := flag.NewFlagSet("demo", flag.ContinueOnError)
-			fs.Usage = render
-		}`, 0},
-		{"unwired", `func run() { fs := flag.NewFlagSet("demo", flag.ContinueOnError); _ = fs }`, 1},
-		{"unrelated renderer", `func run() {
-			fs := flag.NewFlagSet("demo", flag.ContinueOnError)
-			fs.Usage = func() { other.Fprint(fs.Output()) }
-		}`, 1},
-		{"other flagset wired", `func run() {
-			first := flag.NewFlagSet("first", flag.ContinueOnError)
-			second := flag.NewFlagSet("second", flag.ContinueOnError)
-			first.Usage = func() { helptext.Fprint(first.Output(), "help") }
-			_ = second
-		}`, 1},
-		{"legacy literal outside function", `const text = "Usage of demo:"`, 1},
-		{"legacy literal inside function", `func run() { println("Usage of demo:") }`, 1},
-	} {
+	for _, tc := range helpGuardFixtures {
 		t.Run(tc.name, func(t *testing.T) {
 			fset := token.NewFileSet()
 			f, err := parser.ParseFile(fset, "fixture.go", "package fixture\n"+tc.source, 0)

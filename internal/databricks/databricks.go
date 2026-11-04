@@ -45,25 +45,11 @@ func Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
 		return 2
 	}
-	// Help only as the first arg (or right after check); a later -h belongs to claude, as in the shell wrapper.
-	head := args
-	if len(head) > 0 && head[0] == "check" {
-		head = head[1:]
+	if code, ok := helpExit(args); ok {
+		return code
 	}
-	if len(head) > 0 && helptext.WantsHelp(head[:1]) {
-		usage(len(args) > len(head))
-		return 0
-	}
-	if len(args) == 1 && args[0] == helptext.DocsFlag {
-		return helptext.WrappedDocs("databricks")
-	}
-	if len(args) > 0 {
-		if run, ok := subverbs[args[0]]; ok {
-			return run(args[1:])
-		}
-	}
-	if len(args) > 1 && args[0] == "check" && args[1] == "--all" {
-		return checkAll(args[2:])
+	if code, ok := subverbExit(args); ok {
+		return code
 	}
 	p, err := plan(args)
 	if err != nil {
@@ -81,6 +67,36 @@ func Run(args []string) int {
 	return launch(self, p)
 }
 
+// helpExit handles the usage and docs requests, returning the exit code and whether it handled args.
+func helpExit(args []string) (int, bool) {
+	// Help only as the first arg (or right after check); a later -h belongs to claude, as in the shell wrapper.
+	head := args
+	if len(head) > 0 && head[0] == "check" {
+		head = head[1:]
+	}
+	if len(head) > 0 && helptext.WantsHelp(head[:1]) {
+		usage(len(args) > len(head))
+		return 0, true
+	}
+	if len(args) == 1 && args[0] == helptext.DocsFlag {
+		return helptext.WrappedDocs("databricks"), true
+	}
+	return 0, false
+}
+
+// subverbExit runs a `databricks <verb>` or `check --all` command, returning its exit code and whether args named one.
+func subverbExit(args []string) (int, bool) {
+	if len(args) > 0 {
+		if run, ok := subverbs[args[0]]; ok {
+			return run(args[1:]), true
+		}
+	}
+	if len(args) > 1 && args[0] == "check" && args[1] == "--all" {
+		return checkAll(args[2:]), true
+	}
+	return 0, false
+}
+
 // subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
 var subverbs = map[string]func([]string) int{
 	"config": config, "rescue": rescue, "login": login, "mint": mint, "import": importCfg, "export": export,
@@ -88,6 +104,26 @@ var subverbs = map[string]func([]string) int{
 
 // plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
 func plan(args []string) (Plan, error) {
+	p, name := parsePlanArgs(args)
+	reg, err := providers.Load()
+	if err != nil {
+		return Plan{}, fmt.Errorf("load providers: %w", err)
+	}
+	if p.Provider = resolveProfile(reg, name); p.Provider == "" {
+		return Plan{}, errors.New("no Databricks profile; add one with `databricks import` or pass --profile")
+	}
+	if !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
+		return Plan{}, fmt.Errorf("--profile %q is not a Databricks profile", p.Provider)
+	}
+	if p.Model == "" {
+		p.Model = defaultModel(reg, p.Provider)
+	}
+	p.NoBeta = providerHasBetaOff(reg, p.Provider)
+	return p, nil
+}
+
+// parsePlanArgs splits args into the Plan fields they set and the raw --profile name.
+func parsePlanArgs(args []string) (Plan, string) {
 	var p Plan
 	if len(args) > 0 && args[0] == "check" {
 		p.Check = true
@@ -112,21 +148,7 @@ func plan(args []string) (Plan, error) {
 			p.Rest = append(p.Rest, arg)
 		}
 	}
-	reg, err := providers.Load()
-	if err != nil {
-		return Plan{}, fmt.Errorf("load providers: %w", err)
-	}
-	if p.Provider = resolveProfile(reg, name); p.Provider == "" {
-		return Plan{}, errors.New("no Databricks profile; add one with `databricks import` or pass --profile")
-	}
-	if !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
-		return Plan{}, fmt.Errorf("--profile %q is not a Databricks profile", p.Provider)
-	}
-	if p.Model == "" {
-		p.Model = defaultModel(reg, p.Provider)
-	}
-	p.NoBeta = providerHasBetaOff(reg, p.Provider)
-	return p, nil
+	return p, name
 }
 
 // defaultModel is the opus alias, at 1M where the endpoint serves it, spelled the way the profile's row serves it.

@@ -177,6 +177,19 @@ func TestSeedSymlinksVenvCopiesEnv(t *testing.T) {
 		t.Fatalf("seed warnings: %s", log.String())
 	}
 
+	requireSeededVenv(t, dest, main)
+	requireSeededEnv(t, dest)
+
+	cmd := exec.Command("git", "-C", dest, "status", "--porcelain")
+	cmd.Env = gitEnv()
+	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("worktree status = %q, err %v; seeded gitignored paths must leave the worktree clean", out, err)
+	}
+}
+
+// requireSeededVenv fails unless dest/.venv is a symlink to main's absolute .venv.
+func requireSeededVenv(t *testing.T, dest, main string) {
+	t.Helper()
 	info, err := os.Lstat(filepath.Join(dest, ".venv"))
 	if err != nil {
 		t.Fatalf(".venv missing: %v", err)
@@ -187,7 +200,11 @@ func TestSeedSymlinksVenvCopiesEnv(t *testing.T) {
 	if link, err := os.Readlink(filepath.Join(dest, ".venv")); err != nil || link != filepath.Join(main, ".venv") {
 		t.Fatalf(".venv -> %q, err %v; want absolute %q", link, err, filepath.Join(main, ".venv"))
 	}
+}
 
+// requireSeededEnv fails unless dest/.env is a regular copy with the source's 0640 mode and content.
+func requireSeededEnv(t *testing.T, dest string) {
+	t.Helper()
 	envInfo, err := os.Stat(filepath.Join(dest, ".env"))
 	if err != nil {
 		t.Fatalf(".env missing: %v", err)
@@ -200,12 +217,6 @@ func TestSeedSymlinksVenvCopiesEnv(t *testing.T) {
 	}
 	if data, err := os.ReadFile(filepath.Join(dest, ".env")); err != nil || string(data) != "TOKEN=secret\n" {
 		t.Fatalf(".env content = %q, err %v", data, err)
-	}
-
-	cmd := exec.Command("git", "-C", dest, "status", "--porcelain")
-	cmd.Env = gitEnv()
-	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "" {
-		t.Fatalf("worktree status = %q, err %v; seeded gitignored paths must leave the worktree clean", out, err)
 	}
 }
 

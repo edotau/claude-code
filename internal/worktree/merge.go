@@ -64,51 +64,13 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 	if plan.IntegratedOID == "" {
 		return nil, errors.New("promote: no verified integration OID pinned — call IntegrateTarget first")
 	}
-	branch, err := requireBranch(ctx, repo.Main)
-	if err != nil {
-		return nil, fmt.Errorf("promote: %w", err)
-	}
-	if branch != plan.TargetRef {
-		return nil, fmt.Errorf("promote: main checkout moved to %q, pinned target was %q — retry from a fresh plan", branch, plan.TargetRef)
-	}
-	if issue, err := checkCheckoutState(ctx, repo.Main, plan.MainGitDir, IssueDirtyTarget); err != nil {
-		return nil, err
-	} else if issue != nil {
-		return nil, fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
-	}
-	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
-		return nil, err
-	} else if issue != nil {
-		return nil, fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
-	}
-
-	freshTarget, err := headOfContext(ctx, repo.Main)
-	if err != nil {
+	if err := promoteStateChecks(ctx, repo, plan); err != nil {
 		return nil, err
 	}
-	freshSource, err := headOfContext(ctx, plan.WorktreePath)
+	freshTarget, freshSource, res, err := promoteFreshHeads(ctx, repo, plan)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
-	if freshTarget != plan.TargetOID {
-		return &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "target moved since integration — re-run worktree merge to re-integrate and retry"},
-			fmt.Errorf("promote: target moved from %s to %s since integration", plan.TargetOID, freshTarget)
-	}
-	if freshSource != plan.IntegratedOID {
-		return &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "worktree changed since the verified integration — re-run worktree merge to re-integrate and retry"},
-			fmt.Errorf("promote: worktree HEAD moved from the verified integration %s to %s since integration — refusing to promote an unreviewed commit",
-				plan.IntegratedOID, freshSource)
-	}
-
-	ancestor, err := isAncestor(ctx, repo.Main, freshTarget, freshSource)
-	if err != nil {
-		return nil, fmt.Errorf("promote: %w", err)
-	}
-	if !ancestor {
-		return &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "not a fast-forward — re-run worktree merge to re-integrate and retry"},
-			fmt.Errorf("promote: %s is not an ancestor of the integrated worktree HEAD %s", freshTarget, freshSource)
-	}
-
 	if conflicts, err := simulateMerge(ctx, repo.Main, plan.CommonDir, freshSource, freshTarget, true); err != nil {
 		return nil, fmt.Errorf("promote: re-simulation failed: %w", err)
 	} else if len(conflicts) > 0 {
@@ -123,6 +85,59 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 		return nil, fmt.Errorf("git merge --ff-only: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
 	}
 	return &MergeResult{Phase: "promote", BeforeOID: freshTarget, AfterOID: freshSource}, nil
+}
+
+// promoteStateChecks refuses to promote unless the main checkout is still on the pinned target and both trees are clean.
+func promoteStateChecks(ctx context.Context, repo *Repo, plan *MergePlan) error {
+	branch, err := requireBranch(ctx, repo.Main)
+	if err != nil {
+		return fmt.Errorf("promote: %w", err)
+	}
+	if branch != plan.TargetRef {
+		return fmt.Errorf("promote: main checkout moved to %q, pinned target was %q — retry from a fresh plan", branch, plan.TargetRef)
+	}
+	if issue, err := checkCheckoutState(ctx, repo.Main, plan.MainGitDir, IssueDirtyTarget); err != nil {
+		return err
+	} else if issue != nil {
+		return fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
+	}
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
+		return err
+	} else if issue != nil {
+		return fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
+	}
+	return nil
+}
+
+// promoteFreshHeads re-reads both heads and requires them to match the pinned integration and a fast-forward.
+func promoteFreshHeads(ctx context.Context, repo *Repo, plan *MergePlan) (target, source string, res *MergeResult, err error) {
+	freshTarget, err := headOfContext(ctx, repo.Main)
+	if err != nil {
+		return "", "", nil, err
+	}
+	freshSource, err := headOfContext(ctx, plan.WorktreePath)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if freshTarget != plan.TargetOID {
+		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "target moved since integration — re-run worktree merge to re-integrate and retry"},
+			fmt.Errorf("promote: target moved from %s to %s since integration", plan.TargetOID, freshTarget)
+	}
+	if freshSource != plan.IntegratedOID {
+		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "worktree changed since the verified integration — re-run worktree merge to re-integrate and retry"},
+			fmt.Errorf("promote: worktree HEAD moved from the verified integration %s to %s since integration — refusing to promote an unreviewed commit",
+				plan.IntegratedOID, freshSource)
+	}
+
+	ancestor, err := isAncestor(ctx, repo.Main, freshTarget, freshSource)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("promote: %w", err)
+	}
+	if !ancestor {
+		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "not a fast-forward — re-run worktree merge to re-integrate and retry"},
+			fmt.Errorf("promote: %s is not an ancestor of the integrated worktree HEAD %s", freshTarget, freshSource)
+	}
+	return freshTarget, freshSource, nil, nil
 }
 
 func firstNonEmpty(vals ...string) string {

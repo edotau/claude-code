@@ -172,19 +172,7 @@ type edit struct {
 
 // diffLines is an LCS line diff; the overlay is a few hundred lines, so the quadratic table is fine.
 func diffLines(a, b []string) []edit {
-	lcs := make([][]int, len(a)+1)
-	for i := range lcs {
-		lcs[i] = make([]int, len(b)+1)
-	}
-	for i := range slices.Backward(a) {
-		for j := range slices.Backward(b) {
-			if a[i] == b[j] {
-				lcs[i][j] = lcs[i+1][j+1] + 1
-			} else {
-				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
-			}
-		}
-	}
+	lcs := lcsTable(a, b)
 	var edits []edit
 	i, j := 0, 0
 	for i < len(a) || j < len(b) {
@@ -202,6 +190,24 @@ func diffLines(a, b []string) []edit {
 		}
 	}
 	return edits
+}
+
+// lcsTable is the longest-common-subsequence length of a[i:] and b[j:] at [i][j].
+func lcsTable(a, b []string) [][]int {
+	lcs := make([][]int, len(a)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(b)+1)
+	}
+	for i := range slices.Backward(a) {
+		for j := range slices.Backward(b) {
+			if a[i] == b[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
+		}
+	}
+	return lcs
 }
 
 // printDiff writes a line diff of two overlay documents (+/-, 2 lines of context); false when identical.

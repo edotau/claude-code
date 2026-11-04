@@ -175,14 +175,8 @@ func TestInUseByRealProcess(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("real-process detection is only implemented for linux and darwin")
 	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	stubbedIn, stubbedUp, stubbedScan, origSettle := processesIn, parentOf, scanProcs, inUseSettle
-	if platformScan.in != nil { // TestMain stubbed the scan; this test needs the OS one
-		processesIn, parentOf, scanProcs = platformScan.in, platformScan.up, platformScan.procs
-	}
-	inUseSettle = 0 // the sleep never exits on its own; refuse on the first look
-	t.Cleanup(func() { processesIn, parentOf, scanProcs, inUseSettle = stubbedIn, stubbedUp, stubbedScan, origSettle })
+	t.Setenv("HOME", t.TempDir())
+	useRealProcessScan(t)
 	main := gitRepo(t)
 	repo, err := ResolveRepo(main)
 	if err != nil {
@@ -201,18 +195,7 @@ func TestInUseByRealProcess(t *testing.T) {
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 
 	// Poll briefly: the child's /proc entry (or lsof's view) can lag the Start() call by a beat.
-	deadline := time.Now().Add(5 * time.Second)
-	var reason string
-	for time.Now().Before(deadline) {
-		reason, err = InUseBy(dest)
-		if err != nil {
-			t.Fatalf("InUseBy: %v", err)
-		}
-		if reason != "" {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	reason := pollInUse(t, dest, "InUseBy", func(r string) bool { return r != "" })
 	if reason == "" {
 		t.Fatal("want a refusal while the real sleep process has its cwd inside dest")
 	}
@@ -225,20 +208,39 @@ func TestInUseByRealProcess(t *testing.T) {
 	}
 	_ = cmd.Wait()
 
-	deadline = time.Now().Add(5 * time.Second)
+	if reason = pollInUse(t, dest, "InUseBy after kill", func(r string) bool { return r == "" }); reason != "" {
+		t.Fatalf("reason = %q, want clear after the process was killed", reason)
+	}
+}
+
+// useRealProcessScan swaps the TestMain stubs for the OS process scan and settles InUse on the first look.
+func useRealProcessScan(t *testing.T) {
+	t.Helper()
+	stubbedIn, stubbedUp, stubbedScan, origSettle := processesIn, parentOf, scanProcs, inUseSettle
+	if platformScan.in != nil { // TestMain stubbed the scan; this test needs the OS one
+		processesIn, parentOf, scanProcs = platformScan.in, platformScan.up, platformScan.procs
+	}
+	inUseSettle = 0 // the sleep never exits on its own; refuse on the first look
+	t.Cleanup(func() { processesIn, parentOf, scanProcs, inUseSettle = stubbedIn, stubbedUp, stubbedScan, origSettle })
+}
+
+// pollInUse calls InUseBy(dest) for up to 5s until done(reason) holds and returns the last reason.
+func pollInUse(t *testing.T, dest, label string, done func(string) bool) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var reason string
 	for time.Now().Before(deadline) {
+		var err error
 		reason, err = InUseBy(dest)
 		if err != nil {
-			t.Fatalf("InUseBy after kill: %v", err)
+			t.Fatalf("%s: %v", label, err)
 		}
-		if reason == "" {
+		if done(reason) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if reason != "" {
-		t.Fatalf("reason = %q, want clear after the process was killed", reason)
-	}
+	return reason
 }
 
 // PeerAgents ignores agents in a linked worktree, the caller's own agent ancestor and that agent's descendants.

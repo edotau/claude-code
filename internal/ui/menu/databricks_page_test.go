@@ -160,7 +160,7 @@ func TestDbxDur(t *testing.T) {
 	}
 }
 
-func TestDbxStateAndHomeRow(t *testing.T) {
+func TestDbxState(t *testing.T) {
 	d := dbxEnv(t)
 	if at, text, ok := dbxState(d.reg, "dev"); at != "oauth" || text != "no login" || ok {
 		t.Errorf("dev = %q %q %v", at, text, ok)
@@ -169,20 +169,28 @@ func TestDbxStateAndHomeRow(t *testing.T) {
 		t.Errorf("qa no expiry = %q %q", at, text)
 	}
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
-	if _, text, _ := dbxState(d.reg, "qa"); text != "expires in 59m" {
-		t.Errorf("qa = %q", text)
-	}
+	assertDbxText(t, d, "expires in 59m")
 	dbxExpiry(t, "qa", time.Now().Add(-time.Minute))
-	if _, text, _ := dbxState(d.reg, "qa"); text != "expired" {
-		t.Errorf("expired = %q", text)
+	assertDbxText(t, d, "expired")
+	if at, text, ok := dbxState(nil, "qa"); at != "" || text != "no login" || ok {
+		t.Errorf("nil reg = %q %q %v", at, text, ok)
 	}
+}
+
+// assertDbxText requires qa's state text to be want.
+func assertDbxText(t *testing.T, d *dialog, want string) {
+	t.Helper()
+	if _, text, _ := dbxState(d.reg, "qa"); text != want {
+		t.Errorf("qa = %q, want %q", text, want)
+	}
+}
+
+func TestDbxHomeRow(t *testing.T) {
+	d := dbxEnv(t)
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
 	row := databricksRow(d)
 	if row.Name != "databricks" || row.State != "qa · command" || row.Check != "expires in 59m" {
 		t.Errorf("home row = %+v", row)
-	}
-	if at, text, ok := dbxState(nil, "qa"); at != "" || text != "no login" || ok {
-		t.Errorf("nil reg = %q %q %v", at, text, ok)
 	}
 	if r := databricksRow(&dialog{}); r.State != "not configured" || r.Check != "no login" {
 		t.Errorf("empty home row = %+v", r)
@@ -206,6 +214,21 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	if len(f.copied) != 0 {
 		t.Errorf("Mint now must not copy: %v", f.copied)
 	}
+	assertDbxEnvRows(t, f)
+	out := dbxOut(d)
+	for _, w := range []string{"qa: login done", "qa: PAT saved · probe ok", "qa · u2m · minted · expires in 59m"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("output missing %q:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, dbxTok) || strings.Contains(out, "dapi") {
+		t.Errorf("token leaked into page output:\n%s", out)
+	}
+}
+
+// assertDbxEnvRows checks the env list's rows and title and the qa actions page's labels, as the fake recorded them.
+func assertDbxEnvRows(t *testing.T, f *dbxFake) {
+	t.Helper()
 	envRows := f.rows[0]
 	if len(envRows) != 3 || envRows[0][0] != "dev" || envRows[1][0] != "qa" || envRows[2][0] != "prod" {
 		t.Fatalf("env rows = %v", envRows)
@@ -222,15 +245,6 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	}
 	if strings.Join(labels, "|") != "Set up|Login|Paste PAT|Mint now|Copy token|Apply to agents|Identity" {
 		t.Errorf("actions = %v", labels)
-	}
-	out := dbxOut(d)
-	for _, w := range []string{"qa: login done", "qa: PAT saved · probe ok", "qa · u2m · minted · expires in 59m"} {
-		if !strings.Contains(out, w) {
-			t.Errorf("output missing %q:\n%s", w, out)
-		}
-	}
-	if strings.Contains(out, dbxTok) || strings.Contains(out, "dapi") {
-		t.Errorf("token leaked into page output:\n%s", out)
 	}
 }
 
@@ -491,17 +505,20 @@ func dbxSetUpEnv(t *testing.T) *dialog {
 	return &dialog{reg: reg, out: &bytes.Buffer{}}
 }
 
+// dbxSetUpCase is one TestDbxSetUpOrderAndStops scenario: the failures injected and the calls and output expected.
+type dbxSetUpCase struct {
+	name          string
+	loginErr      error
+	mintErr       error
+	picks         []int
+	calls         []string
+	want, notWant string
+	changed       bool
+}
+
 func TestDbxSetUpOrderAndStops(t *testing.T) {
 	loginErr, mintErr := errors.New("browser closed"), errors.New("invalid_grant")
-	for _, c := range []struct {
-		name          string
-		loginErr      error
-		mintErr       error
-		picks         []int
-		calls         []string
-		want, notWant string
-		changed       bool
-	}{
+	for _, c := range []dbxSetUpCase{
 		{"success", nil, nil, []int{0}, []string{"login:dev", "mint:dev"}, "token verified", "stopped", true},
 		{"login fails", loginErr, nil, []int{0}, []string{"login:dev"}, "stopped at sign-in: browser closed", "token verified", false},
 		{"mint fails", nil, mintErr, []int{0}, []string{"login:dev", "mint:dev"}, "stopped at token check: invalid_grant", "agents", true},
@@ -518,25 +535,37 @@ func TestDbxSetUpOrderAndStops(t *testing.T) {
 				}
 			}
 			dbxSetUp(d, "dev")
-			out := dbxOut(d)
-			if strings.Join(f.calls, ",") != strings.Join(c.calls, ",") {
-				t.Errorf("calls = %v, want %v", f.calls, c.calls)
-			}
-			if !strings.Contains(out, c.want) || strings.Contains(out, c.notWant) || strings.Contains(out, dbxTok) {
-				t.Errorf("out = %q, want %q without %q or the token", out, c.want, c.notWant)
-			}
-			if c.name == "success" {
-				if len(f.titles) != 1 || f.titles[0] != "apply dev to" || !strings.Contains(out, "dev") {
-					t.Errorf("apply picker titles = %v, out = %q", f.titles, out)
-				}
-			}
-			if reached := len(f.titles) > 0; reached != (c.loginErr == nil && c.mintErr == nil) {
-				t.Errorf("apply picker reached = %v after %v", reached, f.calls)
-			}
-			if d.changed != c.changed {
-				t.Errorf("changed = %v, want %v", d.changed, c.changed)
-			}
+			assertDbxSetUp(t, d, f, c)
 		})
+	}
+}
+
+// assertDbxSetUp checks the calls, output, apply picker and changed flag of one set-up run against c.
+func assertDbxSetUp(t *testing.T, d *dialog, f *dbxFake, c dbxSetUpCase) {
+	t.Helper()
+	out := dbxOut(d)
+	if strings.Join(f.calls, ",") != strings.Join(c.calls, ",") {
+		t.Errorf("calls = %v, want %v", f.calls, c.calls)
+	}
+	if !strings.Contains(out, c.want) || strings.Contains(out, c.notWant) || strings.Contains(out, dbxTok) {
+		t.Errorf("out = %q, want %q without %q or the token", out, c.want, c.notWant)
+	}
+	assertDbxApplyPicker(t, f, c, out)
+	if d.changed != c.changed {
+		t.Errorf("changed = %v, want %v", d.changed, c.changed)
+	}
+}
+
+// assertDbxApplyPicker requires the apply picker to be reached only when sign-in and the token check both passed.
+func assertDbxApplyPicker(t *testing.T, f *dbxFake, c dbxSetUpCase, out string) {
+	t.Helper()
+	if c.name == "success" {
+		if len(f.titles) != 1 || f.titles[0] != "apply dev to" || !strings.Contains(out, "dev") {
+			t.Errorf("apply picker titles = %v, out = %q", f.titles, out)
+		}
+	}
+	if reached := len(f.titles) > 0; reached != (c.loginErr == nil && c.mintErr == nil) {
+		t.Errorf("apply picker reached = %v after %v", reached, f.calls)
 	}
 }
 
@@ -607,17 +636,23 @@ func TestDbxSaveIdentityRollsBackSecretOnRowFailure(t *testing.T) {
 			if strings.Contains(err.Error(), "sp-secret") || strings.Contains(dbxOut(d), "sp-secret") {
 				t.Errorf("secret leaked: err=%v out=%q", err, dbxOut(d))
 			}
-			got, found, rerr := vault.ReadSecret(name)
-			if rerr != nil {
-				t.Fatal(rerr)
-			}
-			if found != (tc.prev != "") || got != tc.prev {
-				t.Errorf("stored secret found=%v value=%q, want %q", found, got, tc.prev)
-			}
+			assertStoredSecret(t, name, tc.prev)
 			if d.changed {
 				t.Error("dialog marked changed after a failed save")
 			}
 		})
+	}
+}
+
+// assertStoredSecret requires the vault secret name to hold want (absent when want is empty).
+func assertStoredSecret(t *testing.T, name, want string) {
+	t.Helper()
+	got, found, err := vault.ReadSecret(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != (want != "") || got != want {
+		t.Errorf("stored secret found=%v value=%q, want %q", found, got, want)
 	}
 }
 

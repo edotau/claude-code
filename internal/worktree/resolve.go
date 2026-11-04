@@ -417,15 +417,11 @@ func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) 
 // commits must be ancestors of the new HEAD, rejecting a stale merge commit left over from an earlier
 // aborted attempt.
 func CheckResolution(ctx context.Context, op *Operation, worktreePath string) (resolutionState, string, error) {
-	unmerged, err := unmergedPaths(ctx, worktreePath)
+	pending, err := resolutionMidMerge(ctx, worktreePath)
 	if err != nil {
 		return resolutionPending, "", err
 	}
-	mergeHead, err := hasMergeHead(ctx, worktreePath)
-	if err != nil {
-		return resolutionPending, "", err
-	}
-	if mergeHead || len(unmerged) > 0 {
+	if pending {
 		return resolutionPending, "", nil
 	}
 
@@ -447,7 +443,24 @@ func CheckResolution(ctx context.Context, op *Operation, worktreePath string) (r
 	if head == op.OriginalSourceOID {
 		return resolutionInvalid, "HEAD is unchanged since the agent started — the merge was aborted, not resolved", nil
 	}
+	return checkPinnedAncestry(ctx, op, worktreePath, head)
+}
 
+// resolutionMidMerge reports whether MERGE_HEAD is still set or any path is still unmerged in worktreePath.
+func resolutionMidMerge(ctx context.Context, worktreePath string) (bool, error) {
+	unmerged, err := unmergedPaths(ctx, worktreePath)
+	if err != nil {
+		return false, err
+	}
+	mergeHead, err := hasMergeHead(ctx, worktreePath)
+	if err != nil {
+		return false, err
+	}
+	return mergeHead || len(unmerged) > 0, nil
+}
+
+// checkPinnedAncestry requires both of op's pinned commits to be ancestors of head, else the resolution is invalid.
+func checkPinnedAncestry(ctx context.Context, op *Operation, worktreePath, head string) (resolutionState, string, error) {
 	for _, pinned := range []string{op.TargetOID, op.OriginalSourceOID} {
 		ok, err := isAncestor(ctx, worktreePath, pinned, head)
 		if err != nil {

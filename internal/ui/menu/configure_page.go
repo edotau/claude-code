@@ -364,24 +364,12 @@ func resolveKey(d *dialog, kt configure.KeyTarget) bool {
 	if len(opts) == 0 {
 		return false
 	}
-	chosen := -1
+	chosen, skipped := -1, false
 	if isStdinTTY() && d.o.In == os.Stdin {
-		rows := make([][2]string, 0, len(opts)+1)
-		for _, o := range opts {
-			rows = append(rows, [2]string{o.Action, o.Desc})
-		}
-		rows = append(rows, [2]string{"Skip", kt.FixCmd})
-		title := kt.Label + " — no credential found; how do you want to authenticate?"
-		if kt.EnvVar != "" {
-			title = kt.Label + " — no " + kt.EnvVar + "; how do you want to set it?"
-		}
-		idx, err := d.shell().Pick(title, rows)
-		if err == nil {
-			if idx < 0 || idx >= len(opts) {
-				return false
-			}
-			chosen = idx
-		}
+		chosen, skipped = pickAuthOption(d, kt, opts)
+	}
+	if skipped {
+		return false
 	}
 	if chosen < 0 {
 		for i, o := range opts {
@@ -395,6 +383,28 @@ func resolveKey(d *dialog, kt configure.KeyTarget) bool {
 		}
 	}
 	return runAuthOption(d, kt, opts[chosen])
+}
+
+// pickAuthOption shows the picker: the chosen option's index, or skipped when Skip/Esc was picked.
+// A picker error returns (-1, false) so the caller falls back to one confirm per option.
+func pickAuthOption(d *dialog, kt configure.KeyTarget, opts []configure.AuthOption) (chosen int, skipped bool) {
+	rows := make([][2]string, 0, len(opts)+1)
+	for _, o := range opts {
+		rows = append(rows, [2]string{o.Action, o.Desc})
+	}
+	rows = append(rows, [2]string{"Skip", kt.FixCmd})
+	title := kt.Label + " — no credential found; how do you want to authenticate?"
+	if kt.EnvVar != "" {
+		title = kt.Label + " — no " + kt.EnvVar + "; how do you want to set it?"
+	}
+	idx, err := d.shell().Pick(title, rows)
+	if err != nil {
+		return -1, false
+	}
+	if idx < 0 || idx >= len(opts) {
+		return -1, true
+	}
+	return idx, false
 }
 
 // runAuthOption performs one option: the login CLI on the real terminal, or console page + hidden paste + the store.

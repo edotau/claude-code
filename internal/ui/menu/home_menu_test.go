@@ -151,6 +151,19 @@ func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T
 	}
 }
 
+// assertNotInVault requires name to be absent from the vault's secrets.
+func assertNotInVault(t *testing.T, name string) {
+	t.Helper()
+	if err := vault.View(func(tx *vault.Tx) error {
+		if _, found := tx.Get(vault.Secrets, name); found {
+			t.Errorf("the failed key must not end up in the vault")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded: a Store failure (here, a multi-line
 // value vault.Store genuinely refuses — no mock) must leave only the failed name staged, with its
 // shadowing env still set, while every name that did save is dropped from pending and its env restored.
@@ -180,14 +193,7 @@ func TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded(t *testing.T) {
 	if v, _, ok := vault.Get(good); !ok || v != "good-value" {
 		t.Errorf("good key not stored: %q, ok=%v", v, ok)
 	}
-	if err := vault.View(func(tx *vault.Tx) error {
-		if _, found := tx.Get(vault.Secrets, bad); found {
-			t.Error("the failed key must not end up in the vault")
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	assertNotInVault(t, bad)
 	if got := os.Getenv(good); got != "prior-good" {
 		t.Errorf("succeeded key env restored = %q, want prior-good", got)
 	}
@@ -264,91 +270,117 @@ func TestRunMenuKeepsFailedKeyStagedAfterReturn(t *testing.T) {
 	}
 }
 
+const (
+	returnKeyGood    = "CONFIGURE_RETURN_GOOD"
+	returnKeyOther   = "CONFIGURE_RETURN_OTHER"
+	returnKeyPrior   = "synthetic-prior"
+	returnKeyValid   = "synthetic-staged"
+	returnKeyInvalid = "synthetic\ninvalid"
+)
+
+// returnKeyCase is one TestRunMenuReturnKeyState scenario: the save choice, the other key's value and the outcome.
+type returnKeyCase struct {
+	name       string
+	save       bool
+	otherValue string
+	wantRC     int
+	failed     bool
+}
+
 func TestRunMenuReturnKeyState(t *testing.T) {
-	const good = "CONFIGURE_RETURN_GOOD"
-	const other = "CONFIGURE_RETURN_OTHER"
-	const prior = "synthetic-prior"
-	const valid = "synthetic-staged"
-	const invalid = "synthetic\ninvalid"
-	for _, tc := range []struct {
-		name       string
-		save       bool
-		otherValue string
-		wantRC     int
-		failed     bool
-	}{
-		{name: "all_stored", save: true, otherValue: valid},
-		{name: "discard", otherValue: valid},
-		{name: "partial_failure", save: true, otherValue: invalid, wantRC: 1, failed: true},
+	for _, tc := range []returnKeyCase{
+		{name: "all_stored", save: true, otherValue: returnKeyValid},
+		{name: "discard", otherValue: returnKeyValid},
+		{name: "partial_failure", save: true, otherValue: returnKeyInvalid, wantRC: 1, failed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			reg := menuTestEnv(t)
-			vaulttest.Use(t)
-			t.Setenv(good, prior)
-			t.Setenv(other, "")
-			if err := os.Unsetenv(other); err != nil {
-				t.Fatal("could not unset synthetic environment variable")
-			}
-			originalPicker, originalConfirm := pickMenu, saveConfirmed
-			t.Cleanup(func() { pickMenu, saveConfirmed = originalPicker, originalConfirm })
-			var out bytes.Buffer
-			d := &dialog{reg: reg, out: &out}
-			calls, confirmations := 0, 0
-			pickMenu = flatPick(func(string, [][2]string, int) (int, error) {
-				calls++
-				if !d.stage(good, valid) || !d.stage(other, tc.otherValue) {
-					t.Fatal("could not stage synthetic keys")
-				}
-				return -1, nil
-			})
-			saveConfirmed = func(string) bool {
-				confirmations++
-				return tc.save
-			}
-			if rc := runMenu(d); rc != tc.wantRC {
-				t.Fatalf("return code = %d, want %d", rc, tc.wantRC)
-			}
-			if calls != 1 || confirmations != 1 {
-				t.Fatal("expected exactly one picker call and one leave confirmation")
-			}
-			if os.Getenv(good) != prior {
-				t.Error("successful or discarded key did not restore its prior environment")
-			}
-			if _, pending := d.pending[good]; pending {
-				t.Error("successful or discarded key remained pending")
-			}
-			if tc.failed {
-				if _, pending := d.pending[other]; !pending || len(d.pending) != 1 {
-					t.Error("only the failed key should remain pending")
-				}
-				if os.Getenv(other) != invalid {
-					t.Error("failed key did not retain its staged environment")
-				}
-				if !strings.Contains(out.String(), other+": not saved:") {
-					t.Error("failure diagnostic did not identify the failed key by name")
-				}
-			} else {
-				if len(d.pending) != 0 {
-					t.Error("pending should be empty after success or discard")
-				}
-				if _, present := os.LookupEnv(other); present {
-					t.Error("previously absent environment variable was not removed")
-				}
-			}
-			names, err := vault.NamesErr()
-			if err != nil {
-				t.Fatal("could not inspect isolated vault names")
-			}
-			if slices.Contains(names, good) != tc.save {
-				t.Error("successful key vault presence does not match save choice")
-			}
-			if slices.Contains(names, other) != (tc.save && !tc.failed) {
-				t.Error("other key vault presence does not match save outcome")
-			}
-			if !tc.save && len(names) != 0 {
-				t.Error("discard unexpectedly wrote a vault secret")
-			}
+			d, out := runMenuStagingKeys(t, tc)
+			assertReturnKeyPending(t, d, out.String(), tc)
+			assertReturnKeyVault(t, tc)
 		})
+	}
+}
+
+// runMenuStagingKeys runs the menu whose picker stages two keys and leaves, with tc's save choice on the leave
+// confirmation; it checks the return code and that the picker and confirmation ran exactly once.
+func runMenuStagingKeys(t *testing.T, tc returnKeyCase) (*dialog, *bytes.Buffer) {
+	t.Helper()
+	reg := menuTestEnv(t)
+	vaulttest.Use(t)
+	t.Setenv(returnKeyGood, returnKeyPrior)
+	t.Setenv(returnKeyOther, "")
+	if err := os.Unsetenv(returnKeyOther); err != nil {
+		t.Fatal("could not unset synthetic environment variable")
+	}
+	originalPicker, originalConfirm := pickMenu, saveConfirmed
+	t.Cleanup(func() { pickMenu, saveConfirmed = originalPicker, originalConfirm })
+	var out bytes.Buffer
+	d := &dialog{reg: reg, out: &out}
+	calls, confirmations := 0, 0
+	pickMenu = flatPick(func(string, [][2]string, int) (int, error) {
+		calls++
+		if !d.stage(returnKeyGood, returnKeyValid) || !d.stage(returnKeyOther, tc.otherValue) {
+			t.Fatal("could not stage synthetic keys")
+		}
+		return -1, nil
+	})
+	saveConfirmed = func(string) bool {
+		confirmations++
+		return tc.save
+	}
+	if rc := runMenu(d); rc != tc.wantRC {
+		t.Fatalf("return code = %d, want %d", rc, tc.wantRC)
+	}
+	if calls != 1 || confirmations != 1 {
+		t.Fatal("expected exactly one picker call and one leave confirmation")
+	}
+	return d, &out
+}
+
+// assertReturnKeyPending checks which keys remain pending and what the environment and output show after the menu.
+func assertReturnKeyPending(t *testing.T, d *dialog, out string, tc returnKeyCase) {
+	t.Helper()
+	if os.Getenv(returnKeyGood) != returnKeyPrior {
+		t.Error("successful or discarded key did not restore its prior environment")
+	}
+	if _, pending := d.pending[returnKeyGood]; pending {
+		t.Error("successful or discarded key remained pending")
+	}
+	if !tc.failed {
+		if len(d.pending) != 0 {
+			t.Error("pending should be empty after success or discard")
+		}
+		if _, present := os.LookupEnv(returnKeyOther); present {
+			t.Error("previously absent environment variable was not removed")
+		}
+		return
+	}
+	if _, pending := d.pending[returnKeyOther]; !pending || len(d.pending) != 1 {
+		t.Error("only the failed key should remain pending")
+	}
+	if os.Getenv(returnKeyOther) != returnKeyInvalid {
+		t.Error("failed key did not retain its staged environment")
+	}
+	if !strings.Contains(out, returnKeyOther+": not saved:") {
+		t.Error("failure diagnostic did not identify the failed key by name")
+	}
+}
+
+// assertReturnKeyVault checks which keys reached the vault for tc's save choice and outcome.
+func assertReturnKeyVault(t *testing.T, tc returnKeyCase) {
+	t.Helper()
+	names, err := vault.NamesErr()
+	if err != nil {
+		t.Fatal("could not inspect isolated vault names")
+	}
+	if slices.Contains(names, returnKeyGood) != tc.save {
+		t.Error("successful key vault presence does not match save choice")
+	}
+	if slices.Contains(names, returnKeyOther) != (tc.save && !tc.failed) {
+		t.Error("other key vault presence does not match save outcome")
+	}
+	if !tc.save && len(names) != 0 {
+		t.Error("discard unexpectedly wrote a vault secret")
 	}
 }
 

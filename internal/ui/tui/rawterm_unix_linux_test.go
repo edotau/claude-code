@@ -95,7 +95,11 @@ func runPreserveHelper(t *testing.T, mode string, ttyOut bool) (syscall.Termios,
 	if !ttyOut {
 		return after, out.String()
 	}
-	// the master read has no reliable deadline, so bound it with a goroutine
+	return after, readMaster(master)
+}
+
+// readMaster returns what one master read yields within 2s; the read has no deadline, so a goroutine bounds it.
+func readMaster(master *os.File) string {
 	got := make(chan string, 1)
 	go func() {
 		buf := make([]byte, 4096)
@@ -104,9 +108,9 @@ func runPreserveHelper(t *testing.T, mode string, ttyOut bool) (syscall.Termios,
 	}()
 	select {
 	case s := <-got:
-		return after, s
+		return s
 	case <-time.After(2 * time.Second):
-		return after, ""
+		return ""
 	}
 }
 

@@ -34,22 +34,9 @@ func export(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	reg, err := providers.Load()
-	if err != nil {
-		return fail("export: %v", err)
-	}
-	rows, skipped := ExportRows(reg)
-	if *pick && len(rows) > 0 {
-		if rows, err = pickExport(rows); err != nil {
-			return fail("export: %v", err)
-		}
-	}
-	rows, more := Rename(rows, rename)
-	for _, s := range append(skipped, more...) {
-		fmt.Fprintln(os.Stderr, "skip "+s)
-	}
-	if len(rows) == 0 {
-		return fail("export: no databricks rows with an authType to export")
+	rows, code := exportRowsFor(*pick, rename)
+	if code != 0 {
+		return code
 	}
 	if code := writeExport(rows, *out, *merge, *force); code != 0 {
 		return code
@@ -58,6 +45,29 @@ func export(args []string) int {
 		fmt.Fprintln(os.Stderr, "use: "+Hint(r))
 	}
 	return 0
+}
+
+// exportRowsFor loads the vault rows, applies --pick and --rename, reports skips, and returns the rows to write
+// (or a nonzero exit code).
+func exportRowsFor(pick bool, rename renameFlag) ([]ExportRow, int) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, fail("export: %v", err)
+	}
+	rows, skipped := ExportRows(reg)
+	if pick && len(rows) > 0 {
+		if rows, err = pickExport(rows); err != nil {
+			return nil, fail("export: %v", err)
+		}
+	}
+	rows, more := Rename(rows, rename)
+	for _, s := range append(skipped, more...) {
+		fmt.Fprintln(os.Stderr, "skip "+s)
+	}
+	if len(rows) == 0 {
+		return nil, fail("export: no databricks rows with an authType to export")
+	}
+	return rows, 0
 }
 
 func writeExport(rows []ExportRow, out string, merge, force bool) int {

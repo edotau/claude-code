@@ -34,6 +34,52 @@ func codexSettingsDialog(home, input string) (*dialog, *bytes.Buffer) {
 	return &dialog{o: Options{Home: home, In: in}, br: bufio.NewReader(in), out: out}, out
 }
 
+// readBytes reads path or fails the test.
+func readBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// writeOthers writes each path's contents (creating parents) so a test can prove other agents' files stay untouched.
+func writeOthers(t *testing.T, others map[string]string) {
+	t.Helper()
+	for p, contents := range others {
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// assertFilesUnchanged requires every file in others to still hold its seeded contents.
+func assertFilesUnchanged(t *testing.T, others map[string]string) {
+	t.Helper()
+	for p, want := range others {
+		got, err := os.ReadFile(p)
+		if err != nil || string(got) != want {
+			t.Errorf("other agent file changed: %s (err=%v)", p, err)
+		}
+	}
+}
+
+// assertCodexSaved requires the saved preference in the overlay and native file, with the original backed up.
+func assertCodexSaved(t *testing.T, path string, before, after []byte, ov map[string]string) {
+	t.Helper()
+	if ov["model_verbosity"] != "low" || !strings.Contains(string(after), `model_verbosity = "low"`) {
+		t.Fatalf("saved preference missing: overlay=%v native=%s", ov, after)
+	}
+	backup, found, err := codex.LatestCodexBackup(path)
+	if err != nil || !found || !bytes.Equal(backup.Data, before) {
+		t.Fatalf("original native settings not backed up: found=%v err=%v", found, err)
+	}
+}
+
 func TestCodexSettingsMenuStagesUntilSave(t *testing.T) {
 	for _, save := range []bool{false, true} {
 		name, input := "cancel", "2\n1\n\n"
@@ -42,23 +88,13 @@ func TestCodexSettingsMenuStagesUntilSave(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			home, path := codexSettingsFixture(t)
-			before, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
+			before := readBytes(t, path)
 			others := map[string]string{
 				filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json"): "{\"foreign\":true}\n",
 				filepath.Join(home, ".copilot", "settings.json"):               "{\"theme\":\"dim\"}\n",
 				filepath.Join(home, ".gemini", "settings.json"):                "{\"foreign\":true}\n",
 			}
-			for p, contents := range others {
-				if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(p, []byte(contents), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
+			writeOthers(t, others)
 			d, out := codexSettingsDialog(home, input)
 			if !runCodexSettingsMenu(d, map[string]string{}, map[string]string{"model_verbosity": "high"}) {
 				t.Fatalf("menu failed: %s", out.String())
@@ -67,30 +103,16 @@ func TestCodexSettingsMenuStagesUntilSave(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			after, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
+			after := readBytes(t, path)
 			if save {
-				if ov["model_verbosity"] != "low" || !strings.Contains(string(after), `model_verbosity = "low"`) {
-					t.Fatalf("saved preference missing: overlay=%v native=%s", ov, after)
-				}
-				backup, found, err := codex.LatestCodexBackup(path)
-				if err != nil || !found || !bytes.Equal(backup.Data, before) {
-					t.Fatalf("original native settings not backed up: found=%v err=%v", found, err)
-				}
+				assertCodexSaved(t, path, before, after, ov)
 			} else if len(ov) != 0 || !bytes.Equal(before, after) {
 				t.Fatalf("cancel persisted staged edit: overlay=%v native=%s", ov, after)
 			}
 			if d.changed {
 				t.Error("Codex-only save must not request a global agent rerender")
 			}
-			for p, want := range others {
-				got, err := os.ReadFile(p)
-				if err != nil || string(got) != want {
-					t.Errorf("other agent file changed: %s (err=%v)", p, err)
-				}
-			}
+			assertFilesUnchanged(t, others)
 		})
 	}
 }
@@ -102,14 +124,7 @@ func TestCodexSettingsReportsNeverWrite(t *testing.T) {
 			if err := codex.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 				t.Fatal(err)
 			}
-			nativeBefore, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			vaultBefore, err := os.ReadFile(vault.Path())
-			if err != nil {
-				t.Fatal(err)
-			}
+			nativeBefore, vaultBefore := readBytes(t, path), readBytes(t, vault.Path())
 			input := strings.NewReader("2\n1\n3\n")
 			var out bytes.Buffer
 			o := Options{Home: home, In: input, Out: &out, Check: mode == "check", DryRun: mode == "dry-run", Interactive: mode == "piped"}
@@ -124,15 +139,7 @@ func TestCodexSettingsReportsNeverWrite(t *testing.T) {
 			if input.Len() != len("2\n1\n3\n") {
 				t.Error("read-only report consumed menu input")
 			}
-			nativeAfter, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			vaultAfter, err := os.ReadFile(vault.Path())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(nativeBefore, nativeAfter) || !bytes.Equal(vaultBefore, vaultAfter) {
+			if !bytes.Equal(nativeBefore, readBytes(t, path)) || !bytes.Equal(vaultBefore, readBytes(t, vault.Path())) {
 				t.Error("read-only report changed native config or vault")
 			}
 		})
@@ -174,28 +181,13 @@ func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 	if err := codex.SaveCodexOverlay(map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
-	nativeBefore, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaultBefore, err := os.ReadFile(vault.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	nativeBefore, vaultBefore := readBytes(t, path), readBytes(t, vault.Path())
 	var out bytes.Buffer
 	o := Options{Home: home, Check: true, In: strings.NewReader(""), Out: &out}
 	if rc := Run(o, "codex"); rc != 1 {
 		t.Fatalf("unapplied reset rc=%d want=1: %s", rc, out.String())
 	}
-	nativeAfter, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaultAfter, err := os.ReadFile(vault.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(nativeBefore, nativeAfter) || !bytes.Equal(vaultBefore, vaultAfter) {
+	if !bytes.Equal(nativeBefore, readBytes(t, path)) || !bytes.Equal(vaultBefore, readBytes(t, vault.Path())) {
 		t.Fatal("check of unapplied reset changed native config or vault")
 	}
 	if err := codex.ApplyCodexSettings(home); err != nil {
@@ -216,15 +208,7 @@ func TestWebSearchCodexHomeNoPlaintextBackup(t *testing.T) {
 	if err := os.WriteFile(custom, []byte("model = \"x\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var reg func(string) error
-	for _, c := range webSearchClients() {
-		if c.name == "codex" {
-			reg = c.register
-		}
-	}
-	if reg == nil {
-		t.Fatal("no codex client")
-	}
+	reg := codexWebSearchRegister(t)
 	if err := reg("/bin/claude-code"); err != nil {
 		t.Fatal(err)
 	}
@@ -235,6 +219,25 @@ func TestWebSearchCodexHomeNoPlaintextBackup(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); err == nil {
 		t.Error("~/.codex/config.toml was written despite CODEX_HOME")
 	}
+	if leftovers := plaintextLeftovers(cfgDir, codexHome); len(leftovers) > 0 {
+		t.Errorf("plaintext backup left behind: %v", leftovers)
+	}
+}
+
+// codexWebSearchRegister is the codex web-search client's register func.
+func codexWebSearchRegister(t *testing.T) func(string) error {
+	t.Helper()
+	for _, c := range webSearchClients() {
+		if c.name == "codex" {
+			return c.register
+		}
+	}
+	t.Fatal("no codex client")
+	return nil
+}
+
+// plaintextLeftovers lists config.toml copies under cfgDir and every non-config.toml entry of codexHome.
+func plaintextLeftovers(cfgDir, codexHome string) []string {
 	var leftovers []string
 	filepath.WalkDir(cfgDir, func(p string, d os.DirEntry, _ error) error {
 		if !d.IsDir() && strings.Contains(filepath.Base(p), "config.toml") {
@@ -248,7 +251,5 @@ func TestWebSearchCodexHomeNoPlaintextBackup(t *testing.T) {
 			leftovers = append(leftovers, e.Name())
 		}
 	}
-	if len(leftovers) > 0 {
-		t.Errorf("plaintext backup left behind: %v", leftovers)
-	}
+	return leftovers
 }

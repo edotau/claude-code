@@ -168,14 +168,14 @@ func editChoice(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawM
 		if name == "" {
 			return nil, false
 		}
-		raw, err := f.Parse("custom:" + name)
-		if err != nil {
-			d.printf("%s: %v\n", f.Key, err)
-			return nil, false
-		}
-		return raw, true
+		return parseSettingValue(d, f, "custom:"+name)
 	}
-	raw, err := f.Parse(values[idx])
+	return parseSettingValue(d, f, values[idx])
+}
+
+// parseSettingValue parses input for f, printing the parse error as "<key>: <err>" and returning false on failure.
+func parseSettingValue(d *dialog, f settings.Field, input string) (json.RawMessage, bool) {
+	raw, err := f.Parse(input)
 	if err != nil {
 		d.printf("%s: %v\n", f.Key, err)
 		return nil, false
@@ -238,45 +238,64 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 	if err != nil && !os.IsNotExist(err) {
 		d.printf("claude code: %v\n", err)
 	}
-	tmpl, live = flattenEnv(tmpl), flattenEnv(live)
-	ok := true
-	shown := map[string]bool{}
-	emit := func(f settings.Field) {
-		row := settingRow(f, tmpl, ov, live)
-		d.println(row[0] + "  " + row[1])
-		if strings.Contains(row[1], "live differs") {
-			ok = false
-		}
-	}
+	rp := &settingsReport{d: d, ov: ov, tmpl: flattenEnv(tmpl), live: flattenEnv(live), ok: true, shown: map[string]bool{}}
 	for _, sec := range sections {
-		header := false
-		for _, key := range sec.Keys {
-			shown[key] = true
-			f, found := settings.FieldFor(key)
-			if !found {
-				continue
-			}
-			if !header {
-				d.println(Heading(sec.Name))
-				header = true
-			}
-			emit(f)
-		}
+		rp.section(sec)
 	}
-	header := false
-	for _, key := range slices.Sorted(maps.Keys(ov)) {
-		if f, found := settings.FieldFor(key); found && !shown[key] {
-			if !header {
-				d.println(Heading("added"))
-				header = true
-			}
-			emit(f)
-		}
-	}
+	rp.added()
 	if d.o.Check {
-		return ok
+		return rp.ok
 	}
 	return true
+}
+
+// settingsReport carries the state of one reportClaudeSettings run: ok turns false when a live value differs.
+type settingsReport struct {
+	d              *dialog
+	ov, tmpl, live map[string]json.RawMessage
+	ok             bool
+	shown          map[string]bool
+}
+
+func (rp *settingsReport) emit(f settings.Field) {
+	row := settingRow(f, rp.tmpl, rp.ov, rp.live)
+	rp.d.println(row[0] + "  " + row[1])
+	if strings.Contains(row[1], "live differs") {
+		rp.ok = false
+	}
+}
+
+// section prints sec's header (once, before its first known key) and one line per key.
+func (rp *settingsReport) section(sec settings.Section) {
+	header := false
+	for _, key := range sec.Keys {
+		rp.shown[key] = true
+		f, found := settings.FieldFor(key)
+		if !found {
+			continue
+		}
+		if !header {
+			rp.d.println(Heading(sec.Name))
+			header = true
+		}
+		rp.emit(f)
+	}
+}
+
+// added prints the overlay keys no section listed, under an "added" header.
+func (rp *settingsReport) added() {
+	header := false
+	for _, key := range slices.Sorted(maps.Keys(rp.ov)) {
+		f, found := settings.FieldFor(key)
+		if !found || rp.shown[key] {
+			continue
+		}
+		if !header {
+			rp.d.println(Heading("added"))
+			header = true
+		}
+		rp.emit(f)
+	}
 }
 
 // flattenEnv returns m plus every env variable as a top-level entry, so env keys look up like any other.
@@ -333,63 +352,92 @@ func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.R
 // runClaudeSettingsMenu is the interactive page: rows grouped under Sections() headers, edits staged until
 // the page is left (Esc or the trailing "Save as default" row), then one confirm writes the overlay.
 func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []settings.Section) bool {
-	staged := map[string]json.RawMessage{} // explicit new overlay value for this key, this page
-	reset := map[string]bool{}             // key removed from the overlay (back to the default), this page
-	defer saveClaudeSettings(d, staged, reset)
+	pg := &claudeSettingsPage{
+		d:      d,
+		ov:     ov,
+		staged: map[string]json.RawMessage{}, // explicit new overlay value for this key, this page
+		reset:  map[string]bool{},            // key removed from the overlay (back to the default), this page
+	}
+	defer saveClaudeSettings(d, pg.staged, pg.reset)
 	start := 0
 	for {
-		tmpl, err := configure.RenderObject(settings.Render)
+		tmpl, live, err := pg.loadMaps()
 		if err != nil {
 			d.printf("claude code: %v\n", err)
 			return false
 		}
-		live, err := configure.ReadLiveSettings()
-		if err != nil && !os.IsNotExist(err) {
-			d.printf("claude code: %v\n", err)
-		}
-		tmpl, live = flattenEnv(tmpl), flattenEnv(live)
-		cur := maps.Clone(ov)
-		for k := range reset {
-			delete(cur, k)
-		}
-		maps.Copy(cur, staged)
-
+		cur := pg.current()
 		tuiSections, fields, shown := pageSections(sections, tmpl, cur, live)
 		idx, err := pickSettingsPage("claude code — your defaults", tuiSections, EnterRow("Save as default"), start)
 		if err != nil || idx < 0 || idx > len(fields)+1 {
 			return true
 		}
 		start = idx
-		switch {
-		case idx == len(fields):
-			for k := range cur {
-				shown[k] = true
-			}
-			if key, raw, ok := addSetting(d, shown); ok {
-				stageSetting(ov, staged, reset, key, raw, tmpl[key])
-			}
-		case idx == len(fields)+1:
-			saveRepoDefaults(d, staged)
-		default:
-			f := fields[idx]
-			tv, _ := lookupKey(tmpl, f.Key)
-			if raw, ok := editSetting(d, f, tv); ok {
-				if err := stageField(ov, staged, reset, cur, tmpl, f.Key, raw); err != nil {
-					d.printf("claude code: %v\n", err)
-				}
-			}
+		pg.act(idx, fields, shown, tmpl, cur)
+	}
+}
+
+// claudeSettingsPage is the staging state of one runClaudeSettingsMenu session.
+type claudeSettingsPage struct {
+	d      *dialog
+	ov     map[string]json.RawMessage
+	staged map[string]json.RawMessage
+	reset  map[string]bool
+}
+
+// loadMaps re-renders the repo template and re-reads the live settings, both with env flattened; a live read
+// error other than not-exist is printed and ignored.
+func (pg *claudeSettingsPage) loadMaps() (tmpl, live map[string]json.RawMessage, err error) {
+	tmpl, err = configure.RenderObject(settings.Render)
+	if err != nil {
+		return nil, nil, err
+	}
+	live, err = configure.ReadLiveSettings()
+	if err != nil && !os.IsNotExist(err) {
+		pg.d.printf("claude code: %v\n", err)
+	}
+	return flattenEnv(tmpl), flattenEnv(live), nil
+}
+
+// current is the overlay with this page's resets dropped and staged values applied.
+func (pg *claudeSettingsPage) current() map[string]json.RawMessage {
+	cur := maps.Clone(pg.ov)
+	for k := range pg.reset {
+		delete(cur, k)
+	}
+	maps.Copy(cur, pg.staged)
+	return cur
+}
+
+// act runs the picked row: a setting edit, the "+ add a setting" row (idx == len(fields)) or "Save to repo defaults".
+func (pg *claudeSettingsPage) act(idx int, fields []settings.Field, shown map[string]bool, tmpl, cur map[string]json.RawMessage) {
+	d := pg.d
+	switch {
+	case idx == len(fields):
+		for k := range cur {
+			shown[k] = true
+		}
+		if key, raw, ok := addSetting(d, shown); ok {
+			stageSetting(pg.ov, pg.staged, pg.reset, key, raw, tmpl[key])
+		}
+	case idx == len(fields)+1:
+		saveRepoDefaults(d, pg.staged)
+	default:
+		f := fields[idx]
+		tv, _ := lookupKey(tmpl, f.Key)
+		raw, ok := editSetting(d, f, tv)
+		if !ok {
+			return
+		}
+		if err := stageField(pg.ov, pg.staged, pg.reset, cur, tmpl, f.Key, raw); err != nil {
+			d.printf("claude code: %v\n", err)
 		}
 	}
 }
 
 // addSetting picks a schema key not already shown, then its value; ok is false on cancel or a bad value.
 func addSetting(d *dialog, shown map[string]bool) (key string, raw json.RawMessage, ok bool) {
-	var cand []settings.Key
-	for _, k := range settings.SchemaKeys() {
-		if !shown[k.Name] && k.Kind != settings.KindObject && k.Kind != settings.KindArray && k.Name != "$schema" && !settings.CredentialKey(k.Name) && !settings.StructuralKey(k.Name) && !k.HasRef() {
-			cand = append(cand, k)
-		}
-	}
+	cand := addableKeys(shown)
 	key = pickSchemaKey(d, cand)
 	f, found := settings.FieldFor(key)
 	if !found {
@@ -397,6 +445,17 @@ func addSetting(d *dialog, shown map[string]bool) (key string, raw json.RawMessa
 	}
 	raw, ok = editSetting(d, f, nil)
 	return key, raw, ok && raw != nil
+}
+
+// addableKeys lists the schema keys not yet shown that are plain scalars: no objects, arrays, refs or credentials.
+func addableKeys(shown map[string]bool) []settings.Key {
+	var cand []settings.Key
+	for _, k := range settings.SchemaKeys() {
+		if !shown[k.Name] && k.Kind != settings.KindObject && k.Kind != settings.KindArray && k.Name != "$schema" && !settings.CredentialKey(k.Name) && !settings.StructuralKey(k.Name) && !k.HasRef() {
+			cand = append(cand, k)
+		}
+	}
+	return cand
 }
 
 // pickSchemaKey runs the filterable list (key + description, 80 columns), else a typed name; "" is a cancel.

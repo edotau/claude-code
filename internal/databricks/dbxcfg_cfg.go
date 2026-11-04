@@ -50,13 +50,48 @@ func isReserved(name string) bool {
 	return strings.EqualFold(name, defaultSection) || name == settingsSection
 }
 
+// iniState is the running state of parseSections: sections so far, the current one, and a pending pairing comment.
+type iniState struct {
+	out     []*section
+	byName  map[string]*section
+	cur     *section
+	pair    string
+	pairSet bool
+}
+
+// enter makes name the current section, creating it on first appearance.
+func (st *iniState) enter(name string) {
+	if st.cur = st.byName[name]; st.cur == nil {
+		st.cur = &section{name: name, keys: map[string]string{}}
+		st.byName[name] = st.cur
+		st.out = append(st.out, st.cur)
+	}
+}
+
+// header handles a "[name]" line: the pending pairing comment attaches to that section.
+func (st *iniState) header(name string) {
+	st.enter(name)
+	if st.pairSet {
+		st.cur.pair, st.cur.pairSet = st.pair, true
+	}
+	st.pair, st.pairSet = "", false
+}
+
+// keyLine handles a "k = v" line; keys above the first header belong to DEFAULT.
+func (st *iniState) keyLine(line string, sc *bufio.Scanner) {
+	st.pair, st.pairSet = "", false
+	if st.cur == nil {
+		st.enter(defaultSection)
+	}
+	if i := strings.IndexAny(line, "=:"); i > 0 {
+		st.cur.keys[strings.TrimSpace(line[:i])] = readValue(line[i+1:], sc)
+	}
+}
+
 // parseSections scans INI text into sections in first-appearance order; keys before any header belong to DEFAULT.
 // A scan error (a line over 1MB) is returned with the sections read so far.
 func parseSections(text string) ([]*section, error) {
-	var out []*section
-	byName := map[string]*section{}
-	var cur *section
-	pair, pairSet := "", false
+	st := &iniState{byName: map[string]*section{}}
 	sc := bufio.NewScanner(strings.NewReader(text))
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for first := true; sc.Scan(); first = false {
@@ -66,37 +101,19 @@ func parseSections(text string) ([]*section, error) {
 		}
 		line = strings.TrimSpace(line)
 		if v, ok := pairingComment(line); ok {
-			pair, pairSet = v, true
+			st.pair, st.pairSet = v, true
 			continue
 		}
 		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}
 		if name, ok := headerName(line); ok {
-			if cur = byName[name]; cur == nil {
-				cur = &section{name: name, keys: map[string]string{}}
-				byName[name] = cur
-				out = append(out, cur)
-			}
-			if pairSet {
-				cur.pair, cur.pairSet = pair, true
-			}
-			pair, pairSet = "", false
+			st.header(name)
 			continue
 		}
-		pair, pairSet = "", false
-		if cur == nil { // keys above the first header belong to DEFAULT
-			if cur = byName[defaultSection]; cur == nil {
-				cur = &section{name: defaultSection, keys: map[string]string{}}
-				byName[defaultSection] = cur
-				out = append(out, cur)
-			}
-		}
-		if i := strings.IndexAny(line, "=:"); i > 0 {
-			cur.keys[strings.TrimSpace(line[:i])] = readValue(line[i+1:], sc)
-		}
+		st.keyLine(line, sc)
 	}
-	return out, sc.Err()
+	return st.out, sc.Err()
 }
 
 // headerName returns the name of a "[name]" line, tolerating a trailing comment.

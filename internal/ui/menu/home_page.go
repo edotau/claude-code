@@ -130,24 +130,9 @@ func runCustomEnv(d *dialog) {
 	edits := map[string]envEdit{}
 	defer saveEnvEdits(d, edits)
 	for {
-		env := providers.CustomEnv()
-		for k, e := range edits {
-			if e.raw == "" {
-				delete(env, k)
-			} else {
-				env[k] = e.raw
-			}
-		}
+		env := stagedCustomEnv(edits)
 		names := slices.Sorted(maps.Keys(env))
-		rows := make([][2]string, 0, len(names)+2)
-		for _, n := range names {
-			kind, shown := "plain", vault.Redact(env[n])
-			if env[n] == providers.SecretRef {
-				kind, shown = "secret", ""
-			}
-			rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
-		}
-		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, EnterRow("save and go back"))
+		rows := customEnvRows(env, names)
 		idx, err := d.shell().PickPlain("environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
@@ -166,18 +151,40 @@ func runCustomEnv(d *dialog) {
 	}
 }
 
+// stagedCustomEnv is the vault env with the page's staged edits applied.
+func stagedCustomEnv(edits map[string]envEdit) map[string]string {
+	env := providers.CustomEnv()
+	for k, e := range edits {
+		if e.raw == "" {
+			delete(env, k)
+		} else {
+			env[k] = e.raw
+		}
+	}
+	return env
+}
+
+// customEnvRows is one row per name (plain value redacted, secret hidden) plus the "+ New" and save rows.
+func customEnvRows(env map[string]string, names []string) [][2]string {
+	rows := make([][2]string, 0, len(names)+2)
+	for _, n := range names {
+		kind, shown := "plain", vault.Redact(env[n])
+		if env[n] == providers.SecretRef {
+			kind, shown = "secret", ""
+		}
+		rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
+	}
+	return append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, EnterRow("save and go back"))
+}
+
 // editCustomEnv reads one change (no confirmation): NAME for a new var, the value (empty deletes), then
 // where it lives. Deleting or switching an @secret var away from secret offers to delete the sealed
 // secret it leaves behind, so it doesn't orphan in the vault.
 func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	isNew := name == ""
 	if isNew {
-		name = strings.TrimSpace(d.shell().Line("NAME: "))
-		if name == "" {
-			return "", envEdit{}, false
-		}
-		if !configure.EnvName.MatchString(name) {
-			d.printf("environment: %q is not a valid name (letters, digits, underscore; not starting with a digit)\n", name)
+		var ok bool
+		if name, ok = readNewEnvName(d); !ok {
 			return "", envEdit{}, false
 		}
 	}
@@ -190,6 +197,12 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 		del := wasSecret && d.shell().Confirm("also delete the sealed secret "+name+"?")
 		return name, envEdit{deleteSecret: del}, true
 	}
+	return pickEnvStorage(d, name, val, wasSecret)
+}
+
+// pickEnvStorage asks whether the non-empty value val lives plain or sealed as a secret, offering to drop the old
+// sealed secret when the variable moves off @secret.
+func pickEnvStorage(d *dialog, name, val string, wasSecret bool) (string, envEdit, bool) {
 	where, err := d.shell().Pick("store "+name+" as", [][2]string{
 		{"plain", "value in the vault env"}, {"secret", "value sealed in vault; vault env name = @secret"}})
 	if err != nil || where < 0 {
@@ -200,6 +213,19 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	}
 	del := wasSecret && d.shell().Confirm("switching "+name+" to plain; also delete the old sealed secret?")
 	return name, envEdit{raw: val, deleteSecret: del}, true
+}
+
+// readNewEnvName asks for a new variable's NAME; ok is false when it is empty or not a valid identifier.
+func readNewEnvName(d *dialog) (name string, ok bool) {
+	name = strings.TrimSpace(d.shell().Line("NAME: "))
+	if name == "" {
+		return "", false
+	}
+	if !configure.EnvName.MatchString(name) {
+		d.printf("environment: %q is not a valid name (letters, digits, underscore; not starting with a digit)\n", name)
+		return "", false
+	}
+	return name, true
 }
 
 // sameAsSaved reports an edit matching the vault env and, for a ref, the stored secret.

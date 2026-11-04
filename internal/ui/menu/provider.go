@@ -124,41 +124,46 @@ func allLine(s AllRowStatus) string {
 
 // runProviderAll checks every row, offers login to failing rows on a TTY (not in JSON mode); true when all ok.
 func runProviderAll(d *dialog) bool {
-	ctx := context.Background()
 	rows := allRows(d.reg, d.o.Profile)
 	if len(rows) == 0 {
-		if d.o.JSON {
-			fmt.Fprintln(d.out, "[]")
-		} else {
-			d.println("no providers configured")
-		}
-		return true
+		return reportNoProviders(d)
 	}
-	res := allCheckAll(ctx, d.reg, rows)
+	res := allCheckAll(context.Background(), d.reg, rows)
 	if !d.o.JSON {
 		for _, s := range res {
 			d.println(allLine(s))
 		}
 	}
 	if !d.o.JSON && !d.o.Check && !d.o.DryRun && allStdinTTY() && allStderrTTY() {
-		for i, s := range res {
-			if s.Status != allNeedsLogin && s.Status != allRejected {
-				continue
-			}
-			if res[i] = allLoginRow(d, s); res[i].Status != s.Status || res[i].Detail != s.Detail {
-				d.println(allLine(res[i]))
-			}
-		}
-	}
-	allGood := true
-	for _, s := range res {
-		allGood = allGood && s.Status == allOK
+		offerAllLogins(d, res)
 	}
 	if d.o.JSON {
 		b, _ := json.MarshalIndent(res, "", "  ")
 		fmt.Fprintln(d.out, string(b))
 	}
-	return allGood
+	return slices.IndexFunc(res, func(s AllRowStatus) bool { return s.Status != allOK }) < 0
+}
+
+// reportNoProviders says nothing is configured ("[]" in JSON mode); that is not a failure.
+func reportNoProviders(d *dialog) bool {
+	if d.o.JSON {
+		fmt.Fprintln(d.out, "[]")
+	} else {
+		d.println("no providers configured")
+	}
+	return true
+}
+
+// offerAllLogins offers login to each needs-login or rejected row in res, replacing it with the final verdict.
+func offerAllLogins(d *dialog, res []AllRowStatus) {
+	for i, s := range res {
+		if s.Status != allNeedsLogin && s.Status != allRejected {
+			continue
+		}
+		if res[i] = allLoginRow(d, s); res[i].Status != s.Status || res[i].Detail != s.Detail {
+			d.println(allLine(res[i]))
+		}
+	}
 }
 
 // allLoginRow prompts, logs in and re-checks one failing row; the returned status is the final verdict.

@@ -72,14 +72,8 @@ func resolveWorktree(ctx context.Context, repo *Repo, name string) (string, erro
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
-		return "", fmt.Errorf("worktree name %q is not usable", name)
-	}
-	dest := filepath.Join(repo.Root, name)
-	if filepath.Dir(dest) != filepath.Clean(repo.Root) {
-		return "", fmt.Errorf("worktree name %q escapes %s", name, repo.Root)
-	}
-	if err := rejectLiveCheckoutRoot(repo); err != nil {
+	dest, err := checkWorktreeName(repo, name)
+	if err != nil {
 		return "", err
 	}
 	info, err := os.Lstat(dest)
@@ -95,6 +89,21 @@ func resolveWorktree(ctx context.Context, repo *Repo, name string) (string, erro
 	}
 	if !owns {
 		return "", fmt.Errorf("%s exists but is not a worktree of %s (basename collision)", dest, repo.Main)
+	}
+	return dest, nil
+}
+
+// checkWorktreeName validates name and returns its destination under repo.Root, rejecting a live checkout root.
+func checkWorktreeName(repo *Repo, name string) (string, error) {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
+		return "", fmt.Errorf("worktree name %q is not usable", name)
+	}
+	dest := filepath.Join(repo.Root, name)
+	if filepath.Dir(dest) != filepath.Clean(repo.Root) {
+		return "", fmt.Errorf("worktree name %q escapes %s", name, repo.Root)
+	}
+	if err := rejectLiveCheckoutRoot(repo); err != nil {
+		return "", err
 	}
 	return dest, nil
 }
@@ -160,7 +169,15 @@ func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	if destCanon == mainCanon || strings.HasPrefix(destCanon+string(filepath.Separator), mainCanon+string(filepath.Separator)) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
+	isRoot, err := isWorktreeRoot(ctx, dest, destCanon)
+	if err != nil || !isRoot {
+		return false, err
+	}
+	return sharesCommonDir(ctx, repo, dest)
+}
 
+// isWorktreeRoot reports whether dest's own `--show-toplevel` is destCanon; a non-git dest is a collision, not an error.
+func isWorktreeRoot(ctx context.Context, dest, destCanon string) (bool, error) {
 	topOut, err := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -172,10 +189,11 @@ func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if top != destCanon {
-		return false, nil // dest is a subdirectory of some checkout's worktree root, not a worktree root itself
-	}
+	return top == destCanon, nil // otherwise dest is a subdirectory of some checkout's worktree root
+}
 
+// sharesCommonDir reports whether dest's git common dir is repo's own.
+func sharesCommonDir(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	out, err := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
 		if ctx.Err() != nil {

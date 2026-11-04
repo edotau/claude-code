@@ -78,50 +78,17 @@ func SetLedgerTask(cwd, task string, now time.Time) (bool, error) {
 
 // editLedger applies edit to the cwd worktree's ledger under the lock, reopening a closed one first.
 func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string) string) (bool, error) {
-	repo, err := ResolveRepo(cwd)
-	if err != nil {
-		return false, nil
-	}
-	out, err := gitCmd(context.Background(), "-C", cwd, "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return false, err
-	}
-	top, err := canonical(strings.TrimSpace(string(out)))
-	if err != nil {
-		return false, err
-	}
-	if !paths.SamePath(filepath.Dir(top), repo.Root) {
-		return false, nil
-	}
-	name := filepath.Base(top)
-	if _, err := ResolveWorktree(repo, name); err != nil {
-		return false, err
-	}
-	path := filepath.Join(memstore.Dir(repo.Main), "worktrees", name+".md")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return false, nil
-	} else if err != nil {
+	repo, top, path, found, err := locateLedger(cwd)
+	if !found || err != nil {
 		return false, err
 	}
 	appended := false
 	err = withLedgerLockWithin(wait, path, func() error {
-		data, err := os.ReadFile(path)
-		if os.IsNotExist(err) {
-			return nil
-		}
+		cur, next, err := editedLedger(repo, top, path, now, edit)
 		if err != nil {
 			return err
 		}
-		if ledgerField(string(data), "Status") == "closed" {
-			info, err := reopenInfo(repo, top, "")
-			if err != nil {
-				return err
-			}
-			info.Now = now
-			data = []byte(reopenedText(string(data), info))
-		}
-		next := edit(string(data))
-		if next == string(data) {
+		if next == cur {
 			return nil
 		}
 		if err := paths.AtomicWrite(path, []byte(next), 0o600); err != nil {
@@ -131,6 +98,58 @@ func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string)
 		return nil
 	})
 	return appended, err
+}
+
+// locateLedger resolves the managed linked worktree holding cwd and its existing ledger; found is false for none.
+func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err error) {
+	repo, err = ResolveRepo(cwd)
+	if err != nil {
+		return nil, "", "", false, nil
+	}
+	out, err := gitCmd(context.Background(), "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return nil, "", "", false, err
+	}
+	top, err = canonical(strings.TrimSpace(string(out)))
+	if err != nil {
+		return nil, "", "", false, err
+	}
+	if !paths.SamePath(filepath.Dir(top), repo.Root) {
+		return nil, "", "", false, nil
+	}
+	name := filepath.Base(top)
+	if _, err := ResolveWorktree(repo, name); err != nil {
+		return nil, "", "", false, err
+	}
+	path = filepath.Join(memstore.Dir(repo.Main), "worktrees", name+".md")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, "", "", false, nil
+	} else if err != nil {
+		return nil, "", "", false, err
+	}
+	return repo, top, path, true, nil
+}
+
+// editedLedger reads the ledger at path (reopened first when closed) and returns that text and it with edit applied;
+// a ledger that vanished returns equal strings. The caller holds the lock.
+func editedLedger(repo *Repo, top, path string, now time.Time, edit func(string) string) (cur, next string, err error) {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	cur = string(raw)
+	if ledgerField(cur, "Status") == "closed" {
+		info, err := reopenInfo(repo, top, "")
+		if err != nil {
+			return "", "", err
+		}
+		info.Now = now
+		cur = reopenedText(cur, info)
+	}
+	return cur, edit(cur), nil
 }
 
 // CloseLedger records a first close in full and subsequent removals in the log; missing ledgers are ignored.
@@ -152,46 +171,56 @@ func CloseLedger(main, name string, c LedgerClose) error {
 		if err != nil {
 			return err
 		}
-		text := string(data)
-		branch := "kept"
-		if c.BranchDeleted {
-			branch = "deleted"
-		}
-		if ledgerField(text, "Status") == "closed" {
-			text = ledgerLog(text, fmt.Sprintf("removed via %s, branch %s", c.Via, branch), c.Now)
-			if i := strings.LastIndex(text, "\n## Closed\n"); i >= 0 && c.BranchDeleted {
-				text = text[:i] + strings.Replace(text[i:], "- Branch: kept\n", "- Branch: deleted\n", 1)
-			}
-			return paths.AtomicWrite(path, []byte(text), 0o600)
-		}
-		base := strings.Fields(ledgerField(openSection(text), "Base"))
-		if len(base) == 0 || c.Head == "" {
-			return fmt.Errorf("ledger %s: base and closing HEAD are required", name)
-		}
-		out, err := gitCmd(context.Background(), "-C", main, "log", "--format=%h %s", base[0]+".."+c.Head, "--").Output()
+		text, err := closedLedgerText(main, name, string(data), c)
 		if err != nil {
-			return fmt.Errorf("ledger %s: list commits: %w", name, err)
-		}
-		merge := c.MergeSHA
-		if merge == "" {
-			merge = "none"
-		}
-		text = strings.Replace(text, "- Status: open\n", "- Status: closed\n", 1)
-		text = ledgerLog(text, "closed via "+c.Via, c.Now)
-		text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Closed\n\n- Via: %s\n- Merge: %s\n- Closed: %s\n- Branch: %s\n- Commits:\n",
-			ledgerLine(c.Via), ledgerLine(merge), ledgerTime(c.Now), branch)
-		commits := strings.TrimSpace(string(out))
-		if commits == "" {
-			text += "  - none\n"
-		} else {
-			var textSb187 strings.Builder
-			for commit := range strings.SplitSeq(commits, "\n") {
-				textSb187.WriteString("  - " + commit + "\n")
-			}
-			text += textSb187.String()
+			return err
 		}
 		return paths.AtomicWrite(path, []byte(text), 0o600)
 	})
+}
+
+// closedLedgerText is text after a close: a removal log line when already closed, else the full Closed section.
+func closedLedgerText(main, name, text string, c LedgerClose) (string, error) {
+	branch := "kept"
+	if c.BranchDeleted {
+		branch = "deleted"
+	}
+	if ledgerField(text, "Status") == "closed" {
+		text = ledgerLog(text, fmt.Sprintf("removed via %s, branch %s", c.Via, branch), c.Now)
+		if i := strings.LastIndex(text, "\n## Closed\n"); i >= 0 && c.BranchDeleted {
+			text = text[:i] + strings.Replace(text[i:], "- Branch: kept\n", "- Branch: deleted\n", 1)
+		}
+		return text, nil
+	}
+	base := strings.Fields(ledgerField(openSection(text), "Base"))
+	if len(base) == 0 || c.Head == "" {
+		return "", fmt.Errorf("ledger %s: base and closing HEAD are required", name)
+	}
+	out, err := gitCmd(context.Background(), "-C", main, "log", "--format=%h %s", base[0]+".."+c.Head, "--").Output()
+	if err != nil {
+		return "", fmt.Errorf("ledger %s: list commits: %w", name, err)
+	}
+	merge := c.MergeSHA
+	if merge == "" {
+		merge = "none"
+	}
+	text = strings.Replace(text, "- Status: open\n", "- Status: closed\n", 1)
+	text = ledgerLog(text, "closed via "+c.Via, c.Now)
+	text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Closed\n\n- Via: %s\n- Merge: %s\n- Closed: %s\n- Branch: %s\n- Commits:\n",
+		ledgerLine(c.Via), ledgerLine(merge), ledgerTime(c.Now), branch)
+	return text + commitLines(strings.TrimSpace(string(out))), nil
+}
+
+// commitLines renders the closing commit list as ledger bullets, "none" when empty.
+func commitLines(commits string) string {
+	if commits == "" {
+		return "  - none\n"
+	}
+	var sb strings.Builder
+	for commit := range strings.SplitSeq(commits, "\n") {
+		sb.WriteString("  - " + commit + "\n")
+	}
+	return sb.String()
 }
 
 // withLedgerLock runs fn under the memory bank lock (so an update or dream cannot interleave) and the file lock.

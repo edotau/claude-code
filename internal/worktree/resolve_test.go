@@ -55,6 +55,46 @@ func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentNam
 	t.Cleanup(func() { runResolveAgent = orig })
 }
 
+// requireMergeHead fails with why unless wt's MERGE_HEAD presence equals want.
+func requireMergeHead(t *testing.T, wt string, want bool, why string) {
+	t.Helper()
+	mh, err := hasMergeHead(context.Background(), wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mh != want {
+		t.Fatal(why)
+	}
+}
+
+// requireFileText fails unless the file at path holds exactly want.
+func requireFileText(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("%s = %q, want %q", filepath.Base(path), got, want)
+	}
+}
+
+// requirePhase fails unless got (the named operation's Phase) equals want.
+func requirePhase(t *testing.T, name, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s.Phase = %q, want %q", name, got, want)
+	}
+}
+
+// requireIntegrate fails unless result is an integrate result landing on wantOID.
+func requireIntegrate(t *testing.T, result *MergeResult, wantOID string) {
+	t.Helper()
+	if result == nil || result.Phase != "integrate" || result.AfterOID != wantOID {
+		t.Fatalf("result = %+v, want integrate -> %s", result, wantOID)
+	}
+}
+
 func resolveFixtureRunGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	mergeFixtureRun(t, dir, args...)
@@ -80,26 +120,10 @@ func TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWithAgent: %v", err)
 	}
-	if result == nil || result.Phase != "integrate" || result.AfterOID != headOf(wt) {
-		t.Fatalf("result = %+v, want integrate -> %s", result, headOf(wt))
-	}
-	if op.Phase != "resolved" {
-		t.Fatalf("op.Phase = %q, want %q", op.Phase, "resolved")
-	}
-	mh, mhErr := hasMergeHead(context.Background(), wt)
-	if mhErr != nil {
-		t.Fatal(mhErr)
-	}
-	if mh {
-		t.Fatal("MERGE_HEAD still set after the controller's own commit")
-	}
-	got, readErr := os.ReadFile(filepath.Join(wt, "f.txt"))
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(got) != "resolved\n" {
-		t.Fatalf("f.txt = %q, want the agent's edit %q", got, "resolved\n")
-	}
+	requireIntegrate(t, result, headOf(wt))
+	requirePhase(t, "op", op.Phase, "resolved")
+	requireMergeHead(t, wt, false, "MERGE_HEAD still set after the controller's own commit")
+	requireFileText(t, filepath.Join(wt, "f.txt"), "resolved\n") // the agent's edit
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
@@ -134,13 +158,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 		t.Fatalf("op.Phase = %q, want %q", op.Phase, "resolved")
 	}
 	// The residue itself must be left exactly as the agent's tooling wrote it — never staged, never removed.
-	got, readErr := os.ReadFile(filepath.Join(wt, "hook.cache.json"))
-	if readErr != nil {
-		t.Fatalf("residue file was removed or never written: %v", readErr)
-	}
-	if string(got) != `{"residue":true}` {
-		t.Fatalf("hook.cache.json = %q, want it untouched", got)
-	}
+	requireFileText(t, filepath.Join(wt, "hook.cache.json"), `{"residue":true}`) // removed, never written or touched
 	staged, err := runGit(context.Background(), wt, nil, "status", "--porcelain", "--", "hook.cache.json")
 	if err != nil {
 		t.Fatal(err)
@@ -225,9 +243,7 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 	if !strings.Contains(err.Error(), "conflict markers remain") {
 		t.Fatalf("err = %q, want a markers-remain message", err)
 	}
-	if op.Phase != "failed" {
-		t.Fatalf("op.Phase = %q, want %q", op.Phase, "failed")
-	}
+	requirePhase(t, "op", op.Phase, "failed")
 	// The operation file itself must be preserved (not deleted) and reflect the same terminal state.
 	reloaded, loadErr := LoadOperation(repo, "feature")
 	if loadErr != nil {
@@ -237,20 +253,8 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 		t.Fatalf("reloaded operation = %+v, want the preserved failed record", reloaded)
 	}
 	// The agent's edit must be preserved on disk — no `git merge --abort` or checkout on our part.
-	got, readErr := os.ReadFile(filepath.Join(wt, "f.txt"))
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(got) != markeredEdit {
-		t.Fatalf("f.txt = %q, want the agent's preserved marker-laden edit %q", got, markeredEdit)
-	}
-	mh, mhErr := hasMergeHead(context.Background(), wt)
-	if mhErr != nil {
-		t.Fatal(mhErr)
-	}
-	if !mh {
-		t.Fatal("MERGE_HEAD was cleaned up after a markers-remain failure — no automatic cleanup is permitted")
-	}
+	requireFileText(t, filepath.Join(wt, "f.txt"), markeredEdit) // the agent's preserved marker-laden edit
+	requireMergeHead(t, wt, true, "MERGE_HEAD was cleaned up after a markers-remain failure — no automatic cleanup is permitted")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
@@ -419,9 +423,7 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	if result != nil {
 		t.Fatalf("result = %+v, want nil on the fresh-run failure", result)
 	}
-	if failedOp.Phase != "failed" {
-		t.Fatalf("failedOp.Phase = %q, want %q", failedOp.Phase, "failed")
-	}
+	requirePhase(t, "failedOp", failedOp.Phase, "failed")
 	if !failedOp.AgentExitOK {
 		t.Fatal("failedOp.AgentExitOK = false, want true — the agent process itself exited cleanly")
 	}
@@ -436,31 +438,19 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	if resumeErr != nil {
 		t.Fatalf("ResolveWithAgent (resume): %v", resumeErr)
 	}
-	if resumeResult == nil || resumeResult.Phase != "integrate" || resumeResult.AfterOID != resolvedHead {
-		t.Fatalf("resumeResult = %+v, want integrate -> %s", resumeResult, resolvedHead)
-	}
-	if resumedOp.Phase != "resolved" {
-		t.Fatalf("resumedOp.Phase = %q, want %q", resumedOp.Phase, "resolved")
-	}
+	requireIntegrate(t, resumeResult, resolvedHead)
+	requirePhase(t, "resumedOp", resumedOp.Phase, "resolved")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentResumeRevalidatesAndCompletes simulates a crash: an operation was saved and the
-// conflict materialized, but the controller process died before ever polling. The resolution — done by
-// the agent before the crash — is already a clean, committed, ancestor-correct merge on disk. --resume
-// (op != nil) must revalidate that state and report success WITHOUT re-invoking the agent.
-func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
-	repo, main, wt, plan := resolveFixtureConflictSetup(t)
-	mainBefore := headOf(main)
-
+// crashedOperation materializes plan's conflict and saves the "resolving" operation a controller crash leaves.
+func crashedOperation(t *testing.T, repo *Repo, wt string, plan *MergePlan) *Operation {
+	t.Helper()
 	materialized, err := materializeConflict(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("materializeConflict: %v", err)
 	}
-	if materialized.Phase != "conflict" {
-		t.Fatalf("materialized.Phase = %q, want %q", materialized.Phase, "conflict")
-	}
-
+	requirePhase(t, "materialized", materialized.Phase, "conflict")
 	op := &Operation{
 		ID:                "op-crash-sim",
 		Repo:              repo.Main,
@@ -476,6 +466,18 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	if err := SaveOperation(op); err != nil {
 		t.Fatalf("SaveOperation: %v", err)
 	}
+	return op
+}
+
+// TestResolveWithAgentResumeRevalidatesAndCompletes simulates a crash: an operation was saved and the
+// conflict materialized, but the controller process died before ever polling. The resolution — done by
+// the agent before the crash — is already a clean, committed, ancestor-correct merge on disk. --resume
+// (op != nil) must revalidate that state and report success WITHOUT re-invoking the agent.
+func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
+	repo, main, wt, plan := resolveFixtureConflictSetup(t)
+	mainBefore := headOf(main)
+
+	op := crashedOperation(t, repo, wt, plan)
 
 	// Simulate the agent having actually finished the resolution before the crash.
 	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved by agent before crash\n"), 0o644); err != nil {
@@ -495,12 +497,8 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWithAgent (resume): %v", err)
 	}
-	if result == nil || result.Phase != "integrate" || result.AfterOID != resolvedHead {
-		t.Fatalf("result = %+v, want integrate -> %s", result, resolvedHead)
-	}
-	if gotOp.Phase != "resolved" {
-		t.Fatalf("gotOp.Phase = %q, want %q", gotOp.Phase, "resolved")
-	}
+	requireIntegrate(t, result, resolvedHead)
+	requirePhase(t, "gotOp", gotOp.Phase, "resolved")
 	reloaded, loadErr := LoadOperation(repo, "feature")
 	if loadErr != nil || reloaded.Phase != "resolved" {
 		t.Fatalf("reloaded = %+v, err=%v, want a persisted resolved state", reloaded, loadErr)
@@ -527,12 +525,8 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWithAgent: %v", err)
 	}
-	if result.Phase != "integrate" {
-		t.Fatalf("result.Phase = %q, want %q", result.Phase, "integrate")
-	}
-	if result.AfterOID != headOf(wt) {
-		t.Fatalf("result.AfterOID = %s, want the resolved worktree HEAD %s", result.AfterOID, headOf(wt))
-	}
+	requirePhase(t, "result", result.Phase, "integrate")
+	requireIntegrate(t, result, headOf(wt)) // AfterOID is the resolved worktree HEAD
 
 	// Matches production order (cmdWorktreeMerge): IntegrateTarget always runs after resolution,
 	// pinning plan.IntegratedOID — content is already merged, so this is a no-op re-merge.
@@ -601,13 +595,7 @@ func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 		t.Fatal("ResolveWithAgent ran despite the lease being held — the lease refusal must happen before fn runs")
 	}
 	// Refused before ever touching the worktree: no conflict was materialized, main stayed clean.
-	mh, mhErr := hasMergeHead(context.Background(), wt)
-	if mhErr != nil {
-		t.Fatal(mhErr)
-	}
-	if mh {
-		t.Fatal("a conflict was materialized despite the lease refusal")
-	}
+	requireMergeHead(t, wt, false, "a conflict was materialized despite the lease refusal")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
@@ -632,15 +620,7 @@ func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T)
 	if !strings.Contains(err.Error(), "codex") || !strings.Contains(err.Error(), "fell back") {
 		t.Fatalf("err = %q, want it to name the fallback mismatch", err)
 	}
-	if op.Phase != "failed" {
-		t.Fatalf("op.Phase = %q, want %q", op.Phase, "failed")
-	}
-	mh, mhErr := hasMergeHead(context.Background(), wt)
-	if mhErr != nil {
-		t.Fatal(mhErr)
-	}
-	if !mh {
-		t.Fatal("MERGE_HEAD was cleaned up on a fallback mismatch — no automatic cleanup is permitted")
-	}
+	requirePhase(t, "op", op.Phase, "failed")
+	requireMergeHead(t, wt, true, "MERGE_HEAD was cleaned up on a fallback mismatch — no automatic cleanup is permitted")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
