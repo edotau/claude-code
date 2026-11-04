@@ -52,54 +52,16 @@ func login(args []string) int {
 	if len(names) > 0 {
 		return usageProfile("login", names[0])
 	}
-	switch *as {
-	case "", providers.IdentityUser:
-	case providers.IdentitySP:
-		return fail("login: --as sp needs no browser login; the paired service principal mints on its own")
-	default:
-		return fail("login: --as must be user or sp")
+	if code, bad := checkLoginFlags(*as, *authType); bad {
+		return code
 	}
-	switch *authType {
-	case "", providers.AuthOAuth:
-	case providers.AuthM2M, providers.AuthPAT:
-		fail("login: --auth-type %q does not sign in through the browser; "+
-			"m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", *authType)
-		return 2
-	default:
-		fail("login: --auth-type must be oauth, m2m or pat (got %q)", *authType)
-		return 2
-	}
-	reg, err := providers.Load()
+	p, err := loginProfile(fs, *profileName)
 	if err != nil {
 		return fail("login: %v", err)
-	}
-	p, err := reg.Get(resolveProfile(reg, *profileName))
-	if err != nil {
-		return fail("login: %v", err)
-	}
-	explicit := false
-	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" || f.Name == "t" })
-	if t := p.Auth.Method(); t != "" && t != providers.AuthOAuth && !explicit {
-		return fail("login: %s has auth type %q; pass --auth-type oauth to switch it to a browser login", p.Name, t)
 	}
 	reuse := !*force && p.Auth.Method() == providers.AuthOAuth
 	if *dryRun {
-		if reuse {
-			if exp, ok := providers.TokenExpiry(p.Name); ok && time.Until(exp) > 0 {
-				fmt.Printf("would reuse the cached token for %s; no browser\n", p.Name)
-				return 0
-			}
-		}
-		if p.Auth.Method() != providers.AuthOAuth {
-			if err := switchAuthType(p, providers.AuthOAuth, true); err != nil {
-				return fail("login: %v", err)
-			}
-			fmt.Printf("would log in to %s\n", loginHost(p))
-			return 0
-		}
-		fmt.Printf("would open a browser login for %s and seal the refresh token as %s; nothing written\n",
-			p.Name, providers.AuthSecretName(p))
-		return 0
+		return loginDryRun(p, reuse)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
@@ -112,6 +74,66 @@ func login(args []string) int {
 	if err := LoginRow(ctx, p.Name, os.Stdout); err != nil {
 		return fail("login: %v", err)
 	}
+	return 0
+}
+
+// loginProfile resolves the profile to log in, refusing a non-oauth one unless --auth-type was passed.
+func loginProfile(fs *flag.FlagSet, profileName string) (*providers.Provider, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, err
+	}
+	p, err := reg.Get(resolveProfile(reg, profileName))
+	if err != nil {
+		return nil, err
+	}
+	explicit := false
+	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" || f.Name == "t" })
+	if t := p.Auth.Method(); t != "" && t != providers.AuthOAuth && !explicit {
+		return nil, fmt.Errorf("%s has auth type %q; pass --auth-type oauth to switch it to a browser login", p.Name, t)
+	}
+	return p, nil
+}
+
+// checkLoginFlags rejects an --as or --auth-type value login cannot honor; bad reports the exit code to return.
+func checkLoginFlags(as, authType string) (code int, bad bool) {
+	switch as {
+	case "", providers.IdentityUser:
+	case providers.IdentitySP:
+		return fail("login: --as sp needs no browser login; the paired service principal mints on its own"), true
+	default:
+		return fail("login: --as must be user or sp"), true
+	}
+	switch authType {
+	case "", providers.AuthOAuth:
+	case providers.AuthM2M, providers.AuthPAT:
+		fail("login: --auth-type %q does not sign in through the browser; "+
+			"m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", authType)
+		return 2, true
+	default:
+		fail("login: --auth-type must be oauth, m2m or pat (got %q)", authType)
+		return 2, true
+	}
+	return 0, false
+}
+
+// loginDryRun reports what login would do for p without opening a browser or writing anything.
+func loginDryRun(p *providers.Provider, reuse bool) int {
+	if reuse {
+		if exp, ok := providers.TokenExpiry(p.Name); ok && time.Until(exp) > 0 {
+			fmt.Printf("would reuse the cached token for %s; no browser\n", p.Name)
+			return 0
+		}
+	}
+	if p.Auth.Method() != providers.AuthOAuth {
+		if err := switchAuthType(p, providers.AuthOAuth, true); err != nil {
+			return fail("login: %v", err)
+		}
+		fmt.Printf("would log in to %s\n", loginHost(p))
+		return 0
+	}
+	fmt.Printf("would open a browser login for %s and seal the refresh token as %s; nothing written\n",
+		p.Name, providers.AuthSecretName(p))
 	return 0
 }
 

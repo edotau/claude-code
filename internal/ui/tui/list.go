@@ -123,48 +123,70 @@ func (s listState) refilter() listState {
 func listKey(s listState, k Key) (listState, ListResult, bool) {
 	pending, pendRow := s.pending, s.pendRow
 	s.pending, s.pendRow = -1, -1
-	back := ListResult{Index: -1}
 	search := s.spec.Search
+	if s, res, done, handled := listNavKey(s, k, search); handled {
+		return s, res, done
+	}
+	if s, res, done, handled := listBindKey(s, k, pending, pendRow); handled {
+		return s, res, done
+	}
+	if search {
+		s = listSearchKey(s, k)
+	}
+	return s, ListResult{}, false
+}
+
+// listNavKey handles cancel, cursor movement and enter; handled is false for any other key.
+func listNavKey(s listState, k Key, search bool) (_ listState, res ListResult, done, handled bool) {
+	vim := !search && k.Kind == KeyRune
 	switch {
-	case k.Kind == KeyCtrlC, k.Kind == KeyEsc, k.Kind == KeyLeft, !search && k.Kind == KeyRune && k.Rune == 'q':
-		return s, back, true
-	case k.Kind == KeyUp, !search && k.Kind == KeyRune && k.Rune == 'k':
+	case k.Kind == KeyCtrlC, k.Kind == KeyEsc, k.Kind == KeyLeft, vim && k.Rune == 'q':
+		return s, ListResult{Index: -1}, true, true
+	case k.Kind == KeyUp, vim && k.Rune == 'k':
 		s.cur = max(0, s.cur-1)
-		return s, ListResult{}, false
-	case k.Kind == KeyDown, !search && k.Kind == KeyRune && k.Rune == 'j':
+		return s, ListResult{}, false, true
+	case k.Kind == KeyDown, vim && k.Rune == 'j':
 		s.cur = min(len(s.view)-1, s.cur+1)
-		return s, ListResult{}, false
+		return s, ListResult{}, false, true
 	case k.Kind == KeyEnter:
 		if row := s.selected(); row >= 0 {
-			return s, ListResult{Index: row}, true
+			return s, ListResult{Index: row}, true, true
 		}
-		return s, ListResult{}, false
+		return s, ListResult{}, false, true
 	}
+	return s, ListResult{}, false, false
+}
+
+// listBindKey fires the bind matching k on the selected row; a Confirm bind needs the same key twice on one row.
+func listBindKey(s listState, k Key, pending, pendRow int) (_ listState, res ListResult, done, handled bool) {
 	for bi, b := range s.spec.Binds {
 		if b.Key != k {
 			continue
 		}
 		row := s.selected()
 		if row < 0 {
-			return s, ListResult{}, false
+			return s, ListResult{}, false, true
 		}
 		if b.Confirm == "" || (pending == bi && pendRow == row) {
-			return s, ListResult{Index: row, Action: b.Name}, true
+			return s, ListResult{Index: row, Action: b.Name}, true, true
 		}
 		s.pending, s.pendRow = bi, row
-		return s, ListResult{}, false
+		return s, ListResult{}, false, true
 	}
-	if search {
-		switch {
-		case k.Kind == KeyBackspace && len(s.query) > 0:
-			s.query = s.query[:len(s.query)-1]
-			s = s.refilter()
-		case k.Kind == KeyRune && unicode.IsPrint(k.Rune):
-			s.query = append(s.query, k.Rune)
-			s = s.refilter()
-		}
+	return s, ListResult{}, false, false
+}
+
+// listSearchKey edits the search query and refilters.
+func listSearchKey(s listState, k Key) listState {
+	switch {
+	case k.Kind == KeyBackspace && len(s.query) > 0:
+		s.query = s.query[:len(s.query)-1]
+		return s.refilter()
+	case k.Kind == KeyRune && unicode.IsPrint(k.Rune):
+		s.query = append(s.query, k.Rune)
+		return s.refilter()
 	}
-	return s, ListResult{}, false
+	return s
 }
 
 // listFooter is the hint line: spec.Footer verbatim, or the default hints plus every bind that has Help.

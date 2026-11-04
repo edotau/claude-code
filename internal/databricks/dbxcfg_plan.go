@@ -36,42 +36,10 @@ func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o Import
 	taken := map[string]bool{}
 	names := sealedNames(existing)
 	for _, c := range cands {
-		r := Row{Candidate: c, ID: c.Name, Action: "add"}
-		if n, ok := o.Rename[c.Name]; ok {
-			r.ID = n
-		}
-		raw, exists := existing[r.ID]
-		ek := existingAuthType(raw)
-		r.existed, r.previousHost = exists, existingHost(raw)
-		if ek == providers.AuthOAuth {
-			var p struct {
-				Auth     map[string]json.RawMessage `json:"auth"`
-				Identity string                     `json:"identity"`
-			}
-			_ = json.Unmarshal(raw, &p)
-			value, set := p.Auth["spClientId"]
-			_ = json.Unmarshal(value, &r.SPClientID)
-			r.PairingSet, r.identity = set, p.Identity
-		}
-		switch {
-		case c.Skip != "":
-			r.Action, r.Reason = "skip", c.Skip
-		case !providers.ValidID(r.ID):
-			r.Action, r.Reason = "skip", "id must match [A-Za-z0-9_-]+ (use --rename)"
-		case taken[r.ID]:
-			r.Action, r.Reason = "skip", "duplicate id"
-		case exists && !o.Replace:
-			r.Action, r.Reason = "skip", "row exists (use --replace)"
-		case exists && ek == "":
-			r.Action, r.Reason = "skip", "existing row has no sealed auth.type; switch it with `claude-code databricks login --profile "+r.ID+" --auth-type oauth`"
-		case exists && ek != "" && ek != c.Auth:
-			r.Action, r.Reason = "skip", "existing auth.type "+ek+" is never changed"
-		case r.SPClientID != "" && r.previousHost != c.Host:
-			r.Action, r.Reason = "skip", "paired profile host is never changed on re-import"
-		case collides(names, r):
-			n := SecretNameOf(r)
-			r.Action, r.Reason = "skip", "secret name "+n+" is shared with row "+names[n]+"; use --rename"
-		case exists:
+		r, ek := baseImportRow(c, existing, o)
+		if reason := skipReason(r, c, ek, o, taken, names); reason != "" {
+			r.Action, r.Reason = "skip", reason
+		} else if r.existed {
 			r.Action = "replace"
 		}
 		if r.Action != "skip" {
@@ -83,6 +51,66 @@ func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o Import
 		rows = append(rows, r)
 	}
 	return pairRows(rows, o.Pair, names)
+}
+
+// baseImportRow is candidate c's "add" row with the id, existing-row facts and oauth pairing carried over.
+func baseImportRow(c Candidate, existing map[string]json.RawMessage, o ImportOptions) (r Row, ek string) {
+	r = Row{Candidate: c, ID: c.Name, Action: "add"}
+	if n, ok := o.Rename[c.Name]; ok {
+		r.ID = n
+	}
+	raw, exists := existing[r.ID]
+	ek = existingAuthType(raw)
+	r.existed, r.previousHost = exists, existingHost(raw)
+	if ek == providers.AuthOAuth {
+		var p struct {
+			Auth     map[string]json.RawMessage `json:"auth"`
+			Identity string                     `json:"identity"`
+		}
+		_ = json.Unmarshal(raw, &p)
+		value, set := p.Auth["spClientId"]
+		_ = json.Unmarshal(value, &r.SPClientID)
+		r.PairingSet, r.identity = set, p.Identity
+	}
+	return r, ek
+}
+
+// skipReason is why row r is not imported ("" = importable); the checks run in a fixed order.
+func skipReason(r Row, c Candidate, ek string, o ImportOptions, taken map[string]bool, names map[string]string) string {
+	switch {
+	case c.Skip != "":
+		return c.Skip
+	case !providers.ValidID(r.ID):
+		return "id must match [A-Za-z0-9_-]+ (use --rename)"
+	case taken[r.ID]:
+		return "duplicate id"
+	}
+	if r.existed {
+		if reason := existingSkipReason(r, c, ek, o); reason != "" {
+			return reason
+		}
+	}
+	if r.SPClientID != "" && r.previousHost != c.Host {
+		return "paired profile host is never changed on re-import"
+	}
+	if collides(names, r) {
+		n := SecretNameOf(r)
+		return "secret name " + n + " is shared with row " + names[n] + "; use --rename"
+	}
+	return ""
+}
+
+// existingSkipReason is why an already-present row is left alone ("" = it may be replaced).
+func existingSkipReason(r Row, c Candidate, ek string, o ImportOptions) string {
+	switch {
+	case !o.Replace:
+		return "row exists (use --replace)"
+	case ek == "":
+		return "existing row has no sealed auth.type; switch it with `claude-code databricks login --profile " + r.ID + " --auth-type oauth`"
+	case ek != c.Auth:
+		return "existing auth.type " + ek + " is never changed"
+	}
+	return ""
 }
 
 // SecretNameOf is the vault name of a planned row's sealed credential, derived by providers.

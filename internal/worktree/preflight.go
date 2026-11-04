@@ -88,6 +88,26 @@ func PreflightAfterResolution(ctx context.Context, repo *Repo, name, target stri
 }
 
 func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnlyWorktree bool) (*MergePlan, error) {
+	plan, err := newMergePlan(ctx, repo, name, trackedOnlyWorktree)
+	if err != nil {
+		return nil, err
+	}
+	if stop, err := screenCheckouts(ctx, repo, plan, target, trackedOnlyWorktree); err != nil {
+		return nil, err
+	} else if stop {
+		return plan, nil
+	}
+	if err := pinOIDs(ctx, repo, plan); err != nil {
+		return nil, err
+	}
+	if err := simulateIssues(ctx, repo, plan); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+// newMergePlan resolves the worktree and fills the plan's paths and git dirs.
+func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorktree bool) (*MergePlan, error) {
 	worktreePath, err := resolveWorktree(ctx, repo, name)
 	if err != nil {
 		return nil, err
@@ -108,71 +128,81 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 	if plan.WorktreeGitDir, err = gitDirOf(ctx, worktreePath); err != nil {
 		return nil, err
 	}
+	return plan, nil
+}
 
+// screenCheckouts records an issue for a detached or mismatched target and a dirty or mid-operation checkout; stop
+// is true once the plan holds any issue.
+func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target string, trackedOnlyWorktree bool) (stop bool, err error) {
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return false, ctx.Err()
 		}
 		plan.Issues = append(plan.Issues, Issue{Code: IssueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
-		return plan, nil
+		return true, nil
 	}
 	plan.TargetRef = branch
 	if target != "" && target != branch {
 		plan.Issues = append(plan.Issues, Issue{Code: IssueTargetMismatch,
 			Detail: fmt.Sprintf("main checkout is on %q, requested target was %q", branch, target)})
-		return plan, nil
+		return true, nil
 	}
 
 	if issue, err := checkCheckoutState(ctx, repo.Main, plan.MainGitDir, IssueDirtyTarget); err != nil {
-		return nil, err
+		return false, err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
 	}
-	if issue, err := checkWorktreeState(ctx, worktreePath, plan.WorktreeGitDir, trackedOnlyWorktree); err != nil {
-		return nil, err
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, trackedOnlyWorktree); err != nil {
+		return false, err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
 	}
-	if len(plan.Issues) > 0 {
-		return plan, nil // dirty or mid-operation: stop before pinning OIDs or writing anything
-	}
+	return len(plan.Issues) > 0, nil // dirty or mid-operation: stop before pinning OIDs or writing anything
+}
 
+// pinOIDs fixes the target and source HEADs on the plan.
+func pinOIDs(ctx context.Context, repo *Repo, plan *MergePlan) (err error) {
 	plan.TargetOID, err = headOfContext(ctx, repo.Main)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	plan.SourceOID, err = headOfContext(ctx, worktreePath)
+	plan.SourceOID, err = headOfContext(ctx, plan.WorktreePath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if plan.TargetOID == "" || plan.SourceOID == "" {
-		return nil, fmt.Errorf("could not resolve HEAD for %s or %s", repo.Main, worktreePath)
+		return fmt.Errorf("could not resolve HEAD for %s or %s", repo.Main, plan.WorktreePath)
 	}
+	return nil
+}
 
+// simulateIssues adds the unrelated-history, capability or conflict issue the dry-run merge predicts.
+func simulateIssues(ctx context.Context, repo *Repo, plan *MergePlan) error {
 	unrelated, err := unrelatedHistories(ctx, repo.Main, plan.SourceOID, plan.TargetOID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if unrelated {
 		plan.Issues = append(plan.Issues, Issue{Code: IssueUnrelatedHistories,
 			Detail: fmt.Sprintf("%s and %s share no common ancestor", plan.SourceOID, plan.TargetOID)})
-		return plan, nil
+		return nil
 	}
 
 	conflicts, err := simulateMerge(ctx, repo.Main, plan.CommonDir, plan.SourceOID, plan.TargetOID, true)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 		plan.Issues = append(plan.Issues, Issue{Code: IssueCapability, Detail: err.Error()})
-		return plan, nil
+		return nil
 	}
 	if len(conflicts) > 0 {
 		plan.Issues = append(plan.Issues, Issue{Code: IssueConflict, Paths: conflicts,
 			Detail: "git merge-tree predicts a conflict; merge --resolve-agent can resolve it"})
 	}
-	return plan, nil
+	return nil
 }
 
 // simulateMerge runs `git merge-tree --write-tree --name-only -z` for source into target and reports
