@@ -66,7 +66,10 @@ a leaf).
 4. **Treat every answer as a claim.** Re-run the handoff's verification command yourself; for a
    finding, open the cited file:line. A dispatch that failed, timed out or answered from a `fallback` is
    reported as such — do the task in-context only if the handoff allows it.
-5. **Code-changing work** gets the forced lines at the action point, exactly as `agents/code-worker.md`
+5. **Prefix every tool call's `description` with the agent it serves** (`opencode: checking job status`,
+   `copilot: verifying the diff`; a relay names the agent whose answer you're on). The task list shows it beside
+   `coworker`, so the row names the same agent as the dispatch label.
+6. **Code-changing work** gets the forced lines at the action point, exactly as `agents/code-worker.md`
    → Procedure step 3 states them (`TASK:` before a behavior change, `ISSUE:` after a defect fix).
 
 ## Report contract
