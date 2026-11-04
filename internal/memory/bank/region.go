@@ -125,7 +125,7 @@ func writeHomeRows(b *strings.Builder, now time.Time) {
 		return
 	}
 	var keep []string
-	for _, l := range strings.Split(strings.TrimSpace(homeIdx), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(homeIdx), "\n") {
 		if strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "## ") {
 			keep = append(keep, l)
 		}

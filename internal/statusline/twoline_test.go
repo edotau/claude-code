@@ -2,10 +2,11 @@ package statusline
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/ui/theme"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/ui/theme"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -71,9 +72,11 @@ func TestCompactTokens(t *testing.T) {
 // Velocity follows row 1's model after " | ": a zero side is omitted, and both zero drops the cell and its separator.
 func TestTwolineVelocity(t *testing.T) {
 	text := func(row []twoSeg) (s string) {
+		var sSb74 strings.Builder
 		for _, c := range row {
-			s += c.text
+			sSb74.WriteString(c.text)
 		}
+		s += sSb74.String()
 		return s
 	}
 	for in, want := range map[[2]int]string{{4, 2}: " | +4 -2", {4, 0}: " | +4", {0, 2}: " | -2", {0, 0}: ""} {

@@ -294,7 +294,7 @@ func TestNestedOpenErrors(t *testing.T) {
 	t.Cleanup(func() { readLockTimeout, writeLockTimeout = oldRead, oldWrite })
 	for _, operation := range []string{"View", "Update", "MasterKey"} {
 		t.Run(operation, func(t *testing.T) {
-			nested, elapsed := nestedOpen(t, operation)
+			elapsed, nested := nestedOpen(t, operation)
 			if !errors.Is(nested, bolterrors.ErrTimeout) || elapsed < shortTimeout/2 || elapsed >= 3*time.Second {
 				t.Fatalf("nested %s = %v after %s, want bbolt.ErrTimeout bounded by its own Timeout", operation, nested, elapsed)
 			}
@@ -303,7 +303,7 @@ func TestNestedOpenErrors(t *testing.T) {
 }
 
 // nestedOpen runs operation inside an Update callback and returns its error and how long it blocked.
-func nestedOpen(t *testing.T, operation string) (nested error, elapsed time.Duration) {
+func nestedOpen(t *testing.T, operation string) (elapsed time.Duration, nested error) {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() {
@@ -329,7 +329,7 @@ func nestedOpen(t *testing.T, operation string) (nested error, elapsed time.Dura
 	case <-time.After(5 * time.Second):
 		t.Fatal("nested open hung well beyond bbolt's own timeout")
 	}
-	return nested, elapsed
+	return elapsed, nested
 }
 
 func TestRotateRetainsOldKey(t *testing.T) {

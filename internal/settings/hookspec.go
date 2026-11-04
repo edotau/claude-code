@@ -223,7 +223,7 @@ func (d *dispatcherSlot) add(s EventSpec) {
 		d.any = true
 		return
 	}
-	for _, alt := range strings.Split(s.Matcher, "|") { // one alternative once, however many modules name it
+	for alt := range strings.SplitSeq(s.Matcher, "|") { // one alternative once, however many modules name it
 		if !slices.Contains(d.matchers, alt) {
 			d.matchers = append(d.matchers, alt)
 		}

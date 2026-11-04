@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"maps"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/memory"
@@ -31,9 +32,7 @@ func buildSpecTree() map[string]*compNode {
 	askFlags := askSpecFlags()
 	tree := coreSpecNodes(askFlags)
 	for _, nodes := range []map[string]*compNode{networkSpecNodes(), integrationSpecNodes(), workspaceSpecNodes(), memorySpecNodes()} {
-		for name, node := range nodes {
-			tree[name] = node
-		}
+		maps.Copy(tree, nodes)
 	}
 	addLauncherSpecNodes(tree, askFlags)
 	return tree
