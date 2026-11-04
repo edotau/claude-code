@@ -112,7 +112,7 @@ func Sync(opts Options) int {
 	agentsSkills := AgentsSkillsDir(home)
 	res.add(syncSkillLinks(out, skills, skillsDir, agentsSkills, prune, dryRun))
 	if prune {
-		res.pruned += pruneLegacyGeminiSkills(out, LegacyGeminiSkillsDir(home), dryRun)
+		res.add(pruneLegacyGeminiSkills(out, LegacyGeminiSkillsDir(home), dryRun))
 	}
 	return finishSync(out, opts, dryRun, res)
 }
@@ -127,7 +127,7 @@ func syncFail(err error) int {
 func syncSkillLinks(out io.Writer, skills []Source, skillsDir, dir string, prune, dryRun bool) syncResult {
 	res := linkSkills(out, skills, skillsDir, dir, dryRun)
 	if prune {
-		res.pruned += pruneSkillLinks(out, dir, skillsDir, projectedSkillNames(skills), dryRun)
+		res.add(pruneSkillLinks(out, dir, skillsDir, projectedSkillNames(skills), dryRun))
 	}
 	return res
 }
@@ -209,8 +209,8 @@ func syncProjection(out io.Writer, target string, t projectionTarget, agents []S
 	if !prune {
 		return res
 	}
-	res.pruned += pruneGeneratedFiles(out, distDir, t.ext, rendered, dryRun)
-	res.pruned += pruneGeneratedFiles(out, homeDir, t.ext, rendered, dryRun)
+	res.add(pruneGeneratedFiles(out, distDir, t.ext, rendered, dryRun))
+	res.add(pruneGeneratedFiles(out, homeDir, t.ext, rendered, dryRun))
 	return res
 }
 

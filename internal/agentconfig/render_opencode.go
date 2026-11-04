@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -42,11 +44,13 @@ func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, 
 	}
 	cfgPath = filepath.Join(dir, "opencode.json")
 	tuiPath = filepath.Join(dir, "tui.json")
-	tuiBody = preserveAppliedTheme(tuiPath, tuiTemplate)
+	if tuiBody, err = preserveAppliedTheme(tuiPath, tuiTemplate); err != nil {
+		return "", nil, "", nil, err
+	}
 	return cfgPath, cfgBody, tuiPath, tuiBody, nil
 }
 
-// OverlayModels yields the overlay's model/small_model; internal/agent replaces it with the login-aware pick.
+// OverlayModels yields the overlay's model/small_model; internal/opencode replaces it with the login-aware pick.
 var OverlayModels = router.OpencodeTableModels
 
 // applyOpencodeTableModels overwrites model/small_model from the routing table's opencode sonnet/haiku
@@ -61,65 +65,80 @@ func applyOpencodeTableModels(cfgBody []byte) []byte {
 		return cfgBody
 	}
 	doc["model"], doc["small_model"] = mainModel, smallModel
+	out, ok := encodeOverlayJSON(doc)
+	if !ok {
+		return cfgBody
+	}
+	return out
+}
+
+// encodeOverlayJSON renders doc as the overlay files' two-space JSON without HTML escaping.
+func encodeOverlayJSON(doc any) ([]byte, bool) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if enc.Encode(doc) != nil {
-		return cfgBody
+		return nil, false
 	}
-	return buf.Bytes()
+	return buf.Bytes(), true
 }
 
 // WriteOpencodeOverlay writes the tracked opencode.json/tui.json templates to state/harness/opencode
 // and returns their paths; a theme already applied into the existing tui.json (theme apply) survives.
 func WriteOpencodeOverlay() (cfg, tui string, err error) {
-	cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered()
+	if err := os.MkdirAll(opencodeOverlayDir(), 0o700); err != nil {
+		return "", "", err
+	}
+	// The lock spans the theme read and the tui.json write, so a concurrent writer's theme isn't reverted.
+	err = paths.WithFileLock(filepath.Join(opencodeOverlayDir(), "tui.json"), func() error {
+		cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered()
+		if err != nil {
+			return err
+		}
+		if _, err := paths.WriteIfChanged(cfgPath, cfgBody, 0o600); err != nil {
+			return err
+		}
+		cfg, tui = cfgPath, tuiPath
+		_, err = paths.WriteIfChanged(tuiPath, tuiBody, 0o600)
+		return err
+	})
 	if err != nil {
 		return "", "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
-		return "", "", err
-	}
-	if _, err := paths.WriteIfChanged(cfgPath, cfgBody, 0o600); err != nil {
-		return "", "", err
-	}
-	if _, err := paths.WriteIfChanged(tuiPath, tuiBody, 0o600); err != nil {
-		return "", "", err
-	}
-	return cfgPath, tuiPath, nil
+	return cfg, tui, nil
 }
 
 // preserveAppliedTheme keeps a theme `theme apply` already wrote into the on-disk tui.json: it reads
 // the existing file's "theme" key and overrides the template's before writing, so a repeated overlay
 // write (every opencode launch) never clobbers a theme the owner picked after the template rendered.
-func preserveAppliedTheme(path string, template []byte) []byte {
+func preserveAppliedTheme(path string, template []byte) ([]byte, error) {
 	cur, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return template, nil
+	}
 	if err != nil {
-		return template
+		return nil, err // never overwrite a theme the owner picked because the read failed
 	}
 	var curDoc map[string]any
 	if json.Unmarshal(cur, &curDoc) != nil {
-		return template
+		return template, nil
 	}
 	theme, ok := curDoc["theme"].(string)
 	if !ok {
-		return template
+		return template, nil
 	}
 	var next map[string]any
 	if json.Unmarshal(template, &next) != nil {
-		return template
+		return template, nil
 	}
 	if next["theme"] == theme {
-		return template // already matches; skip the marshal round-trip (it would HTML-escape the keybinds)
+		return template, nil // already matches; skip the marshal round-trip (it would HTML-escape the keybinds)
 	}
 	next["theme"] = theme
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if enc.Encode(next) != nil {
-		return template
+	out, ok := encodeOverlayJSON(next)
+	if !ok {
+		return template, nil
 	}
-	return buf.Bytes()
+	return out, nil
 }
