@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -267,5 +268,20 @@ func TestMoveGitAndCheckoutRollsBackGit(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(from, ".git")); err != nil {
 		t.Errorf(".git not restored to From: %v", err)
+	}
+}
+
+// A dangling symlink at the target is backed up as a link instead of aborting Backup on os.Stat.
+func TestBackupDanglingSymlink(t *testing.T) {
+	dir := vaulttest.Use(t)
+	if err := os.Symlink(filepath.Join(dir, "nowhere"), filepath.Join(dir, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := Backup(dir, []string{"CLAUDE.md"}, "adopt", time.Now())
+	if err != nil {
+		t.Fatalf("Backup = %v, want the dangling link copied", err)
+	}
+	if got, err := os.Readlink(filepath.Join(dest, "CLAUDE.md")); err != nil || got != filepath.Join(dir, "nowhere") {
+		t.Fatalf("backup link = %q, %v", got, err)
 	}
 }

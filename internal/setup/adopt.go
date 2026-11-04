@@ -153,8 +153,8 @@ func Adopt(opts AdoptOpts) error {
 	if err := moveGitAndCheckout(opts.From, opts.Into); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(opts.From); err != nil {
-		return err
+	if err := os.RemoveAll(opts.From); err != nil { // the checkout is in; a leftover stage must not skip the record
+		fmt.Fprintf(opts.Out, "warning: could not remove staged clone %s: %v\n", opts.From, err)
 	}
 
 	st := State{Mode: "adopt", Date: now, Commit: commitHash(opts.Into), BackupDir: backupDir, ClashCount: len(clashes)}

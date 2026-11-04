@@ -526,3 +526,25 @@ func TestKeepMemoryPathsPropagatesWalkError(t *testing.T) {
 		t.Fatal("Plan(dir, true) = nil error, want it to refuse an incomplete archive plan")
 	}
 }
+
+// An ancestor of $HOME (e.g. /home) is refused before any plan or RemoveAll, confirmed or not.
+func TestNukeRefusesAncestorOfHome(t *testing.T) {
+	parent := t.TempDir()
+	home := filepath.Join(parent, "u")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	for _, dir := range []string{parent, filepath.Join(home, "..")} {
+		err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir})
+		if !errors.Is(err, ErrNotConfigDir) {
+			t.Errorf("Nuke(%q) = %v, want ErrNotConfigDir", dir, err)
+		}
+	}
+	if _, err := os.Stat(home); err != nil {
+		t.Fatal("home was removed")
+	}
+	if err := nukeFloor(filepath.Join(home, ".claude")); err != nil {
+		t.Errorf("a dir under home must pass the floor, got %v", err)
+	}
+}
