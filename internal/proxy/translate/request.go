@@ -127,20 +127,9 @@ func FlattenChatContent(body []byte) []byte {
 	}
 	changed := false
 	for _, c := range choices {
-		var msg map[string]json.RawMessage
-		var parts []struct{ Type, Text string }
-		if json.Unmarshal(c["message"], &msg) != nil || json.Unmarshal(msg["content"], &parts) != nil || parts == nil {
-			continue // a null (tool-call-only) or string content stays as sent
+		if flattenChoice(c) {
+			changed = true
 		}
-		var sb strings.Builder
-		for _, pt := range parts {
-			if pt.Type == "text" {
-				sb.WriteString(pt.Text)
-			}
-		}
-		msg["content"], _ = json.Marshal(sb.String())
-		c["message"], _ = json.Marshal(msg)
-		changed = true
 	}
 	if !changed {
 		return body
@@ -150,6 +139,24 @@ func FlattenChatContent(body []byte) []byte {
 		return out
 	}
 	return body
+}
+
+// flattenChoice joins one choice's content-part array into a string in place, reporting whether it did.
+func flattenChoice(c map[string]json.RawMessage) bool {
+	var msg map[string]json.RawMessage
+	var parts []struct{ Type, Text string }
+	if json.Unmarshal(c["message"], &msg) != nil || json.Unmarshal(msg["content"], &parts) != nil || parts == nil {
+		return false // a null (tool-call-only) or string content stays as sent
+	}
+	var sb strings.Builder
+	for _, pt := range parts {
+		if pt.Type == "text" {
+			sb.WriteString(pt.Text)
+		}
+	}
+	msg["content"], _ = json.Marshal(sb.String())
+	c["message"], _ = json.Marshal(msg)
+	return true
 }
 
 // IsGeminiModel reports whether a wire model is a Gemini model (case-insensitive).
@@ -179,6 +186,19 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, false, fmt.Errorf("translate: request: %w", err)
 	}
+	req := chatRequestParams(in, wireModel)
+	if req.Messages, err = chatMessages(in, wireModel); err != nil {
+		return nil, false, err
+	}
+	req.Tools = chatTools(in.Tools, wireModel)
+	applyToolChoice(&req, in)
+
+	out, err = json.Marshal(req)
+	return out, in.Stream, err
+}
+
+// chatRequestParams builds the chat request's model, sampling, token-cap and stream fields from in.
+func chatRequestParams(in messagesRequest, wireModel string) chatRequest {
 	req := chatRequest{Model: wireModel, Stop: in.StopSequences, Temperature: in.Temperature, TopP: in.TopP}
 	maxTokens := in.MaxTokens
 	if l, ok := models.Limits(wireModel); ok && l.Output > 0 { // an output cap above the model's limit is a 400
@@ -198,33 +218,33 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 			req.StreamOptions = &streamOptions{IncludeUsage: true}
 		}
 	}
+	return req
+}
 
+// chatMessages converts the system prompt and conversation turns of in into chat messages.
+func chatMessages(in messagesRequest, wireModel string) ([]chatMessage, error) {
+	var msgs []chatMessage
 	sys, err := parseBlocks(in.System)
 	if err != nil {
-		return nil, false, fmt.Errorf("translate: system: %w", err)
+		return nil, fmt.Errorf("translate: system: %w", err)
 	}
 	if text := joinText(sys, "\n\n"); text != "" {
-		req.Messages = append(req.Messages, chatMessage{Role: "system", Content: text})
+		msgs = append(msgs, chatMessage{Role: "system", Content: text})
 	}
 	for i, m := range in.Messages {
 		blocks, err := parseBlocks(m.Content)
 		if err != nil {
-			return nil, false, fmt.Errorf("translate: messages[%d]: %w", i, err)
+			return nil, fmt.Errorf("translate: messages[%d]: %w", i, err)
 		}
 		if m.Role == "assistant" {
-			req.Messages = appendAssistant(req.Messages, blocks, wireModel)
-		} else {
-			if req.Messages, err = appendUser(req.Messages, blocks); err != nil {
-				return nil, false, fmt.Errorf("translate: messages[%d]: %w", i, err)
-			}
+			msgs = appendAssistant(msgs, blocks, wireModel)
+			continue
+		}
+		if msgs, err = appendUser(msgs, blocks); err != nil {
+			return nil, fmt.Errorf("translate: messages[%d]: %w", i, err)
 		}
 	}
-
-	req.Tools = chatTools(in.Tools, wireModel)
-	applyToolChoice(&req, in)
-
-	out, err = json.Marshal(req)
-	return out, in.Stream, err
+	return msgs, nil
 }
 
 // chatTools converts tools to function tools for wireModel.
@@ -266,53 +286,86 @@ func applyToolChoice(req *chatRequest, in messagesRequest) {
 	}
 }
 
+// userTurn accumulates the content parts of one user turn.
+type userTurn struct {
+	parts    []chatPart
+	hasImage bool
+}
+
+func (u *userTurn) addImage(s *source) {
+	if url := imageDataURL(s); url != "" {
+		u.parts = append(u.parts, chatPart{Type: "image_url", ImageURL: &imageURL{URL: url}})
+		u.hasImage = true
+	}
+}
+
+func (u *userTurn) addText(text string) {
+	if text != "" {
+		u.parts = append(u.parts, chatPart{Type: "text", Text: text})
+	}
+}
+
+// add folds one non-tool-result block into the turn.
+func (u *userTurn) add(b block) {
+	switch b.Type {
+	case "text":
+		u.addText(b.Text)
+	case "image":
+		u.addImage(b.Source)
+	case "document":
+		if b.Source != nil && b.Source.Type == "text" {
+			u.addText(b.Source.Data)
+		}
+	}
+}
+
+// message renders the turn: plain text unless an image is present; false when it has no parts.
+func (u *userTurn) message() (chatMessage, bool) {
+	if len(u.parts) == 0 {
+		return chatMessage{}, false
+	}
+	if u.hasImage {
+		return chatMessage{Role: "user", Content: u.parts}, true
+	}
+	texts := make([]string, len(u.parts))
+	for i, p := range u.parts {
+		texts[i] = p.Text
+	}
+	return chatMessage{Role: "user", Content: strings.Join(texts, "\n\n")}, true
+}
+
+// toolResult converts a tool_result block to a tool message; its images ride the following user turn.
+func (u *userTurn) toolResult(b block) (chatMessage, error) {
+	inner, err := parseBlocks(b.Content)
+	if err != nil {
+		return chatMessage{}, fmt.Errorf("tool_result %s: %w", b.ToolUseID, err)
+	}
+	for _, ib := range inner {
+		if ib.Type == "image" {
+			u.addImage(ib.Source) // tool messages are text-only
+		}
+	}
+	return chatMessage{Role: "tool", ToolCallID: b.ToolUseID, Content: joinText(inner, "\n")}, nil
+}
+
 // appendUser emits tool results first (they must directly follow the assistant tool_calls), then the user turn.
 func appendUser(msgs []chatMessage, blocks []block) ([]chatMessage, error) {
-	var parts []chatPart
-	hasImage := false
-	addImage := func(s *source) {
-		if u := imageDataURL(s); u != "" {
-			parts = append(parts, chatPart{Type: "image_url", ImageURL: &imageURL{URL: u}})
-			hasImage = true
-		}
-	}
+	var turn userTurn
 	for _, b := range blocks {
-		switch b.Type {
-		case "text":
-			if b.Text != "" {
-				parts = append(parts, chatPart{Type: "text", Text: b.Text})
-			}
-		case "image":
-			addImage(b.Source)
-		case "document":
-			if b.Source != nil && b.Source.Type == "text" && b.Source.Data != "" {
-				parts = append(parts, chatPart{Type: "text", Text: b.Source.Data})
-			}
-		case "tool_result":
-			inner, err := parseBlocks(b.Content)
-			if err != nil {
-				return nil, fmt.Errorf("tool_result %s: %w", b.ToolUseID, err)
-			}
-			text := joinText(inner, "\n")
-			for _, ib := range inner {
-				if ib.Type == "image" {
-					addImage(ib.Source) // tool messages are text-only, so images ride the following user turn
-				}
-			}
-			msgs = append(msgs, chatMessage{Role: "tool", ToolCallID: b.ToolUseID, Content: text})
+		if b.Type != "tool_result" {
+			turn.add(b)
+			continue
 		}
-	}
-	if len(parts) == 0 {
-		return msgs, nil
-	}
-	if !hasImage {
-		texts := make([]string, len(parts))
-		for i, p := range parts {
-			texts[i] = p.Text
+		m, err := turn.toolResult(b)
+		if err != nil {
+			return nil, err
 		}
-		return append(msgs, chatMessage{Role: "user", Content: strings.Join(texts, "\n\n")}), nil
+		msgs = append(msgs, m)
 	}
-	return append(msgs, chatMessage{Role: "user", Content: parts}), nil
+	if m, ok := turn.message(); ok {
+		msgs = append(msgs, m)
+	}
+	return msgs, nil
 }
 
 func appendAssistant(msgs []chatMessage, blocks []block, wireModel string) []chatMessage {
@@ -394,6 +447,20 @@ func cleanSchema(v any) bool {
 	if !ok {
 		return false
 	}
+	changed := rewriteKeywords(m)
+	for k, sub := range m {
+		if !geminiSchemaKeys[k] {
+			delete(m, k)
+			changed = true
+			continue
+		}
+		changed = cleanChildren(k, sub) || changed
+	}
+	return changed
+}
+
+// rewriteKeywords turns const into enum and oneOf into anyOf, reporting whether m had either.
+func rewriteKeywords(m map[string]any) bool {
 	changed := false
 	if c, ok := m["const"]; ok {
 		m["enum"] = []any{c}
@@ -405,25 +472,24 @@ func cleanSchema(v any) bool {
 		}
 		changed = true
 	}
-	for k, sub := range m {
-		if !geminiSchemaKeys[k] {
-			delete(m, k)
-			changed = true
-			continue
+	return changed
+}
+
+// cleanChildren cleans the sub-schemas held under keyword k, reporting whether any changed.
+func cleanChildren(k string, sub any) bool {
+	changed := false
+	switch k {
+	case "properties":
+		props, _ := sub.(map[string]any)
+		for _, p := range props {
+			changed = cleanSchema(p) || changed
 		}
-		switch k {
-		case "properties":
-			props, _ := sub.(map[string]any)
-			for _, p := range props {
-				changed = cleanSchema(p) || changed
-			}
-		case "items", "additionalProperties":
-			changed = cleanSchema(sub) || changed
-		case "anyOf":
-			subs, _ := sub.([]any)
-			for _, s := range subs {
-				changed = cleanSchema(s) || changed
-			}
+	case "items", "additionalProperties":
+		changed = cleanSchema(sub)
+	case "anyOf":
+		subs, _ := sub.([]any)
+		for _, s := range subs {
+			changed = cleanSchema(s) || changed
 		}
 	}
 	return changed

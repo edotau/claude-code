@@ -193,24 +193,28 @@ func TestNoStaleReferencesToRemovedAgents(t *testing.T) {
 		}
 	}
 	for _, dir := range []string{"rules", "commands", "workflows"} {
-		scanDir := filepath.Join(root, dir)
-		err := filepath.Walk(scanDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return nil
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-			for _, stale := range removed {
-				if strings.Contains(string(data), stale) {
-					t.Errorf("%s references removed %s", path, stale)
-				}
-			}
-			return nil
-		})
-		if err != nil && !os.IsNotExist(err) {
+		if err := scanForStaleRefs(t, filepath.Join(root, dir), removed); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// scanForStaleRefs reports (via t.Errorf) every file under scanDir that mentions one of the removed paths.
+func scanForStaleRefs(t *testing.T, scanDir string, removed []string) error {
+	t.Helper()
+	return filepath.Walk(scanDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		for _, stale := range removed {
+			if strings.Contains(string(data), stale) {
+				t.Errorf("%s references removed %s", path, stale)
+			}
+		}
+		return nil
+	})
 }

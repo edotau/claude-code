@@ -40,22 +40,14 @@ func ParseHeaders(raw string, log io.Writer) map[string]string {
 		fmt.Fprintf(log, "proxy: %s ignored: over 4 KiB\n", HeadersEnv)
 		return out
 	}
-	protected := map[string]bool{}
-	for k := range protectedHeaders {
-		protected[k] = true
-	}
-	for _, k := range launcherHeaders {
-		protected[textproto.CanonicalMIMEHeaderKey(k)] = true
-	}
+	protected := protectedKeys()
 	bad := 0
 	for line := range strings.SplitSeq(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		name, val, ok := strings.Cut(line, ":")
-		name, val = strings.TrimSpace(name), strings.TrimSpace(val)
-		key := textproto.CanonicalMIMEHeaderKey(name)
-		if !ok || !validHeaderName(name) || !validHeaderValue(val) || protected[key] {
+		key, val, ok := parseHeaderLine(line, protected)
+		if !ok {
 			bad++
 			continue
 		}
@@ -65,6 +57,29 @@ func ParseHeaders(raw string, log io.Writer) map[string]string {
 		fmt.Fprintf(log, "proxy: %s: dropped %d invalid or protected line(s)\n", HeadersEnv, bad)
 	}
 	return out
+}
+
+// protectedKeys is the canonical set of header names HARNESS_HEADERS may not set.
+func protectedKeys() map[string]bool {
+	protected := map[string]bool{}
+	for k := range protectedHeaders {
+		protected[k] = true
+	}
+	for _, k := range launcherHeaders {
+		protected[textproto.CanonicalMIMEHeaderKey(k)] = true
+	}
+	return protected
+}
+
+// parseHeaderLine splits one "Name: value" line; ok is false when it is malformed or protected.
+func parseHeaderLine(line string, protected map[string]bool) (key, val string, ok bool) {
+	name, val, ok := strings.Cut(line, ":")
+	name, val = strings.TrimSpace(name), strings.TrimSpace(val)
+	key = textproto.CanonicalMIMEHeaderKey(name)
+	if !ok || !validHeaderName(name) || !validHeaderValue(val) || protected[key] {
+		return "", "", false
+	}
+	return key, val, true
 }
 
 // HarnessHeaders is the validated HARNESS_HEADERS set from the environment (warnings go to stderr).

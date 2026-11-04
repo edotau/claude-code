@@ -39,12 +39,7 @@ func TestNewerSchemaRouterJSONStaysRunning(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	doc := fmt.Sprintf(`{"schema":2,"pid":%d,"port":%d,"started":"2026-01-01T00:00:00Z","extra":"newer"}`, os.Getpid(), port)
-	if err := os.MkdirAll(filepath.Join(paths.StateDir(), "router.json")[:len(filepath.Join(paths.StateDir(), "router.json"))-len("/router.json")], 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(paths.StateDir(), "router.json"), []byte(doc), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeNewerRouterJSON(t, doc)
 	defer os.Remove(filepath.Join(paths.StateDir(), "router.json"))
 
 	st, err := proxy.ReadState()
@@ -56,6 +51,28 @@ func TestNewerSchemaRouterJSONStaysRunning(t *testing.T) {
 		t.Fatal("proxy.Running = false for a live pid with a healthy port; Stop would return ErrNotRunning")
 	}
 
+	serveAndStop(t)
+	got, err := os.ReadFile(filepath.Join(paths.StateDir(), "router.json"))
+	if err != nil || string(got) != doc {
+		t.Fatalf("router.json = %q, %v; want the newer build's file untouched", got, err)
+	}
+}
+
+// writeNewerRouterJSON writes doc as the state dir's router.json, creating the directory.
+func writeNewerRouterJSON(t *testing.T, doc string) {
+	t.Helper()
+	file := filepath.Join(paths.StateDir(), "router.json")
+	if err := os.MkdirAll(file[:len(file)-len("/router.json")], 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// serveAndStop runs Serve on a free port until it answers, then cancels it and waits for it to return.
+func serveAndStop(t *testing.T) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	pl, err := net.Listen("tcp", "127.0.0.1:0")
@@ -71,10 +88,6 @@ func TestNewerSchemaRouterJSONStaysRunning(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Serve did not return")
-	}
-	got, err := os.ReadFile(filepath.Join(paths.StateDir(), "router.json"))
-	if err != nil || string(got) != doc {
-		t.Fatalf("router.json = %q, %v; want the newer build's file untouched", got, err)
 	}
 }
 

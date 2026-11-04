@@ -125,18 +125,11 @@ func dropTopLevelKeys(raw string, keys []string) string {
 	if len(keys) == 0 || raw == "" {
 		return raw
 	}
-	lines := strings.SplitAfter(raw, "\n")
 	var out strings.Builder
 	multiline, depth := "", 0
 	skipping := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		drop := skipping
-		if !skipping && multiline == "" && depth == 0 {
-			if key, _, ok := strings.Cut(trimmed, "="); ok && slices.Contains(keys, TOMLKeyName(key)) {
-				drop = true
-			}
-		}
+	for _, line := range strings.SplitAfter(raw, "\n") {
+		drop := skipping || (multiline == "" && depth == 0 && assignsKey(line, keys))
 		nextMultiline, nextDepth := TOMLLineState(line, multiline, depth)
 		if drop {
 			skipping = nextMultiline != "" || nextDepth > 0
@@ -146,6 +139,12 @@ func dropTopLevelKeys(raw string, keys []string) string {
 		multiline, depth = nextMultiline, nextDepth
 	}
 	return out.String()
+}
+
+// assignsKey reports whether line is a "key = ..." assignment of one of keys.
+func assignsKey(line string, keys []string) bool {
+	key, _, ok := strings.Cut(strings.TrimSpace(line), "=")
+	return ok && slices.Contains(keys, TOMLKeyName(key))
 }
 
 // FirstTopLevelHeaderIndex finds the first line whose "[" is a genuine top-level table header: outside
@@ -166,49 +165,60 @@ func FirstTopLevelHeaderIndex(lines []string) int {
 func TOMLLineState(line, state string, depth int) (string, int) {
 	for i := 0; i < len(line); {
 		if state != "" {
-			if state == `"""` && line[i] == '\\' {
-				i += 2
-			} else if strings.HasPrefix(line[i:], state) {
-				i += 3
-				state = ""
-			} else {
-				i++
-			}
+			i, state = stepInMultiline(line, i, state)
 			continue
 		}
-		switch {
-		case line[i] == '#':
+		if line[i] == '#' {
 			return state, depth
-		case line[i] == '[':
-			depth++
-			i++
-		case line[i] == ']':
-			if depth > 0 {
-				depth--
-			}
-			i++
-		case line[i] != '"' && line[i] != '\'':
-			i++
-		default:
-			quote := line[i]
-			triple := strings.Repeat(string(quote), 3)
-			if strings.HasPrefix(line[i:], triple) {
-				state = triple
-				i += 3
-				continue
-			}
-			i++
-			for i < len(line) {
-				if line[i] == '\\' && quote == '"' {
-					i += 2
-				} else if line[i] == quote {
-					i++
-					break
-				} else {
-					i++
-				}
-			}
 		}
+		i, state, depth = stepOutsideString(line, i, depth)
 	}
 	return state, depth
+}
+
+// stepInMultiline advances one step through a multiline string, closing it at its terminator.
+func stepInMultiline(line string, i int, state string) (int, string) {
+	if state == `"""` && line[i] == '\\' {
+		return i + 2, state
+	}
+	if strings.HasPrefix(line[i:], state) {
+		return i + 3, ""
+	}
+	return i + 1, state
+}
+
+// stepOutsideString advances one step outside any string, tracking bracket depth and skipping strings.
+func stepOutsideString(line string, i, depth int) (int, string, int) {
+	switch line[i] {
+	case '[':
+		return i + 1, "", depth + 1
+	case ']':
+		if depth > 0 {
+			depth--
+		}
+		return i + 1, "", depth
+	case '"', '\'':
+		quote := line[i]
+		triple := strings.Repeat(string(quote), 3)
+		if strings.HasPrefix(line[i:], triple) {
+			return i + 3, triple, depth
+		}
+		return skipQuoted(line, i+1, quote), "", depth
+	}
+	return i + 1, "", depth
+}
+
+// skipQuoted returns the index just past the single-line string closing quote, honoring "-string escapes.
+func skipQuoted(line string, i int, quote byte) int {
+	for i < len(line) {
+		switch {
+		case line[i] == '\\' && quote == '"':
+			i += 2
+		case line[i] == quote:
+			return i + 1
+		default:
+			i++
+		}
+	}
+	return i
 }

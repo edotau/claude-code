@@ -54,41 +54,51 @@ func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 		fmt.Fprintf(out, "--- %s (%s) ---\n%s\n", path, label, next)
 		return changed, nil
 	case o.Check:
-		if changed {
-			fmt.Fprintf(out, "%s: drift at %s\n", label, path)
-		}
-		lost, err := lostLinesFor(label, path, raw, next)
-		if err != nil {
-			return changed, err
-		}
-		if len(lost) > 0 {
-			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) not in this render:\n", label, path, len(lost))
-			printLostLines(out, lost)
-		}
-		return changed, nil
+		return changed, reportCheck(path, raw, next, changed, out, label)
 	case !changed:
-		if ops := fileOps[label]; ops.LoadBaseline != nil {
-			base, err := ops.LoadBaseline(path)
-			if err != nil {
-				return false, err
-			}
-			if base == nil && existed {
-				*o.staged = append(*o.staged, func() error { return ops.SaveBaseline(path, next) })
-			}
-			fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
-			return false, nil
-		}
-		// Seed a missing baseline from an unchanged file, or later hand edits go undetected.
-		if _, err := os.Stat(baselinePath(label, path)); os.IsNotExist(err) && existed {
-			if err := writeBaseline(label, path, next); err != nil {
-				fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
-			}
-		}
-		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
-		return false, nil
+		return false, reportUnchanged(path, next, existed, o, out, label)
 	}
 	*o.staged = append(*o.staged, func() error { return commitWrite(path, raw, next, existed, o, out, label) })
 	return true, nil
+}
+
+// reportCheck prints --check drift and any hand-edited lines the render would lose.
+func reportCheck(path string, raw, next []byte, changed bool, out io.Writer, label string) error {
+	if changed {
+		fmt.Fprintf(out, "%s: drift at %s\n", label, path)
+	}
+	lost, err := lostLinesFor(label, path, raw, next)
+	if err != nil {
+		return err
+	}
+	if len(lost) > 0 {
+		fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) not in this render:\n", label, path, len(lost))
+		printLostLines(out, lost)
+	}
+	return nil
+}
+
+// reportUnchanged prints the "unchanged" line, first seeding or staging the baseline for an unchanged file.
+func reportUnchanged(path string, next []byte, existed bool, o RenderOptions, out io.Writer, label string) error {
+	if ops := fileOps[label]; ops.LoadBaseline != nil {
+		base, err := ops.LoadBaseline(path)
+		if err != nil {
+			return err
+		}
+		if base == nil && existed {
+			*o.staged = append(*o.staged, func() error { return ops.SaveBaseline(path, next) })
+		}
+		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
+		return nil
+	}
+	// Seed a missing baseline from an unchanged file, or later hand edits go undetected.
+	if _, err := os.Stat(baselinePath(label, path)); os.IsNotExist(err) && existed {
+		if err := writeBaseline(label, path, next); err != nil {
+			fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
+		}
+	}
+	fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
+	return nil
 }
 
 // commitWrite runs the lost-lines check (prompting or warning), writes path, and refreshes its
@@ -98,37 +108,48 @@ func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, o
 	if err != nil {
 		return err
 	}
-	if len(lost) > 0 {
-		if o.Confirm != nil {
-			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) that would be lost:\n", label, path, len(lost))
-			printLostLines(out, lost)
-			if !o.Confirm(path, lost) {
-				fmt.Fprintf(out, "%s: kept %s (your edits)\n", label, path)
-				return nil
-			}
-		} else {
-			fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code configure --revert` restores\n",
-				label, len(lost), path)
-			printLostLines(out, lost)
-		}
+	if len(lost) > 0 && !confirmLost(path, lost, o, out, label) {
+		return nil
 	}
 	return paths.WithFileLock(baselinePath(label, path), func() error {
-		if cur, err := os.ReadFile(path); (err == nil) != existed || (existed && !bytes.Equal(cur, raw)) {
-			return fmt.Errorf("%s: %s changed since it was read; re-run", label, path)
-		}
-		write := backupAndWrite
-		if ops := fileOps[label]; ops.Write != nil {
-			write = ops.Write
-		}
-		if err := write(path, raw, next, existed); err != nil {
-			return fmt.Errorf("%s: %w", label, err)
-		}
-		if err := writeBaseline(label, path, next); err != nil {
-			fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
-		}
-		fmt.Fprintf(out, "%s: wrote %s\n", label, path)
-		return nil
+		return writeLocked(path, raw, next, existed, out, label)
 	})
+}
+
+// confirmLost reports lines the write would lose and returns false when the user kept their edits.
+func confirmLost(path string, lost []string, o RenderOptions, out io.Writer, label string) bool {
+	if o.Confirm == nil {
+		fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code configure --revert` restores\n",
+			label, len(lost), path)
+		printLostLines(out, lost)
+		return true
+	}
+	fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) that would be lost:\n", label, path, len(lost))
+	printLostLines(out, lost)
+	if !o.Confirm(path, lost) {
+		fmt.Fprintf(out, "%s: kept %s (your edits)\n", label, path)
+		return false
+	}
+	return true
+}
+
+// writeLocked re-checks path is unchanged since read, writes it, and refreshes its baseline.
+func writeLocked(path string, raw, next []byte, existed bool, out io.Writer, label string) error {
+	if cur, err := os.ReadFile(path); (err == nil) != existed || (existed && !bytes.Equal(cur, raw)) {
+		return fmt.Errorf("%s: %s changed since it was read; re-run", label, path)
+	}
+	write := backupAndWrite
+	if ops := fileOps[label]; ops.Write != nil {
+		write = ops.Write
+	}
+	if err := write(path, raw, next, existed); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if err := writeBaseline(label, path, next); err != nil {
+		fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
+	}
+	fmt.Fprintf(out, "%s: wrote %s\n", label, path)
+	return nil
 }
 
 // CommitOverlayFile is CommitFile's dry-run/check/write decision, minus the lost-hand-edited-lines

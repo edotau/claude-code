@@ -49,11 +49,16 @@ func agentToken(s string) string {
 		if b.Len() >= maxAgentToken {
 			break
 		}
-		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-' {
+		if isTokenRune(c) {
 			b.WriteRune(c)
 		}
 	}
 	return b.String()
+}
+
+// isTokenRune reports whether c is in [A-Za-z0-9._-].
+func isTokenRune(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-'
 }
 
 // parseRequestTags returns raw when it is a single-line JSON object of strings within the cap; else logs once and "".

@@ -40,24 +40,12 @@ func initSecret() (string, error) {
 	} else if found && s != "" {
 		return s, nil
 	}
-	val, fromFile := "", false
-	if b, err := os.ReadFile(secretFile()); err == nil {
-		val, fromFile = strings.TrimSpace(string(b)), true
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("proxy: read %s: %w", secretFile(), err)
+	val, fromFile, err := legacyOrNewSecret()
+	if err != nil {
+		return "", err
 	}
-	if val == "" {
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			return "", err
-		}
-		val = hex.EncodeToString(b)
-	}
-	if err := vault.Store(secretName, val); err != nil {
-		return "", secretErr(err)
-	}
-	if got, found, err := vault.ReadSecret(secretName); err != nil || !found || got != val {
-		return "", fmt.Errorf("proxy: router secret did not read back from the vault (kept %s)", secretFile())
+	if err := storeVerified(val); err != nil {
+		return "", err
 	}
 	if fromFile {
 		if err := os.Remove(secretFile()); err != nil && !os.IsNotExist(err) {
@@ -65,6 +53,34 @@ func initSecret() (string, error) {
 		}
 	}
 	return val, nil
+}
+
+// legacyOrNewSecret returns the legacy router.secret file's value, or a fresh random one when it is absent or empty.
+func legacyOrNewSecret() (val string, fromFile bool, err error) {
+	if b, err := os.ReadFile(secretFile()); err == nil {
+		val, fromFile = strings.TrimSpace(string(b)), true
+	} else if !os.IsNotExist(err) {
+		return "", false, fmt.Errorf("proxy: read %s: %w", secretFile(), err)
+	}
+	if val == "" {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return "", false, err
+		}
+		val = hex.EncodeToString(b)
+	}
+	return val, fromFile, nil
+}
+
+// storeVerified writes val to the vault and confirms it reads back unchanged.
+func storeVerified(val string) error {
+	if err := vault.Store(secretName, val); err != nil {
+		return secretErr(err)
+	}
+	if got, found, err := vault.ReadSecret(secretName); err != nil || !found || got != val {
+		return fmt.Errorf("proxy: router secret did not read back from the vault (kept %s)", secretFile())
+	}
+	return nil
 }
 
 func secretErr(err error) error {

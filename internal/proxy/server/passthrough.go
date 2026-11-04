@@ -138,48 +138,63 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 }
 
 func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider, route, rest, query, model, dialect string, body []byte, geminiChat bool) (string, string) {
-	var extra string
 	target := route + "/" + rest
 	if query != "" {
 		target += "?" + query
 	}
-	resp, err := r.sendMethod(in, in.Method, p, target, body, func(h http.Header) {
-		for k, vs := range in.Header {
-			ck := http.CanonicalHeaderKey(k)
-			if !hopHeaders[ck] && !noForward[ck] {
-				h[ck] = append([]string(nil), vs...)
-			}
-		}
-	})
+	resp, err := r.sendMethod(in, in.Method, p, target, body, copyClientHeaders(in))
 	if err != nil {
-		var failure *fallbackError
-		if errors.As(err, &failure) && failure.auth {
-			writeError(sw, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", p.Name, authHint(p)))
-			return model, extra
-		}
-		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
-		return model, extra
+		writePassthroughSendError(sw, p, err)
+		return model, ""
 	}
-	extra = passthroughDiag(resp)
+	extra := passthroughDiag(resp)
 	if geminiChat && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
 		if err := flattenGeminiResponse(resp); err != nil {
 			writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
 			return model, extra
 		}
 	}
-	var tail *tailBuffer
-	if metered(p) && in.Method == http.MethodPost && resp.StatusCode == http.StatusOK && dialect != providers.ProtocolGemini {
-		tail = &tailBuffer{}
-		resp.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.TeeReader(resp.Body, tail), resp.Body}
-	}
+	tail := teeUsageTail(resp, in, p, dialect)
 	relay(sw, resp)
 	if tail != nil {
 		logLedgerUsage(in, p, model, scrapeUsage(tail.buf))
 	}
 	return model, extra
+}
+
+// copyClientHeaders returns a header hook that copies the client's non-hop, non-blocked headers onto the upstream request.
+func copyClientHeaders(in *http.Request) func(http.Header) {
+	return func(h http.Header) {
+		for k, vs := range in.Header {
+			ck := http.CanonicalHeaderKey(k)
+			if !hopHeaders[ck] && !noForward[ck] {
+				h[ck] = append([]string(nil), vs...)
+			}
+		}
+	}
+}
+
+// writePassthroughSendError answers a failed upstream send: 401 with a hint for auth failures, else 502.
+func writePassthroughSendError(sw *statusWriter, p *providers.Provider, err error) {
+	var failure *fallbackError
+	if errors.As(err, &failure) && failure.auth {
+		writeError(sw, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", p.Name, authHint(p)))
+		return
+	}
+	writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
+}
+
+// teeUsageTail wraps a metered 200 POST reply so its closing usage chunk is captured; nil when not metered.
+func teeUsageTail(resp *http.Response, in *http.Request, p *providers.Provider, dialect string) *tailBuffer {
+	if !metered(p) || in.Method != http.MethodPost || resp.StatusCode != http.StatusOK || dialect == providers.ProtocolGemini {
+		return nil
+	}
+	tail := &tailBuffer{}
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.TeeReader(resp.Body, tail), resp.Body}
+	return tail
 }
 
 // flattenGeminiResponse buffers a non-stream Gemini chat reply and joins its content parts into one string.

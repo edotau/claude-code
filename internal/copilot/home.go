@@ -327,23 +327,34 @@ func checkNoGitHubLogin(file string) error {
 	if err != nil {
 		return fmt.Errorf("copilot: read %s: %w", file, err)
 	}
-	var lines []string
-	for l := range strings.SplitSeq(string(raw), "\n") { // config.json opens with // comment lines
-		if !strings.HasPrefix(strings.TrimSpace(l), "//") {
-			lines = append(lines, l)
-		}
-	}
 	var cfg map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(strings.Join(lines, "\n")), &cfg); err != nil {
+	if err := json.Unmarshal([]byte(dropLineComments(string(raw))), &cfg); err != nil {
 		return fmt.Errorf("copilot: %s is unreadable (%v); delete it to launch in registry mode", file, err)
 	}
 	for _, k := range []string{"loggedInUsers", "lastLoggedInUser", "copilotTokens", "authTokens"} {
-		if v := strings.TrimSpace(string(cfg[k])); v != "" && v != "null" && v != "[]" && v != "{}" {
+		if jsonValuePresent(cfg[k]) {
 			return fmt.Errorf("copilot: %s holds a GitHub login (%s), which would let models fall through to "+
 				"GitHub; delete the file (and run no /login in registry mode)", file, k)
 		}
 	}
 	return nil
+}
+
+// dropLineComments removes whole-line // comments; config.json opens with them.
+func dropLineComments(text string) string {
+	var lines []string
+	for l := range strings.SplitSeq(text, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(l), "//") {
+			lines = append(lines, l)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// jsonValuePresent reports whether v is set to something other than null, [] or {}.
+func jsonValuePresent(v json.RawMessage) bool {
+	s := strings.TrimSpace(string(v))
+	return s != "" && s != "null" && s != "[]" && s != "{}"
 }
 
 // splitModelFlags removes every --model <v> / --model=<v> from args and returns the values in order.

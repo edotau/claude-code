@@ -11,25 +11,32 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 )
 
-func TestScopedPermissions(t *testing.T) {
-	wd := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(wd, "pkg"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/etc", filepath.Join(wd, "link")); err != nil {
-		t.Fatal(err)
-	}
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd}).OnPermissionRequest
-	sh := func(c string) copilot.PermissionRequest { return rpc.PermissionRequestShell{FullCommandText: c} }
-	wr := func(f string) copilot.PermissionRequest { return rpc.PermissionRequestWrite{FileName: f} }
-	cases := []struct {
-		name string
-		req  copilot.PermissionRequest
-		want bool
-	}{
+// scopedCase is one permission request and whether the scoped handler must approve it.
+type scopedCase struct {
+	name string
+	req  copilot.PermissionRequest
+	want bool
+}
+
+func scopedShell(c string) copilot.PermissionRequest {
+	return rpc.PermissionRequestShell{FullCommandText: c}
+}
+
+func scopedWrite(f string) copilot.PermissionRequest { return rpc.PermissionRequestWrite{FileName: f} }
+
+// scopedKindCases covers the non-shell, non-write request kinds.
+func scopedKindCases() []scopedCase {
+	return []scopedCase{
 		{"read", rpc.PermissionRequestRead{}, true}, {"url", rpc.PermissionRequestURL{}, true},
 		{"mcp", rpc.PermissionRequestMCP{}, false}, {"memory", rpc.PermissionRequestMemory{}, false},
 		{"hook", rpc.PermissionRequestHook{}, false},
+	}
+}
+
+// scopedWriteCases covers file-write requests relative to the working directory wd.
+func scopedWriteCases(wd string) []scopedCase {
+	wr := scopedWrite
+	return []scopedCase{
 		{"write in workdir", wr(filepath.Join(wd, "pkg", "a.go")), true}, {"write relative", wr("pkg/new.go"), true},
 		{"write dotdot", wr(filepath.Join(wd, "..", "x.go")), false}, {"write relative dotdot", wr("../x"), false},
 		{"write ssh", wr(os.ExpandEnv("$HOME/.ssh/authorized_keys")), false},
@@ -37,6 +44,13 @@ func TestScopedPermissions(t *testing.T) {
 		{"write state", wr(filepath.Join(wd, "state", "x")), false}, {"write pem", wr(filepath.Join(wd, "a.pem")), false},
 		{"write vault", wr(filepath.Join(wd, "pkg", "vault.db")), false}, {"write symlink escape", wr(filepath.Join(wd, "link", "passwd")), false},
 		{"write empty", wr(""), false},
+	}
+}
+
+// scopedShellCases covers shell-command requests: build/test/git allowed shapes and the refused ones.
+func scopedShellCases() []scopedCase {
+	sh := scopedShell
+	return []scopedCase{
 		{"test and fmt", sh("go test ./x && gofmt -l ."), true}, {"make", sh("make lint"), true}, {"make arg", sh("make -f evil test"), false},
 		{"git status", sh("git status"), true}, {"git diff", sh("git diff --no-ext-diff --no-textconv"), true},
 		{"git add path", sh("git add pkg/a.go"), true}, {"git add -A", sh("git add -A"), false}, {"git add dot", sh("git add ."), false},
@@ -53,6 +67,18 @@ func TestScopedPermissions(t *testing.T) {
 		{"review", sh("claude-code review complexity internal/ui"), true}, {"review -o", sh("claude-code review report -o /etc/x"), false},
 		{"redirect", rpc.PermissionRequestShell{FullCommandText: "ls", HasWriteFileRedirection: true}, false},
 	}
+}
+
+func TestScopedPermissions(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wd, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc", filepath.Join(wd, "link")); err != nil {
+		t.Fatal(err)
+	}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd}).OnPermissionRequest
+	cases := slices.Concat(scopedKindCases(), scopedWriteCases(wd), scopedShellCases())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d, err := h(tc.req, copilot.PermissionInvocation{})

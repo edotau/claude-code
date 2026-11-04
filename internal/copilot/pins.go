@@ -24,44 +24,62 @@ func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err e
 	if rerr != nil {
 		return fmt.Sprintf("could not verify pins: provider registry unreadable (pin written anyway): %v", rerr), nil
 	}
-	var ids []string
-	var fetched, catalogDown bool
-	var firstWarn string // the first unverifiable-pin warning; later pins are still checked
-	served := map[string][]string{}
+	v := &pinValidator{reg: reg, fallback: fallback, served: map[string][]string{}}
 	for _, p := range pins {
-		_, spec, ok := strings.Cut(p, "=")
-		if !ok {
-			continue
-		}
-		name, model := pinTarget(spec, fallback)
-		if dp := reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
-			w, derr := validateDatabricksCopilotPin(reg, name, model, served)
-			if derr != nil {
-				return "", derr
-			}
-			firstWarn = cmp.Or(firstWarn, w)
-			continue
-		}
-		gh, gerr := reg.Get(name)
-		if gerr != nil || gh.Provider != "github" {
-			continue
-		}
-		if !fetched {
-			fetched = true
-			ids, err = copilotModelIDs()
-			if err != nil {
-				catalogDown = true
-				firstWarn = cmp.Or(firstWarn, fmt.Sprintf("could not verify against the live github-copilot catalog (pin written anyway): %v", err))
-			}
-		}
-		if catalogDown {
-			continue
-		}
-		if !slices.Contains(ids, model) {
-			return "", unknownGithubModel(model, gh.Name, ids)
+		if err := v.check(p); err != nil {
+			return "", err
 		}
 	}
-	return firstWarn, nil
+	return v.firstWarn, nil
+}
+
+// pinValidator carries ValidateCopilotPins' per-run state: the github catalog is fetched at most once.
+type pinValidator struct {
+	reg                  *providers.Registry
+	fallback             string
+	ids                  []string
+	fetched, catalogDown bool
+	firstWarn            string // the first unverifiable-pin warning; later pins are still checked
+	served               map[string][]string
+}
+
+// check validates one "<agent>=<spec>" pin; a non-nil error is a hard refusal.
+func (v *pinValidator) check(p string) error {
+	_, spec, ok := strings.Cut(p, "=")
+	if !ok {
+		return nil
+	}
+	name, model := pinTarget(spec, v.fallback)
+	if dp := v.reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
+		w, err := validateDatabricksCopilotPin(v.reg, name, model, v.served)
+		if err != nil {
+			return err
+		}
+		v.firstWarn = cmp.Or(v.firstWarn, w)
+		return nil
+	}
+	gh, err := v.reg.Get(name)
+	if err != nil || gh.Provider != "github" {
+		return nil
+	}
+	v.fetchCatalog()
+	if v.catalogDown || slices.Contains(v.ids, model) {
+		return nil
+	}
+	return unknownGithubModel(model, gh.Name, v.ids)
+}
+
+// fetchCatalog loads the live github-copilot catalog once, remembering a failure as a warning.
+func (v *pinValidator) fetchCatalog() {
+	if v.fetched {
+		return
+	}
+	v.fetched = true
+	var err error
+	if v.ids, err = copilotModelIDs(); err != nil {
+		v.catalogDown = true
+		v.firstWarn = cmp.Or(v.firstWarn, fmt.Sprintf("could not verify against the live github-copilot catalog (pin written anyway): %v", err))
+	}
 }
 
 // pinTarget splits a pin spec into provider and model; a bare model takes fallback as its provider.

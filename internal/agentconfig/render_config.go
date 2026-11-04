@@ -84,33 +84,41 @@ func ParseConfig(base, overlay []byte) (*Config, error) {
 	}
 	cfg.GuardRules = guard
 	if len(overlay) > 0 {
-		// Agents as json.RawMessage so a "name": null entry survives decode to signal removal.
-		var o struct {
-			GuardRules *GuardRules                `json:"guardRules"`
-			Agents     map[string]json.RawMessage `json:"agents"`
-		}
-		if err := json.Unmarshal(overlay, &o); err != nil {
-			return nil, fmt.Errorf("vault overlay/agents: %w", err)
-		}
-		if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
-			cfg.GuardRules = *o.GuardRules
-		}
-		if cfg.Agents == nil {
-			cfg.Agents = map[string]AgentConfig{}
-		}
-		for name, raw := range o.Agents {
-			if raw == nil || string(raw) == "null" { // "name": null removes a built-in agent
-				delete(cfg.Agents, name)
-				continue
-			}
-			var v AgentConfig
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return nil, fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
-			}
-			cfg.Agents[name] = v
+		if err := applyOverlay(&cfg, overlay); err != nil {
+			return nil, err
 		}
 	}
 	return &cfg, nil
+}
+
+// applyOverlay merges the vault overlay document into cfg: guard rules replace, agents add or remove.
+func applyOverlay(cfg *Config, overlay []byte) error {
+	// Agents as json.RawMessage so a "name": null entry survives decode to signal removal.
+	var o struct {
+		GuardRules *GuardRules                `json:"guardRules"`
+		Agents     map[string]json.RawMessage `json:"agents"`
+	}
+	if err := json.Unmarshal(overlay, &o); err != nil {
+		return fmt.Errorf("vault overlay/agents: %w", err)
+	}
+	if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
+		cfg.GuardRules = *o.GuardRules
+	}
+	if cfg.Agents == nil {
+		cfg.Agents = map[string]AgentConfig{}
+	}
+	for name, raw := range o.Agents {
+		if raw == nil || string(raw) == "null" { // "name": null removes a built-in agent
+			delete(cfg.Agents, name)
+			continue
+		}
+		var v AgentConfig
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
+		}
+		cfg.Agents[name] = v
+	}
+	return nil
 }
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.

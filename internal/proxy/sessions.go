@@ -60,9 +60,13 @@ func postSession(ctx context.Context, start bool, path string, body SessionReque
 	if err != nil {
 		return err
 	}
+	return sendSession(ctx, Base(st.Port)+path, path, secret, body, out)
+}
+
+// sendSession POSTs body with the router secret to url; a non-2xx answer is an error naming path.
+func sendSession(ctx context.Context, url, path, secret string, body SessionRequest, out *SessionResponse) error {
 	raw, _ := json.Marshal(body)
-	base := Base(st.Port)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}
