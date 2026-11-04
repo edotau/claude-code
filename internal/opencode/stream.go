@@ -61,67 +61,109 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
 	lg := agent.PickLog(logs)
-	ans := agent.Answer{Join: "\n"}
-	var errs []string
-	seenTools := map[string]bool{}
-	fired := false
-	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
-		var ev openCodeEvent
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			return false, fmt.Errorf("decode opencode json: %w", err)
-		}
-		ts.Event(agent.Clock())
-		if ev.SessionID != "" {
-			res.SessionID = ev.SessionID
-		}
-		if !fired && onMeaningful != nil && isMeaningfulOpenCodeEvent(ev) {
-			fired = true
-			onMeaningful()
-		}
-		if !fired && onStep != nil && ev.Type == "step_start" {
-			onStep()
-		}
-		switch ev.Type {
-		case "text":
-			if ev.Part.Text == "" {
-				return false, nil
-			}
-			if err := ans.Emit(sink, ev.Part.Text, true); err != nil {
-				return false, err
-			}
-			lg.Emit("assistant", ev.Part.Text)
-		case "tool", "tool_use":
-			if err := emitOpenCodeTool(sink, ev, seenTools); err != nil {
-				return false, err
-			}
-			if onTool != nil && ev.Part.State.Status == "completed" {
-				onTool(ev)
-			}
-		case "step_finish":
-			t := ev.Part.Tokens
-			res.Usage.InputTokens += t.Input
-			res.Usage.CacheReadTokens += t.Cache.Read
-			res.Usage.CacheCreationTokens += t.Cache.Write
-			res.Usage.OutputTokens += t.Output + t.Reasoning
-			res.Usage.CostUSD += ev.Part.Cost
-			lg.Emit("result", fmt.Sprintf("step finished (%s), tokens in=%d out=%d", cmp.Or(ev.Part.Reason, "unknown"), t.Input, t.Output+t.Reasoning))
-		case "error":
-			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
-			errs = append(errs, msg)
-			if err := agent.EmitError(lg, sink, msg); err != nil {
-				return false, err
-			}
-		}
-		return false, nil
-	})
-	res.Answer = ans.String()
+	t := &ocTurn{sink: sink, lg: lg, res: &res, ts: &ts, ans: agent.Answer{Join: "\n"}, seenTools: map[string]bool{},
+		onMeaningful: onMeaningful, onTool: onTool, onStep: onStep}
+	err := agent.DecodeLines(br, lg, t.handle)
+	res.Answer = t.ans.String()
 	if err != nil {
 		return res, err
 	}
-	if len(errs) > 0 {
-		return res, errors.New(strings.Join(errs, "; "))
+	if len(t.errs) > 0 {
+		return res, errors.New(strings.Join(t.errs, "; "))
 	}
 	return res, nil
+}
+
+// ocTurn is parseOpenCodeEvents' state across one run's JSON events.
+type ocTurn struct {
+	sink         agent.Sink
+	lg           agent.StreamLog
+	res          *agent.Result
+	ts           *agent.TransportTracker
+	ans          agent.Answer
+	errs         []string
+	seenTools    map[string]bool
+	fired        bool
+	onMeaningful func()
+	onTool       func(openCodeEvent)
+	onStep       func()
+}
+
+// handle decodes one line and applies it.
+func (t *ocTurn) handle(raw []byte) (bool, error) {
+	var ev openCodeEvent
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		return false, fmt.Errorf("decode opencode json: %w", err)
+	}
+	t.ts.Event(agent.Clock())
+	if ev.SessionID != "" {
+		t.res.SessionID = ev.SessionID
+	}
+	t.notify(ev)
+	return false, t.apply(ev)
+}
+
+// notify fires the meaningful callback once, and the step callback on step_start until then.
+func (t *ocTurn) notify(ev openCodeEvent) {
+	if !t.fired && t.onMeaningful != nil && isMeaningfulOpenCodeEvent(ev) {
+		t.fired = true
+		t.onMeaningful()
+	}
+	if !t.fired && t.onStep != nil && ev.Type == "step_start" {
+		t.onStep()
+	}
+}
+
+func (t *ocTurn) apply(ev openCodeEvent) error {
+	switch ev.Type {
+	case "text":
+		return t.text(ev)
+	case "tool", "tool_use":
+		return t.tool(ev)
+	case "step_finish":
+		t.stepFinish(ev)
+	case "error":
+		return t.errorEvent(ev)
+	}
+	return nil
+}
+
+func (t *ocTurn) text(ev openCodeEvent) error {
+	if ev.Part.Text == "" {
+		return nil
+	}
+	if err := t.ans.Emit(t.sink, ev.Part.Text, true); err != nil {
+		return err
+	}
+	t.lg.Emit("assistant", ev.Part.Text)
+	return nil
+}
+
+func (t *ocTurn) tool(ev openCodeEvent) error {
+	if err := emitOpenCodeTool(t.sink, ev, t.seenTools); err != nil {
+		return err
+	}
+	if t.onTool != nil && ev.Part.State.Status == "completed" {
+		t.onTool(ev)
+	}
+	return nil
+}
+
+func (t *ocTurn) stepFinish(ev openCodeEvent) {
+	tk := ev.Part.Tokens
+	u := &t.res.Usage
+	u.InputTokens += tk.Input
+	u.CacheReadTokens += tk.Cache.Read
+	u.CacheCreationTokens += tk.Cache.Write
+	u.OutputTokens += tk.Output + tk.Reasoning
+	u.CostUSD += ev.Part.Cost
+	t.lg.Emit("result", fmt.Sprintf("step finished (%s), tokens in=%d out=%d", cmp.Or(ev.Part.Reason, "unknown"), tk.Input, tk.Output+tk.Reasoning))
+}
+
+func (t *ocTurn) errorEvent(ev openCodeEvent) error {
+	msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
+	t.errs = append(t.errs, msg)
+	return agent.EmitError(t.lg, t.sink, msg)
 }
 
 // emitOpenCodeTool emits tool_use once per call id, then tool_result when that call completes or errors.

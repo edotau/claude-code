@@ -45,57 +45,74 @@ func linkOne(t Tool, bin string, dryRun bool) (status, detail string) {
 	c := linkCandidate(t)
 	missing := fmt.Sprintf("%s not installed (claude-code install --tools=%s)", bin, t.Name)
 	fi, err := os.Lstat(dst)
-	if err != nil && !os.IsNotExist(err) {
-		return "error", err.Error()
-	}
-	isLink := err == nil && fi.Mode()&os.ModeSymlink != 0
 	switch {
-	case err == nil && fi.Mode().IsRegular():
+	case err == nil:
+		return linkExisting(t, dst, c, missing, fi, dryRun)
+	case !os.IsNotExist(err):
+		return "error", err.Error()
+	case c != "":
+		return linkNew(dst, c, dryRun)
+	}
+	return "missing", missing
+}
+
+// linkExisting classifies an existing dst: keep a regular file or a matching link, else relink or drop it.
+func linkExisting(t Tool, dst, c, missing string, fi os.FileInfo, dryRun bool) (status, detail string) {
+	isLink := fi.Mode()&os.ModeSymlink != 0
+	switch {
+	case fi.Mode().IsRegular():
 		line := dst + " (installed here)"
 		if c != "" {
 			line += " · also on PATH: " + c
 		}
 		return "keep", line
-	case err == nil && !isLink:
+	case !isLink:
 		return "skip", dst + " (not a file or link)"
-	case isLink && c != "" && readlink(dst) == c:
+	case c != "" && readlink(dst) == c:
 		return "ok", dst + " → " + c
 	case c != "":
-		suffix := ""
-		if npmPrefixFromBinary(c) != "" {
-			suffix = " (npm-global)"
-		}
-		if dryRun {
-			return "link", dst + " → " + c + suffix
-		}
-		switch kept, err := replaceLink(dst, c); {
-		case err != nil:
-			return "error", err.Error()
-		case kept:
-			// dst became a regular file between the check above and the rename: keep it, not the link.
-			return "keep", dst + " (installed here)"
-		default:
-			return "link", dst + " → " + c + suffix
-		}
-	case isLink:
-		// no PATH/local-bin candidate: a symlink to a real, executable, non-shim target is the
-		// user's own working link — keep it; only a dangling or shim-pointing link is removed.
-		if _, err := paths.AgentBin(t.Name); err == nil {
-			return "keep", dst + " → " + readlink(dst) + " (existing link)"
-		}
-		if !dryRun {
-			// re-check: dst may have become a regular file since the classification above.
-			if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode().IsRegular() {
-				return "keep", dst + " (installed here)"
-			}
-			if err := os.Remove(dst); err != nil {
-				return "error", err.Error()
-			}
-		}
-		return "remove", dst + "; " + missing
-	default:
-		return "missing", missing
+		return linkNew(dst, c, dryRun)
 	}
+	return dropLink(t, dst, missing, dryRun)
+}
+
+// linkNew links dst to the PATH candidate c (dry run: reports it only).
+func linkNew(dst, c string, dryRun bool) (status, detail string) {
+	suffix := ""
+	if npmPrefixFromBinary(c) != "" {
+		suffix = " (npm-global)"
+	}
+	if dryRun {
+		return "link", dst + " → " + c + suffix
+	}
+	switch kept, err := replaceLink(dst, c); {
+	case err != nil:
+		return "error", err.Error()
+	case kept:
+		// dst became a regular file between the check above and the rename: keep it, not the link.
+		return "keep", dst + " (installed here)"
+	default:
+		return "link", dst + " → " + c + suffix
+	}
+}
+
+// dropLink handles a link with no PATH/local-bin candidate.
+func dropLink(t Tool, dst, missing string, dryRun bool) (status, detail string) {
+	// A symlink to a real, executable, non-shim target is the user's own working link — keep it;
+	// only a dangling or shim-pointing link is removed.
+	if _, err := paths.AgentBin(t.Name); err == nil {
+		return "keep", dst + " → " + readlink(dst) + " (existing link)"
+	}
+	if !dryRun {
+		// re-check: dst may have become a regular file since the classification above.
+		if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode().IsRegular() {
+			return "keep", dst + " (installed here)"
+		}
+		if err := os.Remove(dst); err != nil {
+			return "error", err.Error()
+		}
+	}
+	return "remove", dst + "; " + missing
 }
 
 // linkCandidate is the agent's PATH entry (unresolved, so self-updaters are followed), else ~/.local/bin, else "".

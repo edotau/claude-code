@@ -63,16 +63,19 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 		}
 		return Plan{}, err
 	}
+	return cliLaunch(ctx, spec, name, o, args, flagModel, reg, sel)
+}
+
+// cliLaunch resolves the target for a selected profile and builds the registry, configured or own-login plan.
+func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, args []string, flagModel string,
+	reg *providers.Registry, sel providers.Selection) (Plan, error) {
 	// --profile or the agent's own profile pin is explicit: the session pin is Claude Code's default, not a per-agent choice.
 	explicit := o.Provider != ""
 	target, note, err := cliTarget(spec, name, reg, sel, explicit, flagModel)
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
 	showOwnLoginNote := o.PrintEnv || (IsTerminal(os.Stderr) && interactiveArgs(args))
 	if errors.Is(err, ErrOwnLogin) {
-		if showOwnLoginNote {
-			fmt.Fprintln(NoticeOut, note)
-		}
-		return plainPlan(spec, args)
+		return ownLoginPlan(spec, args, note, showOwnLoginNote)
 	}
 	if err != nil {
 		return Plan{}, err
@@ -85,33 +88,49 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	env, prefix, err := spec.Configure(ctx, target, "")
 	if errors.Is(err, ErrOwnLogin) {
 		// The agent's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
-		if showOwnLoginNote {
-			fmt.Fprintln(NoticeOut, note)
-		}
-		return plainPlan(spec, args)
+		return ownLoginPlan(spec, args, note, showOwnLoginNote)
 	}
 	if note != "" {
 		fmt.Fprintln(NoticeOut, note)
 	}
 	if err != nil {
-		reason := fmt.Errorf("%w; %s", err, spec.CLI.ConfigureHint)
-		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
-		if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
-			env, prefix, err = retryConfigure(ctx, name, o)
-		}
-		if errors.Is(err, ErrOwnLogin) {
-			return plainPlan(spec, args)
-		}
-		if err != nil {
-			return passthrough(spec, name, reason, args)
-		}
+		return configureFailed(ctx, spec, name, o, args, err)
 	}
+	return finishPlan(spec, o, args, env, prefix)
+}
+
+// ownLoginPlan is the plain launch of an agent that signs in itself, printing note when show.
+func ownLoginPlan(spec Schema, args []string, note string, show bool) (Plan, error) {
+	if show {
+		fmt.Fprintln(NoticeOut, note)
+	}
+	return plainPlan(spec, args)
+}
+
+// configureFailed offers configure once to a human at a terminal, then retries or falls back to a passthrough launch.
+func configureFailed(ctx context.Context, spec Schema, name string, o LaunchOptions, args []string, err error) (Plan, error) {
+	reason := fmt.Errorf("%w; %s", err, spec.CLI.ConfigureHint)
+	var env, prefix []string
+	// A human at a terminal is offered configure once; a yes re-resolves on the new state.
+	if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
+		env, prefix, err = retryConfigure(ctx, name, o)
+	}
+	if errors.Is(err, ErrOwnLogin) {
+		return plainPlan(spec, args)
+	}
+	if err != nil {
+		return passthrough(spec, name, reason, args)
+	}
+	return finishPlan(spec, o, args, env, prefix)
+}
+
+// finishPlan locates the agent binary and assembles the configured launch.
+func finishPlan(spec Schema, o LaunchOptions, args, env, prefix []string) (Plan, error) {
 	bin, err := lookPath(spec.CLI.Binary)
 	if err != nil {
 		return Plan{}, err
 	}
-	set := envMap(env)
-	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...), Profile: o.Provider}, nil
+	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...), Profile: o.Provider}, nil
 }
 
 // cliTarget resolves spec's target, then applies the model flag and pin to it.

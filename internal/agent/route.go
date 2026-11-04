@@ -83,22 +83,14 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	o.Fallback = mode
-	if o.Account == nil {
-		o.Account = ResolveAccount
+	o, pins, err := routePickOpts(o, mode)
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
 	}
 	// --native opencode runs on opencode's own config first: no hub login gate, no table cell
 	pickWant, nativeLead := want, native && IsHubAgent(want)
 	if nativeLead {
 		pickWant = ""
-	}
-	o, err = RosterPick(o)
-	if err != nil {
-		return Chain{}, router.PickResult{}, err
-	}
-	pins, err := AgentPins()
-	if err != nil {
-		return Chain{}, router.PickResult{}, err
 	}
 	pick := tb.Pick(ctx, alias, pickWant, loadState(), o)
 	reg, _ := providers.Load()
@@ -109,15 +101,45 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 			return c, pick, nil
 		}
 	}
-	for _, s := range pick.Skipped {
-		if !nativeLead || !IsHubAgent(s.Agent) {
-			c.Skipped = append(c.Skipped, s.Agent+": "+s.Reason)
-		}
-	}
+	c.Skipped = pickSkips(pick, nativeLead)
 	current, _ := models.Alias(alias)
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, row: row, exact: exact, callerModel: callerModel,
 		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native}
+	c, err = rc.addCandidates(c, pick, nativeLead, alias)
+	if err != nil {
+		return Chain{}, pick, err
+	}
+	return c, pick, nil
+}
+
+// routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the agent pins.
+func routePickOpts(o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
+	o.Fallback = mode
+	if o.Account == nil {
+		o.Account = ResolveAccount
+	}
+	o, err := RosterPick(o)
+	if err != nil {
+		return o, nil, err
+	}
+	pins, err := AgentPins()
+	return o, pins, err
+}
+
+// pickSkips lists the gate drops as "agent: reason", leaving out hub agents when opencode leads natively.
+func pickSkips(pick router.PickResult, nativeLead bool) []string {
+	var skipped []string
+	for _, s := range pick.Skipped {
+		if !nativeLead || !IsHubAgent(s.Agent) {
+			skipped = append(skipped, s.Agent+": "+s.Reason)
+		}
+	}
+	return skipped
+}
+
+// addCandidates appends a dispatch to c for each pick candidate whose cell can run, recording the rest as skipped.
+func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead bool, alias string) (Chain, error) {
 	for _, cand := range pick.Candidates {
 		if nativeLead && IsHubAgent(cand.Agent) {
 			continue
@@ -129,7 +151,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		}
 		disp, skip, err := rc.buildDispatch(cand, cell)
 		if err != nil {
-			return Chain{}, pick, err
+			return Chain{}, err
 		}
 		if skip != "" {
 			c.Skipped = append(c.Skipped, skip)
@@ -137,12 +159,17 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		}
 		disp = rc.byokCandidate(disp, cand, alias)
 		disp.servedRepick = rc.servedRepickFor(cand)
-		disp.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
+		disp.otherRoute = rc.otherRoute(cand)
 		if !slices.ContainsFunc(c.Dispatches, disp.same) { // ladder rung models can collapse onto one cell
 			c.Dispatches = append(c.Dispatches, disp)
 		}
 	}
-	return c, pick, nil
+	return c, nil
+}
+
+// otherRoute reports a candidate that is not the wanted agent's own login or pinned profile.
+func (rc routeCtx) otherRoute(cand router.Candidate) bool {
+	return cand.Agent != rc.want || (rc.want != "claude" && cand.Profile != rc.pins[rc.want].Profile)
 }
 
 // same reports whether o runs the same agent, account, model and effort as d.
@@ -163,30 +190,56 @@ type routeCtx struct {
 // candidateCell adjusts cand's cell for the row or exact model; skip is non-empty when cand serves none.
 func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip string) {
 	cell = cand.Cell
-	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
 	switch {
 	case cand.Agent == "claude" && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
 		rc.claudeTierCell(&cell)
-	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.BYOKModel &&
-		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != "":
-		cell.Model = cmp.Or(rc.exact, rc.callerModel) // the caller's model, respelled for the pinned profile
-		if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
-			cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
-		}
-	case rc.exact != "" && cand.Profile != "" && !IsHubAgent(cand.Agent): // a Databricks dispatch serves only its own cell's model
+	case rc.pinnedCaller(cand):
+		rc.pinnedCell(cand, &cell)
+	case rc.profileBacked(cand): // a Databricks dispatch serves only its own cell's model
 		return rc.profileCell(cand, cell)
 	case rc.exact != "": // a non-Claude id runs only where a cell serves it
-		sc, ok := cellServing(rc.tb, cand.Agent, rc.exact)
-		if !ok && cand.Agent != rc.want {
-			return cell, cand.Agent + ": serves no " + rc.exact
-		}
-		if ok {
-			cell.Model, cell.Effort = sc.Model, sc.Effort
-		}
-	case rc.row != "" && rc.row != rc.current && !IsHubAgent(cand.Agent) && cand.Profile == "": // an older row runs its own cell
+		return rc.exactCell(cand, cell)
+	case rc.olderRow(cand): // an older row runs its own cell
 		if oc, ok := rc.tb.ByModel[rc.row][cand.Agent]; ok {
 			cell.Model, cell.Effort = oc.Model, oc.Effort
 		}
+	}
+	return cell, ""
+}
+
+// pinnedCaller reports the wanted agent on its pinned profile running the caller's own non-row model.
+func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
+	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
+	return pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.BYOKModel &&
+		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != ""
+}
+
+// pinnedCell runs the caller's model on cand's pinned profile, respelled for it.
+func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
+	cell.Model = cmp.Or(rc.exact, rc.callerModel) // the caller's model, respelled for the pinned profile
+	if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
+		cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
+	}
+}
+
+// profileBacked reports a non-hub profile candidate facing an exact non-Claude model.
+func (rc routeCtx) profileBacked(cand router.Candidate) bool {
+	return rc.exact != "" && cand.Profile != "" && !IsHubAgent(cand.Agent)
+}
+
+// olderRow reports an older-row request that cand's own login can serve.
+func (rc routeCtx) olderRow(cand router.Candidate) bool {
+	return rc.row != "" && rc.row != rc.current && !IsHubAgent(cand.Agent) && cand.Profile == ""
+}
+
+// exactCell points cell at the cell serving the exact model; skip is non-empty for a non-wanted agent with none.
+func (rc routeCtx) exactCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
+	sc, ok := cellServing(rc.tb, cand.Agent, rc.exact)
+	if !ok && cand.Agent != rc.want {
+		return cell, cand.Agent + ": serves no " + rc.exact
+	}
+	if ok {
+		cell.Model, cell.Effort = sc.Model, sc.Effort
 	}
 	return cell, ""
 }
@@ -243,38 +296,56 @@ func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp 
 	if cand.Profile != "" { // provider:model pins the dispatch to that Databricks profile, not the session's
 		disp.Model = cand.Profile + ":" + cell.Model
 	}
-	hubOpencode := IsHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
+	return rc.dispatchAgent(cand, cell, disp)
+}
+
+// hubOpencode reports a candidate that rides the opencode hub rather than its own agent CLI.
+func (rc routeCtx) hubOpencode(cand router.Candidate) bool {
 	if pr := profileRow(rc.reg, cand.Profile); pr != nil && pr.OpencodeID == "" {
-		hubOpencode = false // a row with no opencode id can't ride the hub; the native agent takes <profile>:<model>
+		return false // a row with no opencode id can't ride the hub; the native agent takes <profile>:<model>
 	}
+	return IsHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
+}
+
+// dispatchAgent sets disp's agent (and model) by how cand runs: a hub dispatch or its own agent.
+func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp Dispatch) (Dispatch, string, error) {
+	hub := rc.hubOpencode(cand)
 	switch {
-	case hubOpencode && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
+	case hub && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
 		// a pinned registry row runs the hub dispatch on that profile, bare model
 		_, bare, ok := strings.Cut(cell.Model, "/")
 		if !ok {
 			bare = cell.Model
 		}
 		disp.Agent, disp.Model = watchFreeDispatch(NewHubDispatch("opencode", rc.reg.Providers[cand.Profile], rc.reg), cand.Billing), bare
-	case hubOpencode:
+	case hub:
 		r, model, err := hubDispatchFor(rc.reg, cell.Model)
 		if err != nil {
 			return disp, "opencode: " + err.Error(), nil
 		}
 		disp.Agent, disp.Model = watchFreeDispatch(r, cand.Billing), model
 	default:
-		r, err := Lookup(cand.Agent)
-		if err != nil {
-			return disp, "", err
-		}
-		disp.Agent = r
-		if cand.Agent == "claude" {
-			disp.Model = claudeCellModel(cell.Model)
-			if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
-				disp.Model = cand.Profile + ":" + disp.Model
-			}
-		}
+		var err error
+		disp, err = lookupDispatch(cand, cell, disp)
+		return disp, "", err
 	}
 	return disp, "", nil
+}
+
+// lookupDispatch sets disp's agent to cand's own engine; a claude dispatch runs the cell's alias.
+func lookupDispatch(cand router.Candidate, cell router.Cell, disp Dispatch) (Dispatch, error) {
+	r, err := Lookup(cand.Agent)
+	if err != nil {
+		return disp, err
+	}
+	disp.Agent = r
+	if cand.Agent == "claude" {
+		disp.Model = claudeCellModel(cell.Model)
+		if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
+			disp.Model = cand.Profile + ":" + disp.Model
+		}
+	}
+	return disp, nil
 }
 
 // profileRow is the registry row named name, or nil when absent.
