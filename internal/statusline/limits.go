@@ -14,25 +14,45 @@ import (
 // limitsCacheMaxAge bounds how stale internal/usage's oauth-usage cache may be before it is ignored.
 const limitsCacheMaxAge = 6 * time.Hour
 
-// limitsSegment is the session's auth cell: "7d:N%" on the first-party subscription, else the credential's time left.
+// limitsSegment is "7d:N%" on the first-party subscription session only: the payload's rate_limits, else
+// internal/usage's cache file; no fresh data or a passed reset omits it. Any other session shows
+// its credential's time left ("u2m:42min", "m2m:42min") when an expiry is recorded, else "".
 func limitsSegment(in Input, session string) string {
-	p := rowOf(session)
-	return labelerFor(p).auth(in, session, p)
-}
-
-// tokenAuth is the credential's time left ("u2m:42min", "m2m:42min") when an expiry is recorded, else "".
-func tokenAuth(_ Input, session string, p *providers.Provider) string {
-	exp, ok := providers.TokenExpiry(session)
-	if !ok {
+	if !onSubscription(session) {
+		exp, ok := providers.TokenExpiry(session)
+		if !ok {
+			return ""
+		}
+		return tokenLeft(tokenLabel(session), exp, time.Now())
+	}
+	week := limitsFromPayload(in)
+	if week < 0 {
+		week = limitsFromCache()
+	}
+	if week < 0 {
 		return ""
 	}
-	return tokenLeft(credMethod(p), exp, time.Now())
+	return fmt.Sprintf("7d:%d%%", week)
 }
 
-// credMethod is "m2m" for a service principal, else "u2m" (a recorded expiry is a user OAuth JWT).
-func credMethod(p *providers.Provider) string {
-	if p != nil && p.Auth.Method() == providers.AuthM2M {
-		return providers.AuthM2M
+// onSubscription is true when the session profile row is first-party Anthropic on its cli (passthrough) login.
+func onSubscription(session string) bool {
+	reg := registry()
+	if reg == nil {
+		return false
+	}
+	p := reg.Providers[session]
+	return p != nil && p.Provider == "anthropic" && p.Auth.Method() == providers.AuthCLI
+}
+
+// tokenLabel names the credential in the countdown: "m2m" for a service principal, else "u2m" (a recorded expiry is a user OAuth JWT).
+func tokenLabel(session string) string {
+	if reg := registry(); reg != nil {
+		if p := reg.Providers[session]; p != nil {
+			if p.Auth.Method() == providers.AuthM2M {
+				return providers.AuthM2M
+			}
+		}
 	}
 	return "u2m"
 }
