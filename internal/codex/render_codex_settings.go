@@ -322,44 +322,67 @@ func restoreCodexConfig(path string, dryRun bool, out io.Writer) error {
 }
 
 func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
-	backup, found, err := LatestCodexBackup(path)
+	backup, source, found, err := codexRestoreSource(path, dryRun)
 	if err != nil {
 		return err
 	}
-	source := "encrypted vault backup"
 	if !found {
-		src, _, ok := render.LegacyBackupSource(path)
-		if !ok {
-			fmt.Fprintf(out, "codex: no vault backup to restore for %s\n", path)
-			return nil
-		}
-		source = "legacy plaintext backup " + src
-		if !dryRun {
-			data, err := os.ReadFile(src)
-			if err != nil {
-				return err
-			}
-			backup = CodexConfigBackup{Data: data, Existed: true}
-		}
+		fmt.Fprintf(out, "codex: no vault backup to restore for %s\n", path)
+		return nil
 	}
 	if dryRun {
 		fmt.Fprintf(out, "codex: would restore %s from %s\n", path, source)
 		return nil
 	}
-	overlay := map[string]string{}
-	start, end, err := codexSettingsSection(string(backup.Data))
+	overlay, err := codexBackupOverlay(backup.Data)
 	if err != nil {
 		return err
-	}
-	if start >= 0 {
-		overlay, err = readCodexSettings(string(backup.Data[start:end]))
-		if err != nil {
-			return err
-		}
 	}
 	if err := ValidateCodexOverlay(overlay); err != nil {
 		return err
 	}
+	if err := applyCodexRestore(path, backup, overlay); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "codex: restored %s from %s\n", path, source)
+	return nil
+}
+
+// codexRestoreSource is the latest vault backup, else the legacy plaintext one (read unless dryRun); found=false when neither.
+func codexRestoreSource(path string, dryRun bool) (backup CodexConfigBackup, source string, found bool, err error) {
+	backup, found, err = LatestCodexBackup(path)
+	if err != nil || found {
+		return backup, "encrypted vault backup", found, err
+	}
+	src, _, ok := render.LegacyBackupSource(path)
+	if !ok {
+		return backup, "", false, nil
+	}
+	source = "legacy plaintext backup " + src
+	if !dryRun {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return backup, source, true, err
+		}
+		backup = CodexConfigBackup{Data: data, Existed: true}
+	}
+	return backup, source, true, nil
+}
+
+// codexBackupOverlay is the preferences recorded in a backup's managed settings section.
+func codexBackupOverlay(data []byte) (map[string]string, error) {
+	start, end, err := codexSettingsSection(string(data))
+	if err != nil {
+		return nil, err
+	}
+	if start < 0 {
+		return map[string]string{}, nil
+	}
+	return readCodexSettings(string(data[start:end]))
+}
+
+// applyCodexRestore puts the backup back on disk and resynchronizes the overlay, baseline and backup list.
+func applyCodexRestore(path string, backup CodexConfigBackup, overlay map[string]string) error {
 	target, err := codexWriteTarget(path)
 	if err != nil {
 		return err
@@ -378,11 +401,8 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 		return err
 	}
 	if backup.Name != "" { // legacy files are left in place
-		if err := ConsumeCodexBackup(backup.Name); err != nil {
-			return err
-		}
+		return ConsumeCodexBackup(backup.Name)
 	}
-	fmt.Fprintf(out, "codex: restored %s from %s\n", path, source)
 	return nil
 }
 

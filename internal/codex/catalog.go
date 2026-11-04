@@ -59,30 +59,15 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 		return "", "", fmt.Errorf("temporary home failed: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(home) }()
-	version, err := runCodexCatalog(ctx, bin, home, agent.ProbeTimeout, "--version")
-	if err != nil {
-		return "", "", fmt.Errorf("version failed: %w", err)
-	}
-	menu, err := providers.OpencodeMenuFor(p)
+	menu, key, err := catalogInputs(ctx, bin, home, p)
 	if err != nil {
 		return "", "", err
 	}
-	parts := []string{string(version), p.Name}
-	for _, m := range menu {
-		parts = append(parts, agentconfig.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
-	}
-	rawKey, err := json.Marshal(parts)
-	if err != nil {
-		return "", "", fmt.Errorf("cache key failed: %w", err)
-	}
-	key := fmt.Sprintf("%x", sha256.Sum256(rawKey))
 	dir := filepath.Join(paths.StateDir(), "codex")
 	path := filepath.Join(dir, "catalog-"+p.Name+".json")
 	keyPath := filepath.Join(dir, "catalog-"+p.Name+".key")
-	if cached, readErr := os.ReadFile(keyPath); readErr == nil && string(cached) == key {
-		if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
-			return path, "", nil
-		}
+	if catalogCached(path, keyPath, key) {
+		return path, "", nil
 	}
 	raw, err := runCodexCatalog(ctx, bin, home, 30*time.Second, "debug", "models", "--bundled")
 	if err != nil {
@@ -95,20 +80,67 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	if body == nil {
 		return "", missing, nil
 	}
+	if err := validateCodexCatalog(ctx, bin, home, body); err != nil {
+		return "", "", err
+	}
+	if err := storeCodexCatalog(dir, path, keyPath, body, key); err != nil {
+		return "", "", err
+	}
+	return path, missing, nil
+}
+
+// catalogInputs is the provider's menu and the cache key over codex's version and that menu.
+func catalogInputs(ctx context.Context, bin, home string, p *providers.Provider) ([]providers.OpencodeModel, string, error) {
+	version, err := runCodexCatalog(ctx, bin, home, agent.ProbeTimeout, "--version")
+	if err != nil {
+		return nil, "", fmt.Errorf("version failed: %w", err)
+	}
+	menu, err := providers.OpencodeMenuFor(p)
+	if err != nil {
+		return nil, "", err
+	}
+	parts := []string{string(version), p.Name}
+	for _, m := range menu {
+		parts = append(parts, agentconfig.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
+	}
+	rawKey, err := json.Marshal(parts)
+	if err != nil {
+		return nil, "", fmt.Errorf("cache key failed: %w", err)
+	}
+	return menu, fmt.Sprintf("%x", sha256.Sum256(rawKey)), nil
+}
+
+// catalogCached reports a stored catalog file whose key file matches key.
+func catalogCached(path, keyPath, key string) bool {
+	cached, err := os.ReadFile(keyPath)
+	if err != nil || string(cached) != key {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// validateCodexCatalog has codex load body as a model catalog from a scratch file in home.
+func validateCodexCatalog(ctx context.Context, bin, home string, body []byte) error {
 	candidate := filepath.Join(home, "catalog.json")
 	if err := os.WriteFile(candidate, body, 0o600); err != nil {
-		return "", "", fmt.Errorf("candidate write failed: %w", err)
+		return fmt.Errorf("candidate write failed: %w", err)
 	}
 	if _, err := runCodexCatalog(ctx, bin, home, 30*time.Second, "-c", "model_catalog_json="+agentconfig.TOMLQuote(candidate), "debug", "models"); err != nil {
-		return "", "", fmt.Errorf("validation failed: %w", err)
+		return fmt.Errorf("validation failed: %w", err)
 	}
+	return nil
+}
+
+// storeCodexCatalog writes the catalog and its key under dir as one locked pair.
+func storeCodexCatalog(dir, path, keyPath string, body []byte, key string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", "", fmt.Errorf("directory creation failed: %w", err)
+		return fmt.Errorf("directory creation failed: %w", err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return "", "", fmt.Errorf("directory permissions failed: %w", err)
+		return fmt.Errorf("directory permissions failed: %w", err)
 	}
-	err = paths.WithFileLock(path, func() error { // the catalog and its key must change as one pair
+	return paths.WithFileLock(path, func() error { // the catalog and its key must change as one pair
 		if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("cache key invalidation failed: %w", err)
 		}
@@ -120,10 +152,6 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 		}
 		return nil
 	})
-	if err != nil {
-		return "", "", err
-	}
-	return path, missing, nil
 }
 
 func runCodexCatalog(ctx context.Context, bin, home string, timeout time.Duration, args ...string) ([]byte, error) {
