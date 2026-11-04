@@ -426,7 +426,10 @@ func opencodeModels(opencodeID string) []string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	out, _ := exec.CommandContext(ctx, bin, "models", opencodeID).Output()
+	out, err := exec.CommandContext(ctx, bin, "models", opencodeID).Output()
+	if err != nil {
+		return nil // a timeout or crash falls through to the caller's live/static catalog
+	}
 	var ids []string
 	for line := range strings.SplitSeq(string(out), "\n") {
 		if id, ok := strings.CutPrefix(strings.TrimSpace(line), opencodeID+"/"); ok {

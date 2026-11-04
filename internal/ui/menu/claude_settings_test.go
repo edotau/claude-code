@@ -645,12 +645,24 @@ func TestPageRowsSchemaHiddenAndObjectFlattened(t *testing.T) {
 		t.Fatal("no fields")
 	}
 	ov, staged, reset := map[string]json.RawMessage{}, map[string]json.RawMessage{}, map[string]bool{}
-	stageField(ov, staged, reset, map[string]json.RawMessage{}, tmpl, "worktree.baseRef", json.RawMessage(`"fresh"`))
+	if err := stageField(ov, staged, reset, map[string]json.RawMessage{}, tmpl, "worktree.baseRef", json.RawMessage(`"fresh"`)); err != nil {
+		t.Fatal(err)
+	}
 	var got map[string]string
 	if err := json.Unmarshal(staged["worktree"], &got); err != nil || got["baseRef"] != "fresh" || got["bgIsolation"] != "none" {
 		t.Errorf("staged worktree = %s (%v); want baseRef fresh with bgIsolation none kept", staged["worktree"], err)
 	}
 	if string(tmpl["worktree"]) != `{"baseRef":"head","bgIsolation":"none"}` {
 		t.Errorf("template mutated: %s", tmpl["worktree"])
+	}
+}
+
+func TestStageFieldRefusesNonObjectParent(t *testing.T) {
+	tmpl := map[string]json.RawMessage{"worktree": json.RawMessage(`{"baseRef":"head"}`)}
+	cur := map[string]json.RawMessage{"worktree": json.RawMessage(`"oops"`)}
+	ov, staged, reset := map[string]json.RawMessage{}, map[string]json.RawMessage{}, map[string]bool{}
+	err := stageField(ov, staged, reset, cur, tmpl, "worktree.baseRef", json.RawMessage(`"fresh"`))
+	if err == nil || len(staged) != 0 {
+		t.Errorf("err=%v staged=%v; want an error and nothing staged", err, staged)
 	}
 }

@@ -60,8 +60,8 @@ func computeColumnWidths(tree *agenttree.Tree) columnWidths {
 
 // RenderText groups tree.Sessions by repo (cwd), newest session first within each repo, and prints
 // each session's subagents indented by spawnDepth, with Workflow runs shown as phases -> agents.
-// Every row is fit to terminalWidth() by truncating its description (then its tool, as a last
-// resort) rather than wrapping.
+// Every row is fit to terminalWidth() by truncating its description (its tool segment is dropped
+// first) rather than wrapping.
 func RenderText(w io.Writer, tree *agenttree.Tree, now time.Time) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
@@ -194,9 +194,8 @@ func idleSince(sub agenttree.Subagent, now time.Time) string {
 }
 
 // renderSubagent prints one subagent line (status glyph, idle time), indented two columns per spawn
-// depth beyond the session, then one indented row per agent dispatch it launched. Description is
-// rendered before tool so, when the row still overflows after truncating the description, it's the
-// trailing tool field that gets dropped — the least important part.
+// depth beyond the session, then one indented row per agent dispatch it launched. On overflow fitRow drops
+// the trailing tool field before it shrinks the description.
 func renderSubagent(w io.Writer, sub agenttree.Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
 	indent := strings.Repeat("  ", max(sub.Depth, 1)+1)
 	tool := sub.LastTool
@@ -253,8 +252,8 @@ func renderWorkflowRun(w io.Writer, run agenttree.WorkflowRun, now time.Time, co
 }
 
 // fitRow composes "prefix  tail  tool=X" (tail and the tool segment both optional) and fits it to
-// width: tail is truncated with an ellipsis first, then the tool segment is dropped outright if the
-// row still doesn't fit — the two least important parts, trimmed in that order.
+// width: the tool segment is dropped first if the row overflows, then tail is
+// truncated with an ellipsis.
 func fitRow(prefix, tail, tool string, width int) string {
 	toolPart := ""
 	if tool != "" {
@@ -294,7 +293,7 @@ func shrink(s string, n int) string {
 // clip hard-cuts s to width runes, no ellipsis (used only on the already-shrunk fallback line).
 func clip(s string, width int) string { return textutil.TruncateRunes(s, width) }
 
-// tokenCompact renders in/out tokens as "12.3k/4.1k" style, zero-padded short form.
+// tokenCompact renders in/out tokens as "in=12.3k out=4.1k".
 func tokenCompact(t agenttree.Tokens) string {
 	return fmt.Sprintf("in=%s out=%s", compactNumber(t.In), compactNumber(t.Out))
 }
@@ -303,6 +302,8 @@ func tokenCompact(t agenttree.Tokens) string {
 func compactNumber(n int64) string {
 	switch {
 	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 999_950: // %.1fk would print 1000.0k
 		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
 	case n >= 1000:
 		return fmt.Sprintf("%.1fk", float64(n)/1000)

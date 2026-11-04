@@ -1,4 +1,4 @@
-// menu.go — the top-level interactive `configure` picker: one row per agent CLI (mode · check), then Submit.
+// home_menu.go — the top-level interactive `configure` picker: one row per agent CLI (mode · check), then Submit.
 package menu
 
 import (
@@ -32,7 +32,12 @@ func runMenu(d *dialog) int {
 	for {
 		sections, actions := homeSections(d)
 		idx, err := pickMenu(Heading("agents"), sections, submitRow, start)
-		if err != nil || idx < 0 || idx == len(actions) { // Enter, Esc and Left all leave through the one prompt
+		if err != nil {
+			discardKeys(d)
+			d.printf("configure: %v\n", err)
+			return 1
+		}
+		if idx < 0 || idx == len(actions) { // Enter, Esc and Left all leave through the one prompt
 			if confirmLeave(len(d.pending), "key(s) to the secrets manager") {
 				ok := saveKeys(d)
 				d.changed = true

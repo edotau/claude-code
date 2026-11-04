@@ -1,6 +1,6 @@
 // opencode_page.go — the opencode submenu as a searchable account list (tui.List): every stored or env-backed
-// connection, add one via `opencode auth login`, make one active (2.x), log one out (ctrl+d twice), plus the BYOK
-// key and model rows the old submenu carried. Every other agent keeps runAgentMenu.
+// connection, add one via `opencode auth login`, make one active (2.x), log one out (ctrl+d twice), plus model and
+// profile rows. Every other agent keeps runAgentMenu.
 package menu
 
 import (
@@ -284,12 +284,16 @@ func ocAddAccount(d *dialog) {
 	default:
 		d.changed = true
 		configure.DiscoverAfterSignin()
-		ints, _ := opencodeAuth()
-		n := 0
-		for _, in := range ints {
-			n += len(in.Conns)
+		ints, err := opencodeAuth()
+		if err != nil {
+			d.printf("opencode: %v\n", err)
+		} else {
+			n := 0
+			for _, in := range ints {
+				n += len(in.Conns)
+			}
+			d.printf("opencode: %d %s\n", n, textutil.PluralWord(n, "account", "accounts"))
 		}
-		d.printf("opencode: %d %s\n", n, textutil.PluralWord(n, "account", "accounts"))
 		agentActiveOn(d, "opencode")
 	}
 }

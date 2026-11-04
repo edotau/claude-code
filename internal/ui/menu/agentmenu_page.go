@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
@@ -170,7 +171,7 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 	return m.rows[idx].run()
 }
 
-// signIn runs an agent's own sign-in CLI after the [y/N] confirm and reports the outcome.
+// signIn runs an agent's own sign-in CLI (picking its row was the confirmation) and reports the outcome.
 func signIn(d *dialog, label string, argv []string) bool {
 	if err := configure.RunLogin(argv); err != nil {
 		d.printf("%s: %v\n", label, err)
@@ -290,13 +291,15 @@ func codexModels(d *dialog, profile string) bool {
 	return applied
 }
 
-// codexKeyLogin feeds key to `codex login --with-api-key` on stdin; tests replace it.
+// codexKeyLogin feeds key to `codex login --with-api-key` on stdin.
 var codexKeyLogin = func(key string) error {
 	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(bin, "login", "--with-api-key")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // key is piped, no prompt; 60s covers the network check
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "login", "--with-api-key")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = strings.NewReader(key), os.Stdout, os.Stderr
 	return cmd.Run()
 }
