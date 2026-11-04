@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"slices"
@@ -41,24 +43,38 @@ var configurePage = helptext.Page{
 	},
 }
 
+// configureOpts are cmdConfigure's flag values.
+type configureOpts struct {
+	provider, agent, out                             string
+	dryRun, check, restore, revert, agents, noAgents bool
+	list, all                                        bool
+	format                                           *string
+}
+
+func configureFlags() (*flag.FlagSet, *configureOpts) {
+	fs := helptext.NewFlagSet("configure", configurePage)
+	o := &configureOpts{}
+	fs.StringVar(&o.provider, "profile", "", "select the session profile non-interactively")
+	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
+	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing")
+	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if anything is unset")
+	fs.BoolVar(&o.restore, "restore", false, "rewrite settings.json from your defaults and re-render the agent configs")
+	fs.BoolVar(&o.revert, "revert", false, "put agent configs back from their timestamped backups")
+	fs.StringVar(&o.out, "out", "", "with --restore: write the render here (after a timestamped backup)")
+	fs.BoolVar(&o.agents, "agents", false, "with --restore: render agent configs even off the default ~/.claude")
+	fs.BoolVar(&o.noAgents, "no-agents", false, "with --restore: settings.json only, skip the agent configs")
+	fs.BoolVar(&o.list, "list", false, "with provider: list profiles and credential state")
+	fs.BoolVar(&o.all, "all", false, "with provider: check every profile's sign-in and log in where needed")
+	o.format = helptext.FormatFlag(fs)
+	return fs, o
+}
+
 // cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
 	if len(args) > 0 && args[0] == "desktop" {
 		return cmdConfigureDesktop(args[1:])
 	}
-	fs := helptext.NewFlagSet("configure", configurePage)
-	provider := fs.String("profile", "", "select the session profile non-interactively")
-	agent := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
-	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
-	check := fs.Bool("check", false, "report only; exit 1 if anything is unset")
-	restore := fs.Bool("restore", false, "rewrite settings.json from your defaults and re-render the agent configs")
-	revert := fs.Bool("revert", false, "put agent configs back from their timestamped backups")
-	out := fs.String("out", "", "with --restore: write the render here (after a timestamped backup)")
-	agents := fs.Bool("agents", false, "with --restore: render agent configs even off the default ~/.claude")
-	noAgents := fs.Bool("no-agents", false, "with --restore: settings.json only, skip the agent configs")
-	list := fs.Bool("list", false, "with provider: list profiles and credential state")
-	all := fs.Bool("all", false, "with provider: check every profile's sign-in and log in where needed")
-	format := helptext.FormatFlag(fs)
+	fs, o := configureFlags()
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -71,41 +87,59 @@ func cmdConfigure(args []string) int {
 	if section == "" && len(pos) > 0 {
 		section, pos = pos[0], pos[1:]
 	}
-	if *all && section != "provider" {
-		return fail("configure: --all needs the provider page")
+	return configureRun(o, section, pos)
+}
+
+// configureAllProfile validates --all's combinations and returns its optional <profile>.
+func configureAllProfile(o *configureOpts, section string, pos []string) (string, error) {
+	if !o.all {
+		return "", nil
 	}
-	profile := ""
-	if *all && (*list || *provider != "") {
-		return fail("configure: --all cannot be combined with --list or --profile")
+	switch {
+	case section != "provider":
+		return "", errors.New("--all needs the provider page")
+	case o.list || o.provider != "":
+		return "", errors.New("--all cannot be combined with --list or --profile")
+	case len(pos) > 1:
+		return "", fmt.Errorf("--all takes at most one <profile> (got %d)", len(pos))
+	case len(pos) == 0:
+		return "", nil
 	}
-	if *all && len(pos) > 1 {
-		return fail("configure: --all takes at most one <profile> (got %d)", len(pos))
+	return pos[0], knownProfile(pos[0])
+}
+
+func configureList(section string, pos []string, format string) int {
+	if section != "provider" {
+		return fail("configure: --list needs the provider page")
 	}
-	if *all && len(pos) > 0 {
-		profile = pos[0]
-		if err := knownProfile(profile); err != nil {
-			return fail("configure: %v", err)
-		}
+	name := ""
+	if len(pos) > 0 {
+		name = pos[0]
 	}
-	if *list || *format != helptext.Text && !*all {
-		if section != "provider" {
-			return fail("configure: --list needs the provider page")
-		}
-		name := ""
-		if len(pos) > 0 {
-			name = pos[0]
-		}
-		return configureProviderList(name, *format)
+	return configureProviderList(name, format)
+}
+
+func configureRun(o *configureOpts, section string, pos []string) int {
+	profile, err := configureAllProfile(o, section, pos)
+	if err != nil {
+		return fail("configure: %v", err)
 	}
-	if *restore || *revert {
-		return configureRender(*restore, *revert, section, *agent, *out, *check, *dryRun, *agents, *noAgents)
+	if o.list || *o.format != helptext.Text && !o.all {
+		return configureList(section, pos, *o.format)
 	}
-	if *out != "" || *agents || *noAgents {
+	if o.restore || o.revert {
+		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents, o.noAgents)
+	}
+	if o.out != "" || o.agents || o.noAgents {
 		return fail("configure: --out, --agents and --no-agents need --restore")
 	}
+	return configureMenu(o, section, profile)
+}
+
+func configureMenu(o *configureOpts, section, profile string) int {
 	return menu.Run(menu.Options{
-		Provider: *provider, Agent: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
-		JSON: *format == helptext.JSON, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
+		Provider: o.provider, Agent: o.agent, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
+		JSON: *o.format == helptext.JSON, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
 }
 
@@ -123,24 +157,18 @@ func knownProfile(profile string) error {
 
 // configureRender runs --restore / --revert; the agent flag is a comma list there.
 func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
-	switch {
-	case restore && revert:
-		return fail("configure: --restore and --revert are mutually exclusive")
-	case section != "":
-		return fail("configure: --restore/--revert take no page (got %q)", section)
-	case revert && (check || out != "" || renderAgents || noAgents):
-		return fail("configure: --revert takes only --agent and --dry-run")
-	case restore && agents != "" && !renderAgents:
-		return fail("configure: agent-config rollback moved to --revert (--restore --agent needs --agents)")
-	}
-	// the engine skips unknown names silently, so a typo would render nothing; reject it here
-	for a := range strings.SplitSeq(agents, ",") {
-		if a = strings.TrimSpace(a); a != "" && !slices.Contains(agent.DefaultAgents, a) {
-			return fail("configure: unknown --agent %q (%s)", a, strings.Join(agent.DefaultAgents, "|"))
-		}
+	if err := renderModeConflict(restore, revert, section, agents, renderAgents); err != nil {
+		return fail("%v", err)
 	}
 	if revert {
-		return cmdRevert(agents, dryRun)
+		return configureRevert(agents, dryRun, check || out != "" || renderAgents || noAgents)
+	}
+	return configureRestore(agents, out, check, dryRun, renderAgents, noAgents)
+}
+
+func configureRestore(agents, out string, check, dryRun, renderAgents, noAgents bool) int {
+	if err := unknownAgent(agents); err != nil {
+		return fail("%v", err)
 	}
 	if check && dryRun {
 		return fail("configure: --check and --dry-run are mutually exclusive")
@@ -149,6 +177,39 @@ func configureRender(restore, revert bool, section, agents, out string, check, d
 		return fail("configure: --no-agents excludes --agents and --agent")
 	}
 	return cmdRestore(agents, out, check, dryRun, renderAgents, noAgents)
+}
+
+// configureRevert runs --revert; extras is true when a flag that only --restore takes was given.
+func configureRevert(agents string, dryRun, extras bool) int {
+	if extras {
+		return fail("configure: --revert takes only --agent and --dry-run")
+	}
+	if err := unknownAgent(agents); err != nil {
+		return fail("%v", err)
+	}
+	return cmdRevert(agents, dryRun)
+}
+
+func renderModeConflict(restore, revert bool, section, agents string, renderAgents bool) error {
+	switch {
+	case restore && revert:
+		return errors.New("configure: --restore and --revert are mutually exclusive")
+	case section != "":
+		return fmt.Errorf("configure: --restore/--revert take no page (got %q)", section)
+	case restore && agents != "" && !renderAgents:
+		return errors.New("configure: agent-config rollback moved to --revert (--restore --agent needs --agents)")
+	}
+	return nil
+}
+
+// unknownAgent rejects a typo the engine would skip silently.
+func unknownAgent(agents string) error {
+	for a := range strings.SplitSeq(agents, ",") {
+		if a = strings.TrimSpace(a); a != "" && !slices.Contains(agent.DefaultAgents, a) {
+			return fmt.Errorf("configure: unknown --agent %q (%s)", a, strings.Join(agent.DefaultAgents, "|"))
+		}
+	}
+	return nil
 }
 
 func init() {

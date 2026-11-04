@@ -32,17 +32,25 @@ var tsFlagMode = map[string]string{
 	"preauthorized": "key", "description": "key",
 }
 
-// cmdNetworkTailscale: one flag set; a mode flag picks the action and bare means status.
-func cmdNetworkTailscale(args []string) int {
+// tsFlags are the values of `network tailscale`'s flags.
+type tsFlags struct {
+	machines, connect, mint bool
+	exitNode, subnet, route string
+	format                  *string
+	o                       tsOpts
+}
+
+func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
 	fs := helptext.NewFlagSet("network tailscale", tailscalePage)
-	machines := fs.Bool("machines", false, "list tailnet machines")
-	connect := fs.Bool("connect", false, "join the tailnet")
-	mint := fs.Bool("key", false, "mint a Tailscale auth key")
-	exitNode := fs.String("exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
-	subnet := fs.String("subnet", "", "<cidr>[,…]|approve|off: advertise, approve or withdraw LAN routes")
-	route := fs.String("route", "", "<peer>|off: send this box's traffic through a peer exit node")
-	format := helptext.FormatFlag(fs)
-	var o tsOpts
+	t := &tsFlags{}
+	fs.BoolVar(&t.machines, "machines", false, "list tailnet machines")
+	fs.BoolVar(&t.connect, "connect", false, "join the tailnet")
+	fs.BoolVar(&t.mint, "key", false, "mint a Tailscale auth key")
+	fs.StringVar(&t.exitNode, "exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
+	fs.StringVar(&t.subnet, "subnet", "", "<cidr>[,…]|approve|off: advertise, approve or withdraw LAN routes")
+	fs.StringVar(&t.route, "route", "", "<peer>|off: send this box's traffic through a peer exit node")
+	t.format = helptext.FormatFlag(fs)
+	o := &t.o
 	fs.StringVar(&o.authKey, "auth-key", "", "an auth key, or - to read it from stdin (tskey-auth-…)")
 	fs.StringVar(&o.keyEnv, "key-env", "", "read the auth key from this env var instead")
 	fs.BoolVar(&o.advertise, "advertise-exit", false, "also advertise this box as an exit node")
@@ -53,28 +61,31 @@ func cmdNetworkTailscale(args []string) int {
 	fs.StringVar(&o.expiry, "expiry", "90d", "key lifetime: a Go duration, or Nd for N days")
 	fs.StringVar(&o.desc, "description", "", "a note shown in the admin console")
 	fs.BoolVar(&o.save, "save", false, "also seal the key as TAILSCALE_AUTHKEY in the vault")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() > 0 {
-		return failUsage("network tailscale: unexpected argument %q", fs.Arg(0))
-	}
+	return fs, t
+}
+
+// tsMode returns the one mode flag given ("" = status), or an error when several are.
+func tsMode(fs *flag.FlagSet, t *tsFlags) (string, error) {
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	var modes []string
-	for name, on := range map[string]bool{"machines": *machines, "connect": *connect, "key": *mint, "exit-node": set["exit-node"], "subnet": set["subnet"], "route": set["route"]} {
+	for name, on := range map[string]bool{"machines": t.machines, "connect": t.connect, "key": t.mint, "exit-node": set["exit-node"], "subnet": set["subnet"], "route": set["route"]} {
 		if on {
 			modes = append(modes, "--"+name)
 		}
 	}
 	slices.Sort(modes)
 	if len(modes) > 1 {
-		return failUsage("network tailscale: %s are mutually exclusive; pick one mode", strings.Join(modes, " and "))
+		return "", fmt.Errorf("%s are mutually exclusive; pick one mode", strings.Join(modes, " and "))
 	}
-	mode := ""
-	if len(modes) == 1 {
-		mode = strings.TrimPrefix(modes[0], "--")
+	if len(modes) == 0 {
+		return "", nil
 	}
+	return strings.TrimPrefix(modes[0], "--"), nil
+}
+
+// tsWrongFlag reports the first flag that does not belong to mode.
+func tsWrongFlag(fs *flag.FlagSet, mode string) error {
 	var wrong error
 	fs.Visit(func(f *flag.Flag) {
 		owner, ok := tsFlagMode[f.Name]
@@ -85,31 +96,50 @@ func cmdNetworkTailscale(args []string) int {
 			wrong = errors.New("--format applies to status and --machines only")
 		}
 	})
-	if wrong != nil {
-		return failUsage("network tailscale: %v", wrong)
+	return wrong
+}
+
+// cmdNetworkTailscale: one flag set; a mode flag picks the action and bare means status.
+func cmdNetworkTailscale(args []string) int {
+	fs, t := tailscaleFlags()
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
-	ctx := context.Background()
+	if fs.NArg() > 0 {
+		return failUsage("network tailscale: unexpected argument %q", fs.Arg(0))
+	}
+	mode, err := tsMode(fs, t)
+	if err == nil {
+		err = tsWrongFlag(fs, mode)
+	}
+	if err != nil {
+		return failUsage("network tailscale: %v", err)
+	}
+	return tailscaleMode(context.Background(), mode, t)
+}
+
+func tailscaleMode(ctx context.Context, mode string, t *tsFlags) int {
 	switch mode {
 	case "machines":
-		return tailscaleMachines(ctx, *format)
+		return tailscaleMachines(ctx, *t.format)
 	case "connect":
-		return tailscaleConnect(ctx, o)
+		return tailscaleConnect(ctx, t.o)
 	case "key":
-		return tailscaleKey(ctx, o)
+		return tailscaleKey(ctx, t.o)
 	case "exit-node":
-		if !slices.Contains([]string{"on", "off", "approve"}, *exitNode) {
-			return failUsage("network tailscale: --exit-node must be on, off or approve, got %q", *exitNode)
+		if !slices.Contains([]string{"on", "off", "approve"}, t.exitNode) {
+			return failUsage("network tailscale: --exit-node must be on, off or approve, got %q", t.exitNode)
 		}
-		return tailscaleExitNode(ctx, *exitNode)
+		return tailscaleExitNode(ctx, t.exitNode)
 	case "subnet":
-		return tailscaleSubnet(ctx, *subnet)
+		return tailscaleSubnet(ctx, t.subnet)
 	case "route":
-		if *route == "" || strings.HasPrefix(*route, "-") {
+		if t.route == "" || strings.HasPrefix(t.route, "-") {
 			return failUsage("network tailscale: --route requires a peer name or 'off'")
 		}
-		return tailscaleRoute(ctx, *route)
+		return tailscaleRoute(ctx, t.route)
 	}
-	return tailscaleStatus(ctx, *format)
+	return tailscaleStatus(ctx, *t.format)
 }
 
 // tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.

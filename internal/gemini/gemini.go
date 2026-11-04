@@ -592,16 +592,7 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 	if !cfg.Agent("gemini").Permission.UseGuardRules {
 		return false, nil
 	}
-	var rules []string
-	for _, r := range cfg.Guard().Deny {
-		cmd, ok := strings.CutPrefix(r, "Bash(")
-		cmd, ok2 := strings.CutSuffix(cmd, ")")
-		if !ok || !ok2 || strings.HasSuffix(cmd, ":*") {
-			fmt.Fprintf(out, "gemini-settings: note: %q is not exact-match; agy denies exact commands only, skipped\n", r)
-			continue
-		}
-		rules = append(rules, "command("+cmd+")")
-	}
+	rules := agyGuardRules(cfg.Guard().Deny, out)
 	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
 	raw, readErr := os.ReadFile(path)
 	existed := readErr == nil
@@ -610,13 +601,8 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 	}
 	next := map[string]any{}
 	if existed {
-		if err := json.Unmarshal(raw, &next); err != nil {
-			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: %v\n", path, err)
-			return false, fmt.Errorf("gemini-settings: %s is not plain JSON: %w", path, err)
-		}
-		if next == nil { // "null" decodes without error but leaves next nil, not an empty object
-			fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: not an object\n", path)
-			return false, fmt.Errorf("gemini-settings: %s is not plain JSON: not an object", path)
+		if next, err = parseAgySettings(path, raw, out); err != nil {
+			return false, err
 		}
 	}
 	perms, _ := next["permissions"].(map[string]any)
@@ -624,6 +610,46 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 		perms = map[string]any{}
 	}
 	existing, _ := perms["deny"].([]any)
+	perms["deny"] = mergeAgyDeny(existing, rules)
+	next["permissions"] = perms
+	body, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("gemini-settings: %w", err)
+	}
+	return render.CommitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
+}
+
+// agyGuardRules converts exact-match Bash(...) denies to agy command(...) rules, noting the rest.
+func agyGuardRules(deny []string, out io.Writer) []string {
+	var rules []string
+	for _, r := range deny {
+		cmd, ok := strings.CutPrefix(r, "Bash(")
+		cmd, ok2 := strings.CutSuffix(cmd, ")")
+		if !ok || !ok2 || strings.HasSuffix(cmd, ":*") {
+			fmt.Fprintf(out, "gemini-settings: note: %q is not exact-match; agy denies exact commands only, skipped\n", r)
+			continue
+		}
+		rules = append(rules, "command("+cmd+")")
+	}
+	return rules
+}
+
+// parseAgySettings decodes agy's existing settings.json, which must be a JSON object.
+func parseAgySettings(path string, raw []byte, out io.Writer) (map[string]any, error) {
+	next := map[string]any{}
+	if err := json.Unmarshal(raw, &next); err != nil {
+		fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: %v\n", path, err)
+		return nil, fmt.Errorf("gemini-settings: %s is not plain JSON: %w", path, err)
+	}
+	if next == nil { // "null" decodes without error but leaves next nil, not an empty object
+		fmt.Fprintf(out, "gemini-settings: skipped: %s is not plain JSON: not an object\n", path)
+		return nil, fmt.Errorf("gemini-settings: %s is not plain JSON: not an object", path)
+	}
+	return next, nil
+}
+
+// mergeAgyDeny returns the string entries of existing, then rules, without duplicates.
+func mergeAgyDeny(existing []any, rules []string) []string {
 	seen := map[string]bool{}
 	merged := make([]string, 0, len(existing)+len(rules))
 	for _, e := range existing {
@@ -641,13 +667,7 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 		seen[r] = true
 		merged = append(merged, r)
 	}
-	perms["deny"] = merged
-	next["permissions"] = perms
-	body, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return false, fmt.Errorf("gemini-settings: %w", err)
-	}
-	return render.CommitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
+	return merged
 }
 
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
