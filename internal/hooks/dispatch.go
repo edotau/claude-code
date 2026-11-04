@@ -10,40 +10,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-// Decision is a hook's verdict on a tool call; the strictest across groups wins.
-type Decision int
-
-const (
-	Allow Decision = iota
-	Ask
-	Block
-)
-
-// Result is what one handler contributes to its event; the dispatcher merges them and an agent builder renders it.
-type Result struct {
-	Decision      Decision
-	Reason        string
-	Context       string // model-visible additionalContext
-	SystemMessage string // user-visible note
-	UpdatedInput  map[string]any
-	Stdout        string // raw stdout: only the worktree group may set it
-	Stderr        string
-	ExitCode      int // non-zero exit other than 2; honored only from the worktree group
-}
-
-// Runner is one handler bound to an event.
-type Runner func(*Input) Result
 
 // Bound pairs a declared handler with its Runner.
 type Bound struct {
 	Group string
 	Gate  bool
 	Spec  settings.EventSpec
-	Run   Runner
+	Run   core.Runner
 }
 
 // Bind pairs every hookspec handler with its Native Runner.
@@ -58,30 +35,13 @@ func Bind() []Bound {
 	return out
 }
 
-// exitResult maps a helper's exit code and stderr text to a Result: 2 blocks with the text, other codes pass through.
-func exitResult(code int, stderr string) Result {
-	stderr = strings.TrimSpace(stderr)
-	switch code {
-	case ExitProceed:
-		return Result{Stderr: stderr}
-	case ExitBlock:
-		return Result{Decision: Block, Reason: stderr}
-	}
-	return Result{Stderr: stderr, ExitCode: code}
-}
-
 // viaStderr makes a Runner of a helper that reports its notes on a stderr writer and returns an exit code.
-func viaStderr(f func(*Input, io.Writer) int) Runner {
-	return func(in *Input) Result {
+func viaStderr(f func(*core.Input, io.Writer) int) core.Runner {
+	return func(in *core.Input) core.Result {
 		var b bytes.Buffer
 		code := f(in, &b)
-		return exitResult(code, b.String())
+		return core.ExitResult(code, b.String())
 	}
-}
-
-// joinContext joins the non-empty context blocks into one additionalContext text.
-func joinContext(blocks ...string) string {
-	return strings.Join(slices.DeleteFunc(slices.Clone(blocks), func(b string) bool { return b == "" }), "\n\n")
 }
 
 // matches applies a handler matcher to a tool name; empty matches everything, anchored and case-insensitive.
@@ -94,9 +54,9 @@ func matches(matcher, tool string) bool {
 }
 
 // runBudgeted runs one Runner under its deadline with panic recovery; a panic or overrun is an error.
-func runBudgeted(b Bound, in *Input, wg *sync.WaitGroup) (Result, error) {
+func runBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (core.Result, error) {
 	type outcome struct {
-		r   Result
+		r   core.Result
 		err error
 	}
 	done := make(chan outcome, 1)
@@ -116,7 +76,7 @@ func runBudgeted(b Bound, in *Input, wg *sync.WaitGroup) (Result, error) {
 	case o := <-done:
 		return o.r, o.err
 	case <-time.After(budget):
-		return Result{}, fmt.Errorf("overran its %s budget", budget)
+		return core.Result{}, fmt.Errorf("overran its %s budget", budget)
 	}
 }
 
@@ -125,7 +85,7 @@ var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
 
 // dispatchMerge accumulates the handlers' results for one Dispatch call.
 type dispatchMerge struct {
-	merged         Result
+	merged         core.Result
 	ctx, sys, errs []string
 	firstErr       error
 	log            io.Writer
@@ -139,7 +99,7 @@ func (m *dispatchMerge) fail(err error) {
 }
 
 // add folds one successful handler result into the merge.
-func (m *dispatchMerge) add(b Bound, event string, r Result) {
+func (m *dispatchMerge) add(b Bound, event string, r core.Result) {
 	merged := &m.merged
 	if r.Decision > merged.Decision {
 		merged.Decision, merged.Reason = r.Decision, r.Reason
@@ -161,7 +121,7 @@ func (m *dispatchMerge) add(b Bound, event string, r Result) {
 }
 
 // addWorktree folds the worktree group's exit code and raw stdout, the only group allowed either.
-func (m *dispatchMerge) addWorktree(b Bound, r Result) {
+func (m *dispatchMerge) addWorktree(b Bound, r core.Result) {
 	if r.ExitCode != 0 && b.Group == "worktree" && m.merged.ExitCode == 0 {
 		m.merged.ExitCode = r.ExitCode
 	}
@@ -177,7 +137,7 @@ func (m *dispatchMerge) addWorktree(b Bound, r Result) {
 
 // Dispatch runs, in order, every bound handler on event whose matcher hits and merges the results. A handler
 // that panics or overruns is logged and skipped (a Blocks gate blocks); a second updatedInput or raw stdout errors.
-func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, error) {
+func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
 	var longest time.Duration
@@ -190,7 +150,7 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 		if err != nil {
 			fmt.Fprintf(log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
 			if b.Spec.Blocks { // a gate that could not run fails closed
-				m.merged.Decision, m.merged.Reason = Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
+				m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
 			}
 			continue
 		}
@@ -236,7 +196,7 @@ func enabledGroups() func(group string, gate bool) bool {
 
 // RunEvent is `hook <Event> [--all]`: run every enabled group once, own-process modules only when all is set.
 func RunEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer) int {
-	in := ParseInput(stdin)
+	in := core.ParseInput(stdin)
 	enabled := enabledGroups()
 	var bound []Bound
 	for _, b := range Bind() {
@@ -244,13 +204,13 @@ func RunEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer)
 		switch {
 		case g.AgentOnly, !enabled(b.Group, b.Gate):
 		case !all && (b.Gate || b.Spec.Async):
-		case in.Agent() != AgentClaude && !slices.Contains(b.Spec.Agents, in.Agent()):
+		case in.Agent() != core.AgentClaude && !slices.Contains(b.Spec.Agents, in.Agent()):
 		default:
 			bound = append(bound, b)
 		}
 	}
 	res, _ := Dispatch(bound, event, in, stderr)
-	return Emit(in.Agent(), event, res, stdout, stderr)
+	return core.Emit(in.Agent(), event, res, stdout, stderr)
 }
 
 // drain waits, bounded by one more longest-budget period, for overrun handlers so none still runs at output time.
@@ -267,7 +227,7 @@ func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
 	}
 }
 
-// capContext trims merged context to contextCapChars, cutting the later blocks first.
+// capContext trims merged context to core.ContextCapChars, cutting the later blocks first.
 func capContext(s string) string {
-	return textutil.CapRunes(s, contextCapChars, "…truncated")
+	return textutil.CapRunes(s, core.ContextCapChars, "…truncated")
 }

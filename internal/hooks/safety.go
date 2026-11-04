@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -92,42 +93,42 @@ func lazyCompile(pats ...string) func() []*regexp.Regexp {
 }
 
 // safetyScan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
-func safetyScan(in *Input) Result {
+func safetyScan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
-	if decision != Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
+	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
 		for _, re := range softWarn() {
 			if re.MatchString(in.ToolCommand()) {
 				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
 			}
 		}
 	}
-	if decision == Allow { // an allowed verdict's message is a warning (the rewrite guard failing open)
-		return Result{Stderr: strings.TrimSpace(msg + warn.String())}
+	if decision == core.Allow { // an allowed verdict's message is a warning (the rewrite guard failing open)
+		return core.Result{Stderr: strings.TrimSpace(msg + warn.String())}
 	}
-	if decision == Ask {
+	if decision == core.Ask {
 		detail = "ask: " + detail
 	}
 	audit.Log(audit.HookBlocked, "safety", detail)
-	if decision == Ask && in.Agent() == AgentClaude {
-		return Result{Decision: Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String())}
+	if decision == core.Ask && in.Agent() == core.AgentClaude {
+		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String())}
 	}
-	return Result{Decision: Block, Reason: strings.TrimSpace(warn.String() + msg)}
+	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg)}
 }
 
 // safetyVerdict checks all block patterns before considering any ask pattern.
-func safetyVerdict(in *Input) (Decision, string, string) {
+func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
-		return Allow, "", ""
+		return core.Allow, "", ""
 	}
 	cmd := in.ToolCommand()
 	if cmd == "" {
-		return Allow, "", ""
+		return core.Allow, "", ""
 	}
 	scan := inertStripped(cmd)
 	for _, re := range pipeBlocks() {
 		if re.MatchString(scan) {
-			return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String()
+			return core.Block, safetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
 	if d, msg, detail, ok := hardBlockVerdict(in, cmd, scan); ok {
@@ -135,56 +136,56 @@ func safetyVerdict(in *Input) (Decision, string, string) {
 	}
 	for _, re := range exfilPatterns() {
 		if re.MatchString(scan) {
-			return Block, safetyMessage(in, Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
+			return core.Block, safetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
 	return safetyAskVerdict(in)
 }
 
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
-func safetyAskVerdict(in *Input) (Decision, string, string) {
+func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 	cmd := in.ToolCommand()
 	// Each pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
 	for _, seg := range shellSegments(cmd) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
 				if re.MatchString(seg) {
-					return Ask, safetyMessage(in, Ask, rule.what, re.String(), rule.hint), re.String()
+					return core.Ask, safetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
 		}
 	}
 	d, msg, detail, warn := rewriteVerdict(in)
-	if d == Allow {
+	if d == core.Allow {
 		d, msg, detail = askPatternVerdict(in, cmd)
 	}
 	return d, warn + msg, detail
 }
 
 // askPatternVerdict asks on hard rule 4 git verbs, hard rule 3 footers and destructive SQL.
-func askPatternVerdict(in *Input, cmd string) (Decision, string, string) {
+func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	if harnessGitBlocked(cmd, in.CWD) {
 		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
 		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
-		return Ask, safetyMessage(in, Ask, what, "", hint), "shared config git mutation"
+		return core.Ask, safetyMessage(in, core.Ask, what, "", hint), "shared config git mutation"
 	}
 	if attributionFooterBlocked(cmd) {
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Rerun this commit without the Co-Authored-By / Generated-with lines; that needs no approval."
-		return Ask, safetyMessage(in, Ask, what, "", hint), "attribution footer"
+		return core.Ask, safetyMessage(in, core.Ask, what, "", hint), "attribution footer"
 	}
 	if sqlDestructive().MatchString(strings.ToLower(inertStripped(cmd))) {
 		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
-		return Ask, safetyMessage(in, Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
+		return core.Ask, safetyMessage(in, core.Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
 	}
-	return Allow, "", ""
+	return core.Allow, "", ""
 }
 
 // safetyMessage renders the stderr/reason text; an ask that falls back to a block names the agent.
-func safetyMessage(in *Input, decision Decision, what, pattern, hint string) string {
+func safetyMessage(in *core.Input, decision core.Decision, what, pattern, hint string) string {
 	word := "BLOCKED"
-	if decision == Ask {
-		if in.Agent() == AgentClaude {
+	if decision == core.Ask {
+		if in.Agent() == core.AgentClaude {
 			word = "ASK"
 		} else {
 			what += " (no ask decision on " + in.Agent() + ")"

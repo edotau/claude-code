@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -16,8 +17,8 @@ func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
 	var sb strings.Builder
-	if rc := runDirect("rtk-rewrite", strings.NewReader(in), &sb, io.Discard); rc != ExitProceed {
-		t.Fatalf("rc = %d, want ExitProceed (%d) for this safe command", rc, ExitProceed)
+	if rc := runDirect("rtk-rewrite", strings.NewReader(in), &sb, io.Discard); rc != core.ExitProceed {
+		t.Fatalf("rc = %d, want ExitProceed (%d) for this safe command", rc, core.ExitProceed)
 	}
 	if strings.TrimSpace(sb.String()) == "" {
 		return "", false
@@ -69,8 +70,8 @@ func TestRTKSkipsCodex(t *testing.T) {
 	bin := fakeRTK(t)
 	payload := rtkBashIn("git log --oneline -20")
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
-	if vendor := ParseInput(strings.NewReader(payload)).Agent(); vendor != AgentCodex {
-		t.Fatalf("Vendor() = %q, want %q", vendor, AgentCodex)
+	if vendor := core.ParseInput(strings.NewReader(payload)).Agent(); vendor != core.AgentCodex {
+		t.Fatalf("Vendor() = %q, want %q", vendor, core.AgentCodex)
 	}
 	if got, ok := rtkOut(t, payload); ok {
 		t.Fatalf("Codex command rewritten to %q", got)
@@ -87,8 +88,8 @@ func TestCodexSafetyScanStillBlocks(t *testing.T) {
 	fakeRTK(t)
 	var stdout, stderr strings.Builder
 	rc := runDirect("safety-scan", strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
-	if rc != ExitBlock {
-		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
+	if rc != core.ExitBlock {
+		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, core.ExitBlock)
 	}
 	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "BLOCKED") {
 		t.Fatalf("want stderr denial without Copilot JSON: stdout=%q stderr=%q", stdout.String(), stderr.String())
@@ -99,12 +100,12 @@ func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	payload := `{"sessionId":"copilot","toolName":"bash","toolArgs":{"command":"sudo apt install x"}}`
-	if vendor := ParseInput(strings.NewReader(payload)).Agent(); vendor != AgentCopilot {
-		t.Fatalf("Vendor() = %q, want %q", vendor, AgentCopilot)
+	if vendor := core.ParseInput(strings.NewReader(payload)).Agent(); vendor != core.AgentCopilot {
+		t.Fatalf("Vendor() = %q, want %q", vendor, core.AgentCopilot)
 	}
 	var stdout strings.Builder
-	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != ExitBlock {
-		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
+	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != core.ExitBlock {
+		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, core.ExitBlock)
 	}
 	var out struct {
 		PermissionDecision string `json:"permissionDecision"`
@@ -439,8 +440,8 @@ func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 	payload := rtkBashIn("git status")
 
 	var stdout strings.Builder
-	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != ExitProceed {
-		t.Fatalf("SafetyScan rc = %d, want ExitProceed (%d)", rc, ExitProceed)
+	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != core.ExitProceed {
+		t.Fatalf("SafetyScan rc = %d, want ExitProceed (%d)", rc, core.ExitProceed)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("SafetyScan wrote %q to stdout — it must never emit updatedInput; rewriting belongs to the rtk group", stdout.String())
@@ -461,7 +462,7 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	run := func(cmd string) map[string]json.RawMessage {
 		t.Helper()
 		var out, errb strings.Builder
-		if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != ExitProceed {
+		if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
 			t.Fatalf("%q: RunEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
 		}
 		var doc map[string]json.RawMessage
@@ -504,7 +505,7 @@ func TestRtkGroupToggle(t *testing.T) {
 		t.Fatalf("SaveHarnessHooks(rtk:false): %v", err)
 	}
 	var out, errb strings.Builder
-	if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != ExitProceed {
+	if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != core.ExitProceed {
 		t.Fatalf("RunEvent rc = %d, want ExitProceed; stderr=%q", rc, errb.String())
 	}
 	if strings.Contains(out.String(), "updatedInput") {

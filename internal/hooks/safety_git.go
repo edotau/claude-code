@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -37,20 +38,20 @@ type rewriteRisk struct {
 }
 
 // rewriteVerdict blocks a history rewrite in a shared checkout; an infra error allows it and returns a warning.
-func rewriteVerdict(in *Input) (d Decision, msg, detail, warn string) {
+func rewriteVerdict(in *core.Input) (d core.Decision, msg, detail, warn string) {
 	r, risky := rewriteScan(in, in.ToolCommand(), in.CWD)
 	if !risky {
-		return Allow, "", "", r.warn
+		return core.Allow, "", "", r.warn
 	}
 	what := fmt.Sprintf("git %s rewrites %d commit(s) on %s in a shared checkout: %s", r.verb, r.commits, r.branch,
 		strings.Join(r.reasons, "; "))
 	hint := "Make a new commit instead; undo a commit with git revert. " +
 		"To rewrite history, do it in your own linked worktree: claude-code worktree create <slug>."
-	return Block, safetyMessage(in, Block, what, "", hint), "shared history rewrite", ""
+	return core.Block, safetyMessage(in, core.Block, what, "", hint), "shared history rewrite", ""
 }
 
 // rewriteScan finds the first shared-tree rewrite in cmd, following `cd`, substitutions and nested `bash -c`/`eval`.
-func rewriteScan(in *Input, cmd, cwd string) (rewriteRisk, bool) {
+func rewriteScan(in *core.Input, cmd, cwd string) (rewriteRisk, bool) {
 	masked, subs := extractSubstitutions(dropRemoteHeredocs(cmd))
 	r, ok := firstRewrite(in, subs, cwd) // a substitution's cd only affects its own nested evaluation
 	if ok {
@@ -76,7 +77,7 @@ func rewriteScan(in *Input, cmd, cwd string) (rewriteRisk, bool) {
 }
 
 // firstRewrite scans each command from cwd and returns the first risky rewrite, else the first warning.
-func firstRewrite(in *Input, cmds []string, cwd string) (rewriteRisk, bool) {
+func firstRewrite(in *core.Input, cmds []string, cwd string) (rewriteRisk, bool) {
 	var warn string
 	for _, c := range cmds {
 		r, ok := rewriteScan(in, c, cwd)
@@ -89,7 +90,7 @@ func firstRewrite(in *Input, cmds []string, cwd string) (rewriteRisk, bool) {
 }
 
 // segmentRewrite checks one segment's nested shell command and each of its git invocations.
-func segmentRewrite(in *Input, toks []string, cwd string) (rewriteRisk, bool) {
+func segmentRewrite(in *core.Input, toks []string, cwd string) (rewriteRisk, bool) {
 	var warn string
 	if nested, ok := nestedShellCommand(toks); ok {
 		r, risky := rewriteScan(in, nested, cwd)
@@ -155,7 +156,7 @@ func firstOperand(args []string, valueFlags map[string]bool) string {
 }
 
 // assessRewrite is risky when the target tree is shared and the range holds a commit; errors fail open with a warning.
-func assessRewrite(in *Input, target, verb string, rng []string) (rewriteRisk, bool) {
+func assessRewrite(in *core.Input, target, verb string, rng []string) (rewriteRisk, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
 	defer cancel()
 	top, linked, n, err := probeRewrite(ctx, target, rng)
@@ -218,7 +219,7 @@ func isLinkedWorktree(gitDir, commonDir string) bool {
 }
 
 // shareReasons lists why top is shared: the live config tree, peer sessions in it, or this session's leaves.
-func shareReasons(ctx context.Context, in *Input, top string, linked bool, nested []string) ([]string, error) {
+func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, nested []string) ([]string, error) {
 	var reasons []string
 	if top == canonPath(paths.ConfigDir()) {
 		reasons = append(reasons, "it is the live config tree "+top)

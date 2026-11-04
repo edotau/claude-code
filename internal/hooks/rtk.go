@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -38,42 +39,42 @@ var rtkValueSubcommands = map[string]bool{
 
 // rtkRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
-func rtkRewrite(in *Input) Result {
-	if in.Agent() != AgentClaude {
-		return Result{}
+func rtkRewrite(in *core.Input) core.Result {
+	if in.Agent() != core.AgentClaude {
+		return core.Result{}
 	}
 	if in.ToolName != "" && in.ToolName != "Bash" {
-		return Result{}
+		return core.Result{}
 	}
 	cmd := in.ToolCommand()
 	if rtkVetoed(cmd, in.CWD, os.Getenv(rtkBinaryEnv)) {
-		return Result{}
+		return core.Result{}
 	}
 	bin := rtkBinary()
 	if bin == "" {
-		return Result{}
+		return core.Result{}
 	}
 	rewritten := rtkRewritten(bin, cmd)
 	if rewritten == "" {
-		return Result{}
+		return core.Result{}
 	}
 
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (description, timeout, run_in_background) would silently alter the call.
-	updated := in.cloneToolInput()
+	updated := in.CloneToolInput()
 	if updated == nil {
-		return Result{}
+		return core.Result{}
 	}
 	updated["command"] = rtkAbsolute(rewritten, bin)
 
 	note := fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", bin)
-	return Result{Context: note, UpdatedInput: updated}
+	return core.Result{Context: note, UpdatedInput: updated}
 }
 
 // rtkRewritten asks `rtk rewrite` for cmd's replacement: exit 0 or 3 with different non-empty stdout.
 // Anything else, a timeout or an error is "" (leave unchanged).
 func rtkRewritten(bin, cmd string) string {
-	ctx, cancel := hookContext("rtk-rewrite")
+	ctx, cancel := core.HookContext("rtk-rewrite")
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "rewrite", cmd).Output()
 	if err != nil {

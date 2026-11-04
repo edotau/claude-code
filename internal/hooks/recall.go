@@ -5,10 +5,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 )
 
-func memoryRecall(in *Input) Result {
+func memoryRecall(in *core.Input) core.Result {
 	in = sessionRootInput(in)
 	picks, trace := memrecall.RecallPicks(in.CWD, in.SessionID, in.Prompt, true, false)
 	if after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: "); ok {
@@ -16,10 +17,10 @@ func memoryRecall(in *Input) Result {
 	}
 	context, bodies, hits := memrecall.RecallContext(picks)
 	if context == "" {
-		return Result{}
+		return core.Result{}
 	}
 	memrecall.RecordRecall(in.CWD, in.SessionID, bodies, hits)
-	return Result{Context: context}
+	return core.Result{Context: context}
 }
 
 func recallCut(s string, limit int) string {

@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -31,29 +32,29 @@ var (
 
 // agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, quota
 // pressure, label); a Workflow gets the former workflow-lint rewrite or a Block.
-func agentEffortResult(in *Input) Result {
+func agentEffortResult(in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
 		return workflowResult(in)
 	}
 	if !spawnTools[in.ToolName] {
-		return Result{}
+		return core.Result{}
 	}
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (isolation, run_in_background, subagent_type, …) would silently alter the dispatch.
-	updated := in.cloneToolInput()
+	updated := in.CloneToolInput()
 	if updated == nil {
-		return Result{}
+		return core.Result{}
 	}
 
 	promptField := "prompt"
-	task := in.nested("tool_input", "prompt")
+	task := in.Nested("tool_input", "prompt")
 	if task == "" {
 		promptField = "description"
-		task = in.nested("tool_input", "description")
+		task = in.Nested("tool_input", "description")
 	}
 
 	// auto mode's classifier returns no verdict on a rewritten call, so non-functional edits ride additionalContext
-	auto := in.nested("permission_mode") == "auto"
+	auto := in.Nested("permission_mode") == "auto"
 	e := &effortPlan{updated: updated}
 	recallNote := e.recall(in, promptField, task, auto)
 	e.note, e.systemMessage = pinModel(in, updated, task)
@@ -79,7 +80,7 @@ type effortPlan struct {
 }
 
 // recall appends the memory-recall block to the prompt, or returns it as a note in auto mode.
-func (e *effortPlan) recall(in *Input, promptField, task string, auto bool) string {
+func (e *effortPlan) recall(in *core.Input, promptField, task string, auto bool) string {
 	recallBlock, _ := agentRecall(in.SessionID, in.CWD, task)
 	if recallBlock == "" {
 		return ""
@@ -93,7 +94,7 @@ func (e *effortPlan) recall(in *Input, promptField, task string, auto bool) stri
 }
 
 // profile applies a brief's Profile: line; a non-nil result denies the dispatch.
-func (e *effortPlan) profile(promptField, task string) *Result {
+func (e *effortPlan) profile(promptField, task string) *core.Result {
 	profileNote, deny := applyProfile(e.updated, promptField, task)
 	if deny != nil {
 		return deny
@@ -105,13 +106,13 @@ func (e *effortPlan) profile(promptField, task string) *Result {
 }
 
 // pressure downshifts the model under plan pressure unless the dispatch pins one or names a profile.
-func (e *effortPlan) pressure(in *Input, promptField, task string) {
+func (e *effortPlan) pressure(in *core.Input, promptField, task string) {
 	if explicitModel(in) || briefProfile(task) != "" {
 		return
 	}
 	base, _ := e.updated["model"].(string)
 	if base == "" {
-		base = rosterModel(in.nested("tool_input", "subagent_type"))
+		base = rosterModel(in.Nested("tool_input", "subagent_type"))
 	}
 	pn, ps := applyPressure(in, e.updated, promptField, base)
 	if pn == "" {
@@ -122,20 +123,20 @@ func (e *effortPlan) pressure(in *Input, promptField, task string) {
 }
 
 // byok appends the bring-your-own-key hint; outside auto mode it counts as a change.
-func (e *effortPlan) byok(in *Input, task string, auto bool) {
-	if hint := byokHint(in.nested("tool_input", "subagent_type"), task); hint != "" {
+func (e *effortPlan) byok(in *core.Input, task string, auto bool) {
+	if hint := byokHint(in.Nested("tool_input", "subagent_type"), task); hint != "" {
 		e.note, e.changed = strings.TrimSpace(e.note+"\n"+hint), e.changed || !auto
 	}
 }
 
-func (e *effortPlan) result() Result {
+func (e *effortPlan) result() core.Result {
 	switch {
 	case e.changed:
-		return Result{UpdatedInput: e.updated, Context: e.note, SystemMessage: e.systemMessage}
+		return core.Result{UpdatedInput: e.updated, Context: e.note, SystemMessage: e.systemMessage}
 	case e.note != "":
-		return Result{Context: e.note, SystemMessage: e.systemMessage}
+		return core.Result{Context: e.note, SystemMessage: e.systemMessage}
 	}
-	return Result{}
+	return core.Result{}
 }
 
 // applyLabel prefixes the description with the agents doing the work, minus the leaf's own type.
@@ -260,12 +261,12 @@ func lowerFirst(desc string) string {
 
 // pinModel fills updated["model"] from the classifier when the dispatch left it unset,
 // and returns the model note and visible reason ("" when nothing was pinned).
-func pinModel(in *Input, updated map[string]any, task string) (note, systemMessage string) {
+func pinModel(in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
 	// An explicit model is a deliberate choice by whoever dispatched — never second-guess it.
 	// `inherit` is not one of those: it is the default spelling for "unset", and honoring it ran
 	// every unpinned spawn on the parent session's model. The roster's own pin outranks every
 	// decision too: a model-pinned agent already carries its tier.
-	if explicitModel(in) || task == "" || agentPinsModel(in.nested("tool_input", "subagent_type")) {
+	if explicitModel(in) || task == "" || agentPinsModel(in.Nested("tool_input", "subagent_type")) {
 		return "", ""
 	}
 	tier, signal := router.EffortTierSignal(task)
@@ -280,8 +281,8 @@ func pinModel(in *Input, updated map[string]any, task string) (note, systemMessa
 }
 
 // explicitModel is a dispatch-set model other than `inherit` (the default spelling for unset).
-func explicitModel(in *Input) bool {
-	m := strings.TrimSpace(in.nested("tool_input", "model"))
+func explicitModel(in *core.Input) bool {
+	m := strings.TrimSpace(in.Nested("tool_input", "model"))
 	return m != "" && !strings.EqualFold(m, "inherit")
 }
 

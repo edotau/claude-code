@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -203,16 +204,16 @@ func modelContext(reps []pathReport) string {
 }
 
 // pathResolverResult is the native form: user-visible feedback plus model-visible context, empty when no path hits.
-func pathResolverResult(in *Input, res *paths.Resolver) Result {
+func pathResolverResult(in *core.Input, res *paths.Resolver) core.Result {
 	reps := collectReports(in.Prompt, res)
 	if len(reps) == 0 {
-		return Result{}
+		return core.Result{}
 	}
-	return Result{Context: modelContext(reps), SystemMessage: feedbackMessage(reps)}
+	return core.Result{Context: modelContext(reps), SystemMessage: feedbackMessage(reps)}
 }
 
 // nativePathResolver binds pathResolverResult to the host's mount view.
-func nativePathResolver(in *Input) Result { return pathResolverResult(in, paths.Default()) }
+func nativePathResolver(in *core.Input) core.Result { return pathResolverResult(in, paths.Default()) }
 
 // foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.
 const foreignHead = `(?:\b[A-Za-z]:[\\/]|\\\\|(?:file|smb|nfs)://|~[A-Za-z0-9_.-]*/|\b(?:[\w.-]+@)?[\w.-]{2,}:/)`

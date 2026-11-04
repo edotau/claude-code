@@ -13,6 +13,7 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -77,7 +78,7 @@ func billsSubscription() bool {
 
 // applyPressure rewrites updated under Anthropic quota pressure and returns the context note ("" = untouched).
 // An explicit dispatch model is never changed; base is the model the dispatch will run (classifier or roster pin).
-func applyPressure(in *Input, updated map[string]any, promptField, base string) (note, systemMessage string) {
+func applyPressure(in *core.Input, updated map[string]any, promptField, base string) (note, systemMessage string) {
 	pct, window, ok := pressureActive()
 	if !ok {
 		return "", ""
@@ -88,7 +89,7 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 	if agent != "" {
 		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, alias)
 	}
-	kind := in.nested("tool_input", "subagent_type")
+	kind := in.Nested("tool_input", "subagent_type")
 	if pct >= OffloadPct && offloadTypes[kind] && agent != "" {
 		offloadToCoworker(updated, promptField, window, hint, pct)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",

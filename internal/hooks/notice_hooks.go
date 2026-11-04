@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -17,7 +18,7 @@ import (
 var gitAnyCmd = regexp.MustCompile(`\bgit\b`)
 
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
-func noticeContext(ctx context.Context, in *Input) (text, warn string) {
+func noticeContext(ctx context.Context, in *core.Input) (text, warn string) {
 	var lines []string
 	for _, n := range notices.Drain(in.SessionID) {
 		lines = append(lines, fmt.Sprintf("notice (%s, from %s): %s", n.Kind, n.From, n.Text))
@@ -39,7 +40,7 @@ type divergence struct {
 }
 
 // divergedLine names a shared checkout's local/upstream divergence once per (HEAD, upstream) pair; "" otherwise.
-func divergedLine(ctx context.Context, in *Input) (string, error) {
+func divergedLine(ctx context.Context, in *core.Input) (string, error) {
 	dir := in.CWD
 	if dir == "" {
 		dir, _ = os.Getwd()
@@ -102,7 +103,7 @@ func checkoutShared(ctx context.Context, dir string) (bool, error) {
 }
 
 // authors names, from the claims ledger, whose commits sit on each side; "" when the ledger knows none.
-func (d *divergence) authors(ctx context.Context, in *Input) string {
+func (d *divergence) authors(ctx context.Context, in *core.Input) string {
 	byCommit := map[string]string{}
 	self := paths.Slug(in.SessionID, "", 80, "session")
 	_ = notices.ScanClaims(claimAlive, func(pid int, slug string, c notices.Claim) {

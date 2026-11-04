@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
@@ -30,12 +31,12 @@ var (
 )
 
 // planTick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
-func planTick(in *Input) Result {
+func planTick(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
 	if in.ToolName != "Bash" || !gitCommitCmd.MatchString(cmd) {
-		return Result{}
+		return core.Result{}
 	}
-	out := in.nested("tool_response", "stdout")
+	out := in.Nested("tool_response", "stdout")
 	if out == "" {
 		out = in.ToolResponseText()
 	}
@@ -48,14 +49,14 @@ func planTick(in *Input) Result {
 			blocks = append(blocks, tickCommit(in, cmd, m[1], &stderr)...)
 		}
 	}
-	res := exitResult(ExitProceed, stderr.String())
-	res.Context = joinContext(blocks...)
+	res := core.ExitResult(core.ExitProceed, stderr.String())
+	res.Context = core.JoinContext(blocks...)
 	return res
 }
 
 // tickCommit ticks the active plan's tasks covered by one landed commit and returns the context blocks.
-func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
-	ctx, cancel := hookContext("docs-plan-tick")
+func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
+	ctx, cancel := core.HookContext("docs-plan-tick")
 	defer cancel()
 	dir := commitRepoDir(ctx, in.CWD, cmd, sha)
 	if dir == "" {
@@ -171,7 +172,7 @@ var (
 
 // claimPlanTask claims the active plan's task a spawn names (a `Task:` brief line, else a unique checklist title
 // the description matches); no confident match, no plan or any error claims nothing.
-func claimPlanTask(in *Input, id string) {
+func claimPlanTask(in *core.Input, id string) {
 	if !spawnTools[in.ToolName] || id == "" {
 		return
 	}
@@ -183,11 +184,11 @@ func claimPlanTask(in *Input, id string) {
 	if err != nil {
 		return
 	}
-	task, ok := matchBriefTask(parsed, in.nested("tool_input", "prompt"), in.nested("tool_input", "description"))
+	task, ok := matchBriefTask(parsed, in.Nested("tool_input", "prompt"), in.Nested("tool_input", "description"))
 	if !ok || task.Claim != "" { // the locked ClaimFree below re-checks
 		return
 	}
-	agent := cmp.Or(in.nested("tool_input", "subagent_type"), in.ToolName)
+	agent := cmp.Or(in.Nested("tool_input", "subagent_type"), in.ToolName)
 	text := fmt.Sprintf("working: %s %s · worktree %s · since %s", agent, id, cmp.Or(worktreeName, "main"), time.Now().Format("15:04"))
 	if plans.ClaimFree(plan, taskKey(task), text) != nil || worktreeName == "" {
 		return
@@ -273,7 +274,7 @@ func only(ts []plans.Task) (plans.Task, bool) {
 }
 
 // clearStoppedClaim resolves the stopping agent's spawn id from its meta.json and clears that spawn's plan claim.
-func clearStoppedClaim(in *Input, dirs []string, id string) {
+func clearStoppedClaim(in *core.Input, dirs []string, id string) {
 	for _, d := range dirs {
 		if tu := inflight.ToolUseID(d, id); tu != "" {
 			clearPlanClaim(in.CWD, tu)

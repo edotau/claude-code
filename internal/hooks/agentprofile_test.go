@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 func stubProfiles(t *testing.T, names []string, ok bool) {
@@ -29,8 +31,8 @@ func TestProfileBriefReroutesToCoworkerIdempotently(t *testing.T) {
 	stubProfiles(t, []string{"dbx", "openai"}, true)
 	for _, kind := range []string{"general-purpose", "code-worker", "coworker"} {
 		brief := "Agent: codex\nProfile: dbx\nreview a.go"
-		res := agentEffortResult(ParseInput(strings.NewReader(profileSpawn(t, kind, brief))))
-		if res.Decision == Block || res.UpdatedInput == nil {
+		res := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, kind, brief))))
+		if res.Decision == core.Block || res.UpdatedInput == nil {
 			t.Fatalf("%s: res = %+v, want an update", kind, res)
 		}
 		if got := res.UpdatedInput["subagent_type"]; got != "coworker" {
@@ -40,7 +42,7 @@ func TestProfileBriefReroutesToCoworkerIdempotently(t *testing.T) {
 		if !strings.HasPrefix(p, "Run: claude-code ask --agent codex --profile dbx") || !strings.HasSuffix(p, brief) {
 			t.Errorf("%s: prompt = %q, want the Run: line then the brief", kind, p)
 		}
-		again := agentEffortResult(ParseInput(strings.NewReader(profileSpawn(t, "coworker", p))))
+		again := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "coworker", p))))
 		if q, _ := again.UpdatedInput["prompt"].(string); again.UpdatedInput != nil && q != p {
 			t.Errorf("%s: second pass changed the prompt:\n%q\nvs\n%q", kind, q, p)
 		}
@@ -61,13 +63,13 @@ func TestProfileUnknownDeniedAndRegistryFailureOpen(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	brief := "Profile: nosuch\ndo it"
 	stubProfiles(t, []string{"dbx", "openai"}, true)
-	res := agentEffortResult(ParseInput(strings.NewReader(profileSpawn(t, "general-purpose", brief))))
-	if res.Decision != Block || !strings.Contains(res.Reason, `"nosuch"`) || !strings.Contains(res.Reason, "dbx, openai") {
+	res := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "general-purpose", brief))))
+	if res.Decision != core.Block || !strings.Contains(res.Reason, `"nosuch"`) || !strings.Contains(res.Reason, "dbx, openai") {
 		t.Fatalf("unknown profile: res = %+v, want a Block naming nosuch and listing dbx, openai", res)
 	}
 	stubProfiles(t, nil, false)
-	res = agentEffortResult(ParseInput(strings.NewReader(profileSpawn(t, "general-purpose", brief))))
-	if res.Decision == Block || res.UpdatedInput["subagent_type"] != "coworker" {
+	res = agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "general-purpose", brief))))
+	if res.Decision == core.Block || res.UpdatedInput["subagent_type"] != "coworker" {
 		t.Fatalf("registry unreadable: res = %+v, want fail open and a coworker reroute", res)
 	}
 }

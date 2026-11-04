@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -43,7 +44,7 @@ func divergedClone(t *testing.T) string {
 // TestNoticesAndDivergenceReachContextOnce: a shared diverged checkout and a queued notice each surface once.
 func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 	work := divergedClone(t)
-	in := &Input{SessionID: "sB", CWD: work}
+	in := &core.Input{SessionID: "sB", CWD: work}
 	got := worktreeBusy(in)
 	if !strings.Contains(got.Context, "local main diverged from origin/main (ahead 1, behind 1)") ||
 		!strings.Contains(got.Context, "ahead: session peers (pid 100)") || got.Stderr != "" {
@@ -55,11 +56,11 @@ func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 	if err := notices.Append("sB", notices.Notice{Kind: "conflict", From: "worktree merge", Text: "x.go"}); err != nil {
 		t.Fatal(err)
 	}
-	git := func() Result {
+	git := func() core.Result {
 		return worktreeClaimCheck(claimInput(t, map[string]any{"session_id": "sB", "cwd": work, "tool_name": "Bash",
 			"tool_input": map[string]any{"command": "git status"}}))
 	}
-	if r := git(); r.Context != "notice (conflict, from worktree merge): x.go" || r.Decision != Allow {
+	if r := git(); r.Context != "notice (conflict, from worktree merge): x.go" || r.Decision != core.Allow {
 		t.Fatalf("git status = %+v, want the drained notice and no decision", r)
 	}
 	if r := git(); r.Context != "" {
@@ -71,8 +72,8 @@ func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 func TestDivergenceInfraErrorWarnsAndAllows(t *testing.T) {
 	work := divergedClone(t)
 	t.Setenv("PATH", "/nonexistent")
-	got := worktreeBusy(&Input{SessionID: "sB", CWD: work})
-	if got.Context != "" || got.Decision != Allow || !strings.Contains(got.Stderr, "could not check branch divergence") {
+	got := worktreeBusy(&core.Input{SessionID: "sB", CWD: work})
+	if got.Context != "" || got.Decision != core.Allow || !strings.Contains(got.Stderr, "could not check branch divergence") {
 		t.Fatalf("no git = %+v, want allow + warning", got)
 	}
 }

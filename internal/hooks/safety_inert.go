@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 // heredocOp matches one `<<[-]DELIM` operator; groups: dash, single-quoted, double-quoted, bare delimiter.
@@ -212,21 +214,21 @@ func trimGroupOpen(out []string) []string {
 }
 
 // hardBlockVerdict blocks a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.
-func hardBlockVerdict(in *Input, cmd, scan string) (Decision, string, string, bool) {
+func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string, bool) {
 	if strings.Contains(cmd, "<<") {
 		scan = cmd
 	}
 	if pattern, ok := firstHardBlock(scan); ok {
-		return Block, safetyMessage(in, Block, "destructive command", pattern, terminalHint), pattern, true
+		return core.Block, safetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern, true
 	}
 	if scan == cmd {
-		return Allow, "", "", false // nothing was stripped, so the raw pass would find nothing new
+		return core.Allow, "", "", false // nothing was stripped, so the raw pass would find nothing new
 	}
 	if pattern, ok := firstHardBlock(cmd); ok {
 		what := "destructive command (matched only inside quoted/inert text)"
-		return Ask, safetyMessage(in, Ask, what, pattern, terminalHint), pattern, true
+		return core.Ask, safetyMessage(in, core.Ask, what, pattern, terminalHint), pattern, true
 	}
-	return Allow, "", "", false
+	return core.Allow, "", "", false
 }
 
 // firstHardBlock is the first hard-block pattern any shell segment of text matches.

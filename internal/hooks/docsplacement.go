@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -31,15 +32,15 @@ var rootAnchors = map[string]bool{
 
 // docsPlacement gates markdown writes at a repo root. Fails open on anything unclear (no path, not a
 // git repo, unreadable git state) — placement is a convention worth enforcing, never worth wedging on.
-func docsPlacement(in *Input, stderr io.Writer) int {
+func docsPlacement(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" && tool != "apply_patch" {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	if os.Getenv(docsPlacementDisableEnv) == "0" {
-		return ExitProceed
+		return core.ExitProceed
 	}
-	ctx, cancel := hookContext("docs-placement")
+	ctx, cancel := core.HookContext("docs-placement")
 	defer cancel()
 	// Expire ~1s before the dispatcher's budget timer so the handler fails open instead of the overrun blocking.
 	if dl, ok := ctx.Deadline(); ok {
@@ -49,13 +50,13 @@ func docsPlacement(in *Input, stderr io.Writer) int {
 	if tool == "apply_patch" {
 		return docsPlacementPatch(ctx, in, stderr)
 	}
-	return docsPlacementPath(ctx, in, in.nested("tool_input", "file_path"), stderr)
+	return docsPlacementPath(ctx, in, in.Nested("tool_input", "file_path"), stderr)
 }
 
 // applyPatchText returns the first apply_patch payload carrying a patch header ("" when there is none).
-func applyPatchText(in *Input) string {
+func applyPatchText(in *core.Input) string {
 	for _, key := range []string{"patch", "input", "command"} {
-		text := in.nested("tool_input", key)
+		text := in.Nested("tool_input", key)
 		if key == "command" {
 			text = in.ToolCommand()
 		}
@@ -67,24 +68,24 @@ func applyPatchText(in *Input) string {
 }
 
 // docsPlacementPatch checks every file an apply_patch payload adds, updates or moves to.
-func docsPlacementPatch(ctx context.Context, in *Input, stderr io.Writer) int {
+func docsPlacementPatch(ctx context.Context, in *core.Input, stderr io.Writer) int {
 	for line := range strings.SplitSeq(applyPatchText(in), "\n") {
 		for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
 			path, ok := strings.CutPrefix(line, prefix)
 			if !ok {
 				continue
 			}
-			if code := docsPlacementPath(ctx, in, strings.TrimSpace(path), stderr); code != ExitProceed {
+			if code := docsPlacementPath(ctx, in, strings.TrimSpace(path), stderr); code != core.ExitProceed {
 				return code
 			}
 		}
 	}
-	return ExitProceed
+	return core.ExitProceed
 }
 
-func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Writer) int {
+func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr io.Writer) int {
 	if path == "" || !isMarkdownPath(path) {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	if !filepath.IsAbs(path) && in.CWD != "" {
 		path = filepath.Join(in.CWD, path)
@@ -94,7 +95,7 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 	abs := canonDeep(path)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
 	if rootAnchors[strings.ToLower(base)] {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := canonDeep(paths.ConfigDir())
@@ -108,19 +109,19 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs string) int {
 	root := repoRootOf(dir)
 	if root == "" {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	rel, ok := repoRel(root, abs)
 	if !ok {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	atRoot := dir == root
 	inDocs := strings.HasPrefix(rel, "docs/")
 	if !atRoot && !inDocs {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	if !stranded(ctx, root, rel, abs, inDocs) {
-		return ExitProceed
+		return core.ExitProceed
 	}
 
 	where := "the repo root (" + dir + ")"
@@ -134,11 +135,11 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 func harnessDocsPlacement(ctx context.Context, stderr io.Writer, config, harnessDocs, abs, base string) int {
 	for _, tier := range []string{"images", "templates"} {
 		if underDir(filepath.Join(harnessDocs, tier), abs) {
-			return ExitProceed
+			return core.ExitProceed
 		}
 	}
 	if tracked, err := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || err != nil || ctx.Err() != nil {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
 }
@@ -183,7 +184,7 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		memstore.HandoffsDir(store),
 		store,
 		docsPlacementDisableEnv)
-	return ExitBlock
+	return core.ExitBlock
 }
 
 func isMarkdownPath(path string) bool {

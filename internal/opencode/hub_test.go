@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -198,10 +199,10 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 
 	orig := bindHooks
 	t.Cleanup(func() { bindHooks = orig })
-	decision := hooks.Block
+	decision := core.Block
 	bindHooks = func() []hooks.Bound {
-		return []hooks.Bound{{Group: "fake", Gate: true, Run: func(*hooks.Input) hooks.Result {
-			return hooks.Result{Decision: decision, Reason: "prompt refused"}
+		return []hooks.Bound{{Group: "fake", Gate: true, Run: func(*core.Input) core.Result {
+			return core.Result{Decision: decision, Reason: "prompt refused"}
 		}, Spec: settings.EventSpec{Name: "worktree-busy", Event: settings.EventUserPromptSubmit, Budget: time.Second}}}
 	}
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
@@ -216,7 +217,7 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 		t.Fatal("a blocked dispatch still started the opencode process")
 	}
 
-	decision = hooks.Allow
+	decision = core.Allow
 	_, err = l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, agent.Discard)
 	if _, statErr := os.Stat(marker); statErr != nil {
 		t.Errorf("control: an allowing hook must launch the process, marker: %v (run err: %v)", statErr, err)

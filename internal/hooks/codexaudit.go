@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -31,29 +32,29 @@ type codexRouteRecord struct {
 }
 
 // nativeCodexRoutingStart records that Codex trusted and executed the session's hook configuration.
-func nativeCodexRoutingStart(in *Input) Result {
-	return codexRecorded(in, codexRouteRecord{Event: "session-start", Model: in.nested("model")})
+func nativeCodexRoutingStart(in *core.Input) core.Result {
+	return codexRecorded(in, codexRouteRecord{Event: "session-start", Model: in.Nested("model")})
 }
 
 // nativeCodexRoutingResult links a spawn call to a child only when its result supplies the child's ID.
-func nativeCodexRoutingResult(in *Input) Result {
+func nativeCodexRoutingResult(in *core.Input) core.Result {
 	if !codexSpawnTool(in.ToolName) {
-		return Result{}
+		return core.Result{}
 	}
-	return codexRecorded(in, codexRouteRecord{Event: "tool-result", ToolUseID: in.nested("tool_use_id"),
-		AgentID: codexResultAgentID(in.doc["tool_response"])})
+	return codexRecorded(in, codexRouteRecord{Event: "tool-result", ToolUseID: in.Nested("tool_use_id"),
+		AgentID: codexResultAgentID(in.Field("tool_response"))})
 }
 
 // nativeCodexSubagentStart records the reported model; absence of a causal join remains unknown.
-func nativeCodexSubagentStart(in *Input) Result {
-	return codexRecorded(in, codexRouteRecord{Event: "child-start", AgentID: in.AgentID, Model: in.nested("model")})
+func nativeCodexSubagentStart(in *core.Input) core.Result {
+	return codexRecorded(in, codexRouteRecord{Event: "child-start", AgentID: in.AgentID, Model: in.Nested("model")})
 }
 
 // codexRecorded runs the audit and keeps its warning as the result's stderr.
-func codexRecorded(in *Input, record codexRouteRecord) Result {
+func codexRecorded(in *core.Input, record codexRouteRecord) core.Result {
 	var warn strings.Builder
 	recordCodexRoute(in, record, &warn)
-	return Result{Stderr: strings.TrimSpace(warn.String())}
+	return core.Result{Stderr: strings.TrimSpace(warn.String())}
 }
 
 func codexResultAgentID(raw any) string {
@@ -67,8 +68,8 @@ func codexResultAgentID(raw any) string {
 	return id
 }
 
-func recordCodexRoute(in *Input, record codexRouteRecord, stderr io.Writer) {
-	if in.Agent() != AgentCodex || in.SessionID == "" {
+func recordCodexRoute(in *core.Input, record codexRouteRecord, stderr io.Writer) {
+	if in.Agent() != core.AgentCodex || in.SessionID == "" {
 		return
 	}
 	record.SessionID, record.At = in.SessionID, time.Now().UnixMilli()
@@ -174,9 +175,3 @@ var codexRouteFormat = schemas.Register(schemas.Format{
 	New:     func() any { return &codexRouteRecord{} },
 	Version: codexRouteSchema, Clean: "codex-audit", Migrate: schemas.SameShape,
 })
-
-// OutputCodex is exactly one JSON document in Codex's Claude-compatible schema: no ask decision (deny), and an
-// updatedInput on PreToolUse is an explicit allow (ruling 4).
-func OutputCodex(event string, r Result) string {
-	return claudeDoc(event, r, claudeStyle{askAsDeny: true, allowWithInput: true})
-}

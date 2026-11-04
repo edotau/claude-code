@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 // claimFixture is a repo with a.txt and b.txt committed, a config dir, and liveOwner as the only live pid.
@@ -32,7 +34,7 @@ func claimEdit(t *testing.T, repo string, owner int, session, rel string) {
 		"tool_input": map[string]any{"file_path": rel}}))
 }
 
-func claimCheckOn(t *testing.T, repo, session, tool string, input map[string]any) Result {
+func claimCheckOn(t *testing.T, repo, session, tool string, input map[string]any) core.Result {
 	t.Helper()
 	return worktreeClaimCheck(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": tool,
 		"tool_input": input}))
@@ -51,14 +53,14 @@ func TestClaimCheck(t *testing.T) {
 		t.Fatalf("repeat edit must be silent, got %q", r.Context)
 	}
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add -A"})
-	if r.Decision != Ask || !strings.Contains(r.Reason, "a.txt takes") || strings.Contains(r.Reason, "b.txt") {
+	if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") || strings.Contains(r.Reason, "b.txt") {
 		t.Fatalf("git add -A: %v %q; want an ask naming a.txt only (b.txt's owner is dead)", r.Decision, r.Reason)
 	}
 	if _, err := os.Stat(claimsFile(deadOwner, "D")); !os.IsNotExist(err) {
 		t.Fatalf("dead owner's claims file must be removed, stat err = %v", err)
 	}
 	for _, cmd := range []string{"git add -p a.txt", "git add b.txt", "git status"} {
-		if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": cmd}); r.Decision != Allow {
+		if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": cmd}); r.Decision != core.Allow {
 			t.Fatalf("%s: %v %q; want allow", cmd, r.Decision, r.Reason)
 		}
 	}
@@ -75,7 +77,7 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 		"transcript_path": tr, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
 	r := worktreeClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
 		"transcript_path": tr, "tool_name": "Bash", "tool_input": map[string]any{"command": "git commit -am x"}}))
-	if r.Decision != Block || !strings.Contains(r.Reason, "leaf leafone1") {
+	if r.Decision != core.Block || !strings.Contains(r.Reason, "leaf leafone1") {
 		t.Fatalf("sibling leaf commit -am: %v %q; want a block naming leaf leafone1", r.Decision, r.Reason)
 	}
 }
@@ -88,7 +90,7 @@ func TestClaimCheckDropsLandedClaim(t *testing.T) {
 	t.Setenv("GIT_COMMITTER_DATE", time.Now().Add(time.Hour).Format(time.RFC3339))
 	gitIn(t, repo, "commit", "-qm", "A lands a.txt")
 	writeRel(t, repo, "a.txt", "B's own edit\n")
-	if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add a.txt"}); r.Decision != Allow {
+	if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add a.txt"}); r.Decision != core.Allow {
 		t.Fatalf("landed claim: %v %q; want allow", r.Decision, r.Reason)
 	}
 }
@@ -102,7 +104,7 @@ func TestClaimCheckBashEditClaimedByAdd(t *testing.T) {
 	worktreeClaim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "git add b.txt"}, "tool_response": map[string]any{"stdout": ""}}))
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x"})
-	if r.Decision != Ask || !strings.Contains(r.Reason, "b.txt takes") {
+	if r.Decision != core.Ask || !strings.Contains(r.Reason, "b.txt takes") {
 		t.Fatalf("bare commit over A's staged b.txt: %v %q; want an ask naming b.txt", r.Decision, r.Reason)
 	}
 }
@@ -115,7 +117,7 @@ func TestClaimCheckCommitAskCountsWholeStage(t *testing.T) {
 	writeRel(t, repo, "d.txt", "unclaimed\n")
 	gitIn(t, repo, "add", "a.txt", "c.txt", "d.txt")
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x"})
-	if r.Decision != Ask || !strings.Contains(r.Reason, "takes 3 file(s), 1 of them") {
+	if r.Decision != core.Ask || !strings.Contains(r.Reason, "takes 3 file(s), 1 of them") {
 		t.Fatalf("bare commit of 3 staged, 1 claimed: %v %q; want the ask to count 3 and 1", r.Decision, r.Reason)
 	}
 }
@@ -128,10 +130,10 @@ func TestClaimCheckCommitAskNamesSafeForm(t *testing.T) {
 	writeRel(t, repo, "b.txt", "B's own\n")
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add b.txt && git commit -q -m x"})
 	safe := strings.Contains(r.Reason, "git commit -- <your files>")
-	if r.Decision != Ask || !strings.Contains(r.Reason, "a.txt takes") || !safe {
+	if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") || !safe {
 		t.Fatalf("add && bare commit: %v %q; want an ask naming a.txt and git commit --", r.Decision, r.Reason)
 	}
-	if r = claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x -- b.txt"}); r.Decision != Allow {
+	if r = claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x -- b.txt"}); r.Decision != core.Allow {
 		t.Fatalf("commit -- b.txt: %v %q; want allow", r.Decision, r.Reason)
 	}
 }

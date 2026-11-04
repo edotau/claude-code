@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
@@ -102,7 +103,7 @@ func newUpdateRun(t *testing.T) *updateRun {
 }
 
 func (u *updateRun) stop() int {
-	return sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(u.tr, u.cwd))), &bytes.Buffer{})
+	return sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(u.tr, u.cwd))), &bytes.Buffer{})
 }
 
 func (u *updateRun) end() {
@@ -121,12 +122,12 @@ func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	u := newUpdateRun(t)
 
 	writeEdits(t, u.tr, 2)
-	if u.stop() != ExitProceed {
+	if u.stop() != core.ExitProceed {
 		t.Error("under the edit floor must proceed")
 	}
 	u.wantSpawns(0, "under the edit floor must not spawn")
 	writeEdits(t, u.tr, 3)
-	if u.stop() != ExitProceed {
+	if u.stop() != core.ExitProceed {
 		t.Error("3 edits must proceed")
 	}
 	u.wantSpawns(1, "3 edits must spawn once")
@@ -168,23 +169,23 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	codes := []int{}
 	for range 5 {
 		var errb bytes.Buffer
-		codes = append(codes, sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb))
-		if codes[len(codes)-1] == ExitBlock && !strings.Contains(errb.String(), "claude-code memory update") {
+		codes = append(codes, sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb))
+		if codes[len(codes)-1] == core.ExitBlock && !strings.Contains(errb.String(), "claude-code memory update") {
 			t.Errorf("block reason %q", errb.String())
 		}
 	}
-	if fmt.Sprint(codes) != fmt.Sprint([]int{ExitBlock, ExitBlock, ExitBlock, ExitProceed, ExitProceed}) {
+	if fmt.Sprint(codes) != fmt.Sprint([]int{core.ExitBlock, core.ExitBlock, core.ExitBlock, core.ExitProceed, core.ExitProceed}) {
 		t.Errorf("codes %v", codes)
 	}
 
 	// Evidence releases the gate: a bank write after the stamp.
 	_ = os.Remove(stampPath("s1"))
-	sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
+	sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Minute), "1", 5)
 	if _, err := memory.Init(cwd); err != nil {
 		t.Fatal(err)
 	}
-	if got := sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
+	if got := sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != core.ExitProceed {
 		t.Error("a bank write after the prompt must release the gate")
 	}
 }
@@ -377,11 +378,11 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	}
 
 	writeEdits(t, tr, 0)
-	if run() != ExitProceed || calls.Load() != 0 {
+	if run() != core.ExitProceed || calls.Load() != 0 {
 		t.Fatal("no edits must not spawn")
 	}
 	writeEdits(t, tr, 1) // below the Stop floor: a compaction still checkpoints it
-	if run() != ExitProceed || calls.Load() != 1 {
+	if run() != core.ExitProceed || calls.Load() != 1 {
 		t.Fatalf("uncovered edit must spawn once, calls=%d", calls.Load())
 	}
 	if run(); calls.Load() != 1 {
@@ -402,15 +403,15 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	run := func() int {
-		return sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
+		return sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	}
 
 	writeUserTurns(t, tr, 5)
-	if run() != ExitProceed || calls.Load() != 0 {
+	if run() != core.ExitProceed || calls.Load() != 0 {
 		t.Fatalf("5 user turns (2 work units) sit under the floor, calls=%d", calls.Load())
 	}
 	writeUserTurns(t, tr, 6)
-	if run() != ExitProceed || calls.Load() != 1 {
+	if run() != core.ExitProceed || calls.Load() != 1 {
 		t.Fatalf("6 user turns (3 work units) must spawn once, calls=%d", calls.Load())
 	}
 	if st, _ := readStamp(stampPath("s1")); !st.bg {
@@ -545,8 +546,8 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	cwd := t.TempDir()
 	stubSpawn(t, false)
 	var errb bytes.Buffer
-	code := sessionUpdateCode(ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
-	if code != ExitBlock && code != ExitProceed {
+	code := sessionUpdateCode(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
+	if code != core.ExitBlock && code != core.ExitProceed {
 		t.Errorf("unexpected exit code %d parsing a catchup stamp", code)
 	}
 }
@@ -737,13 +738,13 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
+	if got := sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != core.ExitProceed {
 		t.Errorf("an unwritable stamp cannot count blocks, so Stop must fail open; got %d", got)
 	}
 }
 
 // sessionUpdateCode is sessionUpdate's exit code alone, for tests that only check the gate.
-func sessionUpdateCode(in *Input, stderr io.Writer) int {
+func sessionUpdateCode(in *core.Input, stderr io.Writer) int {
 	code, _ := sessionUpdate(in, stderr)
 	return code
 }

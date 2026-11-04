@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -63,13 +64,13 @@ func containsStr(xs []string, s string) bool {
 
 // applyProfile moves a Profile: dispatch to a coworker and prepends the exact ask command. deny is a Block
 // for an unknown profile; note is "" when the brief names no profile or the dispatch is already routed.
-func applyProfile(updated map[string]any, promptField, task string) (note string, deny *Result) {
+func applyProfile(updated map[string]any, promptField, task string) (note string, deny *core.Result) {
 	p := briefProfile(task)
 	if p == "" {
 		return "", nil
 	}
 	if names, ok := profileNames(); ok && !containsStr(names, p) {
-		return "", &Result{Decision: Block, Reason: fmt.Sprintf(
+		return "", &core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 			"agent-effort: unknown Profile: %q — valid profiles: %s.", p, strings.Join(names, ", "))}
 	}
 	st, _ := updated["subagent_type"].(string)

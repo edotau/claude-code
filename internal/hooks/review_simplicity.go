@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
@@ -20,14 +21,14 @@ const (
 )
 
 // reviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
-func reviewSimplicity(in *Input) Result {
+func reviewSimplicity(in *core.Input) core.Result {
 	path, before, after, ok := editContents(in)
 	if !ok {
-		return Result{}
+		return core.Result{}
 	}
 	found := source.SimplicityFindings(path, before, after)
 	if len(found) == 0 {
-		return Result{}
+		return core.Result{}
 	}
 	rel := path
 	if in.CWD != "" {
@@ -35,12 +36,12 @@ func reviewSimplicity(in *Input) Result {
 			rel = p
 		}
 	}
-	return Result{Context: simplicityText(rel, found)}
+	return core.Result{Context: simplicityText(rel, found)}
 }
 
 // editContents is the edited file's path and its content before and after this Write or Edit.
-func editContents(in *Input) (path, before, after string, ok bool) {
-	path = in.nested("tool_input", "file_path")
+func editContents(in *core.Input) (path, before, after string, ok bool) {
+	path = in.Nested("tool_input", "file_path")
 	if path != "" && !filepath.IsAbs(path) && in.CWD != "" {
 		path = filepath.Join(in.CWD, path)
 	}
@@ -59,8 +60,8 @@ func editContents(in *Input) (path, before, after string, ok bool) {
 }
 
 // editBefore reverses an Edit on its post-edit content; false when the edit's occurrence is ambiguous.
-func editBefore(in *Input, after string) (string, bool) {
-	oldStr, newStr, all := in.nested("tool_input", "old_string"), in.nested("tool_input", "new_string"),
+func editBefore(in *core.Input, after string) (string, bool) {
+	oldStr, newStr, all := in.Nested("tool_input", "old_string"), in.Nested("tool_input", "new_string"),
 		in.ToolInput()["replace_all"] == true
 	if !all && newStr != "" && strings.Count(after, newStr) > 1 {
 		return "", false // ambiguous: cannot tell which occurrence the edit wrote

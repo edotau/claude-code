@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -88,7 +89,7 @@ func TestAgentEffortAlwaysProceeds(t *testing.T) {
 		`{"tool_name":"Agent","tool_input":{}}`,
 		`{"tool_name":"Agent","tool_input":{"prompt":"fix a typo"}}`,
 	} {
-		if _, code := runAgentEffort(t, stdin); code != ExitProceed {
+		if _, code := runAgentEffort(t, stdin); code != core.ExitProceed {
 			t.Errorf("stdin %q exited %d, want ExitProceed", stdin, code)
 		}
 	}
@@ -340,7 +341,7 @@ func TestAgentEffortExplicitModelRecallAppendsPromptOnly(t *testing.T) {
 func TestAgentEffortNoHitsNoPinEmitsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no bank seeded: nothing to recall
 	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
-	if got, code := runAgentEffort(t, in); got != nil || code != ExitProceed {
+	if got, code := runAgentEffort(t, in); got != nil || code != core.ExitProceed {
 		t.Errorf("updatedInput = %v code=%d, want nil/ExitProceed", got, code)
 	}
 }
@@ -397,7 +398,7 @@ func TestAgentEffortRecallEngineFailureFallsBackToTodaysBehavior(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", notADir)
 	in := `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`
 	got, code := runAgentEffort(t, in)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Errorf("exit = %d, want ExitProceed despite an unreadable bank", code)
 	}
 	if got == nil || got["model"] != "haiku" {
@@ -423,17 +424,17 @@ func TestAgentRecallHandlesCwdGracefully(t *testing.T) {
 
 // runEffortHook renders the pin step in the process hook shape these assertions read (exit 2 + stderr for a block).
 func runEffortHook(r io.Reader, stdout io.Writer) int {
-	return renderEffort(agentEffortResult(ParseInput(r)), stdout, os.Stderr)
+	return renderEffort(agentEffortResult(core.ParseInput(r)), stdout, os.Stderr)
 }
 
 // renderEffort writes res as PreToolUse JSON on stdout, or its block reason on errw.
-func renderEffort(res Result, stdout, errw io.Writer) int {
-	if res.Decision == Block {
+func renderEffort(res core.Result, stdout, errw io.Writer) int {
+	if res.Decision == core.Block {
 		fmt.Fprintln(errw, res.Reason)
-		return ExitBlock
+		return core.ExitBlock
 	}
 	if res.UpdatedInput == nil {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	inner := map[string]any{"hookEventName": "PreToolUse", "updatedInput": res.UpdatedInput}
 	if res.Context != "" {
@@ -445,10 +446,10 @@ func renderEffort(res Result, stdout, errw io.Writer) int {
 	}
 	out, err := json.Marshal(payload)
 	if err != nil {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	fmt.Fprintln(stdout, string(out))
-	return ExitProceed
+	return core.ExitProceed
 }
 
 // A pinned agent's label names the pinned model, not the route table's cell (real labelCell, hermetic vault).
@@ -470,7 +471,7 @@ func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedHomeRecallBlock(t, 2)
 	in := fmt.Sprintf(`{"tool_name":"Agent","permission_mode":"auto","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
-	res := agentEffortResult(ParseInput(strings.NewReader(in)))
+	res := agentEffortResult(core.ParseInput(strings.NewReader(in)))
 	if res.UpdatedInput != nil {
 		t.Errorf("updatedInput = %v, want none in auto mode", res.UpdatedInput)
 	}

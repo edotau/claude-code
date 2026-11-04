@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -47,7 +48,7 @@ const peerPID = 4242
 type rewriteCase struct {
 	name, cmd, cwd, peerIn, agentID, agent string
 	live, leaves, noGit                    bool
-	want                                   Decision
+	want                                   core.Decision
 	text                                   string
 }
 
@@ -111,30 +112,30 @@ func TestRewriteGuard(t *testing.T) {
 	dirs := map[string]string{"work": work, "wt": wt}
 	amend := "git commit --amend --no-edit"
 	cases := []rewriteCase{
-		{name: "live tree amend", cmd: amend, cwd: "work", live: true, want: Block, text: "live config tree"},
-		{name: "unshared clone amend", cmd: amend, cwd: "work", want: Allow},
-		{name: "peer rebase", cmd: "git rebase -i HEAD~1", cwd: "work", peerIn: "work", want: Block,
+		{name: "live tree amend", cmd: amend, cwd: "work", live: true, want: core.Block, text: "live config tree"},
+		{name: "unshared clone amend", cmd: amend, cwd: "work", want: core.Allow},
+		{name: "peer rebase", cmd: "git rebase -i HEAD~1", cwd: "work", peerIn: "work", want: core.Block,
 			text: "session peer-a (abcdef01, pid " + strconv.Itoa(peerPID) + ") works in it"},
-		{name: "own worktree pushed amend", cmd: amend, cwd: "wt", want: Allow},
-		{name: "own worktree leaf amend", cmd: amend, cwd: "wt", agentID: "leaf1", want: Allow},
-		{name: "worktree with peer", cmd: amend, cwd: "wt", peerIn: "wt", want: Block, text: "on feat"},
-		{name: "leaf in main tree", cmd: amend, cwd: "work", agentID: "leaf1", want: Block, text: "leaf in the main tree"},
-		{name: "live leaves in main tree", cmd: "git reset --soft HEAD~1", cwd: "work", leaves: true, want: Block,
+		{name: "own worktree pushed amend", cmd: amend, cwd: "wt", want: core.Allow},
+		{name: "own worktree leaf amend", cmd: amend, cwd: "wt", agentID: "leaf1", want: core.Allow},
+		{name: "worktree with peer", cmd: amend, cwd: "wt", peerIn: "wt", want: core.Block, text: "on feat"},
+		{name: "leaf in main tree", cmd: amend, cwd: "work", agentID: "leaf1", want: core.Block, text: "leaf in the main tree"},
+		{name: "live leaves in main tree", cmd: "git reset --soft HEAD~1", cwd: "work", leaves: true, want: core.Block,
 			text: "1 live leaf"},
-		{name: "path reset", cmd: "git reset -- one.txt", cwd: "work", peerIn: "work", want: Allow},
-		{name: "reset HEAD", cmd: "git reset HEAD", cwd: "work", peerIn: "work", want: Allow},
-		{name: "rebase continue", cmd: "git rebase --continue", cwd: "work", peerIn: "work", want: Allow},
-		{name: "codex", cmd: amend, cwd: "work", peerIn: "work", agent: AgentCodex, want: Block},
+		{name: "path reset", cmd: "git reset -- one.txt", cwd: "work", peerIn: "work", want: core.Allow},
+		{name: "reset HEAD", cmd: "git reset HEAD", cwd: "work", peerIn: "work", want: core.Allow},
+		{name: "rebase continue", cmd: "git rebase --continue", cwd: "work", peerIn: "work", want: core.Allow},
+		{name: "codex", cmd: amend, cwd: "work", peerIn: "work", agent: core.AgentCodex, want: core.Block},
 		{name: "bash -c cd", cmd: `bash -c "cd ` + work + ` && git commit --amend"`, cwd: "wt", peerIn: "work",
-			want: Block},
-		{name: "git missing", cmd: amend, cwd: "work", live: true, noGit: true, want: Allow, text: "could not check"},
+			want: core.Block},
+		{name: "git missing", cmd: amend, cwd: "work", live: true, noGit: true, want: core.Allow, text: "could not check"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rewriteSetup(t, c, dirs)
 			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": dirs[c.cwd],
 				"agent_id": c.agentID, "tool_input": map[string]string{"command": c.cmd}})
-			r := safetyScan(ParseInput(strings.NewReader(string(payload))))
+			r := safetyScan(core.ParseInput(strings.NewReader(string(payload))))
 			if got := r.Reason + r.Stderr; r.Decision != c.want || !strings.Contains(got, c.text) {
 				t.Fatalf("decision %v, want %v containing %q:\n%s", r.Decision, c.want, c.text, got)
 			}

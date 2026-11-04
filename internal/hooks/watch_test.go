@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
@@ -130,7 +131,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	writeEdits(t, tr, 6)
 	stubSpawn(t, true)
 	watches := stubWatcher(t, true)
-	run := func() { sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}) }
+	run := func() { sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}) }
 
 	run()
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Hour), "bg", 6)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -125,7 +126,7 @@ func TestSavePlanResponseFallbacksAndAudit(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 			raw := fallbackPayload(t, cfg, tc)
 			for range 2 {
-				if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &bytes.Buffer{}); code != ExitProceed {
+				if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &bytes.Buffer{}); code != core.ExitProceed {
 					t.Fatalf("savePlan = %d", code)
 				}
 			}
@@ -152,7 +153,7 @@ func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stderr bytes.Buffer
-	if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "# Probe\n", "")), io.Discard, &stderr); code != ExitProceed {
+	if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "# Probe\n", "")), io.Discard, &stderr); code != core.ExitProceed {
 		t.Fatalf("write failure must fail open, got %d", code)
 	}
 	if !strings.Contains(stderr.String(), "save-plan:") {
@@ -172,7 +173,7 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	save := func(plan string) {
-		if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, repo, plan, "")), io.Discard, &bytes.Buffer{}); code != ExitProceed {
+		if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, repo, plan, "")), io.Discard, &bytes.Buffer{}); code != core.ExitProceed {
 			t.Fatalf("savePlan must never block, got %d", code)
 		}
 	}
@@ -340,7 +341,7 @@ func TestPlanClaimOnSpawnClearedOnStop(t *testing.T) {
 	}
 	writeMeta(t, tx, "ac1", "toolu_c1")
 	stop := `{"hook_event_name":"SubagentStop","agent_id":"ac1","cwd":"` + repo + `","transcript_path":"` + tx + `"}`
-	subagentStopRunner(ParseInput(strings.NewReader(stop)))
+	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
 	if data, _ = os.ReadFile(plan); strings.Contains(string(data), "working:") {
 		t.Fatalf("claim survived SubagentStop:\n%s", data)
 	}
@@ -462,7 +463,7 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	if !strings.Contains(all, "plan-template: BLOCKED") || !strings.Contains(all, "skeleton-body-line") {
 		t.Fatalf("code=%d out=%q err=%q, want BLOCKED with skeleton", code, out, errOut)
 	}
-	if !strings.Contains(all, "deny") && code != ExitBlock {
+	if !strings.Contains(all, "deny") && code != core.ExitBlock {
 		t.Fatalf("not a block: code=%d out=%q", code, out)
 	}
 	var e bytes.Buffer

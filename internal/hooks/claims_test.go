@@ -6,16 +6,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 // claimInput is a parsed hook payload for the claims modules.
-func claimInput(t *testing.T, doc map[string]any) *Input {
+func claimInput(t *testing.T, doc map[string]any) *core.Input {
 	t.Helper()
 	b, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ParseInput(strings.NewReader(string(b)))
+	return core.ParseInput(strings.NewReader(string(b)))
 }
 
 // useClaimOwner pins the session owner pid the claims ledger files under.

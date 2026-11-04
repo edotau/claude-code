@@ -3,204 +3,17 @@
 package hooks
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
-	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Exit codes per the Claude Code hook contract.
-const (
-	ExitProceed = 0
-	ExitBlock   = 2
-)
-
-// Input is the parsed hook stdin; nested tool fields resolve through the raw document.
-type Input struct {
-	SessionID           string `json:"session_id"`
-	CWD                 string `json:"cwd"`
-	TranscriptPath      string `json:"transcript_path"`
-	ToolName            string `json:"tool_name"`
-	HookEventName       string `json:"hook_event_name"`
-	StopHookActive      bool   `json:"stop_hook_active"`
-	Prompt              string `json:"prompt"`
-	Source              string `json:"source"`
-	AgentID             string `json:"agent_id"`
-	AgentTranscriptPath string `json:"agent_transcript_path"`
-
-	Raw   []byte `json:"-"`
-	doc   map[string]any
-	agent string
-}
-
-const (
-	AgentClaude  = "claude"
-	AgentCodex   = "codex"
-	AgentCopilot = "copilot"
-)
-
-// Agent uses the explicit hook agent or Copilot's payload shape, defaulting to Claude.
-func (in *Input) Agent() string {
-	if in == nil || in.agent == "" {
-		return AgentClaude
-	}
-	return in.agent
-}
-
-// ParseInput never errors: malformed stdin yields a zero Input (fail-open).
-func ParseInput(r io.Reader) *Input {
-	raw, _ := io.ReadAll(r)
-	in := &Input{Raw: raw}
-	if json.Unmarshal(raw, &in.doc) != nil {
-		return &Input{Raw: raw}
-	}
-	switch name := os.Getenv(settings.AgentEnv); name {
-	case AgentClaude, AgentCodex, AgentCopilot:
-		in.agent = name
-	}
-	in.SessionID = in.nested("session_id")
-	in.CWD = in.nested("cwd")
-	in.TranscriptPath = in.nested("transcript_path")
-	in.ToolName = in.nested("tool_name")
-	in.HookEventName = in.nested("hook_event_name")
-	in.StopHookActive, _ = in.doc["stop_hook_active"].(bool)
-	in.Prompt = in.nested("prompt")
-	in.AgentID = in.nested("agent_id")
-	in.Source = in.nested("source")
-	in.AgentTranscriptPath = in.nested("agent_transcript_path")
-	if _, ok := in.doc["sessionId"].(string); ok && in.HookEventName == "" {
-		in.agent = AgentCopilot
-	}
-	if in.SessionID == "" {
-		in.SessionID = in.nested("sessionId")
-	}
-	if in.ToolName == "" {
-		in.ToolName = in.nested("toolName")
-	}
-	if in.CWD == "" {
-		in.CWD = in.nested("workingDirectory")
-	}
-	if in.TranscriptPath == "" {
-		in.TranscriptPath = in.nested("transcriptPath")
-	}
-	if in.Agent() == AgentCopilot {
-		in.normalizeToolArgs()
-	}
-	return in
-}
-
-// normalizeToolArgs lets every existing tool_input consumer read Copilot's string or object arguments.
-func (in *Input) normalizeToolArgs() {
-	args, _ := in.doc["toolArgs"].(map[string]any)
-	if text, ok := in.doc["toolArgs"].(string); ok {
-		_ = json.Unmarshal([]byte(text), &args)
-	}
-	input, _ := in.doc["tool_input"].(map[string]any)
-	if input == nil {
-		input = args
-	}
-	if input == nil {
-		return
-	}
-	for _, key := range []string{"file_path", "filePath", "path"} {
-		if path, _ := input[key].(string); path != "" {
-			if !filepath.IsAbs(path) && in.CWD != "" {
-				path = filepath.Join(in.CWD, path)
-			}
-			input["file_path"] = path
-			break
-		}
-	}
-	in.doc["tool_input"] = input
-}
-
-func (in *Input) nested(path ...string) string {
-	cur := any(in.doc)
-	for _, k := range path {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return ""
-		}
-		cur = m[k]
-	}
-	s, _ := cur.(string)
-	return s
-}
-
-// ToolInput returns the decoded tool arguments, or nil when absent.
-func (in *Input) ToolInput() map[string]any {
-	input, _ := in.doc["tool_input"].(map[string]any)
-	return input
-}
-
-// cloneToolInput preserves arguments while allowing a hook to replace individual keys.
-func (in *Input) cloneToolInput() map[string]any {
-	input := in.ToolInput()
-	if input == nil {
-		return nil
-	}
-	clone := make(map[string]any, len(input)+1)
-	maps.Copy(clone, input)
-	return clone
-}
-
-// ToolCommand is the Bash command under tool_input (a top-level .command is the fallback).
-func (in *Input) ToolCommand() string {
-	if c := in.nested("tool_input", "command"); c != "" {
-		return c
-	}
-	return in.nested("command")
-}
-
-// SubagentID names the subagent a SubagentStop belongs to: agent_id, else the id in agent-<id>.jsonl.
-func (in *Input) SubagentID() string {
-	if in.AgentID != "" {
-		return in.AgentID
-	}
-	if id := in.nested("agentId"); id != "" {
-		return id
-	}
-	base := strings.TrimSuffix(filepath.Base(in.AgentTranscriptPath), ".jsonl")
-	for _, p := range []string{"agent-", "agent_"} {
-		if rest, ok := strings.CutPrefix(base, p); ok {
-			return strings.TrimSuffix(rest, "_transcript")
-		}
-	}
-	return ""
-}
-
-// ToolResponseText is tool_response as text: a bare string for most tools, an object with a text leaf for some.
-func (in *Input) ToolResponseText() string {
-	for _, path := range [][]string{{"tool_response"}, {"tool_response", "output"}, {"tool_response", "content"}} {
-		if s := in.nested(path...); s != "" {
-			return s
-		}
-	}
-	return ""
-}
-
-// contextCapChars stays under Claude Code's 10,000-char additionalContext ceiling (larger payloads are dropped).
-const contextCapChars = 9500
-
-// hookContext gives subprocesses the registered hook budget without changing process signal handling.
-func hookContext(name string) (context.Context, context.CancelFunc) {
-	for _, spec := range settings.Specs() {
-		if spec.Name == name {
-			return context.WithTimeout(context.Background(), spec.Budget)
-		}
-	}
-	panic("unknown hook: " + name)
-}
-
 // Native maps every hook module to its Runner; names must match settings.Registry.
-var Native = map[string]Runner{
+var Native = map[string]core.Runner{
 	"safety-scan":               safetyScan,
 	"rtk-rewrite":               rtkRewrite,
 	"docs-placement":            viaStderr(docsPlacement),
@@ -241,23 +54,23 @@ var Native = map[string]Runner{
 func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := Native[name]
 	if !ok {
-		return ExitProceed
+		return core.ExitProceed
 	}
-	in := ParseInput(stdin)
+	in := core.ParseInput(stdin)
 	res := run(in)
-	if res.Decision == Block && specOf(name).Blocks {
-		if name == "safety-scan" && in.Agent() == AgentCopilot {
-			fmt.Fprintln(stdout, OutputCopilot(settings.EventPreToolUse, res))
+	if res.Decision == core.Block && specOf(name).Blocks {
+		if name == "safety-scan" && in.Agent() == core.AgentCopilot {
+			fmt.Fprintln(stdout, core.OutputCopilot(settings.EventPreToolUse, res))
 		}
 		fmt.Fprintln(stderr, res.Reason)
-		return ExitBlock
+		return core.ExitBlock
 	}
-	res.Context = textutil.CapRunes(res.Context, contextCapChars, "…")
+	res.Context = textutil.CapRunes(res.Context, core.ContextCapChars, "…")
 	if !bareStdout[name] {
-		return Emit(in.Agent(), eventOf(name), res, stdout, stderr)
+		return core.Emit(in.Agent(), eventOf(name), res, stdout, stderr)
 	}
 	var out strings.Builder
-	code := Emit(in.Agent(), eventOf(name), res, &out, stderr)
+	code := core.Emit(in.Agent(), eventOf(name), res, &out, stderr)
 	_, _ = io.WriteString(stdout, strings.TrimSuffix(out.String(), "\n"))
 	return code
 }
@@ -307,7 +120,7 @@ func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) in
 		return unknownHook(name, "no module on "+event+" named", stderr)
 	}
 	if g, found := settings.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	return runDirect(name, stdin, stdout, stderr)
 }
@@ -317,7 +130,7 @@ func unknownHook(name, what string, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
 	for _, w := range []string{"guard", "gate", "safety", "scan", "placement"} {
 		if strings.Contains(name, w) {
-			return ExitBlock
+			return core.ExitBlock
 		}
 	}
 	return 1

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
@@ -46,14 +47,14 @@ func claimsFile(owner int, session string) string {
 }
 
 // worktreeClaim records the written path, each sha a landed `git commit` printed, and each path `git add` staged.
-func worktreeClaim(in *Input) Result {
+func worktreeClaim(in *core.Input) core.Result {
 	owner := claimOwner()
 	if owner == 0 || in.SessionID == "" {
-		return Result{}
+		return core.Result{}
 	}
 	now := time.Now().Unix()
 	var lines []claim
-	if p := in.nested("tool_input", "file_path"); p != "" {
+	if p := in.Nested("tool_input", "file_path"); p != "" {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(in.CWD, p)
 		}
@@ -62,14 +63,14 @@ func worktreeClaim(in *Input) Result {
 		lines = bashClaims(in, now)
 	}
 	appendClaims(claimsFile(owner, in.SessionID), lines)
-	return Result{}
+	return core.Result{}
 }
 
 // bashClaims are each sha a landed `git commit` printed and each path a `git add` left staged.
-func bashClaims(in *Input, now int64) []claim {
+func bashClaims(in *core.Input, now int64) []claim {
 	var lines []claim
 	if gitCommitCmd.MatchString(in.ToolCommand()) {
-		out := cmp.Or(in.nested("tool_response", "stdout"), in.ToolResponseText())
+		out := cmp.Or(in.Nested("tool_response", "stdout"), in.ToolResponseText())
 		for _, m := range commitLine.FindAllStringSubmatch(out, -1) {
 			lines = append(lines, claim{Commit: m[1], Agent: in.AgentID, TS: now})
 		}
@@ -81,8 +82,8 @@ func bashClaims(in *Input, now int64) []claim {
 }
 
 // stagedClaims claims, for the stager, each path the command's git add invocations left staged.
-func stagedClaims(in *Input, now int64) []claim {
-	ctx, cancel := hookContext("worktree-claim")
+func stagedClaims(in *core.Input, now int64) []claim {
+	ctx, cancel := core.HookContext("worktree-claim")
 	defer cancel()
 	var out []claim
 	eachGitCall(in.ToolCommand(), in.CWD, func(target, verb string, args []string) bool {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/planlint"
@@ -23,20 +24,20 @@ const workflowLintName = "inline workflow"
 // session start, so an edit made mid-session would otherwise run the stale copy; a scriptPath outside
 // the session's cwd is refused by the tool) and linted the same way; a name with no matching file (a
 // built-in, or a bogus name) proceeds untouched.
-func workflowResult(in *Input) Result {
-	if script := in.nested("tool_input", "script"); script != "" {
+func workflowResult(in *core.Input) core.Result {
+	if script := in.Nested("tool_input", "script"); script != "" {
 		return workflowInline(in, script)
 	}
-	if path := in.nested("tool_input", "scriptPath"); path != "" {
+	if path := in.Nested("tool_input", "scriptPath"); path != "" {
 		return workflowSaved(path)
 	}
-	if name := in.nested("tool_input", "name"); name != "" {
+	if name := in.Nested("tool_input", "name"); name != "" {
 		return workflowByName(in, name)
 	}
-	return Result{}
+	return core.Result{}
 }
 
-func workflowInline(in *Input, script string) Result {
+func workflowInline(in *core.Input, script string) core.Result {
 	model := models.AliasModel(models.EffortMedium)
 	out, amb := planlint.FillModel(script, model)
 	vals := badPinValueHits(planlint.LintPins(workflowLintName, []byte(out)))
@@ -50,26 +51,26 @@ func workflowInline(in *Input, script string) Result {
 		for _, v := range vals {
 			fmt.Fprintf(&b, "\n  %s", v)
 		}
-		return Result{Decision: Block, Reason: b.String()}
+		return core.Result{Decision: core.Block, Reason: b.String()}
 	}
 	if out == script {
-		return Result{}
+		return core.Result{}
 	}
 	filled := filledModelLines(script, amb)
-	updated := in.cloneToolInput()
+	updated := in.CloneToolInput()
 	if updated == nil {
-		return Result{}
+		return core.Result{}
 	}
 	updated["script"] = out
 	note := fmt.Sprintf("workflow-lint: filled model:'%s' on %d unpinned agent() call(s) at line(s)"+
 		" %s; pin model explicitly to override", model, len(filled), strings.Join(filled, ", "))
-	return Result{UpdatedInput: updated, Context: note}
+	return core.Result{UpdatedInput: updated, Context: note}
 }
 
-func workflowSaved(path string) Result {
+func workflowSaved(path string) core.Result {
 	hits := lintSavedFile(path)
 	if len(hits) == 0 {
-		return Result{}
+		return core.Result{}
 	}
 	return blockSavedLint(path, hits)
 }
@@ -77,38 +78,38 @@ func workflowSaved(path string) Result {
 // workflowByName redirects a saved-by-name call to its on-disk script's text via updatedInput.script,
 // then lints that file exactly as a direct scriptPath call would. A path-shaped name, an empty config
 // dir, or no matching file on disk all fail open, untouched.
-func workflowByName(in *Input, name string) Result {
+func workflowByName(in *core.Input, name string) core.Result {
 	if filepath.Base(name) != name {
-		return Result{} // path-shaped, not a plain registry name — refuse to touch the dispatch
+		return core.Result{} // path-shaped, not a plain registry name — refuse to touch the dispatch
 	}
 	dir := paths.ConfigDir()
 	if dir == "" {
-		return Result{}
+		return core.Result{}
 	}
 	path := filepath.Join(dir, "workflows", name+".js")
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
-		return Result{} // no on-disk script for this name — built-in or bogus, pass through
+		return core.Result{} // no on-disk script for this name — built-in or bogus, pass through
 	}
 	if hits := lintSavedFile(path); len(hits) > 0 {
 		return blockSavedLint(path, hits)
 	}
-	if in.nested("permission_mode") == "auto" && inCWD(path, in.CWD) {
-		return Result{Decision: Block, Reason: fmt.Sprintf("workflow-lint: auto mode can't review a rewritten call; "+
+	if in.Nested("permission_mode") == "auto" && inCWD(path, in.CWD) {
+		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("workflow-lint: auto mode can't review a rewritten call; "+
 			"re-issue as Workflow({scriptPath: %q, args: <same args>})", path)}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Result{}
+		return core.Result{}
 	}
-	updated := in.cloneToolInput()
+	updated := in.CloneToolInput()
 	if updated == nil {
-		return Result{}
+		return core.Result{}
 	}
 	delete(updated, "name")
 	updated["script"] = string(data) // inline, not scriptPath: the tool refuses a path outside the session's cwd
 	note := fmt.Sprintf("workflow-lint: name → inline script from %s (the by-name registry is read at session"+
 		" start; the file on disk is current)", path)
-	return Result{UpdatedInput: updated, Context: note}
+	return core.Result{UpdatedInput: updated, Context: note}
 }
 
 // inCWD reports whether path lies inside cwd, comparing cleaned absolute paths.
@@ -129,8 +130,8 @@ func lintSavedFile(path string) []string {
 }
 
 // blockSavedLint is the saved-script block naming path and its pin problems.
-func blockSavedLint(path string, hits []string) Result {
-	return Result{Decision: Block, Reason: fmt.Sprintf(
+func blockSavedLint(path string, hits []string) core.Result {
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 		"workflow-lint: blocked — %d agent() pin problem(s) in %s; edit the file and re-run:\n%s",
 		len(hits), path, strings.Join(hits, "\n"))}
 }

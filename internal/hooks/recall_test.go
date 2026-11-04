@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"github.com/edotau/claude-code/internal/memory/recall/embed"
@@ -30,7 +31,7 @@ func recallAs(t *testing.T, session, prompt, cwd string) string {
 	t.Helper()
 	raw, _ := json.Marshal(map[string]string{"prompt": prompt, "cwd": cwd, "session_id": session})
 	var out bytes.Buffer
-	if code := runDirect("memory-recall", bytes.NewReader(raw), &out, io.Discard); code != ExitProceed {
+	if code := runDirect("memory-recall", bytes.NewReader(raw), &out, io.Discard); code != core.ExitProceed {
 		t.Fatalf("MemoryRecall = %d", code)
 	}
 	if out.Len() == 0 {
@@ -90,7 +91,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	const sessionS = "44444444-4444-4444-8444-444444444444"
 	const sessionT = "55555555-5555-4555-8555-555555555555"
 	raw, _ := json.Marshal(map[string]string{"cwd": cwd, "session_id": sessionS})
-	if runDirect("memory-start", bytes.NewReader(raw), &bytes.Buffer{}, io.Discard) != ExitProceed {
+	if runDirect("memory-start", bytes.NewReader(raw), &bytes.Buffer{}, io.Discard) != core.ExitProceed {
 		t.Fatal("SessionStart failed")
 	}
 	got := recallAs(t, sessionS, "alpha bravo charlie delta echo", cwd)
@@ -129,7 +130,7 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	raw, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": cwd})
 	var out1 bytes.Buffer
 	code1 := runDirect("memory-recall", bytes.NewReader(raw), &out1, io.Discard)
-	if code1 != ExitProceed {
+	if code1 != core.ExitProceed {
 		t.Fatalf("MemoryRecall with explicit CWD failed: code=%d", code1)
 	}
 
@@ -137,7 +138,7 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	raw2, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": ""})
 	var out2 bytes.Buffer
 	code2 := runDirect("memory-recall", bytes.NewReader(raw2), &out2, io.Discard)
-	if code2 != ExitProceed {
+	if code2 != core.ExitProceed {
 		t.Fatalf("MemoryRecall with empty CWD failed: code=%d", code2)
 	}
 }
@@ -349,7 +350,7 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 	}
 	raw, _ := json.Marshal(map[string]string{"cwd": t.TempDir(), "session_id": "probe-x"})
 	var out bytes.Buffer
-	if runDirect("memory-start", bytes.NewReader(raw), &out, io.Discard) != ExitProceed {
+	if runDirect("memory-start", bytes.NewReader(raw), &out, io.Discard) != core.ExitProceed {
 		t.Fatal("SessionStart failed")
 	}
 	if strings.Contains(out.String(), "repo-000") || strings.Contains(out.String(), "repo-119") {
