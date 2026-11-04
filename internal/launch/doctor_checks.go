@@ -7,16 +7,13 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/network/browser"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -96,17 +93,9 @@ func quotaFix(key string) string {
 	return "routed around until the reset; `claude-code gateway router` shows the pick"
 }
 
-// knownStateNames are entries under state/ and state/harness/ that no registry row globs (locks, logs, owner dirs).
-var knownStateNames = []string{
-	"harness", "plans-scratch", "copilot", "projections", "statusline", "usage", "vault.db*",
-	"*.lock", "*.log", "backups", "cache", "locks", "history*", "checkpoint", "agents-inflight", "memory",
-	"codex", "opencode", "preflight", "dispatch", "vendors", "vendor-baseline", "stop-format", "worktree-merge-ops", "worktree-busy",
-	"vscode-serve", "vscode-serve.secret", "agentversion.json", "opencode-models-check.json", "proxy.json", "proxy.restart-claim", "proxy.held", "router.json", "tailscale-machines.json",
-}
-
-// formatsDoctorChecks returns the soft "formats" and "state layout" rows.
+// formatsDoctorChecks returns the soft "formats" row.
 func formatsDoctorChecks() []Check {
-	return []Check{formatsCheck(), stateLayoutCheck()}
+	return []Check{formatsCheck()}
 }
 
 func formatsCheck() Check {
@@ -152,68 +141,6 @@ func ledgerLines() int {
 		return 0
 	}
 	return bytes.Count(data, []byte("\n"))
-}
-
-func stateLayoutCheck() Check {
-	root := filepath.Dir(paths.StateDir())
-	covered := coveredStatePaths(root)
-	var strays []string
-	for _, dir := range []string{root, paths.StateDir()} {
-		ents, _ := os.ReadDir(dir)
-		for _, e := range ents {
-			if covered[filepath.Join(dir, e.Name())] || knownStateName(e.Name()) {
-				continue
-			}
-			strays = append(strays, e.Name())
-		}
-	}
-	return stateLayoutResult(strays)
-}
-
-func coveredStatePaths(root string) map[string]bool {
-	covered := map[string]bool{}
-	for _, f := range schemas.All() {
-		if f.Glob == nil {
-			continue
-		}
-		g := f.Glob()
-		matches, _ := filepath.Glob(g)
-		matches = append(matches, g)
-		for _, m := range matches {
-			for ; strings.HasPrefix(m, root) && m != root; m = filepath.Dir(m) {
-				covered[m] = true
-			}
-		}
-	}
-	return covered
-}
-
-func stateLayoutResult(strays []string) Check {
-	if len(strays) == 0 {
-		return Check{Name: "state layout", OK: true, Detail: "all entries registered"}
-	}
-	sort.Strings(strays)
-	detail := fmt.Sprintf("%d unregistered: ", len(strays))
-	for i, s := range strays {
-		if len(detail)+len(s) > 70 {
-			detail += fmt.Sprintf("+%d", len(strays)-i)
-			break
-		}
-		detail += s
-		if i < len(strays)-1 {
-			detail += ", "
-		}
-	}
-	return Check{Name: "state layout", OK: false, Detail: detail}
-}
-
-func knownStateName(name string) bool {
-	for _, pat := range knownStateNames {
-		if ok, _ := path.Match(pat, name); ok {
-			return true
-		}
-	}
-	return false
 }
 
 func vaultDoctorChecks() []Check {

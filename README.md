@@ -400,7 +400,7 @@ token's time left (`oauth:42m`). Opt-in `segments`: `router`, `tokens` (`total:1
 ## Layout
 
 `CLAUDE.md` → Where things live. State: `state/vault.db` (untracked), `state/harness/<owner>/` (versioned per the
-`internal/schemas` registry; `doctor` reports `formats` and unclaimed `state layout` entries, `make install` runs
+`internal/schemas` registry; `doctor` reports `formats`, `make install` runs
 pending migrations), `state/harness/backups/` (every plaintext backup, via `paths.Backup`); `docs/templates/` indexes
 every embedded (`//go:embed`) template.
 
