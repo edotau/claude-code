@@ -230,6 +230,7 @@ var Native = map[string]Runner{
 	"worktree-create":           worktreeCreate,
 	"worktree-remove":           viaStderr(worktreeRemove),
 	"worktree-mode":             worktreeMode,
+	"nested-config-sweep":       nestedConfigSweep,
 	"worktree-busy":             worktreeBusy,
 	"worktree-claim":            worktreeClaim,
 	"worktree-claim-check":      worktreeClaimCheck,

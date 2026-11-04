@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -106,6 +107,14 @@ func worktreeMode(in *Input) Result {
 		return Result{}
 	}
 	return Result{Context: worktreeAskLine}
+}
+
+// nestedConfigSweep runs on SessionStart: removes the nested settings.local.json; a failure is a stderr note only.
+func nestedConfigSweep(*Input) Result {
+	if _, err := clean.SweepNestedLocal(); err != nil {
+		return Result{Stderr: "nested-config-sweep: " + err.Error()}
+	}
+	return Result{}
 }
 
 // worktreeBusy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.

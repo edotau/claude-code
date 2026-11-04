@@ -165,7 +165,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook SessionStart",
-            "timeout": 15,
+            "timeout": 20,
             "statusMessage": "Loading session memory"
           }
         ]
