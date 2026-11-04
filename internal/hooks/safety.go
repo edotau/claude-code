@@ -102,8 +102,8 @@ func safetyScan(in *Input) Result {
 			}
 		}
 	}
-	if decision == Allow {
-		return Result{Stderr: strings.TrimSpace(warn.String())}
+	if decision == Allow { // an allowed verdict's message is a warning (the rewrite guard failing open)
+		return Result{Stderr: strings.TrimSpace(msg + warn.String())}
 	}
 	if decision == Ask {
 		detail = "ask: " + detail
@@ -154,6 +154,15 @@ func safetyAskVerdict(in *Input) (Decision, string, string) {
 			}
 		}
 	}
+	d, msg, detail, warn := rewriteVerdict(in)
+	if d == Allow {
+		d, msg, detail = askPatternVerdict(in, cmd)
+	}
+	return d, warn + msg, detail
+}
+
+// askPatternVerdict asks on hard rule 4 git verbs, hard rule 3 footers and destructive SQL.
+func askPatternVerdict(in *Input, cmd string) (Decision, string, string) {
 	if harnessGitBlocked(cmd, in.CWD) {
 		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
 		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
@@ -190,10 +199,6 @@ func safetyMessage(in *Input, decision Decision, what, pattern, hint string) str
 
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
 var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true, "switch": true}
-
-// gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
-var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
-	"--namespace": true, "--exec-path": true}
 
 // shellWrapperNames launch a nested command STRING (not further argv tokens) that needs its own check.
 var shellWrapperNames = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true}
@@ -292,68 +297,6 @@ func gitTokenBlocked(rest []string, cwd string, harness, worktrees *string) bool
 		return false // inside a linked worktree: its own checkout, the live tree is untouched
 	}
 	return true
-}
-
-// gitInvocation parses git's global options up to the verb: the target tree, the verb, the verb's words.
-func gitInvocation(toks []string, cwd string) (target, verb string, args []string) {
-	var cPaths []string
-	var gitDir, workTree string
-	i := 0
-	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
-		var name, val string
-		var ok bool
-		if name, val, i, ok = gitGlobalOpt(toks, i); !ok {
-			continue
-		}
-		switch name {
-		case "-C":
-			cPaths = append(cPaths, val)
-		case "--git-dir":
-			gitDir = val
-		case "--work-tree":
-			workTree = val
-		}
-	}
-	if i < len(toks) {
-		verb, args = toks[i], toks[i+1:]
-	}
-	return gitTarget(cwd, gitDir, workTree, cPaths), verb, args
-}
-
-// gitGlobalOpt splits the global option at toks[i] into name and value, returning the next index; false if valueless.
-func gitGlobalOpt(toks []string, i int) (name, val string, next int, ok bool) {
-	t := toks[i]
-	i++
-	if n, v, found := strings.Cut(t, "="); found {
-		return n, v, i, true
-	}
-	if gitValueOpts[t] {
-		if i < len(toks) {
-			return t, toks[i], i + 1, true
-		}
-		return t, "", i, true
-	}
-	if after, found := strings.CutPrefix(t, "-C"); found {
-		return "-C", after, i, true
-	}
-	return "", "", i, false // valueless global option: --no-pager, --bare…
-}
-
-// gitTarget is the tree git acts on: --work-tree, else a .git --git-dir's parent, else the -C chain from cwd.
-func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
-	if p, ok := resolveShellPath(workTree, cwd); workTree != "" && ok {
-		return p
-	}
-	if p, ok := resolveShellPath(gitDir, cwd); gitDir != "" && ok && filepath.Base(p) == ".git" {
-		return filepath.Dir(p)
-	}
-	target := cwd
-	for _, c := range cPaths { // successive -C paths apply relative to each other
-		if p, ok := resolveShellPath(c, target); ok {
-			target = p
-		}
-	}
-	return target
 }
 
 // cdTarget reports the cwd a `cd`/`pushd` segment leaves behind; a dynamic target keeps the cwd we had.

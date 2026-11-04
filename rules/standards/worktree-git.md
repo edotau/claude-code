@@ -26,6 +26,9 @@ when another session joins the checkout. Never create one without the user's yes
 
 - Verbs (`create`, `list`, `merge`, `clean`, `clean-all`) and their flags: `skills/using-git-worktrees/SKILL.md`.
 - Never `stash`/`checkout`/`reset`/`restore` the live checkout (CLAUDE.md hard rule 4); in a worktree, branch freely.
+- **Never rewrite shared history** — no `commit --amend`, `rebase`, `reset <commit>` in a tree another session or
+  your leaves share (always `~/.claude`): commit anew or `git revert`; rewrite only in your own linked worktree
+  (`safety-scan` blocks). Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
 - No `git stash` anywhere — the stash list is shared by every worktree. Never run a worktree-built binary as the proxy.
 - `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR` points
   at it (`rules/harness/settings-management.md` → Worktree render).
