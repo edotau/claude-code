@@ -48,6 +48,26 @@ func scratch(t *testing.T) string {
 	return home
 }
 
+// assertNotExist reports each path that exists though it must not.
+func assertNotExist(t *testing.T, why string, ps ...string) {
+	t.Helper()
+	for _, p := range ps {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s: %s, stat err = %v", p, why, err)
+		}
+	}
+}
+
+// assertExists reports each path that is missing though it must exist.
+func assertExists(t *testing.T, why string, ps ...string) {
+	t.Helper()
+	for _, p := range ps {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s: %s: %v", p, why, err)
+		}
+	}
+}
+
 func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
 	home := scratch(t)
 	hooksPath := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
@@ -65,15 +85,11 @@ func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
 	for _, rel := range []string{
 		".codex/config.toml", ".codex/hooks.json", ".gemini/antigravity-cli/settings.json", ".copilot/settings.json",
 	} {
-		if _, err := os.Stat(filepath.Join(home, rel)); !os.IsNotExist(err) {
-			t.Errorf("%s must not be written after a render error: %v", rel, err)
-		}
+		assertNotExist(t, "must not be written after a render error", filepath.Join(home, rel))
 	}
 	// opencode's staged overlay write (ahead of copilot's in DefaultAgents order) must not apply either.
 	for _, rel := range []string{"opencode.json", "tui.json"} {
-		if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode", rel)); !os.IsNotExist(err) {
-			t.Errorf("opencode overlay %s must not be written after a later render error: %v", rel, err)
-		}
+		assertNotExist(t, "opencode overlay must not be written after a later render error", filepath.Join(paths.StateDir(), "opencode", rel))
 	}
 	if strings.Contains(out.String(), ": wrote ") || strings.Contains(out.String(), ": moved ") {
 		t.Errorf("reported unapplied writes:\n%s", out.String())
@@ -105,21 +121,8 @@ func TestPrepareDefersOpencodeOverlayWrite(t *testing.T) {
 	}
 }
 
-func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
-	home := scratch(t)
-	var out bytes.Buffer
-	drift, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
-	if err != nil {
-		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
-	}
-	if !drift {
-		t.Fatal("expected drift=true on first write")
-	}
-
-	codexCfg, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
-	if err != nil {
-		t.Fatalf("read codex config: %v", err)
-	}
+func assertCodexManagedBlock(t *testing.T, codexCfg []byte) {
+	t.Helper()
 	if !strings.Contains(string(codexCfg), "[model_providers.claude-code]") {
 		t.Errorf("codex config missing managed block:\n%s", codexCfg)
 	}
@@ -139,9 +142,11 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	if n := strings.Count(string(codexCfg), `cli_auth_credentials_store = "keyring"`); n != 1 {
 		t.Errorf("cli_auth_credentials_store occurs %d times, want 1:\n%s", n, codexCfg)
 	}
+}
 
-	// opencode's overlay is a tracked, owner-authored template, not a per-provider render: it carries no
-	// provider block for the session's selected provider (openai here), just the pinned model/variant.
+// opencode's overlay is a tracked, owner-authored template, not a per-provider render: just the pinned model/variant.
+func assertOpencodeOverlayOnly(t *testing.T, home string) {
+	t.Helper()
 	ocRaw, err := os.ReadFile(filepath.Join(paths.StateDir(), "opencode", "opencode.json"))
 	if err != nil {
 		t.Fatalf("read opencode overlay: %v", err)
@@ -153,21 +158,39 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	if _, ok := oc["model"]; !ok {
 		t.Errorf("opencode.json missing a model key: %s", ocRaw)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "opencode.json")); !os.IsNotExist(err) {
-		t.Errorf("opencode's own ~/.config/opencode/opencode.json must not be written, stat err = %v", err)
+	assertNotExist(t, "opencode's own ~/.config/opencode/opencode.json must not be written",
+		filepath.Join(home, ".config", "opencode", "opencode.json"))
+}
+
+func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
+	home := scratch(t)
+	var out bytes.Buffer
+	opts := agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}}
+	drift, err := agent.RenderConfigs(opts)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+	if !drift {
+		t.Fatal("expected drift=true on first write")
 	}
 
-	// gemini is report-only (agy has no settings-auth equivalent): it writes nothing, ever.
-	if _, err := os.Stat(filepath.Join(home, ".gemini", "settings.json")); !os.IsNotExist(err) {
-		t.Fatalf("gemini must write no settings.json, stat err = %v", err)
+	codexCfg, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("read codex config: %v", err)
 	}
+	assertCodexManagedBlock(t, codexCfg)
+	assertOpencodeOverlayOnly(t, home)
+
+	// gemini is report-only (agy has no settings-auth equivalent): it writes nothing, ever.
+	assertNotExist(t, "gemini must write no settings.json", filepath.Join(home, ".gemini", "settings.json"))
 	if !strings.Contains(out.String(), "gemini: no config render") {
 		t.Errorf("expected a gemini report-only line, got:\n%s", out.String())
 	}
 
 	// A second run with nothing changed must report no drift and touch no file's content.
 	var out2 bytes.Buffer
-	drift, err = agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	opts.Out = &out2
+	drift, err = agent.RenderConfigs(opts)
 	if err != nil {
 		t.Fatalf("second agent.RenderConfigs: %v", err)
 	}
@@ -176,26 +199,57 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	}
 }
 
+const foreignCodex = "# a hand-written line\nsome_other_key = \"keep-me\"\n\n[projects.\"/x\"]\ntrust_level = \"trusted\"\n"
+
+func writeForeign(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertForeignCodexKept(t *testing.T, got string) {
+	t.Helper()
+	if !strings.Contains(got, "some_other_key = \"keep-me\"") {
+		t.Errorf("foreign codex line was dropped:\n%s", got)
+	}
+	if !strings.Contains(got, "[projects.\"/x\"]") || !strings.Contains(got, "trust_level = \"trusted\"") {
+		t.Errorf("foreign [projects] table was dropped or altered:\n%s", got)
+	}
+	// The managed banner is inserted before the first pre-existing [table] header, not appended after it.
+	bannerIdx := strings.Index(got, "# >>> claude-code:managed:begin >>>")
+	tableIdx := strings.Index(got, "[projects.\"/x\"]")
+	if bannerIdx < 0 {
+		t.Fatalf("managed banner missing:\n%s", got)
+	}
+	if bannerIdx > tableIdx {
+		t.Errorf("managed banner (%d) must precede the pre-existing [projects] table (%d):\n%s", bannerIdx, tableIdx, got)
+	}
+}
+
+func assertCodexBackupKept(t *testing.T, codexPath string) {
+	t.Helper()
+	assertNotExist(t, "plaintext backup must not be written", codexPath+".backup")
+	backup, found, err := codex.LatestCodexBackup(codexPath)
+	if err != nil || !found {
+		t.Fatalf("encrypted backup missing: found=%v err=%v", found, err)
+	}
+	if string(backup.Data) != foreignCodex {
+		t.Errorf("encrypted backup did not retain original bytes")
+	}
+}
+
 func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	foreign := "# a hand-written line\nsome_other_key = \"keep-me\"\n\n[projects.\"/x\"]\ntrust_level = \"trusted\"\n"
-	if err := os.WriteFile(codexPath, []byte(foreign), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// opencode's own config is never touched: write foreign content there and confirm it survives
-	// byte-for-byte (the harness overlay lands at state/harness/opencode instead).
+	writeForeign(t, codexPath, foreignCodex)
+	// opencode's own config is never touched: foreign content must survive byte-for-byte.
 	ocPath := filepath.Join(home, ".config", "opencode", "opencode.json")
-	if err := os.MkdirAll(filepath.Dir(ocPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	foreignOC := `{"provider": {"myown": {"npm": "whatever"}}, "someForeignKey": true}`
-	if err := os.WriteFile(ocPath, []byte(foreignOC), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeForeign(t, ocPath, foreignOC)
 
 	var out bytes.Buffer
 	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
@@ -206,31 +260,8 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "some_other_key = \"keep-me\"") {
-		t.Errorf("foreign codex line was dropped:\n%s", got)
-	}
-	if !strings.Contains(string(got), "[projects.\"/x\"]") || !strings.Contains(string(got), "trust_level = \"trusted\"") {
-		t.Errorf("foreign [projects] table was dropped or altered:\n%s", got)
-	}
-	// The managed banner is inserted before the first pre-existing [table] header, not appended after it.
-	bannerIdx := strings.Index(string(got), "# >>> claude-code:managed:begin >>>")
-	tableIdx := strings.Index(string(got), "[projects.\"/x\"]")
-	if bannerIdx < 0 {
-		t.Fatalf("managed banner missing:\n%s", got)
-	}
-	if bannerIdx > tableIdx {
-		t.Errorf("managed banner (%d) must precede the pre-existing [projects] table (%d):\n%s", bannerIdx, tableIdx, got)
-	}
-	if _, err := os.Stat(codexPath + ".backup"); !os.IsNotExist(err) {
-		t.Fatalf("plaintext backup must not be written: %v", err)
-	}
-	backup, found, err := codex.LatestCodexBackup(codexPath)
-	if err != nil || !found {
-		t.Fatalf("encrypted backup missing: found=%v err=%v", found, err)
-	}
-	if string(backup.Data) != foreign {
-		t.Errorf("encrypted backup did not retain original bytes")
-	}
+	assertForeignCodexKept(t, string(got))
+	assertCodexBackupKept(t, codexPath)
 
 	ocGot, err := os.ReadFile(ocPath)
 	if err != nil {
@@ -239,9 +270,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if string(ocGot) != foreignOC {
 		t.Errorf("opencode's own config was touched: got %q, want untouched %q", ocGot, foreignOC)
 	}
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode", "opencode.json")); err != nil {
-		t.Errorf("overlay was not written to state/harness/opencode: %v", err)
-	}
+	assertExists(t, "overlay was not written to state/harness/opencode", filepath.Join(paths.StateDir(), "opencode", "opencode.json"))
 }
 
 // A user-set cli_auth_credentials_store outside the managed banner is kept verbatim, and the render
@@ -444,30 +473,8 @@ func TestCheckListsLostLinesWritesNothing(t *testing.T) {
 	}
 }
 
-// TestRevertRestoresNewestThenStepsBack: --revert restores the most recent version, consumes it
-// (removes the version file), and a second --revert steps one version further back.
-func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
-	vaulttest.Use(t)
-	home := t.TempDir()
-	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	current, older, newer := "current\n", "older\n", "newer\n"
-	if err := os.WriteFile(codexPath, []byte(current), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := codex.CodexBackup(codexPath, []byte(older), true); err != nil {
-		t.Fatal(err)
-	}
-	if err := codex.CodexBackup(codexPath, []byte(newer), true); err != nil {
-		t.Fatal(err)
-	}
-	newest, found, err := codex.LatestCodexBackup(codexPath)
-	if err != nil || !found {
-		t.Fatalf("backup missing: %v", err)
-	}
-
+func revertCodex(t *testing.T, home, codexPath string) string {
+	t.Helper()
 	if err := agent.RevertConfigs(agentrender.RenderOptions{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +482,35 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != newer {
+	return string(got)
+}
+
+// seedCodexBackups writes current to codexPath and backs up each version in order; returns the newest backup.
+func seedCodexBackups(t *testing.T, codexPath, current string, versions ...string) codex.CodexConfigBackup {
+	t.Helper()
+	writeForeign(t, codexPath, current)
+	for _, v := range versions {
+		if err := codex.CodexBackup(codexPath, []byte(v), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newest, found, err := codex.LatestCodexBackup(codexPath)
+	if err != nil || !found {
+		t.Fatalf("backup missing: %v", err)
+	}
+	return newest
+}
+
+// TestRevertRestoresNewestThenStepsBack: --revert restores the most recent version, consumes it
+// (removes the version file), and a second --revert steps one version further back.
+func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
+	vaulttest.Use(t)
+	home := t.TempDir()
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	older, newer := "older\n", "newer\n"
+	newest := seedCodexBackups(t, codexPath, "current\n", older, newer)
+
+	if got := revertCodex(t, home, codexPath); got != newer {
 		t.Fatalf("first revert: got %q, want newest version %q", got, newer)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
@@ -487,35 +522,14 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := agent.RevertConfigs(agentrender.RenderOptions{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
-		t.Fatal(err)
-	}
-	got, err = os.ReadFile(codexPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != older {
+	if got := revertCodex(t, home, codexPath); got != older {
 		t.Fatalf("second revert: got %q, want next-older version %q", got, older)
 	}
 }
 
-func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
-	home := scratch(t)
-	var out bytes.Buffer
-	if drift, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
-		t.Fatalf("Run: %v", err)
-	} else if !drift {
-		t.Fatal("expected drift=true against an empty home")
-	}
-	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
-		t.Fatalf("--check must write nothing, stat err = %v", err)
-	}
-
-	// Write it for real, then hand-edit the managed block and confirm --check reports drift again.
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	path := filepath.Join(home, ".codex", "config.toml")
+// tamperCodexConfig edits the managed block in place and returns the edited text.
+func tamperCodexConfig(t *testing.T, path string) string {
+	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -527,6 +541,25 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return edited
+}
+
+func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
+	home := scratch(t)
+	var out bytes.Buffer
+	if drift, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	} else if !drift {
+		t.Fatal("expected drift=true against an empty home")
+	}
+	path := filepath.Join(home, ".codex", "config.toml")
+	assertNotExist(t, "--check must write nothing", path)
+
+	// Write it for real, then hand-edit the managed block and confirm --check reports drift again.
+	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	edited := tamperCodexConfig(t, path)
 	var out2 bytes.Buffer
 	drift, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Check: true, Agents: []string{"codex"}})
 	if err != nil {
@@ -576,9 +609,7 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	if err != nil || json.Unmarshal(raw, &cfg) != nil || cfg["theme"] != "gemini-plum" {
 		t.Fatalf("tui.json = %s (err %v), want theme gemini-plum", raw, err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "tui.json")); !os.IsNotExist(err) {
-		t.Errorf("opencode's own ~/.config/opencode/tui.json must not be written, stat err = %v", err)
-	}
+	assertNotExist(t, "opencode's own ~/.config/opencode/tui.json must not be written", filepath.Join(home, ".config", "opencode", "tui.json"))
 
 	// Swap only the theme value in the rendered file (as `theme apply` would), keeping the template's own
 	// formatting: preserveAppliedTheme re-renders onto the template, so only a theme-field edit round-trips
@@ -659,30 +690,15 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	if !strings.Contains(out.String(), "skipping agent configs") {
 		t.Fatalf("expected the skip note, got:\n%s", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(vendorHome, ".codex")); !os.IsNotExist(err) {
-		t.Fatalf("expected no .codex under the scratch HOME, stat err = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(vendorHome, ".config", "opencode")); !os.IsNotExist(err) {
-		t.Fatalf("expected no opencode config under the scratch HOME, stat err = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode")); !os.IsNotExist(err) {
-		t.Fatalf("expected no opencode overlay under state/harness, stat err = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(vendorHome, ".copilot")); !os.IsNotExist(err) {
-		t.Fatalf("expected no .copilot under the scratch HOME, stat err = %v", err)
-	}
+	assertNotExist(t, "expected no vendor writes under the scratch HOME",
+		filepath.Join(vendorHome, ".codex"), filepath.Join(vendorHome, ".config", "opencode"),
+		filepath.Join(paths.StateDir(), "opencode"), filepath.Join(vendorHome, ".copilot"))
 
 	var out2 bytes.Buffer
 	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Out: &out2, ForceHomes: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
 		t.Fatalf("Run with --vendors: %v\n%s", err, out2.String())
 	}
-	if _, err := os.Stat(filepath.Join(vendorHome, ".codex", "config.toml")); err != nil {
-		t.Fatalf("--vendors must still write codex config: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "opencode", "opencode.json")); err != nil {
-		t.Fatalf("--vendors must still write the opencode overlay: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json")); err != nil {
-		t.Fatalf("--vendors must still write copilot hooks: %v", err)
-	}
+	assertExists(t, "--vendors must still write the vendor configs",
+		filepath.Join(vendorHome, ".codex", "config.toml"), filepath.Join(paths.StateDir(), "opencode", "opencode.json"),
+		filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json"))
 }
