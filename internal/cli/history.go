@@ -83,7 +83,7 @@ func printSnapshot(plane string, r history.Result) {
 // historyLog prints the config plane's log.
 func historyLog(args []string) int {
 	fs := helptext.NewFlagSet("history log", helptext.Page{Usage: "claude-code history log [flags]"})
-	n := fs.Int("n", 20, "commits per plane")
+	n := fs.Int("n", 20, "commits to show")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -107,7 +107,9 @@ func historyLog(args []string) int {
 		printLog(plane, lines)
 	}
 	if *format == helptext.JSON {
-		_ = helptext.WriteJSON(os.Stdout, planes)
+		if jrc := writeJSONOrFail("history log", planes); jrc != 0 {
+			return jrc
+		}
 	}
 	return rc
 }

@@ -25,7 +25,10 @@ func runSplitReview(name string, args []string, parts []review.Part, scope revie
 	}
 	var job *agent.Record
 	if id := os.Getenv(reviewJobEnv); id != "" {
-		if r, err := agent.LoadRecord(id); err == nil {
+		r, err := agent.LoadRecord(id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "review: job record %s not updated: %v\n", id, err)
+		} else {
 			job = &r
 		}
 	}
@@ -59,14 +62,18 @@ func spawnSplitReview(name string, args []string, n int) int {
 		return fail("%s review: %v", name, err)
 	}
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
-	_ = rec.Save()
+	if err := rec.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s review: job record not saved: %v\n", name, err)
+	}
 	argv := append([]string{name, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		return a == "--background" || a == "-background" || a == "--background=true"
 	})...)
 	if err := job.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
 		return fail("%s review: %v", name, err)
 	}
-	_ = rec.Save() // record the child's pid so status can tell running from lost
+	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
+		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)
+	}
 	reportBackgroundStart("text", rec)
 	return 0
 }
@@ -76,7 +83,9 @@ func finishSplitReview(job *agent.Record, err error) int {
 	if job != nil {
 		job.Progress = ""
 		job.Finish(agent.Result{}, err, time.Since(job.Time))
-		_ = job.Save()
+		if serr := job.Save(); serr != nil {
+			fmt.Fprintf(os.Stderr, "review: job record not saved: %v\n", serr)
+		}
 	}
 	if err != nil {
 		return fail("review: %v", err)

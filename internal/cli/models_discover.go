@@ -33,7 +33,7 @@ func cmdModelsDiscover(args []string) int {
 	fs := helptext.NewFlagSet("models discover", modelsDiscoverPage)
 	profile := fs.String("profile", "", "discover only this registry profile")
 	apply := fs.Bool("apply", false, "append discovered additions to saved runtime pickers")
-	dry := fs.Bool("dry-run", false, "preview only; do not save discovery state")
+	dry := fs.Bool("dry-run", false, "preview only (the default); conflicts with --apply")
 	format := helptext.FormatFlag(fs)
 	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -133,7 +133,7 @@ func discoverPickerProfile(p *providers.Provider, apply bool) discoverResult {
 	}
 	if err != nil {
 		r.Status = "error"
-		r.Note = "saved picker additions unavailable or invalid; nothing overwritten"
+		r.Note = "saved picker additions unavailable or invalid; nothing overwritten: " + err.Error()
 		return r
 	}
 	if len(added) > 0 {

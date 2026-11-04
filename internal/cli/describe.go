@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 
@@ -86,7 +85,7 @@ func cmdDescribe(args []string) int {
 	}
 	switch *format {
 	case "json":
-		_ = helptext.WriteJSON(os.Stdout, d)
+		return writeJSONOrFail("describe", d)
 	case "text":
 		printDescribe(d)
 	default:
@@ -146,18 +145,13 @@ func flagNames(node *compNode) []string {
 		return nil
 	}
 	seen := map[string]bool{}
-	add := func(infos []flagInfo) {
-		for _, f := range infos {
-			name := "--" + f.name
-			if !f.isBool {
-				name += " <value>"
-			}
+	for _, name := range ownFlagNames(node) {
+		seen[name] = true
+	}
+	for _, sub := range node.sub {
+		for _, name := range ownFlagNames(sub) {
 			seen[name] = true
 		}
-	}
-	add(node.flags)
-	for _, sub := range node.sub {
-		add(sub.flags)
 	}
 	return slices.Sorted(maps.Keys(seen))
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,7 +25,15 @@ func TestCmdGeminiBridgePrintCommandListsDirFilesAndNeverRunsAgy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pathDir, "agy"), []byte("#!/bin/sh\ntouch "+textutil.ShellQuote(marker)+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not on PATH")
+	}
+	if err := os.Symlink(git, filepath.Join(pathDir, "git")); err != nil { // the bridge fails closed without git
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", pathDir)
+	t.Chdir(dir) // a non-repo cwd: a --dirs path outside the cwd repo is skipped as untracked
 
 	code, _, stderr := captureOutput(t, func() int {
 		return cmdGeminiBridge([]string{"t", "--dirs", dir, "--print-command"})

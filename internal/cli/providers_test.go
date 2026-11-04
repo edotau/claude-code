@@ -647,3 +647,19 @@ func TestPrintRecordDiffRejectsUnreadableRecords(t *testing.T) {
 		t.Fatalf("preview: exit=%d applied=%v stdout=%q stderr=%q", code, applied, out, stderr)
 	}
 }
+
+// A qualified <provider>·<profile> name resolves like reg.Get and lists that profile, not panics.
+func TestProviderListJSONQualifiedName(t *testing.T) {
+	useVaultTest(t)
+	if err := providers.SetProviderFields("grp-dev", map[string]any{
+		"provider": "databricks", "protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"auth": map[string]any{"type": "pat"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := providerListCmdJSON(t, "databricks·grp-dev")
+	var raw struct{ Name string }
+	if err := json.Unmarshal([]byte(out), &raw); err != nil || raw.Name != "grp-dev" {
+		t.Fatalf("got name %q err %v from %s, want grp-dev", raw.Name, err, out)
+	}
+}

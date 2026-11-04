@@ -81,11 +81,17 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	if err != nil {
 		return fail("network browser --setup: %v", err)
 	}
+	rc := 0
+	for _, a := range acts.Items {
+		if a.Error != "" {
+			rc = 1
+		}
+	}
 	if format == "json" {
 		if err := helptext.WriteJSON(os.Stdout, acts); err != nil {
 			return fail("network browser --setup: %v", err)
 		}
-		return 0
+		return rc
 	}
 	fmt.Printf("%s:\n", acts.Browser)
 	for _, a := range acts.Items {
@@ -98,7 +104,7 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 		}
 		fmt.Println(line)
 	}
-	return 0
+	return rc
 }
 
 // fieldFlag collects repeatable --field name=selector[@attr] values.
@@ -165,17 +171,23 @@ func networkBrowserExtract(a *extractArgs, format string) int {
 		return failUsage("network browser: %v", err)
 	}
 	out := os.Stdout
+	var outFile *os.File
 	if *a.out != "" {
 		f, err := os.Create(*a.out)
 		if err != nil {
 			return fail("network browser: %v", err)
 		}
-		defer func() { _ = f.Close() }()
-		out = f
+		outFile, out = f, f
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := browser.Extract(ctx, browser.NewEnv(), opts, out); err != nil {
+	err := browser.Extract(ctx, browser.NewEnv(), opts, out)
+	if outFile != nil {
+		if cerr := outFile.Close(); err == nil && cerr != nil {
+			err = cerr
+		}
+	}
+	if err != nil {
 		return fail("network browser --extract: %s", strings.TrimSpace(err.Error()))
 	}
 	return 0

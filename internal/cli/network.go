@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/web"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	uitree "github.com/edotau/claude-code/internal/ui/tree"
 )
@@ -233,7 +234,7 @@ func cmdNetworkPage(args []string) int {
 	}
 	var hostList []string
 	if *hosts != "" {
-		hostList = strings.Split(*hosts, ",")
+		hostList = textutil.SplitCSV(*hosts)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
