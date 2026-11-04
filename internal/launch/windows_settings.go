@@ -68,15 +68,6 @@ func WindowsSettingsFile() string {
 	return filepath.Join(dir, ".claude", "settings.json")
 }
 
-// windowsLocalSettingsFile is the Windows settings.local.json, for the LocalDuplicates drift note.
-func windowsLocalSettingsFile() string {
-	dir := WindowsProfileDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, ".claude", "settings.local.json")
-}
-
 // InstallWindowsSettings renders the Windows subset of the live settings and merges it into the
 // Windows settings.json (hooks only when the file exists), backing up first. A no-op off WSL, or with a one-line skip note when the
 // Windows profile can't be resolved.
@@ -163,14 +154,14 @@ func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
 	if err != nil {
 		return SettingsDrift{File: file}, true, err
 	}
-	d, err = checkSettingsDriftAt(file, windowsLocalSettingsFile(), winRendered, "")
+	d, err = checkSettingsDriftAt(file, winRendered)
 	// Windows-side writers (foreign hooks, remote, a bash statusLine) own their keys; install keeps them, so not drift.
 	d.Kept, d.Foreign = d.Foreign, nil
 	return d, true, err
 }
 
-// checkSettingsDriftAt is CheckSettingsDriftWith generalized over the file/local-file pair; dupNote suffixes LocalDup lines.
-func checkSettingsDriftAt(file, localFile string, rendered []byte, dupNote string) (SettingsDrift, error) {
+// checkSettingsDriftAt is CheckSettingsDriftWith generalized over the settings file.
+func checkSettingsDriftAt(file string, rendered []byte) (SettingsDrift, error) {
 	d := SettingsDrift{File: file}
 	existing, _, rerr := readStrippingBOM(file) // install preserves a BOM; Diff must not see it
 	switch {
@@ -188,13 +179,6 @@ func checkSettingsDriftAt(file, localFile string, rendered []byte, dupNote strin
 			return d, derr
 		}
 		d.Differs, d.Foreign = differs, foreign
-	}
-	if local, lerr := os.ReadFile(localFile); lerr == nil {
-		if dups, derr := settings.LocalDuplicates(local, rendered); derr == nil {
-			for _, k := range dups {
-				d.LocalDup = append(d.LocalDup, fmt.Sprintf("settings.local.json %s repeats the defaults%s", k, dupNote))
-			}
-		}
 	}
 	return d, nil
 }
