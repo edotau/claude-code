@@ -63,6 +63,11 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 	return out.String()
 }
 
+// joinsMetrics is true when key continues the context/limits/total metric group after prev.
+func joinsMetrics(prev, key string) bool {
+	return (key == "limits" || key == "total") && (prev == "context" || prev == "limits" || prev == "total")
+}
+
 func gradientCells(v values, cfg Config) []cell {
 	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")
@@ -91,7 +96,7 @@ func gradientCells(v values, cfg Config) []cell {
 		push(v.path, "g")
 		pushSep(sepPath)
 	}
-	emitted := false
+	emitted, prev := false, ""
 	for _, key := range cfg.Order {
 		if key == "path" || key == "agents" || !cfg.seg(key, true) {
 			continue // agents opens the git section, below
@@ -104,18 +109,21 @@ func gradientCells(v values, cfg Config) []cell {
 			if cfg.Bar.Percent != "before" {
 				push(" "+strconv.Itoa(v.contextPct)+"%", "g")
 			}
-			emitted = true
+			emitted, prev = true, key
 			continue
 		}
 		text := v.text(key)
 		if text == "" {
 			continue
 		}
-		if emitted {
+		switch {
+		case emitted && joinsMetrics(prev, key):
+			push(" ", "g")
+		case emitted:
 			pushSep(sepMinor)
 		}
 		push(text, "g")
-		emitted = true
+		emitted, prev = true, key
 	}
 	var right []string // the git section: agent count, then branch
 	if cfg.seg("agents", true) && v.agents != "" {

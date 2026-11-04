@@ -37,7 +37,7 @@ func TestGradientCells(t *testing.T) {
 				{"~/proj ", "g"}, {"|", "sep"}, {" openrouter ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
 				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
 				{"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
-				{" ", "g"}, {"|", "sep"}, {" total:1.23M", "g"}, {" | ", "sep"}, {"feature…", "g"},
+				{" 1.23M", "g"}, {" | ", "sep"}, {"feature…", "g"},
 			},
 		},
 		{

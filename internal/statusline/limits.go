@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -15,9 +14,9 @@ import (
 // limitsCacheMaxAge bounds how stale internal/usage's oauth-usage cache may be before it is ignored.
 const limitsCacheMaxAge = 6 * time.Hour
 
-// limitsSegment is "5h:N% 7d:N%" on the first-party subscription session only: the payload's rate_limits, else
-// internal/usage's cache file; a window with no fresh data or a passed reset is omitted. Any other session shows
-// its credential's time left ("oauth:42m", "tok:42m") when an expiry is recorded, else "".
+// limitsSegment is "7d:N%" on the first-party subscription session only: the payload's rate_limits, else
+// internal/usage's cache file; no fresh data or a passed reset omits it. Any other session shows
+// its credential's time left ("u2m:42min", "m2m:42min") when an expiry is recorded, else "".
 func limitsSegment(in Input, session string) string {
 	if !onSubscription(session) {
 		exp, ok := providers.TokenExpiry(session)
@@ -26,18 +25,14 @@ func limitsSegment(in Input, session string) string {
 		}
 		return tokenLeft(tokenLabel(session), exp, time.Now())
 	}
-	five, week := limitsFromPayload(in)
-	if five < 0 && week < 0 {
-		five, week = limitsFromCache()
+	week := limitsFromPayload(in)
+	if week < 0 {
+		week = limitsFromCache()
 	}
-	var parts []string
-	if five >= 0 {
-		parts = append(parts, fmt.Sprintf("5h:%d%%", five))
+	if week < 0 {
+		return ""
 	}
-	if week >= 0 {
-		parts = append(parts, fmt.Sprintf("7d:%d%%", week))
-	}
-	return strings.Join(parts, " ")
+	return fmt.Sprintf("7d:%d%%", week)
 }
 
 // onSubscription is true when the session profile row is first-party Anthropic on its cli (passthrough) login.
@@ -50,7 +45,7 @@ func onSubscription(session string) bool {
 	return p != nil && p.Provider == "anthropic" && p.Auth.Method() == providers.AuthCLI
 }
 
-// tokenLabel names the credential in the countdown: "m2m" for a service principal, else "oauth" (a recorded expiry is an OAuth JWT).
+// tokenLabel names the credential in the countdown: "m2m" for a service principal, else "u2m" (a recorded expiry is a user OAuth JWT).
 func tokenLabel(session string) string {
 	if reg := registry(); reg != nil {
 		if p := reg.Providers[session]; p != nil {
@@ -59,21 +54,21 @@ func tokenLabel(session string) string {
 			}
 		}
 	}
-	return providers.AuthOAuth
+	return "u2m"
 }
 
-// tokenLeft renders the time until exp: "oauth:42m", "tok:1h05m", "oauth:<1m", or "oauth:exp" once past.
+// tokenLeft renders the time until exp: "u2m:42min", "m2m:1h05min", "u2m:<1min", or "u2m:exp" once past.
 func tokenLeft(method string, exp, now time.Time) string {
 	left := exp.Sub(now)
 	switch {
 	case left <= 0:
 		return method + ":exp"
 	case left < time.Minute:
-		return method + ":<1m"
+		return method + ":<1min"
 	case left < time.Hour:
-		return fmt.Sprintf("%s:%dm", method, int(left/time.Minute))
+		return fmt.Sprintf("%s:%dmin", method, int(left/time.Minute))
 	}
-	return fmt.Sprintf("%s:%dh%02dm", method, int(left/time.Hour), int(left%time.Hour/time.Minute))
+	return fmt.Sprintf("%s:%dh%02dmin", method, int(left/time.Hour), int(left%time.Hour/time.Minute))
 }
 
 // pct is the window's rounded used percent; -1 when absent or its reset already passed.
@@ -84,13 +79,12 @@ func (w *rateWindow) pct(now int64) int {
 	return clampPct(int(*w.UsedPercentage + 0.5))
 }
 
-// limitsFromPayload reads rate_limits off the statusline payload; -1 means absent or expired.
-func limitsFromPayload(in Input) (five, week int) {
+// limitsFromPayload reads the 7d window off the statusline payload; -1 means absent or expired.
+func limitsFromPayload(in Input) int {
 	if in.RateLimits == nil {
-		return -1, -1
+		return -1
 	}
-	now := time.Now().Unix()
-	return in.RateLimits.FiveHour.pct(now), in.RateLimits.SevenDay.pct(now)
+	return in.RateLimits.SevenDay.pct(time.Now().Unix())
 }
 
 // cacheWindow is one window of internal/usage's oauth/usage cache body.
@@ -107,26 +101,24 @@ func (w cacheWindow) pct(now time.Time) int {
 	return clampPct(int(w.Utilization + 0.5))
 }
 
-// limitsFromCache reads the usage cache internal/usage writes (no network); -1 means absent, stale or expired.
-func limitsFromCache() (five, week int) {
+// limitsFromCache reads the 7d window from the usage cache internal/usage writes (no network); -1 means absent, stale or expired.
+func limitsFromCache() int {
 	raw, err := os.ReadFile(filepath.Join(paths.StateDir(), "cache", "claude-oauth-usage.json"))
 	if err != nil {
-		return -1, -1
+		return -1
 	}
 	var c struct {
 		FetchedAt time.Time       `json:"fetched_at"`
 		Body      json.RawMessage `json:"body"`
 	}
 	if json.Unmarshal(raw, &c) != nil || len(c.Body) == 0 || time.Since(c.FetchedAt) > limitsCacheMaxAge {
-		return -1, -1
+		return -1
 	}
 	var b struct {
-		FiveHour cacheWindow `json:"five_hour"`
 		SevenDay cacheWindow `json:"seven_day"`
 	}
 	if json.Unmarshal(c.Body, &b) != nil {
-		return -1, -1
+		return -1
 	}
-	now := time.Now()
-	return b.FiveHour.pct(now), b.SevenDay.pct(now)
+	return b.SevenDay.pct(time.Now())
 }

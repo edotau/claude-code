@@ -35,7 +35,7 @@
     "velocity": true
   },
   "bar": {
-    "width": 10,
+    "width": 5,
     "filledGlyph": "█",
     "emptyGlyph": "█",
     "percent": "after",
