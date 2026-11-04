@@ -220,24 +220,31 @@ func findClasses(content, language string) []ClassInfo {
 func magicNumberOnLine(line string) (string, bool) {
 	for _, loc := range magicNumberDigits().FindAllStringIndex(line, -1) {
 		start, end := loc[0], loc[1]
-		if start > 0 {
-			prev := line[start-1]
-			if isWordByte(prev) || prev == '.' || prev == '"' || prev == '\'' {
-				continue
-			}
+		if magicNumberBounded(line, start, end) {
+			return line[start:end], true
 		}
-		if end < len(line) {
-			next := line[end]
-			if isWordByte(next) {
-				continue
-			}
-			if next == '.' && end+1 < len(line) && line[end+1] >= '0' && line[end+1] <= '9' {
-				continue
-			}
-		}
-		return line[start:end], true
 	}
 	return "", false
+}
+
+// magicNumberBounded applies the lookbehind/lookahead of the magic-number regex to the digits at line[start:end].
+func magicNumberBounded(line string, start, end int) bool {
+	if start > 0 {
+		prev := line[start-1]
+		if isWordByte(prev) || prev == '.' || prev == '"' || prev == '\'' {
+			return false
+		}
+	}
+	return end >= len(line) || !digitsContinue(line, end)
+}
+
+// digitsContinue reports a word byte, or a ".<digit>" fraction, right after the digits ending at end.
+func digitsContinue(line string, end int) bool {
+	next := line[end]
+	if isWordByte(next) {
+		return true
+	}
+	return next == '.' && end+1 < len(line) && line[end+1] >= '0' && line[end+1] <= '9'
 }
 
 func isWordByte(b byte) bool {
@@ -257,6 +264,13 @@ func checkCodeSmells(content, lang string, functions []FunctionInfo, classes []C
 				Location: c.Name})
 		}
 	}
+	smells = append(smells, lineSmells(content)...)
+	return append(smells, commentSmells(content, lang)...)
+}
+
+// lineSmells flags magic numbers (outside comments and imports) and commented-out code, line by line.
+func lineSmells(content string) []Smell {
+	var smells []Smell
 	for i, line := range strings.Split(content, "\n") {
 		lineNo := i + 1
 		trimmed := strings.TrimSpace(line)
@@ -273,7 +287,7 @@ func checkCodeSmells(content, lang string, functions []FunctionInfo, classes []C
 				Message: "Commented-out code should be removed", Location: fmt.Sprintf("line %d", lineNo)})
 		}
 	}
-	return append(smells, commentSmells(content, lang)...)
+	return smells
 }
 
 // functionSmells is the per-function slice of check_code_smells (kept separate to stay under 50 lines).
@@ -330,28 +344,32 @@ func calculateQualityScore(lm LineMetrics, functions []FunctionInfo, smells []Sm
 	for _, v := range violations {
 		score -= violationPenalty[v.Severity]
 	}
-	if lm.Total > 0 {
-		ratio := float64(lm.Comment) / float64(lm.Total)
-		if ratio >= 0.1 && ratio <= 0.3 {
-			score += 5
-		}
+	score += commentRatioBonus(lm) + shortFunctionBonus(functions)
+	return min(max(score, 0), 100)
+}
+
+func commentRatioBonus(lm LineMetrics) int {
+	if lm.Total == 0 {
+		return 0
 	}
-	if len(functions) > 0 {
-		total := 0
-		for _, f := range functions {
-			total += f.Lines
-		}
-		if float64(total)/float64(len(functions)) < 30 {
-			score += 5
-		}
+	if ratio := float64(lm.Comment) / float64(lm.Total); ratio >= 0.1 && ratio <= 0.3 {
+		return 5
 	}
-	if score > 100 {
-		score = 100
+	return 0
+}
+
+func shortFunctionBonus(functions []FunctionInfo) int {
+	if len(functions) == 0 {
+		return 0
 	}
-	if score < 0 {
-		score = 0
+	total := 0
+	for _, f := range functions {
+		total += f.Lines
 	}
-	return score
+	if float64(total)/float64(len(functions)) < 30 {
+		return 5
+	}
+	return 0
 }
 
 // getGrade ports quality_core.get_grade.

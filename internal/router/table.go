@@ -1,6 +1,7 @@
 package router
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -210,12 +211,8 @@ func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteC
 		}
 		c.Account = acct
 	}
-	if o.Model != "" {
-		c.Model = o.Model
-	}
-	if o.Effort != "" {
-		c.Effort = o.Effort
-	}
+	c.Model = cmp.Or(o.Model, c.Model)
+	c.Effort = cmp.Or(o.Effort, c.Effort)
 	if o.Account != "" {
 		if _, ok := t.Billing[o.Account]; !ok {
 			return "", fmt.Errorf("router: overlay %s/%s: account_key %q names no known billing entry", agent, key, o.Account)
@@ -297,6 +294,17 @@ func (t *RouteTable) AliasOf(model string) string {
 	if bare == "" {
 		bare = model
 	}
+	if alias := t.aliasOfCell(bare); alias != "" {
+		return alias
+	}
+	if f := models.FamilyOf(bare); slices.Contains(Aliases, f) {
+		return f
+	}
+	return registryAliasOf(bare)
+}
+
+// aliasOfCell is the alias whose table cell (any agent) runs bare, with or without a provider prefix; "" if none.
+func (t *RouteTable) aliasOfCell(bare string) string {
 	for _, alias := range Aliases {
 		for _, agent := range TableAgents {
 			if m := t.Rows[agent][alias].Model; m == bare || m[strings.Index(m, "/")+1:] == bare {
@@ -304,14 +312,18 @@ func (t *RouteTable) AliasOf(model string) string {
 			}
 		}
 	}
-	if f := models.FamilyOf(bare); slices.Contains(Aliases, f) {
-		return f
+	return ""
+}
+
+// registryAliasOf is the alias some registry provider maps bare to; "" if none.
+func registryAliasOf(bare string) string {
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
 	}
-	if reg, err := providers.Load(); err == nil {
-		for _, name := range reg.Names() {
-			if s := reg.Providers[name].AliasOf(bare); slices.Contains(Aliases, s) {
-				return s
-			}
+	for _, name := range reg.Names() {
+		if s := reg.Providers[name].AliasOf(bare); slices.Contains(Aliases, s) {
+			return s
 		}
 	}
 	return ""

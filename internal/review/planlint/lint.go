@@ -46,20 +46,7 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	}
 	bad := 0
 	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			fmt.Fprintf(stderr, "%s: cannot read file: %v\n", f, err)
-			bad++
-			continue
-		}
-		for _, hit := range LintPins(f, data) {
-			fmt.Fprintln(stderr, hit)
-			bad++
-		}
-		for _, hit := range registryHidingDefects(f) {
-			fmt.Fprintln(stderr, hit)
-			bad++
-		}
+		bad += lintScript(f, stderr)
 	}
 	for _, hit := range workflowDocDrift(root) {
 		fmt.Fprintln(stderr, hit)
@@ -70,6 +57,20 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "workflow lint: %d script(s) clean\n", len(files))
 	return 0
+}
+
+// lintScript prints every defect in one script to stderr and returns how many it found.
+func lintScript(f string, stderr io.Writer) int {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: cannot read file: %v\n", f, err)
+		return 1
+	}
+	hits := append(LintPins(f, data), registryHidingDefects(f)...)
+	for _, hit := range hits {
+		fmt.Fprintln(stderr, hit)
+	}
+	return len(hits)
 }
 
 // skillScripts returns every skills/*/scripts/*.js under root that opens with `export const meta` (a
@@ -254,14 +255,7 @@ func registryHidingDefects(path string) []string {
 		return []string{fmt.Sprintf("%s: cannot read file: %v", path, err)}
 	}
 	src := string(data)
-	var out []string
-	line := func(i int) int { return 1 + strings.Count(src[:i], "\n") }
-	if start := strings.Index(src, "export const meta = {"); start >= 0 {
-		meta := delimitedWindow(src, start+len("export const meta = "), '{', '}')
-		if strings.Contains(meta, "`") || strings.Contains(stripStrings(meta), "+") {
-			out = append(out, fmt.Sprintf("%s:%d: meta is not a pure literal (no `+`, template literals or variables) — the registry cannot load it", path, line(start)))
-		}
-	}
+	out := metaLiteralDefects(path, src)
 	for i, l := range strings.Split(stripStrings(src), "\n") { // masked: a prompt line starting "throw " is prose
 		t := strings.TrimSpace(l)
 		if l != "" && l[0] != ' ' && l[0] != '\t' && (strings.HasPrefix(t, "throw ") || (strings.HasPrefix(t, "if ") && strings.Contains(t, ") throw "))) {
@@ -269,6 +263,19 @@ func registryHidingDefects(path string) []string {
 		}
 	}
 	return out
+}
+
+// metaLiteralDefects flags an `export const meta` whose value is not a pure literal.
+func metaLiteralDefects(path, src string) []string {
+	start := strings.Index(src, "export const meta = {")
+	if start < 0 {
+		return nil
+	}
+	meta := delimitedWindow(src, start+len("export const meta = "), '{', '}')
+	if !strings.Contains(meta, "`") && !strings.Contains(stripStrings(meta), "+") {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s:%d: meta is not a pure literal (no `+`, template literals or variables) — the registry cannot load it", path, 1+strings.Count(src[:start], "\n"))}
 }
 
 // callWindow returns src from the `agent(` at start through its matching close paren.
@@ -285,19 +292,9 @@ func delimitedWindow(src string, open int, opener, closer byte) string {
 	for ; i < len(src) && i < open+pinWindow; i++ {
 		switch c := src[i]; c {
 		case '/':
-			if i+1 < len(src) && (src[i+1] == '/' || src[i+1] == '*') {
-				i = commentEnd(src, i)
-			}
+			i = skipComment(src, i)
 		case '`', '\'', '"':
-			for i++; i < len(src); i++ {
-				if src[i] == '\\' {
-					i++
-					continue
-				}
-				if src[i] == c {
-					break
-				}
-			}
+			i = skipQuoted(src, i, c)
 		case opener:
 			depth++
 		case closer:
@@ -311,6 +308,28 @@ func delimitedWindow(src string, open int, opener, closer byte) string {
 		i = len(src)
 	}
 	return src[open-countBack(src, open) : i]
+}
+
+// skipQuoted returns the index of the quote c closing the literal opened at i (or past the end), honoring \-escapes.
+func skipQuoted(src string, i int, c byte) int {
+	for i++; i < len(src); i++ {
+		if src[i] == '\\' {
+			i++
+			continue
+		}
+		if src[i] == c {
+			break
+		}
+	}
+	return i
+}
+
+// skipComment returns the end of the comment opening at i, or i when src[i] does not open one.
+func skipComment(src string, i int) int {
+	if i+1 < len(src) && (src[i+1] == '/' || src[i+1] == '*') {
+		return commentEnd(src, i)
+	}
+	return i
 }
 
 // commentEnd returns the index of the last byte of the // or /* comment starting at i.
@@ -421,6 +440,56 @@ func splitTopLevelArgs(s string) []argSpan {
 	return append(spans, argSpan{start, len(s)})
 }
 
+type fillEdit struct {
+	at   int
+	text string
+}
+
+const (
+	fillSkip      = iota // already pinned
+	fillEditing          // e holds the insertion
+	fillAmbiguous        // options argument is not a plain object literal
+)
+
+// planFill decides how the agent() call at i (with its call window) gets a model pin.
+func planFill(src, model string, i int, window string) (fillEdit, int) {
+	if strings.Contains(stripStrings(window), "model:") {
+		return fillEdit{}, fillSkip // agentType alone is not a pin — Explore runs opus
+	}
+	if len(window) < 6 || window[len(window)-1] != ')' {
+		return fillEdit{}, fillAmbiguous
+	}
+	argsStart := i + len("agent(")
+	argsEnd := i + len(window) - 1
+	argsSrc := src[argsStart:argsEnd]
+	spans := splitTopLevelArgs(argsSrc)
+	if len(spans) == 1 && strings.TrimSpace(argsSrc) == "" {
+		return fillEdit{}, fillAmbiguous
+	}
+	switch len(spans) {
+	case 1:
+		return fillEdit{argsEnd, fmt.Sprintf(", { model: '%s' }", model)}, fillEditing
+	case 2:
+		return fillOptions(src, model, argsStart, argsEnd, spans[1])
+	}
+	return fillEdit{}, fillAmbiguous
+}
+
+// fillOptions inserts the pin into an existing options-object second argument.
+func fillOptions(src, model string, argsStart, argsEnd int, span argSpan) (fillEdit, int) {
+	opt := src[argsStart+span.start : argsStart+span.end]
+	trimmed := strings.TrimLeft(opt, " \t\n")
+	if trimmed == "" || trimmed[0] != '{' {
+		return fillEdit{}, fillAmbiguous
+	}
+	braceAt := argsStart + span.start + (len(opt) - len(trimmed))
+	rest := strings.TrimLeft(src[braceAt+1:argsEnd], " \t\n")
+	if strings.HasPrefix(rest, "}") {
+		return fillEdit{braceAt + 1, fmt.Sprintf("model: '%s'", model)}, fillEditing
+	}
+	return fillEdit{braceAt + 1, fmt.Sprintf(" model: '%s',", model)}, fillEditing
+}
+
 // FillModel rewrites every agent() call in src missing a model:/agentType: pin (opus-ok does NOT
 // exempt this) to carry model: '<model>', inserted into an existing options-object 2nd argument, or
 // appended as a new one. Edits apply back-to-front so offsets stay valid; a call whose options
@@ -428,47 +497,14 @@ func splitTopLevelArgs(s string) []argSpan {
 // is left alone and its line reported in ambiguous instead. src is returned unchanged if nothing
 // needed filling.
 func FillModel(src, model string) (string, []string) {
-	type edit struct {
-		at   int
-		text string
-	}
-	var edits []edit
+	var edits []fillEdit
 	var ambiguous []string
 	scanAgentCalls(src, func(i, line int, window string, _ bool) {
-		stripped := stripStrings(window)
-		if strings.Contains(stripped, "model:") {
-			return // already pinned (agentType alone is not a pin — Explore runs opus)
-		}
-		if len(window) < 6 || window[len(window)-1] != ')' {
-			ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
-			return
-		}
-		argsStart := i + len("agent(")
-		argsEnd := i + len(window) - 1
-		argsSrc := src[argsStart:argsEnd]
-		spans := splitTopLevelArgs(argsSrc)
-		if len(spans) == 1 && strings.TrimSpace(argsSrc) == "" {
-			ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
-			return
-		}
-		switch len(spans) {
-		case 1:
-			edits = append(edits, edit{argsEnd, fmt.Sprintf(", { model: '%s' }", model)})
-		case 2:
-			opt := argsSrc[spans[1].start:spans[1].end]
-			trimmed := strings.TrimLeft(opt, " \t\n")
-			if trimmed == "" || trimmed[0] != '{' {
-				ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
-				return
-			}
-			braceAt := argsStart + spans[1].start + (len(opt) - len(trimmed))
-			rest := strings.TrimLeft(src[braceAt+1:argsEnd], " \t\n")
-			if strings.HasPrefix(rest, "}") {
-				edits = append(edits, edit{braceAt + 1, fmt.Sprintf("model: '%s'", model)})
-			} else {
-				edits = append(edits, edit{braceAt + 1, fmt.Sprintf(" model: '%s',", model)})
-			}
-		default:
+		e, status := planFill(src, model, i, window)
+		switch status {
+		case fillEditing:
+			edits = append(edits, e)
+		case fillAmbiguous:
 			ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
 		}
 	})

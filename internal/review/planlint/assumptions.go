@@ -232,14 +232,7 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 		counts.vals = append(counts.vals, len(g.items))
 	}
 
-	verdict := "CLEAN"
-	if len(findings) > 0 {
-		if len(findings) < 5 {
-			verdict = "REVIEW"
-		} else {
-			verdict = "CLARIFY"
-		}
-	}
+	verdict := assumptionVerdict(len(findings))
 
 	result := AssumptionResult{
 		Status:        "ok",
@@ -256,20 +249,31 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 		return 0
 	}
 
+	printAssumptions(stdout, source, findings, groups, verdict)
+	return 0
+}
+
+func assumptionVerdict(n int) string {
+	switch {
+	case n == 0:
+		return "CLEAN"
+	case n < 5:
+		return "REVIEW"
+	}
+	return "CLARIFY"
+}
+
+func printAssumptions(stdout io.Writer, source string, findings []Finding, groups []categoryGroup, verdict string) {
 	fmt.Fprintf(stdout, "Assumption Linter — %s\n", source)
 	fmt.Fprintf(stdout, "Findings: %d   Verdict: %s\n", len(findings), verdict)
 	if len(findings) == 0 {
 		fmt.Fprintln(stdout, "\n  Plan looks explicit. Assumptions are surfaced.")
-		return 0
+		return
 	}
 	fmt.Fprintln(stdout)
 	for _, g := range groups {
 		fmt.Fprintf(stdout, "  [%s] (%d)\n", g.name, len(g.items))
-		shown := g.items
-		if len(shown) > 5 {
-			shown = shown[:5]
-		}
-		for _, item := range shown {
+		for _, item := range g.items[:min(len(g.items), 5)] {
 			ref := ""
 			if item.Line != 0 {
 				ref = fmt.Sprintf("L%d: ", item.Line)
@@ -282,5 +286,4 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 		}
 		fmt.Fprintln(stdout)
 	}
-	return 0
 }

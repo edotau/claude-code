@@ -62,10 +62,7 @@ func pyMaskNormal(b, out []byte, i int, state *pyMaskState) (int, pyMaskState) {
 func pyMaskInString(b, out []byte, i int, state *pyMaskState) int {
 	c := b[i]
 	triple := *state == pyTripleSingle || *state == pyTripleDouble
-	quote := byte('\'')
-	if *state == pyDouble || *state == pyTripleDouble {
-		quote = '"'
-	}
+	quote := pyStateQuote(*state)
 	if c == '\\' {
 		maskByte(out, i)
 		if i+1 < len(b) {
@@ -84,6 +81,13 @@ func pyMaskInString(b, out []byte, i int, state *pyMaskState) int {
 	}
 	maskByte(out, i)
 	return i + 1
+}
+
+func pyStateQuote(state pyMaskState) byte {
+	if state == pyDouble || state == pyTripleDouble {
+		return '"'
+	}
+	return '\''
 }
 
 // maskByte blanks one byte, but a newline is structure (line numbers), never string/comment content.

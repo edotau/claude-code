@@ -171,13 +171,18 @@ func (lp ladderPick) rungCandidates(g providers.Rung, u []Candidate) []Candidate
 	return out
 }
 
+// rungProvider is c's profile (or the one named by its account) in the registry, nil without a registry.
+func (lp ladderPick) rungProvider(c Candidate) *providers.Provider {
+	if lp.reg == nil {
+		return nil
+	}
+	_, profile, _ := strings.Cut(c.Account, "·")
+	return lp.reg.Providers[cmp.Or(c.Profile, profile)]
+}
+
 // rungModel spells rung model m for c's account row; why is non-empty when that row can't serve it.
 func (lp ladderPick) rungModel(c Candidate, m string) (model, why string) {
-	var p *providers.Provider
-	if lp.reg != nil {
-		_, profile, _ := strings.Cut(c.Account, "·")
-		p = lp.reg.Providers[cmp.Or(c.Profile, profile)]
-	}
+	p := lp.rungProvider(c)
 	switch {
 	case slices.Contains(Aliases, m) && p != nil && p.Models[m] != "":
 		return p.Models[m], ""

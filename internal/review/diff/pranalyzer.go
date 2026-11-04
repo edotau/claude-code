@@ -139,7 +139,6 @@ func gitInherit(repo string, args ...string) (out string, timedOut bool, err err
 
 // changedFiles lists the base...head changes; an error means every ref-based git diff failed and nothing was staged.
 func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
-	statusMap := map[string]string{"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied"}
 	out, err := runGitErr(repo, "diff", "--name-status", base+"..."+head)
 	if err != nil || out == "" {
 		out, err = runGitErr(repo, "diff", "--name-status", base, head)
@@ -152,6 +151,17 @@ func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
 	if err != nil {
 		return files, err
 	}
+	files = parseNameStatus(out)
+	if len(files) == 0 && refErr != nil {
+		return nil, refErr
+	}
+	return files, nil
+}
+
+// parseNameStatus turns `git diff --name-status` output into files; unknown status letters count as modified.
+func parseNameStatus(out string) []PRFileAnalysis {
+	statusMap := map[string]string{"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied"}
+	var files []PRFileAnalysis
 	for line := range strings.SplitSeq(out, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -166,10 +176,7 @@ func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
 		}
 		files = append(files, PRFileAnalysis{Path: parts[len(parts)-1], Status: status})
 	}
-	if len(files) == 0 && refErr != nil {
-		return nil, refErr
-	}
-	return files, nil
+	return files
 }
 
 func fileDiff(repo, filepath, base, head string) string {
@@ -226,27 +233,9 @@ func countChanges(diffContent string) (additions, deletions int) {
 }
 
 func calculateComplexityScore(files []PRFileAnalysis, allRisks []PRRisk) int {
-	score := 0
-	fileCount := len(files)
-	switch {
-	case fileCount > 20:
-		score += 3
-	case fileCount > 10:
-		score += 2
-	case fileCount > 5:
-		score += 1
-	}
 	total := 0
 	for _, f := range files {
 		total += f.Additions + f.Deletions
-	}
-	switch {
-	case total > 500:
-		score += 3
-	case total > 200:
-		score += 2
-	case total > 50:
-		score += 1
 	}
 	critical, high := 0, 0
 	for _, r := range allRisks {
@@ -257,15 +246,23 @@ func calculateComplexityScore(files []PRFileAnalysis, allRisks []PRRisk) int {
 			high++
 		}
 	}
+	score := tierPoints(len(files), 20, 10, 5) + tierPoints(total, 500, 200, 50)
 	score += int(math.Min(2, float64(critical)))
 	score += int(math.Min(2, float64(high)))
-	if score > 10 {
-		score = 10
+	return min(max(score, 1), 10)
+}
+
+// tierPoints scores n 3/2/1 for exceeding the top/mid/low thresholds, else 0.
+func tierPoints(n, top, mid, low int) int {
+	switch {
+	case n > top:
+		return 3
+	case n > mid:
+		return 2
+	case n > low:
+		return 1
 	}
-	if score < 1 {
-		score = 1
-	}
-	return score
+	return 0
 }
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue) {
@@ -315,26 +312,8 @@ func AnalyzePR(repo, base, head string) (PRReport, error) {
 		return PRReport{Status: "no_changes", Message: "No changes detected between branches"}, nil
 	}
 
-	var allRisks []PRRisk
-	for i := range files {
-		category, weight := categorizeFile(files[i].Path)
-		d := fileDiff(repo, files[i].Path, base, head)
-		additions, deletions := countChanges(d)
-		risks := analyzeDiffForRisks(d, files[i].Path)
-		allRisks = append(allRisks, risks...)
-		files[i].Category = category
-		files[i].PriorityWeight = weight
-		files[i].Additions = additions
-		files[i].Deletions = deletions
-		files[i].Risks = risks
-	}
-
-	sort.SliceStable(files, func(a, b int) bool {
-		if files[a].PriorityWeight != files[b].PriorityWeight {
-			return files[a].PriorityWeight > files[b].PriorityWeight
-		}
-		return files[a].Path < files[b].Path
-	})
+	allRisks := analyzeFiles(repo, base, head, files)
+	sortFilesByPriority(files)
 
 	commitCount, commitIssues := analyzeCommitMessages(repo, base, head)
 	complexity := calculateComplexityScore(files, allRisks)
@@ -345,19 +324,7 @@ func AnalyzePR(repo, base, head string) (PRReport, error) {
 		totalDeletions += f.Deletions
 	}
 
-	risksBySeverity := PRRisks{Critical: []PRRisk{}, High: []PRRisk{}, Medium: []PRRisk{}, Low: []PRRisk{}}
-	for _, r := range allRisks {
-		switch r.Severity {
-		case "critical":
-			risksBySeverity.Critical = append(risksBySeverity.Critical, r)
-		case "high":
-			risksBySeverity.High = append(risksBySeverity.High, r)
-		case "medium":
-			risksBySeverity.Medium = append(risksBySeverity.Medium, r)
-		case "low":
-			risksBySeverity.Low = append(risksBySeverity.Low, r)
-		}
-	}
+	risksBySeverity := groupRisks(allRisks)
 
 	reviewOrder := []string{}
 	for i, f := range files {
@@ -380,6 +347,50 @@ func AnalyzePR(repo, base, head string) (PRReport, error) {
 	}, nil
 }
 
+// analyzeFiles fills each file's category, weight, change counts and risks in place and returns every risk found.
+func analyzeFiles(repo, base, head string, files []PRFileAnalysis) []PRRisk {
+	var allRisks []PRRisk
+	for i := range files {
+		category, weight := categorizeFile(files[i].Path)
+		d := fileDiff(repo, files[i].Path, base, head)
+		additions, deletions := countChanges(d)
+		risks := analyzeDiffForRisks(d, files[i].Path)
+		allRisks = append(allRisks, risks...)
+		files[i].Category = category
+		files[i].PriorityWeight = weight
+		files[i].Additions = additions
+		files[i].Deletions = deletions
+		files[i].Risks = risks
+	}
+	return allRisks
+}
+
+func sortFilesByPriority(files []PRFileAnalysis) {
+	sort.SliceStable(files, func(a, b int) bool {
+		if files[a].PriorityWeight != files[b].PriorityWeight {
+			return files[a].PriorityWeight > files[b].PriorityWeight
+		}
+		return files[a].Path < files[b].Path
+	})
+}
+
+func groupRisks(allRisks []PRRisk) PRRisks {
+	g := PRRisks{Critical: []PRRisk{}, High: []PRRisk{}, Medium: []PRRisk{}, Low: []PRRisk{}}
+	for _, r := range allRisks {
+		switch r.Severity {
+		case "critical":
+			g.Critical = append(g.Critical, r)
+		case "high":
+			g.High = append(g.High, r)
+		case "medium":
+			g.Medium = append(g.Medium, r)
+		case "low":
+			g.Low = append(g.Low, r)
+		}
+	}
+	return g
+}
+
 func printPRReport(w io.Writer, r PRReport) {
 	if r.Status == "no_changes" {
 		fmt.Fprintln(w, "No changes detected.")
@@ -400,29 +411,37 @@ func printPRReport(w io.Writer, r PRReport) {
 	fmt.Fprintf(w, "Medium: %d\n", len(r.Risks.Medium))
 	fmt.Fprintf(w, "Low: %d\n", len(r.Risks.Low))
 
-	if len(r.Risks.Critical) > 0 {
-		fmt.Fprintln(w, "\n--- CRITICAL RISKS ---")
-		for _, risk := range r.Risks.Critical {
-			fmt.Fprintf(w, "  [%s] %s (x%d)\n", risk.File, risk.Message, risk.Count)
-		}
-	}
-	if len(r.Risks.High) > 0 {
-		fmt.Fprintln(w, "\n--- HIGH RISKS ---")
-		for _, risk := range r.Risks.High {
-			fmt.Fprintf(w, "  [%s] %s (x%d)\n", risk.File, risk.Message, risk.Count)
-		}
-	}
+	printRiskList(w, "CRITICAL", r.Risks.Critical)
+	printRiskList(w, "HIGH", r.Risks.High)
+	printCommitIssues(w, r.CommitIssues)
+	printReviewOrder(w, r)
+	fmt.Fprintln(w, "\n"+strings.Repeat("=", 60))
+}
 
-	if len(r.CommitIssues) > 0 {
-		fmt.Fprintln(w, "\n--- COMMIT MESSAGE ISSUES ---")
-		for i, issue := range r.CommitIssues {
-			if i >= 5 {
-				break
-			}
-			fmt.Fprintf(w, "  %s: %s\n", issue.Commit, issue.Issue)
-		}
+func printRiskList(w io.Writer, label string, risks []PRRisk) {
+	if len(risks) == 0 {
+		return
 	}
+	fmt.Fprintf(w, "\n--- %s RISKS ---\n", label)
+	for _, risk := range risks {
+		fmt.Fprintf(w, "  [%s] %s (x%d)\n", risk.File, risk.Message, risk.Count)
+	}
+}
 
+func printCommitIssues(w io.Writer, issues []CommitIssue) {
+	if len(issues) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\n--- COMMIT MESSAGE ISSUES ---")
+	for i, issue := range issues {
+		if i >= 5 {
+			break
+		}
+		fmt.Fprintf(w, "  %s: %s\n", issue.Commit, issue.Issue)
+	}
+}
+
+func printReviewOrder(w io.Writer, r PRReport) {
 	fmt.Fprintln(w, "\n--- SUGGESTED REVIEW ORDER ---")
 	for i, filepath := range r.ReviewOrder {
 		for _, f := range r.Files {
@@ -432,7 +451,6 @@ func printPRReport(w io.Writer, r PRReport) {
 			}
 		}
 	}
-	fmt.Fprintln(w, "\n"+strings.Repeat("=", 60))
 }
 
 // RunPR ports pr_analyzer.py's CLI.
@@ -453,17 +471,8 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	repoArg := "."
-	if len(positional) > 0 {
-		repoArg = positional[0]
-	}
-	repoPath, err := filepath.Abs(repoArg)
-	if err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
-		return 1
-	}
-	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
-		fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)
+	repoPath, ok := resolveGitRepo(positional, stderr)
+	if !ok {
 		return 1
 	}
 
@@ -479,14 +488,37 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 	} else {
 		printPRReport(&buf, report)
 	}
-	if *output == "" {
-		fmt.Fprint(stdout, buf.String())
+	return writeOutput(buf.String(), *output, stdout, stderr)
+}
+
+// resolveGitRepo returns the absolute repo path from the first positional (default "."), reporting failures to stderr.
+func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
+	repoArg := "."
+	if len(positional) > 0 {
+		repoArg = positional[0]
+	}
+	repoPath, err := filepath.Abs(repoArg)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return "", false
+	}
+	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
+		fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)
+		return "", false
+	}
+	return repoPath, true
+}
+
+// writeOutput prints text to stdout, or writes it to the output file and confirms.
+func writeOutput(text, output string, stdout, stderr io.Writer) int {
+	if output == "" {
+		fmt.Fprint(stdout, text)
 		return 0
 	}
-	if err := os.WriteFile(*output, []byte(buf.String()), 0o644); err != nil {
+	if err := os.WriteFile(output, []byte(text), 0o644); err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Results written to %s\n", *output)
+	fmt.Fprintf(stdout, "Results written to %s\n", output)
 	return 0
 }

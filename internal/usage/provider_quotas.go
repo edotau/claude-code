@@ -294,21 +294,26 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 		if q.Note != "" && q.Limit == 0 {
 			val, state = "-", "-"
 		}
-		if q.Limit > 0 && q.Unit == "USD" {
-			detail = fmt.Sprintf("$%.2f / $%.2f", q.Used, q.Limit)
-			if show != "used" {
-				detail = fmt.Sprintf("$%.2f of $%.2f left", max(q.Limit-q.Used, 0), q.Limit)
-			}
-		} else if q.Limit > 0 {
-			if show == "used" {
-				detail = fmt.Sprintf("%.0f / %.0f credits", q.Used, q.Limit)
-			} else {
-				detail = fmt.Sprintf("%.0f of %.0f credits left", max(q.Limit-q.Used, 0), q.Limit)
-			}
+		if q.Limit > 0 {
+			detail = limitDetail(q, show)
 		}
 		rows = append(rows, []string{q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), val, state, dash(q.Resets), detail})
 	}
 	fmt.Fprint(out, table.Render(head, nil, rightAlign(head, rows, 5, 5), 0))
+}
+
+// limitDetail renders a limited quota's used-of-limit text in dollars or credits, as used or as left.
+func limitDetail(q quota, show string) string {
+	left := max(q.Limit-q.Used, 0)
+	switch {
+	case q.Unit == "USD" && show == "used":
+		return fmt.Sprintf("$%.2f / $%.2f", q.Used, q.Limit)
+	case q.Unit == "USD":
+		return fmt.Sprintf("$%.2f of $%.2f left", left, q.Limit)
+	case show == "used":
+		return fmt.Sprintf("%.0f / %.0f credits", q.Used, q.Limit)
+	}
+	return fmt.Sprintf("%.0f of %.0f credits left", left, q.Limit)
 }
 
 // printLedgerSection renders the local per-token ledger rollup; an empty ledger prints one line instead.

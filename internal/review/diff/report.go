@@ -29,29 +29,22 @@ func calculateReviewScore(prAnalysis, qualityAnalysis map[string]any) int {
 
 	score := 100
 	for sev, count := range counts {
-		d := count * deductionWeights[sev]
-		if cap := deductionCaps[sev]; d > cap {
-			d = cap
-		}
-		score -= d
+		score -= min(count*deductionWeights[sev], deductionCaps[sev])
 	}
-
 	if summary := mMap(prAnalysis, "summary"); summary != nil {
-		complexity := mInt(summary, "complexity_score")
-		if complexity > 7 {
-			score -= 10
-		} else if complexity > 5 {
-			score -= 5
-		}
+		score -= complexityDeduction(mInt(summary, "complexity_score"))
 	}
+	return min(max(score, 0), 100)
+}
 
-	if score < 0 {
-		score = 0
+func complexityDeduction(complexity int) int {
+	switch {
+	case complexity > 7:
+		return 10
+	case complexity > 5:
+		return 5
 	}
-	if score > 100 {
-		score = 100
-	}
-	return score
+	return 0
 }
 
 func determineVerdict(score, criticalCount, highCount int) (string, string) {
@@ -159,30 +152,19 @@ func generateActionItems(findings []Finding) []ActionItem {
 	return items
 }
 
-// generateReport ports generate_report; prAnalysisOverride/qualityAnalysisOverride are non-nil
-// when loaded from --pr-analysis/--quality-analysis JSON files.
-func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnalysisOverride map[string]any) (Report, error) {
-	var prReport *PRReport
-	var prMap map[string]any
-	if prAnalysisOverride != nil {
-		prMap = prAnalysisOverride
-	} else {
-		r, err := AnalyzePR(repoPath, base, head)
-		if err != nil {
-			return Report{}, err
-		}
-		prReport = &r
-		prMap = toGenericMap(r)
+// loadPRAnalysis returns the PR analysis map; prReport is non-nil only when the analysis ran here (no override).
+func loadPRAnalysis(repoPath, base, head string, override map[string]any) (*PRReport, map[string]any, error) {
+	if override != nil {
+		return nil, override, nil
 	}
-
-	var qualityMap map[string]any
-	if qualityAnalysisOverride != nil {
-		qualityMap = qualityAnalysisOverride
-	} else {
-		qualityMap = runQualityChecker(repoPath, base, head)
+	r, err := AnalyzePR(repoPath, base, head)
+	if err != nil {
+		return nil, nil, err
 	}
+	return &r, toGenericMap(r), nil
+}
 
-	findings := generateFindingsList(prMap, qualityMap)
+func countSeverities(findings []Finding) ReportIssueCounts {
 	counts := ReportIssueCounts{}
 	for _, f := range findings {
 		switch f.Severity {
@@ -196,7 +178,57 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 			counts.Low++
 		}
 	}
+	return counts
+}
 
+// fillPRSummary sets the report's PR summary and review order from the fresh analysis or the loaded JSON map.
+func fillPRSummary(report *Report, prMap map[string]any, prReport *PRReport) error {
+	if mStr(prMap, "status") != "analyzed" {
+		return nil
+	}
+	if prReport != nil {
+		report.PRSummary = prReport.Summary
+		report.ReviewOrder = prReport.ReviewOrder
+		return nil
+	}
+	summary := mMap(prMap, "summary")
+	if summary == nil {
+		return nil
+	}
+	b, err := json.Marshal(summary)
+	if err != nil {
+		return fmt.Errorf("marshal PR analysis summary: %w", err)
+	}
+	var ps PRSummary
+	if err := json.Unmarshal(b, &ps); err != nil {
+		return fmt.Errorf("decode PR analysis summary: %w", err)
+	}
+	report.PRSummary = &ps
+	ro := []string{}
+	for _, v := range mSlice(prMap, "review_order") {
+		if s, ok := v.(string); ok {
+			ro = append(ro, s)
+		}
+	}
+	report.ReviewOrder = ro
+	return nil
+}
+
+// generateReport ports generate_report; prAnalysisOverride/qualityAnalysisOverride are non-nil
+// when loaded from --pr-analysis/--quality-analysis JSON files.
+func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnalysisOverride map[string]any) (Report, error) {
+	prReport, prMap, err := loadPRAnalysis(repoPath, base, head, prAnalysisOverride)
+	if err != nil {
+		return Report{}, err
+	}
+
+	qualityMap := qualityAnalysisOverride
+	if qualityMap == nil {
+		qualityMap = runQualityChecker(repoPath, base, head)
+	}
+
+	findings := generateFindingsList(prMap, qualityMap)
+	counts := countSeverities(findings)
 	score := calculateReviewScore(prMap, qualityMap)
 	verdict, rationale := determineVerdict(score, counts.Critical, counts.High)
 	actionItems := generateActionItems(findings)
@@ -206,29 +238,8 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 		Summary:  ReportSummary{Score: score, Verdict: verdict, Rationale: rationale, IssueCounts: counts},
 		Findings: findings, ActionItems: actionItems,
 	}
-
-	if mStr(prMap, "status") == "analyzed" {
-		if prReport != nil {
-			report.PRSummary = prReport.Summary
-			report.ReviewOrder = prReport.ReviewOrder
-		} else if summary := mMap(prMap, "summary"); summary != nil {
-			b, err := json.Marshal(summary)
-			if err != nil {
-				return Report{}, fmt.Errorf("marshal PR analysis summary: %w", err)
-			}
-			var ps PRSummary
-			if err := json.Unmarshal(b, &ps); err != nil {
-				return Report{}, fmt.Errorf("decode PR analysis summary: %w", err)
-			}
-			report.PRSummary = &ps
-			ro := []string{}
-			for _, v := range mSlice(prMap, "review_order") {
-				if s, ok := v.(string); ok {
-					ro = append(ro, s)
-				}
-			}
-			report.ReviewOrder = ro
-		}
+	if err := fillPRSummary(&report, prMap, prReport); err != nil {
+		return Report{}, err
 	}
 
 	_, hasFiles := qualityMap["files"]
@@ -265,37 +276,13 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	repoArg := "."
-	if len(positional) > 0 {
-		repoArg = positional[0]
-	}
-	repoPath, err := filepath.Abs(repoArg)
-	if err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
-		return 1
-	}
-	if _, statErr := os.Stat(repoPath); statErr != nil {
-		fmt.Fprintf(stderr, "Error: Path does not exist: %s\n", repoPath)
+	repoPath, ok := resolveExistingPath(positional, stderr)
+	if !ok {
 		return 1
 	}
 
-	var prOverride, qualityOverride map[string]any
-	if *prAnalysisPath != "" {
-		m, ok := loadJSONFile(*prAnalysisPath)
-		if !ok {
-			fmt.Fprintf(stderr, "Warning: Could not load PR analysis from %s\n", *prAnalysisPath)
-		} else {
-			prOverride = m
-		}
-	}
-	if *qualityAnalysisPath != "" {
-		m, ok := loadJSONFile(*qualityAnalysisPath)
-		if !ok {
-			fmt.Fprintf(stderr, "Warning: Could not load quality analysis from %s\n", *qualityAnalysisPath)
-		} else {
-			qualityOverride = m
-		}
-	}
+	prOverride := loadAnalysisOverride(*prAnalysisPath, "PR analysis", stderr)
+	qualityOverride := loadAnalysisOverride(*qualityAnalysisPath, "quality analysis", stderr)
 
 	report, err := generateReport(repoPath, *base, *head, prOverride, qualityOverride)
 	if err != nil {
@@ -308,24 +295,61 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 		outputFormat = "json"
 	}
 
-	var out string
-	switch outputFormat {
-	case "json":
-		out = mustIndentJSON(report)
-	case "markdown":
-		out = formatMarkdownReport(report)
-	default:
-		out = formatTextReport(report)
-	}
+	out := renderReport(report, outputFormat)
 
-	if *output != "" {
-		if err := os.WriteFile(*output, []byte(out), 0o644); err != nil {
-			fmt.Fprintf(stderr, "Error: %v\n", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "Report written to %s\n", *output)
-	} else {
-		fmt.Fprintln(stdout, out)
+	return writeReport(out, *output, stdout, stderr)
+}
+
+// resolveExistingPath returns the absolute path of the first positional (default "."), which must exist.
+func resolveExistingPath(positional []string, stderr io.Writer) (string, bool) {
+	repoArg := "."
+	if len(positional) > 0 {
+		repoArg = positional[0]
 	}
+	repoPath, err := filepath.Abs(repoArg)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return "", false
+	}
+	if _, statErr := os.Stat(repoPath); statErr != nil {
+		fmt.Fprintf(stderr, "Error: Path does not exist: %s\n", repoPath)
+		return "", false
+	}
+	return repoPath, true
+}
+
+func writeReport(out, output string, stdout, stderr io.Writer) int {
+	if output == "" {
+		fmt.Fprintln(stdout, out)
+		return 0
+	}
+	if err := os.WriteFile(output, []byte(out), 0o644); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Report written to %s\n", output)
 	return 0
+}
+
+// loadAnalysisOverride loads an optional analysis JSON file, warning on stderr when it cannot be read.
+func loadAnalysisOverride(path, label string, stderr io.Writer) map[string]any {
+	if path == "" {
+		return nil
+	}
+	m, ok := loadJSONFile(path)
+	if !ok {
+		fmt.Fprintf(stderr, "Warning: Could not load %s from %s\n", label, path)
+		return nil
+	}
+	return m
+}
+
+func renderReport(report Report, format string) string {
+	switch format {
+	case "json":
+		return mustIndentJSON(report)
+	case "markdown":
+		return formatMarkdownReport(report)
+	}
+	return formatTextReport(report)
 }

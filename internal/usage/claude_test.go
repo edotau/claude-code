@@ -54,31 +54,9 @@ func keychainMiss(context.Context, ...string) ([]byte, error) {
 	return nil, errors.New("item not found")
 }
 
-// TestClaudeQuotasParsesFixture: the real oauth-usage.json becomes three rows — 5h, weekly, and the
-// Fable weekly_scoped limit — each anthropic/Max with a UTC ResetsAt and a local Resets string, and the
-// bearer token sent is the one the keychain returned.
-func TestClaudeQuotasParsesFixture(t *testing.T) {
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.Write(readClaudeFixture(t))
-	}))
-	defer srv.Close()
-	stubClaudeOAuthURL(t, srv.URL)
-	setClaudeCacheDir(t) // isolate the usage cache from other tests/the real home dir
-
-	future := time.Now().Add(24 * time.Hour).UnixMilli()
-	cred := claudeCredentialJSON("test-token-123", future, "max")
-	stubClaudeKeychain(t, func(context.Context, ...string) ([]byte, error) { return cred, nil })
-
-	got := claudeQuotas(context.Background())
-	if len(got) != 3 {
-		t.Fatalf("rows = %d, want 3: %+v", len(got), got)
-	}
-	if gotAuth != "Bearer test-token-123" {
-		t.Errorf("Authorization header = %q, want %q", gotAuth, "Bearer test-token-123")
-	}
-
+// assertClaudeFixtureRows checks each of the fixture's three rows: window, group, used %, UTC and local resets, no note.
+func assertClaudeFixtureRows(t *testing.T, got []quota) {
+	t.Helper()
 	fiveHReset, _ := time.Parse(time.RFC3339, "2026-10-24T05:29:59.908556+00:00")
 	weeklyReset, _ := time.Parse(time.RFC3339, "2026-10-26T15:59:59.908572+00:00")
 	fableReset, _ := time.Parse(time.RFC3339, "2026-10-26T15:59:59.908747+00:00")
@@ -117,6 +95,34 @@ func TestClaudeQuotasParsesFixture(t *testing.T) {
 			t.Errorf("row %d: unexpected note %q on a successful row", i, q.Note)
 		}
 	}
+}
+
+// TestClaudeQuotasParsesFixture: the real oauth-usage.json becomes three rows — 5h, weekly, and the
+// Fable weekly_scoped limit — each anthropic/Max with a UTC ResetsAt and a local Resets string, and the
+// bearer token sent is the one the keychain returned.
+func TestClaudeQuotasParsesFixture(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Write(readClaudeFixture(t))
+	}))
+	defer srv.Close()
+	stubClaudeOAuthURL(t, srv.URL)
+	setClaudeCacheDir(t) // isolate the usage cache from other tests/the real home dir
+
+	future := time.Now().Add(24 * time.Hour).UnixMilli()
+	cred := claudeCredentialJSON("test-token-123", future, "max")
+	stubClaudeKeychain(t, func(context.Context, ...string) ([]byte, error) { return cred, nil })
+
+	got := claudeQuotas(context.Background())
+	if len(got) != 3 {
+		t.Fatalf("rows = %d, want 3: %+v", len(got), got)
+	}
+	if gotAuth != "Bearer test-token-123" {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, "Bearer test-token-123")
+	}
+
+	assertClaudeFixtureRows(t, got)
 }
 
 // TestClaudeQuotasExpiredToken: an expired OAuth token (from the CLAUDE_CONFIG_DIR file fallback, the
@@ -405,27 +411,31 @@ func TestClaudeQuotasCacheAfterTTLRefetchesAndRewrites(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCache429SetsNotBeforeAndServesStaleBody: a 429 with Retry-After: 141 sets not_before
-// to ~now+141s, keeps the old cached body, serves rows from it with "cached; rate limited until" in the
-// first row's Note, and a second call before not_before elapses makes no further network request.
-func TestClaudeQuotasCache429SetsNotBeforeAndServesStaleBody(t *testing.T) {
+// stale429Setup caches a stale fixture body and serves 429 Retry-After: 141; hits counts the network requests.
+func stale429Setup(t *testing.T) (dir string, hits *int) {
+	t.Helper()
 	validClaudeCreds(t)
-	dir := setClaudeCacheDir(t)
+	dir = setClaudeCacheDir(t)
 	writeClaudeCache(t, dir, time.Now().Add(-1*time.Hour), nil, "max", readClaudeFixture(t))
 
-	hits := 0
+	hits = new(int)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		*hits++
 		w.Header().Set("Retry-After", "141")
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 	stubClaudeOAuthURL(t, srv.URL)
+	return dir, hits
+}
 
-	before := time.Now()
+// TestClaudeQuotasCache429ServesStaleBody: a 429 keeps the old cached body and serves rows from it with
+// "cached; rate limited until" in the first row's Note.
+func TestClaudeQuotasCache429ServesStaleBody(t *testing.T) {
+	_, hits := stale429Setup(t)
 	got := claudeQuotas(context.Background())
-	if hits != 1 {
-		t.Fatalf("network hits = %d, want 1 (the 429 itself)", hits)
+	if *hits != 1 {
+		t.Fatalf("network hits = %d, want 1 (the 429 itself)", *hits)
 	}
 	if len(got) != 3 {
 		t.Fatalf("rows = %d, want 3 (served from stale cached body): %+v", len(got), got)
@@ -433,6 +443,14 @@ func TestClaudeQuotasCache429SetsNotBeforeAndServesStaleBody(t *testing.T) {
 	if !strings.Contains(got[0].Note, "cached; rate limited until") {
 		t.Errorf("row 0 Note = %q, want to contain %q", got[0].Note, "cached; rate limited until")
 	}
+}
+
+// TestClaudeQuotasCache429SetsNotBefore: a 429 with Retry-After: 141 sets not_before to ~now+141s, and a second
+// call before not_before elapses makes no further network request.
+func TestClaudeQuotasCache429SetsNotBefore(t *testing.T) {
+	dir, hits := stale429Setup(t)
+	before := time.Now()
+	claudeQuotas(context.Background())
 
 	cache := readClaudeCache(t, dir)
 	nb, ok := cache["not_before"].(string)
@@ -450,8 +468,8 @@ func TestClaudeQuotasCache429SetsNotBeforeAndServesStaleBody(t *testing.T) {
 
 	// Second call, still within the not_before window: must not touch the network again.
 	got2 := claudeQuotas(context.Background())
-	if hits != 1 {
-		t.Fatalf("network hits after second call = %d, want 1 (still rate-limited until %v)", hits, notBefore)
+	if *hits != 1 {
+		t.Fatalf("network hits after second call = %d, want 1 (still rate-limited until %v)", *hits, notBefore)
 	}
 	if len(got2) != 3 {
 		t.Fatalf("second call rows = %d, want 3: %+v", len(got2), got2)

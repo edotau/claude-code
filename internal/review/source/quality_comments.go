@@ -40,53 +40,67 @@ func commentSmells(content, lang string) []Smell {
 	return smells
 }
 
+// commentScanner is the state of one scanCommentBlocks pass.
+type commentScanner struct {
+	blocks  []commentBlock
+	cur     *commentBlock
+	marker  string
+	lang    string
+	delim   string
+	sawCode bool
+}
+
+func (sc *commentScanner) flush() {
+	if sc.cur != nil {
+		sc.blocks = append(sc.blocks, *sc.cur)
+		sc.cur = nil
+	}
+}
+
+// scanLine consumes line i (0-based) of the source.
+func (sc *commentScanner) scanLine(i int, line string) {
+	t := strings.TrimSpace(line)
+	if sc.delim != "" {
+		sc.cur.lines = append(sc.cur.lines, line)
+		if strings.Contains(t, sc.delim) {
+			sc.delim = ""
+			sc.flush()
+		}
+		return
+	}
+	open := blockOpener(t, sc.lang)
+	switch {
+	case t == "":
+		sc.flush()
+	case strings.HasPrefix(t, sc.marker):
+		if sc.cur == nil {
+			sc.cur = &commentBlock{start: i + 1, header: !sc.sawCode}
+		}
+		sc.cur.lines = append(sc.cur.lines, line)
+	case open != "":
+		sc.flush()
+		sc.cur = &commentBlock{start: i + 1, header: !sc.sawCode, lines: []string{line}}
+		sc.delim = unclosedDelim(t, open)
+		if sc.delim == "" {
+			sc.flush()
+		}
+	default:
+		sc.flush()
+		sc.sawCode = true
+	}
+}
+
 // scanCommentBlocks splits the source into line-comment, /* */ and triple-quote blocks.
 func scanCommentBlocks(content, lang string) []commentBlock {
-	var blocks []commentBlock
-	var cur *commentBlock
-	marker, delim, sawCode := "//", "", false
+	sc := &commentScanner{marker: "//", lang: lang}
 	if lang == "python" {
-		marker = "#"
-	}
-	flush := func() {
-		if cur != nil {
-			blocks = append(blocks, *cur)
-			cur = nil
-		}
+		sc.marker = "#"
 	}
 	for i, line := range strings.Split(content, "\n") {
-		t := strings.TrimSpace(line)
-		if delim != "" {
-			cur.lines = append(cur.lines, line)
-			if strings.Contains(t, delim) {
-				delim = ""
-				flush()
-			}
-			continue
-		}
-		open := blockOpener(t, lang)
-		switch {
-		case t == "":
-			flush()
-		case strings.HasPrefix(t, marker):
-			if cur == nil {
-				cur = &commentBlock{start: i + 1, header: !sawCode}
-			}
-			cur.lines = append(cur.lines, line)
-		case open != "":
-			flush()
-			cur = &commentBlock{start: i + 1, header: !sawCode, lines: []string{line}}
-			delim = unclosedDelim(t, open)
-			if delim == "" {
-				flush()
-			}
-		default:
-			flush()
-			sawCode = true
-		}
+		sc.scanLine(i, line)
 	}
-	flush()
-	return blocks
+	sc.flush()
+	return sc.blocks
 }
 
 // blockOpener returns the closing delimiter for a line that opens a block comment or docstring, else "".

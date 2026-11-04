@@ -76,6 +76,21 @@ func hasSmell(f simplifyFile, typ string) bool {
 	return false
 }
 
+// assertSimplifyText runs the text form over the same fixture and checks the header, file, smell and totals line.
+func assertSimplifyText(t *testing.T, f simplifyFile) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	if code := RunSimplify([]string{"--base", "HEAD"}, &out, &errb); code != 0 {
+		t.Fatalf("text exit %d: %s", code, errb.String())
+	}
+	want := fmt.Sprintf("Findings: %d (complexity %d, quality %d)", len(f.Complexity)+len(f.Quality.Smells), len(f.Complexity), len(f.Quality.Smells))
+	for _, s := range []string{"Simplify Check — 1 files, threshold medium", "fx.go", "long_comment", want} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("text output missing %q:\n%s", s, out.String())
+		}
+	}
+}
+
 func TestRunSimplifyChangedFiles(t *testing.T) {
 	dir := gitFixture(t)
 	writeFx(t, dir, "fx.go", longGo())
@@ -96,16 +111,7 @@ func TestRunSimplifyChangedFiles(t *testing.T) {
 		t.Errorf("summary %+v disagrees with the file entry", r.Summary)
 	}
 
-	var out, errb bytes.Buffer
-	if code := RunSimplify([]string{"--base", "HEAD"}, &out, &errb); code != 0 {
-		t.Fatalf("text exit %d: %s", code, errb.String())
-	}
-	want := fmt.Sprintf("Findings: %d (complexity %d, quality %d)", len(f.Complexity)+len(f.Quality.Smells), len(f.Complexity), len(f.Quality.Smells))
-	for _, s := range []string{"Simplify Check — 1 files, threshold medium", "fx.go", "long_comment", want} {
-		if !strings.Contains(out.String(), s) {
-			t.Errorf("text output missing %q:\n%s", s, out.String())
-		}
-	}
+	assertSimplifyText(t, f)
 }
 
 func TestRunSimplifyUntrackedAndExplicitPath(t *testing.T) {

@@ -180,47 +180,37 @@ func runQualityChecker(repo, base, head string) map[string]any {
 // and solid_violations into a uniform {severity,type,message,file,line} list.
 func extractQualityIssues(qualityAnalysis map[string]any) []map[string]string {
 	var issues []map[string]string
-	fileResults := mSlice(qualityAnalysis, "files")
-	var frs []map[string]any
-	if fileResults != nil {
-		for _, f := range fileResults {
-			if m := asMap(f); m != nil {
-				frs = append(frs, m)
-			}
-		}
-	} else {
-		frs = []map[string]any{qualityAnalysis}
-	}
-	for _, fr := range frs {
+	for _, fr := range qualityFileResults(qualityAnalysis) {
 		path := mStr(fr, "file")
 		for _, s := range mSlice(fr, "smells") {
 			sm := asMap(s)
-			severity := mStr(sm, "severity")
-			if severity == "" {
-				severity = "medium"
-			}
-			typ := mStr(sm, "type")
-			if typ == "" {
-				typ = "smell"
-			}
 			issues = append(issues, map[string]string{
-				"severity": severity, "type": typ, "message": mStr(sm, "message"), "file": path, "line": mStr(sm, "location"),
+				"severity": orDefault(mStr(sm, "severity"), "medium"), "type": orDefault(mStr(sm, "type"), "smell"),
+				"message": mStr(sm, "message"), "file": path, "line": mStr(sm, "location"),
 			})
 		}
 		for _, v := range mSlice(fr, "solid_violations") {
 			vm := asMap(v)
-			severity := mStr(vm, "severity")
-			if severity == "" {
-				severity = "medium"
-			}
-			principle := mStr(vm, "principle")
-			if principle == "" {
-				principle = "solid"
-			}
 			issues = append(issues, map[string]string{
-				"severity": severity, "type": principle, "message": mStr(vm, "message"), "file": path, "line": "",
+				"severity": orDefault(mStr(vm, "severity"), "medium"), "type": orDefault(mStr(vm, "principle"), "solid"),
+				"message": mStr(vm, "message"), "file": path, "line": "",
 			})
 		}
 	}
 	return issues
+}
+
+// qualityFileResults returns the per-file maps of quality_analysis["files"], or the analysis itself (single-file shape).
+func qualityFileResults(qualityAnalysis map[string]any) []map[string]any {
+	fileResults := mSlice(qualityAnalysis, "files")
+	if fileResults == nil {
+		return []map[string]any{qualityAnalysis}
+	}
+	var frs []map[string]any
+	for _, f := range fileResults {
+		if m := asMap(f); m != nil {
+			frs = append(frs, m)
+		}
+	}
+	return frs
 }

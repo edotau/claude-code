@@ -55,35 +55,56 @@ func classifyPromptSignal(prompt string) (complexity, string) {
 		return complexityNeutral, "neutral"
 	}
 	paths := filePathRe().FindAllString(p, 3)
-	if m := highRe().FindString(p); m != "" {
-		return complexityHigh, "keyword:" + strings.ToLower(m)
+	if rule := highSignal(p, len(paths)); rule != "" {
+		return complexityHigh, rule
 	}
-	if openSearchRe().MatchString(p) {
-		return complexityHigh, "open-search"
+	if rule := lowSignal(p, len(paths)); rule != "" {
+		return complexityLow, rule
 	}
-	if liveSystemRe().MatchString(p) {
-		return complexityHigh, "live-system"
+	return complexityNeutral, "neutral"
+}
+
+// shortPromptRule names why a short, path-less prompt is low complexity: a question or a scoped mechanical verb.
+func shortPromptRule(p string) string {
+	if questionRe().MatchString(p) || strings.HasSuffix(p, "?") {
+		return "question"
 	}
-	if len(paths) >= 2 {
-		return complexityHigh, "paths>=2"
+	if mechanicalRe().MatchString(p) && !scopeRe().MatchString(p) {
+		return "mechanical"
 	}
-	if isLongSpec(p) {
-		return complexityHigh, "long-spec"
+	return ""
+}
+
+// highSignal names the first rule that reads p as high complexity, or "".
+func highSignal(p string, paths int) string {
+	switch {
+	case highRe().MatchString(p):
+		return "keyword:" + strings.ToLower(highRe().FindString(p))
+	case openSearchRe().MatchString(p):
+		return "open-search"
+	case liveSystemRe().MatchString(p):
+		return "live-system"
+	case paths >= 2:
+		return "paths>=2"
+	case isLongSpec(p):
+		return "long-spec"
 	}
-	if len(p) < 120 && len(paths) == 0 && !strings.Contains(p, "```") {
-		if questionRe().MatchString(p) || strings.HasSuffix(p, "?") {
-			return complexityLow, "question"
-		}
-		if mechanicalRe().MatchString(p) && !scopeRe().MatchString(p) {
-			return complexityLow, "mechanical"
+	return ""
+}
+
+// lowSignal names the rule that reads p as low complexity (question or mechanical one-liner), or "".
+func lowSignal(p string, paths int) string {
+	if len(p) < 120 && paths == 0 && !strings.Contains(p, "```") {
+		if rule := shortPromptRule(p); rule != "" {
+			return rule
 		}
 	}
 	// A single touched file plus a mechanical verb and no scope word is still a one-liner, just
 	// one that names its target — allow a longer prompt than the path-less case above.
-	if len(paths) == 1 && len(p) < 200 && mechanicalRe().MatchString(p) && !scopeRe().MatchString(p) {
-		return complexityLow, "mechanical"
+	if paths == 1 && len(p) < 200 && mechanicalRe().MatchString(p) && !scopeRe().MatchString(p) {
+		return "mechanical"
 	}
-	return complexityNeutral, "neutral"
+	return ""
 }
 
 // EffortTierSignal is the exported seam onto classifyPromptSignal plus the short rule name that fired (e.g. "keyword:refactor",

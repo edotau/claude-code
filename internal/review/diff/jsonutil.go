@@ -59,13 +59,7 @@ func insertColonSpace(b []byte) []byte {
 	for _, c := range b {
 		out = append(out, c)
 		if inString {
-			if escaped {
-				escaped = false
-			} else if c == '\\' {
-				escaped = true
-			} else if c == '"' {
-				inString = false
-			}
+			inString, escaped = stepString(c, escaped)
 			continue
 		}
 		switch c {
@@ -76,4 +70,17 @@ func insertColonSpace(b []byte) []byte {
 		}
 	}
 	return out
+}
+
+// stepString advances the in-string scan by one byte and returns the new (inString, escaped) state.
+func stepString(c byte, escaped bool) (inString, esc bool) {
+	switch {
+	case escaped:
+		return true, false
+	case c == '\\':
+		return true, true
+	case c == '"':
+		return false, false
+	}
+	return true, false
 }

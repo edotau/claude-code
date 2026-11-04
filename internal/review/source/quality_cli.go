@@ -72,20 +72,7 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	var report any
-	if info.IsDir() {
-		if dr, derr := analyzeDirectory(target, parsed.language); derr != nil {
-			report = errorResult{Error: derr.Error()}
-		} else {
-			report = dr
-		}
-	} else {
-		if qr, qerr := Quality(target, ""); qerr != nil {
-			report = errorResult{Error: qerr.Error()}
-		} else {
-			report = qr
-		}
-	}
+	report := qualityReportFor(target, info.IsDir(), parsed.language)
 
 	if parsed.jsonOut {
 		if err := emitQualityJSON(report, parsed.output, stdout); err != nil {
@@ -102,6 +89,22 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// qualityReportFor analyzes a directory or a single file; an analysis error becomes an errorResult report.
+func qualityReportFor(target string, isDir bool, language string) any {
+	if isDir {
+		dr, err := analyzeDirectory(target, language)
+		if err != nil {
+			return errorResult{Error: err.Error()}
+		}
+		return dr
+	}
+	qr, err := Quality(target, "")
+	if err != nil {
+		return errorResult{Error: err.Error()}
+	}
+	return qr
 }
 
 func emitQualityJSON(report any, output string, stdout io.Writer) error {
