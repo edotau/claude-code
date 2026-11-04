@@ -172,7 +172,7 @@ func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 	width := lineWidth(cfg)
 	switch cfg.Style {
 	case "twoline":
-		return renderTwoline(v, pal, stops, mode)
+		return renderTwoline(v, cfg, pal, stops, mode)
 	case "dashboard":
 		return renderDashboard(v, cfg, pal, stops, mode, width)
 	case "powerline", "capsule", "minimal":
