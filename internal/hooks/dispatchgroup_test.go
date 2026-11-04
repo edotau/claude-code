@@ -217,8 +217,8 @@ func TestDispatchAgentLabels(t *testing.T) {
 	if again := labelOf(t, "code-worker", prompt, got); again != got {
 		t.Errorf("second run = %q, want unchanged %q", again, got)
 	}
-	if got := labelOf(t, "Explore", prompt, "review thing"); got != "review thing" {
-		t.Errorf("Explore type relabelled: %q", got)
+	if got := labelOf(t, "Explore", prompt, "review thing"); got != "sonnet: review thing" {
+		t.Errorf("Explore label = %q, want its own model prefix", got)
 	}
 	cases := []struct{ st, agent, want string }{
 		{"code-worker", "none", "sonnet: task"},
@@ -227,8 +227,8 @@ func TestDispatchAgentLabels(t *testing.T) {
 		{"copilot", "claude", "sonnet: task"},
 		{"coworker", "codex", "codex: task"},
 		{"code-worker", "claude", "sonnet: task"},
-		{"claude", "claude (in-context)", "task"},
-		{"claude", "claude", "task"},
+		{"claude", "claude (in-context)", "sonnet: task"},
+		{"claude", "claude", "sonnet: task"},
 		{"codex", "codex → gemini", "gemini: task"},
 	}
 	// Mode: compare joins with ", "; relay (explicit or absent) keeps the arrow.
@@ -263,8 +263,8 @@ func TestDispatchLabelLowercase(t *testing.T) {
 		{"code-worker", "none", "V2 bug", "sonnet: V2 bug"},
 		{"code-worker", "none", "Done. Next", "sonnet: done. Next"},
 		{"code-worker", "none", "code-worker: RTK hook", "sonnet: RTK hook"},
-		{"copilot", "none", "copilot: repair tests", "repair tests"},
-		{"Plan", "none", "Plan: Repo-wide package consolidation", "repo-wide package consolidation"},
+		{"copilot", "none", "copilot: repair tests", "sonnet: repair tests"},
+		{"Plan", "none", "Plan: Repo-wide package consolidation", "sonnet: repo-wide package consolidation"},
 	}
 	for _, c := range lower {
 		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, c.desc); got != c.want {
@@ -291,7 +291,7 @@ func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 	stubLabelModels(t, "gpt-6.1-sol", "databricks-gpt-6-astra")
 	for prompt, want := range map[string]string{
 		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
-		"Agent: claude (in-context)\nreview": "review diff",
+		"Agent: claude (in-context)\nreview": "sonnet: review diff",
 	} {
 		r := agentEffortResult(ParseInput(strings.NewReader(payload(prompt))))
 		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {

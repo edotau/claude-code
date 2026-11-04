@@ -146,6 +146,35 @@ func applyLabel(updated map[string]any, task string) bool {
 	if rest, ok := strings.CutPrefix(desc, st+":"); ok { // a hand-typed own-type prefix ("Plan: …") repeats the row
 		desc = strings.TrimSpace(rest)
 	}
+	label, desc := leafLabel(updated, st, task, desc)
+	out, ok := labelled(label, desc)
+	if !ok || out == orig {
+		return false
+	}
+	updated["description"] = out
+	return true
+}
+
+// leafLabel picks the prefix: a harness leaf's agents resolved to their model, else the leaf's own model.
+func leafLabel(updated map[string]any, st, task, desc string) (string, string) {
+	label, compare := harnessLabel(st, task), modeCompareRe.MatchString(task)
+	if label != "" && !compare {
+		desc = cutLabel(desc, label)                     // a hand-typed or earlier unsuffixed label
+		if m := labelModel(updated, st, task); m != "" { // the model id alone says where the work runs
+			return m, cutLabel(desc, m)
+		}
+		return label, desc
+	}
+	if label == "" && !compare && strings.TrimSpace(desc) != "" { // every other leaf leads with its own model
+		if m := ownModel(updated, st); m != "" {
+			return m, cutLabel(desc, m)
+		}
+	}
+	return label, desc
+}
+
+// harnessLabel names the agents a harness leaf requests; a code-worker with none runs on claude.
+func harnessLabel(st, task string) string {
 	label := ""
 	if labelTypes[st] { // only harness leaves carry an agent label; any type gets the prefix strip + lowercase
 		label = agentLabel(st, task)
@@ -153,35 +182,41 @@ func applyLabel(updated map[string]any, task string) bool {
 	if label == "" && st == "code-worker" { // a wrapper leaf names who runs it; other types are their own agent
 		label = "claude"
 	}
-	if base := label; base != "" && !modeCompareRe.MatchString(task) {
-		if rest, ok := strings.CutPrefix(desc, base+":"); ok { // a hand-typed or earlier unsuffixed label
-			desc = strings.TrimSpace(rest)
-		}
-		if m := labelModel(updated, st, task); m != "" { // the model id alone says where the work runs
-			if rest, ok := strings.CutPrefix(desc, m+":"); ok {
-				desc = strings.TrimSpace(rest)
-			}
-			label = m
-		}
+	return label
+}
+
+func cutLabel(desc, label string) string {
+	if rest, ok := strings.CutPrefix(desc, label+":"); ok {
+		return strings.TrimSpace(rest)
 	}
-	var out string
+	return desc
+}
+
+// labelled joins label and desc; ok is false when desc already is the bare label.
+func labelled(label, desc string) (string, bool) {
 	switch {
 	case label == "":
-		out = lowerFirst(desc)
+		return lowerFirst(desc), true
 	case strings.HasPrefix(desc, label+":"):
-		out = label + ": " + lowerFirst(strings.TrimPrefix(desc[len(label)+1:], " "))
+		return label + ": " + lowerFirst(strings.TrimPrefix(desc[len(label)+1:], " ")), true
 	case desc == label:
-		return false
+		return "", false
 	case strings.TrimSpace(desc) == "":
-		out = label
-	default:
-		out = label + ": " + lowerFirst(desc)
+		return label, true
 	}
-	if out == orig {
-		return false
+	return label + ": " + lowerFirst(desc), true
+}
+
+// ownModel is the dispatch's model, else the agent file's; "inherit" names no model, so it labels nothing.
+func ownModel(updated map[string]any, st string) string {
+	m, _ := updated["model"].(string)
+	if m == "" {
+		m = rosterModel(st)
 	}
-	updated["description"] = out
-	return true
+	if m == "inherit" {
+		return ""
+	}
+	return m
 }
 
 // modeCompareRe matches a `Mode: compare` line in a brief.

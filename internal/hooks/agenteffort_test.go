@@ -198,7 +198,7 @@ func TestAgentEffortPreservesAllInputKeys(t *testing.T) {
 	}
 	want := map[string]any{
 		"prompt":            "fix the typo in the help text",
-		"description":       "fix typo",
+		"description":       "haiku: fix typo", // labelled with the filled model
 		"isolation":         "worktree",
 		"run_in_background": false,
 		"subagent_type":     "general-purpose",
@@ -371,7 +371,7 @@ func TestAgentEffortRecallPreservesAllInputKeysWithModelFill(t *testing.T) {
 		t.Fatal("emitted nothing, want an updatedInput")
 	}
 	for _, k := range []string{"description", "isolation", "run_in_background", "subagent_type"} {
-		want := map[string]any{"description": "deploy work", "isolation": "worktree", "run_in_background": false, "subagent_type": "general-purpose"}[k]
+		want := map[string]any{"description": "sonnet: deploy work", "isolation": "worktree", "run_in_background": false, "subagent_type": "general-purpose"}[k]
 		if got[k] != want {
 			t.Errorf("updatedInput[%q] = %v, want %v (original key dropped)", k, got[k], want)
 		}
