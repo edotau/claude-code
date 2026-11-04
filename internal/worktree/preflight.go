@@ -149,7 +149,15 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target st
 		return true, nil
 	}
 
-	if issue, err := checkCheckoutState(ctx, repo.Main, plan.MainGitDir, IssueDirtyTarget); err != nil {
+	targetOID, err := headOfContext(ctx, repo.Main)
+	if err != nil {
+		return false, err
+	}
+	sourceOID, err := headOfContext(ctx, plan.WorktreePath)
+	if err != nil {
+		return false, err
+	}
+	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, targetOID+"..."+sourceOID); err != nil {
 		return false, err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
@@ -275,6 +283,78 @@ func parseConflicts(out []byte) []string {
 		}
 	}
 	return conflicts
+}
+
+// checkTargetState blocks local target edits only where the promoted range touches the same paths.
+func checkTargetState(ctx context.Context, path, gitDir, commitRange string) (*Issue, error) {
+	dirty, err := targetDirtyPaths(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if len(dirty) > 0 {
+		touched, err := targetTouchedPaths(ctx, path, commitRange)
+		if err != nil {
+			return nil, err
+		}
+		var overlap []string
+		for _, name := range touched {
+			if dirty[name] {
+				overlap = append(overlap, name)
+			}
+		}
+		if len(overlap) > 0 {
+			return &Issue{Code: IssueDirtyTarget, Paths: overlap,
+				Detail: "uncommitted target changes overlap promoted files: " + strings.Join(overlap, ", ")}, nil
+		}
+	}
+	op, found, err := inProgressOp(ctx, path, gitDir)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
+	}
+	return nil, nil
+}
+
+// targetDirtyPaths reads NUL-delimited status, including both names of a rename or copy.
+func targetDirtyPaths(ctx context.Context, path string) (map[string]bool, error) {
+	out, err := runGit(ctx, path, nil, "status", "--porcelain=v1", "-z", "--ignore-submodules=none", "--untracked-files=all")
+	if err != nil {
+		return nil, fmt.Errorf("git status in %s: %w", path, err)
+	}
+	dirty := make(map[string]bool)
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i < len(fields); i++ {
+		entry := fields[i]
+		if len(entry) < 4 {
+			continue
+		}
+		dirty[entry[3:]] = true
+		if strings.ContainsAny(entry[:2], "RC") && i+1 < len(fields) {
+			i++
+			dirty[fields[i]] = true
+		}
+	}
+	return dirty, nil
+}
+
+// targetTouchedPaths disables rename folding so both the deleted and added paths participate.
+func targetTouchedPaths(ctx context.Context, path, commitRange string) ([]string, error) {
+	out, err := runGit(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--no-renames", commitRange, "--")
+	if err != nil {
+		if target, source, threeDot := strings.Cut(commitRange, "..."); threeDot {
+			unrelated, ancestryErr := unrelatedHistories(ctx, path, source, target)
+			if ancestryErr != nil {
+				return nil, ancestryErr
+			}
+			if unrelated {
+				return nil, nil // Leave unrelated histories to the existing later preflight check.
+			}
+		}
+		return nil, fmt.Errorf("git diff in %s: %w", path, err)
+	}
+	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' }), nil
 }
 
 // checkCheckoutState folds the dirty and in-progress-operation checks for one checkout into a single

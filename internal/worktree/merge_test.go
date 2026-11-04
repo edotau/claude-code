@@ -2,8 +2,10 @@ package worktree
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -215,6 +217,78 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	if headOf(main) != headOf(wt) {
 		t.Fatalf("main = %s, want promoted to %s", headOf(main), headOf(wt))
 	}
+}
+
+func TestMergeDirtyTargetOverlap(t *testing.T) {
+	for _, overlap := range []bool{false, true} {
+		name := "non-overlapping"
+		if overlap {
+			name = "overlapping"
+		}
+		t.Run(name, func(t *testing.T) {
+			mergeFixtureLockEnv(t)
+			repo, main, wt := mergeFixtureSetup(t)
+			mergeFixtureWrite(t, main, "a.txt", "base\n", "main adds a")
+			mergeFixtureWrite(t, wt, "b.txt", "feature\n", "feature adds b")
+			if overlap {
+				mergeFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
+			}
+			before := headOf(main)
+			if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var plan *MergePlan
+			outcome, err := Merge(context.Background(), repo, MergeRequest{
+				Name: "feature", Verify: "true", NoClean: true, Out: io.Discard, Err: io.Discard,
+				ShowPlan: func(p *MergePlan) { plan = p },
+			})
+			if err != nil || outcome == nil || outcome.Blocked != overlap {
+				t.Fatalf("Merge = %+v, %v; want blocked=%v", outcome, err, overlap)
+			}
+			wantHead := headOf(wt)
+			if overlap {
+				assertDirtyTargetIssue(t, plan, "a.txt")
+				wantHead = before
+			}
+			assertTargetEditIntact(t, main, wantHead)
+		})
+	}
+}
+
+func assertTargetEditIntact(t *testing.T, main, wantHead string) {
+	t.Helper()
+	if got := headOf(main); got != wantHead {
+		t.Fatalf("main HEAD = %s, want %s", got, wantHead)
+	}
+	content, err := os.ReadFile(filepath.Join(main, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "uncommitted\n" {
+		t.Fatalf("a.txt = %q, want uncommitted edit intact", content)
+	}
+}
+
+func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
+	mergeFixtureLockEnv(t)
+	repo, main, wt := mergeFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
+	ctx := context.Background()
+	plan, err := Preflight(ctx, repo, "feature", "")
+	if err != nil || len(plan.Issues) != 0 {
+		t.Fatalf("Preflight = %+v, %v", plan, err)
+	}
+	if _, err := IntegrateTarget(ctx, repo, plan); err != nil {
+		t.Fatal(err)
+	}
+	before := headOf(main)
+	if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Promote(ctx, repo, plan); err == nil || !strings.Contains(err.Error(), "dirty-target") || !strings.Contains(err.Error(), "a.txt") {
+		t.Fatalf("Promote = %v, want dirty-target naming a.txt", err)
+	}
+	assertTargetEditIntact(t, main, before)
 }
 
 func mergeFixtureLockEnv(t *testing.T) {

@@ -211,8 +211,9 @@ func TestPreflightRenameConflict(t *testing.T) {
 
 func TestPreflightDirtyTarget(t *testing.T) {
 	t.Parallel()
-	repo, main, _ := preflightFixtureSetup(t)
-	if err := os.WriteFile(filepath.Join(main, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
+	repo, main, wt := preflightFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "f.txt", "feature edit\n", "feature edits f")
+	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,12 +221,72 @@ func TestPreflightDirtyTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
+	assertDirtyTargetIssue(t, plan, "f.txt")
+	if plan.TargetOID != "" || plan.SourceOID != "" {
+		t.Fatalf("OIDs pinned despite an overlapping dirty target: %+v", plan)
+	}
+}
+
+func assertDirtyTargetIssue(t *testing.T, plan *MergePlan, path string) {
+	t.Helper()
 	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueDirtyTarget {
 		t.Fatalf("Issues = %v, want one IssueDirtyTarget", plan.Issues)
 	}
-	if plan.TargetOID != "" || plan.SourceOID != "" {
-		t.Fatalf("OIDs pinned despite a dirty target: %+v", plan)
+	issue := plan.Issues[0]
+	if !slices.Equal(issue.Paths, []string{path}) || !strings.Contains(issue.Detail, path) {
+		t.Fatalf("issue = %+v, want only overlapping path %q and detail naming it", issue, path)
 	}
+}
+
+func TestPreflightDirtyTargetNonOverlapping(t *testing.T) {
+	for _, name := range []string{"f.txt", "dirty\nfile.txt"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo, main, wt := preflightFixtureSetup(t)
+			mergeFixtureWrite(t, main, "f.txt", "main edit\n", "main edits f")
+			mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature adds g")
+			if err := os.WriteFile(filepath.Join(main, name), []byte("uncommitted"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := Preflight(context.Background(), repo, "feature", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Issues) != 0 || plan.TargetOID != headOf(main) || plan.SourceOID != headOf(wt) {
+				t.Fatalf("non-overlapping dirty target blocked or OIDs not pinned: %+v", plan)
+			}
+		})
+	}
+}
+
+func TestPreflightDirtyTargetRename(t *testing.T) {
+	for _, name := range []string{"f.txt", "renamed\nfile.txt"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo, main, wt := preflightFixtureSetup(t)
+			mergeFixtureWrite(t, wt, name, "feature\n", "feature edits path")
+			mergeFixtureRun(t, main, "mv", "f.txt", "renamed\nfile.txt")
+			plan, err := Preflight(context.Background(), repo, "feature", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertDirtyTargetIssue(t, plan, name)
+		})
+	}
+}
+
+func TestPreflightPromotedRenameOverlapsOldPath(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	mergeFixtureRename(t, wt, "f.txt", "renamed.txt", "feature renames f")
+	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDirtyTargetIssue(t, plan, "f.txt")
 }
 
 // TestPreflightDirtyWorktreeWithShowUntrackedFilesOff is the regression test for Appendix A
@@ -296,6 +357,9 @@ func TestPreflightTargetMismatch(t *testing.T) {
 func TestPreflightInProgressOperation(t *testing.T) {
 	t.Parallel()
 	repo, main, _ := preflightFixtureSetup(t)
+	if err := os.WriteFile(filepath.Join(main, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gitDir, err := gitDirOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)

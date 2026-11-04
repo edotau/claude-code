@@ -87,7 +87,7 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 	return &MergeResult{Phase: "promote", BeforeOID: freshTarget, AfterOID: freshSource}, nil
 }
 
-// promoteStateChecks refuses to promote unless the main checkout is still on the pinned target and both trees are clean.
+// promoteStateChecks requires the pinned target, no overlapping target edits, and a clean source worktree.
 func promoteStateChecks(ctx context.Context, repo *Repo, plan *MergePlan) error {
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
@@ -96,7 +96,7 @@ func promoteStateChecks(ctx context.Context, repo *Repo, plan *MergePlan) error 
 	if branch != plan.TargetRef {
 		return fmt.Errorf("promote: main checkout moved to %q, pinned target was %q — retry from a fresh plan", branch, plan.TargetRef)
 	}
-	if issue, err := checkCheckoutState(ctx, repo.Main, plan.MainGitDir, IssueDirtyTarget); err != nil {
+	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, plan.TargetOID+".."+plan.IntegratedOID); err != nil {
 		return err
 	} else if issue != nil {
 		return fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
