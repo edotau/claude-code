@@ -23,6 +23,9 @@ func Backup(dir string, relPaths []string, label string, now time.Time) (string,
 }
 
 func copyFile(src, dst string) error {
+	if li, err := os.Lstat(src); err == nil && li.Mode()&os.ModeSymlink != 0 {
+		return copyLink(src, dst) // a symlink (even a dangling one) is backed up as a link, never followed
+	}
 	fi, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -32,6 +35,20 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return paths.AtomicWrite(dst, data, fi.Mode())
+}
+
+func copyLink(src, dst string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Symlink(target, dst)
 }
 
 // Report prints one line per clash: path, same|differs, and where it lands under backupDir.

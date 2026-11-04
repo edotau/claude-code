@@ -23,17 +23,23 @@ import (
 // ErrConfirmMismatch is returned when --apply's typed confirmation doesn't match Dir exactly.
 var ErrConfirmMismatch = errors.New("confirmation did not match the target directory")
 
-// ErrNotConfigDir refuses a nuke of the filesystem root or the home directory: only a config dir goes.
-var ErrNotConfigDir = errors.New("refusing: not a Claude config dir (filesystem root or home)")
+// ErrNotConfigDir refuses a nuke of the filesystem root, home or a parent of home: only a config dir goes.
+var ErrNotConfigDir = errors.New("refusing: not a Claude config dir (filesystem root, home or a parent of home)")
 
-// nukeFloor rejects dir when it is "/" or the user's home, whatever the caller typed.
+// nukeFloor rejects dir when it is "/", the user's home, or an ancestor of home, whatever the caller typed.
 func nukeFloor(dir string) error {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return err
 	}
+	if abs == string(filepath.Separator) {
+		return ErrNotConfigDir
+	}
 	home, _ := os.UserHomeDir()
-	if abs == string(filepath.Separator) || (home != "" && abs == filepath.Clean(home)) {
+	if home == "" {
+		return nil
+	}
+	if rel, err := filepath.Rel(abs, filepath.Clean(home)); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return ErrNotConfigDir
 	}
 	return nil
@@ -46,7 +52,7 @@ type Entry struct {
 	Class string // "tracked" | "untracked" | "ignored" | "no-git"
 }
 
-// Plan is what Nuke would do to dir, without doing it.
+// NukePlan is what Nuke would do to dir, without doing it.
 type NukePlan struct {
 	Dir          string
 	Entries      []Entry
@@ -130,6 +136,20 @@ func Nuke(opts NukeOpts) error {
 	if opts.Confirm != opts.Dir {
 		return ErrConfirmMismatch
 	}
+	if !opts.KeepMemory {
+		return archiveAndRemove(opts, plan)
+	}
+	// The bank lock spans re-plan, archive and removal: a concurrent memory write is never deleted unarchived.
+	return memstore.WithBankLock(0, func() error {
+		fresh, err := Plan(opts.Dir, true)
+		if err != nil {
+			return err
+		}
+		return archiveAndRemove(opts, fresh)
+	})
+}
+
+func archiveAndRemove(opts NukeOpts, plan NukePlan) error {
 	tarPath, err := archiveUserContent(plan, opts.KeepMemory)
 	if err != nil {
 		return err
@@ -243,12 +263,12 @@ func untrackedUnder(repo, sub string) ([]string, error) {
 	if !fi.IsDir() {
 		return nil, nil
 	}
-	out, err := exec.Command("git", "-C", repo, "ls-files", "--others", "--exclude-standard", "--", sub).Output() //nolint:noctx // one-shot local git call; no caller ctx
+	out, err := exec.Command("git", "-C", repo, "ls-files", "-z", "--others", "--exclude-standard", "--", sub).Output() //nolint:noctx // one-shot local git call; no caller ctx
 	if err != nil {
 		return nil, fmt.Errorf("list untracked %s: %w", sub, err)
 	}
 	var rels []string
-	for l := range strings.SplitSeq(strings.TrimRight(string(out), "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.TrimRight(string(out), "\x00"), "\x00") {
 		if l != "" {
 			rels = append(rels, l)
 		}
@@ -285,14 +305,16 @@ func archiveUserContent(plan NukePlan, keepMemory bool) (dest string, err error)
 	if err = gz.Close(); err != nil {
 		return dest, err
 	}
+	if err = f.Sync(); err != nil {
+		return dest, err
+	}
 	if err = f.Close(); err != nil {
 		return dest, err
 	}
 	return dest, nil
 }
 
-// tarPlan writes the manifest then plan.UserContent. With keepMemory the plan carries memory/ (incl. .git),
-// so the file reads run under the bank lock: a concurrent settle/commit must not land a torn .git in the backup.
+// tarPlan writes the manifest then plan.UserContent; with keepMemory the caller (Nuke) holds the bank lock.
 func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
 	manifest := struct {
 		Date        time.Time `json:"date"`
@@ -312,33 +334,27 @@ func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
 	if err := tarWriteBytes(tw, "manifest.json", data); err != nil {
 		return err
 	}
-	write := func() error {
-		for _, rel := range plan.UserContent {
-			if rel == "state/vault.db" {
-				var buf bytes.Buffer
-				// A corrupt vault.db fails the consistent bbolt snapshot: archive it as a raw byte
-				// copy instead (not point-in-time-safe, but still backed up rather than lost).
-				if err := vault.SnapshotTo(filepath.Join(plan.Dir, rel), &buf); err != nil {
-					if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
-						return err
-					}
-					continue
-				}
-				if err := tarWriteBytes(tw, rel, buf.Bytes()); err != nil {
+	for _, rel := range plan.UserContent {
+		if rel == "state/vault.db" {
+			var buf bytes.Buffer
+			// A corrupt vault.db fails the consistent bbolt snapshot: archive it as a raw byte
+			// copy instead (not point-in-time-safe, but still backed up rather than lost).
+			if err := vault.SnapshotTo(filepath.Join(plan.Dir, rel), &buf); err != nil {
+				if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
 					return err
 				}
 				continue
 			}
-			if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
+			if err := tarWriteBytes(tw, rel, buf.Bytes()); err != nil {
 				return err
 			}
+			continue
 		}
-		return nil
+		if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
+			return err
+		}
 	}
-	if keepMemory {
-		return memstore.WithBankLock(0, write)
-	}
-	return write()
+	return nil
 }
 
 func tarWriteBytes(tw *tar.Writer, name string, data []byte) error {
