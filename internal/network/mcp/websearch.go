@@ -145,6 +145,11 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
 		})
 	case "notifications/initialized":
 		return nil
+	case "ping":
+		if isNotification {
+			return nil
+		}
+		return result(req.ID, map[string]any{})
 	case "tools/list":
 		return result(req.ID, map[string]any{"tools": []map[string]any{toolDescriptor()}})
 	case "tools/call":
@@ -298,9 +303,12 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 		return "", fmt.Errorf("could not reach Tavily (%v)", err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("search with Tavily failed (HTTP %d)", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))
+	if err != nil {
+		return "", fmt.Errorf("could not read Tavily response (%v)", err)
 	}
 	var payload struct {
 		Answer  string         `json:"answer"`

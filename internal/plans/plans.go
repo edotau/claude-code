@@ -215,10 +215,27 @@ func Active(home, worktree string, skip []string) (string, bool) {
 	return best, best != ""
 }
 
+// claimNamesWorktree matches "worktree <w>" as a whole name, so "fix" does not match "worktree fix-2".
+func claimNamesWorktree(claim, worktree string) bool {
+	needle := "worktree " + worktree
+	for i := strings.Index(claim, needle); i >= 0; {
+		end := i + len(needle)
+		if end == len(claim) || !strings.ContainsRune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-", rune(claim[end])) {
+			return true
+		}
+		next := strings.Index(claim[end:], needle)
+		if next < 0 {
+			return false
+		}
+		i = end + next
+	}
+	return false
+}
+
 // claimsWorktree reports whether an open task's claim names worktree ("· worktree <w>").
 func claimsWorktree(plan Plan, worktree string) bool {
 	for _, t := range plan.Tasks {
-		if !t.Done && strings.Contains(t.Claim, "worktree "+worktree) {
+		if !t.Done && claimNamesWorktree(t.Claim, worktree) {
 			return true
 		}
 	}

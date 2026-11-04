@@ -76,7 +76,7 @@ func CountWorkFrom(path string, offset int64) (edits, turns int, next int64) {
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return 0, 0, offset
 	}
-	read := scanLines(f, true, func(line []byte) {
+	read, _ := scanLines(f, true, func(line []byte) {
 		edits += countLineEdits(line)
 		if isUserTurnLine(line) {
 			turns++
@@ -157,7 +157,7 @@ func eachEdit(path string, fn func(filePath string)) {
 		return
 	}
 	defer f.Close()
-	EachLine(f, func(line []byte) {
+	_ = EachLine(f, func(line []byte) {
 		eachEditLine(line, fn)
 	})
 }

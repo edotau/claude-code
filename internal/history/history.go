@@ -112,51 +112,63 @@ var secretRE = regexp.MustCompile(
 // uncommitted change left over in the other plane never rides along.
 func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error) {
 	var res Result
-	if err := s.ensureRepo(); err != nil {
-		return res, err
-	}
-	for _, f := range files {
-		data, err := readFile(f)
-		dest := filepath.Join(s.Dir, plane, f.Label)
-		switch {
-		case err != nil && errors.Is(err, fs.ErrNotExist):
-			res.Absent = append(res.Absent, f.Label)
-			// A file that vanished must LEAVE the store, or the log shows it as still present.
-			if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-				return res, err
+	// The lock file sits beside Dir, not inside it, so `add -A` never stages it.
+	err := paths.WithFileLock(s.Dir+".snapshot", func() error {
+		if err := s.ensureRepo(); err != nil {
+			return err
+		}
+		for _, f := range files {
+			if err := s.stageFile(f, plane, &res); err != nil {
+				return err
 			}
-			continue
-		case err != nil:
-			res.Skipped = append(res.Skipped, Skip{f.Label, err.Error()})
-			continue
 		}
-		if loc := secretRE.FindIndex(data); loc != nil {
-			res.Skipped = append(res.Skipped, Skip{f.Label,
-				fmt.Sprintf("holds a credential-shaped value at byte %d — not committed", loc[0])})
-			continue
+		sort.Strings(res.Changed)
+		dirty, err := s.dirty(plane)
+		if err != nil || !dirty {
+			return err
 		}
-		if prev, err := os.ReadFile(dest); err == nil && bytes.Equal(prev, data) {
-			continue
+		commit, err := s.commit(subject(plane, res, note), body(res), plane)
+		if err != nil {
+			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-			return res, err
+		res.Commit = commit
+		return nil
+	})
+	return res, err
+}
+
+// stageFile copies one watched file into the store (or removes it when absent), recording the outcome in res.
+func (s *Store) stageFile(f HistoryFile, plane string, res *Result) error {
+	data, err := readFile(f)
+	dest := filepath.Join(s.Dir, plane, f.Label)
+	switch {
+	case err != nil && errors.Is(err, fs.ErrNotExist):
+		res.Absent = append(res.Absent, f.Label)
+		// A file that vanished must LEAVE the store, or the log shows it as still present.
+		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+			return err
 		}
-		if err := os.WriteFile(dest, data, 0o600); err != nil {
-			return res, err
-		}
-		res.Changed = append(res.Changed, f.Label)
+		return nil
+	case err != nil:
+		res.Skipped = append(res.Skipped, Skip{f.Label, err.Error()})
+		return nil
 	}
-	sort.Strings(res.Changed)
-	dirty, err := s.dirty(plane)
-	if err != nil || !dirty {
-		return res, err
+	if loc := secretRE.FindIndex(data); loc != nil {
+		res.Skipped = append(res.Skipped, Skip{f.Label,
+			fmt.Sprintf("holds a credential-shaped value at byte %d — not committed", loc[0])})
+		return nil
 	}
-	commit, err := s.commit(subject(plane, res, note), body(res), plane)
-	if err != nil {
-		return res, err
+	if prev, err := os.ReadFile(dest); err == nil && bytes.Equal(prev, data) {
+		return nil
 	}
-	res.Commit = commit
-	return res, nil
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dest, data, 0o600); err != nil {
+		return err
+	}
+	res.Changed = append(res.Changed, f.Label)
+	return nil
 }
 
 // readFile reads f through its Read func when set, else from its Path.
@@ -249,9 +261,18 @@ func (s *Store) commit(subject, body, plane string) (string, error) {
 	return s.git("rev-parse", "--short", "HEAD")
 }
 
+// hasCommits reports whether HEAD resolves; a fresh repo whose first snapshot recorded nothing has none.
+func (s *Store) hasCommits() bool {
+	_, err := s.git("rev-parse", "--verify", "--quiet", "HEAD")
+	return err == nil
+}
+
 // Log returns plane's last n commits as "<sha> <date> <subject>" lines, newest first.
 func (s *Store) Log(n int, plane string) ([]string, error) {
 	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
+		return nil, nil
+	}
+	if !s.hasCommits() {
 		return nil, nil
 	}
 	out, err := s.git("log", fmt.Sprintf("-%d", n), "--grep=^"+plane+": ",
@@ -265,6 +286,9 @@ func (s *Store) Log(n int, plane string) ([]string, error) {
 // Diff returns one commit's patch: rev when given, else plane's newest commit.
 func (s *Store) Diff(rev, plane string) (string, error) {
 	if rev == "" {
+		if !s.hasCommits() {
+			return "", fmt.Errorf("no %s commits yet", plane)
+		}
 		found, err := s.git("log", "--grep=^"+plane+": ", "-1", "--format=%H")
 		if err != nil {
 			return "", err

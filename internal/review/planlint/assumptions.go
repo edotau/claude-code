@@ -219,9 +219,9 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 	if handled {
 		return code
 	}
-	text, source, ok := readInput(input, stdin, stderr)
+	text, source, exit, ok := readInput(input, stdin, stderr)
 	if !ok {
-		return 0
+		return exit
 	}
 
 	findings := lintText(text)

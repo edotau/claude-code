@@ -115,3 +115,22 @@ func TestRobotsCachedPerOrigin(t *testing.T) {
 		t.Fatalf("robots.txt fetched %d times, want 1", hits)
 	}
 }
+
+func TestParseRobotsEmptyDisallowIsAllowAllGroup(t *testing.T) {
+	cases := []struct {
+		name, txt string
+		blocked   bool
+	}{
+		{"claude-code allow-all beats * Disallow /", "User-agent: claude-code\nDisallow:\n\nUser-agent: *\nDisallow: /\n", false},
+		{"claude-code Disallow /x applies", "User-agent: claude-code\nDisallow: /x\n\nUser-agent: *\nDisallow:\n", true},
+		{"only * Disallow / applies", "User-agent: *\nDisallow: /\n", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, blocked := robotsDisallows(parseRobots(c.txt), "/x/page")
+			if blocked != c.blocked {
+				t.Errorf("blocked = %v, want %v", blocked, c.blocked)
+			}
+		})
+	}
+}

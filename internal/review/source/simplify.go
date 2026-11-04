@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -42,6 +43,7 @@ type simplifySummary struct {
 
 type simplifyReport struct {
 	Files   []simplifyFile  `json:"files"`
+	Failed  []string        `json:"analysis_failed,omitempty"`
 	Summary simplifySummary `json:"summary"`
 }
 
@@ -74,10 +76,16 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 
 // gitLines runs git with list args in dir and returns its non-empty output lines.
 func gitLines(dir string, args ...string) ([]string, error) {
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.quotepath=false"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(ee.Stderr)))
+		}
 		return nil, err
 	}
 	var lines []string
@@ -163,18 +171,22 @@ func simplifyTargets(paths []string) []string {
 	return files
 }
 
-// analyzeSimplifyFile runs both checks on one file; ok is false when the file cannot be analyzed.
-func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, bool) {
+// analyzeSimplifyFile runs both checks on one file; an error means the file could not be analyzed.
+func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, error) {
 	q, err := Quality(path, "")
 	if err != nil {
-		return simplifyFile{}, false
+		return simplifyFile{}, err
 	}
 	var findings []Finding
-	if r, cerr := analyzeFileComplexity(path, th); cerr == nil && r != nil {
+	r, cerr := analyzeFileComplexity(path, th)
+	if cerr != nil {
+		return simplifyFile{}, cerr
+	}
+	if r != nil {
 		findings = r.Findings
 	}
 	return simplifyFile{File: path, Complexity: nonNil(findings),
-		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: nonNil(q.Smells)}}, true
+		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: nonNil(q.Smells)}}, nil
 }
 
 func printSimplifyReport(w io.Writer, r simplifyReport, threshold string) {
@@ -195,11 +207,14 @@ func printSimplifyReport(w io.Writer, r simplifyReport, threshold string) {
 			fmt.Fprintf(w, "    [%s] %s (%s): %s\n", strings.ToUpper(s.Severity), s.Type, s.Location, s.Message)
 		}
 	}
+	for _, f := range r.Failed {
+		fmt.Fprintf(w, "\n  %s  ANALYSIS FAILED\n", f)
+	}
 	fmt.Fprintf(w, "\nFindings: %d (complexity %d, quality %d)\n",
 		r.Summary.Complexity+r.Summary.Quality, r.Summary.Complexity, r.Summary.Quality)
 }
 
-// RunSimplify is the advisory first pass of the simplify skill; findings never change the exit code.
+// RunSimplify is the advisory first pass of the simplify skill; findings never change the exit code, a failed analysis does.
 func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	parsed, code, done := parseSimplifyArgs(args, stdout, stderr)
 	if done {
@@ -217,11 +232,15 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	th := complexityThresholds[parsed.threshold]
 	report := simplifyReport{Files: []simplifyFile{}}
 	for _, f := range simplifyTargets(paths) {
-		if sf, ok := analyzeSimplifyFile(f, th); ok {
-			report.Files = append(report.Files, sf)
-			report.Summary.Complexity += len(sf.Complexity)
-			report.Summary.Quality += len(sf.Quality.Smells)
+		sf, err := analyzeSimplifyFile(f, th)
+		if err != nil {
+			fmt.Fprintf(stderr, "review simplify: analysis failed: %s: %v\n", f, err)
+			report.Failed = append(report.Failed, f)
+			continue
 		}
+		report.Files = append(report.Files, sf)
+		report.Summary.Complexity += len(sf.Complexity)
+		report.Summary.Quality += len(sf.Quality.Smells)
 	}
 	report.Summary.Files = len(report.Files)
 	if parsed.jsonOut {
@@ -230,13 +249,21 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout)
-		return 0
+		return simplifyExit(report)
 	}
-	if report.Summary.Files == 0 {
+	if report.Summary.Files == 0 && len(report.Failed) == 0 {
 		fmt.Fprintln(stdout, "No changed source files.")
 		return 0
 	}
 	printSimplifyReport(stdout, report, parsed.threshold)
+	return simplifyExit(report)
+}
+
+// simplifyExit is 1 when any file could not be analyzed, so a dropped file never reads as clean.
+func simplifyExit(r simplifyReport) int {
+	if len(r.Failed) > 0 {
+		return 1
+	}
 	return 0
 }
 

@@ -41,7 +41,7 @@ func WriteMachinesCache(names []string) {
 		return
 	}
 	_ = os.MkdirAll(paths.StateDir(), 0o700)
-	_ = os.WriteFile(machinesCachePath(), data, 0o600)
+	_ = paths.AtomicWrite(machinesCachePath(), data, 0o600)
 }
 
 // CachedMachineNames reads the cache `network tailscale --machines` last wrote, when it's fresh enough; nil

@@ -28,10 +28,17 @@ const (
 // usageReport is the build seam; production is the exact function behind `claude-code usage --format json`.
 var usageReport = usage.Report
 
-// usageCache holds the last JSON body per day-window; the lock spans the build so concurrent callers coalesce.
+// usageCache holds the last JSON body per day-window; one build per key at a time, never under the lock.
 type usageCache struct {
 	mu      sync.Mutex
 	entries map[usageKey]usageEntry
+	flights map[usageKey]*usageFlight
+}
+
+// usageFlight is an in-progress build that concurrent callers of the same key wait on.
+type usageFlight struct {
+	done chan struct{}
+	err  error
 }
 
 // usageKey separates the quota-less body from the full one for the same window.
@@ -46,24 +53,47 @@ type usageEntry struct {
 }
 
 // get returns the cached body for key, or builds it with build when missing, stale, or (fresh and old enough).
-func (c *usageCache) get(key usageKey, fresh bool, now time.Time, build func() ([]byte, error)) ([]byte, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if e, ok := c.entries[key]; ok {
-		age := now.Sub(e.at)
-		if age < usageTTL && (!fresh || age < usageFreshMin) {
-			return e.body, nil
+func (c *usageCache) get(key usageKey, fresh bool, now func() time.Time, build func() ([]byte, error)) ([]byte, error) {
+	for {
+		c.mu.Lock()
+		if e, ok := c.entries[key]; ok {
+			age := now().Sub(e.at)
+			if age < usageTTL && (!fresh || age < usageFreshMin) {
+				c.mu.Unlock()
+				return e.body, nil
+			}
+		}
+		f, building := c.flights[key]
+		if !building {
+			break
+		}
+		c.mu.Unlock()
+		<-f.done
+		if f.err != nil {
+			return nil, f.err
 		}
 	}
+	f := &usageFlight{done: make(chan struct{})}
+	if c.flights == nil {
+		c.flights = map[usageKey]*usageFlight{}
+	}
+	c.flights[key] = f
+	c.mu.Unlock()
+
 	body, err := build()
-	if err != nil {
-		return nil, err
+
+	c.mu.Lock()
+	delete(c.flights, key)
+	if err == nil {
+		if c.entries == nil {
+			c.entries = map[usageKey]usageEntry{}
+		}
+		c.entries[key] = usageEntry{body: body, at: now()}
 	}
-	if c.entries == nil {
-		c.entries = map[usageKey]usageEntry{}
-	}
-	c.entries[key] = usageEntry{body: body, at: now}
-	return body, nil
+	f.err = err
+	c.mu.Unlock()
+	close(f.done)
+	return body, err
 }
 
 var emailRe = regexp.MustCompile(`[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}`)
@@ -126,7 +156,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	quotas := r.URL.Query().Get("quotas") != "0"
 	// a cold 30-day build took ~29s in measurement, right at the server's 30s WriteTimeout
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(3 * time.Minute))
-	body, err := s.usage.get(usageKey{days, quotas}, r.URL.Query().Get("fresh") == "1", s.now(), func() ([]byte, error) {
+	body, err := s.usage.get(usageKey{days, quotas}, r.URL.Query().Get("fresh") == "1", s.now, func() ([]byte, error) {
 		doc, err := usageReport(s.opts.ClaudeDir, "", days, quotas, io.Discard)
 		if err != nil {
 			return nil, err

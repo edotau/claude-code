@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,7 +54,8 @@ var (
 
 // resolveAgentResult is the subset of `ask --format json`'s envelope ResolveWithAgent inspects.
 type resolveAgentResult struct {
-	Fallback string
+	Fallback       string
+	FallbackReason string
 }
 
 // askEnvelope mirrors the JSON `claude-code ask --format json` prints: agent.Result's fields plus the
@@ -94,7 +96,7 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 		}
 		return resolveAgentResult{}, fmt.Errorf("claude-code ask: unparseable output: %w", jsonErr)
 	}
-	res := resolveAgentResult{Fallback: env.Fallback}
+	res := resolveAgentResult{Fallback: env.Fallback, FallbackReason: env.FallbackReason}
 	if env.Error != nil {
 		return res, fmt.Errorf("claude-code ask: %s", env.Error.Message)
 	}
@@ -180,7 +182,7 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 		}
 		if res.Fallback != "" {
 			return failOperation(op, fmt.Errorf(
-				"resolve: requested agent %q fell back to %q — refusing a silently different model", agentName, res.Fallback))
+				"resolve: requested agent %q fell back to %q (%s) — refusing a silently different model", agentName, res.Fallback, res.FallbackReason))
 		}
 		op.AgentExitOK = true // the one receipt resume is allowed to trust instead of re-running the agent
 		if err := SaveOperation(op); err != nil {
@@ -226,7 +228,14 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 // conflictMarkerPrefixes are the three literal marker lines a leftover, unresolved conflict always
 // carries — scanned directly in addition to `git diff --check`'s own leftover-marker detection, so a
 // corner case in one check is still caught by the other.
-var conflictMarkerPrefixes = []string{"<<<<<<<", "=======", ">>>>>>>"}
+var conflictMarkerPrefixes = []string{"<<<<<<< ", ">>>>>>> "}
+
+// isConflictMarker matches git's marker lines; the bare "=======" must be the whole line, so "=========" rules pass.
+func isConflictMarker(line string) bool {
+	line = strings.TrimSuffix(line, "\r")
+	return line == "=======" || line == "<<<<<<<" || line == ">>>>>>>" ||
+		slices.ContainsFunc(conflictMarkerPrefixes, func(p string) bool { return strings.HasPrefix(line, p) })
+}
 
 // conflictMarkersClear reports whether every path in paths is free of leftover conflict markers, via
 // `git diff --check` (git's own leftover-marker detector) and a direct content scan. badPath names one
@@ -244,14 +253,15 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 	}
 	for _, p := range paths {
 		data, readErr := os.ReadFile(filepath.Join(worktreePath, p))
-		if readErr != nil {
+		if os.IsNotExist(readErr) {
 			continue // tracked as resolved but no longer on disk (e.g. deleted) — nothing to scan
 		}
+		if readErr != nil {
+			return false, "", fmt.Errorf("scan %s for conflict markers: %w", p, readErr)
+		}
 		for line := range strings.SplitSeq(string(data), "\n") {
-			for _, prefix := range conflictMarkerPrefixes {
-				if strings.HasPrefix(line, prefix) {
-					return false, p, nil
-				}
+			if isConflictMarker(line) {
+				return false, p, nil
 			}
 		}
 	}

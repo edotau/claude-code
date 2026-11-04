@@ -113,7 +113,7 @@ func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string)
 			return err
 		}
 		if ledgerField(string(data), "Status") == "closed" {
-			info, err := reopenInfo(repo, name, top, "")
+			info, err := reopenInfo(repo, top, "")
 			if err != nil {
 				return err
 			}
@@ -213,7 +213,7 @@ func openSection(text string) string {
 	return text[i:]
 }
 
-// reopenText rewrites a closed ledger as open with a fresh Opened section; the caller holds the lock.
+// reopenedText rewrites a closed ledger as open with a fresh Opened section; the caller holds the lock.
 func reopenedText(text string, info LedgerInfo) string {
 	text = strings.Replace(text, "- Status: closed\n", "- Status: open\n", 1)
 	text = ledgerLog(text, "reopened", info.Now)
@@ -223,12 +223,14 @@ func reopenedText(text string, info LedgerInfo) string {
 }
 
 // reopenInfo describes work resuming in a kept worktree: base is the merge-base with the main checkout's HEAD.
-func reopenInfo(repo *Repo, name, dest, session string) (LedgerInfo, error) {
-	head, err := headOfContext(context.Background(), dest)
+func reopenInfo(repo *Repo, dest, session string) (LedgerInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // callers hold the bank lock
+	defer cancel()
+	head, err := headOfContext(ctx, dest)
 	if err != nil {
 		return LedgerInfo{}, err
 	}
-	base, err := gitCmd(context.Background(), "-C", repo.Main, "merge-base", "HEAD", head).Output()
+	base, err := gitCmd(ctx, "-C", repo.Main, "merge-base", "HEAD", head).Output()
 	if err != nil {
 		return LedgerInfo{}, fmt.Errorf("resolve resume base: %w", err)
 	}

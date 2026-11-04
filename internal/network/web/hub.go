@@ -89,13 +89,13 @@ func (h *hub) publish(payload []byte) {
 // rebuild builds and publishes; fp was taken before the build so a change mid-build is caught next tick.
 func (h *hub) rebuild(fp uint64) {
 	payload, err := h.build()
+	if err != nil {
+		h.logf("web: tree scan: %v", err) // fp stays unrecorded so the next tick retries
+		return
+	}
 	h.mu.Lock()
 	h.fp = fp
 	h.mu.Unlock()
-	if err != nil {
-		h.logf("web: tree scan: %v", err)
-		return
-	}
 	h.publish(payload)
 }
 

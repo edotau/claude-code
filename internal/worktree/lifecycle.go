@@ -79,7 +79,7 @@ func resumeLedger(repo *Repo, name, dest, session string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	info, err := reopenInfo(repo, name, dest, session)
+	info, err := reopenInfo(repo, dest, session)
 	if err != nil {
 		return err
 	}

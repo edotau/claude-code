@@ -81,10 +81,14 @@ type Client struct {
 	token   func(ctx context.Context) (string, error)
 }
 
+// apiTimeout bounds one admin-API round trip so a stalled server cannot hang a verb.
+const apiTimeout = 30 * time.Second
+
 // NewClient resolves credentials via secretstore.Get (the vault, then env):
 // TAILSCALE_OAUTH_CLIENT_ID/_SECRET preferred, else TAILSCALE_API_KEY as a bearer directly.
 func NewClient() (*Client, error) {
-	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: http.DefaultClient}
+	// DefaultClient's transport stays the seam tests swap; only the timeout is added.
+	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}}
 	if id, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
 		if secret, _, ok2 := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
 			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
@@ -240,7 +244,7 @@ func (c *Client) Routes(ctx context.Context, deviceID string) (DeviceRoutes, err
 
 // EnableRoutes adds routes to cur.Enabled and POSTs the union (the endpoint replaces the set); returns the new enabled set.
 func (c *Client) EnableRoutes(ctx context.Context, deviceID string, cur DeviceRoutes, routes []string) ([]string, error) {
-	want := cur.Enabled
+	want := slices.Clone(cur.Enabled)
 	for _, r := range routes {
 		if !slices.Contains(want, r) {
 			want = append(want, r)

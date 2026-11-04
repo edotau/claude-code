@@ -74,7 +74,7 @@ func readTurns(source string) ([]string, error) {
 	}
 	defer f.Close()
 	var turns []string // the last maxTurns qualifying turns
-	EachLine(f, func(raw []byte) {
+	scanErr := EachLine(f, func(raw []byte) {
 		var line turnLine
 		if err := json.Unmarshal(raw, &line); err != nil {
 			return
@@ -92,6 +92,9 @@ func readTurns(source string) ([]string, error) {
 			turns = turns[1:]
 		}
 	})
+	if scanErr != nil {
+		return nil, fmt.Errorf("read %s: %w", source, scanErr)
+	}
 	return turns, nil
 }
 

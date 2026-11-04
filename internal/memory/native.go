@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -289,7 +290,10 @@ func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 	if err != nil {
 		return err
 	}
-	searchable, _ := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
+	searchable, err := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	moves, recorded, err := planArchive(dir, todo, indexedLinks(dir, healed))
 	if err != nil {
 		return err
@@ -459,8 +463,11 @@ func reconcileLines(dir, index string) []string {
 // a malformed or over-reserve bank region is the error that stops the caller's rewrite.
 func healedIndex(dir string) (raw []byte, healed string, err error) {
 	raw, err = os.ReadFile(filepath.Join(dir, bank.NativeIndexFile))
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
 	}
 	if err := bank.CheckBankRegion(string(raw)); err != nil {
 		return nil, "", fmt.Errorf("%s: %w", bank.NativeIndexFile, err)

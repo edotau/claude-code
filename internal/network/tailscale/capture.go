@@ -57,7 +57,9 @@ type RemoteRunner func(ctx context.Context, argv []string) ([]byte, error)
 
 // ExecRunner is the production RemoteRunner.
 func ExecRunner(ctx context.Context, argv []string) ([]byte, error) {
-	return exec.CommandContext(ctx, argv[0], argv[1:]...).Output()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.WaitDelay = execWaitDelay
+	return cmd.Output()
 }
 
 // CapturePanes lists and captures every cc-* tmux pane on host via run, bounding the round trip to

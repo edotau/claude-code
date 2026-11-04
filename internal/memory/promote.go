@@ -116,19 +116,31 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	if memstore.IsHomeBank(root) {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
-	file, block, err := extractBlock(dir, id)
-	if err != nil {
-		return "", err
+	var file, block string
+	homeDir := memstore.HomeBankDir()
+	moveErr := memstore.WithBankLock(memstore.BankLockWait, func() error {
+		var err error
+		if file, block, err = extractBlock(dir, id); err != nil {
+			return err
+		}
+		if dryRun {
+			return nil
+		}
+		if err := bank.AppendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
+			return err
+		}
+		if err := removeBlock(dir, file, id); err != nil {
+			// roll back the home copy so the block stays in exactly one bank (the local one)
+			return errors.Join(err, removeBlock(homeDir, file, id))
+		}
+		return nil
+	})
+	if moveErr != nil {
+		return "", moveErr
 	}
-	homePath := filepath.Join(memstore.HomeBankDir(), file)
+	homePath := filepath.Join(homeDir, file)
 	if dryRun {
 		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, filepath.Join(dir, file), homePath, block), nil
-	}
-	if err := bank.AppendBlocks(homePath, []string{block}); err != nil {
-		return "", err
-	}
-	if err := removeBlock(dir, file, id); err != nil {
-		return "", err
 	}
 	if _, err := bank.SettleBank(root, now); err != nil {
 		return "", err
@@ -138,9 +150,9 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 
 // promoteJudgment finds id in root's local bank (falling back to the home bank) and prints it with
 // target and the embedded judgment procedure for a human/agent to apply by hand; it is model
-// residue, so Go never writes target itself. `claude-md` is gated: it only prints outside a dream
-// run's own promote call, where there is no cross-pollination check (3+ entries, hard prohibition)
-// behind it.
+// residue, so Go never writes target itself. `claude-md` is gated: it only prints inside a dream
+// run's own promote call (IsDreamChild); elsewhere there is no cross-pollination check (3+ entries,
+// hard prohibition) behind it.
 func promoteJudgment(root, id, to, target string) (string, error) {
 	if to == "claude-md" && !IsDreamChild() {
 		return "", fmt.Errorf("--to claude-md only runs inside `memory dream`'s cross-pollination step "+

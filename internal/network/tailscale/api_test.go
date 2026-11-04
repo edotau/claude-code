@@ -250,3 +250,20 @@ func TestSetNames(t *testing.T) {
 		t.Errorf("SetNames(false) = %v", got)
 	}
 }
+
+// EnableRoutes must not write into the caller's cur.Enabled backing array.
+func TestEnableRoutesDoesNotMutateCaller(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"enabledRoutes":[]}`))
+	}))
+	defer ts.Close()
+	backing := make([]string, 1, 4)
+	backing[0] = "::/0"
+	cur := DeviceRoutes{Enabled: backing}
+	if _, err := staticClient(ts, "tok").EnableRoutes(context.Background(), "d", cur, []string{"10.0.0.0/8"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := backing[:2][1]; got != "" {
+		t.Errorf("caller's backing array overwritten with %q", got)
+	}
+}

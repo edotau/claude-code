@@ -163,12 +163,13 @@ func Dream(o DreamOptions) error {
 	if o.Timeout == 0 {
 		o.Timeout = UpdateTimeout
 	}
-	var runErr error
+	var runErr, archiveErr error
 	lockErr := paths.WithFileLock(bank.LockPath(memstore.Dir(o.CWD)), func() error {
 		now := time.Now()
 		n, err := ArchiveOverflow(o.CWD, now)
 		if err != nil {
-			fmt.Fprintln(o.Out, "memory dream: archive:", err)
+			archiveErr = fmt.Errorf("archive: %w", err)
+			fmt.Fprintln(o.Out, "memory dream:", archiveErr)
 		}
 		fmt.Fprintf(o.Out, "memory dream: archived %d block(s)\n", n)
 		if o.Run != nil {
@@ -188,10 +189,12 @@ func Dream(o DreamOptions) error {
 		return nil
 	})
 	// Settle after the lock is released.
+	var settleErr error
 	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
-		fmt.Fprintln(o.Out, "memory dream: settle:", err)
+		settleErr = fmt.Errorf("settle: %w", err)
+		fmt.Fprintln(o.Out, "memory dream:", settleErr)
 	}
-	if err := errors.Join(lockErr, runErr); err != nil {
+	if err := errors.Join(lockErr, runErr, archiveErr, settleErr); err != nil {
 		// backdated, so DreamDue retries in dreamRetry
 		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval)))
 	}

@@ -1,6 +1,8 @@
 package vscode
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -53,11 +55,22 @@ func LinkExtension(claudeHome, extensionsDir string, check bool) (ExtensionResul
 			return ExtensionResult{}, err
 		}
 	}
-	if err := os.Symlink(source, target); err != nil {
+	if err := symlinkOrSame(source, target); err != nil {
 		return ExtensionResult{}, err
 	}
 	bumpManifestScan(source)
 	return ExtensionResult{Changed: true, Target: target}, nil
+}
+
+// symlinkOrSame creates dst -> src; a concurrent run that already linked it to src is not an error.
+func symlinkOrSame(src, dst string) error {
+	err := os.Symlink(src, dst)
+	if err != nil && errors.Is(err, fs.ErrExist) {
+		if cur, rerr := os.Readlink(dst); rerr == nil && cur == src {
+			return nil
+		}
+	}
+	return err
 }
 
 // bumpManifestScan touches the extension dir: VS Code caches scanned manifests by the directory's mtime, which an

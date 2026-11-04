@@ -263,8 +263,10 @@ const (
 func proxyState(path string) ProxyState {
 	b, err := os.ReadFile(path)
 	switch {
-	case err != nil:
+	case os.IsNotExist(err):
 		return ProxyAbsent
+	case err != nil:
+		return ProxyForeign // unreadable: never overwrite what we cannot identify
 	case bytes.Equal(b, ProxyScript):
 		return ProxyCurrent
 	case bytes.Contains(b, []byte(proxyMarker)):

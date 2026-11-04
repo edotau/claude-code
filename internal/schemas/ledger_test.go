@@ -65,7 +65,7 @@ var writers = map[string]string{
 	"internal/agentconfig/render/versions.go:backupAndWrite":           unversioned("foreign: vendor config plus its backup"),
 	"internal/agentconfig/render/versions.go:RevertOne":                unversioned("foreign: vendor config revert"),
 	"internal/agentconfig/render/versions.go:writeBaseline":            "vendor-baseline",
-	"internal/history/history.go:Snapshot":                             unversioned("text: session history snapshot of a transcript"),
+	"internal/history/history.go:stageFile":                            unversioned("text: session history snapshot of a transcript"),
 	"internal/hooks/checkpoint.go:contextCheckpoint":                   unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/codexaudit.go:appendCodexRoute":                    "codex-routing",
 	"internal/inflight/limiter.go:writeMarker":                         unversioned("marker: in-flight dispatch marker (account key)"),

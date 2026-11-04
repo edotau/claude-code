@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -216,5 +217,38 @@ func TestUsageEndpointOmitsSecretsFromConfigDir(t *testing.T) {
 	}
 	if strings.Contains(w.Body.String(), secret) {
 		t.Errorf("response leaks the token-shaped string: %s", w.Body.String())
+	}
+}
+
+// A slow build for one key must not block another key, and same-key callers share one build.
+func TestUsageCacheBuildsOutsideLockAndCoalesces(t *testing.T) {
+	var c usageCache
+	now := func() time.Time { return time.Now() }
+	release, started := make(chan struct{}), make(chan struct{})
+	var builds atomic.Int32
+	done := make(chan struct{}, 2)
+	for range 2 {
+		go func() {
+			_, _ = c.get(usageKey{days: 30}, false, now, func() ([]byte, error) {
+				if builds.Add(1) == 1 {
+					close(started)
+				}
+				<-release
+				return []byte("slow"), nil
+			})
+			done <- struct{}{}
+		}()
+	}
+	<-started
+	body, err := c.get(usageKey{days: 1}, false, now, func() ([]byte, error) { return []byte("fast"), nil })
+	if err != nil || string(body) != "fast" {
+		t.Fatalf("other key = %q, %v; want it to build while days=30 is in flight", body, err)
+	}
+	time.Sleep(50 * time.Millisecond) // let the second caller reach the in-flight build
+	close(release)
+	<-done
+	<-done
+	if n := builds.Load(); n != 1 {
+		t.Fatalf("days=30 built %d times for two concurrent callers, want 1", n)
 	}
 }

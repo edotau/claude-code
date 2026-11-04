@@ -4,6 +4,8 @@ package memory
 
 import (
 	"embed"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -11,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 //go:embed templates/*.md
@@ -47,7 +48,15 @@ func Init(root string) (string, error) {
 		if _, err := os.Stat(p); err == nil {
 			continue
 		}
-		if err := paths.AtomicWrite(p, []byte(body), 0o600); err != nil {
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // exclusive: never replace a racing writer's file
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, werr := f.WriteString(body)
+		if err := errors.Join(werr, f.Close()); err != nil {
 			return "", err
 		}
 	}

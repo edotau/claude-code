@@ -188,7 +188,7 @@ func shareExtensions(dataDir string) (bool, error) {
 			return false, err
 		}
 	}
-	return true, os.Symlink(src, dst)
+	return true, symlinkOrSame(src, dst)
 }
 
 // MachineSettingsPath is the web server's Machine settings.json, where the harness template is merged.
@@ -249,7 +249,16 @@ func ParseTailscaleStatus(data []byte, localPort int) (dnsName string, ok bool) 
 
 // Start ensures the daemon is up (idempotent: a healthy daemon is reused, never respawned) and
 // applies the requested tailscale mapping, returning the resulting state and any fallback notes.
-func Start(ctx context.Context, opts Options) (ServeResult, error) {
+func Start(ctx context.Context, opts Options) (res ServeResult, err error) {
+	err = paths.WithFileLock(stateFile(), func() error {
+		res, err = start(ctx, opts)
+		return err
+	})
+	return res, err
+}
+
+// start is Start's body, run under the cross-process lock so concurrent starts cannot both spawn.
+func start(ctx context.Context, opts Options) (ServeResult, error) {
 	st, ok := Running()
 	if !ok {
 		bin, err := ResolveCodeBinary()

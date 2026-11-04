@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ func paginate(ctx context.Context, env Env, c *cdpConn, gate *robotsGate, o Extr
 	case o.Template != "":
 		return templatePages(ctx, env, c, gate, o, js)
 	}
-	var all []Row
+	var all, prev []Row
 	for page := 1; ; page++ {
 		rows, err := grab(ctx, c, js)
 		if err != nil {
@@ -30,6 +31,10 @@ func paginate(ctx context.Context, env Env, c *cdpConn, gate *robotsGate, o Extr
 		if page == 1 && len(rows) == 0 {
 			return nil, fmt.Errorf("container %q matched nothing within 10s", o.Container)
 		}
+		if prev != nil && reflect.DeepEqual(prev, rows) {
+			return all, nil
+		}
+		prev = rows
 		all = append(all, rows...)
 		if o.Next == "" || page >= o.MaxPages {
 			return all, nil
@@ -79,7 +84,7 @@ func goNext(ctx context.Context, env Env, c *cdpConn, gate *robotsGate, o Extrac
 	probe := `(()=>{const e=document.querySelector(` + jsString(o.Next) + `);
 if(!e)return{state:'gone'};
 if(e.disabled||e.getAttribute('aria-disabled')==='true'||/\bdisabled\b/.test(e.className))return{state:'disabled'};
-return{state:'ok',href:(e.tagName==='A'&&e.href)||'',sig:` + sigJS(o.Container) + `};})()`
+return{state:'ok',href:(e.tagName==='A'&&e.href&&e.href.split('#')[0]!==location.href.split('#')[0]&&e.href)||'',sig:` + sigJS(o.Container) + `};})()`
 	if err := c.Eval(ctx, probe, &st); err != nil {
 		return false, err
 	}
@@ -106,17 +111,18 @@ func sigJS(container string) string {
 
 // waitChange polls until the expression differs from before (true) or 10s pass (false).
 func waitChange(ctx context.Context, env Env, c *cdpConn, expr, before string) (bool, error) {
+	var lastErr error
 	for range 50 {
 		env.sleep(200 * time.Millisecond)
 		var now string
-		if err := c.Eval(ctx, expr, &now); err == nil && now != before {
+		if lastErr = c.Eval(ctx, expr, &now); lastErr == nil && now != before {
 			return true, nil
 		}
 		if ctx.Err() != nil {
 			return false, ctx.Err()
 		}
 	}
-	return false, nil
+	return false, lastErr
 }
 
 // growPage scrolls (or clicks load-more) until the container count stops growing, then extracts once.

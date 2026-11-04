@@ -291,6 +291,20 @@ func TestDispatchBodyCap(t *testing.T) {
 		}
 	})
 
+	t.Run("multipart-accepted", func(t *testing.T) {
+		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		for field, val := range map[string]string{"host": "localhost", "agent": "claude", "task": "hi"} {
+			_ = mw.WriteField(field, val)
+		}
+		_ = mw.Close()
+		w := postDispatchRaw(t, s, testCSRFToken, mw.FormDataContentType(), buf.String())
+		if w.Code != http.StatusOK {
+			t.Fatalf("multipart dispatch: status = %d, want 200; body=%s", w.Code, w.Body.String())
+		}
+	})
+
 	// An 8KiB all-space task, percent-encoded %20 (3x expansion, the worst case maxBodyBytes sizes
 	// for), stays within the body cap and must still be accepted.
 	t.Run("worst-case-encoding-accepted", func(t *testing.T) {

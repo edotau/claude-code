@@ -98,6 +98,9 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 	if _, failed := report.(errorResult); failed {
 		return 1
 	}
+	if dr, ok := report.(directoryReport); ok && len(dr.FilesFailed) > 0 {
+		return 1
+	}
 	return 0
 }
 

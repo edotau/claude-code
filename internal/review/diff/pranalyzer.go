@@ -174,7 +174,7 @@ func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
 
 func fileDiff(repo, filepath, base, head string) string {
 	out, err := runGitErr(repo, "diff", base+"..."+head, "--", filepath)
-	if err != nil {
+	if err != nil || out == "" {
 		out, err = runGitErr(repo, "diff", "--cached", "--", filepath)
 	}
 	if err != nil {
@@ -473,19 +473,20 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	var buf strings.Builder
 	if *jsonOut {
-		out := mustIndentJSON(report)
-		if *output != "" {
-			if err := os.WriteFile(*output, []byte(out), 0o644); err != nil {
-				fmt.Fprintf(stderr, "Error: %v\n", err)
-				return 1
-			}
-			fmt.Fprintf(stdout, "Results written to %s\n", *output)
-		} else {
-			fmt.Fprintln(stdout, out)
-		}
+		buf.WriteString(mustIndentJSON(report) + "\n")
+	} else {
+		printPRReport(&buf, report)
+	}
+	if *output == "" {
+		fmt.Fprint(stdout, buf.String())
 		return 0
 	}
-	printPRReport(stdout, report)
+	if err := os.WriteFile(*output, []byte(buf.String()), 0o644); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Results written to %s\n", *output)
 	return 0
 }

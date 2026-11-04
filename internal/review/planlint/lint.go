@@ -1,10 +1,9 @@
 package planlint
 
-// `workflow lint` — flag workflow agent() calls without an explicit model/agentType pin or an effort
-// pin (an unpinned leaf inherits the parent session's reasoning tier, a measured cost trap), a pin
-// whose literal value isn't a real tier, and the two script shapes that make the saved-workflow
-// registry skip a file silently. The `lint:opus-ok` marker exempts only the effort check — a missing
-// model:/agentType: pin is always a hit.
+// `workflow lint` — flag workflow agent() calls without an explicit model: pin or an effort pin (an
+// unpinned leaf inherits the parent session's reasoning tier, a measured cost trap), a pin whose literal
+// value isn't a real tier, and the two script shapes that make the saved-workflow registry skip a file
+// silently. The `lint:opus-ok` marker exempts the effort and pin-value checks — a missing model: pin is always a hit.
 
 import (
 	"fmt"
@@ -285,6 +284,10 @@ func delimitedWindow(src string, open int, opener, closer byte) string {
 	i := open
 	for ; i < len(src) && i < open+pinWindow; i++ {
 		switch c := src[i]; c {
+		case '/':
+			if i+1 < len(src) && (src[i+1] == '/' || src[i+1] == '*') {
+				i = commentEnd(src, i)
+			}
 		case '`', '\'', '"':
 			for i++; i < len(src); i++ {
 				if src[i] == '\\' {
@@ -308,6 +311,19 @@ func delimitedWindow(src string, open int, opener, closer byte) string {
 		i = len(src)
 	}
 	return src[open-countBack(src, open) : i]
+}
+
+// commentEnd returns the index of the last byte of the // or /* comment starting at i.
+func commentEnd(src string, i int) int {
+	end := "\n"
+	if src[i+1] == '*' {
+		end = "*/"
+	}
+	j := strings.Index(src[i+2:], end)
+	if j < 0 {
+		return len(src) - 1
+	}
+	return i + 2 + j + len(end) - 1
 }
 
 // countBack is the length of the `agent` word preceding a call's opening paren, so a call window starts

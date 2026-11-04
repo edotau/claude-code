@@ -203,3 +203,12 @@ func TestExtractStepsPhaseBoundaries(t *testing.T) {
 		t.Error("non-phase sections leaked into final step")
 	}
 }
+
+// `latency < 200ms` and `expect()` are concrete verifications; a trailing \b used to reject both.
+func TestConcreteReMatchesOperatorBeforeSpace(t *testing.T) {
+	for _, s := range []string{"verify: latency < 200ms", "expect() is called", "throughput > 5"} {
+		if !concreteRe().MatchString(s) {
+			t.Errorf("concreteRe did not match %q", s)
+		}
+	}
+}

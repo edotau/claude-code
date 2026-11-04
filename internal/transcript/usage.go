@@ -82,7 +82,7 @@ func ReadResponses(path string) ([]Response, error) {
 	defer f.Close()
 	byID := map[string]int{}
 	var resps []Response
-	EachLine(f, func(line []byte) {
+	scanErr := EachLine(f, func(line []byte) {
 		var rec usageLine
 		if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.Message.Usage == nil {
 			return
@@ -97,6 +97,9 @@ func ReadResponses(path string) ([]Response, error) {
 		byID[rec.Message.ID] = len(resps)
 		resps = append(resps, r)
 	})
+	if scanErr != nil {
+		return nil, fmt.Errorf("read %s: %w", path, scanErr)
+	}
 	return resps, nil
 }
 

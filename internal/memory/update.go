@@ -67,6 +67,9 @@ const (
 // updateGrace must exceed the worker's own timeout, or a healthy long update reads as lost.
 const updateGrace = 16 * time.Minute
 
+// updateLockWait is how long an update waits for a peer's .postupdate lock before giving up as busy.
+const updateLockWait = 5 * time.Second
+
 // UpdateTimeout bounds the headless claude run.
 const UpdateTimeout = 15 * time.Minute
 
@@ -212,7 +215,11 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 	for ln := range strings.SplitSeq(porcelain, "\n") {
 		ln = strings.TrimRight(ln, "\r") // the leading space is part of the "XY " code, so never trim it
 		if len(ln) > 3 {
-			add(strings.TrimSpace(ln[3:]))
+			_, p, renamed := strings.Cut(ln[3:], " -> ") // a rename prints "old -> new"; keep the new path
+			if !renamed {
+				p = ln[3:]
+			}
+			add(strings.TrimSpace(p))
 		}
 	}
 	return out
@@ -275,10 +282,10 @@ func Update(o UpdateOptions) error {
 	}
 	dir := memstore.Dir(o.CWD)
 	var before, beforeHome time.Time
-	var runErr error
-	ran := false
-	lockErr := paths.WithFileLock(bank.LockPath(dir), func() error {
-		ran = true
+	var runErr, lockErr error
+	var ran bool
+	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
+	ran, lockErr = paths.TryFileLock(bank.LockPath(dir)+".lock", updateLockWait, func() error {
 		if o.Historical {
 			snap := snapshotFiles(dir, currentStateFiles)
 			defer warnChanged(o.Out, dir, snap)
@@ -313,6 +320,9 @@ func Update(o UpdateOptions) error {
 	})
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
 		record(UpdateFailed, false)
+		if lockErr == nil {
+			lockErr = errors.New("another update or dream holds the store lock")
+		}
 		return fmt.Errorf("headless update: %w", lockErr)
 	}
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.

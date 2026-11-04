@@ -1,7 +1,9 @@
 package recall
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,7 +45,17 @@ func RecordSessionRoot(sessionID, cwd string) {
 	if root == "" {
 		return
 	}
-	if err := paths.AtomicWrite(sessionRootPath(sessionID), []byte(root+"\n"), 0o600); err != nil {
+	// Temp file + hard link: the write is atomic, and a racing hook's first root always wins (no lock file).
+	path := sessionRootPath(sessionID)
+	tmp := fmt.Sprintf("%s.tmp%d", path, os.Getpid())
+	err := paths.AtomicWrite(tmp, []byte(root+"\n"), 0o600)
+	if err == nil {
+		if err = os.Link(tmp, path); errors.Is(err, fs.ErrExist) {
+			err = nil
+		}
+		_ = os.Remove(tmp)
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "memory-start: record session root: %v\n", err)
 	}
 }

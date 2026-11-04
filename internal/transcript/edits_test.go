@@ -595,3 +595,10 @@ func countEdits(path string) int {
 	n, _ := CountEditsFrom(path, 0)
 	return n
 }
+
+func TestStripHeredocBodiesKeepsLinesAfterShiftOperator(t *testing.T) {
+	cmd := "x=$((1<<4))\ngit commit -m msg"
+	if got := stripHeredocBodies(cmd); got != cmd {
+		t.Errorf("stripHeredocBodies dropped lines after a shift: %q", got)
+	}
+}

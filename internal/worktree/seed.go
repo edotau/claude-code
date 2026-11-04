@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func seedWorktree(main, dest string, log io.Writer) {
@@ -32,8 +33,13 @@ func seedPath(main, dest, name string) error {
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		return err
 	}
-	if gitCmd(context.Background(), "-C", dest, "check-ignore", "-q", name).Run() != nil { // the dest branch's rules govern
-		return nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := gitCmd(ctx, "-C", dest, "check-ignore", "-q", name).Run(); err != nil { // the dest branch's rules govern
+		if code, isExit := asExitErr(err); isExit && code == 1 {
+			return nil
+		}
+		return fmt.Errorf("git check-ignore %s: %w", name, err)
 	}
 	if name == ".venv" {
 		return os.Symlink(source, target)

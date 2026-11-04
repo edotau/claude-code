@@ -345,6 +345,19 @@ func TestExtractPagination(t *testing.T) {
 		}
 	})
 
+	t.Run("next stops when a page repeats the previous rows", func(t *testing.T) {
+		s := &site{
+			rows: func(string, int) string { return rowsFor("same", 2) },
+			next: func(u string) string {
+				return map[string]string{origin.URL + "/p1": origin.URL + "/p2", origin.URL + "/p2": origin.URL + "/p3"}[u]
+			},
+		}
+		lines, _ := run(t, s, ExtractOptions{URL: origin.URL + "/p1", Next: "a.n"})
+		if len(lines) != 2 || len(s.navs) != 2 {
+			t.Fatalf("navs = %v, rows = %v; want the repeat page dropped", s.navs, lines)
+		}
+	})
+
 	t.Run("pages template stops at the first empty page", func(t *testing.T) {
 		mk := func() *site {
 			return &site{rows: func(u string, _ int) string {

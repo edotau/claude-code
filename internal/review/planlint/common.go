@@ -2,8 +2,10 @@
 package planlint
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"regexp"
 	"sync"
@@ -21,22 +23,27 @@ func splitLines(text string) []string {
 	return lineSplitRe().Split(text, -1)
 }
 
-// readInput mirrors the shared "-" (stdin) or path.exists() gate in both scripts, exit 0 on miss.
-func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source string, ok bool) {
+// readInput mirrors the shared "-" (stdin) or path.exists() gate in both scripts: a missing path exits 0, any
+// other read failure exits 1 so a gate never passes on unreadable input.
+func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source string, exit int, ok bool) {
 	if input == "-" {
 		b, err := io.ReadAll(stdin)
 		if err != nil {
 			fmt.Fprintf(stderr, "[error] reading stdin: %v\n", err)
-			return "", "", false
+			return "", "", 1, false
 		}
-		return string(b), "stdin", true
+		return string(b), "stdin", 0, true
 	}
 	b, err := os.ReadFile(input)
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintf(stderr, "[error] %s not found\n", input)
-		return "", "", false
+		return "", "", 0, false
 	}
-	return string(b), input, true
+	if err != nil {
+		fmt.Fprintf(stderr, "[error] reading %s: %v\n", input, err)
+		return "", "", 1, false
+	}
+	return string(b), input, 0, true
 }
 
 // parseInputJSONArgs parses the `review <tool> [<input>] [--json]` shape assumption_linter.py and

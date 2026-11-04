@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -25,13 +24,17 @@ func withForceRefresh(ctx context.Context) context.Context {
 // expires_in-60s.
 func oauthToken(baseURL, clientID, clientSecret string, httpClient *http.Client) func(ctx context.Context) (string, error) {
 	var (
-		mu      sync.Mutex
+		sem     = make(chan struct{}, 1) // a channel, not a mutex, so a queued caller honors its ctx
 		cached  string
 		expires time.Time
 	)
 	return func(ctx context.Context) (string, error) {
-		mu.Lock()
-		defer mu.Unlock()
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 		force, _ := ctx.Value(forceRefreshKey{}).(bool)
 		if !force && cached != "" && time.Now().Before(expires) {
 			return cached, nil

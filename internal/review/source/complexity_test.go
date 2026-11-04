@@ -162,3 +162,15 @@ func TestAnalyzeFileComplexityReturnsReadError(t *testing.T) {
 		t.Fatal("analyzeFileComplexity did not report a read error")
 	}
 }
+
+// Bodies of else/except/finally/case keep the nesting level of their header.
+func TestPyFuncNestingCountsElseBody(t *testing.T) {
+	body := []pyLine{
+		{indent: 4, text: "    if a:"}, {indent: 8, text: "        x = 1"},
+		{indent: 4, text: "    else:"}, {indent: 8, text: "        if b:"}, {indent: 12, text: "            if c:"},
+		{indent: 16, text: "                y = 2"},
+	}
+	if got := pyFuncNesting(body); got != 3 {
+		t.Fatalf("nesting = %d, want 3 (else > if > if)", got)
+	}
+}

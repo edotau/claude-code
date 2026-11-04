@@ -63,8 +63,7 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 		return res, err
 	}
 	if p.source == "" { // origin-only: AddOriginAlias takes the lock itself
-		tgt, _ := findStore(opt.Into)
-		return res, memstore.AddOriginAlias(tgt.Dir, canon)
+		return res, memstore.AddOriginAlias(p.target, canon)
 	}
 	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var perr error
@@ -84,8 +83,7 @@ type aliasPlan struct {
 	links          []string // projects/*/memory symlinks that pointed at source
 }
 
-func findStore(key string) (memstore.RepoEntry, bool) {
-	entries, _ := memstore.RepoDirs()
+func findStore(entries []memstore.RepoEntry, key string) (memstore.RepoEntry, bool) {
 	for _, e := range entries {
 		if e.Key == key {
 			return e, true
@@ -96,7 +94,11 @@ func findStore(key string) (memstore.RepoEntry, bool) {
 
 // planAlias reads the store and builds the plan without writing; apply (under the lock) executes it.
 func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) {
-	tgt, ok := findStore(opt.Into)
+	entries, err := memstore.RepoDirs()
+	if err != nil {
+		return AliasResult{}, nil, err // an unreadable vault must not look like "no separate store"
+	}
+	tgt, ok := findStore(entries, opt.Into)
 	if !ok {
 		return AliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(memstore.StoreDir(), memstore.CatalogFile))
 	}
@@ -105,7 +107,6 @@ func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) 
 	}
 	res := AliasResult{Key: tgt.Key}
 	p := &aliasPlan{target: tgt.Dir}
-	entries, _ := memstore.RepoDirs()
 	var src *memstore.RepoEntry
 	if e := memstore.FindEntry(entries, canon); e != nil {
 		src = e

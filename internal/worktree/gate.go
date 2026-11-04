@@ -29,7 +29,7 @@ type goPkg struct {
 
 // ScopedGoGate builds the merge gate: build and vet everything, test the packages base...HEAD changed, every
 // package that imports them (tests included, transitively) and the registry packages. full is true for a
-// go.mod/go.sum change or an unowned non-markdown file.
+// go.mod/go.sum change or an unowned file that is neither markdown nor Go.
 func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
 	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", base+"...HEAD")
 	if err != nil {

@@ -9,9 +9,10 @@ import (
 	"sync"
 )
 
-// EachLine calls fn per line of r (oversized lines joined, partial EOF record included); slice valid only in fn.
-func EachLine(r io.Reader, fn func([]byte)) {
-	scanLines(r, false, fn)
+// EachLine calls fn per line of r (oversized joined, EOF partial kept); slice valid in fn only; returns non-EOF read errors.
+func EachLine(r io.Reader, fn func([]byte)) error {
+	_, err := scanLines(r, false, fn)
+	return err
 }
 
 // contentPart is one element of a message.content array; only {type:"text"} parts carry transcript text.
@@ -44,7 +45,7 @@ func ContentText(content json.RawMessage) string {
 var readerPool = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 1<<20) }}
 
 // scanLines avoids common-case copies and joins oversized lines without stopping the scan.
-func scanLines(r io.Reader, completeOnly bool, fn func([]byte)) int64 {
+func scanLines(r io.Reader, completeOnly bool, fn func([]byte)) (int64, error) {
 	br := readerPool.Get().(*bufio.Reader)
 	br.Reset(r)
 	defer readerPool.Put(br)
@@ -64,7 +65,10 @@ func scanLines(r io.Reader, completeOnly bool, fn func([]byte)) int64 {
 			read += int64(len(line))
 		}
 		if err != nil {
-			return read
+			if err == io.EOF {
+				err = nil
+			}
+			return read, err
 		}
 	}
 }

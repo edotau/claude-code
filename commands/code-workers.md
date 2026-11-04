@@ -29,7 +29,7 @@ A `profile=<p>` token (stripped first) adds `Profile: <p>` to every leaf brief, 
 
 The scan → review → edit pipeline across gemini, codex and opencode is `/coworkers team`.
 
-## Usage
+# Usage
 
 ```text
 /code-workers [agent=claude|copilot] [profile=<p>] [parallel|sequential|auto] <task> [| <task> …]

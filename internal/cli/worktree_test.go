@@ -646,8 +646,7 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Same basename as the real repo.Main (operationPath keys by it), different full path — so
-	// LoadOperation finds this file, but worktree.resumeMerge's op.Repo != repo.Main check must fire.
+	// Same basename as the real repo.Main, different full path: operationPath hashes the full path, so no record is found.
 	otherRepoWithSameBasename := filepath.Join(r.Main, "..", "other-"+filepath.Base(r.Main), filepath.Base(r.Main))
 	op := &worktree.Operation{
 		Repo:      otherRepoWithSameBasename,
@@ -667,8 +666,8 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a wrong-repo operation, stderr=%q", errb)
 	}
-	if !strings.Contains(errb, "belongs to") {
-		t.Fatalf("stderr = %q, want the belongs-to-a-different-repo message", errb)
+	if !strings.Contains(errb, "no in-progress") {
+		t.Fatalf("stderr = %q, want no operation found for this repo", errb)
 	}
 	if cliHeadOf(t, repo) != mainBefore {
 		t.Fatal("main HEAD changed despite a wrong-repo operation")

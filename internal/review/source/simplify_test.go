@@ -183,3 +183,20 @@ func TestSimplicityFindings(t *testing.T) {
 		t.Errorf("identical before/after reported %q", got)
 	}
 }
+
+// An unreadable file must be reported with a non-zero exit, never dropped as clean.
+func TestRunSimplifyReportsUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "b.go")
+	if err := os.WriteFile(bad, []byte(cleanGo), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile(bad); err == nil {
+		t.Skip("file mode not enforced (root)")
+	}
+	var stdout, stderr bytes.Buffer
+	code := RunSimplify([]string{dir}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stdout.String(), "ANALYSIS FAILED") || !strings.Contains(stderr.String(), "b.go") {
+		t.Fatalf("code %d stdout %q stderr %q, want 1 with the failure reported", code, stdout.String(), stderr.String())
+	}
+}

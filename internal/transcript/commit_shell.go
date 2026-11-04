@@ -1,6 +1,9 @@
 package transcript
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // gitValueOpts are git global options whose value is the next token when not spelled with `=`.
 var gitValueOpts = map[string]bool{
@@ -248,6 +251,8 @@ func stripHeredocBodies(cmd string) string {
 	return strings.Join(out, "\n")
 }
 
+var bareHeredocWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+
 // heredocWord reports the terminator word of a `<<[-]WORD` (quoted or bare) on line, false for a
 // here-string (`<<<`) or a line with no heredoc redirect at all.
 func heredocWord(line string) (string, bool) {
@@ -272,7 +277,7 @@ func heredocWord(line string) (string, bool) {
 		end = len(rest)
 	}
 	word := rest[:end]
-	return word, word != ""
+	return word, bareHeredocWord.MatchString(word) // rejects `$((1<<4))` and `"a <<b"`
 }
 
 // commitWrapperCmds pass their argument list through to run as the real command, not git themselves.

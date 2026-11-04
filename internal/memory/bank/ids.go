@@ -65,8 +65,11 @@ func assignIDs(dir string, now time.Time) (int, error) {
 	for name, prefix := range IdFiles {
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			continue
+		}
+		if err != nil {
+			return n, err
 		}
 		lines := strings.Split(string(data), "\n")
 		var starts []int

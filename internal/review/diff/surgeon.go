@@ -2,11 +2,10 @@
 package diff
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -18,7 +17,10 @@ import (
 
 var (
 	whitespaceOnlyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*$`) })
-	commentOnlyRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*(?:#|//|/\*|\*/|\*|<!--)`) })
+	hashCommentRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*#`) })
+	slashCommentRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*(?://|/\*|\*/)`) })
+	blockContRe      = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*\*(?:\s|$)`) })
+	markupCommentRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+-]\s*<!--`) })
 	docstringAddRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[+](?:"""|''')`) })
 )
 
@@ -52,6 +54,21 @@ type noChangesResult struct {
 	Message string `json:"message"`
 }
 
+// Comment leaders by file extension; an unlisted or missing extension has none (conservative: not a comment).
+var (
+	hashExts   = setOf(".sh", ".bash", ".zsh", ".py", ".rb", ".yaml", ".yml", ".toml", ".pl", ".r", ".mk", ".conf", ".cfg", ".ini")
+	slashExts  = setOf(".go", ".c", ".h", ".cc", ".cpp", ".hpp", ".java", ".js", ".jsx", ".ts", ".tsx", ".rs", ".swift", ".kt", ".cs", ".php", ".scala", ".css")
+	markupExts = setOf(".html", ".htm", ".xml", ".md", ".svg", ".vue")
+)
+
+func setOf(items ...string) map[string]bool {
+	m := make(map[string]bool, len(items))
+	for _, it := range items {
+		m[it] = true
+	}
+	return m
+}
+
 type diffFileEntry struct {
 	file    string
 	changes []string
@@ -62,17 +79,15 @@ func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
 	if diffRange != "" {
 		args = []string{"diff", diffRange}
 	}
-	out, timedOut, err := gitInherit(repo, args...)
-	// Like Python's check=False: git's own non-zero exit (not a repo, bad range) is silent; only a missing git or timeout errors.
-	if err != nil && (timedOut || !errors.As(err, new(*exec.ExitError))) {
+	out, _, err := gitInherit(repo, args...)
+	if err != nil {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
 		return "", false
 	}
 	return out, true
 }
 
-// getDiff returns (text, exitCode); exitCode is 0 on success, 1 if --file doesn't exist (a real
-// usage error, unlike a git-diff failure which stays advisory-0 per the Python script).
+// getDiff returns (text, exitCode); exitCode is 1 if --file is missing or git diff failed.
 func getDiff(repo, diffRange, file string, stderr io.Writer) (string, int) {
 	if file != "" {
 		b, err := os.ReadFile(file)
@@ -84,7 +99,7 @@ func getDiff(repo, diffRange, file string, stderr io.Writer) (string, int) {
 	}
 	text, ok := runGitDiff(repo, diffRange, stderr)
 	if !ok {
-		return "", 0
+		return "", 1
 	}
 	return text, 0
 }
@@ -93,6 +108,7 @@ func getDiff(repo, diffRange, file string, stderr io.Writer) (string, int) {
 func parseDiffFiles(diffText string) []*diffFileEntry {
 	var files []*diffFileEntry
 	var current *diffFileEntry
+	inHunk := false
 	for line := range strings.SplitSeq(diffText, "\n") {
 		switch {
 		case strings.HasPrefix(line, "diff --git"):
@@ -103,7 +119,12 @@ func parseDiffFiles(diffText string) []*diffFileEntry {
 			}
 			current = &diffFileEntry{file: name}
 			files = append(files, current)
-		case current == nil, strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"), strings.HasPrefix(line, "@@"):
+			inHunk = false
+		case current == nil:
+			continue
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case !inHunk && (strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---")):
 			continue
 		case line != "" && (line[0] == '+' || line[0] == '-'):
 			current.changes = append(current.changes, line)
@@ -112,12 +133,25 @@ func parseDiffFiles(diffText string) []*diffFileEntry {
 	return files
 }
 
+// isCommentLine reports a comment-only changed line using the leaders valid for the file extension.
+func isCommentLine(line, ext string) bool {
+	switch {
+	case hashExts[ext]:
+		return hashCommentRe().MatchString(line)
+	case slashExts[ext]:
+		return slashCommentRe().MatchString(line) || blockContRe().MatchString(line)
+	case markupExts[ext]:
+		return markupCommentRe().MatchString(line)
+	}
+	return false
+}
+
 // classifyLine returns a noise category for a changed line, or "" if it looks intentional.
-func classifyLine(line string) string {
+func classifyLine(line, file string) string {
 	if whitespaceOnlyRe().MatchString(line) {
 		return "whitespace"
 	}
-	if commentOnlyRe().MatchString(line) {
+	if isCommentLine(line, strings.ToLower(filepath.Ext(file))) {
 		return "comment-only"
 	}
 	if docstringAddRe().MatchString(line) {
@@ -157,7 +191,7 @@ func detectQuoteSwaps(changes []string) []diffFinding {
 func analyzeDiffFile(fd *diffFileEntry) []diffFinding {
 	var findings []diffFinding
 	for _, line := range fd.changes {
-		if cat := classifyLine(line); cat != "" {
+		if cat := classifyLine(line, fd.file); cat != "" {
 			findings = append(findings, diffFinding{Category: cat, Line: textutil.TruncateRunes(line, 120)})
 		}
 	}
