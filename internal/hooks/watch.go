@@ -102,8 +102,11 @@ func IdleUpdateWatch(args []string, stderr io.Writer) int {
 		if time.Since(latest) < *idle || !latest.After(seen) {
 			continue // a subagent is still active, or already evaluated at this mtime
 		}
-		seen = latest
-		if idleUpdateOnce(*tr, *cwd, *session, stderr) {
+		dispatched, spawnFailed := idleUpdateOnce(*tr, *cwd, *session, stderr)
+		if !spawnFailed {
+			seen = latest // a failed spawn leaves seen behind so the next poll retries
+		}
+		if dispatched {
 			fmt.Fprintf(stderr, "memory watch: %s quiet for %s — final update dispatched\n", *session, idle.String())
 		}
 	}
@@ -130,7 +133,8 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 
 // idleUpdateOnce dispatches the final update when the transcript holds substantive work no dispatch
 // covered; the stamp then carries the count so the next idle check (and any late Stop) stays quiet.
-func idleUpdateOnce(tr, cwd, session string, note io.Writer) bool {
+// spawnFailed reports a worker that should have started but did not.
+func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
 	cwd = memrecall.SessionRoot(session, cwd)
 	stamp := stampPath(session)
 	covered := 0
@@ -139,12 +143,12 @@ func idleUpdateOnce(tr, cwd, session string, note io.Writer) bool {
 	}
 	edits := countEdits(tr, countPath(session))
 	if edits < updateMinEdits || edits <= covered {
-		return false
+		return false, false
 	}
 	if !spawnUpdate(tr, cwd, session) {
 		fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
-		return false
+		return false, true
 	}
 	_ = writeStamp(stamp, time.Now(), "bg", edits) // best effort: a lost stamp only re-dispatches later
-	return true
+	return true, false
 }

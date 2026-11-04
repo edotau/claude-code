@@ -72,25 +72,25 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	calls := stubSpawn(t, true)
 	writeStamp(stampPath("idle"), time.Now().Add(-time.Hour), "bg", 4) // a checkpoint covered 4 of the 9
 
-	if !idleUpdateOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
+	if !idleDispatched(tr, "idle") || calls.Load() != 1 {
 		t.Fatalf("5 uncovered edits on a quiet transcript must dispatch the final update (calls=%d)", calls.Load())
 	}
 	if st, _ := readStamp(stampPath("idle")); !st.bg || st.edits != 9 {
 		t.Errorf("stamp after the idle update = %+v, want bg covering all 9 edits", st)
 	}
-	if idleUpdateOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
+	if idleDispatched(tr, "idle") || calls.Load() != 1 {
 		t.Error("a second pass with everything covered must not dispatch again")
 	}
 	writeEdits(t, tr, 2)
 	_ = os.Remove(stampPath("idle"))
-	if idleUpdateOnce(tr, filepath.Dir(tr), "idle", io.Discard) {
+	if idleDispatched(tr, "idle") {
 		t.Error("under the edit floor must not dispatch")
 	}
 	var note bytes.Buffer
 	writeEdits(t, tr, 5)
 	stubSpawn(t, false)
-	if idleUpdateOnce(tr, filepath.Dir(tr), "idle2", &note); !strings.Contains(note.String(), "not spawned") {
-		t.Errorf("a failed spawn must be noted: %q", note.String())
+	if _, failed := idleUpdateOnce(tr, filepath.Dir(tr), "idle2", &note); !failed || !strings.Contains(note.String(), "not spawned") {
+		t.Errorf("a failed spawn must be noted and flagged for retry: failed=%v %q", failed, note.String())
 	}
 }
 
@@ -108,7 +108,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
 	calls := stubSpawn(t, true)
 
-	if !idleUpdateOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 1 {
+	if !idleDispatched(tr, "idle-sub") || calls.Load() != 1 {
 		t.Fatalf("1 main + 10 subagent edits must dispatch the final update (calls=%d)", calls.Load())
 	}
 	if st, _ := readStamp(stampPath("idle-sub")); !st.bg || st.edits != 11 {
@@ -116,7 +116,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 	}
 
 	writeEdits(t, tr, 7) // 6 more main edits (1 -> 7); the subagent file is untouched
-	if !idleUpdateOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 2 {
+	if !idleDispatched(tr, "idle-sub") || calls.Load() != 2 {
 		t.Fatalf("6 more main edits past the covered 11 must dispatch again (calls=%d)", calls.Load())
 	}
 }
@@ -264,4 +264,9 @@ func TestIdleUpdateWatchRefusesBadFlags(t *testing.T) {
 	if rc := IdleUpdateWatch([]string{"--transcript", tr, "--cwd", filepath.Dir(tr)}, io.Discard); rc != 2 {
 		t.Errorf("watch without --session = %d, want 2", rc)
 	}
+}
+
+func idleDispatched(tr, session string) bool {
+	ok, _ := idleUpdateOnce(tr, filepath.Dir(tr), session, io.Discard)
+	return ok
 }

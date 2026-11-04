@@ -269,6 +269,7 @@ func safetyAskCases(harness string) []safetyTierCase {
 		{"git push origin +main", "", Ask},
 		{"git push origin +HEAD:main", "", Ask},
 		{"rm -rf .git", "", Ask},
+		{"rm --recursive --force .git", "", Ask},
 		{"rm -Rf repo/.git", "", Ask},
 		{"rm -r -f ./.git", "", Ask},
 		{"git stash", harness, Ask}, // cwd inside the shared config tree

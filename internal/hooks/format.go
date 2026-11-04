@@ -157,6 +157,7 @@ func runMake(root string, timeout time.Duration, args ...string) (string, bool) 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, mk, args...)
 	cmd.Dir = root
+	cmd.WaitDelay = time.Second // grandchildren holding the output pipe must not outlive the timeout
 	// MAKEFLAGS from a parent make run would leak -n or a jobserver into this invocation.
 	cmd.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=")
 	out, err := cmd.CombinedOutput()

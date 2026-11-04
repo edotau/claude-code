@@ -5,6 +5,7 @@ package hooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -93,7 +94,7 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 				return ExitProceed
 			}
 		}
-		if tracked, _ := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || ctx.Err() != nil {
+		if tracked, err := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || err != nil || ctx.Err() != nil {
 			return ExitProceed
 		}
 		return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
@@ -128,13 +129,18 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 	_, statErr := os.Stat(abs)
 	exists := statErr == nil
 	if inDocs {
-		return !exists && isIgnored(ctx, root, rel)
+		ignored, _ := isIgnored(ctx, root, rel) // true only when git answered cleanly
+		return !exists && ignored && ctx.Err() == nil
 	}
 	// A git error (e.g. a `.git` git itself rejects) fails open: only a clean empty listing blocks.
 	if tracked, err := isTracked(ctx, root, rel); tracked || err != nil || ctx.Err() != nil {
 		return false
 	}
-	return !exists || !isIgnored(ctx, root, rel)
+	ignored, err := isIgnored(ctx, root, rel)
+	if err != nil || ctx.Err() != nil {
+		return false
+	}
+	return !exists || !ignored
 }
 
 // blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
@@ -209,10 +215,14 @@ func isTracked(ctx context.Context, root, rel string) (bool, error) {
 	return err == nil && strings.TrimSpace(string(out)) != "", err
 }
 
-// isIgnored reports whether rel is ignored AND untracked (check-ignore skips tracked paths); failure reads false.
-func isIgnored(ctx context.Context, root, rel string) bool {
+// isIgnored reports whether rel is ignored AND untracked (check-ignore skips tracked paths); err is git's failure.
+func isIgnored(ctx context.Context, root, rel string) (bool, error) {
 	err := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--", rel).Run()
-	return err == nil
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 1 {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // repoRel is abs as a repo-relative slash path; false when abs escapes root.

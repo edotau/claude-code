@@ -208,8 +208,15 @@ func readFileOr(path string) string {
 
 // consumeCatchupNote is the one quiet line for a finished sweep (read once), or "" with nothing saved.
 func consumeCatchupNote() string {
-	n, _ := strconv.Atoi(strings.TrimSpace(readFileOr(catchupDonePath())))
-	_ = os.Remove(catchupDonePath())
+	if _, err := os.Stat(catchupDonePath()); err != nil {
+		return "" // common case: no note, so skip the lock
+	}
+	n := 0
+	// A running sweep holds the lock and still updates the count: leave it for the next start.
+	_, _ = paths.TryFileLock(filepath.Join(memstore.StateDir(), "catchup.lock"), 0, func() error {
+		n, _ = strconv.Atoi(strings.TrimSpace(readFileOr(catchupDonePath())))
+		return os.Remove(catchupDonePath())
+	})
 	switch {
 	case n <= 0:
 		return ""

@@ -59,8 +59,14 @@ func worktreeRemove(in *Input, stderr io.Writer) int {
 	ctx, cancel := hookContext("worktree-remove")
 	defer cancel()
 	main := paths.MainCheckout(path)
-	branch, _ := exec.CommandContext(ctx, "git", "-C", path, "branch", "--show-current").Output()
-	head, _ := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "HEAD").Output()
+	branch, err := exec.CommandContext(ctx, "git", "-C", path, "branch", "--show-current").Output()
+	if err != nil {
+		fmt.Fprintf(stderr, "worktree-remove: warning: branch probe failed, its branch is kept: %v\n", err)
+	}
+	head, err := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "HEAD").Output()
+	if err != nil {
+		fmt.Fprintf(stderr, "worktree-remove: warning: HEAD probe failed, the ledger records no head: %v\n", err)
+	}
 	if out, err := exec.CommandContext(ctx, "git", "-C", main, "worktree", "remove", path).CombinedOutput(); err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: %v: %s\n", err, strings.TrimSpace(string(out)))
 		return 1
