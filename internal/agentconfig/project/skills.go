@@ -63,7 +63,7 @@ func ensureLink(out io.Writer, link, target, ownedRoot string, dryRun bool) writ
 }
 
 // pruneSkillLinks removes unprojected symlinks in agentsSkills that point under skillsDir; all else is untouched.
-func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected map[string]bool, dryRun bool) int {
+func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected map[string]bool, dryRun bool) syncResult {
 	match := func(e os.DirEntry) (string, bool) {
 		if e.Type()&os.ModeSymlink == 0 || projected[e.Name()] {
 			return "", false
@@ -78,7 +78,7 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 }
 
 // pruneLegacyGeminiSkills removes banner-marked skill dirs under ~/.gemini/skills; remove after 2026-11-13.
-func pruneLegacyGeminiSkills(out io.Writer, root string, dryRun bool) int {
+func pruneLegacyGeminiSkills(out io.Writer, root string, dryRun bool) syncResult {
 	match := func(e os.DirEntry) (string, bool) {
 		return "legacy projection; skills now link via ~/.agents/skills", isGeneratedSkillDir(filepath.Join(root, e.Name()))
 	}

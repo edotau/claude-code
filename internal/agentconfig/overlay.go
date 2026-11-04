@@ -337,7 +337,7 @@ func keepRule(name string) error {
 	return runRules(keepRules, &ruleCtx{name: name, up: strings.ToUpper(name)})
 }
 
-// flagSetRules are the --env rule set: name checks only (D6 added), the value is never inspected.
+// flagSetRules are the --env rule set: name checks plus the value's credential shape.
 var flagSetRules = []rule{
 	{func(c *ruleCtx) bool { return c.name == "" || strings.ContainsAny(c.name, " \t") },
 		refuse(errors.New("want NAME=VALUE"))},
@@ -347,18 +347,12 @@ var flagSetRules = []rule{
 		refuse(errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command"))},
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, OverlayVar) }, // a flag must not point at another overlay
 		refuse(errors.New("harness-owned"))},
-	{func(c *ruleCtx) bool { return flagCredentialName(c.up) },
+	{func(c *ruleCtx) bool { return credentialName(c.up) || shapes.Looks(c.val) },
 		refuse(errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line"))},
 }
 
-func flagSetRule(name string) error {
-	return runRules(flagSetRules, &ruleCtx{name: name, up: strings.ToUpper(name)})
-}
-
-// flagCredentialName is --env's name-only credential test (today's ValidateEnv): key, token or secret suffix, or AUTH.
-func flagCredentialName(up string) bool {
-	return strings.HasSuffix(up, "_API_KEY") || strings.HasSuffix(up, "_TOKEN") || strings.HasSuffix(up, "_SECRET") ||
-		strings.Contains(up, "AUTH")
+func flagSetRule(name, val string) error {
+	return runRules(flagSetRules, &ruleCtx{name: name, up: strings.ToUpper(name), val: val})
 }
 
 var errBaseURL = errors.New("a route endpoint, proxy or TLS setting: pick the endpoint with --profile; " +
@@ -416,7 +410,7 @@ var setRules = []rule{
 // setRule checks one set entry; route reports a profile's route credential (providers.RouteSecretGuard).
 func setRule(name, val string, keep map[string]bool, flag bool, route func(string) bool) error {
 	if flag {
-		return flagSetRule(name)
+		return flagSetRule(name, val)
 	}
 	up := strings.ToUpper(name)
 	ref, isRef := providers.SecretRefName(name, val)

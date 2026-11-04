@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 var _ = schemas.Register(schemas.Format{
@@ -125,10 +126,10 @@ func lostLines(theirs, base, next []byte) []string {
 	return lost
 }
 
-// printLostLines indents each lost line for display under a warning/prompt header.
+// printLostLines indents each lost line for display under a warning/prompt header, credential shapes redacted.
 func printLostLines(out io.Writer, lines []string) {
 	for _, l := range lines {
-		fmt.Fprintf(out, "    %s\n", l)
+		fmt.Fprintf(out, "    %s\n", shapes.Redact(l))
 	}
 }
 
@@ -158,7 +159,7 @@ func HomeOr(home string) (string, error) {
 	return os.UserHomeDir()
 }
 
-// LegacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; codex restore only.
+// LegacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; RevertOne and codex restore.
 // Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
 func LegacyBackupSource(path string) (src string, stepBack, ok bool) {
 	if versions, err := filepath.Glob(path + ".backup.*"); err == nil && len(versions) > 0 {

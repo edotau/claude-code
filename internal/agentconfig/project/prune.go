@@ -63,13 +63,13 @@ func hasGeneratedBanner(text string) bool {
 	return false
 }
 
-// pruneEntries removes every entry of dir that match accepts (returning the PRUNE reason), counting the removals.
-func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bool), remove func(string) error, dryRun bool) int {
+// pruneEntries removes every entry of dir that match accepts (returning the PRUNE reason), counting removals and failures.
+func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bool), remove func(string) error, dryRun bool) syncResult {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0
+		return syncResult{}
 	}
-	pruned := 0
+	var res syncResult
 	for _, e := range entries {
 		reason, ok := match(e)
 		if !ok {
@@ -79,17 +79,18 @@ func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bo
 		if !dryRun {
 			if err := remove(path); err != nil {
 				fmt.Fprintf(os.Stderr, "  prune error: %v\n", err)
+				res.errored++
 				continue
 			}
 		}
 		fmt.Fprintf(out, "  PRUNE %s (%s)\n", paths.ShortHome(path), reason)
-		pruned++
+		res.pruned++
 	}
-	return pruned
+	return res
 }
 
 // pruneGeneratedFiles removes banner-marked <name><ext> files in dir not in keep; anything else is left alone.
-func pruneGeneratedFiles(out io.Writer, dir, ext string, keep map[string]bool, dryRun bool) int {
+func pruneGeneratedFiles(out io.Writer, dir, ext string, keep map[string]bool, dryRun bool) syncResult {
 	match := func(e os.DirEntry) (string, bool) {
 		ok := !keep[e.Name()] && strings.HasSuffix(e.Name(), ext) && isGeneratedFile(filepath.Join(dir, e.Name()))
 		return "orphaned: no agent source", ok

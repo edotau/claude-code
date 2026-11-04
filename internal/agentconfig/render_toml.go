@@ -11,13 +11,33 @@ import (
 func TOMLString(v string) string {
 	v = strings.TrimSpace(v)
 	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
-		if end := strings.IndexByte(v[1:], v[0]); end >= 0 {
+		if v[0] == '"' {
+			if end := basicStringEnd(v); end > 0 {
+				if s, err := strconv.Unquote(v[:end+1]); err == nil {
+					return s
+				}
+				return v[1:end]
+			}
+		} else if end := strings.IndexByte(v[1:], '\''); end >= 0 {
 			return v[1 : end+1]
 		}
 		return strings.Trim(v, `"'`)
 	}
 	v, _, _ = strings.Cut(v, "#")
 	return strings.TrimSpace(v)
+}
+
+// basicStringEnd is the index of the closing quote of the basic string opening v, skipping escapes; -1 if unclosed.
+func basicStringEnd(v string) int {
+	for i := 1; i < len(v); i++ {
+		switch v[i] {
+		case '\\':
+			i++
+		case '"':
+			return i
+		}
+	}
+	return -1
 }
 
 // TOMLQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
@@ -72,14 +92,15 @@ func topLevelKeysOf(section string) []string {
 		idx = len(lines)
 	}
 	var keys []string
+	multiline, depth := "", 0
 	for _, line := range lines[:idx] {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
+		if multiline == "" && depth == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			if key, _, ok := strings.Cut(trimmed, "="); ok {
+				keys = append(keys, strings.TrimSpace(key))
+			}
 		}
-		if key, _, ok := strings.Cut(trimmed, "="); ok {
-			keys = append(keys, strings.TrimSpace(key))
-		}
+		multiline, depth = TOMLLineState(line, multiline, depth)
 	}
 	return keys
 }
