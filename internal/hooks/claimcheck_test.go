@@ -92,3 +92,33 @@ func TestClaimCheckDropsLandedClaim(t *testing.T) {
 		t.Fatalf("landed claim: %v %q; want allow", r.Decision, r.Reason)
 	}
 }
+
+// TestClaimCheckBashEditClaimedByAdd: a file changed outside Edit is claimed once staged; a peer's bare commit asks.
+func TestClaimCheckBashEditClaimedByAdd(t *testing.T) {
+	repo := claimFixture(t)
+	useClaimOwner(t, liveOwner)
+	writeRel(t, repo, "b.txt", "sed -i by A\n")
+	gitIn(t, repo, "add", "b.txt")
+	worktreeClaim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "git add b.txt"}, "tool_response": map[string]any{"stdout": ""}}))
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x"})
+	if r.Decision != Ask || !strings.Contains(r.Reason, "b.txt takes") {
+		t.Fatalf("bare commit over A's staged b.txt: %v %q; want an ask naming b.txt", r.Decision, r.Reason)
+	}
+}
+
+// TestClaimCheckCommitAskNamesSafeForm: add-then-bare-commit over a peer's staged file asks, naming `git commit --`.
+func TestClaimCheckCommitAskNamesSafeForm(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	gitIn(t, repo, "add", "a.txt")
+	writeRel(t, repo, "b.txt", "B's own\n")
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add b.txt && git commit -q -m x"})
+	safe := strings.Contains(r.Reason, "git commit -- <your files>")
+	if r.Decision != Ask || !strings.Contains(r.Reason, "a.txt takes") || !safe {
+		t.Fatalf("add && bare commit: %v %q; want an ask naming a.txt and git commit --", r.Decision, r.Reason)
+	}
+	if r = claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x -- b.txt"}); r.Decision != Allow {
+		t.Fatalf("commit -- b.txt: %v %q; want allow", r.Decision, r.Reason)
+	}
+}
