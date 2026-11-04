@@ -20,13 +20,12 @@ const maxLineRunes = 80
 
 // SettingsDrift holds every way the live settings.json (and its neighbors) can have drifted.
 type SettingsDrift struct {
-	File     string
-	Invalid  error
-	Differs  []string
-	Foreign  []string
-	Kept     []string // foreign keys reported but not counted as drift (the Windows file)
-	LocalDup []string
-	Nested   string
+	File    string
+	Invalid error
+	Differs []string
+	Foreign []string
+	Kept    []string // foreign keys reported but not counted as drift (the Windows file)
+	Nested  string
 }
 
 // Drifted is true when settings.json is invalid, missing, differs, holds a foreign key, or a nested config exists.
@@ -34,7 +33,7 @@ func (s SettingsDrift) Drifted() bool {
 	return s.Invalid != nil || len(s.Differs) > 0 || len(s.Foreign) > 0 || s.Nested != ""
 }
 
-// Lines renders one <=80-col "settings: " line per finding; LocalDup is informational, not drift.
+// Lines renders one <=80-col "settings: " line per finding.
 func (s SettingsDrift) Lines() []string { return s.LinesLabeled("settings") }
 
 // LinesLabeled is Lines with a different line prefix, e.g. "settings (windows)".
@@ -62,9 +61,6 @@ func (s SettingsDrift) LinesLabeled(label string) []string {
 	for _, k := range s.Kept {
 		addKey(k, " is kept (not in the defaults)")
 	}
-	for _, l := range s.LocalDup {
-		add(label + ": " + l)
-	}
 	if s.Nested != "" {
 		add(label + ": nested config: " + s.Nested)
 	}
@@ -84,7 +80,7 @@ func CheckSettingsDrift() (SettingsDrift, error) {
 // settings.local.json entries that only repeat it, and reports a nested <config dir>/.claude.
 func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 	file := SettingsFile()
-	d, err := checkSettingsDriftAt(file, filepath.Join(paths.ConfigDir(), "settings.local.json"), rendered, " (only read in $HOME)")
+	d, err := checkSettingsDriftAt(file, rendered)
 	if err != nil {
 		return d, err
 	}

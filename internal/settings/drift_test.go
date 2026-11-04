@@ -111,58 +111,6 @@ func TestDiffCleanAfterMerge(t *testing.T) {
 	}
 }
 
-// TestLocalDuplicates: a settings.local.json entry whose value equals the rendered template's value for the
-// same key is a pointless duplicate worth flagging — it does nothing but risk drifting from the template.
-func TestLocalDuplicates(t *testing.T) {
-	rendered, err := Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(rendered, &obj); err != nil {
-		t.Fatal(err)
-	}
-	env := map[string]json.RawMessage{}
-	if err := json.Unmarshal(obj["env"], &env); err != nil {
-		t.Fatal(err)
-	}
-	var envKey string
-	for k := range env {
-		envKey = k
-		break
-	}
-	if envKey == "" {
-		t.Fatal("rendered template has no env keys to test against")
-	}
-
-	local := []byte(`{"env":{"` + envKey + `":` + string(env[envKey]) + `}}`)
-	dups, err := LocalDuplicates(local, rendered)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "env." + envKey
-	if !slices.Contains(dups, want) {
-		t.Errorf("LocalDuplicates = %v, want it to contain %q", dups, want)
-	}
-}
-
-// TestLocalDuplicatesIgnoresDifferingValue: a settings.local.json entry whose value differs from the
-// rendered template is an intentional per-session override, not a duplicate — it must not be reported.
-func TestLocalDuplicatesIgnoresDifferingValue(t *testing.T) {
-	rendered, err := Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	local := []byte(`{"env":{"SOME_LOCAL_ONLY_VAR":"x"}}`)
-	dups, err := LocalDuplicates(local, rendered)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(dups) != 0 {
-		t.Errorf("LocalDuplicates = %v, want none for a key the template never defines", dups)
-	}
-}
-
 func TestDefaultsDrift(t *testing.T) {
 	vaulttest.Use(t)
 	file := filepath.Join(paths.ConfigDir(), "settings.json")

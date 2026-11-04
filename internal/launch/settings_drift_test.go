@@ -1,7 +1,6 @@
 package launch
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -147,44 +146,6 @@ func TestCheckSettingsDriftNested(t *testing.T) {
 	}
 }
 
-// TestCheckSettingsDriftLocalDupNotDrift: settings.local.json repeating a rendered value is reported
-// (LocalDup) but must not, by itself, flip Drifted() true — it is a redundancy note, not breakage.
-func TestCheckSettingsDriftLocalDupNotDrift(t *testing.T) {
-	dir := freshConfigDir(t)
-	rendered, err := settings.RenderLive()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(SettingsFile(), rendered, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(rendered, &obj); err != nil {
-		t.Fatal(err)
-	}
-	themeRaw, ok := obj["theme"]
-	if !ok {
-		t.Skip("template has no theme key to duplicate")
-	}
-	local, err := json.Marshal(map[string]json.RawMessage{"theme": themeRaw})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "settings.local.json"), local, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	d, err := CheckSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(d.LocalDup) == 0 {
-		t.Error("LocalDup is empty, want the duplicated theme key reported")
-	}
-	if d.Drifted() {
-		t.Errorf("a local-file duplicate alone must not count as drift: %v", d.Lines())
-	}
-}
-
 // TestCheckSettingsDriftLinesTruncatesLongForeignKey: a foreign key far longer than 80 runes must
 // still render with a <=80-rune embedded key and a whole line <=80 runes, verb intact.
 func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
@@ -272,16 +233,15 @@ func TestCheckSettingsDriftLinesFitEightyColumns(t *testing.T) {
 func TestSettingsDriftLinesCapAssembledLongFindings(t *testing.T) {
 	long := strings.Repeat("x", 200)
 	d := SettingsDrift{
-		File:     "/f/settings.json",
-		Invalid:  errors.New("parse " + long),
-		Foreign:  []string{long},
-		Kept:     []string{long},
-		LocalDup: []string{"settings.local.json " + long + " repeats the defaults"},
-		Nested:   long,
+		File:    "/f/settings.json",
+		Invalid: errors.New("parse " + long),
+		Foreign: []string{long},
+		Kept:    []string{long},
+		Nested:  long,
 	}
 	lines := d.Lines()
-	if len(lines) != 5 {
-		t.Fatalf("lines = %d, want 5: %q", len(lines), lines)
+	if len(lines) != 4 {
+		t.Fatalf("lines = %d, want 4: %q", len(lines), lines)
 	}
 	for _, l := range lines {
 		if n := len([]rune(l)); n > 80 {
