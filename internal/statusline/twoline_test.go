@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -36,7 +37,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("want 2 rows, got %q", rows)
 	}
-	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42min · Fable 5.1 / high"; rows[0] != want {
+	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42min · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
 	want := "ctx ━━━━━━━━━─────────── 47.2% · 94.4k/200k · 7d ━━──────── 18%"
@@ -45,10 +46,10 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	}
 }
 
-// No effort drops " / ", no seven_day drops the 7d cell, and a subscription session (expiry recorded) has no auth cell or leading separator.
+// No effort drops ":effort", no seven_day drops the 7d cell, and a subscription session (expiry recorded) has no auth cell or leading separator.
 func TestTwolineCornerCases(t *testing.T) {
 	rows := twolineRender(t, "max", "")
-	if strings.Contains(rows[0], " / ") {
+	if strings.HasSuffix(rows[0], ":") {
 		t.Errorf("no effort, yet row 1 = %q", rows[0])
 	}
 	if strings.Contains(rows[1], "7d") || strings.Contains(rows[0], "u2m:") || strings.HasPrefix(rows[1], " ·") {
@@ -84,28 +85,17 @@ func TestTwolineVelocity(t *testing.T) {
 	}
 }
 
-// With a width row 2 ends at the right edge and keeps its cells together; too narrow leaves it as is.
-func TestTwolineAlignRight(t *testing.T) {
-	row := []twoSeg{{text: "ctx"}, {key: "sep", text: twoSep}, {text: "7d"}}
-	got := alignRight(row, 20)
-	if segWidth(got) != 20 || got[0].text != strings.Repeat(" ", 12) || got[2].text != twoSep {
-		t.Errorf("aligned row = %v, want 12 leading spaces then the cells unchanged", got)
+// Both rows are left-packed (no padding to a width), and row 1 carries no branch even when one was collected.
+func TestTwolineNoBranchLeftPacked(t *testing.T) {
+	v := values{userHost: "u", path: "proj", branch: "main", provider: "databricks·dbx-u2m", two: twoData{model: "M", auth: "u2m:9min", hasCtx: true, week: -1}}
+	cfg := embeddedConfig()
+	cfg.Width = 120
+	lines := strings.Split(plain(renderTwoline(v, cfg, theme.Palettes{}, nil, "none")), "\n")
+	if !strings.HasSuffix(lines[0], ":proj | databricks·dbx-u2m · u2m:9min · M") {
+		t.Errorf("row 1 = %q, want head | provider · auth · model, no branch, no gap", lines[0])
 	}
-	if got := alignRight(row, 6); len(got) != len(row) {
-		t.Errorf("too narrow: row padded: %v", got)
-	}
-}
-
-// With a width, row 2 ends at the right edge; row 1 carries no branch even when one was collected.
-func TestTwolineNoBranchRow2Right(t *testing.T) {
-	v := values{branch: "main", provider: "databricks·dbx-u2m", two: twoData{model: "M", auth: "u2m:9min", hasCtx: true, week: -1}}
-	out := plain(renderTwoline(v, embeddedConfig(), theme.Palettes{}, nil, "none", 60))
-	lines := strings.Split(out, "\n")
-	if strings.Contains(lines[0], "main") || !strings.Contains(lines[0], "databricks·dbx-u2m · u2m:9min · M") {
-		t.Errorf("row 1 = %q, want provider · auth · model and no branch", lines[0])
-	}
-	if !strings.HasPrefix(lines[1], "  ") || !strings.HasSuffix(lines[1], "0/0") || len([]rune(lines[1])) != 60 {
-		t.Errorf("row 2 = %q, want it right-aligned to 60", lines[1])
+	if lines[1] != "ctx "+twoBar(0, 20)+" 0.0% · 0/0" {
+		t.Errorf("row 2 = %q, want it left-packed", lines[1])
 	}
 }
 
@@ -115,5 +105,14 @@ func TestTwolinePaletteForeground(t *testing.T) {
 	out := paintTwoRow([]twoSeg{{key: "auth", text: "u2m:9min"}, {key: "x", text: "y"}}, th, nil, "truecolor")
 	if !strings.Contains(out, "\x1b[38;2;238;212;159mu") {
 		t.Errorf("auth cell lacks the palette fg #EED49F: %q", out)
+	}
+}
+
+// A ramp-only palette (gemini) backs each cell and separator with a dark shade of its ramp color; padding stays bare.
+func TestTwolineDerivedBackground(t *testing.T) {
+	stops := []ansi.RGB{{200, 100, 50}}
+	out := paintTwoRow([]twoSeg{{key: "model", text: "M"}, {key: "sep", text: twoSep}, {bare: true, text: "  "}}, nil, stops, "truecolor")
+	if want := ansi.BgSeq("truecolor", ansi.RGB{40, 20, 10}); strings.Count(out, want) != 2 || strings.Count(out, "\x1b[48;") != 2 {
+		t.Errorf("want the model cell and separator on bg %q, padding bare: %q", want, out)
 	}
 }
