@@ -33,7 +33,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("want 2 rows, got %q", rows)
 	}
-	if !strings.HasPrefix(rows[0], "databricks·dbx-u2m "+promptUser()+":") {
+	if !strings.HasPrefix(rows[0], promptUser()+":") || !strings.Contains(rows[0], " | databricks·dbx-u2m ") {
 		t.Errorf("row 1 lacks the provider label: %q", rows[0])
 	}
 	if !strings.HasSuffix(rows[0], " · Fable 5.1 / high") {
@@ -67,7 +67,7 @@ func TestCompactTokens(t *testing.T) {
 	}
 }
 
-// Velocity follows row 1's model: a zero side is omitted, and both zero drops the cell and its separator.
+// Velocity follows row 1's model after " | ": a zero side is omitted, and both zero drops the cell and its separator.
 func TestTwolineVelocity(t *testing.T) {
 	text := func(row []twoSeg) (s string) {
 		for _, c := range row {
@@ -75,7 +75,7 @@ func TestTwolineVelocity(t *testing.T) {
 		}
 		return s
 	}
-	for in, want := range map[[2]int]string{{4, 2}: " · +4 -2", {4, 0}: " · +4", {0, 2}: " · -2", {0, 0}: ""} {
+	for in, want := range map[[2]int]string{{4, 2}: " | +4 -2", {4, 0}: " | +4", {0, 2}: " | -2", {0, 0}: ""} {
 		if got := text(appendVelocity(nil, in[0], in[1])); got != want {
 			t.Errorf("appendVelocity(%d, %d) = %q, want %q", in[0], in[1], got, want)
 		}
