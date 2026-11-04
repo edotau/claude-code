@@ -124,7 +124,7 @@ func winSettingsPath(profile string) string {
 
 // TestInstallWindowsSettings_MergeKeepsForeign proves Merge preserves a foreign `remote` key and the
 // user's own statusLine (harness's statusLine is stripped from the Windows render, so it never owns
-// that key), while still replacing an owned plain key (theme) with the rendered value.
+// that key), and the user's theme.
 func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
@@ -153,8 +153,8 @@ func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
 	if _, ok := m["hooks"]; ok {
 		t.Error("hooks present in Windows settings.json, want absent (no hook runner on Windows)")
 	}
-	if v, ok := m["theme"]; !ok || !rawEqual(t, v, json.RawMessage(`"auto"`)) {
-		t.Errorf("theme = %s, want replaced by the owned rendered value \"auto\"", v)
+	if v, ok := m["theme"]; !ok || !rawEqual(t, v, json.RawMessage(`"light"`)) {
+		t.Errorf("theme = %s, want the user's \"light\" kept", v)
 	}
 	if !bytes.Contains(out.Bytes(), []byte("settings (windows)")) {
 		t.Errorf("output %q missing the settings (windows) banner", out.String())
@@ -275,9 +275,9 @@ func TestCheckWindowsSettingsDrift_Clean(t *testing.T) {
 	}
 }
 
-// TestCheckWindowsSettingsDrift_HandEdited proves a hand-edited owned key (theme) surfaces as a
-// labeled "settings (windows)" drift line and fails the check.
-func TestCheckWindowsSettingsDrift_HandEdited(t *testing.T) {
+// TestCheckWindowsSettingsDrift_HandEditedKeyIsNotDrift proves a hand-edited plain key (theme) is not
+// drift: install refreshes only hooks, so the check has nothing to report.
+func TestCheckWindowsSettingsDrift_HandEditedKeyIsNotDrift(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
@@ -307,17 +307,8 @@ func TestCheckWindowsSettingsDrift_HandEdited(t *testing.T) {
 	if !ok {
 		t.Fatal("ok = false, want true")
 	}
-	if !drift.Drifted() {
-		t.Error("Drifted() = false after a hand-edited theme, want true")
-	}
-	var found bool
-	for _, l := range drift.LinesLabeled("settings (windows)") {
-		if l == "settings (windows): theme differs from the template" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("lines %v missing the theme drift line", drift.LinesLabeled("settings (windows)"))
+	if drift.Drifted() {
+		t.Errorf("a hand-edited theme is the user's, not drift: %v", drift.LinesLabeled("settings (windows)"))
 	}
 }
 
@@ -431,36 +422,6 @@ func TestCheckWindowsSettingsDrift_BOMIsNotInvalid(t *testing.T) {
 	if drift.Invalid != nil || drift.Drifted() {
 		t.Errorf("after install of a BOM file: Invalid=%v Drifted=%v lines=%v", drift.Invalid, drift.Drifted(),
 			drift.LinesLabeled("settings (windows)"))
-	}
-}
-
-// A drop-listed foreign key is removed from the Windows file by the render's Merge.
-func TestInstallWindowsSettings_DropsListedForeignKey(t *testing.T) {
-	profile := winHermetic(t)
-	file := winSettingsPath(profile)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(file, []byte(`{"remote":{"a":1},"verbose":true}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := settings.UpdateDropped(func([]string) []string { return []string{"verbose"} }); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	if err := InstallWindowsSettings(&out, false); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := decodeObj(t, b)
-	if _, ok := m["verbose"]; ok {
-		t.Error("listed foreign key verbose survived the Windows render")
-	}
-	if _, ok := m["remote"]; !ok {
-		t.Error("unlisted foreign key remote was dropped")
 	}
 }
 

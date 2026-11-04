@@ -61,7 +61,7 @@ const existing = `{
 
 func TestMergePreservesForeign(t *testing.T) {
 	rendered, _ := Render()
-	merged, sum, err := Merge([]byte(existing), rendered, nil)
+	merged, sum, err := Merge([]byte(existing), rendered)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,17 +76,16 @@ func TestMergePreservesForeign(t *testing.T) {
 	if err := json.Unmarshal(merged, &doc); err != nil {
 		t.Fatalf("%v\n%s", err, merged)
 	}
-	if doc.Env["KEEP_ME"] != "1" || doc.Env["CLAUDE_CODE_SCROLL_SPEED"] == "" {
-		t.Errorf("env not unioned: %v", doc.Env)
+	if len(doc.Env) != 1 || doc.Env["KEEP_ME"] != "1" {
+		t.Errorf("env was changed: %v", doc.Env)
 	}
-	if doc.Tips == nil || *doc.Tips || doc.Output != "Concise" {
-		t.Error("foreign top-level keys dropped")
+	if doc.Tips != nil || doc.Output != "" {
+		t.Error("a template key the user lacks was added")
 	}
-	if !strings.Contains(string(doc.Permissions["additionalDirectories"]), "/x") || !strings.Contains(string(doc.Permissions["allow"]), "Bash(ls:*)") {
-		t.Errorf("permissions not merged: %s", merged)
-	}
-	if strings.Count(string(doc.Permissions["deny"]), "Read(~/.ssh/**)") != 1 {
-		t.Error("deny list duplicated an existing rule")
+	var allow []string
+	_ = json.Unmarshal(doc.Permissions["allow"], &allow)
+	if len(doc.Permissions) != 3 || !slices.Equal(allow, []string{"Bash(ls:*)"}) {
+		t.Errorf("permissions were changed: %s", merged)
 	}
 	cmds := map[string][]string{}
 	for ev, groups := range doc.Hooks {
@@ -122,7 +121,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "companyAnnouncements,autoUpdates") {
 		t.Errorf("kept %v", sum.Kept)
 	}
-	again, _, err := Merge(merged, rendered, nil)
+	again, _, err := Merge(merged, rendered)
 	if err != nil || string(again) != string(merged) {
 		t.Errorf("merge is not idempotent:\n%s", again)
 	}
@@ -140,7 +139,7 @@ func hermeticCacheDir(t *testing.T) string {
 func TestMergeEmptyAndBackup(t *testing.T) {
 	hermeticCacheDir(t)
 	rendered, _ := Render()
-	merged, _, err := Merge(nil, rendered, nil)
+	merged, _, err := Merge(nil, rendered)
 	if err != nil || string(merged) != string(rendered) {
 		t.Fatalf("merge onto nothing should equal the render: %v", err)
 	}
@@ -212,7 +211,7 @@ func TestMergeKeepsForeignKeysInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := `{"companyAnnouncements":["hi"],"zzForeign":{"a":1}}`
-	out, sum, err := Merge([]byte(in), rendered, nil)
+	out, sum, err := Merge([]byte(in), rendered)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +221,7 @@ func TestMergeKeepsForeignKeysInOrder(t *testing.T) {
 	if i, j := strings.Index(string(out), "companyAnnouncements"), strings.Index(string(out), "zzForeign"); i < 0 || j < i {
 		t.Errorf("foreign key order lost:\n%s", out)
 	}
-	again, _, err := Merge(out, rendered, nil)
+	again, _, err := Merge(out, rendered)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,39 +268,10 @@ func TestMergeDropsStaleRTKHookKeepsForeign(t *testing.T) {
 	}
 }
 
-// TestMergeDropsListedForeignKey: a dropped foreign key is removed and recorded; a template key in the list stays.
-func TestMergeDropsListedForeignKey(t *testing.T) {
-	rendered, err := Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	in := `{"skipDangerousModePermissionPrompt":true,"keepMe":1,"env":{"A":"b"}}`
-	out, sum, err := Merge([]byte(in), rendered, []string{"skipDangerousModePermissionPrompt", "env"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(out, &doc); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := doc["skipDangerousModePermissionPrompt"]; ok {
-		t.Error("dropped foreign key survived Merge")
-	}
-	if _, ok := doc["keepMe"]; !ok {
-		t.Error("unlisted foreign key was removed")
-	}
-	if _, ok := doc["env"]; !ok {
-		t.Error("template-owned key in the drop list must still be rendered")
-	}
-	if !slices.Contains(sum.Dropped, "skipDangerousModePermissionPrompt") {
-		t.Errorf("Summary.Dropped = %v, want it to list the foreign key", sum.Dropped)
-	}
-}
-
 func TestMergeKeepsRuntimeKeysWithoutReportingThem(t *testing.T) {
 	rendered, _ := Render()
 	live := `{"modelSettings":{"claude-fable-5-1":{"effortLevel":"high"}},"someForeign":1}`
-	merged, sum, err := Merge([]byte(live), rendered, nil)
+	merged, sum, err := Merge([]byte(live), rendered)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,29 +283,6 @@ func TestMergeKeepsRuntimeKeysWithoutReportingThem(t *testing.T) {
 	}
 	if !slices.Contains(sum.Kept, "someForeign") {
 		t.Errorf("a real foreign key must still be reported: %v", sum.Kept)
-	}
-}
-
-// A rule retired from the template leaves an existing file; a user's own rule and foreign keys stay.
-func TestMergeDropsRetiredPermissionsKeepsForeign(t *testing.T) {
-	existing := []byte(`{"enabledPlugins":{"x@y":true},"permissions":{"ask":["Bash(npm *)","Bash(my-tool *)","Bash(git push -f origin main:*)"]}}`)
-	rendered := []byte(`{"permissions":{"ask":["Bash(npm publish:*)"]}}`)
-	out, _, err := Merge(existing, rendered, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got struct {
-		EnabledPlugins map[string]bool `json:"enabledPlugins"`
-		Permissions    struct {
-			Ask []string `json:"ask"`
-		} `json:"permissions"`
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"Bash(npm publish:*)", "Bash(my-tool *)"}
-	if !slices.Equal(got.Permissions.Ask, want) || !got.EnabledPlugins["x@y"] {
-		t.Fatalf("merged = %s, want ask %v and enabledPlugins kept", out, want)
 	}
 }
 

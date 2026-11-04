@@ -3,6 +3,7 @@ package launch
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -1281,6 +1282,63 @@ func TestInstallSettingsFreshRestoresThenMergesExisting(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(SettingsFile()); !strings.Contains(string(got), "zzForeign") {
 		t.Errorf("install over an existing file dropped a foreign key:\n%s", got)
+	}
+}
+
+// TestApplySettingsExistingFileOnlyRefreshesHooks: over an existing file, env, permissions and every other key
+// stay as the user has them, while the harness hooks are restored and a foreign hook is kept.
+func TestApplySettingsExistingFileOnlyRefreshesHooks(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("HOME", t.TempDir())
+	user := `{
+  "env": {
+    "MY_VAR": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(mytool *)"
+    ]
+  },
+  "theme": "light",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/my-foreign"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	if err := os.WriteFile(SettingsFile(), []byte(user), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, merged, sum, _, err := ApplySettings(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want map[string]json.RawMessage
+	if err := json.Unmarshal(merged, &got); err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal([]byte(user), &want)
+	for _, k := range []string{"env", "permissions", "theme"} {
+		if !bytes.Equal(got[k], want[k]) {
+			t.Errorf("%s = %s, want the user's %s", k, got[k], want[k])
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("keys = %d, want the user's %d (no template key added)", len(got), len(want))
+	}
+	if !strings.Contains(string(got["hooks"]), "my-foreign") || sum.HarnessHooks == 0 || sum.ForeignHooks != 1 {
+		t.Errorf("hooks not refreshed with the foreign one kept: %s %+v", got["hooks"], sum)
+	}
+	if len(sum.Drift) == 0 || slices.Contains(sum.Drift, "hooks") {
+		t.Errorf("Drift = %v, want the non-hook keys that differ from the defaults", sum.Drift)
 	}
 }
 

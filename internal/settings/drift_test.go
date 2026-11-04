@@ -39,6 +39,7 @@ func TestDiffDetectsChangedValue(t *testing.T) {
 	if err := json.Unmarshal(rendered, &obj); err != nil {
 		t.Fatal(err)
 	}
+	obj["hooks"] = json.RawMessage(`{}`)
 	obj["theme"] = json.RawMessage(`"light"`)
 	existing, err := json.Marshal(obj)
 	if err != nil {
@@ -49,8 +50,8 @@ func TestDiffDetectsChangedValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(differs, "theme") {
-		t.Errorf("differs = %v, want it to contain %q", differs, "theme")
+	if !slices.Equal(differs, []string{"hooks"}) { // only hooks are refreshed; theme is the user's
+		t.Errorf("differs = %v, want [hooks]", differs)
 	}
 	if len(foreign) != 0 {
 		t.Errorf("foreign = %v, want none", foreign)
@@ -93,7 +94,7 @@ func TestDiffCleanAfterMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, _, err := Merge([]byte(`{"verbose":true}`), rendered, nil)
+	merged, _, err := Merge([]byte(`{"verbose":true}`), rendered)
 	if err != nil {
 		t.Fatal(err)
 	}

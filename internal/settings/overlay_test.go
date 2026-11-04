@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -129,56 +128,6 @@ func TestOverlayRejectsInvalidValue(t *testing.T) {
 	ov := map[string]json.RawMessage{"cleanupPeriodDays": json.RawMessage(`0`)}
 	if err := SaveOverlay(ov); err == nil {
 		t.Error("SaveOverlay with cleanupPeriodDays=0 = nil error, want rejection")
-	}
-}
-
-// TestDroppedRoundTripSortedDeduped: UpdateDropped stores sorted+deduped keys; an empty list deletes the entry.
-func TestDroppedRoundTripSortedDeduped(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if got, err := LoadDropped(); err != nil || got != nil {
-		t.Fatalf("fresh LoadDropped = %v, %v; want nil, nil", got, err)
-	}
-	if err := UpdateDropped(func([]string) []string { return []string{"zeta", "alpha", "zeta"} }); err != nil {
-		t.Fatal(err)
-	}
-	got, err := LoadDropped()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"alpha", "zeta"}; !slices.Equal(got, want) {
-		t.Fatalf("LoadDropped = %v, want %v", got, want)
-	}
-	if err := UpdateDropped(func([]string) []string { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := LoadDropped(); got != nil {
-		t.Fatalf("after UpdateDropped(func([]string) []string { return nil }) LoadDropped = %v, want nil", got)
-	}
-}
-
-// TestUpdateDroppedRefusesTemplateKeys: catalog keys and rendered top-level keys are never droppable.
-func TestUpdateDroppedRefusesTemplateKeys(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rendered, err := Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(rendered, &top); err != nil {
-		t.Fatal(err)
-	}
-	keys := []string{"theme"}
-	for k := range top {
-		keys = append(keys, k)
-	}
-	for _, k := range keys {
-		err := UpdateDropped(func([]string) []string { return []string{"foreignKey", k} })
-		if err == nil || !strings.Contains(err.Error(), k+" is owned by the template") {
-			t.Errorf("UpdateDropped(%q) err = %v, want the owned-by-template refusal", k, err)
-		}
-	}
-	if got, _ := LoadDropped(); got != nil {
-		t.Errorf("a refused save must not write; LoadDropped = %v", got)
 	}
 }
 
@@ -368,21 +317,6 @@ func TestWriteRepoDefaultsConcurrentWritersKeepAllKeys(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(filepath.Dir(file)); len(ents) != 2 { // settings.json + .lock
 		t.Errorf("stray files beside the repo defaults: %v", ents)
-	}
-}
-
-// autoMemoryDirectory merges every repo's memory into one flat dir, so Merge still drops it.
-func TestMergeDropsLegacyAutoMemoryDirectory(t *testing.T) {
-	rendered, err := Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, _, err := Merge([]byte(`{"autoMemoryDirectory":"/flat","zzForeign":1}`), rendered, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(out), "autoMemoryDirectory") || !strings.Contains(string(out), "zzForeign") {
-		t.Errorf("merge output:\n%s", out)
 	}
 }
 

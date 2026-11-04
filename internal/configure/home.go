@@ -108,7 +108,7 @@ func RegisterCodexMCP(path, bin string) error {
 	return paths.AtomicWrite(path, next, 0o600)
 }
 
-// RerenderSettings re-renders settings.json (merge: foreign keys/hooks kept, backup first) and returns the
+// RerenderSettings refreshes settings.json hooks only (never prompts; backup first) and returns the
 // line to print; an error means settings.json could not be brought current.
 func RerenderSettings() (string, error) {
 	_, existing, merged, _, backup, err := launch.ApplySettings(false)
