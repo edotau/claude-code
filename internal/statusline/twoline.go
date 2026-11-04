@@ -2,7 +2,6 @@ package statusline
 
 import (
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,8 +22,8 @@ type twoData struct {
 
 // twoSeg is one painted cell: key picks its powerline.minimal colors ("" = no background).
 type twoSeg struct {
-	key, text string
-	bold, dim bool
+	key, text, fg string // fg: fixed hex that overrides the ramp
+	bold, dim     bool
 }
 
 // collectTwoline resolves model, effort, auth countdown, context and 7d from the payload.
@@ -67,14 +66,9 @@ func twoBar(pct float64, w int) string {
 
 const twoSep = " · "
 
-// twolineRows builds row 1 (where) and row 2 (auth, context, tokens, 7d) as segment lists.
+// twolineRows builds row 1 after the head (branch, model, effort, velocity) and row 2 (auth, context, tokens, 7d) as segment lists.
 func twolineRows(v values) (row1, row2 []twoSeg) {
 	d := v.two
-	cwd := v.userHost + ":" + filepath.Base(v.path)
-	if v.provider != "" {
-		cwd = v.provider + " " + cwd
-	}
-	row1 = []twoSeg{{key: "cwd", text: cwd}}
 	if v.branch != "" {
 		row1 = append(row1, twoSeg{key: "branch", text: ":" + v.branch})
 	}
@@ -82,6 +76,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	if d.effort != "" {
 		row1 = append(row1, twoSeg{key: "effort", text: " / " + d.effort, dim: true})
 	}
+	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.auth != "" {
 		row2 = append(row2, twoSeg{text: d.auth})
 	}
@@ -93,6 +88,24 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 		row2 = appendSep(row2, twoSeg{key: "limit7d", text: fmt.Sprintf("7d %s %d%%", twoBar(float64(d.week), 10), d.week)})
 	}
 	return row1, row2
+}
+
+// appendVelocity adds " · +A -D" after row 1's model and effort, omitting a zero side and the cell when both are 0.
+func appendVelocity(row []twoSeg, adds, dels int) []twoSeg {
+	if adds == 0 && dels == 0 {
+		return row
+	}
+	row = append(row, twoSeg{key: "sep", text: twoSep})
+	if adds != 0 {
+		row = append(row, twoSeg{key: "add", text: "+" + strconv.Itoa(adds)})
+	}
+	if adds != 0 && dels != 0 {
+		row = append(row, twoSeg{text: " "})
+	}
+	if dels != 0 {
+		row = append(row, twoSeg{key: "del", text: "-" + strconv.Itoa(dels)})
+	}
+	return row
 }
 
 // cmpModel prefers the payload display name, else the resolved model segment.
@@ -130,6 +143,8 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 			rgb := ansi.GradAt(stops, float64(i)/float64(max(total-1, 1)))
 			if s.key == "sep" {
 				rgb = ansi.Hex(cmpModel(th["sep"]["fg"], "#CAD3F5"))
+			} else if s.fg != "" {
+				rgb = ansi.Hex(s.fg)
 			}
 			b.WriteString(ansi.FgSeq(mode, rgb, s.bold) + string(r))
 			i++
@@ -140,10 +155,18 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 }
 
 // renderTwoline draws the two-row style: where on row 1, auth/context/tokens/7d on row 2.
-func renderTwoline(v values, pal theme.Palettes, stops []ansi.RGB, mode string) string {
+func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	th := pal.Powerline["minimal"]
 	row1, row2 := twolineRows(v)
-	out := paintTwoRow(row1, th, stops, mode)
+	for i := range row1 { // velocity keeps the add/del tones every style uses
+		if k := row1[i].key; k == "add" || k == "del" {
+			row1[i].fg = pal.Sem(k)
+		}
+	}
+	out := promptHead(v, cfg, pal, stops, mode) + paintTwoRow(row1, th, stops, mode) // head as the other styles draw it
+	if v.provider != "" {
+		out = paintTwoRow([]twoSeg{{key: "cwd", text: v.provider + " "}}, th, stops, mode) + out
+	}
 	if len(row2) == 0 {
 		return out
 	}
