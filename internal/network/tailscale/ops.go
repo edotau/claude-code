@@ -88,10 +88,15 @@ func ParseSubnets(value string) (routes []string, ok bool) {
 	return routes, !bad
 }
 
+// execWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
+const execWaitDelay = 2 * time.Second
+
 // SSHCommand builds argv as a command bounded by SSHTimeout; the caller picks the output mode.
 func SSHCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFunc) {
 	cctx, cancel := context.WithTimeout(ctx, SSHTimeout)
-	return exec.CommandContext(cctx, argv[0], argv[1:]...), cancel
+	cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
+	cmd.WaitDelay = execWaitDelay
+	return cmd, cancel
 }
 
 // RunRemote runs argv over ssh under SSHTimeout and returns the combined output even on error.

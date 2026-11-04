@@ -185,9 +185,9 @@ func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOI
 	args := []string{"merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", sourceOID, targetOID}
 	var env []string
 	if dryRun {
-		extraEnv, cleanup, err := isolatedObjectDir(ctx, repoPath, commonDir)
-		if err != nil {
-			return nil, fmt.Errorf("merge-tree dry-run isolation: %w", err)
+		extraEnv, cleanup, isoErr := isolatedObjectDir(ctx, repoPath, commonDir)
+		if isoErr != nil {
+			return nil, fmt.Errorf("merge-tree dry-run isolation: %w", isoErr)
 		}
 		defer func() { err = errors.Join(err, cleanup()) }()
 		env = extraEnv

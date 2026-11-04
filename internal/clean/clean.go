@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -334,6 +335,7 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool, keep func(string
 			sz := paths.DirSize(m)
 			if apply {
 				if err := os.RemoveAll(m); err != nil {
+					fmt.Fprintf(os.Stderr, "clean: could not remove %s: %v\n", m, err)
 					continue
 				}
 			}
@@ -406,7 +408,9 @@ func selectTargets(all []target, want string) ([]target, error) {
 		if !ok {
 			return nil, fmt.Errorf("unknown target %q (see `claude-code clean --list`)", name)
 		}
-		out = append(out, t)
+		if !slices.ContainsFunc(out, func(o target) bool { return o.name == name }) {
+			out = append(out, t)
+		}
 	}
 	if len(out) == 0 {
 		return nil, errors.New("--target named no targets")

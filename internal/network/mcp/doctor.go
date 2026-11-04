@@ -6,8 +6,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,14 +80,21 @@ type Def struct {
 // a top-level mcpServers block. Unreadable/invalid files are skipped — an absent config is a clean
 // state, not an error.
 func CollectDefs(userPath string, projectFiles, settingsFiles []string) []Def {
+	out, _ := collectDefs(userPath, projectFiles, settingsFiles)
+	return out
+}
+
+// collectDefs is CollectDefs plus a note per file that exists but could not be read or parsed.
+func collectDefs(userPath string, projectFiles, settingsFiles []string) ([]Def, []string) {
 	var out []Def
+	var bad []string
 	var top struct {
 		MCPServers map[string]serverDef `json:"mcpServers"`
 		Projects   map[string]struct {
 			MCPServers map[string]serverDef `json:"mcpServers"`
 		} `json:"projects"`
 	}
-	if data, err := os.ReadFile(userPath); err == nil && json.Unmarshal(data, &top) == nil {
+	if loadConfig(userPath, &top, &bad) {
 		for name, d := range top.MCPServers {
 			out = append(out, Def{name, "user", d})
 		}
@@ -95,20 +104,35 @@ func CollectDefs(userPath string, projectFiles, settingsFiles []string) []Def {
 			}
 		}
 	}
-	out = append(out, readFlatScoped(projectFiles, "project:")...)
-	out = append(out, readFlatScoped(settingsFiles, "settings:")...)
+	out = append(out, readFlatScoped(projectFiles, "project:", &bad)...)
+	out = append(out, readFlatScoped(settingsFiles, "settings:", &bad)...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Server != out[j].Server {
 			return out[i].Server < out[j].Server
 		}
 		return out[i].Scope < out[j].Scope
 	})
-	return out
+	return out, bad
+}
+
+// loadConfig decodes path into doc; a file that exists but cannot be read or parsed is noted in bad.
+func loadConfig(path string, doc any, bad *[]string) bool {
+	data, err := os.ReadFile(path)
+	if err == nil {
+		err = json.Unmarshal(data, doc)
+	}
+	if err == nil {
+		return true
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		*bad = append(*bad, path+": "+err.Error())
+	}
+	return false
 }
 
 // readFlatScoped reads a flat {"mcpServers": {...}} file (.mcp.json, settings.json), deduped by
 // resolved path, and tags each server with prefix+resolvedPath as its scope.
-func readFlatScoped(files []string, prefix string) []Def {
+func readFlatScoped(files []string, prefix string, bad *[]string) []Def {
 	var out []Def
 	seen := map[string]bool{}
 	for _, f := range files {
@@ -123,8 +147,7 @@ func readFlatScoped(files []string, prefix string) []Def {
 		var doc struct {
 			MCPServers map[string]serverDef `json:"mcpServers"`
 		}
-		data, err := os.ReadFile(rp)
-		if err != nil || json.Unmarshal(data, &doc) != nil {
+		if !loadConfig(rp, &doc, bad) {
 			continue
 		}
 		for name, d := range doc.MCPServers {
@@ -303,12 +326,13 @@ type Report struct {
 	Health    HealthResult    `json:"health"`
 	Conflicts []Conflict      `json:"conflicts"`
 	Secrets   []SecretFinding `json:"secrets"`
+	Unscanned []string        `json:"unscanned,omitempty"` // config files that exist but could not be read or parsed
 }
 
 // ExitCode is 1 when a server failed, `claude mcp list` errored, or a secret was found, else 0. A fail-open
 // health skip (claude not on PATH) never contributes to the exit code on its own.
 func (r Report) ExitCode() int {
-	if r.Health.Failed > 0 || r.Health.Error != "" || len(r.Secrets) > 0 {
+	if r.Health.Failed > 0 || r.Health.Error != "" || len(r.Secrets) > 0 || len(r.Unscanned) > 0 {
 		return 1
 	}
 	return 0
@@ -326,7 +350,7 @@ type Options struct {
 
 // Doctor runs the full scan and writes either the human report or (Options.JSON) the Report as JSON.
 func Doctor(w io.Writer, o Options) int {
-	defs := CollectDefs(o.UserPath, o.ProjectFiles, o.SettingsFiles)
+	defs, unscanned := collectDefs(o.UserPath, o.ProjectFiles, o.SettingsFiles)
 	secrets := FindSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
 	safe := redact(defs)
 	rep := Report{
@@ -334,6 +358,10 @@ func Doctor(w io.Writer, o Options) int {
 		Health:    RunHealth(o.Claude),
 		Conflicts: FindConflicts(safe, o.Home),
 		Secrets:   secrets,
+		Unscanned: unscanned,
+	}
+	if len(defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {
+		rep.Health.Error = "no server status lines recognised in `claude mcp list` output"
 	}
 	if o.JSON {
 		b, err := json.MarshalIndent(rep, "", "  ")
@@ -401,8 +429,11 @@ func printReport(w io.Writer, rep Report) {
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "== inline credential scan (MCP env/headers/url) ==")
-	if len(rep.Secrets) == 0 {
+	if len(rep.Secrets) == 0 && len(rep.Unscanned) == 0 {
 		fmt.Fprintln(w, "  ✓ no inline secrets found")
+	}
+	for _, u := range rep.Unscanned {
+		fmt.Fprintf(w, "  ⚠ not scanned (unreadable or invalid JSON): %s\n", u)
 	}
 	for _, f := range rep.Secrets {
 		switch f.Field {

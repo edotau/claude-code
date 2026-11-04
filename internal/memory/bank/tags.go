@@ -92,7 +92,7 @@ func parseTagLine(ln string) (Tag, bool) {
 		if after, ok := strings.CutPrefix(ln, kind); ok {
 			text := strings.TrimSpace(after)
 			if len(text) > tagMaxLen {
-				text = text[:tagMaxLen]
+				text = strings.ToValidUTF8(text[:tagMaxLen], "") // a cut mid-rune leaves a partial one
 			}
 			return Tag{Kind: strings.TrimSuffix(kind, ":"), Text: text}, true
 		}

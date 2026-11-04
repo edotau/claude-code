@@ -63,7 +63,7 @@ type OversizedTask struct {
 
 var (
 	concreteRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)\b(?:assert\w*|expect\(|\.toBe|\.toEqual|pytest|jest|npm\s+test|go\s+test|exit\s*(?:code)?\s*[=:]?\s*0|status\s*[=:]?\s*200|curl\b|grep\b|diff\b|benchmark|latency\s*<|throughput\s*>)\b`)
+		return regexp.MustCompile(`(?i)\b(?:assert\w*|\.toBe|\.toEqual|pytest|jest|npm\s+test|go\s+test|exit\s*(?:code)?\s*[=:]?\s*0|status\s*[=:]?\s*200|curl\b|grep\b|diff\b|benchmark)\b|\bexpect\(|\b(?:latency\s*<|throughput\s*>)`)
 	})
 	reasonableRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(?:verify|check|confirm|inspect|review|compare|validate|run\s+and\s+see|manually|open\s+in\s+browser|screenshot)\b`)
@@ -316,9 +316,9 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if handled {
 		return code
 	}
-	text, source, ok := readInput(input, stdin, stderr)
+	text, source, exit, ok := readInput(input, stdin, stderr)
 	if !ok {
-		return 0
+		return exit
 	}
 
 	a := analyze(text, source)

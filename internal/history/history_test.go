@@ -266,3 +266,19 @@ func runGitCmd(t *testing.T, dir string, args ...string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// A repo with no commits (every watched file absent) must read as empty history, not a git error.
+func TestLogAndDiffOnUnbornBranch(t *testing.T) {
+	root := t.TempDir()
+	s := &Store{Dir: filepath.Join(root, "history")}
+	files := []HistoryFile{{Label: "provider.env", Path: filepath.Join(root, "absent.env")}}
+	if _, err := s.Snapshot(files, "config", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if lines, err := s.Log(5, "config"); err != nil || len(lines) != 0 {
+		t.Fatalf("Log = %v, %v; want empty, nil", lines, err)
+	}
+	if _, err := s.Diff("", "config"); err == nil || !strings.Contains(err.Error(), "no config commits yet") {
+		t.Fatalf("Diff err = %v, want \"no config commits yet\"", err)
+	}
+}

@@ -31,7 +31,7 @@ func projectCWD(path string) string {
 	}
 	defer f.Close()
 	slug, found := filepath.Base(filepath.Dir(path)), ""
-	transcript.EachLine(f, func(line []byte) {
+	_ = transcript.EachLine(f, func(line []byte) {
 		var rec struct {
 			CWD string `json:"cwd"`
 		}

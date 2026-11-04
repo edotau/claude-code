@@ -38,6 +38,7 @@ var winExe = map[string][]string{
 var winProgID = map[string]string{"MSEdgeHTM": "edge", "ChromeHTML": "chrome", "BraveHTML": "brave", "VivaldiHTM": "vivaldi", "FirefoxURL": "firefox"}
 
 // cdpBrowserTag is the substring of /json/version's "Browser" field that names who owns the port.
+// Chrome, Brave and Vivaldi all report "Chrome/" there, so CDP alone cannot tell them apart; only Edge is exact.
 var cdpBrowserTag = map[string]string{"edge": "Edg/", "chrome": "Chrome/", "brave": "Chrome/", "vivaldi": "Chrome/"}
 
 // isWSL reports a WSL distro: the env var WSL sets, or its interop binfmt entry.
@@ -70,9 +71,15 @@ func detectWindows(env Env, s spec, b *Browser) {
 		return
 	}
 	b.Paths.CDP = stateAvailable
-	if owner := env.cdpOwner(); owner != "" && strings.Contains(owner, cdpBrowserTag[s.name]) {
+	if owner := env.cdpOwner(); cdpOwned(owner, s.name) {
 		b.Paths.CDP = stateReady
 	}
+}
+
+// cdpOwned reports whether owner (a /json/version "Browser" value) names the browser; an unknown name never matches.
+func cdpOwned(owner, name string) bool {
+	tag := cdpBrowserTag[name]
+	return owner != "" && tag != "" && strings.Contains(owner, tag)
 }
 
 // cdpOwner is the "Browser" field of http://localhost:CDPPort/json/version, or "" when nothing answers.
@@ -137,7 +144,7 @@ func setupWSL(env Env, b Browser) Actions {
 // startCDPAction launches the browser via PowerShell Start-Process with the debug port and a dedicated
 // profile (%LOCALAPPDATA%\claude-code\<name>-cdp), then waits for the port to answer from WSL.
 func startCDPAction(env Env, b Browser) Action {
-	if strings.Contains(env.cdpOwner(), cdpBrowserTag[b.Name]) {
+	if cdpOwned(env.cdpOwner(), b.Name) {
 		return Action{Kind: "noop", Executed: true, Description: fmt.Sprintf("%s already answers on localhost:%d.", b.DisplayName, CDPPort)}
 	}
 	exe := winExePath(env, b.Name)
@@ -156,7 +163,7 @@ func startCDPAction(env Env, b Browser) Action {
 		return a
 	}
 	for range 20 {
-		if strings.Contains(env.cdpOwner(), cdpBrowserTag[b.Name]) {
+		if cdpOwned(env.cdpOwner(), b.Name) {
 			a.Executed = true
 			return a
 		}

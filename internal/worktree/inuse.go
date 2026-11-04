@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -195,7 +196,9 @@ var procArgs = func(pid int) (string, error) {
 	if procCmdline != nil {
 		return procCmdline(pid)
 	}
-	out, err := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
 	return string(out), err
 }
 

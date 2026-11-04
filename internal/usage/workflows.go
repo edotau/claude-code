@@ -384,7 +384,7 @@ func scanWorkflowNamesFromTranscript(path string) map[string]string {
 	defer f.Close()
 
 	toolUses := map[string]toolUseBlock{}
-	transcript.EachLine(f, func(line []byte) {
+	_ = transcript.EachLine(f, func(line []byte) {
 		var rec struct {
 			Type    string `json:"type"`
 			Message struct {

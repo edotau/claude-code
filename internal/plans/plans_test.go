@@ -569,3 +569,13 @@ func TestSelectIgnoresStalePlan(t *testing.T) {
 		t.Fatalf("claimed plan should be selected, got %q", plan)
 	}
 }
+
+func TestClaimsWorktreeMatchesWholeName(t *testing.T) {
+	plan := Plan{Tasks: []Task{{Claim: "working: x · worktree fix-2"}}}
+	if claimsWorktree(plan, "fix") {
+		t.Error("worktree fix matched a claim naming fix-2")
+	}
+	if !claimsWorktree(plan, "fix-2") {
+		t.Error("worktree fix-2 did not match its own claim")
+	}
+}

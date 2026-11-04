@@ -177,7 +177,7 @@ func ObservePanes(prev []PaneStatus, captures []PaneCapture, captureErr error, n
 		out = append(out, observeOne(byID[c.PaneID], c, now))
 	}
 	for id, p := range byID {
-		if !seen[id] {
+		if !seen[id] && p.State != StateGone { // a pane already reported gone is dropped on the next pass
 			out = append(out, markGone(p, now))
 		}
 	}

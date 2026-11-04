@@ -24,7 +24,7 @@
   }
   function parseHash() {
     const m = /^#arch(?:\/([^/]*))?(?:\/(.*))?$/.exec(location.hash);
-    if (!m || !NAMES[m[1]]) return { sub: 'dir', rest: '' };
+    if (!m || !Object.prototype.hasOwnProperty.call(NAMES, m[1])) return { sub: 'dir', rest: '' };
     let rest = (m[2] || '').replace(/\/+$/, '');
     try { rest = rest.split('/').map(decodeURIComponent).join('/'); } catch (e) { /* keep the raw segments */ }
     return { sub: m[1], rest: rest };

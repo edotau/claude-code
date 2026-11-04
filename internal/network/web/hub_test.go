@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -324,4 +325,24 @@ func (h *hub) subscribers() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.subs)
+}
+
+// A failed build leaves the fingerprint unrecorded, so the next tick retries instead of waiting for the heartbeat.
+func TestHubRebuildFailureKeepsFingerprintUnrecorded(t *testing.T) {
+	fail := true
+	h := newHub(func() ([]byte, error) {
+		if fail {
+			return nil, errors.New("half-written")
+		}
+		return []byte("{}\n"), nil
+	}, func() uint64 { return 7 }, func(string, ...any) {})
+	h.rebuild(7)
+	if h.fp == 7 {
+		t.Fatal("fingerprint recorded after a failed build")
+	}
+	fail = false
+	h.rebuild(7)
+	if h.fp != 7 {
+		t.Fatal("fingerprint not recorded after a successful build")
+	}
 }

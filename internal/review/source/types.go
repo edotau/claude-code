@@ -105,4 +105,5 @@ type directoryReport struct {
 	TotalCodeSmells      int             `json:"total_code_smells"`
 	TotalSolidViolations int             `json:"total_solid_violations"`
 	Files                []QualityReport `json:"files"`
+	FilesFailed          []string        `json:"files_failed,omitempty"`
 }

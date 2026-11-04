@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 )
 
 const (
@@ -28,6 +29,9 @@ const (
 	opPong     = 0xA
 	headerFlag = 0x80
 )
+
+// wsWriteTimeout bounds one frame write so a peer that stops reading cannot hold wmu and hang Close.
+const wsWriteTimeout = 10 * time.Second
 
 // wsConn is a client websocket: masked frames out, unmasked frames in.
 type wsConn struct {
@@ -97,6 +101,7 @@ func (w *wsConn) writeFrame(op byte, p []byte) error {
 	}
 	w.wmu.Lock()
 	defer w.wmu.Unlock()
+	_ = w.c.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
 	_, err := w.c.Write(append(append(hdr, mask...), body...))
 	return err
 }

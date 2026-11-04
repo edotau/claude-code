@@ -70,6 +70,7 @@ func Digest(dir, claude string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claude, "-p", fmt.Sprintf(digestPromptFmt, digestMaxLines, input), "--model", digestModel, "--max-turns", "1")
 	cmd.Dir = dir
+	cmd.WaitDelay = 5 * time.Second // a grandchild holding the pipe must not outlive the timeout
 	cmd.Env = append(os.Environ(), bank.UpdateChildEnv+"=1")
 	if os.Getenv(providers.OAuthTokenEnv) == "" {
 		if tok := providers.HeadlessOAuthToken(); tok != "" {

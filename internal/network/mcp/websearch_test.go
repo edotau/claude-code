@@ -365,3 +365,11 @@ func TestEnrichResults(t *testing.T) {
 		}
 	}
 }
+
+func TestPingReturnsEmptyResult(t *testing.T) {
+	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
+	resps := drive(t, srv, `{"jsonrpc":"2.0","id":7,"method":"ping"}`)
+	if len(resps) != 1 || resps[0]["error"] != nil || resps[0]["result"] == nil {
+		t.Errorf("ping = %v, want an empty result and no error", resps)
+	}
+}

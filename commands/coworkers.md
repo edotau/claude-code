@@ -35,7 +35,7 @@ Watch each dispatch with `claude-code <agent> tail -f`.
 
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
 
-## Usage
+# Usage
 
 ```text
 /coworkers [agents=<a,b>] [model=<m>|byok] [profile=<p>] [single|compare|relay|team] <task> [| <task> …]

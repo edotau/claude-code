@@ -1,6 +1,8 @@
 package planlint
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,13 +28,19 @@ func documentedWorkflows(doc string) []string {
 }
 
 // workflowDocDrift returns one message per workflows/*.js missing from the doc table and per documented name with
-// no script; nil when the doc is absent.
+// no script; nil when the doc is absent, one message when it exists but cannot be read.
 func workflowDocDrift(root string) []string {
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(savedWorkflowsDoc)))
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	scripts, _ := filepath.Glob(filepath.Join(root, "workflows", "*.js"))
+	if err != nil {
+		return []string{savedWorkflowsDoc + ": " + err.Error()}
+	}
+	scripts, err := filepath.Glob(filepath.Join(root, "workflows", "*.js"))
+	if err != nil {
+		return []string{"workflows: " + err.Error()}
+	}
 	sort.Strings(scripts)
 	have := map[string]bool{}
 	for _, s := range scripts {

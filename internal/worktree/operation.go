@@ -1,6 +1,8 @@
 package worktree
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -37,7 +39,8 @@ func operationsDir() string { return filepath.Join(paths.StateDir(), "worktree-m
 // repo and worktree name the original `worktree merge --resolve-agent` call used.
 func operationPath(repoMain, name string) string {
 	slug := paths.Slug(filepath.Base(filepath.Clean(repoMain))+"-"+name, "._-", 0, "op")
-	return filepath.Join(operationsDir(), slug+".json")
+	sum := sha256.Sum256([]byte(filepath.Clean(repoMain) + "\x00" + name)) // the slug alone collides across repos/case
+	return filepath.Join(operationsDir(), slug+"-"+hex.EncodeToString(sum[:4])+".json")
 }
 
 // operationLeasePath is a separate lock file (not operationPath+".lock", to avoid colliding with

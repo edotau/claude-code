@@ -132,7 +132,7 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseDispatchRequest reads either an application/json body or an application/x-www-form-urlencoded
-// one; anything else is refused, matching the "form or JSON only" POST contract.
+// one (or multipart/form-data); anything else is refused, matching the "form or JSON only" POST contract.
 func parseDispatchRequest(r *http.Request) (dispatchRequest, error) {
 	var req dispatchRequest
 	ct := r.Header.Get("Content-Type")
@@ -142,7 +142,7 @@ func parseDispatchRequest(r *http.Request) (dispatchRequest, error) {
 			return req, err
 		}
 	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"), strings.HasPrefix(ct, "multipart/form-data"):
-		if err := r.ParseForm(); err != nil {
+		if err := parseDispatchForm(r); err != nil {
 			return req, err
 		}
 		req = dispatchRequest{Host: r.FormValue("host"), Agent: r.FormValue("agent"), Dir: r.FormValue("dir"), Task: r.FormValue("task")}
@@ -153,6 +153,14 @@ func parseDispatchRequest(r *http.Request) (dispatchRequest, error) {
 		return req, errMissingField
 	}
 	return req, nil
+}
+
+// parseDispatchForm parses a urlencoded or multipart body (already capped by maxBodyBytes upstream).
+func parseDispatchForm(r *http.Request) error {
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		return r.ParseMultipartForm(maxBodyBytes)
+	}
+	return r.ParseForm()
 }
 
 // hostsCacheTTL bounds reuse of the tailnet machine list: each refresh is an admin-API call plus `tailscale status`.
@@ -173,12 +181,13 @@ func (s *Server) resolveHosts(ctx context.Context) []string {
 	}
 	c := &s.hosts
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	now := s.now()
-	if !c.sampled.IsZero() && now.Sub(c.sampled) < hostsCacheTTL {
-		return c.hosts
+	if !c.sampled.IsZero() && s.now().Sub(c.sampled) < hostsCacheTTL {
+		hosts := c.hosts
+		c.mu.Unlock()
+		return hosts
 	}
-	machines, err := tailscale.Machines(ctx)
+	c.mu.Unlock()
+	machines, err := tailscale.Machines(ctx) // no lock held: a slow tailscale must not queue every request
 	if err != nil {
 		return nil
 	}
@@ -188,7 +197,9 @@ func (s *Server) resolveHosts(ctx context.Context) []string {
 			hosts = append(hosts, m.Name)
 		}
 	}
-	c.hosts, c.sampled = hosts, now
+	c.mu.Lock()
+	c.hosts, c.sampled = hosts, s.now()
+	c.mu.Unlock()
 	return hosts
 }
 
@@ -216,7 +227,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 var (
-	errUnsupportedContentType = errors.New("web: Content-Type must be application/json or application/x-www-form-urlencoded")
+	errUnsupportedContentType = errors.New("web: Content-Type must be application/json, urlencoded or multipart form data")
 	errMissingField           = errors.New("web: host, agent and task are required")
 )
 

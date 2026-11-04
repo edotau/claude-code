@@ -386,8 +386,8 @@ func Quality(path, language string) (QualityReport, error) {
 		}
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
-		return QualityReport{}, fmt.Errorf("could not read file: %s", path)
+	if err != nil {
+		return QualityReport{}, fmt.Errorf("could not read file: %s: %w", path, err)
 	}
 	return QualityContent(path, string(data), lang)
 }
@@ -482,7 +482,10 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 		}
 	}
 
-	results := walkExtensions(dir, extensions)
+	results, failed := walkExtensions(dir, extensions)
+	if len(results) == 0 && len(failed) > 0 {
+		return directoryReport{}, fmt.Errorf("analysis failed for %d files, e.g. %s", len(failed), failed[0])
+	}
 	if len(results) == 0 {
 		return directoryReport{}, errors.New("no supported files found")
 	}
@@ -501,12 +504,13 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 
 	return directoryReport{
 		Directory: dir, FilesAnalyzed: len(results), AverageScore: avg, OverallGrade: getGrade(int(avg)),
-		TotalCodeSmells: smells, TotalSolidViolations: violations, Files: results,
+		TotalCodeSmells: smells, TotalSolidViolations: violations, Files: results, FilesFailed: failed,
 	}, nil
 }
 
-// walkExtensions collects supported files in one traversal, retaining extension and path ordering.
-func walkExtensions(dir string, extensions []string) []QualityReport {
+// walkExtensions collects supported files in one traversal, retaining extension and path ordering; failed lists
+// the files whose analysis errored.
+func walkExtensions(dir string, extensions []string) (out []QualityReport, failed []string) {
 	byExtension := make(map[string][]string, len(extensions))
 	for _, ext := range extensions {
 		byExtension[ext] = nil
@@ -518,17 +522,20 @@ func walkExtensions(dir string, extensions []string) []QualityReport {
 			}
 		}
 	})
-	var out []QualityReport
 	for _, ext := range extensions {
 		matches := byExtension[ext]
 		sort.Strings(matches)
 		for _, m := range matches {
-			if r, err := Quality(m, ""); err == nil {
-				out = append(out, r)
+			r, err := Quality(m, "")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: analysis failed: %v\n", err)
+				failed = append(failed, m)
+				continue
 			}
+			out = append(out, r)
 		}
 	}
-	return out
+	return out, failed
 }
 
 // writeJSON matches Python's json.dumps(v, indent=2): ensure_ascii (\uXXXX for non-ASCII, surrogate

@@ -554,3 +554,12 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 		t.Error("a normal update must not carry the historical rule")
 	}
 }
+
+// TestMergeFileListsRenameKeepsNewPath: a porcelain rename line contributes only the new path.
+func TestMergeFileListsRenameKeepsNewPath(t *testing.T) {
+	t.Parallel()
+	got := mergeFileLists("", "R  old.go -> new.go\n")
+	if len(got) != 1 || got[0] != "new.go" {
+		t.Fatalf("got %q, want [new.go]", got)
+	}
+}

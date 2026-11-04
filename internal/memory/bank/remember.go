@@ -36,25 +36,28 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	}
 	dir := memstore.Dir(root)
 	path := filepath.Join(dir, file)
-	var line string
-	var writeErr error
-	if file == "decisionLog.md" {
-		line = "## " + now.Format("2006-01-02") + " — " + fact
-		writeErr = prependBlock(path, file, line)
-	} else {
-		label := strings.ToUpper(kind[:1]) + kind[1:]
-		line = "- " + label + ": " + fact
-		writeErr = AppendBlocks(path, []string{line})
-	}
-	if writeErr != nil {
-		return "", writeErr
-	}
-	// Stamp the id directly: SettleBank only runs assignIDs on the unified-store path,
-	// and a fresh bank must still get an id back to round-trip through `memory recall`.
-	if _, err := assignIDs(dir, now); err != nil {
-		return "", err
-	}
-	id, err := lastStampedID(path, line, file == "decisionLog.md")
+	var line, id string
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
+		var werr error
+		if file == "decisionLog.md" {
+			line = "## " + now.Format("2006-01-02") + " — " + fact
+			werr = prependBlock(path, file, line)
+		} else {
+			label := strings.ToUpper(kind[:1]) + kind[1:]
+			line = "- " + label + ": " + fact
+			werr = AppendBlocks(path, []string{line})
+		}
+		if werr != nil {
+			return werr
+		}
+		// Stamp the id directly: SettleBank only runs assignIDs on the unified-store path,
+		// and a fresh bank must still get an id back to round-trip through `memory recall`.
+		if _, werr = assignIDs(dir, now); werr != nil {
+			return werr
+		}
+		id, werr = lastStampedID(path, line, file == "decisionLog.md")
+		return werr
+	})
 	if err != nil {
 		return "", err
 	}

@@ -48,7 +48,7 @@ func LastUsage(path string) (Usage, bool) {
 	_, _ = f.Seek(0, io.SeekStart)
 	var last Usage
 	found := false
-	EachLine(f, func(line []byte) {
+	_ = EachLine(f, func(line []byte) {
 		if u, ok := usageFromLine(line); ok {
 			last, found = u, true
 		}

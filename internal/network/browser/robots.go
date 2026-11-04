@@ -28,7 +28,7 @@ func newRobotsGate(ignore bool) *robotsGate {
 	return &robotsGate{ignore: ignore, client: &http.Client{Timeout: 10 * time.Second}, rules: map[string][]robotsRule{}}
 }
 
-// check refuses a URL its origin's robots.txt disallows for claude-code; 404 or unreachable means allowed.
+// check refuses a URL robots.txt disallows for claude-code; a non-200 status or unreachable origin allows it.
 func (g *robotsGate) check(ctx context.Context, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -99,10 +99,13 @@ func parseRobots(txt string) []robotsRule {
 			agents = append(agents, strings.ToLower(v))
 		case "allow", "disallow":
 			inRules = true
-			if v == "" {
-				continue
-			}
 			for _, a := range agents {
+				if v == "" {
+					if _, ok := groups[a]; !ok {
+						groups[a] = nil
+					}
+					continue
+				}
 				groups[a] = append(groups[a], robotsRule{allow: k == "allow", pattern: v})
 			}
 		}

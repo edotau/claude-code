@@ -648,3 +648,11 @@ func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectTargetsDedupesRepeatedNames(t *testing.T) {
+	all := []target{{name: "hook-state"}, {name: "other"}}
+	got, err := selectTargets(all, "hook-state,hook-state")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("selectTargets = %v, %v; want one target", got, err)
+	}
+}

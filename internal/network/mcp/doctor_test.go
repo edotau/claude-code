@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -300,5 +301,17 @@ func TestExitCodeFailsOnListErrorWithNoFailedServers(t *testing.T) {
 	}
 	if got := (Report{Health: HealthResult{Skipped: "claude not on PATH"}}).ExitCode(); got != 0 {
 		t.Errorf("ExitCode = %d, want 0 (fail-open skip)", got)
+	}
+}
+
+// A config file that exists but is malformed must fail the scan, not read as "no inline secrets".
+func TestDoctorFlagsUnparseableConfig(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, ".mcp.json")
+	write(t, bad, `{"mcpServers": {"a": {"env": {"K": "x"},}}}`)
+	var out bytes.Buffer
+	code := Doctor(&out, Options{UserPath: filepath.Join(dir, "missing.json"), ProjectFiles: []string{bad}, Home: dir})
+	if code != 1 || !strings.Contains(out.String(), "not scanned") || strings.Contains(out.String(), "no inline secrets found") {
+		t.Fatalf("exit %d, report:\n%s", code, out.String())
 	}
 }

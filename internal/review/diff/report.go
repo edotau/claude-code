@@ -283,7 +283,7 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 	if *prAnalysisPath != "" {
 		m, ok := loadJSONFile(*prAnalysisPath)
 		if !ok {
-			fmt.Fprintf(stdout, "Warning: Could not load PR analysis from %s\n", *prAnalysisPath)
+			fmt.Fprintf(stderr, "Warning: Could not load PR analysis from %s\n", *prAnalysisPath)
 		} else {
 			prOverride = m
 		}
@@ -291,7 +291,7 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 	if *qualityAnalysisPath != "" {
 		m, ok := loadJSONFile(*qualityAnalysisPath)
 		if !ok {
-			fmt.Fprintf(stdout, "Warning: Could not load quality analysis from %s\n", *qualityAnalysisPath)
+			fmt.Fprintf(stderr, "Warning: Could not load quality analysis from %s\n", *qualityAnalysisPath)
 		} else {
 			qualityOverride = m
 		}

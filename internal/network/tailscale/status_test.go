@@ -173,6 +173,15 @@ func TestObserve_PaneDisappearanceReportsGone(t *testing.T) {
 	}
 }
 
+func TestObserve_GonePaneIsReportedOnceThenDropped(t *testing.T) {
+	t0 := time.Now()
+	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
+	gone := ObservePanes(prev, nil, nil, t0.Add(time.Second))
+	if out := ObservePanes(gone, nil, nil, t0.Add(2*time.Second)); len(out) != 0 {
+		t.Fatalf("gone pane re-emitted on the next pass: %+v", out)
+	}
+}
+
 func TestObserve_SSHFailureDegradesExistingPanesToErrorWithoutDroppingThem(t *testing.T) {
 	t0 := time.Now()
 	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)

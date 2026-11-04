@@ -105,8 +105,11 @@ func grabWSLg() (path, dim string, err error) {
 		return "", "", errNoImage
 	}
 	bmp, err := wlPaste("--type", "image/bmp")
-	if err != nil || len(bmp) == 0 {
-		return "", "", fmt.Errorf("wl-paste image/bmp: %v", err)
+	if err != nil {
+		return "", "", fmt.Errorf("wl-paste image/bmp: %w", err)
+	}
+	if len(bmp) == 0 {
+		return "", "", errors.New("wl-paste image/bmp: empty output")
 	}
 	var buf bytes.Buffer
 	if err := TranscodePNG(bytes.NewReader(bmp), &buf); err != nil {
@@ -127,9 +130,11 @@ func savePNG(b []byte) (path, dim string, err error) {
 	}
 	if _, err := f.Write(b); err != nil {
 		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return "", "", err
 	}
 	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
 		return "", "", err
 	}
 	return f.Name(), fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
@@ -173,6 +178,7 @@ func grabMac() (path, dim string, err error) {
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
+		_ = os.Remove(path)
 		return "", "", err
 	}
 	cfg, err := png.DecodeConfig(bytes.NewReader(b))

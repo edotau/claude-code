@@ -946,3 +946,18 @@ func TestArchiveNativeReportsHealedIndexOverLimit(t *testing.T) {
 		t.Errorf("index has %d lines, want %d", bank.LineCount(got), bank.NativeIndexMaxLines+1)
 	}
 }
+
+// TestHealedIndexUnreadableIsAnError: a MEMORY.md that exists but cannot be read must abort, not look absent.
+func TestHealedIndexUnreadableIsAnError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, bank.NativeIndexFile), 0o755); err != nil { // reads fail with EISDIR
+		t.Fatal(err)
+	}
+	if _, _, err := healedIndex(dir); err == nil {
+		t.Fatal("healedIndex: want a read error, got nil")
+	}
+	if raw, _, err := healedIndex(t.TempDir()); err != nil || raw != nil {
+		t.Fatalf("absent index: raw=%v err=%v, want nil, nil", raw, err)
+	}
+}

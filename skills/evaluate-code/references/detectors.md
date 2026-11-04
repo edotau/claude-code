@@ -65,7 +65,8 @@ The gate is opt-in by design and not in the generated `settings.json`; higher le
 | 3 Gate | `claude-code review gate` on staged files; awareness only, never blocks | git pre-commit or a PreToolUse hook |
 | 4 CI | detectors as PR checks; fail the job yourself, since the verbs exit 0 | CI config |
 
-- **Level 3, git:** `printf '#!/bin/sh\nexec claude-code review gate\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`.
+- **Level 3, git:** write `.git/hooks/pre-commit` as `#!/bin/sh` + `exec claude-code review gate`, then
+  `chmod +x` it.
 - **Level 3, PreToolUse:** declare it in `internal/settings/hookspec.go` (matcher `Bash`, command
   `claude-code review gate`), then `claude-code install`; never hand-edit `settings.json`.
 - **Level 4:** parse the JSON verdict, for example

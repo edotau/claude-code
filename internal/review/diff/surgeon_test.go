@@ -75,7 +75,7 @@ func TestRunDiffBadFlag(t *testing.T) {
 // A5: findings truncate by rune, so a multibyte line crossing the 60/120 cut stays valid UTF-8.
 func TestAnalyzeDiffFileTruncatesOnRuneBoundary(t *testing.T) {
 	long := strings.Repeat("é", 100)
-	findings := analyzeDiffFile(&diffFileEntry{changes: []string{"+// x" + long}})
+	findings := analyzeDiffFile(&diffFileEntry{file: "x.go", changes: []string{"+// x" + long}})
 	findings = append(findings, detectQuoteSwaps([]string{"-" + long + `"q"`, "+" + long + `'q'`})...)
 	var comment, swap bool
 	for _, f := range findings {
@@ -87,5 +87,29 @@ func TestAnalyzeDiffFileTruncatesOnRuneBoundary(t *testing.T) {
 	}
 	if !comment || !swap {
 		t.Fatalf("want comment-only and quote-style-swap findings, got %+v", findings)
+	}
+}
+
+// A '#include' or '*p = 1' line in a C file is code, not a comment; a '--- sql' body line is counted.
+func TestParseAndClassifyCodeLooksLikeComments(t *testing.T) {
+	diff := "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1 +1,4 @@\n+#include <stdio.h>\n+*p = 1;\n--- old sql comment\n+// real\n"
+	files := parseDiffFiles(diff)
+	if len(files) != 1 || len(files[0].changes) != 4 {
+		t.Fatalf("changes = %+v, want 4 body lines", files)
+	}
+	got := analyzeDiffFile(files[0])
+	if len(got) != 1 || got[0].Line != "+// real" {
+		t.Fatalf("findings = %+v, want only the // comment", got)
+	}
+	if classifyLine("+#!x", "run.sh") != "comment-only" || classifyLine("+# x", "Makefile") != "" {
+		t.Error("# is a comment only for hash-comment extensions")
+	}
+}
+
+// A bad range makes git exit non-zero; that must be an error, never an empty clean diff.
+func TestGetDiffGitFailureIsError(t *testing.T) {
+	var stderr bytes.Buffer
+	if _, code := getDiff(t.TempDir(), "nosuch..range", "", &stderr); code != 1 || stderr.Len() == 0 {
+		t.Fatalf("code %d stderr %q, want 1 and a message", code, stderr.String())
 	}
 }

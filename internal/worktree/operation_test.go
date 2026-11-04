@@ -105,3 +105,10 @@ func TestLoadOperationCorruptFileReturnsError(t *testing.T) {
 		t.Fatalf("err = %q, want it to name the failing step", err)
 	}
 }
+
+func TestOperationPathDistinguishesCollidingSlugs(t *testing.T) {
+	a, b := operationPath("/r/x", "a-b"), operationPath("/r/x-a", "b")
+	if a == b || operationPath("/r/x", "Fix") == operationPath("/r/x", "fix") {
+		t.Errorf("operation paths collide: %s %s", a, b)
+	}
+}
