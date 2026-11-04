@@ -68,22 +68,23 @@ func twoBar(pct float64, w int) string {
 const twoSep = " · "
 
 // twolineRows builds row 1 after the head (branch, model, effort, velocity) and row 2 (auth, context, tokens, 7d) as segment lists.
-func twolineRows(v values) (row1, row2 []twoSeg) {
+func twolineRows(v values) (row1 []twoSeg, auth string, row2 []twoSeg) {
 	d := v.two
-	if v.provider != "" {
-		row1 = append(row1, twoSeg{key: "cwd", text: v.provider})
+	if v.branch != "" { // the branch leads: in a linked worktree it need not match the path
+		row1 = append(row1, twoSeg{key: "branch", text: v.branch})
 	}
-	if v.branch != "" {
-		row1 = append(row1, twoSeg{key: "branch", text: " :" + v.branch})
+	if v.provider != "" {
+		prov := v.provider
+		if len(row1) > 0 {
+			prov = " " + prov
+		}
+		row1 = append(row1, twoSeg{key: "cwd", text: prov})
 	}
 	row1 = append(row1, twoSeg{key: "sep", text: twoSep}, twoSeg{key: "model", text: cmpModel(d.model, v.model), bold: true})
 	if d.effort != "" {
 		row1 = append(row1, twoSeg{key: "effort", text: " / " + d.effort, dim: true})
 	}
 	row1 = appendVelocity(row1, v.adds, v.dels)
-	if d.auth != "" {
-		row2 = append(row2, twoSeg{key: "auth", text: d.auth})
-	}
 	if d.hasCtx {
 		row2 = appendSep(row2, twoSeg{key: "context", text: "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %.1f%%", d.ctxPct)})
 		row2 = appendSep(row2, twoSeg{key: "tokens", text: compactTokens(d.tokens) + "/" + compactTokens(d.size)})
@@ -91,7 +92,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	if d.week >= 0 {
 		row2 = appendSep(row2, twoSeg{key: "limit7d", text: fmt.Sprintf("7d %s %d%%", twoBar(float64(d.week), 10), d.week)})
 	}
-	return row1, row2
+	return row1, d.auth, row2
 }
 
 // appendVelocity adds " | +A -D" after row 1's model and effort, omitting a zero side and the cell when both are 0.
@@ -160,8 +161,8 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 
 // renderTwoline draws the two-row style; with a width, row 1's tail and all of row 2 end at the right edge.
 func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
-	th := pal.Powerline["minimal"]
-	row1, row2 := twolineRows(v)
+	th := pal.Powerline[cfg.Gradient] // background blocks only with a palette that defines them (minimal)
+	row1, auth, row2 := twolineRows(v)
 	for i := range row1 { // velocity keeps the add/del tones every style uses
 		if k := row1[i].key; k == "add" || k == "del" {
 			row1[i].fg = pal.Sem(k)
@@ -170,12 +171,19 @@ func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, m
 	v = fitHead(v, cfg, segWidth(row1), width)
 	out := paintTwoRow(row1, th, stops, mode)
 	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads; the rest sits at the right edge
-		out = head + paintTwoRow([]twoSeg{{key: "sep", text: headGap(headWidth(v, cfg), segWidth(row1), width)}}, th, stops, mode) + out
+		out = head + paintTwoRow([]twoSeg{{key: "sep", text: gapOr(sepPath, headWidth(v, cfg), segWidth(row1), width)}}, th, stops, mode) + out
 	}
-	if len(row2) == 0 {
-		return out
+	if auth == "" {
+		if len(row2) == 0 {
+			return out
+		}
+		return out + "\n" + paintTwoRow(alignRight(row2, width), th, stops, mode)
 	}
-	return out + "\n" + paintTwoRow(alignRight(row2, width), th, stops, mode)
+	left := []twoSeg{{key: "auth", text: auth}}
+	if len(row2) > 0 { // auth stays left; the rest sits at the right edge
+		left = append(left, twoSeg{key: "sep", text: gapOr(twoSep, len([]rune(auth)), segWidth(row2), width)})
+	}
+	return out + "\n" + paintTwoRow(append(left, row2...), th, stops, mode)
 }
 
 // alignRight left-pads the row with spaces so it ends at width; unchanged without a width or when it would not fit.
@@ -217,10 +225,10 @@ func fitHead(v values, cfg Config, rest, width int) values {
 	return v
 }
 
-// headGap is the spaces that push row 1's tail to width, else " | " when there is no room to spare.
-func headGap(head, rest, width int) string {
-	if pad := width - head - rest; width > 0 && pad > utf8.RuneCountInString(sepPath) {
+// gapOr is the spaces that push a row's tail to width, else sep when there is no room to spare.
+func gapOr(sep string, left, rest, width int) string {
+	if pad := width - left - rest; width > 0 && pad > utf8.RuneCountInString(sep) {
 		return strings.Repeat(" ", pad)
 	}
-	return sepPath
+	return sep
 }
