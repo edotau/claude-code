@@ -133,8 +133,8 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	writeTokenExpiry(t, "max", time.Now().Add(42*time.Minute))
 
 	// Databricks carries the countdown in the model cell; its auth cell stays empty.
-	for name, want := range map[string]string{"dbx-u2m": "·u2m@dbx-u2m:42min", "dbx-m2m": "·m2m@dbx-m2m:1h05min",
-		"dbx-key": "·u2m@dbx-key:42min"} {
+	for name, want := range map[string]string{"dbx-u2m": " · u2m@dbx-u2m:42min", "dbx-m2m": " · m2m@dbx-m2m:1h05min",
+		"dbx-key": " · u2m@dbx-key:42min"} {
 		if got := databricksModel(in, name); got != want {
 			t.Errorf("%s model cell: %q, want %q", name, got, want)
 		}
@@ -192,8 +192,8 @@ func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
 	}
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
 	got := databricksModel(Input{}, "dbx-key")
-	if got != "·u2m@dbx-key:42min" || strings.Contains(got, "7d") {
-		t.Errorf("with record: %q, want ·u2m@dbx-key:42min", got)
+	if got != " · u2m@dbx-key:42min" || strings.Contains(got, "7d") {
+		t.Errorf("with record: %q, want %q", got, " · u2m@dbx-key:42min")
 	}
 }
 
