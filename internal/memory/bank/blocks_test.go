@@ -7,19 +7,16 @@ import (
 	"testing"
 )
 
-// SplitHeadingBlocks edge cases: a "## " line fenced in ``` is never a heading boundary; a ~~~ line
-// nested inside an open ``` fence closes it early (today's hand-rolled fenceToggle shares one bit across
-// both fence chars — this pins that quirk; true nested-fence tracking would be a named correctness fix);
-// an unclosed fence runs to EOF; CRLF line endings keep their "\r"; a missing trailing newline still
-// yields the last block; duplicate headings are kept as separate blocks, nothing dedupes on text.
-func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name       string
-		in         string
-		wantHeader string
-		want       []string
-	}{
+type splitCase struct {
+	name       string
+	in         string
+	wantHeader string
+	want       []string
+}
+
+// splitEdgeCases is the SplitHeadingBlocks edge-case table.
+func splitEdgeCases() []splitCase {
+	return []splitCase{
 		{
 			name:       "fence aware",
 			in:         "header\n\n## real\nbody\n```\n## fake\n```\nmore\n\n## real2\nbody2\n",
@@ -57,7 +54,16 @@ func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
 			want:       []string{"## dup\nfirst", "## dup\nsecond"},
 		},
 	}
-	for _, tt := range tests {
+}
+
+// SplitHeadingBlocks edge cases: a "## " line fenced in ``` is never a heading boundary; a ~~~ line
+// nested inside an open ``` fence closes it early (today's hand-rolled fenceToggle shares one bit across
+// both fence chars — this pins that quirk; true nested-fence tracking would be a named correctness fix);
+// an unclosed fence runs to EOF; CRLF line endings keep their "\r"; a missing trailing newline still
+// yields the last block; duplicate headings are kept as separate blocks, nothing dedupes on text.
+func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
+	t.Parallel()
+	for _, tt := range splitEdgeCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			header, blocks := SplitHeadingBlocks(tt.in)
 			if header != tt.wantHeader {

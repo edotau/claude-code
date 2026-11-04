@@ -68,13 +68,7 @@ func TestEnsureInitsNestedRepoWithGuards(t *testing.T) {
 	if err != nil || hook.Mode()&0o100 == 0 {
 		t.Fatalf("pre-push hook missing or not executable: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(store, ".gitignore"))
-	if err != nil || !strings.Contains(string(data), "access.log") {
-		t.Fatalf(".gitignore not seeded: %v", err)
-	}
-	if strings.Contains(string(data), "*.lock") {
-		t.Error(".gitignore still lists *.lock; locks moved to state/, never tracked in the store")
-	}
+	assertGitignoreSeeded(t, store)
 	// Idempotent: a user's own .gitignore edit survives a second Ensure.
 	write(t, filepath.Join(store, ".gitignore"), "custom\n")
 	if err := r.Ensure(); err != nil {
@@ -83,6 +77,26 @@ func TestEnsureInitsNestedRepoWithGuards(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(store, ".gitignore")); string(data) != "custom\n" {
 		t.Fatalf(".gitignore overwritten: %q", data)
 	}
+	assertFreshRepoEmpty(t, r)
+	assertPrePushRefuses(t, hookPath)
+	assertDecoyUntouched(t, decoy)
+}
+
+// assertGitignoreSeeded checks Ensure wrote the store's .gitignore with access.log and without *.lock.
+func assertGitignoreSeeded(t *testing.T, store string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(store, ".gitignore"))
+	if err != nil || !strings.Contains(string(data), "access.log") {
+		t.Fatalf(".gitignore not seeded: %v", err)
+	}
+	if strings.Contains(string(data), "*.lock") {
+		t.Error(".gitignore still lists *.lock; locks moved to state/, never tracked in the store")
+	}
+}
+
+// assertFreshRepoEmpty checks a just-ensured repo has no HEAD, no log and no remotes.
+func assertFreshRepoEmpty(t *testing.T, r Repo) {
+	t.Helper()
 	if head, _ := r.Head(); head != "" {
 		t.Fatalf("fresh repo has HEAD %q", head)
 	}
@@ -92,13 +106,17 @@ func TestEnsureInitsNestedRepoWithGuards(t *testing.T) {
 	if remotes, err := r.Remotes(); err != nil || len(remotes) != 0 {
 		t.Fatalf("fresh repo Remotes() = %v, %v; want none", remotes, err)
 	}
+}
+
+// assertPrePushRefuses runs the hook and requires exit status 1.
+func assertPrePushRefuses(t *testing.T, hookPath string) {
+	t.Helper()
 	cmd := exec.Command("sh", hookPath)
 	if err := cmd.Run(); err == nil {
 		t.Fatal("pre-push hook must exit nonzero (refuses every push)")
 	} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
 		t.Fatalf("pre-push hook exit = %v, want exit 1", err)
 	}
-	assertDecoyUntouched(t, decoy)
 }
 
 func TestEnsureRefusesPointerFileAndRemotes(t *testing.T) {
@@ -141,9 +159,22 @@ func TestCommitStagesOnlyNamedPathsAndSkipsEmpty(t *testing.T) {
 	if _, committed, err := r.Commit([]string{"repo/MEMORY.md"}, "again", ""); err != nil || committed {
 		t.Fatalf("unchanged commit = %v, %v; want no empty commit", committed, err)
 	}
-	// Absent + untracked is dropped; absent + tracked stages a deletion.
+	assertDecoyUntouched(t, decoy)
+}
+
+// Absent + untracked is dropped; absent + tracked stages a deletion.
+func TestCommitDropsUntrackedAndStagesDeletion(t *testing.T) {
+	store, decoy := storeFixture(t)
+	r := StoreRepo()
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(store, "repo", "MEMORY.md"), "- fact\n")
+	if _, committed, err := r.Commit([]string{"repo/MEMORY.md"}, "settle", ""); err != nil || !committed {
+		t.Fatalf("seed commit = %v, %v", committed, err)
+	}
 	os.Remove(filepath.Join(store, "repo", "MEMORY.md"))
-	if _, committed, err = r.Commit([]string{"repo/MEMORY.md", "never/existed.md"}, "delete", "body"); err != nil || !committed {
+	if _, committed, err := r.Commit([]string{"repo/MEMORY.md", "never/existed.md"}, "delete", "body"); err != nil || !committed {
 		t.Fatalf("deletion commit = %v, %v", committed, err)
 	}
 	log, err := r.Log(10)
@@ -170,6 +201,15 @@ func TestCommitRejectsBadPathsAndSecretsByNameOnly(t *testing.T) {
 	os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(store, "link.md"))
 	if _, _, err := r.Commit([]string{"link.md"}, "s", ""); err == nil {
 		t.Error("Commit accepted a symlink")
+	}
+	assertDecoyUntouched(t, decoy)
+}
+
+func TestCommitRejectsSecretsByNameOnly(t *testing.T) {
+	store, decoy := storeFixture(t)
+	r := StoreRepo()
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
 	}
 	const token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
 	write(t, filepath.Join(store, "leak.md"), "token "+token+"\n")

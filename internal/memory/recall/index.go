@@ -43,48 +43,62 @@ func currentExeStamp() (exeStamp, bool) {
 }
 
 func readRecallIndex(path string, want exeStamp) map[fileKey]indexed {
-	empty := func() map[fileKey]indexed { return make(map[fileKey]indexed) }
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) < 28 {
-		return empty()
+		return make(map[fileKey]indexed)
 	}
 	u32 := func(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
 	u64 := func(b []byte) int64 { return int64(binary.LittleEndian.Uint64(b)) }
 	if string(data[:4]) != recallIndexMagic || u32(data[4:]) != recallIndexVersion ||
 		u64(data[8:]) != want.size || u64(data[16:]) != want.mtimeNs {
-		return empty()
+		return make(map[fileKey]indexed)
 	}
-	count := u32(data[24:])
-	data = data[28:]
-	m := empty()
-	for range count {
-		if len(data) < 4 {
-			return empty()
-		}
-		length := uint64(u32(data))
-		data = data[4:]
-		if length+21 > uint64(len(data)) {
-			return empty()
-		}
-		key := fileKey{string(data[:length]), bank.SegMode(data[length])}
-		data = data[length+1:]
-		entry := indexed{size: u64(data), mtimeNs: u64(data[8:])}
-		length = uint64(u32(data[16:]))
-		data = data[20:]
-		if length > uint64(len(data)) {
-			return empty()
-		}
-		entry.seg = bank.SegView(data[:length])
-		if key.mode > bank.SegKnowledge || !entry.seg.Valid() {
-			return empty()
-		}
-		m[key] = entry
-		data = data[length:]
-	}
-	if len(data) != 0 {
-		return empty()
+	m, ok := readIndexEntries(data[28:], u32(data[24:]))
+	if !ok {
+		return make(map[fileKey]indexed)
 	}
 	return m
+}
+
+// readIndexEntries decodes count entries from data; false when any is short, invalid or trailing bytes remain.
+func readIndexEntries(data []byte, count uint32) (map[fileKey]indexed, bool) {
+	m := make(map[fileKey]indexed)
+	for range count {
+		key, entry, rest, ok := readIndexEntry(data)
+		if !ok {
+			return nil, false
+		}
+		m[key] = entry
+		data = rest
+	}
+	return m, len(data) == 0
+}
+
+// readIndexEntry decodes one entry from the front of data and returns the bytes after it.
+func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bool) {
+	u32 := func(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
+	u64 := func(b []byte) int64 { return int64(binary.LittleEndian.Uint64(b)) }
+	if len(data) < 4 {
+		return key, entry, nil, false
+	}
+	length := uint64(u32(data))
+	data = data[4:]
+	if length+21 > uint64(len(data)) {
+		return key, entry, nil, false
+	}
+	key = fileKey{string(data[:length]), bank.SegMode(data[length])}
+	data = data[length+1:]
+	entry = indexed{size: u64(data), mtimeNs: u64(data[8:])}
+	length = uint64(u32(data[16:]))
+	data = data[20:]
+	if length > uint64(len(data)) {
+		return key, entry, nil, false
+	}
+	entry.seg = bank.SegView(data[:length])
+	if key.mode > bank.SegKnowledge || !entry.seg.Valid() {
+		return key, entry, nil, false
+	}
+	return key, entry, data[length:], true
 }
 
 func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error {
@@ -116,6 +130,38 @@ func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error 
 	return paths.AtomicWrite(path, data, 0o600)
 }
 
+// pruneMissing drops index entries whose file is gone, reusing stats and statting only the unchecked ones.
+func pruneMissing(index map[fileKey]indexed, stats map[string]bool) {
+	for key := range index {
+		exists, checked := stats[key.path]
+		if !checked {
+			_, err := os.Stat(key.path)
+			exists = err == nil
+			stats[key.path] = exists
+		}
+		if !exists {
+			delete(index, key)
+		}
+	}
+}
+
+// fresh returns the cached segment when its recorded size and mtime still match info; the zero entry never matches.
+func (e indexed) fresh(info os.FileInfo) (bank.SegView, bool) {
+	if e.seg == nil || e.size != info.Size() || e.mtimeNs != info.ModTime().UnixNano() {
+		return nil, false
+	}
+	return e.seg, true
+}
+
+// encodeFile reads and indexes f; nil when it cannot be read.
+func encodeFile(f bank.CorpusFile) bank.SegView {
+	data, err := os.ReadFile(f.Path)
+	if err != nil {
+		return nil
+	}
+	return bank.EncodeSegment(bank.ParseBlocks(f.Mode, filepath.Base(f.Path), data))
+}
+
 func loadSegments(files []bank.CorpusFile, persist bool) []bank.SegView {
 	stamp, ok := currentExeStamp()
 	path := filepath.Join(memstore.StateDir(), recallIndexFile)
@@ -134,33 +180,18 @@ func loadSegments(files []bank.CorpusFile, persist bool) []bank.SegView {
 			continue
 		}
 		key := fileKey{f.Path, f.Mode}
-		cached, found := index[key]
-		if found && cached.size == info.Size() && cached.mtimeNs == info.ModTime().UnixNano() {
-			segs[i] = cached.seg
+		if seg, hit := index[key].fresh(info); hit {
+			segs[i] = seg
 			continue
 		}
-		data, err := os.ReadFile(f.Path)
-		if err != nil {
-			continue
-		}
-		segs[i] = bank.EncodeSegment(bank.ParseBlocks(f.Mode, filepath.Base(f.Path), data))
-		if persist && ok && time.Since(info.ModTime()) >= racyWindow {
+		segs[i] = encodeFile(f)
+		if segs[i] != nil && persist && ok && time.Since(info.ModTime()) >= racyWindow {
 			index[key] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 			dirty = true
 		}
 	}
 	if dirty {
-		for key := range index {
-			exists, checked := stats[key.path]
-			if !checked {
-				_, err := os.Stat(key.path)
-				exists = err == nil
-				stats[key.path] = exists
-			}
-			if !exists {
-				delete(index, key)
-			}
-		}
+		pruneMissing(index, stats)
 		_ = writeRecallIndex(path, stamp, index)
 	}
 	return segs

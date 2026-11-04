@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -41,16 +42,26 @@ func (r Repo) Exists() bool {
 	return err == nil && fi.IsDir()
 }
 
-// Ensure initializes the repo when absent and verifies its root, distinctness from the outer checkout and lack of
-// remotes BEFORE writing the pre-push guard and .gitignore, so a redirected store never receives a byte.
-func (r Repo) Ensure() error {
+// plainDir creates the repo root and rejects a symlinked one, which could redirect the store into any repo.
+func (r Repo) plainDir() error {
 	if err := os.MkdirAll(r.Dir, 0o700); err != nil {
 		return err
 	}
-	if fi, err := os.Lstat(r.Dir); err != nil {
+	fi, err := os.Lstat(r.Dir)
+	if err != nil {
 		return err
-	} else if !fi.IsDir() { // a symlinked root Lstats as a link: it could redirect the store into any repo
+	}
+	if !fi.IsDir() { // a symlinked root Lstats as a link
 		return fmt.Errorf("memory repo: %s is not a plain directory (symlink?)", r.Dir)
+	}
+	return nil
+}
+
+// Ensure initializes the repo when absent and verifies its root, distinctness from the outer checkout and lack of
+// remotes BEFORE writing the pre-push guard and .gitignore, so a redirected store never receives a byte.
+func (r Repo) Ensure() error {
+	if err := r.plainDir(); err != nil {
+		return err
 	}
 	gitDir := filepath.Join(r.Dir, ".git")
 	if !r.Exists() {
@@ -266,24 +277,29 @@ func (r Repo) validateRel(rel string) error {
 		return bad
 	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if parts[0] == ".git" {
+	if parts[0] == ".git" || slices.Contains(parts, "..") {
 		return bad
 	}
 	abs := r.Dir
 	for i, p := range parts {
-		if p == ".." {
-			return bad
-		}
 		abs = filepath.Join(abs, p)
-		fi, err := os.Lstat(abs)
-		if err != nil {
-			continue // absent: the write creates plain directories
+		if err := checkRelPart(abs, rel, parts, i); err != nil {
+			return err
 		}
-		if leaf := i == len(parts)-1; leaf && !fi.Mode().IsRegular() {
-			return fmt.Errorf("memory repo: not a regular file: %s", rel)
-		} else if !leaf && !fi.IsDir() {
-			return fmt.Errorf("memory repo: not a plain directory: %s", strings.Join(parts[:i+1], "/"))
-		}
+	}
+	return nil
+}
+
+// checkRelPart requires the i-th path element at abs to be absent, a plain directory, or (the leaf) a regular file.
+func checkRelPart(abs, rel string, parts []string, i int) error {
+	fi, err := os.Lstat(abs)
+	if err != nil {
+		return nil // absent: the write creates plain directories
+	}
+	if leaf := i == len(parts)-1; leaf && !fi.Mode().IsRegular() {
+		return fmt.Errorf("memory repo: not a regular file: %s", rel)
+	} else if !leaf && !fi.IsDir() {
+		return fmt.Errorf("memory repo: not a plain directory: %s", strings.Join(parts[:i+1], "/"))
 	}
 	return nil
 }

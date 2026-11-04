@@ -63,43 +63,60 @@ func StripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 func assignIDs(dir string, now time.Time) (int, error) {
 	n := 0
 	for name, prefix := range IdFiles {
-		path := filepath.Join(dir, name)
-		data, err := os.ReadFile(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
+		stamped, err := assignFileIDs(dir, name, prefix, now)
+		n += stamped
 		if err != nil {
 			return n, err
 		}
-		lines := strings.Split(string(data), "\n")
-		var starts []int
-		inFence := false
-		for i, l := range lines {
-			if !inFence && strings.HasPrefix(l, prefix) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
-				starts = append(starts, i)
-			}
-			if fenceToggle(l) {
-				inFence = !inFence
-			}
+	}
+	return n, nil
+}
+
+// assignFileIDs is assignIDs for one typed file; a missing file is skipped.
+func assignFileIDs(dir, name, prefix string, now time.Time) (int, error) {
+	path := filepath.Join(dir, name)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	lines := strings.Split(string(data), "\n")
+	starts := blockStarts(lines, prefix)
+	out := make([]string, 0, len(lines))
+	out = append(out, lines[:min(len(lines), first(starts, len(lines)))]...)
+	for k, i := range starts {
+		end := len(lines)
+		if k+1 < len(starts) {
+			end = starts[k+1]
 		}
-		out := make([]string, 0, len(lines))
-		out = append(out, lines[:min(len(lines), first(starts, len(lines)))]...)
-		for k, i := range starts {
-			end := len(lines)
-			if k+1 < len(starts) {
-				end = starts[k+1]
-			}
-			block, stamped := settleBlockID(dir, name, i, lines[i:end], now)
-			n += stamped
-			out = append(out, block...)
-		}
-		if res := strings.Join(out, "\n"); res != string(data) {
-			if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
-				return n, err
-			}
+		block, stamped := settleBlockID(dir, name, i, lines[i:end], now)
+		n += stamped
+		out = append(out, block...)
+	}
+	if res := strings.Join(out, "\n"); res != string(data) {
+		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
+			return n, err
 		}
 	}
 	return n, nil
+}
+
+// blockStarts returns the index of each non-empty prefix line outside code fences.
+func blockStarts(lines []string, prefix string) []int {
+	var starts []int
+	inFence := false
+	for i, l := range lines {
+		if !inFence && strings.HasPrefix(l, prefix) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
+			starts = append(starts, i)
+		}
+		if fenceToggle(l) {
+			inFence = !inFence
+		}
+	}
+	return starts
 }
 
 func first(xs []int, def int) int {
@@ -127,7 +144,40 @@ func fencedLines(block []string) []bool {
 // since settle stacks newer ones above), else a fresh one. Fenced lines are examples and are never touched.
 func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
 	fenced := fencedLines(block)
-	keepLine, keepSpan, total := -1, []int(nil), 0
+	keepLine, keepSpan, total := lastMarker(block, fenced)
+	if total == 0 {
+		return append([]string{block[0] + freshID(dir, name, idx, block[0], now)}, block[1:]...), 1
+	}
+	if total == 1 && keepLine == 0 {
+		return block, 0
+	}
+	kept := " " + strings.TrimSpace(block[keepLine][keepSpan[0]:keepSpan[1]])
+	out := dropMarkers(block, fenced, keepLine, keepSpan)
+	if keepLine != 0 {
+		out[0] = strings.TrimRight(out[0], " \t") + kept
+	}
+	return out, 0
+}
+
+// dropMarkers removes every id marker but the survivor; a non-first line left blank by it disappears.
+func dropMarkers(block []string, fenced []bool, keepLine int, keepSpan []int) []string {
+	out := make([]string, 0, len(block))
+	for i, l := range block {
+		if !fenced[i] && idMarker.MatchString(l) {
+			res := stripMarkers(l, i == 0 && i == keepLine, keepSpan) // a first-line survivor stays where it is
+			if strings.TrimSpace(res) == "" && i != 0 {
+				continue
+			}
+			l = res
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// lastMarker finds the last unfenced id marker in block: its line, its span and how many markers there are.
+func lastMarker(block []string, fenced []bool) (keepLine int, keepSpan []int, total int) {
+	keepLine = -1
 	for i, l := range block {
 		if fenced[i] {
 			continue
@@ -136,42 +186,29 @@ func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]
 			keepLine, keepSpan, total = i, sp, total+1
 		}
 	}
-	if total == 0 {
-		// idx is in the hash so two identical lines in one settle pass never collide on the same ID.
-		key := dir + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + block[0] + "\x00" + now.Format(time.RFC3339Nano)
-		sum := sha256.Sum256([]byte(key))
-		return append([]string{block[0] + " <!-- id:" + hex.EncodeToString(sum[:4]) + " -->"}, block[1:]...), 1
-	}
-	if total == 1 && keepLine == 0 {
-		return block, 0
-	}
-	kept := " " + strings.TrimSpace(block[keepLine][keepSpan[0]:keepSpan[1]])
-	out := make([]string, 0, len(block))
-	for i, l := range block {
-		if !fenced[i] && idMarker.MatchString(l) {
-			keepHere := i == 0 && i == keepLine // a first-line survivor stays where it is
-			var b strings.Builder
-			prev := 0
-			for _, sp := range idMarker.FindAllStringIndex(l, -1) {
-				b.WriteString(l[prev:sp[0]])
-				if keepHere && sp[0] == keepSpan[0] {
-					b.WriteString(l[sp[0]:sp[1]])
-				}
-				prev = sp[1]
-			}
-			b.WriteString(l[prev:])
-			if res := b.String(); strings.TrimSpace(res) != "" || i == 0 {
-				l = res
-			} else {
-				continue
-			}
+	return keepLine, keepSpan, total
+}
+
+// freshID is the new ` <!-- id:xxxx -->` suffix for a block; idx is in the hash so identical lines never collide.
+func freshID(dir, name string, idx int, line string, now time.Time) string {
+	key := dir + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + line + "\x00" + now.Format(time.RFC3339Nano)
+	sum := sha256.Sum256([]byte(key))
+	return " <!-- id:" + hex.EncodeToString(sum[:4]) + " -->"
+}
+
+// stripMarkers removes every id marker from l, except the one at keepSpan when keepHere.
+func stripMarkers(l string, keepHere bool, keepSpan []int) string {
+	var b strings.Builder
+	prev := 0
+	for _, sp := range idMarker.FindAllStringIndex(l, -1) {
+		b.WriteString(l[prev:sp[0]])
+		if keepHere && sp[0] == keepSpan[0] {
+			b.WriteString(l[sp[0]:sp[1]])
 		}
-		out = append(out, l)
+		prev = sp[1]
 	}
-	if keepLine != 0 {
-		out[0] = strings.TrimRight(out[0], " \t") + kept
-	}
-	return out, 0
+	b.WriteString(l[prev:])
+	return b.String()
 }
 
 // ErrNoBlock is returned when no block in the store carries the requested ID.
@@ -192,29 +229,8 @@ func ShowBlock(ref string) (string, string, error) {
 		if d.IsDir() || !strings.HasSuffix(p, ".md") {
 			return nil
 		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return nil
-		}
-		if !contentRef && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
-			return nil
-		}
-		_, blocks := EntryBlocks(logicalName(p), string(data))
-		if contentRef { // native topics and knowledge notes are indexed whole, under their own grammar
-			base := filepath.Base(p)
-			blocks = append(blocks, ParseBlocks(SegNative, base, data)...)
-			blocks = append(blocks, ParseBlocks(SegKnowledge, base, data)...)
-		}
-		for _, b := range blocks {
-			if contentRef {
-				if ContentRef(b) == ref {
-					foundPath, foundBlock = p, b
-				}
-				continue
-			}
-			if strings.Contains(b, "<!-- id:"+ref+" -->") {
-				foundPath, foundBlock = p, b
-			}
+		if b, ok := blockWithRef(p, ref, contentRef); ok {
+			foundPath, foundBlock = p, b
 		}
 		return nil
 	})
@@ -222,6 +238,29 @@ func ShowBlock(ref string) (string, string, error) {
 		return "", "", ErrNoBlock
 	}
 	return foundPath, foundBlock, nil
+}
+
+// blockWithRef returns the last block in file p carrying ref (an id marker, or a ContentRef when contentRef).
+func blockWithRef(p, ref string, contentRef bool) (found string, ok bool) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return "", false
+	}
+	if !contentRef && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
+		return "", false
+	}
+	_, blocks := EntryBlocks(logicalName(p), string(data))
+	if contentRef { // native topics and knowledge notes are indexed whole, under their own grammar
+		base := filepath.Base(p)
+		blocks = append(blocks, ParseBlocks(SegNative, base, data)...)
+		blocks = append(blocks, ParseBlocks(SegKnowledge, base, data)...)
+	}
+	for _, b := range blocks {
+		if contentRef && ContentRef(b) == ref || !contentRef && strings.Contains(b, "<!-- id:"+ref+" -->") {
+			found, ok = b, true
+		}
+	}
+	return found, ok
 }
 
 // logicalName maps an archive file (decisionLog-2026-10.md) back to its typed file's grammar.

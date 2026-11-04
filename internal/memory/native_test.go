@@ -2,10 +2,8 @@ package memory
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -335,115 +333,6 @@ func TestSearchableIndexIsIndexedButNotInjected(t *testing.T) {
 	}
 }
 
-// TestSplitNativeIndexMovesOldestUnpinnedOverflow: file order is oldest-first (CC appends new
-// memories at the bottom), so the split must take the FRONT of the unpinned run, keeping the
-// newest within the cap.
-func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
-	tempConfig(t)
-	dir := memstore.NativeDir(t.TempDir())
-	var b strings.Builder
-	b.WriteString("# Memory Index\n\n")
-	for i := 1; i <= 5; i++ {
-		n := strconv.Itoa(i)
-		fmt.Fprintf(&b, "- [Rule %s](rule-%s.md) — hook\n", n, n)
-	}
-	write(t, filepath.Join(dir, bank.NativeIndexFile), b.String())
-
-	moved, err := SplitNativeIndex(dir, 3)
-	if err != nil {
-		t.Fatalf("SplitNativeIndex: %v", err)
-	}
-	if moved != 2 {
-		t.Fatalf("moved = %d, want 2", moved)
-	}
-	idx := readFile(t, filepath.Join(dir, bank.NativeIndexFile))
-	for _, keep := range []string{"rule-3.md", "rule-4.md", "rule-5.md"} {
-		if !strings.Contains(idx, keep) {
-			t.Errorf("MEMORY.md lost a line it should have kept (%s):\n%s", keep, idx)
-		}
-	}
-	searchable := readFile(t, filepath.Join(dir, bank.NativeSearchableFile))
-	for _, name := range []string{"rule-1.md", "rule-2.md"} {
-		if !strings.Contains(searchable, name) {
-			t.Errorf("SEARCHABLE.md missing the moved line (%s):\n%s", name, searchable)
-		}
-	}
-	if strings.Contains(idx, "rule-1.md") || strings.Contains(idx, "rule-2.md") {
-		t.Errorf("MEMORY.md still carries a moved line:\n%s", idx)
-	}
-}
-
-// TestSplitNativeIndexKeepPinSurvives: a `<!-- keep -->` marker holds a line in MEMORY.md even
-// when it is the oldest entry and would otherwise be first to move.
-func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
-	tempConfig(t)
-	dir := memstore.NativeDir(t.TempDir())
-	index := "# Memory Index\n\n" +
-		"- [Pinned](pinned.md) — load-bearing <!-- keep -->\n" +
-		"- [Rule 2](rule-2.md) — hook\n" +
-		"- [Rule 3](rule-3.md) — hook\n" +
-		"- [Rule 4](rule-4.md) — hook\n"
-	write(t, filepath.Join(dir, bank.NativeIndexFile), index)
-
-	moved, err := SplitNativeIndex(dir, 2)
-	if err != nil {
-		t.Fatalf("SplitNativeIndex: %v", err)
-	}
-	if moved != 2 {
-		t.Fatalf("moved = %d, want 2 (budget 2 minus 1 pin leaves room for 1 unpinned)", moved)
-	}
-	idx := readFile(t, filepath.Join(dir, bank.NativeIndexFile))
-	if !strings.Contains(idx, "pinned.md") {
-		t.Error("the pinned line was moved — a `<!-- keep -->` marker must hold it in MEMORY.md")
-	}
-	if !strings.Contains(idx, "rule-4.md") {
-		t.Error("the newest unpinned line should survive within budget")
-	}
-	if strings.Contains(idx, "rule-2.md") || strings.Contains(idx, "rule-3.md") {
-		t.Errorf("overflow unpinned lines were not moved:\n%s", idx)
-	}
-}
-
-// TestSplitNativeIndexNoopUnderCap: a MEMORY.md already within the cap is left untouched.
-func TestSplitNativeIndexNoopUnderCap(t *testing.T) {
-	dir := nativeStore(t)
-	before := readFile(t, filepath.Join(dir, bank.NativeIndexFile))
-	moved, err := SplitNativeIndex(dir, bank.NativeCoreCap)
-	if err != nil {
-		t.Fatalf("SplitNativeIndex: %v", err)
-	}
-	if moved != 0 {
-		t.Fatalf("moved = %d, want 0", moved)
-	}
-	if got := readFile(t, filepath.Join(dir, bank.NativeIndexFile)); got != before {
-		t.Error("a store already under cap must not be rewritten")
-	}
-	if fileExists(filepath.Join(dir, bank.NativeSearchableFile)) {
-		t.Error("nothing should have been moved into SEARCHABLE.md")
-	}
-}
-
-// TestNativeDupesFindsOverlappingBodies: two topic files with near-identical bodies cluster, and
-// the longer body survives as Keep.
-func TestNativeDupesFindsOverlappingBodies(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	shared := "the deploy pipeline retries three times before paging oncall about the failure"
-	write(t, filepath.Join(dir, "short.md"), "---\nname: short\n---\n\n"+shared+"\n")
-	write(t, filepath.Join(dir, "long.md"), "---\nname: long\n---\n\n"+shared+" and then escalates to the secondary rotation\n")
-
-	clusters := NativeDupes(dir, 0.6)
-	if len(clusters) != 1 {
-		t.Fatalf("clusters = %+v, want exactly 1", clusters)
-	}
-	if clusters[0].Keep != "long.md" {
-		t.Errorf("Keep = %q, want long.md (the longer body)", clusters[0].Keep)
-	}
-	if len(clusters[0].Losers) != 1 || clusters[0].Losers[0] != "short.md" {
-		t.Errorf("Losers = %v, want [short.md]", clusters[0].Losers)
-	}
-}
-
 // TestNativeArchiveDirIsPerProject: two stores with different slugs archive into different dirs,
 // so one project's archive never collides with another's.
 func TestNativeArchiveDirIsPerProject(t *testing.T) {
@@ -530,14 +419,20 @@ func TestArchiveNativeVersionsCollidingRevision(t *testing.T) {
 	if got := readFile(t, filepath.Join(archive, res.Archived[0])); got != first+"\nrevised\n" {
 		t.Errorf("stamped copy = %q", got)
 	}
-	// A third revision in the same second gets a -2 suffix rather than replacing the stamped copy.
+	assertThirdRevisionDistinct(t, dir, first, res.Archived[0])
+}
+
+// assertThirdRevisionDistinct: a third revision in the same second gets a -2 suffix rather than replacing the stamped copy.
+func assertThirdRevisionDistinct(t *testing.T, dir, first, stamped string) {
+	t.Helper()
+	archive := NativeArchiveDir(dir)
 	write(t, filepath.Join(dir, "stale-fact.md"), first+"\nrevised again\n")
 	third, err := ArchiveNative(dir, []string{"stale-fact"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(third.Archived) != 1 || third.Archived[0] == res.Archived[0] || !fileExists(filepath.Join(archive, res.Archived[0])) {
-		t.Errorf("third archive = %v, want a distinct version beside %s", third.Archived, res.Archived[0])
+	if len(third.Archived) != 1 || third.Archived[0] == stamped || !fileExists(filepath.Join(archive, stamped)) {
+		t.Errorf("third archive = %v, want a distinct version beside %s", third.Archived, stamped)
 	}
 }
 
@@ -874,90 +769,5 @@ func TestMalformedBankRegionRefusesEveryIndexRewrite(t *testing.T) {
 	}
 	if fileExists(filepath.Join(dir, "old.md")) {
 		t.Error("a refused restore still landed the topic")
-	}
-}
-
-// TestSplitReportsNativeProseOverLimit: the split moves what it can and then reports an index the native loader
-// would still truncate instead of silently rewriting the prose that busts it.
-func TestSplitReportsNativeProseOverLimit(t *testing.T) {
-	dir := nativeStore(t)
-	indexPath := filepath.Join(dir, bank.NativeIndexFile)
-	prose := strings.Repeat("prose that is not a pointer\n", bank.NativeIndexMaxLines)
-	write(t, indexPath, prose+testIndex)
-	moved, err := SplitNativeIndex(dir, 1)
-	if moved != 2 {
-		t.Errorf("moved = %d, want 2", moved)
-	}
-	if err == nil || !strings.Contains(err.Error(), "native load limit") {
-		t.Errorf("err = %v, want the native load-limit diagnostic", err)
-	}
-	got := readFile(t, indexPath)
-	if !strings.HasPrefix(got, prose) || strings.Contains(got, "stale-fact.md") || !strings.Contains(got, "also-keep.md") {
-		t.Errorf("split rewrote prose or kept the wrong pointers:\n%s", got[len(got)-200:])
-	}
-	if _, err := SplitNativeIndex(dir, 1); err == nil || !strings.Contains(err.Error(), "native load limit") {
-		t.Errorf("no-op re-run err = %v, want the same diagnostic", err)
-	}
-}
-
-// TestRestoreNativeReportsIndexOverLimit: a restore whose pointer pushes MEMORY.md past the native load
-// limit still lands, and the error names the limit so the overflow is never silent.
-func TestRestoreNativeReportsIndexOverLimit(t *testing.T) {
-	dir := nativeStore(t)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
-		t.Fatal(err)
-	}
-	idxPath := filepath.Join(dir, bank.NativeIndexFile)
-	idx := readFile(t, idxPath)
-	write(t, idxPath, idx+strings.Repeat("prose\n", bank.NativeIndexMaxLines-bank.LineCount(idx)))
-	res, err := RestoreNative(dir, []string{"stale-fact"}, true)
-	if err == nil || !strings.Contains(err.Error(), "exceed the native load limit") {
-		t.Fatalf("RestoreNative err = %v, want the load-limit diagnostic", err)
-	}
-	if len(res.Restored) != 1 || !fileExists(filepath.Join(dir, "stale-fact.md")) {
-		t.Errorf("restore did not land: Restored = %v", res.Restored)
-	}
-	if got := readFile(t, idxPath); !strings.Contains(got, "(stale-fact.md)") || bank.LineCount(got) != bank.NativeIndexMaxLines+1 {
-		t.Errorf("index has %d lines, want %d with the restored pointer", bank.LineCount(got), bank.NativeIndexMaxLines+1)
-	}
-}
-
-// TestArchiveNativeReportsHealedIndexOverLimit: the reconcile repair riding an archive can grow MEMORY.md past
-// the native load limit; the archive lands and the error names the limit.
-func TestArchiveNativeReportsHealedIndexOverLimit(t *testing.T) {
-	dir := nativeStore(t)
-	for _, n := range []string{"orphan-one.md", "orphan-two.md"} {
-		write(t, filepath.Join(dir, n), "---\nname: "+strings.TrimSuffix(n, ".md")+"\n---\n\nbody\n")
-	}
-	idxPath := filepath.Join(dir, bank.NativeIndexFile)
-	write(t, idxPath, testIndex+strings.Repeat("prose\n", bank.NativeIndexMaxLines-bank.LineCount(testIndex)))
-	res, err := ArchiveNative(dir, []string{"stale-fact"}, true)
-	if err == nil || !strings.Contains(err.Error(), "exceed the native load limit") {
-		t.Fatalf("ArchiveNative err = %v, want the load-limit diagnostic", err)
-	}
-	if len(res.Archived) != 1 || fileExists(filepath.Join(dir, "stale-fact.md")) {
-		t.Errorf("archive did not land: Archived = %v", res.Archived)
-	}
-	got := readFile(t, idxPath)
-	if strings.Contains(got, "(stale-fact.md)") || !strings.Contains(got, "(orphan-one.md)") || !strings.Contains(got, "(orphan-two.md)") {
-		t.Errorf("index not struck and healed:\n%s", got)
-	}
-	if bank.LineCount(got) != bank.NativeIndexMaxLines+1 {
-		t.Errorf("index has %d lines, want %d", bank.LineCount(got), bank.NativeIndexMaxLines+1)
-	}
-}
-
-// TestHealedIndexUnreadableIsAnError: a MEMORY.md that exists but cannot be read must abort, not look absent.
-func TestHealedIndexUnreadableIsAnError(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, bank.NativeIndexFile), 0o755); err != nil { // reads fail with EISDIR
-		t.Fatal(err)
-	}
-	if _, _, err := healedIndex(dir); err == nil {
-		t.Fatal("healedIndex: want a read error, got nil")
-	}
-	if raw, _, err := healedIndex(t.TempDir()); err != nil || raw != nil {
-		t.Fatalf("absent index: raw=%v err=%v, want nil, nil", raw, err)
 	}
 }

@@ -18,6 +18,28 @@ func AgentIDs(cwd string) []string {
 	if err != nil || len(sessions) == 0 {
 		return nil
 	}
+	sortNewestFirst(sessions)
+	const maxSessions = 2
+	if len(sessions) > maxSessions {
+		sessions = sessions[:maxSessions]
+	}
+	seen := map[string]bool{}
+	var ids []string
+	for _, s := range sessions {
+		dir := strings.TrimSuffix(s, ".jsonl")
+		for _, pattern := range []string{
+			filepath.Join(dir, "subagents", "agent-*.jsonl"),
+			filepath.Join(dir, "subagents", "workflows", "*", "agent-*.jsonl"),
+		} {
+			matches, _ := filepath.Glob(pattern)
+			ids = appendNewIDs(ids, seen, matches)
+		}
+	}
+	return ids
+}
+
+// sortNewestFirst orders sessions by mtime, newest first, stat-ing each file once.
+func sortNewestFirst(sessions []string) {
 	modTime := make(map[string]time.Time, len(sessions)) // stat each session once, not once per comparison
 	for _, s := range sessions {
 		if fi, err := os.Stat(s); err == nil {
@@ -32,27 +54,15 @@ func AgentIDs(cwd string) []string {
 		}
 		return bt.Compare(at)
 	})
-	const maxSessions = 2
-	if len(sessions) > maxSessions {
-		sessions = sessions[:maxSessions]
-	}
-	seen := map[string]bool{}
-	var ids []string
-	for _, s := range sessions {
-		dir := strings.TrimSuffix(s, ".jsonl")
-		patterns := []string{
-			filepath.Join(dir, "subagents", "agent-*.jsonl"),
-			filepath.Join(dir, "subagents", "workflows", "*", "agent-*.jsonl"),
-		}
-		for _, pattern := range patterns {
-			matches, _ := filepath.Glob(pattern)
-			for _, m := range matches {
-				id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), "agent-"), ".jsonl")
-				if !seen[id] {
-					seen[id] = true
-					ids = append(ids, id)
-				}
-			}
+}
+
+// appendNewIDs adds the agent id of each matched transcript file that seen does not hold yet.
+func appendNewIDs(ids []string, seen map[string]bool, matches []string) []string {
+	for _, m := range matches {
+		id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), "agent-"), ".jsonl")
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
 		}
 	}
 	return ids

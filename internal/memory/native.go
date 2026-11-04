@@ -17,7 +17,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // topicPaths lists dir's KindTopic files; indexes, the catalog and typed bank files are not topics.
@@ -149,17 +148,27 @@ func applyChecked(base string, c bank.Change) error {
 	if err != nil && !absent {
 		return err
 	}
+	if replayed, err := preimageGate(c, cur, absent); replayed || err != nil {
+		return err
+	}
 	switch {
-	case c.Delete && absent, !c.Delete && !absent && bytes.Equal(cur, c.Data):
-		return nil
-	case absent != (c.Preimage == nil), !absent && !bytes.Equal(cur, c.Preimage):
-		return fmt.Errorf("%w: %s", bank.ErrDivergent, c.Rel)
 	case c.Delete:
 		return os.Remove(abs)
 	case absent:
 		return writeExclusive(abs, c.Data)
 	}
 	return paths.AtomicWrite(abs, c.Data, 0o644)
+}
+
+// preimageGate reports a replayed step (already landed) or a divergence error when the live bytes match neither side.
+func preimageGate(c bank.Change, cur []byte, absent bool) (replayed bool, err error) {
+	switch {
+	case c.Delete && absent, !c.Delete && !absent && bytes.Equal(cur, c.Data):
+		return true, nil
+	case absent != (c.Preimage == nil), !absent && !bytes.Equal(cur, c.Preimage):
+		return false, fmt.Errorf("%w: %s", bank.ErrDivergent, c.Rel)
+	}
+	return false, nil
 }
 
 // indexLinks maps each topic file one index's pointer lines target to its full line; the generated bank
@@ -217,15 +226,7 @@ func NativeStats(dir string) (NativeStoreStats, error) {
 			st.TopicBytes += fi.Size()
 		}
 	}
-	// A pointer to a typed bank file is valid (not dangling), though the file is never an orphan candidate.
-	linkable := maps.Clone(present)
-	for _, name := range bank.BankFiles() {
-		if fi, err := os.Lstat(filepath.Join(dir, name)); err == nil && fi.Mode().IsRegular() {
-			linkable[name] = true
-		}
-	}
-	indexPath := filepath.Join(dir, bank.NativeIndexFile)
-	raw, err := os.ReadFile(indexPath)
+	raw, err := os.ReadFile(filepath.Join(dir, bank.NativeIndexFile))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return st, nil
@@ -237,20 +238,33 @@ func NativeStats(dir string) (NativeStoreStats, error) {
 	}
 	st.IndexBytes = int64(len(raw))
 	st.IndexEntries = len(indexLinks(string(raw)))
-	links := indexedLinks(dir, string(raw))
+	st.Dangling, st.Orphans = indexFaults(dir, string(raw), present)
+	return st, nil
+}
+
+// indexFaults lists the pointers whose target is no topic or bank file (dangling) and the topics no pointer reaches (orphans).
+func indexFaults(dir, raw string, present map[string]bool) (dangling, orphans []string) {
+	// A pointer to a typed bank file is valid (not dangling), though the file is never an orphan candidate.
+	linkable := maps.Clone(present)
+	for _, name := range bank.BankFiles() {
+		if fi, err := os.Lstat(filepath.Join(dir, name)); err == nil && fi.Mode().IsRegular() {
+			linkable[name] = true
+		}
+	}
+	links := indexedLinks(dir, raw)
 	for target := range links {
 		if !linkable[target] {
-			st.Dangling = append(st.Dangling, target)
+			dangling = append(dangling, target)
 		}
 	}
 	for name := range present {
 		if _, ok := links[name]; !ok {
-			st.Orphans = append(st.Orphans, name)
+			orphans = append(orphans, name)
 		}
 	}
-	sort.Strings(st.Dangling)
-	sort.Strings(st.Orphans)
-	return st, nil
+	sort.Strings(dangling)
+	sort.Strings(orphans)
+	return dangling, orphans
 }
 
 // ArchiveNative moves each named topic file out of dir into its archive and strikes its pointer line
@@ -299,32 +313,13 @@ func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 		return err
 	}
 	b := newNativeBatch(dir)
-	recRel := filepath.Join(nativeArchiveRel, bank.NativeArchiveIndexFile)
-	rec, _ := os.ReadFile(filepath.Join(dir, recRel))
-	if len(recorded) > 0 {
-		b.put(recRel, []byte(archiveIndexWith(rec, recorded)), rec)
-	}
-	var final string
-	if index != nil {
-		if final, err = indexWithout(healed, todo); err != nil {
-			return fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
-		}
-		b.put(bank.NativeIndexFile, []byte(final), index)
-	}
-	if searchable != nil {
-		if err := b.putWithout(bank.NativeSearchableFile, string(searchable), todo, searchable); err != nil {
-			return err
-		}
+	final, err := stageArchive(b, dir, todo, archiveIndexes{index, healed, searchable}, moves, recorded)
+	if err != nil {
+		return err
 	}
 	var landed []string
 	for _, m := range moves {
-		if !m.dedupe {
-			b.put(filepath.Join(nativeArchiveRel, m.landed), m.data, nil)
-		}
 		landed = append(landed, m.landed)
-	}
-	for _, m := range moves {
-		b.del(m.name, m.data)
 	}
 	sha, err := b.commit("archive " + strings.Join(todo, ", "))
 	if err != nil {
@@ -335,6 +330,42 @@ func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 		return nil
 	}
 	return landedIndexOverLimit("archived", todo, final)
+}
+
+// archiveIndexes are the store's index files as read before an archive: raw and healed MEMORY.md, and SEARCHABLE.md.
+type archiveIndexes struct {
+	index      []byte
+	healed     string
+	searchable []byte
+}
+
+// stageArchive adds the archive's writes to b: the record, both indexes struck, each landed copy, then the removals.
+func stageArchive(b *nativeBatch, dir string, todo []string, ix archiveIndexes, moves []archiveMove, recorded []string) (final string, err error) {
+	recRel := filepath.Join(nativeArchiveRel, bank.NativeArchiveIndexFile)
+	rec, _ := os.ReadFile(filepath.Join(dir, recRel))
+	if len(recorded) > 0 {
+		b.put(recRel, []byte(archiveIndexWith(rec, recorded)), rec)
+	}
+	if ix.index != nil {
+		if final, err = indexWithout(ix.healed, todo); err != nil {
+			return "", fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
+		}
+		b.put(bank.NativeIndexFile, []byte(final), ix.index)
+	}
+	if ix.searchable != nil {
+		if err := b.putWithout(bank.NativeSearchableFile, string(ix.searchable), todo, ix.searchable); err != nil {
+			return "", err
+		}
+	}
+	for _, m := range moves {
+		if !m.dedupe {
+			b.put(filepath.Join(nativeArchiveRel, m.landed), m.data, nil)
+		}
+	}
+	for _, m := range moves {
+		b.del(m.name, m.data)
+	}
+	return final, nil
 }
 
 // landedIndexOverLimit is the loader-limit diagnostic after a batch has landed: the write stays, the caller reports it.
@@ -587,22 +618,9 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 	recRel := filepath.Join(nativeArchiveRel, bank.NativeArchiveIndexFile)
 	rec, _ := os.ReadFile(filepath.Join(dir, recRel))
 	b := newNativeBatch(dir)
-	archived := map[string][]byte{}
-	var moved []string
-	for _, name := range todo {
-		data, err := os.ReadFile(filepath.Join(dir, nativeArchiveRel, name))
-		if err != nil {
-			return err
-		}
-		live, err := liveCollision(filepath.Join(dir, name), data)
-		if err != nil {
-			return fmt.Errorf("restore %s: %w", name, err)
-		}
-		if !live {
-			b.put(name, data, nil)
-			moved = append(moved, name)
-		}
-		archived[name] = data
+	moved, archived, err := stageRestoreFiles(b, dir, todo)
+	if err != nil {
+		return err
 	}
 	lines := linesFor(indexLinks(string(rec)), moved)
 	if len(indexLinks(healed)) >= bank.NativeCoreCap {
@@ -627,6 +645,28 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 	}
 	res.Restored, res.Commit = todo, sha
 	return landedIndexOverLimit("restored", todo, final)
+}
+
+// stageRestoreFiles stages each archived file's landing in b unless an equal live copy exists; it returns the files
+// it landed and every archived file's bytes.
+func stageRestoreFiles(b *nativeBatch, dir string, todo []string) (moved []string, archived map[string][]byte, err error) {
+	archived = map[string][]byte{}
+	for _, name := range todo {
+		data, err := os.ReadFile(filepath.Join(dir, nativeArchiveRel, name))
+		if err != nil {
+			return nil, nil, err
+		}
+		live, err := liveCollision(filepath.Join(dir, name), data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("restore %s: %w", name, err)
+		}
+		if !live {
+			b.put(name, data, nil)
+			moved = append(moved, name)
+		}
+		archived[name] = data
+	}
+	return moved, archived, nil
 }
 
 // liveCollision reports whether dst is live already; a live file is accepted only when its bytes equal archived.
@@ -681,36 +721,13 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 		return 0, fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
 	}
 	lines := strings.Split(string(raw), "\n")
-	region, _ := bank.BankRegionLines(string(raw)) // same scan checkBankRegion just passed
-	var pinnedCount int
-	var unpinnedIdx []int
-	for i, line := range lines {
-		if _, ok := linkTarget(line); !ok || region[i] {
-			continue
-		}
-		if strings.Contains(line, "<!-- keep -->") {
-			pinnedCount++
-		} else {
-			unpinnedIdx = append(unpinnedIdx, i)
-		}
-	}
+	pinnedCount, unpinnedIdx := pointerLines(lines, raw)
 	budget := max(keepLines-pinnedCount, 0)
 	if len(unpinnedIdx) <= budget {
 		return 0, bank.CheckNativeIndexLimits(string(raw))
 	}
 	drop := unpinnedIdx[:len(unpinnedIdx)-budget] // oldest unpinned pointer lines, file order preserved
-	dropSet := map[int]bool{}
-	var overflow []string
-	for _, i := range drop {
-		dropSet[i] = true
-		overflow = append(overflow, lines[i])
-	}
-	var kept []string
-	for i, line := range lines {
-		if !dropSet[i] {
-			kept = append(kept, line)
-		}
-	}
+	kept, overflow := partitionLines(lines, drop)
 	// One batch, SEARCHABLE.md first: a crash between the two leaves a duplicated pointer, never a lost one.
 	b := newNativeBatch(dir)
 	searchable, _ := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
@@ -726,73 +743,33 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 	return len(overflow), nil
 }
 
-// NativeDupe is one near-duplicate cluster: Keep is the survivor (the longest body — the best-evidenced
-// carrier), Losers the rest. Similarity is Jaccard over the frontmatter description + body tokens.
-type NativeDupe struct {
-	Keep   string
-	Losers []string
-	Score  float64
+// pointerLines counts the pinned (<!-- keep -->) pointer lines and lists the unpinned ones' indexes, skipping the generated region.
+func pointerLines(lines []string, raw []byte) (pinnedCount int, unpinnedIdx []int) {
+	region, _ := bank.BankRegionLines(string(raw)) // same scan checkBankRegion just passed
+	for i, line := range lines {
+		if _, ok := linkTarget(line); !ok || region[i] {
+			continue
+		}
+		if strings.Contains(line, "<!-- keep -->") {
+			pinnedCount++
+		} else {
+			unpinnedIdx = append(unpinnedIdx, i)
+		}
+	}
+	return pinnedCount, unpinnedIdx
 }
 
-// NativeDupes clusters dir's topic files whose bodies overlap at or above threshold. Report-only: naming
-// a survivor is a judgement call about which one carries the better evidence, so nothing moves here.
-func NativeDupes(dir string, threshold float64) []NativeDupe {
-	topics := topicPaths(dir)
-	sets := map[string]map[string]bool{}
-	size := map[string]int{}
-	var names []string
-	for _, p := range topics {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		name := filepath.Base(p)
-		names = append(names, name)
-		sets[name] = textutil.TokenSet(string(b))
-		size[name] = len(b)
+// partitionLines splits lines into those kept and the dropped ones named by index, order preserved.
+func partitionLines(lines []string, drop []int) (kept, overflow []string) {
+	dropSet := map[int]bool{}
+	for _, i := range drop {
+		dropSet[i] = true
+		overflow = append(overflow, lines[i])
 	}
-	seen := map[string]bool{}
-	var out []NativeDupe
-	for i, a := range names {
-		if seen[a] {
-			continue
-		}
-		cluster := NativeDupe{Keep: a}
-		for _, b := range names[i+1:] {
-			if seen[b] {
-				continue
-			}
-			if s := textutil.Jaccard(sets[a], sets[b]); s >= threshold {
-				cluster.Losers = append(cluster.Losers, b)
-				seen[b] = true
-				if s > cluster.Score {
-					cluster.Score = s
-				}
-			}
-		}
-		if len(cluster.Losers) == 0 {
-			continue
-		}
-		// The longest body wins: a memory carrying more evidence is the better carrier to merge into.
-		for _, c := range append([]string{cluster.Keep}, cluster.Losers...) {
-			if size[c] > size[cluster.Keep] {
-				cluster.Keep = c
-			}
-		}
-		cluster.Losers = without(append([]string{a}, cluster.Losers...), cluster.Keep)
-		seen[cluster.Keep] = true
-		out = append(out, cluster)
-	}
-	return out
-}
-
-// without returns names minus drop, order preserved.
-func without(names []string, drop string) []string {
-	var out []string
-	for _, n := range names {
-		if n != drop {
-			out = append(out, n)
+	for i, line := range lines {
+		if !dropSet[i] {
+			kept = append(kept, line)
 		}
 	}
-	return out
+	return kept, overflow
 }

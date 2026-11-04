@@ -19,6 +19,19 @@ func addFile(agg *UsageAggregate, path string) error {
 	return nil
 }
 
+// wantModel returns models[name] after checking its input, output, cache-creation and cache-read totals.
+func wantModel(t *testing.T, models map[string]*ModelUsage, name string, in, out, cacheRead, cacheCreate int64) *ModelUsage {
+	t.Helper()
+	m, ok := models[name]
+	if !ok {
+		t.Fatalf("missing %s totals", name)
+	}
+	if m.InputTokens != in || m.OutputTokens != out || m.CacheCreationTokens != cacheCreate || m.CacheReadTokens != cacheRead {
+		t.Errorf("%s totals = %+v, want {%d %d %d %d}", name, m, in, out, cacheRead, cacheCreate)
+	}
+	return m
+}
+
 func TestUsageAggregateFixtures(t *testing.T) {
 	agg := NewUsageAggregate()
 	if err := addFile(agg, "testdata/usage_a.jsonl"); err != nil {
@@ -28,21 +41,8 @@ func TestUsageAggregateFixtures(t *testing.T) {
 		t.Fatalf("AddFile(usage_b): %v", err)
 	}
 
-	sonnet, ok := agg.Models["claude-sonnet-5"]
-	if !ok {
-		t.Fatal("missing claude-sonnet-5 totals")
-	}
-	if sonnet.InputTokens != 300 || sonnet.OutputTokens != 30 || sonnet.CacheCreationTokens != 50 || sonnet.CacheReadTokens != 5 {
-		t.Errorf("sonnet totals = %+v, want {300 30 5 50}", sonnet)
-	}
-
-	opus, ok := agg.Models["claude-opus-4-8"]
-	if !ok {
-		t.Fatal("missing claude-opus-4-8 totals")
-	}
-	if opus.InputTokens != 800 || opus.OutputTokens != 55 || opus.CacheCreationTokens != 0 || opus.CacheReadTokens != 0 {
-		t.Errorf("opus totals = %+v, want {800 55 0 0}", opus)
-	}
+	sonnet := wantModel(t, agg.Models, "claude-sonnet-5", 300, 30, 5, 50)
+	wantModel(t, agg.Models, "claude-opus-4-8", 800, 55, 0, 0)
 
 	// Peak per-minute bucket sums uncached input (input_tokens + cache_creation_input_tokens), not input
 	// alone: minute 06:36 sums (100+50)+(200+0)[A] + (300+0)[B] = 650; minute 06:40 sums 500+0=500[B] alone.
@@ -79,13 +79,7 @@ func TestSummarizeFileFixtures(t *testing.T) {
 	if !s.First.Equal(wantFirst) || !s.Last.Equal(wantLast) {
 		t.Errorf("span = [%s, %s], want [%s, %s]", s.First, s.Last, wantFirst, wantLast)
 	}
-	sonnet, ok := s.Models["claude-sonnet-5"]
-	if !ok {
-		t.Fatal("missing claude-sonnet-5 in file summary")
-	}
-	if sonnet.InputTokens != 300 || sonnet.OutputTokens != 30 || sonnet.CacheCreationTokens != 50 || sonnet.CacheReadTokens != 5 {
-		t.Errorf("sonnet totals = %+v, want {300 30 5 50}", sonnet)
-	}
+	wantModel(t, s.Models, "claude-sonnet-5", 300, 30, 5, 50)
 	tot := s.Totals()
 	if got := tot.Total(); got != 385 {
 		t.Errorf("Totals().Total() = %d, want 385", got)

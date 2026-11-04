@@ -122,45 +122,45 @@ func formatFiles(files []string, check bool) (changed []string, err error) {
 func FormatBankMarkdown(text string) string {
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))
-	inFence, inFrontMatter, inRules := false, false, false
+	var scan bankScan
 	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case i == 0 && trimmed == "---":
-			inFrontMatter = true
-			out = append(out, line)
-			continue
-		case inFrontMatter:
-			out = append(out, line)
-			if trimmed == "---" {
-				inFrontMatter = false
-			}
-			continue
-		case bankFmtFence.MatchString(line):
-			inFence = !inFence
-			out = append(out, line)
-			continue
-		case inFence:
-			out = append(out, line)
-			continue
-		case strings.Contains(line, "RULES:BEGIN"):
-			inRules = true
-			out = append(out, line)
-			continue
-		case inRules:
-			out = append(out, line)
-			if strings.Contains(line, "RULES:END") {
-				inRules = false
-			}
-			continue
-		case trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading.MatchString(trimmed) ||
-			bankFmtComment.MatchString(trimmed):
+		if scan.special(i, line) {
 			out = append(out, line)
 			continue
 		}
 		out = append(out, wrapBankLine(line)...)
 	}
 	return strings.Join(out, "\n")
+}
+
+// bankScan tracks which multi-line region (front matter, fence, rules block) the next line sits in.
+type bankScan struct{ inFence, inFrontMatter, inRules bool }
+
+// special handles fence/front-matter/rules/heading/comment/blank/table lines; false means a content line.
+func (s *bankScan) special(i int, line string) bool {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case i == 0 && trimmed == "---":
+		s.inFrontMatter = true
+	case s.inFrontMatter:
+		s.inFrontMatter = trimmed != "---"
+	case bankFmtFence.MatchString(line):
+		s.inFence = !s.inFence
+	case s.inFence:
+	case strings.Contains(line, "RULES:BEGIN"):
+		s.inRules = true
+	case s.inRules:
+		s.inRules = !strings.Contains(line, "RULES:END")
+	default:
+		return passThroughLine(trimmed)
+	}
+	return true
+}
+
+// passThroughLine reports whether a trimmed line is blank, a table row, a heading or a comment-only line.
+func passThroughLine(trimmed string) bool {
+	return trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading.MatchString(trimmed) ||
+		bankFmtComment.MatchString(trimmed)
 }
 
 // GroupLogicalLines splits text's physical lines into logical-line groups: a continuation line that
@@ -185,34 +185,19 @@ func GroupLogicalLines(text string) [][]string {
 // lineGrouper is GroupLogicalLines' state machine; contCol is the content column an indent-only
 // continuation must match (-1 = none open).
 type lineGrouper struct {
-	groups                          [][]string
-	inFence, inFrontMatter, inRules bool
-	contCol                         int
+	groups  [][]string
+	scan    bankScan
+	contCol int
 }
 
 func (g *lineGrouper) open(line string) { g.groups = append(g.groups, []string{line}) }
 
-// special handles fence/front-matter/rules/heading/comment/blank/table lines; false means a content line.
+// special opens a group for a line FormatBankMarkdown passes through untouched; false means a content line.
 func (g *lineGrouper) special(i int, line string) bool {
-	trimmed := strings.TrimSpace(line)
-	switch {
-	case i == 0 && trimmed == "---":
-		g.inFrontMatter, g.contCol = true, -1
-	case g.inFrontMatter:
-		g.inFrontMatter = trimmed != "---"
-	case bankFmtFence.MatchString(line):
-		g.inFence, g.contCol = !g.inFence, -1
-	case g.inFence:
-	case strings.Contains(line, "RULES:BEGIN"):
-		g.inRules, g.contCol = true, -1
-	case g.inRules:
-		g.inRules = !strings.Contains(line, "RULES:END")
-	case trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading.MatchString(trimmed) ||
-		bankFmtComment.MatchString(trimmed):
-		g.contCol = -1
-	default:
+	if !g.scan.special(i, line) {
 		return false
 	}
+	g.contCol = -1
 	g.open(line)
 	return true
 }

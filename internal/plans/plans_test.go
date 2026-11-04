@@ -47,6 +47,32 @@ Intro prose line.
 - [x] 1.3 Done task owns: internal/done/z.go (deadbee)
 `
 
+// tickOK ticks path for sha and fails the test on error.
+func tickOK(t *testing.T, path, sha string, files ...string) (ticked, partial []string) {
+	t.Helper()
+	ticked, partial, err := Tick(path, sha, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ticked, partial
+}
+
+// wantBytes fails unless path holds exactly want.
+func wantBytes(t *testing.T, path, label, want string) {
+	t.Helper()
+	if got := readFile(t, path); got != want {
+		t.Fatalf("%s bytes:\ngot:\n%s\nwant:\n%s", label, got, want)
+	}
+}
+
+// wantTicks fails unless exactly nTicked tasks ticked (the first containing tickedSub) and nPartial partly landed.
+func wantTicks(t *testing.T, label string, ticked, partial []string, nTicked int, tickedSub string, nPartial int) {
+	t.Helper()
+	if len(ticked) != nTicked || len(partial) != nPartial || (nTicked > 0 && !strings.Contains(ticked[0], tickedSub)) {
+		t.Fatalf("%s: ticked=%v partial=%v", label, ticked, partial)
+	}
+}
+
 // TestTickSpanning drives a plan through partial ticks, a repeat sha, a full tick and a
 // claimed-task tick, asserting the exact file bytes after every step.
 func TestTickSpanning(t *testing.T) {
@@ -55,98 +81,82 @@ func TestTickSpanning(t *testing.T) {
 	writeFile(t, path, tickPlan)
 
 	// A commit covering one of three owns (the dir entry) marks the task partly landed.
-	ticked, partial, err := Tick(path, "aaaaaaa", []string{"internal/plans/plans.go"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ticked) != 0 || len(partial) != 1 || !strings.Contains(partial[0], "1.1 Build") {
-		t.Fatalf("step1: ticked=%v partial=%v", ticked, partial)
+	ticked, partial := tickOK(t, path, "aaaaaaa", "internal/plans/plans.go")
+	wantTicks(t, "step1", ticked, partial, 0, "", 1)
+	if !strings.Contains(partial[0], "1.1 Build") {
+		t.Fatalf("step1: partial=%v", partial)
 	}
 	after1 := strings.Replace(tickPlan, "(verb row only)\n", "(verb row only) <!-- partly landed: aaaaaaa -->\n", 1)
-	if got := readFile(t, path); got != after1 {
-		t.Fatalf("step1 bytes:\n%s", got)
-	}
+	wantBytes(t, path, "step1", after1)
 
 	// A second partial sha (the glob entry) extends the existing comment.
-	if _, partial, err = Tick(path, "bbbbbbb", []string{"internal/hooks/safety_a_test.go"}); err != nil {
-		t.Fatal(err)
-	} else if len(partial) != 1 {
+	_, partial = tickOK(t, path, "bbbbbbb", "internal/hooks/safety_a_test.go")
+	if len(partial) != 1 {
 		t.Fatalf("step2: partial=%v", partial)
 	}
 	after2 := strings.Replace(after1, "aaaaaaa -->", "aaaaaaa, bbbbbbb -->", 1)
-	if got := readFile(t, path); got != after2 {
-		t.Fatalf("step2 bytes:\n%s", got)
-	}
+	wantBytes(t, path, "step2", after2)
 
-	// A repeat sha neither duplicates nor rewrites: bytes and mtime stay put.
-	stamp := time.Unix(1700000000, 0)
-	if err := os.Chtimes(path, stamp, stamp); err != nil {
-		t.Fatal(err)
-	}
-	ticked, partial, err = Tick(path, "aaaaaaa", []string{"internal/plans/tick.go"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ticked) != 0 || len(partial) != 0 {
-		t.Fatalf("repeat sha: ticked=%v partial=%v", ticked, partial)
-	}
-	if got := readFile(t, path); got != after2 {
-		t.Fatalf("repeat sha rewrote bytes:\n%s", got)
-	}
-	if info, err := os.Stat(path); err != nil || info.ModTime().Unix() != stamp.Unix() {
-		t.Fatalf("repeat sha rewrote file: mtime=%v err=%v", info.ModTime(), err)
-	}
+	assertRepeatShaIsNoop(t, path, after2)
 
 	// A commit covering all owns (dir + glob + noted file) ticks the task; the already
 	// ticked task 1.3 is skipped even though the commit touches its file.
-	ticked, partial, err = Tick(path, "fffffff", []string{
+	ticked, partial = tickOK(t, path, "fffffff",
 		"internal/plans/tick.go",
 		"internal/hooks/safety_b_test.go",
 		"internal/cli/cli.go",
 		"internal/done/z.go",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ticked) != 1 || !strings.Contains(ticked[0], "1.1 Build") || len(partial) != 0 {
-		t.Fatalf("full tick: ticked=%v partial=%v", ticked, partial)
-	}
+	)
+	wantTicks(t, "full tick", ticked, partial, 1, "1.1 Build", 0)
 	after4 := strings.Replace(after2, "- [ ] 1.1 Build", "- [x] 1.1 Build", 1)
 	after4 = strings.Replace(after4, "bbbbbbb -->\n", "bbbbbbb --> (fffffff)\n", 1)
-	if got := readFile(t, path); got != after4 {
-		t.Fatalf("step4 bytes:\ngot:\n%s\nwant:\n%s", got, after4)
-	}
+	wantBytes(t, path, "step4", after4)
 
 	// Ticking the claimed task removes its working: comment and appends the sha.
-	ticked, _, err = Tick(path, "ccccccc", []string{"internal/claimed/y.go"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ticked) != 1 || !strings.Contains(ticked[0], "1.2 Claimed") {
-		t.Fatalf("claim tick: ticked=%v", ticked)
-	}
+	ticked, _ = tickOK(t, path, "ccccccc", "internal/claimed/y.go")
+	wantTicks(t, "claim tick", ticked, nil, 1, "1.2 Claimed", 0)
 	want := strings.Replace(after4,
 		"- [ ] 1.2 Claimed task owns: internal/claimed/y.go <!-- working: alice on it -->\n",
 		"- [x] 1.2 Claimed task owns: internal/claimed/y.go (ccccccc)\n", 1)
-	if got := readFile(t, path); got != want {
-		t.Fatalf("final bytes:\ngot:\n%s\nwant:\n%s", got, want)
-	}
+	wantBytes(t, path, "final", want)
 	if !strings.HasSuffix(want, "\n") {
 		t.Fatal("fixture lost its trailing newline")
 	}
 }
 
-// TestClaimClearClaim exercises claim by ID and by title prefix, replacement, clearing
-// and the rejection cases.
-func TestClaimClearClaim(t *testing.T) {
-	hermetic(t)
-	path := filepath.Join(t.TempDir(), "plan.md")
-	const plan = `# Plan: claims
+// assertRepeatShaIsNoop re-ticks sha aaaaaaa: neither duplicates nor rewrites, so bytes and mtime stay put.
+func assertRepeatShaIsNoop(t *testing.T, path, want string) {
+	t.Helper()
+	stamp := time.Unix(1700000000, 0)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	ticked, partial := tickOK(t, path, "aaaaaaa", "internal/plans/tick.go")
+	wantTicks(t, "repeat sha", ticked, partial, 0, "", 0)
+	wantBytes(t, path, "repeat sha", want)
+	if info, err := os.Stat(path); err != nil || info.ModTime().Unix() != stamp.Unix() {
+		t.Fatalf("repeat sha rewrote file: mtime=%v err=%v", info.ModTime(), err)
+	}
+}
+
+const claimsPlan = `# Plan: claims
 
 - [ ] 2.1 First task owns: internal/a/x.go
 - [ ] 2.2 Second task owns: internal/b/y.go <!-- working: carol -->
 `
-	writeFile(t, path, plan)
+
+// claimsFixture writes claimsPlan to a temp plan file.
+func claimsFixture(t *testing.T) string {
+	t.Helper()
+	hermetic(t)
+	path := filepath.Join(t.TempDir(), "plan.md")
+	writeFile(t, path, claimsPlan)
+	return path
+}
+
+// TestClaimByIDAndTitleReplace covers claim by ID and by title prefix, replacing rather than stacking.
+func TestClaimByIDAndTitleReplace(t *testing.T) {
+	path := claimsFixture(t)
 
 	// By ID, appended at the task's last line.
 	if err := Claim(path, "2.1", "working: dave"); err != nil {
@@ -170,22 +180,27 @@ func TestClaimClearClaim(t *testing.T) {
 	if strings.Count(line22, "<!--") != 1 || !strings.HasSuffix(line22, "owns: internal/b/y.go <!-- finished: carol done -->") {
 		t.Fatalf("claim replace:\n%s", got)
 	}
+}
 
-	// Clearing drops the comment; clearing again leaves bytes untouched.
+// TestClearClaimDropsCommentOnce: clearing drops the comment; clearing again leaves bytes untouched.
+func TestClearClaimDropsCommentOnce(t *testing.T) {
+	path := claimsFixture(t)
 	if err := ClearClaim(path, "2.2"); err != nil {
 		t.Fatal(err)
 	}
-	if got = readFile(t, path); !strings.Contains(got, "- [ ] 2.2 Second task owns: internal/b/y.go\n") {
+	got := readFile(t, path)
+	if !strings.Contains(got, "- [ ] 2.2 Second task owns: internal/b/y.go\n") {
 		t.Fatalf("clear claim:\n%s", got)
 	}
-	before := got
 	if err := ClearClaim(path, "2.2"); err != nil {
 		t.Fatal(err)
 	}
-	if got = readFile(t, path); got != before {
-		t.Fatalf("clear without claim rewrote:\n%s", got)
-	}
+	wantBytes(t, path, "clear without claim", got)
+}
 
+// TestClaimRejections covers the rejected claim and clear requests.
+func TestClaimRejections(t *testing.T) {
+	path := claimsFixture(t)
 	for _, tc := range []struct {
 		name, taskID, text, wantErr string
 		clear                       bool
@@ -238,10 +253,19 @@ func TestStatus(t *testing.T) {
 	if !strings.HasSuffix(sums[0].Path, "2026-10-28-done.md") || !strings.HasSuffix(sums[1].Path, "2026-10-29-main.md") {
 		t.Fatalf("not sorted by path: %v", sums)
 	}
-	done, main := sums[0], sums[1]
+	assertStatusDone(t, sums[0])
+	assertStatusMain(t, sums[1])
+}
+
+func assertStatusDone(t *testing.T, done Summary) {
+	t.Helper()
 	if done.Ticked != 2 || done.Total != 2 || done.Partial != 0 || len(done.Claims) != 0 {
 		t.Fatalf("done summary: %+v", done)
 	}
+}
+
+func assertStatusMain(t *testing.T, main Summary) {
+	t.Helper()
 	if main.Ticked != 1 || main.Total != 4 || main.Partial != 1 {
 		t.Fatalf("main summary: %+v", main)
 	}
@@ -419,26 +443,25 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestTickRange ticks a plan from real commits: a partial commit, a completing one, dry-run, and the unticked base.
-func TestTickRange(t *testing.T) {
-	hermetic(t)
-	repo := t.TempDir()
+// tickRangeRepo builds a repo with a base commit and three file commits; it returns the repo and the base sha.
+func tickRangeRepo(t *testing.T) (repo, base string) {
+	t.Helper()
+	repo = t.TempDir()
 	gitT(t, repo, "init", "-q", "-b", "main")
 	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "base")
-	base := gitT(t, repo, "rev-parse", "HEAD")
-	commit := func(rel string) {
-		p := filepath.Join(repo, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, p, "x")
+	base = gitT(t, repo, "rev-parse", "HEAD")
+	for _, rel := range []string{"internal/a/a.go", "internal/b/b.go", "README.md"} {
+		writeFile(t, filepath.Join(repo, rel), "x")
 		gitT(t, repo, "add", rel)
 		gitT(t, repo, "commit", "-q", "-m", rel)
 	}
-	commit("internal/a/a.go")
-	commit("internal/b/b.go")
-	commit("README.md")
+	return repo, base
+}
 
+// TestTickRange ticks a plan from real commits: a partial commit, a completing one, dry-run, and the unticked base.
+func TestTickRange(t *testing.T) {
+	hermetic(t)
+	repo, base := tickRangeRepo(t)
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1.1 Solo owns: internal/b/b.go\n- [ ] 1.2 Both owns: internal/a/a.go, internal/b/b.go\n- [ ] 1.3 Other owns: internal/zzz/\n")
 	commits, err := RangeCommits(context.Background(), repo, base+"..HEAD")
@@ -448,7 +471,16 @@ func TestTickRange(t *testing.T) {
 	if len(commits) != 3 || commits[0].Files[0] != "internal/a/a.go" || len(commits[0].Sha) != 7 {
 		t.Fatalf("commits oldest first, 7-char shas: %+v", commits)
 	}
+	assertTickDryRun(t, plan, commits)
+	assertTickApplied(t, plan, commits)
+	if _, err := RangeCommits(context.Background(), repo, "HEAD"); err == nil {
+		t.Fatal("a range without .. must be rejected")
+	}
+}
 
+// assertTickDryRun checks the dry-run results and that the plan stays unwritten.
+func assertTickDryRun(t *testing.T, plan string, commits []Commit) {
+	t.Helper()
 	res, err := TickCommits(plan, commits, true)
 	if err != nil || len(res) != 2 || len(res[0].Partial) != 1 || len(res[1].Ticked) != 2 || len(res[1].Partial) != 0 {
 		t.Fatalf("dry-run results %+v err=%v", res, err)
@@ -456,16 +488,17 @@ func TestTickRange(t *testing.T) {
 	if got := readFile(t, plan); strings.Contains(got, "[x]") || strings.Contains(got, "partly") {
 		t.Fatalf("dry-run wrote the plan:\n%s", got)
 	}
+}
 
-	if _, err = TickCommits(plan, commits, false); err != nil {
+// assertTickApplied ticks for real and checks the written plan.
+func assertTickApplied(t *testing.T, plan string, commits []Commit) {
+	t.Helper()
+	if _, err := TickCommits(plan, commits, false); err != nil {
 		t.Fatal(err)
 	}
 	got := readFile(t, plan)
 	if !strings.Contains(got, "- [x] 1.1 Solo") || !strings.Contains(got, "("+commits[1].Sha+")") || !strings.Contains(got, "- [ ] 1.3") {
 		t.Fatalf("applied plan:\n%s", got)
-	}
-	if _, err := RangeCommits(context.Background(), repo, "HEAD"); err == nil {
-		t.Fatal("a range without .. must be rejected")
 	}
 }
 

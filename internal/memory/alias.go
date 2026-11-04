@@ -224,6 +224,22 @@ func (p *aliasPlan) foldReplace(rel string, cur, data []byte, src, tgt memstore.
 	return nil
 }
 
+// linesMissingFrom lists src's non-blank lines whose trimmed text tgt lacks, each once.
+func linesMissingFrom(tgt, src string) []string {
+	seen := map[string]bool{}
+	for l := range strings.SplitSeq(tgt, "\n") {
+		seen[strings.TrimSpace(l)] = true
+	}
+	var add []string
+	for l := range strings.SplitSeq(src, "\n") {
+		if t := strings.TrimSpace(l); t != "" && !seen[t] {
+			seen[t] = true
+			add = append(add, l)
+		}
+	}
+	return add
+}
+
 // mergeNativeIndex appends the source's pointer lines (outside the generated region) the target lacks.
 func mergeNativeIndex(tgt, src string) (string, int, error) {
 	if _, _, err := bank.ScanBankRegion(tgt); err != nil {
@@ -236,17 +252,7 @@ func mergeNativeIndex(tgt, src string) (string, int, error) {
 	if s >= 0 {
 		src = src[:s] + src[e:]
 	}
-	seen := map[string]bool{}
-	for l := range strings.SplitSeq(tgt, "\n") {
-		seen[strings.TrimSpace(l)] = true
-	}
-	var add []string
-	for l := range strings.SplitSeq(src, "\n") {
-		if t := strings.TrimSpace(l); t != "" && !seen[t] {
-			seen[t] = true
-			add = append(add, l)
-		}
-	}
+	add := linesMissingFrom(tgt, src)
 	if len(add) == 0 {
 		return tgt, 0, nil
 	}
@@ -261,6 +267,18 @@ func mergeNativeIndex(tgt, src string) (string, int, error) {
 func mergeLog(name, tgt, src string) (string, int) {
 	hdr, blocks := bank.EntryBlocks(name, tgt)
 	_, sblocks := bank.EntryBlocks(name, src)
+	add := blocksMissingFrom(blocks, sblocks)
+	if len(add) == 0 {
+		return tgt, 0
+	}
+	if name == "conventions.md" {
+		return strings.TrimRight(tgt, "\n") + "\n" + strings.Join(add, "\n") + "\n", len(add)
+	}
+	return bank.Rejoin(hdr, sortNewestFirst(append(slices.Clone(blocks), add...))), len(add)
+}
+
+// blocksMissingFrom lists sblocks whose persisted id and trimmed text are both absent from blocks.
+func blocksMissingFrom(blocks, sblocks []string) []string {
 	ids, texts := map[string]bool{}, map[string]bool{}
 	for _, b := range blocks {
 		ids[bank.BlockID(firstLine(b))] = true
@@ -275,14 +293,12 @@ func mergeLog(name, tgt, src string) (string, int) {
 		ids[id], texts[t] = true, true
 		add = append(add, b)
 	}
-	if len(add) == 0 {
-		return tgt, 0
-	}
-	if name == "conventions.md" {
-		return strings.TrimRight(tgt, "\n") + "\n" + strings.Join(add, "\n") + "\n", len(add)
-	}
-	all := append(slices.Clone(blocks), add...)
-	last := "9999-99-99" // an undated block inherits the date above it, so it never moves
+	return add
+}
+
+// sortNewestFirst stably orders dated blocks newest first; an undated block inherits the date above it, so it never moves.
+func sortNewestFirst(all []string) []string {
+	last := "9999-99-99"
 	dates := make([]string, len(all))
 	for i, b := range all {
 		if m := headingDate.FindStringSubmatch(b); m != nil {
@@ -299,7 +315,7 @@ func mergeLog(name, tgt, src string) (string, int) {
 	for i, j := range idx {
 		sorted[i] = all[j]
 	}
-	return bank.Rejoin(hdr, sorted), len(add)
+	return sorted
 }
 
 func firstLine(s string) string {

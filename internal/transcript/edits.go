@@ -109,16 +109,19 @@ func isUserTurnLine(line []byte) bool {
 	return text != "" && !strings.HasPrefix(text, "<command-") && !strings.HasPrefix(text, "<local-command")
 }
 
+// mayCountEdits is the cheap byte pre-filter: a tool_use line naming an editor tool or a Bash commit.
+func mayCountEdits(line []byte) bool {
+	if !bytes.Contains(line, toolUseKey) {
+		return false
+	}
+	return hasEditToolName(line) || bytes.Contains(line, bashNameKey) && bytes.Contains(line, commitKey)
+}
+
 // countLineEdits decodes an assistant tool_use line at most once, counting editor calls and weighted
 // git commits — eachEditLine and eachCommitLine used to each re-unmarshal the same line.
 func countLineEdits(line []byte) (n int) {
 	defer func() { _ = recover() }() // malformed command text must not crash the hook; keep edits counted so far
-	if !bytes.Contains(line, toolUseKey) {
-		return 0
-	}
-	isEdit := hasEditToolName(line)
-	isBash := bytes.Contains(line, bashNameKey) && bytes.Contains(line, commitKey)
-	if !isEdit && !isBash {
+	if !mayCountEdits(line) {
 		return 0
 	}
 	var rec struct {

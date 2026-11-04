@@ -25,8 +25,23 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 		t.Errorf("second stamp re-stamped %d blocks; IDs must be assigned once", n)
 	}
 	data, _ := os.ReadFile(log)
+	id := firstBlockID(t, string(data))
+	write(t, log, strings.Replace(string(data), "— First", "— First, retitled", 1))
+	if _, block, err := ShowBlock(id); err != nil || !strings.Contains(block, "retitled") || !strings.Contains(block, "body one") {
+		t.Errorf("show after a title edit = %q, %v", block, err)
+	}
+	moved, _ := os.ReadFile(log)
+	archive := filepath.Join(dir, "archive", "decisionLog-2026-10.md")
+	write(t, archive, string(moved))
+	write(t, log, "# Decision Log\n")
+	assertShownFromArchive(t, id, archive)
+}
+
+// firstBlockID returns the id stamped on the 2026-10-18 block of data.
+func firstBlockID(t *testing.T, data string) string {
+	t.Helper()
 	var id string
-	for l := range strings.SplitSeq(string(data), "\n") {
+	for l := range strings.SplitSeq(data, "\n") {
 		if strings.HasPrefix(l, "## 2026-10-18") {
 			id = BlockID(l)
 		}
@@ -34,20 +49,19 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 	if len(id) != 8 {
 		t.Fatalf("no id on the first block:\n%s", data)
 	}
-	write(t, log, strings.Replace(string(data), "— First", "— First, retitled", 1))
-	if _, block, err := ShowBlock(id); err != nil || !strings.Contains(block, "retitled") || !strings.Contains(block, "body one") {
-		t.Errorf("show after a title edit = %q, %v", block, err)
-	}
-	moved, _ := os.ReadFile(log)
-	write(t, filepath.Join(dir, "archive", "decisionLog-2026-10.md"), string(moved))
-	write(t, log, "# Decision Log\n")
+	return id
+}
+
+// assertShownFromArchive checks ShowBlock finds id in the archive, an unknown id reports ErrNoBlock, and the index line hides the raw marker.
+func assertShownFromArchive(t *testing.T, id, archive string) {
+	t.Helper()
 	if path, _, err := ShowBlock(id); err != nil || !strings.Contains(path, "archive") {
 		t.Errorf("show after archiving = %s, %v; want the archive file", path, err)
 	}
 	if _, _, err := ShowBlock("deadbeef"); err != ErrNoBlock {
 		t.Errorf("unknown id err = %v, want ErrNoBlock", err)
 	}
-	if e := EntriesWithPrefix(filepath.Join(dir, "archive", "decisionLog-2026-10.md"), "## "); len(e) == 0 || !strings.HasSuffix(e[0], "["+id+"]") || strings.Contains(e[0], "<!--") {
+	if e := EntriesWithPrefix(archive, "## "); len(e) == 0 || !strings.HasSuffix(e[0], "["+id+"]") || strings.Contains(e[0], "<!--") {
 		t.Errorf("index line must show [id] without the raw marker: %v", e)
 	}
 }

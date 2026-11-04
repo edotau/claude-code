@@ -101,18 +101,18 @@ func ParseBlocks(mode SegMode, base string, data []byte) []string {
 // SegView stores little-endian tables followed by a shared term/text blob.
 type SegView []byte
 
-func EncodeSegment(blocks []string) SegView {
-	type document struct {
-		text string
-		dl   uint32
-	}
-	type posting struct {
-		doc, tf uint32
-	}
-	var docs []document
-	postings := map[string][]posting{}
-	var sumdl uint64
-	nposts := 0
+type segDoc struct {
+	text string
+	dl   uint32
+}
+
+type segPosting struct {
+	doc, tf uint32
+}
+
+// indexBlocks builds each indexable block's document and the per-term postings; blocks with no terms are dropped.
+func indexBlocks(blocks []string) (docs []segDoc, postings map[string][]segPosting, sumdl uint64, nposts int) {
+	postings = map[string][]segPosting{}
 	for _, block := range blocks {
 		tf := map[string]uint32{}
 		var dl uint32
@@ -129,12 +129,17 @@ func EncodeSegment(blocks []string) SegView {
 			continue
 		}
 		for term, count := range tf {
-			postings[term] = append(postings[term], posting{uint32(len(docs)), count})
+			postings[term] = append(postings[term], segPosting{uint32(len(docs)), count})
 			nposts++
 		}
-		docs = append(docs, document{block, dl})
+		docs = append(docs, segDoc{block, dl})
 		sumdl += uint64(dl)
 	}
+	return docs, postings, sumdl, nposts
+}
+
+func EncodeSegment(blocks []string) SegView {
+	docs, postings, sumdl, nposts := indexBlocks(blocks)
 	terms := make([]string, 0, len(postings))
 	for term := range postings {
 		terms = append(terms, term)
@@ -217,56 +222,82 @@ func (s SegView) lookup(term string) (posts []byte, n int) {
 }
 
 func (s SegView) Valid() bool {
+	l, ok := s.layout()
+	return ok && s.docsValid(l) && s.termsValid(l) && s.postsValid(l)
+}
+
+// segLayout is a segment's table sizes and offsets as read from its header.
+type segLayout struct {
+	ndocs, nterms, nposts           uint64
+	termStart, postStart, blobStart uint64
+	blobLen                         uint64
+}
+
+func (s SegView) u32(off uint64) uint64 { return uint64(binary.LittleEndian.Uint32(s[off:])) }
+
+// layout reads the header, reporting false when a table would run past the end of the segment.
+func (s SegView) layout() (l segLayout, ok bool) {
 	size := uint64(len(s))
 	if size < 12 {
-		return false
+		return l, false
 	}
-	u32 := func(off uint64) uint64 { return uint64(binary.LittleEndian.Uint32(s[off:])) }
-	ndocs := u32(0)
-	termStart := 12 + ndocs*12
-	if termStart+4 > size {
-		return false
+	l.ndocs = s.u32(0)
+	l.termStart = 12 + l.ndocs*12
+	if l.termStart+4 > size {
+		return l, false
 	}
-	nterms := u32(termStart)
-	postStart := termStart + 4 + nterms*16
-	if postStart+4 > size {
-		return false
+	l.nterms = s.u32(l.termStart)
+	l.postStart = l.termStart + 4 + l.nterms*16
+	if l.postStart+4 > size {
+		return l, false
 	}
-	nposts := u32(postStart)
-	blobStart := postStart + 4 + nposts*8
-	if blobStart > size {
-		return false
+	l.nposts = s.u32(l.postStart)
+	l.blobStart = l.postStart + 4 + l.nposts*8
+	if l.blobStart > size {
+		return l, false
 	}
-	blobLen := size - blobStart
+	l.blobLen = size - l.blobStart
+	return l, true
+}
+
+// docsValid checks every document has terms, its text inside the blob, and that the lengths sum to the header's.
+func (s SegView) docsValid(l segLayout) bool {
 	var sumdl uint64
-	for i := range ndocs {
+	for i := range l.ndocs {
 		off := 12 + i*12
-		dl := u32(off)
-		if dl == 0 || u32(off+4)+u32(off+8) > blobLen {
+		dl := s.u32(off)
+		if dl == 0 || s.u32(off+4)+s.u32(off+8) > l.blobLen {
 			return false
 		}
 		sumdl += dl
 	}
-	if sumdl != s.sumDL() {
-		return false
-	}
+	return sumdl == s.sumDL()
+}
+
+// termsValid checks every term's blob and posting ranges and that terms are strictly ascending.
+func (s SegView) termsValid(l segLayout) bool {
 	var previous []byte
-	for i := range nterms {
-		off := termStart + 4 + i*16
-		start, length := u32(off), u32(off+4)
-		postOff, count := u32(off+8), u32(off+12)
-		if start+length > blobLen || postOff%8 != 0 || postOff+count*8 > nposts*8 {
+	for i := range l.nterms {
+		off := l.termStart + 4 + i*16
+		start, length := s.u32(off), s.u32(off+4)
+		postOff, count := s.u32(off+8), s.u32(off+12)
+		if start+length > l.blobLen || postOff%8 != 0 || postOff+count*8 > l.nposts*8 {
 			return false
 		}
-		term := s[blobStart+start : blobStart+start+length]
+		term := s[l.blobStart+start : l.blobStart+start+length]
 		if i > 0 && bytes.Compare(term, previous) <= 0 {
 			return false
 		}
 		previous = term
 	}
-	for i := range nposts {
-		off := postStart + 4 + i*8
-		if u32(off) >= ndocs || u32(off+4) == 0 {
+	return true
+}
+
+// postsValid checks every posting names an existing document with a non-zero frequency.
+func (s SegView) postsValid(l segLayout) bool {
+	for i := range l.nposts {
+		off := l.postStart + 4 + i*8
+		if s.u32(off) >= l.ndocs || s.u32(off+4) == 0 {
 			return false
 		}
 	}

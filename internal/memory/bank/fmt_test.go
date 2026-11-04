@@ -21,20 +21,17 @@ func repeatWords(n int) []string {
 	return w
 }
 
-// TestFormatBankMarkdownWrapTable covers the wrap-point table: bullet, nested bullet, numbered item,
-// plain paragraph (indented and not) — each wraps at a word boundary with continuation indented to the
-// item's content column — plus every "never touch" surface (fence, table, heading, front matter,
-// comment-only line, RULES region) and every "never split" span (code, link, HTML-comment marker).
-func TestFormatBankMarkdownWrapTable(t *testing.T) {
-	t.Parallel()
+type wrapCase struct {
+	name  string
+	input string
+	want  string
+}
+
+// wrapBreakCases are the over-width lines that wrap, each continuation at the item's content column.
+func wrapBreakCases() []wrapCase {
 	words := repeatWords(15)
 	all := strings.Join(words, " ")
-
-	cases := []struct {
-		name  string
-		input string
-		want  string
-	}{
+	return []wrapCase{
 		{
 			name:  "bullet",
 			input: "- " + all,
@@ -60,6 +57,12 @@ func TestFormatBankMarkdownWrapTable(t *testing.T) {
 			input: "   " + all,
 			want:  "   " + strings.Join(words[:10], " ") + "\n" + "   " + strings.Join(words[10:], " "),
 		},
+	}
+}
+
+// untouchedCases are the over-width surfaces FormatBankMarkdown must leave byte-identical.
+func untouchedCases() []wrapCase {
+	return []wrapCase{
 		{
 			name:  "fenced code untouched even over-width",
 			input: "```\n" + strings.Repeat("z", 200) + "\n```",
@@ -93,6 +96,11 @@ func TestFormatBankMarkdownWrapTable(t *testing.T) {
 				"\n<!-- RULES:END -->\nafter",
 		},
 	}
+}
+
+// runWrapCases checks FormatBankMarkdown(input) == want for every case.
+func runWrapCases(t *testing.T, cases []wrapCase) {
+	t.Helper()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := FormatBankMarkdown(c.input)
@@ -101,6 +109,19 @@ func TestFormatBankMarkdownWrapTable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFormatBankMarkdownWrapTable: bullet, nested bullet, numbered item, plain paragraph (indented and not)
+// each wrap at a word boundary with continuation indented to the item's content column.
+func TestFormatBankMarkdownWrapTable(t *testing.T) {
+	t.Parallel()
+	runWrapCases(t, wrapBreakCases())
+}
+
+// TestFormatBankMarkdownNeverTouches: fence, table, heading, front matter, comment-only line and RULES region.
+func TestFormatBankMarkdownNeverTouches(t *testing.T) {
+	t.Parallel()
+	runWrapCases(t, untouchedCases())
 }
 
 // TestFormatBankMarkdownNeverSplitsProtectedSpans: an inline code span, a markdown link, and an HTML
@@ -315,6 +336,23 @@ func TestFormatBankCheckWritesNothingAndListsFiles(t *testing.T) {
 	}
 }
 
+// assertWrappedKeepsWords checks the rewritten file has no over-width line and still holds every word of longLine.
+func assertWrappedKeepsWords(t *testing.T, target, longLine string) {
+	t.Helper()
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for l := range strings.SplitSeq(string(data), "\n") {
+		if utf8RuneCount(l) > BankFmtMaxLine {
+			t.Errorf("rewritten file still has an over-width line: %q", l)
+		}
+	}
+	if before, after := strings.Fields(longLine), strings.Fields(string(data)); !wordsSubsequence(before, after) {
+		t.Errorf("word content of the wrapped line lost: want words %v present in %v", before, after)
+	}
+}
+
 // TestFormatBankWritesAndCommitsOnlyOnChange: the default (non-check) pass rewrites a dirty file and
 // commits the store; a second pass with nothing left to wrap makes no new commit.
 func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
@@ -330,18 +368,7 @@ func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 	if len(changed) != 1 || changed[0] != target {
 		t.Fatalf("changed = %v, want exactly [%s]", changed, target)
 	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for l := range strings.SplitSeq(string(data), "\n") {
-		if utf8RuneCount(l) > BankFmtMaxLine {
-			t.Errorf("rewritten file still has an over-width line: %q", l)
-		}
-	}
-	if before, after := strings.Fields(longLine), strings.Fields(string(data)); !wordsSubsequence(before, after) {
-		t.Errorf("word content of the wrapped line lost: want words %v present in %v", before, after)
-	}
+	assertWrappedKeepsWords(t, target, longLine)
 	headAfterFirst := StoreRepo().headOrEmpty(t)
 	if headAfterFirst == "" {
 		t.Fatal("expected a commit after a real change, got no HEAD")

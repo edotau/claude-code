@@ -61,6 +61,14 @@ func expireEmbed(t *testing.T) {
 	}
 }
 
+// wantEmbedded fails unless the run embedded wantN entries without error and the endpoint has seen wantCalls texts.
+func wantEmbedded(t *testing.T, label string, n, calls int, err error, wantN, wantCalls int) {
+	t.Helper()
+	if err != nil || n != wantN || calls != wantCalls {
+		t.Fatalf("%s: n=%d texts sent=%d err=%v", label, n, calls, err)
+	}
+}
+
 // An unchanged entry is not re-embedded; an edited one is, alone; the cosine follows the vectors.
 func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	isolatedConfig1(t)
@@ -75,15 +83,18 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 		t.Fatalf("first index: embedded %d of %d, %d texts sent, err %v", n, total, calls, err)
 	}
 	expireEmbed(t)
-	if n, _, err = EmbedEntries(context.Background(), root, c); err != nil || n != 0 || calls != 2 {
-		t.Fatalf("unchanged entries re-embedded: n=%d texts sent=%d err=%v", n, calls, err)
-	}
+	n, _, err = EmbedEntries(context.Background(), root, c)
+	wantEmbedded(t, "unchanged entries re-embedded", n, calls, err, 0, 2)
 	write(t, bankFile, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two EDITED\n")
 	expireEmbed(t)
-	if n, _, err = EmbedEntries(context.Background(), root, c); err != nil || n != 1 || calls != 3 {
-		t.Fatalf("edit must re-embed only that entry: n=%d texts sent=%d err=%v", n, calls, err)
-	}
+	n, _, err = EmbedEntries(context.Background(), root, c)
+	wantEmbedded(t, "edit must re-embed only that entry", n, calls, err, 1, 3)
+	assertSemanticCloser(t, c, root)
+}
 
+// assertSemanticCloser opens a Semantic over c and requires a gamma query to sit closer to the gamma entry.
+func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
+	t.Helper()
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
 	t.Cleanup(func() { OpenEmbedClient = openDatabricksEmbed })
@@ -91,7 +102,15 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var gamma, delta float64
+	gamma, delta := entryCosines(t, sem, root)
+	if gamma <= delta {
+		t.Errorf("a gamma query must sit closer to the gamma entry: gamma=%.3f delta=%.3f", gamma, delta)
+	}
+}
+
+// entryCosines returns the query's cosine to entry aaaa0001 (gamma) and to the other entry (delta).
+func entryCosines(t *testing.T, sem *Semantic, root string) (gamma, delta float64) {
+	t.Helper()
 	for _, h := range bank.CorpusBlocks(root) {
 		e := bank.EntryFromHit(h)
 		cos, ok := sem.Cosine(e)
@@ -104,9 +123,7 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 			delta = cos
 		}
 	}
-	if gamma <= delta {
-		t.Errorf("a gamma query must sit closer to the gamma entry: gamma=%.3f delta=%.3f", gamma, delta)
-	}
+	return gamma, delta
 }
 
 func TestPickEmbeddingModelPrefersGteThenBge(t *testing.T) {

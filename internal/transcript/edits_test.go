@@ -310,15 +310,41 @@ func editLine(oldStr string) string {
 	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go","old_string":%q}}]}}`, oldStr)
 }
 
-// TestCountEditsFromGitCommitDetection: a segment counts only when git is actually RUN with the verb
+// commitCase is one Bash/Edit transcript line and whether it counts as a git commit.
+type commitCase struct {
+	name  string
+	line  string
+	count bool // true: counts CommitEditWeight; false: counts 0
+}
+
+// runCommitCases writes each case's line as a one-line transcript and checks countEdits.
+func runCommitCases(t *testing.T, cases []commitCase) {
+	t.Helper()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "commit.jsonl")
+			if err := os.WriteFile(path, []byte(tc.line+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if tc.count {
+				want = CommitEditWeight
+			}
+			if tc.name == "Edit content mentioning git commit" {
+				want = 1 // the Edit tool_use itself still counts as one ordinary edit
+			}
+			if got := countEdits(path); got != want {
+				t.Errorf("countEdits(%q) = %d, want %d", tc.line, got, want)
+			}
+		})
+	}
+}
+
+// TestCountEditsGitCommit*: a segment counts only when git is actually RUN with the verb
 // `commit` (including -C/-c flags and a leading env-var assignment before `git`), never on quoted/echoed
 // text that merely mentions "git commit", and never twice when an Edit's own content mentions it.
-func TestCountEditsFromGitCommitDetection(t *testing.T) {
-	cases := []struct {
-		name  string
-		line  string
-		count bool // true: counts CommitEditWeight; false: counts 0
-	}{
+func TestCountEditsGitCommitBasics(t *testing.T) {
+	runCommitCases(t, []commitCase{
 		{"plain git commit", bashLine("git commit -m x"), true},
 		{"dash-C before the verb", bashLine("git -C /repo commit"), true},
 		{"dash-c config before the verb", bashLine("git -c user.name=x commit"), true},
@@ -332,17 +358,20 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"unquoted heredoc body", bashLine("cat <<EOF\ngit commit -m x\nEOF"), false},
 		{"dash heredoc body", bashLine("cat <<-EOF\n\tgit commit -m x\n\tEOF"), false},
 		{"here-string stays false (not a heredoc body to strip)", bashLine("cat <<< 'git commit -m x'"), false},
+		// Non-edit, non-commit lines must contribute 0 (no accidental decode-time double count).
+		{"Read line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/a.go"}}]}}`, false},
+		{"Grep line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"commit"}}]}}`, false},
+		{"Bash without commit", bashLine("echo hello"), false},
+	})
+}
+
+func TestCountEditsGitCommitSubstitutions(t *testing.T) {
+	runCommitCases(t, []commitCase{
 		// $(...)/backtick substitutions: a captured git commit still runs.
 		{"dollar-paren substitution runs commit", bashLine("x=$(git commit -m x)"), true},
 		{"backtick substitution runs commit", bashLine("x=`git commit -m x`"), true},
 		{"nested substitution runs commit", bashLine("x=$(echo $(git commit -m x))"), true},
 		{"substitution of quoted text stays false", bashLine(`x=$(echo 'git commit -m x')`), false},
-		// Short-circuit global flags: these print something and exit before any verb (incl. commit) runs.
-		{"--version short-circuits", bashLine("git --version commit"), false},
-		{"--help short-circuits", bashLine("git --help commit"), false},
-		{"-h short-circuits", bashLine("git -h commit"), false},
-		{"bare --exec-path short-circuits", bashLine("git --exec-path commit"), false},
-		{"--exec-path= supplies a value, does not short-circuit", bashLine("git --exec-path=/x commit"), true},
 		// Dangling/truncated substitutions must not panic and must not count as a commit.
 		{"dangling dollar-paren after a comment", bashLine("echo commit # $("), false},
 		{"bare dangling dollar-paren", bashLine("$("), false},
@@ -351,6 +380,22 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"dangling heredoc marker", bashLine("cat <<"), false},
 		{"dangling quoted heredoc marker", bashLine("cat <<'"), false},
 		{"complete substitution still runs commit", bashLine("echo $(git commit -m x)"), true},
+	})
+}
+
+func TestCountEditsGitCommitShortCircuitFlags(t *testing.T) {
+	runCommitCases(t, []commitCase{
+		// Short-circuit global flags: these print something and exit before any verb (incl. commit) runs.
+		{"--version short-circuits", bashLine("git --version commit"), false},
+		{"--help short-circuits", bashLine("git --help commit"), false},
+		{"-h short-circuits", bashLine("git -h commit"), false},
+		{"bare --exec-path short-circuits", bashLine("git --exec-path commit"), false},
+		{"--exec-path= supplies a value, does not short-circuit", bashLine("git --exec-path=/x commit"), true},
+	})
+}
+
+func TestCountEditsGitCommitWrappers(t *testing.T) {
+	runCommitCases(t, []commitCase{
 		// New wrappers (R1): sudo flags, time/command/exec/nohup, `!`, and keyword-started segments.
 		{"sudo dash-u user", bashLine("sudo -u deploy git commit -m x"), true},
 		{"sudo dash-E", bashLine("sudo -E git commit -m x"), true},
@@ -372,10 +417,23 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"--super-prefix= form", bashLine("git --super-prefix=foo commit -m x"), true},
 		{"--config-env space form", bashLine("git --config-env foo commit -m x"), true},
 		{"--config-env= form", bashLine("git --config-env=foo commit -m x"), true},
+	})
+}
+
+func TestCountEditsGitCommitEscapes(t *testing.T) {
+	runCommitCases(t, []commitCase{
 		// Backslash escapes and line continuations (R2): an escaped quote never closes early, and
 		// `\`+newline joins the next line into the same segment.
 		{"backslash-escaped quote keeps the segment open", bashLine(`echo "a \"; git commit"`), false},
 		{"backslash-newline continuation", bashLine("git \\\ncommit -m x"), true},
+		// Double-quote escape rule: a backslash before a non-escapable char stays literal, so the
+		// quoted token keeps its backslash and never equals "commit".
+		{"backslash before non-escapable char in dquotes stays literal", bashLine(`git "comm\it"`), false},
+	})
+}
+
+func TestCountEditsGitCommitShellC(t *testing.T) {
+	runCommitCases(t, []commitCase{
 		// `bash`/`sh`/`zsh -c "<script>"` (R2): the quoted script runs as a fresh shell command line,
 		// bounded by maxShellRecursionDepth so nesting it past the cap never counts and never hangs.
 		{"bash -c wraps a commit", bashLine(`bash -c "git commit -m x"`), true},
@@ -389,17 +447,19 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 			bashLine(bashCWrap(bashCWrap(bashCWrap(bashCWrap("git commit -m x"))))),
 			false,
 		},
+		// Combined short flags and -n (no-exec): -xc/-ec count as -c; -n anywhere blocks execution.
+		{"bash -xc combined flag still finds -c", bashLine(`bash -xc "git commit -m x"`), true},
+		{"bash -n -c is no-exec, never runs", bashLine(`bash -n -c "git commit -m x"`), false},
+	})
+}
+
+func TestCountEditsGitCommitAliases(t *testing.T) {
+	runCommitCases(t, []commitCase{
 		// `git -c alias.<name>=commit <name>` (R2): the alias must resolve to exactly `commit`, and the
 		// invoked verb must match the alias name, not just any alias being present.
 		{"alias.ci=commit, invoked as ci", bashLine("git -c alias.ci=commit ci -m x"), true},
 		{"alias.ci=status, invoked as ci", bashLine("git -c alias.ci=status ci -m x"), false},
 		{"alias.ci=commit, invoked as status", bashLine("git -c alias.ci=commit status -m x"), false},
-		// Double-quote escape rule: a backslash before a non-escapable char stays literal, so the
-		// quoted token keeps its backslash and never equals "commit".
-		{"backslash before non-escapable char in dquotes stays literal", bashLine(`git "comm\it"`), false},
-		// Combined short flags and -n (no-exec): -xc/-ec count as -c; -n anywhere blocks execution.
-		{"bash -xc combined flag still finds -c", bashLine(`bash -xc "git commit -m x"`), true},
-		{"bash -n -c is no-exec, never runs", bashLine(`bash -n -c "git commit -m x"`), false},
 		// Repeated -c alias.<name>=<val>: the last assignment for a given name wins.
 		{"alias.ci=commit then alias.ci=status: last wins", bashLine("git -c alias.ci=commit -c alias.ci=status ci -m x"), false},
 		// A builtin verb name ignores a user alias registered under it; status stays status, not commit.
@@ -408,29 +468,7 @@ func TestCountEditsFromGitCommitDetection(t *testing.T) {
 		{"alias.ci='!git commit' shell alias runs commit", bashLine(`git -c alias.ci='!git commit' ci -m x`), true},
 		// env's own flags are skipped before the NAME=value assignments and the wrapped command.
 		{"env -i PATH=/x git commit reaches git", bashLine("env -i PATH=/x git commit -m x"), true},
-		// Non-edit, non-commit lines must contribute 0 (no accidental decode-time double count).
-		{"Read line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/a.go"}}]}}`, false},
-		{"Grep line", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"commit"}}]}}`, false},
-		{"Bash without commit", bashLine("echo hello"), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "commit.jsonl")
-			if err := os.WriteFile(path, []byte(tc.line+"\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			want := 0
-			if tc.count {
-				want = CommitEditWeight
-			}
-			if tc.name == "Edit content mentioning git commit" {
-				want = 1 // the Edit tool_use itself still counts as one ordinary edit
-			}
-			if got := countEdits(path); got != want {
-				t.Errorf("countEdits(%q) = %d, want %d", tc.line, got, want)
-			}
-		})
-	}
+	})
 }
 
 // TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce: a single assistant record whose content

@@ -53,14 +53,20 @@ func TestUserTickMarkerReplacedAndMetadataKept(t *testing.T) {
 		!strings.Contains(got, "- [ ] 1.1 Alpha") {
 		t.Fatalf("untick did not replace the marker:\n%s", got)
 	}
+	assertUserTickMetadataKept(t, p, before.Tasks[0])
+	if strings.Contains(strings.Split(got, "\n")[3], "user:") {
+		t.Fatalf("neighbouring task touched:\n%s", got)
+	}
+}
+
+// assertUserTickMetadataKept checks the sha, claim, partial and title survived the tick round trip.
+func assertUserTickMetadataKept(t *testing.T, p string, b Task) {
+	t.Helper()
 	after, _ := Parse(p)
-	a, b := after.Tasks[0], before.Tasks[0]
+	a := after.Tasks[0]
 	if a.Title != b.Title || a.Sha != "abc1234" || !strings.Contains(a.Claim, "working: bob") || len(a.Partial) != 1 ||
 		a.UserMark != "unticked 2026-10-31T10:00:00Z" {
 		t.Fatalf("metadata lost or title changed: before=%+v after=%+v", b, a)
-	}
-	if strings.Contains(strings.Split(got, "\n")[3], "user:") {
-		t.Fatalf("neighbouring task touched:\n%s", got)
 	}
 }
 

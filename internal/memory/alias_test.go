@@ -88,8 +88,9 @@ func alias(t *testing.T, e aliasEnv, dry bool) (AliasResult, error) {
 	return AliasRepo(AliasOptions{Repo: e.b, Into: e.ka, DryRun: dry, Now: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)})
 }
 
-func TestAliasFoldsSeparateStore(t *testing.T) {
-	e := newAliasEnv(t)
+// seedAliasFold writes both stores' bank files and returns the project memory symlink aimed at the source store.
+func seedAliasFold(t *testing.T, e aliasEnv) (link string) {
+	t.Helper()
 	write(t, filepath.Join(e.da, "decisionLog.md"), "# Decisions\n\n## 2026-03-01 — Keep <!-- id:aaaaaaaa -->\nshared body\n\n## 2026-02-01 — TargetOnly <!-- id:bbbbbbbb -->\nt body\n")
 	write(t, filepath.Join(e.db, "decisionLog.md"), "# Decisions\n\n## 2026-03-01 — Keep <!-- id:aaaaaaaa -->\nshared body\n\n## 2026-04-01 — SourceOnly <!-- id:cccccccc -->\ns body\n")
 	write(t, filepath.Join(e.da, "conventions.md"), "# Conv\n\n- rule one <!-- id:11111111 -->\n")
@@ -108,41 +109,19 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	write(t, filepath.Join(e.db, "archive", "old.md"), "old\n")
 	write(t, filepath.Join(e.db, "handoffs", "h.md"), "handoff\n")
 	write(t, filepath.Join(e.db, "reports", "r.md"), "report\n")
-
-	link := filepath.Join(e.cfg, "projects", "-some-proj", "memory")
+	link = filepath.Join(e.cfg, "projects", "-some-proj", "memory")
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(e.db, link); err != nil {
 		t.Fatal(err)
 	}
-	decoyHead := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD"))
-	before, _ := bank.StoreRepo().Log(50)
+	return link
+}
 
-	res, err := alias(t, e, false)
-	if err != nil {
-		t.Fatalf("AliasRepo: %v", err)
-	}
-	if res.Key != e.ka || res.Source != e.kb {
-		t.Fatalf("result = %+v", res)
-	}
-
-	// source gone, catalog row gone, target row stays
-	if pathExists(e.db) {
-		t.Errorf("source store %s not removed", e.db)
-	}
-	cat := aliasRead(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile))
-	if strings.Contains(cat, "- "+e.kb+" ") || !strings.Contains(cat, "- "+e.ka+" ") {
-		t.Errorf("catalog rows wrong:\n%s", cat)
-	}
-	// origin alias recorded and resolves
-	o, err := memstore.ReadOrigin(e.da)
-	if err != nil || !o.Accepts(e.b) {
-		t.Fatalf("origin after alias = %+v err=%v, want alias %s", o, err, e.b)
-	}
-	if got, _ := memstore.RepoDir(e.b); got != e.da {
-		t.Errorf("RepoDir(beta) = %s, want %s", got, e.da)
-	}
+// assertFoldedLogs checks the append-only merge: no duplicate ids, newest first, conventions and history unioned.
+func assertFoldedLogs(t *testing.T, e aliasEnv) {
+	t.Helper()
 	// append-only merge, no duplicates
 	dl := aliasRead(t, filepath.Join(e.da, "decisionLog.md"))
 	for _, id := range []string{"aaaaaaaa", "bbbbbbbb", "cccccccc"} {
@@ -161,6 +140,11 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	if !strings.Contains(sh, "id:33333333") || !strings.Contains(sh, "id:44444444") {
 		t.Errorf("sessionHistory:\n%s", sh)
 	}
+}
+
+// assertFoldedFiles checks replace-type files keep the target and archive the source, and other files are copied.
+func assertFoldedFiles(t *testing.T, e aliasEnv) {
+	t.Helper()
 	// replace-type: target wins, source archived
 	for _, f := range []string{"activeContext.md", "progress.md", "projectContext.md"} {
 		if got := aliasRead(t, filepath.Join(e.da, f)); got != "TARGET "+f+"\n" {
@@ -181,10 +165,11 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	if strings.Count(nv, "[Shared]") != 1 || strings.Count(nv, "[Extra]") != 1 {
 		t.Errorf("MEMORY.md:\n%s", nv)
 	}
-	// symlink repointed
-	if tg, err := filepath.EvalSymlinks(link); err != nil || tg != e.da {
-		t.Errorf("symlink -> %q err=%v, want %s", tg, err, e.da)
-	}
+}
+
+// assertAliasCommit checks the fold landed in the memory repo (not the decoy), left it clean, and names the fold.
+func assertAliasCommit(t *testing.T, e aliasEnv, decoyHead string, before []string) {
+	t.Helper()
 	// commit landed in the memory repo, not the decoy
 	after, _ := bank.StoreRepo().Log(50)
 	if len(after) <= len(before) {
@@ -200,6 +185,50 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	if !strings.Contains(strings.Join(after[:len(after)-len(before)], "\n"), "alias") && !strings.Contains(strings.Join(after[:len(after)-len(before)], "\n"), "fold") {
 		t.Errorf("new commits do not mention the fold: %v", after[:len(after)-len(before)])
 	}
+
+}
+
+// assertSourceGoneAliasRecorded checks the source store and catalog row are gone and the target's origin accepts the source.
+func assertSourceGoneAliasRecorded(t *testing.T, e aliasEnv) {
+	t.Helper()
+	if pathExists(e.db) {
+		t.Errorf("source store %s not removed", e.db)
+	}
+	cat := aliasRead(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile))
+	if strings.Contains(cat, "- "+e.kb+" ") || !strings.Contains(cat, "- "+e.ka+" ") {
+		t.Errorf("catalog rows wrong:\n%s", cat)
+	}
+	o, err := memstore.ReadOrigin(e.da)
+	if err != nil || !o.Accepts(e.b) {
+		t.Fatalf("origin after alias = %+v err=%v, want alias %s", o, err, e.b)
+	}
+	if got, _ := memstore.RepoDir(e.b); got != e.da {
+		t.Errorf("RepoDir(beta) = %s, want %s", got, e.da)
+	}
+}
+
+func TestAliasFoldsSeparateStore(t *testing.T) {
+	e := newAliasEnv(t)
+	link := seedAliasFold(t, e)
+	decoyHead := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD"))
+	before, _ := bank.StoreRepo().Log(50)
+
+	res, err := alias(t, e, false)
+	if err != nil {
+		t.Fatalf("AliasRepo: %v", err)
+	}
+	if res.Key != e.ka || res.Source != e.kb {
+		t.Fatalf("result = %+v", res)
+	}
+
+	assertSourceGoneAliasRecorded(t, e)
+	assertFoldedLogs(t, e)
+	assertFoldedFiles(t, e)
+	// symlink repointed
+	if tg, err := filepath.EvalSymlinks(link); err != nil || tg != e.da {
+		t.Errorf("symlink -> %q err=%v, want %s", tg, err, e.da)
+	}
+	assertAliasCommit(t, e, decoyHead, before)
 
 	// second run: checkout already resolves to the key -> error
 	if _, err := alias(t, e, false); err == nil {

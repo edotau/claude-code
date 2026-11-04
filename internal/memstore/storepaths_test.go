@@ -53,7 +53,7 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-func TestStorePathsAndInsideStore(t *testing.T) {
+func TestStorePaths(t *testing.T) {
 	cfg := tempConfig(t)
 	// No origin remote here, so the harness key falls back to the config dir's own basename, not ".claude".
 	if StoreDir() != filepath.Join(cfg, "memory") || HarnessStoreDir() != filepath.Join(cfg, "memory", filepath.Base(cfg)) {
@@ -65,6 +65,10 @@ func TestStorePathsAndInsideStore(t *testing.T) {
 	if ArchiveDir("/x") != "/x/archive" || HandoffsDir("/x") != "/x/handoffs" {
 		t.Fatal("archive/handoffs paths moved")
 	}
+}
+
+func TestInsideStore(t *testing.T) {
+	cfg := tempConfig(t)
 	cases := map[string]struct {
 		rel string
 		ok  bool
@@ -81,7 +85,11 @@ func TestStorePathsAndInsideStore(t *testing.T) {
 			t.Errorf("InsideStore(%q) = %q, %v; want %q, %v", p, rel, ok, want.rel, want.ok)
 		}
 	}
-	// A symlink escaping the store is outside it even though its lexical path is inside.
+}
+
+// A symlink escaping the store is outside it even though its lexical path is inside.
+func TestInsideStoreRejectsEscapingSymlink(t *testing.T) {
+	tempConfig(t)
 	if err := os.MkdirAll(StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -98,7 +98,7 @@ var writers = map[string]string{
 	"internal/memory/recall/embed/embed.go:NewSemantic":               unversioned("marker: semantic-recall backoff stamp"),
 	"internal/memory/bank/git.go:writeIfAbsent":                       unversioned("memory-bank: memory repo seed files"),
 	"internal/memory/update.go:WriteUpdateResult":                     unversioned("text: update result text"),
-	"internal/memory/bank/ids.go:assignIDs":                           unversioned("memory-bank: bank id comments"),
+	"internal/memory/bank/ids.go:assignFileIDs":                       unversioned("memory-bank: bank id comments"),
 	"internal/memory/native.go:applyChecked":                          unversioned("memory-bank: native auto-memory files"),
 	"internal/memory/native.go:writeExclusive":                        unversioned("memory-bank: native auto-memory files"),
 	"internal/memory/promote.go:archiveFile":                          unversioned("memory-bank: bank overflow archive"),

@@ -68,8 +68,11 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	}
 }
 
-func TestMainCheckoutModes(t *testing.T) {
-	tempConfig(t)
+type mainCheckoutCase struct{ root, lexical, git string }
+
+// mainCheckoutCases builds the repo, worktree, symlink, separate-gitdir and bare layouts MainCheckout must tell apart.
+func mainCheckoutCases(t *testing.T) []mainCheckoutCase {
+	t.Helper()
 	base := t.TempDir()
 	repo := gitRepo(t, base, "repo")
 	wt, separate, bare := filepath.Join(base, "wt"), filepath.Join(base, "separate"), filepath.Join(base, "bare")
@@ -97,25 +100,31 @@ func TestMainCheckoutModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ root, lexical, git string }{
+	return []mainCheckoutCase{
 		{repo, repo, repo}, {filepath.Join(repo, "sub"), filepath.Join(repo, "sub"), repo},
 		{wt, repo, repo}, {filepath.Join(wt, "sub"), filepath.Join(wt, "sub"), repo}, {wt + "-link", repo, repo},
 		{link, link, repo}, {rel, rel, repo}, {filepath.Join(filepath.Dir(rel), "wt"), rel, repo},
 		{separate, separate, separate}, {bare, bare, ""},
 		{filepath.Join(base, "plain"), filepath.Join(base, "plain"), ""},
 		{filepath.Join(base, "missing"), filepath.Join(base, "missing"), ""},
-	} {
+	}
+}
+
+// canonical resolves p through symlinks unless it is empty.
+func canonical(p string) string {
+	if p == "" {
+		return ""
+	}
+	return ResolvePath(p) // git reports the real path: macOS TempDir /var is /private/var
+}
+
+func TestMainCheckoutModes(t *testing.T) {
+	tempConfig(t)
+	for _, tc := range mainCheckoutCases(t) {
 		if got := paths.MainCheckout(tc.root); got != tc.lexical {
 			t.Errorf("MainCheckout(%q) = %q, want lexical %q", tc.root, got, tc.lexical)
 		}
-		got := paths.MainCheckout(tc.root, GitOut)
-		if got != "" {
-			got = ResolvePath(got)
-		}
-		want := tc.git
-		if want != "" {
-			want = ResolvePath(want) // git reports the real path: macOS TempDir /var is /private/var
-		}
+		got, want := canonical(paths.MainCheckout(tc.root, GitOut)), canonical(tc.git)
 		if got != want {
 			t.Errorf("MainCheckout(%q, GitOut) = %q, want canonical %q", tc.root, got, want)
 		}
@@ -130,13 +139,7 @@ func TestResolveHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, root := range []string{cfg, sub} {
-		id := Resolve(root)
-		if !id.Harness || id.HomeBank || id.Origin != ResolvePath(cfg) {
-			t.Errorf("Resolve(%s) = %+v", root, id)
-		}
-		if dir, err := RepoDir(root); err != nil || dir != HarnessStoreDir() {
-			t.Errorf("RepoDir(%s) = %s, %v", root, dir, err)
-		}
+		assertHarnessRoot(t, cfg, root)
 	}
 	dir, err := EnsureRepoDir(cfg)
 	if err != nil {
@@ -145,6 +148,18 @@ func TestResolveHarness(t *testing.T) {
 	o, err := ReadOrigin(dir)
 	if err != nil || o.Key != HarnessStoreKey() || o.Origin != ResolvePath(cfg) {
 		t.Errorf("harness .origin = %+v, %v", o, err)
+	}
+}
+
+// assertHarnessRoot checks root resolves to the harness identity and store dir.
+func assertHarnessRoot(t *testing.T, cfg, root string) {
+	t.Helper()
+	id := Resolve(root)
+	if !id.Harness || id.HomeBank || id.Origin != ResolvePath(cfg) {
+		t.Errorf("Resolve(%s) = %+v", root, id)
+	}
+	if dir, err := RepoDir(root); err != nil || dir != HarnessStoreDir() {
+		t.Errorf("RepoDir(%s) = %s, %v", root, dir, err)
 	}
 }
 
@@ -173,7 +188,7 @@ func TestResolveConfigDirWorktree(t *testing.T) {
 	}
 }
 
-func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
+func TestRepoDirReadOnly(t *testing.T) {
 	cfg := tempConfig(t)
 	repo := gitRepo(t, t.TempDir(), "My Repo.v2")
 	dir, err := RepoDir(repo)
@@ -189,6 +204,12 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	if plain := t.TempDir(); mustRepoDir(t, plain) != homeStoreDir() {
 		t.Error("non-repo must map to the global store dir")
 	}
+}
+
+func TestEnsureRepoDirIdempotent(t *testing.T) {
+	tempConfig(t)
+	repo := gitRepo(t, t.TempDir(), "My Repo.v2")
+	dir := mustRepoDir(t, repo)
 	got, err := EnsureRepoDir(repo)
 	if err != nil || got != dir {
 		t.Fatalf("EnsureRepoDir = %s, %v", got, err)
@@ -203,6 +224,10 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	if after, err := ReadOrigin(dir); err != nil || !reflect.DeepEqual(after, o) {
 		t.Errorf("second EnsureRepoDir rewrote the origin record: %+v, %v", after, err)
 	}
+}
+
+func TestEnsureRepoDirGlobalTierHasNoOrigin(t *testing.T) {
+	tempConfig(t)
 	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != homeStoreDir() {
 		t.Errorf("global EnsureRepoDir = %s, %v", g, err)
 	}
@@ -241,7 +266,11 @@ func TestSameBasenameCollisionExtendsHash(t *testing.T) {
 	if oa, _ := ReadOrigin(da); oa.Origin != ResolvePath(a) {
 		t.Errorf("first store's origin was clobbered: %+v", oa)
 	}
-	// A foreign dir without .origin, a reserved name and the harness key are never claimed.
+}
+
+// A foreign dir without .origin, a reserved name and the harness key are never claimed.
+func TestForeignAndReservedDirsNeverClaimed(t *testing.T) {
+	cfg := tempConfig(t)
 	c := gitRepo(t, t.TempDir(), "zed")
 	os.MkdirAll(filepath.Join(cfg, "memory", "zed"), 0o755)
 	if dc := mustRepoDir(t, c); !strings.HasPrefix(filepath.Base(dc), "zed--") {
@@ -330,6 +359,15 @@ func TestOriginReadWriteGuards(t *testing.T) {
 	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "two", Origin: "/src/one"}); err == nil {
 		t.Error("key must match the directory")
 	}
+}
+
+func TestReadOriginRejectsSymlinkedStore(t *testing.T) {
+	cfg := tempConfig(t)
+	dir := filepath.Join(cfg, "memory", "one")
+	os.MkdirAll(dir, 0o755)
+	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/one"}); err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(cfg, "memory", "link")
 	if err := os.Symlink(dir, link); err != nil {
 		t.Skip(err)
@@ -404,13 +442,7 @@ func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, root := range []string{workspace, sub} {
-		id := Resolve(root)
-		if id.HomeBank || id.Origin != workspace {
-			t.Errorf("Resolve(%s) = %+v, want the workspace origin %s", root, id, workspace)
-		}
-		if got, err := RepoDir(root); err != nil || got != dir {
-			t.Errorf("RepoDir(%s) = %s, %v, want %s", root, got, err, dir)
-		}
+		assertWorkspaceRoot(t, root, workspace, dir)
 	}
 
 	unrelated := t.TempDir()
@@ -419,12 +451,21 @@ func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	}
 }
 
-func TestRepoDirsSkipsJunk(t *testing.T) {
-	cfg := tempConfig(t)
-	store := filepath.Join(cfg, "memory")
-	if got, err := RepoDirs(); got != nil || err != nil {
-		t.Fatalf("missing store = %v, %v", got, err)
+// assertWorkspaceRoot checks root resolves to the workspace origin and its store dir.
+func assertWorkspaceRoot(t *testing.T, root, workspace, dir string) {
+	t.Helper()
+	id := Resolve(root)
+	if id.HomeBank || id.Origin != workspace {
+		t.Errorf("Resolve(%s) = %+v, want the workspace origin %s", root, id, workspace)
 	}
+	if got, err := RepoDir(root); err != nil || got != dir {
+		t.Errorf("RepoDir(%s) = %s, %v, want %s", root, got, err, dir)
+	}
+}
+
+// seedJunkStores fills store with two valid repos and every shape RepoDirs must skip.
+func seedJunkStores(t *testing.T, store string) {
+	t.Helper()
 	for _, k := range []string{"zeta", "alpha"} {
 		os.MkdirAll(filepath.Join(store, k), 0o755)
 		if err := WriteOrigin(filepath.Join(store, k), Origin{Version: OriginVersion, Key: k, Origin: "/src/" + k}); err != nil {
@@ -440,6 +481,15 @@ func TestRepoDirsSkipsJunk(t *testing.T) {
 		write(t, filepath.Join(store, r, LegacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
 	}
 	os.Symlink(filepath.Join(store, "alpha"), filepath.Join(store, "sym"))
+}
+
+func TestRepoDirsSkipsJunk(t *testing.T) {
+	cfg := tempConfig(t)
+	store := filepath.Join(cfg, "memory")
+	if got, err := RepoDirs(); got != nil || err != nil {
+		t.Fatalf("missing store = %v, %v", got, err)
+	}
+	seedJunkStores(t, store)
 	got, err := RepoDirs()
 	if err != nil {
 		t.Fatal(err)
@@ -573,6 +623,19 @@ func TestRepoKeyFallsBackToDirBasenameWithoutRemote(t *testing.T) {
 // TestSameRemoteDifferentCheckoutsDoNotShareAStore: two distinct clones (different checkout paths) that
 // share one origin remote URL resolve to the same slug, so the second must take a hash-suffixed key
 // (existing takenKeys/slugKey collision behaviour) rather than silently writing into the first's store.
+// assertCollisionKey checks db is the hash-suffixed store dir the collision logic derives from checkout.
+func assertCollisionKey(t *testing.T, db, checkout string) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(ResolvePath(checkout)))
+	wantKey := "collide--" + hex.EncodeToString(sum[:])[:8]
+	if got := filepath.Base(db); got != wantKey {
+		t.Fatalf("second clone's key = %q, want %q (exact key the collision logic produced)", got, wantKey)
+	}
+	if !strings.HasPrefix(filepath.Base(db), "collide--") {
+		t.Fatalf("second clone's key %q lost the collision suffix", filepath.Base(db))
+	}
+}
+
 func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 	cfg := tempConfig(t)
 	const remote = "https://github.com/edotau/collide.git"
@@ -596,16 +659,14 @@ func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 	if db == da {
 		t.Fatal("second clone silently wrote into the first clone's store")
 	}
-	sum := sha256.Sum256([]byte(ResolvePath(b)))
-	wantKey := "collide--" + hex.EncodeToString(sum[:])[:8]
-	if got := filepath.Base(db); got != wantKey {
-		t.Fatalf("second clone's key = %q, want %q (exact key the collision logic produced)", got, wantKey)
-	}
-	if !strings.HasPrefix(filepath.Base(db), "collide--") {
-		t.Fatalf("second clone's key %q lost the collision suffix", filepath.Base(db))
-	}
+	assertCollisionKey(t, db, b)
 
-	// Both stores remain independently findable, and the first's .origin was never rewritten.
+	assertBothStoresFindable(t, a, b, da, db)
+}
+
+// Both stores remain independently findable, and the first's .origin was never rewritten.
+func assertBothStoresFindable(t *testing.T, a, b, da, db string) {
+	t.Helper()
 	if mustRepoDir(t, a) != da || mustRepoDir(t, b) != db {
 		t.Error("RepoDir must find both stores by their own checkout path")
 	}

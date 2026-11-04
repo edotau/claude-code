@@ -160,16 +160,15 @@ type UpdateSessionOptions struct {
 	Out, Err                 io.Writer
 }
 
-// UpdateSession resolves the live session or transcript, then updates the bank (or prints the procedure / dry run).
-func UpdateSession(o UpdateSessionOptions) error {
-	root := o.CWD
+// resolveUpdateTarget resolves the bank root, session id and transcript an update acts on (transcript may be empty).
+func resolveUpdateTarget(o UpdateSessionOptions) (root, session, transcript string, err error) {
+	root = o.CWD
 	if root == "" {
-		var err error
 		if root, err = os.Getwd(); err != nil {
-			return err
+			return "", "", "", err
 		}
 	}
-	session, transcript := o.Session, o.Transcript
+	session, transcript = o.Session, o.Transcript
 	explicit := session != "" || transcript != ""
 	if transcript == "" && session == "" { // a live session updates itself
 		session = os.Getenv(SessionIDEnv)
@@ -179,6 +178,15 @@ func UpdateSession(o UpdateSessionOptions) error {
 	}
 	if explicit && o.CWD == "" { // an explicit session's bank follows its project, not our cwd
 		root = cmp.Or(sessionRoot(transcript), root)
+	}
+	return root, session, transcript, nil
+}
+
+// UpdateSession resolves the live session or transcript, then updates the bank (or prints the procedure / dry run).
+func UpdateSession(o UpdateSessionOptions) error {
+	root, session, transcript, err := resolveUpdateTarget(o)
+	if err != nil {
+		return err
 	}
 	if transcript == "" { // no resolvable session: print the narrative procedure instead of refusing outright
 		ref, err := bank.Reference("update")

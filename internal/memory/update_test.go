@@ -112,7 +112,7 @@ func repoRoot(t *testing.T, name string) string {
 	return root
 }
 
-func TestDirSlugAndInitNoOverwrite(t *testing.T) {
+func TestDirSlug(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "My Repo.v2")
 	if got := memstore.Dir(root); filepath.Dir(got) != memstore.StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
@@ -124,6 +124,11 @@ func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 	if plain := t.TempDir(); !memstore.IsHomeBank(plain) {
 		t.Errorf("a non-repo root must collapse to the global bank, got %s", memstore.Dir(plain))
 	}
+}
+
+func TestInitNoOverwrite(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "My Repo.v2")
 	dir, err := Init(root)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +146,7 @@ func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "activeContext.md")); string(b) != "mine\n" {
 		t.Error("Init overwrote an existing file")
 	}
-	if !HasBank(root) || func() bool { _, err := os.Stat(filepath.Join(dir, "progress.md")); return err != nil }() {
+	if !HasBank(root) || !fileExists(filepath.Join(dir, "progress.md")) {
 		t.Error("Init did not re-seed a missing file")
 	}
 }
@@ -199,6 +204,15 @@ func TestRotateAndSettle(t *testing.T) {
 	if err != nil || s.Rotated != 5 {
 		t.Fatalf("rotated %d err %v", s.Rotated, err)
 	}
+	assertRotated(t, dir)
+	if n, _ := bank.RotateSessionHistory(dir, now); n != 0 {
+		t.Error("rotation under cap must be a no-op")
+	}
+}
+
+// assertRotated checks the history kept its newest entries, the oldest went to the archive, and the index follows.
+func assertRotated(t *testing.T, dir string) {
+	t.Helper()
 	_, kept := bank.SplitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
 	arch := mustRead(t, filepath.Join(dir, "archive", "sessionHistory-2026-09.md"))
 	if len(kept) != bank.SessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
@@ -207,9 +221,6 @@ func TestRotateAndSettle(t *testing.T) {
 	idx := mustRead(t, filepath.Join(dir, bank.NativeIndexFile))
 	if !strings.Contains(idx, "- sessionHistory: entry 35") || strings.Contains(idx, "entry 01") {
 		t.Errorf("index %q", idx)
-	}
-	if n, _ := bank.RotateSessionHistory(dir, now); n != 0 {
-		t.Error("rotation under cap must be a no-op")
 	}
 }
 
@@ -251,6 +262,16 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	if !strings.Contains(mustRead(t, filepath.Join(dir, bank.NativeIndexFile)), "updated-by-child") {
 		t.Error("update did not settle/index the bank")
 	}
+	assertUpdateFailures(t, root, bad)
+	stale := UpdateResult{Status: UpdatePending, Time: time.Now().Add(-20 * time.Minute)}
+	if !stale.NeedsAttention(time.Now()) {
+		t.Error("a pending result past the grace window needs attention")
+	}
+}
+
+// assertUpdateFailures: a failing claude and a missing claude both error, and the first records a failed result.
+func assertUpdateFailures(t *testing.T, root, bad string) {
+	t.Helper()
 	if err := Update(UpdateOptions{Claude: bad, CWD: root, Session: "s2"}); err == nil {
 		t.Error("failing claude must return an error")
 	}
@@ -259,10 +280,6 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	}
 	if err := Update(UpdateOptions{CWD: root, Session: "s3"}); err == nil {
 		t.Error("missing claude must fail")
-	}
-	stale := UpdateResult{Status: UpdatePending, Time: time.Now().Add(-20 * time.Minute)}
-	if !stale.NeedsAttention(time.Now()) {
-		t.Error("a pending result past the grace window needs attention")
 	}
 }
 
@@ -330,6 +347,16 @@ func TestSearchHitPlainStripsMarkup(t *testing.T) {
 	}
 }
 
+// hitContaining returns the first hit whose block contains sub (the last when several do, as the old scan did).
+func hitContaining(hits []bank.SearchHit, sub string) (found bank.SearchHit, ok bool) {
+	for _, h := range hits {
+		if strings.Contains(h.Block, sub) {
+			found, ok = h, true
+		}
+	}
+	return found, ok
+}
+
 // TestCompoundMatchFindsHyphenatedAndSubstringTerms: "agent routing" finds a block that only carries
 // "subagent" (agent is a substring of subagent) and "routing" exactly; a block with an exact "agent"
 // outranks the substring-only match; a hyphenated query term ("agent-routing") matches both parts.
@@ -347,17 +374,10 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		"## unrelated entry\nnothing to do with either term\n")
 
 	hits := recall.SearchBanks(repo, "agent routing", 0)
-	var compoundScore, exactScore float64
-	var compoundMatched, exactMatched int
-	var compoundSeen, exactSeen bool
-	for _, h := range hits {
-		switch {
-		case strings.Contains(h.Block, "Subagent routing"):
-			compoundSeen, compoundScore, compoundMatched = true, h.Score, h.Matched
-		case strings.Contains(h.Block, "Agent routing"):
-			exactSeen, exactScore, exactMatched = true, h.Score, h.Matched
-		}
-	}
+	compound, compoundSeen := hitContaining(hits, "Subagent routing")
+	exact, exactSeen := hitContaining(hits, "Agent routing")
+	compoundScore, compoundMatched := compound.Score, compound.Matched
+	exactScore, exactMatched := exact.Score, exact.Matched
 	if !compoundSeen {
 		t.Fatalf("\"agent routing\" missed the compound (subagent) block: %#v", hits)
 	}
@@ -376,6 +396,12 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		t.Errorf("exact match score %v did not outrank the compound match score %v", exactScore, compoundScore)
 	}
 
+	assertHyphenatedMatchesBoth(t, repo)
+}
+
+// assertHyphenatedMatchesBoth: the hyphenated query "agent-routing" matches both the compound and the exact block.
+func assertHyphenatedMatchesBoth(t *testing.T, repo string) {
+	t.Helper()
 	hyphen := recall.SearchBanks(repo, "agent-routing", 0)
 	var hyphenHitsCompound, hyphenHitsExact bool
 	for _, h := range hyphen {
