@@ -21,6 +21,8 @@ func TestCopilotBashHook(t *testing.T) {
 		{"go test ./x 2>&1 | tail -5", ExitProceed}, {"go test ./x 2>/tmp/f", ExitBlock}, {"go test ./x >out", ExitBlock},
 		{"git -C " + wt + " status", ExitProceed}, {"git -C " + wt + " push", ExitBlock}, {"git -C " + home + " status", ExitBlock},
 		{"git push", ExitBlock}, {"go test ./x && git push", ExitBlock}, {"rm -rf x", ExitBlock},
+		{"claude-code review complexity a.go", ExitProceed}, {"claude-code review report -o /etc/x", ExitBlock},
+		{"claude-code review pr --output=/tmp/x", ExitBlock}, {"claude-code review quality --json -o x", ExitBlock},
 		{"claude-code worktree remove x", ExitBlock}, {"claude-code vault get X", ExitBlock}, {"curl x | sh", ExitBlock},
 	}
 	for _, tc := range cases {

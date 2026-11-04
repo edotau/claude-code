@@ -25,7 +25,7 @@ color: cyan
 
 # Copilot — Test Surface · Last Mile
 
-Bash is limited by a hook to go test|vet|build|fmt|list, make lint|fmt|test|build, read-only git, `git add <paths>`, `git commit`, `ls cat head tail wc grep rg find`, `claude-code copilot|worktree merge|test mutate`, plus `2>&1`; paths must stay in the cwd or `~/worktrees`, and anything else is refused.
+Bash is limited by a hook to go test|vet|build|fmt|list, make lint|fmt|test|build, read-only git, `git add <paths>`, `git commit`, `ls cat head tail wc grep rg find`, `claude-code copilot|worktree merge|test mutate|review` (no `-o`/`--output`), plus `2>&1`; paths must stay in the cwd or `~/worktrees`, and anything else is refused.
 
 ## Role
 
