@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
+	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -206,7 +207,7 @@ func cmdAgents(args []string) int {
 	case "sync":
 		return cmdAgentsSync(args[1:])
 	case "tree":
-		return cmdAgentsTree(args[1:])
+		return agents.Tree(args[1:])
 	case "reap":
 		return cmdAgentsReap(args[1:])
 	case "status", "result", "tail", "cancel":

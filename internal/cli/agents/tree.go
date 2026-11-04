@@ -1,4 +1,5 @@
-package cli
+// Package agents holds the `claude-code agents` subcommand handlers.
+package agents
 
 import (
 	"fmt"
@@ -21,8 +22,8 @@ var agentsTreePage = helptext.Page{
 		"--background adds idle and finished work.",
 }
 
-// cmdAgentsTree is `claude-code agents tree`.
-func cmdAgentsTree(args []string) int {
+// Tree is `claude-code agents tree`.
+func Tree(args []string) int {
 	fs := helptext.NewFlagSet("agents tree", agentsTreePage)
 	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
