@@ -98,8 +98,8 @@ func gradientCells(v values, cfg Config) []cell {
 	}
 	emitted, prev := false, ""
 	for _, key := range cfg.Order {
-		if key == "path" || key == "agents" || !cfg.seg(key, true) {
-			continue // agents opens the git section, below
+		if key == "path" || !cfg.seg(key, true) {
+			continue
 		}
 		if key == "context" {
 			pushSep(sepMajor)
@@ -125,10 +125,7 @@ func gradientCells(v values, cfg Config) []cell {
 		push(text, "g")
 		emitted, prev = true, key
 	}
-	var right []string // the git section: agent count, then branch
-	if cfg.seg("agents", true) && v.agents != "" {
-		right = append(right, v.agents)
-	}
+	var right []string // the git section: the branch
 	if cfg.seg("git", true) && v.branch != "" {
 		right = append(right, truncBranch(v.branch, cfg.BranchMax))
 	}

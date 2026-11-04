@@ -327,7 +327,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " anthropic·max  ·  Opus 5  ·  0% ") || !strings.Contains(got, "1 ◉") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " anthropic·max  ·  Opus 5  ·  0% ") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -341,7 +341,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( anthropic·max ) ( Opus 5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 ) ( 1 ◉ )"
+	want := "tester:/nowhere/proj | ( anthropic·max ) ( Opus 5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
