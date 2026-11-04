@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/shellscope"
@@ -15,7 +16,7 @@ import (
 // CopilotBashHook is the `claude-code hook <name>` spelling agents/copilot.md carries; it is not a settings.json event.
 const CopilotBashHook = "copilot-bash"
 
-const copilotBashReason = "copilot-bash: BLOCKED — Bash is limited to go test|vet|build|fmt|list|mod tidy, gofmt, goimports, make lint|fmt|test|build, read-only git, git add <paths>, git commit (no --amend, --no-verify), 2>&1, paths in the cwd or ~/worktrees, ls cat head tail wc grep rg find, claude-code copilot|worktree merge|test mutate."
+const copilotBashReason = "copilot-bash: BLOCKED — Bash is limited to go test|vet|build|fmt|list|mod tidy, gofmt, goimports, make lint|fmt|test|build, read-only git, git add <paths>, git commit (no --amend, --no-verify), 2>&1, paths in the cwd or ~/worktrees, ls cat head tail wc grep rg find, claude-code copilot|worktree merge|test mutate|review (no -o/--output)."
 
 // claudeSelf spells the harness binary the way shells and agents write it; each form reads as plain claude-code.
 func claudeSelf() []string {
@@ -28,7 +29,15 @@ func copilotBashExtra(w []string) bool {
 	if len(w) < 2 || w[0] != "claude-code" {
 		return false
 	}
-	return w[1] == "copilot" || (w[1] == "worktree" && len(w) > 2 && w[2] == "merge")
+	return w[1] == "copilot" || (w[1] == "worktree" && len(w) > 2 && w[2] == "merge") || (w[1] == "review" && !reviewWrites(w[2:]))
+}
+
+// reviewWrites reports a -o/--output flag: review quality|pr|report write that file anywhere, outside the cwd guard.
+func reviewWrites(args []string) bool {
+	return slices.ContainsFunc(args, func(a string) bool {
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		return strings.HasPrefix(a, "-") && (name == "o" || name == "output")
+	})
 }
 
 // copilotBash reads one hook JSON from stdin and exits 2 unless every chained segment is allowed (fail closed).
