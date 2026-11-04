@@ -128,16 +128,22 @@ func formatsCheck() Check {
 			stale = append(stale, fmt.Sprintf("%s: schema %d (want %d)", f.Name, v, f.Version))
 		}
 	}
+	stale = append(stale, pendingFormatDetails()...)
+	if len(stale) > 0 {
+		return Check{Name: "formats", OK: false, Detail: strings.Join(stale, " · ")}
+	}
+	return Check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current · %d migrations applied", current, ledgerLines())}
+}
+
+func pendingFormatDetails() []string {
+	var stale []string
 	for _, s := range schemas.Pending() {
 		if !s.Rewrite || s.Err != "" {
 			continue // migrate-on-read rows are informational
 		}
 		stale = append(stale, fmt.Sprintf("%s: 1 file at v%d (stale, install migrates)", s.Format, s.From))
 	}
-	if len(stale) > 0 {
-		return Check{Name: "formats", OK: false, Detail: strings.Join(stale, " · ")}
-	}
-	return Check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current · %d migrations applied", current, ledgerLines())}
+	return stale
 }
 
 func ledgerLines() int {
@@ -150,6 +156,21 @@ func ledgerLines() int {
 
 func stateLayoutCheck() Check {
 	root := filepath.Dir(paths.StateDir())
+	covered := coveredStatePaths(root)
+	var strays []string
+	for _, dir := range []string{root, paths.StateDir()} {
+		ents, _ := os.ReadDir(dir)
+		for _, e := range ents {
+			if covered[filepath.Join(dir, e.Name())] || knownStateName(e.Name()) {
+				continue
+			}
+			strays = append(strays, e.Name())
+		}
+	}
+	return stateLayoutResult(strays)
+}
+
+func coveredStatePaths(root string) map[string]bool {
 	covered := map[string]bool{}
 	for _, f := range schemas.All() {
 		if f.Glob == nil {
@@ -164,16 +185,10 @@ func stateLayoutCheck() Check {
 			}
 		}
 	}
-	var strays []string
-	for _, dir := range []string{root, paths.StateDir()} {
-		ents, _ := os.ReadDir(dir)
-		for _, e := range ents {
-			if covered[filepath.Join(dir, e.Name())] || knownStateName(e.Name()) {
-				continue
-			}
-			strays = append(strays, e.Name())
-		}
-	}
+	return covered
+}
+
+func stateLayoutResult(strays []string) Check {
 	if len(strays) == 0 {
 		return Check{Name: "state layout", OK: true, Detail: "all entries registered"}
 	}

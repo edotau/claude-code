@@ -76,18 +76,26 @@ func codexFileOverrides(path string) ([]string, error) {
 		case strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]"):
 			table = strings.TrimSpace(line[1:len(line)-1]) + "."
 		default:
-			k, v, ok := strings.Cut(line, "=")
-			v = strings.TrimSpace(v)
-			if !ok || v == "" || strings.HasSuffix(v, "[") || strings.HasSuffix(v, "{") || strings.HasPrefix(v, `"""`) {
-				return nil, fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
+			value, err := codexOverrideValue(line, table, path, n)
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, "-c", table+strings.TrimSpace(k)+"="+v)
+			out = append(out, "-c", value)
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("-f: %w", err)
 	}
 	return out, nil
+}
+
+func codexOverrideValue(line, table, path string, n int) (string, error) {
+	k, v, ok := strings.Cut(line, "=")
+	v = strings.TrimSpace(v)
+	if !ok || v == "" || strings.HasSuffix(v, "[") || strings.HasSuffix(v, "{") || strings.HasPrefix(v, `"""`) {
+		return "", fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
+	}
+	return table + strings.TrimSpace(k) + "=" + v, nil
 }
 
 // codexRouteDetail reports codex's own CODEX_MODEL/CODEX_REASONING_EFFORT pins — names/booleans only,

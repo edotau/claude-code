@@ -163,12 +163,16 @@ func TestParseClaudeStreamTransport(t *testing.T) {
 	if err != nil || res.Answer != "hi" || out.String() != "hi" {
 		t.Fatalf("res=%+v out=%q err=%v", res, out.String(), err)
 	}
-	tr := res.Transport
-	if tr == nil || tr.Retries != 2 || !slices.Equal(tr.RetryStatuses, []int{529, 0}) || tr.FirstEventMs != 150 || tr.MaxGapMs != 800 {
-		t.Fatalf("transport = %+v", tr)
-	}
+	assertClaudeRetryTransport(t, res.Transport)
 	if len(lines) < 1 || lines[0] != "retry: attempt 1/10 status=529 retry_in=500ms" {
 		t.Fatalf("log lines = %v", lines)
+	}
+}
+
+func assertClaudeRetryTransport(t *testing.T, tr *agent.Transport) {
+	t.Helper()
+	if tr == nil || tr.Retries != 2 || !slices.Equal(tr.RetryStatuses, []int{529, 0}) || tr.FirstEventMs != 150 || tr.MaxGapMs != 800 {
+		t.Fatalf("transport = %+v", tr)
 	}
 }
 

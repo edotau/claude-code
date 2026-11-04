@@ -87,28 +87,28 @@ func TestMergePreservesForeign(t *testing.T) {
 	if len(doc.Permissions) != 3 || !slices.Equal(allow, []string{"Bash(ls:*)"}) {
 		t.Errorf("permissions were changed: %s", merged)
 	}
-	cmds := map[string][]string{}
-	for ev, groups := range doc.Hooks {
-		for _, g := range groups {
-			for _, h := range g.Hooks {
-				cmds[ev] = append(cmds[ev], h.Command)
-			}
-		}
+	checkMergedHooks(t, doc.Hooks, merged, sum)
+	checkMergeSummary(t, sum)
+	checkMergeIdempotent(t, merged, rendered)
+}
+
+func checkMergeIdempotent(t *testing.T, merged, rendered []byte) {
+	t.Helper()
+	again, _, err := Merge(merged, rendered)
+	if err != nil || string(again) != string(merged) {
+		t.Errorf("merge is not idempotent:\n%s", again)
 	}
+}
+
+func checkMergedHooks(t *testing.T, hooks map[string][]MatcherGroup, merged []byte, sum Summary) {
+	t.Helper()
+	cmds := hookCommands(hooks)
 	stop := strings.Join(cmds["Stop"], "\n")
 	if !strings.Contains(stop, "foreign-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook Stop") {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
 	// PreToolUse carries the dispatcher entry plus the safety gate's own entry.
-	wantPre, claudeHooks := 0, 0
-	for ev, groups := range Events() {
-		for _, g := range groups {
-			claudeHooks += len(g.Hooks)
-			if ev == EventPreToolUse {
-				wantPre += len(g.Hooks)
-			}
-		}
-	}
+	wantPre, claudeHooks := renderedHookCounts()
 	if len(cmds["SessionEnd"]) != 2 || cmds["SessionEnd"][1] != "foreign-end" || len(cmds["PreToolUse"]) != wantPre {
 		t.Errorf("hooks: %v", cmds)
 	}
@@ -118,13 +118,37 @@ func TestMergePreservesForeign(t *testing.T) {
 	if sum.ForeignHooks != 2 || sum.HarnessHooks != claudeHooks {
 		t.Errorf("summary %+v", sum)
 	}
+}
+
+func checkMergeSummary(t *testing.T, sum Summary) {
+	t.Helper()
 	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "companyAnnouncements,autoUpdates") {
 		t.Errorf("kept %v", sum.Kept)
 	}
-	again, _, err := Merge(merged, rendered)
-	if err != nil || string(again) != string(merged) {
-		t.Errorf("merge is not idempotent:\n%s", again)
+}
+
+func hookCommands(hooks map[string][]MatcherGroup) map[string][]string {
+	cmds := map[string][]string{}
+	for ev, groups := range hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				cmds[ev] = append(cmds[ev], h.Command)
+			}
+		}
 	}
+	return cmds
+}
+
+func renderedHookCounts() (wantPre, claudeHooks int) {
+	for ev, groups := range Events() {
+		for _, g := range groups {
+			claudeHooks += len(g.Hooks)
+			if ev == EventPreToolUse {
+				wantPre += len(g.Hooks)
+			}
+		}
+	}
+	return wantPre, claudeHooks
 }
 
 // hermeticCacheDir isolates CLAUDE_CONFIG_DIR so WriteWithBackup's paths.BackupPath never touches
@@ -191,17 +215,22 @@ func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
 	if !bytes.Equal(got, original) {
 		t.Errorf("first backup = %q, want %q", got, original)
 	}
-	for _, b := range []string{first, second} {
-		if !strings.HasPrefix(b, filepath.Join(paths.CacheDir(), "backups")) {
-			t.Errorf("backup %q, want it under CacheDir()/backups", b)
-		}
-	}
+	checkBackupLocations(t, first, second)
 	siblings, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(siblings) != 2 { // settings.json and its advisory lock file
 		t.Errorf("files beside dest = %v, want only settings.json and its .lock", siblings)
+	}
+}
+
+func checkBackupLocations(t *testing.T, backups ...string) {
+	t.Helper()
+	for _, b := range backups {
+		if !strings.HasPrefix(b, filepath.Join(paths.CacheDir(), "backups")) {
+			t.Errorf("backup %q, want it under CacheDir()/backups", b)
+		}
 	}
 }
 
@@ -379,6 +408,12 @@ func TestSectionsCoverRenderedKeys(t *testing.T) {
 	for e := range env {
 		keys = append(keys, e)
 	}
+	checkRenderedKeyOwners(t, keys, owner)
+	checkSectionKeys(t, owner, obj, env)
+}
+
+func checkRenderedKeyOwners(t *testing.T, keys []string, owner map[string][]string) {
+	t.Helper()
 	for _, k := range keys {
 		switch k {
 		case "hooks", "env", "permissions", "statusLine": // generated, or an object the page cannot edit
@@ -395,6 +430,10 @@ func TestSectionsCoverRenderedKeys(t *testing.T) {
 			t.Errorf("rendered key %q owned by %d sections: %v", k, len(owners), owners)
 		}
 	}
+}
+
+func checkSectionKeys(t *testing.T, owner map[string][]string, obj, env map[string]json.RawMessage) {
+	t.Helper()
 	for k, owners := range owner {
 		if len(owners) > 1 {
 			t.Errorf("section key %q duplicated across sections: %v", k, owners)

@@ -132,7 +132,20 @@ func codexBlockFromArgv(argv []string) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-// splitTopLevelInline splits a TOML inline table "{ k = v, k2 = { ... } }" on its top-level commas, ignoring any inside quoted strings.
+func codexInlineQuote(r, quote rune, escaped bool) (rune, bool) {
+	switch {
+	case escaped:
+		return quote, false
+	case r == '\\' && quote == '"':
+		return quote, true
+	case r == quote:
+		return 0, false
+	default:
+		return quote, false
+	}
+}
+
+// splitTopLevelInline splits top-level TOML inline-table commas, ignoring quoted strings.
 func splitTopLevelInline(s string) []string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "{")
@@ -147,14 +160,7 @@ func splitTopLevelInline(s string) []string {
 	escaped := false
 	for i, r := range s {
 		if quote != 0 {
-			switch {
-			case escaped:
-				escaped = false
-			case r == '\\' && quote == '"':
-				escaped = true
-			case r == quote:
-				quote = 0
-			}
+			quote, escaped = codexInlineQuote(r, quote, escaped)
 			continue
 		}
 		switch r {

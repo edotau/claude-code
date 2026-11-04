@@ -229,13 +229,9 @@ func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum setti
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return file, nil, nil, settings.Summary{}, "", err
 	}
-	if errors.Is(err, fs.ErrNotExist) && !dryRun { // a fresh install restores the defaults whole
-		r, rerr := RestoreSettings(file)
-		if rerr != nil {
-			return file, nil, nil, settings.Summary{}, "", rerr
-		}
-		_, sum, err = settings.Merge(nil, r.Data)
-		return file, nil, r.Data, sum, r.Backup, err
+	if restoreMissingSettings(err, dryRun) { // a fresh install restores the defaults whole
+		merged, sum, backup, err = restoreNewSettings(file)
+		return file, nil, merged, sum, backup, err
 	}
 	rendered, err := settings.RenderLive()
 	if err != nil {
@@ -251,15 +247,33 @@ func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum setti
 	if string(merged) == string(existing) || dryRun {
 		return file, existing, merged, sum, "", nil
 	}
-	backup, err = settings.UpdateWithBackup(file, func(old []byte) ([]byte, error) {
-		var mergeErr error // re-merge the bytes read under the lock, so a concurrent writer's update survives
-		merged, sum, mergeErr = settings.Merge(old, rendered)
-		return merged, mergeErr
-	})
+	merged, sum, backup, err = updateMergedSettings(file, rendered, merged, sum)
 	if len(existing) > 0 {
 		sum.Drift = driftExceptHooks(merged, rendered)
 	}
 	return file, existing, merged, sum, backup, err
+}
+
+func restoreNewSettings(file string) ([]byte, settings.Summary, string, error) {
+	r, err := RestoreSettings(file)
+	if err != nil {
+		return nil, settings.Summary{}, "", err
+	}
+	_, sum, err := settings.Merge(nil, r.Data)
+	return r.Data, sum, r.Backup, err
+}
+
+func updateMergedSettings(file string, rendered, merged []byte, sum settings.Summary) ([]byte, settings.Summary, string, error) {
+	backup, err := settings.UpdateWithBackup(file, func(old []byte) ([]byte, error) {
+		var mergeErr error // re-merge the bytes read under the lock, so a concurrent writer's update survives
+		merged, sum, mergeErr = settings.Merge(old, rendered)
+		return merged, mergeErr
+	})
+	return merged, sum, backup, err
+}
+
+func restoreMissingSettings(err error, dryRun bool) bool {
+	return errors.Is(err, fs.ErrNotExist) && !dryRun
 }
 
 // driftExceptHooks lists the keys of settings that differ from the defaults render, hooks aside.
@@ -353,21 +367,25 @@ func windowsSettingsCompact(w io.Writer) {
 		}
 		fmt.Fprintf(w, "settings (windows) error  %v\n", err)
 	default:
-		status, backup := "updated", ""
-		for _, l := range lines {
-			switch tl := strings.TrimSpace(l); {
-			case tl == "unchanged":
-				status = "unchanged"
-			case strings.HasPrefix(tl, "backup "):
-				backup = strings.TrimSpace(strings.TrimPrefix(tl, "backup"))
-			}
-		}
-		line := "settings (windows) " + status
-		if backup != "" {
-			line += " · backup …" + filepath.Base(backup)
-		}
-		fmt.Fprintln(w, line)
+		fmt.Fprintln(w, windowsSettingsSummary(lines))
 	}
+}
+
+func windowsSettingsSummary(lines []string) string {
+	status, backup := "updated", ""
+	for _, l := range lines {
+		switch tl := strings.TrimSpace(l); {
+		case tl == "unchanged":
+			status = "unchanged"
+		case strings.HasPrefix(tl, "backup "):
+			backup = strings.TrimSpace(strings.TrimPrefix(tl, "backup"))
+		}
+	}
+	line := "settings (windows) " + status
+	if backup != "" {
+		line += " · backup …" + filepath.Base(backup)
+	}
+	return line
 }
 
 // agentsSyncCompact runs the agents/skills/instructions projection and reports the agents synced, or
@@ -423,6 +441,25 @@ func extrasCompact(w io.Writer) string {
 	} else {
 		tokens = append(tokens, "completion ok")
 	}
+	tokens = append(tokens, clipboardExtras(w)...)
+	var tbuf bytes.Buffer
+	seedTmuxConf(&tbuf, false)
+	switch txt := tbuf.String(); {
+	case strings.Contains(txt, "exists (kept)"):
+		tokens = append(tokens, "tmux kept")
+	case strings.Contains(txt, "wrote"):
+		tokens = append(tokens, "tmux wrote")
+	case strings.Contains(txt, "skip"):
+		fmt.Fprint(w, txt)
+	}
+	if len(tokens) == 0 {
+		return ""
+	}
+	return "extras   " + strings.Join(tokens, " · ")
+}
+
+func clipboardExtras(w io.Writer) []string {
+	var tokens []string
 	var cbuf bytes.Buffer
 	if err := clipboard.InstallProxy(&cbuf, false); err != nil {
 		fmt.Fprintf(w, "clipboard skip  %v\n", err)
@@ -439,20 +476,7 @@ func extrasCompact(w io.Writer) string {
 	} else if lbuf.Len() > 0 {
 		tokens = append(tokens, "clip agent ok")
 	}
-	var tbuf bytes.Buffer
-	seedTmuxConf(&tbuf, false)
-	switch txt := tbuf.String(); {
-	case strings.Contains(txt, "exists (kept)"):
-		tokens = append(tokens, "tmux kept")
-	case strings.Contains(txt, "wrote"):
-		tokens = append(tokens, "tmux wrote")
-	case strings.Contains(txt, "skip"):
-		fmt.Fprint(w, txt)
-	}
-	if len(tokens) == 0 {
-		return ""
-	}
-	return "extras   " + strings.Join(tokens, " · ")
+	return tokens
 }
 
 // splitNonEmpty splits s on newlines, dropping the trailing blank line and any other empty lines.

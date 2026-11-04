@@ -35,52 +35,68 @@ func Sections() ([]Section, error) {
 	if err != nil {
 		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
 	}
-	by := map[string][]string{}
-	seen := map[string]bool{}
-	add := func(name, key string) {
-		if !seen[key] {
-			seen[key] = true
-			by[name] = append(by[name], key)
-		}
-	}
+	state := sectionState{by: map[string][]string{}, seen: map[string]bool{}}
 	for _, k := range o.keys {
-		if k == "env" {
-			env, err := parseObject(o.vals[k])
-			if err != nil {
-				return nil, fmt.Errorf("defaults/claude/settings.json env: %w", err)
-			}
-			for _, e := range env.keys {
-				if _, ok := FieldFor(e); ok && !CredentialKey(e) {
-					add("env", e)
-				}
-			}
-			continue
+		if err := state.addDefault(k, o.vals[k]); err != nil {
+			return nil, err
 		}
-		f, ok := FieldFor(k)
-		if !ok || f.Kind == KindObject || f.Kind == KindArray || CredentialKey(k) {
-			continue
-		}
-		name := f.Section
-		if name == "" {
-			name = structuralSection[k]
-		}
-		if name == "" {
-			name = "more"
-		}
-		add(name, k)
 	}
 	for _, f := range Catalog() {
 		if f.Section != "" {
-			add(f.Section, f.Key)
+			state.add(f.Section, f.Key)
 		}
 	}
 	sections := make([]Section, 0, len(sectionOrder))
 	for _, name := range sectionOrder {
-		if keys := by[name]; len(keys) > 0 {
+		if keys := state.by[name]; len(keys) > 0 {
 			sections = append(sections, Section{Name: name, Keys: keys})
 		}
 	}
 	return sections, nil
+}
+
+type sectionState struct {
+	by   map[string][]string
+	seen map[string]bool
+}
+
+func (s *sectionState) add(name, key string) {
+	if !s.seen[key] {
+		s.seen[key] = true
+		s.by[name] = append(s.by[name], key)
+	}
+}
+
+func (s *sectionState) addDefault(k string, raw json.RawMessage) error {
+	if k == "env" {
+		return s.addEnv(raw)
+	}
+	f, ok := FieldFor(k)
+	if !ok || f.Kind == KindObject || f.Kind == KindArray || CredentialKey(k) {
+		return nil
+	}
+	name := f.Section
+	if name == "" {
+		name = structuralSection[k]
+	}
+	if name == "" {
+		name = "more"
+	}
+	s.add(name, k)
+	return nil
+}
+
+func (s *sectionState) addEnv(raw json.RawMessage) error {
+	env, err := parseObject(raw)
+	if err != nil {
+		return fmt.Errorf("defaults/claude/settings.json env: %w", err)
+	}
+	for _, e := range env.keys {
+		if _, ok := FieldFor(e); ok && !CredentialKey(e) {
+			s.add("env", e)
+		}
+	}
+	return nil
 }
 
 // loadDefaults parses the embedded defaults file, expanding ${HOOK_BIN}.
@@ -134,11 +150,7 @@ func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 	if err != nil {
 		return nil, sum, err
 	}
-	for _, k := range ex.keys {
-		if _, owned := tp.vals[k]; !owned && !slices.Contains(runtimeKeys, k) {
-			sum.Kept = append(sum.Kept, k)
-		}
-	}
+	sum.Kept = keptKeys(ex, tp)
 	for _, k := range tp.keys {
 		if k != "hooks" && !fresh {
 			continue
@@ -153,6 +165,16 @@ func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 	}
 	out, err := ex.marshal()
 	return out, sum, err
+}
+
+func keptKeys(ex, tp *object) []string {
+	var kept []string
+	for _, k := range ex.keys {
+		if _, owned := tp.vals[k]; !owned && !slices.Contains(runtimeKeys, k) {
+			kept = append(kept, k)
+		}
+	}
+	return kept
 }
 
 // mergeHooks strips harness commands from existing events, then writes harness groups followed by the
@@ -174,18 +196,9 @@ func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, e
 		}
 	}
 	for _, ev := range o.keys {
-		var groups []MatcherGroup
-		if err := json.Unmarshal(o.vals[ev], &groups); err != nil {
+		raws, err := harnessHookGroups(o.vals[ev], sum)
+		if err != nil {
 			return nil, err
-		}
-		var raws []json.RawMessage
-		for _, g := range groups {
-			sum.HarnessHooks += len(g.Hooks)
-			raw, err := textutil.MarshalNoEscape(g)
-			if err != nil {
-				return nil, err
-			}
-			raws = append(raws, raw)
 		}
 		events[ev] = append(raws, events[ev]...)
 		if _, ok := b.vals[ev]; !ok {
@@ -199,6 +212,23 @@ func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, e
 		}
 	}
 	return out.marshal()
+}
+
+func harnessHookGroups(raw json.RawMessage, sum *Summary) ([]json.RawMessage, error) {
+	var groups []MatcherGroup
+	if err := json.Unmarshal(raw, &groups); err != nil {
+		return nil, err
+	}
+	var raws []json.RawMessage
+	for _, g := range groups {
+		sum.HarnessHooks += len(g.Hooks)
+		raw, err := textutil.MarshalNoEscape(g)
+		if err != nil {
+			return nil, err
+		}
+		raws = append(raws, raw)
+	}
+	return raws, nil
 }
 
 func foreignHookGroups(event string, raw json.RawMessage, sum *Summary) ([]json.RawMessage, error) {

@@ -51,11 +51,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	bin, err := findClaude()
-	if err != nil {
-		return agent.Plan{}, err
-	}
-	self, err := selfBinary()
+	bin, self, err := claudeLaunchBinaries()
 	if err != nil {
 		return agent.Plan{}, err
 	}
@@ -108,7 +104,11 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 		plan.ForeignBase = true
 		dropHarnessCredential(plan)
 	}
-	for _, k := range keep {
+	keepShellKeys(plan, keep, inherited)
+}
+
+func keepShellKeys(plan *agent.Plan, keys []string, inherited bool) {
+	for _, k := range keys {
 		if strings.TrimSpace(os.Getenv(k)) == "" || (k == "ANTHROPIC_BASE_URL" && inherited) {
 			continue
 		}
@@ -223,27 +223,7 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 		}
 	}
 	if sel.NeedsRouter(reg) {
-		for _, t := range sel.Aliases {
-			if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
-				return "", "", fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
-			}
-		}
-		base, err := agent.EnsureRouter(ctx)
-		if err != nil {
-			return "", "", fmt.Errorf("proxy: %w", err)
-		}
-		plan.Set["ANTHROPIC_BASE_URL"] = proxy.SessionBase(base, p.Name)
-		hdrs := []string{proxy.AgentHeader + ": claude"} // the ledger's agent column; Claude Code adds the session id itself
-		if passthrough {
-			// The login stays in Authorization, so the router secret rides in its own header.
-			secret, err := proxy.ClientSecret()
-			if err != nil {
-				return "", "", fmt.Errorf("proxy secret: %w", err)
-			}
-			hdrs = append(hdrs, proxy.ClientHeader+": "+secret)
-		}
-		plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(hdrs, "\n")
-		return shellQuote(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
+		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
 	}
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
 		plan.Set["ANTHROPIC_BASE_URL"] = route
@@ -255,6 +235,39 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
 	}
 	return helper, filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json"), nil
+}
+
+func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (string, string, error) {
+	for _, t := range sel.Aliases {
+		if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
+			return "", "", fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
+		}
+	}
+	base, err := agent.EnsureRouter(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("proxy: %w", err)
+	}
+	plan.Set["ANTHROPIC_BASE_URL"] = proxy.SessionBase(base, p.Name)
+	hdrs := []string{proxy.AgentHeader + ": claude"} // Claude Code adds the session id itself.
+	if passthrough {
+		// The login stays in Authorization, so the router secret rides in its own header.
+		secret, err := proxy.ClientSecret()
+		if err != nil {
+			return "", "", fmt.Errorf("proxy secret: %w", err)
+		}
+		hdrs = append(hdrs, proxy.ClientHeader+": "+secret)
+	}
+	plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(hdrs, "\n")
+	return shellQuote(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
+}
+
+func claudeLaunchBinaries() (string, string, error) {
+	bin, err := findClaude()
+	if err != nil {
+		return "", "", err
+	}
+	self, err := selfBinary()
+	return bin, self, err
 }
 
 // applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.

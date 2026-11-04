@@ -82,15 +82,7 @@ func TestClaudeNoToolsAnthropic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "ok" || res.Answer != "ok" || res.Model != "claude-haiku-4-5-20251001" || res.Usage != (agent.Usage{InputTokens: 7, OutputTokens: 2}) {
-		t.Errorf("res = %+v, stream %q", res, out.String())
-	}
-	if gotKey != "anth-key" || gotAuth != "" {
-		t.Errorf("auth headers: x-api-key=%q authorization=%q", gotKey, gotAuth)
-	}
-	if !strings.Contains(gotBody, `"model":"claude-haiku-4-5"`) || !strings.Contains(gotBody, `"effort":"low"`) {
-		t.Errorf("body = %s", gotBody)
-	}
+	assertAnthropicNoToolsResponse(t, res, out.String(), gotKey, gotAuth, gotBody)
 
 	status = http.StatusTooManyRequests
 	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true}, agent.Discard)
@@ -126,9 +118,7 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "hello" || res.Model != "gpt-x-2026" || res.Provider != "toai" || res.Usage != (agent.Usage{InputTokens: 5, OutputTokens: 2}) {
-		t.Errorf("res = %+v stream %q", res, out.String())
-	}
+	assertOpenAINoToolsResponse(t, res, out.String())
 	if gotAuth != "Bearer oai-key" || !strings.Contains(gotBody, `"reasoning_effort":"high"`) || !strings.Contains(gotBody, `"stream":true`) {
 		t.Errorf("auth=%q body=%s", gotAuth, gotBody)
 	}
@@ -137,6 +127,26 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 	var he *httpError
 	if !errors.As(err, &he) || agent.Classify("claude", err, false).Kind != agent.KindTransient {
 		t.Errorf("502 = %v", err)
+	}
+}
+
+func assertAnthropicNoToolsResponse(t *testing.T, res agent.Result, output, key, auth, body string) {
+	t.Helper()
+	if output != "ok" || res.Answer != "ok" || res.Model != "claude-haiku-4-5-20251001" || res.Usage != (agent.Usage{InputTokens: 7, OutputTokens: 2}) {
+		t.Errorf("res = %+v, stream %q", res, output)
+	}
+	if key != "anth-key" || auth != "" {
+		t.Errorf("auth headers: x-api-key=%q authorization=%q", key, auth)
+	}
+	if !strings.Contains(body, `"model":"claude-haiku-4-5"`) || !strings.Contains(body, `"effort":"low"`) {
+		t.Errorf("body = %s", body)
+	}
+}
+
+func assertOpenAINoToolsResponse(t *testing.T, res agent.Result, output string) {
+	t.Helper()
+	if output != "hello" || res.Model != "gpt-x-2026" || res.Provider != "toai" || res.Usage != (agent.Usage{InputTokens: 5, OutputTokens: 2}) {
+		t.Errorf("res = %+v stream %q", res, output)
 	}
 }
 

@@ -22,6 +22,23 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	path := filepath.Join(dir, "native", "config.toml")
 	other := filepath.Join(dir, "other", "config.toml")
 	fixture := []byte("private-config-fixture-68b19d\nforeign = 'preserve exactly'\n")
+	seedCodexConfigHistory(t, path, other, fixture)
+	assertCodexConfigHistoryEncrypted(t, dir, fixture)
+	oldKid, newKid, err := vault.RotateKey()
+	if err != nil || oldKid == newKid {
+		t.Fatalf("rotation did not change the key: %v", err)
+	}
+	assertCodexRotatedContents(t, path, fixture)
+	assertCodexRotatedMetadata(t, newKid)
+	consumeCodexHistoryVersions(t, path)
+	if _, found, err := codex.LatestCodexBackup(path); err != nil || found {
+		t.Fatalf("more than five snapshots retained: found=%v, err=%v", found, err)
+	}
+	assertCodexHistoryOtherAndBaseline(t, path, other, fixture)
+}
+
+func seedCodexConfigHistory(t *testing.T, path, other string, fixture []byte) {
+	t.Helper()
 	if err := codex.SaveCodexBaseline(path, fixture); err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +51,10 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	vaulttest.Secret(t, "API_KEY", "credential-fixture")
+}
+
+func assertCodexConfigHistoryEncrypted(t *testing.T, dir string, fixture []byte) {
+	t.Helper()
 	pairs, err := vault.ExportPairs(nil)
 	if err != nil || !reflect.DeepEqual(pairs, []vault.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
 		t.Fatalf("credential export includes unexpected entries: %v, %v", pairs, err)
@@ -47,18 +68,22 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 			t.Fatal("vault contains plaintext config contents")
 		}
 	}
-	oldKid, newKid, err := vault.RotateKey()
-	if err != nil || oldKid == newKid {
-		t.Fatalf("rotation did not change the key: %v", err)
-	}
+}
+
+func assertCodexRotatedContents(t *testing.T, path string, fixture []byte) {
+	t.Helper()
 	baseline, err := codex.LoadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("baseline did not survive rotation: %v", err)
 	}
-	pairs, err = vault.ExportPairs(nil)
+	pairs, err := vault.ExportPairs(nil)
 	if err != nil || !reflect.DeepEqual(pairs, []vault.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
 		t.Fatalf("credential did not survive rotation: %v", err)
 	}
+}
+
+func assertCodexRotatedMetadata(t *testing.T, newKid string) {
+	t.Helper()
 	if err := vault.View(func(tx *vault.Tx) error {
 		for _, name := range tx.Names(vault.SettingsBackups) {
 			r, found, err := tx.RecordIn(vault.SettingsBackups, name)
@@ -70,6 +95,10 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func consumeCodexHistoryVersions(t *testing.T, path string) {
+	t.Helper()
 	for i := 6; i >= 2; i-- {
 		b, found, err := codex.LatestCodexBackup(path)
 		if err != nil || !found || string(b.Data) != fmt.Sprintf("version %d", i) || !b.Existed || b.Path != path {
@@ -79,14 +108,15 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, found, err := codex.LatestCodexBackup(path); err != nil || found {
-		t.Fatalf("more than five snapshots retained: found=%v, err=%v", found, err)
-	}
+}
+
+func assertCodexHistoryOtherAndBaseline(t *testing.T, path, other string, fixture []byte) {
+	t.Helper()
 	b, found, err := codex.LatestCodexBackup(other)
 	if err != nil || !found || !bytes.Equal(b.Data, fixture) || b.Existed || b.Path != other {
 		t.Fatalf("other path snapshot changed: found=%v, err=%v", found, err)
 	}
-	baseline, err = codex.LoadCodexBaseline(path)
+	baseline, err := codex.LoadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("snapshot consumption changed baseline: %v", err)
 	}

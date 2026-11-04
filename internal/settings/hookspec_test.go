@@ -19,6 +19,9 @@ func TestSettingsJSON(t *testing.T) {
 	if len(block[EventStop]) != 1 || len(block[EventStop][0].Hooks) != 1 || len(block[EventSessionStart]) != 1 || len(block[EventSessionEnd]) != 1 || len(block[EventUserPromptSubmit]) != 1 || block[EventPreToolUse][0].Matcher != "Bash" {
 		t.Errorf("block %s", b)
 	}
+}
+
+func TestIsHarnessSafetyCommand(t *testing.T) {
 	if !IsHarness("$HOME/.claude/bin/claude-code hook PreToolUse --safety-scan") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("foreign hook") {
 		t.Error("IsHarness")
 	}
@@ -64,6 +67,13 @@ func TestPlanHooksRegistered(t *testing.T) {
 	if _, ok := byName["plan-template"]; ok {
 		t.Fatal("retired plan-template hook remains registered")
 	}
+	checkDocsPlacement(t, byName, docsCount)
+	checkDocsPlanMirror(t, byName)
+	checkRenderedPlanHooks(t)
+}
+
+func checkDocsPlacement(t *testing.T, byName map[string]EventSpec, docsCount int) {
+	t.Helper()
 	docs, ok := byName["docs-placement"]
 	if !ok || docsCount != 1 || docs.Group != "docs" || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Blocks {
 		t.Fatalf("docs-placement = %+v, ok=%v, count=%d", docs, ok, docsCount)
@@ -71,10 +81,18 @@ func TestPlanHooksRegistered(t *testing.T) {
 	if g, _ := GroupOf("docs-placement"); g.Gate {
 		t.Fatal("docs group is a gate group; docs-placement must run inside the dispatcher")
 	}
+}
+
+func checkDocsPlanMirror(t *testing.T, byName map[string]EventSpec) {
+	t.Helper()
 	mirror, ok := byName["docs-plan-mirror"]
 	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit" || mirror.Blocks {
 		t.Fatalf("docs-plan-mirror = %+v, ok=%v", mirror, ok)
 	}
+}
+
+func checkRenderedPlanHooks(t *testing.T) {
+	t.Helper()
 	b, err := SettingsJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -84,25 +102,32 @@ func TestPlanHooksRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := 0
-	retired := EventSpec{Name: "plan-template", Event: EventPreToolUse}
 	for event, groups := range block {
 		for _, g := range groups {
-			for _, h := range g.Hooks {
-				if h.Command == retired.Command() {
-					t.Fatalf("rendered settings contain retired plan-template: %s", b)
-				}
-				if h.Command == DispatcherCommand(EventPreToolUse) {
-					found++
-					if event != EventPreToolUse || !strings.Contains(g.Matcher, "Write|Edit") {
-						t.Errorf("PreToolUse dispatcher carries matcher %q, want it to cover docs-placement's Write|Edit", g.Matcher)
-					}
-				}
-			}
+			found += checkPlanHookGroup(t, event, g, b)
 		}
 	}
 	if found != 1 {
 		t.Errorf("rendered settings contain %d PreToolUse dispatcher entries, want 1: %s", found, b)
 	}
+}
+
+func checkPlanHookGroup(t *testing.T, event string, g MatcherGroup, b []byte) int {
+	t.Helper()
+	retired := EventSpec{Name: "plan-template", Event: EventPreToolUse}
+	found := 0
+	for _, h := range g.Hooks {
+		if h.Command == retired.Command() {
+			t.Fatalf("rendered settings contain retired plan-template: %s", b)
+		}
+		if h.Command == DispatcherCommand(EventPreToolUse) {
+			found++
+			if event != EventPreToolUse || !strings.Contains(g.Matcher, "Write|Edit") {
+				t.Errorf("PreToolUse dispatcher carries matcher %q, want it to cover docs-placement's Write|Edit", g.Matcher)
+			}
+		}
+	}
+	return found
 }
 
 // A merged dispatcher entry keeps the spinner text only when exactly one module on the event sets one.
@@ -134,6 +159,19 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 	if err := json.Unmarshal(b, &block); err != nil {
 		t.Fatal(err)
 	}
+	checkDispatcherEntries(t, block, ownEntriesPerEvent())
+	if n := len(block[EventPostToolUse]); n != 1 {
+		t.Errorf("PostToolUse: %d entries, want 1 dispatcher (access-trace, the only async handler, is gone)", n)
+	}
+	if n := len(block[EventPreToolUse]); n != 2 {
+		t.Errorf("PreToolUse: %d entries, want 2 (safety-scan alone, then the dispatcher)", n)
+	}
+	if !strings.Contains(string(b), `"`+DispatcherCommand("PreToolUse")+`"`) || !strings.Contains(string(b), "hook PreToolUse --safety-scan") {
+		t.Errorf("safety must render separately and the dispatcher must skip it: %s", b)
+	}
+}
+
+func ownEntriesPerEvent() map[string]int {
 	own := map[string]int{}
 	for _, s := range Specs() {
 		g, _ := GroupOf(s.Name)
@@ -141,6 +179,11 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 			own[s.Event]++
 		}
 	}
+	return own
+}
+
+func checkDispatcherEntries(t *testing.T, block map[string][]MatcherGroup, own map[string]int) {
+	t.Helper()
 	for ev, entries := range block {
 		dispatchers := 0
 		for _, e := range entries {
@@ -156,15 +199,6 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 		if len(entries) < 1+own[ev] {
 			t.Errorf("%s: %d entries, want at least %d", ev, len(entries), 1+own[ev])
 		}
-	}
-	if n := len(block[EventPostToolUse]); n != 1 {
-		t.Errorf("PostToolUse: %d entries, want 1 dispatcher (access-trace, the only async handler, is gone)", n)
-	}
-	if n := len(block[EventPreToolUse]); n != 2 {
-		t.Errorf("PreToolUse: %d entries, want 2 (safety-scan alone, then the dispatcher)", n)
-	}
-	if !strings.Contains(string(b), `"`+DispatcherCommand("PreToolUse")+`"`) || !strings.Contains(string(b), "hook PreToolUse --safety-scan") {
-		t.Errorf("safety must render separately and the dispatcher must skip it: %s", b)
 	}
 }
 

@@ -136,32 +136,20 @@ func MergeCodexTrust(raw string, entries map[string]string) string {
 	maps.Copy(remaining, entries)
 	var out strings.Builder
 	active, state, depth := "", "", 0
-	flush := func() {
-		if hash, ok := remaining[active]; ok {
-			if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
-				out.WriteByte('\n')
-			}
-			fmt.Fprintf(&out, "trusted_hash = %q\n", hash)
-			delete(remaining, active)
-		}
-	}
 	for _, line := range strings.SplitAfter(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
 		// A header only counts at depth 0: a "["-led line inside an open array (e.g. extra = [[1, 2]]) is not one.
 		if state == "" && depth == 0 && strings.HasPrefix(trimmed, "[") {
-			flush()
+			flushCodexTrust(&out, remaining, active)
 			active = codexTrustTableKey(trimmed)
 		}
-		if hash, ok := remaining[active]; ok && state == "" && depth == 0 {
-			if replacement, replaced := replaceCodexTrustedHash(line, hash); replaced {
-				line = replacement
-				delete(remaining, active)
-			}
+		if state == "" && depth == 0 {
+			line = mergeCodexTrustLine(line, remaining, active)
 		}
 		out.WriteString(line)
 		state, depth = agentconfig.TOMLLineState(line, state, depth)
 	}
-	flush()
+	flushCodexTrust(&out, remaining, active)
 	keys := make([]string, 0, len(remaining))
 	for key := range remaining {
 		keys = append(keys, key)
@@ -173,6 +161,28 @@ func MergeCodexTrust(raw string, entries map[string]string) string {
 		next = agentconfig.AppendTOML(next, section)
 	}
 	return next
+}
+
+func mergeCodexTrustLine(line string, remaining map[string]string, active string) string {
+	hash, ok := remaining[active]
+	if !ok {
+		return line
+	}
+	if replacement, replaced := replaceCodexTrustedHash(line, hash); replaced {
+		delete(remaining, active)
+		return replacement
+	}
+	return line
+}
+
+func flushCodexTrust(out *strings.Builder, remaining map[string]string, active string) {
+	if hash, ok := remaining[active]; ok {
+		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
+			out.WriteByte('\n')
+		}
+		fmt.Fprintf(out, "trusted_hash = %q\n", hash)
+		delete(remaining, active)
+	}
 }
 
 func codexTrustTableKey(line string) string {

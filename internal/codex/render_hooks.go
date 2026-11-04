@@ -119,37 +119,19 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o render.Rend
 	if err != nil {
 		return false, err
 	}
-	next := string(raw)
-	if section != "" {
-		next = codexBannerRE().ReplaceAllString(next, "") // strip any prior banner, then reinsert at the top-level spot
-		next = agentconfig.InsertTopLevelTOML(next, section)
-	}
+	next := insertCodexSection(string(raw), section)
 
 	// Compute the hooks merge (and read the existing hooks.json) before computing trust entries or
 	// committing config.toml: trust keys must come from the real post-merge positions, and a malformed
 	// existing hooks.json must fail the whole render, not leave new trust hashes written against a
 	// hooks.json that never got merged.
 	hooksPath := filepath.Join(filepath.Dir(path), "hooks.json")
-	hooksRaw, err := os.ReadFile(hooksPath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("codex-hooks: %w", err)
-	}
-	hooksExisted := err == nil
-	mergedHooks, err := mergeCodexHooks(hooksRaw, body)
+	hooksRaw, mergedHooks, hooksExisted, err := prepareCodexHooks(hooksPath, body)
 	if err != nil {
-		return false, fmt.Errorf("codex-hooks: %w", err)
+		return false, err
 	}
 
-	entries, err := CodexTrustEntries(hooksPath, mergedHooks)
-	if err != nil {
-		return false, err
-	}
-	next = MergeCodexTrust(next, entries)
-	overlay, err := LoadCodexOverlay()
-	if err != nil {
-		return false, err
-	}
-	next, err = patchCodexSettings(next, overlay)
+	next, err = codexTrustAndSettings(next, hooksPath, mergedHooks)
 	if err != nil {
 		return false, err
 	}
@@ -160,6 +142,39 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o render.Rend
 	}
 	d, err := render.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
 	return drift || d, err
+}
+
+func insertCodexSection(raw, section string) string {
+	if section == "" {
+		return raw
+	}
+	return agentconfig.InsertTopLevelTOML(codexBannerRE().ReplaceAllString(raw, ""), section)
+}
+
+func prepareCodexHooks(path string, body []byte) ([]byte, []byte, bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, nil, false, fmt.Errorf("codex-hooks: %w", err)
+	}
+	existed := err == nil
+	merged, err := mergeCodexHooks(raw, body)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("codex-hooks: %w", err)
+	}
+	return raw, merged, existed, nil
+}
+
+func codexTrustAndSettings(next, hooksPath string, mergedHooks []byte) (string, error) {
+	entries, err := CodexTrustEntries(hooksPath, mergedHooks)
+	if err != nil {
+		return "", err
+	}
+	next = MergeCodexTrust(next, entries)
+	overlay, err := LoadCodexOverlay()
+	if err != nil {
+		return "", err
+	}
+	return patchCodexSettings(next, overlay)
 }
 
 // writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.

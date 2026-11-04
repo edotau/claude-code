@@ -173,6 +173,11 @@ func TestCheckSettingsDriftLinesTruncatesLongForeignKey(t *testing.T) {
 	if !found {
 		t.Fatalf("Foreign = %v, want it to contain the untruncated 200-char key", d.Foreign)
 	}
+	assertTruncatedForeignKeyLine(t, d)
+}
+
+func assertTruncatedForeignKeyLine(t *testing.T, d SettingsDrift) {
+	t.Helper()
 	var line string
 	for _, l := range d.Lines() {
 		if strings.Contains(l, "is a foreign key not in the defaults") {

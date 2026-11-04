@@ -284,16 +284,24 @@ func (k Key) Validate(raw json.RawMessage) error {
 		}
 	}
 	if len(k.alts) > 0 {
-		var errs []string
-		for _, a := range k.alts {
-			err := a.Validate(raw)
-			if err == nil {
-				return nil
-			}
-			errs = append(errs, err.Error())
-		}
-		return fmt.Errorf("%s: matches no accepted form (%s)", k.Name, strings.Join(errs, "; "))
+		return k.validateAlternatives(raw)
 	}
+	return k.validateKind(raw)
+}
+
+func (k Key) validateAlternatives(raw json.RawMessage) error {
+	var errs []string
+	for _, a := range k.alts {
+		err := a.Validate(raw)
+		if err == nil {
+			return nil
+		}
+		errs = append(errs, err.Error())
+	}
+	return fmt.Errorf("%s: matches no accepted form (%s)", k.Name, strings.Join(errs, "; "))
+}
+
+func (k Key) validateKind(raw json.RawMessage) error {
 	switch k.Kind {
 	case KindBool:
 		var b bool
@@ -363,18 +371,23 @@ func (k Key) validateObject(raw json.RawMessage) error {
 		}
 	}
 	for pn, pv := range m {
-		if _, ok := k.props[pn]; !ok && k.noExtra {
-			return fmt.Errorf("%s: unknown property %q", k.Name, pn)
+		if err := k.validateProperty(pn, pv); err != nil {
+			return err
 		}
-		sub, ok := k.props[pn]
-		if !ok && k.addl != nil && !k.addl.ref {
-			sub, ok = *k.addl, true
-		}
-		if ok {
-			if err := sub.Validate(pv); err != nil {
-				return err
-			}
-		}
+	}
+	return nil
+}
+
+func (k Key) validateProperty(pn string, pv json.RawMessage) error {
+	if _, ok := k.props[pn]; !ok && k.noExtra {
+		return fmt.Errorf("%s: unknown property %q", k.Name, pn)
+	}
+	sub, ok := k.props[pn]
+	if !ok && k.addl != nil && !k.addl.ref {
+		sub, ok = *k.addl, true
+	}
+	if ok {
+		return sub.Validate(pv)
 	}
 	return nil
 }

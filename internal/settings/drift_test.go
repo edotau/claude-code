@@ -143,6 +143,11 @@ func TestDefaultsDrift(t *testing.T) {
 	if keys, err := DefaultsDrift(); err != nil || !slices.Equal(keys, want) {
 		t.Fatalf("drifted: %v, %v; want %v", keys, err, want)
 	}
+}
+
+func TestDefaultsDriftInvalidJSON(t *testing.T) {
+	vaulttest.Use(t)
+	file := filepath.Join(paths.ConfigDir(), "settings.json")
 	if err := os.WriteFile(file, []byte(`{nope`), 0o600); err != nil {
 		t.Fatal(err)
 	}
