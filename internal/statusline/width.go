@@ -1,18 +1,37 @@
 package statusline
 
 import (
+	"os"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
-// lineWidth is config "width", else $COLUMNS when the terminal exported it, else 0 (no clip).
+// termWidth is the terminal probe; a var so tests never walk real processes.
+var termWidth = ancestorTTYWidth
+
+// termWidthTTL lets a resize show within seconds while sparing a process walk per render.
+const termWidthTTL = 5 * time.Second
+
+// lineWidth is config "width", else $COLUMNS, else the nearest ancestor terminal's width, else 0 (no clip).
 func lineWidth(cfg Config) int {
 	if cfg.Width > 0 {
 		return cfg.Width
 	}
-	return ansi.Columns(0)
+	if n := ansi.Columns(0); n > 0 {
+		return n
+	}
+	stamp := stampFile("termwidth", strconv.Itoa(os.Getppid()))
+	if f := freshStamp(stamp, termWidthTTL, 1); f != nil {
+		n, _ := strconv.Atoi(f[0])
+		return n
+	}
+	n := max(termWidth(), 0)
+	writeTimedStamp(stamp, strconv.Itoa(n))
+	return n
 }
 
 // clip truncates each line to width visible cells (one per rune), keeping SGR escapes and ending in "…".
@@ -75,4 +94,13 @@ func visibleWidth(s string) int {
 		i += size
 	}
 	return n
+}
+
+// longestLine is the widest line of s in visible cells.
+func longestLine(s string) int {
+	w := 0
+	for _, l := range strings.Split(s, "\n") {
+		w = max(w, visibleWidth(l))
+	}
+	return w
 }

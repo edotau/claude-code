@@ -158,7 +158,7 @@ func dashboardValueCells(col string, v values, cfg Config) (string, []cell) {
 		if v.branch == "" {
 			return "", nil
 		}
-		return col, runeCells(truncBranch(v.branch, cfg.BranchMax), "g")
+		return col, runeCells(v.branch, "g")
 	}
 	if txt := v.text(col); txt != "" {
 		return col, runeCells(txt, "g")

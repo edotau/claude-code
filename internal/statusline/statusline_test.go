@@ -37,6 +37,9 @@ func hermetic(t *testing.T) string {
 	t.Setenv(providers.EnvSessionProfile, "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("COLUMNS", "")
+	origWidth := termWidth
+	termWidth = func() int { return 0 }
+	t.Cleanup(func() { termWidth = origWidth })
 	t.Setenv("COLORTERM", "truecolor")
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
@@ -207,14 +210,16 @@ func TestProviderAndModelSegments(t *testing.T) {
 		return modelSegment(in, "anthropic")
 	}
 	for _, c := range [][3]string{
-		{"claude-opus-5[1m]", "Opus 5 (1M context)", "Opus 5 [1m]"},
+		{"claude-opus-5[1m]", "Opus 5 (1M context)", "opus-5"},
 		{"openai:gpt-5-nano", "openai:gpt-5-nano", "gpt-5-nano ⇄openai"},
 		{"openai:gpt-5-nano", "", "gpt-5-nano ⇄openai"},
 		{"qwen3:30b", "qwen3:30b", "qwen3:30b"}, // an ollama tag, not a provider prefix
-		{"anthropic:claude-haiku-5", "Haiku 5", "Haiku 5"},
-		{"claude-sonnet-5", "", "claude-sonnet-5"},
-		{"databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5 [1m]"},
-		{"databricks-claude-opus-5-5[1m]", "", "databricks-claude-opus-5-5[1m]"},
+		{"anthropic:claude-haiku-5", "Haiku 5", "haiku-5"},
+		{"claude-sonnet-5-20260101", "", "sonnet-5"},
+		{"claude-opus-5-5[1m]", "Opus 5.5 (1M context)", "opus-5-5"},
+		{"", "Opus 5 (1M context)", "Opus 5"},
+		{"databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5"},
+		{"databricks-claude-opus-5-5[1m]", "", "databricks-claude-opus-5-5"},
 		{"databricks-claude-opus-5-5", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5"},
 	} {
 		if got := model(c[0], c[1]); got != c[2] {
@@ -229,7 +234,7 @@ func TestProviderAndModelSegments(t *testing.T) {
 		TotalOutput    int      `json:"total_output_tokens"`
 		UsedPercentage *float64 `json:"used_percentage"`
 	}{Size: 1_000_000}
-	if got := modelSegment(in, "anthropic"); got != "Custom [1m]" {
+	if got := modelSegment(in, "anthropic"); got != "custom-model" {
 		t.Errorf("reported 1M window: %q", got)
 	}
 }
@@ -314,8 +319,8 @@ func TestGitSegments(t *testing.T) {
 	if a, d := codeVelocity(in, notRepo, embeddedConfig()); a != 999 || d != 999 {
 		t.Errorf("non-repo falls back to the ledger: +%d -%d", a, d)
 	}
-	if got := truncBranch("feature/statusline", 8); got != "feature…" {
-		t.Errorf("truncBranch %q", got)
+	if got := truncRunes("feature/statusline", 8); got != "feature…" {
+		t.Errorf("truncRunes %q", got)
 	}
 }
 
@@ -327,7 +332,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " anthropic·max  ·  Opus 5  ·  0% ") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " anthropic·max  ·  opus-5  ·  0% ") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -341,7 +346,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( anthropic·max ) ( Opus 5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 )"
+	want := "tester:/nowhere/proj | ( anthropic·max ) ( opus-5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -481,7 +486,7 @@ func TestLabelProviderBeforeModel(t *testing.T) {
 	labelRegistry(t)
 	t.Setenv(providers.EnvSessionProfile, "qa")
 	got := renderPayload(t, "claude-opus-5")
-	p, m := strings.Index(got, "databricks·qa"), strings.Index(got, "Opus 5")
+	p, m := strings.Index(got, "databricks·qa"), strings.Index(got, "opus-5")
 	if p < 0 || m < 0 || p > m {
 		t.Errorf("provider must precede model: %q", got)
 	}
@@ -508,35 +513,32 @@ func TestProviderLabelAnthropicFamilyRows(t *testing.T) {
 	}
 }
 
-func TestCollapsePath(t *testing.T) {
-	cases := []struct {
-		name  string
-		short string
-		cwd   string
-		max   int
-		want  string
-	}{
-		{"short path kept", "~/foo", "/home/x/foo", 24, "~/foo"},
-		{"over cap collapses to basename", "~/a/b/c/d/e/f/g/h", "/home/x/a/b/c/d/e/f/g/h", 10, "h"},
-		{"zero disables the cap", "~/a/b/c/d/e/f/g/h", "/home/x/a/b/c/d/e/f/g/h", 0, "~/a/b/c/d/e/f/g/h"},
-		{"exactly at the cap is kept", "0123456789", "/x/0123456789", 10, "0123456789"},
-		{"one over the cap collapses", "01234567890", "/x/01234567890", 10, "01234567890"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := collapsePath(c.short, c.cwd, c.max); got != c.want {
-				t.Errorf("collapsePath(%q, %q, %d) = %q, want %q", c.short, c.cwd, c.max, got, c.want)
-			}
-		})
-	}
-}
-
-// The default config's pathMax (24) collapses a long rendered cwd to the workspace basename end-to-end.
-func TestPathMaxDefaultCollapsesLongPath(t *testing.T) {
+// Width known: full, then profileMax, then no branch with velocity kept; no line exceeds the width.
+func TestProfileFitsWidth(t *testing.T) {
 	hermetic(t)
-	payload := `{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/home/x/a/very/deeply/nested/project/workspace"}}`
-	got := plain(Render([]byte(payload), "gradient"))
-	if !strings.Contains(got, "workspace") || strings.Contains(got, "/a/very/deeply/nested/project/workspace") {
-		t.Errorf("long path not collapsed to basename: %q", got)
+	const full = "databricks·my-long-workspace-profile"
+	pal := theme.LoadPalettes()
+	v := values{userHost: "u@h", path: "~/p", providerFull: full, branch: "feature/x", adds: 12, dels: 3}
+	cfg := embeddedConfig()
+	cfg.Style, cfg.Order = "gradient", []string{"provider"}
+	v.provider = capProfile(full, cfg.ProfileMax)
+	if !strings.Contains(plain(render(v, cfg, pal)), "databricks·my-long-workspa…") {
+		t.Fatalf("profileMax cap missing: %q", plain(render(v, cfg, pal)))
+	}
+	orig := termWidth
+	t.Cleanup(func() { termWidth = orig })
+	for _, tc := range []struct {
+		width int
+		want  string
+	}{{200, full + " │ feature/x · +12 -3"}, {60, "databricks·my-long-workspa… │ feature/x · +12 -3"},
+		{50, "databricks·my-long-workspa… · +12 -3"}, {20, "…"}} {
+		termWidth = func() int { return tc.width }
+		_ = os.RemoveAll(filepath.Dir(stampFile("termwidth", "x")))
+		cfg := embeddedConfig()
+		cfg.Style, cfg.Order = "gradient", []string{"provider"}
+		got := plain(renderFit(v, cfg, pal, lineWidth(cfg)))
+		if !strings.Contains(got, tc.want) || (tc.width == 50 && strings.Contains(got, "feature")) || longestLine(got) > tc.width {
+			t.Errorf("width %d: got %q, want %q within %d cells", tc.width, got, tc.want, tc.width)
+		}
 	}
 }
