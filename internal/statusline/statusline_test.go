@@ -423,7 +423,7 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 	for name, want := range map[string]string{
 		"max":         "anthropic·max",
 		"anthropic":   "anthropic",
-		"qa":          "databricks·qa",
+		"qa":          "", // databricks: no provider cell, the model id and countdown carry it
 		"chatgpt":     "openai·chatgpt",
 		"personal":    "github·personal",
 		"antigravity": "google·antigravity",
@@ -484,12 +484,12 @@ func TestLabelTracksSessionEnvOverVaultPin(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
 	vaulttest.SetRecord(t, "claude", "profile", "antigravity")
-	t.Setenv(providers.EnvSessionProfile, "qa")
-	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "antigravity") {
+	t.Setenv(providers.EnvSessionProfile, "chatgpt")
+	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "openai·chatgpt") || strings.Contains(got, "antigravity") {
 		t.Errorf("env session label: %q", got)
 	}
-	vaulttest.SetRecord(t, "claude", "profile", "openai") // the other session switches again
-	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "openai") {
+	vaulttest.SetRecord(t, "claude", "profile", "personal") // the other session switches again
+	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "openai·chatgpt") || strings.Contains(got, "personal") {
 		t.Errorf("label moved with the pin: %q", got)
 	}
 }
@@ -497,11 +497,21 @@ func TestLabelTracksSessionEnvOverVaultPin(t *testing.T) {
 func TestLabelProviderBeforeModel(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
-	t.Setenv(providers.EnvSessionProfile, "qa")
+	t.Setenv(providers.EnvSessionProfile, "chatgpt")
 	got := renderPayload(t, "claude-opus-5")
-	p, m := strings.Index(got, "databricks·qa"), strings.Index(got, "opus-5")
+	p, m := strings.Index(got, "openai·chatgpt"), strings.Index(got, "opus-5")
 	if p < 0 || m < 0 || p > m {
 		t.Errorf("provider must precede model: %q", got)
+	}
+}
+
+// A databricks session drops the provider cell; the model id leads the line.
+func TestLabelDatabricksNoProviderCell(t *testing.T) {
+	hermetic(t)
+	labelRegistry(t)
+	t.Setenv(providers.EnvSessionProfile, "qa")
+	if got := renderPayload(t, "databricks-claude-opus-5"); strings.Contains(got, "databricks·") || !strings.HasPrefix(strings.TrimLeft(got[strings.Index(got, "|")+1:], " "), "databricks-claude-opus-5") {
+		t.Errorf("databricks line: %q", got)
 	}
 }
 
