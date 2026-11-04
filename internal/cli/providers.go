@@ -78,34 +78,36 @@ func providerListJSON(reg *providers.Registry, name string) int {
 	if err != nil {
 		return fail("configure provider: %v", err)
 	}
+	var want *providers.Provider
 	if name != "" {
-		if _, err := reg.Get(name); err != nil {
+		if want, err = reg.Get(name); err != nil {
 			return fail("%v", err)
 		}
 	}
 	list := make([]providerListEntry, 0, len(d.Providers.List))
 	for _, dp := range d.Providers.List {
-		if name != "" && dp.Name != name {
+		p := reg.Providers[dp.Name]
+		if want != nil && p != want {
 			continue
 		}
 		e := providerListEntry{DescribeProvider: dp}
-		p := reg.Providers[dp.Name]
 		e.Group = p.Provider
 		e.Source, e.Note = secrets.CredSource(p)
 		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
 		list = append(list, e)
 	}
-	if name != "" {
-		_ = helptext.WriteJSON(os.Stdout, list[0])
-		return 0
+	if want != nil {
+		if len(list) == 0 {
+			return fail("configure provider: %q not in the provider list", name)
+		}
+		return writeJSONOrFail("configure provider", list[0])
 	}
-	_ = helptext.WriteJSON(os.Stdout, struct {
+	return writeJSONOrFail("configure provider", struct {
 		Session  string              `json:"session"`
 		Default  string              `json:"default"`
 		Fallback []string            `json:"fallback,omitempty"`
 		List     []providerListEntry `json:"list"`
 	}{d.Providers.Session, d.Providers.Default, d.Providers.Fallback, list})
-	return 0
 }
 
 var modelsPage = helptext.Page{
@@ -211,8 +213,7 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 		fmt.Fprintln(os.Stderr, "claude-code: models: ai gateway listing unavailable:", cat.GatewayErr)
 	}
 	if format == helptext.JSON {
-		_ = helptext.WriteJSON(os.Stdout, cat.Rows())
-		return 0
+		return writeJSONOrFail("models", cat.Rows())
 	}
 	printLines(cat.TableLines())
 	return 0
@@ -258,7 +259,7 @@ func cmdSwitch(args []string) int {
 	return 0
 }
 
-// switchUsage prints switch's page; its one flag is pulled out by extractBool, so this FlagSet only renders it.
+// switchUsage prints switch's page; its one flag is pulled out by helptext.ExtractBool, so this FlagSet only renders it.
 func switchUsage() {
 	fs := helptext.NewFlagSet("switch", switchPage)
 	fs.Bool("dry-run", false, "print the agent record change, write nothing")

@@ -140,7 +140,7 @@ func runAsk(args []string, resume bool) int {
 	}
 	prompt := strings.Join(positional, " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
-		session: session, tools: tools, readOnly: readOnly, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
+		session: session, tools: tools, readOnly: readOnly, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv, env: &env,
 		autonomous: autonomous, fleet: fleet, enableMemory: enableMemory, rubric: rubric, direct: direct,
 		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile, systemPrompt: systemPrompt,
 		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema, persona: &persona, host: host, remoteBin: remoteBin, fallback: fallback}
@@ -215,6 +215,10 @@ func askRefreshSchema(raw, schema string) (string, error) {
 // askEnableOverlays turns on --overlay-debug and --overlay; it returns the exit code of a failure, else 0.
 func askEnableOverlays(debugPath, overlayPath string) int {
 	if debugPath != "" {
+		if strings.HasPrefix(debugPath, "-") {
+			fmt.Fprintf(os.Stderr, "claude-code ask: --overlay-debug: %q looks like a flag; give a file path\n", debugPath)
+			return 2
+		}
 		if err := agent.EnableOverlayDebug(debugPath); err != nil {
 			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay-debug:", err)
 			return 2
@@ -244,6 +248,9 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
 	saveErr := prepared.Record.Save()
+	if saveErr != nil && !background {
+		fmt.Fprintf(os.Stderr, "ask: warning: dispatch record not saved, --retry may not find it: %v\n", saveErr)
+	}
 	if background {
 		if saveErr != nil { // the --job child loads this record: without it the job could never start
 			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
@@ -420,6 +427,7 @@ type askState struct {
 	persona                                                           **agent.Schema
 	attach                                                            *attachFlag
 	keepEnv                                                           *keepEnvFlag
+	env                                                               *envFlag
 }
 
 // applyRecord copies a logged dispatch's request onto this ask invocation's flags.
@@ -479,6 +487,9 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 		if f.Name == "keep-env" {
 			*s.keepEnv = nil
 		}
+		if f.Name == "env" {
+			*s.env = nil
+		}
 	})
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.name, err, 2), true
@@ -492,8 +503,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 func printDispatchLog(format string) int {
 	recs := agent.RecentRecords(20)
 	if format == helptext.JSON {
-		_ = helptext.WriteJSON(os.Stdout, recs)
-		return 0
+		return writeJSONOrFail("ask", recs)
 	}
 	if len(recs) == 0 {
 		fmt.Println("no dispatches logged yet")

@@ -165,8 +165,7 @@ func opencodeMenuList(live bool, provider, format string) error {
 		return err
 	}
 	if format == helptext.JSON {
-		_ = helptext.WriteJSON(os.Stdout, rows)
-		return nil
+		return helptext.WriteJSON(os.Stdout, rows)
 	}
 	labW := len("LABEL")
 	for _, r := range rows {
@@ -237,8 +236,7 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 		fmt.Fprintf(os.Stderr, "opencode catalog check: cache not written: %v\n", cacheErr)
 	}
 	if format == helptext.JSON {
-		_ = helptext.WriteJSON(os.Stdout, results)
-		return nil
+		return helptext.WriteJSON(os.Stdout, results)
 	}
 	idW := idWidth(len(results), func(i int) string { return results[i].ID })
 	fmt.Printf("%-*s  %-9s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")

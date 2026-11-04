@@ -78,10 +78,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 				Proxy proxyState `json:"proxy"`
 			}{rj, ps}
 		}
-		if err := helptext.WriteJSON(os.Stdout, payload); err != nil {
-			return 1
-		}
-		return 0
+		return writeJSONOrFail("gateway router", payload)
 	}
 	printRoute(res, src, pins)
 	if withProxy {
@@ -129,8 +126,8 @@ type pinJSON struct {
 	Active  bool   `json:"active"`
 }
 
-// pinAgents is the order the text view prints pins in.
-var pinAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
+// pinAgents is the routed agents, sorted: the order the text view prints pins in.
+var pinAgents = slices.Sorted(slices.Values(providers.RouteAgents))
 
 // routePins maps agent.AgentPins onto the emitted shape.
 func routePins() (map[string]pinJSON, error) {

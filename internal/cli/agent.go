@@ -279,8 +279,7 @@ func cmdAgentsList(args []string) int {
 func listAgents(format string) int {
 	rows := agent.RosterRows()
 	if format == helptext.JSON {
-		_ = helptext.WriteJSON(os.Stdout, rows)
-		return 0
+		return writeJSONOrFail("agents", rows)
 	}
 	for _, r := range rows {
 		fmt.Println(r.Line())
