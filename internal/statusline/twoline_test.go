@@ -33,7 +33,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("want 2 rows, got %q", rows)
 	}
-	if !strings.HasPrefix(rows[0], "databricks·dbx-u2m ") {
+	if !strings.HasPrefix(rows[0], "databricks·dbx-u2m "+promptUser()+":") {
 		t.Errorf("row 1 lacks the provider label: %q", rows[0])
 	}
 	if !strings.HasSuffix(rows[0], " · Fable 5.1 / high") {
