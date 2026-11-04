@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -15,6 +16,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // D6: agy's model is flag > process env > the GEMINI_MODEL vault pin > agy's default.
@@ -294,5 +297,65 @@ func TestBridgeLogCapturesRedactedAgyOutput(t *testing.T) {
 	}
 	if n := strings.Count(got, "agy-stderr-line"); n != 1 {
 		t.Errorf("stderr line appears %d times, want exactly once:\n%s", n, got)
+	}
+}
+
+// Deltas already parsed survive a later typed-decode failure.
+func TestParseAgyStreamDecodeErrorKeepsText(t *testing.T) {
+	stream := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi"}}
+{"event":123}`
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	if err == nil || res.Answer != "hi" {
+		t.Fatalf("res = %+v, err = %v; want the decode error with the text kept", res, err)
+	}
+}
+
+type agySinkRec struct{ types []string }
+
+func (s *agySinkRec) Emit(ev agent.Event) error { s.types = append(s.types, ev.Type); return nil }
+
+// A tool step marks progress (one tool_use per step) before a later decode failure; planning steps do not.
+func TestParseAgyToolStepEmitsToolUse(t *testing.T) {
+	run := func(stepType string) []string {
+		stream := `{"event":"step_update","step_update":{"step_type":"` + stepType + `","state":"ACTIVE"}}
+{"event":"step_update","step_update":{"step_type":"` + stepType + `","state":"ACTIVE"}}
+{"event":"step_update","step_update":{"step_type":"` + stepType + `","state":"DONE"}}
+{"event":123}`
+		sink := &agySinkRec{}
+		if _, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), sink, nil); err == nil {
+			t.Fatal("want the decode error")
+		}
+		var tools []string
+		for _, ty := range sink.types {
+			if ty == agent.EventToolUse {
+				tools = append(tools, ty)
+			}
+		}
+		return tools
+	}
+	if got := run("tool"); len(got) != 1 {
+		t.Errorf("tool step: %d tool_use events, want 1", len(got))
+	}
+	if got := run("planner"); len(got) != 0 {
+		t.Errorf("planning step: %d tool_use events, want 0", len(got))
+	}
+}
+
+// A result carrying only structured_output (no response text) is a success and keeps the structure.
+func TestParseAgyStructuredOnlySucceeds(t *testing.T) {
+	stream := `{"event":"result","result":{"status":"SUCCESS","structured_output":{"k":1}}}`
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	if err != nil || string(res.Structured) != `{"k":1}` {
+		t.Fatalf("res = %+v, err = %v; want no error and Structured kept", res, err)
+	}
+}
+
+// A result.response-only answer survives a decode error that follows the result event.
+func TestParseAgyResponseSurvivesLaterDecodeError(t *testing.T) {
+	stream := `{"event":"result","result":{"status":"SUCCESS","response":"R"}}
+{"event":123}`
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	if err == nil || res.Answer != "R" {
+		t.Fatalf("res = %+v, err = %v; want the decode error with Answer R", res, err)
 	}
 }

@@ -236,3 +236,15 @@ func TestParseChatStreamLargeChunkAndGarbageLine(t *testing.T) {
 		t.Fatalf("streamed %d bytes, model %q, usage %+v", out.Len(), model, usage)
 	}
 }
+
+// A session must resume through the claude process: the stateless one-shot never sees a --session request.
+func TestClaudeNoToolsSessionSkipsOneShot(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++ }))
+	defer srv.Close()
+	registry(t, srv)
+	_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true, SessionID: "s-1"}, agent.Discard)
+	if hits != 0 || err == nil || !strings.Contains(err.Error(), "no launcher") {
+		t.Fatalf("hits=%d err=%v; want the claude process path (no launcher), never the API", hits, err)
+	}
+}

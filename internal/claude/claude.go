@@ -36,7 +36,8 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink agent.Si
 		if req.Tools {
 			return agent.Result{}, errors.New("claude: --no-tools and --tools are exclusive")
 		}
-		if req.SystemPrompt == "" && req.AppendSystemPrompt == "" && req.OutputSchema == "" && req.Persona == nil {
+		// a session must resume through the claude process: the stateless one-shot would silently drop it
+		if req.SessionID == "" && req.SystemPrompt == "" && req.AppendSystemPrompt == "" && req.OutputSchema == "" && req.Persona == nil {
 			if res, done, err := claudeOneShot(ctx, req, sink); done {
 				return res, err
 			}
@@ -189,9 +190,16 @@ func parseClaudeStream(br *bufio.Reader, sink agent.Sink, logs ...agent.StreamLo
 // parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
 func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink agent.Sink, logs ...agent.StreamLog) (res agent.Result, _ error) {
 	lg := agent.PickLog(logs)
-	sawResult, wrote := false, false
+	sawResult := false
+	var seen strings.Builder // top-level assistant text, the answer when no result event delivers one
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
+	partial := func(err error) (agent.Result, error) {
+		if res.Answer == "" {
+			res.Answer = strings.TrimSpace(seen.String())
+		}
+		return res, err
+	}
 	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev claudeEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
@@ -207,7 +215,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 		case "system":
 			return false, applyClaudeSystem(ev, &res, &ts, lg, sink)
 		case "assistant":
-			return false, applyClaudeAssistantEvent(ev, &res, lg, sink, &wrote)
+			return false, applyClaudeAssistantEvent(ev, &res, lg, sink, &seen)
 		case "result":
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
@@ -227,10 +235,10 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 		return false, nil
 	})
 	if err != nil {
-		return res, err
+		return partial(err)
 	}
 	if !sawResult {
-		return res, errNoResult
+		return partial(errNoResult)
 	}
 	return res, nil
 }
@@ -255,7 +263,7 @@ func applyClaudeSystem(ev claudeEvent, res *agent.Result, ts *agent.TransportTra
 }
 
 // applyClaudeAssistantEvent logs and emits a top-level assistant message; a subagent's is ignored.
-func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.StreamLog, sink agent.Sink, wrote *bool) error {
+func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.StreamLog, sink agent.Sink, seen *strings.Builder) error {
 	if ev.ParentToolUseID != "" {
 		return nil
 	}
@@ -264,7 +272,7 @@ func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.Strea
 		res.Model = string(msg.Model)
 	}
 	logClaudeAssistant(lg, msg)
-	return emitClaudeAssistant(sink, msg, wrote)
+	return emitClaudeAssistant(sink, msg, seen)
 }
 
 func logClaudeAssistant(lg agent.StreamLog, msg anthropic.Message) {
@@ -278,7 +286,8 @@ func logClaudeAssistant(lg agent.StreamLog, msg anthropic.Message) {
 	}
 }
 
-func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, wrote *bool) error {
+// emitClaudeAssistant records each text block in seen before emitting it, so a failed emit keeps the text.
+func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, seen *strings.Builder) error {
 	for _, b := range msg.Content {
 		var ev agent.Event
 		switch b := b.AsAny().(type) {
@@ -288,8 +297,12 @@ func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, wrote *bool) er
 			if b.Text == "" {
 				continue
 			}
-			ev = agent.Event{Type: agent.EventText, Text: b.Text, Sep: *wrote}
-			*wrote = true
+			sep := seen.Len() > 0
+			if sep {
+				seen.WriteString("\n\n")
+			}
+			seen.WriteString(b.Text)
+			ev = agent.Event{Type: agent.EventText, Text: b.Text, Sep: sep}
 		default:
 			continue
 		}
@@ -301,7 +314,7 @@ func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, wrote *bool) er
 }
 
 func applyClaudeResult(res *agent.Result, ev claudeEvent) error {
-	if ev.Result != "" {
+	if ev.Result != "" && !ev.IsError { // an error result's text rides in the error, not over the partial answer
 		res.Answer = ev.Result // a resumed session's closing empty result must not erase the last real one
 	}
 	u := ev.Usage

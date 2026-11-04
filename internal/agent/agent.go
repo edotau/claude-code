@@ -291,7 +291,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 		// only default to r.Name() when it left Agent unset, so the envelope doesn't lie about who ran.
 		out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, res.Agent), append(slices.Clone(dropped), out.Dropped...), emulated
 		res = out
-		e := Classify(r.Name(), err, cw.n > 0)
+		e := Classify(r.Name(), err, cw.progressed)
 		fallToNextAlias(r, &req, e, notify)
 		if e != nil {
 			_ = note(e)
@@ -841,8 +841,7 @@ func hopFailed(res Result, err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return false
 	}
-	var e *Error
-	return !errors.As(err, &e) || !e.Progressed
+	return !progressed(err)
 }
 
 // ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;

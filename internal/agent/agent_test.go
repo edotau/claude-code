@@ -779,3 +779,22 @@ func TestRunDropsFleetWhenAgentLacksIt(t *testing.T) {
 		t.Fatalf("res=%+v err=%v seen=%+v", res, err, f.seen)
 	}
 }
+
+// toolRunner reports a tool call, no text, then a transient failure: the tool may have had effects.
+type toolRunner struct{ fakeRunner }
+
+func (f *toolRunner) Run(_ context.Context, req RunOptions, w Sink) (Result, error) {
+	f.seen = append(f.seen, req)
+	_ = w.Emit(ToolEvent("Bash", "t1"))
+	return Result{}, io.ErrUnexpectedEOF
+}
+
+func TestRunToolProgressVetoesRetry(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	f := &toolRunner{}
+	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, nil)
+	var e *Error
+	if !errors.As(err, &e) || !e.Progressed || len(f.seen) != 1 {
+		t.Fatalf("a tool call must veto retry: err=%v attempts=%d", err, len(f.seen))
+	}
+}

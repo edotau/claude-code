@@ -48,6 +48,12 @@ type Error struct {
 	terminal   bool     // a state check refused the attempt: retrying cannot help
 }
 
+// progressed is true when err is an *Error whose output already reached the stream.
+func progressed(err error) bool {
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.Progressed
+}
+
 func (e *Error) Error() string {
 	msg := fmt.Sprintf("%s: %s", e.Agent, e.Kind)
 	if e.Err != nil {

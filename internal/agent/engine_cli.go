@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -162,11 +163,14 @@ func EmptyAnswer(name string) error {
 func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
 	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error)) (Result, error) {
 	out, err := RunEventStream(ctx, name, cmd, tail, sink, parse, nil)
-	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
-	if out.SessionID != "" {
-		res.SessionID = out.SessionID
-	}
-	return res, err
+	return withParsed(res, out), err
+}
+
+// withParsed copies the parser's answer, usage, transport and structured output into res; an empty session id keeps res's.
+func withParsed(res, out Result) Result {
+	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
+	res.SessionID = cmp.Or(out.SessionID, res.SessionID)
+	return res
 }
 
 // RunEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
@@ -187,13 +191,18 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
 	out, perr := parse(bufio.NewReader(idle), sink, onMeaningful, lg)
 	stop()
-	_, _ = io.Copy(io.Discard, stdout)
+	kill := perr != nil && !idle.eof.Load() && cmd.Cancel != nil
+	if kill { // after EOF the child is exiting: killing would mask its status
+		_ = cmd.Cancel() // a dead consumer or bad stream must not leave the child running to --timeout
+	} else {
+		_, _ = io.Copy(io.Discard, stdout) // no drain after a kill: a grandchild holding stdout would block it
+	}
 	werr := cmd.Wait()
-	res.Answer, res.Usage, res.SessionID, res.Transport, res.Structured = out.Answer, out.Usage, out.SessionID, out.Transport, out.Structured
+	res = withParsed(res, out)
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
 	}
-	if perr == nil && res.Answer == "" {
+	if perr == nil && res.Answer == "" && len(res.Structured) == 0 { // a structured-only answer is an answer
 		return res, EmptyAnswer(name)
 	}
 	return res, perr
@@ -206,11 +215,15 @@ var heartbeatEvery = 30 * time.Second
 type idleReader struct {
 	r    io.Reader
 	last int64 // unix nanos of the last read, atomic
+	eof  atomic.Bool
 }
 
 func (i *idleReader) Read(p []byte) (int, error) {
 	n, err := i.r.Read(p)
 	atomic.StoreInt64(&i.last, time.Now().UnixNano())
+	if err == io.EOF {
+		i.eof.Store(true)
+	}
 	return n, err
 }
 

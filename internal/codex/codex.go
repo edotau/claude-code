@@ -381,11 +381,11 @@ func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), lo
 			if onMeaningful != nil {
 				onMeaningful()
 			}
+			last = it.Text // before the emit: a dead sink must not lose the parsed answer
 			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: it.Text, Sep: texts > 0}); err != nil {
 				return false, err
 			}
 			texts++
-			last = it.Text
 			lg.Emit("assistant", it.Text)
 		case ev.Type == "item.started" && it.Type == "command_execution":
 			tool := agent.ToolEvent("shell", it.ID)
@@ -412,10 +412,10 @@ func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), lo
 		}
 		return false, nil
 	})
+	res.Answer = strings.TrimSpace(last)
 	if err != nil {
 		return res, err
 	}
-	res.Answer = strings.TrimSpace(last)
 	if failure != "" {
 		return res, errors.New(failure)
 	}

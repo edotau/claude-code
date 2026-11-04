@@ -85,10 +85,10 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 			if ev.Part.Text == "" {
 				return false, nil
 			}
-			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: ev.Part.Text, Sep: len(texts) > 0}); err != nil {
+			texts = append(texts, ev.Part.Text) // before the emit: a dead sink must not lose the parsed text
+			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: ev.Part.Text, Sep: len(texts) > 1}); err != nil {
 				return false, err
 			}
-			texts = append(texts, ev.Part.Text)
 			lg.Emit("assistant", ev.Part.Text)
 		case "tool", "tool_use":
 			if err := emitOpenCodeTool(sink, ev, seenTools); err != nil {
@@ -114,10 +114,10 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 		}
 		return false, nil
 	})
+	res.Answer = strings.TrimSpace(strings.Join(texts, "\n"))
 	if err != nil {
 		return res, err
 	}
-	res.Answer = strings.TrimSpace(strings.Join(texts, "\n"))
 	if len(errs) > 0 {
 		return res, errors.New(strings.Join(errs, "; "))
 	}
