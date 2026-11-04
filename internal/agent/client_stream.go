@@ -32,6 +32,9 @@ func newChanSink(cancel context.CancelCauseFunc) *chanSink {
 
 // Emit stamps ev and drops the oldest buffered event when the consumer falls behind.
 func (s *chanSink) Emit(ev Event) error {
+	if ev.Type == EventProgress { // a retry-gate mark for the relay, not an event a Stream consumer reads
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stamp(&ev)

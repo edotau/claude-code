@@ -331,7 +331,7 @@ type recSink struct{ types []string }
 
 func (s *recSink) Emit(ev agent.Event) error { s.types = append(s.types, ev.Type); return nil }
 
-// An approved tool then a 503 leaves the sink with a tool_use before any text; a denied-only run emits none.
+// An approved tool then a 503 leaves the sink with a progress mark before any text; a denied-only run emits none.
 func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
 	run := func(req copilot.PermissionRequest) []string {
 		var ok atomic.Bool
@@ -345,8 +345,8 @@ func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
 		_, _ = copilotPartial(agent.Result{}, out, err, sink)
 		return sink.types
 	}
-	if got := run(rpc.PermissionRequestRead{}); !slices.Equal(got, []string{agent.EventToolUse, agent.EventText}) {
-		t.Errorf("approved read: events = %v, want [tool_use text]", got)
+	if got := run(rpc.PermissionRequestRead{}); !slices.Equal(got, []string{agent.EventProgress, agent.EventText}) {
+		t.Errorf("approved read: events = %v, want [progress text]", got)
 	}
 	if got := run(rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{agent.EventText}) {
 		t.Errorf("denied mcp: events = %v, want [text]", got)
@@ -354,13 +354,13 @@ func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
 }
 
 // A tool-only run (no text, no error) still marks progress, so a fallback cannot repeat its side effects.
-func TestMarkToolRanEmitsToolUseOnSuccess(t *testing.T) {
+func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 	sink := &recSink{}
 	if err := markToolRan(SDKResult{ToolRan: true}, sink, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.types) != 1 || sink.types[0] != agent.EventToolUse {
-		t.Fatalf("sink saw %v, want one tool_use", sink.types)
+	if len(sink.types) != 1 || sink.types[0] != agent.EventProgress {
+		t.Fatalf("sink saw %v, want one progress mark and no tool_use", sink.types)
 	}
 	if err := markToolRan(SDKResult{}, sink, nil); err != nil || len(sink.types) != 1 {
 		t.Fatalf("no tool ran: err=%v events=%v, want none emitted", err, sink.types)

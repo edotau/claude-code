@@ -186,18 +186,12 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 		return res, childErr(ctx, name, err, tail)
 	}
 	lg := EventLogFor(ctx)
-	idle := &idleReader{r: stdout, last: time.Now().UnixNano()}
+	idle := &idleReader{src: EOFReader{R: stdout}, last: time.Now().UnixNano()}
 	stop := heartbeat(lg, idle, name)
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
 	out, perr := parse(bufio.NewReader(idle), sink, onMeaningful, lg)
 	stop()
-	kill := perr != nil && !idle.eof.Load() && cmd.Cancel != nil
-	if kill { // after EOF the child is exiting: killing would mask its status
-		_ = cmd.Cancel() // a dead consumer or bad stream must not leave the child running to --timeout
-	} else {
-		_, _ = io.Copy(io.Discard, stdout) // no drain after a kill: a grandchild holding stdout would block it
-	}
-	werr := cmd.Wait()
+	werr := ReapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
@@ -211,19 +205,39 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 // heartbeatEvery is how long a child's stdout may stay quiet before a "still running" log line.
 var heartbeatEvery = 30 * time.Second
 
+// EOFReader wraps a child's stdout and records that it reached EOF, the cue for ReapChild.
+type EOFReader struct {
+	R   io.Reader
+	eof atomic.Bool
+}
+
+func (e *EOFReader) Read(p []byte) (int, error) {
+	n, err := e.R.Read(p)
+	if err == io.EOF {
+		e.eof.Store(true)
+	}
+	return n, err
+}
+
+// ReapChild waits for cmd once its stdout was parsed; a parse error before EOF kills it, else it drains and waits.
+func ReapChild(cmd *exec.Cmd, out *EOFReader, perr error) error {
+	if perr != nil && !out.eof.Load() && cmd.Cancel != nil { // after EOF the child is exiting: killing would mask its status
+		_ = cmd.Cancel() // a dead consumer or bad stream must not leave the child running to --timeout
+	} else {
+		_, _ = io.Copy(io.Discard, out) // no drain after a kill: a grandchild holding stdout would block it
+	}
+	return cmd.Wait()
+}
+
 // idleReader stamps the time of every read so heartbeat can tell a quiet stream from a busy one.
 type idleReader struct {
-	r    io.Reader
+	src  EOFReader
 	last int64 // unix nanos of the last read, atomic
-	eof  atomic.Bool
 }
 
 func (i *idleReader) Read(p []byte) (int, error) {
-	n, err := i.r.Read(p)
+	n, err := i.src.Read(p)
 	atomic.StoreInt64(&i.last, time.Now().UnixNano())
-	if err == io.EOF {
-		i.eof.Store(true)
-	}
 	return n, err
 }
 

@@ -61,7 +61,8 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
 	lg := agent.PickLog(logs)
-	var texts, errs []string
+	ans := agent.Answer{Join: "\n"}
+	var errs []string
 	seenTools := map[string]bool{}
 	fired := false
 	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
@@ -85,8 +86,7 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 			if ev.Part.Text == "" {
 				return false, nil
 			}
-			texts = append(texts, ev.Part.Text) // before the emit: a dead sink must not lose the parsed text
-			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: ev.Part.Text, Sep: len(texts) > 1}); err != nil {
+			if err := ans.Emit(sink, ev.Part.Text, true); err != nil {
 				return false, err
 			}
 			lg.Emit("assistant", ev.Part.Text)
@@ -114,7 +114,7 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 		}
 		return false, nil
 	})
-	res.Answer = strings.TrimSpace(strings.Join(texts, "\n"))
+	res.Answer = ans.String()
 	if err != nil {
 		return res, err
 	}

@@ -364,9 +364,8 @@ func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), lo
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
 	lg := agent.PickLog(logs)
-	var last string
+	var ans agent.Answer
 	var failure string
-	texts := 0
 	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev codexEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
@@ -381,11 +380,9 @@ func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), lo
 			if onMeaningful != nil {
 				onMeaningful()
 			}
-			last = it.Text // before the emit: a dead sink must not lose the parsed answer
-			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: it.Text, Sep: texts > 0}); err != nil {
+			if err := ans.Emit(sink, it.Text, true); err != nil {
 				return false, err
 			}
-			texts++
 			lg.Emit("assistant", it.Text)
 		case ev.Type == "item.started" && it.Type == "command_execution":
 			tool := agent.ToolEvent("shell", it.ID)
@@ -412,7 +409,7 @@ func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), lo
 		}
 		return false, nil
 	})
-	res.Answer = strings.TrimSpace(last)
+	res.Answer = ans.Last()
 	if err != nil {
 		return res, err
 	}
