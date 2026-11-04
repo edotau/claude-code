@@ -24,7 +24,8 @@
       "model":   { "bg": "#2E2820", "fg": "#F5A97F" },
       "effort":  { "bg": "#1E2A36", "fg": "#CAD3F5" },
       "context": { "bg": "#1E2A36", "fg": "#8AADF4" },
-      "tokens":  { "bg": "#3A1F21", "fg": "#E89B9E" },
+      "auth":    { "bg": "#2E2820", "fg": "#EED49F" },
+      "tokens":  { "bg": "#4A2A2D", "fg": "#E89B9E" },
       "limit7d": { "bg": "#1E2A22", "fg": "#A6DA95" },
       "sep":     { "fg": "#CAD3F5" }
     },

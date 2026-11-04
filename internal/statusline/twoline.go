@@ -82,7 +82,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	}
 	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.auth != "" {
-		row2 = append(row2, twoSeg{text: d.auth})
+		row2 = append(row2, twoSeg{key: "auth", text: d.auth})
 	}
 	if d.hasCtx {
 		row2 = appendSep(row2, twoSeg{key: "context", text: "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %.1f%%", d.ctxPct)})
