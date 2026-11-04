@@ -22,8 +22,10 @@ Executor mechanics (account switching, the `git rm` staging gotcha): `agents/cop
 ## Worktrees
 
 **Default is the current branch.** Vault env `HARNESS_WORKTREE=off` means work on the current branch with no asks;
+`on` means create a linked worktree before the first change without asking (unless already in one) and merge it back;
 unset (or any other value) means ask the user once, before the first change, whether to use a linked worktree, plus
-when another session joins the checkout. Never create one without the user's yes; no answer means keep working in place.
+when another session joins the checkout. Outside `on`, never create one without the user's yes; no answer means keep
+working in place.
 
 - Verbs (`create`, `list`, `merge`, `clean`, `clean-all`) and their flags: `skills/using-git-worktrees/SKILL.md`.
 - Never `stash`/`checkout`/`reset`/`restore` the live checkout (CLAUDE.md hard rule 4); in a worktree, branch freely.
