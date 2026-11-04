@@ -47,6 +47,33 @@ func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, erro
 	return rec, err
 }
 
+// assertTrackedReceipt checks the committed receipt file mirrors rec minus its own commit sha.
+func assertTrackedReceipt(t *testing.T, rec Receipt) {
+	t.Helper()
+	var onDisk Receipt
+	if err := json.Unmarshal([]byte(readStore(t, "receipts/"+rec.ID+".json")), &onDisk); err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.ID != rec.ID || onDisk.Commit != "" || len(onDisk.Applied) != 2 {
+		t.Fatalf("tracked receipt = %+v", onDisk)
+	}
+}
+
+// assertNoopBatch: a second identical batch changes no bytes, so there is no receipt and no commit.
+func assertNoopBatch(t *testing.T, first Receipt) {
+	t.Helper()
+	rec2, err := commitLocked(t, "import", []Change{{Rel: "repo/MEMORY.md", Data: []byte("- a\n"), Checked: true}})
+	if err != nil || rec2.Commit != "" || len(rec2.Skipped) != 1 {
+		t.Fatalf("no-op batch = %+v, %v", rec2, err)
+	}
+	if head, _ := StoreRepo().Head(); head != first.Commit {
+		t.Fatalf("empty commit created: %s != %s", head, first.Commit)
+	}
+	if got := receipts(t); len(got) != 1 {
+		t.Fatalf("no-op batch wrote a receipt: %v", got)
+	}
+}
+
 func TestCommitChangesLockedFreshImportCommitsWithReceipt(t *testing.T) {
 	store, decoy := storeFixture(t)
 	rec, err := commitLocked(t, "import", []Change{
@@ -65,13 +92,7 @@ func TestCommitChangesLockedFreshImportCommitsWithReceipt(t *testing.T) {
 	if got := receipts(t); len(got) != 1 {
 		t.Fatalf("receipts = %v", got)
 	}
-	var onDisk Receipt
-	if err := json.Unmarshal([]byte(readStore(t, "receipts/"+rec.ID+".json")), &onDisk); err != nil {
-		t.Fatal(err)
-	}
-	if onDisk.ID != rec.ID || onDisk.Commit != "" || len(onDisk.Applied) != 2 {
-		t.Fatalf("tracked receipt = %+v", onDisk)
-	}
+	assertTrackedReceipt(t, rec)
 	st, _ := StoreRepo().Status()
 	if len(st) != 0 {
 		t.Fatalf("store dirty after commit: %+v", st)
@@ -82,33 +103,30 @@ func TestCommitChangesLockedFreshImportCommitsWithReceipt(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(store, ".git", "hooks", "pre-push")); err != nil {
 		t.Fatal(err)
 	}
-	// A second identical batch changes no bytes: no receipt, no commit.
-	rec2, err := commitLocked(t, "import", []Change{{Rel: "repo/MEMORY.md", Data: []byte("- a\n"), Checked: true}})
-	if err != nil || rec2.Commit != "" || len(rec2.Skipped) != 1 {
-		t.Fatalf("no-op batch = %+v, %v", rec2, err)
-	}
-	if head, _ := StoreRepo().Head(); head != rec.Commit {
-		t.Fatalf("empty commit created: %s != %s", head, rec.Commit)
-	}
-	if got := receipts(t); len(got) != 1 {
-		t.Fatalf("no-op batch wrote a receipt: %v", got)
-	}
+	assertNoopBatch(t, rec)
 	assertDecoyUntouched(t, decoy)
 }
 
-func TestCommitChangesLockedPreimageRules(t *testing.T) {
-	store, _ := storeFixture(t)
+// settleWithDivergence seeds two files, edits one natively and settles a batch over both plus two new files.
+func settleWithDivergence(t *testing.T) (store string, rec Receipt, err error) {
+	t.Helper()
+	store, _ = storeFixture(t)
 	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}, {Rel: "r/b.md", Data: []byte("v1\n")}}); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(store, "r", "b.md"), "edited by native\n")
 	write(t, filepath.Join(store, "r", "native.md"), "native topic\n")
-	rec, err := commitLocked(t, "settle", []Change{
+	rec, err = commitLocked(t, "settle", []Change{
 		{Rel: "r/a.md", Data: []byte("v2\n"), Preimage: []byte("v1\n"), Checked: true},
 		{Rel: "r/b.md", Data: []byte("v2\n"), Preimage: []byte("v1\n"), Checked: true},
 		{Rel: "r/new.md", Data: []byte("new\n"), Checked: true},
 		{Rel: "r/also-new.md", Data: []byte("x\n"), Preimage: nil, Checked: true},
 	})
+	return store, rec, err
+}
+
+func TestCommitChangesLockedPreimageRules(t *testing.T) {
+	_, rec, err := settleWithDivergence(t)
 	if !errors.Is(err, ErrDivergent) {
 		t.Fatalf("err = %v, want ErrDivergent", err)
 	}
@@ -128,8 +146,12 @@ func TestCommitChangesLockedPreimageRules(t *testing.T) {
 	if len(st) != 1 || st[0].Path != "r/b.md" {
 		t.Fatalf("only the divergent edit may stay dirty: %+v", st)
 	}
-	// Delete: absent is skipped, present with matching preimage is removed and committed.
-	rec, err = commitLocked(t, "delete", []Change{
+}
+
+// Delete: absent is skipped, present with matching preimage is removed and committed.
+func TestCommitChangesLockedDeleteRules(t *testing.T) {
+	store, _, _ := settleWithDivergence(t)
+	rec, err := commitLocked(t, "delete", []Change{
 		{Rel: "r/gone.md", Delete: true, Checked: true},
 		{Rel: "r/new.md", Delete: true, Preimage: []byte("new\n"), Checked: true},
 	})
@@ -195,23 +217,19 @@ func TestCommitChangesLockedSkipsSymlinkPreexisting(t *testing.T) {
 	}
 }
 
-func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
-	store, decoy := storeFixture(t)
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	// Hooks are disabled; a held ref lock makes git commit itself fail.
-	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
-	write(t, refLock, "")
-	var rec Receipt
-	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
+// batchLocked runs one batch under the bank lock like commitLocked, but without a *testing.T.
+func batchLocked(subject string, changes []Change) (rec Receipt, err error) {
+	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
-		rec, err = CommitChangesLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
+		rec, err = CommitChangesLocked(subject, changes)
 		return err
 	})
-	if err == nil || errors.Is(err, ErrDivergent) {
-		t.Fatalf("commit must fail under the held ref lock: %v", err)
-	}
+	return rec, err
+}
+
+// assertJournalSurvives checks exactly one applied journal for r/x.md remains and its bytes are on disk.
+func assertJournalSurvives(t *testing.T) {
+	t.Helper()
 	js := journals(t)
 	if len(js) != 1 {
 		t.Fatalf("journal must survive a commit failure: %v", js)
@@ -230,18 +248,36 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	if readStore(t, "r/x.md") != "x\n" {
 		t.Fatal("bytes not applied before the failed commit")
 	}
+}
+
+func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
+	store, decoy := storeFixture(t)
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	// Hooks are disabled; a held ref lock makes git commit itself fail.
+	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
+	write(t, refLock, "")
+	_, err := batchLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
+	if err == nil || errors.Is(err, ErrDivergent) {
+		t.Fatalf("commit must fail under the held ref lock: %v", err)
+	}
+	assertJournalSurvives(t)
 	if err := os.Remove(refLock); err != nil {
 		t.Fatal(err)
 	}
 	// The next batch recovers the old journal as its own commit, without a duplicate receipt.
-	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
-		var err error
-		rec, err = CommitChangesLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
-		return err
-	})
+	rec, err := batchLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertRecovered(t, rec)
+	assertDecoyUntouched(t, decoy)
+}
+
+// assertRecovered checks the old journal is retired, both batches are committed with one receipt each, and the store is clean.
+func assertRecovered(t *testing.T, rec Receipt) {
+	t.Helper()
 	if len(journals(t)) != 0 {
 		t.Fatal("journal not retired after recovery")
 	}
@@ -262,7 +298,6 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	if len(st) != 0 {
 		t.Fatalf("dirty after recovery: %+v", st)
 	}
-	assertDecoyUntouched(t, decoy)
 }
 
 // Regression: apply re-reads the live bytes right before mutating, so a native edit landing between plan
@@ -279,27 +314,28 @@ func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	repo := StoreRepo()
 	live := filepath.Join(store, "r", "a.md")
 	write(t, live, "edited after plan\n")
-	var rec Receipt
-	if err := c.apply(repo, outApply, &rec); err != nil || strings.Join(rec.Divergent, ",") != "r/a.md" || len(rec.Applied) != 0 {
-		t.Fatalf("planned apply over edited bytes: %+v, %v", rec, err)
-	}
+	assertApply(t, c, repo, outApply, "", "r/a.md", "planned apply over edited bytes")
 	if readStore(t, "r/a.md") != "edited after plan\n" {
 		t.Fatal("cached apply decision overwrote a native edit")
 	}
 	write(t, live, "v1\n")
-	rec = Receipt{}
-	if err := c.apply(repo, outSkip, &rec); err != nil || strings.Join(rec.Divergent, ",") != "r/a.md" {
-		t.Fatalf("late preimage match must diverge (never captured): %+v, %v", rec, err)
-	}
+	assertApply(t, c, repo, outSkip, "", "r/a.md", "late preimage match must diverge (never captured)")
 	if readStore(t, "r/a.md") != "v1\n" {
 		t.Fatal("uncaptured bytes were overwritten")
 	}
-	rec = Receipt{}
-	if err := c.apply(repo, outApply, &rec); err != nil || strings.Join(rec.Applied, ",") != "r/a.md" {
-		t.Fatalf("matching preimage: %+v, %v", rec, err)
-	}
+	assertApply(t, c, repo, outApply, "r/a.md", "", "matching preimage")
 	if readStore(t, "r/a.md") != "v2\n" {
 		t.Fatal("matching preimage not applied")
+	}
+}
+
+// assertApply applies c with the planned outcome into a fresh receipt and checks its Applied and Divergent rels.
+func assertApply(t *testing.T, c journalChange, repo Repo, planned outcome, wantApplied, wantDivergent, label string) {
+	t.Helper()
+	var rec Receipt
+	err := c.apply(repo, planned, &rec)
+	if err != nil || strings.Join(rec.Applied, ",") != wantApplied || strings.Join(rec.Divergent, ",") != wantDivergent {
+		t.Fatalf("%s: %+v, %v", label, rec, err)
 	}
 }
 

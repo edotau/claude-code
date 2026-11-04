@@ -76,13 +76,21 @@ func isGitCommitInvocation(toks []string, depth int) bool {
 	if toks[0] != "git" && !strings.HasSuffix(toks[0], "/git") {
 		return false
 	}
-	i := 1
-	shortCircuit := false
-	aliases := map[string]string{}
+	i, aliases, shortCircuit := scanGitGlobalOpts(toks)
+	if shortCircuit {
+		return false
+	}
+	return i < len(toks) && (toks[i] == "commit" || aliasIsCommit(aliases[toks[i]], depth))
+}
+
+// scanGitGlobalOpts walks git's global options after toks[0]: it returns the verb index, the -c aliases seen
+// and whether an option such as --version short-circuits before any verb.
+func scanGitGlobalOpts(toks []string) (i int, aliases map[string]string, shortCircuit bool) {
+	i = 1
+	aliases = map[string]string{}
 	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
 		if gitShortCircuitOpts[toks[i]] {
-			shortCircuit = true
-			break
+			return i, aliases, true
 		}
 		if gitValueOpts[toks[i]] && !strings.Contains(toks[i], "=") {
 			if toks[i] == "-c" && i+1 < len(toks) {
@@ -95,10 +103,7 @@ func isGitCommitInvocation(toks []string, depth int) bool {
 		}
 		i++
 	}
-	if shortCircuit {
-		return false
-	}
-	return i < len(toks) && (toks[i] == "commit" || aliasIsCommit(aliases[toks[i]], depth))
+	return i, aliases, false
 }
 
 // shellBaseName strips a leading directory from a `/bin/bash`-style interpreter path.
@@ -116,16 +121,9 @@ var shellLeadingFlags = map[string]bool{"-e": true, "-x": true, "-l": true, "--n
 // combined short opts ending in `c` (`-xc`, `-ec`, `-exc`) count as `-c`; an `-n`/no-exec flag anywhere
 // in a combined form (including `-nc`) means the script never runs, so it reports no match at all.
 func findDashCArg(toks []string) (string, bool) {
-	i := 0
-	for i < len(toks) {
+	for i := 0; i < len(toks); {
 		t := toks[i]
 		if !strings.HasPrefix(t, "-") {
-			return "", false
-		}
-		if t == "-c" {
-			if i+1 < len(toks) {
-				return toks[i+1], true
-			}
 			return "", false
 		}
 		if t == "-o" {
@@ -138,17 +136,21 @@ func findDashCArg(toks []string) (string, bool) {
 				return "", false // -n (noexec) blocks execution even combined with a trailing c
 			}
 			if strings.HasSuffix(body, "c") {
-				if i+1 < len(toks) {
-					return toks[i+1], true
-				}
-				return "", false
+				return argAfter(toks, i)
 			}
 		}
-		if shellLeadingFlags[t] {
-			i++
-			continue
+		if !shellLeadingFlags[t] {
+			return "", false
 		}
-		return "", false
+		i++
+	}
+	return "", false
+}
+
+// argAfter returns toks[i+1] when it exists.
+func argAfter(toks []string, i int) (string, bool) {
+	if i+1 < len(toks) {
+		return toks[i+1], true
 	}
 	return "", false
 }
@@ -195,37 +197,57 @@ func aliasIsCommit(val string, depth int) bool {
 func extractSubstitutions(cmd string) []string {
 	var out []string
 	for i := 0; i < len(cmd); i++ {
-		switch {
-		case cmd[i] == '`':
-			j := strings.IndexByte(cmd[i+1:], '`')
-			if j < 0 {
-				return out
-			}
-			inner := cmd[i+1 : i+1+j]
+		inner, last, state := substitutionAt(cmd, i)
+		switch state {
+		case subOpen:
+			return out
+		case subFound:
 			out = append(out, inner)
 			out = append(out, extractSubstitutions(inner)...)
-			i += 1 + j
-		case cmd[i] == '$' && i+1 < len(cmd) && cmd[i+1] == '(' && (i+2 >= len(cmd) || cmd[i+2] != '('):
-			depth, k := 1, i+2
-			for k < len(cmd) && depth > 0 {
-				switch cmd[k] {
-				case '(':
-					depth++
-				case ')':
-					depth--
-				}
-				k++
-			}
-			if depth > 0 {
-				return out // unterminated `$(` — nothing closes it, so stop scanning rather than slice
-			}
-			inner := cmd[i+2 : k-1]
-			out = append(out, inner)
-			out = append(out, extractSubstitutions(inner)...)
-			i = k - 1
+			i = last
 		}
 	}
 	return out
+}
+
+// Outcomes of substitutionAt: nothing opens here, a closed substitution, or one that never closes.
+const (
+	subNone = iota
+	subFound
+	subOpen
+)
+
+// substitutionAt reports the substitution opening at cmd[i]: its inner text and the index of its last byte.
+func substitutionAt(cmd string, i int) (inner string, last, state int) {
+	switch {
+	case cmd[i] == '`':
+		j := strings.IndexByte(cmd[i+1:], '`')
+		if j < 0 {
+			return "", 0, subOpen
+		}
+		return cmd[i+1 : i+1+j], i + 1 + j, subFound
+	case cmd[i] == '$' && i+1 < len(cmd) && cmd[i+1] == '(' && (i+2 >= len(cmd) || cmd[i+2] != '('):
+		return dollarSubstitution(cmd, i)
+	}
+	return "", 0, subNone
+}
+
+// dollarSubstitution scans the `$(` at cmd[i] to its matching close paren.
+func dollarSubstitution(cmd string, i int) (inner string, last, state int) {
+	depth, k := 1, i+2
+	for k < len(cmd) && depth > 0 {
+		switch cmd[k] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		}
+		k++
+	}
+	if depth > 0 {
+		return "", 0, subOpen // unterminated `$(` — nothing closes it, so stop scanning rather than slice
+	}
+	return cmd[i+2 : k-1], k - 1, subFound
 }
 
 // stripHeredocBodies removes the body lines of every `<<WORD`/`<<'WORD'`/`<<-WORD` heredoc (and its
@@ -303,24 +325,7 @@ func skipCommitWrappers(toks []string) []string {
 			continue
 		}
 		if commitWrapperCmds[toks[0]] {
-			wrapper := toks[0]
-			toks = toks[1:]
-			for wrapper == "sudo" && len(toks) > 0 && strings.HasPrefix(toks[0], "-") {
-				if sudoValueFlags[toks[0]] {
-					toks = toks[1:]
-				}
-				toks = toks[1:]
-			}
-			for wrapper == "env" && len(toks) > 0 && strings.HasPrefix(toks[0], "-") {
-				if toks[0] == "--" {
-					toks = toks[1:]
-					break
-				}
-				if envValueFlags[toks[0]] {
-					toks = toks[1:]
-				}
-				toks = toks[1:]
-			}
+			toks = skipWrapperFlags(toks[0], toks[1:])
 			continue
 		}
 		if name, _, ok := strings.Cut(toks[0], "="); ok && name != "" && !strings.ContainsAny(name, " \t") {
@@ -332,54 +337,87 @@ func skipCommitWrappers(toks []string) []string {
 	return toks
 }
 
+// skipWrapperFlags drops sudo's or env's own leading flags (and their values) from toks.
+func skipWrapperFlags(wrapper string, toks []string) []string {
+	for (wrapper == "sudo" || wrapper == "env") && len(toks) > 0 && strings.HasPrefix(toks[0], "-") {
+		if wrapper == "env" && toks[0] == "--" {
+			return toks[1:]
+		}
+		valueFlags := sudoValueFlags
+		if wrapper == "env" {
+			valueFlags = envValueFlags
+		}
+		if valueFlags[toks[0]] {
+			toks = toks[1:]
+		}
+		toks = toks[1:]
+	}
+	return toks
+}
+
 // commitShellSegments splits cmd on &&, ||, ;, |, newline — quoted delimiters stay inside their segment.
 // A backslash escapes the next char literally outside single quotes (so `\"` never closes a double
 // quote); a backslash-newline outside single quotes is a line continuation and vanishes entirely.
 func commitShellSegments(cmd string) []string {
-	var out []string
-	var b strings.Builder
-	var quote byte
+	var s segSplitter
 	for i := 0; i < len(cmd); i++ {
-		c := cmd[i]
-		if quote == '\'' {
-			b.WriteByte(c)
-			if c == quote {
-				quote = 0
-			}
-			continue
-		}
-		if c == '\\' && i+1 < len(cmd) {
-			if cmd[i+1] == '\n' {
-				i++
-				continue
-			}
-			b.WriteByte(c)
-			b.WriteByte(cmd[i+1])
-			i++
-			continue
-		}
-		if quote == '"' {
-			b.WriteByte(c)
-			if c == quote {
-				quote = 0
-			}
-			continue
-		}
-		switch c {
-		case '\'', '"':
-			quote = c
-			b.WriteByte(c)
-		case ';', '|', '&', '\n':
-			if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
-				i++
-			}
-			out = append(out, b.String())
-			b.Reset()
-		default:
-			b.WriteByte(c)
-		}
+		i = s.step(cmd, i)
 	}
-	return append(out, b.String())
+	return append(s.out, s.b.String())
+}
+
+// segSplitter is commitShellSegments' scanner state: finished segments, the one being built and the open quote.
+type segSplitter struct {
+	out   []string
+	b     strings.Builder
+	quote byte
+}
+
+// quoted copies c into the segment and closes the quote when c matches it.
+func (s *segSplitter) quoted(c byte) {
+	s.b.WriteByte(c)
+	if c == s.quote {
+		s.quote = 0
+	}
+}
+
+// escaped copies a backslash and its target; a backslash-newline is a line continuation and vanishes.
+func (s *segSplitter) escaped(next byte) {
+	if next != '\n' {
+		s.b.WriteByte('\\')
+		s.b.WriteByte(next)
+	}
+}
+
+// step consumes cmd[i] and returns the index of the last byte it used.
+func (s *segSplitter) step(cmd string, i int) int {
+	c := cmd[i]
+	if s.quote == '\'' {
+		s.quoted(c)
+		return i
+	}
+	if c == '\\' && i+1 < len(cmd) {
+		s.escaped(cmd[i+1])
+		return i + 1
+	}
+	if s.quote == '"' {
+		s.quoted(c)
+		return i
+	}
+	switch c {
+	case '\'', '"':
+		s.quote = c
+		s.b.WriteByte(c)
+	case ';', '|', '&', '\n':
+		s.out = append(s.out, s.b.String())
+		s.b.Reset()
+		if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
+			i++
+		}
+	default:
+		s.b.WriteByte(c)
+	}
+	return i
 }
 
 // dqEscapable are the chars a backslash actually escapes inside double quotes (bash rule); before any
@@ -390,51 +428,75 @@ const dqEscapable = "$`\"\\\n"
 // so `grep 'git commit'` never tokenizes into separate "git"/"commit" words that could match. Outside
 // quotes a backslash escapes the next char literally; inside double quotes only dqEscapable collapses.
 func commitShellTokens(seg string) []string {
-	var out []string
-	var b strings.Builder
-	var quote byte
-	started := false
+	var s tokScanner
 	for i := 0; i < len(seg); i++ {
-		c := seg[i]
-		if quote == '\'' {
-			if c == quote {
-				quote = 0
-			} else {
-				b.WriteByte(c)
-			}
-			continue
-		}
-		if c == '\\' && i+1 < len(seg) && (quote != '"' || strings.IndexByte(dqEscapable, seg[i+1]) >= 0) {
-			started = true
-			b.WriteByte(seg[i+1])
-			i++
-			continue
-		}
-		if quote == '"' {
-			if c == quote {
-				quote = 0
-			} else {
-				b.WriteByte(c)
-			}
-			continue
-		}
-		switch c {
-		case '\'', '"':
-			quote = c
-			started = true
-		case ' ', '\t':
-			if started {
-				out = append(out, b.String())
-				b.Reset()
-				started = false
-			}
-		default:
-			started = true
-			b.WriteByte(c)
-		}
+		i = s.step(seg, i)
 	}
-	if started {
-		out = append(out, b.String())
+	s.flush()
+	return s.out
+}
+
+// tokScanner is commitShellTokens' scanner state: finished words, the one being built and the open quote.
+type tokScanner struct {
+	out     []string
+	b       strings.Builder
+	quote   byte
+	started bool
+}
+
+// quoted copies c into the word and closes the quote when c matches it.
+func (s *tokScanner) quoted(c byte) {
+	if c == s.quote {
+		s.quote = 0
+		return
 	}
-	return out
+	s.b.WriteByte(c)
+}
+
+// flush ends the word being built, if any.
+func (s *tokScanner) flush() {
+	if s.started {
+		s.out = append(s.out, s.b.String())
+		s.b.Reset()
+		s.started = false
+	}
+}
+
+// escapes reports whether the backslash at seg[i] escapes the next char (inside double quotes only dqEscapable ones).
+func (s *tokScanner) escapes(seg string, i int) bool {
+	return i+1 < len(seg) && (s.quote != '"' || strings.IndexByte(dqEscapable, seg[i+1]) >= 0)
+}
+
+// step consumes seg[i] and returns the index of the last byte it used.
+func (s *tokScanner) step(seg string, i int) int {
+	c := seg[i]
+	if s.quote == '\'' {
+		s.quoted(c)
+		return i
+	}
+	if c == '\\' && s.escapes(seg, i) {
+		s.started = true
+		s.b.WriteByte(seg[i+1])
+		return i + 1
+	}
+	if s.quote == '"' {
+		s.quoted(c)
+		return i
+	}
+	s.unquoted(c)
+	return i
+}
+
+// unquoted handles c outside any quote: it opens a quote, ends the word on whitespace, or extends the word.
+func (s *tokScanner) unquoted(c byte) {
+	switch c {
+	case '\'', '"':
+		s.quote = c
+		s.started = true
+	case ' ', '\t':
+		s.flush()
+	default:
+		s.started = true
+		s.b.WriteByte(c)
+	}
 }

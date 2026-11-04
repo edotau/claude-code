@@ -108,26 +108,34 @@ func recoverJournals() error {
 	files, _ := filepath.Glob(filepath.Join(memstore.JournalDir(), "*.json"))
 	sort.Strings(files)
 	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
+		if err := recoverJournal(f); err != nil {
 			return err
 		}
-		var j journal
-		if _, err := schemas.Decode(journalFormat, data, &j); err != nil { // ErrNewer: untouched, never replayed
-			return fmt.Errorf("memory journal %s: %w", f, err)
-		}
-		if j.ID == "" || j.path() != f { // the body's id names where save/retire write: it must be this file
-			return fmt.Errorf("memory journal %s: id %q does not match its file name", f, j.ID)
-		}
-		if j.State == "complete" {
-			if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-			continue
-		}
-		if _, err := j.run(StoreRepo()); err != nil && !errors.Is(err, ErrDivergent) {
+	}
+	return nil
+}
+
+// recoverJournal replays the journal in file f, or just retires it when already complete.
+func recoverJournal(f string) error {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return err
+	}
+	var j journal
+	if _, err := schemas.Decode(journalFormat, data, &j); err != nil { // ErrNewer: untouched, never replayed
+		return fmt.Errorf("memory journal %s: %w", f, err)
+	}
+	if j.ID == "" || j.path() != f { // the body's id names where save/retire write: it must be this file
+		return fmt.Errorf("memory journal %s: id %q does not match its file name", f, j.ID)
+	}
+	if j.State == "complete" {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+		return nil
+	}
+	if _, err := j.run(StoreRepo()); err != nil && !errors.Is(err, ErrDivergent) {
+		return err
 	}
 	return nil
 }
@@ -178,42 +186,15 @@ func (j *journal) save() error {
 // run drives one journal: check, native capture, apply, receipt, commit, complete; a failed commit stays "applied".
 func (j *journal) run(repo Repo) (Receipt, error) {
 	rec := Receipt{ID: j.ID, Subject: j.Subject, Time: time.Now().UTC()}
-	for _, c := range j.Changes { // replayed journals need path validation before any read
-		if err := repo.validateRel(c.Rel); err != nil {
-			return rec, err
-		}
-	}
-	if err := repo.Ensure(); err != nil {
-		return rec, err
-	}
-	present, missing, err := dirtyFiles(repo)
+	present, err := j.applyBatch(repo, &rec)
 	if err != nil {
 		return rec, err
-	}
-	outcomes, capture, err := j.plan(repo.Dir, present, &rec)
-	if err != nil {
-		return rec, err
-	}
-	if err := j.captureNative(repo, &rec, capture, missing); err != nil {
-		return rec, err
-	}
-	for i, c := range j.Changes {
-		if err := c.apply(repo, outcomes[i], &rec); err != nil {
-			return rec, err
-		}
 	}
 	j.State = "applied"
 	if err := j.save(); err != nil {
 		return rec, err
 	}
-	// A skipped rel that is dirty was written by an earlier attempt of this journal: commit it, no duplicate record.
-	stage := append(append([]string{}, rec.Applied...), rec.Preexisting...)
-	for _, p := range rec.Skipped {
-		if slices.Contains(present, p) {
-			stage = append(stage, p)
-		}
-	}
-	if len(stage) > 0 {
+	if stage := commitStage(rec, present); len(stage) > 0 {
 		if err := j.commit(repo, &rec, stage); err != nil {
 			return rec, err
 		}
@@ -225,6 +206,47 @@ func (j *journal) run(repo Repo) (Receipt, error) {
 		return rec, ErrDivergent
 	}
 	return rec, nil
+}
+
+// applyBatch validates, plans, captures native revisions and applies every change; present lists the dirty files.
+func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err error) {
+	for _, c := range j.Changes { // replayed journals need path validation before any read
+		if err := repo.validateRel(c.Rel); err != nil {
+			return nil, err
+		}
+	}
+	if err := repo.Ensure(); err != nil {
+		return nil, err
+	}
+	present, missing, err := dirtyFiles(repo)
+	if err != nil {
+		return nil, err
+	}
+	outcomes, capture, err := j.plan(repo.Dir, present, rec)
+	if err != nil {
+		return nil, err
+	}
+	if err := j.captureNative(repo, rec, capture, missing); err != nil {
+		return nil, err
+	}
+	for i, c := range j.Changes {
+		if err := c.apply(repo, outcomes[i], rec); err != nil {
+			return nil, err
+		}
+	}
+	return present, nil
+}
+
+// commitStage lists what the batch commit stages: applied and preexisting paths, plus skipped ones left dirty by
+// an earlier attempt of this journal (committed with no duplicate record).
+func commitStage(rec Receipt, present []string) []string {
+	stage := append(append([]string{}, rec.Applied...), rec.Preexisting...)
+	for _, p := range rec.Skipped {
+		if slices.Contains(present, p) {
+			stage = append(stage, p)
+		}
+	}
+	return stage
 }
 
 // plan checks every change against the live bytes and sorts the dirty files: outside the batch they are Preexisting;
@@ -323,12 +345,22 @@ func (c journalChange) check(dir string) (outcome, error) {
 		return 0, err
 	}
 	switch {
-	case c.Delete && absent, !c.Delete && !absent && bytes.Equal(cur, c.Data):
+	case c.alreadyApplied(cur, absent):
 		return outSkip, nil
-	case !c.HasPreimage && absent, c.HasPreimage && !absent && sha256Hex(cur) == c.PreimageSHA256:
+	case c.preimageHolds(cur, absent):
 		return outApply, nil
 	}
 	return outDiverge, nil
+}
+
+// alreadyApplied reports whether the live bytes already show the change: a delete of an absent file or the same data.
+func (c journalChange) alreadyApplied(cur []byte, absent bool) bool {
+	return c.Delete && absent || !c.Delete && !absent && bytes.Equal(cur, c.Data)
+}
+
+// preimageHolds reports whether the live bytes are still the change's recorded preimage (or absent when it had none).
+func (c journalChange) preimageHolds(cur []byte, absent bool) bool {
+	return !c.HasPreimage && absent || c.HasPreimage && !absent && sha256Hex(cur) == c.PreimageSHA256
 }
 
 // apply rechecks the live bytes right before mutating (native capture ran git in between) and sorts the rel into
@@ -341,12 +373,7 @@ func (c journalChange) apply(repo Repo, planned outcome, rec *Receipt) error {
 	if o == outApply && planned != outApply {
 		o = outDiverge
 	}
-	switch o {
-	case outSkip:
-		rec.Skipped = append(rec.Skipped, c.Rel)
-		return nil
-	case outDiverge:
-		rec.Divergent = append(rec.Divergent, c.Rel)
+	if c.recordUnapplied(o, rec) {
 		return nil
 	}
 	if err := repo.validateRel(c.Rel); err != nil { // again, right before the write: an ancestor may have become a link
@@ -362,6 +389,19 @@ func (c journalChange) apply(repo Repo, planned outcome, rec *Receipt) error {
 	}
 	rec.Applied = append(rec.Applied, c.Rel)
 	return nil
+}
+
+// recordUnapplied files a skipped or divergent change in rec and reports whether it did.
+func (c journalChange) recordUnapplied(o outcome, rec *Receipt) bool {
+	switch o {
+	case outSkip:
+		rec.Skipped = append(rec.Skipped, c.Rel)
+	case outDiverge:
+		rec.Divergent = append(rec.Divergent, c.Rel)
+	default:
+		return false
+	}
+	return true
 }
 
 // dirtyFiles splits the dirty paths outside .git into present REGULAR files and tracked paths now missing;

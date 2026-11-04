@@ -8,12 +8,9 @@ import (
 	"testing"
 )
 
-// TestGoReferenceCallsResolveToEmbeddedPrompts: every verb Go's Reference(verb) is actually
-// called with (grepped from internal/memory source, not hardcoded) resolves to a non-empty
-// embedded prompt — commands/reflection and skills/reflection/references are gone, so this is the
-// drift check that used to compare against on-disk files.
-func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
-	memDir := ".."
+// referenceCalls greps memDir's non-test Go files for the verbs passed to Reference("<verb>").
+func referenceCalls(t *testing.T, memDir string) map[string]bool {
+	t.Helper()
 	entries, err := os.ReadDir(memDir)
 	if err != nil {
 		t.Fatalf("read %s: %v", memDir, err)
@@ -32,6 +29,15 @@ func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
 			seen[m[1]] = true
 		}
 	}
+	return seen
+}
+
+// TestGoReferenceCallsResolveToEmbeddedPrompts: every verb Go's Reference(verb) is actually
+// called with (grepped from internal/memory source, not hardcoded) resolves to a non-empty
+// embedded prompt — commands/reflection and skills/reflection/references are gone, so this is the
+// drift check that used to compare against on-disk files.
+func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
+	seen := referenceCalls(t, "..")
 	if len(seen) == 0 {
 		t.Fatal("no Reference(\"<verb>\") calls found in internal/memory — regex drifted or the API moved")
 	}

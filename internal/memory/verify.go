@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime/debug"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -96,6 +94,15 @@ func Verify(w io.Writer, o VerifyOptions) error {
 	v := claimVerifier{helpVerb: o.HelpVerb, branches: map[string]string{}, pushedResults: map[string]verifyResult{}}
 	v.loadObjects(known, allClaims)
 	v.sessions, _ = filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "*.jsonl"))
+	counts, err := v.report(w, stores, claims)
+	if err != nil {
+		return err
+	}
+	return writeVerifySummary(w, counts)
+}
+
+// report checks every store's claims and writes one line per claim, returning the status tallies.
+func (v *claimVerifier) report(w io.Writer, stores []verifyStore, claims [][]verifyClaim) (map[string]int, error) {
 	counts := map[string]int{}
 	for i, store := range stores {
 		v.store, v.cache = store, map[string]verifyResult{}
@@ -107,16 +114,21 @@ func Verify(w io.Writer, o VerifyOptions) error {
 			}
 			counts[r.status]++
 			if _, err := fmt.Fprintf(w, "%s %s:%s — %s — %s\n", r.status, c.file, c.id, c.text, r.evidence); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
+	return counts, nil
+}
+
+// writeVerifySummary writes the final tally line with the share of claims that verified.
+func writeVerifySummary(w io.Writer, counts map[string]int) error {
 	total := counts["ok"] + counts["stale"] + counts["unverifiable"]
 	share := 0.0
 	if total > 0 {
 		share = 100 * float64(counts["ok"]) / float64(total)
 	}
-	_, err = fmt.Fprintf(w, "summary: ok=%d stale=%d unverifiable=%d total=%d ok_share=%.2f%%\n",
+	_, err := fmt.Fprintf(w, "summary: ok=%d stale=%d unverifiable=%d total=%d ok_share=%.2f%%\n",
 		counts["ok"], counts["stale"], counts["unverifiable"], total, share)
 	return err
 }
@@ -157,14 +169,7 @@ func verifyOrigins() (map[string]memstore.Origin, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	for line := range strings.SplitSeq(string(data), "\n") {
-		key, rest, ok := strings.Cut(strings.TrimPrefix(line, "- "), " — ")
-		_, raw, found := strings.CutLast(rest, "<!-- origin: ")
-		var origin memstore.Origin
-		if ok && found && bank.ValidBareName(key) == nil && json.Unmarshal([]byte(strings.TrimSuffix(raw, " -->")), &origin) == nil {
-			out[key] = origin
-		}
-	}
+	maps.Copy(out, catalogOrigins(string(data)))
 	err = vault.View(func(tx *vault.Tx) error {
 		for key, raw := range tx.All(vault.MemoryOrigins) {
 			var origin memstore.Origin
@@ -178,6 +183,20 @@ func verifyOrigins() (map[string]memstore.Origin, error) {
 		return nil, fmt.Errorf("read memory origins: %w", err)
 	}
 	return out, nil
+}
+
+// catalogOrigins reads the `<!-- origin: {...} -->` rows of the store catalog, keyed by store name.
+func catalogOrigins(catalog string) map[string]memstore.Origin {
+	out := map[string]memstore.Origin{}
+	for line := range strings.SplitSeq(catalog, "\n") {
+		key, rest, ok := strings.Cut(strings.TrimPrefix(line, "- "), " — ")
+		_, raw, found := strings.CutLast(rest, "<!-- origin: ")
+		var origin memstore.Origin
+		if ok && found && bank.ValidBareName(key) == nil && json.Unmarshal([]byte(strings.TrimSuffix(raw, " -->")), &origin) == nil {
+			out[key] = origin
+		}
+	}
+	return out
 }
 
 func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) {
@@ -197,7 +216,21 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 		root = memstore.ResolvePath(root)
 	}
 	inStore := verifyWithin(memstore.ResolvePath(memstore.StoreDir()), cwd)
-	best, length, home := -1, 0, -1
+	best, home := bestStore(stores, cwd, root, inStore)
+	if best < 0 && (root == "" || inStore) {
+		best = home
+	}
+	if best < 0 {
+		return nil, fmt.Errorf("no memory store for %s", cwd)
+	}
+	return []verifyStore{stores[best]}, nil
+}
+
+// bestStore returns the index of the store whose dir, repo or alias is the longest match for cwd (or its checkout
+// root), and the index of the home store; both are -1 when absent. Inside the memory repo only store dirs match.
+func bestStore(stores []verifyStore, cwd, root string, inStore bool) (best, home int) {
+	best, home = -1, -1
+	length := 0
 	for i, s := range stores {
 		if filepath.Base(s.dir) == "home" {
 			home = i
@@ -216,13 +249,7 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 			}
 		}
 	}
-	if best < 0 && (root == "" || inStore) {
-		best = home
-	}
-	if best < 0 {
-		return nil, fmt.Errorf("no memory store for %s", cwd)
-	}
-	return []verifyStore{stores[best]}, nil
+	return best, home
 }
 
 func verifyWithin(root, path string) bool {
@@ -245,26 +272,34 @@ func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
 		if !d.Type().IsRegular() || !strings.HasSuffix(path, ".md") {
 			return nil
 		}
-		kind := bank.ClassifyMemoryFile(filepath.Dir(path), filepath.Base(path))
-		if kind != bank.KindBank && kind != bank.KindTopic {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(memstore.StoreDir(), path)
-		active := filepath.Dir(path) == store.dir && verifyActive(filepath.Base(path))
-		for _, block := range verifyBlocks(filepath.Base(path), string(data), kind) {
-			id := bank.BlockID(block)
-			if id == "" {
-				id = bank.ContentRef(block)
-			}
-			claims = append(claims, verifyExtract(filepath.ToSlash(rel), id, block, active)...)
-		}
-		return nil
+		found, err := fileClaims(store, path)
+		claims = append(claims, found...)
+		return err
 	})
 	return claims, err
+}
+
+// fileClaims extracts the claims of one bank or topic markdown file; other kinds yield none.
+func fileClaims(store verifyStore, path string) ([]verifyClaim, error) {
+	kind := bank.ClassifyMemoryFile(filepath.Dir(path), filepath.Base(path))
+	if kind != bank.KindBank && kind != bank.KindTopic {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	rel, _ := filepath.Rel(memstore.StoreDir(), path)
+	active := filepath.Dir(path) == store.dir && verifyActive(filepath.Base(path))
+	var claims []verifyClaim
+	for _, block := range verifyBlocks(filepath.Base(path), string(data), kind) {
+		id := bank.BlockID(block)
+		if id == "" {
+			id = bank.ContentRef(block)
+		}
+		claims = append(claims, verifyExtract(filepath.ToSlash(rel), id, block, active)...)
+	}
+	return claims, nil
 }
 
 func verifyActive(name string) bool {
@@ -376,21 +411,7 @@ func (v *claimVerifier) loadSymbols(claims []verifyClaim) {
 	if v.store.repo == "" {
 		return
 	}
-	var tokens []string
-	needFiles := false
-	for _, c := range claims {
-		if c.kind != "symbol" {
-			continue
-		}
-		if c.scope == "" {
-			if _, ok := v.symbols[c.value]; !ok {
-				tokens = append(tokens, c.value)
-				v.symbols[c.value] = verifyResult{"unverifiable", "bare symbol has no file scope: " + c.value}
-			}
-		} else if !strings.Contains(c.scope, "/") {
-			needFiles = true
-		}
-	}
+	tokens, needFiles := v.bareSymbols(claims)
 	if needFiles {
 		if out, err := verifyGit(v.store.repo, "", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.go"); err == nil {
 			v.sourceFiles = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
@@ -406,18 +427,42 @@ func (v *claimVerifier) loadSymbols(claims []verifyClaim) {
 		return
 	}
 	for file := range strings.SplitSeq(strings.TrimSuffix(out, "\x00"), "\x00") {
-		path, ok := v.scopedPath(file)
-		if !ok {
+		v.markSymbolsIn(file)
+	}
+}
+
+// bareSymbols registers each unscoped symbol claim as unverifiable-until-grepped and reports whether any scoped
+// claim names a bare file (so the repo's Go file list is needed).
+func (v *claimVerifier) bareSymbols(claims []verifyClaim) (tokens []string, needFiles bool) {
+	for _, c := range claims {
+		if c.kind != "symbol" {
 			continue
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		for _, word := range verifyWordRE.FindAll(data, -1) {
-			if result, ok := v.symbols[string(word)]; ok && result.status != "ok" {
-				v.symbols[string(word)] = verifyResult{"ok", "git grep -w: " + file}
+		if c.scope == "" {
+			if _, ok := v.symbols[c.value]; !ok {
+				tokens = append(tokens, c.value)
+				v.symbols[c.value] = verifyResult{"unverifiable", "bare symbol has no file scope: " + c.value}
 			}
+		} else if !strings.Contains(c.scope, "/") {
+			needFiles = true
+		}
+	}
+	return tokens, needFiles
+}
+
+// markSymbolsIn marks every pending bare symbol that occurs as a whole word in the repo file as ok.
+func (v *claimVerifier) markSymbolsIn(file string) {
+	path, ok := v.scopedPath(file)
+	if !ok {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, word := range verifyWordRE.FindAll(data, -1) {
+		if result, ok := v.symbols[string(word)]; ok && result.status != "ok" {
+			v.symbols[string(word)] = verifyResult{"ok", "git grep -w: " + file}
 		}
 	}
 }
@@ -436,6 +481,9 @@ func verifyGit(repo, input string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// verifyObjectTypes are the git object types a cat-file --batch-check reply may name.
+var verifyObjectTypes = map[string]bool{"commit": true, "tree": true, "blob": true, "tag": true}
+
 func verifyBatch(repo string, tokens []string) map[string]string {
 	out := map[string]string{}
 	if len(tokens) == 0 {
@@ -447,306 +495,9 @@ func verifyBatch(repo string, tokens []string) map[string]string {
 	}
 	for i, line := range strings.Split(data, "\n") {
 		fields := strings.Fields(line)
-		if i < len(tokens) && len(fields) == 2 && verifyHexRE.MatchString(fields[0]) &&
-			(fields[1] == "commit" || fields[1] == "tree" || fields[1] == "blob" || fields[1] == "tag") {
+		if i < len(tokens) && len(fields) == 2 && verifyHexRE.MatchString(fields[0]) && verifyObjectTypes[fields[1]] {
 			out[tokens[i]] = fields[0]
 		}
 	}
 	return out
-}
-
-func (v *claimVerifier) check(c verifyClaim) verifyResult {
-	key := c.kind + "\x00" + c.value + "\x00" + c.scope + strconv.FormatBool(c.current)
-	if result, ok := v.cache[key]; ok {
-		return result
-	}
-	result := verifyResult{"unverifiable", "store has no repository"}
-	if c.kind == "hash" {
-		result = v.hash(c.value)
-	} else if v.store.repo != "" {
-		if fi, err := os.Stat(v.store.repo); err != nil || !fi.IsDir() {
-			return verifyResult{"unverifiable", "store repository is unavailable"}
-		}
-		switch c.kind {
-		case "path":
-			result = v.path(c.value)
-		case "symbol":
-			result = v.symbol(c)
-		case "flag":
-			result = v.flag(c)
-		case "pushed":
-			result = v.pushed(c.value)
-		case "installed":
-			result = verifyResult{"unverifiable", "running binary belongs to another repository"}
-			if paths.SamePath(v.store.repo, paths.ConfigDir()) {
-				result = verifyInstalled(c)
-			}
-		}
-	}
-	v.cache[key] = result
-	return result
-}
-
-func (v *claimVerifier) hash(token string) verifyResult {
-	for _, repo := range []string{v.store.repo, memstore.StoreDir()} {
-		if sha := v.objects[repo][token]; sha != "" {
-			return verifyResult{"ok", repo + " object " + sha}
-		}
-	}
-	for _, path := range v.sessions {
-		if strings.HasPrefix(filepath.Base(path), token) {
-			if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
-				return verifyResult{"ok", "session " + path}
-			}
-		}
-	}
-	return verifyResult{"unverifiable", "not resolved in repo, memory repo, or session ids"}
-}
-
-func (v *claimVerifier) scopedPath(token string) (string, bool) {
-	path := token
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", false
-		}
-		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
-	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(v.store.repo, path)
-	}
-	for p := path; p != filepath.Dir(p); p = filepath.Dir(p) {
-		if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			if _, err := os.Stat(p); err != nil {
-				return "", false
-			}
-		}
-	}
-	path = memstore.ResolvePath(path)
-	return path, verifyWithin(memstore.ResolvePath(v.store.repo), path)
-}
-
-func (v *claimVerifier) path(token string) verifyResult {
-	if strings.ContainsAny(token, "*?{}[] \t") {
-		return verifyResult{"unverifiable", "path is a pattern or includes arguments"}
-	}
-	path, ok := v.scopedPath(token)
-	if !ok {
-		return verifyResult{"unverifiable", "path is outside store repository"}
-	}
-	_, err := os.Stat(path)
-	switch {
-	case err == nil:
-		return verifyResult{"ok", "exists " + path}
-	case errors.Is(err, fs.ErrNotExist):
-		rel, err := filepath.Rel(memstore.ResolvePath(v.store.repo), path)
-		if err != nil {
-			return verifyResult{"unverifiable", "cannot locate path in store repository"}
-		}
-		top, _, _ := strings.Cut(rel, string(filepath.Separator))
-		if fi, err := os.Stat(filepath.Join(v.store.repo, top)); err != nil || !fi.IsDir() {
-			return verifyResult{"unverifiable", "top-level directory is absent from store repository: " + top}
-		}
-		return verifyResult{"stale", "missing " + path}
-	default:
-		return verifyResult{"unverifiable", "cannot stat " + path}
-	}
-}
-
-func (v *claimVerifier) symbol(c verifyClaim) verifyResult {
-	if c.scope == "" {
-		return v.symbols[c.value]
-	}
-	files := []string{c.scope}
-	if !strings.Contains(c.scope, "/") {
-		for _, file := range v.sourceFiles {
-			if file != c.scope && filepath.Base(file) == c.scope {
-				files = append(files, file)
-			}
-		}
-	}
-	word := regexp.MustCompile(`\b` + regexp.QuoteMeta(c.value) + `\b`)
-	checked, uncertain := "", false
-	for _, file := range files {
-		path, ok := v.scopedPath(file)
-		if !ok {
-			uncertain = true
-			continue
-		}
-		fi, err := os.Stat(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil || !fi.Mode().IsRegular() {
-			uncertain = true
-			continue
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			uncertain = true
-			continue
-		}
-		if word.Match(data) {
-			return verifyResult{"ok", "symbol " + c.value + " in " + path}
-		}
-		checked = path
-	}
-	if checked != "" && !uncertain {
-		return verifyResult{"stale", "no " + c.value + " in existing file scope " + c.scope + " in " + v.store.repo}
-	}
-	return verifyResult{"unverifiable", "symbol file is missing, outside the repository, or unreadable: " + c.scope}
-}
-
-func (v *claimVerifier) defaultBranch(repo string) string {
-	if branch, ok := v.branches[repo]; ok {
-		return branch
-	}
-	branch, _ := verifyGit(repo, "", "symbolic-ref", "refs/remotes/origin/HEAD")
-	for _, candidate := range []string{branch, "origin/main"} {
-		if candidate == "" {
-			continue
-		}
-		if _, err := verifyGit(repo, "", "rev-parse", "--verify", candidate+"^{commit}"); err == nil {
-			v.branches[repo] = candidate
-			return candidate
-		}
-	}
-	v.branches[repo] = ""
-	return ""
-}
-
-func (v *claimVerifier) pushed(token string) verifyResult {
-	if result, ok := v.pushedResults[token]; ok {
-		return result
-	}
-	result := verifyResult{"unverifiable", "pushed claim: sha does not resolve in any known store repository"}
-	for _, repo := range v.repos {
-		sha := v.objects[repo][token]
-		if sha == "" {
-			continue
-		}
-		branch := v.defaultBranch(repo)
-		if branch == "" {
-			if result.status != "stale" {
-				result = verifyResult{"unverifiable", "origin/HEAD and origin/main unavailable locally in " + repo + "; no fetch attempted"}
-			}
-			continue
-		}
-		_, err := verifyGit(repo, "", "merge-base", "--is-ancestor", sha, branch)
-		evidence := sha + " is an ancestor of local " + strings.TrimPrefix(branch, "refs/remotes/") + " in " + repo
-		if err == nil {
-			result = verifyResult{"ok", evidence}
-			break
-		}
-		var exit *exec.ExitError
-		if remotes, _ := verifyGit(repo, "", "branch", "-r", "--contains", sha); strings.TrimSpace(remotes) != "" {
-			result = verifyResult{"ok", sha + " is on remote branch " + strings.Fields(remotes)[0] + " in " + repo}
-			break
-		}
-		if errors.As(err, &exit) && exit.ExitCode() == 1 {
-			result = verifyResult{"stale", "pushed claim: " + sha + " is not an ancestor of local " + strings.TrimPrefix(branch, "refs/remotes/") + " in " + repo}
-		} else if result.status != "stale" {
-			result = verifyResult{"unverifiable", "cannot check pushed ancestry in " + repo}
-		}
-	}
-	v.pushedResults[token] = result
-	return result
-}
-
-func verifyInstalled(c verifyClaim) verifyResult {
-	if !c.current {
-		return verifyResult{"unverifiable", "installed claim is not explicitly current"}
-	}
-	revision, dirty := "", false
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range info.Settings {
-			if s.Key == "vcs.revision" {
-				revision = s.Value
-			}
-			if s.Key == "vcs.modified" {
-				dirty = s.Value == "true"
-			}
-		}
-	}
-	if revision == "" || dirty {
-		return verifyResult{"unverifiable", "running binary " + textutil.BuildVersion() + " has no clean VCS revision"}
-	}
-	if strings.HasPrefix(revision, c.value) {
-		return verifyResult{"ok", "running binary revision " + revision}
-	}
-	return verifyResult{"stale", "currently installed claim differs from running binary " + revision}
-}
-
-func (v *claimVerifier) flag(c verifyClaim) verifyResult {
-	if !paths.SamePath(v.store.repo, paths.ConfigDir()) {
-		return verifyResult{"unverifiable", "claude-code help belongs to another repository"}
-	}
-	words := strings.Fields(c.scope)
-	if len(words) == 0 || v.helpVerb == nil || !v.helpVerb(words[0]) {
-		return verifyResult{"unverifiable", "no local read-only help handler for " + c.scope}
-	}
-	var command []string
-	for i, word := range words {
-		if i > 0 {
-			help, err := v.help(command)
-			if err != nil || !verifyHelpCommand(help, word) {
-				return verifyResult{"unverifiable", "subcommand not listed by parent -h"}
-			}
-		}
-		command = append(command, word)
-	}
-	help, err := v.help(command)
-	if err != nil || !strings.Contains(help, "usage:") {
-		return verifyResult{"unverifiable", c.scope + " -h unavailable"}
-	}
-	for line := range strings.SplitSeq(help, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 0 && strings.TrimLeft(fields[0], "-") == strings.TrimLeft(c.value, "-") {
-			return verifyResult{"ok", c.scope + " -h lists " + c.value}
-		}
-	}
-	return verifyResult{"stale", c.scope + " -h does not list " + c.value}
-}
-
-func verifyHelpCommand(help, word string) bool {
-	commands := false
-	for line := range strings.SplitSeq(help, "\n") {
-		if line == "COMMANDS" {
-			commands = true
-			continue
-		}
-		if commands && line == "" {
-			commands = false
-		}
-		fields := strings.Fields(line)
-		if commands && len(fields) > 0 && fields[0] == word {
-			return true
-		}
-	}
-	return false
-}
-
-func (v *claimVerifier) help(command []string) (string, error) {
-	key := "help\x00" + strings.Join(command, " ")
-	if result, ok := v.cache[key]; ok {
-		if result.status != "ok" {
-			return "", errors.New(result.evidence)
-		}
-		return result.evidence, nil
-	}
-	binary, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, append(slices.Clone(command), "-h")...)
-	cmd.Env = append(os.Environ(), "NO_COLOR=1")
-	out, err := cmd.CombinedOutput()
-	result := verifyResult{"ok", string(out)}
-	if err != nil {
-		result = verifyResult{"unverifiable", "help command failed"}
-	}
-	v.cache[key] = result
-	return string(out), err
 }

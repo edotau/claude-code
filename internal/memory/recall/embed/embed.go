@@ -153,20 +153,29 @@ func checkEmbedLease(rec VectorRecord, now time.Time, force bool) error {
 	return nil
 }
 
-func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) (embedded, total int, err error) {
+// embedBase is the cache a mint starts from: c's record, or a fresh one when forced or from another namespace.
+func embedBase(c *EmbedClient, now time.Time, force bool) (VectorRecord, error) {
 	if !SafeProfile(c.Profile) {
-		return 0, 0, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
+		return VectorRecord{}, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
 	}
-	now := time.Now()
 	rec, err := readEmbedCache(c.Profile)
 	if err != nil {
-		return 0, 0, err
+		return VectorRecord{}, err
 	}
 	if err := checkEmbedLease(rec, now, force); err != nil {
-		return 0, 0, err
+		return VectorRecord{}, err
 	}
 	if force || rec.Namespace != c.Namespace || rec.Rows == nil {
 		rec = freshEmbedCache(c)
+	}
+	return rec, nil
+}
+
+func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) (embedded, total int, err error) {
+	now := time.Now()
+	rec, err := embedBase(c, now, force)
+	if err != nil {
+		return 0, 0, err
 	}
 	ids, texts, hashes, blocks, total := pendingEmbeds(root, rec)
 	started := now.UnixNano()
@@ -184,21 +193,36 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]VectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
 	run.current = currentEntryHashes(root)
-	stored, cerr := vectorStore.Put(VectorWrite{Profile: c.Profile, Owner: owner, Started: started, Merge: func(cur VectorRecord) VectorRecord {
-		out := run.merge(cur)
-		if embedErr == nil { // a partial run keeps its paid-for rows but does not start the lease
-			out.MintedAt = time.Now().UnixNano()
-		}
-		return out
-	}})
-	if cerr != nil {
-		vectorStore.Release(c.Profile, owner) // the tx rolled back, so the claim is still ours
-	}
+	stored, cerr := run.store(owner, embedErr == nil)
 	if !stored && cerr == nil {
 		embedded = 0
 		cerr = ErrEmbedSuperseded
 	}
 	return embedded, total, errors.Join(embedErr, cerr)
+}
+
+// store merges the run into the current record under owner's claim; complete starts the lease, a partial run does not.
+func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
+	stored, err = vectorStore.Put(VectorWrite{Profile: r.c.Profile, Owner: owner, Started: r.started, Merge: func(cur VectorRecord) VectorRecord {
+		out := r.merge(cur)
+		if complete { // a partial run keeps its paid-for rows but does not start the lease
+			out.MintedAt = time.Now().UnixNano()
+		}
+		return out
+	}})
+	if err != nil {
+		vectorStore.Release(r.c.Profile, owner) // the tx rolled back, so the claim is still ours
+	}
+	return stored, err
+}
+
+// cacheRowCurrent reports whether row matches the entry's text and block hashes and decodes to the cache's dimension.
+func cacheRowCurrent(row VectorRow, hash, blockHash string, cacheDim int) bool {
+	if row.Hash != hash || row.BlockHash != blockHash {
+		return false
+	}
+	v, decoded := decodeVec(row.Vec)
+	return decoded && (cacheDim == 0 || len(v) == cacheDim)
 }
 
 // pendingEmbeds lists root's live entries whose vector in cache is missing, stale or undecodable, and the live count.
@@ -213,11 +237,8 @@ func pendingEmbeds(root string, cache VectorRecord) (ids, texts, hashes, blocks 
 		text := entryEmbedText(e)
 		hash := textHash(text)
 		live[e.ID] = true
-		if row, ok := cache.Rows[e.ID]; ok && row.Hash == hash && row.BlockHash == hitHash(h) {
-			v, decoded := decodeVec(row.Vec)
-			if decoded && (cacheDim == 0 || len(v) == cacheDim) {
-				continue
-			}
+		if cacheRowCurrent(cache.Rows[e.ID], hash, hitHash(h), cacheDim) {
+			continue
 		}
 		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
 		blocks = append(blocks, hitHash(h))
@@ -244,15 +265,17 @@ func (r *embedRun) merge(cur VectorRecord) VectorRecord {
 	if r.freshDim > 0 && cur.Dim != r.freshDim {
 		if cur.DimAt > r.started { // a newer run already moved the dimension
 			fresh = nil
-		} else { // the endpoint's dimension moved: drop vectors it cannot match
-			for id, row := range cur.Rows {
-				if v, ok := decodeVec(row.Vec); ok && len(v) > 0 && len(v) != r.freshDim {
-					delete(cur.Rows, id)
-				}
-			}
-			cur.Dim, cur.DimAt = r.freshDim, r.started
+		} else {
+			r.moveDim(&cur)
 		}
 	}
+	r.absorb(cur, fresh)
+	r.shed(cur)
+	return cur
+}
+
+// absorb folds fresh rows for still-current entries into cur; an equal-hash, same-dimension row keeps its vector.
+func (r *embedRun) absorb(cur VectorRecord, fresh map[string]VectorRow) {
 	for id, row := range fresh {
 		if want, ok := r.current[id]; !ok || row.Hash != want {
 			continue
@@ -264,8 +287,16 @@ func (r *embedRun) merge(cur VectorRecord) VectorRecord {
 		}
 		cur.Rows[id] = row
 	}
-	r.shed(cur)
-	return cur
+}
+
+// moveDim handles the endpoint's dimension moving: drop vectors it cannot match and record the new dimension.
+func (r *embedRun) moveDim(cur *VectorRecord) {
+	for id, row := range cur.Rows {
+		if v, ok := decodeVec(row.Vec); ok && len(v) > 0 && len(v) != r.freshDim {
+			delete(cur.Rows, id)
+		}
+	}
+	cur.Dim, cur.DimAt = r.freshDim, r.started
 }
 
 func sameDim(a, b VectorRow) bool {
@@ -313,8 +344,8 @@ func NewSemantic(query string) (*Semantic, error) {
 	}
 	attempt := time.Now()
 	backoff := filepath.Join(memstore.StateDir(), embedCachePre+profile+".backoff")
-	if st, err := os.Stat(backoff); err == nil && time.Since(st.ModTime()) < embedBackoff {
-		return nil, fmt.Errorf("endpoint failed recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
+	if err := backoffPause(backoff); err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
 	defer cancel()
@@ -329,13 +360,26 @@ func NewSemantic(query string) (*Semantic, error) {
 			}
 			return nil, r.err
 		}
-		if st, err := os.Stat(backoff); err == nil && st.ModTime().Before(attempt) {
-			_ = os.Remove(backoff)
-		}
+		clearOldBackoff(backoff, attempt)
 		return newSemantic(r.vec, cache.Rows), nil
 	case <-ctx.Done():
 		_ = paths.AtomicWrite(backoff, nil, 0o600) // a slow endpoint costs one prompt the full wait, not every prompt
 		return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
+	}
+}
+
+// backoffPause is an error naming when semantic resumes while a backoff marker is still fresh.
+func backoffPause(backoff string) error {
+	if st, err := os.Stat(backoff); err == nil && time.Since(st.ModTime()) < embedBackoff {
+		return fmt.Errorf("endpoint failed recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
+	}
+	return nil
+}
+
+// clearOldBackoff removes a backoff marker written before attempt began, since the endpoint just answered.
+func clearOldBackoff(backoff string, attempt time.Time) {
+	if st, err := os.Stat(backoff); err == nil && st.ModTime().Before(attempt) {
+		_ = os.Remove(backoff)
 	}
 }
 
@@ -457,6 +501,11 @@ func PostEmbeddings(ctx context.Context, url string, texts []string, authorize f
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("embeddings: %s", resp.Status)
 	}
+	return decodeEmbeddings(raw)
+}
+
+// decodeEmbeddings places each reply vector at its index; a gap, bad index or empty vector is malformed.
+func decodeEmbeddings(raw []byte) ([][]float32, error) {
 	var doc struct {
 		Data []struct {
 			Index     int       `json:"index"`

@@ -310,6 +310,17 @@ type RepoEntry struct {
 	Origin   Origin
 }
 
+// storeKeys names the real, non-reserved directories among ents.
+func storeKeys(ents []fs.DirEntry) []string {
+	var keys []string
+	for _, e := range ents {
+		if e.IsDir() && e.Type()&fs.ModeSymlink == 0 && !StoreReservedDirs[e.Name()] {
+			keys = append(keys, e.Name())
+		}
+	}
+	return keys
+}
+
 // RepoDirs lists the repo stores: real directories with a valid origin record, reserved names and symlinks skipped.
 func RepoDirs() ([]RepoEntry, error) {
 	ents, err := os.ReadDir(StoreDir())
@@ -319,12 +330,7 @@ func RepoDirs() ([]RepoEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var keys []string
-	for _, e := range ents {
-		if e.IsDir() && e.Type()&fs.ModeSymlink == 0 && !StoreReservedDirs[e.Name()] {
-			keys = append(keys, e.Name())
-		}
-	}
+	keys := storeKeys(ents)
 	found, _, err := resolveOrigins(keys)
 	if err != nil && len(found) < len(keys) {
 		return nil, err // unreadable vault with unresolved stores: callers must not mint a duplicate

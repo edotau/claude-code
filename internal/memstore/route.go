@@ -38,7 +38,6 @@ func RepoByName(name string) (RepoEntry, bool) {
 
 // routeWord uses the same separator set at both ends, so dotted names stay whole.
 func routeWord(query, name string) bool {
-	word := func(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-' }
 	for offset := 0; offset <= len(query)-len(name); {
 		i := strings.Index(query[offset:], name)
 		if i < 0 {
@@ -46,10 +45,15 @@ func routeWord(query, name string) bool {
 		}
 		i += offset
 		end := i + len(name)
-		if (i == 0 || !word(query[i-1])) && (end == len(query) || !word(query[end])) {
+		if (i == 0 || !routeWordByte(query[i-1])) && (end == len(query) || !routeWordByte(query[end])) {
 			return true
 		}
 		offset = i + 1
 	}
 	return false
+}
+
+// routeWordByte reports whether c continues a route word.
+func routeWordByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-'
 }

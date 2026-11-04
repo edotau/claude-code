@@ -38,7 +38,11 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}
+	return entries, recentSessions(root, limit)
+}
 
+// recentSessions lists the sessionHistory headings of root's bank then the home bank, deduped, up to limit (0 = all).
+func recentSessions(root string, limit int) (sessions []string) {
 	seen := map[string]bool{}
 	dirs := []string{memstore.HomeBankDir()}
 	if !memstore.IsHomeBank(root) {
@@ -52,11 +56,11 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 			seen[h] = true
 			sessions = append(sessions, h)
 			if limit > 0 && len(sessions) >= limit {
-				return entries, sessions
+				return sessions
 			}
 		}
 	}
-	return entries, sessions
+	return sessions
 }
 
 // headID shortens a session id for the timeline's "(session ...)" suffix.

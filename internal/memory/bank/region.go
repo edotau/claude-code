@@ -93,6 +93,13 @@ func BuildCatalog(now time.Time) (string, error) {
 		}
 		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, memstore.CatalogOriginComment(e.Origin))
 	}
+	writeKnowledgeRows(&b, entries)
+	writeHomeRows(&b, now)
+	return b.String(), nil
+}
+
+// writeKnowledgeRows lists the home and per-repo knowledge notes under their own heading.
+func writeKnowledgeRows(b *strings.Builder, entries []memstore.RepoEntry) {
 	var rows []string
 	// collectKnowledge lists dir's own knowledge/*.md.
 	collectKnowledge := func(label, dir string) {
@@ -109,25 +116,28 @@ func BuildCatalog(now time.Time) (string, error) {
 		b.WriteString(strings.Join(rows, "\n"))
 		b.WriteString("\n")
 	}
+}
+
+// writeHomeRows lists the home bank's index bullets and headings, capped at catalogHomeMax.
+func writeHomeRows(b *strings.Builder, now time.Time) {
 	homeIdx := BuildBankIndex(memstore.HomeBankDir(), now)
-	if homeIdx != "" {
-		lines := strings.Split(strings.TrimSpace(homeIdx), "\n")
-		var keep []string
-		for _, l := range lines {
-			if strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "## ") {
-				keep = append(keep, l)
-			}
-		}
-		b.WriteString("\n## Home (memory/home/)\n\n")
-		for i, l := range keep {
-			if i >= catalogHomeMax {
-				fmt.Fprintf(&b, "- … %d more (memory search)\n", len(keep)-i)
-				break
-			}
-			b.WriteString(l + "\n")
+	if homeIdx == "" {
+		return
+	}
+	var keep []string
+	for _, l := range strings.Split(strings.TrimSpace(homeIdx), "\n") {
+		if strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "## ") {
+			keep = append(keep, l)
 		}
 	}
-	return b.String(), nil
+	b.WriteString("\n## Home (memory/home/)\n\n")
+	for i, l := range keep {
+		if i >= catalogHomeMax {
+			fmt.Fprintf(b, "- … %d more (memory search)\n", len(keep)-i)
+			break
+		}
+		b.WriteString(l + "\n")
+	}
 }
 
 // storeHook is a store's one-line routing description: projectContext's first prose line, else its origin.

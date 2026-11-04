@@ -49,39 +49,55 @@ func ensureLink(link, target string) LinkResult {
 	case errors.Is(err, fs.ErrNotExist):
 		r.Action = "linked"
 	case err != nil:
-		r.Action, r.Detail = "blocked", err.Error()
-		return r
+		return r.blocked(err.Error())
 	case fi.Mode()&fs.ModeSymlink != 0:
-		cur, _ := os.Readlink(link)
-		if paths.SamePath(cur, target) {
-			r.Action = "ok"
+		if r = relink(r); r.Action != "relinked" {
 			return r
 		}
-		if err := os.Remove(link); err != nil {
-			r.Action, r.Detail = "blocked", err.Error()
-			return r
-		}
-		r.Action, r.Detail = "relinked", "was -> "+cur
 	case fi.IsDir():
-		if ents, err := os.ReadDir(link); err != nil || len(ents) > 0 {
-			r.Action, r.Detail = "blocked", "real native dir with content: merge it into the store dir by hand"
+		if r = clearEmptyDir(r); r.Action != "linked" {
 			return r
 		}
-		if err := os.Remove(link); err != nil {
-			r.Action, r.Detail = "blocked", err.Error()
-			return r
-		}
-		r.Action = "linked"
 	default:
-		r.Action, r.Detail = "blocked", "not a directory"
-		return r
+		return r.blocked("not a directory")
 	}
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
-		r.Action, r.Detail = "blocked", err.Error()
-		return r
+		return r.blocked(err.Error())
 	}
 	if err := os.Symlink(target, link); err != nil {
 		r.Action, r.Detail = "blocked", err.Error()
 	}
+	return r
+}
+
+// blocked returns r marked blocked with detail.
+func (r LinkResult) blocked(detail string) LinkResult {
+	r.Action, r.Detail = "blocked", detail
+	return r
+}
+
+// relink removes a wrong symlink (Action "relinked"), keeps a right one (Action "ok"), or reports blocked.
+func relink(r LinkResult) LinkResult {
+	cur, _ := os.Readlink(r.Link)
+	if paths.SamePath(cur, r.Target) {
+		r.Action = "ok"
+		return r
+	}
+	if err := os.Remove(r.Link); err != nil {
+		return r.blocked(err.Error())
+	}
+	r.Action, r.Detail = "relinked", "was -> "+cur
+	return r
+}
+
+// clearEmptyDir removes an empty real dir (Action "linked"); a dir with content is blocked.
+func clearEmptyDir(r LinkResult) LinkResult {
+	if ents, err := os.ReadDir(r.Link); err != nil || len(ents) > 0 {
+		return r.blocked("real native dir with content: merge it into the store dir by hand")
+	}
+	if err := os.Remove(r.Link); err != nil {
+		return r.blocked(err.Error())
+	}
+	r.Action = "linked"
 	return r
 }

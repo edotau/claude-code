@@ -45,23 +45,27 @@ func ArchiveReport(out, errw io.Writer, o ArchiveReportOptions) error {
 	for _, s := range res.Skipped {
 		fmt.Fprintln(errw, "skipped:  ", s)
 	}
-	if len(moved) == 0 {
+	reportMoved(out, o, verb, moved)
+	return nil
+}
+
+// reportMoved prints the dry-run preview or the applied result of an archive/restore.
+func reportMoved(out io.Writer, o ArchiveReportOptions, verb string, moved []string) {
+	switch {
+	case len(moved) == 0:
 		fmt.Fprintln(out, "nothing to "+verb)
-		return nil
-	}
-	if !o.Apply {
+	case !o.Apply:
 		fmt.Fprintf(out, "dry-run: would %s %d entr%s: %s\n", verb, len(moved), entrySuffix(len(moved)), strings.Join(moved, ", "))
 		fmt.Fprintln(out, "re-run with --apply to move them")
-		return nil
+	default:
+		fmt.Fprintf(out, "%sd %d entr%s -> %s\n", verb, len(moved), entrySuffix(len(moved)), NativeArchiveDir(o.Dir))
+		for _, n := range moved {
+			fmt.Fprintln(out, "  ", n)
+		}
+		if !o.Restore {
+			fmt.Fprintln(out, "pointer lines recorded verbatim; `memory archive --restore <name> --apply` puts one back")
+		}
 	}
-	fmt.Fprintf(out, "%sd %d entr%s -> %s\n", verb, len(moved), entrySuffix(len(moved)), NativeArchiveDir(o.Dir))
-	for _, n := range moved {
-		fmt.Fprintln(out, "  ", n)
-	}
-	if !o.Restore {
-		fmt.Fprintln(out, "pointer lines recorded verbatim; `memory archive --restore <name> --apply` puts one back")
-	}
-	return nil
 }
 
 // splitNativeReport trims MEMORY.md to keepLines pointer lines; dry run reports the count only.

@@ -3,6 +3,7 @@ package memory
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -281,52 +282,15 @@ func Update(o UpdateOptions) error {
 		return errors.New("claude binary not found")
 	}
 	dir := memstore.Dir(o.CWD)
-	var before, beforeHome time.Time
-	var runErr, lockErr error
-	var ran bool
+	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
-	ran, lockErr = paths.TryFileLock(bank.LockPath(dir)+".lock", updateLockWait, func() error {
-		if o.Historical {
-			snap := snapshotFiles(dir, currentStateFiles)
-			defer warnChanged(o.Out, dir, snap)
-		}
-		before, beforeHome = bank.NewestMtime(dir), bank.NewestMtime(memstore.HomeBankDir())
-		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
-		defer cancel()
-		if o.Run != nil {
-			prompt, perr := agentUpdatePrompt(o.Transcript, o.CWD, o.Historical)
-			if perr != nil {
-				runErr = perr
-				return nil
-			}
-			_ = os.Setenv(bank.UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
-			who, err := o.Run(ctx, prompt, o.CWD)
-			runErr = err
-			fmt.Fprintln(o.Out, "memory update: ran on", who)
-			return nil
-		}
-		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
-		cmd.Dir = o.CWD
-		cmd.Env = append(os.Environ(), bank.UpdateChildEnv+"=1")
-		// A stored setup-token keeps the unattended update working after the interactive /login session expires.
-		if os.Getenv(providers.OAuthTokenEnv) == "" {
-			if tok := providers.HeadlessOAuthToken(); tok != "" {
-				cmd.Env = append(cmd.Env, providers.OAuthTokenEnv+"="+tok)
-			}
-		}
-		cmd.Stdout, cmd.Stderr = o.Out, o.Out
-		runErr = cmd.Run()
-		return nil
-	})
+	ran, lockErr := paths.TryFileLock(bank.LockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
 		record(UpdateFailed, false)
-		if lockErr == nil {
-			lockErr = errors.New("another update or dream holds the store lock")
-		}
-		return fmt.Errorf("headless update: %w", lockErr)
+		return fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock")))
 	}
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated := bank.NewestMtime(dir).After(before) || bank.NewestMtime(memstore.HomeBankDir()).After(beforeHome)
+	updated := bank.NewestMtime(dir).After(run.before) || bank.NewestMtime(memstore.HomeBankDir()).After(run.beforeHome)
 	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: settle:", err)
 	}
@@ -334,10 +298,60 @@ func Update(o UpdateOptions) error {
 	if err := WriteDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
 	}
-	if err := errors.Join(lockErr, runErr); err != nil {
+	if err := errors.Join(lockErr, run.runErr); err != nil {
 		record(UpdateFailed, updated)
 		return fmt.Errorf("headless update: %w", err)
 	}
 	record(UpdateOK, updated)
 	return nil
+}
+
+// updateRun is what the locked section of Update observed: bank mtimes before the run and the run's own error.
+type updateRun struct {
+	before, beforeHome time.Time
+	runErr             error
+}
+
+// locked runs the agent or claude update under the store lock, recording mtimes first; the run's error rides in runErr.
+func (r *updateRun) locked(o UpdateOptions, dir string) error {
+	if o.Historical {
+		snap := snapshotFiles(dir, currentStateFiles)
+		defer warnChanged(o.Out, dir, snap)
+	}
+	r.before, r.beforeHome = bank.NewestMtime(dir), bank.NewestMtime(memstore.HomeBankDir())
+	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+	defer cancel()
+	if o.Run != nil {
+		r.runErr = runAgentUpdate(ctx, o)
+		return nil
+	}
+	r.runErr = runClaudeUpdate(ctx, o)
+	return nil
+}
+
+// runAgentUpdate hands the update prompt to o.Run and reports which agent ran it.
+func runAgentUpdate(ctx context.Context, o UpdateOptions) error {
+	prompt, err := agentUpdatePrompt(o.Transcript, o.CWD, o.Historical)
+	if err != nil {
+		return err
+	}
+	_ = os.Setenv(bank.UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
+	who, err := o.Run(ctx, prompt, o.CWD)
+	fmt.Fprintln(o.Out, "memory update: ran on", who)
+	return err
+}
+
+// runClaudeUpdate runs `claude -p` with the update prompt, streaming to o.Out.
+func runClaudeUpdate(ctx context.Context, o UpdateOptions) error {
+	cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
+	cmd.Dir = o.CWD
+	cmd.Env = append(os.Environ(), bank.UpdateChildEnv+"=1")
+	// A stored setup-token keeps the unattended update working after the interactive /login session expires.
+	if os.Getenv(providers.OAuthTokenEnv) == "" {
+		if tok := providers.HeadlessOAuthToken(); tok != "" {
+			cmd.Env = append(cmd.Env, providers.OAuthTokenEnv+"="+tok)
+		}
+	}
+	cmd.Stdout, cmd.Stderr = o.Out, o.Out
+	return cmd.Run()
 }

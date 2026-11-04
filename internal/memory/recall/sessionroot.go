@@ -30,11 +30,8 @@ func SessionRoot(sessionID, cwd string) string {
 	return filepath.Clean(root)
 }
 
-// RecordSessionRoot preserves the first SessionStart root across resume and compaction.
-func RecordSessionRoot(sessionID, cwd string) {
-	if !LooksLikeSessionID(sessionID) || bank.IsUpdateChild() || SessionRoot(sessionID, "") != "" {
-		return
-	}
+// sessionRootFor is cwd's git toplevel, else its memstore origin, else its absolute path.
+func sessionRootFor(cwd string) string {
 	root := memstore.GitToplevel(cwd)
 	if root == "" || paths.SamePath(root, memstore.StoreDir()) {
 		root = memstore.Resolve(cwd).Origin
@@ -42,6 +39,15 @@ func RecordSessionRoot(sessionID, cwd string) {
 	if root == "" {
 		root, _ = filepath.Abs(cwd)
 	}
+	return root
+}
+
+// RecordSessionRoot preserves the first SessionStart root across resume and compaction.
+func RecordSessionRoot(sessionID, cwd string) {
+	if !LooksLikeSessionID(sessionID) || bank.IsUpdateChild() || SessionRoot(sessionID, "") != "" {
+		return
+	}
+	root := sessionRootFor(cwd)
 	if root == "" {
 		return
 	}

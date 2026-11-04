@@ -79,39 +79,18 @@ func ParseBytes(path string, b []byte) Plan {
 	var open fenceOpen // the fence now open, zero when none
 	for i := 0; i < len(lines); i++ {
 		if ch, n, rest := fenceMarker(lines[i]); n > 0 {
-			switch {
-			case open.n == 0:
-				open = fenceOpen{ch, n}
-			case ch == open.ch && n >= open.n && rest == "":
-				open = fenceOpen{}
-			}
+			open = open.next(ch, n, rest)
 			continue
 		}
 		m := checkLine.FindStringSubmatch(lines[i])
 		if open.n > 0 || m == nil {
 			continue
 		}
-		indent := len(m[1])
-		text := m[3]
-		end := i
-		var cont strings.Builder // wrapped continuation lines of this task
-		for j := i + 1; j < len(lines); j++ {
-			line := lines[j]
-			if strings.TrimSpace(line) == "" || listLine.MatchString(line) || isFence(line) {
-				break
-			}
-			if len(line)-len(strings.TrimLeft(line, " \t")) <= indent {
-				break
-			}
-			cont.WriteString(" ")
-			cont.WriteString(strings.TrimSpace(line))
-			end = j
-		}
-		text += cont.String()
-		um := userRe.FindStringSubmatch(text)
+		cont, end := continuation(lines, i, len(m[1]))
+		text := m[3] + cont
 		t := Task{Start: i, End: end, Done: m[2] == "x" || m[2] == "X"}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
-		if um != nil {
+		if um := userRe.FindStringSubmatch(text); um != nil {
 			t.UserMark = um[1]
 		}
 		p.Tasks = append(p.Tasks, t)
@@ -120,10 +99,40 @@ func ParseBytes(path string, b []byte) Plan {
 	return p
 }
 
+// continuation joins the wrapped lines after lines[i] that are indented past indent, and returns the last line used.
+func continuation(lines []string, i, indent int) (string, int) {
+	end := i
+	var cont strings.Builder
+	for j := i + 1; j < len(lines); j++ {
+		line := lines[j]
+		if strings.TrimSpace(line) == "" || listLine.MatchString(line) || isFence(line) {
+			break
+		}
+		if len(line)-len(strings.TrimLeft(line, " \t")) <= indent {
+			break
+		}
+		cont.WriteString(" ")
+		cont.WriteString(strings.TrimSpace(line))
+		end = j
+	}
+	return cont.String(), end
+}
+
 // fenceOpen is the opening fence's character and length; a closer needs the same character and at least that length.
 type fenceOpen struct {
 	ch byte
 	n  int
+}
+
+// next returns the fence state after a marker line: it opens when none is open, closes on a matching bare marker.
+func (o fenceOpen) next(ch byte, n int, rest string) fenceOpen {
+	switch {
+	case o.n == 0:
+		return fenceOpen{ch, n}
+	case ch == o.ch && n >= o.n && rest == "":
+		return fenceOpen{}
+	}
+	return o
 }
 
 // fenceMarker returns line's leading fence character, its run length (0 when line is no fence) and the text after it.
@@ -193,26 +202,41 @@ func Active(home, worktree string, skip []string) (string, bool) {
 	}
 	best, bestMod, bestClaimed := "", time.Time{}, false
 	for _, e := range entries {
-		name := e.Name()
-		p := filepath.Join(home, name)
-		if !e.Type().IsRegular() || !datedName.MatchString(name) || slices.Contains(skip, p) {
+		p := filepath.Join(home, e.Name())
+		mod, claimed, ok := activeCandidate(e, p, worktree, skip)
+		if !ok {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
+		if best != "" && !beatsActive(claimed, mod, bestClaimed, bestMod) {
 			continue
 		}
-		plan, err := Parse(p)
-		if err != nil || !hasOpenOwnedTask(plan) {
-			continue
-		}
-		claimed := worktree != "" && claimsWorktree(plan, worktree)
-		if best != "" && (bestClaimed && !claimed || claimed == bestClaimed && !info.ModTime().After(bestMod)) {
-			continue
-		}
-		best, bestMod, bestClaimed = p, info.ModTime(), claimed
+		best, bestMod, bestClaimed = p, mod, claimed
 	}
 	return best, best != ""
+}
+
+// activeCandidate returns a dated, non-skipped plan's mtime and worktree claim when it still has an open owned task.
+func activeCandidate(e os.DirEntry, p, worktree string, skip []string) (mod time.Time, claimed, ok bool) {
+	if !e.Type().IsRegular() || !datedName.MatchString(e.Name()) || slices.Contains(skip, p) {
+		return time.Time{}, false, false
+	}
+	info, err := e.Info()
+	if err != nil {
+		return time.Time{}, false, false
+	}
+	plan, err := Parse(p)
+	if err != nil || !hasOpenOwnedTask(plan) {
+		return time.Time{}, false, false
+	}
+	return info.ModTime(), worktree != "" && claimsWorktree(plan, worktree), true
+}
+
+// beatsActive reports whether a candidate outranks the current best: a worktree claim first, then a newer mtime.
+func beatsActive(claimed bool, mod time.Time, bestClaimed bool, bestMod time.Time) bool {
+	if claimed != bestClaimed {
+		return claimed
+	}
+	return mod.After(bestMod)
 }
 
 // claimNamesWorktree matches "worktree <w>" as a whole name, so "fix" does not match "worktree fix-2".
@@ -266,19 +290,11 @@ func hasOpenOwnedTask(plan Plan) bool {
 // committed file already matches stays as is.
 func spliceOwn(prev, entry string, files []string) string {
 	first, _, ok := strings.Cut(entry, "/")
-	if !ok { // a bare file name lives beside the previous entry, unless a committed file is literally that name
-		if prev == "" || entry == "" || slices.Contains(files, entry) || !strings.Contains(prev, "/") {
-			return entry
-		}
-		return path.Dir(prev) + "/" + entry
+	if !ok {
+		return spliceBare(prev, entry, files)
 	}
-	if prev == "" || first == "" {
+	if prev == "" || first == "" || matchesCommitted(entry, files) {
 		return entry
-	}
-	for _, f := range files {
-		if filepath.ToSlash(f) == entry || strings.HasPrefix(filepath.ToSlash(f), strings.TrimSuffix(entry, "/")+"/") {
-			return entry
-		}
 	}
 	segs := strings.Split(prev, "/")
 	for i := len(segs) - 2; i >= 1; i-- {
@@ -287,6 +303,24 @@ func spliceOwn(prev, entry string, files []string) string {
 		}
 	}
 	return entry
+}
+
+// spliceBare puts a bare file name beside the previous entry, unless a committed file is literally that name.
+func spliceBare(prev, entry string, files []string) string {
+	if prev == "" || entry == "" || slices.Contains(files, entry) || !strings.Contains(prev, "/") {
+		return entry
+	}
+	return path.Dir(prev) + "/" + entry
+}
+
+// matchesCommitted reports whether a committed file is entry or lives under it.
+func matchesCommitted(entry string, files []string) bool {
+	for _, f := range files {
+		if filepath.ToSlash(f) == entry || strings.HasPrefix(filepath.ToSlash(f), strings.TrimSuffix(entry, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // isDirOwn reports whether an owns entry names a directory: a trailing slash, or a pathed name without an extension.
@@ -313,18 +347,7 @@ func Covers(owns, files []string) (all, any bool) {
 		prev = entry
 		dir := strings.TrimSuffix(entry, "/")
 		hasFile = hasFile || !isDirOwn(entry)
-		touched := false
-		for _, f := range files {
-			file := filepath.ToSlash(f)
-			if entry != "" && (file == entry || file == dir || strings.HasPrefix(file, dir+"/")) {
-				touched = true
-				break
-			}
-			if ok, err := path.Match(entry, file); err == nil && ok {
-				touched = true
-				break
-			}
-		}
+		touched := touchesEntry(entry, dir, files)
 		if touched {
 			any = true
 		} else {
@@ -334,8 +357,27 @@ func Covers(owns, files []string) (all, any bool) {
 	return all && hasFile, any
 }
 
+// touchesEntry reports whether any file is entry, lives under dir, or matches entry as a glob.
+func touchesEntry(entry, dir string, files []string) bool {
+	for _, f := range files {
+		file := filepath.ToSlash(f)
+		if entry != "" && (file == entry || file == dir || strings.HasPrefix(file, dir+"/")) {
+			return true
+		}
+		if ok, err := path.Match(entry, file); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
 // planScore is how well a commit range matches one plan: tasks fully owned by it, then tasks with a file entry touched.
 type planScore struct{ exact, touched int }
+
+// below reports whether s scores lower than o: fewer exact tasks, or equal exact and fewer touched.
+func (s planScore) below(o planScore) bool {
+	return s.exact < o.exact || s.exact == o.exact && s.touched < o.touched
+}
 
 // scorePlan counts open tasks the range's union of files completes (exact) or touches through a file entry.
 func scorePlan(plan Plan, files []string) (s planScore) {
@@ -430,7 +472,7 @@ func bestCandidates(all []datedPlan, newestOpen, worktree string, files []string
 		if name[:10] > bestDate { // the newest touched plan wins; scores compare only within one date
 			bestDate, best, cands, claimed = name[:10], planScore{}, nil, map[string]bool{}
 		}
-		if s.exact < best.exact || s.exact == best.exact && s.touched < best.touched {
+		if s.below(best) {
 			continue
 		}
 		if s != best {

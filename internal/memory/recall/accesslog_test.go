@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,22 +46,20 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 		t.Errorf("recall injections must never count as returns: %v", counts)
 	}
 
-	// Nominations glob every repo's state log, prefixed with the repo's store key — not only home's.
+	assertHotNomination(t, now)
+}
+
+// Nominations glob every repo's state log, prefixed with the repo's store key — not only home's.
+func assertHotNomination(t *testing.T, now time.Time) {
+	t.Helper()
 	root := repoRoot(t, "proj")
 	dir := memstore.Dir(root)
 	for d := range hotMinDays {
 		LogAccess(dir, now.AddDate(0, 0, -d), "dd000004", AccessRecall)
 	}
 	want := filepath.Base(dir) + "/dd000004: hot"
-	noms := AccessNominations(now)
-	found := false
-	for _, n := range noms {
-		if strings.HasPrefix(n, want) {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("want a hot nomination %q, got %v", want, noms)
+	if !slices.ContainsFunc(AccessNominations(now), func(n string) bool { return strings.HasPrefix(n, want) }) {
+		t.Errorf("want a hot nomination %q, got %v", want, AccessNominations(now))
 	}
 }
 

@@ -20,6 +20,19 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 	return proxy.Base(st.Port), secret, err == nil
 }
 
+// embeddingModelFor picks p's embeddings endpoint from the models it serves.
+func embeddingModelFor(ctx context.Context, reg *providers.Registry, p *providers.Provider) (string, error) {
+	infos, err := providers.ListModels(ctx, reg, p)
+	if err != nil {
+		return "", err
+	}
+	model, ok := PickEmbeddingModel(infos)
+	if !ok {
+		return "", fmt.Errorf("profile %s serves no embeddings endpoint", p.Name)
+	}
+	return model, nil
+}
+
 // openDatabricksEmbed is profile's embeddings client; credentials come only from providers.Authorize.
 func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClient, error) {
 	reg, err := providers.Load()
@@ -35,13 +48,8 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 		return nil, fmt.Errorf("profile %s is not a databricks workspace", p.Name)
 	}
 	if model == "" {
-		infos, err := providers.ListModels(ctx, reg, p)
-		if err != nil {
+		if model, err = embeddingModelFor(ctx, reg, p); err != nil {
 			return nil, err
-		}
-		var ok bool
-		if model, ok = PickEmbeddingModel(infos); !ok {
-			return nil, fmt.Errorf("profile %s serves no embeddings endpoint", p.Name)
 		}
 	}
 	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"

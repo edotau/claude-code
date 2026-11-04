@@ -155,6 +155,17 @@ func e2eBinary(t *testing.T) string {
 	return e2eBuild.bin
 }
 
+// e2eRun is the shared state of the lifecycle walkthrough; each method is one subtest, run in order.
+type e2eRun struct {
+	e       e2eEnv
+	cfg     string
+	repo    string
+	bankDir string
+	factID  string
+}
+
+const e2eFact = "rotate the zebrafish kestrel gearbox calibration before every deploy"
+
 // TestE2EMemoryLifecycle drives init -> session-start -> remember -> recall -> promote -> index through the real binary.
 func TestE2EMemoryLifecycle(t *testing.T) {
 	if testing.Short() {
@@ -171,205 +182,221 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
-	e := e2eEnv{bin: bin, cfg: cfg, home: home, repo: repo, pathDir: pathDir}
+	r := &e2eRun{e: e2eEnv{bin: bin, cfg: cfg, home: home, repo: repo, pathDir: pathDir}, cfg: cfg, repo: repo}
 
 	initStore(t)                                                          // completed journal + store git repo, written under cfg by the same helper the unit tests use
 	write(t, DreamStampPath(repo), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
 
-	const fact = "rotate the zebrafish kestrel gearbox calibration before every deploy"
-	var bankDir, factID string
+	for _, step := range []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"init", r.init}, {"session-start", r.sessionStart}, {"remember", r.remember},
+		{"recall-and-search", r.recallAndSearch}, {"recall-hook", r.recallHook},
+		{"review-candidates", r.reviewCandidates}, {"promote", r.promote},
+		{"update-procedure", r.updateProcedure}, {"update-transcript", r.updateTranscript},
+		{"index-and-fmt", r.indexAndFmt}, {"layout", r.layout},
+	} {
+		t.Run(step.name, step.run)
+	}
+}
 
-	t.Run("init", func(t *testing.T) {
-		out := e.mustRun(t, "", "memory", "init")
-		if !strings.Contains(out, "bank:") {
-			t.Errorf("init output names no bank:\n%s", out)
+func (x *e2eRun) init(t *testing.T) {
+	out := x.e.mustRun(t, "", "memory", "init")
+	if !strings.Contains(out, "bank:") {
+		t.Errorf("init output names no bank:\n%s", out)
+	}
+	x.bankDir = strings.TrimSpace(x.e.mustRun(t, "", "memory", "path"))
+	if rel, err := filepath.Rel(memstore.StoreDir(), x.bankDir); err != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("bank dir %s is not under the store %s", x.bankDir, memstore.StoreDir())
+	}
+	for _, name := range bank.BankFiles() {
+		if _, err := os.Stat(filepath.Join(x.bankDir, name)); err != nil {
+			t.Errorf("bank file %s missing: %v", name, err)
 		}
-		bankDir = strings.TrimSpace(e.mustRun(t, "", "memory", "path"))
-		if rel, err := filepath.Rel(memstore.StoreDir(), bankDir); err != nil || strings.HasPrefix(rel, "..") {
-			t.Fatalf("bank dir %s is not under the store %s", bankDir, memstore.StoreDir())
-		}
-		for _, name := range bank.BankFiles() {
-			if _, err := os.Stat(filepath.Join(bankDir, name)); err != nil {
-				t.Errorf("bank file %s missing: %v", name, err)
-			}
-		}
-		if got := len(bank.BankFiles()); got != 6 {
-			t.Errorf("BankFiles = %d, want 6", got)
-		}
-	})
+	}
+	if got := len(bank.BankFiles()); got != 6 {
+		t.Errorf("BankFiles = %d, want 6", got)
+	}
+}
 
-	t.Run("session-start", func(t *testing.T) {
-		e.mustRun(t, "", "memory", "index") // a fresh scaffold has no focus text; the generated catalog is what names the bank
-		in := `{"session_id":"e2e-session-start","cwd":"` + repo + `","hook_event_name":"SessionStart"}`
-		out := e.mustRun(t, in, "hook", "SessionStart", "--memory-start")
-		ctx := hookContext(t, out)
-		if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, filepath.Base(bankDir)) {
-			t.Errorf("additionalContext does not name the bank %s:\n%s", filepath.Base(bankDir), ctx)
+func (x *e2eRun) sessionStart(t *testing.T) {
+	x.e.mustRun(t, "", "memory", "index") // a fresh scaffold has no focus text; the generated catalog is what names the bank
+	in := `{"session_id":"e2e-session-start","cwd":"` + x.repo + `","hook_event_name":"SessionStart"}`
+	out := x.e.mustRun(t, in, "hook", "SessionStart", "--memory-start")
+	ctx := hookContext(t, out)
+	if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, filepath.Base(x.bankDir)) {
+		t.Errorf("additionalContext does not name the bank %s:\n%s", filepath.Base(x.bankDir), ctx)
+	}
+	link := filepath.Join(x.cfg, "projects", memstore.ProjectSlug(x.repo), "memory")
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+		t.Fatalf("native link %s: %v (mode %v)", link, err, fi)
+	}
+	got, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(x.bankDir)
+	if got != want {
+		t.Errorf("native link resolves to %s, want the store bank %s", got, want)
+	}
+}
+
+func (x *e2eRun) remember(t *testing.T) {
+	out := x.e.mustRun(t, "", "memory", "remember", "--type", "feedback", e2eFact)
+	m := regexp.MustCompile(`remembered \[([^\]]+)\]`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("remember printed no id:\n%s", out)
+	}
+	x.factID = m[1]
+	// the task text said --type convention; the verb accepts only user|feedback|project|reference
+	if _, errs, code := x.e.run(t, "", "memory", "remember", "--type", "convention", "x y z"); code == 0 {
+		t.Errorf("--type convention accepted; the flag help lists only user/feedback/project/reference (stderr %q)", errs)
+	}
+	data, err := os.ReadFile(filepath.Join(x.bankDir, "conventions.md"))
+	if err != nil || !strings.Contains(string(data), "zebrafish kestrel") {
+		t.Errorf("fact not in conventions.md (err %v)", err)
+	}
+}
+
+func (x *e2eRun) recallAndSearch(t *testing.T) {
+	if out := x.e.mustRun(t, "", "memory", "recall", "zebrafish", "kestrel"); !strings.Contains(out, x.factID) {
+		t.Errorf("recall misses id %s:\n%s", x.factID, out)
+	}
+	if out := x.e.mustRun(t, "", "memory", "search", "zebrafish", "kestrel"); !strings.Contains(out, x.factID) {
+		t.Errorf("search misses id %s:\n%s", x.factID, out)
+	}
+}
+
+func (x *e2eRun) recallHook(t *testing.T) {
+	prompt := "how do I rotate the zebrafish kestrel gearbox calibration before deploy"
+	b, _ := json.Marshal(map[string]string{"session_id": "e2e-recall", "cwd": x.repo, "prompt": prompt,
+		"hook_event_name": "UserPromptSubmit"})
+	out := x.e.mustRun(t, string(b), "hook", "UserPromptSubmit", "--memory-recall")
+	ctx := hookContext(t, out)
+	if !strings.Contains(ctx, "<!-- memory-recall:") || !strings.Contains(ctx, "zebrafish kestrel") {
+		t.Errorf("recall hook injected no matching block:\n%q", out)
+	}
+}
+
+func (x *e2eRun) reviewCandidates(t *testing.T) {
+	x.e.mustRun(t, "", "memory", "review", "--candidates")
+}
+
+func (x *e2eRun) promote(t *testing.T) {
+	homeBank := memstore.HomeBankDir()
+	beforeLocal, beforeHome := dirHashes(t, x.bankDir), dirHashes(t, homeBank)
+	x.e.mustRun(t, "", "memory", "promote", x.factID, "--to", "home", "--dry-run")
+	if got := dirHashes(t, x.bankDir); !equalSnap(got, beforeLocal) {
+		t.Error("--dry-run changed the local bank")
+	}
+	if got := dirHashes(t, homeBank); !equalSnap(got, beforeHome) {
+		t.Error("--dry-run changed the home bank")
+	}
+	x.e.mustRun(t, "", "memory", "promote", x.factID, "--to", "home")
+	homeConv, err := os.ReadFile(filepath.Join(homeBank, "conventions.md"))
+	if err != nil || !strings.Contains(string(homeConv), "zebrafish kestrel") {
+		t.Errorf("promoted fact missing from home conventions.md (err %v)", err)
+	}
+	local, _ := os.ReadFile(filepath.Join(x.bankDir, "conventions.md"))
+	if strings.Contains(string(local), "zebrafish kestrel") {
+		t.Error("promoted fact still in the local conventions.md")
+	}
+}
+
+func (x *e2eRun) updateProcedure(t *testing.T) {
+	if out := x.e.mustRun(t, "", "memory", "update"); strings.TrimSpace(out) == "" {
+		t.Error("memory update printed no procedure")
+	}
+}
+
+func (x *e2eRun) updateTranscript(t *testing.T) {
+	// copilot and the other agent dispatches are absent from <cfg>/bin, so the chain lands on the fake claude there
+	const marker = "e2e-update-marker-7731"
+	const session = "e2e-update-session"
+	argvLog, stdinLog := filepath.Join(t.TempDir(), "argv.log"), filepath.Join(t.TempDir(), "stdin.log")
+	script := "#!/bin/sh\n" +
+		"for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + argvLog + "'; done\n" +
+		"while IFS= read -r l || [ -n \"$l\" ]; do printf '%s\\n' \"$l\"; done > '" + stdinLog + "'\n" + // PATH has no cat
+		"printf '\\n- " + marker + "\\n' >> '" + filepath.Join(x.bankDir, "sessionHistory.md") + "'\n" +
+		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"updated\"}]}}'\n" +
+		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"updated\"}'\n"
+	write(t, filepath.Join(x.cfg, "bin", "claude"), script)
+	if err := os.Chmod(filepath.Join(x.cfg, "bin", "claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(t.TempDir(), "session.jsonl")
+	write(t, transcript, `{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"hello"}}`+"\n"+
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"DECISION: ship the zebrafish gearbox"}]}}`+"\n")
+	before := dirHashes(t, x.cfg)
+
+	out := x.e.mustRun(t, "", "memory", "update", "--transcript", transcript, "--cwd", x.repo, "--session", session)
+	if !strings.Contains(out, "memory update: ran on") {
+		t.Errorf("update reported no runner:\n%s", out)
+	}
+	prompt, _ := os.ReadFile(stdinLog)
+	for _, want := range []string{transcript, "Background update", "DECISION: ship the zebrafish gearbox"} {
+		if !strings.Contains(string(prompt), want) {
+			t.Errorf("fake claude prompt lacks %q:\n%s", want, prompt)
 		}
-		link := filepath.Join(cfg, "projects", memstore.ProjectSlug(repo), "memory")
-		if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
-			t.Fatalf("native link %s: %v (mode %v)", link, err, fi)
+	}
+	if argv, _ := os.ReadFile(argvLog); !strings.Contains(string(argv), "--print") {
+		t.Errorf("fake claude was not run headless: %q", argv)
+	}
+	if hist, _ := os.ReadFile(filepath.Join(x.bankDir, "sessionHistory.md")); !strings.Contains(string(hist), marker) {
+		t.Error("the fake reply's sessionHistory write is missing from the bank")
+	}
+	res, ok := ReadUpdateResult(session)
+	if !ok || res.Status != UpdateOK || !res.BankUpdated {
+		t.Errorf("update result = %+v ok=%v, want status ok with bank_updated", res, ok)
+	}
+	assertOnlyStoreAndStateGrew(t, x.cfg, before)
+}
+
+// assertOnlyStoreAndStateGrew checks every path new under cfg since before lives in the store or state/.
+func assertOnlyStoreAndStateGrew(t *testing.T, cfg string, before map[string]string) {
+	t.Helper()
+	store, _ := filepath.EvalSymlinks(filepath.Join(cfg, "memory"))
+	for p := range dirHashes(t, cfg) {
+		if _, existed := before[p]; existed {
+			continue
 		}
-		got, err := filepath.EvalSymlinks(link)
+		if r, _ := filepath.EvalSymlinks(p); !strings.HasPrefix(r, store+string(filepath.Separator)) &&
+			!strings.HasPrefix(p, filepath.Join(cfg, "state")+string(filepath.Separator)) {
+			t.Errorf("update created %s outside the store and state/", p)
+		}
+	}
+}
+
+func (x *e2eRun) indexAndFmt(t *testing.T) {
+	x.e.mustRun(t, "", "memory", "index")
+	x.e.mustRun(t, "", "memory", "fmt", "--check")
+}
+
+func (x *e2eRun) layout(t *testing.T) {
+	if _, err := os.Lstat(filepath.Join(x.cfg, "docs", "memory")); err == nil {
+		t.Errorf("legacy tree %s was created beside the live store", filepath.Join(x.cfg, "docs", "memory"))
+	}
+	store, _ := filepath.EvalSymlinks(filepath.Join(x.cfg, "memory"))
+	bankNames := map[string]bool{}
+	for _, n := range bank.BankFiles() {
+		bankNames[n] = true
+	}
+	err := filepath.WalkDir(x.cfg, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
-		want, _ := filepath.EvalSymlinks(bankDir)
-		if got != want {
-			t.Errorf("native link resolves to %s, want the store bank %s", got, want)
-		}
-	})
-
-	t.Run("remember", func(t *testing.T) {
-		out := e.mustRun(t, "", "memory", "remember", "--type", "feedback", fact)
-		m := regexp.MustCompile(`remembered \[([^\]]+)\]`).FindStringSubmatch(out)
-		if m == nil {
-			t.Fatalf("remember printed no id:\n%s", out)
-		}
-		factID = m[1]
-		// the task text said --type convention; the verb accepts only user|feedback|project|reference
-		if _, errs, code := e.run(t, "", "memory", "remember", "--type", "convention", "x y z"); code == 0 {
-			t.Errorf("--type convention accepted; the flag help lists only user/feedback/project/reference (stderr %q)", errs)
-		}
-		data, err := os.ReadFile(filepath.Join(bankDir, "conventions.md"))
-		if err != nil || !strings.Contains(string(data), "zebrafish kestrel") {
-			t.Errorf("fact not in conventions.md (err %v)", err)
-		}
-	})
-
-	t.Run("recall-and-search", func(t *testing.T) {
-		if out := e.mustRun(t, "", "memory", "recall", "zebrafish", "kestrel"); !strings.Contains(out, factID) {
-			t.Errorf("recall misses id %s:\n%s", factID, out)
-		}
-		if out := e.mustRun(t, "", "memory", "search", "zebrafish", "kestrel"); !strings.Contains(out, factID) {
-			t.Errorf("search misses id %s:\n%s", factID, out)
-		}
-	})
-
-	t.Run("recall-hook", func(t *testing.T) {
-		prompt := "how do I rotate the zebrafish kestrel gearbox calibration before deploy"
-		b, _ := json.Marshal(map[string]string{"session_id": "e2e-recall", "cwd": repo, "prompt": prompt,
-			"hook_event_name": "UserPromptSubmit"})
-		out := e.mustRun(t, string(b), "hook", "UserPromptSubmit", "--memory-recall")
-		ctx := hookContext(t, out)
-		if !strings.Contains(ctx, "<!-- memory-recall:") || !strings.Contains(ctx, "zebrafish kestrel") {
-			t.Errorf("recall hook injected no matching block:\n%q", out)
-		}
-	})
-
-	t.Run("review-candidates", func(t *testing.T) {
-		e.mustRun(t, "", "memory", "review", "--candidates")
-	})
-
-	t.Run("promote", func(t *testing.T) {
-		homeBank := memstore.HomeBankDir()
-		beforeLocal, beforeHome := dirHashes(t, bankDir), dirHashes(t, homeBank)
-		e.mustRun(t, "", "memory", "promote", factID, "--to", "home", "--dry-run")
-		if got := dirHashes(t, bankDir); !equalSnap(got, beforeLocal) {
-			t.Error("--dry-run changed the local bank")
-		}
-		if got := dirHashes(t, homeBank); !equalSnap(got, beforeHome) {
-			t.Error("--dry-run changed the home bank")
-		}
-		e.mustRun(t, "", "memory", "promote", factID, "--to", "home")
-		homeConv, err := os.ReadFile(filepath.Join(homeBank, "conventions.md"))
-		if err != nil || !strings.Contains(string(homeConv), "zebrafish kestrel") {
-			t.Errorf("promoted fact missing from home conventions.md (err %v)", err)
-		}
-		local, _ := os.ReadFile(filepath.Join(bankDir, "conventions.md"))
-		if strings.Contains(string(local), "zebrafish kestrel") {
-			t.Error("promoted fact still in the local conventions.md")
-		}
-	})
-
-	t.Run("update-procedure", func(t *testing.T) {
-		if out := e.mustRun(t, "", "memory", "update"); strings.TrimSpace(out) == "" {
-			t.Error("memory update printed no procedure")
-		}
-	})
-
-	t.Run("update-transcript", func(t *testing.T) {
-		// copilot and the other agent dispatches are absent from <cfg>/bin, so the chain lands on the fake claude there
-		const marker = "e2e-update-marker-7731"
-		const session = "e2e-update-session"
-		argvLog, stdinLog := filepath.Join(t.TempDir(), "argv.log"), filepath.Join(t.TempDir(), "stdin.log")
-		script := "#!/bin/sh\n" +
-			"for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + argvLog + "'; done\n" +
-			"while IFS= read -r l || [ -n \"$l\" ]; do printf '%s\\n' \"$l\"; done > '" + stdinLog + "'\n" + // PATH has no cat
-			"printf '\\n- " + marker + "\\n' >> '" + filepath.Join(bankDir, "sessionHistory.md") + "'\n" +
-			"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"updated\"}]}}'\n" +
-			"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"updated\"}'\n"
-		write(t, filepath.Join(cfg, "bin", "claude"), script)
-		if err := os.Chmod(filepath.Join(cfg, "bin", "claude"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		transcript := filepath.Join(t.TempDir(), "session.jsonl")
-		write(t, transcript, `{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"hello"}}`+"\n"+
-			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"DECISION: ship the zebrafish gearbox"}]}}`+"\n")
-		before := dirHashes(t, cfg)
-
-		out := e.mustRun(t, "", "memory", "update", "--transcript", transcript, "--cwd", repo, "--session", session)
-		if !strings.Contains(out, "memory update: ran on") {
-			t.Errorf("update reported no runner:\n%s", out)
-		}
-		prompt, _ := os.ReadFile(stdinLog)
-		for _, want := range []string{transcript, "Background update", "DECISION: ship the zebrafish gearbox"} {
-			if !strings.Contains(string(prompt), want) {
-				t.Errorf("fake claude prompt lacks %q:\n%s", want, prompt)
-			}
-		}
-		if argv, _ := os.ReadFile(argvLog); !strings.Contains(string(argv), "--print") {
-			t.Errorf("fake claude was not run headless: %q", argv)
-		}
-		if hist, _ := os.ReadFile(filepath.Join(bankDir, "sessionHistory.md")); !strings.Contains(string(hist), marker) {
-			t.Error("the fake reply's sessionHistory write is missing from the bank")
-		}
-		res, ok := ReadUpdateResult(session)
-		if !ok || res.Status != UpdateOK || !res.BankUpdated {
-			t.Errorf("update result = %+v ok=%v, want status ok with bank_updated", res, ok)
-		}
-		store, _ := filepath.EvalSymlinks(filepath.Join(cfg, "memory"))
-		for p := range dirHashes(t, cfg) {
-			if _, existed := before[p]; existed {
-				continue
-			}
-			if r, _ := filepath.EvalSymlinks(p); !strings.HasPrefix(r, store+string(filepath.Separator)) &&
-				!strings.HasPrefix(p, filepath.Join(cfg, "state")+string(filepath.Separator)) {
-				t.Errorf("update created %s outside the store and state/", p)
-			}
-		}
-	})
-
-	t.Run("index-and-fmt", func(t *testing.T) {
-		e.mustRun(t, "", "memory", "index")
-		e.mustRun(t, "", "memory", "fmt", "--check")
-	})
-
-	t.Run("layout", func(t *testing.T) {
-		if _, err := os.Lstat(filepath.Join(cfg, "docs", "memory")); err == nil {
-			t.Errorf("legacy tree %s was created beside the live store", filepath.Join(cfg, "docs", "memory"))
-		}
-		store, _ := filepath.EvalSymlinks(filepath.Join(cfg, "memory"))
-		bankNames := map[string]bool{}
-		for _, n := range bank.BankFiles() {
-			bankNames[n] = true
-		}
-		err := filepath.WalkDir(cfg, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.Type()&fs.ModeSymlink != 0 || d.IsDir() || !bankNames[d.Name()] {
-				return nil
-			}
-			if r, _ := filepath.EvalSymlinks(p); !strings.HasPrefix(r, store+string(filepath.Separator)) {
-				t.Errorf("bank file %s lives outside %s", p, store)
-			}
+		if d.Type()&fs.ModeSymlink != 0 || d.IsDir() || !bankNames[d.Name()] {
 			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
 		}
+		if r, _ := filepath.EvalSymlinks(p); !strings.HasPrefix(r, store+string(filepath.Separator)) {
+			t.Errorf("bank file %s lives outside %s", p, store)
+		}
+		return nil
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func equalSnap(a, b map[string]string) bool {

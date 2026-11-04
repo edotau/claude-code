@@ -287,24 +287,45 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 	if err != nil {
 		return err
 	}
-	if plan == "" {
-		var tied []string
-		if plan, tied = Select(Home(paths.MainCheckout(dir)), worktree, drafts, commits); plan == "" {
-			if len(tied) > 0 {
-				fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
-			} else {
-				fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
-			}
-			return nil
-		}
-	} else if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
-		return fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
+	plan, done, err := pickPlan(dir, worktree, plan, drafts, commits, w)
+	if err != nil || done {
+		return err
 	}
 	results, err := TickCommits(plan, commits, dryRun)
 	if err != nil {
 		return err
 	}
-	verb, base := "ticked", strings.TrimSuffix(filepath.Base(plan), ".md")
+	base := strings.TrimSuffix(filepath.Base(plan), ".md")
+	printTicked(w, results, base, dryRun)
+	if len(results) == 0 {
+		fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
+	}
+	return nil
+}
+
+// pickPlan resolves the plan to tick; done is true when none was chosen and the reason is already printed.
+func pickPlan(dir, worktree, plan string, drafts []string, commits []Commit, w io.Writer) (string, bool, error) {
+	if plan != "" {
+		if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
+			return "", false, fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
+		}
+		return plan, false, nil
+	}
+	plan, tied := Select(Home(paths.MainCheckout(dir)), worktree, drafts, commits)
+	if plan != "" {
+		return plan, false, nil
+	}
+	if len(tied) > 0 {
+		fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
+	} else {
+		fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
+	}
+	return "", true, nil
+}
+
+// printTicked writes one line per commit that ticked or partly landed tasks in base.
+func printTicked(w io.Writer, results []TickResult, base string, dryRun bool) {
+	verb := "ticked"
 	if dryRun {
 		verb = "would tick"
 	}
@@ -316,10 +337,6 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 			fmt.Fprintf(w, "plans: partly landed %s (%s) in %s\n", strings.Join(r.Partial, "; "), r.Sha, base)
 		}
 	}
-	if len(results) == 0 {
-		fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
-	}
-	return nil
 }
 
 // baseNames joins the plan file names without their extension.

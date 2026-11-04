@@ -60,6 +60,20 @@ func aggregate(t *testing.T, c *SummaryCache, files []string) *UsageAggregate {
 	return agg
 }
 
+// wantCacheRun aggregates files through the cache at cachePath and checks the result and hit/miss counts.
+func wantCacheRun(t *testing.T, label, cachePath string, files []string, want *UsageAggregate, hits, misses int) *UsageAggregate {
+	t.Helper()
+	c := OpenSummaryCache(cachePath)
+	got := aggregate(t, c, files)
+	if want != nil && !reflect.DeepEqual(got, want) {
+		t.Errorf("%s aggregate = %+v (peak %d), want %+v (peak %d)", label, got, got.PeakInputTokensPerMin, want, want.PeakInputTokensPerMin)
+	}
+	if h, m := c.Stats(); h != hits || m != misses {
+		t.Errorf("%s stats = %d hits, %d misses; want %d, %d", label, h, m, hits, misses)
+	}
+	return got
+}
+
 func TestSummaryCacheMatchesUncachedAcrossColdWarmAndChange(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	files := cacheFixtures(t)
@@ -69,25 +83,21 @@ func TestSummaryCacheMatchesUncachedAcrossColdWarmAndChange(t *testing.T) {
 	if want.PeakInputTokensPerMin == 0 {
 		t.Fatal("baseline peak is 0: fixtures carry no per-minute input")
 	}
-
-	cold := OpenSummaryCache(cachePath)
-	if got := aggregate(t, cold, files); !reflect.DeepEqual(got, want) {
-		t.Errorf("cold aggregate = %+v, want %+v", got, want)
-	}
-	if h, m := cold.Stats(); h != 0 || m != len(files) {
-		t.Errorf("cold stats = %d hits, %d misses; want 0, %d", h, m, len(files))
-	}
-
-	warm := OpenSummaryCache(cachePath)
-	if got := aggregate(t, warm, files); !reflect.DeepEqual(got, want) {
-		t.Errorf("warm aggregate = %+v (peak %d), want %+v (peak %d)", got, got.PeakInputTokensPerMin, want, want.PeakInputTokensPerMin)
-	}
-	if h, m := warm.Stats(); h != len(files) || m != 0 {
-		t.Errorf("warm stats = %d hits, %d misses; want %d, 0", h, m, len(files))
-	}
+	wantCacheRun(t, "cold", cachePath, files, want, 0, len(files))
+	wantCacheRun(t, "warm", cachePath, files, want, len(files), 0)
 
 	// Rewrite one file, back-dated: only it misses and its new content shows up.
-	raw, err := os.ReadFile(files[0])
+	editFixture(t, files[0])
+	got := wantCacheRun(t, "after one change", cachePath, files, nil, len(files)-1, 1)
+	if fresh := aggregate(t, nil, files); !reflect.DeepEqual(got, fresh) {
+		t.Errorf("post-change cached aggregate = %+v, want uncached %+v", got, fresh)
+	}
+}
+
+// editFixture bumps a token count in path without changing its size, then back-dates it.
+func editFixture(t *testing.T, path string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,18 +105,10 @@ func TestSummaryCacheMatchesUncachedAcrossColdWarmAndChange(t *testing.T) {
 	if bytes.Equal(edited, raw) {
 		t.Fatal("fixture has no input_tokens:100 to edit")
 	}
-	if err := os.WriteFile(files[0], edited, 0o600); err != nil {
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	backdate(t, files[0])
-	changed := OpenSummaryCache(cachePath)
-	got := aggregate(t, changed, files)
-	if h, m := changed.Stats(); h != len(files)-1 || m != 1 {
-		t.Errorf("after one change stats = %d hits, %d misses; want %d, 1", h, m, len(files)-1)
-	}
-	if fresh := aggregate(t, nil, files); !reflect.DeepEqual(got, fresh) {
-		t.Errorf("post-change cached aggregate = %+v, want uncached %+v", got, fresh)
-	}
+	backdate(t, path)
 }
 
 func TestSummaryCacheCorruptFileRefills(t *testing.T) {

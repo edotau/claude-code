@@ -39,6 +39,26 @@ func LogAccess(dir string, now time.Time, entry, reason string) {
 	LogAccessBatch(dir, now, []string{entry}, reason)
 }
 
+// accessLines renders one log line per entry, sharing the timestamp and sanitized reason.
+func accessLines(now time.Time, entries []string, reason string) string {
+	var lines strings.Builder
+	prefix := now.UTC().Format(time.RFC3339) + " -- "
+	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
+	for _, entry := range entries {
+		lines.WriteString(prefix + sanitizeField(entry, accessEntryMax) + suffix)
+	}
+	return lines.String()
+}
+
+// accessLogWritable reports whether path may be appended to: not a planted symlink/oddity, and its dir exists.
+func accessLogWritable(path string) bool {
+	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
+		return false // symlink/oddity planted at the log name — never write through it
+	}
+	// A dir that cannot be created means the log is not scaffolded yet — fail-open, like every other LogAccess error path.
+	return os.MkdirAll(filepath.Dir(path), 0o755) == nil
+}
+
 // LogAccessBatch appends a recall batch with one open and write per bank.
 func LogAccessBatch(dir string, now time.Time, entries []string, reason string) {
 	if dir == "" || len(entries) == 0 {
@@ -47,18 +67,10 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if bank.CredentialPattern.MatchString(reason) {
 		reason = "(reason redacted — credential-shaped)"
 	}
-	var lines strings.Builder
-	prefix := now.UTC().Format(time.RFC3339) + " -- "
-	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
-	for _, entry := range entries {
-		lines.WriteString(prefix + sanitizeField(entry, accessEntryMax) + suffix)
-	}
+	lines := accessLines(now, entries, reason)
 	path := AccessLogPath(dir)
-	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
-		return // symlink/oddity planted at the log name — never write through it
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return // log dir not scaffolded yet — fail-open, same as every other LogAccess error path
+	if !accessLogWritable(path) {
+		return
 	}
 	// Rotate, trim and append under one lock: concurrent hooks and verbs must never interleave the renames.
 	write := func() error {
@@ -69,7 +81,7 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 			return err
 		}
 		defer f.Close()
-		_, err = f.WriteString(lines.String())
+		_, err = f.WriteString(lines)
 		return err
 	}
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
