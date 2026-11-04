@@ -49,10 +49,10 @@ func startLive(s *askState, name, format string) int {
 	if err != nil {
 		return failAsk(format, name, err)
 	}
-	req := agent.RunOptions{Model: *s.model, Provider: *s.provider, Effort: *s.effort, WorkDir: *s.workdir, SessionID: *s.session,
-		Tools: *s.tools, Timeout: *s.timeout, KeepEnv: []string(*s.keepEnv), NoPersist: *s.noPersist, SafeMode: *s.safeMode,
-		DebugFile: absDebugFile(*s.debugFile), SystemPrompt: *s.systemPrompt, AppendSystemPrompt: *s.appendSystemPrompt,
-		Autonomous: *s.autonomous, Direct: *s.direct, Agent: name, Background: true}
+	req := agent.RunOptions{Model: *s.Model, Provider: *s.Provider, Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
+		Tools: *s.Tools, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
+		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
+		Autonomous: *s.Autonomous, Direct: *s.Direct, Agent: name, Background: true}
 	rec, err := newClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return failAsk(format, name, err)

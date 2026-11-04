@@ -161,7 +161,7 @@ func (r *askRun) prelude() (int, bool) {
 func (r *askRun) selectAgent() (int, bool) {
 	f := r.f
 	var err error
-	if r.defs, err = askDefs(f.agents, f.host); err != nil {
+	if r.defs, err = agent.ParseAgentDefs(string(f.agents), f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	r.ref = f.name
@@ -172,7 +172,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := askOverlayLocal(r.fileOv, f.live, f.host); err != nil {
+	if err := agent.OverlayLocal(r.fileOv, f.live, f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false
@@ -224,7 +224,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if r.ref, r.ag, err = agent.AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := askOverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
+	if err := agent.OverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
 		return r.fail(err, 2)
 	}
 	if r.schema, err = askRefreshSchema(f.outputSchema, r.schema); err != nil {
@@ -235,11 +235,13 @@ func (r *askRun) resolveRecord() (int, bool) {
 
 func (r *askRun) askState() *askState {
 	f := r.f
-	return &askState{name: &f.name, provider: &f.provider, model: &f.model, effort: &f.effort, workdir: &f.workdir,
-		session: &f.session, tools: &f.tools, readOnly: &f.readOnly, noTools: &f.noTools, timeout: &f.timeout, attach: &f.attach, keepEnv: &f.keepEnv, env: &f.env,
-		autonomous: &f.autonomous, fleet: &f.fleet, enableMemory: &f.enableMemory, rubric: &f.rubric, direct: &f.direct,
-		noPersist: &f.noPersist, safeMode: &f.safeMode, debugFile: &f.debugFile, systemPrompt: &f.systemPrompt,
-		appendSystemPrompt: &f.appendSystemPrompt, outputSchema: &f.outputSchema, persona: &r.persona, host: &f.host, remoteBin: &f.remoteBin, fallback: &f.fallback}
+	return &askState{AskTarget: agent.AskTarget{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
+		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
+		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: (*[]string)(&f.keepEnv), Autonomous: &f.autonomous,
+		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
+		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
+		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback},
+		rubric: &f.rubric, env: &f.env}
 }
 
 // execute starts a live session or runs the one task.
@@ -284,7 +286,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 // askBatch layers the overlay over base and runs the --batch tasks.
 func askBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions, fileOv agentconfig.Overlay,
 	env envFlag, keepEnv keepEnvFlag, format, name string) int {
-	ov, err := askOverlay(fileOv, env, keepEnv, false)
+	ov, err := agent.ResolveOverlay(fileOv, env, keepEnv, false)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
@@ -323,7 +325,7 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, fileOv agentconfig.Overlay,
 	env envFlag, keepEnv keepEnvFlag, as, format, name string, background, native bool) int {
-	ov, err := askOverlay(fileOv, env, keepEnv, background)
+	ov, err := agent.ResolveOverlay(fileOv, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
@@ -359,41 +361,6 @@ func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback, as, name 
 		return 2, err
 	}
 	return 1, agent.AskExclusive(background, job, tools, noTools)
-}
-
-// askOverlay checks the --env/--keep-env shorthand and resolves the file overlay's vault refs, failing closed; a
-// --background parent leaves the file to its --job child, which inherits $COWORKER_OVERLAY and resolves it itself.
-func askOverlay(file agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {
-	if _, err := agentconfig.FlagOverlay(env, keep); err != nil {
-		return agentconfig.Resolved{}, err
-	}
-	if background {
-		return agentconfig.Resolved{}, nil
-	}
-	return agentconfig.ResolveOverlay(file)
-}
-
-// askOverlayLocal refuses a file overlay on --live or --host: neither carries it, and --host would expose it to ps.
-func askOverlayLocal(file agentconfig.Overlay, live bool, host string) error {
-	if !file.Empty() && (live || host != "") {
-		return errors.New("an overlay cannot reach --live or --host: run the agent locally")
-	}
-	return nil
-}
-
-// askDefs parses --agents; --host cannot carry an inline definition.
-func askDefs(agents agentsFlag, host string) (map[string]*agent.Schema, error) {
-	var defs map[string]*agent.Schema
-	if agents != "" {
-		var err error
-		if defs, err = agent.ParseAgents(string(agents)); err != nil {
-			return nil, err
-		}
-	}
-	if host != "" && agents != "" {
-		return nil, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition")
-	}
-	return defs, nil
 }
 
 // askCheckCombos rejects the flag combinations that need the resolved agent.
@@ -503,38 +470,11 @@ func askStdoutSink(format, dispatchID string) agent.Sink {
 	return agent.NewTextSink(os.Stdout)
 }
 
-// askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
+// askState is the agent.AskTarget plus the flag pointers --retry resets or --job clears.
 type askState struct {
-	name, provider, model, effort, workdir, session, rubric           *string
-	tools, readOnly, noTools, autonomous, fleet, enableMemory, direct *bool
-	noPersist, safeMode                                               *bool
-	debugFile, systemPrompt, appendSystemPrompt, outputSchema         *string
-	host, remoteBin, fallback                                         *string
-	timeout                                                           *time.Duration
-	persona                                                           **agent.Schema
-	attach                                                            *attachFlag
-	keepEnv                                                           *keepEnvFlag
-	env                                                               *envFlag
-}
-
-// applyRecord copies a logged dispatch's request onto this ask invocation's flags.
-func (s *askState) applyRecord(rec agent.Record) {
-	*s.name, *s.provider, *s.model, *s.effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
-	*s.workdir, *s.session, *s.tools, *s.timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
-	*s.attach, *s.autonomous, *s.fleet, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
-	*s.keepEnv, *s.direct, *s.noTools, *s.readOnly = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools, rec.Request.ReadOnly
-	*s.noPersist, *s.safeMode, *s.debugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
-	*s.systemPrompt, *s.appendSystemPrompt, *s.outputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
-	*s.host, *s.remoteBin = rec.Host, rec.RemoteBin
-	if s.persona != nil {
-		*s.persona = rec.Request.Persona
-	}
-	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
-		*s.fallback = rec.FallbackPolicy
-	}
-	if len(rec.Request.EnvNames) > 0 {
-		fmt.Fprintf(os.Stderr, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
-	}
+	agent.AskTarget
+	rubric *string
+	env    *envFlag
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
@@ -542,17 +482,15 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	if job == "" {
 		return nil, 0, false
 	}
-	r, err := agent.LoadRecord(job)
+	r, err := agent.LoadJobRecord(job)
+	if errors.Is(err, agent.ErrJobNotFresh) {
+		return nil, failAskCode(format, *s.Name, err, 2), true
+	}
 	if err != nil {
-		return nil, failAsk(format, *s.name, err), true
+		return nil, failAsk(format, *s.Name, err), true
 	}
-	if r.Status != "running" || r.PID != 0 {
-		err := fmt.Errorf("--job %s: record is %s (pid %d), not a fresh background job", job, r.Status, r.PID)
-		return nil, failAskCode(format, *s.name, err, 2), true
-	}
-	s.applyRecord(r)
+	s.Apply(r, os.Stderr)
 	*prompt, *s.rubric = r.Request.Prompt, ""
-	r.PID = os.Getpid()
 	return &r, 0, false
 }
 
@@ -563,23 +501,23 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	}
 	rec, err := agent.LoadRecord(retry)
 	if err != nil {
-		return failAsk(format, *s.name, err), true
+		return failAsk(format, *s.Name, err), true
 	}
 	// The logged request wins; only flags typed on this command line override it.
-	s.applyRecord(rec)
+	s.Apply(rec, os.Stderr)
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "attach" {
-			*s.attach = nil
+			*s.Attach = nil
 		}
 		if f.Name == "keep-env" {
-			*s.keepEnv = nil
+			*s.KeepEnv = nil
 		}
 		if f.Name == "env" {
 			*s.env = nil
 		}
 	})
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
-		return failAskCode(format, *s.name, err, 2), true
+		return failAskCode(format, *s.Name, err, 2), true
 	}
 	*prompt, *s.rubric = rec.Request.Prompt, ""
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)

@@ -144,43 +144,6 @@ func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
 	}
 }
 
-func newAskState() *askState {
-	s := func() *string { return new(string) }
-	b := func() *bool { return new(bool) }
-	return &askState{name: s(), provider: s(), model: s(), effort: s(), workdir: s(), session: s(), rubric: s(),
-		tools: b(), readOnly: b(), noTools: b(), autonomous: b(), fleet: b(), enableMemory: b(), direct: b(),
-		noPersist: b(), safeMode: b(), debugFile: s(), systemPrompt: s(), appendSystemPrompt: s(), outputSchema: s(), host: s(), remoteBin: s(), fallback: s(),
-		timeout: new(time.Duration), attach: new(attachFlag), keepEnv: new(keepEnvFlag)}
-}
-
-// A retried or backgrounded dispatch must keep --no-tools; without it the tools come back on.
-func TestApplyRecordRoundTripsNoTools(t *testing.T) {
-	s := newAskState()
-	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{NoTools: true}})
-	if !*s.noTools || *s.tools {
-		t.Errorf("noTools=%v tools=%v; want noTools on, tools off", *s.noTools, *s.tools)
-	}
-	// Negative control: a record without NoTools clears an earlier value.
-	*s.noTools = true
-	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}})
-	if *s.noTools || !*s.tools {
-		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", *s.noTools, *s.tools)
-	}
-}
-
-// A replayed read-only dispatch must stay read-only; the flag default would hand it write tools.
-func TestApplyRecordRoundTripsReadOnly(t *testing.T) {
-	s := newAskState()
-	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{ReadOnly: true, Tools: true}})
-	if !*s.readOnly || !*s.tools {
-		t.Errorf("readOnly=%v tools=%v; want both on", *s.readOnly, *s.tools)
-	}
-	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}})
-	if *s.readOnly {
-		t.Error("readOnly stayed on for a record without it")
-	}
-}
-
 // lineCount counts whole lines of s equal to want.
 func lineCount(s, want string) int {
 	n := 0

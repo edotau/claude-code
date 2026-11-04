@@ -1,13 +1,10 @@
 package cli
 
 import (
-	"cmp"
 	"errors"
 	"flag"
-	"fmt"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -136,7 +133,7 @@ func (m *menuOpts) run(pos []string) int {
 	case "sync":
 		return m.sync(pos)
 	case "list":
-		return m.done(opencodeMenuList(m.live, m.provider, *m.format))
+		return m.done(opencode.ListMenu(os.Stdout, m.live, m.provider, *m.format))
 	case "check":
 		return m.check(pos)
 	case "add":
@@ -147,26 +144,26 @@ func (m *menuOpts) run(pos []string) int {
 		if len(pos) != 1 {
 			return m.fail("usage: claude-code opencode catalog import <file> [--apply]")
 		}
-		return m.done(opencodeMenuImport(pos[0], m.apply))
+		return m.done(opencode.ImportMenu(os.Stdout, pos[0], m.apply))
 	}
 	if len(pos) != 0 {
 		return m.fail("takes no arguments")
 	}
-	return m.done(opencodeMenuWrite(nil, "reset to the built-in menu"))
+	return m.done(opencode.WriteMenu(os.Stdout, nil, "reset to the built-in menu"))
 }
 
 func (m *menuOpts) sync(pos []string) int {
 	if err := opencodeSyncArgs(pos, m.apply, m.dryRun, m.provider); err != nil {
 		return m.done(err)
 	}
-	return m.done(opencodeMenuSync(m.provider, opencode.SyncOptions{Apply: m.apply, Refresh: m.refresh, Verify: m.verify}))
+	return m.done(opencode.SyncMenu(os.Stdout, m.provider, opencode.SyncOptions{Apply: m.apply, Refresh: m.refresh, Verify: m.verify}))
 }
 
 func (m *menuOpts) check(pos []string) int {
 	if m.all && len(pos) > 0 {
 		return m.fail("--all and explicit ids are exclusive")
 	}
-	return m.done(opencodeMenuCheck(pos, m.all, m.provider, m.timeout, *m.format))
+	return m.done(opencode.CheckMenu(os.Stdout, os.Stderr, pos, m.all, m.provider, m.timeout, *m.format))
 }
 
 func (m *menuOpts) add(pos []string) int {
@@ -175,7 +172,7 @@ func (m *menuOpts) add(pos []string) int {
 	}
 	set := false
 	m.fs.Visit(func(f *flag.Flag) { set = set || f.Name == "responses" })
-	return m.done(opencodeMenuAdd(pos[0], m.responses, set, m.force, m.provider))
+	return m.done(opencode.AddMenu(os.Stdout, pos[0], m.responses, set, m.force, m.provider))
 }
 
 func (m *menuOpts) remove(pos []string) int {
@@ -186,150 +183,5 @@ func (m *menuOpts) remove(pos []string) int {
 	if !ok {
 		return m.fail("%s is not in the menu", opencode.MenuID(pos[0]))
 	}
-	return m.done(opencodeMenuWrite(next, "removed "+opencode.MenuID(pos[0])))
-}
-
-// opencodeMenuWrite stores next; launches rebuild their config from the menu, so nothing else is refreshed.
-func opencodeMenuWrite(next []providers.OpencodeModel, msg string) error {
-	if err := providers.SetOpencodeMenu(next); err != nil {
-		return err
-	}
-	fmt.Printf("opencode catalog: %s; relaunch `claude-code opencode` to apply\n", msg)
-	return nil
-}
-
-func opencodeMenuList(live bool, provider, format string) error {
-	rows, err := opencode.MenuRows(live, provider)
-	if err != nil {
-		return err
-	}
-	if format == helptext.JSON {
-		return helptext.WriteJSON(os.Stdout, rows)
-	}
-	labW := len("LABEL")
-	for _, r := range rows {
-		labW = max(labW, len(r.Label))
-	}
-	idW := idWidth(len(rows), func(i int) string { return rows[i].ID })
-	head := fmt.Sprintf("%-*s  %-*s  %-9s  %s", idW, "ID", labW, "LABEL", "RESPONSES", "SOURCE")
-	if live {
-		head += "  LIVE                  CHECK"
-	}
-	fmt.Println(head)
-	for _, r := range rows {
-		line := fmt.Sprintf("%-*s  %-*s  %-9v  %s", idW, r.ID, labW, r.Label, r.Responses, r.Source)
-		if live {
-			line += fmt.Sprintf("  %-20s  %s", strings.TrimSpace(r.Live+" "+r.Ready), r.Check)
-		}
-		fmt.Println(line)
-	}
-	return nil
-}
-
-// idWidth is the widest of the "ID" header and the n ids.
-func idWidth(n int, id func(int) string) int {
-	w := len("ID")
-	for i := range n {
-		w = max(w, len(id(i)))
-	}
-	return w
-}
-
-func opencodeMenuAdd(arg string, responses, responsesSet, force bool, provider string) error {
-	id, next, err := opencode.MenuAddServed(arg, responses, responsesSet, force, provider)
-	if err != nil {
-		return err
-	}
-	return opencodeMenuWrite(next, "added "+id)
-}
-
-func opencodeMenuImport(file string, apply bool) error {
-	next, changes, err := opencode.MenuImportDiff(file)
-	if err != nil {
-		return err
-	}
-	for _, c := range changes {
-		line := fmt.Sprintf("%s %s  %s", c.Op, c.Model.ID, c.Model.Label)
-		if c.Op == "~" {
-			line += fmt.Sprintf("  (was %q responses=%v; now responses=%v)", c.Was.Label, c.Was.Responses, c.Model.Responses)
-		}
-		fmt.Println(line)
-	}
-	if len(changes) == 0 {
-		fmt.Println("opencode catalog: no change")
-		return nil
-	}
-	if !apply {
-		fmt.Printf("opencode catalog: dry run, %d change(s); pass --apply to write\n", len(changes))
-		return nil
-	}
-	return opencodeMenuWrite(next, fmt.Sprintf("imported %d model(s)", len(next)))
-}
-
-func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Duration, format string) error {
-	results, cacheErr, err := opencode.MenuCheck(ids, all, provider, timeout)
-	if err != nil {
-		return err
-	}
-	if cacheErr != nil {
-		fmt.Fprintf(os.Stderr, "opencode catalog check: cache not written: %v\n", cacheErr)
-	}
-	if format == helptext.JSON {
-		return helptext.WriteJSON(os.Stdout, results)
-	}
-	idW := idWidth(len(results), func(i int) string { return results[i].ID })
-	fmt.Printf("%-*s  %-9s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")
-	for _, r := range results {
-		code, lat := "-", "-"
-		if r.HTTP > 0 {
-			code = strconv.Itoa(r.HTTP)
-		}
-		if r.Status != "missing" {
-			lat = fmt.Sprintf("%dms", r.LatencyMS)
-		}
-		tools := cmp.Or(r.Tools, "-")
-		fmt.Printf("%-*s  %-9s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, tools)
-		if (r.Status == "fail" || r.Status == "transient") && r.Error != "" {
-			fmt.Print("  " + r.Error)
-		}
-		fmt.Println()
-	}
-	return nil
-}
-
-func opencodeMenuSync(profile string, opts opencode.SyncOptions) error {
-	pl, err := opencode.MenuSync(profile, opts)
-	if err != nil {
-		return err
-	}
-	for _, line := range opencode.SyncSummaryLines(pl.Snapshot, opts.Verify) {
-		fmt.Println(line)
-	}
-	fmt.Printf("opencode catalog sync: %d listed, %d eligible, %d additions, %d failed additions skipped, %d retained, %d total\n",
-		len(pl.Snapshot.Models), len(pl.IDs), len(pl.Changes), pl.Skipped, len(pl.Menu), len(pl.Next))
-	for _, c := range pl.Changes {
-		fmt.Printf("%s %s  %s  responses=%v\n", c.Op, c.Model.ID, c.Model.Label, c.Model.Responses)
-	}
-	fmt.Println("Shared menu: OpenCode uses all entries; Codex needs Responses + bundled metadata.")
-	fmt.Println("Discovery is not inference proof; use --verify or the existing check command:")
-	fmt.Printf("  claude-code opencode catalog check --all --profile %s\n", profile)
-	if !opts.Apply {
-		fmt.Println("opencode catalog: dry run; no discovery/menu writes; pass --apply to write")
-		return nil
-	}
-	sealed, err := pl.Seal()
-	if err != nil {
-		return err
-	}
-	if sealed {
-		fmt.Println("opencode catalog: discovery snapshot sealed in vault")
-	}
-	if len(pl.Changes) == 0 {
-		fmt.Println("opencode catalog: no menu change")
-		return nil
-	}
-	if err := opencodeMenuWrite(pl.Next, fmt.Sprintf("synced %d addition(s); relaunch Codex too if used", len(pl.Changes))); err != nil {
-		return fmt.Errorf("cannot persist the shared model menu (check vault access): %w", err)
-	}
-	return nil
+	return m.done(opencode.WriteMenu(os.Stdout, next, "removed "+opencode.MenuID(pos[0])))
 }
