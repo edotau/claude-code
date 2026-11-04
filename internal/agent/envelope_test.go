@@ -28,6 +28,28 @@ func TestRanOnFromHops(t *testing.T) {
 	}
 }
 
+// The ran-on line carries the run's reported tokens (all four counts) and wall time; a missing one is left out.
+func TestRanOnCost(t *testing.T) {
+	base := agent.Result{Agent: "copilot", Model: "m", Hops: []agent.Hop{{Agent: "copilot", Model: "m"}}}
+	cases := []struct {
+		usage agent.Usage
+		ms    int64
+		want  string
+	}{
+		{agent.Usage{InputTokens: 3, CacheCreationTokens: 20619, OutputTokens: 5}, 333369, " · 20.6k tok · 5m33s"},
+		{agent.Usage{InputTokens: 812004, CacheReadTokens: 1402113, OutputTokens: 96550}, 0, " · 2.31M tok"},
+		{agent.Usage{}, 1500, " · 2s"},
+		{agent.Usage{OutputTokens: 950}, 0, " · 950 tok"},
+	}
+	for _, c := range cases {
+		res := base
+		res.Usage, res.DurationMs = c.usage, c.ms
+		if got, want := agent.RanOn(res), "ran on copilot · own login · m · fallback none"+c.want; got != want {
+			t.Errorf("RanOn(%+v, %dms) = %q, want %q", c.usage, c.ms, got, want)
+		}
+	}
+}
+
 // A dispatch that never started a dispatch claims no run: no ran-on line, a did-not-run line with the reason.
 func TestRanOnClaimsOnlyARunThatHappened(t *testing.T) {
 	res := agent.Result{Agent: "codex", Status: agent.StatusError, FallbackReason: "codex: deactivated (CODEX_ACTIVE=off)"}
