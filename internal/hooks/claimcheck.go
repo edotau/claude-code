@@ -1,11 +1,8 @@
 package hooks
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -23,9 +21,6 @@ import (
 
 // claimAlive probes a claims file's owner pid; a var seam so tests decide which owners are live.
 var claimAlive = proc.Alive
-
-// claimTail is how much of each claims file the check reads: the newest lines are the ones that matter.
-const claimTail = 1 << 20
 
 // claimShown caps how many claimed paths one ask names.
 const claimShown = 5
@@ -41,48 +36,36 @@ type claimHit struct {
 
 // liveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
 func liveClaims(in *Input) (map[string][]claimHit, error) {
-	entries, err := os.ReadDir(claimsDir())
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	self := paths.Slug(in.SessionID, "", 80, "session")
+	leaf := siblingLeaf(in)
+	labels := map[int]string{}
 	byPath := map[string]map[string]int64{}
-	for _, e := range entries {
-		pid, slug, ok := claimsOwner(e.Name())
-		if !ok {
-			continue
+	err := notices.ScanClaims(claimAlive, func(pid int, slug string, c notices.Claim) {
+		if c.Path == "" {
+			return
 		}
-		file := filepath.Join(claimsDir(), e.Name())
-		if !claimAlive(pid) {
-			_ = os.Remove(file)
-			_ = os.Remove(file + ".lock")
-			continue
+		w := leaf(c) // own session: only a sibling leaf's claim counts
+		if slug != self {
+			if labels[pid] == "" {
+				labels[pid] = sessionLabel(worktree.Proc{PID: pid, Comm: "claude"})
+			}
+			w = labels[pid] // another session: every claim counts while its owner lives
 		}
-		label := sessionLabel(worktree.Proc{PID: pid, Comm: "claude"})
-		who := func(claim) string { return label } // another session: every claim counts while its owner lives
-		if slug == self {
-			who = siblingLeaf(in)
+		if w == "" {
+			return
 		}
-		collectClaims(file, who, byPath)
-	}
-	return flattenClaims(byPath), nil
-}
-
-// claimsOwner parses <pid>-<slug>.jsonl.
-func claimsOwner(name string) (int, string, bool) {
-	base, isLog := strings.CutSuffix(name, ".jsonl")
-	pidText, slug, ok := strings.Cut(base, "-")
-	pid, err := strconv.Atoi(pidText)
-	return pid, slug, isLog && ok && err == nil
+		if byPath[c.Path] == nil {
+			byPath[c.Path] = map[string]int64{}
+		}
+		byPath[c.Path][w] = max(byPath[c.Path][w], c.TS)
+	})
+	return flattenClaims(byPath), err
 }
 
 // siblingLeaf names another leaf's claim in this session's file while its transcript is fresh; own and main's yield "".
-func siblingLeaf(in *Input) func(claim) string {
+func siblingLeaf(in *Input) func(notices.Claim) string {
 	live := map[string]bool{}
-	return func(c claim) string {
+	return func(c notices.Claim) string {
 		if c.Agent == "" || c.Agent == in.AgentID {
 			return ""
 		}
@@ -96,34 +79,6 @@ func siblingLeaf(in *Input) func(claim) string {
 			return ""
 		}
 		return "leaf " + c.Agent[:min(8, len(c.Agent))]
-	}
-}
-
-// collectClaims folds file's path claims into byPath[path][who] = newest ts; who == "" skips the line.
-func collectClaims(file string, who func(claim) string, byPath map[string]map[string]int64) {
-	f, err := os.Open(file)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	if st, err := f.Stat(); err == nil && st.Size() > claimTail {
-		_, _ = f.Seek(-claimTail, io.SeekEnd)
-	}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), claimTail)
-	for sc.Scan() {
-		var c claim
-		if json.Unmarshal(sc.Bytes(), &c) != nil || c.Path == "" {
-			continue // the first line after a tail seek is usually torn
-		}
-		w := who(c)
-		if w == "" {
-			continue
-		}
-		if byPath[c.Path] == nil {
-			byPath[c.Path] = map[string]int64{}
-		}
-		byPath[c.Path][w] = max(byPath[c.Path][w], c.TS)
 	}
 }
 
@@ -146,12 +101,29 @@ type claimView struct {
 }
 
 // worktreeClaimCheck notes a dirty claimed file before an edit; asks (leaf: blocks) when git add/commit stages one.
+// Any git command also drains this session's notices and the divergence line into its context.
 func worktreeClaimCheck(in *Input) Result {
-	if in.SessionID == "" || in.ToolName == "Bash" && !gitStageCmd.MatchString(in.ToolCommand()) {
+	cmd := in.ToolCommand()
+	if in.SessionID == "" || in.ToolName == "Bash" && !gitAnyCmd.MatchString(cmd) {
 		return Result{}
 	}
 	ctx, cancel := hookContext("worktree-claim-check")
 	defer cancel()
+	if in.ToolName != "Bash" {
+		return claimResult(ctx, in)
+	}
+	notes, warn := noticeContext(ctx, in)
+	res := Result{}
+	if gitStageCmd.MatchString(cmd) {
+		res = claimResult(ctx, in)
+	}
+	res.Context = joinContext(notes, res.Context)
+	res.Stderr = strings.TrimSpace(warn + "\n" + res.Stderr)
+	return res
+}
+
+// claimResult runs the edit or stage check against the live claims.
+func claimResult(ctx context.Context, in *Input) Result {
 	claims, err := liveClaims(in)
 	if err != nil {
 		return claimWarn(err)

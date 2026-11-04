@@ -270,6 +270,19 @@ func reopenInfo(repo *Repo, dest, session string) (LedgerInfo, error) {
 	return LedgerInfo{Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: "merge-base", Session: session}, nil
 }
 
+// LedgerSession is the session that opened (or last reopened) worktreePath's ledger; "" on any error or none.
+func LedgerSession(worktreePath string) string {
+	_, _, path, found, err := locateLedger(worktreePath)
+	if err != nil || !found {
+		return ""
+	}
+	text, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return ledgerField(openSection(string(text)), "Session")
+}
+
 func ledgerName(name string) error {
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\r\n") {
 		return fmt.Errorf("worktree ledger name %q is not usable", name)

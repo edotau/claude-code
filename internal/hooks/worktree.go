@@ -108,22 +108,24 @@ func worktreeMode(in *Input) Result {
 	return Result{Context: worktreeAskLine}
 }
 
-// worktreeBusy runs on UserPromptSubmit: the busy line only when the peer set changed since last report.
+// worktreeBusy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.
 func worktreeBusy(in *Input) Result {
-	if worktreeModeOff() {
-		return Result{}
+	ctx, cancel := hookContext("worktree-busy")
+	defer cancel()
+	busy := ""
+	if !worktreeModeOff() {
+		busy = busyLine(ctx, in)
 	}
-	return Result{Context: busyLine(in)}
+	notes, warn := noticeContext(ctx, in)
+	return Result{Context: joinContext(busy, notes), Stderr: warn}
 }
 
 // busyLine returns the busy line for the peers sharing in.CWD's checkout; "" on no peers, an error, or no change.
-func busyLine(in *Input) string {
+func busyLine(ctx context.Context, in *Input) string {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	ctx, cancel := hookContext("worktree-busy")
-	defer cancel()
 	top, branch, nested := checkoutOf(ctx, cwd)
 	if top == "" {
 		return ""

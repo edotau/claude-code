@@ -28,6 +28,16 @@ file has no newer commit. Before you edit a claimed file the hook says who holds
 `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered: edits made by Bash (`sed -i`, formatters) and
 by external agents (codex/copilot/opencode coworkers) — check `git diff <file>` before staging, as below.
 
+## Notices: what reaches you without a message
+
+Hooks never message another session. They queue notices in a per-session inbox
+(`~/.claude/state/harness/notices/<session>.jsonl`), drained into context at your next prompt or `git` command:
+a `worktree merge` that stops on a predicted conflict tells the session that opened the worktree (its ledger's
+`Session:`) which files conflict. In a shared checkout (`~/.claude`, or a peer in the tree) whose local branch has
+diverged from its upstream, you get one line per HEAD/upstream pair naming the sides (and, from the claims ledger,
+whose commits they are): do not commit until it is reconciled. A `dirty-target` refusal names the live session or
+leaf claiming each overlapping file.
+
 ## Registry files: the orchestrator owns them
 
 Files every lane appends to (`internal/schemas/ledger_test.go`, `internal/schemas/testdata/registry.golden`,

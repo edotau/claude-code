@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -70,10 +71,10 @@ const twoSep = " · "
 func twolineRows(v values) (row1, row2 []twoSeg) {
 	d := v.two
 	if v.provider != "" {
-		row1 = append(row1, twoSeg{key: "cwd", text: v.provider + " "})
+		row1 = append(row1, twoSeg{key: "cwd", text: v.provider})
 	}
 	if v.branch != "" {
-		row1 = append(row1, twoSeg{key: "branch", text: ":" + v.branch})
+		row1 = append(row1, twoSeg{key: "branch", text: " :" + v.branch})
 	}
 	row1 = append(row1, twoSeg{key: "sep", text: twoSep}, twoSeg{key: "model", text: cmpModel(d.model, v.model), bold: true})
 	if d.effort != "" {
@@ -157,8 +158,8 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 	return b.String()
 }
 
-// renderTwoline draws the two-row style: where on row 1, auth/context/tokens/7d on row 2.
-func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
+// renderTwoline draws the two-row style; with a width, each row's last cell sits at the right edge.
+func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	th := pal.Powerline["minimal"]
 	row1, row2 := twolineRows(v)
 	for i := range row1 { // velocity keeps the add/del tones every style uses
@@ -166,12 +167,42 @@ func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, m
 			row1[i].fg = pal.Sem(k)
 		}
 	}
-	out := paintTwoRow(row1, th, stops, mode)
-	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads, as the other styles draw it
-		out = head + paintTwoRow([]twoSeg{{key: "sep", text: sepPath}}, th, stops, mode) + out
+	head, lead := promptHead(v, cfg, pal, stops, mode), 0
+	if head != "" { // the PS1 head leads, as the other styles draw it
+		head += paintTwoRow([]twoSeg{{key: "sep", text: sepPath}}, th, stops, mode)
+		lead = headWidth(v, cfg) + utf8.RuneCountInString(sepPath)
 	}
+	if v.adds != 0 || v.dels != 0 {
+		row1 = alignRight(row1, lead, width)
+	}
+	out := head + paintTwoRow(row1, th, stops, mode)
 	if len(row2) == 0 {
 		return out
 	}
-	return out + "\n" + paintTwoRow(row2, th, stops, mode)
+	return out + "\n" + paintTwoRow(alignRight(row2, 0, width), th, stops, mode)
+}
+
+// alignRight swaps the row's last separator for spaces so the tail ends at width; unchanged when it would not fit.
+func alignRight(row []twoSeg, lead, width int) []twoSeg {
+	i := len(row) - 1
+	for i >= 0 && row[i].key != "sep" {
+		i--
+	}
+	if width <= 0 || i < 0 {
+		return row
+	}
+	pad := width - lead - segWidth(row)
+	if pad < 0 {
+		return row
+	}
+	out := append(append([]twoSeg{}, row[:i]...), twoSeg{text: strings.Repeat(" ", pad+utf8.RuneCountInString(row[i].text))})
+	return append(out, row[i+1:]...)
+}
+
+// segWidth is the row's printable width in runes.
+func segWidth(row []twoSeg) (n int) {
+	for _, s := range row {
+		n += utf8.RuneCountInString(s.text)
+	}
+	return n
 }
