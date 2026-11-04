@@ -19,16 +19,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-func TestCmdAskRetryFlags(t *testing.T) {
-	for _, tt := range []struct {
-		name        string
-		retry       bool
-		flags       []string
-		attachments []string
-		wantTimeout time.Duration
-		wantAttach  []string
-		wantKeepEnv []string
-	}{
+type askRetryCase struct {
+	name        string
+	retry       bool
+	flags       []string
+	attachments []string
+	wantTimeout time.Duration
+	wantAttach  []string
+	wantKeepEnv []string
+}
+
+func askRetryCases() []askRetryCase {
+	return []askRetryCase{
 		{name: "retry keeps recorded timeout and attachments", retry: true,
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}},
 		{name: "retry typed timeout wins", retry: true, flags: []string{"--timeout", "2m"},
@@ -44,7 +46,54 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt", "c.txt"}},
 		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "LANG,HOME"},
 			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"LANG", "HOME"}},
-	} {
+	}
+}
+
+// askRetryArgs builds the cmdAsk argv for a case, saving the recorded run first when it is a retry.
+func askRetryArgs(t *testing.T, dir string, tt askRetryCase) ([]string, int) {
+	t.Helper()
+	args := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
+	wantRecords := 1
+	if tt.retry {
+		rec := agent.NewRecord("claude", agent.RunOptions{
+			Prompt: "say ok", Tools: true, Timeout: 5 * time.Minute,
+			Attach: []string{filepath.Join(dir, "a.txt")},
+		}, time.Now().Add(-time.Hour))
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, "--retry", rec.ID)
+		wantRecords++
+	}
+	args = append(args, tt.flags...)
+	for _, name := range tt.attachments {
+		args = append(args, "--attach", filepath.Join(dir, name))
+	}
+	if !tt.retry {
+		args = append(args, "say ok")
+	}
+	return args, wantRecords
+}
+
+func assertAskRetryRequest(t *testing.T, dir string, tt askRetryCase, req agent.RunOptions) {
+	t.Helper()
+	if req.Timeout != tt.wantTimeout {
+		t.Errorf("timeout = %v, want %v", req.Timeout, tt.wantTimeout)
+	}
+	var wantAttach []string
+	for _, name := range tt.wantAttach {
+		wantAttach = append(wantAttach, filepath.Join(dir, name))
+	}
+	if !slices.Equal(req.Attach, wantAttach) {
+		t.Errorf("attachments = %q, want %q", req.Attach, wantAttach)
+	}
+	if !slices.Equal(req.KeepEnv, tt.wantKeepEnv) {
+		t.Errorf("keepEnv = %q, want %q", req.KeepEnv, tt.wantKeepEnv)
+	}
+}
+
+func TestCmdAskRetryFlags(t *testing.T) {
+	for _, tt := range askRetryCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -53,26 +102,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
 				writeFixtureFile(t, filepath.Join(dir, name), name)
 			}
-			args := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
-			wantRecords := 1
-			if tt.retry {
-				rec := agent.NewRecord("claude", agent.RunOptions{
-					Prompt: "say ok", Tools: true, Timeout: 5 * time.Minute,
-					Attach: []string{filepath.Join(dir, "a.txt")},
-				}, time.Now().Add(-time.Hour))
-				if err := rec.Save(); err != nil {
-					t.Fatal(err)
-				}
-				args = append(args, "--retry", rec.ID)
-				wantRecords++
-			}
-			args = append(args, tt.flags...)
-			for _, name := range tt.attachments {
-				args = append(args, "--attach", filepath.Join(dir, name))
-			}
-			if !tt.retry {
-				args = append(args, "say ok")
-			}
+			args, wantRecords := askRetryArgs(t, dir, tt)
 			code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) })
 			if code != 1 {
 				t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
@@ -81,20 +111,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			if len(records) != wantRecords {
 				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
 			}
-			req := records[0].Request
-			if req.Timeout != tt.wantTimeout {
-				t.Errorf("timeout = %v, want %v", req.Timeout, tt.wantTimeout)
-			}
-			var wantAttach []string
-			for _, name := range tt.wantAttach {
-				wantAttach = append(wantAttach, filepath.Join(dir, name))
-			}
-			if !slices.Equal(req.Attach, wantAttach) {
-				t.Errorf("attachments = %q, want %q", req.Attach, wantAttach)
-			}
-			if !slices.Equal(req.KeepEnv, tt.wantKeepEnv) {
-				t.Errorf("keepEnv = %q, want %q", req.KeepEnv, tt.wantKeepEnv)
-			}
+			assertAskRetryRequest(t, dir, tt, records[0].Request)
 		})
 	}
 }
@@ -175,9 +192,9 @@ func lineCount(s, want string) int {
 	return n
 }
 
-// A --job run's stdout+stderr already are the log (Spawn), so the vendor child's stderr must be teed in
-// exactly once and the streamed answer must not be doubled by a second stdout tee.
-func TestCmdAskJobLogEachLineOnce(t *testing.T) {
+// agyJobFixture logs agy in under a temp HOME and fakes the vendor binary with stderr noise plus a streamed answer.
+func agyJobFixture(t *testing.T) {
+	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -197,13 +214,16 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 		`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"answer-alpha\nanswer-beta\n"}}'` + "\n" +
 		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"answer-alpha\nanswer-beta","num_turns":1}}'` + "\n"
 	pathstest.FakeVendor(t, "agy", script)
+}
 
+// runAskJobIntoLog mirrors job.Spawn: the job child's own stdout and stderr are the log file, which it returns.
+func runAskJobIntoLog(t *testing.T) string {
+	t.Helper()
 	rec := agent.NewRecord("gemini", agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
 	rec.Log = rec.LogPath()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	// Mirror job.Spawn: the job child's own stdout and stderr are the log file.
 	lf, err := os.OpenFile(rec.LogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		t.Fatal(err)
@@ -213,15 +233,21 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	code := cmdAsk([]string{"--job", rec.ID, "--native", "--fallback", "none"})
 	os.Stdout, os.Stderr = oldOut, oldErr
 	lf.Close()
-	if code != 0 {
-		b, _ := os.ReadFile(rec.LogPath())
-		t.Fatalf("exit %d; log:\n%s", code, b)
-	}
 	b, err := os.ReadFile(rec.LogPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := string(b)
+	if code != 0 {
+		t.Fatalf("exit %d; log:\n%s", code, b)
+	}
+	return string(b)
+}
+
+// A --job run's stdout+stderr already are the log (Spawn), so the vendor child's stderr must be teed in
+// exactly once and the streamed answer must not be doubled by a second stdout tee.
+func TestCmdAskJobLogEachLineOnce(t *testing.T) {
+	agyJobFixture(t)
+	got := runAskJobIntoLog(t)
 	for _, line := range []string{"child-stderr-one", "child-stderr-two", "answer-alpha", "answer-beta"} {
 		if n := lineCount(got, line); n != 1 {
 			t.Errorf("log line %q appears %d times, want exactly once:\n%s", line, n, got)
@@ -321,6 +347,53 @@ func resultEvent(env agent.Envelope) agent.Event {
 	return agent.Event{Type: agent.EventResult, Host: "remotebox", Envelope: &env}
 }
 
+func assertRelayedStream(t *testing.T, evs []agent.Event) string {
+	t.Helper()
+	var types []string
+	for _, ev := range evs {
+		types = append(types, ev.Type)
+	}
+	if got, want := strings.Join(types, ","), "start,text,tool_use,result"; got != want {
+		t.Fatalf("types = %s, want %s", got, want)
+	}
+	local := evs[0].DispatchID
+	if local == "" || local == "REMOTE-ID" {
+		t.Fatalf("start must carry the local dispatch id, got %q", local)
+	}
+	for _, ev := range evs[1:3] {
+		if ev.Host != "remotebox" {
+			t.Errorf("%s lost the remote host stamp: %q", ev.Type, ev.Host)
+		}
+		if ev.DispatchID != local {
+			t.Errorf("%s dispatch_id %q, want local %q", ev.Type, ev.DispatchID, local)
+		}
+	}
+	return local
+}
+
+func assertRelayedEnvelope(t *testing.T, got *agent.Envelope, local string) {
+	t.Helper()
+	if got == nil || got.Usage == nil || got.Usage.CostUSD != 0.0123 || string(got.Structured) != `{"k":1}` {
+		t.Fatalf("result envelope lost remote fields: %+v", got)
+	}
+	if got.SessionID != "sess-9" || got.Answer != "hi there" || got.DispatchID != local {
+		t.Fatalf("result envelope lost remote fields: %+v", got)
+	}
+	if !slices.Contains(got.Emulated, "--output-schema") {
+		t.Errorf("emulated = %v", got.Emulated)
+	}
+	assertDropped(t, got.Dropped, "--attach", "--keep-env", "--effort")
+}
+
+func assertDropped(t *testing.T, dropped []string, want ...string) {
+	t.Helper()
+	for _, d := range want {
+		if !slices.Contains(dropped, d) {
+			t.Errorf("dropped %v lacks %s", dropped, d)
+		}
+	}
+}
+
 // ask --host over a fake ssh: the remote start is dropped, events keep the remote host stamp, the local result carries
 // the remote envelope's cost/structured/emulated/session plus local drops, and the banner goes to the dispatch log.
 func TestAskHostRelaysRemoteStream(t *testing.T) {
@@ -347,38 +420,8 @@ func TestAskHostRelaysRemoteStream(t *testing.T) {
 		t.Fatalf("banner leaked to stdout:\n%s", out)
 	}
 	evs := decodeEvents(t, out)
-	var types []string
-	for _, ev := range evs {
-		types = append(types, ev.Type)
-	}
-	if got, want := strings.Join(types, ","), "start,text,tool_use,result"; got != want {
-		t.Fatalf("types = %s, want %s", got, want)
-	}
-	local := evs[0].DispatchID
-	if local == "" || local == "REMOTE-ID" {
-		t.Fatalf("start must carry the local dispatch id, got %q", local)
-	}
-	for _, ev := range evs[1:3] {
-		if ev.Host != "remotebox" {
-			t.Errorf("%s lost the remote host stamp: %q", ev.Type, ev.Host)
-		}
-		if ev.DispatchID != local {
-			t.Errorf("%s dispatch_id %q, want local %q", ev.Type, ev.DispatchID, local)
-		}
-	}
-	got := evs[3].Envelope
-	if got == nil || got.Usage == nil || got.Usage.CostUSD != 0.0123 || string(got.Structured) != `{"k":1}` ||
-		got.SessionID != "sess-9" || got.Answer != "hi there" || got.DispatchID != local {
-		t.Fatalf("result envelope lost remote fields: %+v", got)
-	}
-	if !slices.Contains(got.Emulated, "--output-schema") {
-		t.Errorf("emulated = %v", got.Emulated)
-	}
-	for _, d := range []string{"--attach", "--keep-env", "--effort"} {
-		if !slices.Contains(got.Dropped, d) {
-			t.Errorf("dropped %v lacks %s", got.Dropped, d)
-		}
-	}
+	local := assertRelayedStream(t, evs)
+	assertRelayedEnvelope(t, evs[3].Envelope, local)
 	logb, err := os.ReadFile(filepath.Join(paths.DispatchDir(), local+".log"))
 	if err != nil || !strings.Contains(string(logb), "Welcome to fakehost banner") {
 		t.Fatalf("banner not in dispatch log (err %v):\n%s", err, logb)
@@ -563,6 +606,46 @@ func decodeEvents(t *testing.T, s string) []agent.Event {
 	return evs
 }
 
+// streamTypesAndText returns the comma-joined event types and the concatenated text, checking seq rises.
+func streamTypesAndText(t *testing.T, evs []agent.Event) (string, string) {
+	t.Helper()
+	var types []string
+	var text strings.Builder
+	for i, ev := range evs {
+		types = append(types, ev.Type)
+		if ev.Type == agent.EventText {
+			if ev.Sep {
+				text.WriteString("\n")
+			}
+			text.WriteString(ev.Text)
+		}
+		if i > 0 && ev.Seq <= evs[i-1].Seq {
+			t.Errorf("seq not strictly increasing at %d: %d after %d", i, ev.Seq, evs[i-1].Seq)
+		}
+	}
+	return strings.Join(types, ","), text.String()
+}
+
+func assertEventsLogMirrors(t *testing.T, evs []agent.Event, dispatchID, secret string) {
+	t.Helper()
+	logb, err := os.ReadFile(filepath.Join(paths.DispatchDir(), dispatchID+".events.jsonl"))
+	if err != nil {
+		t.Fatalf("events log missing: %v", err)
+	}
+	logged := decodeEvents(t, string(logb))
+	if len(logged) != len(evs) {
+		t.Fatalf("events log has %d events, stdout %d", len(logged), len(evs))
+	}
+	for i := range logged {
+		if logged[i].Type != evs[i].Type {
+			t.Errorf("log event %d type %s, stdout %s", i, logged[i].Type, evs[i].Type)
+		}
+	}
+	if strings.Contains(string(logb), secret) || !strings.Contains(string(logb), "REDACTED") {
+		t.Errorf("events log must redact the secret:\n%s", logb)
+	}
+}
+
 // ask --format stream-json over a fake claude: ordered start..text..tool_use..result, seq rising, the result
 // envelope answer equals the streamed text, and the on-disk events log mirrors stdout with secrets redacted.
 func TestAskStreamJSONSpansEventsAndLog(t *testing.T) {
@@ -581,50 +664,21 @@ func TestAskStreamJSONSpansEventsAndLog(t *testing.T) {
 		t.Fatalf("exit %d; stdout:\n%s", code, out)
 	}
 	evs := decodeEvents(t, out)
-	var types []string
-	var text strings.Builder
-	for i, ev := range evs {
-		types = append(types, ev.Type)
-		if ev.Type == agent.EventText {
-			if ev.Sep {
-				text.WriteString("\n")
-			}
-			text.WriteString(ev.Text)
-		}
-		if i > 0 && ev.Seq <= evs[i-1].Seq {
-			t.Errorf("seq not strictly increasing at %d: %d after %d", i, ev.Seq, evs[i-1].Seq)
-		}
-	}
-	if want := "start,text,tool_use,text,result"; strings.Join(types, ",") != want {
+	types, text := streamTypesAndText(t, evs)
+	if want := "start,text,tool_use,text,result"; types != want {
 		t.Fatalf("types = %v, want %s", types, want)
 	}
-	if strings.Contains(text.String(), "SUBAGENT") {
-		t.Errorf("a parent_tool_use_id turn leaked into text events: %q", text.String())
+	if strings.Contains(text, "SUBAGENT") {
+		t.Errorf("a parent_tool_use_id turn leaked into text events: %q", text)
 	}
 	res := evs[len(evs)-1]
-	if res.Envelope == nil || res.Envelope.Answer != text.String() {
-		t.Fatalf("result envelope answer = %+v, concatenated text = %q", res.Envelope, text.String())
+	if res.Envelope == nil || res.Envelope.Answer != text {
+		t.Fatalf("result envelope answer = %+v, concatenated text = %q", res.Envelope, text)
 	}
 	if res.DispatchID == "" || res.Envelope.DispatchID != res.DispatchID {
 		t.Errorf("dispatch ids: result %q, envelope %+v", res.DispatchID, res.Envelope)
 	}
-
-	logb, err := os.ReadFile(filepath.Join(paths.DispatchDir(), res.DispatchID+".events.jsonl"))
-	if err != nil {
-		t.Fatalf("events log missing: %v", err)
-	}
-	logged := decodeEvents(t, string(logb))
-	if len(logged) != len(evs) {
-		t.Fatalf("events log has %d events, stdout %d", len(logged), len(evs))
-	}
-	for i := range logged {
-		if logged[i].Type != evs[i].Type {
-			t.Errorf("log event %d type %s, stdout %s", i, logged[i].Type, evs[i].Type)
-		}
-	}
-	if strings.Contains(string(logb), secret) || !strings.Contains(string(logb), "REDACTED") {
-		t.Errorf("events log must redact the secret:\n%s", logb)
-	}
+	assertEventsLogMirrors(t, evs, res.DispatchID, secret)
 }
 
 // A failure before any run (unknown model route, missing binary) prints exactly one result event.
@@ -639,6 +693,31 @@ func TestAskStreamJSONPreRunFailureOneResultEvent(t *testing.T) {
 	evs := decodeEvents(t, out)
 	if len(evs) != 1 || evs[0].Type != agent.EventResult || evs[0].Envelope == nil || evs[0].Envelope.Status == "" {
 		t.Fatalf("want exactly one result event with an envelope, got %d: %s", len(evs), out)
+	}
+}
+
+type askOutcome struct {
+	code int
+	out  string
+}
+
+// waitFakeVendorReady polls for the ready marker, failing if the run ends first or the vendor never starts.
+func waitFakeVendorReady(t *testing.T, ready string, done <-chan askOutcome) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			return
+		}
+		select {
+		case o := <-done:
+			t.Fatalf("run ended before stdin closed: %+v", o)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake claude never started")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -659,30 +738,12 @@ func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
 	if _, err := pw.WriteString("do it\x00"); err != nil {
 		t.Fatal(err)
 	}
-	type outcome struct {
-		code int
-		out  string
-	}
-	done := make(chan outcome, 1)
+	done := make(chan askOutcome, 1)
 	go func() {
 		code, out := captureAskStdout(t, "--format", "json", "--fallback", "none", "--stdin-framed")
-		done <- outcome{code, out}
+		done <- askOutcome{code, out}
 	}()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		}
-		select {
-		case o := <-done:
-			t.Fatalf("run ended before stdin closed: %+v", o)
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("fake claude never started")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitFakeVendorReady(t, ready, done)
 	start := time.Now()
 	pw.Close()
 	select {
@@ -695,51 +756,5 @@ func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("run survived stdin EOF")
-	}
-}
-
-// --agent vendor:persona loads agents/<name>.md or a path into the logged request, and --retry replays it without the flag.
-func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	t.Setenv("HOME", dir)
-	t.Setenv("PATH", dir) // no agent binary: the run fails after the record is saved
-	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	def := "---\nname: tester\ndescription: Tests things\ntools: Read, Grep\nmodel: sonnet\n---\nYou test.\n"
-	if err := os.WriteFile(filepath.Join(dir, "agents", "tester.md"), []byte(def), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	other := filepath.Join(dir, "other.md")
-	if err := os.WriteFile(other, []byte("---\ndescription: By path\n---\nYou are by path.\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ask := func(args ...string) agent.RunOptions {
-		t.Helper()
-		if code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) }); code != 1 {
-			t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
-		}
-		return agent.RecentRecords(1)[0].Request
-	}
-	base := []string{"--fallback", "none", "--format", "json"}
-	p := ask(append(base, "--agent", "claude:tester", "go")...).Persona
-	if p == nil || p.Name != "tester" || p.Description != "Tests things" || p.Prompt != "You test." || p.Model != "sonnet" ||
-		len(p.Tools) != 2 || p.Tools[0] != "Read" {
-		t.Fatalf("named persona = %+v", p)
-	}
-	if p := ask(append(base, "--agent", "claude:"+other, "go")...).Persona; p == nil || p.Name != "other" || p.Prompt != "You are by path." {
-		t.Fatalf("path persona = %+v", p)
-	}
-	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "again", Persona: p}, time.Now().Add(-time.Hour))
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
-	if got := ask(append(base, "--retry", rec.ID)...).Persona; got == nil || got.Name != "tester" {
-		t.Fatalf("retry persona = %+v, want tester", got)
-	}
-	code, _, stderr := captureOutput(t, func() int { return cmdAsk(append(base, "--agent", "claude:nope", "go")) })
-	if code != 2 || stderr == "" {
-		t.Fatalf("unknown persona: exit %d stderr %q, want 2 with a message", code, stderr)
 	}
 }

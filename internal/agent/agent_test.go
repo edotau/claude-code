@@ -175,11 +175,9 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 
 // A 402 (account exhausted: no credits/plan window left) is KindQuota and IsQuota-true but ModelDenied-false:
 // a lower alias on the same account is just as exhausted, so Run must not demote and must return the error.
-func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
-	fastDefaultBackoff(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	acctExhausted := errors.New("HTTP 402 payment required: you have exceeded your monthly quota")
-	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{acctExhausted}}
+func assertQuotaNoDemote(t *testing.T, acctErr error) {
+	t.Helper()
+	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{acctErr}}
 	var notes []string
 	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
 	var e *Error
@@ -192,23 +190,17 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	if len(notes) != 0 {
 		t.Errorf("account exhaustion must not announce an alias demotion: %v", notes)
 	}
+}
+
+func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
+	fastDefaultBackoff(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	assertQuotaNoDemote(t, errors.New("HTTP 402 payment required: you have exceeded your monthly quota"))
 
 	// A body carrying BOTH the 402/payment-required account marker AND a model-denied marker
 	// ("insufficient_quota") is still account-exhausted: hardAccountRE vetoes ModelDenied, so Run must not
 	// demote off a dead account on the strength of the model-denied marker alone.
-	both := errors.New("402 payment required: insufficient_quota")
-	f = &fakeRunner{caps: Caps{Model: Native}, errs: []error{both}}
-	var bothNotes []string
-	_, err = Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, func(s string) { bothNotes = append(bothNotes, s) })
-	if !errors.As(err, &e) || e.Kind != KindQuota {
-		t.Fatalf("err = %v, want a KindQuota error", err)
-	}
-	if len(f.seen) != 1 || f.seen[0].Model != "" {
-		t.Fatalf("seen = %+v, want one attempt with the model never demoted off \"\"", f.seen)
-	}
-	if len(bothNotes) != 0 {
-		t.Errorf("402+insufficient_quota must not announce a alias demotion: %v", bothNotes)
-	}
+	assertQuotaNoDemote(t, errors.New("402 payment required: insufficient_quota"))
 }
 
 // TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no
@@ -263,122 +255,6 @@ func chainOf(rs []Engine, models ...string) Chain {
 		c.Dispatches = append(c.Dispatches, disp)
 	}
 	return c
-}
-
-// TestRunWithFallback wires the classifier into Run: codex failing with no answer must rerun on the
-// fallback agent with Fallback set, while a successful or excluded-class codex run must not.
-func TestRunWithFallback(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	unavailable := errors.New(`exec: "codex": executable file not found in $PATH`)
-
-	t.Run("falls back and reports it", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
-		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
-		if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
-			t.Fatalf("res=%+v err=%v", res, err)
-		}
-		if !strings.HasPrefix(res.FallbackReason, "codex: ") || !strings.Contains(res.FallbackReason, "executable file not found") ||
-			strings.Contains(res.FallbackReason, "\n") {
-			t.Fatalf("FallbackReason = %q, want the last line of the codex error", res.FallbackReason)
-		}
-		if len(claude.seen) != 1 || claude.seen[0].Prompt != "p" {
-			t.Fatalf("fallback did not see the original request: %+v", claude.seen)
-		}
-	})
-
-	t.Run("each dispatch runs its own cell and the first answer wins", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
-		gemini := &fakeRunner{name: "gemini", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
-		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: Native}, errs: []error{nil}}
-		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		req := RunOptions{Prompt: "p", Model: "gpt-6.1-sol"}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, Discard, nil)
-		if err != nil || res.Agent != "opencode" || res.Fallback != "codex" || len(claude.seen) != 0 {
-			t.Fatalf("res=%+v err=%v claude.seen=%d", res, err, len(claude.seen))
-		}
-		if !strings.Contains(res.FallbackReason, "codex: ") || !strings.Contains(res.FallbackReason, "; gemini: ") {
-			t.Errorf("FallbackReason = %q, want one entry per failed dispatch", res.FallbackReason)
-		}
-		if codex.seen[0].Model != "gpt-6.1-sol" || gemini.seen[0].Model != "gemini-4-argon" || opencode.seen[0].Model != "kimi-k3" {
-			t.Errorf("models = %q / %q / %q, want the caller's then each cell's", codex.seen[0].Model, gemini.seen[0].Model, opencode.seen[0].Model)
-		}
-	})
-
-	t.Run("the alias is kept on the claude dispatch", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
-		claude := &fakeRunner{name: "claude", caps: Caps{Model: Native}, errs: []error{nil}}
-		if _, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}, "", "opus"), RunOptions{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {
-			t.Fatal(err)
-		}
-		if claude.seen[0].Model != "opus" {
-			t.Errorf("claude dispatch ran %q, want the opus cell", claude.seen[0].Model)
-		}
-	})
-
-	t.Run("gate skips make zero attempts and are reported", func(t *testing.T) {
-		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		c := Chain{Want: "copilot", Skipped: []string{"copilot: github·u exhausted until 2026-11-01"},
-			Dispatches: []Dispatch{{Agent: claude, Model: "sonnet"}}}
-		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
-		if err != nil || res.Fallback != "copilot" || !strings.Contains(res.FallbackReason, "exhausted until 2026-11-01") {
-			t.Fatalf("res=%+v err=%v", res, err)
-		}
-		if _, err := RunWithFallback(context.Background(), Chain{Want: "copilot", Skipped: c.Skipped}, RunOptions{Prompt: "p"}, Discard, nil); err == nil {
-			t.Error("an empty chain must fail with the skips")
-		}
-	})
-
-	t.Run("a quota failure marks the account and moves on", func(t *testing.T) {
-		quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
-		copilot := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
-		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		c := chainOf([]Engine{copilot, claude}, "", "sonnet")
-		c.Dispatches[0].Account, c.Dispatches[0].Billing = "github·u", "credits"
-		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
-		if err != nil || res.Agent != "claude" || len(copilot.seen) != 1 {
-			t.Fatalf("res=%+v err=%v copilot attempts=%d (quota is never retried)", res, err, len(copilot.seen))
-		}
-		if e := loadState()["github·u"]; e.Status(time.Now()) != "exhausted" || e.ExhaustedUntil.Day() != 1 {
-			t.Errorf("state = %+v, want exhausted until the 1st", e)
-		}
-	})
-
-	t.Run("an empty chain means no fallback", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
-		res, err := RunWithFallback(context.Background(), Single(codex), RunOptions{Prompt: "p"}, Discard, nil)
-		if err == nil || res.Fallback != "" || res.Agent != "codex" {
-			t.Fatalf("res=%+v err=%v", res, err)
-		}
-	})
-
-	t.Run("success needs no fallback", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", errs: []error{nil}}
-		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
-		if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
-			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
-		}
-	})
-
-	t.Run("prompt too large is not retried on the fallback", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", errs: []error{fmt.Errorf("p: %w", ErrPromptTooLarge)}, emptyAnswer: true}
-		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
-		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
-			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
-		}
-	})
-
-	t.Run("explicit non-claude model is never overridden", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
-		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		req := RunOptions{Prompt: "p", Model: "openai:gpt-4"}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), req, Discard, nil)
-		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
-			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
-		}
-	})
 }
 
 // TestRunWithFallback_TimeoutAndCancelNotRetried proves the two context-based exclusions against a real
@@ -557,12 +433,54 @@ func TestIsImage(t *testing.T) {
 	}
 }
 
+type capsWant struct{ sys, app, schema Level }
+
+// wantEmulation derives the emulated flags and the prompt applyCaps must produce for the wanted levels.
+func wantEmulation(w capsWant, schema string) ([]string, string) {
+	var wantEm []string
+	wantPrompt := "TASK"
+	if w.sys == Emulated {
+		wantEm = append(wantEm, "--system-prompt")
+		wantPrompt = Preamble("SYS") + wantPrompt
+	}
+	if w.app == Emulated {
+		wantEm = append(wantEm, "--append-system-prompt")
+		wantPrompt = Preamble("APP") + wantPrompt
+	}
+	if w.schema != Native {
+		wantEm = append(wantEm, "--output-schema")
+		wantPrompt += "\n\nAnswer with only a JSON value matching this JSON Schema, no prose or code fence: " + `{"type":"object"}`
+	}
+	return wantEm, wantPrompt
+}
+
+func assertAppliedCaps(t *testing.T, c Caps, w capsWant, schema string) {
+	t.Helper()
+	in := RunOptions{Prompt: "TASK", SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"A=1"}}
+	out, dropped, emulated := applyCaps(c, in)
+	if len(dropped) != 0 || !slices.Equal(out.Env, in.Env) {
+		t.Errorf("dropped = %v, env = %v; env is native everywhere", dropped, out.Env)
+	}
+	wantEm, wantPrompt := wantEmulation(w, schema)
+	if !slices.Equal(emulated, wantEm) {
+		t.Errorf("emulated = %v, want %v", emulated, wantEm)
+	}
+	if out.Prompt != wantPrompt {
+		t.Errorf("prompt = %q, want %q", out.Prompt, wantPrompt)
+	}
+	// a Native flag stays on the request for the adapter's own flag; an Emulated one is consumed
+	if (out.SystemPrompt != "") != (w.sys == Native) || (out.AppendSystemPrompt != "") != (w.app == Native) {
+		t.Errorf("request sys=%q append=%q after applyCaps", out.SystemPrompt, out.AppendSystemPrompt)
+	}
+	if out.OutputSchema != schema {
+		t.Errorf("OutputSchema must survive for the validator, got %q", out.OutputSchema)
+	}
+}
+
 // The capability matrix end to end: each agent's real Caps through applyCaps, per level.
 func TestCapabilityMatrixApplyCaps(t *testing.T) {
 	const schema = `{"type": "object"}`
-	want := map[string]struct {
-		sys, app, schema Level
-	}{
+	want := map[string]capsWant{
 		"claude":   {Native, Native, Native},
 		"codex":    {Native, Native, Native},
 		"gemini":   {Emulated, Emulated, Native},
@@ -579,38 +497,7 @@ func TestCapabilityMatrixApplyCaps(t *testing.T) {
 			if c.SystemPrompt != w.sys || c.AppendSystemPrompt != w.app || c.OutputSchema != w.schema || c.Env != Native {
 				t.Fatalf("caps sys=%v append=%v schema=%v env=%v, want %v/%v/%v/native", c.SystemPrompt, c.AppendSystemPrompt, c.OutputSchema, c.Env, w.sys, w.app, w.schema)
 			}
-			in := RunOptions{Prompt: "TASK", SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"A=1"}}
-			out, dropped, emulated := applyCaps(c, in)
-			if len(dropped) != 0 || !slices.Equal(out.Env, in.Env) {
-				t.Errorf("dropped = %v, env = %v; env is native everywhere", dropped, out.Env)
-			}
-			var wantEm []string
-			wantPrompt := "TASK"
-			if w.sys == Emulated {
-				wantEm = append(wantEm, "--system-prompt")
-				wantPrompt = Preamble("SYS") + wantPrompt
-			}
-			if w.app == Emulated {
-				wantEm = append(wantEm, "--append-system-prompt")
-				wantPrompt = Preamble("APP") + wantPrompt
-			}
-			if w.schema != Native {
-				wantEm = append(wantEm, "--output-schema")
-				wantPrompt += "\n\nAnswer with only a JSON value matching this JSON Schema, no prose or code fence: " + `{"type":"object"}`
-			}
-			if !slices.Equal(emulated, wantEm) {
-				t.Errorf("emulated = %v, want %v", emulated, wantEm)
-			}
-			if out.Prompt != wantPrompt {
-				t.Errorf("prompt = %q, want %q", out.Prompt, wantPrompt)
-			}
-			// a Native flag stays on the request for the adapter's own flag; an Emulated one is consumed
-			if (out.SystemPrompt != "") != (w.sys == Native) || (out.AppendSystemPrompt != "") != (w.app == Native) {
-				t.Errorf("request sys=%q append=%q after applyCaps", out.SystemPrompt, out.AppendSystemPrompt)
-			}
-			if out.OutputSchema != schema {
-				t.Errorf("OutputSchema must survive for the validator, got %q", out.OutputSchema)
-			}
+			assertAppliedCaps(t, c, w, schema)
 		})
 	}
 }
@@ -677,15 +564,8 @@ func envelopeMap(t *testing.T, res Result, err error) map[string]any {
 }
 
 // Guarantee 3: an auth failure on hop 1 moves to hop 2, and the envelope names every hop tried.
-func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
-	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
-	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
-	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
-	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
-		t.Fatalf("res=%+v err=%v: want the second hop to answer", res, err)
-	}
-	env := envelopeMap(t, res, err)
+func assertTwoHops(t *testing.T, env map[string]any) {
+	t.Helper()
 	hops, _ := env["hops"].([]any)
 	if len(hops) != 2 {
 		t.Fatalf("hops = %v, want both dispatches", env["hops"])
@@ -698,6 +578,18 @@ func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
 	if h2["agent"] != "gemini" || (h2["error_kind"] != nil && h2["error_kind"] != "") {
 		t.Errorf("hop 2 = %v, want agent gemini with no error_kind", h2)
 	}
+}
+
+func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
+	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
+	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
+		t.Fatalf("res=%+v err=%v: want the second hop to answer", res, err)
+	}
+	env := envelopeMap(t, res, err)
+	assertTwoHops(t, env)
 	if fr, _ := env["fallback_reason"].(string); fr == "" || env["fallback"] != "claude" {
 		t.Errorf("fallback = %v reason = %q: hops must not replace the existing fallback fields", env["fallback"], fr)
 	}

@@ -40,8 +40,9 @@ func captureRouteStdout(t *testing.T, fn func() int) (string, int) {
 	return string(out), code
 }
 
-// TestRouteVerbJSON: the pick's JSON carries weights, per-dimension scores, totals and each skip's gate.
-func TestRouteVerbJSON(t *testing.T) {
+// routeJSONFixture installs a work copilot profile, fake copilot+codex binaries and a 402-exhausted account.
+func routeJSONFixture(t *testing.T) {
+	t.Helper()
 	dir := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",
 		"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"work-user"}}}}`)
@@ -60,6 +61,27 @@ func TestRouteVerbJSON(t *testing.T) {
 	if err := router.MarkExhausted("github·work", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func assertRouteJSONSkipsAndLast(t *testing.T, res routeJSON) {
+	t.Helper()
+	var skip *router.Skip
+	for i := range res.Skipped {
+		if res.Skipped[i].Agent == "copilot" {
+			skip = &res.Skipped[i]
+		}
+	}
+	if skip == nil || skip.Gate != router.GateExhausted || !strings.Contains(skip.Reason, "github·work exhausted until") {
+		t.Errorf("copilot skip = %+v in %+v", skip, res.Skipped)
+	}
+	if c := res.Candidates[len(res.Candidates)-1]; c.Agent != "claude" || c.Model != "claude-sonnet-5-5" || c.Scores == nil {
+		t.Errorf("last candidate = %+v, want claude at sonnet with scores", c)
+	}
+}
+
+// TestRouteVerbJSON: the pick's JSON carries weights, per-dimension scores, totals and each skip's gate.
+func TestRouteVerbJSON(t *testing.T) {
+	routeJSONFixture(t)
 	out, code := captureRouteStdout(t, func() int {
 		return cmdGatewayRouter([]string{"--model", "sonnet", "--agent", "copilot", "--format", "json"})
 	})
@@ -73,20 +95,39 @@ func TestRouteVerbJSON(t *testing.T) {
 	if res.Model != "sonnet" || res.Weights["price"] == 0 || len(res.Candidates) == 0 {
 		t.Fatalf("res = %+v", res)
 	}
-	var skip *router.Skip
-	for i := range res.Skipped {
-		if res.Skipped[i].Agent == "copilot" {
-			skip = &res.Skipped[i]
-		}
-	}
-	if skip == nil || skip.Gate != router.GateExhausted || !strings.Contains(skip.Reason, "github·work exhausted until") {
-		t.Errorf("copilot skip = %+v in %+v", skip, res.Skipped)
-	}
-	if c := res.Candidates[len(res.Candidates)-1]; c.Agent != "claude" || c.Model != "claude-sonnet-5-5" || c.Scores == nil {
-		t.Errorf("last candidate = %+v, want claude at sonnet with scores", c)
-	}
+	assertRouteJSONSkipsAndLast(t, res)
 	if code := cmdGatewayRouter([]string{"--model", "fable"}); code == 0 {
 		t.Error("an unrouted alias must fail")
+	}
+}
+
+type routeSourcesJSON struct {
+	Sources struct {
+		Weights   string `json:"weights"`
+		Subagents struct {
+			On     bool
+			Source string
+		} `json:"subagents"`
+	} `json:"sources"`
+}
+
+func fetchRouteSources(t *testing.T) routeSourcesJSON {
+	t.Helper()
+	out, code := captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var got routeSourcesJSON
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	return got
+}
+
+func assertDefaultSources(t *testing.T, got routeSourcesJSON) {
+	t.Helper()
+	if got.Sources.Weights != "default" || got.Sources.Subagents.Source != "default" || !got.Sources.Subagents.On {
+		t.Errorf("sources (no overlay) = %+v, want weights/subagents default, subagents on", got.Sources)
 	}
 }
 
@@ -96,25 +137,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(providers.EnvRouteSubagents, "")
 
-	out, code := captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet", "--format", "json"}) })
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, out)
-	}
-	var withDefaults struct {
-		Sources struct {
-			Weights   string `json:"weights"`
-			Subagents struct {
-				On     bool
-				Source string
-			} `json:"subagents"`
-		} `json:"sources"`
-	}
-	if err := json.Unmarshal([]byte(out), &withDefaults); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, out)
-	}
-	if withDefaults.Sources.Weights != "default" || withDefaults.Sources.Subagents.Source != "default" || !withDefaults.Sources.Subagents.On {
-		t.Errorf("sources (no overlay) = %+v, want weights/subagents default, subagents on", withDefaults.Sources)
-	}
+	assertDefaultSources(t, fetchRouteSources(t))
 
 	if err := providers.UpdateRouting(func(r *providers.Routing) error {
 		r.Weights = map[string]float64{"price": 0.5, "headroom": 0.5} // equal to the default: provenance is still "vault"
@@ -124,22 +147,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	}
 	t.Setenv(providers.EnvRouteSubagents, "0")
 
-	out, code = captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet", "--format", "json"}) })
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, out)
-	}
-	var withOverlay struct {
-		Sources struct {
-			Weights   string `json:"weights"`
-			Subagents struct {
-				On     bool
-				Source string
-			} `json:"subagents"`
-		} `json:"sources"`
-	}
-	if err := json.Unmarshal([]byte(out), &withOverlay); err != nil {
-		t.Fatalf("not JSON: %v\n%s", err, out)
-	}
+	withOverlay := fetchRouteSources(t)
 	if withOverlay.Sources.Weights != "vault" {
 		t.Errorf("weights source = %q, want vault even though the value equals the default", withOverlay.Sources.Weights)
 	}
@@ -255,6 +263,29 @@ func parityEnv(t *testing.T, profile string, responses bool) (marker string) {
 	return marker
 }
 
+// assertPreviewMatchesChain compares the previewed candidates and skips against the dispatch chain; returns the skips.
+func assertPreviewMatchesChain(t *testing.T, got routeJSON, chain agent.Chain, out string) string {
+	t.Helper()
+	if len(got.Candidates) != len(chain.Dispatches) {
+		t.Fatalf("preview has %d candidates, dispatch %d\n%s", len(got.Candidates), len(chain.Dispatches), out)
+	}
+	for i, disp := range chain.Dispatches {
+		c := got.Candidates[i]
+		if c.Agent != disp.Agent.Name() || c.Account != disp.Account || (c.Model != disp.Model && c.Agent != "claude") {
+			t.Errorf("#%d preview %s/%s/%s, dispatch %s/%s/%s", i+1, c.Agent, c.Account, c.Model,
+				disp.Agent.Name(), disp.Account, disp.Model)
+		}
+	}
+	var skips []string
+	for _, s := range got.Skipped {
+		skips = append(skips, s.Agent+": "+s.Reason)
+	}
+	if strings.Join(skips, "\n") != strings.Join(chain.Skipped, "\n") {
+		t.Errorf("preview skips %q, dispatch skips %q", skips, chain.Skipped)
+	}
+	return strings.Join(skips, "\n")
+}
+
 // TestRouterPreviewMatchesDispatch: `gateway router` lists the candidates, models and skips `ask` would route.
 func TestRouterPreviewMatchesDispatch(t *testing.T) {
 	cases := []struct {
@@ -284,24 +315,8 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(got.Candidates) != len(chain.Dispatches) {
-				t.Fatalf("preview has %d candidates, dispatch %d\n%s", len(got.Candidates), len(chain.Dispatches), out)
-			}
-			for i, disp := range chain.Dispatches {
-				c := got.Candidates[i]
-				if c.Agent != disp.Agent.Name() || c.Account != disp.Account || (c.Model != disp.Model && c.Agent != "claude") {
-					t.Errorf("#%d preview %s/%s/%s, dispatch %s/%s/%s", i+1, c.Agent, c.Account, c.Model,
-						disp.Agent.Name(), disp.Account, disp.Model)
-				}
-			}
-			var skips []string
-			for _, s := range got.Skipped {
-				skips = append(skips, s.Agent+": "+s.Reason)
-			}
-			if strings.Join(skips, "\n") != strings.Join(chain.Skipped, "\n") {
-				t.Errorf("preview skips %q, dispatch skips %q", skips, chain.Skipped)
-			}
-			if tc.wantSkip != "" && !strings.Contains(strings.Join(skips, "\n"), tc.wantSkip) {
+			skips := assertPreviewMatchesChain(t, got, chain, out)
+			if tc.wantSkip != "" && !strings.Contains(skips, tc.wantSkip) {
 				t.Errorf("no skip names profile %s: %q", tc.wantSkip, skips)
 			}
 			if _, err := os.Stat(marker); err == nil {
@@ -321,85 +336,88 @@ func stubRefresh(t *testing.T, fn func(key string) bool) *int {
 	return &calls
 }
 
-func TestCopilotUsedPct(t *testing.T) {
-	const key = "github·alice"
+const usedPctKey = "github·alice"
+
+// recordUsage stores a copilot usage entry for the account recorded age ago, in a fresh config dir.
+func recordUsage(t *testing.T, pct float64, age time.Duration) {
+	t.Helper()
 	now := time.Now()
-	fresh := func(t *testing.T, pct float64, age time.Duration) {
-		t.Helper()
-		if err := router.Record(key, pct, "month", now.Add(24*time.Hour), now.Add(-age)); err != nil {
-			t.Fatal(err)
-		}
+	if err := router.Record(usedPctKey, pct, "month", now.Add(24*time.Hour), now.Add(-age)); err != nil {
+		t.Fatal(err)
 	}
+}
 
-	t.Run("fresh entry returns its used pct without refreshing", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		fresh(t, 42.5, time.Minute)
-		calls := stubRefresh(t, func(string) bool { return true })
-		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 42.5 || *calls != 0 {
-			t.Errorf("got (%v, %v), refreshes %d; want (42.5, true), 0", pct, ok, *calls)
-		}
-	})
+func usedPctConfig(t *testing.T) { t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) }
 
-	t.Run("active exhausted mark counts as 100", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		fresh(t, 10, time.Minute)
-		if err := router.MarkExhausted(key, now.Add(time.Hour), now, "402"); err != nil {
-			t.Fatal(err)
-		}
-		calls := stubRefresh(t, func(string) bool { return true })
-		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != router.ExhaustedPct || *calls != 0 {
-			t.Errorf("got (%v, %v), refreshes %d; want (100, true), 0", pct, ok, *calls)
-		}
-	})
+func TestCopilotUsedPctFreshEntryNoRefresh(t *testing.T) {
+	usedPctConfig(t)
+	recordUsage(t, 42.5, time.Minute)
+	calls := stubRefresh(t, func(string) bool { return true })
+	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 42.5 || *calls != 0 {
+		t.Errorf("got (%v, %v), refreshes %d; want (42.5, true), 0", pct, ok, *calls)
+	}
+}
 
-	t.Run("expired exhausted mark is ignored", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		if err := router.MarkExhausted(key, now.Add(-time.Hour), now.Add(-2*time.Hour), "402"); err != nil {
-			t.Fatal(err)
-		}
-		fresh(t, 7, time.Minute)
-		stubRefresh(t, func(string) bool { return true })
-		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 7 {
-			t.Errorf("got (%v, %v), want (7, true)", pct, ok)
-		}
-	})
+func TestCopilotUsedPctActiveExhaustedCountsAs100(t *testing.T) {
+	usedPctConfig(t)
+	recordUsage(t, 10, time.Minute)
+	if err := router.MarkExhausted(usedPctKey, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
+		t.Fatal(err)
+	}
+	calls := stubRefresh(t, func(string) bool { return true })
+	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != router.ExhaustedPct || *calls != 0 {
+		t.Errorf("got (%v, %v), refreshes %d; want (100, true), 0", pct, ok, *calls)
+	}
+}
 
-	t.Run("stale entry refreshes then reloads the new value", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		fresh(t, 10, router.StaleAfter+time.Minute)
-		calls := stubRefresh(t, func(k string) bool {
-			if k != key {
-				t.Errorf("refresh key = %q, want %q", k, key)
-			}
-			return router.Record(key, 61, "month", now.Add(24*time.Hour), time.Now()) == nil
-		})
-		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 61 || *calls != 1 {
-			t.Errorf("got (%v, %v), refreshes %d; want (61, true), 1", pct, ok, *calls)
-		}
-	})
+func TestCopilotUsedPctExpiredExhaustedIgnored(t *testing.T) {
+	usedPctConfig(t)
+	now := time.Now()
+	if err := router.MarkExhausted(usedPctKey, now.Add(-time.Hour), now.Add(-2*time.Hour), "402"); err != nil {
+		t.Fatal(err)
+	}
+	recordUsage(t, 7, time.Minute)
+	stubRefresh(t, func(string) bool { return true })
+	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 7 {
+		t.Errorf("got (%v, %v), want (7, true)", pct, ok)
+	}
+}
 
-	t.Run("stale entry whose refresh fails is unverified", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		fresh(t, 10, router.StaleAfter+time.Minute)
-		stubRefresh(t, func(string) bool { return false })
-		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || pct != 0 {
-			t.Errorf("got (%v, %v), want (0, false)", pct, ok)
+func TestCopilotUsedPctStaleRefreshesThenReloads(t *testing.T) {
+	usedPctConfig(t)
+	recordUsage(t, 10, router.StaleAfter+time.Minute)
+	calls := stubRefresh(t, func(k string) bool {
+		if k != usedPctKey {
+			t.Errorf("refresh key = %q, want %q", k, usedPctKey)
 		}
+		return router.Record(usedPctKey, 61, "month", time.Now().Add(24*time.Hour), time.Now()) == nil
 	})
+	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 61 || *calls != 1 {
+		t.Errorf("got (%v, %v), refreshes %d; want (61, true), 1", pct, ok, *calls)
+	}
+}
 
-	t.Run("no entry and refresh fails is unverified", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		calls := stubRefresh(t, func(string) bool { return false })
-		if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || *calls != 1 {
-			t.Errorf("ok=%v refreshes %d; want false, 1", ok, *calls)
-		}
-	})
+func TestCopilotUsedPctStaleRefreshFailsUnverified(t *testing.T) {
+	usedPctConfig(t)
+	recordUsage(t, 10, router.StaleAfter+time.Minute)
+	stubRefresh(t, func(string) bool { return false })
+	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || pct != 0 {
+		t.Errorf("got (%v, %v), want (0, false)", pct, ok)
+	}
+}
 
-	t.Run("no entry and refresh succeeds without recording is unverified", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		stubRefresh(t, func(string) bool { return true })
-		if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok {
-			t.Error("a never-seen account must stay unverified")
-		}
-	})
+func TestCopilotUsedPctNoEntryRefreshFailsUnverified(t *testing.T) {
+	usedPctConfig(t)
+	calls := stubRefresh(t, func(string) bool { return false })
+	if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || *calls != 1 {
+		t.Errorf("ok=%v refreshes %d; want false, 1", ok, *calls)
+	}
+}
+
+func TestCopilotUsedPctNoEntryRefreshWithoutRecordUnverified(t *testing.T) {
+	usedPctConfig(t)
+	stubRefresh(t, func(string) bool { return true })
+	if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok {
+		t.Error("a never-seen account must stay unverified")
+	}
 }

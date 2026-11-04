@@ -245,6 +245,13 @@ func dbxCLIProvider(host string) *providers.Provider {
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "DBX_CLI_TOKEN"}}
 }
 
+func assertNoDbxTokenLeak(t *testing.T, stdout, stderr string) {
+	t.Helper()
+	if strings.Contains(stdout, dbxCLIToken) || strings.Contains(stderr, dbxCLIToken) {
+		t.Fatal("output leaked the bearer token")
+	}
+}
+
 func TestListLiveDatabricksText(t *testing.T) {
 	cliScratch(t)
 	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
@@ -268,8 +275,18 @@ func TestListLiveDatabricksText(t *testing.T) {
 	if len(*got) != 2 || (*got)[0] != "/api/2.0/serving-endpoints|Bearer "+dbxCLIToken {
 		t.Errorf("requests = %v", *got)
 	}
-	if strings.Contains(stdout, dbxCLIToken) || strings.Contains(stderr, dbxCLIToken) {
-		t.Fatal("output leaked the bearer token")
+	assertNoDbxTokenLeak(t, stdout, stderr)
+}
+
+func assertDbxJSONRows(t *testing.T, raw []map[string]any) {
+	t.Helper()
+	if len(raw) != 4 || raw[3]["gateway"] != true || raw[0]["gateway"] != nil {
+		t.Errorf("rows = %v", raw)
+		return
+	}
+	if raw[0]["id"] != "chat-a" || raw[0]["ready"] != "READY" || raw[1]["task"] != "llm/v1/embeddings" ||
+		raw[2]["id"] != "chat-c" || raw[2]["ready"] != "NOT_READY" {
+		t.Errorf("rows = %v", raw)
 	}
 }
 
@@ -287,13 +304,8 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, stdout)
 	}
-	if len(raw) != 4 || raw[3]["gateway"] != true || raw[0]["gateway"] != nil || raw[0]["id"] != "chat-a" || raw[0]["ready"] != "READY" || raw[1]["task"] != "llm/v1/embeddings" ||
-		raw[2]["id"] != "chat-c" || raw[2]["ready"] != "NOT_READY" {
-		t.Errorf("rows = %v", raw)
-	}
-	if strings.Contains(stdout, dbxCLIToken) || strings.Contains(stderr, dbxCLIToken) {
-		t.Fatal("output leaked the bearer token")
-	}
+	assertDbxJSONRows(t, raw)
+	assertNoDbxTokenLeak(t, stdout, stderr)
 }
 
 // Negative control: a plain provider prints the ID/Model table and its JSON rows carry no task/ready keys.
@@ -354,24 +366,38 @@ func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 	}
 }
 
-// The summary lists profiles whose credential resolves, folds m2m rows into MODE, and adds an agent section.
-func TestProviderTableSummary(t *testing.T) {
-	useVaultTest(t)
-	t.Setenv("SUMMARY_MISSING_KEY", "")
-	t.Setenv("SUMMARY_SP_SECRET", "x")
+func summaryRegistry() *providers.Registry {
 	dbx := func(name string, auth providers.Auth) *providers.Provider {
 		return &providers.Provider{Name: name, Provider: providers.GroupDatabricks, Protocol: providers.ProtocolAnthropic, Preset: providers.PresetDatabricks,
 			BaseURL: "https://dbc-1.cloud.databricks.com/serving-endpoints/anthropic",
 			Routes:  map[string]string{providers.ProtocolResponses: "https://dbc-1.cloud.databricks.com/serving-endpoints"},
 			Auth:    auth}
 	}
-	reg := &providers.Registry{Default: "dev", Providers: map[string]*providers.Provider{
+	return &providers.Registry{Default: "dev", Providers: map[string]*providers.Provider{
 		"prod":    dbx("prod", providers.Auth{Type: providers.AuthKey, Command: "printf t"}),
 		"dev":     dbx("dev", providers.Auth{Type: providers.AuthKey, Command: "printf t"}),
 		"sp-user": dbx("sp-user", providers.Auth{Type: providers.AuthM2M, Env: "SUMMARY_SP_SECRET"}),
 		"openai": {Name: "openai", Provider: "openai", Protocol: providers.ProtocolOpenAI, BaseURL: "https://api.openai.com/v1",
 			Auth: providers.Auth{Type: providers.AuthKey, Env: "SUMMARY_MISSING_KEY"}},
 	}}
+}
+
+// tableRow returns the first line of out whose first field is label.
+func tableRow(out, label string) string {
+	for l := range strings.SplitSeq(out, "\n") {
+		if f := strings.Fields(l); len(f) > 0 && f[0] == label {
+			return l
+		}
+	}
+	return ""
+}
+
+// The summary lists profiles whose credential resolves, folds m2m rows into MODE, and adds an agent section.
+func TestProviderTableSummary(t *testing.T) {
+	useVaultTest(t)
+	t.Setenv("SUMMARY_MISSING_KEY", "")
+	t.Setenv("SUMMARY_SP_SECRET", "x")
+	reg := summaryRegistry()
 	_, out, _ := captureOutput(t, func() int { printProviderTable(reg); return 0 })
 	if !strings.Contains(out, "PROVIDERS") || !strings.Contains(out, "AUTH") {
 		t.Fatalf("no header:\n%s", out)
@@ -379,36 +405,33 @@ func TestProviderTableSummary(t *testing.T) {
 	if strings.Contains(out, "sp-user") || strings.Contains(out, "openai ") {
 		t.Fatalf("m2m row or unconfigured provider listed as a profile:\n%s", out)
 	}
-	row := func(label string) string {
-		for l := range strings.SplitSeq(out, "\n") {
-			if f := strings.Fields(l); len(f) > 0 && f[0] == label {
-				return l
-			}
-		}
-		return ""
-	}
-	if r := row("databricks"); !strings.Contains(r, "*dev, prod") || !strings.Contains(r, "oauth, m2m") {
+	if r := tableRow(out, "databricks"); !strings.Contains(r, "*dev, prod") || !strings.Contains(r, "oauth, m2m") {
 		t.Fatalf("databricks row = %q, want profiles *dev, prod and auths oauth, m2m", r)
 	}
-	if r := row("codex"); !strings.Contains(r, "*dev, prod") {
+	if r := tableRow(out, "codex"); !strings.Contains(r, "*dev, prod") {
 		t.Fatalf("codex row = %q, want the Databricks profiles it can run on", r)
 	}
 }
 
-func TestProviderCredentialSources(t *testing.T) {
+const credSourceValue = "obviously-fake-source-value"
+
+func credSourceName(source string) string { return "fake-" + strings.ReplaceAll(source, ".", "-") }
+
+// credSourceFixture seeds one provider per credential source and returns the sources plus the text provider table.
+func credSourceFixture(t *testing.T) (map[string]providers.Auth, string) {
+	t.Helper()
 	useVaultTest(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(providers.EnvSessionProfile, "")
-	const value = "obviously-fake-source-value"
-	t.Setenv("SOURCE_ENV_KEY", value)
+	t.Setenv("SOURCE_ENV_KEY", credSourceValue)
 	t.Setenv("SOURCE_VAULT_KEY", "")
 	t.Setenv("SOURCE_MISSING_KEY", "")
-	if err := vault.Store("SOURCE_VAULT_KEY", value); err != nil {
+	if err := vault.Store("SOURCE_VAULT_KEY", credSourceValue); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(t.TempDir(), "fake-token")
-	if err := os.WriteFile(file, []byte(value), 0o600); err != nil {
+	if err := os.WriteFile(file, []byte(credSourceValue), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	auths := map[string]providers.Auth{
@@ -422,7 +445,7 @@ func TestProviderCredentialSources(t *testing.T) {
 	}
 	rows := map[string]*providers.Provider{}
 	for source, auth := range auths {
-		name := "fake-" + strings.ReplaceAll(source, ".", "-")
+		name := credSourceName(source)
 		rows[name] = &providers.Provider{
 			Name: name, Protocol: providers.ProtocolOpenAI, BaseURL: "https://example.invalid", Auth: auth,
 		}
@@ -437,35 +460,48 @@ func TestProviderCredentialSources(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("provider table exit %d", code)
 	}
+	return auths, text
+}
+
+func assertCredentialSource(t *testing.T, source, text string) {
+	t.Helper()
+	name := credSourceName(source)
+	stdout, stderr := providerListCmdJSON(t, name)
+	if strings.Contains(stdout+stderr, credSourceValue) {
+		t.Fatal("provider JSON leaked a raw value")
+	}
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &entry); err != nil {
+		t.Fatal(err)
+	}
+	var got, note string
+	_ = json.Unmarshal(entry["source"], &got)
+	_ = json.Unmarshal(entry["note"], &note)
+	if got != source || entry["note"] == nil {
+		t.Errorf("JSON source=%q, want %q; note present=%v", got, source, entry["note"] != nil)
+	}
+	if source == "missing" && note != "set SOURCE_MISSING_KEY" {
+		t.Errorf("missing credential note=%q", note)
+	}
+	assertCredentialDetail(t, name, source, note, text)
+}
+
+func assertCredentialDetail(t *testing.T, name, source, note, text string) {
+	t.Helper()
+	code, detail, _ := captureOutput(t, func() int { return configureProviderList(name, "text") })
+	if code != 0 || !strings.Contains(detail, "cred      "+source) ||
+		(note != "" && !strings.Contains(detail, note)) {
+		t.Error("provider text detail omitted source or note")
+	}
+	if strings.Contains(text+detail, credSourceValue) {
+		t.Fatal("provider text leaked a raw value")
+	}
+}
+
+func TestProviderCredentialSources(t *testing.T) {
+	auths, text := credSourceFixture(t)
 	for source := range auths {
-		name := "fake-" + strings.ReplaceAll(source, ".", "-")
-		t.Run(source, func(t *testing.T) {
-			stdout, stderr := providerListCmdJSON(t, name)
-			if strings.Contains(stdout+stderr, value) {
-				t.Fatal("provider JSON leaked a raw value")
-			}
-			var entry map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(stdout), &entry); err != nil {
-				t.Fatal(err)
-			}
-			var got, note string
-			_ = json.Unmarshal(entry["source"], &got)
-			_ = json.Unmarshal(entry["note"], &note)
-			if got != source || entry["note"] == nil {
-				t.Errorf("JSON source=%q, want %q; note present=%v", got, source, entry["note"] != nil)
-			}
-			if source == "missing" && note != "set SOURCE_MISSING_KEY" {
-				t.Errorf("missing credential note=%q", note)
-			}
-			code, detail, _ := captureOutput(t, func() int { return configureProviderList(name, "text") })
-			if code != 0 || !strings.Contains(detail, "cred      "+source) ||
-				(note != "" && !strings.Contains(detail, note)) {
-				t.Error("provider text detail omitted source or note")
-			}
-			if strings.Contains(text+detail, value) {
-				t.Fatal("provider text leaked a raw value")
-			}
-		})
+		t.Run(source, func(t *testing.T) { assertCredentialSource(t, source, text) })
 	}
 	stdout, _ := providerListCmdJSON(t, "")
 	var list struct {
@@ -581,6 +617,21 @@ func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	}
 }
 
+func repoLastProfileCached() bool {
+	_, err := os.Stat(filepath.Join(paths.StateDir(), "last-profile.json"))
+	return err == nil
+}
+
+func assertSwitchDryRunWritesNothing(t *testing.T) {
+	t.Helper()
+	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 || !repoLastProfileCached() {
+		t.Fatalf("dry-run exit %d stderr=%q cache kept=%v", code, stderr, repoLastProfileCached())
+	}
+	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
+		t.Fatalf("dry-run wrote records: %+v", recs)
+	}
+}
+
 // switch skips an agent that cannot serve the profile, clears the repo cache; --dry-run writes neither.
 func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 	srv, _ := dbxCLIServer(t)
@@ -592,19 +643,10 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 		}
 	}
 	agent.RecordLastProfile("codex", "chatgpt", nil)
-	cached := func() bool {
-		_, err := os.Stat(filepath.Join(paths.StateDir(), "last-profile.json"))
-		return err == nil
-	}
-	if !cached() {
+	if !repoLastProfileCached() {
 		t.Fatal("fixture: no last-profile cache written")
 	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 || !cached() {
-		t.Fatalf("dry-run exit %d stderr=%q cache kept=%v", code, stderr, cached())
-	}
-	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
-		t.Fatalf("dry-run wrote records: %+v", recs)
-	}
+	assertSwitchDryRunWritesNothing(t)
 	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
@@ -612,7 +654,7 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 	if recs["codex"].Profile != "qa" || recs["gemini"].Profile != "antigravity" {
 		t.Errorf("codex=%q gemini=%q, want qa and gemini untouched", recs["codex"].Profile, recs["gemini"].Profile)
 	}
-	if cached() {
+	if repoLastProfileCached() {
 		t.Error("switch left the repo last-profile cache")
 	}
 }
