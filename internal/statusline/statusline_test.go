@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -138,7 +139,7 @@ func TestWidthClip(t *testing.T) {
 		}
 	}
 	cfg := embeddedConfig()
-	t.Setenv("COLUMNS", "30")
+	t.Setenv("COLUMNS", strconv.Itoa(30+ccMargin))
 	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | openrouter · …" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
@@ -532,7 +533,7 @@ func TestProfileFitsWidth(t *testing.T) {
 		want  string
 	}{{200, full + " │ feature/x · +12 -3"}, {60, "databricks·my-long-workspa… │ feature/x · +12 -3"},
 		{50, "databricks·my-long-workspa… · +12 -3"}, {20, "…"}} {
-		termWidth = func() int { return tc.width }
+		termWidth = func() int { return tc.width + ccMargin } // the terminal; the line gets ccMargin less
 		_ = os.RemoveAll(filepath.Dir(stampFile("termwidth", "x")))
 		cfg := embeddedConfig()
 		cfg.Style, cfg.Order = "gradient", []string{"provider"}
