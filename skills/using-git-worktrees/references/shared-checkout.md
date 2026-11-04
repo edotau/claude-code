@@ -22,11 +22,13 @@ same file; collisions surface as a red build or a commit that carries another se
 
 ## Claims: who has uncommitted edits in a file
 
-Every Write/Edit is recorded per session and leaf; a claim lasts while the file is dirty, its owner is live and the
-file has no newer commit. Before you edit a claimed file the hook says who holds it; staging it (`git add`,
-`git commit -a`/paths) asks, and blocks in a leaf; `git add -p` passes. Inspect by hand:
-`tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered: edits made by Bash (`sed -i`, formatters) and
-by external agents (codex/copilot/opencode coworkers) — check `git diff <file>` before staging, as below.
+Every Write/Edit, and every path a `git add` stages, is recorded per session and leaf; a claim lasts while the file is
+dirty (staged counts), its owner is live and the file has no newer commit. Before you edit a claimed file the hook
+says who holds it; staging or committing it (`git add`, `git commit`, `-a`, paths) asks, and blocks in a leaf;
+`git add -p` passes. Inspect by hand: `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered until
+staged: edits made by Bash (`sed -i`, formatters) and by external agents (codex/copilot/opencode coworkers) — check
+`git diff <file>` before staging, as below.
+Commit with explicit paths, `git commit -m "<msg>" -- <your files>`: a bare `git commit` takes whatever a peer staged.
 
 ## Notices: what reaches you without a message
 

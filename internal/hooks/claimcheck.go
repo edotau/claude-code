@@ -243,23 +243,28 @@ func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 
 // stageCheck asks (a leaf: blocks) when a git add/commit in the command would stage a dirty claimed file.
 func (v claimView) stageCheck() Result {
-	cwd := v.in.CWD
-	for _, seg := range shellSegments(v.in.ToolCommand()) {
+	var res Result
+	eachGitCall(v.in.ToolCommand(), v.in.CWD, func(target, verb string, args []string) bool {
+		res = v.stageVerdict(target, verb, args)
+		return res.Decision == Allow && res.Stderr == ""
+	})
+	return res
+}
+
+// eachGitCall calls fn with each git invocation in cmd, following cd, until fn returns false.
+func eachGitCall(cmd, cwd string, fn func(target, verb string, args []string) bool) {
+	for _, seg := range shellSegments(cmd) {
 		toks := shellTokens(seg)
 		if next, ok := cdTarget(toks, cwd); ok {
 			cwd = next
 			continue
 		}
 		for i, t := range toks {
-			if t != "git" {
-				continue
-			}
-			if res := v.stageVerdict(gitInvocation(toks[i+1:], cwd)); res.Decision != Allow || res.Stderr != "" {
-				return res
+			if t == "git" && !fn(gitInvocation(toks[i+1:], cwd)) {
+				return
 			}
 		}
 	}
-	return Result{}
 }
 
 // stageVerdict checks one git invocation's staged set against the claims.
@@ -326,8 +331,11 @@ func stageResult(in *Input, verb string, taken []string) Result {
 	}
 	what := fmt.Sprintf("git %s stages files another live session or leaf is editing: %s%s", verb,
 		strings.Join(taken, "; "), more)
-	return Result{Decision: d, Reason: safetyMessage(in, d, what, "",
-		"git add -p <path> for your hunks only, or leave the file and tell its owner")}
+	hint := "git add -p <path> for your hunks only, or leave the file and tell its owner"
+	if verb == "commit" {
+		hint = "commit only your own files: git commit -- <your files> (a bare commit takes everything staged)"
+	}
+	return Result{Decision: d, Reason: safetyMessage(in, d, what, "", hint)}
 }
 
 func isPatchFlag(a string) bool {

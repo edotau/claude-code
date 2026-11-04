@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,7 +45,7 @@ func claimsFile(owner int, session string) string {
 	return filepath.Join(claimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, paths.Slug(session, "", 80, "session")))
 }
 
-// worktreeClaim records the written path, or each sha a landed `git commit` printed, for this session; errors drop.
+// worktreeClaim records the written path, each sha a landed `git commit` printed, and each path `git add` staged.
 func worktreeClaim(in *Input) Result {
 	owner := claimOwner()
 	if owner == 0 || in.SessionID == "" {
@@ -57,14 +58,60 @@ func worktreeClaim(in *Input) Result {
 			p = filepath.Join(in.CWD, p)
 		}
 		lines = append(lines, claim{Path: canonPath(p), Agent: in.AgentID, TS: now})
-	} else if in.ToolName == "Bash" && gitCommitCmd.MatchString(in.ToolCommand()) {
+	} else if in.ToolName == "Bash" {
+		lines = bashClaims(in, now)
+	}
+	appendClaims(claimsFile(owner, in.SessionID), lines)
+	return Result{}
+}
+
+// bashClaims are each sha a landed `git commit` printed and each path a `git add` left staged.
+func bashClaims(in *Input, now int64) []claim {
+	var lines []claim
+	if gitCommitCmd.MatchString(in.ToolCommand()) {
 		out := cmp.Or(in.nested("tool_response", "stdout"), in.ToolResponseText())
 		for _, m := range commitLine.FindAllStringSubmatch(out, -1) {
 			lines = append(lines, claim{Commit: m[1], Agent: in.AgentID, TS: now})
 		}
 	}
-	appendClaims(claimsFile(owner, in.SessionID), lines)
-	return Result{}
+	if gitStageCmd.MatchString(in.ToolCommand()) {
+		lines = append(lines, stagedClaims(in, now)...) // Bash and external-agent edits are claimed when staged
+	}
+	return lines
+}
+
+// stagedClaims claims, for the stager, each path the command's git add invocations left staged.
+func stagedClaims(in *Input, now int64) []claim {
+	ctx, cancel := hookContext("worktree-claim")
+	defer cancel()
+	var out []claim
+	eachGitCall(in.ToolCommand(), in.CWD, func(target, verb string, args []string) bool {
+		if verb == "add" {
+			for _, p := range addedPaths(ctx, target, args) {
+				out = append(out, claim{Path: p, Agent: in.AgentID, TS: now})
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// addedPaths are the staged paths (absolute) under one git add's pathspecs; any git error yields none.
+func addedPaths(ctx context.Context, target string, args []string) []string {
+	tops, ok, err := gitOut(ctx, target, "rev-parse", "--show-toplevel")
+	if err != nil || !ok {
+		return nil
+	}
+	top := canonPath(tops[0])
+	scopes, _ := stageScopes(ctx, top, target, "add", args) // add never runs git here, so never errors
+	staged, _, _ := gitOut(ctx, top, "diff", "--cached", "--name-only")
+	var out []string
+	for _, s := range staged {
+		if p := filepath.Join(top, s); s != "" && underAny(p, scopes) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // appendClaims appends lines to file under its lock; any error drops them (the ledger is advisory).
