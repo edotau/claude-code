@@ -2,6 +2,7 @@ package menu
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/paths"
@@ -25,7 +27,9 @@ var addSettingList = tui.List
 
 // gitDiffStat prints the uncommitted change to the repo defaults file; tests replace it.
 var gitDiffStat = func(dir string) (string, error) {
-	out, err := exec.Command("git", "-C", dir, "diff", "--stat", "--", settings.RepoDefaultsRel).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--stat", "--", settings.RepoDefaultsRel).CombinedOutput()
 	return string(out), err
 }
 
@@ -130,7 +134,7 @@ func editSetting(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.Raw
 	if f.Kind == settings.KindBool || f.Kind == settings.KindEnum {
 		return editChoice(d, f, tmplVal)
 	}
-	return editText(d, f, tmplVal)
+	return editText(d, f)
 }
 
 // editChoice is the on/off or choice picker, with a trailing "remove from mine" row; theme also gets a
@@ -188,7 +192,7 @@ func removeLabel(tmplVal json.RawMessage) string {
 }
 
 // editText is the number/text prompt; an empty line removes the key from my defaults.
-func editText(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawMessage, bool) {
+func editText(d *dialog, f settings.Field) (json.RawMessage, bool) {
 	input := strings.TrimSpace(d.shell().Line(f.Key + " (empty removes): "))
 	if input == "" {
 		return nil, true
@@ -223,7 +227,7 @@ func runClaudeSettings(d *dialog) bool {
 }
 
 // reportClaudeSettings prints one line per Catalog key under its section header: key, effective value,
-// source (template|vault[, live differs]) — no prompts, no writes.
+// source (default|mine[ · live differs]) — no prompts, no writes.
 func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []settings.Section) bool {
 	tmpl, err := configure.RenderObject(settings.Render)
 	if err != nil {
@@ -370,7 +374,9 @@ func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []
 			f := fields[idx]
 			tv, _ := lookupKey(tmpl, f.Key)
 			if raw, ok := editSetting(d, f, tv); ok {
-				stageField(ov, staged, reset, cur, tmpl, f.Key, raw)
+				if err := stageField(ov, staged, reset, cur, tmpl, f.Key, raw); err != nil {
+					d.printf("claude code: %v\n", err)
+				}
 			}
 		}
 	}
@@ -444,21 +450,21 @@ func saveRepoDefaults(d *dialog, staged map[string]json.RawMessage) {
 }
 
 // stageField stages key, writing a "parent.sub" leaf back into a copy of the parent object (other sub-keys kept).
-func stageField(ov, staged map[string]json.RawMessage, reset map[string]bool, cur, tmpl map[string]json.RawMessage, key string, raw json.RawMessage) {
+func stageField(ov, staged map[string]json.RawMessage, reset map[string]bool, cur, tmpl map[string]json.RawMessage, key string, raw json.RawMessage) error {
 	parent, sub, nested := strings.Cut(key, ".")
 	if _, top := tmpl[key]; !nested || top {
 		stageSetting(ov, staged, reset, key, raw, tmpl[key])
-		return
+		return nil
 	}
 	base, ok := cur[parent]
 	if !ok {
 		base = tmpl[parent]
 	}
-	var obj map[string]json.RawMessage
-	_ = json.Unmarshal(base, &obj)
-	next := maps.Clone(obj)
-	if next == nil {
-		next = map[string]json.RawMessage{}
+	next := map[string]json.RawMessage{}
+	if len(base) > 0 {
+		if err := json.Unmarshal(base, &next); err != nil || next == nil {
+			return fmt.Errorf("%s is not a JSON object; edit %s in the vault instead", parent, key)
+		}
 	}
 	if raw == nil { // remove from mine: back to the repo default's sub-value
 		raw, _ = lookupKey(tmpl, key)
@@ -470,6 +476,7 @@ func stageField(ov, staged map[string]json.RawMessage, reset map[string]bool, cu
 	}
 	b, _ := json.Marshal(next)
 	stageSetting(ov, staged, reset, parent, b, tmpl[parent])
+	return nil
 }
 
 // stageSetting records one edit: nil (explicit remove) or a value matching the repo default both remove the
@@ -489,7 +496,7 @@ func stageSetting(ov, staged map[string]json.RawMessage, reset map[string]bool, 
 }
 
 // saveClaudeSettings asks to save n staged change(s) on leaving the page; n/Esc discards them. The
-// overlay is reloaded right before the write, so only this session's staged sets/resets are applied —
+// overlay is re-read inside the write transaction, so only this session's staged sets/resets are applied —
 // never a stale snapshot taken when the page opened, which would clobber a concurrent overlay write.
 func saveClaudeSettings(d *dialog, staged map[string]json.RawMessage, reset map[string]bool) {
 	n := len(staged) + len(reset)
@@ -500,17 +507,15 @@ func saveClaudeSettings(d *dialog, staged map[string]json.RawMessage, reset map[
 		d.printf("claude code: %d change(s) discarded\n", n)
 		return
 	}
-	next, err := settings.LoadOverlay()
+	err := settings.UpdateOverlay(func(cur map[string]json.RawMessage) map[string]json.RawMessage {
+		next := maps.Clone(cur)
+		for k := range reset {
+			delete(next, k)
+		}
+		maps.Copy(next, staged)
+		return next
+	})
 	if err != nil {
-		d.printf("claude code: %v\n", err)
-		return
-	}
-	next = maps.Clone(next)
-	for k := range reset {
-		delete(next, k)
-	}
-	maps.Copy(next, staged)
-	if err := settings.SaveOverlay(next); err != nil {
 		d.printf("claude code: %v\n", err)
 		return
 	}
