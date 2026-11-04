@@ -23,12 +23,6 @@ func copilotBashReason() string {
 		p.HookExtras.Summary() + "."
 }
 
-// claudeSelf spells the harness binary the way shells and agents write it; each form reads as plain claude-code.
-func claudeSelf() []string {
-	home, _ := os.UserHomeDir()
-	return []string{"$HOME/.claude/bin/claude-code", "~/.claude/bin/claude-code", home + "/.claude/bin/claude-code"}
-}
-
 // copilotBash reads one hook JSON from stdin and exits 2 unless every chained segment is allowed (fail closed).
 func copilotBash(stdin io.Reader, stderr io.Writer) int {
 	var in struct {
@@ -46,9 +40,7 @@ func copilotBash(stdin io.Reader, stderr io.Writer) int {
 	if workDir == "" {
 		workDir, _ = os.Getwd()
 	}
-	for _, self := range claudeSelf() {
-		cmd = strings.ReplaceAll(cmd, self+" ", "claude-code ")
-	}
+	cmd = shellscope.CanonicalSelf(cmd)
 	home, _ := os.UserHomeDir() // ~/worktrees holds the linked worktrees a ~/.claude session works in
 	if !shellscope.Command(cmd, []string{workDir, filepath.Join(home, "worktrees")}, agentconfig.ShellPolicy().HookExtras) {
 		fmt.Fprintln(stderr, copilotBashReason())

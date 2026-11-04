@@ -64,7 +64,7 @@ func scopedShellCases() []scopedCase {
 		{"find delete", sh("find . -delete"), false}, {"find ok", sh("find . -name x.go"), true},
 		{"cat outside", sh("cat /etc/passwd"), false}, {"subst", sh("ls $(rm x)"), false}, {"background", sh("ls & rm x"), false},
 		{"go exec", sh("go test -exec=sh ./..."), false}, {"mutate", sh("claude-code test mutate a.go x y ./pkg"), true},
-		{"review", sh("claude-code review complexity internal/ui"), true}, {"review -o", sh("claude-code review report -o /etc/x"), false},
+		{"review", sh("claude-code review complexity internal/ui"), true}, {"abs self", sh(os.Getenv("HOME") + "/.claude/bin/claude-code test mutate a.go x y ./pkg"), true}, {"review -o", sh("claude-code review report -o /etc/x"), false},
 		{"redirect", rpc.PermissionRequestShell{FullCommandText: "ls", HasWriteFileRedirection: true}, false},
 	}
 }

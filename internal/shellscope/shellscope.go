@@ -189,6 +189,15 @@ func stderrToStdout(rs []rune, i int) bool {
 	return end <= len(rs) && string(rs[i:end]) == "2>&1" && (end == len(rs) || strings.ContainsRune(" \t;|", rs[end]))
 }
 
+// CanonicalSelf rewrites the harness binary's full paths ($HOME, ~ or absolute) to plain claude-code.
+func CanonicalSelf(cmd string) string {
+	home, _ := os.UserHomeDir()
+	for _, self := range []string{"$HOME/.claude/bin/claude-code", "~/.claude/bin/claude-code", home + "/.claude/bin/claude-code"} {
+		cmd = strings.ReplaceAll(cmd, self+" ", "claude-code ")
+	}
+	return cmd
+}
+
 // Command reports whether every segment of cmd passes the policy's commands, or extra (which may be nil), in a root.
 func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
 	segs, ok := splitShell(cmd)
