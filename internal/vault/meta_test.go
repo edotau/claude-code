@@ -139,6 +139,19 @@ func TestStoreNeverLeaksRawBytesIntoMetadataOrVault(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	checkNoPlaintext(t, values)
+	fi, err := os.Stat(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("vault mode = %04o, want 0600", fi.Mode().Perm())
+	}
+}
+
+// checkNoPlaintext fails if any value appears in the marshaled metadata or the raw vault file.
+func checkNoPlaintext(t *testing.T, values []string) {
+	t.Helper()
 	meta, err := vault.LoadMeta()
 	if err != nil {
 		t.Fatal(err)
@@ -155,13 +168,6 @@ func TestStoreNeverLeaksRawBytesIntoMetadataOrVault(t *testing.T) {
 		if bytes.Contains(rawMeta, []byte(value)) || bytes.Contains(rawVault, []byte(value)) {
 			t.Fatal("metadata or vault contains a plaintext secret")
 		}
-	}
-	fi, err := os.Stat(vault.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("vault mode = %04o, want 0600", fi.Mode().Perm())
 	}
 }
 
@@ -217,33 +223,32 @@ func TestStoreClearsVerifyStatusAndDeleteRemovesRow(t *testing.T) {
 	if err := vault.RecordProbe("VERIFY_ME", "verified", at, setAt); err != nil {
 		t.Fatal(err)
 	}
-	m, err := vault.LoadMeta()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := m["VERIFY_ME"]; got.VerifyStatus != "verified" || !got.VerifiedAt.Equal(at) {
+	if got, _ := metaRow(t, "VERIFY_ME"); got.VerifyStatus != "verified" || !got.VerifiedAt.Equal(at) {
 		t.Fatalf("probe metadata = %+v", got)
 	}
 	if err := vault.Store("VERIFY_ME", "v2"); err != nil {
 		t.Fatal(err)
 	}
-	m, err = vault.LoadMeta()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := m["VERIFY_ME"]; got.VerifyStatus != "" || !got.VerifiedAt.IsZero() {
+	if got, _ := metaRow(t, "VERIFY_ME"); got.VerifyStatus != "" || !got.VerifiedAt.IsZero() {
 		t.Fatalf("Store must clear VerifyStatus/VerifiedAt, got %+v", got)
 	}
 	if err := vault.Delete("VERIFY_ME"); err != nil {
 		t.Fatal(err)
 	}
-	m, err = vault.LoadMeta()
+	if _, ok := metaRow(t, "VERIFY_ME"); ok {
+		t.Fatal("Delete must remove the row entirely")
+	}
+}
+
+// metaRow loads the vault metadata and returns name's row and whether it exists.
+func metaRow(t *testing.T, name string) (vault.SecretMeta, bool) {
+	t.Helper()
+	m, err := vault.LoadMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := m["VERIFY_ME"]; ok {
-		t.Fatal("Delete must remove the row entirely")
-	}
+	row, ok := m[name]
+	return row, ok
 }
 
 func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {

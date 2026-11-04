@@ -83,6 +83,16 @@ func TestSealOpenRejectsAADSwap(t *testing.T) {
 	if got, err := key.Open("TOKEN_B", record); err == nil {
 		t.Fatalf("AAD swap accepted record sealed for TOKEN_A as TOKEN_B: got=%q", got)
 	}
+	aead := specSecretsAEAD(t)
+	got, err := aead.Open(nil, nil, record.Sealed, []byte("claude-code/vault/v1/secrets/TOKEN_A"))
+	if err != nil || string(got) != "bound-to-A" {
+		t.Fatalf("ciphertext is not bound to the specified AAD prefix and name: got=%q err=%v", got, err)
+	}
+}
+
+// specSecretsAEAD derives the secrets AEAD from HARNESS_VAULT_KEY and vault_id per the spec, not via package code.
+func specSecretsAEAD(t *testing.T) cipher.AEAD {
+	t.Helper()
 	rawKey, err := base64.StdEncoding.DecodeString(os.Getenv("HARNESS_VAULT_KEY"))
 	if err != nil {
 		t.Fatal(err)
@@ -106,10 +116,7 @@ func TestSealOpenRejectsAADSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := aead.Open(nil, nil, record.Sealed, []byte("claude-code/vault/v1/secrets/TOKEN_A"))
-	if err != nil || string(got) != "bound-to-A" {
-		t.Fatalf("ciphertext is not bound to the specified AAD prefix and name: got=%q err=%v", got, err)
-	}
+	return aead
 }
 
 func TestSealOpenWrongKid(t *testing.T) {
@@ -130,20 +137,7 @@ func TestViewMissingVaultIsEmptyWithoutCreatingFile(t *testing.T) {
 	called := false
 	if err := vault.View(func(tx *vault.Tx) error {
 		called = true
-		for _, bucket := range []string{vault.Pins, vault.Env, vault.Overlay, vault.Secrets, vault.Meta} {
-			if value, ok := tx.Get(bucket, "absent"); ok || value != "" {
-				t.Errorf("missing %s Get = %q, %t", bucket, value, ok)
-			}
-			if len(tx.All(bucket)) != 0 || len(tx.Names(bucket)) != 0 {
-				t.Errorf("missing %s is not empty", bucket)
-			}
-		}
-		if record, ok, err := tx.Record("absent"); ok || err != nil || !reflect.DeepEqual(record, vault.Record{}) {
-			t.Errorf("missing Record = %+v, %t, %v", record, ok, err)
-		}
-		if recs, err := tx.Records(); err != nil || len(recs) != 0 {
-			t.Errorf("missing vault has records or errored: %v, %v", recs, err)
-		}
+		checkEmptyTx(t, tx)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -153,6 +147,31 @@ func TestViewMissingVaultIsEmptyWithoutCreatingFile(t *testing.T) {
 	}
 	if _, err := os.Stat(wantPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("View created a vault or stat failed unexpectedly: %v", err)
+	}
+}
+
+// checkEmptyBucket asserts bucket has no "absent" key, no rows and no names.
+func checkEmptyBucket(t *testing.T, tx *vault.Tx, bucket string) {
+	t.Helper()
+	if value, ok := tx.Get(bucket, "absent"); ok || value != "" {
+		t.Errorf("missing %s Get = %q, %t", bucket, value, ok)
+	}
+	if len(tx.All(bucket)) != 0 || len(tx.Names(bucket)) != 0 {
+		t.Errorf("missing %s is not empty", bucket)
+	}
+}
+
+// checkEmptyTx asserts every bucket read on tx is empty and no record decodes.
+func checkEmptyTx(t *testing.T, tx *vault.Tx) {
+	t.Helper()
+	for _, bucket := range []string{vault.Pins, vault.Env, vault.Overlay, vault.Secrets, vault.Meta} {
+		checkEmptyBucket(t, tx, bucket)
+	}
+	if record, ok, err := tx.Record("absent"); ok || err != nil || !reflect.DeepEqual(record, vault.Record{}) {
+		t.Errorf("missing Record = %+v, %t, %v", record, ok, err)
+	}
+	if recs, err := tx.Records(); err != nil || len(recs) != 0 {
+		t.Errorf("missing vault has records or errored: %v, %v", recs, err)
 	}
 }
 
@@ -180,6 +199,12 @@ func TestConcurrentUpdatePreservesEightKeys(t *testing.T) {
 			t.Fatal("concurrent Update did not finish within writer timeout")
 		}
 	}
+	checkEightPins(t, writers)
+}
+
+// checkEightPins asserts pins holds exactly key-i=value-i for every writer i.
+func checkEightPins(t *testing.T, writers int) {
+	t.Helper()
 	if err := vault.View(func(tx *vault.Tx) error {
 		all := tx.All(vault.Pins)
 		if len(all) != writers {
@@ -222,6 +247,19 @@ func TestViewWaitsForHeldUpdate(t *testing.T) {
 	case <-time.After(6 * time.Second):
 		t.Fatal("Update never acquired the write transaction")
 	}
+	readDone := startHeldReader()
+	select {
+	case err := <-readDone:
+		t.Fatalf("View returned while write transaction was held: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	close(release)
+	released = true
+	awaitAll(t, map[string]<-chan error{"writer": writeDone, "reader": readDone})
+}
+
+// startHeldReader starts a View that must see the held write's committed "after", returning once it is running.
+func startHeldReader() <-chan error {
 	readStarted, readDone := make(chan struct{}), make(chan error, 1)
 	go func() {
 		close(readStarted)
@@ -233,14 +271,13 @@ func TestViewWaitsForHeldUpdate(t *testing.T) {
 		})
 	}()
 	<-readStarted
-	select {
-	case err := <-readDone:
-		t.Fatalf("View returned while write transaction was held: %v", err)
-	case <-time.After(150 * time.Millisecond):
-	}
-	close(release)
-	released = true
-	for name, done := range map[string]<-chan error{"writer": writeDone, "reader": readDone} {
+	return readDone
+}
+
+// awaitAll waits up to 6s for each named done channel and reports any error or timeout.
+func awaitAll(t *testing.T, dones map[string]<-chan error) {
+	t.Helper()
+	for name, done := range dones {
 		select {
 		case err := <-done:
 			if err != nil {

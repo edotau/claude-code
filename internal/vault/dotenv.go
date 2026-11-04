@@ -38,10 +38,7 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 			continue
 		}
 		name, value, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
-		value = strings.TrimSpace(value) // match providers.ReadEnvFile: trim, then strip one quote pair
-		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
-			value = value[1 : len(value)-1]
-		}
+		value = unquoteDotenv(value)
 		switch {
 		case !ok || !dotenvName.MatchString(name):
 			problems = append(problems, fmt.Sprintf("line %d: want NAME=value", n))
@@ -55,6 +52,15 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 		problems = append(problems, fmt.Sprintf("read stopped early: %v", err))
 	}
 	return pairs, problems
+}
+
+// unquoteDotenv matches providers.ReadEnvFile: trim, then strip one matching quote pair.
+func unquoteDotenv(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+		return value[1 : len(value)-1]
+	}
+	return value
 }
 
 // Stored is one vault secret's display metadata, never its value.
@@ -129,16 +135,8 @@ func appendDotenvLocked(path string, pairs []Pair) (added int, skipped []string,
 	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return 0, nil, fmt.Errorf("%s is a symlink; refusing to write through it", path)
 	}
-	have := map[string]bool{}
-	existing, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		for line := range strings.SplitSeq(string(existing), "\n") {
-			if name, _, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(line, "#") {
-				have[strings.TrimSpace(strings.TrimPrefix(name, "export "))] = true
-			}
-		}
-	case !errors.Is(err, fs.ErrNotExist):
+	existing, have, err := readDotenvNames(path)
+	if err != nil {
 		return 0, nil, err
 	}
 	var b strings.Builder
@@ -155,21 +153,43 @@ func appendDotenvLocked(path string, pairs []Pair) (added int, skipped []string,
 		b.WriteString(p.Name + "=" + quoteDotenvValue(p.Value) + "\n")
 		added++
 	}
-	f, err := openAppendNoFollow(path)
-	if err != nil {
-		return 0, nil, err
-	}
-	if err := f.Chmod(0o600); err != nil { // an existing .env keeps its old mode until now: tighten before writing
-		return 0, nil, errors.Join(err, f.Close())
-	}
-	if _, err := f.WriteString(b.String()); err != nil {
-		return 0, nil, errors.Join(err, f.Close())
-	}
-	if err := f.Close(); err != nil {
+	if err := writeDotenv(path, b.String()); err != nil {
 		return 0, nil, err
 	}
 	warnIfUntrackedDefault(path)
 	return added, skipped, nil
+}
+
+// readDotenvNames returns path's bytes and the names it already defines; an absent file is empty, not an error.
+func readDotenvNames(path string) ([]byte, map[string]bool, error) {
+	have := map[string]bool{}
+	existing, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		for line := range strings.SplitSeq(string(existing), "\n") {
+			if name, _, ok := strings.Cut(line, "="); ok && !strings.HasPrefix(line, "#") {
+				have[strings.TrimSpace(strings.TrimPrefix(name, "export "))] = true
+			}
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, nil, err
+	}
+	return existing, have, nil
+}
+
+// writeDotenv appends text to path without following a symlink, tightening it to 0600 first.
+func writeDotenv(path, text string) error {
+	f, err := openAppendNoFollow(path)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil { // an existing .env keeps its old mode until now: tighten before writing
+		return errors.Join(err, f.Close())
+	}
+	if _, err := f.WriteString(text); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	return f.Close()
 }
 
 // quoteDotenvValue wraps v in quotes when it holds a space, `#`, `$` or a quote character; ParseDotenv

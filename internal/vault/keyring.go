@@ -100,13 +100,7 @@ func KeyringLookup(name string) (value string, found bool, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "linux":
-		cmd = exec.CommandContext(ctx, "secret-tool", "lookup", "service", service, "account", name)
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "security", "find-generic-password", "-a", name, "-s", service, "-w")
-	}
+	cmd := lookupCommand(ctx, name)
 	cmd.WaitDelay = 250 * time.Millisecond
 	out, err2 := cmd.Output()
 	if ctx.Err() != nil {
@@ -114,33 +108,66 @@ func KeyringLookup(name string) (value string, found bool, err error) {
 		return "", false, ErrKeyringNoAnswer
 	}
 	if err2 != nil {
-		var exit *exec.ExitError
-		stderr := ""
-		if errors.As(err2, &exit) {
-			stderr = strings.TrimSpace(string(exit.Stderr))
-		}
-		switch runtime.GOOS {
-		case "linux":
-			if errors.As(err2, &exit) && exit.ExitCode() == 1 && stderr == "" {
-				return "", false, nil // only a positively established absence
-			}
-		case "darwin":
-			if errors.As(err2, &exit) && exit.ExitCode() == 44 {
-				return "", false, nil // only a positively established absence
-			}
-		}
-		if stderr != "" {
-			return "", false, fmt.Errorf("%w: %s", ErrKeyringUnavailable, stderr)
-		}
-		return "", false, ErrKeyringUnavailable
+		return "", false, lookupFailure(err2)
 	}
 	v := strings.TrimSpace(string(out))
 	return v, v != "", nil
 }
 
+// lookupCommand is this OS's keyring read of name's value.
+func lookupCommand(ctx context.Context, name string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.CommandContext(ctx, "secret-tool", "lookup", "service", service, "account", name)
+	case "darwin":
+		return exec.CommandContext(ctx, "security", "find-generic-password", "-a", name, "-s", service, "-w")
+	}
+	return nil
+}
+
+// lookupFailure maps a failed lookup to nil (a positively established absence) or ErrKeyringUnavailable.
+func lookupFailure(err error) error {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return ErrKeyringUnavailable
+	}
+	stderr := strings.TrimSpace(string(exit.Stderr))
+	switch {
+	case runtime.GOOS == "linux" && exit.ExitCode() == 1 && stderr == "":
+		return nil // only a positively established absence
+	case runtime.GOOS == "darwin" && exit.ExitCode() == 44:
+		return nil // only a positively established absence
+	case stderr != "":
+		return fmt.Errorf("%w: %s", ErrKeyringUnavailable, stderr)
+	}
+	return ErrKeyringUnavailable
+}
+
 // KeyringSet stores value under name, overwriting any existing entry. The value always goes on stdin, never
 // argv: an argv secret is visible to every same-uid process (`ps`) for the life of the call.
 func KeyringSet(name, value string) error {
+	if err := checkKeyringSet(name, value); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*timeout)
+	defer cancel()
+	cmd := storeCommand(ctx, name, value)
+	cmd.WaitDelay = 250 * time.Millisecond
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		down.Store(true)
+	}
+	// The tool's output carries the reason (unlock refused, no D-Bus); `security -i` exits 0 even on failure.
+	msg := strings.TrimSpace(strings.ReplaceAll(string(out), value, "<redacted>"))
+	if err := storeFailure(name, msg, err); err != nil {
+		return err
+	}
+	audit.Log(audit.SecretSet, name, "keyring") // the name only, never the value
+	return nil
+}
+
+// checkKeyringSet refuses a store before any tool runs: bad name or value, no tool, or a keyring already down.
+func checkKeyringSet(name, value string) error {
 	if name == "" {
 		return errors.New("keyring: empty name")
 	}
@@ -157,8 +184,11 @@ func KeyringSet(name, value string) error {
 	if down.Load() {
 		return errors.New("keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*timeout)
-	defer cancel()
+	return nil
+}
+
+// storeCommand is this OS's keyring write of name, with value fed on stdin.
+func storeCommand(ctx context.Context, name, value string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "linux":
@@ -170,13 +200,11 @@ func KeyringSet(name, value string) error {
 		cmd.Stdin = strings.NewReader("add-generic-password -U -a " + quote(name) + " -s " + service +
 			" -w " + quote(value) + "\n")
 	}
-	cmd.WaitDelay = 250 * time.Millisecond
-	out, err := cmd.CombinedOutput()
-	if ctx.Err() != nil {
-		down.Store(true)
-	}
-	// The tool's output carries the reason (unlock refused, no D-Bus); `security -i` exits 0 even on failure.
-	msg := strings.TrimSpace(strings.ReplaceAll(string(out), value, "<redacted>"))
+	return cmd
+}
+
+// storeFailure turns a store's exit error and redacted output into the error KeyringSet returns, nil on success.
+func storeFailure(name, msg string, err error) error {
 	switch {
 	case err != nil && msg != "":
 		return fmt.Errorf("keyring: store %s: %w: %s", name, err, msg)
@@ -185,7 +213,6 @@ func KeyringSet(name, value string) error {
 	case msg != "":
 		return fmt.Errorf("keyring: store %s: %s", name, msg)
 	}
-	audit.Log(audit.SecretSet, name, "keyring") // the name only, never the value
 	return nil
 }
 
@@ -199,20 +226,13 @@ func KeyringDelete(name string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "linux":
-		cmd = exec.CommandContext(ctx, "secret-tool", "clear", "service", service, "account", name)
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "security", "delete-generic-password", "-a", name, "-s", service)
-	}
+	cmd := deleteCommand(ctx, name)
 	cmd.WaitDelay = 250 * time.Millisecond
 	err := cmd.Run()
-	var exit *exec.ExitError
-	if err == nil || (errors.As(err, &exit) && exit.ExitCode() == 44) { // 44 = errSecItemNotFound
+	if deleteNotFound(err) {
 		return nil
 	}
-	if runtime.GOOS == "linux" && errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
+	if linuxClearMiss(ctx, err) {
 		if absent, lerr := absentAfterClear(name); absent || lerr != nil {
 			return lerr
 		}
@@ -221,6 +241,29 @@ func KeyringDelete(name string) error {
 		down.Store(true)
 	}
 	return fmt.Errorf("keyring: delete %s: %w", name, err)
+}
+
+// deleteCommand is this OS's keyring removal of name.
+func deleteCommand(ctx context.Context, name string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.CommandContext(ctx, "secret-tool", "clear", "service", service, "account", name)
+	case "darwin":
+		return exec.CommandContext(ctx, "security", "delete-generic-password", "-a", name, "-s", service)
+	}
+	return nil
+}
+
+// deleteNotFound reports a delete that succeeded or found nothing to remove.
+func deleteNotFound(err error) bool {
+	var exit *exec.ExitError
+	return err == nil || (errors.As(err, &exit) && exit.ExitCode() == 44) // 44 = errSecItemNotFound
+}
+
+// linuxClearMiss reports secret-tool clear's untimed exit 1, which is either an absent item or a failing keyring.
+func linuxClearMiss(ctx context.Context, err error) bool {
+	var exit *exec.ExitError
+	return runtime.GOOS == "linux" && errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil
 }
 
 // absentAfterClear tells an absent item (clear exits 1) from a failing keyring, whose lookup error is returned.

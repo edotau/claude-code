@@ -76,11 +76,7 @@ func TestExportPairsStoredOnlyAndRestricted(t *testing.T) {
 func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 	vaulttest.Use(t)
 	const secret = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
-	for name, value := range map[string]string{"Z_KEY": "short", "A_KEY": secret} {
-		if err := vault.Store(name, value); err != nil {
-			t.Fatal(err)
-		}
-	}
+	storeAll(t, map[string]string{"Z_KEY": "short", "A_KEY": secret})
 	t.Setenv("ONLY_IN_ENV", "from-env")
 	wrongVaultKey(t)
 	want := []vault.Stored{
@@ -88,12 +84,7 @@ func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 		{Name: "Z_KEY", Len: 5},
 	}
 	got, err := vault.ListStored(nil)
-	for i := range got {
-		if got[i].SetAt.IsZero() {
-			t.Errorf("%s: SetAt is zero, want the record's seal time", got[i].Name)
-		}
-		got[i].SetAt = time.Time{} // compared above; the rest is exact
-	}
+	zeroSetAt(t, got)
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("ListStored with wrong key = %+v, %v, want %+v", got, err, want)
 	}
@@ -107,6 +98,33 @@ func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 	if err != nil || !slices.Equal(got, want[1:]) {
 		t.Fatalf("ListStored restricted = %+v, %v", got, err)
 	}
+	checkExportWrongKey(t)
+}
+
+// storeAll seals every name=value in kv into the test vault.
+func storeAll(t *testing.T, kv map[string]string) {
+	t.Helper()
+	for name, value := range kv {
+		if err := vault.Store(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// zeroSetAt fails on any row without a seal time, then zeroes SetAt so the rest compares exactly.
+func zeroSetAt(t *testing.T, got []vault.Stored) {
+	t.Helper()
+	for i := range got {
+		if got[i].SetAt.IsZero() {
+			t.Errorf("%s: SetAt is zero, want the record's seal time", got[i].Name)
+		}
+		got[i].SetAt = time.Time{} // compared above; the rest is exact
+	}
+}
+
+// checkExportWrongKey asserts ExportPairs under a wrong key returns no pairs and an ErrWrongKey naming A_KEY.
+func checkExportWrongKey(t *testing.T) {
+	t.Helper()
 	if pairs, err := vault.ExportPairs(nil); !errors.Is(err, vault.ErrWrongKey) || pairs != nil ||
 		!strings.Contains(err.Error(), "export: A_KEY:") {
 		t.Fatalf("ExportPairs with wrong key = %v, %v, want nil, named ErrWrongKey", pairs, err)
@@ -151,12 +169,7 @@ func TestAppendDotenvCreatesAppendsSkipsAndTightens(t *testing.T) {
 	if n, _, err := vault.AppendDotenv(path, []vault.Pair{{"A", "1"}}); err != nil || n != 1 {
 		t.Fatalf("create: n=%d err=%v", n, err)
 	}
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, append(must(os.ReadFile(path)), "B=old"...), 0o644); err != nil { // no trailing newline
-		t.Fatal(err)
-	}
+	loosenAndAppend(t, path, "B=old") // no trailing newline
 	n, skipped, err := vault.AppendDotenv(path, []vault.Pair{{"A", "x"}, {"B", "y"}, {"C", "3"}})
 	if err != nil || n != 1 || !slices.Equal(skipped, []string{"A", "B"}) {
 		t.Fatalf("append: n=%d skipped=%v err=%v", n, skipped, err)
@@ -167,6 +180,17 @@ func TestAppendDotenvCreatesAppendsSkipsAndTightens(t *testing.T) {
 	}
 	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
 		t.Errorf("perm = %o, want 600", fi.Mode().Perm())
+	}
+}
+
+// loosenAndAppend makes path 0644 and appends tail verbatim, as a hand-edited .env would be.
+func loosenAndAppend(t *testing.T, path, tail string) {
+	t.Helper()
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(must(os.ReadFile(path)), tail...), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

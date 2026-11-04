@@ -40,28 +40,15 @@ func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 	br := bufio.NewReaderSize(stdout, 1<<20)
 	for {
 		frag, isPrefix, err := br.ReadLine()
-		if err != nil {
-			if err != io.EOF {
-				return findings, err
-			}
+		if err == io.EOF {
 			return findings, nil
+		}
+		if err != nil {
+			return findings, err
 		}
 		line := string(frag)
 		if !cont {
-			addition = false
-			switch {
-			case strings.HasPrefix(line, "commit "):
-				commit = strings.TrimPrefix(line, "commit ")
-				if len(commit) > 12 {
-					commit = commit[:12]
-				}
-			case strings.HasPrefix(line, "diff --git "):
-				if _, b, ok := strings.Cut(strings.TrimPrefix(line, "diff --git "), " b/"); ok {
-					file = b
-				}
-			case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-				addition = true
-			}
+			commit, file, addition = parseGitLogLine(line, commit, file)
 		}
 		if addition && !isTestFixture(file) && slices.ContainsFunc(secretPattern.FindAllString(line, -1), tokenShaped) {
 			findings = append(findings, fmt.Sprintf("%s %s", commit, file))
@@ -69,6 +56,24 @@ func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 		}
 		cont = isPrefix
 	}
+}
+
+// parseGitLogLine advances the current commit and file from a line's start, and reports an added (+) line.
+func parseGitLogLine(line, commit, file string) (string, string, bool) {
+	switch {
+	case strings.HasPrefix(line, "commit "):
+		commit = strings.TrimPrefix(line, "commit ")
+		if len(commit) > 12 {
+			commit = commit[:12]
+		}
+	case strings.HasPrefix(line, "diff --git "):
+		if _, b, ok := strings.Cut(strings.TrimPrefix(line, "diff --git "), " b/"); ok {
+			file = b
+		}
+	case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+		return commit, file, true
+	}
+	return commit, file, false
 }
 
 // ScanGit audits dir's git history for secret-shaped ADDITIONS (lines a commit introduced), never
@@ -85,36 +90,8 @@ func ScanGit(out io.Writer, dir, rev string, since int) int {
 		fmt.Fprintln(out, "  ✓ not inside a git repo — skipped")
 		return ExitClean
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", gitLogArgs(dir, rev, since)...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
-		return ExitFindings
-	}
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
-		return ExitFindings
-	}
-
-	findings, readErr := scanGitLogOutput(stdout)
-	if readErr != nil {
-		cancel() // unread output would block git on a full pipe until the timeout
-	}
-	waitErr := cmd.Wait()
-	if readErr != nil {
-		fmt.Fprintf(out, "  ⚠ git log output truncated: %v\n", readErr)
-		return ExitFindings
-	}
-	if ctx.Err() != nil {
-		fmt.Fprintln(out, "  ⚠ git log timed out — history not fully scanned")
-		return ExitFindings
-	}
-	if waitErr != nil {
-		fmt.Fprintf(out, "  ⚠ git log failed: %v: %s\n", waitErr, strings.TrimSpace(stderr.String()))
+	findings, ok := gitLogFindings(out, dir, rev, since)
+	if !ok {
 		return ExitFindings
 	}
 	if len(findings) == 0 {
@@ -127,6 +104,43 @@ func ScanGit(out io.Writer, dir, rev string, since int) int {
 	}
 	fmt.Fprintf(out, "doctor --git: %d finding(s).\n", len(findings))
 	return ExitFindings
+}
+
+// gitLogFindings runs and scans `git log -p`; ok is false once a failure line has been written to out.
+func gitLogFindings(out io.Writer, dir, rev string, since int) (findings []string, ok bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", gitLogArgs(dir, rev, since)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
+		return nil, false
+	}
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(out, "  ⚠ could not run git log: %v\n", err)
+		return nil, false
+	}
+
+	findings, readErr := scanGitLogOutput(stdout)
+	if readErr != nil {
+		cancel() // unread output would block git on a full pipe until the timeout
+	}
+	waitErr := cmd.Wait()
+	if readErr != nil {
+		fmt.Fprintf(out, "  ⚠ git log output truncated: %v\n", readErr)
+		return nil, false
+	}
+	if ctx.Err() != nil {
+		fmt.Fprintln(out, "  ⚠ git log timed out — history not fully scanned")
+		return nil, false
+	}
+	if waitErr != nil {
+		fmt.Fprintf(out, "  ⚠ git log failed: %v: %s\n", waitErr, strings.TrimSpace(stderr.String()))
+		return nil, false
+	}
+	return findings, true
 }
 
 func probeGitRepo(dir string) (bool, error) {

@@ -138,13 +138,7 @@ func TestScanGitLongLine(t *testing.T) {
 	for _, order := range []string{"leak-then-long", "long-then-leak"} {
 		t.Run(order, func(t *testing.T) {
 			dir := t.TempDir()
-			run := func(args ...string) {
-				cmd := exec.Command("git", args...)
-				cmd.Dir = dir
-				if out, err := cmd.CombinedOutput(); err != nil {
-					t.Fatalf("git %v: %v: %s", args, err, out)
-				}
-			}
+			run := gitIn(t, dir)
 			run("init", "-q")
 			run("config", "user.email", "test@example.com")
 			run("config", "user.name", "test")
@@ -165,24 +159,40 @@ func TestScanGitLongLine(t *testing.T) {
 				writeCommit("big.txt", long+"\n")
 				writeCommit("leak.txt", leak)
 			}
-
-			var buf bytes.Buffer
-			started := time.Now()
-			rc := ScanGit(&buf, dir, "", 0)
-			if elapsed := time.Since(started); elapsed >= 5*time.Second {
-				t.Errorf("ScanGit took %v, want < 5s", elapsed)
-			}
-			if rc != ExitFindings {
-				t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
-			}
-			out := buf.String()
-			if !strings.Contains(out, "leak.txt") {
-				t.Errorf("output does not name leak.txt:\n%s", out)
-			}
-			if strings.Contains(out, "timed out") || strings.Contains(out, "truncated") {
-				t.Errorf("output reports a timeout/truncation:\n%s", out)
-			}
+			checkLongLineScan(t, dir)
 		})
+	}
+}
+
+// gitIn returns a runner for git subcommands in dir that fails the test on any error.
+func gitIn(t *testing.T, dir string) func(args ...string) {
+	return func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+}
+
+// checkLongLineScan asserts ScanGit finishes under 5s and names leak.txt with no timeout or truncation.
+func checkLongLineScan(t *testing.T, dir string) {
+	t.Helper()
+	var buf bytes.Buffer
+	started := time.Now()
+	rc := ScanGit(&buf, dir, "", 0)
+	if elapsed := time.Since(started); elapsed >= 5*time.Second {
+		t.Errorf("ScanGit took %v, want < 5s", elapsed)
+	}
+	if rc != ExitFindings {
+		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "leak.txt") {
+		t.Errorf("output does not name leak.txt:\n%s", out)
+	}
+	if strings.Contains(out, "timed out") || strings.Contains(out, "truncated") {
+		t.Errorf("output reports a timeout/truncation:\n%s", out)
 	}
 }
 

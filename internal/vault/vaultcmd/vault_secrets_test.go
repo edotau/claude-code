@@ -101,25 +101,31 @@ func TestVaultExportFileOnly(t *testing.T) {
 						code, stdout == "", strings.Contains(stderr, value))
 				}
 			}
-			info, err := os.Stat(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if info.Mode().Perm() != 0o600 {
-				t.Errorf("export permissions = %o, want 600", info.Mode().Perm())
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			pairs, problems := vault.ParseDotenv(strings.NewReader(string(data)))
-			if len(problems) != 0 || len(pairs) != 1 || pairs[0].Name != "ALPHA" {
-				t.Fatal("export did not preserve exactly one masked NAME=value row")
-			}
-			if vault.Redact(pairs[0].Value) != vault.Redact(value) {
-				t.Fatal("export changed the masked value")
-			}
+			checkExportedFile(t, path, value)
 		})
+	}
+}
+
+// checkExportedFile asserts path is 0600 and holds exactly one ALPHA row whose masked value matches value's.
+func checkExportedFile(t *testing.T, path, value string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("export permissions = %o, want 600", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairs, problems := vault.ParseDotenv(strings.NewReader(string(data)))
+	if len(problems) != 0 || len(pairs) != 1 || pairs[0].Name != "ALPHA" {
+		t.Fatal("export did not preserve exactly one masked NAME=value row")
+	}
+	if vault.Redact(pairs[0].Value) != vault.Redact(value) {
+		t.Fatal("export changed the masked value")
 	}
 }
 
@@ -186,30 +192,33 @@ func TestVaultGetMultipleNames(t *testing.T) {
 			if code != 0 || stderr != "" {
 				t.Fatalf("get: exit %d, stderr empty=%v", code, stderr == "")
 			}
-			want := ""
-			var wantSb151 strings.Builder
-			for i, name := range []string{"ALPHA", "BETA"} {
-				value := values[i]
-				if export {
-					value = textutil.ShellQuote(value)
-				}
-				stdout = strings.ReplaceAll(stdout, value, vault.Redact(values[i]))
-				prefix := ""
-				if export {
-					prefix = "export "
-				}
-				wantSb151.WriteString(prefix)
-				wantSb151.WriteString(name)
-				wantSb151.WriteByte('=')
-				wantSb151.WriteString(vault.Redact(values[i]))
-				wantSb151.WriteByte('\n')
-			}
-			want += wantSb151.String()
-			if stdout != want {
+			if got, want := maskGetOutput(stdout, []string{"ALPHA", "BETA"}, values, export); got != want {
 				t.Fatal("get did not produce the expected masked NAME=value rows")
 			}
 		})
 	}
+}
+
+// maskGetOutput redacts each value in stdout (shell-quoted with export) and builds the masked rows get should print.
+func maskGetOutput(stdout string, names, values []string, export bool) (got, want string) {
+	var wantSb strings.Builder
+	for i, name := range names {
+		value := values[i]
+		if export {
+			value = textutil.ShellQuote(value)
+		}
+		stdout = strings.ReplaceAll(stdout, value, vault.Redact(values[i]))
+		prefix := ""
+		if export {
+			prefix = "export "
+		}
+		wantSb.WriteString(prefix)
+		wantSb.WriteString(name)
+		wantSb.WriteByte('=')
+		wantSb.WriteString(vault.Redact(values[i]))
+		wantSb.WriteByte('\n')
+	}
+	return stdout, wantSb.String()
 }
 
 func TestVaultGetMissingNamePrintsNothing(t *testing.T) {

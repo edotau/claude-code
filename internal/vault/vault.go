@@ -119,6 +119,17 @@ func create(path string) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
+	if err = initVaultFile(tmp); err != nil {
+		return err
+	}
+	if err = os.Link(tmp, path); errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	return err
+}
+
+// initVaultFile seeds a fresh bbolt file at tmp with every bucket, the schema stamp and a new vault_id.
+func initVaultFile(tmp string) error {
 	db, err := bbolt.Open(tmp, 0600, &bbolt.Options{NoSync: noSync.Load()})
 	if err != nil {
 		return err
@@ -139,13 +150,7 @@ func create(path string) error {
 	if err != nil {
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = os.Link(tmp, path); errors.Is(err, os.ErrExist) {
-		return nil
-	}
-	return err
+	return closeErr
 }
 
 // noSync skips fsync on commit; only tests turn it on via DisableSyncForTests.
@@ -173,30 +178,9 @@ func Update(fn func(*Tx) error) error {
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
 		t := &Tx{tx}
-		if err := checkSchema(t); err != nil {
-			return err
-		}
-		// A vault with no vault_id predates per-vault keyring accounts; backfill it once (R1).
-		if _, ok := t.Get(Meta, "vault_id"); !ok {
-			if err := t.Put(Meta, "vault_id", newVaultID()); err != nil {
-				return err
-			}
-		}
-		// checkSchema refused a pre-HKDF vault with secrets; any older stamp is re-stamped here, nothing to re-seal.
-		if n := t.Schema(); n < schemaVersion {
-			if n < agentRecordSchema {
-				var merr error
-				if off, merr = migrateAgentPins(t); merr != nil {
-					return merr
-				}
-			}
-			if err := migrateSlotsToAliases(t); err != nil {
-				return err
-			}
-			if err := t.SetSchema(schemaVersion); err != nil {
-				return err
-			}
-			from, restamped = n, true
+		var perr error
+		if from, off, restamped, perr = prepareTx(t); perr != nil {
+			return perr
 		}
 		return fn(t)
 	})
@@ -208,6 +192,36 @@ func Update(fn func(*Tx) error) error {
 		reportAgentsOff(off)
 	}
 	return nil
+}
+
+// prepareTx runs Update's schema check, vault_id backfill and migrations; restamped means it bumped from `from`.
+func prepareTx(t *Tx) (from int, off []string, restamped bool, err error) {
+	if err := checkSchema(t); err != nil {
+		return 0, nil, false, err
+	}
+	// A vault with no vault_id predates per-vault keyring accounts; backfill it once (R1).
+	if _, ok := t.Get(Meta, "vault_id"); !ok {
+		if err := t.Put(Meta, "vault_id", newVaultID()); err != nil {
+			return 0, nil, false, err
+		}
+	}
+	// checkSchema refused a pre-HKDF vault with secrets; any older stamp is re-stamped here, nothing to re-seal.
+	n := t.Schema()
+	if n >= schemaVersion {
+		return 0, nil, false, nil
+	}
+	if n < agentRecordSchema {
+		if off, err = migrateAgentPins(t); err != nil {
+			return 0, nil, false, err
+		}
+	}
+	if err := migrateSlotsToAliases(t); err != nil {
+		return 0, nil, false, err
+	}
+	if err := t.SetSchema(schemaVersion); err != nil {
+		return 0, nil, false, err
+	}
+	return n, off, true, nil
 }
 
 // newVaultID is 16 random bytes hex-encoded, the per-vault identity under which its master key

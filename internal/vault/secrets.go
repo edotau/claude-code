@@ -26,28 +26,40 @@ func LooksLikeSecret(val string) bool {
 // LooksLikeSecretGeneric is LooksLikeSecret with the bare base64-ish rule switchable via generic.
 func LooksLikeSecretGeneric(val string, generic bool) bool {
 	switch {
-	case val == "":
+	case neverSecret(val):
 		return false
-	case strings.HasPrefix(val, "$"): // ${ENV} or $ENV reference
-		return false
-	case strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/"): // file path
-		return false
-	case strings.ContainsAny(val, "<>") || strings.Contains(val, "PLACEHOLDER") ||
-		strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx"):
-		return false
-	case shapes.HasGitHubPrefix(val):
+	case knownSecretShape(val):
 		return true
-	case matchSlack(val):
+	default:
+		return generic && base64ish.MatchString(val)
+	}
+}
+
+// neverSecret reports values never flagged: empty, ${ENV} refs, file paths and obvious placeholders.
+func neverSecret(val string) bool {
+	switch {
+	case val == "":
+		return true
+	case strings.HasPrefix(val, "$"): // ${ENV} or $ENV reference
+		return true
+	case strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/"): // file path
+		return true
+	}
+	return strings.ContainsAny(val, "<>") || strings.Contains(val, "PLACEHOLDER") ||
+		strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx")
+}
+
+// knownSecretShape reports a known token prefix or a JWT shape.
+func knownSecretShape(val string) bool {
+	switch {
+	case shapes.HasGitHubPrefix(val), matchSlack(val):
 		return true
 	case strings.HasPrefix(val, "AKIA"): // AWS
 		return true
 	case strings.HasPrefix(val, "sk-"): // OpenAI-style
 		return true
-	case strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2: // JWT
-		return true
-	default:
-		return generic && base64ish.MatchString(val)
 	}
+	return strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2 // JWT
 }
 
 // matchSlack matches a Slack bot/user/app/legacy token (xox[baprs]-...).

@@ -153,7 +153,7 @@ func runKeyFlight(f *keyFlight, fk keyFlightKey, gen uint64) {
 // lookupKey is resolveKey's uncached path: the keyring account, then key_command, then matchKey's fallbacks.
 func lookupKey(id, kid, command string) (*Key, string, error) {
 	v, found, lookupErr := keyringLookup(account(id))
-	recoverable := lookupErr != nil && (errors.Is(lookupErr, ErrKeyringUnavailable) || errors.Is(lookupErr, ErrKeyringNoAnswer))
+	recoverable := keyringRecoverable(lookupErr)
 	if lookupErr != nil && !recoverable {
 		return nil, "", lookupErr
 	}
@@ -162,11 +162,7 @@ func lookupKey(id, kid, command string) (*Key, string, error) {
 	source := "keyring"
 	switch {
 	case found:
-		if k, err = parseKey(v, id); err != nil && kid != "" {
-			// Malformed pointer with a kid recorded: the pointer is only a convenience cache
-			// of the immutable per-kid account, so fall to matchKey's lookup below instead.
-			k, err = nil, nil
-		}
+		k, err = parsePointer(v, id, kid)
 	case command != "":
 		source = "command"
 		k, err = runKeyCommand(command, id)
@@ -179,6 +175,22 @@ func lookupKey(id, kid, command string) (*Key, string, error) {
 		return nil, source, err
 	}
 	return matchKey(id, k, source, kid, command)
+}
+
+// parsePointer parses the keyring's current-key pointer; with a kid recorded a malformed pointer reads as absent.
+func parsePointer(v, id, kid string) (*Key, error) {
+	k, err := parseKey(v, id)
+	if err != nil && kid != "" {
+		// Malformed pointer with a kid recorded: the pointer is only a convenience cache
+		// of the immutable per-kid account, so fall to matchKey's lookup below instead.
+		return nil, nil
+	}
+	return k, err
+}
+
+// keyringRecoverable reports a keyring that could not positively establish absence (no tool, locked, timed out).
+func keyringRecoverable(err error) bool {
+	return errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringNoAnswer)
 }
 
 // parseKeyCommandArgv decodes meta/key_command as a validated JSON argv array: no shell is ever
@@ -240,38 +252,64 @@ func matchKey(id string, k *Key, source, kid, command string) (*Key, string, err
 	if kid == "" {
 		return nil, "", ErrLocked
 	}
-	tried := []string{source}
-	v, found, err := keyringLookup(account(id) + "." + kid)
+	fk, fsource, tried := fallbackKey(id, source, kid, command)
 	switch {
-	case err == nil && found:
-		if rk, perr := parseKey(v, id); perr == nil && rk.Kid == kid {
-			return rk, "keyring", nil
-		}
-		tried = append(tried, "keyring")
-	case err != nil:
-		tried = append(tried, fmt.Sprintf("keyring (%v)", err))
-	default:
-		tried = append(tried, "keyring")
-	}
-	if command != "" && source != "command" {
-		if ck, cerr := runKeyCommand(command, id); cerr == nil && ck.Kid == kid {
-			return ck, "command", nil
-		} else if cerr != nil {
-			tried = append(tried, fmt.Sprintf("key_command (%v)", cerr))
-		} else {
-			tried = append(tried, "key_command")
-		}
-	}
-	if k == nil {
+	case fk != nil:
+		return fk, fsource, nil
+	case k == nil:
 		return nil, "", ErrLocked
 	}
 	return nil, source, fmt.Errorf("%w: tried %s", ErrWrongKey, strings.Join(tried, ", "))
 }
 
+// fallbackKey tries the per-kid account, then key_command unless it was the source; a miss returns every source tried.
+func fallbackKey(id, source, kid, command string) (*Key, string, []string) {
+	tried := []string{source}
+	rk, label := perKidKey(id, kid)
+	if rk != nil {
+		return rk, "keyring", nil
+	}
+	tried = append(tried, label)
+	if command == "" || source == "command" {
+		return nil, "", tried
+	}
+	ck, label := commandKey(command, id, kid)
+	if ck != nil {
+		return ck, "command", nil
+	}
+	return nil, "", append(tried, label)
+}
+
+// perKidKey reads kid's immutable keyring account; a miss returns the label matchKey's error names it by.
+func perKidKey(id, kid string) (*Key, string) {
+	v, found, err := keyringLookup(account(id) + "." + kid)
+	switch {
+	case err == nil && found:
+		if rk, perr := parseKey(v, id); perr == nil && rk.Kid == kid {
+			return rk, ""
+		}
+	case err != nil:
+		return nil, fmt.Sprintf("keyring (%v)", err)
+	}
+	return nil, "keyring"
+}
+
+// commandKey runs key_command for kid; a miss returns the label matchKey's error names it by.
+func commandKey(command, id, kid string) (*Key, string) {
+	ck, cerr := runKeyCommand(command, id)
+	switch {
+	case cerr != nil:
+		return nil, fmt.Sprintf("key_command (%v)", cerr)
+	case ck.Kid == kid:
+		return ck, ""
+	}
+	return nil, "key_command"
+}
+
 // wrapKeyringUnavailable turns a keyring that could not positively establish absence into a
 // locked vault with recovery instructions, instead of letting EnsureKey generate over it (R6).
 func wrapKeyringUnavailable(err error) error {
-	if errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringNoAnswer) {
+	if keyringRecoverable(err) {
 		return fmt.Errorf("%w: set HARNESS_VAULT_KEY or meta/key_command (%v)", ErrLocked, err)
 	}
 	return err
@@ -293,57 +331,67 @@ func EnsureKey() (*Key, error) {
 	}
 	var result *Key
 	err = paths.WithFileLock(Path()+".key", func() error {
-		k, _, err := MasterKey()
-		if err == nil {
-			result = k
-			return nil
-		}
-		if !errors.Is(err, ErrLocked) {
-			return wrapKeyringUnavailable(err)
-		}
-		id, err := ensureVaultID()
-		if err != nil {
-			return err
-		}
-		_, kid, _, err := keyMeta()
-		if err != nil {
-			return err
-		}
-		if kid != "" {
-			// A kid is recorded but no source above could open it: locked, not absent.
-			return ErrLocked
-		}
-		_, found, lookupErr := keyringLookup(account(id))
-		if lookupErr != nil {
-			return wrapKeyringUnavailable(lookupErr)
-		}
-		if found {
-			// A key is already in the keyring; meta/kid being empty here would be a corrupt
-			// state, not an invitation to generate a second one.
-			return ErrLocked
-		}
-		newK, value, err := randomKey(id)
-		if err != nil {
-			return err
-		}
-		// Persist the genesis key under its immutable per-kid account before the convenience
-		// pointer, so matchKey can always find it even if a copied root's pointer diverges later.
-		if err := keyringSet(account(id)+"."+newK.Kid, value); err != nil {
-			return err
-		}
-		if err := keyringSet(account(id), value); err != nil {
-			return err
-		}
-		if err := storeKeyID(newK); err != nil {
-			return err
-		}
-		result = newK
-		return nil
+		var e error
+		result, e = ensureKeyLocked()
+		return e
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// ensureKeyLocked re-resolves under the "<vault>.key" lock and generates a genesis key only on a proven absence.
+func ensureKeyLocked() (*Key, error) {
+	k, _, err := MasterKey()
+	if err == nil {
+		return k, nil
+	}
+	if !errors.Is(err, ErrLocked) {
+		return nil, wrapKeyringUnavailable(err)
+	}
+	id, err := ensureVaultID()
+	if err != nil {
+		return nil, err
+	}
+	_, kid, _, err := keyMeta()
+	if err != nil {
+		return nil, err
+	}
+	if kid != "" {
+		// A kid is recorded but no source above could open it: locked, not absent.
+		return nil, ErrLocked
+	}
+	_, found, lookupErr := keyringLookup(account(id))
+	if lookupErr != nil {
+		return nil, wrapKeyringUnavailable(lookupErr)
+	}
+	if found {
+		// A key is already in the keyring; meta/kid being empty here would be a corrupt
+		// state, not an invitation to generate a second one.
+		return nil, ErrLocked
+	}
+	return genesisKey(id)
+}
+
+// genesisKey generates vault id's first master key and records it in the keyring and meta/kid.
+func genesisKey(id string) (*Key, error) {
+	newK, value, err := randomKey(id)
+	if err != nil {
+		return nil, err
+	}
+	// Persist the genesis key under its immutable per-kid account before the convenience
+	// pointer, so matchKey can always find it even if a copied root's pointer diverges later.
+	if err := keyringSet(account(id)+"."+newK.Kid, value); err != nil {
+		return nil, err
+	}
+	if err := keyringSet(account(id), value); err != nil {
+		return nil, err
+	}
+	if err := storeKeyID(newK); err != nil {
+		return nil, err
+	}
+	return newK, nil
 }
 
 // ensureVaultID materializes the vault file (and its random vault_id) if neither exists yet, and
@@ -432,22 +480,11 @@ func resealBucket(t *Tx, bucket string, old, next *Key) error {
 // rotateKeyLocked runs the body of RotateKey under the "<vault>.key" file lock.
 func rotateKeyLocked(o rotateKeyOpts) (oldKid, newKid string, err error) {
 	defer invalidateKey()
-	old, source, e := MasterKey()
+	old, id, e := rotatePreflight(o)
+	if old != nil {
+		oldKid = old.Kid
+	}
 	if e != nil {
-		return "", "", e
-	}
-	if source != "keyring" {
-		return "", "", errors.New("vault: rotation requires a keyring-held master key")
-	}
-	oldKid = old.Kid
-	id, kid, command, e := keyMeta()
-	if e != nil {
-		return oldKid, "", e
-	}
-	if kid != "" && kid != old.Kid {
-		return oldKid, "", ErrWrongKey
-	}
-	if e := rotateGuard(o.force, command); e != nil {
 		return oldKid, "", e
 	}
 	acct := account(id)
@@ -481,6 +518,28 @@ func rotateKeyLocked(o rotateKeyOpts) (oldKid, newKid string, err error) {
 	}
 	audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "")
 	return oldKid, newKid, nil
+}
+
+// rotatePreflight resolves the outgoing keyring-held key and checks meta/kid and the guard; old is nil before resolution.
+func rotatePreflight(o rotateKeyOpts) (old *Key, id string, err error) {
+	old, source, err := MasterKey()
+	if err != nil {
+		return nil, "", err
+	}
+	if source != "keyring" {
+		return nil, "", errors.New("vault: rotation requires a keyring-held master key")
+	}
+	id, kid, command, err := keyMeta()
+	if err != nil {
+		return old, "", err
+	}
+	if kid != "" && kid != old.Kid {
+		return old, "", ErrWrongKey
+	}
+	if err := rotateGuard(o.force, command); err != nil {
+		return old, "", err
+	}
+	return old, id, nil
 }
 
 // RotateKey generates a new master key, re-seals every secret under it, and retains every key —

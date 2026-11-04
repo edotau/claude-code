@@ -424,6 +424,21 @@ func vaultRecordCells(name string, r vault.AgentRecord) map[string]string {
 // vaultAgentTable is the AGENT/PROFILE/MODEL/... table, one row per agent; empty columns drop.
 func vaultAgentTable(names []string, width int, color bool) string {
 	recs := vault.AgentRecords(agent.RosterNames())
+	per, cols := vaultAgentCells(names, recs)
+	head, colMax := append([]string{"AGENT"}, cols...), []int{0}
+	for _, c := range cols {
+		colMax = append(colMax, map[string]int{"MODEL": 60, "PROFILE": 24}[c])
+	}
+	rows, codes := make([][]string, len(names)), make([]string, len(names))
+	for i, n := range names {
+		rows[i], codes[i] = vaultAgentRow(n, cols, per[i], recs[n].Profile == "", color)
+	}
+	head, colMax, rows = table.DropEmptyCols(head, colMax, rows)
+	return table.Styled(head, colMax, rows, width, codes, color)
+}
+
+// vaultAgentCells is each agent's record cells plus the columns: the fixed ones, then any extra sorted.
+func vaultAgentCells(names []string, recs map[string]vault.AgentRecord) ([]map[string]string, []string) {
 	per := make([]map[string]string, len(names))
 	extra := map[string]bool{}
 	for i, n := range names {
@@ -434,31 +449,27 @@ func vaultAgentTable(names []string, width int, color bool) string {
 			}
 		}
 	}
-	cols := append(slices.Clone(vaultAgentCols), slices.Sorted(maps.Keys(extra))...)
-	head, colMax := append([]string{"AGENT"}, cols...), []int{0}
+	return per, append(slices.Clone(vaultAgentCols), slices.Sorted(maps.Keys(extra))...)
+}
+
+// vaultAgentRow is agent n's row and color: cyan when on, dim when off with no record, " (off)" without color.
+func vaultAgentRow(n string, cols []string, cells map[string]string, noProfile, color bool) ([]string, string) {
+	row := []string{n}
 	for _, c := range cols {
-		colMax = append(colMax, map[string]int{"MODEL": 60, "PROFILE": 24}[c])
+		row = append(row, cells[c])
 	}
-	rows, codes := make([][]string, len(names)), make([]string, len(names))
-	for i, n := range names {
-		row := []string{n}
-		for _, c := range cols {
-			row = append(row, per[i][c])
-		}
-		off := !agent.VaultAgentIsClaude(n) && recs[n].Profile == ""
-		switch {
-		case !off:
-			codes[i] = ansi.Cyan
-		case len(per[i]) == 0:
-			codes[i] = ansi.Dim
-		}
-		if off && !color {
-			row[0] += " (off)"
-		}
-		rows[i] = row
+	off := !agent.VaultAgentIsClaude(n) && noProfile
+	code := ""
+	switch {
+	case !off:
+		code = ansi.Cyan
+	case len(cells) == 0:
+		code = ansi.Dim
 	}
-	head, colMax, rows = table.DropEmptyCols(head, colMax, rows)
-	return table.Styled(head, colMax, rows, width, codes, color)
+	if off && !color {
+		row[0] += " (off)"
+	}
+	return row, code
 }
 
 // vaultAgentsText renders the agent table, then the per-agent overlay rows (and other top-level keys) below it.
@@ -468,6 +479,16 @@ func vaultAgentsText(raw json.RawMessage, width int, color bool) string {
 		return vaultSection("AGENTS", vaultFlattenSection(raw), width)
 	}
 	names := agent.VaultAgentNames(vs)
+	rows := append(vaultAgentOverlayRows(names, vs), vaultTopLevelRows(top, vs)...)
+	out := vaultAgentTable(names, width, color)
+	if len(rows) == 0 {
+		return out
+	}
+	return out + "\n" + vaultOverlayLines(rows, width)
+}
+
+// vaultAgentOverlayRows is each named agent's overlay entry as agent/path/value rows.
+func vaultAgentOverlayRows(names []string, vs map[string]any) [][3]string {
 	var rows [][3]string
 	for _, name := range names {
 		if v, ok := vs[name]; ok {
@@ -476,6 +497,12 @@ func vaultAgentsText(raw json.RawMessage, width int, color bool) string {
 			}
 		}
 	}
+	return rows
+}
+
+// vaultTopLevelRows is the overlay's other top-level keys as agentless rows; _comment, records and agents skip.
+func vaultTopLevelRows(top, vs map[string]any) [][3]string {
+	var rows [][3]string
 	for _, k := range slices.Sorted(maps.Keys(top)) {
 		if k == "_comment" || k == "records" || (k == "agents" && vs != nil) {
 			continue
@@ -484,11 +511,7 @@ func vaultAgentsText(raw json.RawMessage, width int, color bool) string {
 			rows = append(rows, [3]string{"", r[0], r[1]})
 		}
 	}
-	out := vaultAgentTable(names, width, color)
-	if len(rows) == 0 {
-		return out
-	}
-	return out + "\n" + vaultOverlayLines(rows, width)
+	return rows
 }
 
 // vaultOverlayLines aligns agent/path/value rows (path and value clipped like the key/value sections).
@@ -514,23 +537,35 @@ func vaultAgentRows(v any) [][2]string {
 		switch sub, isMap := m[k].(map[string]any); {
 		case k == "_comment":
 		case k == "permission":
-			var parts []string
-			for _, r := range vaultFlattenValue("", m[k]) {
-				parts = append(parts, r[0]+"="+r[1])
-			}
-			rows = append(rows, [2]string{k, strings.Join(parts, ", ")})
+			rows = append(rows, vaultPermissionRow(m[k]))
 		case (k == "launch" || k == "mcp") && isMap:
-			for _, sk := range slices.Sorted(maps.Keys(sub)) {
-				path, sep := k+"."+sk, map[string]string{"launch.env": ", ", "launch.args": " ", "mcp.allow": ", "}[k+"."+sk]
-				if s, ok := vaultStringList(sub[sk]); ok && sep != "" {
-					rows = append(rows, [2]string{path, strings.Join(s, sep)})
-					continue
-				}
-				rows = append(rows, vaultFlattenValue(path, sub[sk])...)
-			}
+			rows = append(rows, vaultListRows(k, sub)...)
 		default:
 			rows = append(rows, vaultFlattenValue(k, m[k])...)
 		}
+	}
+	return rows
+}
+
+// vaultPermissionRow folds an agent's permission object into one "permission  k=v, ..." row.
+func vaultPermissionRow(v any) [2]string {
+	var parts []string
+	for _, r := range vaultFlattenValue("", v) {
+		parts = append(parts, r[0]+"="+r[1])
+	}
+	return [2]string{"permission", strings.Join(parts, ", ")}
+}
+
+// vaultListRows renders launch or mcp sub-keys; launch.env, launch.args and mcp.allow string lists join on one row.
+func vaultListRows(k string, sub map[string]any) [][2]string {
+	var rows [][2]string
+	for _, sk := range slices.Sorted(maps.Keys(sub)) {
+		path, sep := k+"."+sk, map[string]string{"launch.env": ", ", "launch.args": " ", "mcp.allow": ", "}[k+"."+sk]
+		if s, ok := vaultStringList(sub[sk]); ok && sep != "" {
+			rows = append(rows, [2]string{path, strings.Join(s, sep)})
+			continue
+		}
+		rows = append(rows, vaultFlattenValue(path, sub[sk])...)
 	}
 	return rows
 }
