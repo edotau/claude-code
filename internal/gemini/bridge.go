@@ -35,6 +35,50 @@ type GeminiOptions struct {
 	Launcher                                   agent.Launcher
 }
 
+// bridgePrompt builds the task (rubric applied), inlines the workspace context under PromptCap, and warns on stream.
+func bridgePrompt(ctx context.Context, o GeminiOptions, files []string, stream, log io.Writer) (string, Context, error) {
+	var err error
+	task := o.Task
+	if o.Rubric != "" {
+		task, err = agent.RubricPrompt(o.Rubric, task)
+		if err != nil {
+			return "", Context{}, err
+		}
+	}
+
+	maxFiles := o.MaxFiles
+	if o.IndexOnly {
+		maxFiles = 0
+	} else if maxFiles <= 0 {
+		maxFiles = DefaultMaxFiles
+	}
+	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, maxFiles, o.MaxFileBytes)
+	if err != nil {
+		return "", Context{}, err
+	}
+	prompt, ctxFiles, dropped, err := FitPrompt(func(c Context) string {
+		if o.Index {
+			return task + "\n\n" + IndexPrompt(c)
+		}
+		return task
+	}, ctxFiles, PromptCap)
+	if err != nil {
+		return "", Context{}, err
+	}
+	logContextStats(log, ctxFiles)
+	if w := CoverageWarning(ctxFiles); w != "" {
+		fmt.Fprintln(stream, w)
+	}
+	if len(dropped) > 0 {
+		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
+	}
+
+	if o.Provider == "" && len(prompt) > agyTruncateWarnBytes {
+		fmt.Fprintf(stream, "bridge: warning: prompt is %d bytes; agy may silently truncate input past ~%d KB\n", len(prompt), agyTruncateWarnBytes/1024)
+	}
+	return prompt, ctxFiles, nil
+}
+
 // RunGemini resolves the provider/model, collects workspace context into one prompt, and dispatches the
 // chat call through the shared api agent — no HTTP code lives here.
 func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (agent.Result, error) {
@@ -48,43 +92,9 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (age
 		return agent.Result{}, err
 	}
 
-	task := o.Task
-	if o.Rubric != "" {
-		task, err = agent.RubricPrompt(o.Rubric, task)
-		if err != nil {
-			return agent.Result{}, err
-		}
-	}
-
-	maxFiles := o.MaxFiles
-	if o.IndexOnly {
-		maxFiles = 0
-	} else if maxFiles <= 0 {
-		maxFiles = DefaultMaxFiles
-	}
-	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, maxFiles, o.MaxFileBytes)
+	prompt, ctxFiles, err := bridgePrompt(ctx, o, files, stream, log)
 	if err != nil {
 		return agent.Result{}, err
-	}
-	prompt, ctxFiles, dropped, err := FitPrompt(func(c Context) string {
-		if o.Index {
-			return task + "\n\n" + IndexPrompt(c)
-		}
-		return task
-	}, ctxFiles, PromptCap)
-	if err != nil {
-		return agent.Result{}, err
-	}
-	logContextStats(log, ctxFiles)
-	if w := CoverageWarning(ctxFiles); w != "" {
-		fmt.Fprintln(stream, w)
-	}
-	if len(dropped) > 0 {
-		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
-	}
-
-	if o.Provider == "" && len(prompt) > agyTruncateWarnBytes {
-		fmt.Fprintf(stream, "bridge: warning: prompt is %d bytes; agy may silently truncate input past ~%d KB\n", len(prompt), agyTruncateWarnBytes/1024)
 	}
 
 	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
