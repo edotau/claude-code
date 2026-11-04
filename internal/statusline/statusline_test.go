@@ -412,7 +412,7 @@ func labelRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg.Providers["qa"] = &providers.Provider{Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks,
-		Host: "https://dbc-0a1b2c3d-4e5f.cloud.databricks.com"}
+		Host: "https://dbc-dbx-host.cloud.databricks.com"}
 	prev := registry
 	t.Cleanup(func() { registry = prev })
 	registry = func() *providers.Registry { return reg }
@@ -511,7 +511,7 @@ func TestLabelDatabricksModelCell(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	if got := renderPayload(t, "databricks-claude-opus-5"); strings.Contains(got, "databricks·") || !strings.Contains(got, "databricks-claude-opus-5·u2m@0a1b2c3d-4e5f") {
+	if got := renderPayload(t, "databricks-claude-opus-5"); strings.Contains(got, "databricks·") || !strings.Contains(got, "databricks-claude-opus-5·u2m@dbx-host") {
 		t.Errorf("databricks line: %q", got)
 	}
 }
