@@ -228,8 +228,8 @@ func RunDream(o DreamRunOptions) error {
 }
 
 // DigestRepo writes the repo bank's digest and returns its path.
-func DigestRepo(repo, claude string) (string, error) {
-	return Digest(memstore.Dir(memstore.Root(repo)), claude)
+func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
+	return Digest(ctx, memstore.Dir(memstore.Root(repo)), claude)
 }
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
