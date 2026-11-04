@@ -37,8 +37,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    comes from the OS keyring, `HARNESS_VAULT_KEY`, or `key_command`.
 3. **Commit messages carry NO AI-attribution footers** (`Co-Authored-By: Claude`,
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
-4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
-   one checkout shared by parallel subagents and every live session. Default is no worktree; when to ask, the
+4. **Never `git stash` / `checkout` / `reset` / `restore`, and never rewrite a shared commit (`commit --amend`,
+   `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
+   session; fix a commit with a new one. Default is no worktree; when to ask, the
    commands and their gotchas: `rules/standards/worktree-git.md`.
 5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (no pre-push gate:
    run `make audit` yourself before pushing; CI runs it on `main`).
