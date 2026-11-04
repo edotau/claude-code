@@ -267,8 +267,8 @@ func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 		idle := err == nil && s.now.Sub(fi.ModTime()) > Idle
 		return !missing && !idle
 	}
-	if s.now.Sub(mod) > Grace && s.answered(transcript, base) {
-		return false // refused or failed before an agent existed; Grace covers a meta.json not yet written
+	if s.now.Sub(mod) > Settle && s.answered(transcript, base) {
+		return false // refused or failed before an agent existed; Settle covers a meta.json not yet written
 	}
 	return ownerLive(name, mod, s.now, s.trusted)
 }

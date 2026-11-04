@@ -260,7 +260,7 @@ func TestRouterSegment(t *testing.T) {
 	if got := proxySegment(false); got != want || hits.Load() != 1 {
 		t.Errorf("within TTL the stamp answers without a probe: %q hits=%d", got, hits.Load())
 	}
-	t.Setenv("TMPDIR", t.TempDir()) // fresh stamp dir → a live probe of the closed port
+	_ = os.RemoveAll(filepath.Join(state, "statusline")) // fresh stamp dir → a live probe of the closed port
 	if got := proxySegment(true); got != "proxy:down" {
 		t.Errorf("dead daemon, routed: %q", got)
 	}
