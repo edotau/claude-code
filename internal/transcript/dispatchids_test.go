@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -56,8 +57,10 @@ func TestDispatchIDsRawQuotes(t *testing.T) {
 
 func joinLines(lines []string) string {
 	var s string
+	var sSb59 strings.Builder
 	for _, l := range lines {
-		s += l + "\n"
+		sSb59.WriteString(l + "\n")
 	}
+	s += sSb59.String()
 	return s
 }

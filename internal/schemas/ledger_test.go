@@ -298,7 +298,7 @@ func registeredWriterIssues(found map[string]bool, registry map[string]string, n
 	for _, k := range keys {
 		v, ok := registry[k]
 		if !ok {
-			issues = append(issues, fmt.Sprintf("%s writes a file: register it in internal/schemas or classify it in writers_test.go", k))
+			issues = append(issues, k+" writes a file: register it in internal/schemas or classify it in writers_test.go")
 			continue
 		}
 		if !names[v] && !strings.HasPrefix(v, "unversioned: ") {

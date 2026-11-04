@@ -235,12 +235,12 @@ func (r *askRun) resolveRecord() (int, bool) {
 
 func (r *askRun) askState() *askState {
 	f := r.f
-	return &askState{AskTarget: agent.AskTarget{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
+	return &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
 		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: (*[]string)(&f.keepEnv), Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
-		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback},
+		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback,
 		rubric: &f.rubric, env: &f.env}
 }
 

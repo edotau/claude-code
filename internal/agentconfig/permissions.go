@@ -16,6 +16,7 @@ package agentconfig
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -84,7 +85,7 @@ func parseShellPolicy(doc []byte) (ShellScope, error) {
 	}
 	raw := outer.Agents["copilot"].Permission.Shell
 	if len(raw) == 0 {
-		return ShellScope{}, fmt.Errorf("agents.json: no agents.copilot.permission.shell")
+		return ShellScope{}, errors.New("agents.json: no agents.copilot.permission.shell")
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
