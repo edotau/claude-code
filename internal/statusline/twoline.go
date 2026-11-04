@@ -158,7 +158,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 	return b.String()
 }
 
-// renderTwoline draws the two-row style; with a width, row 2's last cell sits at the right edge.
+// renderTwoline draws the two-row style; with a width, row 2 is right-aligned whole.
 func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	th := pal.Powerline["minimal"]
 	row1, row2 := twolineRows(v)
@@ -175,24 +175,16 @@ func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, m
 	if len(row2) == 0 {
 		return out
 	}
-	return out + "\n" + paintTwoRow(alignRight(row2, 0, width), th, stops, mode)
+	return out + "\n" + paintTwoRow(alignRight(row2, width), th, stops, mode)
 }
 
-// alignRight swaps the row's last separator for spaces so the tail ends at width; unchanged when it would not fit.
-func alignRight(row []twoSeg, lead, width int) []twoSeg {
-	i := len(row) - 1
-	for i >= 0 && row[i].key != "sep" {
-		i--
-	}
-	if width <= 0 || i < 0 {
+// alignRight left-pads the row with spaces so it ends at width; unchanged without a width or when it would not fit.
+func alignRight(row []twoSeg, width int) []twoSeg {
+	pad := width - segWidth(row)
+	if width <= 0 || pad <= 0 {
 		return row
 	}
-	pad := width - lead - segWidth(row)
-	if pad < 0 {
-		return row
-	}
-	out := append(append([]twoSeg{}, row[:i]...), twoSeg{text: strings.Repeat(" ", pad+utf8.RuneCountInString(row[i].text))})
-	return append(out, row[i+1:]...)
+	return append([]twoSeg{{text: strings.Repeat(" ", pad)}}, row...)
 }
 
 // segWidth is the row's printable width in runes.

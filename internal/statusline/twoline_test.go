@@ -82,13 +82,14 @@ func TestTwolineVelocity(t *testing.T) {
 	}
 }
 
-// With a width the last cell lands on the right edge; too narrow keeps the separator.
+// With a width row 2 ends at the right edge and keeps its cells together; too narrow leaves it as is.
 func TestTwolineAlignRight(t *testing.T) {
 	row := []twoSeg{{text: "ctx"}, {key: "sep", text: twoSep}, {text: "7d"}}
-	if got := segWidth(alignRight(row, 4, 20)); got != 16 {
-		t.Errorf("aligned row width = %d, want 16 (20 minus a 4-wide lead)", got)
+	got := alignRight(row, 20)
+	if segWidth(got) != 20 || got[0].text != strings.Repeat(" ", 12) || got[2].text != twoSep {
+		t.Errorf("aligned row = %v, want 12 leading spaces then the cells unchanged", got)
 	}
-	if got := alignRight(row, 4, 6); got[1].text != twoSep {
-		t.Errorf("too narrow: separator replaced: %q", got[1].text)
+	if got := alignRight(row, 6); len(got) != len(row) {
+		t.Errorf("too narrow: row padded: %v", got)
 	}
 }
