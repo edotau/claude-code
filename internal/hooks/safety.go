@@ -434,7 +434,7 @@ func extractSubstitutions(s string) (string, []string) {
 			out.WriteByte(c)
 			i++
 			c = s[i]
-		case c == '\'':
+		case c == '\'' && quote == 0: // inside "…" a ' is literal
 			quote = '\''
 		case c == '"':
 			quote = toggleDoubleQuote(quote)
