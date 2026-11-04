@@ -236,6 +236,13 @@ func argsInside(args []string, workDir string) bool {
 }
 
 func scopedGit(w []string, workDir string) bool {
+	if len(w) >= 3 && w[1] == "-C" { // git -C <dir> is the same command run from dir, which must stay inside workDir
+		dir := ResolvePath(w[2], workDir)
+		if _, ok := RelInside(dir, workDir); !ok {
+			return false
+		}
+		return scopedGit(append([]string{"git"}, w[3:]...), dir)
+	}
 	if ReadOnlyGit(strings.Join(w, " ")) {
 		return true
 	}
