@@ -231,6 +231,8 @@ var Native = map[string]Runner{
 	"worktree-remove":           viaStderr(worktreeRemove),
 	"worktree-mode":             worktreeMode,
 	"worktree-busy":             worktreeBusy,
+	"worktree-claim":            worktreeClaim,
+	"worktree-claim-check":      worktreeClaimCheck,
 }
 
 // runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with

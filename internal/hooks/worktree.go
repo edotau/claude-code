@@ -124,11 +124,11 @@ func busyLine(in *Input) string {
 	}
 	ctx, cancel := hookContext("worktree-busy")
 	defer cancel()
-	top, branch, linked := checkoutOf(ctx, cwd)
+	top, branch, nested := checkoutOf(ctx, cwd)
 	if top == "" {
 		return ""
 	}
-	peers, err := peerAgents(top, linked)
+	peers, err := peerAgents(top, nested)
 	if err != nil {
 		return ""
 	}
@@ -152,8 +152,8 @@ func busyLine(in *Input) string {
 		"ask the user whether to work in a linked worktree; without a yes, keep working here.", peers[0].Comm, peers[0].PID, branch)
 }
 
-// checkoutOf returns cwd's git toplevel, its branch, and the other linked worktree paths; "" top when not a repo.
-func checkoutOf(ctx context.Context, cwd string) (top, branch string, linked []string) {
+// checkoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.
+func checkoutOf(ctx context.Context, cwd string) (top, branch string, nested []string) {
 	git := func(args ...string) string {
 		out, err := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...).Output()
 		if err != nil {
@@ -169,11 +169,12 @@ func checkoutOf(ctx context.Context, cwd string) (top, branch string, linked []s
 		top = real
 	}
 	branch = git("rev-parse", "--abbrev-ref", "HEAD")
+	var others []string
 	for line := range strings.SplitSeq(git("worktree", "list", "--porcelain"), "\n") {
 		path, ok := strings.CutPrefix(line, "worktree ")
 		if real, err := filepath.EvalSymlinks(path); ok && err == nil && real != top {
-			linked = append(linked, real)
+			others = append(others, real)
 		}
 	}
-	return top, branch, linked
+	return top, branch, nestedIn(top, others)
 }

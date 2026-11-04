@@ -7,7 +7,8 @@
 2. **Branches** — `feature/<domain>-<component>`, `fix/<issue>-<description>`, `docs/<component>`,
    `hotfix/<issue>-<description>`, `test/<feature>`; delete after merging.
 3. **Stage named files only — never `git add -A` or a directory** (sweeps `.env`/secrets and other sessions'
-   work); confirm with the user before committing.
+   work); confirm with the user before committing. A file another live session or leaf has uncommitted edits in
+   asks first (`worktree-claim-check`; blocks a leaf).
 4. Atomic commits, one logical change each; never force-push a shared branch; never skip gates.
 
 ```bash

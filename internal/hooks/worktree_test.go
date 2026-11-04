@@ -418,3 +418,18 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 		t.Fatalf("mode = %v; want 0600", st.Mode().Perm())
 	}
 }
+
+// TestCheckoutOfPassesOnlyNestedWorktrees: a nested worktree never skips the main tree, which holds all its peers.
+func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
+	main := canonPath(gitRepo(t))
+	nested := filepath.Join(main, ".wt", "x")
+	gitIn(t, main, "worktree", "add", "-q", "-b", "x", nested)
+	ctx, cancel := hookContext("worktree-busy")
+	defer cancel()
+	if top, _, skip := checkoutOf(ctx, nested); top != nested || len(skip) != 0 {
+		t.Fatalf("from the nested worktree: top %q, skip %v; want top %q and no skip dirs", top, skip, nested)
+	}
+	if top, _, skip := checkoutOf(ctx, main); top != main || len(skip) != 1 || skip[0] != nested {
+		t.Fatalf("from the main tree: top %q, skip %v; want top %q and skip [%s]", top, skip, main, nested)
+	}
+}
