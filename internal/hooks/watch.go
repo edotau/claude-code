@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -46,7 +47,7 @@ var spawnWatcher = func(args []string, cwd string) bool {
 }
 
 // spawnIdleWatcher starts THIS session's watcher once: a claim file makes every later Stop a no-op.
-func spawnIdleWatcher(in *Input) {
+func spawnIdleWatcher(in *core.Input) {
 	if in.SessionID == "" {
 		return
 	}

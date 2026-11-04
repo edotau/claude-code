@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -143,7 +144,7 @@ func anyGroupAlive(groups []int) bool {
 }
 
 // reapLeafBackground kills the process groups writing to the task outputs of the stopping leaf's own transcript.
-func reapLeafBackground(in *Input) {
+func reapLeafBackground(in *core.Input) {
 	if in.AgentTranscriptPath == "" || !proc.Alive(os.Getpid()) {
 		return
 	}

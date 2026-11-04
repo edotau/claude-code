@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 func mirrorPayload(t *testing.T, tool, cwd, path string) string {
@@ -25,7 +27,7 @@ func mirrorPayload(t *testing.T, tool, cwd, path string) string {
 // mirrorRun feeds one docs-plan-mirror PostToolUse for tool/path and requires the hook to fail open.
 func mirrorRun(t *testing.T, label, tool, cwd, path string) {
 	t.Helper()
-	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, tool, cwd, path)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, tool, cwd, path)), io.Discard, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("%s = %d", label, code)
 	}
 }
@@ -73,7 +75,7 @@ func approvalPayload(t *testing.T, cwd, draft string, toolInput map[string]any) 
 func approvePlan(t *testing.T, raw []byte) string {
 	t.Helper()
 	var stderr bytes.Buffer
-	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &stderr); code != ExitProceed {
+	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &stderr); code != core.ExitProceed {
 		t.Fatalf("savePlan = %d", code)
 	}
 	return stderr.String()

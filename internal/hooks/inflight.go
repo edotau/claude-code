@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -14,22 +15,22 @@ import (
 var spawnTools = map[string]bool{"Agent": true, "Task": true}
 
 // releaseSpawn retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
-func releaseSpawn(in *Input) Result {
-	if owner, id := inflight.SessionOwner(), in.nested("tool_use_id"); owner != 0 && id != "" {
+func releaseSpawn(in *core.Input) core.Result {
+	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
 		clearPlanClaim(in.CWD, id) // a failed spawn never reaches SubagentStop
 	}
-	return Result{}
+	return core.Result{}
 }
 
 // reapLeaf kills the stopping leaf's leftover background shells; set by leafreap.go where signals exist.
-var reapLeaf = func(*Input) {}
+var reapLeaf = func(*core.Input) {}
 
 // subagentStopRunner retires the stopping agent's claim by agent id (first stop retires; a second is a no-op).
-func subagentStopRunner(in *Input) Result {
+func subagentStopRunner(in *core.Input) core.Result {
 	owner, id := inflight.SessionOwner(), in.SubagentID()
 	if owner == 0 || id == "" {
-		return Result{}
+		return core.Result{}
 	}
 	dirs := []string{inflight.SubagentDir(in.TranscriptPath)}
 	if in.AgentTranscriptPath != "" {

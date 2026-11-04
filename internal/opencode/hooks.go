@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
@@ -124,18 +125,18 @@ func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx 
 		if b.Spec.Event != event {
 			continue
 		}
-		res, err := hooks.Dispatch([]hooks.Bound{b}, event, hooks.ParseInput(strings.NewReader(string(raw))), h.log)
+		res, err := hooks.Dispatch([]hooks.Bound{b}, event, core.ParseInput(strings.NewReader(string(raw))), h.log)
 		if err != nil {
 			h.note(phase, "event=%s hook=%s error=%v", event, b.Spec.Name, err)
 			continue
 		}
-		if res.Decision != hooks.Allow || res.Context != "" || res.Stderr != "" {
+		if res.Decision != core.Allow || res.Context != "" || res.Stderr != "" {
 			h.note(phase, "event=%s tool=%s hook=%s decision=%s context_chars=%d reason=%q", event, tool, b.Spec.Name,
 				[]string{"allow", "ask", "block"}[res.Decision], len(res.Context), textutil.CapRunes(firstNonEmpty(res.Reason, res.Stderr), reasonLogRunes, "…"))
 		} else {
 			h.note(phase, "event=%s tool=%s hook=%s decision=allow", event, tool, b.Spec.Name)
 		}
-		if res.Decision == hooks.Block {
+		if res.Decision == core.Block {
 			return ctx, fmt.Errorf("hook %s blocked the dispatch: %s", b.Spec.Name, firstNonEmpty(firstNonEmpty(res.Reason, res.Stderr), "no reason given"))
 		}
 		if res.Context != "" {

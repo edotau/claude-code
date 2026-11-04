@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	memrecall "github.com/edotau/claude-code/internal/memory/recall"
@@ -22,14 +23,14 @@ import (
 var defaultsDrift = settings.DefaultsDrift
 
 // sessionStart injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
-func sessionStart(in *Input) Result {
+func sessionStart(in *core.Input) core.Result {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
 	memrecall.RecordSessionRoot(in.SessionID, cwd)
 	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
-	res := Result{Context: joinContext(ctx, preflightNotice(time.Now()))}
+	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(time.Now()))}
 	if !bank.IsUpdateChild() {
 		res.SystemMessage = consumeCatchupNote()
 	}

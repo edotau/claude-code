@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -65,7 +66,7 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 	f := newStopFormatFixture(t)
 	mine, ugly, stop, reset := f.mine, f.ugly, f.stop, f.reset
 	code, msg := stop("s1", false)
-	if code != ExitBlock {
+	if code != core.ExitBlock {
 		t.Fatalf("the memory update blocks: got %d, want ExitBlock; msg=%q", code, msg)
 	}
 	if !strings.Contains(msg, "memory update") {
@@ -76,7 +77,7 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 	}
 
 	code, msg = stop("s2", true)
-	if code != ExitBlock || strings.Contains(msg, "Context usage") {
+	if code != core.ExitBlock || strings.Contains(msg, "Context usage") {
 		t.Errorf("stop_hook_active must skip the checkpoint only: code=%d msg=%q", code, msg)
 	}
 
@@ -84,7 +85,7 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 		t.Skipf("hermetic vault unavailable: %v", err)
 	}
 	reset()
-	if code, msg = stop("s3", false); code != ExitBlock || !strings.Contains(msg, "memory update") {
+	if code, msg = stop("s3", false); code != core.ExitBlock || !strings.Contains(msg, "memory update") {
 		t.Errorf("memory must still block with format off: code=%d msg=%q", code, msg)
 	}
 	if b, _ := os.ReadFile(mine); string(b) != ugly {
@@ -111,7 +112,7 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	rec := fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", mine)
 	_ = os.WriteFile(tr, []byte(rec), 0o600)
-	stopFormat(ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
+	stopFormat(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
 	if b, _ := os.ReadFile(mine); string(b) == ugly {
 		t.Error("session-written file was not formatted")
 	}
@@ -124,7 +125,7 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 	}
 	_ = os.Remove(mine)
 	_ = os.Remove(theirs)
-	stopFormat(ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
+	stopFormat(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
 	if _, err := os.Stat(stamps[0]); !os.IsNotExist(err) {
 		t.Error("a clean tree must drop the stale stamp file")
 	}

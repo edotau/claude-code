@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -27,8 +28,8 @@ func scanWinPaths(text string) []string {
 
 // promptPathFeedback runs the hook core with res injected, so tests do not depend on the host's mounts.
 func promptPathFeedback(r io.Reader, stdout io.Writer, res *paths.Resolver) int {
-	in := ParseInput(r)
-	return Emit(in.Agent(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
+	in := core.ParseInput(r)
+	return core.Emit(in.Agent(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
 }
 
 func TestScanWinPaths(t *testing.T) {
@@ -59,7 +60,7 @@ func TestPathResolverEmitsUserVisibleFeedback(t *testing.T) {
 
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"look at ` + img + `"}`)
-	if code := promptPathFeedback(in, &out, paths.NewResolver(nil)); code != ExitProceed {
+	if code := promptPathFeedback(in, &out, paths.NewResolver(nil)); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	var got struct {
@@ -233,7 +234,7 @@ func wantPathsResolveResult(t *testing.T) {
 	if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in := ParseInput(strings.NewReader(`{"prompt":"read ` + f + `"}`))
+	in := core.ParseInput(strings.NewReader(`{"prompt":"read ` + f + `"}`))
 	for _, b := range Bind() {
 		if b.Spec.Name != "paths-resolve" {
 			continue
@@ -249,14 +250,14 @@ func wantPathsResolveResult(t *testing.T) {
 func wantVendorPromptDoc(t *testing.T, vendor string, doc map[string]any) {
 	t.Helper()
 	switch vendor {
-	case AgentClaude:
+	case core.AgentClaude:
 		h, _ := doc["hookSpecificOutput"].(map[string]any)
 		sys, _ := doc["systemMessage"].(string)
 		ctx, _ := h["additionalContext"].(string)
 		if sys == "" || ctx == "" {
 			t.Errorf("claude doc = %v, want systemMessage + hookSpecificOutput.additionalContext", doc)
 		}
-	case AgentCopilot:
+	case core.AgentCopilot:
 		ctx, _ := doc["additionalContext"].(string)
 		if ctx == "" || len(doc) != 1 {
 			t.Errorf("copilot doc = %v, want only additionalContext", doc)
@@ -266,7 +267,7 @@ func wantVendorPromptDoc(t *testing.T, vendor string, doc map[string]any) {
 
 // A direct `hook UserPromptSubmit --paths-resolve` call and the UserPromptSubmit dispatcher emit the same document.
 func TestPathResolverRunMatchesDispatcher(t *testing.T) {
-	for _, vendor := range []string{AgentClaude, AgentCopilot} {
+	for _, vendor := range []string{core.AgentClaude, core.AgentCopilot} {
 		t.Run(vendor, func(t *testing.T) {
 			vaulttest.Use(t) // hermetic CLAUDE_CONFIG_DIR + vault (harness hook switches)
 			t.Setenv(settings.AgentEnv, vendor)
@@ -279,11 +280,11 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 			payload := `{"prompt":"read ` + f + `"}`
 
 			var directOut, directErr bytes.Buffer
-			if code := RunArgs("UserPromptSubmit", []string{"--paths-resolve"}, strings.NewReader(payload), &directOut, &directErr); code != ExitProceed {
+			if code := RunArgs("UserPromptSubmit", []string{"--paths-resolve"}, strings.NewReader(payload), &directOut, &directErr); code != core.ExitProceed {
 				t.Fatalf("Run exit = %d (stderr %s)", code, &directErr)
 			}
 			var eventOut, eventErr bytes.Buffer
-			if code := RunEvent("UserPromptSubmit", false, strings.NewReader(payload), &eventOut, &eventErr); code != ExitProceed {
+			if code := RunEvent("UserPromptSubmit", false, strings.NewReader(payload), &eventOut, &eventErr); code != core.ExitProceed {
 				t.Fatalf("RunEvent exit = %d (stderr %s)", code, &eventErr)
 			}
 			if directOut.String() != eventOut.String() {

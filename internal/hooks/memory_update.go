@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -45,42 +46,42 @@ const updateNotSaved = "memory update NOT saved; run `claude-code memory update`
 var sidecarLockWait = 2 * time.Second
 
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work; with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
-func sessionUpdate(in *Input, stderr io.Writer) (code int, failedOpen bool) {
+func sessionUpdate(in *core.Input, stderr io.Writer) (code int, failedOpen bool) {
 	in = sessionRootInput(in)
 	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
-		return ExitProceed, false
+		return core.ExitProceed, false
 	}
 	blocked, work, failedOpen := updateIfNew(in, triggerStop, time.Now())
 	if blocked {
 		return blockForUpdate(stderr, work), false
 	}
-	return ExitProceed, failedOpen
+	return core.ExitProceed, failedOpen
 }
 
 // sessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
-func sessionUpdateEnd(in *Input) Result {
+func sessionUpdateEnd(in *core.Input) core.Result {
 	in = sessionRootInput(in)
 	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
-		return Result{}
+		return core.Result{}
 	}
 	updateIfNew(in, triggerSessionEnd, time.Now())
-	return Result{}
+	return core.Result{}
 }
 
 // preCompact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
-func preCompact(in *Input) Result {
+func preCompact(in *core.Input) core.Result {
 	in = sessionRootInput(in)
 	if !updatable(in) {
-		return Result{}
+		return core.Result{}
 	}
 	updateIfNew(in, triggerPreCompact, time.Now())
-	return Result{}
+	return core.Result{}
 }
 
 // updateIfNew spawns an update when work (edits or user turns) is new since the stamp; blocked = Stop must block.
-func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
+func updateIfNew(in *core.Input, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
 	ran := false
 	err := paths.WithFileLock(stampPath(in.SessionID), func() error { // hooks of one session are separate processes
 		ran = true
@@ -93,7 +94,7 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 	return blocked, work, failedOpen
 }
 
-func updateIfNewLocked(in *Input, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
+func updateIfNewLocked(in *core.Input, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
 	stamp := stampPath(in.SessionID)
 	st, ok := readStamp(stamp)
 	covered := 0
@@ -123,7 +124,7 @@ func updateIfNewLocked(in *Input, trigger string, now time.Time) (blocked bool, 
 }
 
 // stampedStop is the Stop gate for a session that already has a stamp: re-arm, release, or block up to the cap.
-func stampedStop(in *Input, st updateStamp, stamp string, now time.Time) (blocked bool, work int, failedOpen bool) {
+func stampedStop(in *core.Input, st updateStamp, stamp string, now time.Time) (blocked bool, work int, failedOpen bool) {
 	if st.bg || st.state == "catchup" {
 		if now.Sub(st.at) < updateRearmCooldown {
 			return false, 0, false // cheap gate before the whole-transcript count
@@ -152,11 +153,11 @@ func stampedStop(in *Input, st updateStamp, stamp string, now time.Time) (blocke
 }
 
 // logUpdateToLedger notes an update in the session's linked-worktree ledger; best effort, never fatal.
-func logUpdateToLedger(in *Input, trigger string, work int, now time.Time) {
+func logUpdateToLedger(in *core.Input, trigger string, work int, now time.Time) {
 	_, _ = worktree.AppendLedger(in.CWD, fmt.Sprintf("update (%s): %d edits, session %s", trigger, work, in.SessionID), now)
 }
 
-func updatable(in *Input) bool {
+func updatable(in *core.Input) bool {
 	if in.SessionID == "" || in.TranscriptPath == "" || bank.IsUpdateChild() {
 		return false
 	}
@@ -167,7 +168,7 @@ func updatable(in *Input) bool {
 func blockForUpdate(stderr io.Writer, edits int) int {
 	fmt.Fprintf(stderr, "Session update (~%d file edits this session): the background worker could not be started. "+
 		"Before stopping, run `claude-code memory update` to save the session to the memory bank.\n", edits)
-	return ExitBlock
+	return core.ExitBlock
 }
 
 // updateStamp is "<RFC3339>|<bg|block count|catchup>|<edits covered>".
@@ -423,7 +424,7 @@ func recountSubagents(matches []string, sizes map[string]int64, sidecar string, 
 	return sum
 }
 
-func sessionRootInput(in *Input) *Input {
+func sessionRootInput(in *core.Input) *core.Input {
 	copy := *in
 	copy.CWD = memrecall.SessionRoot(in.SessionID, in.CWD)
 	return &copy
@@ -453,7 +454,7 @@ var spawnUpdate = func(transcriptPath, cwd, sessionID string) bool {
 }
 
 // dispatchUpdate spawns the worker and records it; a Stop's spawn also gets a watcher for the session's final state.
-func dispatchUpdate(in *Input, trigger string, work int, now time.Time) bool {
+func dispatchUpdate(in *core.Input, trigger string, work int, now time.Time) bool {
 	if !spawnUpdate(in.TranscriptPath, in.CWD, in.SessionID) {
 		return false
 	}

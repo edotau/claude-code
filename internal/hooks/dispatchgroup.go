@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -17,16 +18,16 @@ import (
 var agentCallRe = regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`)
 
 // dispatchPre: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
-func dispatchPre(in *Input) Result {
+func dispatchPre(in *core.Input) core.Result {
 	if !spawnTools[in.ToolName] && in.ToolName != "Workflow" {
-		return Result{}
+		return core.Result{}
 	}
 	owner := inflight.SessionOwner()
 	if owner == 0 {
 		return agentEffortResult(in) // an unidentifiable owner claims nothing: fail open
 	}
 	account, lim := router.SessionAccount(), router.CurrentLimits()
-	claim := inflight.Claim{Owner: owner, ID: in.nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
+	claim := inflight.Claim{Owner: owner, ID: in.Nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
 	if claim.ID == "" {
 		claim.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
 	}
@@ -34,7 +35,7 @@ func dispatchPre(in *Input) Result {
 		return blockAtCap(snap, account, lim)
 	}
 	res := agentEffortResult(in)
-	if res.Decision == Block {
+	if res.Decision == core.Block {
 		return res
 	}
 	if in.ToolName == "Workflow" {
@@ -47,19 +48,19 @@ func dispatchPre(in *Input) Result {
 	return res
 }
 
-func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) Result {
-	return Result{Decision: Block, Reason: fmt.Sprintf("agent-effort: %d agents already in flight (cap %d for %s, %d machine-wide) — "+
+func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) core.Result {
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: %d agents already in flight (cap %d for %s, %d machine-wide) — "+
 		"wait for one to finish or run this task sequentially.", snap.Per[account], lim.For(account), account, lim.Total)}
 }
 
 // workflowLeaves counts agent() call sites in the script the Workflow will run: the pin step's rewrite, else the original.
-func workflowLeaves(in *Input, res Result) int {
+func workflowLeaves(in *core.Input, res core.Result) int {
 	script, _ := res.UpdatedInput["script"].(string)
 	if script == "" {
-		script = in.nested("tool_input", "script")
+		script = in.Nested("tool_input", "script")
 	}
 	if script == "" {
-		if path := in.nested("tool_input", "scriptPath"); path != "" {
+		if path := in.Nested("tool_input", "scriptPath"); path != "" {
 			if data, err := os.ReadFile(path); err == nil {
 				script = string(data)
 			}

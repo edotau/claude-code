@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 // TestAttributionFooterBlocked pins the footer patterns; the safety-scan wiring has its own test below.
@@ -41,7 +43,7 @@ func TestAttributionFooterBlocked(t *testing.T) {
 type attributionScanCase struct {
 	name string
 	cmd  string
-	want Decision
+	want core.Decision
 }
 
 // attributionScanCases lists footer commits (Ask) and look-alikes (Allow); otherRepo is not the harness tree.
@@ -50,42 +52,42 @@ func attributionScanCases(otherRepo string) []attributionScanCase {
 		{
 			"inline -m footer",
 			`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`,
-			Ask,
+			core.Ask,
 		},
 		{
 			"heredoc -m footer",
 			"git commit -m \"$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nEOF\n)\"",
-			Ask,
+			core.Ask,
 		},
 		{
 			"-C other repo, -F heredoc, generated-with footer",
 			"git -C " + otherRepo + " commit -F - <<'EOF'\nfeat: x\n\nGenerated with [Claude Code](https://claude.com/claude-code)\nEOF",
-			Ask,
+			core.Ask,
 		},
 		{
 			"cd into other repo first",
 			"cd " + otherRepo + " && git commit -m \"feat: x\" -m \"Co-Authored-By: Claude\"",
-			Ask,
+			core.Ask,
 		},
 		{
 			"plain commit proceeds",
 			`git commit -m "feat: x"`,
-			Allow,
+			core.Allow,
 		},
 		{
 			"grep for the phrase proceeds (not a commit)",
 			`git log --grep "Co-Authored-By: Claude"`,
-			Allow,
+			core.Allow,
 		},
 		{
 			"echo with no commit proceeds",
 			`echo "Co-Authored-By: Claude"`,
-			Allow,
+			core.Allow,
 		},
 		{
 			"footer naming a human proceeds",
 			`git commit -m "feat: x" -m "Co-Authored-By: Ada <a@x>"`,
-			Allow,
+			core.Allow,
 		},
 	}
 }
@@ -96,11 +98,11 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
 	for _, c := range attributionScanCases(otherRepo) {
 		t.Run(c.name, func(t *testing.T) {
-			res := safetyScan(ParseInput(bashPayload(c.cmd)))
+			res := safetyScan(core.ParseInput(bashPayload(c.cmd)))
 			if res.Decision != c.want {
 				t.Errorf("%q: got %d want %d (reason=%s)", c.cmd, res.Decision, c.want, res.Reason)
 			}
-			if c.want == Ask && !strings.Contains(strings.ToLower(res.Reason), "attribution") {
+			if c.want == core.Ask && !strings.Contains(strings.ToLower(res.Reason), "attribution") {
 				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, res.Reason)
 			}
 		})
@@ -113,7 +115,7 @@ func TestSafetyScanAttributionFooterCopilotShape(t *testing.T) {
 	cmd := `git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`
 	payload := copilotBashPayload(cmd)
 	var out, errb bytes.Buffer
-	if got := runDirect("safety-scan", payload, &out, &errb); got != ExitBlock {
+	if got := runDirect("safety-scan", payload, &out, &errb); got != core.ExitBlock {
 		t.Fatalf("%q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
 	}
 	var doc struct {

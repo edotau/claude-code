@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 const leafJob = "20261030T101500.123-codex-abcd"
@@ -52,7 +54,7 @@ func recordAt(id, status string, pid int, at time.Time) string {
 	return fmt.Sprintf(`{"id":%q,"time":%q,"status":%q,"pid":%d}`, id, at.Format(time.RFC3339), status, pid)
 }
 
-func leafInput(tx string) *Input { return &Input{AgentTranscriptPath: tx} }
+func leafInput(tx string) *core.Input { return &core.Input{AgentTranscriptPath: tx} }
 
 func startedLine() string { return "job " + leafJob + " started" }
 
@@ -61,12 +63,12 @@ func TestLeafStopBlocksRunningDispatch(t *testing.T) {
 	tx := leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
 	r, blocked := leafStopBlock(leafInput(tx), "a1")
-	if !blocked || r.Decision != Block || !strings.Contains(r.Reason, leafJob) ||
+	if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, leafJob) ||
 		!strings.Contains(r.Reason, "claude-code agents tail -f "+leafJob) || !strings.Contains(r.Reason, "600000ms") {
 		t.Fatalf("got %+v blocked=%v, want a Block naming %s, the tail command and the 600000ms timeout", r, blocked, leafJob)
 	}
 	var out, errb bytes.Buffer
-	if code := Emit(AgentClaude, "SubagentStop", r, &out, &errb); code != ExitBlock || !strings.Contains(errb.String(), leafJob) {
+	if code := core.Emit(core.AgentClaude, "SubagentStop", r, &out, &errb); code != core.ExitBlock || !strings.Contains(errb.String(), leafJob) {
 		t.Fatalf("Emit = %d stderr=%q, want ExitBlock with the reason", code, errb.String())
 	}
 }
@@ -87,7 +89,7 @@ func TestLeafStopReleases(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tx := leafEnv(t, startedLine())
 			writeDispatch(t, leafJob, body)
-			if r, blocked := leafStopBlock(leafInput(tx), "a1"); blocked || r.Decision == Block {
+			if r, blocked := leafStopBlock(leafInput(tx), "a1"); blocked || r.Decision == core.Block {
 				t.Fatalf("got %+v blocked=%v, want the stop released", r, blocked)
 			}
 		})
@@ -105,7 +107,7 @@ func TestLeafStopWaitLimit(t *testing.T) {
 	}
 	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
 	r, blocked := leafStopBlock(leafInput(tx), "a1")
-	if blocked || r.Decision == Block || !strings.Contains(r.SystemMessage, leafJob) || !strings.Contains(r.SystemMessage, leafStopMaxWait.String()) {
+	if blocked || r.Decision == core.Block || !strings.Contains(r.SystemMessage, leafJob) || !strings.Contains(r.SystemMessage, leafStopMaxWait.String()) {
 		t.Fatalf("past the limit got %+v blocked=%v, want an allow with a message naming %s and %s", r, blocked, leafJob, leafStopMaxWait)
 	}
 }
@@ -133,8 +135,8 @@ func TestLeafStopNoDispatchAndVendor(t *testing.T) {
 	}
 	tx = leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
-	in := leafInput(tx)
-	in.agent = AgentCopilot
+	t.Setenv(settings.AgentEnv, core.AgentCopilot)
+	in := core.ParseInput(strings.NewReader(fmt.Sprintf(`{"agent_transcript_path":%q}`, tx)))
 	if _, blocked := leafStopBlock(in, "a1"); blocked {
 		t.Fatal("non-Claude vendor was gated")
 	}
@@ -157,18 +159,18 @@ func TestLeafStopBlockKeepsSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
-	if r := pre(spawnPayload("u1")); r.Decision == Block {
+	if r := pre(spawnPayload("u1")); r.Decision == core.Block {
 		t.Fatalf("spawn blocked: %s", r.Reason)
 	}
 	stop := `{"hook_event_name":"SubagentStop","agent_id":"a1","transcript_path":"` + tx + `","agent_transcript_path":"` + agentTx + `"}`
-	if r := subagentStopRunner(ParseInput(strings.NewReader(stop))); r.Decision != Block {
+	if r := subagentStopRunner(core.ParseInput(strings.NewReader(stop))); r.Decision != core.Block {
 		t.Fatalf("running dispatch: got %+v, want Block", r)
 	}
 	if n := len(markerNames(t)); n != 1 {
 		t.Fatalf("blocked stop left %d markers, want 1 (slot kept)", n)
 	}
 	writeDispatch(t, leafJob, record(leafJob, "done", os.Getpid()))
-	subagentStopRunner(ParseInput(strings.NewReader(stop)))
+	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
 	if n := len(markerNames(t)); n != 0 {
 		t.Fatalf("proceeding stop left %d markers, want 0", n)
 	}
@@ -218,7 +220,7 @@ func TestLeafJobIDsEnvelopeAndExitLine(t *testing.T) {
 }
 
 // coworkerTx writes a coworker leaf transcript (the brief, then the given tool results) with its meta.json beside it.
-func coworkerTx(t *testing.T, brief string, toolResults ...string) *Input {
+func coworkerTx(t *testing.T, brief string, toolResults ...string) *core.Input {
 	t.Helper()
 	dir := t.TempDir()
 	first, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": brief}})
@@ -244,11 +246,11 @@ func coworkerTx(t *testing.T, brief string, toolResults ...string) *Input {
 func TestCoworkerNoRanOnBlocks(t *testing.T) {
 	in := coworkerTx(t, "Objective: x\nAgent: codex\n", "ls output")
 	r, blocked := leafStopBlock(in, "a1")
-	if !blocked || r.Decision != Block || !strings.Contains(r.Reason, "ran on") {
+	if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, "ran on") {
 		t.Fatalf("got %+v blocked=%v, want a Block naming the ran-on line", r, blocked)
 	}
 	var out, errb bytes.Buffer
-	if code := Emit(AgentClaude, "SubagentStop", r, &out, &errb); code != ExitBlock {
+	if code := core.Emit(core.AgentClaude, "SubagentStop", r, &out, &errb); code != core.ExitBlock {
 		t.Fatalf("Emit = %d, want ExitBlock", code)
 	}
 	for _, brief := range []string{"Objective: x\nAgent: in-context\n", "Objective: x\nOwns: a file\n"} {
@@ -273,7 +275,7 @@ func TestCoworkerRanOnFailOpenCap(t *testing.T) {
 	in := coworkerTx(t, "Objective: x\nAgent: codex\n", "ls")
 	in.StopHookActive = true
 	r, blocked := leafStopBlock(in, "a1")
-	if blocked || r.Decision == Block || !strings.Contains(r.SystemMessage, "a1: finished with no ran-on line") {
+	if blocked || r.Decision == core.Block || !strings.Contains(r.SystemMessage, "a1: finished with no ran-on line") {
 		t.Fatalf("got %+v blocked=%v, want an allow with the ran-on message", r, blocked)
 	}
 }

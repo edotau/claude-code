@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -15,7 +16,7 @@ import (
 const checkpointPct = 85
 
 // contextCheckpoint spawns a detached memory update once per session at ≥85% context; it never blocks Stop.
-func contextCheckpoint(in *Input) {
+func contextCheckpoint(in *core.Input) {
 	in = sessionRootInput(in)
 	if in.StopHookActive || !updatable(in) {
 		return
@@ -48,11 +49,11 @@ func contextCheckpoint(in *Input) {
 }
 
 // memoryUpdateStop runs the context checkpoint and memory update; only the memory update can block the stop.
-func memoryUpdateStop(in *Input) Result {
+func memoryUpdateStop(in *core.Input) core.Result {
 	var hv bytes.Buffer
 	contextCheckpoint(in)
 	code, failedOpen := sessionUpdate(in, &hv)
-	r := exitResult(code, hv.String())
+	r := core.ExitResult(code, hv.String())
 	if failedOpen {
 		r.SystemMessage = updateNotSaved
 	}

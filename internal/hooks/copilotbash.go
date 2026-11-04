@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/shellscope"
 )
 
@@ -34,7 +35,7 @@ func copilotBash(stdin io.Reader, stderr io.Writer) int {
 	raw, _ := io.ReadAll(stdin)
 	if err := json.Unmarshal(raw, &in); err != nil || strings.TrimSpace(in.ToolInput.Command) == "" {
 		fmt.Fprintln(stderr, "copilot-bash: BLOCKED — unreadable hook input or no command.")
-		return ExitBlock
+		return core.ExitBlock
 	}
 	cmd, workDir := in.ToolInput.Command, in.CWD
 	if workDir == "" {
@@ -44,7 +45,7 @@ func copilotBash(stdin io.Reader, stderr io.Writer) int {
 	home, _ := os.UserHomeDir() // ~/worktrees holds the linked worktrees a ~/.claude session works in
 	if !shellscope.Command(cmd, []string{workDir, filepath.Join(home, "worktrees")}, agentconfig.ShellPolicy().HookExtras) {
 		fmt.Fprintln(stderr, copilotBashReason())
-		return ExitBlock
+		return core.ExitBlock
 	}
-	return ExitProceed
+	return core.ExitProceed
 }

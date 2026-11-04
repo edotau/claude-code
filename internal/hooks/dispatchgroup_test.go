@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -95,12 +96,12 @@ func TestDispatchRepeatStopRetiresNothingElse(t *testing.T) {
 	pre(spawnPayload("u2"))
 	writeMeta(t, tx, "a1", "u1")
 	stop := stopPayload("a1", tx, "")
-	subagentStopRunner(ParseInput(strings.NewReader(stop)))
+	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
 	if hasMarker(t, "u1") || !hasMarker(t, "u2") {
 		t.Fatalf("first stop must retire exactly u1: %v", markerNames(t))
 	}
-	subagentStopRunner(ParseInput(strings.NewReader(stop)))
-	subagentStopRunner(ParseInput(strings.NewReader(stop)))
+	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
+	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
 	if !hasMarker(t, "u2") || len(markerNames(t)) != 1 {
 		t.Fatalf("a repeat stop retired a sibling's marker: %v", markerNames(t))
 	}
@@ -112,7 +113,7 @@ func TestDispatchAtCapSpawnBlocksBeforePinAndClaim(t *testing.T) {
 	seedForeign(t, capN)
 	// No model: the pin step would rewrite the input if it ran.
 	r := pre(`{"tool_name":"Agent","tool_use_id":"over","tool_input":{"prompt":"fix a typo"}}`)
-	if r.Decision != Block || r.UpdatedInput != nil {
+	if r.Decision != core.Block || r.UpdatedInput != nil {
 		t.Fatalf("spawn at the cap = %+v, want a Block with no updatedInput", r)
 	}
 	if hasMarker(t, "over") || len(markerNames(t)) != capN {
@@ -124,7 +125,7 @@ func TestDispatchAtCapSpawnBlocksBeforePinAndClaim(t *testing.T) {
 func TestDispatchLintBlockedWorkflowClaimsNothing(t *testing.T) {
 	dispatchEnv(t)
 	r := pre(`{"tool_name":"Workflow","tool_use_id":"amb","tool_input":{"script":"const o = {}; await agent('x', o);"}}`)
-	if r.Decision != Block || !strings.Contains(r.Reason, "ambiguous") {
+	if r.Decision != core.Block || !strings.Contains(r.Reason, "ambiguous") {
 		t.Fatalf("ambiguous agent() options = %+v, want a lint Block", r)
 	}
 	if n := len(markerNames(t)); n != 0 {
@@ -145,7 +146,7 @@ func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 	if capN < 3 {
 		t.Skipf("cap %d too small for a 3-leaf batch", capN)
 	}
-	if r := pre(workflowPayload("wf")); r.Decision == Block {
+	if r := pre(workflowPayload("wf")); r.Decision == core.Block {
 		t.Fatalf("3 leaves under cap %d blocked: %s", capN, r.Reason)
 	}
 	for i := 1; i <= 3; i++ {
@@ -154,14 +155,14 @@ func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 			t.Fatalf("missing leaf marker %s in %v", want, markerNames(t))
 		}
 	}
-	releaseSpawn(ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Workflow","tool_use_id":"wf"}`)))
+	releaseSpawn(core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Workflow","tool_use_id":"wf"}`)))
 	if n := len(markerNames(t)); n != 0 {
 		t.Fatalf("workflow-inflight left %d markers", n)
 	}
 
 	seedForeign(t, capN-2)
 	r := pre(workflowPayload("wf2"))
-	if r.Decision != Block {
+	if r.Decision != core.Block {
 		t.Fatalf("3 leaves with 2 free = %+v, want Block", r)
 	}
 	if hasMarker(t, "wf2") || len(markerNames(t)) != capN-2 {
@@ -189,7 +190,7 @@ func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	stubLabelModels(t, "", "")
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
-	r := agentEffortResult(ParseInput(strings.NewReader(payload)))
+	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
 	if r.UpdatedInput == nil {
 		return desc
 	}
@@ -276,8 +277,8 @@ func TestDispatchLabelLowercase(t *testing.T) {
 // A spaced call `agent (…)` is a leaf too; a method `x.agent(` and a name `subagent(` are not.
 func TestWorkflowLeavesCountsSpacedCalls(t *testing.T) {
 	script := "await agent ('a', {model:'sonnet'})\nawait agent('b', {model:'sonnet'})\nx.agent('c')\nsubagent('d')"
-	in := ParseInput(strings.NewReader(`{"tool_name":"Workflow","tool_input":{"script":` + strconv.Quote(script) + `}}`))
-	if n := workflowLeaves(in, Result{}); n != 2 {
+	in := core.ParseInput(strings.NewReader(`{"tool_name":"Workflow","tool_input":{"script":` + strconv.Quote(script) + `}}`))
+	if n := workflowLeaves(in, core.Result{}); n != 2 {
 		t.Fatalf("workflowLeaves = %d, want 2", n)
 	}
 }
@@ -293,7 +294,7 @@ func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
 		"Agent: claude (in-context)\nreview": "sonnet: review diff",
 	} {
-		r := agentEffortResult(ParseInput(strings.NewReader(payload(prompt))))
+		r := agentEffortResult(core.ParseInput(strings.NewReader(payload(prompt))))
 		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
 			t.Errorf("%q: label = %q, want %q", prompt, got, want)
 		}

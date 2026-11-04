@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 const rsClean = "package fx\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
@@ -22,8 +24,8 @@ func rsRun(t *testing.T, tool, path, oldS, newS string) string {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if code := runDirect("review-simplicity", bytes.NewReader(payload), &out, nil); code != ExitProceed {
-		t.Fatalf("exit %d, want %d", code, ExitProceed)
+	if code := runDirect("review-simplicity", bytes.NewReader(payload), &out, nil); code != core.ExitProceed {
+		t.Fatalf("exit %d, want %d", code, core.ExitProceed)
 	}
 	return out.String()
 }

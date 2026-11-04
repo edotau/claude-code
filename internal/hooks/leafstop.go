@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -46,13 +47,13 @@ func leafJobIDs(path string) ([]string, error) {
 }
 
 // leafStopBlock returns a Block while a dispatch the stopping leaf started is alive; any error fails open.
-func leafStopBlock(in *Input, agentID string) (Result, bool) {
-	if in.Agent() != AgentClaude || in.AgentTranscriptPath == "" {
-		return Result{}, false
+func leafStopBlock(in *core.Input, agentID string) (core.Result, bool) {
+	if in.Agent() != core.AgentClaude || in.AgentTranscriptPath == "" {
+		return core.Result{}, false
 	}
 	ids, err := leafJobIDs(in.AgentTranscriptPath)
 	if err != nil {
-		return Result{}, false
+		return core.Result{}, false
 	}
 	expired, block := liveDispatchVerdict(ids, agentID)
 	if block {
@@ -65,7 +66,7 @@ func leafStopBlock(in *Input, agentID string) (Result, bool) {
 }
 
 // liveDispatchVerdict blocks on the first live dispatch within its wait limit, else carries the first expiry note.
-func liveDispatchVerdict(ids []string, agentID string) (expired Result, block bool) {
+func liveDispatchVerdict(ids []string, agentID string) (expired core.Result, block bool) {
 	for _, id := range ids {
 		rec, err := loadDispatch(id)
 		if err != nil || !inflight.DispatchAlive(rec.Status, rec.PID, rec.Time) {
@@ -83,11 +84,11 @@ func liveDispatchVerdict(ids []string, agentID string) (expired Result, block bo
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
-func leafStopVerdict(agentID string, rec dispatchRecord) (Result, bool) {
+func leafStopVerdict(agentID string, rec dispatchRecord) (core.Result, bool) {
 	if time.Since(rec.Time) >= leafStopMaxWait {
-		return Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
+		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}
-	return Result{Decision: Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. Run `claude-code agents tail -f %s` "+
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. Run `claude-code agents tail -f %s` "+
 		"with a 600000ms Bash timeout, repeating until it finishes, then report its result; do not stop before it reaches a terminal status.", rec.ID, rec.ID)}, true
 }
 
@@ -121,8 +122,8 @@ func leafBrief(transcript string) (brief string, ranOn bool, err error) {
 }
 
 // leafAgentType is the stopping leaf's type: the payload's agent_type, else the meta.json beside its transcript.
-func leafAgentType(in *Input) string {
-	if t := in.nested("agent_type"); t != "" {
+func leafAgentType(in *core.Input) string {
+	if t := in.Nested("agent_type"); t != "" {
 		return t
 	}
 	b, err := os.ReadFile(strings.TrimSuffix(in.AgentTranscriptPath, ".jsonl") + ".meta.json")
@@ -148,17 +149,17 @@ func requestsAgent(brief string) bool {
 }
 
 // coworkerRanOnVerdict blocks a coworker's stop once when no tool result carried a ran-on line; the repeat stop passes.
-func coworkerRanOnVerdict(in *Input, agentID string) (Result, bool) {
+func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	if leafAgentType(in) != "coworker" {
-		return Result{}, false
+		return core.Result{}, false
 	}
 	brief, ranOn, err := leafBrief(in.AgentTranscriptPath)
 	if err != nil || ranOn || !requestsAgent(brief) {
-		return Result{}, false
+		return core.Result{}, false
 	}
 	if in.StopHookActive {
-		return Result{SystemMessage: fmt.Sprintf("coworker %s: finished with no ran-on line", agentID)}, false
+		return core.Result{SystemMessage: fmt.Sprintf("coworker %s: finished with no ran-on line", agentID)}, false
 	}
-	return Result{Decision: Block, Reason: "No tool result of yours carries an `ask: ran on` line (or a `ran_on` field), so the external " +
+	return core.Result{Decision: core.Block, Reason: "No tool result of yours carries an `ask: ran on` line (or a `ran_on` field), so the external " +
 		"agent was never called. Run the `claude-code ask` the brief requests, or report BLOCKED with the reason; do not do the work in-context."}, true
 }

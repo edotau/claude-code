@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -48,7 +49,7 @@ func runCodexAuditHandler(t *testing.T, name string, payload map[string]any) {
 	payload["prompt"] = "PROMPT-SECRET-SENTINEL"
 	payload["tool_input"] = map[string]any{"message": "TASK-SECRET-SENTINEL", "task_name": "NAME-SECRET-SENTINEL"}
 	var out, stderr bytes.Buffer
-	if code := runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr); code != ExitProceed {
+	if code := runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr); code != core.ExitProceed {
 		t.Fatalf("exit = %d", code)
 	}
 	if out.Len() != 0 || stderr.Len() != 0 {
@@ -213,15 +214,15 @@ func TestCodexAuditMissingCausalFieldsRemainUnknown(t *testing.T) {
 
 func TestCodexAuditIgnoresOtherVendorsAndMissingSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, vendor := range []string{AgentClaude, AgentCopilot, AgentCodex} {
+	for _, vendor := range []string{core.AgentClaude, core.AgentCopilot, core.AgentCodex} {
 		t.Setenv(settings.AgentEnv, vendor)
 		for _, name := range []string{"codex-routing-start", "codex-routing-result", "codex-subagent-start"} {
 			payload := map[string]any{"tool_name": "spawn_agent", "agent_id": "child", "model": codexRouteWireModel}
-			if vendor != AgentCodex {
+			if vendor != core.AgentCodex {
 				payload["session_id"] = "session"
 			}
 			var out, stderr bytes.Buffer
-			if runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr) != ExitProceed {
+			if runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr) != core.ExitProceed {
 				t.Fatal("audit blocked")
 			}
 		}
@@ -290,7 +291,7 @@ func TestCodexRoutesLongLine(t *testing.T) {
 
 func TestCodexSpawnPinnedEnvVsVault(t *testing.T) {
 	vaulttest.Use(t)
-	in := ParseInput(strings.NewReader(`{"session_id":"s","tool_input":{"message":"x"}}`))
+	in := core.ParseInput(strings.NewReader(`{"session_id":"s","tool_input":{"message":"x"}}`))
 	if codexSpawnPinned(in) {
 		t.Error("process-env CODEX_MODEL with no vault pin vetoed routing, want proceed")
 	}
@@ -314,7 +315,7 @@ func readCodexRoutes(path string) ([]codexRouteRecord, error) {
 
 // Ruling 4: Codex has no ask decision — ask must render as deny. oneDoc also proves a single JSON document.
 func TestOutputCodexAskMapsToDeny(t *testing.T) {
-	m := oneDoc(t, OutputCodex("PreToolUse", Result{Decision: Ask, Reason: "needs review"}))
+	m := oneDoc(t, core.OutputCodex("PreToolUse", core.Result{Decision: core.Ask, Reason: "needs review"}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if h["permissionDecision"] != "deny" || h["permissionDecisionReason"] != "needs review" {
 		t.Errorf("ask must map to deny: %v", m)
@@ -323,7 +324,7 @@ func TestOutputCodexAskMapsToDeny(t *testing.T) {
 
 // The wire shape codex-agent-route emits today: an updatedInput on PreToolUse is an explicit allow.
 func TestOutputCodexAllowCarriesUpdatedInput(t *testing.T) {
-	m := oneDoc(t, OutputCodex("PreToolUse", Result{UpdatedInput: map[string]any{"model": "m", "reasoning_effort": "high"}}))
+	m := oneDoc(t, core.OutputCodex("PreToolUse", core.Result{UpdatedInput: map[string]any{"model": "m", "reasoning_effort": "high"}}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if h["permissionDecision"] != "allow" {
 		t.Errorf("updatedInput on PreToolUse must be an explicit allow: %v", m)
@@ -335,7 +336,7 @@ func TestOutputCodexAllowCarriesUpdatedInput(t *testing.T) {
 }
 
 func TestOutputCodexBlockDeniesWithReason(t *testing.T) {
-	m := oneDoc(t, OutputCodex("PreToolUse", Result{Decision: Block, Reason: "no"}))
+	m := oneDoc(t, core.OutputCodex("PreToolUse", core.Result{Decision: core.Block, Reason: "no"}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if h["permissionDecision"] != "deny" || h["permissionDecisionReason"] != "no" {
 		t.Errorf("block must deny with reason: %v", m)
@@ -344,10 +345,10 @@ func TestOutputCodexBlockDeniesWithReason(t *testing.T) {
 
 // updatedInput is a PreToolUse-only concept: outside that event it must not leak a permissionDecision.
 func TestOutputCodexUpdatedInputIgnoredOutsidePreToolUse(t *testing.T) {
-	if out := OutputCodex("PostToolUse", Result{UpdatedInput: map[string]any{"model": "m"}}); out != "" {
+	if out := core.OutputCodex("PostToolUse", core.Result{UpdatedInput: map[string]any{"model": "m"}}); out != "" {
 		t.Errorf("non-PreToolUse updatedInput must render nothing, got %q", out)
 	}
-	m := oneDoc(t, OutputCodex("PostToolUse", Result{UpdatedInput: map[string]any{"model": "m"}, Context: "c"}))
+	m := oneDoc(t, core.OutputCodex("PostToolUse", core.Result{UpdatedInput: map[string]any{"model": "m"}, Context: "c"}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if _, ok := h["permissionDecision"]; ok {
 		t.Errorf("permissionDecision outside PreToolUse: %v", m)

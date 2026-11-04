@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
@@ -35,7 +36,7 @@ type claimHit struct {
 }
 
 // liveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
-func liveClaims(in *Input) (map[string][]claimHit, error) {
+func liveClaims(in *core.Input) (map[string][]claimHit, error) {
 	self := paths.Slug(in.SessionID, "", 80, "session")
 	leaf := siblingLeaf(in)
 	labels := map[int]string{}
@@ -63,7 +64,7 @@ func liveClaims(in *Input) (map[string][]claimHit, error) {
 }
 
 // siblingLeaf names another leaf's claim in this session's file while its transcript is fresh; own and main's yield "".
-func siblingLeaf(in *Input) func(notices.Claim) string {
+func siblingLeaf(in *core.Input) func(notices.Claim) string {
 	live := map[string]bool{}
 	return func(c notices.Claim) string {
 		if c.Agent == "" || c.Agent == in.AgentID {
@@ -96,40 +97,40 @@ func flattenClaims(byPath map[string]map[string]int64) map[string][]claimHit {
 // claimView is one check's inputs: the hook payload, its deadline and the live claims.
 type claimView struct {
 	ctx    context.Context
-	in     *Input
+	in     *core.Input
 	claims map[string][]claimHit
 }
 
 // worktreeClaimCheck notes a dirty claimed file before an edit; asks (leaf: blocks) when git add/commit stages one.
 // Any git command also drains this session's notices and the divergence line into its context.
-func worktreeClaimCheck(in *Input) Result {
+func worktreeClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
 	if in.SessionID == "" || in.ToolName == "Bash" && !gitAnyCmd.MatchString(cmd) {
-		return Result{}
+		return core.Result{}
 	}
-	ctx, cancel := hookContext("worktree-claim-check")
+	ctx, cancel := core.HookContext("worktree-claim-check")
 	defer cancel()
 	if in.ToolName != "Bash" {
 		return claimResult(ctx, in)
 	}
 	notes, warn := noticeContext(ctx, in)
-	res := Result{}
+	res := core.Result{}
 	if gitStageCmd.MatchString(cmd) {
 		res = claimResult(ctx, in)
 	}
-	res.Context = joinContext(notes, res.Context)
+	res.Context = core.JoinContext(notes, res.Context)
 	res.Stderr = strings.TrimSpace(warn + "\n" + res.Stderr)
 	return res
 }
 
 // claimResult runs the edit or stage check against the live claims.
-func claimResult(ctx context.Context, in *Input) Result {
+func claimResult(ctx context.Context, in *core.Input) core.Result {
 	claims, err := liveClaims(in)
 	if err != nil {
 		return claimWarn(err)
 	}
 	if len(claims) == 0 {
-		return Result{}
+		return core.Result{}
 	}
 	v := claimView{ctx: ctx, in: in, claims: claims}
 	if in.ToolName == "Bash" {
@@ -139,13 +140,13 @@ func claimResult(ctx context.Context, in *Input) Result {
 }
 
 // claimWarn is the fail-open result for a check that could not run.
-func claimWarn(err error) Result {
-	return Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check file claims (%v); allowed", err)}
+func claimWarn(err error) core.Result {
+	return core.Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check file claims (%v); allowed", err)}
 }
 
 // editPath is the Write/Edit target, absolute and canonical; "" when the payload has none.
-func editPath(in *Input) string {
-	p := in.nested("tool_input", "file_path")
+func editPath(in *core.Input) string {
+	p := in.Nested("tool_input", "file_path")
 	if p == "" {
 		return ""
 	}
@@ -156,10 +157,10 @@ func editPath(in *Input) string {
 }
 
 // editCheck returns the once-per-(session, path, who) advisory for an edit of a dirty claimed file.
-func (v claimView) editCheck() Result {
+func (v claimView) editCheck() core.Result {
 	p := editPath(v.in)
 	if len(v.claims[p]) == 0 {
-		return Result{}
+		return core.Result{}
 	}
 	top, dirty, err := dirtySet(v.ctx, filepath.Dir(p))
 	if err != nil {
@@ -176,7 +177,7 @@ func (v claimView) editCheck() Result {
 				"and commit them with `git add -p`, or hand the change to its owner.", relTo(top, p), h.Who, clock(h.TS)))
 		}
 	}
-	return Result{Context: strings.Join(lines, "\n")}
+	return core.Result{Context: strings.Join(lines, "\n")}
 }
 
 // dirtySet is dir's repo toplevel and its dirty paths (absolute, untracked included); "" top outside a repo.
@@ -242,11 +243,11 @@ func relTo(top, p string) string {
 func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 
 // stageCheck asks (a leaf: blocks) when a git add/commit in the command would stage a dirty claimed file.
-func (v claimView) stageCheck() Result {
-	var res Result
+func (v claimView) stageCheck() core.Result {
+	var res core.Result
 	eachGitCall(v.in.ToolCommand(), v.in.CWD, func(target, verb string, args []string) bool {
 		res = v.stageVerdict(target, verb, args)
-		return res.Decision == Allow && res.Stderr == ""
+		return res.Decision == core.Allow && res.Stderr == ""
 	})
 	return res
 }
@@ -268,9 +269,9 @@ func eachGitCall(cmd, cwd string, fn func(target, verb string, args []string) bo
 }
 
 // stageVerdict checks one git invocation's staged set against the claims.
-func (v claimView) stageVerdict(target, verb string, args []string) Result {
+func (v claimView) stageVerdict(target, verb string, args []string) core.Result {
 	if verb != "add" && verb != "commit" || slices.ContainsFunc(args, isPatchFlag) {
-		return Result{}
+		return core.Result{}
 	}
 	top, dirty, err := dirtySet(v.ctx, target)
 	if top == "" || err != nil {
@@ -325,17 +326,17 @@ func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string
 }
 
 // warnIf is claimWarn for a non-nil err, else no result.
-func warnIf(err error) Result {
+func warnIf(err error) core.Result {
 	if err != nil {
 		return claimWarn(err)
 	}
-	return Result{}
+	return core.Result{}
 }
 
 // stageResult renders the ask (main) or block (leaf) for the claimed paths, capped at claimShown.
-func stageResult(in *Input, verb string, taken []string, n stageCount) Result {
+func stageResult(in *core.Input, verb string, taken []string, n stageCount) core.Result {
 	if len(taken) == 0 {
-		return Result{}
+		return core.Result{}
 	}
 	slices.Sort(taken)
 	more := ""
@@ -343,9 +344,9 @@ func stageResult(in *Input, verb string, taken []string, n stageCount) Result {
 		more = fmt.Sprintf("; and %d more", len(taken)-claimShown)
 		taken = taken[:claimShown]
 	}
-	d := Ask
+	d := core.Ask
 	if in.AgentID != "" {
-		d = Block
+		d = core.Block
 	}
 	what := fmt.Sprintf("git %s takes %d file(s), %d of them edited by another live session or leaf: %s%s", verb,
 		max(n.total, n.claimed), n.claimed, strings.Join(taken, "; "), more)
@@ -353,7 +354,7 @@ func stageResult(in *Input, verb string, taken []string, n stageCount) Result {
 	if verb == "commit" {
 		hint = "commit only your own files: git commit -- <your files> (a bare commit takes everything staged)"
 	}
-	return Result{Decision: d, Reason: safetyMessage(in, d, what, "", hint)}
+	return core.Result{Decision: d, Reason: safetyMessage(in, d, what, "", hint)}
 }
 
 func isPatchFlag(a string) bool {

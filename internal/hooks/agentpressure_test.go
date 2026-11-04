@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -80,7 +81,7 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 		t.Fatal("openai (API key) session must not count as the subscription")
 	}
 	updated := map[string]any{"subagent_type": "code-worker"}
-	if note, _ := applyPressure(&Input{}, updated, "prompt", "sonnet"); note != "" || updated["model"] != nil {
+	if note, _ := applyPressure(&core.Input{}, updated, "prompt", "sonnet"); note != "" || updated["model"] != nil {
 		t.Errorf("pressure applied to a non-subscription session: %q %v", note, updated)
 	}
 	t.Setenv(providers.EnvSessionProfile, "")

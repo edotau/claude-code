@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -55,18 +56,18 @@ type planGateCase struct {
 
 func planGateCases() []planGateCase {
 	return []planGateCase{
-		{"freeform Write", "Write", "plans/draft.md", "freeform", false, ExitBlock},
-		{"freeform create", "create", "plans/draft.md", "freeform", false, ExitBlock},
-		{"legacy empty tool", "", "plans/draft.md", "freeform", false, ExitBlock},
-		{"missing content", "Write", "plans/draft.md", "", false, ExitBlock},
-		{"templated Write", "Write", "plans/draft.md", planTemplate, false, ExitProceed},
-		{"existing draft", "Write", "plans/draft.md", "freeform", true, ExitProceed},
-		{"Edit bypass", "Edit", "plans/draft.md", "freeform", false, ExitProceed},
-		{"patch bypass", "apply_patch", "plans/draft.md", "freeform", false, ExitProceed},
-		{"other tool", "Bash", "plans/draft.md", "freeform", false, ExitProceed},
-		{"dated plan", "Write", "plans/2026-10-20-draft.md", "freeform", false, ExitProceed},
-		{"nested plan", "Write", "plans/project/draft.md", "freeform", false, ExitProceed},
-		{"outside plans", "Write", "other/draft.md", "freeform", false, ExitProceed},
+		{"freeform Write", "Write", "plans/draft.md", "freeform", false, core.ExitBlock},
+		{"freeform create", "create", "plans/draft.md", "freeform", false, core.ExitBlock},
+		{"legacy empty tool", "", "plans/draft.md", "freeform", false, core.ExitBlock},
+		{"missing content", "Write", "plans/draft.md", "", false, core.ExitBlock},
+		{"templated Write", "Write", "plans/draft.md", planTemplate, false, core.ExitProceed},
+		{"existing draft", "Write", "plans/draft.md", "freeform", true, core.ExitProceed},
+		{"Edit bypass", "Edit", "plans/draft.md", "freeform", false, core.ExitProceed},
+		{"patch bypass", "apply_patch", "plans/draft.md", "freeform", false, core.ExitProceed},
+		{"other tool", "Bash", "plans/draft.md", "freeform", false, core.ExitProceed},
+		{"dated plan", "Write", "plans/2026-10-20-draft.md", "freeform", false, core.ExitProceed},
+		{"nested plan", "Write", "plans/project/draft.md", "freeform", false, core.ExitProceed},
+		{"outside plans", "Write", "other/draft.md", "freeform", false, core.ExitProceed},
 	}
 }
 
@@ -113,7 +114,7 @@ func TestPlanGateTemplate(t *testing.T) {
 				if stdout.Len() != 0 {
 					t.Errorf("unexpected stdout: %s", &stdout)
 				}
-				if c.want == ExitBlock {
+				if c.want == core.ExitBlock {
 					requirePlanGateDenied(t, cfg, c.path, &stderr)
 				} else if stderr.Len() != 0 {
 					t.Errorf("allowed write emitted a diagnostic: %s", &stderr)
@@ -146,7 +147,7 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 			t.Setenv(docsPlacementDisableEnv, c.knob)
 			var stdout, stderr bytes.Buffer
 			payload := writePayload(t, "Write", cfg, filepath.Join(plans, "draft.md"), "freeform")
-			if code := RunArgs("PreToolUse", []string{"--" + c.hook}, strings.NewReader(payload), &stdout, &stderr); code != ExitBlock {
+			if code := RunArgs("PreToolUse", []string{"--" + c.hook}, strings.NewReader(payload), &stdout, &stderr); code != core.ExitBlock {
 				t.Fatalf("code = %d, want ExitBlock; stderr=%s", code, &stderr)
 			}
 			if !strings.HasPrefix(stderr.String(), c.want) || strings.Contains(stderr.String(), c.not) {
@@ -192,7 +193,7 @@ func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 						t.Fatal(err)
 					}
 					var stderr bytes.Buffer
-					if code := runDirect("docs-placement", bytes.NewReader(raw), io.Discard, &stderr); code != ExitBlock {
+					if code := runDirect("docs-placement", bytes.NewReader(raw), io.Discard, &stderr); code != core.ExitBlock {
 						t.Fatalf("code = %d, want block: %s", code, &stderr)
 					}
 					if !strings.Contains(stderr.String(), "docs-placement: BLOCKED") {
@@ -234,9 +235,9 @@ func TestDocsPlacementGate(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
 			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, c.tool, c.path)), io.Discard, &stderr)
-			want := ExitProceed
+			want := core.ExitProceed
 			if c.block {
-				want = ExitBlock
+				want = core.ExitBlock
 			}
 			if code != want {
 				t.Fatalf("code = %d, want %d (stderr: %s)", code, want, stderr.String())
@@ -255,7 +256,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != ExitBlock {
+	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
 	for _, want := range []string{
@@ -280,7 +281,7 @@ func TestDocsPlacementKnobOff(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != ExitProceed {
+	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != core.ExitProceed {
 		t.Fatalf("code = %d, want proceed when the knob is 0 (stderr: %s)", code, stderr.String())
 	}
 }
@@ -311,9 +312,9 @@ func TestDocsPlacementThroughSymlink(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
 			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr)
-			want := ExitProceed
+			want := core.ExitProceed
 			if c.block {
-				want = ExitBlock
+				want = core.ExitBlock
 			}
 			if code != want {
 				t.Fatalf("code = %d, want %d (stderr: %s)", code, want, stderr.String())
@@ -329,7 +330,7 @@ func TestDocsPlacementGlobShapedNameStillBlocks(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md"))), io.Discard, &stderr); code != ExitBlock {
+	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md"))), io.Discard, &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block for a glob-shaped root doc (stderr: %s)", code, stderr.String())
 	}
 }
@@ -388,9 +389,9 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
 			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr)
-			want := ExitProceed
+			want := core.ExitProceed
 			if c.block {
-				want = ExitBlock
+				want = core.ExitBlock
 			}
 			if code != want {
 				t.Fatalf("code = %d, want %d (stderr: %s)", code, want, stderr.String())
@@ -416,7 +417,7 @@ func TestDocsPlacementExcludedLocalDoc(t *testing.T) {
 		path string
 		want int
 	}{
-		{"DESIGN.md", ExitProceed}, {"docs/local.md", ExitProceed}, {"NOTES.md", ExitBlock}, {"docs/new.md", ExitBlock},
+		{"DESIGN.md", core.ExitProceed}, {"docs/local.md", core.ExitProceed}, {"NOTES.md", core.ExitBlock}, {"docs/new.md", core.ExitBlock},
 	} {
 		var stderr bytes.Buffer
 		code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Edit", filepath.Join(repo, c.path))), io.Discard, &stderr)
@@ -435,10 +436,10 @@ func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", harness)
 
 	for name, want := range map[string]int{
-		"knowledge/topic.md": ExitBlock, "knowledge/repo/x.md": ExitBlock, "images/n.md": ExitProceed,
-		"templates/README.md": ExitProceed, "templates/examples/memory/index.md": ExitProceed,
-		"handoffs/HANDOFF.md": ExitBlock, "reports/repo/y.md": ExitBlock, "plans/2026-09-09-x.md": ExitBlock,
-		"other/x.md": ExitBlock, "templates-evil/x.md": ExitBlock,
+		"knowledge/topic.md": core.ExitBlock, "knowledge/repo/x.md": core.ExitBlock, "images/n.md": core.ExitProceed,
+		"templates/README.md": core.ExitProceed, "templates/examples/memory/index.md": core.ExitProceed,
+		"handoffs/HANDOFF.md": core.ExitBlock, "reports/repo/y.md": core.ExitBlock, "plans/2026-09-09-x.md": core.ExitBlock,
+		"other/x.md": core.ExitBlock, "templates-evil/x.md": core.ExitBlock,
 	} {
 		var stderr bytes.Buffer
 		p := filepath.Join(harness, "docs", filepath.FromSlash(name))
@@ -466,9 +467,9 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 		path string
 		want int
 	}{
-		{"root doc in a linked worktree", filepath.Join(wt, "HANDOFF.md"), ExitBlock},
-		{"tracked doc in a linked worktree", filepath.Join(wt, "ARCHITECTURE.md"), ExitProceed},
-		{"root doc under an invalid .git file", filepath.Join(bogus, "HANDOFF.md"), ExitProceed},
+		{"root doc in a linked worktree", filepath.Join(wt, "HANDOFF.md"), core.ExitBlock},
+		{"tracked doc in a linked worktree", filepath.Join(wt, "ARCHITECTURE.md"), core.ExitProceed},
+		{"root doc under an invalid .git file", filepath.Join(bogus, "HANDOFF.md"), core.ExitProceed},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer

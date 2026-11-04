@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 )
 
@@ -65,7 +66,7 @@ func reapFixture(t *testing.T, extra ...string) (stop string, a, b <-chan struct
 // Given a leaf transcript naming task A, when the stop passes, A's group dies and unnamed task B's survives.
 func TestSubagentStopReapsOwnBackgroundOnly(t *testing.T) {
 	stop, a, b := reapFixture(t)
-	subagentStopRunner(ParseInput(strings.NewReader(stop)))
+	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
 	if !stopped(a, 5*time.Second) {
 		t.Fatal("task A's process survived the stop")
 	}
@@ -78,7 +79,7 @@ func TestSubagentStopReapsOwnBackgroundOnly(t *testing.T) {
 func TestSubagentStopBlockedReapsNothing(t *testing.T) {
 	stop, a, _ := reapFixture(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
-	if r := subagentStopRunner(ParseInput(strings.NewReader(stop))); r.Decision != Block {
+	if r := subagentStopRunner(core.ParseInput(strings.NewReader(stop))); r.Decision != core.Block {
 		t.Fatalf("decision = %v, want Block", r.Decision)
 	}
 	if stopped(a, 300*time.Millisecond) {

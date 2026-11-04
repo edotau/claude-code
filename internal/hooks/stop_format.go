@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -29,17 +30,17 @@ const (
 )
 
 // `stop-format` (Stop, format group): formats files dirty in git and written by this session.
-func stopFormatRun(in *Input) Result { stopFormat(in); return Result{} }
+func stopFormatRun(in *core.Input) core.Result { stopFormat(in); return core.Result{} }
 
 // stopFormat formats files that are dirty in git AND that this session's transcript shows it writing;
 // a dirty file Claude never wrote is the user's hand edit and is left alone.
-func stopFormat(in *Input) int {
+func stopFormat(in *core.Input) int {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
 	if cwd == "" {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), stopFormatTimeout)
 	defer cancel()
@@ -47,7 +48,7 @@ func stopFormat(in *Input) int {
 	changed := changedFiles(ctx, cwd)
 	if len(changed) == 0 {
 		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
-		return ExitProceed
+		return core.ExitProceed
 	}
 	allow := map[string]bool{}
 	for _, f := range transcript.EditedFiles(in.TranscriptPath, stopFormatMaxFiles) {
@@ -59,14 +60,14 @@ func stopFormat(in *Input) int {
 		}
 	}
 	if len(allow) == 0 {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
 	maps.Copy(carry, formatAll(eligible))
 	if data, err := json.Marshal(stampFile{Schema: stopFormatSchema, Stamps: carry}); err == nil {
 		_ = paths.AtomicWrite(stampPath, data, 0o600)
 	}
-	return ExitProceed
+	return core.ExitProceed
 }
 
 // selectForFormat returns dirty session-written files whose stamp changed, plus stamps to carry forward.

@@ -16,6 +16,7 @@ import (
 	"github.com/jeduden/mdsmith/pkg/markdown"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -25,12 +26,12 @@ import (
 // PostToolUse only fires on approval; prefer approved input text, then the response, then their scratch files.
 // When the approved plan traces back to an undated draft the plan-mirror hook already filed, its recorded
 // destination is reused (the date stays the draft's creation date) instead of minting a new one for today.
-func savePlan(in *Input, stderr io.Writer) int {
-	responsePath := in.nested("tool_response", "filePath")
-	inputPath := in.nested("tool_input", "planFilePath")
+func savePlan(in *core.Input, stderr io.Writer) int {
+	responsePath := in.Nested("tool_response", "filePath")
+	inputPath := in.Nested("tool_input", "planFilePath")
 	plan := approvedPlanBytes(in, responsePath, inputPath, stderr)
 	if len(bytes.TrimSpace(plan)) == 0 {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	title := planTitle(plan) // from the approved text, before the checklist adds its own heading
 	approvedText := plan     // snapshot before withTasks, to compare against the draft's current bytes below
@@ -47,21 +48,21 @@ func savePlan(in *Input, stderr io.Writer) int {
 	}
 	if !fresh {
 		retireDraft(draftPath, approvedText, stderr) // the dated file already holds this plan
-		return ExitProceed
+		return core.ExitProceed
 	}
 	if !writeVerifiedPlan(dest, plan, stderr) {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	audit.Log(audit.PlanSaved, "save-plan", dest)
 	retireDraft(draftPath, approvedText, stderr)
-	return ExitProceed
+	return core.ExitProceed
 }
 
 // approvedPlanBytes prefers the approved plan text, then falls back to the plan scratch files.
-func approvedPlanBytes(in *Input, responsePath, inputPath string, stderr io.Writer) []byte {
-	plan := []byte(in.nested("tool_input", "plan"))
+func approvedPlanBytes(in *core.Input, responsePath, inputPath string, stderr io.Writer) []byte {
+	plan := []byte(in.Nested("tool_input", "plan"))
 	if len(plan) == 0 {
-		plan = []byte(in.nested("tool_response", "plan"))
+		plan = []byte(in.Nested("tool_response", "plan"))
 	}
 	for _, path := range []string{responsePath, inputPath} {
 		if len(plan) != 0 {
@@ -302,23 +303,23 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 
 // checkPlanTemplate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
 // template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
-func checkPlanTemplate(in *Input, stderr io.Writer) int {
+func checkPlanTemplate(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "create" {
-		return ExitProceed
+		return core.ExitProceed
 	}
-	path := in.nested("tool_input", "file_path")
+	path := in.Nested("tool_input", "file_path")
 	if path == "" {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	path = resolveCWDPath(path, in.CWD)
 	if !isUndatedDraft(path) {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	if _, err := os.Stat(path); err == nil {
-		return ExitProceed // not the first write; the template was already checked
+		return core.ExitProceed // not the first write; the template was already checked
 	}
-	content := in.nested("tool_input", "content")
+	content := in.Nested("tool_input", "content")
 	headings := planHeadings([]byte(content))
 	for _, want := range planTemplateHeadings {
 		if hasPlanHeading(headings, want) {
@@ -327,9 +328,9 @@ func checkPlanTemplate(in *Input, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %q from the plan template.\n"+
 			"Write the full template from %s before filing a draft:\n%s",
 			filepath.Base(path), want.label, plans.TemplatePath(paths.ConfigDir()), skeletonOrHeadings())
-		return ExitBlock
+		return core.ExitBlock
 	}
-	return ExitProceed
+	return core.ExitProceed
 }
 
 // skeletonOrHeadings is the plan template, or the required-heading list when it is unreadable.
@@ -384,10 +385,10 @@ func recordDest(draftBase, dest string) error {
 // copied to its dated, repo-tagged file (savePlan's own slug/title/dest logic), so the draft is never the
 // file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
 // file, via planDestination's collision check); it is then recorded so a later H1 change keeps the same file.
-func planMirror(in *Input, stderr io.Writer) int {
+func planMirror(in *core.Input, stderr io.Writer) int {
 	path, content, ok := mirrorSource(in)
 	if !ok {
-		return ExitProceed
+		return core.ExitProceed
 	}
 	base := filepath.Base(path)
 	dest, ok := readRecordedDest(base)
@@ -399,21 +400,21 @@ func planMirror(in *Input, stderr io.Writer) int {
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
-		return ExitProceed
+		return core.ExitProceed
 	}
 	if err := plans.WriteFile(dest, content); err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 	}
-	return ExitProceed
+	return core.ExitProceed
 }
 
 // mirrorSource returns the undated draft a Write/Edit touched and its non-blank content.
-func mirrorSource(in *Input) (path string, content []byte, ok bool) {
+func mirrorSource(in *core.Input) (path string, content []byte, ok bool) {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" {
 		return "", nil, false
 	}
-	path = in.nested("tool_input", "file_path")
+	path = in.Nested("tool_input", "file_path")
 	if path == "" {
 		return "", nil, false
 	}
@@ -437,26 +438,26 @@ func partialFile(session string) string {
 }
 
 // planSkeleton injects the plan template on EnterPlanMode and, once per plan, on a plan-mode prompt.
-func planSkeleton(in *Input) Result {
+func planSkeleton(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	event := in.HookEventName
 	marker := skeletonMarker(in.SessionID)
 	if event == "UserPromptSubmit" {
-		if in.nested("permission_mode") != "plan" {
+		if in.Nested("permission_mode") != "plan" {
 			if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
 				fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
 			}
-			return exitResult(ExitProceed, stderr.String())
+			return core.ExitResult(core.ExitProceed, stderr.String())
 		}
 		if _, err := os.Stat(marker); err == nil {
-			return Result{}
+			return core.Result{}
 		}
 	} else if in.ToolName != "EnterPlanMode" {
-		return Result{}
+		return core.Result{}
 	}
 	sk, err := plans.Skeleton(paths.ConfigDir())
 	if err != nil {
-		return exitResult(ExitProceed, stderr.String()) // no template: fail open
+		return core.ExitResult(core.ExitProceed, stderr.String()) // no template: fail open
 	}
 	err = os.MkdirAll(plansScratchDir(), 0o700)
 	if err == nil {
@@ -465,13 +466,13 @@ func planSkeleton(in *Input) Result {
 	if err != nil {
 		fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
 	}
-	res := exitResult(ExitProceed, stderr.String())
+	res := core.ExitResult(core.ExitProceed, stderr.String())
 	res.Context = "Plan format (docs/templates/plan.md) — this format replaces plan mode's suggested headings:\n" + sk
 	return res
 }
 
 // planReminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
-func planReminder(in *Input) Result {
+func planReminder(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	file := partialFile(in.SessionID)
 	var data []byte
@@ -486,14 +487,14 @@ func planReminder(in *Input) Result {
 		return nil
 	})
 	if err != nil {
-		return Result{}
+		return core.Result{}
 	}
 	items := stillPartial(string(data))
 	if items == "" {
-		return exitResult(ExitProceed, stderr.String())
+		return core.ExitResult(core.ExitProceed, stderr.String())
 	}
 	msg := "plans: this turn's commits only partly landed: " + items + "; finish the task's owns: or tick it by hand"
-	res := exitResult(ExitProceed, stderr.String())
+	res := core.ExitResult(core.ExitProceed, stderr.String())
 	res.SystemMessage = msg
 	return res
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
@@ -79,7 +80,7 @@ func TestWorktreeCreateFromRealPayload(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out, errb bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "live-probe"), &out, &errb); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "live-probe"), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("create: got %d, stderr %s", code, errb.String())
 	}
 	want := filepath.Join(canonHome(t, home), "worktrees", filepath.Base(repo), "live-probe")
@@ -102,11 +103,11 @@ func TestWorktreeCreateRepeatReturnsSamePath(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out1 bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "dup"), &out1, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "dup"), &out1, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("first create: got %d", code)
 	}
 	var out2, errb2 bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "dup"), &out2, &errb2); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "dup"), &out2, &errb2); code != core.ExitProceed {
 		t.Fatalf("second create: got %d, stderr %s", code, errb2.String())
 	}
 	if strings.TrimSpace(out1.String()) != strings.TrimSpace(out2.String()) {
@@ -120,14 +121,14 @@ func TestWorktreeCreateFromInsideLinkedWorktreeResolvesToMain(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "first"), &out, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "first"), &out, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("create: got %d", code)
 	}
 	linked := strings.TrimSpace(out.String())
 
 	// A second worktree requested with cwd set to the first linked checkout must still land under the main repo.
 	var out2, errb2 bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(linked, "second"), &out2, &errb2); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(linked, "second"), &out2, &errb2); code != core.ExitProceed {
 		t.Fatalf("create from linked cwd: got %d, stderr %s", code, errb2.String())
 	}
 	want := filepath.Join(canonHome(t, home), "worktrees", filepath.Base(repo), "second")
@@ -163,13 +164,13 @@ func TestWorktreeRemoveClean(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "clean"), &out, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "clean"), &out, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("create: got %d", code)
 	}
 	wt := strings.TrimSpace(out.String())
 
 	var errb bytes.Buffer
-	if code := runDirect("worktree-remove", removePayload(wt, wt), io.Discard, &errb); code != ExitProceed {
+	if code := runDirect("worktree-remove", removePayload(wt, wt), io.Discard, &errb); code != core.ExitProceed {
 		t.Fatalf("remove: got %d, stderr %s", code, errb.String())
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
@@ -186,7 +187,7 @@ func TestWorktreeRemoveClosesLedger(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "led"), &out, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "led"), &out, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("create: got %d", code)
 	}
 	wt := strings.TrimSpace(out.String())
@@ -196,7 +197,7 @@ func TestWorktreeRemoveClosesLedger(t *testing.T) {
 	}
 
 	var errb bytes.Buffer
-	if code := runDirect("worktree-remove", removePayload(wt, wt), io.Discard, &errb); code != ExitProceed {
+	if code := runDirect("worktree-remove", removePayload(wt, wt), io.Discard, &errb); code != core.ExitProceed {
 		t.Fatalf("remove: got %d, stderr %s", code, errb.String())
 	}
 	data, err := os.ReadFile(ledger)
@@ -216,7 +217,7 @@ func TestWorktreeRemoveDirty(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "dirty"), &out, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "dirty"), &out, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("create: got %d", code)
 	}
 	wt := strings.TrimSpace(out.String())
@@ -239,7 +240,7 @@ func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "unmerged"), &out, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "unmerged"), &out, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("create: got %d", code)
 	}
 	wt := strings.TrimSpace(out.String())
@@ -257,7 +258,7 @@ func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 	commit("commit", "--allow-empty", "-q", "-m", "unmerged work")
 
 	var errb bytes.Buffer
-	if code := runDirect("worktree-remove", removePayload(wt, wt), io.Discard, &errb); code != ExitProceed {
+	if code := runDirect("worktree-remove", removePayload(wt, wt), io.Discard, &errb); code != core.ExitProceed {
 		t.Fatalf("remove: got %d, stderr %s", code, errb.String())
 	}
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
@@ -279,7 +280,7 @@ func TestWorktreeRemoveRefusesWhenCWDIsInside(t *testing.T) {
 	repo := gitRepo(t)
 
 	var out bytes.Buffer
-	if code := runDirect("worktree-create", createPayload(repo, "cwdbusy"), &out, &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("worktree-create", createPayload(repo, "cwdbusy"), &out, &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("create: got %d", code)
 	}
 	wt := strings.TrimSpace(out.String())
@@ -330,7 +331,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	stubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 3)
-	if sessionUpdateCode(ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != ExitProceed {
+	if sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != core.ExitProceed {
 		t.Fatal("update blocked")
 	}
 	data, err := os.ReadFile(filepath.Join(memstore.Dir(main), "worktrees", "wt-h.md"))
@@ -343,7 +344,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 func TestWorktreeFailureKeepsExitCode(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	orig := Native["worktree-create"]
-	Native["worktree-create"] = func(*Input) Result { return Result{Stderr: "worktree-create: boom", ExitCode: 1} }
+	Native["worktree-create"] = func(*core.Input) core.Result { return core.Result{Stderr: "worktree-create: boom", ExitCode: 1} }
 	t.Cleanup(func() { Native["worktree-create"] = orig })
 
 	var out, errb strings.Builder
@@ -364,7 +365,7 @@ func TestWorktreeModeAndBusy(t *testing.T) {
 	old := peerAgents
 	peerAgents = func(string, []string) ([]worktree.Proc, error) { return peers, nil }
 	defer func() { peerAgents = old }()
-	in := &Input{SessionID: "s1", CWD: cwd}
+	in := &core.Input{SessionID: "s1", CWD: cwd}
 
 	for _, v := range []string{"off", "false", "0", "OFF"} {
 		t.Setenv(worktreeModeEnv, v)
@@ -405,7 +406,7 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
 	}
 	defer func() { peerAgents = old }()
-	worktreeBusy(&Input{SessionID: "s1", CWD: cwd})
+	worktreeBusy(&core.Input{SessionID: "s1", CWD: cwd})
 	files, _ := filepath.Glob(filepath.Join(paths.StateDir(), "worktree-busy", "*"))
 	if len(files) != 1 {
 		t.Fatalf("want one state file, got %v", files)
@@ -424,7 +425,7 @@ func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
 	main := canonPath(gitRepo(t))
 	nested := filepath.Join(main, ".wt", "x")
 	gitIn(t, main, "worktree", "add", "-q", "-b", "x", nested)
-	ctx, cancel := hookContext("worktree-busy")
+	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
 	if top, _, skip := checkoutOf(ctx, nested); top != nested || len(skip) != 0 {
 		t.Fatalf("from the nested worktree: top %q, skip %v; want top %q and no skip dirs", top, skip, nested)

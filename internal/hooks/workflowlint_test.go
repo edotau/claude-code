@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
 // wfLintPayload builds the PreToolUse Workflow stdin JSON for an inline script or a saved one.
@@ -26,13 +28,13 @@ func wfLintPayload(t *testing.T, extra map[string]any) string {
 // runWorkflowLint runs the pin step and returns its exit code plus the captured stdout/stderr.
 func runWorkflowLint(stdin string) (code int, stdout, stderr string) {
 	var out, errb bytes.Buffer
-	code = renderEffort(agentEffortResult(ParseInput(strings.NewReader(stdin))), &out, &errb)
+	code = renderEffort(agentEffortResult(core.ParseInput(strings.NewReader(stdin))), &out, &errb)
 	return code, out.String(), errb.String()
 }
 
 func TestWorkflowLintNonWorkflowToolProceeds(t *testing.T) {
 	code, out, errb := runWorkflowLint(`{"tool_name":"Agent","tool_input":{}}`)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	if out != "" || errb != "" {
@@ -44,7 +46,7 @@ func TestWorkflowLintInlineUnpinnedFillsModel(t *testing.T) {
 	script := "// comment\n// comment2\nagent('x', { label: 'l' });\n"
 	payload := wfLintPayload(t, map[string]any{"script": script, "args": map[string]any{"k": 1}})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed (stderr=%q)", code, errb)
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
@@ -80,7 +82,7 @@ func TestWorkflowLintInlineFullyPinnedProceedsSilently(t *testing.T) {
 	script := "agent('x', { model: 'sonnet' });\n"
 	payload := wfLintPayload(t, map[string]any{"script": script})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	if out != "" || errb != "" {
@@ -92,7 +94,7 @@ func TestWorkflowLintInlineAmbiguousOptionsBlocks(t *testing.T) {
 	script := "const opts = { model: 'sonnet' };\nagent('x', opts);\n"
 	payload := wfLintPayload(t, map[string]any{"script": script})
 	code, _, errb := runWorkflowLint(payload)
-	if code != ExitBlock {
+	if code != core.ExitBlock {
 		t.Fatalf("exit = %d, want ExitBlock (stderr=%q)", code, errb)
 	}
 	if !strings.Contains(errb, "ambiguous") || !strings.Contains(errb, "line") {
@@ -104,7 +106,7 @@ func TestWorkflowLintInlineBadModelValueBlocks(t *testing.T) {
 	script := "agent('x', { model: 'gpt-5' });\n"
 	payload := wfLintPayload(t, map[string]any{"script": script})
 	code, _, errb := runWorkflowLint(payload)
-	if code != ExitBlock {
+	if code != core.ExitBlock {
 		t.Fatalf("exit = %d, want ExitBlock (stderr=%q)", code, errb)
 	}
 	if !strings.Contains(errb, "gpt-5") {
@@ -119,7 +121,7 @@ func TestWorkflowLintInlineStringMentionNotMiscounted(t *testing.T) {
 		"agent('x', { model: 'sonnet' });\n"
 	payload := wfLintPayload(t, map[string]any{"script": script})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed (stderr=%q)", code, errb)
 	}
 	if out != "" {
@@ -134,7 +136,7 @@ func TestWorkflowLintSavedUnpinnedBlocksAndNamesFile(t *testing.T) {
 	}
 	payload := wfLintPayload(t, map[string]any{"scriptPath": path})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitBlock {
+	if code != core.ExitBlock {
 		t.Fatalf("exit = %d, want ExitBlock (stderr=%q)", code, errb)
 	}
 	if out != "" {
@@ -158,7 +160,7 @@ func TestWorkflowLintSavedUnderSkillsScriptsBlocksAndNamesFile(t *testing.T) {
 	}
 	payload := wfLintPayload(t, map[string]any{"scriptPath": path})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitBlock {
+	if code != core.ExitBlock {
 		t.Fatalf("exit = %d, want ExitBlock (stderr=%q)", code, errb)
 	}
 	if out != "" {
@@ -176,7 +178,7 @@ func TestWorkflowLintSavedMissingEffortOnlyProceeds(t *testing.T) {
 	}
 	payload := wfLintPayload(t, map[string]any{"scriptPath": path})
 	code, _, errb := runWorkflowLint(payload)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed — a missing effort: is a `workflow lint` concern, not this hook's (stderr=%q)", code, errb)
 	}
 }
@@ -185,7 +187,7 @@ func TestWorkflowLintSavedMissingOnDiskProceeds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "does-not-exist.js")
 	payload := wfLintPayload(t, map[string]any{"scriptPath": path})
 	code, _, _ := runWorkflowLint(payload)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed — fail open, the hook cannot rewrite a file anyway", code)
 	}
 }
@@ -194,7 +196,7 @@ func TestWorkflowLintByNameUnknownProceeds(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // empty config dir — gate-loop.js does not exist here
 	payload := wfLintPayload(t, map[string]any{"name": "gate-loop", "args": map[string]any{}})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	if out != "" || errb != "" {
@@ -243,7 +245,7 @@ func TestWorkflowLintByNameInlinesScript(t *testing.T) {
 	path := wfLintWriteGateLoop(t, "agent('x', { model: 'sonnet' });\n")
 	payload := wfLintPayload(t, map[string]any{"name": "gate-loop", "args": map[string]any{"k": 1}})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed (stderr=%q)", code, errb)
 	}
 	doc := decodeWfLintInline(t, out)
@@ -279,7 +281,7 @@ func TestWorkflowLintByNameResolvedFileUnpinnedBlocksAndNamesFile(t *testing.T) 
 	}
 	payload := wfLintPayload(t, map[string]any{"name": "gate-loop"})
 	code, out, errb := runWorkflowLint(payload)
-	if code != ExitBlock {
+	if code != core.ExitBlock {
 		t.Fatalf("exit = %d, want ExitBlock (stderr=%q)", code, errb)
 	}
 	if out != "" {
@@ -294,7 +296,7 @@ func TestWorkflowLintByNameResolvedFileUnpinnedBlocksAndNamesFile(t *testing.T) 
 func TestAgentEffortRegistryDispatches(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code := RunArgs("PreToolUse", []string{"--dispatch-effort"}, strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
-	if code != ExitProceed {
+	if code != core.ExitProceed {
 		t.Fatalf("RunArgs(PreToolUse, --dispatch-effort) on an Agent payload = %d, want ExitProceed", code)
 	}
 }
@@ -312,8 +314,8 @@ func TestWorkflowLintAutoModeByNameUnderCwdBlocksWithScriptPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := fmt.Sprintf(`{"tool_name":"Workflow","permission_mode":"auto","cwd":%q,"tool_input":{"name":"gate-loop"}}`, dir)
-	res := agentEffortResult(ParseInput(strings.NewReader(in)))
-	if res.Decision != Block || !strings.Contains(res.Reason, "scriptPath: "+fmt.Sprintf("%q", path)) {
+	res := agentEffortResult(core.ParseInput(strings.NewReader(in)))
+	if res.Decision != core.Block || !strings.Contains(res.Reason, "scriptPath: "+fmt.Sprintf("%q", path)) {
 		t.Errorf("result = %+v, want a Block naming scriptPath %s", res, path)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -23,7 +24,7 @@ const codexRouteWireModel = "databricks-gpt-6-astra"
 func setupCodexRoute(t *testing.T) string {
 	t.Helper()
 	root := vaulttest.Use(t)
-	t.Setenv(settings.AgentEnv, AgentCodex)
+	t.Setenv(settings.AgentEnv, core.AgentCodex)
 	t.Setenv(settings.CodexProfileEnv, "probe")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}},"routing":{"cells":{"codex":{"sonnet":{"model":"gpt-6-astra","effort":"high"}}}}}`)
 	catalog := filepath.Join(root, "catalog.json")
@@ -46,7 +47,7 @@ func runCodexRoute(t *testing.T, payload any) map[string]any {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer
-	if code := runDirect("codex-agent-route", bytes.NewReader(body), &out, &stderr); code != ExitProceed {
+	if code := runDirect("codex-agent-route", bytes.NewReader(body), &out, &stderr); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want proceed", code)
 	}
 	if stderr.Len() != 0 {
@@ -108,7 +109,7 @@ func codexIneligibleSpawnCases() []codexIneligibleCase {
 		{"custom role", func(_ *testing.T, _, a map[string]any, _ string) { a["agent_type"] = "explorer" }},
 		{"blank task", func(_ *testing.T, _, a map[string]any, _ string) { a["message"] = "  " }},
 		{"wrong tool", func(_ *testing.T, p, _ map[string]any, _ string) { p["tool_name"] = "send_message" }},
-		{"wrong vendor", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.AgentEnv, AgentClaude) }},
+		{"wrong vendor", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.AgentEnv, core.AgentClaude) }},
 		{"unknown profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexProfileEnv, "missing") }},
 		{"non Databricks profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexProfileEnv, "openai") }},
 		{"unsupported parent", func(_ *testing.T, p, _ map[string]any, _ string) { p["model"] = "databricks-claude-sonnet-5-5" }},
@@ -154,7 +155,7 @@ func TestCodexAgentRouteMalformedInputFailsOpen(t *testing.T) {
 	setupCodexRoute(t)
 	for _, body := range []string{"", "not-json", "{}", `{"tool_name":"spawn_agent","tool_input":null}`} {
 		var out, stderr bytes.Buffer
-		if code := runDirect("codex-agent-route", strings.NewReader(body), &out, &stderr); code != ExitProceed || out.Len() != 0 {
+		if code := runDirect("codex-agent-route", strings.NewReader(body), &out, &stderr); code != core.ExitProceed || out.Len() != 0 {
 			t.Errorf("input %q: exit %d, output %q", body, code, &out)
 		}
 	}
@@ -172,7 +173,7 @@ func mustCodexJSON(t *testing.T, value any) []byte {
 // TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer pins: unstamped lines read, new lines carry schema 1, schema-2 lines are skipped.
 func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(settings.AgentEnv, AgentCodex)
+	t.Setenv(settings.AgentEnv, core.AgentCodex)
 	path := filepath.Join(paths.StateDir(), "codex", fmt.Sprintf("routing-%x.jsonl", sha256.Sum256([]byte("native-session"))))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
@@ -213,11 +214,11 @@ func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
 	body := mustCodexJSON(t, codexRoutePayload(args))
 
 	var directOut, directErr bytes.Buffer
-	if code := runDirect("codex-agent-route", bytes.NewReader(body), &directOut, &directErr); code != ExitProceed {
+	if code := runDirect("codex-agent-route", bytes.NewReader(body), &directOut, &directErr); code != core.ExitProceed {
 		t.Fatalf("direct exit = %d", code)
 	}
 	var runOut, runErr bytes.Buffer
-	if code := RunArgs("PreToolUse", []string{"--codex-agent-route"}, bytes.NewReader(body), &runOut, &runErr); code != ExitProceed {
+	if code := RunArgs("PreToolUse", []string{"--codex-agent-route"}, bytes.NewReader(body), &runOut, &runErr); code != core.ExitProceed {
 		t.Fatalf("Run exit = %d (stderr %s)", code, &runErr)
 	}
 	if runOut.String() != directOut.String() {

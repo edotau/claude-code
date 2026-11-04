@@ -5,30 +5,31 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
 // nativeCodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
-func nativeCodexAgentRoute(in *Input) Result {
-	if in.Agent() != AgentCodex || !codexSpawnTool(in.ToolName) || !codexFreshSpawn(in) {
-		return Result{}
+func nativeCodexAgentRoute(in *core.Input) core.Result {
+	if in.Agent() != core.AgentCodex || !codexSpawnTool(in.ToolName) || !codexFreshSpawn(in) {
+		return core.Result{}
 	}
-	updated := in.cloneToolInput()
-	task := strings.TrimSpace(in.nested("tool_input", "message"))
+	updated := in.CloneToolInput()
+	task := strings.TrimSpace(in.Nested("tool_input", "message"))
 	if updated == nil || task == "" || codexSpawnPinned(in) {
-		return Result{}
+		return core.Result{}
 	}
 	cell, signal, ok := codexSpawnCell(in, task)
 	if !ok {
-		return Result{}
+		return core.Result{}
 	}
 	updated["model"] = cell.Model
 	if cell.Effort != "" {
 		updated["reasoning_effort"] = cell.Effort
 	}
-	res := codexRecorded(in, codexRouteRecord{Event: "decision", ToolUseID: in.nested("tool_use_id"),
+	res := codexRecorded(in, codexRouteRecord{Event: "decision", ToolUseID: in.Nested("tool_use_id"),
 		RequestedModel: cell.Model, Effort: cell.Effort, Signal: signal})
 	res.UpdatedInput = updated
 	return res
@@ -37,7 +38,7 @@ func nativeCodexAgentRoute(in *Input) Result {
 func codexSpawnTool(name string) bool { return strings.HasSuffix(name, "spawn_agent") }
 
 // Only an explicit fresh-history request permits Codex model/effort overrides.
-func codexFreshSpawn(in *Input) bool {
+func codexFreshSpawn(in *core.Input) bool {
 	args := in.ToolInput()
 	if fork, ok := args["fork_turns"]; ok {
 		return fork == "none"
@@ -46,13 +47,13 @@ func codexFreshSpawn(in *Input) bool {
 	return ok && !fork
 }
 
-func codexSpawnPinned(in *Input) bool {
+func codexSpawnPinned(in *core.Input) bool {
 	for _, key := range []string{"model", "reasoning_effort"} {
 		if value, present := in.ToolInput()[key]; present && value != nil && value != "" {
 			return true
 		}
 	}
-	role := in.nested("tool_input", "agent_type")
+	role := in.Nested("tool_input", "agent_type")
 	if role != "" && role != "default" {
 		return true
 	}
@@ -60,13 +61,13 @@ func codexSpawnPinned(in *Input) bool {
 	return rec.Model != "" || rec.Effort != ""
 }
 
-func codexSpawnCell(in *Input, task string) (router.Cell, string, bool) {
+func codexSpawnCell(in *core.Input, task string) (router.Cell, string, bool) {
 	reg, err := providers.Load()
 	if err != nil {
 		return router.Cell{}, "", false
 	}
 	p := reg.Providers[os.Getenv(settings.CodexProfileEnv)]
-	if p == nil || p.Preset != providers.PresetDatabricks || !providers.ServesResponses(p, in.nested("model")) {
+	if p == nil || p.Preset != providers.PresetDatabricks || !providers.ServesResponses(p, in.Nested("model")) {
 		return router.Cell{}, "", false
 	}
 	table, err := router.LoadFrom(reg, "")

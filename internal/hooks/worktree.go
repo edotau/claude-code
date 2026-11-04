@@ -13,39 +13,40 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/clean"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // worktreeCreate replaces Claude Code's `.claude/worktrees/<name>` with <root>/<repo>/<name>; stdout is the path.
 // Unlike other hooks it fails CLOSED: a non-zero exit is the only way to report a worktree that was not made.
-func worktreeCreate(in *Input) Result {
+func worktreeCreate(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	// The live payload carries only `name`; the documented worktree_path/branch are honored if they ever appear.
-	name := in.nested("name")
+	name := in.Nested("name")
 	if name == "" {
-		name = filepath.Base(filepath.Clean(in.nested("worktree_path")))
+		name = filepath.Base(filepath.Clean(in.Nested("worktree_path")))
 	}
 	repo, err := worktree.ResolveRepo(in.CWD)
 	if err != nil {
 		fmt.Fprintf(&stderr, "worktree-create: %v\n", err)
-		return exitResult(1, stderr.String())
+		return core.ExitResult(1, stderr.String())
 	}
 	dest, err := worktree.Create(repo, name, worktree.CreateOptions{
-		Branch: in.nested("branch"), Session: in.SessionID, Log: &stderr,
+		Branch: in.Nested("branch"), Session: in.SessionID, Log: &stderr,
 	})
 	if err != nil {
 		fmt.Fprintf(&stderr, "worktree-create: %v\n", err)
-		return exitResult(1, stderr.String())
+		return core.ExitResult(1, stderr.String())
 	}
-	res := exitResult(ExitProceed, stderr.String())
+	res := core.ExitResult(core.ExitProceed, stderr.String())
 	res.Stdout = strings.TrimSpace(dest)
 	return res
 }
 
 // worktreeRemove removes a hook-created worktree; no --force, so a dirty tree stays and the removal reports failure.
-func worktreeRemove(in *Input, stderr io.Writer) int {
-	path := in.nested("worktree_path")
+func worktreeRemove(in *core.Input, stderr io.Writer) int {
+	path := in.Nested("worktree_path")
 	if path == "" {
 		fmt.Fprintln(stderr, "worktree-remove: payload has no worktree_path")
 		return 1
@@ -57,7 +58,7 @@ func worktreeRemove(in *Input, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "worktree-remove: %s\n", reason)
 		return 1
 	}
-	ctx, cancel := hookContext("worktree-remove")
+	ctx, cancel := core.HookContext("worktree-remove")
 	defer cancel()
 	main := paths.MainCheckout(path)
 	branch, err := exec.CommandContext(ctx, "git", "-C", path, "branch", "--show-current").Output()
@@ -81,7 +82,7 @@ func worktreeRemove(in *Input, stderr io.Writer) int {
 	}); err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: warning: ledger: %v\n", err)
 	}
-	return ExitProceed
+	return core.ExitProceed
 }
 
 // worktreeModeEnv selects the mode: off|false|0 never asks; unset or anything else asks (session start, new peer).
@@ -102,35 +103,35 @@ func worktreeModeOff() bool {
 }
 
 // worktreeMode runs on SessionStart: the ask line on a fresh start only (not resume/clear/compact), unless the mode is off.
-func worktreeMode(in *Input) Result {
+func worktreeMode(in *core.Input) core.Result {
 	if worktreeModeOff() || (in.Source != "" && in.Source != "startup") {
-		return Result{}
+		return core.Result{}
 	}
-	return Result{Context: worktreeAskLine}
+	return core.Result{Context: worktreeAskLine}
 }
 
 // nestedConfigSweep runs on SessionStart: removes the nested settings.local.json; a failure is a stderr note only.
-func nestedConfigSweep(*Input) Result {
+func nestedConfigSweep(*core.Input) core.Result {
 	if _, err := clean.SweepNestedLocal(); err != nil {
-		return Result{Stderr: "nested-config-sweep: " + err.Error()}
+		return core.Result{Stderr: "nested-config-sweep: " + err.Error()}
 	}
-	return Result{}
+	return core.Result{}
 }
 
 // worktreeBusy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.
-func worktreeBusy(in *Input) Result {
-	ctx, cancel := hookContext("worktree-busy")
+func worktreeBusy(in *core.Input) core.Result {
+	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
 	busy := ""
 	if !worktreeModeOff() {
 		busy = busyLine(ctx, in)
 	}
 	notes, warn := noticeContext(ctx, in)
-	return Result{Context: joinContext(busy, notes), Stderr: warn}
+	return core.Result{Context: core.JoinContext(busy, notes), Stderr: warn}
 }
 
 // busyLine returns the busy line for the peers sharing in.CWD's checkout; "" on no peers, an error, or no change.
-func busyLine(ctx context.Context, in *Input) string {
+func busyLine(ctx context.Context, in *core.Input) string {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
