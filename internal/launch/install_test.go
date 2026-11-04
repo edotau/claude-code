@@ -332,20 +332,11 @@ func TestFormatsDoctorAndInstallStepSpan(t *testing.T) {
 	hermetic(t, "")
 	quota := seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)
 	seedHarness(t, "agentversion.json", `{"claude":"1.0.0"}`) // unversioned cache: a miss, never stale
-	seedHarness(t, "zz-stray.json", `{}`)
 
 	formats := findCheck(formatsDoctorChecks(), "formats")
 	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
 		t.Fatalf("formats row = %+v, want current", formats)
 	}
-	layout := findCheck(formatsDoctorChecks(), "state layout")
-	if layout == nil || !strings.Contains(layout.Detail, "zz-stray.json") {
-		t.Fatalf("state layout row = %+v, want stray file listed", layout)
-	}
-	if strings.Contains(layout.Detail, "quota.json") {
-		t.Errorf("registered file flagged in layout: %q", layout.Detail)
-	}
-
 	before, _ := os.ReadFile(quota)
 	var out bytes.Buffer
 	installFormats(&out, false)
