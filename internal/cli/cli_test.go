@@ -171,7 +171,7 @@ func TestHelpFormat(t *testing.T) {
 	}
 	hidden := []string{
 		"ask", "agents", "models", "review", "workflow", "hook",
-		"help-svg", "clip", "completion",
+		"help-svg", "clip", "completion", "dispatch", "plan", "test",
 	}
 	var verbs []string
 	for _, c := range commands() {
