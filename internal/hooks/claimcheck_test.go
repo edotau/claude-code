@@ -107,6 +107,19 @@ func TestClaimCheckBashEditClaimedByAdd(t *testing.T) {
 	}
 }
 
+// The commit ask sizes the sweep: every staged file it takes, and how many of those a peer claims.
+func TestClaimCheckCommitAskCountsWholeStage(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	writeRel(t, repo, "c.txt", "unclaimed\n")
+	writeRel(t, repo, "d.txt", "unclaimed\n")
+	gitIn(t, repo, "add", "a.txt", "c.txt", "d.txt")
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x"})
+	if r.Decision != Ask || !strings.Contains(r.Reason, "takes 3 file(s), 1 of them") {
+		t.Fatalf("bare commit of 3 staged, 1 claimed: %v %q; want the ask to count 3 and 1", r.Decision, r.Reason)
+	}
+}
+
 // TestClaimCheckCommitAskNamesSafeForm: add-then-bare-commit over a peer's staged file asks, naming `git commit --`.
 func TestClaimCheckCommitAskNamesSafeForm(t *testing.T) {
 	repo := claimFixture(t)
