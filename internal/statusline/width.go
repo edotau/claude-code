@@ -16,11 +16,19 @@ var termWidth = ancestorTTYWidth
 // termWidthTTL lets a resize show within seconds while sparing a process walk per render.
 const termWidthTTL = 5 * time.Second
 
-// lineWidth is config "width", else $COLUMNS, else the nearest ancestor terminal's width, else 0 (no clip).
+// ccMargin is the columns Claude Code keeps around the statusline (2-cell indent + 2 at the right: 81 of 85 cols shown).
+const ccMargin = 4
+
+// lineWidth is config "width", else $COLUMNS or the nearest ancestor terminal's width less ccMargin, else 0 (no clip).
 func lineWidth(cfg Config) int {
 	if cfg.Width > 0 {
 		return cfg.Width
 	}
+	return max(termColumns()-ccMargin, 0)
+}
+
+// termColumns is $COLUMNS, else the nearest ancestor terminal's width (cached), else 0.
+func termColumns() int {
 	if n := ansi.Columns(0); n > 0 {
 		return n
 	}
