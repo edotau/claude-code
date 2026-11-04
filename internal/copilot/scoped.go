@@ -1,12 +1,18 @@
 package copilot
 
 import (
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/shellscope"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
 
-const scopedFeedback = "This run is scoped: file reads, URL fetches, writes inside the workdir (not .git, .env*, state/, keys), go test|vet|build|fmt|list|mod tidy, gofmt, goimports, make lint|fmt|test|build, read-only git, git add <paths>, git commit (no --amend, --no-verify), ls cat head tail wc grep rg find and claude-code test mutate are allowed. Anything else (push, reset, rm, curl, mcp, memory) is refused: report it instead."
+// scopedFeedback is the refusal text naming what the --tools tier allows, generated from the copilot shell policy.
+func scopedFeedback() string {
+	return "This run is scoped: file reads, URL fetches, writes inside the workdir (not .git, .env*, state/, keys), " +
+		agentconfig.ShellPolicy().Commands.Summary() +
+		" are allowed. Anything else (push, reset, rm, curl, mcp, memory) is refused: report it instead."
+}
 
 // approveScoped is the --tools tier: reads, workdir-confined writes and an allowlisted shell; the rest is rejected.
 func approveScoped(workDir string) copilot.PermissionHandlerFunc {
@@ -14,7 +20,7 @@ func approveScoped(workDir string) copilot.PermissionHandlerFunc {
 		if scopedAllowed(req, workDir) {
 			return approveToolOnce(req, inv)
 		}
-		feedback := scopedFeedback
+		feedback := scopedFeedback()
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}
 }

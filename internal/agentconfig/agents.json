@@ -16,7 +16,55 @@
     },
     "copilot": {
       "permission": {
-        "defaultPermissionMode": "allow-all"
+        "defaultPermissionMode": "allow-all",
+        "shell": {
+          "commands": [
+            {
+              "commands": ["go"],
+              "subcommands": ["test", "vet", "build", "fmt", "list"],
+              "exact": ["mod tidy"],
+              "bannedFlags": ["-exec", "-toolexec", "-vettool", "-overlay"],
+              "argsInside": true
+            },
+            {"commands": ["gofmt"], "argsInside": true},
+            {"commands": ["goimports"], "argsInside": true},
+            {"commands": ["make"], "targets": ["lint", "fmt", "test", "build"]},
+            {
+              "commands": ["git"],
+              "check": "scopedGit",
+              "summary": "read-only git, git add <paths>, git commit (no --amend, --no-verify)",
+              "cliAllow": [
+                "git status", "git diff", "git log", "git show", "git blame", "git rev-parse", "git branch --list",
+                "git add", "git commit"
+              ]
+            },
+            {
+              "commands": ["ls", "cat", "head", "tail", "wc", "grep", "rg"],
+              "bannedFlags": ["--pre"],
+              "argsInside": true
+            },
+            {
+              "commands": ["find"],
+              "bannedFlags": ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"],
+              "argsInside": true
+            },
+            {"commands": ["claude-code"], "subcommands": ["test mutate"]}
+          ],
+          "hookExtras": [
+            {"commands": ["claude-code"], "subcommands": ["copilot", "worktree merge"]},
+            {
+              "commands": ["claude-code"],
+              "subcommands": ["review"],
+              "check": "noOutputFlag",
+              "summary": "claude-code review (no -o/--output)"
+            }
+          ],
+          "cliDeny": [
+            "git push", "git reset", "git checkout", "git restore", "git stash", "git rebase", "git clean",
+            "git add -A", "git add --all", "git add .", "git commit --amend", "git commit --no-verify",
+            "rm", "sudo", "chmod", "chown", "curl", "wget", "find -delete", "find -exec"
+          ]
+        }
       },
       "launch": {
         "args": [

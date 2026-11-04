@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agentconfig"
 )
 
 // readOnlyGit are the git subcommands a read-only run may shell out to.
@@ -187,41 +189,68 @@ func stderrToStdout(rs []rune, i int) bool {
 	return end <= len(rs) && string(rs[i:end]) == "2>&1" && (end == len(rs) || strings.ContainsRune(" \t;|", rs[end]))
 }
 
-// Command reports whether every segment of cmd passes the allowlist inside one of roots, or extra (which may be nil).
-func Command(cmd string, roots []string, extra func(words []string) bool) bool {
+// Command reports whether every segment of cmd passes the policy's commands, or extra (which may be nil), in a root.
+func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
 	segs, ok := splitShell(cmd)
 	if !ok {
 		return false
 	}
+	rules := agentconfig.ShellPolicy().Commands
 	for _, w := range segs {
-		inRoot := slices.ContainsFunc(roots, func(root string) bool { return scopedSegment(w, root) })
-		if !inRoot && (extra == nil || !extra(w)) {
+		if !slices.ContainsFunc(roots, func(root string) bool { return allows(rules, w, root) || allows(extra, w, root) }) {
 			return false
 		}
 	}
 	return true
 }
 
-func scopedSegment(w []string, workDir string) bool {
-	args := w[1:]
-	switch w[0] {
-	case "go":
-		return len(args) > 0 && (slices.Contains([]string{"test", "vet", "build", "fmt", "list"}, args[0]) ||
-			slices.Equal(args, []string{"mod", "tidy"})) && noFlag(args, "-exec", "-toolexec", "-vettool", "-overlay") && argsInside(args, workDir)
-	case "gofmt", "goimports":
-		return argsInside(args, workDir)
-	case "make":
-		return len(args) > 0 && !slices.ContainsFunc(args, func(a string) bool { return !slices.Contains([]string{"lint", "fmt", "test", "build"}, a) })
-	case "git":
-		return scopedGit(w, workDir)
-	case "ls", "cat", "head", "tail", "wc", "grep", "rg":
-		return noFlag(args, "--pre") && argsInside(args, workDir)
-	case "find":
-		return noFlag(args, "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls") && argsInside(args, workDir)
-	case "claude-code":
-		return len(args) >= 2 && args[0] == "test" && args[1] == "mutate"
+// checks are the Go rules a policy entry names by "check"; each gets the args after the matched subcommand.
+var checks = map[string]func(args []string, workDir string) bool{
+	"scopedGit":    func(args []string, workDir string) bool { return scopedGit(append([]string{"git"}, args...), workDir) },
+	"noOutputFlag": func(args []string, _ string) bool { return !outputFlag(args) },
+}
+
+// allows reports whether any rule for w's command admits w inside workDir (an unknown check admits nothing).
+func allows(rules agentconfig.ShellRules, w []string, workDir string) bool {
+	return slices.ContainsFunc(rules, func(r agentconfig.ShellRule) bool {
+		return slices.Contains(r.Commands, w[0]) && ruleAllows(r, w[1:], workDir)
+	})
+}
+
+func ruleAllows(r agentconfig.ShellRule, args []string, workDir string) bool {
+	rest, ok := matchArgs(r, args)
+	if !ok || !noFlag(args, r.BannedFlags...) || r.ArgsInside && !argsInside(args, workDir) {
+		return false
 	}
-	return false
+	if r.Check == "" {
+		return true
+	}
+	check, ok := checks[r.Check]
+	return ok && check(rest, workDir)
+}
+
+// matchArgs matches args against the rule's subcommands, exact forms and targets; rest follows the subcommand.
+func matchArgs(r agentconfig.ShellRule, args []string) ([]string, bool) {
+	if len(r.Targets) > 0 {
+		return nil, len(args) > 0 && !slices.ContainsFunc(args, func(a string) bool { return !slices.Contains(r.Targets, a) })
+	}
+	if len(r.Subcommands) == 0 && len(r.Exact) == 0 {
+		return args, true
+	}
+	for _, s := range r.Subcommands {
+		if sub := strings.Fields(s); len(args) >= len(sub) && slices.Equal(args[:len(sub)], sub) {
+			return args[len(sub):], true
+		}
+	}
+	return nil, slices.ContainsFunc(r.Exact, func(e string) bool { return slices.Equal(args, strings.Fields(e)) })
+}
+
+// outputFlag reports a -o/--output flag in any dash count or =value form.
+func outputFlag(args []string) bool {
+	return slices.ContainsFunc(args, func(a string) bool {
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		return strings.HasPrefix(a, "-") && (name == "o" || name == "output")
+	})
 }
 
 // noFlag reports whether no arg is (or starts with, for a =value form) one of the banned flags.
