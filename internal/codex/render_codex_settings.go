@@ -97,8 +97,7 @@ func ReadCodexSettings(home string) (map[string]string, error) {
 }
 
 func readCodexSettings(raw string) (map[string]string, error) {
-	values := map[string]string{}
-	pendingKey, pending := "", ""
+	scan := &codexScan{values: map[string]string{}}
 	lines := strings.SplitAfter(raw, "\n")
 	if index := agentconfig.FirstTopLevelHeaderIndex(lines); index >= 0 {
 		lines = lines[:index]
@@ -106,29 +105,54 @@ func readCodexSettings(raw string) (map[string]string, error) {
 	multiline, depth := "", 0
 	for _, line := range lines {
 		if multiline == "" && depth == 0 {
-			if key, value, ok := codexFieldLine(line); ok {
-				parsed, err := codexSettingString(value)
-				if errors.Is(err, errOpenString) {
-					pendingKey, pending = key, value
-				} else if err != nil {
-					return nil, fmt.Errorf("codex: cannot read %s as a string", key)
-				} else {
-					values[key] = parsed
-				}
+			if err := scan.field(line); err != nil {
+				return nil, err
 			}
-		} else if pendingKey != "" {
-			pending += line
+		} else if scan.pendingKey != "" {
+			scan.pending += line
 		}
 		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
-		if pendingKey != "" && multiline == "" {
-			parsed, err := codexSettingString(pending)
-			if err != nil {
-				return nil, fmt.Errorf("codex: cannot read %s as a string", pendingKey)
+		if scan.pendingKey != "" && multiline == "" {
+			if err := scan.finish(); err != nil {
+				return nil, err
 			}
-			values[pendingKey], pendingKey = parsed, ""
 		}
 	}
-	return values, nil
+	return scan.values, nil
+}
+
+// codexScan collects string preferences; pendingKey/pending hold a multiline string still being read.
+type codexScan struct {
+	values              map[string]string
+	pendingKey, pending string
+}
+
+// field records a top-level "key = value" line, or starts a pending multiline string.
+func (c *codexScan) field(line string) error {
+	key, value, ok := codexFieldLine(line)
+	if !ok {
+		return nil
+	}
+	parsed, err := codexSettingString(value)
+	switch {
+	case errors.Is(err, errOpenString):
+		c.pendingKey, c.pending = key, value
+	case err != nil:
+		return fmt.Errorf("codex: cannot read %s as a string", key)
+	default:
+		c.values[key] = parsed
+	}
+	return nil
+}
+
+// finish parses the completed multiline string.
+func (c *codexScan) finish() error {
+	parsed, err := codexSettingString(c.pending)
+	if err != nil {
+		return fmt.Errorf("codex: cannot read %s as a string", c.pendingKey)
+	}
+	c.values[c.pendingKey], c.pendingKey = parsed, ""
+	return nil
 }
 
 // codexFieldLine splits a "key = value" line whose key is a supported preference.
@@ -168,32 +192,43 @@ func codexTripleString(value string) (parsed, rest string, err error) {
 
 func codexSettingString(value string) (string, error) {
 	var parsed, rest string
-	if strings.HasPrefix(value, "\"\"\"") || strings.HasPrefix(value, "'''") {
-		var err error
-		if parsed, rest, err = codexTripleString(value); err != nil {
-			return "", err
-		}
-	} else if strings.HasPrefix(value, "'") {
-		end := strings.IndexByte(value[1:], '\'')
-		if end < 0 {
-			return "", errors.New("unterminated literal string")
-		}
-		parsed, rest = value[1:end+1], value[end+2:]
-	} else {
-		quoted, err := strconv.QuotedPrefix(value)
-		if err != nil || !strings.HasPrefix(quoted, "\"") {
-			return "", errors.New("expected quoted string")
-		}
-		parsed, err = strconv.Unquote(quoted)
-		if err != nil {
-			return "", err
-		}
-		rest = value[len(quoted):]
+	var err error
+	switch {
+	case strings.HasPrefix(value, "\"\"\"") || strings.HasPrefix(value, "'''"):
+		parsed, rest, err = codexTripleString(value)
+	case strings.HasPrefix(value, "'"):
+		parsed, rest, err = codexLiteralString(value)
+	default:
+		parsed, rest, err = codexBasicString(value)
+	}
+	if err != nil {
+		return "", err
 	}
 	if rest = strings.TrimSpace(rest); rest != "" && !strings.HasPrefix(rest, "#") {
 		return "", errors.New("unexpected text after string")
 	}
 	return parsed, nil
+}
+
+// codexLiteralString parses a single-quoted TOML literal string at the start of value.
+func codexLiteralString(value string) (parsed, rest string, err error) {
+	end := strings.IndexByte(value[1:], '\'')
+	if end < 0 {
+		return "", "", errors.New("unterminated literal string")
+	}
+	return value[1 : end+1], value[end+2:], nil
+}
+
+// codexBasicString parses a double-quoted TOML string at the start of value.
+func codexBasicString(value string) (parsed, rest string, err error) {
+	quoted, err := strconv.QuotedPrefix(value)
+	if err != nil || !strings.HasPrefix(quoted, "\"") {
+		return "", "", errors.New("expected quoted string")
+	}
+	if parsed, err = strconv.Unquote(quoted); err != nil {
+		return "", "", err
+	}
+	return parsed, value[len(quoted):], nil
 }
 
 // CodexSettingsDrift includes stale managed keys whose override was removed from the vault.
@@ -285,23 +320,7 @@ func writeCodexConfigLocked(path string, old, next []byte, existed bool) error {
 	if err != nil {
 		return err
 	}
-	check := func() error {
-		current, err := os.ReadFile(path)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if (err == nil) != existed || !bytes.Equal(current, old) {
-			return errors.New("codex: config changed before write; retry to preserve the newer settings")
-		}
-		now, err := codexWriteTarget(path)
-		if err != nil {
-			return err
-		}
-		if now != target {
-			return errors.New("codex: config symlink changed before write; retry")
-		}
-		return nil
-	}
+	check := func() error { return checkCodexUnchanged(path, target, old, existed) }
 	if err := check(); err != nil {
 		return err
 	}
@@ -312,6 +331,25 @@ func writeCodexConfigLocked(path string, old, next []byte, existed bool) error {
 		return err
 	}
 	return paths.AtomicWrite(target, next, 0o600)
+}
+
+// checkCodexUnchanged fails when the config's content or symlink target moved since it was read.
+func checkCodexUnchanged(path, target string, old []byte, existed bool) error {
+	current, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if (err == nil) != existed || !bytes.Equal(current, old) {
+		return errors.New("codex: config changed before write; retry to preserve the newer settings")
+	}
+	now, err := codexWriteTarget(path)
+	if err != nil {
+		return err
+	}
+	if now != target {
+		return errors.New("codex: config symlink changed before write; retry")
+	}
+	return nil
 }
 
 func restoreCodexConfig(path string, dryRun bool, out io.Writer) error {

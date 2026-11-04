@@ -162,45 +162,66 @@ func (p *aliasPlan) foldFiles(src, tgt memstore.RepoEntry, res *AliasResult) err
 			return err
 		}
 		p.changes = append(p.changes, bank.Change{Rel: p.rel(src.Dir, rel), Delete: true})
-		dst := filepath.Join(tgt.Dir, rel)
-		cur, rerr := os.ReadFile(dst)
-		have := rerr == nil
-		switch {
-		// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-		case rel == memstore.LegacyOriginFile || rel == bank.BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate":
-			return nil // identity, generated index and lock files do not travel
-		case rel == bank.NativeIndexFile:
-			merged, n, err := mergeNativeIndex(string(cur), string(data))
-			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
-			}
-			if n > 0 {
-				p.addWrite(tgt.Dir, rel, []byte(merged), res, fmt.Sprintf("%s: append %d pointer line(s)", rel, n))
-			}
-		case appendOnly[rel] && have:
-			merged, n := mergeLog(rel, string(cur), string(data))
-			if n > 0 {
-				p.addWrite(tgt.Dir, rel, []byte(merged), res, fmt.Sprintf("%s: merge %d entr(ies)", rel, n))
-			}
-		case replaceFiles[rel] && have:
-			if bytes.Equal(cur, data) {
-				return nil
-			}
-			name := "merged-" + src.Key + "-" + rel
-			arch := filepath.Join(memstore.ArchiveDir(tgt.Dir), name)
-			if old, err := os.ReadFile(arch); err == nil && !bytes.Equal(old, data) {
-				return fmt.Errorf("%s exists with different bytes; refusing", arch)
-			}
-			p.addWrite(memstore.ArchiveDir(tgt.Dir), name, data, res, fmt.Sprintf("%s: target wins; source kept at archive/%s", rel, name))
-		case have && bytes.Equal(cur, data):
-			// identical: nothing to copy
-		case have:
-			return fmt.Errorf("%s exists with different bytes; refusing to overwrite", dst)
-		default:
-			p.addWrite(tgt.Dir, rel, data, res, "copy "+rel)
-		}
-		return nil
+		return p.foldOne(path, rel, data, src, tgt, res)
 	})
+}
+
+// foldSkips reports the identity, generated index and lock files, which do not travel.
+// Migration: remove the legacy-origin match after 2026-11-17 once every machine has run a post-2026-10-20 build.
+func foldSkips(rel string) bool {
+	return rel == memstore.LegacyOriginFile || rel == bank.BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
+}
+
+// foldOne plans one source file against its target counterpart.
+func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt memstore.RepoEntry, res *AliasResult) error {
+	if foldSkips(rel) {
+		return nil
+	}
+	dst := filepath.Join(tgt.Dir, rel)
+	cur, rerr := os.ReadFile(dst)
+	if rel == bank.NativeIndexFile {
+		return p.foldNativeIndex(path, rel, string(cur), string(data), tgt, res)
+	}
+	if rerr != nil {
+		p.addWrite(tgt.Dir, rel, data, res, "copy "+rel)
+		return nil
+	}
+	switch {
+	case appendOnly[rel]:
+		merged, n := mergeLog(rel, string(cur), string(data))
+		if n > 0 {
+			p.addWrite(tgt.Dir, rel, []byte(merged), res, fmt.Sprintf("%s: merge %d entr(ies)", rel, n))
+		}
+	case replaceFiles[rel]:
+		return p.foldReplace(rel, cur, data, src, tgt, res)
+	case !bytes.Equal(cur, data):
+		return fmt.Errorf("%s exists with different bytes; refusing to overwrite", dst)
+	}
+	return nil
+}
+
+func (p *aliasPlan) foldNativeIndex(path, rel, cur, data string, tgt memstore.RepoEntry, res *AliasResult) error {
+	merged, n, err := mergeNativeIndex(cur, data)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if n > 0 {
+		p.addWrite(tgt.Dir, rel, []byte(merged), res, fmt.Sprintf("%s: append %d pointer line(s)", rel, n))
+	}
+	return nil
+}
+
+func (p *aliasPlan) foldReplace(rel string, cur, data []byte, src, tgt memstore.RepoEntry, res *AliasResult) error {
+	if bytes.Equal(cur, data) {
+		return nil
+	}
+	name := "merged-" + src.Key + "-" + rel
+	arch := filepath.Join(memstore.ArchiveDir(tgt.Dir), name)
+	if old, err := os.ReadFile(arch); err == nil && !bytes.Equal(old, data) {
+		return fmt.Errorf("%s exists with different bytes; refusing", arch)
+	}
+	p.addWrite(memstore.ArchiveDir(tgt.Dir), name, data, res, fmt.Sprintf("%s: target wins; source kept at archive/%s", rel, name))
+	return nil
 }
 
 // mergeNativeIndex appends the source's pointer lines (outside the generated region) the target lacks.

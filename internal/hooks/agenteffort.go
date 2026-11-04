@@ -54,45 +54,86 @@ func agentEffortResult(in *Input) Result {
 
 	// auto mode's classifier returns no verdict on a rewritten call, so non-functional edits ride additionalContext
 	auto := in.nested("permission_mode") == "auto"
-	recallBlock, _ := agentRecall(in.SessionID, in.CWD, task)
-	changed, recallNote := recallBlock != "", ""
-	if changed && auto {
-		changed, recallNote = false, "memory-recall for this dispatch (paste into the brief if relevant):"+recallBlock
-	} else if changed {
-		updated[promptField] = task + recallBlock
-	}
-
-	note, systemMessage := pinModel(in, updated, task)
-	changed = changed || note != ""
-	profileNote, deny := applyProfile(updated, promptField, task)
-	if deny != nil {
+	e := &effortPlan{updated: updated}
+	recallNote := e.recall(in, promptField, task, auto)
+	e.note, e.systemMessage = pinModel(in, updated, task)
+	e.changed = e.changed || e.note != ""
+	if deny := e.profile(promptField, task); deny != nil {
 		return *deny
 	}
-	if profileNote != "" {
-		note, changed = strings.TrimSpace(note+" "+profileNote), true
-	}
-	if !explicitModel(in) && briefProfile(task) == "" {
-		base, _ := updated["model"].(string)
-		if base == "" {
-			base = rosterModel(in.nested("tool_input", "subagent_type"))
-		}
-		if pn, ps := applyPressure(in, updated, promptField, base); pn != "" {
-			note, systemMessage, changed = strings.TrimSpace(note+" "+pn), strings.TrimSpace(systemMessage+"; "+ps), true
-			systemMessage = strings.TrimPrefix(systemMessage, "; ")
-		}
-	}
+	e.pressure(in, promptField, task)
 	if !auto && applyLabel(updated, task) {
-		changed = true
+		e.changed = true
 	}
+	e.byok(in, task, auto)
+	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
+	return e.result()
+}
+
+// effortPlan accumulates agentEffortResult's rewrite of one spawn: the new tool_input and the notes to surface.
+type effortPlan struct {
+	updated       map[string]any
+	note          string
+	systemMessage string
+	changed       bool
+}
+
+// recall appends the memory-recall block to the prompt, or returns it as a note in auto mode.
+func (e *effortPlan) recall(in *Input, promptField, task string, auto bool) string {
+	recallBlock, _ := agentRecall(in.SessionID, in.CWD, task)
+	if recallBlock == "" {
+		return ""
+	}
+	if auto {
+		return "memory-recall for this dispatch (paste into the brief if relevant):" + recallBlock
+	}
+	e.updated[promptField] = task + recallBlock
+	e.changed = true
+	return ""
+}
+
+// profile applies a brief's Profile: line; a non-nil result denies the dispatch.
+func (e *effortPlan) profile(promptField, task string) *Result {
+	profileNote, deny := applyProfile(e.updated, promptField, task)
+	if deny != nil {
+		return deny
+	}
+	if profileNote != "" {
+		e.note, e.changed = strings.TrimSpace(e.note+" "+profileNote), true
+	}
+	return nil
+}
+
+// pressure downshifts the model under plan pressure unless the dispatch pins one or names a profile.
+func (e *effortPlan) pressure(in *Input, promptField, task string) {
+	if explicitModel(in) || briefProfile(task) != "" {
+		return
+	}
+	base, _ := e.updated["model"].(string)
+	if base == "" {
+		base = rosterModel(in.nested("tool_input", "subagent_type"))
+	}
+	pn, ps := applyPressure(in, e.updated, promptField, base)
+	if pn == "" {
+		return
+	}
+	e.note, e.systemMessage, e.changed = strings.TrimSpace(e.note+" "+pn), strings.TrimSpace(e.systemMessage+"; "+ps), true
+	e.systemMessage = strings.TrimPrefix(e.systemMessage, "; ")
+}
+
+// byok appends the bring-your-own-key hint; outside auto mode it counts as a change.
+func (e *effortPlan) byok(in *Input, task string, auto bool) {
 	if hint := byokHint(in.nested("tool_input", "subagent_type"), task); hint != "" {
-		note, changed = strings.TrimSpace(note+"\n"+hint), changed || !auto
+		e.note, e.changed = strings.TrimSpace(e.note+"\n"+hint), e.changed || !auto
 	}
-	note = strings.TrimSpace(note + "\n" + recallNote)
+}
+
+func (e *effortPlan) result() Result {
 	switch {
-	case changed:
-		return Result{UpdatedInput: updated, Context: note, SystemMessage: systemMessage}
-	case note != "":
-		return Result{Context: note, SystemMessage: systemMessage}
+	case e.changed:
+		return Result{UpdatedInput: e.updated, Context: e.note, SystemMessage: e.systemMessage}
+	case e.note != "":
+		return Result{Context: e.note, SystemMessage: e.systemMessage}
 	}
 	return Result{}
 }

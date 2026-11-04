@@ -173,65 +173,67 @@ func GroupLogicalLines(text string) [][]string {
 	if text == "" {
 		return nil
 	}
-	lines := strings.Split(text, "\n")
-	var groups [][]string
-	inFence, inFrontMatter, inRules := false, false, false
-	contCol := -1 // content column an indent-only continuation must match; -1 = none open
-	open := func(line string) { groups = append(groups, []string{line}) }
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case i == 0 && trimmed == "---":
-			inFrontMatter, contCol = true, -1
-			open(line)
-			continue
-		case inFrontMatter:
-			open(line)
-			if trimmed == "---" {
-				inFrontMatter = false
-			}
-			continue
-		case bankFmtFence.MatchString(line):
-			inFence, contCol = !inFence, -1
-			open(line)
-			continue
-		case inFence:
-			open(line)
-			continue
-		case strings.Contains(line, "RULES:BEGIN"):
-			inRules, contCol = true, -1
-			open(line)
-			continue
-		case inRules:
-			open(line)
-			if strings.Contains(line, "RULES:END") {
-				inRules = false
-			}
-			continue
-		case trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading.MatchString(trimmed) ||
-			bankFmtComment.MatchString(trimmed):
-			contCol = -1
-			open(line)
-			continue
-		}
-		lead := len(line) - len(strings.TrimLeft(line, " "))
-		switch {
-		case bankFmtBullet.MatchString(line):
-			m := bankFmtBullet.FindStringSubmatch(line)
-			contCol = len(m[1]) + len(m[2])
-			open(line)
-		case bankFmtOrdered.MatchString(line):
-			m := bankFmtOrdered.FindStringSubmatch(line)
-			contCol = len(m[1]) + len(m[2])
-			open(line)
-		case contCol >= 0 && lead == contCol:
-			groups[len(groups)-1] = append(groups[len(groups)-1], line) // continuation of the open logical line
-		default:
-			contCol = lead
-			open(line)
+	g := &lineGrouper{contCol: -1}
+	for i, line := range strings.Split(text, "\n") {
+		if !g.special(i, line) {
+			g.content(line)
 		}
 	}
-	return groups
+	return g.groups
+}
+
+// lineGrouper is GroupLogicalLines' state machine; contCol is the content column an indent-only
+// continuation must match (-1 = none open).
+type lineGrouper struct {
+	groups                          [][]string
+	inFence, inFrontMatter, inRules bool
+	contCol                         int
+}
+
+func (g *lineGrouper) open(line string) { g.groups = append(g.groups, []string{line}) }
+
+// special handles fence/front-matter/rules/heading/comment/blank/table lines; false means a content line.
+func (g *lineGrouper) special(i int, line string) bool {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case i == 0 && trimmed == "---":
+		g.inFrontMatter, g.contCol = true, -1
+	case g.inFrontMatter:
+		g.inFrontMatter = trimmed != "---"
+	case bankFmtFence.MatchString(line):
+		g.inFence, g.contCol = !g.inFence, -1
+	case g.inFence:
+	case strings.Contains(line, "RULES:BEGIN"):
+		g.inRules, g.contCol = true, -1
+	case g.inRules:
+		g.inRules = !strings.Contains(line, "RULES:END")
+	case trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading.MatchString(trimmed) ||
+		bankFmtComment.MatchString(trimmed):
+		g.contCol = -1
+	default:
+		return false
+	}
+	g.open(line)
+	return true
+}
+
+// content groups a bullet, ordered or paragraph line, joining it to the open logical line when it continues one.
+func (g *lineGrouper) content(line string) {
+	lead := len(line) - len(strings.TrimLeft(line, " "))
+	m := bankFmtBullet.FindStringSubmatch(line)
+	if m == nil {
+		m = bankFmtOrdered.FindStringSubmatch(line)
+	}
+	switch {
+	case m != nil:
+		g.contCol = len(m[1]) + len(m[2])
+		g.open(line)
+	case g.contCol >= 0 && lead == g.contCol:
+		g.groups[len(g.groups)-1] = append(g.groups[len(g.groups)-1], line) // continuation of the open logical line
+	default:
+		g.contCol = lead
+		g.open(line)
+	}
 }
 
 // LogicalLineCount is len(GroupLogicalLines(text)) — the cap unit every bank line cap counts in: a

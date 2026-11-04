@@ -287,9 +287,8 @@ func previewChanges(w io.Writer, changes []change, headers map[string]string, di
 }
 
 func validateOptions(opts *Options) error {
-	u, err := url.Parse(opts.BaseURL)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("desktop gateway URL must be an absolute HTTP(S) URL without credentials, query, or fragment")
+	if err := validateGatewayURL(opts.BaseURL); err != nil {
+		return err
 	}
 	if !helperAbsolute(opts.HelperPath, opts.HelperWindows) {
 		return errors.New("desktop credential helper must be an absolute path")
@@ -300,23 +299,45 @@ func validateOptions(opts *Options) error {
 	if len(opts.Models) == 0 {
 		return errors.New("desktop requires at least one static model")
 	}
-	seen := map[string]bool{}
-	for _, m := range opts.Models {
-		if strings.TrimSpace(m.Name) == "" || seen[m.Name] {
-			return errors.New("desktop model names must be nonempty and unique")
-		}
-		seen[m.Name] = true
+	if err := validateModels(opts.Models); err != nil {
+		return err
 	}
 	if opts.Headers == nil {
 		opts.Headers = map[string]string{}
 	}
 	for k := range opts.Headers {
-		if strings.TrimSpace(k) == "" || strings.ContainsAny(k, "\r\n") {
-			return errors.New("invalid Desktop custom header name")
+		if err := validateHeaderName(k); err != nil {
+			return err
 		}
-		if strings.EqualFold(k, "authorization") || strings.EqualFold(k, "proxy-authorization") || strings.EqualFold(k, "x-api-key") {
-			return errors.New("authentication headers must come from the Desktop credential helper")
+	}
+	return nil
+}
+
+func validateGatewayURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("desktop gateway URL must be an absolute HTTP(S) URL without credentials, query, or fragment")
+	}
+	return nil
+}
+
+func validateModels(models []Model) error {
+	seen := map[string]bool{}
+	for _, m := range models {
+		if strings.TrimSpace(m.Name) == "" || seen[m.Name] {
+			return errors.New("desktop model names must be nonempty and unique")
 		}
+		seen[m.Name] = true
+	}
+	return nil
+}
+
+func validateHeaderName(k string) error {
+	if strings.TrimSpace(k) == "" || strings.ContainsAny(k, "\r\n") {
+		return errors.New("invalid Desktop custom header name")
+	}
+	if strings.EqualFold(k, "authorization") || strings.EqualFold(k, "proxy-authorization") || strings.EqualFold(k, "x-api-key") {
+		return errors.New("authentication headers must come from the Desktop credential helper")
 	}
 	return nil
 }

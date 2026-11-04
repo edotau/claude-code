@@ -210,31 +210,42 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ph := s.plansHub()
 	pch, pcur := ph.subscribe()
 	defer ph.unsubscribe(pch)
-	if cur == nil {
-		var err error
-		if cur, err = s.treeJSON(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	cur, ok = initialPayload(w, cur, s.treeJSON)
+	if !ok {
+		return
 	}
 	hd := w.Header()
 	hd.Set("Content-Type", "text/event-stream")
 	hd.Set("Cache-Control", "no-cache")
 	hd.Set("X-Accel-Buffering", "no")
-	if pcur == nil {
-		var err error
-		if pcur, err = s.plansJSON(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if pcur, ok = initialPayload(w, pcur, s.plansJSON); !ok {
+		return
 	}
-	sent, psent := cur, pcur
 	if !writeTreeFrame(rc, w, cur) || !writeEventFrame(rc, w, "plans", pcur) {
 		return
 	}
+	streamEvents(r, rc, w, h, ph, ch, pch, cur, pcur)
+}
+
+// initialPayload returns cur, or the freshly built payload when the hub has none yet; false means a 500 was written.
+func initialPayload(w http.ResponseWriter, cur []byte, build func() ([]byte, error)) ([]byte, bool) {
+	if cur != nil {
+		return cur, true
+	}
+	cur, err := build()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return nil, false
+	}
+	return cur, true
+}
+
+// streamEvents pushes a frame per changed hub payload and a keep-alive ping until the client or a hub goes away.
+func streamEvents(r *http.Request, rc *http.ResponseController, w http.ResponseWriter, h, ph *hub, ch, pch chan []byte, sent, psent []byte) {
 	ping := time.NewTicker(ssePing)
 	defer ping.Stop()
 	for {
+		var ok bool
 		select {
 		case <-r.Context().Done():
 			return
@@ -243,29 +254,26 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ph.done:
 			return
 		case <-ping.C:
-			if !writeFlush(rc, w, []byte(": ping\n\n")) {
-				return
-			}
+			ok = writeFlush(rc, w, []byte(": ping\n\n"))
 		case <-pch:
-			next := ph.latest()
-			if bytes.Equal(next, psent) {
-				continue
-			}
-			psent = next
-			if !writeEventFrame(rc, w, "plans", next) {
-				return
-			}
+			ok = pushIfChanged(ph, &psent, func(b []byte) bool { return writeEventFrame(rc, w, "plans", b) })
 		case <-ch:
-			next := h.latest()
-			if bytes.Equal(next, sent) {
-				continue
-			}
-			sent = next
-			if !writeTreeFrame(rc, w, next) {
-				return
-			}
+			ok = pushIfChanged(h, &sent, func(b []byte) bool { return writeTreeFrame(rc, w, b) })
+		}
+		if !ok {
+			return
 		}
 	}
+}
+
+// pushIfChanged writes the hub's latest payload unless it equals *sent; false means drop the client.
+func pushIfChanged(h *hub, sent *[]byte, write func([]byte) bool) bool {
+	next := h.latest()
+	if bytes.Equal(next, *sent) {
+		return true
+	}
+	*sent = next
+	return write(next)
 }
 
 // writeFlush writes b under a fresh bounded write deadline and flushes; false means drop the client.
