@@ -17,8 +17,7 @@
     "duration",
     "session"
   ],
-  "branchMax": 18,
-  "pathMax": 24,
+  "profileMax": 16,
   "width": 0,
   "segments": {
     "path": true,

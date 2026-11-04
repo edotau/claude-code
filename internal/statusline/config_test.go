@@ -19,8 +19,8 @@ func TestDefaultConfigOrder(t *testing.T) {
 	if cfg.GradientEase != 0.45 {
 		t.Errorf("GradientEase = %v, want 0.45", cfg.GradientEase)
 	}
-	if cfg.PathMax != 24 {
-		t.Errorf("PathMax = %d, want 24", cfg.PathMax)
+	if cfg.ProfileMax != 16 {
+		t.Errorf("ProfileMax = %d, want 16", cfg.ProfileMax)
 	}
 }
 

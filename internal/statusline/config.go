@@ -16,9 +16,8 @@ type Config struct {
 	GradientEase   float64           `json:"gradientEase"` // ramp position exponent: <1 reaches the end colors sooner; 0 → 1
 	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user
 	Order          []string          `json:"order"`
-	BranchMax      int               `json:"branchMax"`
-	PathMax        int               `json:"pathMax"` // cwd path display cap, in runes; 0 → no cap
-	Width          int               `json:"width"`   // clip each line to N cells; 0 → $COLUMNS, else no clip
+	ProfileMax     int               `json:"profileMax"` // profile-name cap in the provider label, in runes; 0 → no cap
+	Width          int               `json:"width"`      // clip each line to N cells; 0 → $COLUMNS, else no clip
 	Segments       map[string]bool   `json:"segments"`
 	Bar            BarConfig         `json:"bar"`
 	Separators     map[string]string `json:"separators"`

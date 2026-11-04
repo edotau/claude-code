@@ -13,11 +13,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -67,19 +67,20 @@ type rateWindow struct {
 
 // values holds the resolved per-segment strings the renderers paint.
 type values struct {
-	userHost   string
-	path       string
-	model      string
-	provider   string
-	proxy      string
-	branch     string
-	total      string
-	duration   string
-	session    string
-	limits     string
-	contextPct int
-	adds       int
-	dels       int
+	userHost     string
+	path         string
+	model        string
+	provider     string // profile part capped at ProfileMax
+	providerFull string
+	proxy        string
+	branch       string
+	total        string
+	duration     string
+	session      string
+	limits       string
+	contextPct   int
+	adds         int
+	dels         int
 }
 
 // text returns a plain segment's value; context, git and path are drawn by each style itself.
@@ -131,26 +132,49 @@ func Render(raw []byte, style string) string {
 	if style != "" {
 		cfg.Style = style
 	}
-	return render(collect(in, cfg), cfg, theme.LoadPalettes())
+	cfg.Width = lineWidth(cfg)
+	return renderFit(collect(in, cfg), cfg, theme.LoadPalettes(), cfg.Width)
+}
+
+// renderFit tries full, then the capped profile, then no branch (velocity stays); the last pick is clipped to width.
+func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
+	if width > 0 {
+		wide := v
+		wide.provider = v.providerFull
+		short := v
+		short.branch = ""
+		for _, try := range []values{wide, v, short} {
+			if out := renderRaw(try, cfg, pal); longestLine(out) <= width {
+				return out
+			}
+		}
+		v = short
+	}
+	return render(v, cfg, pal)
 }
 
 func render(v values, cfg Config, pal theme.Palettes) string {
+	return clip(renderRaw(v, cfg, pal), lineWidth(cfg))
+}
+
+// renderRaw draws the configured style without the final clip.
+func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 	pal = cfg.LiftPalette(pal)
 	stops := cfg.Stops(pal)
 	mode := cfg.Mode()
 	width := lineWidth(cfg)
 	switch cfg.Style {
 	case "dashboard":
-		return clip(renderDashboard(v, cfg, pal, stops, mode, width), width)
+		return renderDashboard(v, cfg, pal, stops, mode, width)
 	case "powerline", "capsule", "minimal":
 		head := promptHead(v, cfg, pal, stops, mode)
 		body := renderSegmented(v, cfg, pal, mode)
 		if head != "" && body != "" {
 			head += ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), sepPath, false)
 		}
-		return clip(head+body, width)
+		return head + body
 	}
-	return clip(renderGradient(v, cfg, pal, stops, mode), width)
+	return renderGradient(v, cfg, pal, stops, mode)
 }
 
 // collect resolves every enabled segment; disabled ones skip their IO.
@@ -163,14 +187,15 @@ func collect(in Input, cfg Config) values {
 		cwd, _ = os.Getwd()
 	}
 	root, worktree := checkoutOf(cwd) // the path names the repo, so it holds still across worktrees and subdirs
-	v := values{userHost: promptUser(), path: collapsePath(shortenDir(root), root, cfg.PathMax)}
+	v := values{userHost: promptUser(), path: shortenDir(root)}
 	var provider string
 	var routed bool
 	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("proxy", true) || cfg.seg("limits", true) {
 		provider, routed = sessionProvider()
 	}
 	if cfg.seg("provider", true) {
-		v.provider = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
+		v.providerFull = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
+		v.provider = capProfile(v.providerFull, cfg.ProfileMax)
 	}
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
@@ -250,6 +275,15 @@ func providerLabel(name string) string {
 	return name
 }
 
+// capProfile truncates the profile after "·" to max runes; the provider part is never cut.
+func capProfile(label string, max int) string {
+	prov, prof, ok := strings.Cut(label, "·")
+	if !ok {
+		return label
+	}
+	return prov + "·" + truncRunes(prof, max)
+}
+
 // profileName is the profile's name, "ultra" for the claude.ai login profile on a 20x account.
 func profileName(p *providers.Provider) string {
 	if p.Provider == "anthropic" && p.Auth.Type == providers.AuthCLI && providers.MaxTierName(claudeTier()) == "Ultra" {
@@ -260,35 +294,35 @@ func profileName(p *providers.Provider) string {
 
 // modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
 func modelSegment(in Input, session string) string {
-	name := in.Model.DisplayName
-	if i := strings.Index(name, " · "); i >= 0 {
-		name = name[:i]
-	}
-	name = strings.TrimSpace(strings.ReplaceAll(name, " (1M context)", " [1m]"))
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
 	// Registry check: ollama tags like "qwen3:30b" carry a colon without naming a provider.
 	if prov, model, ok := strings.Cut(id, ":"); ok && prov != session && model != "" {
 		if reg := registry(); reg != nil && reg.Providers[prov] != nil {
-			if name == "" || models.Strip1M(name) == id {
-				name = model
-			}
-			return tag1M(in, name) + " ⇄" + prov
+			return shortModelID(model) + " ⇄" + prov
 		}
 	}
-	if name == "" {
-		name = in.Model.ID
+	if prov, model, ok := strings.Cut(id, ":"); ok && prov == session && model != "" {
+		id = model
 	}
-	return tag1M(in, name)
+	if id == "" {
+		return displayModel(in.Model.DisplayName)
+	}
+	return shortModelID(id)
 }
 
-// tag1M marks a 1M session whose display name lacks Claude Code's "(1M context)" (custom ids, e.g. Databricks).
-func tag1M(in Input, name string) string {
-	oneM := models.Has1M(strings.TrimSpace(in.Model.ID)) ||
-		(in.ContextWindow != nil && in.ContextWindow.Size >= models.ContextWindow1M)
-	if !oneM || models.Has1M(name) {
-		return name
+var trailingDate = regexp.MustCompile(`-\d{8}$`)
+
+// shortModelID is the id without a "claude-" prefix or trailing -YYYYMMDD date.
+func shortModelID(id string) string {
+	return trailingDate.ReplaceAllString(strings.TrimPrefix(id, "claude-"), "")
+}
+
+// displayModel is the display name without its " · " suffix and "(1M context)" tag, for payloads with no id.
+func displayModel(name string) string {
+	if i := strings.Index(name, " · "); i >= 0 {
+		name = name[:i]
 	}
-	return name + " [1m]"
+	return strings.TrimSpace(strings.ReplaceAll(name, " (1M context)", ""))
 }
 
 // proxyTTL caps health probes at one per 5s across renders.
@@ -414,14 +448,6 @@ func formatDuration(ms int64) string {
 		return strconv.Itoa(int(d.Minutes())) + "m"
 	}
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
-}
-
-// collapsePath drops short to its base name when it exceeds max runes (0 disables the cap).
-func collapsePath(short, cwd string, max int) string {
-	if max > 0 && utf8.RuneCountInString(short) > max {
-		return filepath.Base(cwd)
-	}
-	return short
 }
 
 // shortenDir collapses $HOME to "~" (a sibling like /home/userx is left alone).

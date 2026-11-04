@@ -37,7 +37,7 @@ func TestGradientCells(t *testing.T) {
 				{"~/proj ", "g"}, {"|", "sep"}, {" openrouter ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
 				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
 				{"++", "filled"}, {"--", "empty"}, {" 42%", "g"},
-				{" 1.23M", "g"}, {" | ", "sep"}, {"feature…", "g"},
+				{" 1.23M", "g"}, {" | ", "sep"}, {"feature/statusline", "g"},
 			},
 		},
 		{
@@ -47,13 +47,13 @@ func TestGradientCells(t *testing.T) {
 			want: []run{
 				{" ", "g"}, {"●", "dot"}, {" ", "g"}, {"│", "sep"}, {" ", "g"},
 				{"++", "filled"}, {"--", "empty"}, {" ", "g"}, {"|", "sep"}, {" Opus 5 [1m]", "g"},
-				{" | ", "sep"}, {"feature…", "g"},
+				{" | ", "sep"}, {"feature/statusline", "g"},
 			},
 		},
 		{
 			name:  "missing and disabled segments",
 			order: []string{"path", "session", "duration", "unknown"},
-			want:  []run{{" | ", "sep"}, {"feature…", "g"}},
+			want:  []run{{" | ", "sep"}, {"feature/statusline", "g"}},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -61,7 +61,6 @@ func TestGradientCells(t *testing.T) {
 			cfg.Order = tc.order
 			cfg.Segments = map[string]bool{"path": tc.path, "duration": false}
 			cfg.Separators = map[string]string{"major": " ● │ ", "minor": " | ", "git": " | "}
-			cfg.BranchMax = 8
 			cfg.Bar.Width, cfg.Bar.FilledGlyph, cfg.Bar.EmptyGlyph = 4, "+", "-"
 			if tc.before {
 				cfg.Bar.Percent = "before"

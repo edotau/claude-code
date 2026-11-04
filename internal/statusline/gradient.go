@@ -127,7 +127,7 @@ func gradientCells(v values, cfg Config) []cell {
 	}
 	var right []string // the git section: the branch
 	if cfg.seg("git", true) && v.branch != "" {
-		right = append(right, truncBranch(v.branch, cfg.BranchMax))
+		right = append(right, v.branch)
 	}
 	for i, s := range right {
 		if i == 0 {
@@ -170,8 +170,8 @@ func contextBarParts(pct int, bar BarConfig) (filledPart, emptyPart string) {
 	return strings.Repeat(filled, n), strings.Repeat(empty, width-n)
 }
 
-// truncBranch clips b to n runes with a trailing "…"; n<=0 leaves it whole.
-func truncBranch(b string, n int) string {
+// truncRunes clips b to n runes with a trailing "…"; n<=0 leaves it whole.
+func truncRunes(b string, n int) string {
 	if n <= 0 || utf8.RuneCountInString(b) <= n {
 		return b
 	}
