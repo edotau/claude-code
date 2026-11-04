@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -635,13 +634,13 @@ func TestKeyRowCredentialFallsBackToAuthEnv(t *testing.T) {
 	if CredentialPresent(p) {
 		t.Fatal("present before any secret")
 	}
-	if err := secretstore.Store("ANTHROPIC_API_KEY", "old-key"); err != nil {
+	if err := vault.Store("ANTHROPIC_API_KEY", "old-key"); err != nil {
 		t.Fatal(err)
 	}
 	if !CredentialPresent(p) {
 		t.Error("old env-named secret must count")
 	}
-	if err := secretstore.Store("ANTHROPIC_KEY", "new-key"); err != nil {
+	if err := vault.Store("ANTHROPIC_KEY", "new-key"); err != nil {
 		t.Fatal(err)
 	}
 	if v, err := Credential(t.Context(), p); err != nil || v != "new-key" {
@@ -651,7 +650,7 @@ func TestKeyRowCredentialFallsBackToAuthEnv(t *testing.T) {
 
 func TestReadOAuthCorruptSecretIsAnError(t *testing.T) {
 	p := mintRow(t, "corrupt-oauth", AuthOAuth, "", "http://127.0.0.1:1")
-	if err := secretstore.Store(AuthSecretName(p), "not-json{"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "not-json{"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readOAuth(p); err == nil {
@@ -668,7 +667,7 @@ func TestCopilotModelNilRegistry(t *testing.T) {
 
 func TestSealAccessKeepsUnreadableOAuthValue(t *testing.T) {
 	p := mintRow(t, "seal-unreadable", AuthOAuth, "", "http://127.0.0.1:1")
-	if err := secretstore.Store(AuthSecretName(p), "not-json{"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "not-json{"); err != nil {
 		t.Fatal(err)
 	}
 	sealAccess(p, "new-access")

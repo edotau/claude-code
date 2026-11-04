@@ -12,9 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/codex"
-
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -36,8 +34,8 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	vaulttest.Secret(t, "API_KEY", "credential-fixture")
-	pairs, err := secrets.ExportPairs(nil)
-	if err != nil || !reflect.DeepEqual(pairs, []secrets.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
+	pairs, err := vault.ExportPairs(nil)
+	if err != nil || !reflect.DeepEqual(pairs, []vault.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
 		t.Fatalf("credential export includes unexpected entries: %v, %v", pairs, err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "state", "vault.db"))
@@ -57,8 +55,8 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("baseline did not survive rotation: %v", err)
 	}
-	pairs, err = secrets.ExportPairs(nil)
-	if err != nil || !reflect.DeepEqual(pairs, []secrets.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
+	pairs, err = vault.ExportPairs(nil)
+	if err != nil || !reflect.DeepEqual(pairs, []vault.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
 		t.Fatalf("credential did not survive rotation: %v", err)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {

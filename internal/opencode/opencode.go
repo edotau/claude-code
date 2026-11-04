@@ -13,14 +13,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	render "github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/vault"
-
 	"github.com/edotau/claude-code/internal/agentconfig"
+	render "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
@@ -556,7 +554,7 @@ func opencodeCredential(prefix string) (env []string, err error) {
 		return nil, nil
 	}
 	if id == "opencode" {
-		if v, _, ok := secretstore.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
+		if v, _, ok := vault.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
 			return []string{OpencodeAPIKeyEnv + "=" + strings.TrimSpace(v)}, nil
 		}
 	}

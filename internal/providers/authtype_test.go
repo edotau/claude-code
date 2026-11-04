@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -142,7 +142,7 @@ func TestPATCredentialAndPresence(t *testing.T) {
 	if CredentialPresent(p) {
 		t.Fatal("present before sealing")
 	}
-	if err := secretstore.Store(AuthSecretName(p), "dapi-test-value"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "dapi-test-value"); err != nil {
 		t.Fatal(err)
 	}
 	if !CredentialPresent(p) {
@@ -361,7 +361,7 @@ func spHarness(t *testing.T, identity string) (p *Provider, m2mCalls, refreshCal
 	if err := writeOAuth(p, oauthValue{Refresh: "user-refresh"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := secretstore.Store(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret"); err != nil {
+	if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	m2mCalls, refreshCalls, note = new(int), new(int), &bytes.Buffer{}
@@ -533,7 +533,7 @@ func TestLoopbackHTTPSealedRowStillMints(t *testing.T) {
 		return 200, map[string]any{"access_token": "loop-minted", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-loop-http", AuthM2M, "sp-client", srv.URL)
-	if err := secretstore.Store(AuthSecretName(p), "sp-secret"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := Credential(context.Background(), p); err != nil || got != "loop-minted" {
@@ -543,7 +543,7 @@ func TestLoopbackHTTPSealedRowStillMints(t *testing.T) {
 
 func TestPlainHTTPNonLoopbackSealedRowDoesNotMint(t *testing.T) {
 	p := mintRow(t, "kind-nonloop-http", AuthM2M, "sp-client", "http://example.cloud.databricks.com")
-	if err := secretstore.Store(AuthSecretName(p), "sp-secret"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Credential(context.Background(), p)

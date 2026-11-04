@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
@@ -58,7 +58,7 @@ const webSearchKey = "TAVILY_API_KEY"
 
 func webSearchRow() homeRow {
 	state := "no key"
-	if src, _ := secretstore.HasSecretErr(webSearchKey); src != "" { // presence only: no decrypt per render
+	if src, _ := vault.HasSecretErr(webSearchKey); src != "" { // presence only: no decrypt per render
 		state = "key set"
 	}
 	var wired []string
@@ -93,7 +93,7 @@ func webSearchClients() []mcpClient {
 
 // runWebSearch sets the Tavily key when missing, then points every client's web_search at claude-code.
 func runWebSearch(d *dialog) {
-	if _, _, ok := secretstore.Get(webSearchKey); !ok {
+	if _, _, ok := vault.Get(webSearchKey); !ok {
 		val, err := secretLine(d, "Paste "+webSearchKey+" (app.tavily.com → API keys; input hidden): ")
 		if err != nil || strings.TrimSpace(val) == "" {
 			d.println("web search: no key entered; nothing changed")
@@ -141,7 +141,7 @@ func runCustomEnv(d *dialog) {
 		names := slices.Sorted(maps.Keys(env))
 		rows := make([][2]string, 0, len(names)+2)
 		for _, n := range names {
-			kind, shown := "plain", secretstore.Redact(env[n])
+			kind, shown := "plain", vault.Redact(env[n])
 			if env[n] == providers.SecretRef {
 				kind, shown = "secret", ""
 			}
@@ -211,7 +211,7 @@ func sameAsSaved(name string, e envEdit) bool {
 	if e.secret == "" {
 		return true
 	}
-	v, _, ok := secretstore.Get(name)
+	v, _, ok := vault.Get(name)
 	return ok && v == e.secret
 }
 
@@ -227,7 +227,7 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	for _, name := range slices.Sorted(maps.Keys(edits)) {
 		e := edits[name]
 		if e.secret != "" {
-			if err := secretstore.Store(name, e.secret); err != nil {
+			if err := vault.Store(name, e.secret); err != nil {
 				d.printf("environment: %s: %v\n", name, err)
 				continue
 			}
@@ -238,7 +238,7 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 		}
 		d.printf("environment: %s %s\n", name, map[bool]string{true: "removed", false: "saved"}[e.raw == ""])
 		if e.deleteSecret {
-			if err := secretstore.Delete(name); err != nil {
+			if err := vault.Delete(name); err != nil {
 				d.printf("environment: %s: sealed secret not deleted: %v\n", name, err)
 				continue
 			}

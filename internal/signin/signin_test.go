@@ -20,7 +20,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -102,7 +101,7 @@ func TestSecretCheckRejectedOn401(t *testing.T) {
 	t.Cleanup(srv.Close)
 	p := &providers.Provider{Name: "sp-rej", Provider: providers.GroupDatabricks, Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL + "/serving-endpoints/anthropic",
 		Auth: providers.Auth{Type: providers.AuthM2M, ClientID: "cid", TTL: 1800}}
-	if err := secretstore.Store(providers.AuthSecretName(p), "s3cret-value"); err != nil {
+	if err := vault.Store(providers.AuthSecretName(p), "s3cret-value"); err != nil {
 		t.Fatal(err)
 	}
 	v, d := SigninFor(p).Check(context.Background())
@@ -275,7 +274,7 @@ func TestSecretOKDetail(t *testing.T) {
 		t.Errorf("env key = %s %q", v, d)
 	}
 	pat := row("pat2", providers.Auth{Type: providers.AuthPAT})
-	if err := secretstore.Store(providers.AuthSecretName(pat), "dapi-x"); err != nil {
+	if err := vault.Store(providers.AuthSecretName(pat), "dapi-x"); err != nil {
 		t.Fatal(err)
 	}
 	if v, d := SigninFor(pat).Check(context.Background()); v != providers.VerdictOK || d != "" {

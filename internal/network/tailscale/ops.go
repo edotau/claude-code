@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ErrNoSubnetRoutes means this box advertises no subnet routes to approve.
@@ -37,7 +37,7 @@ func ResolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
 		key = strings.TrimSpace(os.Getenv(keyEnv))
 	}
 	if key == "" {
-		key, _, _ = secretstore.Get("TAILSCALE_AUTHKEY")
+		key, _, _ = vault.Get("TAILSCALE_AUTHKEY")
 	}
 	return key, nil
 }

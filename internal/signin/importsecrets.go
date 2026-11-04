@@ -3,11 +3,11 @@ package signin
 import (
 	"fmt"
 
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ValidateImport checks every pair so a bad one aborts before anything is written.
-func ValidateImport(pairs []secrets.Pair) error {
+func ValidateImport(pairs []vault.Pair) error {
 	for _, p := range pairs {
 		if err := ValidateSecret(p.Name, p.Value); err != nil {
 			return err
@@ -17,7 +17,7 @@ func ValidateImport(pairs []secrets.Pair) error {
 }
 
 // StoreImport stores each pair in order, calling stored after each success; an error names the failing pair.
-func StoreImport(pairs []secrets.Pair, stored func(name string)) error {
+func StoreImport(pairs []vault.Pair, stored func(name string)) error {
 	for _, p := range pairs {
 		if err := SetSecret(p.Name, p.Value); err != nil {
 			return fmt.Errorf("%s: %w", p.Name, err)

@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
+	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 )
 
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
@@ -67,7 +68,7 @@ func commands() []command {
 		{name: "dispatch", group: groupAgents, summary: "run a task by role: explore, fleet, compare", run: cmdDispatch},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
-		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
+		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},

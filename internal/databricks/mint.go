@@ -12,7 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -95,7 +94,7 @@ func setPATLocked(ctx context.Context, name, value string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: read the previous personal access token: %w", p.Name, err)
 	}
-	if err := secretstore.Store(secret, value); err != nil {
+	if err := vault.Store(secret, value); err != nil {
 		return "", err
 	}
 	status, detail := "unverified", ""
@@ -118,9 +117,9 @@ func setPATLocked(ctx context.Context, name, value string) (string, error) {
 func rollbackPAT(p *providers.Provider, secret, old string, had bool, prevType string) error {
 	var errs []error
 	if had {
-		errs = append(errs, secretstore.Store(secret, old))
+		errs = append(errs, vault.Store(secret, old))
 	} else {
-		errs = append(errs, secretstore.Delete(secret))
+		errs = append(errs, vault.Delete(secret))
 	}
 	if prevType == providers.AuthOAuth || prevType == providers.AuthM2M {
 		errs = append(errs, switchAuthType(p, prevType, false))

@@ -17,14 +17,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/ui/ansi"
-
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -146,7 +144,7 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	if !resolveKey(d, kt) {
 		t.Fatalf("resolveKey = false\n%s", out.String())
 	}
-	got, src, ok := secretstore.Get("OPENAI_API_KEY")
+	got, src, ok := vault.Get("OPENAI_API_KEY")
 	if !ok || src != "vault" || got != "sk-test-value" {
 		t.Errorf("stored key = (%q, %q, %v)", got, src, ok)
 	}

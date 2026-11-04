@@ -11,8 +11,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 var tailscalePage = helptext.Page{
@@ -252,11 +252,11 @@ func tailscaleKey(ctx context.Context, o tsOpts) int {
 	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(tagList, ","))
 	fmt.Println(key.Key) // the only thing on stdout, so it can be piped
 	if o.save {
-		if err := secretstore.Store("TAILSCALE_AUTHKEY", key.Key); err != nil {
+		if err := vault.Store("TAILSCALE_AUTHKEY", key.Key); err != nil {
 			fmt.Fprintf(os.Stderr, "tailscale key: --save: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", secretstore.Redact(key.Key))
+		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", vault.Redact(key.Key))
 	}
 	return 0
 }

@@ -22,13 +22,13 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 )
 
 func cmdClaude(args []string) int { return launchClaude("", args) }
@@ -110,7 +110,7 @@ func anthropicSecret(o claude.AnthropicOptions) (string, error) {
 		if o.Mode == claude.AuthOAuth {
 			return providers.StoredSecret(o.Name), nil
 		}
-		v, _, err := secretstore.EffectiveSecret(o.Name)
+		v, _, err := vault.EffectiveSecret(o.Name)
 		return v, err
 	}
 	if v, err := read(); err != nil {
@@ -128,7 +128,7 @@ func anthropicSecret(o claude.AnthropicOptions) (string, error) {
 	if o.Mode == claude.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
 		runSetupToken()
 	}
-	if code := vaultSetSecret(o.Name, false); code != 0 {
+	if code := vaultcmd.Run([]string{"set", o.Name}); code != 0 {
 		return "", fmt.Errorf("%s was not stored", o.Name)
 	}
 	if v, err := read(); err != nil {
@@ -374,7 +374,7 @@ func cmdDoctor(args []string) int {
 			fail("doctor: --scan, --git and --secrets print text only")
 			return 2
 		}
-		return secrets.RunAudits(os.Stdout, secrets.AuditOpts{Scan: *scan || *all, Git: *gitScan || *all, Vault: *all,
+		return providers.RunAudits(os.Stdout, providers.AuditOpts{Scan: *scan || *all, Git: *gitScan || *all, Vault: *all,
 			Targets: fs.Args(), Rev: *rev, Since: *since, VaultDoctor: launch.VaultDoctor})
 	}
 	if *auditMode {

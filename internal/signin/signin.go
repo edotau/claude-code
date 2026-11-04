@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Signin checks one provider's credential and, when it is missing or refused, signs in again.
@@ -41,7 +41,7 @@ var (
 // Test seams: the credential mint, the secret store, the agent probes.
 var (
 	credential  = providers.Credential
-	storeSecret = secretstore.Store
+	storeSecret = vault.Store
 	runLogin    = runLoginCLI
 )
 
@@ -125,7 +125,7 @@ type secretSignin struct{ p *providers.Provider }
 
 func (s secretSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	if s.p.Auth.Sealed() {
-		if _, err := secretstore.HasSecretErr(providers.AuthSecretName(s.p)); err != nil { // a locked vault is not "absent"
+		if _, err := vault.HasSecretErr(providers.AuthSecretName(s.p)); err != nil { // a locked vault is not "absent"
 			return providers.VerdictTransient, "vault: " + err.Error()
 		}
 	}

@@ -10,9 +10,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/configure"
-
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -100,7 +99,7 @@ func TestRunRotateSingleLoginOptionNoBinary(t *testing.T) {
 func TestRunRotateSingleMintOptionStoresVault(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
-	if err := secretstore.Store(providers.OAuthTokenEnv, "old-token-value"); err != nil {
+	if err := vault.Store(providers.OAuthTokenEnv, "old-token-value"); err != nil {
 		t.Fatal(err)
 	}
 	d, out := newDialog("")
@@ -108,9 +107,9 @@ func TestRunRotateSingleMintOptionStoresVault(t *testing.T) {
 	if !runRotate(d, kt) {
 		t.Fatalf("runRotate(mint) = false:\n%s", out.String())
 	}
-	val, src, ok := secretstore.Get(providers.OAuthTokenEnv)
+	val, src, ok := vault.Get(providers.OAuthTokenEnv)
 	if !ok || src != "vault" || !strings.Contains(val, "newtokenabc") {
-		t.Errorf("secretstore.Get after mint = (%q, %q, %v), want the new token in the vault", val, src, ok)
+		t.Errorf("vault.Get after mint = (%q, %q, %v), want the new token in the vault", val, src, ok)
 	}
 }
 
@@ -145,7 +144,7 @@ func TestRegenerateMintEnvOnlySavesToVault(t *testing.T) {
 		t.Errorf("the exported credential must be left untouched, got %q", v)
 	}
 	os.Unsetenv("ROT_MINT_ENV") // t.Setenv restores it; now the vault copy is visible
-	if v, src, _ := secretstore.Get("ROT_MINT_ENV"); v != minted || src == "env" {
+	if v, src, _ := vault.Get("ROT_MINT_ENV"); v != minted || src == "env" {
 		t.Errorf("vault must hold the minted token: got %q from %q", v, src)
 	}
 }
@@ -183,7 +182,7 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	const oldVal = "old-good-secret-value-0001"
-	if err := secretstore.Store("ROT_REPLACE_KEY", oldVal); err != nil {
+	if err := vault.Store("ROT_REPLACE_KEY", oldVal); err != nil {
 		t.Fatal(err)
 	}
 	p := fakeKeyedProvider(t, "ROT_REPLACE_KEY", "the-only-accepted-value")
@@ -193,9 +192,9 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 	if replaceKey(d, kt) {
 		t.Fatalf("replaceKey must report false when the old value is kept:\n%s", out.String())
 	}
-	val, src, ok := secretstore.Get("ROT_REPLACE_KEY")
+	val, src, ok := vault.Get("ROT_REPLACE_KEY")
 	if !ok || src != "vault" || val != oldVal {
-		t.Errorf("secretstore.Get = (%q, %q, %v), want the old value untouched", val, src, ok)
+		t.Errorf("vault.Get = (%q, %q, %v), want the old value untouched", val, src, ok)
 	}
 	for _, raw := range []string{oldVal, newVal} {
 		if strings.Contains(out.String(), raw) {
@@ -209,7 +208,7 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 func TestReplaceKeyProbeAcceptedStoresVaultRedacted(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
-	if err := secretstore.Store("ROT_REPLACE_OK", "old-value-irrelevant-here"); err != nil {
+	if err := vault.Store("ROT_REPLACE_OK", "old-value-irrelevant-here"); err != nil {
 		t.Fatal(err)
 	}
 	const newVal = "accepted-fresh-secret-value-99"
@@ -219,9 +218,9 @@ func TestReplaceKeyProbeAcceptedStoresVaultRedacted(t *testing.T) {
 	if !replaceKey(d, kt) {
 		t.Fatalf("replaceKey must succeed on an accepted probe:\n%s", out.String())
 	}
-	val, src, ok := secretstore.Get("ROT_REPLACE_OK")
+	val, src, ok := vault.Get("ROT_REPLACE_OK")
 	if !ok || src != "vault" || val != newVal {
-		t.Errorf("secretstore.Get = (%q, %q, %v), want the new value in the vault", val, src, ok)
+		t.Errorf("vault.Get = (%q, %q, %v), want the new value in the vault", val, src, ok)
 	}
 	if strings.Contains(out.String(), newVal) {
 		t.Fatalf("transcript leaked the raw new value:\n%s", out.String())
@@ -263,7 +262,7 @@ func TestEnsureKeyAbsentRunsResolve(t *testing.T) {
 	if !ensureKey(d, kt, false) {
 		t.Fatalf("ensureKey on an absent key must run resolveKey:\n%s", out.String())
 	}
-	val, _, ok := secretstore.Get("ROT_ENSURE_ABSENT")
+	val, _, ok := vault.Get("ROT_ENSURE_ABSENT")
 	if !ok || val != "pasted-value-here" {
 		t.Errorf("resolveKey must have stored the pasted value, got (%q, %v)", val, ok)
 	}

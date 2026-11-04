@@ -360,3 +360,57 @@ func TestMenuGroupsAlphabetical(t *testing.T) {
 		t.Errorf("ANTHROPIC must keep tier order, got sorted %v", byGroup[groupAnthropic])
 	}
 }
+
+func TestVaultMenuRow(t *testing.T) {
+	count := 0
+	for _, c := range commands() {
+		if c.name != "vault" {
+			continue
+		}
+		count++
+		if c.group != groupAuth {
+			t.Errorf("vault group = %q, want %q", c.group, groupAuth)
+		}
+		if c.summary == "" {
+			t.Error("vault summary is empty")
+		}
+		if c.hidden || c.run == nil {
+			t.Error("vault menu row is hidden or has no handler")
+		}
+	}
+	if count != 1 {
+		t.Errorf("commands() has %d vault rows, want 1", count)
+	}
+}
+
+func TestVaultInAuthGroupHelp(t *testing.T) {
+	rows := menuRows()
+	group := ""
+	found := false
+	for _, r := range rows {
+		if r.head != "" {
+			group = r.head
+			continue
+		}
+		if strings.TrimSpace(r.name) == "vault" {
+			found = true
+			if group != groupAuth {
+				t.Errorf("vault appears under menu group %q, want %q", group, groupAuth)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("menuRows() has no vault row")
+	}
+}
+
+func TestConfigVerbIsUnknown(t *testing.T) {
+	useVaultTest(t)
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", "config", "show"}) })
+	if code != 2 {
+		t.Errorf("Run([config show]) = %d, want 2 (unknown verb)", code)
+	}
+	if !strings.Contains(stderr, `unknown command "config"`) {
+		t.Errorf("stderr = %q, want it to name config as unknown", stderr)
+	}
+}

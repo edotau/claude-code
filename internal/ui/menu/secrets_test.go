@@ -8,11 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/configure"
-
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -52,7 +50,7 @@ func TestSecretsAddCustomStoresVaultAndRedacts(t *testing.T) {
 	if rc != 0 {
 		t.Fatalf("Secrets rc = %d:\n%s", rc, out.String())
 	}
-	if value, src, ok := secretstore.Get("MY_NEW_SECRET"); !ok || src != "vault" || value != "sk-super-secret-raw-value" {
+	if value, src, ok := vault.Get("MY_NEW_SECRET"); !ok || src != "vault" || value != "sk-super-secret-raw-value" {
 		t.Fatalf("stored secret = (%q, %q, %v)", value, src, ok)
 	}
 	transcript := out.String()
@@ -74,7 +72,7 @@ func TestStoreValueRefusesMalformedTailscaleCredential(t *testing.T) {
 	if storeValue(d, "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-auth-wrongkind") {
 		t.Fatalf("storeValue(...) = true for a secret shaped like an auth key, want refused:\n%s", out.String())
 	}
-	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok {
+	if _, _, ok := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok {
 		t.Fatal("a refused credential must not be stored")
 	}
 	if !strings.Contains(out.String(), "tskey-client-") {
@@ -143,7 +141,7 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers": {"openai": null}}`)
-	if err := secretstore.Store("MY_CUSTOM", "v"); err != nil {
+	if err := vault.Store("MY_CUSTOM", "v"); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := providers.Load()
@@ -169,7 +167,7 @@ func TestEditSecretDeletesVaultValue(t *testing.T) {
 	vaulttest.Secret(t, name, "stored-value")
 	d, out := newDialog("2\ny\n")
 	editSecret(d, configure.TrackedSecret{Name: name, Source: "vault"})
-	if _, src, ok := secretstore.Get(name); ok || src != "" {
+	if _, src, ok := vault.Get(name); ok || src != "" {
 		t.Fatalf("deleted secret still resolves from %q", src)
 	}
 	if !strings.Contains(out.String(), "deleted "+name) {
@@ -207,7 +205,7 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 	if got := os.Getenv(name); got != "" {
 		t.Errorf("env after dropping the staged Store = %q, want restored to empty", got)
 	}
-	if v, _, ok := secretstore.Get(name); !ok || v != "stored-value" {
+	if v, _, ok := vault.Get(name); !ok || v != "stored-value" {
 		t.Fatalf("vault value changed before commit: (%q, %v), want still stored-value", v, ok)
 	}
 	events, err := audit.Read(since)
@@ -222,7 +220,7 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 
 	// Commit the page's staged changes, as secretsLoop's defer would on leaving the page.
 	confirmPageKeys(d, map[string]stagedKey{})
-	if _, _, ok := secretstore.Get(name); ok {
+	if _, _, ok := vault.Get(name); ok {
 		t.Error("the vault value should be deleted once the staged delete commits")
 	}
 	events, err = audit.Read(since)
@@ -245,11 +243,11 @@ func TestProbeCachedVaultAndEnvOverride(t *testing.T) {
 	const name = "CONFIGURE_CACHED_SECRET"
 	t.Setenv(name, "")
 	vaulttest.Secret(t, name, "stored-value")
-	meta, err := secretstore.LoadMeta()
+	meta, err := vault.LoadMeta()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := secretstore.RecordProbe(name, "verified", time.Now().Add(-time.Minute), meta[name].SetAt); err != nil {
+	if err := vault.RecordProbe(name, "verified", time.Now().Add(-time.Minute), meta[name].SetAt); err != nil {
 		t.Fatal(err)
 	}
 	p := fakeKeyedProvider(t, name, "env-value")
@@ -289,7 +287,7 @@ func TestCustomEnvPlainAndSecret(t *testing.T) {
 			if got := providers.CustomEnv()[name]; got != want.raw {
 				t.Errorf("vault env = %q, want %q", got, want.raw)
 			}
-			value, src, found := secretstore.Get(name)
+			value, src, found := vault.Get(name)
 			if kind == "secret" && (!found || src != "vault" || value != want.secret) {
 				t.Errorf("secret = (%q, %q, %v)", value, src, found)
 			}
@@ -333,7 +331,7 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 			if err := providers.SetCustomEnv(tc.name, providers.SecretRef); err != nil {
 				t.Fatal(err)
 			}
-			if err := secretstore.Store(tc.name, "sealed-value"); err != nil {
+			if err := vault.Store(tc.name, "sealed-value"); err != nil {
 				t.Fatal(err)
 			}
 			d, _ := newDialog("\n" + tc.answer) // empty value line (delete), then the confirm answer
@@ -345,7 +343,7 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 			t.Cleanup(func() { saveConfirmed = orig })
 			saveConfirmed = func(string) bool { return true }
 			saveEnvEdits(d, map[string]envEdit{tc.name: edit})
-			_, _, found := secretstore.Get(tc.name)
+			_, _, found := vault.Get(tc.name)
 			if found == tc.wantDeleted {
 				t.Errorf("sealed secret found=%v, want found=%v", found, !tc.wantDeleted)
 			}

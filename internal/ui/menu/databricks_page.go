@@ -12,9 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 var (
@@ -180,7 +180,7 @@ func dbxDo(d *dialog, env, what string, fn func(context.Context) error) {
 }
 
 func dbxPaste(d *dialog, env string) {
-	v, err := dbxSecret("Personal access token: ", secretstore.Preview)
+	v, err := dbxSecret("Personal access token: ", vault.Preview)
 	if err != nil || v == "" {
 		return
 	}
@@ -330,7 +330,7 @@ func dbxIdentity(d *dialog, env string) {
 	spID = cmp.Or(id, spID)
 	secret := ""
 	if spID != "" {
-		if secret, err = dbxSecret("Service principal secret (empty keeps the stored one): ", secretstore.Preview); err != nil {
+		if secret, err = dbxSecret("Service principal secret (empty keeps the stored one): ", vault.Preview); err != nil {
 			return
 		}
 	}
