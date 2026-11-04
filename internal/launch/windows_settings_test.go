@@ -198,6 +198,7 @@ func TestInstallWindowsSettings_BackupCreated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	after = slices.DeleteFunc(after, func(m string) bool { return m == file+".lock" }) // the write lock's sidecar
 	if len(after) != len(before) {
 		t.Errorf("files beside %s changed: before %v, after %v — want only %s itself", filepath.Dir(file), before, after, file)
 	}
