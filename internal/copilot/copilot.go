@@ -60,6 +60,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	}
 	out, err := copilotAsk(ctx, opts, prompt, images)
 	lg := agent.EventLogFor(ctx)
+	err = markToolRan(out, sink, err)
 	if err != nil {
 		lg.Emit("error", err.Error())
 		if (own || t.Provider.Auth.Login == "copilot") && agent.Classify("copilot", err, false).Kind == agent.KindQuota {
@@ -132,6 +133,14 @@ func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err er
 	}
 	prompt, err = agent.AttachInline(req.Prompt, rest)
 	return prompt, images, err
+}
+
+// markToolRan emits one tool_use when the SDK run approved a tool, so a run that acted is not replayed.
+func markToolRan(out SDKResult, sink agent.Sink, err error) error {
+	if out.ToolRan {
+		err = errors.Join(err, sink.Emit(agent.ToolEvent("copilot", "")))
+	}
+	return err
 }
 
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.

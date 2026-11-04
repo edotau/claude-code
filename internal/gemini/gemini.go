@@ -363,6 +363,9 @@ func runAgy(ctx context.Context, r agyRequest, sink agent.Sink) (agent.Result, e
 	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, nil)
 }
 
+// agyToolStep is the step_type of a tool execution, seen live as `tool` with states active then DONE.
+const agyToolStep = "tool"
+
 // agyEvent mirrors agy's stream-json schema: one JSON object per line.
 type agyEvent struct {
 	Event      string `json:"event"`
@@ -410,6 +413,7 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 	var sawResult bool
 	var lastStep string // the last step type/state logged, so repeated updates stay one line
 	var openStep string // the last non-response step still running (a backgrounded command), else ""
+	var toolOpen bool   // a tool step is running, so one tool_use is emitted per step, not per update
 	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev agyEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
@@ -423,14 +427,17 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 			res.SessionID = ev.ConvID
 		case "step_update":
 			noteAgyStep(ev, &lastStep, &openStep, lg)
+			if err := emitAgyToolStart(ev, &toolOpen, sink); err != nil {
+				return false, err
+			}
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
 				return false, nil
 			}
+			answer.WriteString(ev.StepUpdate.TextDelta) // before the emit: a dead sink must not lose the parsed text
+			pending.WriteString(ev.StepUpdate.TextDelta)
 			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
 				return false, err
 			}
-			answer.WriteString(ev.StepUpdate.TextDelta)
-			pending.WriteString(ev.StepUpdate.TextDelta)
 		case "result":
 			sawResult = true
 			response = ev.Result.Response
@@ -451,6 +458,10 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 		return false, nil
 	})
 	if err != nil {
+		if pending.Len() > 0 { // a decode error already flushed; a sink error did not
+			flush()
+		}
+		res.Answer = cmp.Or(res.Answer, strings.TrimSpace(answer.String()), strings.TrimSpace(response))
 		return res, err
 	}
 	if !sawResult {
@@ -459,6 +470,20 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 		return res, errors.New("agy: stream ended without a result event")
 	}
 	return finishAgyTurn(res, sink, &answer, response, flush, openStep, once)
+}
+
+// emitAgyToolStart emits one tool_use per tool step: agy runs tools without tool events, so this marks progress.
+func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink agent.Sink) error {
+	if ev.StepUpdate.StepType != agyToolStep {
+		return nil
+	}
+	open := ev.StepUpdate.State != "DONE"
+	start := open && !*toolOpen
+	*toolOpen = open
+	if !start {
+		return nil
+	}
+	return sink.Emit(agent.ToolEvent("agy", ""))
 }
 
 // noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
@@ -481,13 +506,14 @@ func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg agent.StreamLog) {
 func finishAgyTurn(res agent.Result, sink agent.Sink, answer *strings.Builder, response string, flush func(), openStep string, once bool) (agent.Result, error) {
 	flush()
 	if answer.Len() == 0 && response != "" {
+		answer.WriteString(response)
 		if err := sink.Emit(agent.Event{Type: agent.EventText, Text: response}); err != nil {
+			res.Answer = strings.TrimSpace(response)
 			return res, err
 		}
-		answer.WriteString(response)
 	}
 	res.Answer = strings.TrimSpace(answer.String())
-	if !once && (res.Answer == "" || openStep != "") {
+	if !once && ((res.Answer == "" && len(res.Structured) == 0) || openStep != "") {
 		why := "empty answer"
 		if openStep != "" {
 			why = "turn ended with an unfinished " + openStep + " step"

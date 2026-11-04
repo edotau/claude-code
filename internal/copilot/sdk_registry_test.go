@@ -125,7 +125,7 @@ func openSession(t *testing.T, o SDKOptions) (*copilot.Session, error) {
 		t.Fatalf("fake CLI did not start: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Stop() })
-	return newOrResumedSession(ctx, client, o)
+	return newOrResumedSession(ctx, client, o, nil)
 }
 
 func calls(t *testing.T, log string) []string {

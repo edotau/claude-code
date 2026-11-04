@@ -137,7 +137,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	for _, b := range []struct {
 		on   bool
 		flag string
-	}{{req.Tools, "--tools"}, {req.NoTools, "--no-tools"}, {req.Autonomous, "--autonomous"}, {req.EnableMemory, "--enable-memory"},
+	}{{req.Tools, "--tools"}, {req.ReadOnly, "--read-only"}, {req.NoTools, "--no-tools"}, {req.Autonomous, "--autonomous"}, {req.Fleet, "--fleet"}, {req.EnableMemory, "--enable-memory"},
 		{req.NoPersist, "--no-persist"}, {req.SafeMode, "--safe-mode"}, {req.Direct, "--direct"}} {
 		if b.on {
 			w = append(w, b.flag)
@@ -299,7 +299,7 @@ func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink Sink, stop,
 				if sinkErr = sink.Emit(ev); sinkErr != nil {
 					stop()
 				}
-				streamed = streamed || ev.Type == EventText
+				streamed = streamed || ev.progress()
 			}
 		}
 		if rerr != nil {

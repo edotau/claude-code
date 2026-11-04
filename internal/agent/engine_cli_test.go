@@ -1,12 +1,16 @@
 package agent
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -244,5 +248,47 @@ echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"o
 	path, _ := os.ReadFile(capture + ".path")
 	if _, err := os.Stat(strings.TrimSpace(string(path))); !os.IsNotExist(err) {
 		t.Errorf("schema temp file %s survived the run (err=%v)", path, err)
+	}
+}
+
+// A parser failure kills the child at once: a child (or grandchild) holding stdout open never runs to --timeout.
+func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
+	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; sleep 30 & sleep 30"}, nil, "", "", nil, true)
+	bad := errors.New("bad event")
+	parse := func(br *bufio.Reader, _ Sink, _ func(), _ ...StreamLog) (Result, error) {
+		_, _ = br.ReadBytes('\n')
+		return Result{Answer: "seen"}, bad
+	}
+	start := time.Now()
+	res, err := RunEventStream(context.Background(), "x", cmd, tail, Discard, parse, nil)
+	if time.Since(start) > 10*time.Second || !errors.Is(err, bad) || res.Answer != "seen" {
+		t.Fatalf("took %v, res=%+v err=%v; want a prompt kill keeping the parse error and answer", time.Since(start), res, err)
+	}
+}
+
+// A parse error after stdout reached EOF must not kill the child: its own exit status is the real failure.
+func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
+	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; exec >&-; sleep 0.5; exit 7"}, nil, "", "", nil, true)
+	bad := errors.New("turn failed")
+	parse := func(br *bufio.Reader, _ Sink, _ func(), _ ...StreamLog) (Result, error) {
+		_, _ = io.Copy(io.Discard, br)
+		return Result{}, bad
+	}
+	_, err := RunEventStream(context.Background(), "x", cmd, tail, Discard, parse, nil)
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 7 || !errors.Is(err, bad) {
+		t.Fatalf("err = %v; want exit code 7 (not a kill) joined with the parse error", err)
+	}
+}
+
+// RunStream carries a structured-only answer: no text is not an empty answer when the schema output arrived.
+func TestRunStreamKeepsStructured(t *testing.T) {
+	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
+	parse := func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error) {
+		return Result{Structured: json.RawMessage(`{"ok":true}`)}, nil
+	}
+	res, err := RunStream(context.Background(), "x", cmd, tail, Result{}, Discard, parse)
+	if err != nil || string(res.Structured) != `{"ok":true}` {
+		t.Fatalf("res=%+v err=%v; want Structured kept and no empty-answer error", res, err)
 	}
 }

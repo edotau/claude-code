@@ -185,3 +185,11 @@ func TestRemoteHomePath(t *testing.T) {
 		t.Fatalf("local home leaked into the remote script: %s", script)
 	}
 }
+
+// --read-only must cross to the remote: bare --tools there would run with every tool enabled.
+func TestRemoteScriptRelaysReadOnly(t *testing.T) {
+	script, err := remoteScript("claude-code", "copilot", "", RunOptions{Tools: true, ReadOnly: true, Fleet: true})
+	if err != nil || !strings.Contains(script, " --read-only") || !strings.Contains(script, " --fleet") {
+		t.Fatalf("script = %s, err = %v; want --read-only and --fleet relayed", script, err)
+	}
+}

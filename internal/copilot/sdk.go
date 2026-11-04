@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -60,6 +61,7 @@ type SDKResult struct {
 	SessionID string
 	Model     string
 	Duration  time.Duration
+	ToolRan   bool // a tool request was approved, so the run may have side effects
 }
 
 // BuildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
@@ -101,7 +103,7 @@ func BuildSessionConfig(o SDKOptions) *copilot.SessionConfig {
 		ContextTier:         copilot.ContextTier(o.Context),
 		WorkingDirectory:    o.WorkingDirectory,
 		Provider:            providerFromEnv(o.Env),
-		OnPermissionRequest: permissionHandler(o),
+		OnPermissionRequest: permissionHandler(o, nil),
 	}
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
@@ -122,7 +124,7 @@ func buildResumeSessionConfig(o SDKOptions) *copilot.ResumeSessionConfig {
 		ContextTier:         copilot.ContextTier(o.Context),
 		WorkingDirectory:    o.WorkingDirectory,
 		Provider:            providerFromEnv(o.Env),
-		OnPermissionRequest: permissionHandler(o),
+		OnPermissionRequest: permissionHandler(o, nil),
 	}
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
@@ -134,7 +136,22 @@ func buildResumeSessionConfig(o SDKOptions) *copilot.ResumeSessionConfig {
 	return cfg
 }
 
-func permissionHandler(o SDKOptions) copilot.PermissionHandlerFunc {
+// permissionHandler wraps baseHandler to record an approval in approved (non-nil; handlers run on SDK goroutines).
+func permissionHandler(o SDKOptions, approved *atomic.Bool) copilot.PermissionHandlerFunc {
+	h := baseHandler(o)
+	if approved == nil {
+		return h
+	}
+	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+		d, err := h(req, inv)
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok && err == nil {
+			approved.Store(true)
+		}
+		return d, err
+	}
+}
+
+func baseHandler(o SDKOptions) copilot.PermissionHandlerFunc {
 	if o.AllowAllTools && o.ReadOnlyTools {
 		return approveReadOnly
 	}
@@ -314,7 +331,7 @@ func SDKListModels(ctx context.Context, o SDKOptions) ([]SDKModel, error) {
 }
 
 // newOrResumedSession resumes o.SessionID when set, else creates a fresh session.
-func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptions) (*copilot.Session, error) {
+func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptions, approved *atomic.Bool) (*copilot.Session, error) {
 	if o.multiProvider() {
 		if err := probeMultiProvider(ctx, client); err != nil {
 			return nil, err
@@ -323,11 +340,17 @@ func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptio
 	var session *copilot.Session
 	var err error
 	if o.SessionID == "" {
-		if session, err = client.CreateSession(ctx, BuildSessionConfig(o)); err != nil {
+		cfg := BuildSessionConfig(o)
+		cfg.OnPermissionRequest = permissionHandler(o, approved)
+		if session, err = client.CreateSession(ctx, cfg); err != nil {
 			return nil, fmt.Errorf("create session: %w", err)
 		}
-	} else if session, err = client.ResumeSessionWithOptions(ctx, o.SessionID, buildResumeSessionConfig(o)); err != nil {
-		return nil, fmt.Errorf("resume session %s: %w", o.SessionID, err)
+	} else {
+		cfg := buildResumeSessionConfig(o)
+		cfg.OnPermissionRequest = permissionHandler(o, approved)
+		if session, err = client.ResumeSessionWithOptions(ctx, o.SessionID, cfg); err != nil {
+			return nil, fmt.Errorf("resume session %s: %w", o.SessionID, err)
+		}
 	}
 	if o.multiProvider() { // a resumed session may carry another wire's saved model: re-pin before any turn
 		if err := selectRegistered(ctx, session, o); err != nil {
@@ -359,7 +382,8 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 		}
 	}()
 
-	session, err := newOrResumedSession(ctx, client, o)
+	var approved atomic.Bool
+	session, err := newOrResumedSession(ctx, client, o, &approved)
 	if err != nil {
 		return SDKResult{}, err
 	}
@@ -401,7 +425,7 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	res := SDKResult{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start)}
+	res := SDKResult{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start), ToolRan: approved.Load()}
 	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}

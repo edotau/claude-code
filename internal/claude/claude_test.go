@@ -60,7 +60,7 @@ func TestParseClaudeStreamResultApplication(t *testing.T) {
 	if err == nil || err.Error() != "claude error_during_execution: partial result" {
 		t.Fatalf("err = %v", err)
 	}
-	if out.String() != "one\ntwo" || res.Answer != "partial result" || res.SessionID != "result-id" || res.Model != "answer-model" {
+	if out.String() != "one\ntwo" || res.Answer != "one\n\ntwo" || res.SessionID != "result-id" || res.Model != "answer-model" {
 		t.Fatalf("res = %+v, output = %q", res, out.String())
 	}
 	if res.Usage != (agent.Usage{InputTokens: 7, OutputTokens: 3, CacheCreationTokens: 2, CacheReadTokens: 4}) {
@@ -70,7 +70,7 @@ func TestParseClaudeStreamResultApplication(t *testing.T) {
 
 func TestParseClaudeStreamWriteError(t *testing.T) {
 	res, err := parseClaudeStream(newBR(claudeFixture), agent.NewTextSink(failingStreamWriter{}))
-	if !errors.Is(err, io.ErrClosedPipe) || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Answer != "" {
+	if !errors.Is(err, io.ErrClosedPipe) || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Answer != "Hello" { // parsed text survives the dead sink
 		t.Fatalf("res = %+v, err = %v", res, err)
 	}
 }
@@ -192,5 +192,25 @@ func TestParseClaudeStreamKeepsLastNonEmptyResult(t *testing.T) {
 	}
 	if want := "The dispatch ran and the agent replied PONG-7."; res.Answer != want {
 		t.Errorf("Answer = %q, want %q", res.Answer, want)
+	}
+}
+
+// Assistant text with no result event (the child died mid-turn) is still the observed answer.
+func TestParseClaudeStreamNoResultKeepsText(t *testing.T) {
+	stream := `{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"Hello"}]}}
+{"type":"assistant","parent_tool_use_id":"t","message":{"content":[{"type":"text","text":"sub"}]}}`
+	res, err := parseClaudeStream(newBR(stream), agent.Discard)
+	if !errors.Is(err, errNoResult) || res.Answer != "Hello" || res.SessionID != "s" {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+}
+
+// An error result keeps the assistant text already streamed as the answer; the error text rides in the error.
+func TestParseClaudeStreamErrorResultKeepsAssistantText(t *testing.T) {
+	stream := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}
+{"type":"result","is_error":true,"result":"API Error: 529"}`
+	res, err := parseClaudeStream(newBR(stream), agent.Discard)
+	if err == nil || !strings.Contains(err.Error(), "529") || res.Answer != "Hello" {
+		t.Fatalf("res = %+v, err = %v; want Answer Hello and a 529 error", res, err)
 	}
 }

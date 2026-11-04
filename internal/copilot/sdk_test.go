@@ -5,9 +5,12 @@ import (
 	"errors"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -321,5 +324,45 @@ func TestStartFleetSendsPromptAndWaits(t *testing.T) {
 	f.res = &rpc.FleetStartResult{}
 	if err := startFleet(context.Background(), f, copilot.MessageOptions{Prompt: "x"}); err == nil || !strings.Contains(err.Error(), "did not start") {
 		t.Fatalf("Started=false must error, got %v", err)
+	}
+}
+
+type recSink struct{ types []string }
+
+func (s *recSink) Emit(ev agent.Event) error { s.types = append(s.types, ev.Type); return nil }
+
+// An approved tool then a 503 leaves the sink with a tool_use before any text; a denied-only run emits none.
+func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
+	run := func(req copilot.PermissionRequest) []string {
+		var ok atomic.Bool
+		h := permissionHandler(SDKOptions{AllowAllTools: true, WorkingDirectory: t.TempDir()}, &ok)
+		if _, err := h(req, copilot.PermissionInvocation{}); err != nil {
+			t.Fatal(err)
+		}
+		sink := &recSink{}
+		out := SDKResult{Text: "part", ToolRan: ok.Load()}
+		err := markToolRan(out, sink, errors.New("503 service unavailable")) // Run marks the tool before branching on err
+		_, _ = copilotPartial(agent.Result{}, out, err, sink)
+		return sink.types
+	}
+	if got := run(rpc.PermissionRequestRead{}); !slices.Equal(got, []string{agent.EventToolUse, agent.EventText}) {
+		t.Errorf("approved read: events = %v, want [tool_use text]", got)
+	}
+	if got := run(rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{agent.EventText}) {
+		t.Errorf("denied mcp: events = %v, want [text]", got)
+	}
+}
+
+// A tool-only run (no text, no error) still marks progress, so a fallback cannot repeat its side effects.
+func TestMarkToolRanEmitsToolUseOnSuccess(t *testing.T) {
+	sink := &recSink{}
+	if err := markToolRan(SDKResult{ToolRan: true}, sink, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.types) != 1 || sink.types[0] != agent.EventToolUse {
+		t.Fatalf("sink saw %v, want one tool_use", sink.types)
+	}
+	if err := markToolRan(SDKResult{}, sink, nil); err != nil || len(sink.types) != 1 {
+		t.Fatalf("no tool ran: err=%v events=%v, want none emitted", err, sink.types)
 	}
 }

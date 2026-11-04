@@ -171,21 +171,30 @@ func (w textWriter) Write(p []byte) (int, error) {
 // SinkWriter is an io.Writer that emits its bytes as text events on s.
 func SinkWriter(s Sink) io.Writer { return textWriter{s: s} }
 
-// runSink stamps the running agent's name and counts text bytes, so a retry never repeats streamed output.
+// runSink stamps the running agent's name and notes progress, so a retry never repeats streamed output or tool effects.
 type runSink struct {
 	Sink
-	agent string
-	n     int64
+	agent      string
+	progressed bool
 }
 
 func (r *runSink) Emit(ev Event) error {
 	if ev.Agent == "" {
 		ev.Agent = r.agent
 	}
-	if ev.Type == EventText {
-		r.n += int64(len(ev.Text))
-	}
+	r.progressed = r.progressed || ev.progress() // before the sink: a failed emit still saw the event
 	return r.Sink.Emit(ev)
+}
+
+// progress is true for an event a replay could repeat: answer text, or a tool call that may have had effects.
+func (ev Event) progress() bool {
+	switch ev.Type {
+	case EventText:
+		return ev.Text != ""
+	case EventToolUse, EventToolResult:
+		return true
+	}
+	return false
 }
 
 // EmitError logs msg as an error line and emits it as an EventError, returning the sink's error.

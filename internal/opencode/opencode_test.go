@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
@@ -184,5 +187,15 @@ func TestOpencodeOverlayModelsCorruptProviderOverlay(t *testing.T) {
 	main, small, ok := opencodeOverlayModels()
 	if main != wantMain || small != wantSmall || ok != wantOK {
 		t.Errorf("got %q %q %v, want table %q %q %v", main, small, ok, wantMain, wantSmall, wantOK)
+	}
+}
+
+// Text already parsed survives a later typed-decode failure.
+func TestParseOpenCodeEventsDecodeErrorKeepsText(t *testing.T) {
+	stream := `{"type":"text","sessionID":"s-1","part":{"text":"hi"}}
+{"type":123}`
+	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil, nil, nil)
+	if err == nil || res.Answer != "hi" || res.SessionID != "s-1" {
+		t.Fatalf("res = %+v, err = %v; want the decode error with text and session kept", res, err)
 	}
 }

@@ -127,6 +127,9 @@ func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 	if err == nil {
 		return ""
 	}
+	if progressed(err) {
+		return "" // text or tools already ran: a re-run on the next model would repeat them
+	}
 	switch msg := err.Error(); {
 	case disp.repick != nil && capabilityErr.MatchString(msg):
 		return disp.repick(lreq.Model)
