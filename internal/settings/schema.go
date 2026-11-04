@@ -26,6 +26,7 @@ type Key struct {
 	Description string
 	Env         bool
 	pattern     *regexp.Regexp // alternate accepted string form (theme "custom:<slug>")
+	patternErr  error          // a pattern that failed to compile: Validate refuses rather than skip the check
 	alts        []Key          // union branches (anyOf, oneOf, a type list): valid when any accepts
 	items       *Key           // array element schema
 	props       map[string]Key // object property schemas
@@ -184,7 +185,7 @@ func (n schemaNode) key(name string, env bool) Key {
 		k.Kind = KindString
 	}
 	if n.Pattern != "" {
-		k.pattern, _ = regexp.Compile(n.Pattern)
+		k.pattern, k.patternErr = regexp.Compile(n.Pattern)
 	}
 	return k
 }
@@ -251,6 +252,9 @@ func SchemaKeys() []Key {
 
 // Validate checks raw against the key's kind, enum and minimum.
 func (k Key) Validate(raw json.RawMessage) error {
+	if k.patternErr != nil {
+		return fmt.Errorf("%s: schema pattern does not compile: %w", k.Name, k.patternErr)
+	}
 	if strings.TrimSpace(string(raw)) == "null" {
 		return fmt.Errorf("%s: want a value, got null", k.Name)
 	}

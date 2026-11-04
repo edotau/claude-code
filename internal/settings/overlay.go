@@ -135,6 +135,24 @@ func validateKey(k string, v json.RawMessage) error {
 // SaveOverlay validates every key (Catalog or schema), then writes ov whole; an empty map deletes
 // the vault entry instead of storing "{}".
 func SaveOverlay(ov map[string]json.RawMessage) error {
+	return vault.Update(func(t *vault.Tx) error { return putOverlay(t, ov) })
+}
+
+// UpdateOverlay applies next to the stored overlay inside one vault transaction, so a concurrent write is never lost.
+func UpdateOverlay(next func(cur map[string]json.RawMessage) map[string]json.RawMessage) error {
+	return vault.Update(func(t *vault.Tx) error {
+		cur := map[string]json.RawMessage{}
+		if raw, ok := t.Get(vault.Overlay, overlayBucketKey); ok && raw != "" {
+			if err := json.Unmarshal([]byte(raw), &cur); err != nil {
+				return fmt.Errorf("vault overlay/settings: %w", err)
+			}
+		}
+		return putOverlay(t, next(cur))
+	})
+}
+
+// putOverlay validates ov and stores it whole inside t; SaveOverlay skips the read so it can replace a corrupt entry.
+func putOverlay(t *vault.Tx, ov map[string]json.RawMessage) error {
 	if err := ValidateOverlay(ov); err != nil {
 		return err
 	}
@@ -146,9 +164,7 @@ func SaveOverlay(ov map[string]json.RawMessage) error {
 		}
 		raw = string(b)
 	}
-	return vault.Update(func(t *vault.Tx) error {
-		return t.Put(vault.Overlay, overlayBucketKey, raw)
-	})
+	return t.Put(vault.Overlay, overlayBucketKey, raw)
 }
 
 // RenderLive is Render with the vault overlay applied on top.

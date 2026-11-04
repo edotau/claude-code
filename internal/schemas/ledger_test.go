@@ -134,7 +134,7 @@ var writers = map[string]string{
 	"internal/secrets/nofollow_unix.go:openAppendNoFollow":             unversioned("foreign: user .env file"),
 	"internal/secrets/nofollow_other.go:openAppendNoFollow":            unversioned("foreign: user .env file"),
 	"internal/settings/overlay.go:mergeRepoDefaults":                   unversioned("foreign: repo defaults settings.json, Claude-owned shape"),
-	"internal/settings/settings.go:WriteWithBackup":                    unversioned("foreign: settings.json and backup"),
+	"internal/settings/settings.go:UpdateWithBackup":                   unversioned("foreign: settings.json and backup"),
 	"internal/vault/schema.go:snapshotBeforeMigration":                 unversioned("foreign: pre-migration byte copy of the vault"),
 	"internal/setup/backup.go:copyFile":                                unversioned("foreign: setup backup copy of user files"),
 	"internal/setup/nuke.go:createBackupFile":                          unversioned("foreign: nuke backup archive"),
