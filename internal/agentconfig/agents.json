@@ -32,7 +32,7 @@
             {
               "commands": ["git"],
               "check": "scopedGit",
-              "summary": "read-only git, git add <paths>, git commit (no --amend, --no-verify)",
+              "summary": "read-only git (git diff|log|show must start --no-ext-diff --no-textconv), git add <paths>, git commit (no --amend, --no-verify)",
               "cliAllow": [
                 "git status", "git diff", "git log", "git show", "git blame", "git rev-parse", "git branch --list",
                 "git add", "git commit"
@@ -48,16 +48,16 @@
               "bannedFlags": ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"],
               "argsInside": true
             },
-            {"commands": ["claude-code"], "subcommands": ["test mutate"]}
-          ],
-          "hookExtras": [
-            {"commands": ["claude-code"], "subcommands": ["copilot", "worktree merge"]},
+            {"commands": ["claude-code"], "subcommands": ["test mutate"]},
             {
               "commands": ["claude-code"],
               "subcommands": ["review"],
               "check": "noOutputFlag",
               "summary": "claude-code review (no -o/--output)"
             }
+          ],
+          "hookExtras": [
+            {"commands": ["claude-code"], "subcommands": ["copilot", "worktree merge"]}
           ],
           "cliDeny": [
             "git push", "git reset", "git checkout", "git restore", "git stash", "git rebase", "git clean",
