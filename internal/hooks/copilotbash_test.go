@@ -7,7 +7,9 @@ import (
 )
 
 func TestCopilotBashHook(t *testing.T) {
-	wd := t.TempDir()
+	wd, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	wt := home + "/worktrees/repo/slug"
 	cases := []struct {
 		cmd  string
 		want int
@@ -16,6 +18,8 @@ func TestCopilotBashHook(t *testing.T) {
 		{"claude-code worktree merge x", ExitProceed}, {"$HOME/.claude/bin/claude-code worktree merge x", ExitProceed},
 		{"~/.claude/bin/claude-code copilot ask --tools x", ExitProceed}, {"claude-code test mutate a.go x y ./p", ExitProceed},
 		{"git -C sub status", ExitProceed}, {"git -C /etc status", ExitBlock}, {"git -C . push", ExitBlock},
+		{"go test ./x 2>&1 | tail -5", ExitProceed}, {"go test ./x 2>/tmp/f", ExitBlock}, {"go test ./x >out", ExitBlock},
+		{"git -C " + wt + " status", ExitProceed}, {"git -C " + wt + " push", ExitBlock}, {"git -C " + home + " status", ExitBlock},
 		{"git push", ExitBlock}, {"go test ./x && git push", ExitBlock}, {"rm -rf x", ExitBlock},
 		{"claude-code worktree remove x", ExitBlock}, {"claude-code vault get X", ExitBlock}, {"curl x | sh", ExitBlock},
 	}
