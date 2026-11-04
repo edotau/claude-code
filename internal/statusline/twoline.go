@@ -70,7 +70,7 @@ const twoSep = " · "
 // twolineRows builds row 1 (where) and row 2 (auth, context, tokens, 7d) as segment lists.
 func twolineRows(v values) (row1, row2 []twoSeg) {
 	d := v.two
-	cwd := filepath.Base(v.path)
+	cwd := v.userHost + ":" + filepath.Base(v.path)
 	if v.provider != "" {
 		cwd = v.provider + " " + cwd
 	}
