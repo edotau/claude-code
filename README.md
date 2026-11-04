@@ -21,7 +21,7 @@ per area under `rules/harness/` and `rules/workflows/` (index: `CLAUDE.md` → H
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install                  # build, link agent CLIs into bin/, render settings.json, add linters (DEV_TOOLS=0 skips)
+make install                  # build, link agent CLIs into bin/, write settings.json (existing: hooks only), add linters (DEV_TOOLS=0 skips)
 claude-code doctor            # check binaries, providers, credentials, proxy
 ```
 
@@ -436,5 +436,5 @@ make test                  # full gate, once before pushing (= make audit = CI)
 - `git push` runs the same gate via `.githooks/pre-push`; `--no-verify` bypasses it.
 - `settings.json` is generated: edit `defaults/claude/settings.json` (or `claude-code configure` →
   "Save to repo defaults"), then `make install`.
-  Default keys reset on every install; permission lists are unioned,
-  so a removed rule must also be deleted from `settings.json` by hand.
+  Install refreshes only `hooks` in an existing `settings.json`; every other key stays yours, and on a
+  terminal it offers to restore the defaults when they differ (`configure --restore` does it any time).

@@ -12,14 +12,15 @@ paths:
 | --- | --- |
 | Build, install, render `settings.json` | `make install` (`claude-code install --dry-run` previews) |
 | Render settings + agent configs | `claude-code configure --restore [--out f] [--check] [--dry-run] [--agents]` |
-| Change permissions / env / statusLine | edit `defaults/claude/settings.json` → `configure --restore --dry-run` → `make install` |
+| Change permissions / env / statusLine | edit `defaults/claude/settings.json` → `configure --restore --dry-run` → `configure --restore` |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `settings/hookspec.go` group, `make install` (`hooks.md`) |
 | Lint and auto-fix | `make lint [WHAT=go\|md\|all] [AGENT=on\|<agent>\|off] [MAX=3]`; `on` means Claude Sonnet at medium effort; env `HARNESS_LINT_AGENT` sets the default (`commands/lint-fix.md`) |
 
 **Never edit `~/.claude/settings.json`.** `claude-code configure --restore` (and `make install`) renders it from
 `defaults/claude/settings.json` (tracked), the vault overlay and the hook chain in
-`internal/settings/hookspec.go`; a direct edit is discarded on the next render. That covers `env`, hooks,
-permissions, `apiKeyHelper`, `statusLine`.
+`internal/settings/hookspec.go`; a direct edit is discarded on the next restore. That covers `env`, hooks,
+permissions, `apiKeyHelper`, `statusLine`. `make install` generates a missing file; over an existing one it
+refreshes only `hooks` (foreign hooks kept) and, on a terminal, asks before restoring the defaults.
 The defaults derive paths from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR` — never hardcode a machine path there.
 **Propose permission additions first:** show new `permissions.allow` rules as a table and wait for the owner's pick
 before editing the defaults or running `make install` (`/fewer-permission-prompts` included).
@@ -29,10 +30,10 @@ before editing the defaults or running `make install` (`/fewer-permission-prompt
    `internal/settings/claude-code-settings.schema.json`). A new plain-value key also needs an entry in
    `internal/settings/catalog.go` (a test enforces it).
 2. Preview: `claude-code configure --restore --dry-run`.
-3. `make install` (backs up the old file to `state/harness/backups/settings.json.bak-<timestamp>`), then
+3. `configure --restore` (backs up the old file to `state/harness/backups/settings.json.bak-<timestamp>`), then
    `claude-code doctor`.
 
-`configure --restore --check` fails on invalid JSON, a key install would rewrite, a foreign key (including ones
+`configure --restore --check` fails on invalid JSON, a key a restore would rewrite, a foreign key (including ones
 `/config` writes) and a nested `.claude/.claude`.
 
 ## Where an override goes

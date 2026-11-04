@@ -78,7 +78,7 @@ func windowsLocalSettingsFile() string {
 }
 
 // InstallWindowsSettings renders the Windows subset of the live settings and merges it into the
-// Windows settings.json, backing up first. A no-op off WSL, or with a one-line skip note when the
+// Windows settings.json (hooks only when the file exists), backing up first. A no-op off WSL, or with a one-line skip note when the
 // Windows profile can't be resolved.
 func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if !proc.OnWSL() && os.Getenv(windowsProfileEnv) == "" {
@@ -101,16 +101,12 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	dropped, derr := settings.LoadDropped()
-	if derr != nil {
-		fmt.Fprintln(w, "settings: drop list unavailable: "+derr.Error())
-	}
-	merged, sum, err := settings.Merge(existing, winRendered, dropped)
+	merged, sum, err := settings.Merge(existing, winRendered)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "settings (windows) %s\n  keep   %s\n  merge  %s\n",
-		file, strings.Join(sum.Kept, ", "), strings.Join(sum.Owned, ", "))
+	fmt.Fprintf(w, "settings (windows) %s\n  hooks  %d harness refreshed + %d foreign kept; other keys yours\n",
+		file, sum.HarnessHooks, sum.ForeignHooks)
 	if string(merged) == string(existing) {
 		fmt.Fprintln(w, "  unchanged")
 		return nil
@@ -166,11 +162,6 @@ func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
 		return SettingsDrift{File: file}, true, err
 	}
 	d, err = checkSettingsDriftAt(file, windowsLocalSettingsFile(), winRendered, "")
-	if dropped, derr := settings.LoadDropped(); derr != nil {
-		d.Note = "drop list unavailable: " + derr.Error()
-	} else {
-		d.applyDropped(dropped, winRendered) // a listed key still present is drift here too; install removes it
-	}
 	// Windows-side writers (foreign hooks, remote, a bash statusLine) own their keys; install keeps them, so not drift.
 	d.Kept, d.Foreign = d.Foreign, nil
 	return d, true, err

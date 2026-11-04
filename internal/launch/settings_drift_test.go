@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -269,82 +268,6 @@ func TestCheckSettingsDriftLinesFitEightyColumns(t *testing.T) {
 	}
 }
 
-// TestCheckSettingsDriftDroppedKey: a live key on the drop list is Differs (not Foreign) until install removes it.
-func TestCheckSettingsDriftDroppedKey(t *testing.T) {
-	freshConfigDir(t)
-	rendered, err := settings.RenderLive()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := settings.UpdateDropped(func([]string) []string { return []string{"verbose"} }); err != nil {
-		t.Fatal(err)
-	}
-	withKey := strings.TrimRight(strings.TrimSpace(string(rendered)), "}") + `,"verbose":true}`
-	if err := os.WriteFile(SettingsFile(), []byte(withKey), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	d, err := CheckSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "verbose is dropped (run claude-code install)"
-	if !d.Drifted() || !slices.Contains(d.Differs, want) {
-		t.Errorf("Differs = %v, want %q", d.Differs, want)
-	}
-	if slices.Contains(d.Foreign, "verbose") {
-		t.Errorf("dropped key must not also be Foreign: %v", d.Foreign)
-	}
-	merged, _, err := settings.Merge([]byte(withKey), rendered, []string{"verbose"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(SettingsFile(), merged, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	d, err = CheckSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Drifted() || len(d.Lines()) != 0 {
-		t.Errorf("after the merge-rendered file nothing should print: %v", d.Lines())
-	}
-}
-
-// breakVault corrupts the vault file so settings.LoadDropped fails.
-func breakVault(t *testing.T, dir string) {
-	t.Helper()
-	if err := settings.UpdateDropped(func([]string) []string { return []string{"verbose"} }); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "state", "vault.db"), []byte("not a bolt db, garbage"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// A drop-list load error is an informational Note: drift detection continues and Drifted() ignores it.
-func TestCheckSettingsDriftDropListErrorIsNote(t *testing.T) {
-	dir := freshConfigDir(t)
-	rendered, err := settings.RenderLive()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(SettingsFile(), rendered, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	breakVault(t, dir)
-	d, err := CheckSettingsDriftWith(rendered)
-	if err != nil {
-		t.Fatalf("CheckSettingsDriftWith = %v, want it to continue", err)
-	}
-	if d.Drifted() {
-		t.Errorf("a drop-list error must not count as drift: %+v", d)
-	}
-	lines := d.Lines()
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], "settings: drop list unavailable:") {
-		t.Errorf("Lines = %q, want one informational drop-list line", lines)
-	}
-}
-
 // Every assembled line, whatever the finding kind, stays within 80 runes.
 func TestSettingsDriftLinesCapAssembledLongFindings(t *testing.T) {
 	long := strings.Repeat("x", 200)
@@ -355,11 +278,10 @@ func TestSettingsDriftLinesCapAssembledLongFindings(t *testing.T) {
 		Kept:     []string{long},
 		LocalDup: []string{"settings.local.json " + long + " repeats the template"},
 		Nested:   long,
-		Note:     "drop list unavailable: " + long,
 	}
 	lines := d.Lines()
-	if len(lines) != 6 {
-		t.Fatalf("lines = %d, want 6: %q", len(lines), lines)
+	if len(lines) != 5 {
+		t.Fatalf("lines = %d, want 5: %q", len(lines), lines)
 	}
 	for _, l := range lines {
 		if n := len([]rune(l)); n > 80 {

@@ -41,23 +41,6 @@ var configurePage = helptext.Page{
 	},
 }
 
-// keyList is a repeatable comma-separated flag: splits, trims, skips empties, dedupes in first-seen order.
-type keyList []string
-
-func (k *keyList) String() string { return strings.Join(*k, ",") }
-
-// Placeholder names the FLAGS placeholder for keyList (helptext.Placeholder).
-func (k *keyList) Placeholder() string { return "KEY,KEY" }
-
-func (k *keyList) Set(v string) error {
-	for p := range strings.SplitSeq(v, ",") {
-		if p = strings.TrimSpace(p); p != "" && !slices.Contains(*k, p) {
-			*k = append(*k, p)
-		}
-	}
-	return nil
-}
-
 // cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
 	if len(args) > 0 && args[0] == "desktop" {
@@ -76,9 +59,6 @@ func cmdConfigure(args []string) int {
 	list := fs.Bool("list", false, "with provider: list profiles and credential state")
 	all := fs.Bool("all", false, "with provider: check every profile's sign-in and log in where needed")
 	format := helptext.FormatFlag(fs)
-	var drop, keep keyList
-	fs.Var(&drop, "drop", "remove these top-level settings.json keys each render (comma or repeat)")
-	fs.Var(&keep, "keep", "stop dropping these keys")
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -125,7 +105,7 @@ func cmdConfigure(args []string) int {
 	}
 	return menu.Run(menu.Options{
 		Provider: *provider, Agent: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
-		JSON: *format == helptext.JSON, Drop: drop, Keep: keep, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
+		JSON: *format == helptext.JSON, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
 }
 

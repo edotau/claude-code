@@ -1,5 +1,5 @@
-// Package settings renders the harness settings.json and merges it into an existing one without
-// dropping foreign keys (bar the vault drop list) or foreign hooks.
+// Package settings renders the harness settings.json and refreshes the hooks of an existing one,
+// leaving every other key and every foreign hook as the user has it.
 package settings
 
 import (
@@ -110,8 +110,7 @@ func Render() ([]byte, error) {
 // Summary describes what Merge did, for `install --dry-run`.
 type Summary struct {
 	Kept         []string // existing top-level keys the template does not own
-	Dropped      []string // existing keys removed: the vault drop list plus the retired autoMemoryDirectory
-	Owned        []string // template keys written (env/permissions unioned, others replaced)
+	Drift        []string // keys other than hooks that differ from the defaults render (set by install)
 	ForeignHooks int      // non-harness hook commands preserved
 	HarnessHooks int
 }
@@ -119,11 +118,12 @@ type Summary struct {
 // runtimeKeys are written by Claude Code itself (e.g. /effort → modelSettings): merge keeps them, drift ignores them.
 var runtimeKeys = []string{"modelSettings"}
 
-// Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
-// lists unioned, harness hooks replaced, foreign hooks kept after them; keys in dropped are removed.
-func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error) {
+// Merge refreshes only the hooks of an existing file (harness hooks replaced, foreign kept after them) and
+// leaves every other key as is; an empty existing is a fresh file and takes every rendered key.
+func Merge(existing, rendered []byte) ([]byte, Summary, error) {
 	var sum Summary
-	if len(bytes.TrimSpace(existing)) == 0 {
+	fresh := len(bytes.TrimSpace(existing)) == 0
+	if fresh {
 		existing = []byte("{}")
 	}
 	ex, err := parseObject(existing)
@@ -134,100 +134,25 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 	if err != nil {
 		return nil, sum, err
 	}
-	kept := &object{vals: map[string]json.RawMessage{}}
 	for _, k := range ex.keys {
-		_, owned := tp.vals[k]
-		switch {
-		case k == "autoMemoryDirectory": // retired: a flat dir that merges every repo's memory; the one retired key still dropped
-			sum.Dropped = append(sum.Dropped, k)
-			continue
-		case !owned && slices.Contains(dropped, k): // a template key is never dropped: its existing value still merges
-			sum.Dropped = append(sum.Dropped, k)
-			continue
-		case !owned && !slices.Contains(runtimeKeys, k):
+		if _, owned := tp.vals[k]; !owned && !slices.Contains(runtimeKeys, k) {
 			sum.Kept = append(sum.Kept, k)
 		}
-		kept.set(k, ex.vals[k])
 	}
-	ex = kept
 	for _, k := range tp.keys {
-		sum.Owned = append(sum.Owned, k)
+		if k != "hooks" && !fresh {
+			continue
+		}
 		v := tp.vals[k]
-		var merged json.RawMessage
-		switch k {
-		case "env": // a retired env key stays until `configure --restore` rewrites the file
-			merged, err = mergeObject(ex.vals[k], v)
-		case "permissions":
-			merged, err = mergePermissions(ex.vals[k], v)
-		case "hooks":
-			merged, err = mergeHooks(ex.vals[k], v, &sum)
-		default:
-			merged = v
+		if k == "hooks" {
+			if v, err = mergeHooks(ex.vals[k], v, &sum); err != nil {
+				return nil, sum, fmt.Errorf("merge %s: %w", k, err)
+			}
 		}
-		if err != nil {
-			return nil, sum, fmt.Errorf("merge %s: %w", k, err)
-		}
-		ex.set(k, merged)
+		ex.set(k, v)
 	}
 	out, err := ex.marshal()
 	return out, sum, err
-}
-
-// mergeObject sets every overlay key onto base, keeping base's other keys and order.
-func mergeObject(base, overlay json.RawMessage) (json.RawMessage, error) {
-	b, err := parseObject(orEmpty(base))
-	if err != nil {
-		return nil, err
-	}
-	o, err := parseObject(overlay)
-	if err != nil {
-		return nil, err
-	}
-	for _, k := range o.keys {
-		b.set(k, o.vals[k])
-	}
-	return b.marshal()
-}
-
-// retiredPermissions left the template; the union below would otherwise keep them in an existing file forever.
-var retiredPermissions = []string{
-	"Bash(pytest *)", "Bash(npm *)", "Bash(npx vitest *)", "Bash(git push --force origin main:*)",
-	"Bash(git push -f origin main:*)", "Bash(git push --force origin master:*)", "Bash(git push -f origin master:*)",
-	"Edit(*)", "Read(*)", "Write(*)", // only the working dirs now; the bare names allow every path
-}
-
-// mergePermissions unions the allow/ask/deny lists minus retired rules; other existing permission keys stay.
-func mergePermissions(base, overlay json.RawMessage) (json.RawMessage, error) {
-	b, err := parseObject(orEmpty(base))
-	if err != nil {
-		return nil, err
-	}
-	o, err := parseObject(overlay)
-	if err != nil {
-		return nil, err
-	}
-	for _, k := range o.keys {
-		var have, add []string
-		if json.Unmarshal(o.vals[k], &add) != nil {
-			b.set(k, o.vals[k])
-			continue
-		}
-		if raw, ok := b.vals[k]; ok && json.Unmarshal(raw, &have) != nil {
-			return nil, fmt.Errorf("permissions.%s is not a string list", k)
-		}
-		have = slices.DeleteFunc(have, func(r string) bool { return slices.Contains(retiredPermissions, r) })
-		for _, r := range have { // template order first, so a reordered template is not reported as drift
-			if !slices.Contains(add, r) {
-				add = append(add, r)
-			}
-		}
-		raw, err := textutil.MarshalNoEscape(add)
-		if err != nil {
-			return nil, err
-		}
-		b.set(k, raw)
-	}
-	return b.marshal()
 }
 
 // mergeHooks strips harness commands from existing events, then writes harness groups followed by the

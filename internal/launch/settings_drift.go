@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -28,7 +27,6 @@ type SettingsDrift struct {
 	Kept     []string // foreign keys reported but not counted as drift (the Windows file)
 	LocalDup []string
 	Nested   string
-	Note     string // informational (e.g. drop list unavailable); not drift
 }
 
 // Drifted is true when settings.json is invalid, missing, differs, holds a foreign key, or a nested config exists.
@@ -70,9 +68,6 @@ func (s SettingsDrift) LinesLabeled(label string) []string {
 	if s.Nested != "" {
 		add(label + ": nested config: " + s.Nested)
 	}
-	if s.Note != "" {
-		add(label + ": " + s.Note)
-	}
 	return lines
 }
 
@@ -94,42 +89,10 @@ func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 		return d, err
 	}
 	d.restoreDiff(rendered)
-	dropped, derr := settings.LoadDropped()
-	if derr != nil { // match install: warn and continue with an empty list
-		d.Note = "drop list unavailable: " + derr.Error()
-	}
-	d.applyDropped(dropped, rendered)
 	if nested := clean.NestedConfig(); nested.Dir != "" && !nested.OnlyWorktrees() {
 		d.Nested = nestedDetail(nested)
 	}
 	return d, nil
-}
-
-// applyDropped moves live drop-list keys from Foreign to a Differs line; install removes them.
-func (s *SettingsDrift) applyDropped(dropped []string, rendered []byte) {
-	if len(dropped) == 0 || s.Invalid != nil {
-		return
-	}
-	live, _, err := readStrippingBOM(s.File)
-	if err != nil {
-		return
-	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal(live, &top) != nil {
-		return
-	}
-	var tpl map[string]json.RawMessage
-	_ = json.Unmarshal(rendered, &tpl)
-	for _, k := range dropped {
-		if _, ok := top[k]; !ok {
-			continue
-		}
-		if _, owned := tpl[k]; owned {
-			continue
-		}
-		s.Foreign = slices.DeleteFunc(s.Foreign, func(f string) bool { return f == k })
-		s.Differs = append(s.Differs, k+" is dropped (run claude-code install)")
-	}
 }
 
 // newestBackup names the latest cache-mirrored backup to restore from, or says none was found.

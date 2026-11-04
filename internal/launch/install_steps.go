@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // Install copies the binary into BinDir, links the agent CLIs, and merges the harness settings
@@ -91,13 +93,12 @@ func installCompact(w io.Writer) error {
 	if err := linkOnPathCompact(w, target); err != nil {
 		return err
 	}
-	settingsLine, settingsErr := settingsCompactLine()
-	if settingsErr != nil {
-		if settingsLine != "" {
-			fmt.Fprintln(w, settingsLine)
-		}
-	} else {
+	settingsLine, settingsDrift, settingsErr := settingsCompactLine()
+	if settingsLine != "" {
 		fmt.Fprintln(w, settingsLine)
+	}
+	if settingsErr == nil {
+		settingsErr = offerRestore(w, SettingsFile(), settingsDrift, false)
 	}
 	windowsSettingsCompact(w)
 	agentsSyncCompact(w)
@@ -220,7 +221,8 @@ func linkOnPathCompact(w io.Writer, target string) error {
 	return nil
 }
 
-// ApplySettings is the read/render/merge/write of settings.json shared by install and configure's exit re-render.
+// ApplySettings is the read/render/merge/write of settings.json shared by install and configure's exit re-render:
+// a missing file is generated from the defaults; an existing one has only its hooks refreshed.
 func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum settings.Summary, backup string, err error) {
 	file = SettingsFile()
 	existing, err = os.ReadFile(file)
@@ -232,20 +234,19 @@ func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum setti
 		if rerr != nil {
 			return file, nil, nil, settings.Summary{}, "", rerr
 		}
-		_, sum, err = settings.Merge(nil, r.Data, nil)
+		_, sum, err = settings.Merge(nil, r.Data)
 		return file, nil, r.Data, sum, r.Backup, err
 	}
 	rendered, err := settings.RenderLive()
 	if err != nil {
 		return file, existing, nil, settings.Summary{}, "", err
 	}
-	dropped, derr := settings.LoadDropped()
-	if derr != nil {
-		fmt.Println("settings: drop list unavailable: " + derr.Error())
-	}
-	merged, sum, err = settings.Merge(existing, rendered, dropped)
+	merged, sum, err = settings.Merge(existing, rendered)
 	if err != nil {
 		return file, existing, nil, settings.Summary{}, "", err
+	}
+	if len(existing) > 0 {
+		sum.Drift = driftExceptHooks(merged, rendered)
 	}
 	if string(merged) == string(existing) || dryRun {
 		return file, existing, merged, sum, "", nil
@@ -254,7 +255,32 @@ func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum setti
 	return file, existing, merged, sum, backup, err
 }
 
-// installSettings merges the rendered harness settings into settings.json, backing up on a real write.
+// driftExceptHooks lists the keys of settings that differ from the defaults render, hooks aside.
+func driftExceptHooks(live, rendered []byte) []string {
+	keys, err := settings.DiffRendered(live, rendered)
+	if err != nil {
+		return nil
+	}
+	return slices.DeleteFunc(keys, func(k string) bool { return k == "hooks" })
+}
+
+// offerRestore tells the user their settings.json differs from the defaults; on a terminal outside a
+// dry run it asks to restore them whole (timestamped backup, `configure --revert` undoes).
+func offerRestore(w io.Writer, file string, drift []string, dryRun bool) error {
+	if len(drift) == 0 {
+		return nil
+	}
+	if dryRun || !tui.StdinIsTerminal() || !tui.StdoutIsTerminal() {
+		fmt.Fprintf(w, "settings differs from defaults (%d keys); `claude-code configure --restore` resets\n", len(drift))
+		return nil
+	}
+	if !tui.Confirm(fmt.Sprintf("settings.json differs from defaults (%d keys) — restore defaults?", len(drift)), false) {
+		return nil
+	}
+	return restoreSettingsFile(w, file)
+}
+
+// installSettings refreshes the hooks of settings.json (or generates it), backing up on a real write.
 func installSettings(w io.Writer, dryRun bool) error {
 	file, existing, merged, sum, backup, err := ApplySettings(dryRun)
 	if err != nil {
@@ -263,34 +289,32 @@ func installSettings(w io.Writer, dryRun bool) error {
 		}
 		return err
 	}
-	fmt.Fprintf(w, "settings %s\n  keep   %s\n  merge  %s\n  hooks  %d harness + %d foreign kept\n",
-		file, strings.Join(sum.Kept, ", "), strings.Join(sum.Owned, ", "), sum.HarnessHooks, sum.ForeignHooks)
-	if len(sum.Dropped) > 0 {
-		fmt.Fprintf(w, "  drop   %s (drop list)\n", strings.Join(sum.Dropped, ", "))
+	if existing == nil && !dryRun {
+		fmt.Fprintf(w, "settings %s\n  new    generated from defaults\n", file)
+	} else {
+		fmt.Fprintf(w, "settings %s\n  hooks  %d harness refreshed + %d foreign kept; other keys yours\n",
+			file, sum.HarnessHooks, sum.ForeignHooks)
 	}
-	if string(merged) == string(existing) {
+	switch {
+	case string(merged) == string(existing):
 		fmt.Fprintln(w, "  unchanged")
-		return nil
-	}
-	if dryRun {
+	case dryRun:
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
-		return nil
-	}
-	if backup != "" {
+	case backup != "":
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
-	return nil
+	return offerRestore(w, file, sum.Drift, dryRun)
 }
 
-// settingsCompactLine is installSettings without the printing: it renders and writes the harness
-// settings the same way, returning the one-line summary (or "" on error, which the caller reports).
-func settingsCompactLine() (line string, err error) {
+// settingsCompactLine is installSettings without the printing: it writes the settings the same way,
+// returning the one-line summary (or "" on error, which the caller reports) and the keys that differ from the defaults.
+func settingsCompactLine() (line string, drift []string, err error) {
 	_, existing, merged, sum, backup, err := ApplySettings(false)
 	if err != nil {
 		if backup != "" {
-			return "settings error · backup …" + filepath.Base(backup), err
+			return "settings error · backup …" + filepath.Base(backup), nil, err
 		}
-		return "", err
+		return "", nil, err
 	}
 	status := "updated"
 	if string(merged) == string(existing) {
@@ -300,10 +324,7 @@ func settingsCompactLine() (line string, err error) {
 	if backup != "" {
 		line += " · backup …" + filepath.Base(backup)
 	}
-	if len(sum.Dropped) > 0 {
-		line += fmt.Sprintf(" · %d dropped", len(sum.Dropped))
-	}
-	return line, nil
+	return line, sum.Drift, nil
 }
 
 // windowsSettingsCompact runs InstallWindowsSettings and condenses its full-detail output to one line;
