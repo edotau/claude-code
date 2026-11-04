@@ -161,6 +161,9 @@ func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
 }
 
 func render(v values, cfg Config, pal theme.Palettes) string {
+	if cfg.Style == "twoline" { // twoline is never clipped: Claude Code trims what the terminal cannot show
+		return renderRaw(v, cfg, pal)
+	}
 	return clip(renderRaw(v, cfg, pal), lineWidth(cfg))
 }
 
@@ -172,7 +175,7 @@ func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 	width := lineWidth(cfg)
 	switch cfg.Style {
 	case "twoline":
-		return renderTwoline(v, cfg, pal, stops, mode, width)
+		return renderTwoline(v, cfg, pal, stops, mode)
 	case "dashboard":
 		return renderDashboard(v, cfg, pal, stops, mode, width)
 	case "powerline", "capsule", "minimal":

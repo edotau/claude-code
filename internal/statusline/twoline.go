@@ -25,6 +25,7 @@ type twoData struct {
 type twoSeg struct {
 	key, text, fg string // fg: fixed hex that overrides the ramp
 	bold, dim     bool
+	bare          bool // padding or the head gap: never takes a derived background
 }
 
 // collectTwoline resolves model, effort, auth countdown, context and 7d from the payload.
@@ -78,7 +79,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	}
 	row1 = appendSep(row1, twoSeg{key: "model", text: cmpModel(d.model, v.model), bold: true})
 	if d.effort != "" {
-		row1 = append(row1, twoSeg{key: "effort", text: " / " + d.effort, dim: true})
+		row1 = append(row1, twoSeg{key: "effort", text: ":" + d.effort, dim: true})
 	}
 	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.hasCtx {
@@ -125,6 +126,9 @@ func appendSep(row []twoSeg, s twoSeg) []twoSeg {
 	return append(row, s)
 }
 
+// twoShade is how far a derived cell background darkens its ramp color toward black.
+const twoShade = 0.8
+
 // paintTwoRow sweeps the ramp across the row's runes; a cell the palette colors gets its themed fg and bg.
 func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB, mode string) string {
 	total := 0
@@ -136,6 +140,9 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 	for _, s := range row {
 		if bg := th[s.key]["bg"]; bg != "" {
 			b.WriteString(ansi.BgSeq(mode, ansi.Hex(bg)))
+		} else if len(th) == 0 && !s.bare { // a ramp-only palette backs each cell and separator with a dark shade of its own ramp color
+			mid := float64(i) + float64(utf8.RuneCountInString(s.text)-1)/2
+			b.WriteString(ansi.BgSeq(mode, ansi.Mix(ansi.GradAt(stops, mid/float64(max(total-1, 1))), ansi.RGB{}, twoShade)))
 		}
 		if s.dim || s.key == "sep" {
 			b.WriteString("\x1b[2m")
@@ -157,8 +164,8 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 	return b.String()
 }
 
-// renderTwoline draws the two-row style; with a width, row 1's tail and all of row 2 end at the right edge.
-func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
+// renderTwoline draws the two-row style, both rows left-packed so a resize clips only their ends.
+func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	th := pal.Powerline[cfg.Gradient] // background blocks only with a palette that defines them (minimal)
 	row1, row2 := twolineRows(v)
 	for i := range row1 { // velocity keeps the add/del tones every style uses
@@ -167,36 +174,11 @@ func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, m
 		}
 	}
 	out := paintTwoRow(row1, th, stops, mode)
-	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads; the rest sits at the right edge
-		out = head + paintTwoRow([]twoSeg{{key: "sep", text: gapOr(sepPath, headWidth(v, cfg), segWidth(row1), width)}}, th, stops, mode) + out
+	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads
+		out = head + paintTwoRow([]twoSeg{{key: "sep", bare: true, text: sepPath}}, th, stops, mode) + out
 	}
 	if len(row2) == 0 {
 		return out
 	}
-	return out + "\n" + paintTwoRow(alignRight(row2, width), th, stops, mode)
-}
-
-// alignRight left-pads the row with spaces so it ends at width; unchanged without a width or when it would not fit.
-func alignRight(row []twoSeg, width int) []twoSeg {
-	pad := width - segWidth(row)
-	if width <= 0 || pad <= 0 {
-		return row
-	}
-	return append([]twoSeg{{text: strings.Repeat(" ", pad)}}, row...)
-}
-
-// segWidth is the row's printable width in runes.
-func segWidth(row []twoSeg) (n int) {
-	for _, s := range row {
-		n += utf8.RuneCountInString(s.text)
-	}
-	return n
-}
-
-// gapOr is the spaces that push a row's tail to width, else sep when there is no room to spare.
-func gapOr(sep string, left, rest, width int) string {
-	if pad := width - left - rest; width > 0 && pad > utf8.RuneCountInString(sep) {
-		return strings.Repeat(" ", pad)
-	}
-	return sep
+	return out + "\n" + paintTwoRow(row2, th, stops, mode)
 }
