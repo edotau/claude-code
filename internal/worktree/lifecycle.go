@@ -182,49 +182,14 @@ func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanRe
 	branch, _ := currentWorktreeBranch(dest)
 	result := CleanResult{Path: dest, Branch: branch}
 
-	if reason, err := InUseBy(dest); err != nil {
-		result.Reason = "in-use check failed: " + err.Error()
-		return result, nil
-	} else if reason != "" {
+	gitDir, reason := cleanBusyReason(dest)
+	if reason != "" {
 		result.Reason = reason
 		return result, nil
 	}
-
-	gitDir, err := gitDirOf(context.Background(), dest)
-	if err != nil {
-		result.Reason = "lock check failed: " + err.Error()
-		return result, nil
-	}
-	locked, err := isLockedAt(dest, gitDir)
-	if err != nil {
-		result.Reason = "lock check failed: " + err.Error()
-		return result, nil
-	}
-	if locked {
-		result.Reason = "worktree is locked"
-		return result, nil
-	}
-
-	if op, found, err := inProgressOp(context.Background(), dest, gitDir); err != nil {
-		result.Reason = "operation check failed: " + err.Error()
-		return result, nil
-	} else if found {
-		result.Reason = op + " in progress"
-		return result, nil
-	}
-
-	entry := Entry{Path: dest, Head: headOf(dest), gitDir: gitDir}
-	target, targetErr := currentBranch(repo.Main)
-	Inspect(repo, &entry, target, targetErr, time.Now())
-	switch {
-	case len(entry.Problems) > 0:
-		result.Reason = "inspection failed: " + strings.Join(entry.Problems, "; ")
-		return result, nil
-	case entry.Dirty:
-		result.Reason = "worktree has uncommitted changes"
-		return result, nil
-	case !entry.Merged:
-		result.Reason = "worktree HEAD is not merged into " + target
+	entry, reason := cleanInspectReason(repo, dest, gitDir)
+	if reason != "" {
+		result.Reason = reason
 		return result, nil
 	}
 
@@ -232,12 +197,74 @@ func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanRe
 		result.Removed = true // preview: every recheck above passed, so this one is eligible
 		return result, nil
 	}
+	return removeMerged(repo, name, dest, entry, result, log), nil
+}
+
+// inUseReason is the refusal reason for a worktree some process is using ("" = free).
+func inUseReason(dest string) string {
+	reason, err := InUseBy(dest)
+	if err != nil {
+		return "in-use check failed: " + err.Error()
+	}
+	return reason
+}
+
+// lockReason is the refusal reason for a failed or positive lock check ("" = unlocked).
+func lockReason(locked bool, err error) string {
+	if err != nil {
+		return "lock check failed: " + err.Error()
+	}
+	if locked {
+		return "worktree is locked"
+	}
+	return ""
+}
+
+// cleanBusyReason runs the in-use, lock and in-progress-operation checks in order and returns dest's git dir.
+func cleanBusyReason(dest string) (gitDir, reason string) {
+	if reason := inUseReason(dest); reason != "" {
+		return "", reason
+	}
+	gitDir, err := gitDirOf(context.Background(), dest)
+	if err != nil {
+		return "", "lock check failed: " + err.Error()
+	}
+	locked, err := isLockedAt(dest, gitDir)
+	if reason := lockReason(locked, err); reason != "" {
+		return "", reason
+	}
+	if op, found, err := inProgressOp(context.Background(), dest, gitDir); err != nil {
+		return "", "operation check failed: " + err.Error()
+	} else if found {
+		return "", op + " in progress"
+	}
+	return gitDir, ""
+}
+
+// cleanInspectReason refuses a worktree whose inspection failed, is dirty, or is not merged into the target.
+func cleanInspectReason(repo *Repo, dest, gitDir string) (entry Entry, reason string) {
+	entry = Entry{Path: dest, Head: headOf(dest), gitDir: gitDir}
+	target, targetErr := currentBranch(repo.Main)
+	Inspect(repo, &entry, target, targetErr, time.Now())
+	switch {
+	case len(entry.Problems) > 0:
+		return entry, "inspection failed: " + strings.Join(entry.Problems, "; ")
+	case entry.Dirty:
+		return entry, "worktree has uncommitted changes"
+	case !entry.Merged:
+		return entry, "worktree HEAD is not merged into " + target
+	}
+	return entry, ""
+}
+
+// removeMerged removes a worktree that passed every recheck, deletes its merged branch and closes the ledger.
+func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult, log io.Writer) CleanResult {
 	if out, err := gitCmd(context.Background(), "-C", repo.Main, "worktree", "remove", dest).CombinedOutput(); err != nil {
 		result.Reason = fmt.Sprintf("git worktree remove: %v: %s", err, strings.TrimSpace(string(out)))
-		return result, nil
+		return result
 	}
 	result.Removed = true
-	if branch != "" && gitCmd(context.Background(), "-C", repo.Main, "branch", "-d", branch).Run() == nil {
+	if result.Branch != "" && gitCmd(context.Background(), "-C", repo.Main, "branch", "-d", result.Branch).Run() == nil {
 		result.BranchDeleted = true // -d refuses an unmerged branch; failure there just keeps it
 	}
 	if err := CloseLedger(repo.Main, name, LedgerClose{
@@ -245,7 +272,7 @@ func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanRe
 	}); err != nil {
 		fmt.Fprintf(log, "worktree-clean: warning: ledger: %v\n", err)
 	}
-	return result, nil
+	return result
 }
 
 // CleanAll previews (or, with apply, executes) Clean across every entry List finds that actually
@@ -354,52 +381,14 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 	branch, _ := currentWorktreeBranch(dest)
 	result := CleanResult{Path: dest, Branch: branch}
 
-	if isMainCheckout(repo, dest) {
-		result.Reason = "refusing to remove the main checkout"
-		return result, nil
-	}
-	if reason, err := InUseBy(dest); err != nil {
-		result.Reason = "in-use check failed: " + err.Error()
-		return result, nil
-	} else if reason != "" {
+	if reason := forceBusyReason(repo, dest); reason != "" {
 		result.Reason = reason
 		return result, nil
 	}
-	locked, err := isLocked(dest)
-	if err != nil {
-		result.Reason = "lock check failed: " + err.Error()
+	summary, reason := discardSummary(repo, dest, branch)
+	if reason != "" {
+		result.Reason = reason
 		return result, nil
-	}
-	if locked {
-		result.Reason = "worktree is locked"
-		return result, nil
-	}
-
-	ctx := context.Background()
-	out, err := gitCmd(ctx, "-C", repo.Main, "symbolic-ref", "--short", "-q", "HEAD").Output()
-	target := strings.TrimSpace(string(out))
-	if err != nil || target == "" {
-		result.Reason = "cannot determine target branch: main checkout is detached or unreadable"
-		return result, nil
-	}
-	status, err := gitCmd(ctx, "-C", dest, "status", "--porcelain").Output()
-	if err != nil {
-		result.Reason = "status check failed: " + err.Error()
-		return result, nil
-	}
-	count, err := gitCmd(ctx, "-C", dest, "rev-list", "--count", target+"..HEAD").Output()
-	if err != nil {
-		result.Reason = "unmerged count failed: " + err.Error()
-		return result, nil
-	}
-	unmerged, err := strconv.Atoi(strings.TrimSpace(string(count)))
-	if err != nil {
-		result.Reason = "unmerged count unreadable: " + err.Error()
-		return result, nil
-	}
-	summary := DiscardSummary{Path: dest, Branch: branch, Target: target, Unmerged: unmerged}
-	if s := strings.TrimRight(string(status), "\n"); s != "" {
-		summary.Dirty = len(strings.Split(s, "\n"))
 	}
 	if report != nil {
 		report(summary)
@@ -409,13 +398,58 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 		result.Removed = true // preview: the remaining refusals passed, so this one would be discarded
 		return result, nil
 	}
+	return removeForced(repo, name, dest, result, log), nil
+}
+
+// forceBusyReason refuses the main checkout, an in-use worktree and a locked one, in that order.
+func forceBusyReason(repo *Repo, dest string) string {
+	if isMainCheckout(repo, dest) {
+		return "refusing to remove the main checkout"
+	}
+	if reason := inUseReason(dest); reason != "" {
+		return reason
+	}
+	locked, err := isLocked(dest)
+	return lockReason(locked, err)
+}
+
+// discardSummary counts what a forced clean would throw away; a non-empty reason refuses it.
+func discardSummary(repo *Repo, dest, branch string) (DiscardSummary, string) {
+	ctx := context.Background()
+	out, err := gitCmd(ctx, "-C", repo.Main, "symbolic-ref", "--short", "-q", "HEAD").Output()
+	target := strings.TrimSpace(string(out))
+	if err != nil || target == "" {
+		return DiscardSummary{}, "cannot determine target branch: main checkout is detached or unreadable"
+	}
+	status, err := gitCmd(ctx, "-C", dest, "status", "--porcelain").Output()
+	if err != nil {
+		return DiscardSummary{}, "status check failed: " + err.Error()
+	}
+	count, err := gitCmd(ctx, "-C", dest, "rev-list", "--count", target+"..HEAD").Output()
+	if err != nil {
+		return DiscardSummary{}, "unmerged count failed: " + err.Error()
+	}
+	unmerged, err := strconv.Atoi(strings.TrimSpace(string(count)))
+	if err != nil {
+		return DiscardSummary{}, "unmerged count unreadable: " + err.Error()
+	}
+	summary := DiscardSummary{Path: dest, Branch: branch, Target: target, Unmerged: unmerged}
+	if s := strings.TrimRight(string(status), "\n"); s != "" {
+		summary.Dirty = len(strings.Split(s, "\n"))
+	}
+	return summary, ""
+}
+
+// removeForced force-removes the worktree, force-deletes its branch and closes the ledger.
+func removeForced(repo *Repo, name, dest string, result CleanResult, log io.Writer) CleanResult {
+	ctx := context.Background()
 	head := headOf(dest)
 	if out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "remove", "--force", dest).CombinedOutput(); err != nil {
 		result.Reason = fmt.Sprintf("git worktree remove --force: %v: %s", err, strings.TrimSpace(string(out)))
-		return result, nil
+		return result
 	}
 	result.Removed = true
-	if branch != "" {
+	if branch := result.Branch; branch != "" {
 		if out, err := gitCmd(ctx, "-C", repo.Main, "branch", "-D", branch).CombinedOutput(); err != nil {
 			result.Reason = fmt.Sprintf("git branch -D %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
 		} else {
@@ -425,7 +459,7 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 	if err := CloseLedger(repo.Main, name, LedgerClose{Via: "clean --force", Head: head, BranchDeleted: result.BranchDeleted}); err != nil {
 		fmt.Fprintf(log, "worktree-clean: warning: ledger: %v\n", err)
 	}
-	return result, nil
+	return result
 }
 
 // isMainCheckout reports whether dest canonically is repo.Main; an unresolvable path counts as main.

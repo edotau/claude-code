@@ -99,13 +99,10 @@ func (d *dialog) header(section string) {
 // Run executes the named section (empty = every section in SectionNames order); returns the CLI exit code.
 func Run(o Options, section string) int {
 	out := o.writer()
-	want := SectionNames
-	if section != "" {
-		if !slices.Contains(SectionNames, section) {
-			fmt.Fprintf(out, "configure: unknown section %q (%s)\n", section, strings.Join(SectionNames, "|"))
-			return 2
-		}
-		want = []string{section}
+	want, ok := wantSections(section)
+	if !ok {
+		fmt.Fprintf(out, "configure: unknown section %q (%s)\n", section, strings.Join(SectionNames, "|"))
+		return 2
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -124,46 +121,71 @@ func Run(o Options, section string) int {
 	if section == "" && o.Interactive && !o.Check && !o.DryRun && isStdinTTY() {
 		return runMenu(d)
 	}
+	return runSections(d, want)
+}
+
+// wantSections resolves the sections to run; ok is false for an unknown name.
+func wantSections(section string) (want []string, ok bool) {
+	if section == "" {
+		return SectionNames, true
+	}
+	if !slices.Contains(SectionNames, section) {
+		return nil, false
+	}
+	return []string{section}, true
+}
+
+// runSections runs each section in order and returns the exit code (a failed codex section aborts with 1).
+func runSections(d *dialog, want []string) int {
 	allOK := true
 	for _, s := range want {
-		if !o.JSON {
+		if !d.o.JSON {
 			d.header(s)
 		}
-		var ok bool
-		switch s {
-		case "provider":
-			ok = runProvider(d)
-		case "models":
-			ok = runModels(d)
-		case "agents":
-			ok = runAgents(d)
-		case "github":
-			ok = runGithub(d)
-		case "remote":
-			ok = runRemote(d)
-		case "claude":
-			ok = runClaudeSettings(d)
-		case "codex":
-			ok = runCodexSettings(d)
-			if !ok {
-				return 1
-			}
-		case "routing":
-			ok = runRouting(d)
-		case "databricks":
-			ok = runDatabricks(d)
+		ok := runSection(d, s)
+		if s == "codex" && !ok {
+			return 1
 		}
 		if !ok {
 			allOK = false
 		}
 	}
-	if d.changed && !o.Check && !o.DryRun {
+	return finishSections(d, allOK)
+}
+
+// finishSections re-renders configs after a change and maps --check failures to exit 1.
+func finishSections(d *dialog, allOK bool) int {
+	if d.changed && !d.o.Check && !d.o.DryRun {
 		rerenderConfigs(d)
 	}
-	if o.Check && !allOK {
+	if d.o.Check && !allOK {
 		return 1
 	}
 	return 0
+}
+
+func runSection(d *dialog, s string) bool {
+	switch s {
+	case "provider":
+		return runProvider(d)
+	case "models":
+		return runModels(d)
+	case "agents":
+		return runAgents(d)
+	case "github":
+		return runGithub(d)
+	case "remote":
+		return runRemote(d)
+	case "claude":
+		return runClaudeSettings(d)
+	case "codex":
+		return runCodexSettings(d)
+	case "routing":
+		return runRouting(d)
+	case "databricks":
+		return runDatabricks(d)
+	}
+	return false
 }
 
 // Agent runs the keys then agents sections scoped to name; changed reports whether a login or key
@@ -189,41 +211,54 @@ func runProvider(d *dialog) bool {
 	if d.o.All {
 		return runProviderAll(d)
 	}
-	reg := d.reg
-	names := reg.Names()
-	cur := configure.CurrentProvider(reg)
-	cred := func(n string) string {
-		if providers.CredentialPresent(reg.Providers[n]) {
-			return "cred:ok"
-		}
-		return "cred:missing"
-	}
 	if d.o.Provider != "" {
-		if _, err := reg.Get(d.o.Provider); err != nil {
-			d.println(err)
-			return false
-		}
-		return applyProvider(d, d.o.Provider)
+		return applyNamedProvider(d, d.o.Provider)
 	}
 	// `configure provider` on a terminal opens the same claude sub-picker the top-level menu's claude
 	// row does; --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return runAgentMenu(d, "claude", claudeMenu(d))
 	}
+	names := d.reg.Names()
+	cur := configure.CurrentProvider(d.reg)
+	printProviderRows(d, names, cur)
+	if !d.o.Interactive || d.o.Check || d.o.DryRun {
+		printProviderStatus(d, cur)
+		return true
+	}
+	return pickProvider(d, names)
+}
+
+func printProviderStatus(d *dialog, cur string) {
+	d.printf("configured profile: %s; to change: claude-code switch <profile>\n", cur)
+	if sp := providers.SessionProfile(); sp != "" {
+		d.printf("this session: %s\n", sp)
+	}
+}
+
+func printProviderRows(d *dialog, names []string, cur string) {
 	for i, n := range names {
 		mark := " "
 		if n == cur {
 			mark = "*"
 		}
-		d.printf("%s %d) %-13s %s\n", mark, i+1, n, cred(n))
-	}
-	if !d.o.Interactive || d.o.Check || d.o.DryRun {
-		d.printf("configured profile: %s; to change: claude-code switch <profile>\n", cur)
-		if sp := providers.SessionProfile(); sp != "" {
-			d.printf("this session: %s\n", sp)
+		cred := "cred:missing"
+		if providers.CredentialPresent(d.reg.Providers[n]) {
+			cred = "cred:ok"
 		}
-		return true
+		d.printf("%s %d) %-13s %s\n", mark, i+1, n, cred)
 	}
+}
+
+func applyNamedProvider(d *dialog, name string) bool {
+	if _, err := d.reg.Get(name); err != nil {
+		d.println(err)
+		return false
+	}
+	return applyProvider(d, name)
+}
+
+func pickProvider(d *dialog, names []string) bool {
 	fmt.Fprint(d.out, "pick a profile by number or name (blank = keep current): ")
 	line := strings.TrimSpace(uidialog.ReadLine(d.br))
 	if line == "" {
@@ -232,11 +267,7 @@ func runProvider(d *dialog) bool {
 	if idx, err := strconv.Atoi(line); err == nil && idx >= 1 && idx <= len(names) {
 		line = names[idx-1]
 	}
-	if _, err := reg.Get(line); err != nil {
-		d.println(err)
-		return false
-	}
-	return applyProvider(d, line)
+	return applyNamedProvider(d, line)
 }
 
 func applyProvider(d *dialog, name string) bool {

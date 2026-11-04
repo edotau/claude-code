@@ -26,6 +26,13 @@ type ExportRow struct {
 
 // ExportRows lists the registry's databricks preset rows with an authType; skipped explains the others.
 func ExportRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
+	rows, skipped = presetRows(reg)
+	markM2MPairs(rows)
+	return appendSPRows(reg, rows), skipped
+}
+
+// presetRows is one row per exportable databricks preset provider, sorted by name.
+func presetRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
 	names := make([]string, 0, len(reg.Providers))
 	for n := range reg.Providers {
 		names = append(names, n)
@@ -48,7 +55,11 @@ func ExportRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
 		rows = append(rows, ExportRow{ID: n, Section: n, Host: host, Auth: p.Auth.Type, ClientID: p.Auth.ClientID,
 			AccountID: p.Auth.AccountID, WorkspaceID: p.Auth.WorkspaceID})
 	}
+	return rows, skipped
+}
 
+// markM2MPairs flags each m2m row that shares a host with an oauth row as paired.
+func markM2MPairs(rows []ExportRow) {
 	for i, r := range rows {
 		if r.Auth != providers.AuthM2M {
 			continue
@@ -60,22 +71,31 @@ func ExportRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
 			}
 		}
 	}
+}
+
+// appendSPRows adds a paired m2m row for every oauth row that carries an spClientId.
+func appendSPRows(reg *providers.Registry, rows []ExportRow) []ExportRow {
 	for _, r := range rows {
 		p := reg.Providers[r.ID]
 		if r.Auth != providers.AuthOAuth || p.Auth.SPClientID == "" {
 			continue
 		}
-		section := r.ID + "-sp"
-		for i := 2; ; i++ {
-			if _, exists := reg.Providers[section]; !exists && !slices.ContainsFunc(rows, func(x ExportRow) bool { return x.Section == section }) {
-				break
-			}
-			section = fmt.Sprintf("%s-sp-%d", r.ID, i)
-		}
+		section := freeSPSection(reg, rows, r.ID)
 		rows = append(rows, ExportRow{ID: section, Section: section, Host: r.Host, Auth: providers.AuthM2M,
 			ClientID: p.Auth.SPClientID, Pair: r.Section, PairSet: true, SecretID: r.ID})
 	}
-	return rows, skipped
+	return rows
+}
+
+// freeSPSection is the first of id-sp, id-sp-2, ... that no provider or row already uses.
+func freeSPSection(reg *providers.Registry, rows []ExportRow, id string) string {
+	section := id + "-sp"
+	for i := 2; ; i++ {
+		if _, exists := reg.Providers[section]; !exists && !slices.ContainsFunc(rows, func(x ExportRow) bool { return x.Section == section }) {
+			return section
+		}
+		section = fmt.Sprintf("%s-sp-%d", id, i)
+	}
 }
 
 var sectionRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
