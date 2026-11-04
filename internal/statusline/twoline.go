@@ -35,7 +35,7 @@ func collectTwoline(in Input, session string) twoData {
 	}
 	if !onSubscription(session) {
 		if exp, ok := providers.TokenExpiry(session); ok {
-			d.auth = "auth:" + strings.Replace(tokenLeft(tokenLabel(session), exp, time.Now()), ":", " ", 1)
+			d.auth = tokenLeft(tokenLabel(session), exp, time.Now())
 		}
 	}
 	if cw := in.ContextWindow; cw != nil {
@@ -67,20 +67,16 @@ func twoBar(pct float64, w int) string {
 
 const twoSep = " · "
 
-// twolineRows builds row 1 after the head (branch, model, effort, velocity) and row 2 (auth, context, tokens, 7d) as segment lists.
-func twolineRows(v values) (row1 []twoSeg, auth string, row2 []twoSeg) {
+// twolineRows builds row 1 after the head (provider, auth, model, effort, velocity) and row 2 (context, tokens, 7d).
+func twolineRows(v values) (row1, row2 []twoSeg) {
 	d := v.two
-	if v.branch != "" { // the branch leads: in a linked worktree it need not match the path
-		row1 = append(row1, twoSeg{key: "branch", text: v.branch})
-	}
 	if v.provider != "" {
-		prov := v.provider
-		if len(row1) > 0 {
-			prov = " " + prov
-		}
-		row1 = append(row1, twoSeg{key: "cwd", text: prov})
+		row1 = append(row1, twoSeg{key: "cwd", text: v.provider})
 	}
-	row1 = append(row1, twoSeg{key: "sep", text: twoSep}, twoSeg{key: "model", text: cmpModel(d.model, v.model), bold: true})
+	if d.auth != "" {
+		row1 = appendSep(row1, twoSeg{key: "auth", text: d.auth})
+	}
+	row1 = appendSep(row1, twoSeg{key: "model", text: cmpModel(d.model, v.model), bold: true})
 	if d.effort != "" {
 		row1 = append(row1, twoSeg{key: "effort", text: " / " + d.effort, dim: true})
 	}
@@ -92,7 +88,7 @@ func twolineRows(v values) (row1 []twoSeg, auth string, row2 []twoSeg) {
 	if d.week >= 0 {
 		row2 = appendSep(row2, twoSeg{key: "limit7d", text: fmt.Sprintf("7d %s %d%%", twoBar(float64(d.week), 10), d.week)})
 	}
-	return row1, d.auth, row2
+	return row1, row2
 }
 
 // appendVelocity adds " | +A -D" after row 1's model and effort, omitting a zero side and the cell when both are 0.
@@ -129,7 +125,7 @@ func appendSep(row []twoSeg, s twoSeg) []twoSeg {
 	return append(row, s)
 }
 
-// paintTwoRow sweeps the ramp across the row's runes; each cell gets its themed background.
+// paintTwoRow sweeps the ramp across the row's runes; a cell the palette colors gets its themed fg and bg.
 func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB, mode string) string {
 	total := 0
 	for _, s := range row {
@@ -150,6 +146,8 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 				rgb = ansi.Hex(cmpModel(th["sep"]["fg"], "#CAD3F5"))
 			} else if s.fg != "" {
 				rgb = ansi.Hex(s.fg)
+			} else if fg := th[s.key]["fg"]; fg != "" { // a palette with cell colors (minimal) sets fg with its bg
+				rgb = ansi.Hex(fg)
 			}
 			b.WriteString(ansi.FgSeq(mode, rgb, s.bold) + string(r))
 			i++
@@ -162,28 +160,20 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 // renderTwoline draws the two-row style; with a width, row 1's tail and all of row 2 end at the right edge.
 func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	th := pal.Powerline[cfg.Gradient] // background blocks only with a palette that defines them (minimal)
-	row1, auth, row2 := twolineRows(v)
+	row1, row2 := twolineRows(v)
 	for i := range row1 { // velocity keeps the add/del tones every style uses
 		if k := row1[i].key; k == "add" || k == "del" {
 			row1[i].fg = pal.Sem(k)
 		}
 	}
-	v = fitHead(v, cfg, segWidth(row1), width)
 	out := paintTwoRow(row1, th, stops, mode)
 	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads; the rest sits at the right edge
 		out = head + paintTwoRow([]twoSeg{{key: "sep", text: gapOr(sepPath, headWidth(v, cfg), segWidth(row1), width)}}, th, stops, mode) + out
 	}
-	if auth == "" {
-		if len(row2) == 0 {
-			return out
-		}
-		return out + "\n" + paintTwoRow(alignRight(row2, width), th, stops, mode)
+	if len(row2) == 0 {
+		return out
 	}
-	left := []twoSeg{{key: "auth", text: auth}}
-	if len(row2) > 0 { // auth stays left; the rest sits at the right edge
-		left = append(left, twoSeg{key: "sep", text: gapOr(twoSep, len([]rune(auth)), segWidth(row2), width)})
-	}
-	return out + "\n" + paintTwoRow(append(left, row2...), th, stops, mode)
+	return out + "\n" + paintTwoRow(alignRight(row2, width), th, stops, mode)
 }
 
 // alignRight left-pads the row with spaces so it ends at width; unchanged without a width or when it would not fit.
@@ -201,28 +191,6 @@ func segWidth(row []twoSeg) (n int) {
 		n += utf8.RuneCountInString(s.text)
 	}
 	return n
-}
-
-// collapsePath keeps the first and last elements: "~/worktrees/.claude" → "~/.../.claude"; short paths stay whole.
-func collapsePath(p string) string {
-	parts := strings.Split(p, "/")
-	if len(parts) <= 2 {
-		return p
-	}
-	return parts[0] + "/.../" + parts[len(parts)-1]
-}
-
-// fitHead shortens the head's path, collapsed then trimmed, until head + " | " + a rest-wide tail fits width.
-func fitHead(v values, cfg Config, rest, width int) values {
-	room := width - rest - utf8.RuneCountInString(sepPath)
-	if width <= 0 || headWidth(v, cfg) <= room {
-		return v
-	}
-	v.path = collapsePath(v.path)
-	if over := headWidth(v, cfg) - room; over > 0 {
-		v.path = truncRunes(v.path, max(utf8.RuneCountInString(v.path)-over, 1))
-	}
-	return v
 }
 
 // gapOr is the spaces that push a row's tail to width, else sep when there is no room to spare.
