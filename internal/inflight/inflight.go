@@ -119,19 +119,27 @@ func SubagentDir(parentTranscript string) string {
 	return filepath.Join(strings.TrimSuffix(parentTranscript, ".jsonl"), "subagents")
 }
 
+var (
+	sessionGetppid = os.Getppid
+	sessionComm    = proc.Comm
+	sessionParent  = proc.Parent
+)
+
 // SessionOwner is the Claude Code process behind this one: settings.json runs commands via `sh -c`, so skip shells.
 func SessionOwner() int {
-	pid := os.Getppid()
-	for range 8 {
-		switch proc.Comm(pid) {
-		case "sh", "dash", "bash", "zsh":
-			if pp := proc.Parent(pid); pp > 0 {
-				pid = pp
-				continue
-			}
-			return 0 // a shell whose parent is unreadable: fail open (0 is never "dead")
+	pid := sessionGetppid()
+	for depth := 0; ; depth++ {
+		if pid <= 1 {
+			return 0
 		}
-		return pid
+		switch sessionComm(pid) {
+		case "sh", "dash", "bash", "zsh":
+			if depth == 8 {
+				return 0
+			}
+			pid = sessionParent(pid)
+		default:
+			return pid
+		}
 	}
-	return pid
 }

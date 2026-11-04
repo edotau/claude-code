@@ -38,6 +38,9 @@ func liveDispatches() int {
 		return 0
 	}
 	owner := inflight.SessionOwner()
+	if owner == 0 { // unknown owner: other unowned records aren't ours
+		return 0
+	}
 	n := 0
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".json") {
