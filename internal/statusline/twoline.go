@@ -158,7 +158,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 	return b.String()
 }
 
-// renderTwoline draws the two-row style; with a width, each row's last cell sits at the right edge.
+// renderTwoline draws the two-row style; with a width, row 2's last cell sits at the right edge.
 func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	th := pal.Powerline["minimal"]
 	row1, row2 := twolineRows(v)
@@ -167,13 +167,9 @@ func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, m
 			row1[i].fg = pal.Sem(k)
 		}
 	}
-	head, lead := promptHead(v, cfg, pal, stops, mode), 0
+	head := promptHead(v, cfg, pal, stops, mode)
 	if head != "" { // the PS1 head leads, as the other styles draw it
 		head += paintTwoRow([]twoSeg{{key: "sep", text: sepPath}}, th, stops, mode)
-		lead = headWidth(v, cfg) + utf8.RuneCountInString(sepPath)
-	}
-	if v.adds != 0 || v.dels != 0 {
-		row1 = alignRight(row1, lead, width)
 	}
 	out := head + paintTwoRow(row1, th, stops, mode)
 	if len(row2) == 0 {
