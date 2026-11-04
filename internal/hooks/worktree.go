@@ -85,7 +85,7 @@ func worktreeRemove(in *core.Input, stderr io.Writer) int {
 	return core.ExitProceed
 }
 
-// worktreeModeEnv selects the mode: off|false|0 never asks; unset or anything else asks (session start, new peer).
+// worktreeModeEnv selects the mode: off|false|0 is silent; on|true|1 directs a worktree; unset or anything else asks.
 const worktreeModeEnv = "HARNESS_WORKTREE"
 
 // peerAgents is the process scan; a var seam so tests never see the host's live sessions.
@@ -93,6 +93,10 @@ var peerAgents = worktree.PeerAgents
 
 const worktreeAskLine = "Worktree: before starting a change, ask the user whether to work in a linked worktree " +
 	"(`claude-code worktree create <slug>` / EnterWorktree); without a yes, keep working in the checkout."
+
+const worktreeOnLine = "Worktree (HARNESS_WORKTREE=on): unless this session is already in a linked worktree, " +
+	"create one before the first edit (`claude-code worktree create <slug>` / EnterWorktree) without asking; " +
+	"merge it back when done (`claude-code worktree merge <slug>`)."
 
 func worktreeModeOff() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(worktreeModeEnv))) {
@@ -102,12 +106,28 @@ func worktreeModeOff() bool {
 	return false
 }
 
-// worktreeMode runs on SessionStart: the ask line on a fresh start only (not resume/clear/compact), unless the mode is off.
+func worktreeModeOn() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(worktreeModeEnv))) {
+	case "on", "true", "1":
+		return true
+	}
+	return false
+}
+
+// worktreeStartLine is the SessionStart line for the mode: the directive when on, else the ask.
+func worktreeStartLine() string {
+	if worktreeModeOn() {
+		return worktreeOnLine
+	}
+	return worktreeAskLine
+}
+
+// worktreeMode runs on SessionStart: the mode's line on a fresh start only (not resume/clear/compact), unless off.
 func worktreeMode(in *core.Input) core.Result {
 	if worktreeModeOff() || (in.Source != "" && in.Source != "startup") {
 		return core.Result{}
 	}
-	return core.Result{Context: worktreeAskLine}
+	return core.Result{Context: worktreeStartLine()}
 }
 
 // nestedConfigSweep runs on SessionStart: removes the nested settings.local.json; a failure is a stderr note only.
@@ -160,8 +180,12 @@ func busyLine(ctx context.Context, in *core.Input) string {
 	if len(peers) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Another session (%s pid %d) is working in this checkout on %s; before editing, "+
-		"ask the user whether to work in a linked worktree; without a yes, keep working here.", peers[0].Comm, peers[0].PID, branch)
+	then := "ask the user whether to work in a linked worktree; without a yes, keep working here."
+	if worktreeModeOn() {
+		then = "move into a linked worktree without asking (HARNESS_WORKTREE=on)."
+	}
+	return fmt.Sprintf("Another session (%s pid %d) is working in this checkout on %s; before editing, %s",
+		peers[0].Comm, peers[0].PID, branch, then)
 }
 
 // checkoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.
