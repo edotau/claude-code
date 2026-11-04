@@ -196,45 +196,14 @@ func rollbackHint(id, was string, switched bool) {
 
 // switchAuthType sets providers.<id>.auth.type (oauth, pat or m2m) through the force path and prints the diff.
 func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
-	switch authType {
-	case providers.AuthOAuth, providers.AuthPAT:
-	case providers.AuthM2M:
-		if p.Auth.ClientID == "" {
-			return fmt.Errorf("%s: auth type %s needs auth.clientId; set it with `claude-code vault edit` first",
-				p.Name, authType)
-		}
-	default:
-		return fmt.Errorf("unsupported auth type %q (want oauth, pat or m2m)", authType)
+	if err := checkAuthType(p, authType); err != nil {
+		return err
 	}
 	var kept []string
 	oldDoc, newDoc, err := providers.UpdateOverlayDocForce(!dryRun, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		provs := map[string]map[string]json.RawMessage{}
-		if b, ok := top["providers"]; ok {
-			if err := json.Unmarshal(b, &provs); err != nil {
-				return fmt.Errorf("vault overlay/providers: providers: %w", err)
-			}
-		}
-		entry := provs[p.Name]
-		if entry == nil {
-			return fmt.Errorf("%s is not an overlay row; add it with `vault edit` first", p.Name)
-		}
-		auth := map[string]json.RawMessage{}
-		if b, ok := entry["auth"]; ok {
-			if err := json.Unmarshal(b, &auth); err != nil {
-				return fmt.Errorf("%s: auth: %w", p.Name, err)
-			}
-		}
-		auth["type"] = json.RawMessage(`"` + authType + `"`)
-		kept = dropDerivedCommands(p, auth)
-		b, err := json.Marshal(auth)
-		if err != nil {
-			return err
-		}
-		entry["auth"] = b
-		if top["providers"], err = json.Marshal(provs); err != nil {
-			return err
-		}
-		return nil
+		var err error
+		kept, err = setOverlayAuthType(top, p, authType)
+		return err
 	})
 	if err != nil {
 		return err
@@ -246,6 +215,50 @@ func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
 		fmt.Printf("kept custom auth.%s (not derived from cliProfile)\n", k)
 	}
 	return nil
+}
+
+// checkAuthType refuses an auth type the switch cannot write: unknown, or m2m without a client id.
+func checkAuthType(p *providers.Provider, authType string) error {
+	switch authType {
+	case providers.AuthOAuth, providers.AuthPAT:
+	case providers.AuthM2M:
+		if p.Auth.ClientID == "" {
+			return fmt.Errorf("%s: auth type %s needs auth.clientId; set it with `claude-code vault edit` first",
+				p.Name, authType)
+		}
+	default:
+		return fmt.Errorf("unsupported auth type %q (want oauth, pat or m2m)", authType)
+	}
+	return nil
+}
+
+// setOverlayAuthType writes auth.type into p's overlay row in top and returns the custom auth keys it kept.
+func setOverlayAuthType(top map[string]json.RawMessage, p *providers.Provider, authType string) ([]string, error) {
+	provs := map[string]map[string]json.RawMessage{}
+	if b, ok := top["providers"]; ok {
+		if err := json.Unmarshal(b, &provs); err != nil {
+			return nil, fmt.Errorf("vault overlay/providers: providers: %w", err)
+		}
+	}
+	entry := provs[p.Name]
+	if entry == nil {
+		return nil, fmt.Errorf("%s is not an overlay row; add it with `vault edit` first", p.Name)
+	}
+	auth := map[string]json.RawMessage{}
+	if b, ok := entry["auth"]; ok {
+		if err := json.Unmarshal(b, &auth); err != nil {
+			return nil, fmt.Errorf("%s: auth: %w", p.Name, err)
+		}
+	}
+	auth["type"] = json.RawMessage(`"` + authType + `"`)
+	kept := dropDerivedCommands(p, auth)
+	b, err := json.Marshal(auth)
+	if err != nil {
+		return kept, err
+	}
+	entry["auth"] = b
+	top["providers"], err = json.Marshal(provs)
+	return kept, err
 }
 
 // dropDerivedCommands removes auth.command/refreshCommand equal to the preset's cliProfile derivation; returns the kept keys.

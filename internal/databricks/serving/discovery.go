@@ -70,16 +70,27 @@ func servingClientRoutes(p *providers.Provider, host string) (map[string]string,
 			continue
 		}
 		u, err := url.Parse(base)
-		if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.ForceQuery ||
-			u.Fragment != "" || u.RawPath != "" || u.Opaque != "" ||
-			"https://"+strings.TrimSuffix(strings.ToLower(u.Host), ":443") != host ||
-			path.Clean(u.Path) != u.Path || strings.ContainsAny(u.Path, "\\%") ||
-			(u.Path != "/serving-endpoints" && !strings.HasPrefix(u.Path, "/serving-endpoints/")) {
+		if err != nil || !servingRouteOK(u, host) {
 			return nil, errors.New("resolved client routes must stay under this workspace's HTTPS serving-endpoints path")
 		}
 		routes[dialect] = base
 	}
 	return routes, nil
+}
+
+// servingRouteOK reports whether u is a plain https URL on host under the serving-endpoints path.
+func servingRouteOK(u *url.URL, host string) bool {
+	plain := u.Scheme == "https" && u.User == nil && u.RawQuery == "" && !u.ForceQuery &&
+		u.Fragment == "" && u.RawPath == "" && u.Opaque == ""
+	return plain && "https://"+strings.TrimSuffix(strings.ToLower(u.Host), ":443") == host && servingPathOK(u.Path)
+}
+
+// servingPathOK reports whether p is a clean path at or under /serving-endpoints.
+func servingPathOK(p string) bool {
+	if path.Clean(p) != p || strings.ContainsAny(p, "\\%") {
+		return false
+	}
+	return p == "/serving-endpoints" || strings.HasPrefix(p, "/serving-endpoints/")
 }
 
 // ValidateIdentity validates current authentication, not model permissions; redirects are refused.
@@ -108,8 +119,13 @@ func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("identity validation failed (HTTP %d); no cached discovery used", resp.StatusCode)
 	}
+	return parseIdentity(resp.Body)
+}
+
+// parseIdentity reads the bounded SCIM response and returns the active user's id.
+func parseIdentity(r io.Reader) (string, error) {
 	const limit = 64 << 10
-	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil || len(body) > limit {
 		return "", errors.New("cannot read bounded identity response")
 	}
@@ -170,8 +186,7 @@ func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 		return Snapshot{}, false, errors.New("cannot read or decrypt discovery cache; refresh cannot bypass vault access")
 	}
 	var snapshot Snapshot
-	if found && (json.Unmarshal([]byte(raw), &snapshot) != nil || snapshot.Schema != 1 || snapshot.Scope != scope ||
-		snapshot.DiscoveredAt.IsZero() || (len(snapshot.Checks) > 0 && snapshot.CheckedAt.IsZero())) {
+	if found && !validCachedSnapshot(raw, scope, &snapshot) {
 		if refresh {
 			return Snapshot{}, false, nil // only successfully decrypted, invalid payloads may be replaced
 		}
@@ -179,6 +194,12 @@ func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 	}
 	snapshot.Checks = SanitizeChecks(snapshot.Checks)
 	return snapshot, found, nil
+}
+
+// validCachedSnapshot decodes raw into snapshot and reports whether it is a complete schema-1 snapshot for scope.
+func validCachedSnapshot(raw string, scope Scope, snapshot *Snapshot) bool {
+	return json.Unmarshal([]byte(raw), snapshot) == nil && snapshot.Schema == 1 && snapshot.Scope == scope &&
+		!snapshot.DiscoveredAt.IsZero() && (len(snapshot.Checks) == 0 || !snapshot.CheckedAt.IsZero())
 }
 
 // Discover authenticates every read; a forced refresh never falls back to stale discovery.
@@ -225,14 +246,19 @@ func SanitizeChecks(checks []CheckResult) []CheckResult {
 	return out
 }
 
+// completeSnapshot reports whether snapshot is schema 1 with a discovery time, and a check time when it has checks.
+func completeSnapshot(snapshot Snapshot) bool {
+	return snapshot.Schema == 1 && !snapshot.DiscoveredAt.IsZero() &&
+		(len(snapshot.Checks) == 0 || !snapshot.CheckedAt.IsZero())
+}
+
 // Save seals the snapshot; only a provider/profile label and length stay plaintext, and the menu overlay is unchanged.
 func Save(p *providers.Provider, snapshot Snapshot) error {
 	scope, err := NewScope(p, snapshot.Scope.SubjectID)
 	if err != nil {
 		return err
 	}
-	if scope != snapshot.Scope || strings.TrimSpace(scope.SubjectID) == "" || snapshot.Schema != 1 ||
-		snapshot.DiscoveredAt.IsZero() || (len(snapshot.Checks) > 0 && snapshot.CheckedAt.IsZero()) {
+	if scope != snapshot.Scope || strings.TrimSpace(scope.SubjectID) == "" || !completeSnapshot(snapshot) {
 		return errors.New("invalid discovery snapshot scope or schema")
 	}
 	snapshot.Checks = SanitizeChecks(snapshot.Checks)

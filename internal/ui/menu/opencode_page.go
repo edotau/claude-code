@@ -85,65 +85,83 @@ func ocDetail(c opencode.OpencodeConn) string {
 // buildOpencodePage turns the adapter's data into rows; major is opencode's major version (0 unknown).
 func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int) opencodePage {
 	var p opencodePage
-	for _, in := range ints {
-		routed := in.ID == opencode.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed dispatches use
-		for i := range in.Conns {
-			c := in.Conns[i]
-			var status []string
-			switch {
-			case c.Kind == "env":
-				status = append(status, "environment · unset $"+c.Label+" to disconnect")
-			case c.NeedsAuth != "":
-				status = append(status, "sign in required")
-			case c.Active:
-				status = append(status, "active")
-			}
-			if routed && c.Kind != "env" {
-				status = append(status, "used by claude-code routes")
-			}
-			p.rows = append(p.rows, ocRow{row: tui.ListRow{
-				Label: opencodeName(in), Detail: ocDetail(c), Status: strings.Join(status, " · "),
-				OK: c.NeedsAuth == "", Section: "accounts",
-			}, in: in, conn: &c})
-			p.conns++
-		}
-	}
-	if p.conns == 0 {
-		p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "not connected", Section: "accounts"}})
-	}
+	p.rows, p.conns = opencodeAccountRows(ints)
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Set up", Detail: "sign in, verify, pin the route",
 		Section: "actions"}, run: func(d *dialog) { agentSetUp(d, "opencode") }})
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "browser sign-in (opencode auth login)",
 		Section: "actions"}, run: ocAddAccount})
 	if d.reg != nil {
-		for _, r := range []*billingRow{modelRow(d, "opencode")} {
-			if r == nil {
-				continue
-			}
-			run := r.run
-			p.rows = append(p.rows, ocActionRow(r.label, r.desc, run))
-		}
-		for _, r := range agentPinRows(d, "opencode") {
-			row := ocActionRow(r.label, r.desc, r.run)
-			row.row.Section = "profile"
-			p.rows = append(p.rows, row)
-		}
+		p.rows = append(p.rows, opencodeModelAndProfileRows(d)...)
 	}
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Back", Detail: "return to the previous menu"}, back: true})
+	p.title = opencodeTitle(d, p.conns, major)
+	return p
+}
+
+// opencodeAccountRows is one row per signed-in credential (or a "not connected" filler) and the credential count.
+func opencodeAccountRows(ints []opencode.OpencodeIntegration) (rows []ocRow, conns int) {
+	for _, in := range ints {
+		routed := in.ID == opencode.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed dispatches use
+		for _, c := range in.Conns {
+			rows = append(rows, ocRow{row: tui.ListRow{
+				Label: opencodeName(in), Detail: ocDetail(c), Status: strings.Join(connStatus(c, routed), " · "),
+				OK: c.NeedsAuth == "", Section: "accounts",
+			}, in: in, conn: &c})
+			conns++
+		}
+	}
+	if conns == 0 {
+		rows = append(rows, ocRow{row: tui.ListRow{Label: "not connected", Section: "accounts"}})
+	}
+	return rows, conns
+}
+
+// connStatus lists the status notes of one credential; routed marks the one claude-code's routed dispatches use.
+func connStatus(c opencode.OpencodeConn, routed bool) []string {
+	var status []string
+	switch {
+	case c.Kind == "env":
+		status = append(status, "environment · unset $"+c.Label+" to disconnect")
+	case c.NeedsAuth != "":
+		status = append(status, "sign in required")
+	case c.Active:
+		status = append(status, "active")
+	}
+	if routed && c.Kind != "env" {
+		status = append(status, "used by claude-code routes")
+	}
+	return status
+}
+
+// opencodeModelAndProfileRows are the Model action row and the profile-section rows.
+func opencodeModelAndProfileRows(d *dialog) []ocRow {
+	var rows []ocRow
+	if r := modelRow(d, "opencode"); r != nil {
+		rows = append(rows, ocActionRow(r.label, r.desc, r.run))
+	}
+	for _, r := range agentPinRows(d, "opencode") {
+		row := ocActionRow(r.label, r.desc, r.run)
+		row.row.Section = "profile"
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// opencodeTitle is "opencode (current: <state> · <n accounts|not connected>[ · opencode N.x])".
+func opencodeTitle(d *dialog, conns, major int) string {
 	st := opencodeMenu(d).state
 	cur := st.label()
 	if st.verified {
 		cur += " · verified"
 	}
-	p.title = "opencode (current: " + cur + " · not connected"
-	if p.conns > 0 {
-		p.title = fmt.Sprintf("opencode (current: %s · %d %s", cur, p.conns, textutil.PluralWord(p.conns, "account", "accounts"))
+	title := "opencode (current: " + cur + " · not connected"
+	if conns > 0 {
+		title = fmt.Sprintf("opencode (current: %s · %d %s", cur, conns, textutil.PluralWord(conns, "account", "accounts"))
 	}
 	if major > 0 {
-		p.title += fmt.Sprintf(" · opencode %d.x", major)
+		title += fmt.Sprintf(" · opencode %d.x", major)
 	}
-	p.title += ")"
-	return p
+	return title + ")"
 }
 
 // spec is the page's tui.List description.
@@ -171,23 +189,30 @@ func runOpencodePage(d *dialog) {
 			return
 		}
 		start = res.Index
-		r := p.rows[res.Index]
-		switch {
-		case r.back:
+		if !runOpencodeRow(d, p.rows[res.Index], res.Action) {
 			return
-		case r.conn == nil && r.run != nil:
-			if res.Action == "" {
-				r.run(d)
-			}
-		case r.conn == nil: // "not connected" filler
-		case r.conn.Kind == "env":
-			d.printf("%s: comes from $%s; unset it to disconnect\n", r.row.Label, r.conn.Label)
-		case res.Action == "logout":
-			ocLogout(d, r)
-		default:
-			ocAccountActions(d, r)
 		}
 	}
+}
+
+// runOpencodeRow acts on the picked row; false means the page is left (Back).
+func runOpencodeRow(d *dialog, r ocRow, action string) bool {
+	switch {
+	case r.back:
+		return false
+	case r.conn == nil && r.run != nil:
+		if action == "" {
+			r.run(d)
+		}
+	case r.conn == nil: // "not connected" filler
+	case r.conn.Kind == "env":
+		d.printf("%s: comes from $%s; unset it to disconnect\n", r.row.Label, r.conn.Label)
+	case action == "logout":
+		ocLogout(d, r)
+	default:
+		ocAccountActions(d, r)
+	}
+	return true
 }
 
 // ocAccountActions is the per-credential page: Make active (2.x, not already active) and Log out; Back is the shell's.

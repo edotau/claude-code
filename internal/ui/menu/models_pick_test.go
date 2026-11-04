@@ -432,6 +432,26 @@ func TestCopilotCatalogRowsFitEightyColumns(t *testing.T) {
 	}
 }
 
+// kimiChoiceNumber is the number of the picker's databricks-kimi-k3 row, which must carry the tested marker.
+func kimiChoiceNumber(t *testing.T, shown string) int {
+	t.Helper()
+	choice := 0
+	for line := range strings.SplitSeq(shown, "\n") {
+		var n int
+		var id string
+		if _, err := fmt.Sscanf(strings.TrimSpace(line), "%d) %s", &n, &id); err == nil && id == "databricks-kimi-k3" {
+			choice = n
+			if !strings.Contains(line, "tested") {
+				t.Errorf("kimi row missing tested marker: %q", line)
+			}
+		}
+	}
+	if choice == 0 {
+		t.Fatalf("numbered kimi row missing from picker:\n%s", shown)
+	}
+	return choice
+}
+
 func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 	reg := menuTestEnv(t)
 	cat := copilot.CopilotCatalog{
@@ -458,21 +478,7 @@ func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 			t.Errorf("serving endpoint %q missing from picker:\n%s", id, shown)
 		}
 	}
-	choice := 0
-	for line := range strings.SplitSeq(shown, "\n") {
-		var n int
-		var id string
-		if _, err := fmt.Sscanf(strings.TrimSpace(line), "%d) %s", &n, &id); err == nil && id == "databricks-kimi-k3" {
-			choice = n
-			if !strings.Contains(line, "tested") {
-				t.Errorf("kimi row missing tested marker: %q", line)
-			}
-		}
-	}
-	if choice == 0 {
-		t.Fatalf("numbered kimi row missing from picker:\n%s", shown)
-	}
-
+	choice := kimiChoiceNumber(t, shown)
 	in = strings.NewReader(fmt.Sprintf("%d\n", choice))
 	out.Reset()
 	d = &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: &out}

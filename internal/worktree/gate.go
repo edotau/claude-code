@@ -43,21 +43,9 @@ func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 	if err != nil {
 		return "", nil, false, err
 	}
-	changed, src := map[string]bool{}, cachedReader()
-	for f := range strings.SplitSeq(string(out), "\x00") {
-		switch f {
-		case "":
-		case "go.mod", "go.sum":
-			return fullGoGate, nil, true, nil
-		default:
-			owners := filePackages(list, abs, f, src)
-			if len(owners) == 0 && !strings.HasSuffix(f, ".md") && !strings.HasSuffix(f, ".go") { // .go: build covers deletions
-				return fullGoGate, nil, true, nil // an unowned non-markdown file may feed any test
-			}
-			for _, p := range owners {
-				changed[p] = true
-			}
-		}
+	changed, full := changedPackages(list, abs, string(out))
+	if full {
+		return fullGoGate, nil, true, nil
 	}
 	set := reverseDeps(list, abs, changed)
 	for _, p := range registryPkgs {
@@ -69,14 +57,40 @@ func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 		pkgs = append(pkgs, p)
 	}
 	slices.Sort(pkgs)
+	return scopedGateCommand(pkgs), pkgs, false, nil
+}
+
+// changedPackages maps the NUL-separated changed files to their package dirs; full is true when the whole suite must run.
+func changedPackages(list []goPkg, abs, names string) (changed map[string]bool, full bool) {
+	changed, src := map[string]bool{}, cachedReader()
+	for f := range strings.SplitSeq(names, "\x00") {
+		switch f {
+		case "":
+		case "go.mod", "go.sum":
+			return nil, true
+		default:
+			owners := filePackages(list, abs, f, src)
+			if len(owners) == 0 && !strings.HasSuffix(f, ".md") && !strings.HasSuffix(f, ".go") { // .go: build covers deletions
+				return nil, true // an unowned non-markdown file may feed any test
+			}
+			for _, p := range owners {
+				changed[p] = true
+			}
+		}
+	}
+	return changed, false
+}
+
+// scopedGateCommand renders the build, vet and test command line for pkgs.
+func scopedGateCommand(pkgs []string) string {
 	args := make([]string, len(pkgs))
 	for i, p := range pkgs {
 		args[i] = "./" + p
 	}
 	if len(args) == 0 { // a bare `go test` runs the root dir and fails when it has no Go files
-		return "go build ./... && go vet ./...", nil, false, nil
+		return "go build ./... && go vet ./..."
 	}
-	return "go build ./... && go vet ./... && go test " + strings.Join(args, " "), pkgs, false, nil
+	return "go build ./... && go vet ./... && go test " + strings.Join(args, " ")
 }
 
 const fullGoGate = "go build ./... && go vet ./... && go test ./..."
@@ -158,6 +172,19 @@ func reverseDeps(list []goPkg, dir string, changed map[string]bool) map[string]b
 	hit := func(imps []string, in map[string]bool) bool {
 		return slices.ContainsFunc(imps, func(i string) bool { return in[rel[i]] })
 	}
+	affected := propagateImports(list, rel, changed, hit)
+	out := map[string]bool{}
+	for _, p := range list {
+		if r := rel[p.ImportPath]; affected[r] || hit(p.TestImports, affected) || hit(p.XTestImports, affected) {
+			out[r] = true
+		}
+	}
+	return out
+}
+
+// propagateImports grows changed with every package whose non-test imports reach it, until a fixed point.
+func propagateImports(list []goPkg, rel map[string]string, changed map[string]bool,
+	hit func([]string, map[string]bool) bool) map[string]bool {
 	affected := map[string]bool{}
 	for p := range changed {
 		affected[p] = true
@@ -170,13 +197,7 @@ func reverseDeps(list []goPkg, dir string, changed map[string]bool) map[string]b
 			}
 		}
 	}
-	out := map[string]bool{}
-	for _, p := range list {
-		if r := rel[p.ImportPath]; affected[r] || hit(p.TestImports, affected) || hit(p.XTestImports, affected) {
-			out[r] = true
-		}
-	}
-	return out
+	return affected
 }
 
 // goPkgOf returns the nearest existing directory at or above rel under dir that holds .go files, or "".

@@ -69,15 +69,9 @@ func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReque
 	}
 	fmt.Fprintf(req.Out, "integrated: %s -> %s\n", ShortOID(integrated.BeforeOID), ShortOID(integrated.AfterOID))
 
-	if gateSource == "Makefile" && !req.FullVerify && paths.FileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
-		scoped, pkgs, full, err := ScopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
-		if err != nil {
-			return nil, fmt.Errorf("scoped gate: %w", err)
-		}
-		gate, gateSource = scoped, "scoped go gate, "+strconv.Itoa(len(pkgs))+" test pkgs"
-		if full {
-			gateSource = "go.mod changed, all packages"
-		}
+	gate, gateSource, err = scopeGate(ctx, plan, req, gate, gateSource)
+	if err != nil {
+		return nil, err
 	}
 	if err := runGate(ctx, plan, req, gate, gateSource); err != nil {
 		return nil, err
@@ -90,6 +84,26 @@ func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReque
 		}
 		return nil, fmt.Errorf("promote: %w", err)
 	}
+	return afterPromote(ctx, repo, plan, req, promoted, integrated)
+}
+
+// scopeGate narrows a Makefile test gate to the changed Go packages unless FullVerify; other gates pass through.
+func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateSource string) (g, source string, err error) {
+	if gateSource != "Makefile" || req.FullVerify || !paths.FileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
+		return gate, gateSource, nil
+	}
+	scoped, pkgs, full, err := ScopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
+	if err != nil {
+		return "", "", fmt.Errorf("scoped gate: %w", err)
+	}
+	if full {
+		return scoped, "go.mod changed, all packages", nil
+	}
+	return scoped, "scoped go gate, " + strconv.Itoa(len(pkgs)) + " test pkgs", nil
+}
+
+// afterPromote reports the promotion, ticks the plan, closes the ledger and cleans the worktree unless NoClean.
+func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, promoted, integrated *MergeResult) (*MergeOutcome, error) {
 	fmt.Fprintf(req.Out, "promoted:   %s -> %s on %s\n", ShortOID(promoted.BeforeOID), ShortOID(promoted.AfterOID), plan.TargetRef)
 	if req.AfterPromote != nil {
 		if err := req.AfterPromote(ctx, promoted.BeforeOID+".."+promoted.AfterOID); err != nil {
@@ -139,6 +153,11 @@ func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun boo
 		return nil, nil
 	}
 
+	return resolveConflict(ctx, repo, plan, req)
+}
+
+// resolveConflict hands the conflicted plan to the resolve agent, then re-plans and requires the target unmoved.
+func resolveConflict(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest) (*MergePlan, error) {
 	origTargetRef, origTargetOID := plan.TargetRef, plan.TargetOID
 	_, result, err := ResolveWithAgent(ctx, repo, plan, req.ResolveAgent, nil)
 	if err != nil {

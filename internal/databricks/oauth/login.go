@@ -166,15 +166,7 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 	if err != nil {
 		return Token{}, err
 	}
-	if opts.Port == 0 {
-		opts.Port = defaultPort
-	}
-	if opts.Timeout == 0 {
-		opts.Timeout = loginTimeout
-	}
-	if opts.Out == nil {
-		opts.Out = os.Stderr
-	}
+	opts = opts.withDefaults()
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
@@ -188,10 +180,7 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 		return Token{}, err
 	}
 	cb := &callback{state: state, res: make(chan callbackResult, 1)}
-	srv := &http.Server{Handler: cb, ReadHeaderTimeout: 10 * time.Second}
-	for _, l := range ln.ls {
-		go func() { _ = srv.Serve(l) }()
-	}
+	srv := serveCallback(ln, cb)
 	defer srv.Close()
 
 	redirect := "http://localhost:" + strconv.Itoa(port)
@@ -203,6 +192,34 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 	if err != nil {
 		return Token{}, err
 	}
+	return exchangeCode(ctx, h, code, verifier, redirect)
+}
+
+// withDefaults fills the zero port, timeout and output of opts.
+func (opts LoginOptions) withDefaults() LoginOptions {
+	if opts.Port == 0 {
+		opts.Port = defaultPort
+	}
+	if opts.Timeout == 0 {
+		opts.Timeout = loginTimeout
+	}
+	if opts.Out == nil {
+		opts.Out = os.Stderr
+	}
+	return opts
+}
+
+// serveCallback starts the loopback server on every listener of ln.
+func serveCallback(ln *loopback, cb *callback) *http.Server {
+	srv := &http.Server{Handler: cb, ReadHeaderTimeout: 10 * time.Second}
+	for _, l := range ln.ls {
+		go func() { _ = srv.Serve(l) }()
+	}
+	return srv
+}
+
+// exchangeCode trades the authorization code for tokens; a reply without a refresh token is an error.
+func exchangeCode(ctx context.Context, h, code, verifier, redirect string) (Token, error) {
 	reply, err := postToken(ctx, tokenRequest{host: h, op: "login", form: url.Values{
 		"grant_type": {"authorization_code"}, "client_id": {ClientID}, "code": {code},
 		"code_verifier": {verifier}, "redirect_uri": {redirect},

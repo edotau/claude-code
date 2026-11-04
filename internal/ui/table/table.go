@@ -68,46 +68,64 @@ func Justify(rows [][]string, width int, clip func(string, int) string) []string
 	for _, r := range rows {
 		n = max(n, len(r))
 	}
-	spans := func(r []string, i int) bool { return len(r) < n && i == len(r)-1 }
+	ws := shrinkWidths(columnWidths(rows, n), width)
+	gap := columnGap(ws, n, width)
+	out := make([]string, len(rows))
+	for k, r := range rows {
+		out[k] = justifyRow(r, n, ws, gap, width, clip)
+	}
+	return out
+}
+
+// spansRest reports whether cell i is the last of a short row (fewer than n cells), which spans the remaining columns.
+func spansRest(r []string, n, i int) bool { return len(r) < n && i == len(r)-1 }
+
+// columnWidths sizes each of n columns to its widest cell, ignoring the spanning cells of short rows.
+func columnWidths(rows [][]string, n int) []int {
 	ws := make([]int, n)
 	for _, r := range rows {
 		for i, c := range r {
-			if !spans(r, i) {
+			if !spansRest(r, n, i) {
 				ws[i] = max(ws[i], utf8.RuneCountInString(c))
 			}
 		}
 	}
-	ws = shrinkWidths(ws, width)
-	gap := 0
-	if n > 1 {
-		lim := spreadTo
-		if width > 0 {
-			lim = min(width, spreadTo)
-		}
-		slack := max(lim-sumInts(ws)-2*(n-1), 0)
-		gap = min(maxGap, 2+slack/(n-1))
+	return ws
+}
+
+// columnGap spreads leftover room (up to spreadTo columns) across the n-1 gaps, at least 2 and at most maxGap wide.
+func columnGap(ws []int, n, width int) int {
+	if n <= 1 {
+		return 0
 	}
-	out := make([]string, len(rows))
-	for k, r := range rows {
-		var b strings.Builder
-		for i, c := range r {
-			start := sumInts(ws[:i]) + gap*i
-			switch {
-			case spans(r, i) && width > 0 && width-start <= 0:
-				c = ""
-			case spans(r, i) && width > 0:
-				c = clip(c, width-start)
-			case !spans(r, i):
-				c = clip(c, ws[i])
-			}
-			b.WriteString(c)
-			if i < len(r)-1 {
-				b.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+gap))
-			}
-		}
-		out[k] = Truncate(strings.TrimRight(b.String(), " "), width)
+	lim := spreadTo
+	if width > 0 {
+		lim = min(width, spreadTo)
 	}
-	return out
+	slack := max(lim-sumInts(ws)-2*(n-1), 0)
+	return min(maxGap, 2+slack/(n-1))
+}
+
+// justifyRow pads r's cells to ws with gap between them, clipping each, then caps the line at width.
+func justifyRow(r []string, n int, ws []int, gap, width int, clip func(string, int) string) string {
+	var b strings.Builder
+	for i, c := range r {
+		start := sumInts(ws[:i]) + gap*i
+		spans := spansRest(r, n, i)
+		switch {
+		case spans && width > 0 && width-start <= 0:
+			c = ""
+		case spans && width > 0:
+			c = clip(c, width-start)
+		case !spans:
+			c = clip(c, ws[i])
+		}
+		b.WriteString(c)
+		if i < len(r)-1 {
+			b.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+gap))
+		}
+	}
+	return Truncate(strings.TrimRight(b.String(), " "), width)
 }
 
 // Render lays out a header plus rows as two-space-indented, column-aligned lines, no cell wider than its column.

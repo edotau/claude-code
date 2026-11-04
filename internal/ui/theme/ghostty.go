@@ -8,16 +8,7 @@ import (
 // mergeGhostty returns dest with each overlay key's lines replacing that key's dest lines at its first
 // position; keys new to dest are appended in overlay order; overlay comments are dropped.
 func mergeGhostty(dest, overlay []byte) []byte {
-	set := map[string][][]byte{}
-	var order []string
-	for _, line := range splitLines(overlay) {
-		if key := parseKey(line); key != "" {
-			if _, ok := set[key]; !ok {
-				order = append(order, key)
-			}
-			set[key] = append(set[key], line)
-		}
-	}
+	set, order := overlayKeys(overlay)
 	var out [][]byte
 	done := map[string]bool{}
 	for _, line := range splitLines(dest) {
@@ -40,6 +31,22 @@ func mergeGhostty(dest, overlay []byte) []byte {
 		return nil
 	}
 	return append(bytes.Join(out, []byte("\n")), '\n')
+}
+
+// overlayKeys groups the overlay's setting lines by key, with the keys in first-seen order.
+func overlayKeys(overlay []byte) (set map[string][][]byte, order []string) {
+	set = map[string][][]byte{}
+	for _, line := range splitLines(overlay) {
+		key := parseKey(line)
+		if key == "" {
+			continue
+		}
+		if _, ok := set[key]; !ok {
+			order = append(order, key)
+		}
+		set[key] = append(set[key], line)
+	}
+	return set, order
 }
 
 // splitLines splits on newlines without the phantom empty line a trailing newline leaves.

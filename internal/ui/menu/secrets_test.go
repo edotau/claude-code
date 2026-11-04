@@ -208,6 +208,19 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 	if v, _, ok := vault.Get(name); !ok || v != "stored-value" {
 		t.Fatalf("vault value changed before commit: (%q, %v), want still stored-value", v, ok)
 	}
+	assertNoSecretDeleteAudit(t, since)
+
+	// Commit the page's staged changes, as secretsLoop's defer would on leaving the page.
+	confirmPageKeys(d, map[string]stagedKey{})
+	if _, _, ok := vault.Get(name); ok {
+		t.Error("the vault value should be deleted once the staged delete commits")
+	}
+	assertSecretDeleteAudited(t, since, name)
+}
+
+// assertNoSecretDeleteAudit requires no secret_delete audit entry since the given time.
+func assertNoSecretDeleteAudit(t *testing.T, since time.Time) {
+	t.Helper()
 	events, err := audit.Read(since)
 	if err != nil {
 		t.Fatal(err)
@@ -217,25 +230,21 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 			t.Fatalf("secret_delete audited before the staged delete was committed: %+v", e)
 		}
 	}
+}
 
-	// Commit the page's staged changes, as secretsLoop's defer would on leaving the page.
-	confirmPageKeys(d, map[string]stagedKey{})
-	if _, _, ok := vault.Get(name); ok {
-		t.Error("the vault value should be deleted once the staged delete commits")
-	}
-	events, err = audit.Read(since)
+// assertSecretDeleteAudited requires a secret_delete audit entry for name since the given time.
+func assertSecretDeleteAudited(t *testing.T, since time.Time, name string) {
+	t.Helper()
+	events, err := audit.Read(since)
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
 	for _, e := range events {
 		if e.Action == audit.SecretDelete && e.Resource == name {
-			found = true
+			return
 		}
 	}
-	if !found {
-		t.Errorf("commit did not audit secret_delete for %s: %+v", name, events)
-	}
+	t.Errorf("commit did not audit secret_delete for %s: %+v", name, events)
 }
 
 func TestProbeCachedVaultAndEnvOverride(t *testing.T) {
@@ -287,17 +296,23 @@ func TestCustomEnvPlainAndSecret(t *testing.T) {
 			if got := providers.CustomEnv()[name]; got != want.raw {
 				t.Errorf("vault env = %q, want %q", got, want.raw)
 			}
-			value, src, found := vault.Get(name)
-			if kind == "secret" && (!found || src != "vault" || value != want.secret) {
-				t.Errorf("secret = (%q, %q, %v)", value, src, found)
-			}
-			if kind == "plain" && found {
-				t.Error("plain env value also stored as a secret")
-			}
+			assertCustomEnvSecret(t, name, kind, want.secret)
 			if !sameAsSaved(name, edit) || strings.Contains(out.String(), "custom-value") {
 				t.Errorf("saved edit differs or transcript leaks value: %s", out.String())
 			}
 		})
+	}
+}
+
+// assertCustomEnvSecret requires a "secret" custom env to be sealed in the vault with want, and a "plain" one not.
+func assertCustomEnvSecret(t *testing.T, name, kind, want string) {
+	t.Helper()
+	value, src, found := vault.Get(name)
+	if kind == "secret" && (!found || src != "vault" || value != want) {
+		t.Errorf("secret = (%q, %q, %v)", value, src, found)
+	}
+	if kind == "plain" && found {
+		t.Error("plain env value also stored as a secret")
 	}
 }
 

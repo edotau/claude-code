@@ -103,14 +103,10 @@ func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := readFD(fd, buf)
-		for _, c := range buf[:n] {
-			if esc.skip(c) {
-				continue
-			}
-			l, done, kerr := editLine(line, c)
-			if line = l; done {
-				return line, kerr
-			}
+		var done bool
+		var kerr error
+		if line, done, kerr = feedPassword(line, buf[:n], &esc); done {
+			return line, kerr
 		}
 		if esc == escSeen && !waitReadable(fd, pollTick) {
 			return nil, ErrCanceled // a lone Esc, not the start of a sequence split across reads
@@ -122,6 +118,20 @@ func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 			return line, err
 		}
 	}
+}
+
+// feedPassword applies one read's bytes to line, skipping escape sequences; done once Enter or a cancel ends it.
+func feedPassword(line, in []byte, esc *escState) (_ []byte, done bool, err error) {
+	for _, c := range in {
+		if esc.skip(c) {
+			continue
+		}
+		l, done, kerr := editLine(line, c)
+		if line = l; done {
+			return line, true, kerr
+		}
+	}
+	return line, false, nil
 }
 
 // editLine applies one typed byte to line; done is true on Enter (err nil) or Ctrl-C/Ctrl-D (ErrCanceled).

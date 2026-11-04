@@ -44,12 +44,22 @@ func Decode(buf []byte) (Key, int) {
 	case 0x7f, 0x08:
 		return Key{Kind: KeyBackspace}, 1
 	}
-	if buf[0] >= 0x01 && buf[0] <= 0x1a {
-		return Key{Kind: KeyCtrl, Rune: rune('a' + buf[0] - 1)}, 1
-	}
 	if buf[0] < 0x20 {
-		return dropped, 1 // NUL and 0x1c-0x1f: no key binds them
+		return decodeCtrl(buf[0]), 1
 	}
+	return decodeRune(buf)
+}
+
+// decodeCtrl maps a control byte to Ctrl+letter; NUL and 0x1c-0x1f have no binding and drop.
+func decodeCtrl(b byte) Key {
+	if b >= 0x01 && b <= 0x1a {
+		return Key{Kind: KeyCtrl, Rune: rune('a' + b - 1)}
+	}
+	return dropped
+}
+
+// decodeRune reads one printable rune; (Key{}, 0) when the buffer ends mid-rune.
+func decodeRune(buf []byte) (Key, int) {
 	r, n := utf8.DecodeRune(buf)
 	if r == utf8.RuneError && n == 1 && !utf8.FullRune(buf) {
 		return Key{}, 0 // incomplete rune at the buffer's end — wait for the rest
@@ -69,23 +79,26 @@ func decodeEscape(buf []byte) (Key, int) {
 	if len(buf) < 3 {
 		return Key{}, 0 // "ESC [" with no final byte yet
 	}
-	switch buf[2] {
-	case 'A':
-		return Key{Kind: KeyUp}, 3
-	case 'B':
-		return Key{Kind: KeyDown}, 3
-	case 'D':
-		return Key{Kind: KeyLeft}, 3
+	if kind, ok := csiArrows[buf[2]]; ok {
+		return Key{Kind: kind}, 3
 	}
 	if buf[2] >= '0' && buf[2] <= '9' { // parameterized CSI (Delete is ESC [ 3 ~): drop through its final byte
-		for i := 3; i < len(buf); i++ {
-			if buf[i] >= 0x40 && buf[i] <= 0x7e {
-				return dropped, i + 1
-			}
-		}
-		return Key{}, 0
+		return skipCSIParams(buf)
 	}
 	return dropped, 3
+}
+
+// csiArrows maps the final byte of ESC [ <byte> to the arrow key it names.
+var csiArrows = map[byte]KeyKind{'A': KeyUp, 'B': KeyDown, 'D': KeyLeft}
+
+// skipCSIParams drops a parameterized CSI sequence through its final byte; 0 when that byte hasn't arrived.
+func skipCSIParams(buf []byte) (Key, int) {
+	for i := 3; i < len(buf); i++ {
+		if buf[i] >= 0x40 && buf[i] <= 0x7e {
+			return dropped, i + 1
+		}
+	}
+	return Key{}, 0
 }
 
 // Name is the key's footer spelling: "ctrl+d", "enter", "esc", or the rune itself.

@@ -40,7 +40,17 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := []string{"--dbxcfg", cfg}
+	checkVaultImportDryRun(t, base)
+	checkVaultImportApply(t, base)
+	code, out, _ := captureOutput(t, func() int { return importCfg(append(slices.Clone(base), "--apply")) })
+	if code != 0 || !strings.Contains(out, "row exists") {
+		t.Errorf("re-import should skip existing: %d %q", code, out)
+	}
+}
 
+// checkVaultImportDryRun runs the default (dry-run) import and checks it prints no secret and writes no row.
+func checkVaultImportDryRun(t *testing.T, base []string) {
+	t.Helper()
 	code, out, _ := captureOutput(t, func() int { return importCfg(base) })
 	if code != 0 || !strings.Contains(out, "dry-run") || strings.Contains(out, "secret-value-1") {
 		t.Fatalf("dry-run: %d %q", code, out)
@@ -48,9 +58,13 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 	if reg, _ := providers.Load(); reg != nil && reg.Providers["svc-m2m"] != nil {
 		t.Fatal("dry-run wrote a row")
 	}
+}
 
+// checkVaultImportApply applies with sealing and a rename, then checks rows, leaks and sealed secret names.
+func checkVaultImportApply(t *testing.T, base []string) {
+	t.Helper()
 	args := append(slices.Clone(base), "--apply", "--seal-secrets", "--rename", "pat-one=pat-renamed")
-	code, out, _ = captureOutput(t, func() int { return importCfg(args) })
+	code, out, _ := captureOutput(t, func() int { return importCfg(args) })
 	if code != 0 || strings.Contains(out, "secret-value-1") || strings.Contains(out, "dapi-token-value") {
 		t.Fatalf("apply: %d %q", code, out)
 	}
@@ -66,16 +80,17 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 	if reg.Providers["DEFAULT"] != nil || reg.Providers["__settings__"] != nil {
 		t.Error("DEFAULT/__settings__ imported")
 	}
+	checkSealedNames(t, "DATABRICKS_SVC_M2M_M2M", "DATABRICKS_PAT_RENAMED_PAT")
+}
+
+// checkSealedNames fails for each wanted secret name the vault does not hold.
+func checkSealedNames(t *testing.T, want ...string) {
+	t.Helper()
 	names := vault.Names()
-	for _, n := range []string{"DATABRICKS_SVC_M2M_M2M", "DATABRICKS_PAT_RENAMED_PAT"} {
+	for _, n := range want {
 		if !slices.Contains(names, n) {
 			t.Errorf("secret %s not sealed (have %v)", n, names)
 		}
-	}
-
-	code, out, _ = captureOutput(t, func() int { return importCfg(append(slices.Clone(base), "--apply")) })
-	if code != 0 || !strings.Contains(out, "row exists") {
-		t.Errorf("re-import should skip existing: %d %q", code, out)
 	}
 }
 
@@ -310,48 +325,68 @@ func TestImportPairedCredential(t *testing.T) {
 			if seal {
 				args = append(args, "--seal-secrets")
 			}
-			if code, out, errs := captureOutput(t, func() int { return importCfg(append(slices.Clone(args), "--dry-run")) }); code != 0 || !strings.Contains(out, "dev <= SP dev-sp") {
-				t.Fatalf("dry-run: %d %s %s", code, out, errs)
-			}
-			if reg, _ := providers.Load(); reg.Providers["dev"] != nil {
-				t.Fatal("dry-run wrote a profile")
-			}
-			if len(vault.Names()) != 0 {
-				t.Fatal("dry-run sealed credentials")
-			}
-			code, out, errs := captureOutput(t, func() int { return importCfg(args) })
-			if code != 0 || !strings.Contains(out, "dev <= SP dev-sp") || strings.Contains(out+errs, "test-only-sp-value") {
-				t.Fatalf("import: %d %s %s", code, out, errs)
-			}
-			reg, err := providers.Load()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if p := reg.Providers["dev"]; p == nil || p.Auth.Type != providers.AuthOAuth || p.Auth.SPClientID != "dev-client" {
-				t.Fatalf("dev = %+v", p)
-			}
-			if reg.Providers["dev-sp"] != nil {
-				t.Fatal("paired SP became a separate row")
-			}
-			if seal {
-				val, source, err := vault.Lookup("DATABRICKS_DEV_M2M")
-				if err != nil || val != "test-only-sp-value" || source != "vault" {
-					t.Fatalf("paired credential: %s %v", source, err)
-				}
-				if got := vault.Names(); !slices.Equal(got, []string{"DATABRICKS_DEV_M2M"}) {
-					t.Fatalf("sealed names = %v", got)
-				}
-			} else if len(vault.Names()) != 0 {
-				t.Fatal("sealed without --seal-secrets")
-			}
+			checkPairedDryRun(t, args)
+			checkPairedImport(t, args)
+			checkPairedSealed(t, seal)
 			if code, _, _ := captureOutput(t, func() int { return importCfg(args) }); code != 0 {
 				t.Fatal(code)
 			}
-			reg, _ = providers.Load()
+			reg, _ := providers.Load()
 			if reg.Providers["dev-sp"] != nil {
 				t.Fatal("re-import added a paired SP row")
 			}
 		})
+	}
+}
+
+// checkPairedDryRun runs the import with --dry-run and checks it writes neither a profile nor a credential.
+func checkPairedDryRun(t *testing.T, args []string) {
+	t.Helper()
+	if code, out, errs := captureOutput(t, func() int { return importCfg(append(slices.Clone(args), "--dry-run")) }); code != 0 || !strings.Contains(out, "dev <= SP dev-sp") {
+		t.Fatalf("dry-run: %d %s %s", code, out, errs)
+	}
+	if reg, _ := providers.Load(); reg.Providers["dev"] != nil {
+		t.Fatal("dry-run wrote a profile")
+	}
+	if len(vault.Names()) != 0 {
+		t.Fatal("dry-run sealed credentials")
+	}
+}
+
+// checkPairedImport runs the real import and checks the paired row, the leak-free output and no separate SP row.
+func checkPairedImport(t *testing.T, args []string) {
+	t.Helper()
+	code, out, errs := captureOutput(t, func() int { return importCfg(args) })
+	if code != 0 || !strings.Contains(out, "dev <= SP dev-sp") || strings.Contains(out+errs, "test-only-sp-value") {
+		t.Fatalf("import: %d %s %s", code, out, errs)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := reg.Providers["dev"]; p == nil || p.Auth.Type != providers.AuthOAuth || p.Auth.SPClientID != "dev-client" {
+		t.Fatalf("dev = %+v", p)
+	}
+	if reg.Providers["dev-sp"] != nil {
+		t.Fatal("paired SP became a separate row")
+	}
+}
+
+// checkPairedSealed checks the paired credential is sealed under the user row only when --seal-secrets was set.
+func checkPairedSealed(t *testing.T, seal bool) {
+	t.Helper()
+	if !seal {
+		if len(vault.Names()) != 0 {
+			t.Fatal("sealed without --seal-secrets")
+		}
+		return
+	}
+	val, source, err := vault.Lookup("DATABRICKS_DEV_M2M")
+	if err != nil || val != "test-only-sp-value" || source != "vault" {
+		t.Fatalf("paired credential: %s %v", source, err)
+	}
+	if got := vault.Names(); !slices.Equal(got, []string{"DATABRICKS_DEV_M2M"}) {
+		t.Fatalf("sealed names = %v", got)
 	}
 }
 
@@ -422,39 +457,7 @@ func TestImportFoldReferenceVeto(t *testing.T) {
 			dir := useVaultTest(t)
 			seedLegacyRows(t)
 			old := legacyUserPrefix + "dev"
-			var err error
-			switch kind {
-			case "agent", "alias", "pin", "overlay":
-				err = vault.Update(func(tx *vault.Tx) error {
-					switch kind {
-					case "agent":
-						return tx.Put(vault.Overlay, vault.AgentRecordsKey, `{"claude":{"profile":"`+old+`"}}`)
-					case "alias":
-						return tx.Put(vault.Overlay, "aliases", `{"dev":"`+old+`"}`)
-					case "pin":
-						return tx.Put(vault.Pins, "PROFILE", old)
-					default:
-						return tx.Put(vault.Overlay, "other", `{"profile":"`+old+`"}`)
-					}
-				})
-			case "plan", "custom plans":
-				sub := "plans"
-				if kind == "custom plans" {
-					sub = "custom"
-					err = os.WriteFile(filepath.Join(dir, "settings.local.json"), []byte(`{"plansDirectory":"custom"}`), 0600)
-					if err != nil {
-						t.Fatal(err)
-					}
-				}
-				if err = os.MkdirAll(filepath.Join(dir, sub), 0700); err == nil {
-					err = os.WriteFile(filepath.Join(dir, sub, "todo.md"), []byte("use "+old), 0600)
-				}
-			case "host":
-				err = providers.SetProviderFields(old, map[string]any{"host": "https://other.example.cloud.databricks.com"})
-			case "pairing":
-				err = providers.SetProviderFields(old, map[string]any{"auth": map[string]any{"type": "oauth", "spClientId": "keep"}})
-			}
-			if err != nil {
+			if err := seedLegacyReference(t, dir, kind, old); err != nil {
 				t.Fatal(err)
 			}
 			cfg := writeCfg(t, "[dev]\nhost = https://dev.example.cloud.databricks.com\n")
@@ -471,6 +474,54 @@ func TestImportFoldReferenceVeto(t *testing.T) {
 			}
 		})
 	}
+}
+
+// seedLegacyReference makes the legacy row old referenced (or incompatible) in the way kind names.
+func seedLegacyReference(t *testing.T, dir, kind, old string) error {
+	t.Helper()
+	switch kind {
+	case "agent", "alias", "pin", "overlay":
+		return seedVaultReference(kind, old)
+	case "plan", "custom plans":
+		return seedPlanReference(t, dir, kind, old)
+	case "host":
+		return providers.SetProviderFields(old, map[string]any{"host": "https://other.example.cloud.databricks.com"})
+	case "pairing":
+		return providers.SetProviderFields(old, map[string]any{"auth": map[string]any{"type": "oauth", "spClientId": "keep"}})
+	}
+	return nil
+}
+
+// seedVaultReference stores a vault entry (agent record, alias, pin or other overlay) that names old.
+func seedVaultReference(kind, old string) error {
+	return vault.Update(func(tx *vault.Tx) error {
+		switch kind {
+		case "agent":
+			return tx.Put(vault.Overlay, vault.AgentRecordsKey, `{"claude":{"profile":"`+old+`"}}`)
+		case "alias":
+			return tx.Put(vault.Overlay, "aliases", `{"dev":"`+old+`"}`)
+		case "pin":
+			return tx.Put(vault.Pins, "PROFILE", old)
+		default:
+			return tx.Put(vault.Overlay, "other", `{"profile":"`+old+`"}`)
+		}
+	})
+}
+
+// seedPlanReference writes a plan file naming old, under the default plans dir or a plansDirectory setting.
+func seedPlanReference(t *testing.T, dir, kind, old string) error {
+	t.Helper()
+	sub := "plans"
+	if kind == "custom plans" {
+		sub = "custom"
+		if err := os.WriteFile(filepath.Join(dir, "settings.local.json"), []byte(`{"plansDirectory":"custom"}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, sub), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, sub, "todo.md"), []byte("use "+old), 0600)
 }
 
 func TestImportFoldFailsClosedOnUnreadablePlans(t *testing.T) {

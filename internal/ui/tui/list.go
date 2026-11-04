@@ -219,28 +219,35 @@ func pad(s string, w int) string { return s + strings.Repeat(" ", max(0, w-textu
 
 // listLines builds the frame: title, Search line, grouped rows (windowed to fit h-1 lines at cols), blank, footer.
 func listLines(s listState, color bool, cols, h int) []line {
-	var body []line
 	head := listHead(s, color)
-	lw, dw := 0, 0 // column widths over every row, so filtering never shifts the columns
-	hasSec := false
-	for _, r := range s.spec.Rows {
+	lw, dw, hasSec := listColumns(s.spec.Rows)
+	body, at := listBody(s, color, cols, lw, dw, hasSec)
+	foot := listFootLine(s, color)
+	tail := []line{{"", ""}, foot}
+	body = window(body, max(at, 0), h-1-countLines(head, cols)-countLines(tail, cols), cols)
+	return append(append(head, body...), tail...)
+}
+
+// listColumns sizes the label and detail columns over every row, so filtering never shifts them,
+// and reports whether any row carries a section.
+func listColumns(rows []ListRow) (lw, dw int, hasSec bool) {
+	for _, r := range rows {
 		lw, dw = max(lw, textutil.RuneLen(oneLine(r.Label))), max(dw, textutil.RuneLen(oneLine(r.Detail)))
 		hasSec = hasSec || r.Section != ""
 	}
-	at := -1 // body index of the cursor row
+	return lw, dw, hasSec
+}
+
+// listBody renders the visible rows with their section headings; at is the body index of the cursor row (-1 if none).
+func listBody(s listState, color bool, cols, lw, dw int, hasSec bool) (body []line, at int) {
+	at = -1
 	sec := "\x00"
 	for p, i := range s.view {
 		r := s.spec.Rows[i]
 		r.Label, r.Detail, r.Status = oneLine(r.Label), oneLine(r.Detail), oneLine(r.Status)
 		if r.Section != sec {
-			if hasSec && r.Section == "" && sec != "\x00" { // a section-less trailing row (Back) sits below a blank line
-				body = append(body, line{})
-			}
+			body = append(body, sectionBreak(color, hasSec, sec, r.Section)...)
 			sec = r.Section
-			if hasSec && sec != "" {
-				t := "== " + sec + " =="
-				body = append(body, line{}, line{t, Accent(color, t)}) // a blank line sets each section apart
-			}
 		}
 		cells, styled := listRow(s, r, i, p, color, cols, lw, dw)
 		if p == s.cur {
@@ -251,10 +258,20 @@ func listLines(s listState, color bool, cols, h int) []line {
 	if len(s.view) == 0 {
 		body = append(body, line{"  no matches", "  " + ansi.Style(color, ansi.Dim, "no matches")})
 	}
-	foot := listFootLine(s, color)
-	tail := []line{{"", ""}, foot}
-	body = window(body, max(at, 0), h-1-countLines(head, cols)-countLines(tail, cols), cols)
-	return append(append(head, body...), tail...)
+	return body, at
+}
+
+// sectionBreak is what precedes a row of section next when the previous row was in section prev ("\x00" = none).
+func sectionBreak(color, hasSec bool, prev, next string) []line {
+	var out []line
+	if hasSec && next == "" && prev != "\x00" { // a section-less trailing row (Back) sits below a blank line
+		out = append(out, line{})
+	}
+	if hasSec && next != "" {
+		t := "== " + next + " =="
+		out = append(out, line{}, line{t, Accent(color, t)}) // a blank line sets each section apart
+	}
+	return out
 }
 
 // listHead is the title and Search lines above the rows.
@@ -302,23 +319,29 @@ func listRow(s listState, r ListRow, i, p int, color bool, cols, lw, dw int) (ce
 	case cells != full: // clipped: print exactly what countLines measured, or the wrap leaves stale frames
 		styled = "  " + cells
 	default:
-		st := ansi.Status(color, r.Status)
-		if r.OK {
-			st = strings.TrimSpace(ansi.Style(color, ansi.Green, "✓") + " " + st)
-		}
-		detail := r.Detail // pad only when a status follows: padding inside the dim escape survives TrimRight
-		if st != "" {
-			detail = pad(r.Detail, dw)
-		}
-		styled = "  " + pad(r.Label, lw)
-		if detail != "" || st != "" {
-			styled += "  " + Muted(color, detail)
-		}
-		if st != "" {
-			styled += "  " + st
-		}
+		styled = plainRowStyled(color, r, lw, dw)
 	}
 	return cells, styled
+}
+
+// plainRowStyled is the unselected, unclipped row: padded label, muted detail, then the styled status.
+func plainRowStyled(color bool, r ListRow, lw, dw int) string {
+	st := ansi.Status(color, r.Status)
+	if r.OK {
+		st = strings.TrimSpace(ansi.Style(color, ansi.Green, "✓") + " " + st)
+	}
+	detail := r.Detail // pad only when a status follows: padding inside the dim escape survives TrimRight
+	if st != "" {
+		detail = pad(r.Detail, dw)
+	}
+	styled := "  " + pad(r.Label, lw)
+	if detail != "" || st != "" {
+		styled += "  " + Muted(color, detail)
+	}
+	if st != "" {
+		styled += "  " + st
+	}
+	return styled
 }
 
 // countLines is how many terminal rows ls occupy at cols columns once long lines wrap.

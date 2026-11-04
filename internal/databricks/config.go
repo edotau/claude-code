@@ -78,26 +78,37 @@ func resolve(f cfgFlags) (*providers.Provider, string, error) {
 	host := strings.TrimRight(f.host, "/")
 	var row *providers.Provider
 	if host == "" {
-		if reg == nil {
-			return nil, "", fmt.Errorf("cannot read the registry (%v); pass --host URL", lerr)
-		}
-		if row = reg.Providers[name]; row == nil {
-			return nil, "", fmt.Errorf("no provider %q; pass --host URL", name)
-		}
-		for _, raw := range []string{row.Host, row.BaseURL} {
-			if u, err := url.Parse(raw); err == nil && u.Scheme == "https" && u.Host != "" {
-				host = "https://" + u.Host
-				break
-			}
-		}
-		if host == "" {
-			return nil, "", fmt.Errorf("provider %q has no host; pass --host URL", name)
+		var err error
+		if row, host, err = registryHost(reg, lerr, name); err != nil {
+			return nil, "", err
 		}
 	}
-	if row != nil && (f.wire == "" || f.wire == row.Options.Wire || (f.wire == providers.WireServing && row.Options.Wire == "")) {
+	if row != nil && rowServesWire(row, f.wire) {
 		return row, host, nil
 	}
 	return synth(name, host, f.wire)
+}
+
+// registryHost returns the registry row for name and its https workspace host.
+func registryHost(reg *providers.Registry, lerr error, name string) (*providers.Provider, string, error) {
+	if reg == nil {
+		return nil, "", fmt.Errorf("cannot read the registry (%v); pass --host URL", lerr)
+	}
+	row := reg.Providers[name]
+	if row == nil {
+		return nil, "", fmt.Errorf("no provider %q; pass --host URL", name)
+	}
+	for _, raw := range []string{row.Host, row.BaseURL} {
+		if u, err := url.Parse(raw); err == nil && u.Scheme == "https" && u.Host != "" {
+			return row, "https://" + u.Host, nil
+		}
+	}
+	return nil, "", fmt.Errorf("provider %q has no host; pass --host URL", name)
+}
+
+// rowServesWire reports whether the registry row already uses the requested wire (empty means any).
+func rowServesWire(row *providers.Provider, wire string) bool {
+	return wire == "" || wire == row.Options.Wire || (wire == providers.WireServing && row.Options.Wire == "")
 }
 
 // synth expands a bare databricks preset row for host and wire through the registry's own loader.
@@ -215,16 +226,7 @@ func rescue(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	self, _ := os.Executable()
-	o, err := f.options(TargetClaude, self)
-	var res Result
-	if err == nil {
-		res, err = Render(o)
-	}
-	var file string
-	if err == nil {
-		file, err = writeScratch(res.Text)
-	}
+	res, file, err := renderScratch(f)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks rescue: %v\n", err)
 		return 2
@@ -251,6 +253,21 @@ func rescue(args []string) int {
 		return 2
 	}
 	return code
+}
+
+// renderScratch renders the claude config for f and writes it to a scratch file.
+func renderScratch(f cfgFlags) (Result, string, error) {
+	self, _ := os.Executable()
+	o, err := f.options(TargetClaude, self)
+	if err != nil {
+		return Result{}, "", err
+	}
+	res, err := Render(o)
+	if err != nil {
+		return Result{}, "", err
+	}
+	file, err := writeScratch(res.Text)
+	return res, file, err
 }
 
 // writeScratch writes text to a fresh 0600 file under the OS temp dir.

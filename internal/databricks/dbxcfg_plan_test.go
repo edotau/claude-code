@@ -60,6 +60,16 @@ func TestCandidates(t *testing.T) {
 	if _, ok := got["DEFAULT"]; ok || got["__settings__"].Name != "" {
 		t.Fatalf("DEFAULT/__settings__ leaked: %v", got)
 	}
+	checkFixtureAuth(t, got)
+	if got["delta"].Skip == "" || got["beta"].ClientID != "cid-beta" || !got["beta"].HasSecret {
+		t.Errorf("delta/beta: %+v %+v", got["delta"], got["beta"])
+	}
+	checkNoSecretInCandidates(t, cs)
+}
+
+// checkFixtureAuth checks the auth type and normalized host of the fixture's usable profiles.
+func checkFixtureAuth(t *testing.T, got map[string]Candidate) {
+	t.Helper()
 	want := map[string][3]string{
 		"alpha": {providers.AuthOAuth, "https://alpha.example.cloud.databricks.com", ""},
 		"beta":  {providers.AuthM2M, "https://beta.example.cloud.databricks.com", ""},
@@ -70,10 +80,11 @@ func TestCandidates(t *testing.T) {
 			t.Errorf("%s = %+v", n, c)
 		}
 	}
-	if got["delta"].Skip == "" || got["beta"].ClientID != "cid-beta" || !got["beta"].HasSecret {
-		t.Errorf("delta/beta: %+v %+v", got["delta"], got["beta"])
-	}
-	// No Candidate field may hold a secret value.
+}
+
+// checkNoSecretInCandidates fails when any Candidate field holds a secret value.
+func checkNoSecretInCandidates(t *testing.T, cs []Candidate) {
+	t.Helper()
 	for _, c := range cs {
 		if strings.Contains(strings.ToLower(reflect.ValueOf(c).String()+c.Host+c.ClientID), "shh") {
 			t.Errorf("secret in candidate %+v", c)
@@ -301,6 +312,9 @@ func TestPairingExportRoundTripAndCommentMerge(t *testing.T) {
 	if !strings.Contains(Hint(rows[1]), "DATABRICKS_DEV_M2M") {
 		t.Fatal("hint uses standalone SP's secret")
 	}
+}
+
+func TestPairingCommentSurvivesMerge(t *testing.T) {
 	existing := "[other]\nhost = https://other\nauth_type = pat\n\n# claude-code: pair=dev\n[svc]\nhost = https://dev\nclient_id = old\nauth_type = oauth-m2m\n"
 	merged, _ := Merge(existing, []ExportRow{{ID: "other", Section: "other", Host: "https://new", Auth: providers.AuthPAT}, {ID: "svc", Section: "svc", Host: "https://dev", Auth: providers.AuthM2M, ClientID: "new", Pair: "other", PairSet: true}}, true)
 	cs := candidatesOf(t, merged)

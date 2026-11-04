@@ -61,19 +61,10 @@ func importCfg(args []string) int {
 	if path == "" {
 		path = DefaultPath()
 	}
-	cands, err := Candidates(path)
+	cands, err := importCandidates(path, *pick)
 	if err != nil {
 		return fail("import: %v", err)
 	}
-	if len(cands) == 0 {
-		return fail("import: no profiles in %s", path)
-	}
-	if *pick {
-		if cands, err = pickCandidates(cands); err != nil {
-			return fail("import: %v", err)
-		}
-	}
-
 	var existing map[string]json.RawMessage
 	if _, _, err := providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, _ *vault.Tx) error {
 		existing = Existing(top)
@@ -89,21 +80,23 @@ func importCfg(args []string) int {
 	return runImport(path, cands, options, *apply && !*dryRun, *fold, *seal)
 }
 
+// importCandidates lists the profiles at path, narrowed by the picker when pick is set.
+func importCandidates(path string, pick bool) ([]Candidate, error) {
+	cands, err := Candidates(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(cands) == 0 {
+		return nil, fmt.Errorf("no profiles in %s", path)
+	}
+	if pick {
+		return pickCandidates(cands)
+	}
+	return cands, nil
+}
+
 func runImport(path string, cands []Candidate, options ImportOptions, apply, fold, seal bool) int {
-	var rows []Row
-	var folded []string
-	oldDoc, newDoc, err := providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, tx *vault.Tx) error {
-		rows = ImportPlan(cands, Existing(top), options)
-		if err := Apply(top, rows); err != nil {
-			return err
-		}
-		if fold {
-			var err error
-			folded, err = foldLegacy(top, tx, nil, false)
-			return err
-		}
-		return nil
-	})
+	rows, folded, oldDoc, newDoc, err := previewImport(cands, options, fold)
 	if err != nil {
 		return fail("import: %v", err)
 	}
@@ -136,6 +129,25 @@ func runImport(path string, cands []Candidate, options ImportOptions, apply, fol
 	return 0
 }
 
+// previewImport plans the import and the legacy fold without writing; it returns the rows, folded ids and both docs.
+func previewImport(cands []Candidate, options ImportOptions, fold bool) (
+	rows []Row, folded []string, oldDoc, newDoc []byte, err error,
+) {
+	oldDoc, newDoc, err = providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, tx *vault.Tx) error {
+		rows = ImportPlan(cands, Existing(top), options)
+		if err := Apply(top, rows); err != nil {
+			return err
+		}
+		if fold {
+			var err error
+			folded, err = foldLegacy(top, tx, nil, false)
+			return err
+		}
+		return nil
+	})
+	return rows, folded, oldDoc, newDoc, err
+}
+
 func commitImport(cands []Candidate, options ImportOptions, fold bool, key *vault.Key) ([]Row, error) {
 	var rows []Row
 	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, tx *vault.Tx) error {
@@ -160,22 +172,7 @@ func sealImported(path string, rows []Row) int {
 		if r.Action == "skip" || name == "" || !r.HasSecret {
 			continue
 		}
-		source := r.Name
-		if r.SPProfile != "" {
-			source = r.SPProfile
-		}
-		s, err := ReadSecrets(path, source)
-		val := s.ClientSecret
-		if r.Auth == providers.AuthPAT {
-			val = s.Token
-		}
-		if err == nil && val == "" {
-			err = errors.New("no secret in the source section")
-		}
-		if err == nil {
-			err = vault.Store(name, val)
-		}
-		if err != nil {
+		if err := sealRow(path, r, name); err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code: seal %s: %v\n", name, err)
 			code = 1
 			continue
@@ -183,6 +180,26 @@ func sealImported(path string, rows []Row) int {
 		fmt.Printf("sealed %s\n", name)
 	}
 	return code
+}
+
+// sealRow reads r's secret from its source profile in the config at path and stores it in the vault as name.
+func sealRow(path string, r Row, name string) error {
+	source := r.Name
+	if r.SPProfile != "" {
+		source = r.SPProfile
+	}
+	s, err := ReadSecrets(path, source)
+	val := s.ClientSecret
+	if r.Auth == providers.AuthPAT {
+		val = s.Token
+	}
+	if err == nil && val == "" {
+		err = errors.New("no secret in the source section")
+	}
+	if err == nil {
+		err = vault.Store(name, val)
+	}
+	return err
 }
 
 func printImportTable(rows []Row) {
@@ -290,16 +307,26 @@ func pickPairings(cands []Candidate, existing map[string]json.RawMessage, option
 func hostPairs(plan []Row, host string) [][2]Candidate {
 	var pairs [][2]Candidate
 	for _, principal := range plan {
-		if principal.Host != host || principal.Auth != providers.AuthM2M || principal.Action == "skip" || principal.PairSet {
+		if !openPrincipal(principal, host) {
 			continue
 		}
 		for _, u := range plan {
-			if u.Auth == providers.AuthOAuth && u.Action != "skip" && !u.PairingSet && u.Host == host {
+			if openUser(u, host) {
 				pairs = append(pairs, [2]Candidate{principal.Candidate, u.Candidate})
 			}
 		}
 	}
 	return pairs
+}
+
+// openPrincipal is a service principal row on host that is still unpaired and not skipped.
+func openPrincipal(r Row, host string) bool {
+	return r.Host == host && r.Auth == providers.AuthM2M && r.Action != "skip" && !r.PairSet
+}
+
+// openUser is a user (oauth) row on host that is still unpaired and not skipped.
+func openUser(r Row, host string) bool {
+	return r.Auth == providers.AuthOAuth && r.Action != "skip" && !r.PairingSet && r.Host == host
 }
 
 // pickHostPair asks about one host's pairs, matching environments first, and records the answer in choices.
@@ -361,19 +388,10 @@ func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx, key *vault.Key, ap
 	var folded []string
 	for _, id := range []string{"dev", "qa", "prod"} {
 		old := legacyUserPrefix + id
-		if refs[old] || len(provs[old]) == 0 || len(provs[id]) == 0 {
+		if refs[old] {
 			continue
 		}
-		var from, to providers.Provider
-		if json.Unmarshal(provs[old], &from) != nil || json.Unmarshal(provs[id], &to) != nil {
-			continue
-		}
-		host, ok := normalizeHost(providers.AuthHost(&from))
-		dest, valid := normalizeHost(providers.AuthHost(&to))
-		if !ok || !valid || host != dest || from.Preset != providers.PresetDatabricks || to.Preset != providers.PresetDatabricks {
-			continue
-		}
-		if from.Auth.Type != to.Auth.Type || from.Auth.SPClientID != to.Auth.SPClientID || from.Identity != to.Identity {
+		if !legacyFoldable(provs, old, id) {
 			continue
 		}
 		if ok, err := foldLegacySecrets(tx, old, id, key, apply); err != nil {
@@ -390,16 +408,30 @@ func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx, key *vault.Key, ap
 	return folded, err
 }
 
+// legacyFoldable reports whether the legacy row old and row id both exist and describe the same Databricks identity.
+func legacyFoldable(provs map[string]json.RawMessage, old, id string) bool {
+	if len(provs[old]) == 0 || len(provs[id]) == 0 {
+		return false
+	}
+	var from, to providers.Provider
+	if json.Unmarshal(provs[old], &from) != nil || json.Unmarshal(provs[id], &to) != nil {
+		return false
+	}
+	return sameDatabricksHost(&from, &to) &&
+		from.Auth.Type == to.Auth.Type && from.Auth.SPClientID == to.Auth.SPClientID && from.Identity == to.Identity
+}
+
+// sameDatabricksHost reports whether both rows are Databricks presets on the same valid https host.
+func sameDatabricksHost(from, to *providers.Provider) bool {
+	host, ok := normalizeHost(providers.AuthHost(from))
+	dest, valid := normalizeHost(providers.AuthHost(to))
+	return ok && valid && host == dest && from.Preset == providers.PresetDatabricks && to.Preset == providers.PresetDatabricks
+}
+
 func foldLegacySecrets(tx *vault.Tx, old, id string, key *vault.Key, apply bool) (bool, error) {
-	var methods []string
-	for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
-		if _, found := tx.Get(vault.Secrets, secretName(old, method)); !found {
-			continue
-		}
-		if _, found := tx.Get(vault.Secrets, secretName(id, method)); found {
-			return false, nil
-		}
-		methods = append(methods, method)
+	methods, ok := legacyMethods(tx, old, id)
+	if !ok {
+		return false, nil
 	}
 	if !apply || len(methods) == 0 {
 		return true, nil
@@ -411,24 +443,43 @@ func foldLegacySecrets(tx *vault.Tx, old, id string, key *vault.Key, apply bool)
 		return false, vault.ErrWrongKey
 	}
 	for _, method := range methods {
-		src, dst := secretName(old, method), secretName(id, method)
-		record, _, err := tx.Record(src)
-		if err != nil {
-			return false, err
-		}
-		value, err := key.Open(src, record)
-		if err != nil {
-			return false, err
-		}
-		record.Sealed = key.Seal(dst, value)
-		if err := tx.PutRecord(dst, record); err != nil {
-			return false, err
-		}
-		if err := tx.Put(vault.Secrets, src, ""); err != nil {
+		if err := moveLegacySecret(tx, key, secretName(old, method), secretName(id, method)); err != nil {
 			return false, err
 		}
 	}
 	return true, nil
+}
+
+// legacyMethods lists the auth methods old holds a secret for; false when id already holds one of them.
+func legacyMethods(tx *vault.Tx, old, id string) ([]string, bool) {
+	var methods []string
+	for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
+		if _, found := tx.Get(vault.Secrets, secretName(old, method)); !found {
+			continue
+		}
+		if _, found := tx.Get(vault.Secrets, secretName(id, method)); found {
+			return nil, false
+		}
+		methods = append(methods, method)
+	}
+	return methods, true
+}
+
+// moveLegacySecret reseals the secret record src under dst's name and blanks src.
+func moveLegacySecret(tx *vault.Tx, key *vault.Key, src, dst string) error {
+	record, _, err := tx.Record(src)
+	if err != nil {
+		return err
+	}
+	value, err := key.Open(src, record)
+	if err != nil {
+		return err
+	}
+	record.Sealed = key.Seal(dst, value)
+	if err := tx.PutRecord(dst, record); err != nil {
+		return err
+	}
+	return tx.Put(vault.Secrets, src, "")
 }
 
 // legacyReferences searches active vault configuration and plans; snapshots and a row's own key are not references.
@@ -442,6 +493,15 @@ func legacyReferences(top map[string]json.RawMessage, tx *vault.Tx) (map[string]
 			}
 		}
 	}
+	scanVaultConfig(top, tx, scan)
+	if err := scanSettingsAndPlans(scan); err != nil {
+		return nil, err
+	}
+	return refs, nil
+}
+
+// scanVaultConfig scans the active overlay doc and the vault's pins, env and overlay rows.
+func scanVaultConfig(top map[string]json.RawMessage, tx *vault.Tx, scan func(string)) {
 	for key, raw := range top {
 		if key != "providers" {
 			scan(string(raw))
@@ -459,11 +519,15 @@ func legacyReferences(top map[string]json.RawMessage, tx *vault.Tx) (map[string]
 			scan(val)
 		}
 	}
+}
+
+// scanSettingsAndPlans scans the settings files, then every plans directory they name plus the default one.
+func scanSettingsAndPlans(scan func(string)) error {
 	dirs := []string{filepath.Join(paths.ConfigDir(), "plans")}
 	for _, name := range []string{"settings.json", "settings.local.json"} {
 		dir, err := scanSettingsFile(name, scan)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if dir != "" {
 			dirs = append(dirs, dir)
@@ -471,10 +535,10 @@ func legacyReferences(top map[string]json.RawMessage, tx *vault.Tx) (map[string]
 	}
 	for _, dir := range dirs {
 		if err := scanPlanDir(dir, scan); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return refs, nil
+	return nil
 }
 
 // scanSettingsFile scans one settings file and returns its plansDirectory, "" when absent.

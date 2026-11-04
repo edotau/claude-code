@@ -69,25 +69,9 @@ func SetPAT(ctx context.Context, name, value string) (status string, err error) 
 
 // setPATLocked is SetPAT's read, store, probe and rollback, run while the per-row lock is held.
 func setPATLocked(ctx context.Context, name, value string) (string, error) {
-	reg, err := providers.Load()
+	p, prevType, err := patRow(name)
 	if err != nil {
 		return "", err
-	}
-	p, err := reg.Get(name)
-	if err != nil {
-		return "", err
-	}
-	prevType := p.Auth.Method()
-	if prevType != providers.AuthPAT {
-		if err := switchAuthType(p, providers.AuthPAT, false); err != nil {
-			return "", err
-		}
-		if reg, err = providers.Load(); err != nil {
-			return "", err
-		}
-		if p, err = reg.Get(name); err != nil {
-			return "", err
-		}
 	}
 	secret := providers.AuthSecretName(p)
 	old, had, err := vault.ReadSecret(secret)
@@ -97,12 +81,7 @@ func setPATLocked(ctx context.Context, name, value string) (string, error) {
 	if err := vault.Store(secret, value); err != nil {
 		return "", err
 	}
-	status, detail := "unverified", ""
-	if _, err := providers.Refresh(ctx, p); err == nil {
-		status, detail = providers.ProbeCredential(ctx, p)
-	} else {
-		detail = err.Error()
-	}
+	status, detail := probePAT(ctx, p)
 	if status != "rejected" {
 		return status, nil
 	}
@@ -111,6 +90,39 @@ func setPATLocked(ctx context.Context, name, value string) (string, error) {
 			p.Name, detail, rbErr)
 	}
 	return status, fmt.Errorf("%s: personal access token rejected (%s); kept the previous value", p.Name, detail)
+}
+
+// patRow loads the named row, switches it to pat auth when it is not already, and returns the reloaded row
+// with its previous auth type.
+func patRow(name string) (*providers.Provider, string, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, "", err
+	}
+	p, err := reg.Get(name)
+	if err != nil {
+		return nil, "", err
+	}
+	prevType := p.Auth.Method()
+	if prevType == providers.AuthPAT {
+		return p, prevType, nil
+	}
+	if err := switchAuthType(p, providers.AuthPAT, false); err != nil {
+		return nil, "", err
+	}
+	if reg, err = providers.Load(); err != nil {
+		return nil, "", err
+	}
+	p, err = reg.Get(name)
+	return p, prevType, err
+}
+
+// probePAT refreshes p's credential and probes it; a refresh failure reports "unverified" with its message.
+func probePAT(ctx context.Context, p *providers.Provider) (status, detail string) {
+	if _, err := providers.Refresh(ctx, p); err != nil {
+		return "unverified", err.Error()
+	}
+	return providers.ProbeCredential(ctx, p)
 }
 
 // rollbackPAT restores the previous secret and, when it was oauth or m2m, the previous authType.

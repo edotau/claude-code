@@ -14,6 +14,13 @@ func resolveFixtureOpEnv(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }
 
+// sameOperationText compares every non-time field the round trip persists.
+func sameOperationText(got, op *Operation) bool {
+	return got.ID == op.ID && got.Repo == op.Repo && got.Worktree == op.Worktree &&
+		got.TargetOID == op.TargetOID && got.OriginalSourceOID == op.OriginalSourceOID &&
+		got.Phase == op.Phase && got.Agent == op.Agent
+}
+
 func TestSaveOperationThenLoadOperationRoundTrip(t *testing.T) {
 	resolveFixtureOpEnv(t)
 	started := time.Now().UTC().Truncate(time.Second)
@@ -36,9 +43,7 @@ func TestSaveOperationThenLoadOperationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOperation: %v", err)
 	}
-	if got.ID != op.ID || got.Repo != op.Repo || got.Worktree != op.Worktree ||
-		got.TargetOID != op.TargetOID || got.OriginalSourceOID != op.OriginalSourceOID ||
-		got.Phase != op.Phase || got.Agent != op.Agent {
+	if !sameOperationText(got, op) {
 		t.Fatalf("round trip mismatch: got %+v, want %+v", got, op)
 	}
 	if !got.StartedAt.Equal(op.StartedAt) || !got.Deadline.Equal(op.Deadline) {

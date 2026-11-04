@@ -205,43 +205,26 @@ func pickCopilotModel(d *dialog) {
 	start := 0
 	for {
 		cur, _ := providers.CopilotModel(d.reg)
-		title, ids := modelTitle("copilot — model", "github", "copilot catalog"), []string(nil)
-		var list []copilot.SDKModel
-		if !cat.Databricks {
-			var err error
-			if list, err = copilotCatalog(d); err != nil {
-				d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
-				pickCopilotModelFallback(d, cur)
-				return
-			}
+		pk, err := copilotPickRows(d, cat, cur)
+		if err != nil {
+			d.printf("copilot: SDK catalog unavailable (%v); using opencode's catalog instead\n", err)
+			pickCopilotModelFallback(d, cur)
+			return
 		}
-		rows, extraRuns := copilotExtraRows(d, cur)
-		nExtra := len(extraRuns)
-		if cat.Databricks {
-			title = modelTitle("copilot — model", "databricks", cat.Profile)
-			ids, rows = appendDatabricksCopilotRows(cat, cur, rows)
-		} else {
-			for _, m := range list {
-				if m.Enabled {
-					ids = append(ids, m.ID)
-					rows = append(rows, [2]string{m.ID, copilotModelDesc(m, cur)})
-				}
-			}
-		}
-		if len(ids) == 0 {
+		if len(pk.ids) == 0 {
 			d.printf("copilot: %s lists no usable models\n", cmp.Or(cat.Source, "SDK catalog"))
 			return
 		}
-		j, err := d.shell().Pick(title, rows, start)
+		j, err := d.shell().Pick(pk.title, pk.rows, start)
 		if err != nil || j < 0 {
 			return
 		}
-		if j < nExtra {
-			extraRuns[j]()
+		if j < len(pk.extra) {
+			pk.extra[j]()
 			start = j
 			continue
 		}
-		id := ids[j-nExtra]
+		id := pk.ids[j-len(pk.extra)]
 		if cat.Databricks {
 			saveAgentModel(d, "copilot", copilotCanonicalID(id))
 			return
@@ -250,6 +233,40 @@ func pickCopilotModel(d *dialog) {
 		clearIneligibleCopilotPins(d, id)
 		return
 	}
+}
+
+// copilotPick is one rendering of the copilot Model picker: rows lead with the extra (Effort/Context) rows, then ids.
+type copilotPick struct {
+	title string
+	ids   []string
+	rows  [][2]string
+	extra []func() bool
+}
+
+// copilotPickRows builds the picker for cat (a Databricks profile's endpoints, else the SDK catalog's enabled models);
+// the error is the SDK catalog being unavailable.
+func copilotPickRows(d *dialog, cat copilot.CopilotCatalog, cur string) (copilotPick, error) {
+	pk := copilotPick{title: modelTitle("copilot — model", "github", "copilot catalog")}
+	var list []copilot.SDKModel
+	if !cat.Databricks {
+		var err error
+		if list, err = copilotCatalog(d); err != nil {
+			return pk, err
+		}
+	}
+	pk.rows, pk.extra = copilotExtraRows(d, cur)
+	if cat.Databricks {
+		pk.title = modelTitle("copilot — model", "databricks", cat.Profile)
+		pk.ids, pk.rows = appendDatabricksCopilotRows(cat, cur, pk.rows)
+		return pk, nil
+	}
+	for _, m := range list {
+		if m.Enabled {
+			pk.ids = append(pk.ids, m.ID)
+			pk.rows = append(pk.rows, [2]string{m.ID, copilotModelDesc(m, cur)})
+		}
+	}
+	return pk, nil
 }
 
 // copilotExtraRows are the Effort and Context rows shown above the model list, with their run funcs.

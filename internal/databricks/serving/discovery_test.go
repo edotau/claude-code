@@ -86,6 +86,17 @@ func discoverForTest(t *testing.T, p *providers.Provider, refresh bool) Snapshot
 
 func TestServingDiscoveryAuthenticatedHitAndRefresh(t *testing.T) {
 	p, f := discoveryEnv(t)
+	s := discoverAndSave(t, p, f)
+	checkRotatedTokenHit(t, p, f, s)
+	if fresh := discoverForTest(t, p, true); fresh.CacheHit || f.me.Load() != 3 || f.list.Load() != 2 {
+		t.Fatalf("refresh: hit=%v Me=%d listing=%d", fresh.CacheHit, f.me.Load(), f.list.Load())
+	}
+	checkFailedRefreshKeepsCache(t, p, f, s)
+}
+
+// discoverAndSave runs the first discovery, checks it is a fresh unpersisted listing, then saves it.
+func discoverAndSave(t *testing.T, p *providers.Provider, f *discoveryFake) Snapshot {
+	t.Helper()
 	s := discoverForTest(t, p, false)
 	if s.CacheHit || s.Schema != 1 || s.DiscoveredAt.IsZero() || len(s.Models) != 1 || f.me.Load() != 1 || f.list.Load() != 1 {
 		t.Fatalf("first discovery: %+v, Me=%d listing=%d", s, f.me.Load(), f.list.Load())
@@ -96,15 +107,23 @@ func TestServingDiscoveryAuthenticatedHitAndRefresh(t *testing.T) {
 	if err := Save(p, s); err != nil {
 		t.Fatal(err)
 	}
+	return s
+}
+
+// checkRotatedTokenHit rotates the token and checks the next discovery re-authenticates yet serves the cache.
+func checkRotatedTokenHit(t *testing.T, p *providers.Provider, f *discoveryFake, s Snapshot) {
+	t.Helper()
 	t.Setenv("DISCOVERY_TEST_TOKEN", "rotated-synthetic-token")
 	hit := discoverForTest(t, p, false)
 	if !hit.CacheHit || !reflect.DeepEqual(hit.Models, s.Models) || !hit.DiscoveredAt.Equal(s.DiscoveredAt) ||
 		f.me.Load() != 2 || f.list.Load() != 1 || f.auth.Load() != "Bearer rotated-synthetic-token" {
 		t.Fatalf("rotated-token hit: %+v, Me=%d listing=%d", hit, f.me.Load(), f.list.Load())
 	}
-	if fresh := discoverForTest(t, p, true); fresh.CacheHit || f.me.Load() != 3 || f.list.Load() != 2 {
-		t.Fatalf("refresh: hit=%v Me=%d listing=%d", fresh.CacheHit, f.me.Load(), f.list.Load())
-	}
+}
+
+// checkFailedRefreshKeepsCache fails the listing and checks a refresh errors without leaking or changing the cache.
+func checkFailedRefreshKeepsCache(t *testing.T, p *providers.Provider, f *discoveryFake, s Snapshot) {
+	t.Helper()
 	before, _, err := vault.ReadSecret(servingDiscoveryKey(s.Scope))
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +182,22 @@ func TestServingDiscoveryScopeIsolation(t *testing.T) {
 	if err := Save(p, s); err != nil {
 		t.Fatal(err)
 	}
+	checkScopeEditsMiss(t, p, f, s)
+	f.identity.Store(`{"id":"subject-two","active":true}`)
+	if got := discoverForTest(t, p, false); got.CacheHit || got.Scope.SubjectID != "subject-two" || f.list.Load() != 4 {
+		t.Fatal("different authenticated subject reused discovery")
+	}
+	f.identity.Store(`{"id":"subject-one","active":true}`)
+	p.Host += "/"
+	if got := discoverForTest(t, p, false); !got.CacheHit || f.list.Load() != 4 {
+		t.Fatal("equivalent normalized host missed the cache")
+	}
+	checkScopeRejectedEarly(t, p, f, s)
+}
+
+// checkScopeEditsMiss checks a changed profile or CLI profile misses the cache and cannot save another's snapshot.
+func checkScopeEditsMiss(t *testing.T, p *providers.Provider, f *discoveryFake, s Snapshot) {
+	t.Helper()
 	for _, tc := range []struct {
 		name string
 		edit func(*providers.Provider)
@@ -182,15 +217,11 @@ func TestServingDiscoveryScopeIsolation(t *testing.T) {
 			}
 		})
 	}
-	f.identity.Store(`{"id":"subject-two","active":true}`)
-	if got := discoverForTest(t, p, false); got.CacheHit || got.Scope.SubjectID != "subject-two" || f.list.Load() != 4 {
-		t.Fatal("different authenticated subject reused discovery")
-	}
-	f.identity.Store(`{"id":"subject-one","active":true}`)
-	p.Host += "/"
-	if got := discoverForTest(t, p, false); !got.CacheHit || f.list.Load() != 4 {
-		t.Fatal("equivalent normalized host missed the cache")
-	}
+}
+
+// checkScopeRejectedEarly checks another host, a gateway wire and a non-Databricks preset are refused before any HTTP.
+func checkScopeRejectedEarly(t *testing.T, p *providers.Provider, f *discoveryFake, s Snapshot) {
+	t.Helper()
 	// Scope construction must distinguish hosts without making a request to another workspace.
 	other := *p
 	other.Host = "https://other-workspace.invalid"
@@ -223,6 +254,18 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := servingDiscoveryKey(s.Scope)
+	checkSealedRecord(t, name)
+	want := []CheckResult{{ID: "encrypted-sentinel", Status: "fail", HTTP: 403, LatencyMS: 7}, {ID: "accepted", Status: "ok", HTTP: 200, Tools: "yes"}}
+	checkSavedSnapshot(t, name, s, want)
+	checkVaultBytesOpaque(t)
+	if hit := discoverForTest(t, p, false); !hit.CacheHit || !reflect.DeepEqual(hit.Checks, want) {
+		t.Fatal("encrypted historical checks did not survive authenticated cache read")
+	}
+}
+
+// checkSealedRecord checks the snapshot is stored as a sealed record with no plaintext prefix.
+func checkSealedRecord(t *testing.T, name string) {
+	t.Helper()
 	if err := vault.View(func(tx *vault.Tx) error {
 		r, found, err := tx.Record(name)
 		if err != nil {
@@ -235,6 +278,11 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// checkSavedSnapshot decrypts the saved snapshot: models and measurements kept, diagnostics dropped.
+func checkSavedSnapshot(t *testing.T, name string, s Snapshot, want []CheckResult) {
+	t.Helper()
 	raw, found, err := vault.ReadSecret(name)
 	if err != nil || !found {
 		t.Fatalf("ReadSecret: found=%v err=%v", found, err)
@@ -243,7 +291,6 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &saved); err != nil {
 		t.Fatal(err)
 	}
-	want := []CheckResult{{ID: "encrypted-sentinel", Status: "fail", HTTP: 403, LatencyMS: 7}, {ID: "accepted", Status: "ok", HTTP: 200, Tools: "yes"}}
 	if !reflect.DeepEqual(saved.Checks, want) || !reflect.DeepEqual(saved.Models, s.Models) || !saved.CheckedAt.Equal(s.CheckedAt) {
 		t.Fatalf("saved snapshot lost models/measurements or retained unsafe fields: %+v", saved)
 	}
@@ -252,6 +299,11 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 			t.Error("decrypted snapshot retains private diagnostics")
 		}
 	}
+}
+
+// checkVaultBytesOpaque checks the vault file on disk holds no plaintext snapshot data.
+func checkVaultBytesOpaque(t *testing.T) {
+	t.Helper()
 	disk, err := os.ReadFile(vault.Path())
 	if err != nil {
 		t.Fatal(err)
@@ -260,9 +312,6 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 		if strings.Contains(string(disk), forbidden) {
 			t.Error("vault bytes contain plaintext snapshot data")
 		}
-	}
-	if hit := discoverForTest(t, p, false); !hit.CacheHit || !reflect.DeepEqual(hit.Checks, want) {
-		t.Fatal("encrypted historical checks did not survive authenticated cache read")
 	}
 }
 
@@ -306,24 +355,7 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 				t.Fatal(err)
 			}
 			key := servingDiscoveryKey(s.Scope)
-			if name == "corrupt-ciphertext" {
-				if err := vault.Update(func(tx *vault.Tx) error {
-					r, found, err := tx.Record(key)
-					if err != nil {
-						return err
-					}
-					if !found || len(r.Sealed) == 0 {
-						return errors.New("fixture lacks sealed discovery")
-					}
-					r.Sealed[len(r.Sealed)-1] ^= 0xff
-					return tx.PutRecord(key, r)
-				}); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				t.Setenv("HARNESS_VAULT_KEY", "")
-				ring.Down = true
-			}
+			makeUnreadable(t, name, key, ring)
 			if _, _, err := vault.ReadSecret(key); err == nil {
 				t.Fatal("negative control: cache should be unreadable")
 			}
@@ -339,6 +371,35 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 				t.Fatalf("failed refresh changed unreadable vault: %v", err)
 			}
 		})
+	}
+}
+
+// makeUnreadable breaks the vault read of key: corrupt ciphertext, else a locked keyring.
+func makeUnreadable(t *testing.T, name, key string, ring *vaulttest.FakeKeyring) {
+	t.Helper()
+	if name == "corrupt-ciphertext" {
+		corruptSealed(t, key)
+		return
+	}
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	ring.Down = true
+}
+
+// corruptSealed flips the last ciphertext byte of the sealed record key.
+func corruptSealed(t *testing.T, key string) {
+	t.Helper()
+	if err := vault.Update(func(tx *vault.Tx) error {
+		r, found, err := tx.Record(key)
+		if err != nil {
+			return err
+		}
+		if !found || len(r.Sealed) == 0 {
+			return errors.New("fixture lacks sealed discovery")
+		}
+		r.Sealed[len(r.Sealed)-1] ^= 0xff
+		return tx.PutRecord(key, r)
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

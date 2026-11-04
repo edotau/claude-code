@@ -87,25 +87,7 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 	defer saveRouting(d, staged, resetKeys)
 	start := 0
 	for {
-		var sections []tui.Section
-		var fields []settings.RoutingField
-		for _, m := range settings.Modules() {
-			var rows [][2]string
-			for _, f := range m.Fields() {
-				val, source := f.Get(r), routingSource(f, overlay)
-				switch {
-				case resetKeys[f.Key]:
-					val, source = f.Get(providers.DefaultRouting()), "default"
-				case staged[f.Key] != "":
-					val, source = staged[f.Key], "vault"
-				}
-				rows = append(rows, [2]string{f.Key, val + "  " + source})
-				fields = append(fields, f)
-			}
-			if len(rows) > 0 {
-				sections = append(sections, tui.Section{Title: Heading(m.Name()), Rows: rows})
-			}
-		}
+		sections, fields := routingSections(r, overlay, staged, resetKeys)
 		idx, err := pickSettingsPage("routing", sections, EnterRow("save and go back"), start)
 		if err != nil || idx < 0 || idx >= len(fields) {
 			return true
@@ -118,6 +100,31 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 		}
 		stageRoutingField(staged, resetKeys, f, input)
 	}
+}
+
+// routingSections groups the routing fields by module, showing this page's staged and reset values; fields lists
+// the editable rows in order.
+func routingSections(r, overlay providers.Routing, staged map[string]string, resetKeys map[string]bool) ([]tui.Section, []settings.RoutingField) {
+	var sections []tui.Section
+	var fields []settings.RoutingField
+	for _, m := range settings.Modules() {
+		var rows [][2]string
+		for _, f := range m.Fields() {
+			val, source := f.Get(r), routingSource(f, overlay)
+			switch {
+			case resetKeys[f.Key]:
+				val, source = f.Get(providers.DefaultRouting()), "default"
+			case staged[f.Key] != "":
+				val, source = staged[f.Key], "vault"
+			}
+			rows = append(rows, [2]string{f.Key, val + "  " + source})
+			fields = append(fields, f)
+		}
+		if len(rows) > 0 {
+			sections = append(sections, tui.Section{Title: Heading(m.Name()), Rows: rows})
+		}
+	}
+	return sections, fields
 }
 
 // stageRoutingField records one edit: "" (explicit reset) marks the key reset; otherwise it stages the

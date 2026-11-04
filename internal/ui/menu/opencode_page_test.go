@@ -355,13 +355,18 @@ func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	if len(f.specs) != 1 || !strings.HasPrefix(f.specs[0].Title, "opencode (current: not set up · not connected") || *title != "" {
 		t.Fatalf("opencode row must open the list page, not runAgentMenu: specs=%d title=%q", len(f.specs), *title)
 	}
-	var labels []string
-	for _, r := range f.specs[0].Rows {
-		labels = append(labels, r.Label)
-	}
-	if got := strings.Join(labels, ","); !strings.HasPrefix(got, "not connected,Set up,+ Add account,Model") || strings.Contains(got, "API key") {
+	if got := strings.Join(rowLabels(f.specs[0].Rows), ","); !strings.HasPrefix(got, "not connected,Set up,+ Add account,Model") || strings.Contains(got, "API key") {
 		t.Errorf("page rows = %s", got)
 	}
+}
+
+// rowLabels lists the labels of rows in order.
+func rowLabels(rows []tui.ListRow) []string {
+	labels := make([]string, 0, len(rows))
+	for _, r := range rows {
+		labels = append(labels, r.Label)
+	}
+	return labels
 }
 
 func TestOpencodeDatabricksRowSetsUp(t *testing.T) {

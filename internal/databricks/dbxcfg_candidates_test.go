@@ -97,21 +97,10 @@ func TestEmptyDefaultHeaderIsNoDefault(t *testing.T) {
 }
 
 func TestUnsupportedAndIncompleteProfilesSkipped(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg")
 	cfg := "[azure]\nhost = https://a.example.cloud.databricks.com\nauth_type = azure-cli\n" +
 		"[m2m-nocid]\nhost = https://b.example.cloud.databricks.com\nauth_type = oauth-m2m\n" +
 		"[ids]\nhost = https://c.example.cloud.databricks.com\nauth_type = databricks-cli\naccount_id = 1234abcd-0000\nworkspace_id = 42\n"
-	if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cs, err := Candidates(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]Candidate{}
-	for _, c := range cs {
-		got[c.Name] = c
-	}
+	got := candsOf(t, cfg)
 	if c := got["azure"]; c.Auth != "" || !strings.Contains(c.Skip, "unsupported auth_type") {
 		t.Errorf("azure = %+v", c)
 	}

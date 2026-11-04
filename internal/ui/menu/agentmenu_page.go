@@ -126,35 +126,15 @@ func displayLabel(name string) string {
 
 // runAgentMenu shows one agent's submenu with its current mode (and verified) in the title, cursor on that mode's row.
 func runAgentMenu(d *dialog, name string, m agentMenu) bool {
-	internal := name // the page title carries the display label; undo displayLabel
-	for _, s := range agent.Roster() {
-		if s.CLI.DisplayName == name {
-			internal = s.Name
-		}
-	}
+	internal := internalAgentName(name)
 	if r := modelRow(d, internal); r != nil {
 		m.rows = append(m.rows, *r)
 	}
-	for i, r := range m.rows {
-		if run := r.run; r.key != "" || r.label == "Login" {
-			m.rows[i].run = func() bool { // a successful sign-in switches the agent back on
-				ok := run()
-				if ok {
-					agentActiveOn(d, internal)
-				}
-				return ok
-			}
-		}
-	}
+	activateOnSignIn(d, internal, m.rows)
 	m.rows = append(m.rows, agentPinRows(d, internal)...)
 	if _, ok := setupLogins[internal]; ok {
 		m.rows = append([]billingRow{setupRow(d, internal)}, m.rows...)
 	}
-	title := name + " (current: " + m.state.mode
-	if m.state.verified {
-		title += " · verified"
-	}
-	title += ")"
 	rows := make([][2]string, len(m.rows))
 	start := 0
 	for i, r := range m.rows {
@@ -163,11 +143,46 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 			start = i
 		}
 	}
-	idx, err := pickAgent(d, title, rows, start)
+	idx, err := pickAgent(d, agentMenuTitle(name, m.state), rows, start)
 	if err != nil || idx < 0 {
 		return false
 	}
 	return m.rows[idx].run()
+}
+
+// internalAgentName undoes displayLabel: the page title carries the display label, the roster the internal name.
+func internalAgentName(name string) string {
+	internal := name
+	for _, s := range agent.Roster() {
+		if s.CLI.DisplayName == name {
+			internal = s.Name
+		}
+	}
+	return internal
+}
+
+// activateOnSignIn wraps each key or Login row so a successful sign-in switches the agent back on.
+func activateOnSignIn(d *dialog, internal string, rows []billingRow) {
+	for i, r := range rows {
+		if run := r.run; r.key != "" || r.label == "Login" {
+			rows[i].run = func() bool {
+				ok := run()
+				if ok {
+					agentActiveOn(d, internal)
+				}
+				return ok
+			}
+		}
+	}
+}
+
+// agentMenuTitle is "<name> (current: <mode>[ · verified])".
+func agentMenuTitle(name string, st agentState) string {
+	title := name + " (current: " + st.mode
+	if st.verified {
+		title += " · verified"
+	}
+	return title + ")"
 }
 
 // signIn runs an agent's own sign-in CLI (picking its row was the confirmation) and reports the outcome.
@@ -269,12 +284,7 @@ func codexModels(d *dialog, profile string) bool {
 	}
 	menuNow, applied := pl.Menu, false
 	if len(pl.Changes) > 0 && actionConfirmed(fmt.Sprintf("Add %d model(s) to the menu shared with opencode and copilot", len(pl.Changes))) {
-		_, err := pl.Seal()
-		if err == nil {
-			err = providers.SetOpencodeMenu(pl.Next)
-		}
-		if err != nil {
-			d.printf("codex: %v\n", err)
+		if !sealCodexMenu(d, pl) {
 			return false
 		}
 		menuNow, applied = pl.Next, true
@@ -288,6 +298,19 @@ func codexModels(d *dialog, profile string) bool {
 	}
 	d.printf("codex: usable over Responses on %s: %s\n", profile, cmp.Or(strings.Join(usable, ", "), "none"))
 	return applied
+}
+
+// sealCodexMenu seals pl and stores its merged menu, printing the failure and returning false when either step errs.
+func sealCodexMenu(d *dialog, pl opencode.SyncPlan) bool {
+	_, err := pl.Seal()
+	if err == nil {
+		err = providers.SetOpencodeMenu(pl.Next)
+	}
+	if err != nil {
+		d.printf("codex: %v\n", err)
+		return false
+	}
+	return true
 }
 
 // codexKeyLogin feeds key to `codex login --with-api-key` on stdin.
@@ -327,12 +350,7 @@ func copilotMenu(d *dialog) agentMenu {
 	if auth.Source == copilot.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
-	chain := copilot.RouteChain(d.reg)
-	for i := range chain {
-		if chain[i].Label == "GitHub" && auth.Account != "" { // the offline chain cannot name a token-only account
-			chain[i].Label += " " + auth.Account
-		}
-	}
+	chain := namedRouteChain(d, auth.Account)
 	if len(chain) > 0 && chain[0].When == "pinned" && chain[0].OK { // a usable pinned Databricks profile is the route
 		st = agentState{mode: backendLabel(d.reg, vault.GetAgentRecord("copilot").Profile), verified: true}
 	}
@@ -365,6 +383,18 @@ func copilotMenu(d *dialog) agentMenu {
 		}})
 	}
 	return agentMenu{st, rows}
+}
+
+// namedRouteChain is copilot's route chain with the GitHub step labelled by account (the offline chain cannot name a
+// token-only account).
+func namedRouteChain(d *dialog, account string) []copilot.RouteStep {
+	chain := copilot.RouteChain(d.reg)
+	for i := range chain {
+		if chain[i].Label == "GitHub" && account != "" {
+			chain[i].Label += " " + account
+		}
+	}
+	return chain
 }
 
 // copilotFallback is the route chain after the first usable step ("GitHub edotau (under 95% of credits) → ..."); "" when none.
@@ -537,20 +567,7 @@ func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 		return false
 	}
 	active := copilot.GHActiveAccount()
-	var rows [][2]string
-	for _, u := range gh {
-		desc := "personal"
-		if strings.Contains(u, "_") { // only enterprise managed users carry the _shortcode suffix
-			desc = "enterprise"
-		}
-		if u == active {
-			desc += " · gh active"
-		}
-		if u == cur.Account {
-			desc += " · in use"
-		}
-		rows = append(rows, [2]string{u, desc})
-	}
+	rows := ghUserRows(gh, active, cur.Account)
 	rows = append(rows, [2]string{"gh active", "unpin; follow gh's active account " + Bracket(active != "", active, "none")},
 		[2]string{"New sign-in", "gh auth login · adds another account to this list"})
 	idx, err := d.shell().Pick("copilot — which GitHub user? (now: "+cur.Label()+")", rows, 0)
@@ -570,6 +587,25 @@ func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 	default:
 		return signIn(d, "gh", []string{"gh", "auth", "login"})
 	}
+}
+
+// ghUserRows is one picker row per gh account, tagged personal/enterprise, gh active and in use.
+func ghUserRows(gh []string, active, inUse string) [][2]string {
+	var rows [][2]string
+	for _, u := range gh {
+		desc := "personal"
+		if strings.Contains(u, "_") { // only enterprise managed users carry the _shortcode suffix
+			desc = "enterprise"
+		}
+		if u == active {
+			desc += " · gh active"
+		}
+		if u == inUse {
+			desc += " · in use"
+		}
+		rows = append(rows, [2]string{u, desc})
+	}
+	return rows
 }
 
 // pinCopilotProfile pins the github profile whose login is user (clears the pin when user is ""). With no such

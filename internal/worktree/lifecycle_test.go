@@ -253,6 +253,22 @@ func TestCleanLockedRefused(t *testing.T) {
 	}
 }
 
+// requireOneRemovedOneRefused fails unless results holds exactly one removed and one refused entry.
+func requireOneRemovedOneRefused(t *testing.T, results []CleanResult) {
+	t.Helper()
+	removed, refused := 0, 0
+	for _, r := range results {
+		if r.Removed {
+			removed++
+		} else {
+			refused++
+		}
+	}
+	if removed != 1 || refused != 1 {
+		t.Fatalf("removed=%d refused=%d, want 1 and 1", removed, refused)
+	}
+}
+
 func TestCleanAllPreviewThenApply(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
@@ -282,17 +298,7 @@ func TestCleanAllPreviewThenApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed, refused := 0, 0
-	for _, r := range applied {
-		if r.Removed {
-			removed++
-		} else {
-			refused++
-		}
-	}
-	if removed != 1 || refused != 1 {
-		t.Fatalf("removed=%d refused=%d, want 1 and 1", removed, refused)
-	}
+	requireOneRemovedOneRefused(t, applied)
 	if _, err := os.Stat(dest2); err != nil {
 		t.Fatal("the unmerged worktree must survive clean-all --yes")
 	}
@@ -431,20 +437,12 @@ func TestCleanAllSkipsBusyEntryButRemovesOthers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed, refused := 0, 0
 	for _, r := range results {
-		if r.Removed {
-			removed++
-		} else {
-			refused++
-			if !strings.Contains(r.Reason, "999999") {
-				t.Errorf("refused entry Reason = %q, want the busy pid named", r.Reason)
-			}
+		if !r.Removed && !strings.Contains(r.Reason, "999999") {
+			t.Errorf("refused entry Reason = %q, want the busy pid named", r.Reason)
 		}
 	}
-	if removed != 1 || refused != 1 {
-		t.Fatalf("removed=%d refused=%d, want 1 and 1", removed, refused)
-	}
+	requireOneRemovedOneRefused(t, results)
 	if _, err := os.Stat(busyDest); err != nil {
 		t.Fatal("the busy worktree must survive clean-all")
 	}
@@ -693,6 +691,15 @@ func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds
 	if err := SaveOperation(op); err != nil {
 		t.Fatalf("SaveOperation: %v", err)
 	}
+	reloaded := resolveCancelledPoll(t, repo, plan, op, wt)
+	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	resolveResumeAfterCancel(t, repo, plan, reloaded, wt)
+}
+
+// resolveCancelledPoll resumes op with an already-cancelled context, asserts the prompt cancelled return with the
+// operation record and MERGE_HEAD preserved, and returns the reloaded operation.
+func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operation, wt string) *Operation {
+	t.Helper()
 	// The worktree is still genuinely mid-merge (MERGE_HEAD set, unmerged f.txt) — the poll loop must
 	// never move past "pending" on its own; only the ctx cancellation below ends this call.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -724,8 +731,12 @@ func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds
 	if !mh {
 		t.Fatal("MERGE_HEAD was cleaned up after cancellation — no automatic cleanup is permitted")
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	return reloaded
+}
 
+// resolveResumeAfterCancel resolves the conflict for real and asserts a live --resume finishes the job.
+func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloaded *Operation, wt string) {
+	t.Helper()
 	// A later --resume with a live (uncancelled) context must still be able to finish the job: resolve
 	// the conflict for real now, matching what CheckResolution's own poll would have found.
 	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved after cancel\n"), 0o644); err != nil {
