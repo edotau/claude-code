@@ -188,15 +188,20 @@ func TestAgentVersionCacheShapeMismatchIsMissThenWritesSchema1(t *testing.T) {
 			if n := invocations(t, counter); n != 1 {
 				t.Fatalf("probe ran %d times, want 1", n)
 			}
-			raw, err := os.ReadFile(versionCacheFile())
-			if err != nil {
-				t.Fatal(err)
-			}
-			var doc map[string]json.RawMessage
-			if json.Unmarshal(raw, &doc) != nil || string(doc["schema"]) != "1" {
-				t.Fatalf("rewritten cache = %s, want schema 1", raw)
-			}
+			assertVersionCacheSchema1(t)
 		})
+	}
+}
+
+func assertVersionCacheSchema1(t *testing.T) {
+	t.Helper()
+	raw, err := os.ReadFile(versionCacheFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil || string(doc["schema"]) != "1" {
+		t.Fatalf("rewritten cache = %s, want schema 1", raw)
 	}
 }
 
@@ -221,7 +226,12 @@ func TestProbedVersionLineSharesCacheAndSurvivesConcurrentWrites(t *testing.T) {
 		t.Fatalf("VersionAt = %q, %v after %d runs; want a cache hit", v, err, invocations(t, counter))
 	}
 
-	// Concurrent writers must not drop each other's rows.
+	assertConcurrentVersionWrites(t)
+}
+
+// assertConcurrentVersionWrites checks that concurrent writers do not drop each other's rows.
+func assertConcurrentVersionWrites(t *testing.T) {
+	t.Helper()
 	const n = 24
 	var wg sync.WaitGroup
 	for i := range n {

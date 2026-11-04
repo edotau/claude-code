@@ -278,14 +278,7 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 	if err != nil {
 		return agent.Record{}, err
 	}
-	f, err := os.Open(rec.LogPath())
-	for follow && errors.Is(err, os.ErrNotExist) && rec.Alive() { // the CLI child may not have started yet
-		if err = sleepCtx(ctx, tailPoll); err != nil {
-			return rec, err
-		}
-		rec = reloaded(rec)
-		f, err = os.Open(rec.LogPath())
-	}
+	rec, f, err := openTail(ctx, rec, follow, agent.Record.LogPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rec, fmt.Errorf("job %s has no log (it never started the CLI, or predates dispatch logs)", rec.ID)
@@ -296,6 +289,10 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 	if _, err := io.Copy(w, f); err != nil || !follow {
 		return reloaded(rec), err
 	}
+	return followLog(ctx, rec, f, w)
+}
+
+func followLog(ctx context.Context, rec agent.Record, f *os.File, w io.Writer) (agent.Record, error) {
 	lastOut, lastBeat := time.Now(), time.Time{}
 	for rec.Alive() {
 		if err := sleepCtx(ctx, tailPoll); err != nil {
@@ -314,21 +311,14 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 			fmt.Fprintf(w, "· no output for %s (elapsed %s)\n", quiet.Round(time.Second), now.Sub(rec.Time).Round(time.Second))
 		}
 	}
-	_, err = io.Copy(w, f) // whatever landed between the last read and the record leaving running
+	_, err := io.Copy(w, f) // whatever landed between the last read and the record leaving running
 	return rec, err
 }
 
 // TailEvents copies rec's <id>.events.jsonl to w; with follow it waits for a result event or until the record
 // leaves running, printing a heartbeat event per tailBeat of silence. It returns the record as last seen.
 func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer) (agent.Record, error) {
-	f, err := os.Open(rec.EventsPath())
-	for follow && errors.Is(err, os.ErrNotExist) && rec.Alive() { // the job may not have started yet
-		if err = sleepCtx(ctx, tailPoll); err != nil {
-			return rec, err
-		}
-		rec = reloaded(rec)
-		f, err = os.Open(rec.EventsPath())
-	}
+	rec, f, err := openTail(ctx, rec, follow, agent.Record.EventsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rec, fmt.Errorf("job %s has no event stream (it predates event logs, or never started)", rec.ID)
@@ -336,7 +326,22 @@ func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer)
 		return rec, err
 	}
 	defer f.Close()
-	br := bufio.NewReader(f)
+	return followEvents(ctx, rec, follow, w, bufio.NewReader(f))
+}
+
+func openTail(ctx context.Context, rec agent.Record, follow bool, path func(agent.Record) string) (agent.Record, *os.File, error) {
+	f, err := os.Open(path(rec))
+	for follow && errors.Is(err, os.ErrNotExist) && rec.Alive() {
+		if err = sleepCtx(ctx, tailPoll); err != nil {
+			return rec, nil, err
+		}
+		rec = reloaded(rec)
+		f, err = os.Open(path(rec))
+	}
+	return rec, f, err
+}
+
+func followEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer, br *bufio.Reader) (agent.Record, error) {
 	var pend []byte
 	lastOut, lastBeat := time.Now(), time.Time{}
 	for {
@@ -355,12 +360,17 @@ func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer)
 			return rec, err
 		}
 		rec = reloaded(rec)
-		if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
-			lastBeat = now
-			fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d}\n",
-				agent.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds())
-		}
+		lastBeat = eventHeartbeat(w, rec, n, lastOut, lastBeat)
 	}
+}
+
+func eventHeartbeat(w io.Writer, rec agent.Record, n int, lastOut, lastBeat time.Time) time.Time {
+	if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
+		fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d}\n",
+			agent.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds())
+		return now
+	}
+	return lastBeat
 }
 
 // copyEventLines writes each complete line br has to w, holding a partial tail in pend; done = a result line passed.

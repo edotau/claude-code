@@ -25,19 +25,25 @@ func TestSetupKnownVendorChecks(t *testing.T) {
 		if len(rep.Checks) != 4 {
 			t.Fatalf("Setup(%q).Checks = %+v, want 4 rows (binary, login, route, projection)", name, rep.Checks)
 		}
-		wantNames := []string{"binary", "login", "route", "projection"}
-		for i, c := range rep.Checks {
-			if c.Name != wantNames[i] {
-				t.Errorf("Setup(%q).Checks[%d].Name = %q, want %q", name, i, c.Name, wantNames[i])
-			}
-			if c.State != "ok" && c.State != "fail" && c.State != "warn" {
-				t.Errorf("Setup(%q).Checks[%d].State = %q, want ok|fail|warn", name, i, c.State)
-			}
-		}
+		assertSetupCheckRows(t, name, rep)
+
 		binOK := rep.Checks[0].State == "ok"
 		loginOK := rep.Checks[1].State == "ok"
 		if rep.OK != (binOK && loginOK) {
 			t.Errorf("Setup(%q).OK = %v, want binary.ok(%v) && login.ok(%v)", name, rep.OK, binOK, loginOK)
+		}
+	}
+}
+
+func assertSetupCheckRows(t *testing.T, name string, rep Report) {
+	t.Helper()
+	wantNames := []string{"binary", "login", "route", "projection"}
+	for i, c := range rep.Checks {
+		if c.Name != wantNames[i] {
+			t.Errorf("Setup(%q).Checks[%d].Name = %q, want %q", name, i, c.Name, wantNames[i])
+		}
+		if c.State != "ok" && c.State != "fail" && c.State != "warn" {
+			t.Errorf("Setup(%q).Checks[%d].State = %q, want ok|fail|warn", name, i, c.State)
 		}
 	}
 }

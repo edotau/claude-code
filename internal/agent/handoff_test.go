@@ -28,24 +28,8 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 			t.Errorf("dev:opus = %+v (%v), want provider dev model %q", got, err, want.Model)
 		}
 	})
-	t.Run("full id keeps its prior behaviour", func(t *testing.T) {
-		_, viaSpec, err1 := resolveTarget(RunOptions{Model: "dev:claude-opus-5-5"})
-		_, viaFlags, err2 := resolveTarget(RunOptions{Provider: "dev", Model: "claude-opus-5-5"})
-		if err1 != nil || err2 != nil || viaSpec.Provider == nil || viaSpec.Provider.Name != "dev" ||
-			viaSpec.Model != viaFlags.Model {
-			t.Errorf("spec %+v (%v) vs flags %+v (%v)", viaSpec, err1, viaFlags, err2)
-		}
-	})
-	t.Run("unknown row or non-alias is not rewritten", func(t *testing.T) {
-		_, bad, err := resolveTarget(RunOptions{Model: "unknownrow:opus"})
-		if err == nil && bad.Provider != nil && bad.Provider.Name == "unknownrow" {
-			t.Errorf("unknownrow:opus rewritten: %+v", bad)
-		}
-		_, nt, _ := resolveTarget(RunOptions{Model: "dev:notatier"})
-		if nt.Provider != nil && nt.Provider.Name == "dev" && nt.Model == want.Model {
-			t.Errorf("dev:notatier rewritten to dev's opus alias: %+v", nt)
-		}
-	})
+	t.Run("full id keeps its prior behaviour", assertFullIDTargetRewrite)
+	t.Run("unknown row or non-alias is not rewritten", func(t *testing.T) { assertUnknownTargetRewrite(t, want.Model) })
 	t.Run("the explicit backend is still seen", func(t *testing.T) {
 		req := RunOptions{Model: "dev:opus"}
 		if !ExplicitBackend(req) {
@@ -55,6 +39,28 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 			t.Errorf("explicitAccount = %q, want databricks·dev", acct)
 		}
 	})
+}
+
+func assertFullIDTargetRewrite(t *testing.T) {
+	t.Helper()
+	_, viaSpec, err1 := resolveTarget(RunOptions{Model: "dev:claude-opus-5-5"})
+	_, viaFlags, err2 := resolveTarget(RunOptions{Provider: "dev", Model: "claude-opus-5-5"})
+	if err1 != nil || err2 != nil || viaSpec.Provider == nil || viaSpec.Provider.Name != "dev" ||
+		viaSpec.Model != viaFlags.Model {
+		t.Errorf("spec %+v (%v) vs flags %+v (%v)", viaSpec, err1, viaFlags, err2)
+	}
+}
+
+func assertUnknownTargetRewrite(t *testing.T, model string) {
+	t.Helper()
+	_, bad, err := resolveTarget(RunOptions{Model: "unknownrow:opus"})
+	if err == nil && bad.Provider != nil && bad.Provider.Name == "unknownrow" {
+		t.Errorf("unknownrow:opus rewritten: %+v", bad)
+	}
+	_, nt, _ := resolveTarget(RunOptions{Model: "dev:notatier"})
+	if nt.Provider != nil && nt.Provider.Name == "dev" && nt.Model == model {
+		t.Errorf("dev:notatier rewritten to dev's opus alias: %+v", nt)
+	}
 }
 
 // handoffRunner returns a canned Result and error per call, so a dispatch can carry a hand-off path.

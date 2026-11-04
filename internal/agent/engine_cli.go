@@ -123,11 +123,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	if s.CLI.PromptInArgv && len(p.Prompt) > MaxPromptBytes {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: PromptTooLarge(len(p.Prompt))}
 	}
-	h := Headless{Prompt: p.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
-		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
-	if s.CLI.DirFlag {
-		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
-	}
+	h := cliHeadless(s, p.Prompt, req)
 	if own {
 		p.Env, p.Argv, err = v.OwnLogin(h)
 	} else {
@@ -142,6 +138,15 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	}
 	p.Env = append(p.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
+}
+
+func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
+	h := Headless{Prompt: prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
+	if s.CLI.DirFlag {
+		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does.
+	}
+	return h
 }
 
 func (v cliEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {

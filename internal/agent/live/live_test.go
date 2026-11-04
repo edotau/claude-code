@@ -123,18 +123,7 @@ func TestLiveSessionTurnsRefusalAndCancel(t *testing.T) {
 	if info, err := os.Stat(LiveSocket(id)); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("socket = %v, %v; want mode 0600", info, err)
 	}
-	var sink collect
-	env, err := SendLive(context.Background(), id, "remember 42", &sink)
-	if err != nil || env.Status != agent.StatusOK || env.Answer != "ok" {
-		t.Fatalf("turn 1 = %+v, %v", env, err)
-	}
-	if first := sink.got[0].Type; first != agent.EventStart {
-		t.Errorf("first event = %s, want start", first)
-	}
-	env2, err := SendLive(context.Background(), id, "what number", agent.Discard)
-	if err != nil || !strings.HasPrefix(env2.Answer, "42 pid ") {
-		t.Fatalf("turn 2 = %+v, %v (the second turn must recall the first)", env2, err)
-	}
+	assertLiveRecall(t, id)
 	slow := make(chan error, 1)
 	go func() { _, e := SendLive(context.Background(), id, "slow", agent.Discard); slow <- e }()
 	started := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "slow-started")
@@ -154,6 +143,27 @@ func TestLiveSessionTurnsRefusalAndCancel(t *testing.T) {
 		t.Errorf("the in-flight turn must finish: %v", err)
 	}
 	cancel()
+	assertLiveCancelled(t, id, wait)
+}
+
+func assertLiveRecall(t *testing.T, id string) {
+	t.Helper()
+	var sink collect
+	env, err := SendLive(context.Background(), id, "remember 42", &sink)
+	if err != nil || env.Status != agent.StatusOK || env.Answer != "ok" {
+		t.Fatalf("turn 1 = %+v, %v", env, err)
+	}
+	if first := sink.got[0].Type; first != agent.EventStart {
+		t.Errorf("first event = %s, want start", first)
+	}
+	env2, err := SendLive(context.Background(), id, "what number", agent.Discard)
+	if err != nil || !strings.HasPrefix(env2.Answer, "42 pid ") {
+		t.Fatalf("turn 2 = %+v, %v (the second turn must recall the first)", env2, err)
+	}
+}
+
+func assertLiveCancelled(t *testing.T, id string, wait func() error) {
+	t.Helper()
 	if err := wait(); err != nil {
 		t.Fatal(err)
 	}
@@ -314,6 +324,19 @@ func TestLiveAgySession(t *testing.T) {
 		cancel()
 		t.Fatalf("holder did not open its socket: %v (%v)", err, wait())
 	}
+	assertAgyRecallAndUsage(t, id)
+	cancel()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := agent.LoadRecord(id)
+	if got.Status != "error" || got.Error != "cancelled" || got.Agent != "gemini" || got.SessionID != "c1" {
+		t.Errorf("record = %s %q agent=%s session=%q, want error cancelled gemini c1", got.Status, got.Error, got.Agent, got.SessionID)
+	}
+}
+
+func assertAgyRecallAndUsage(t *testing.T, id string) {
+	t.Helper()
 	env, err := SendLive(context.Background(), id, "remember 42", agent.Discard)
 	if err != nil || env.Status != agent.StatusOK || env.Answer != "ok" || env.Agent != "gemini" {
 		t.Fatalf("turn 1 = %+v, %v", env, err)
@@ -324,14 +347,6 @@ func TestLiveAgySession(t *testing.T) {
 	}
 	if env2.Usage.InputTokens != 10 || env2.Usage.OutputTokens != 2 {
 		t.Errorf("turn 2 usage = %+v, want the turn's own delta 10/2, not agy's cumulative 20/4", env2.Usage)
-	}
-	cancel()
-	if err := wait(); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := agent.LoadRecord(id)
-	if got.Status != "error" || got.Error != "cancelled" || got.Agent != "gemini" || got.SessionID != "c1" {
-		t.Errorf("record = %s %q agent=%s session=%q, want error cancelled gemini c1", got.Status, got.Error, got.Agent, got.SessionID)
 	}
 }
 

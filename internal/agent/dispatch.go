@@ -122,32 +122,39 @@ func Classify(agent string, err error, progressed bool) *Error {
 			e.Kind = KindQuota
 		}
 	} else {
-		low := strings.ToLower(err.Error())
-		switch {
-		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, io.ErrUnexpectedEOF):
-			e.Kind = KindTransient
-		case providers.IsQuota(low):
-			e.Kind = KindQuota
-		case rateRE.MatchString(low):
-			e.Kind = KindRateLimit
-		case authRE.MatchString(low):
-			e.Kind = KindAuth
-		case transientRE.MatchString(low):
-			e.Kind = KindTransient
-		}
-		if m := retryAfterRE.FindStringSubmatch(low); m != nil {
-			n, _ := strconv.Atoi(m[1])
-			e.RetryAfter = time.Duration(n) * time.Second
-			if m[2] != "" {
-				e.RetryAfter = time.Duration(n) * time.Minute
-			}
-		}
+		e.Kind, e.RetryAfter = classifyText(err)
 	}
 	var ra interface{ RetryAfter() time.Duration }
 	if errors.As(err, &ra) && ra.RetryAfter() > 0 {
 		e.RetryAfter = ra.RetryAfter()
 	}
 	return e
+}
+
+func classifyText(err error) (Kind, time.Duration) {
+	low := strings.ToLower(err.Error())
+	kind := KindFatal
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, io.ErrUnexpectedEOF):
+		kind = KindTransient
+	case providers.IsQuota(low):
+		kind = KindQuota
+	case rateRE.MatchString(low):
+		kind = KindRateLimit
+	case authRE.MatchString(low):
+		kind = KindAuth
+	case transientRE.MatchString(low):
+		kind = KindTransient
+	}
+	var delay time.Duration
+	if m := retryAfterRE.FindStringSubmatch(low); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		delay = time.Duration(n) * time.Second
+		if m[2] != "" {
+			delay = time.Duration(n) * time.Minute
+		}
+	}
+	return kind, delay
 }
 
 // Policy bounds one retry loop.
@@ -280,16 +287,11 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		if p.terminal(ctx, last, attemptErr) {
 			return fail()
 		}
-		wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
-		if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
-			coolDown(p.Key, wait) // the other loops on this account back off too, even when this one gives up
-		}
+		wait := p.retryDelay(last, attempt)
 		if !p.mayRetry(ctx, last, attempt) {
 			return fail()
 		}
-		if p.Notify != nil {
-			p.Notify(fmt.Sprintf("%s: %s (attempt %d/%d), retrying in %s", last.Agent, last.Kind, attempt, p.MaxAttempts, wait.Round(100*time.Millisecond)))
-		}
+		p.notifyRetry(last, attempt, wait)
 		if ierr := p.backoffWait(ctx, wait); ierr != nil {
 			return abandoned(ierr, attempt, last, earlier, true)
 		}
@@ -298,6 +300,20 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		}
 	}
 	return fail()
+}
+
+func (p Policy) notifyRetry(last *Error, attempt int, wait time.Duration) {
+	if p.Notify != nil {
+		p.Notify(fmt.Sprintf("%s: %s (attempt %d/%d), retrying in %s", last.Agent, last.Kind, attempt, p.MaxAttempts, wait.Round(100*time.Millisecond)))
+	}
+}
+
+func (p Policy) retryDelay(last *Error, attempt int) time.Duration {
+	wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
+	if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
+		coolDown(p.Key, wait) // Other loops back off too, even when this one gives up.
+	}
+	return wait
 }
 
 // withoutEarlier is a copy of e with its own Earlier chain cut.

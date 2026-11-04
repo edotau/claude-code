@@ -43,15 +43,7 @@ func SplitDiff(diff []byte, promptLen, budget int) []Part {
 		return []Part{{Diff: diff, Files: fileList(sections(string(diff)))}}
 	}
 	limit := max(budget-promptLen-partOverhead, 1)
-	var groups []string
-	byGroup := map[string][]unit{}
-	for _, u := range sections(string(diff)) {
-		if _, ok := byGroup[u.group]; !ok {
-			groups = append(groups, u.group)
-		}
-		byGroup[u.group] = append(byGroup[u.group], u)
-	}
-	sort.Strings(groups)
+	groups, byGroup := groupedUnits(diff)
 
 	var parts []Part
 	var cur []unit
@@ -69,10 +61,7 @@ func SplitDiff(diff []byte, promptLen, budget int) []Part {
 		cur, size = append(cur, u), size+len(u.text)
 	}
 	for _, g := range groups {
-		total := 0
-		for _, u := range byGroup[g] {
-			total += len(u.text)
-		}
+		total := unitsSize(byGroup[g])
 		if total <= limit { // a whole directory stays together
 			if size+total > limit {
 				flush()
@@ -90,6 +79,27 @@ func SplitDiff(diff []byte, promptLen, budget int) []Part {
 	}
 	flush()
 	return parts
+}
+
+func groupedUnits(diff []byte) ([]string, map[string][]unit) {
+	var groups []string
+	byGroup := map[string][]unit{}
+	for _, u := range sections(string(diff)) {
+		if _, ok := byGroup[u.group]; !ok {
+			groups = append(groups, u.group)
+		}
+		byGroup[u.group] = append(byGroup[u.group], u)
+	}
+	sort.Strings(groups)
+	return groups, byGroup
+}
+
+func unitsSize(us []unit) int {
+	total := 0
+	for _, u := range us {
+		total += len(u.text)
+	}
+	return total
 }
 
 func joinUnits(us []unit) string {
@@ -130,6 +140,24 @@ func splitUnit(u unit, limit int) []unit {
 		head, body = "", lines
 	}
 	room := max(limit-len(head), 1)
+	hunks := splitHunks(body, room)
+	var out []unit
+	var b strings.Builder
+	flush := func() {
+		out = append(out, unit{u.group, u.file, head + b.String()})
+		b.Reset()
+	}
+	for _, hk := range hunks {
+		if b.Len()+len(hk) > room {
+			flush()
+		}
+		b.WriteString(hk)
+	}
+	flush()
+	return out
+}
+
+func splitHunks(body []string, room int) []string {
 	var hunks []string // each hunk, or a line-cut slice of one too big for room
 	var h strings.Builder
 	pushHunk := func() {
@@ -151,20 +179,7 @@ func splitUnit(u unit, limit int) []unit {
 		h.WriteString(l)
 	}
 	pushHunk()
-	var out []unit
-	var b strings.Builder
-	flush := func() {
-		out = append(out, unit{u.group, u.file, head + b.String()})
-		b.Reset()
-	}
-	for _, hk := range hunks {
-		if b.Len()+len(hk) > room {
-			flush()
-		}
-		b.WriteString(hk)
-	}
-	flush()
-	return out
+	return hunks
 }
 
 // sections cuts diff into per-file units at "diff --git" and untracked "new file:" headers.

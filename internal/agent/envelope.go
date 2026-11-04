@@ -86,6 +86,10 @@ func FailureEnvelope(agentName string, err error) Envelope {
 	return env
 }
 
+var envelopeKindTokens = map[Kind]string{
+	KindAuth: "auth", KindRateLimit: "rate_limit", KindTransient: "transient", KindQuota: "quota",
+}
+
 // errorKind is the envelope token for err's class; an unclassified error is fatal.
 func errorKind(err error) string {
 	if re, ok := errors.AsType[remoteError](err); ok {
@@ -103,15 +107,8 @@ func errorKind(err error) string {
 		if e.AuthReason != "" { // a condemned login is an auth failure, whatever the failing dispatch classified it as
 			return "auth"
 		}
-		switch e.Kind {
-		case KindAuth:
-			return "auth"
-		case KindRateLimit:
-			return "rate_limit"
-		case KindTransient:
-			return "transient"
-		case KindQuota:
-			return "quota"
+		if token := envelopeKindTokens[e.Kind]; token != "" {
+			return token
 		}
 	}
 	return "fatal"

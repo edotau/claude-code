@@ -47,6 +47,11 @@ func (s *chanSink) Emit(ev Event) error {
 		return nil
 	default:
 	}
+	s.replaceOldest(ev)
+	return nil
+}
+
+func (s *chanSink) replaceOldest(ev Event) {
 	if s.fullSince.IsZero() {
 		s.fullSince = Clock()
 	} else if Clock().Sub(s.fullSince) > streamStall {
@@ -61,7 +66,6 @@ func (s *chanSink) Emit(ev Event) error {
 	case s.ch <- ev:
 	default:
 	}
-	return nil
 }
 
 // Stream runs a dispatch and returns its buffered event stream.

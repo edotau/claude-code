@@ -158,11 +158,7 @@ func Build(claudeDir string, opts Options) (*Tree, error) {
 	}
 	reg := readRegistry(claudeDir)
 	if opts.Running && opts.Session == "" {
-		have := map[string]bool{}
-		for _, f := range sessionFiles {
-			have[sessionIDFromPath(f)] = true
-		}
-		sessionFiles = append(sessionFiles, liveTranscripts(claudeDir, reg, have)...)
+		sessionFiles = appendLiveTranscripts(claudeDir, reg, sessionFiles)
 	}
 	tree := &Tree{}
 	for _, f := range sessionFiles {
@@ -180,6 +176,14 @@ func Build(claudeDir string, opts Options) (*Tree, error) {
 	}
 	slices.SortStableFunc(tree.Sessions, func(a, b Session) int { return b.Updated.Compare(a.Updated) })
 	return tree, nil
+}
+
+func appendLiveTranscripts(claudeDir string, reg map[string]regEntry, sessionFiles []string) []string {
+	have := map[string]bool{}
+	for _, f := range sessionFiles {
+		have[sessionIDFromPath(f)] = true
+	}
+	return append(sessionFiles, liveTranscripts(claudeDir, reg, have)...)
 }
 
 // sessionHasActivity reports whether --running keeps s: it is active or any subagent (direct or in a run) runs.

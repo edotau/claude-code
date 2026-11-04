@@ -54,46 +54,41 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 		switch {
 		case a == "--":
 			return o, append(rest, args[i+1:]...), nil
-		case name == "--profile" || name == "--model":
-			var err error
-			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
-				return o, nil, err
-			}
-			if name == "--profile" {
-				o.Provider = val
-			} else {
-				o.Model = val
-			}
 		case a == "--direct" && !claude:
 			o.Direct = true
 		case a == "--print-env":
 			o.PrintEnv = true
-		case (name == "-f" || name == "--file") && !claude:
-			var err error
-			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
-				return o, nil, err
-			}
-			o.File = val
-		case name == "--overlay":
-			var err error
-			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
-				return o, nil, err
-			}
-			o.Overlay = val
-		case name == "--keep-env":
-			var err error
-			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
-				return o, nil, err
-			}
-			o.KeepEnv = append(o.KeepEnv, strings.Split(val, ",")...)
 		default:
-			rest = append(rest, a)
+			setter := o.launchFlagSetter(name, claude)
+			if setter == nil {
+				rest = append(rest, a)
+				continue
+			}
+			var err error
+			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
+				return o, nil, err
+			}
+			setter(val)
 		}
 	}
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
 	return o, rest, nil
+}
+
+func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {
+	fields := map[string]*string{"--profile": &o.Provider, "--model": &o.Model, "--overlay": &o.Overlay}
+	if !claude {
+		fields["-f"], fields["--file"] = &o.File, &o.File
+	}
+	if field := fields[name]; field != nil {
+		return func(v string) { *field = v }
+	}
+	if name == "--keep-env" {
+		return func(v string) { o.KeepEnv = append(o.KeepEnv, strings.Split(v, ",")...) }
+	}
+	return nil
 }
 
 // LaunchFile is a 0600 per-launch config the child reads, written by Exec just before the child starts; a file named

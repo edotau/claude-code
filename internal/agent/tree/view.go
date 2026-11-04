@@ -98,26 +98,7 @@ func resolveAgent(claudeDir string, opts ViewOptions, now time.Time) (agentLocat
 	}
 	var matches []agentLocation
 	for _, transcriptPath := range sessionFiles {
-		sessionDir := sessionDirFromPath(transcriptPath)
-		head := scanSessionHead(transcriptPath)
-		sessionID := filepath.Base(sessionDir)
-		runDirs := append([]string{""}, transcript.WorkflowRunDirs(sessionDir)...)
-		for _, runDir := range runDirs {
-			dir, runID := runDir, ""
-			if runDir == "" {
-				dir = filepath.Join(sessionDir, "subagents")
-			} else {
-				runID = filepath.Base(runDir)
-			}
-			for _, f := range transcript.WorkflowAgentFiles(dir) {
-				if matchID(subagentIDFromPath(f), opts.Agent) {
-					matches = append(matches, agentLocation{
-						SessionID: sessionID, TranscriptPath: f, SessionDir: sessionDir,
-						RunDir: runDir, RunID: runID, Cwd: head.cwd,
-					})
-				}
-			}
-		}
+		matches = append(matches, sessionAgentMatches(transcriptPath, opts.Agent)...)
 	}
 	if len(matches) > 1 { // an exact id wins over longer ids it prefixes
 		var exact []agentLocation
@@ -134,6 +115,31 @@ func resolveAgent(claudeDir string, opts ViewOptions, now time.Time) (agentLocat
 		return agentLocation{}, fmt.Errorf("agent %q: %d matches (use --session to narrow, or the full id)", opts.Agent, len(matches))
 	}
 	return matches[0], nil
+}
+
+func sessionAgentMatches(transcriptPath, want string) []agentLocation {
+	sessionDir := sessionDirFromPath(transcriptPath)
+	head := scanSessionHead(transcriptPath)
+	sessionID := filepath.Base(sessionDir)
+	runDirs := append([]string{""}, transcript.WorkflowRunDirs(sessionDir)...)
+	var matches []agentLocation
+	for _, runDir := range runDirs {
+		dir, runID := runDir, ""
+		if runDir == "" {
+			dir = filepath.Join(sessionDir, "subagents")
+		} else {
+			runID = filepath.Base(runDir)
+		}
+		for _, f := range transcript.WorkflowAgentFiles(dir) {
+			if matchID(subagentIDFromPath(f), want) {
+				matches = append(matches, agentLocation{
+					SessionID: sessionID, TranscriptPath: f, SessionDir: sessionDir,
+					RunDir: runDir, RunID: runID, Cwd: head.cwd,
+				})
+			}
+		}
+	}
+	return matches
 }
 
 // matchID reports whether id equals want, or want is a non-empty prefix of it.
@@ -266,17 +272,7 @@ func Follow(ctx context.Context, opts ViewOptions, emit func(Event)) error {
 	ticker := time.NewTicker(followPollInterval)
 	defer ticker.Stop()
 	drain := func() {
-		all := events(loc.TranscriptPath, loc.Cwd, 0)
-		if len(all) == 0 && seen > 0 {
-			return // an empty read after events is a failed open, not a rewrite: keep seen and retry
-		}
-		if len(all) < seen {
-			seen = 0 // the transcript was truncated or rewritten
-		}
-		for _, e := range all[seen:] {
-			emit(e)
-		}
-		seen = len(all)
+		seen = drainEvents(loc, seen, emit)
 	}
 	for {
 		drain()
@@ -293,6 +289,20 @@ func Follow(ctx context.Context, opts ViewOptions, emit func(Event)) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func drainEvents(loc agentLocation, seen int, emit func(Event)) int {
+	all := events(loc.TranscriptPath, loc.Cwd, 0)
+	if len(all) == 0 && seen > 0 {
+		return seen // an empty read after events is a failed open, not a rewrite: keep seen and retry
+	}
+	if len(all) < seen {
+		seen = 0 // the transcript was truncated or rewritten
+	}
+	for _, e := range all[seen:] {
+		emit(e)
+	}
+	return len(all)
 }
 
 // followDone reports a terminal state: a journal result line (workflow agent) or a finished meta (plain subagent).

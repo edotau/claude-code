@@ -280,22 +280,30 @@ func ParseBatchTask(l ParsedLine, agentName string, base agent.RunOptions, timeo
 	if req.Tools && req.NoTools {
 		return t, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}
+	req, err = batchTaskLocation(l, req, timeoutSet, base.WorkDir, cwd)
+	if err != nil {
+		return t, err
+	}
+	t.Req = req
+	return t, nil
+}
+
+func batchTaskLocation(l ParsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {
 	switch {
-	case tl.Timeout != "":
-		d, err := time.ParseDuration(tl.Timeout)
+	case l.Task.Timeout != "":
+		d, err := time.ParseDuration(l.Task.Timeout)
 		if err != nil || d <= 0 {
-			return t, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, tl.Timeout)
+			return req, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, l.Task.Timeout)
 		}
 		req.Timeout = d
 	case req.Tools && !timeoutSet:
 		req.Timeout = DefaultToolsTimeout
 	}
-	req.WorkDir = cmp.Or(tl.Workdir, base.WorkDir, cwd)
+	req.WorkDir = cmp.Or(l.Task.Workdir, baseWorkdir, cwd)
 	abs, err := filepath.Abs(req.WorkDir)
 	if err != nil {
-		return t, fmt.Errorf("line %d: workdir %q: %w", l.N, req.WorkDir, err)
+		return req, fmt.Errorf("line %d: workdir %q: %w", l.N, req.WorkDir, err)
 	}
 	req.WorkDir = abs
-	t.Req = req
-	return t, nil
+	return req, nil
 }

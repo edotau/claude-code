@@ -42,6 +42,11 @@ func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	if fi, _ := os.Stat(filepath.Join(paths.DispatchDir(), r.ID+".json")); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
 	}
+	assertDispatchRecordPruning(t, base)
+}
+
+func assertDispatchRecordPruning(t *testing.T, base time.Time) {
+	t.Helper()
 	old := dispatchKeep
 	dispatchKeep = 2
 	defer func() { dispatchKeep = old }()
@@ -74,6 +79,11 @@ func TestRecordJSONRoundTripsRepoPIDLog(t *testing.T) {
 		t.Fatalf("round trip = %+v, want %+v", got, r)
 	}
 
+	t.Run("zero fields omitted", assertRecordZeroFieldsOmitted)
+}
+
+func assertRecordZeroFieldsOmitted(t *testing.T) {
+	t.Helper()
 	zero := Record{ID: "y"}
 	zb, err := json.Marshal(zero)
 	if err != nil {
@@ -160,6 +170,11 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	assertBackgroundPruneRecords(t, finished, active, trigger1, trigger2)
+}
+
+func assertBackgroundPruneRecords(t *testing.T, finished, active, trigger1, trigger2 Record) {
+	t.Helper()
 	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), finished.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("finished record must be pruned, stat err = %v", err)
 	}
@@ -383,17 +398,7 @@ func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(paths.DispatchDir(), rec.ID+".json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(b, &raw); err != nil {
-		t.Fatal(err)
-	}
-	if raw["schema"] != float64(1) {
-		t.Errorf(`new record "schema" = %v, want 1`, raw["schema"])
-	}
+	assertDispatchSchemaStamp(t, rec.ID)
 
 	writeRawDispatch(t, newerID, `{"schema":2,"id":"`+newerID+`","agent":"codex","status":"ok"}`)
 	if _, err := LoadRecord(newerID); !errors.Is(err, schemas.ErrNewer) {
@@ -406,6 +411,21 @@ func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
 	}
 	if n := len(RecentRecords(10)); n != 2 {
 		t.Errorf("RecentRecords = %d, want 2 (old + new)", n)
+	}
+}
+
+func assertDispatchSchemaStamp(t *testing.T, id string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(paths.DispatchDir(), id+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["schema"] != float64(1) {
+		t.Errorf(`new record "schema" = %v, want 1`, raw["schema"])
 	}
 }
 

@@ -126,13 +126,7 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	if rec.PID <= 0 {
 		t.Fatalf("rec.PID = %d, want > 0", rec.PID)
 	}
-	fi, err := os.Stat(rec.Log)
-	if err != nil {
-		t.Fatalf("log file must exist: %v", err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("log mode = %v, want 0600", fi.Mode().Perm())
-	}
+	assertSpawnLog(t, rec.Log)
 	if !rec.Alive() {
 		t.Fatal("rec.Alive() = false right after Spawn, want true")
 	}
@@ -147,13 +141,29 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 		t.Error("rec.Alive() = true after Cancel, want false")
 	}
 
-	// the saved record on disk must reflect the cancellation too.
-	saved, err := agent.LoadRecord(rec.ID)
+	assertSavedCancellation(t, rec.ID)
+}
+
+// assertSavedCancellation checks the saved record reflects the cancellation too.
+func assertSavedCancellation(t *testing.T, id string) {
+	t.Helper()
+	saved, err := agent.LoadRecord(id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if saved.Status != "error" {
 		t.Fatalf("saved record status = %q, want error", saved.Status)
+	}
+}
+
+func assertSpawnLog(t *testing.T, path string) {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("log file must exist: %v", err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("log mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
 
@@ -266,15 +276,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	if !rec.Alive() {
 		t.Fatal("rec.Alive() = false right after Spawn, want true")
 	}
-	// wait for the shell's ready line (printed after `trap '' INT`), else SIGINT can beat the trap installation.
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if b, _ := os.ReadFile(rec.Log); strings.Contains(string(b), "ready") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("child never printed ready")
-		}
-	}
+	waitForTrapReady(t, rec.Log)
 
 	if err := Cancel(&rec); err != nil {
 		t.Fatalf("Cancel() = %v, want nil (SIGKILL escalation must end a SIGINT-trapping child)", err)
@@ -284,6 +286,19 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	}
 	if rec.Alive() {
 		t.Error("rec.Alive() = true after Cancel, want false (SIGKILL must have ended the trapping child)")
+	}
+}
+
+// waitForTrapReady waits until the SIGINT trap is installed, so cancellation cannot beat it.
+func waitForTrapReady(t *testing.T, log string) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if b, _ := os.ReadFile(log); strings.Contains(string(b), "ready") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child never printed ready")
+		}
 	}
 }
 

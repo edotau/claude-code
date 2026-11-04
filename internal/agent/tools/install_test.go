@@ -198,27 +198,32 @@ func TestInstallCodexInstallsBothBinariesIntoBinDir(t *testing.T) {
 		t.Fatalf("installCodex: %v", err)
 	}
 	for name, want := range map[string]string{"codex": "fake-codex-elf", "codex-code-mode-host": "fake-host-elf"} {
-		p := filepath.Join(paths.BinDir(), name)
-		got, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatalf("read %s: %v", p, err)
-		}
-		if string(got) != want {
-			t.Errorf("%s contents = %q, want %q", p, got, want)
-		}
-		info, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !info.Mode().IsRegular() {
-			t.Errorf("%s is not a regular file (mode %v)", p, info.Mode())
-		}
-		if info.Mode().Perm()&0o111 == 0 {
-			t.Errorf("%s not executable: mode %o", p, info.Mode().Perm())
-		}
+		assertInstalledCodexBinary(t, name, want)
 	}
 	if _, err := os.Stat(filepath.Join(notBin, "codex")); !os.IsNotExist(err) {
 		t.Errorf("codex must not land in the non-BinDir dir %s", notBin)
+	}
+}
+
+func assertInstalledCodexBinary(t *testing.T, name, want string) {
+	t.Helper()
+	p := filepath.Join(paths.BinDir(), name)
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read %s: %v", p, err)
+	}
+	if string(got) != want {
+		t.Errorf("%s contents = %q, want %q", p, got, want)
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() {
+		t.Errorf("%s is not a regular file (mode %v)", p, info.Mode())
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("%s not executable: mode %o", p, info.Mode().Perm())
 	}
 }
 

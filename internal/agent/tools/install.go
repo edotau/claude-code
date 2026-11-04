@@ -276,35 +276,43 @@ func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) err
 		fmt.Fprintln(w, "  (dry-run: would download and extract codex + "+strings.Join(codexCompanions, ", ")+")")
 		return nil
 	}
-	// Resolve and download every asset before writing any, so a failure leaves the old install untouched.
-	type staged struct {
-		name string
-		bin  []byte
-	}
-	var all []staged
-	codexBin, err := fetchReleaseBinary(ctx, "codex", dlURL)
+	all, err := stageCodex(ctx, rel, assetName, dlURL)
 	if err != nil {
 		return err
 	}
-	for _, name := range codexCompanions {
-		asset := strings.Replace(assetName, "codex", name, 1)
-		i := slices.IndexFunc(rel.Assets, func(a ghAsset) bool { return a.Name == asset })
-		if i < 0 {
-			return fmt.Errorf("codex: companion asset %s not found in release %s", asset, rel.TagName)
-		}
-		bin, err := fetchReleaseBinary(ctx, name, rel.Assets[i].URL)
-		if err != nil {
-			return err
-		}
-		all = append(all, staged{name, bin})
-	}
-	all = append(all, staged{"codex", codexBin})
 	for _, s := range all {
 		if err := installBinary(w, dir, s.name, s.bin); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type stagedBinary struct {
+	name string
+	bin  []byte
+}
+
+// stageCodex downloads every asset before writing any, so a failure leaves the old install untouched.
+func stageCodex(ctx context.Context, rel ghRelease, assetName, dlURL string) ([]stagedBinary, error) {
+	var all []stagedBinary
+	codexBin, err := fetchReleaseBinary(ctx, "codex", dlURL)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range codexCompanions {
+		asset := strings.Replace(assetName, "codex", name, 1)
+		i := slices.IndexFunc(rel.Assets, func(a ghAsset) bool { return a.Name == asset })
+		if i < 0 {
+			return nil, fmt.Errorf("codex: companion asset %s not found in release %s", asset, rel.TagName)
+		}
+		bin, err := fetchReleaseBinary(ctx, name, rel.Assets[i].URL)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, stagedBinary{name, bin})
+	}
+	return append(all, stagedBinary{"codex", codexBin}), nil
 }
 
 // fetchReleaseBinary downloads one single-file .tar.gz release asset and returns the binary inside.

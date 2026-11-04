@@ -100,16 +100,8 @@ func remoteTarget(agentName string, req RunOptions) string {
 // remoteScript is the POSIX sh line run on the remote: every element is single-quoted, the prompt is never in it.
 // --env values do ride this line, so they are visible to the remote `ps` (and, base64-wrapped, to the local one).
 func remoteScript(bin, agentName, fallback string, req RunOptions) (string, error) {
-	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.WorkDir, req.SessionID, req.SystemPrompt,
-		req.AppendSystemPrompt, req.OutputSchema}
-	vals = append(vals, req.Env...)
-	for _, v := range vals {
-		if strings.ContainsRune(v, 0) {
-			return "", errors.New("remote ask: a NUL byte cannot cross the remote argv")
-		}
-	}
-	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
-		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
+	if err := validateRemoteScript(bin, agentName, req); err != nil {
+		return "", err
 	}
 	w := []string{remotePath, "exec", textutil.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
 		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
@@ -144,6 +136,21 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 		}
 	}
 	return strings.Join(w, " "), nil
+}
+
+func validateRemoteScript(bin, agentName string, req RunOptions) error {
+	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.WorkDir, req.SessionID, req.SystemPrompt,
+		req.AppendSystemPrompt, req.OutputSchema}
+	vals = append(vals, req.Env...)
+	for _, v := range vals {
+		if strings.ContainsRune(v, 0) {
+			return errors.New("remote ask: a NUL byte cannot cross the remote argv")
+		}
+	}
+	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
+		return fmt.Errorf("remote ask: invalid remote binary %q", bin)
+	}
+	return nil
 }
 
 // RemoteArgv is the full local ssh argv for one remote ask.
@@ -206,13 +213,8 @@ func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	stop := func() { cancel(nil) }
-	touch := func() {}
-	if req.Timeout > 0 {
-		idle := req.Timeout + remoteGrace
-		wd := newIdleTimer(idle, func() { cancel(fmt.Errorf("no remote output for %s: %w", idle, context.DeadlineExceeded)) })
-		defer wd.Stop()
-		touch = func() { wd.Reset(idle) }
-	}
+	touch, stopWatch := remoteWatchdog(req.Timeout, cancel)
+	defer stopWatch()
 	cmd, tail := ChildCmd(ctx, argv[0], argv[1:], nil, "", "", nil, false)
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, touchWriter(touch)) // the remote's retry notices arrive on stderr
 	in, err := cmd.StdinPipe()
@@ -237,6 +239,19 @@ func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 	env, streamed, sinkErr := r.relay(ctx, out, sink, stop, touch)
 	_ = in.Close()
 	werr := cmd.Wait()
+	return r.remoteOutcome(ctx, env, streamed, sinkErr, werr, tail, dropped)
+}
+
+func remoteWatchdog(timeout time.Duration, cancel context.CancelCauseFunc) (func(), func()) {
+	if timeout <= 0 {
+		return func() {}, func() {}
+	}
+	idle := timeout + remoteGrace
+	wd := newIdleTimer(idle, func() { cancel(fmt.Errorf("no remote output for %s: %w", idle, context.DeadlineExceeded)) })
+	return func() { wd.Reset(idle) }, func() { wd.Stop() }
+}
+
+func (r remoteEngine) remoteOutcome(ctx context.Context, env *Envelope, streamed bool, sinkErr, werr error, tail *TailBuffer, dropped []string) (Result, error) {
 	res := Result{Agent: r.agent, Status: StatusError, Dropped: dropped}
 	switch {
 	case env != nil:
@@ -287,25 +302,38 @@ func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink Sink, stop,
 	for {
 		line, rerr := rd.ReadBytes('\n')
 		touch()
-		if line = bytes.TrimSpace(line); len(line) > 0 {
-			var ev Event
-			if json.Unmarshal(line, &ev) != nil || ev.Schema != EventSchema || ev.Type == "" {
-				logEvent(ctx, "ssh", string(line))
-			} else if ev.Type == EventResult && ev.Envelope != nil {
-				env = ev.Envelope
-			} else if ev.Type != EventStart && sinkErr == nil {
-				ev.DispatchID, ev.Seq, ev.TMs = "", 0, 0
-				ev.Agent = cmp.Or(ev.Agent, r.agent)
-				if sinkErr = sink.Emit(ev); sinkErr != nil {
-					stop()
-				}
-				streamed = streamed || ev.progress()
-			}
-		}
+		env, streamed, sinkErr = r.relayLine(ctx, bytes.TrimSpace(line), sink, stop, env, streamed, sinkErr)
 		if rerr != nil {
 			return env, streamed, sinkErr
 		}
 	}
+}
+
+func (r remoteEngine) relayLine(ctx context.Context, line []byte, sink Sink, stop func(), env *Envelope, streamed bool, sinkErr error) (*Envelope, bool, error) {
+	if len(line) == 0 {
+		return env, streamed, sinkErr
+	}
+	var ev Event
+	if !decodeRemoteEvent(line, &ev) {
+		logEvent(ctx, "ssh", string(line))
+		return env, streamed, sinkErr
+	}
+	if ev.Type == EventResult && ev.Envelope != nil {
+		return ev.Envelope, streamed, sinkErr
+	}
+	if ev.Type == EventStart || sinkErr != nil {
+		return env, streamed, sinkErr
+	}
+	ev.DispatchID, ev.Seq, ev.TMs = "", 0, 0
+	ev.Agent = cmp.Or(ev.Agent, r.agent)
+	if sinkErr = sink.Emit(ev); sinkErr != nil {
+		stop()
+	}
+	return env, streamed || ev.progress(), sinkErr
+}
+
+func decodeRemoteEvent(line []byte, ev *Event) bool {
+	return json.Unmarshal(line, ev) == nil && ev.Schema == EventSchema && ev.Type != ""
 }
 
 // touchWriter calls touch on every write and discards the bytes.

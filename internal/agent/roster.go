@@ -231,12 +231,7 @@ func AgentModelPin(agent string) string {
 func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 	t, p := a.Target, a.Target.Provider
 	if a.Flag == "" {
-		if pin := AgentModelPin(a.Agent); pin != "" {
-			if m := providers.SpellPin(p, pin); m != "" {
-				t.Model = m
-			}
-		}
-		return t, ""
+		return pinnedAgentModel(a.Agent, t), ""
 	}
 	if a.Applied {
 		return t, ""
@@ -254,6 +249,15 @@ func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 		t.Model = p.WireModel(models.Strip1M(a.Flag))
 	}
 	return t, ""
+}
+
+func pinnedAgentModel(agent string, t providers.Target) providers.Target {
+	if pin := AgentModelPin(agent); pin != "" {
+		if m := providers.SpellPin(t.Provider, pin); m != "" {
+			t.Model = m
+		}
+	}
+	return t
 }
 
 // GeminiGatewayRow is a keyed Databricks row agy can reach through the router's native Gemini route.
@@ -295,6 +299,10 @@ func Serves(agent string, p *providers.Provider, model string) (ok bool, why str
 	if p.Auth.Method() == providers.AuthCLI {
 		return false, fmt.Sprintf("provider %s uses cli (subscription) auth, which %s cannot use; pick a keyed provider", p.Name, agent)
 	}
+	return servesModel(spec, agent, p, model)
+}
+
+func servesModel(spec Schema, agent string, p *providers.Provider, model string) (bool, string) {
 	if model == "" {
 		return true, ""
 	}
