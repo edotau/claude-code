@@ -36,8 +36,9 @@ tree unless `CLAUDE_CONFIG_DIR` points at it.
 ### merge
 
 1. **Preview, always:** `claude-code worktree merge --dry-run "$SLUG"`. `clean — no predicted conflicts`
-   exits 0; any `issue:` (dirty checkout, detached target, `--target` mismatch, unrelated histories,
+   exits 0; any `issue:` (dirty worktree, detached target, `--target` mismatch, unrelated histories,
    merge-tree failure, predicted `conflict [<files>]`) exits 1 with nothing mutated — report it and stop.
+   A dirty target is refused only when its uncommitted paths overlap files the merge touches.
 2. Ask: "Merge $SLUG into <target>? (Y/n)".
 3. **Apply:** `claude-code worktree merge "$SLUG"` (`--verify "<cmd>"` overrides auto-detection from
    Makefile test / go.mod / pyproject / package.json / Cargo.toml; `--no-verify` is the only unverified path;
