@@ -41,7 +41,7 @@ const (
 // updateNotSaved is the visible line when the Stop gate fails open without an update.
 const updateNotSaved = "memory update NOT saved; run `claude-code memory update`"
 
-// sidecarLockWait bounds how long countSubagentEdits waits for the sidecar lock; a var so tests can shorten it.
+// sidecarLockWait bounds how long subagentEdits waits for the sidecar lock; a var so tests can shorten it.
 var sidecarLockWait = 2 * time.Second
 
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work; with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
@@ -81,6 +81,19 @@ func preCompact(in *Input) Result {
 
 // updateIfNew spawns an update when work (edits or user turns) is new since the stamp; blocked = Stop must block.
 func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
+	ran := false
+	err := paths.WithFileLock(stampPath(in.SessionID), func() error { // hooks of one session are separate processes
+		ran = true
+		blocked, work, failedOpen = updateIfNewLocked(in, trigger, now)
+		return nil
+	})
+	if err != nil && !ran {
+		return updateIfNewLocked(in, trigger, now) // no lock available: unserialized beats skipping the update
+	}
+	return blocked, work, failedOpen
+}
+
+func updateIfNewLocked(in *Input, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
 	stamp := stampPath(in.SessionID)
 	st, ok := readStamp(stamp)
 	covered := 0
@@ -324,12 +337,7 @@ func writeSidecar(path string, m map[string]subFileState) {
 	}
 }
 
-// countSubagentEdits sums agent-*.jsonl sizes under the session's subagents dir and only recounts their edits when that sum moved since the cached value — then only the per-file bytes appended since each file's own cached offset (sidecar ".offsets.json" inside the subagents dir), never the whole file from byte 0.
-func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int) (edits int, totalBytes int64) {
-	return subagentEdits(transcriptPath, cachedBytes, cachedEdits, true)
-}
-
-// subagentEdits is countSubagentEdits; write=false recounts without the lock or sidecar write.
+// subagentEdits sums agent-*.jsonl sizes under the session's subagents dir and only recounts their edits when that sum moved since the cached value — then only the per-file bytes appended since each file's own cached offset (sidecar ".offsets.json" inside the subagents dir), never the whole file from byte 0. write=false recounts without the lock or sidecar write.
 func subagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int, write bool) (edits int, totalBytes int64) {
 	dir := inflight.SubagentDir(transcriptPath)
 	if dir == "" {

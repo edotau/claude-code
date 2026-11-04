@@ -4,15 +4,14 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -28,17 +27,6 @@ type dispatchRecord struct {
 	Time   time.Time `json:"time"`
 	Status string    `json:"status"`
 	PID    int       `json:"pid"`
-}
-
-// alive mirrors agent.Record.Alive: running with a live pid, or not yet recorded within a minute.
-func (r dispatchRecord) alive() bool {
-	switch {
-	case r.Status != "running":
-		return false
-	case r.PID > 0:
-		return proc.Alive(r.PID)
-	}
-	return time.Since(r.Time) < time.Minute
 }
 
 // loadDispatch reads state/dispatch/<id>.json by its exact id; tests replace it.
@@ -60,8 +48,7 @@ func leafJobIDs(transcript string) ([]string, error) {
 	defer f.Close()
 	var ids []string
 	seen := map[string]bool{}
-	r := &leafTranscriptReader{Reader: f}
-	textutil.EachLine(r, func(b []byte) {
+	err = textutil.EachLineErr(f, func(b []byte) {
 		line := string(b)
 		if !strings.Contains(line, `"tool_result"`) {
 			return
@@ -73,20 +60,7 @@ func leafJobIDs(transcript string) ([]string, error) {
 			}
 		}
 	})
-	return ids, r.err
-}
-
-type leafTranscriptReader struct {
-	io.Reader
-	err error
-}
-
-func (r *leafTranscriptReader) Read(p []byte) (int, error) {
-	n, err := r.Reader.Read(p)
-	if err != nil && err != io.EOF {
-		r.err = err
-	}
-	return n, err
+	return ids, err
 }
 
 // leafStopBlock returns a Block while a dispatch the stopping leaf started is alive; any error fails open.
@@ -98,14 +72,24 @@ func leafStopBlock(in *Input, agentID string) (Result, bool) {
 	if err != nil {
 		return Result{}, false
 	}
+	var expired Result
 	for _, id := range ids {
 		rec, err := loadDispatch(id)
-		if err != nil || !rec.alive() {
+		if err != nil || !inflight.DispatchAlive(rec.Status, rec.PID, rec.Time) {
 			continue
 		}
-		return leafStopVerdict(agentID, rec)
+		res, block := leafStopVerdict(agentID, rec)
+		if block {
+			return res, true
+		}
+		if expired.SystemMessage == "" {
+			expired = res
+		}
 	}
-	return coworkerRanOnVerdict(in, agentID)
+	if res, block := coworkerRanOnVerdict(in, agentID); block || expired.SystemMessage == "" {
+		return res, block
+	}
+	return expired, false
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
@@ -127,8 +111,7 @@ func leafBrief(transcript string) (brief string, ranOn bool, err error) {
 		return "", false, err
 	}
 	defer f.Close()
-	r := &leafTranscriptReader{Reader: f}
-	textutil.EachLine(r, func(b []byte) {
+	err = textutil.EachLineErr(f, func(b []byte) {
 		line := string(b)
 		switch {
 		case brief == "" && strings.Contains(line, `"type":"user"`):
@@ -144,7 +127,7 @@ func leafBrief(transcript string) (brief string, ranOn bool, err error) {
 			ranOn = true
 		}
 	})
-	return brief, ranOn, r.err
+	return brief, ranOn, err
 }
 
 // leafAgentType is the stopping leaf's type: the payload's agent_type, else the meta.json beside its transcript.

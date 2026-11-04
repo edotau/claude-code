@@ -257,3 +257,14 @@ func TestCoworkerRanOnFailOpenCap(t *testing.T) {
 		t.Fatalf("got %+v blocked=%v, want an allow with the ran-on message", r, blocked)
 	}
 }
+
+// An expired dispatch must not hide a younger live one started by the same leaf.
+func TestLeafStopExpiredDoesNotHideLiveDispatch(t *testing.T) {
+	const second = "20260101T000000.000-second"
+	tx := leafEnv(t, startedLine(), "job "+second+" started")
+	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
+	writeDispatch(t, second, record(second, "running", os.Getpid()))
+	if r, blocked := leafStopBlock(leafInput(tx), "a1"); !blocked || !strings.Contains(r.Reason, second) {
+		t.Fatalf("got %+v blocked=%v, want a Block naming the live dispatch %s", r, blocked, second)
+	}
+}

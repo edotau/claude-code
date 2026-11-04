@@ -28,11 +28,18 @@ func contextCheckpoint(in *Input) {
 	if !ok || u.Tokens*100/transcript.Window(u.Model, u.Tokens) < checkpointPct {
 		return
 	}
-	_ = os.MkdirAll(filepath.Dir(flag), 0o700)
-	if err := os.WriteFile(flag, nil, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "context-checkpoint: write flag %s: %v\n", flag, err)
+	if err := os.MkdirAll(filepath.Dir(flag), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "context-checkpoint: %v\n", err)
 		return
 	}
+	f, err := os.OpenFile(flag, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // O_EXCL: a concurrent Stop loses the race
+	if err != nil {
+		if !os.IsExist(err) {
+			fmt.Fprintf(os.Stderr, "context-checkpoint: write flag %s: %v\n", flag, err)
+		}
+		return
+	}
+	_ = f.Close()
 	// The fresh "bg" stamp makes the same Stop's sessionUpdate a no-op.
 	if !dispatchUpdate(in, triggerStop, countEdits(in.TranscriptPath, countPath(in.SessionID)), time.Now()) {
 		fmt.Fprintln(os.Stderr, "context-checkpoint: could not start the background handoff; retrying at the next Stop")

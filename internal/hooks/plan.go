@@ -173,12 +173,27 @@ func planDestination(cwd, title string, content []byte, adopt bool) (dest string
 		p := filepath.Join(dir, name)
 		existing, err := os.ReadFile(p)
 		if err != nil {
-			return p, true
+			if !os.IsNotExist(err) || claimPlanFile(p) {
+				return p, true
+			}
+			continue
 		}
 		if adopt && bytes.Equal(existing, content) {
 			return p, false
 		}
 	}
+}
+
+// claimPlanFile reserves p with an O_EXCL create; false means a peer claimed it first.
+func claimPlanFile(p string) bool {
+	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
+		return true
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return !os.IsExist(err)
+	}
+	return f.Close() == nil
 }
 
 // taskHeadingWord picks the plan headings that become checklist items: phases, steps, parts and tasks.
@@ -348,13 +363,13 @@ func recordDest(draftBase, dest string) error {
 	if err := os.MkdirAll(plansScratchDir(), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(destRecordPath(draftBase), []byte(dest), 0o600)
+	return paths.AtomicWrite(destRecordPath(draftBase), []byte(dest), 0o600)
 }
 
 // planMirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
 // copied to its dated, repo-tagged file (savePlan's own slug/title/dest logic), so the draft is never the
 // file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
-// file, via planDest's collision check); it is then recorded so a later H1 change keeps the same file.
+// file, via planDestination's collision check); it is then recorded so a later H1 change keeps the same file.
 func planMirror(in *Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" {
@@ -436,12 +451,19 @@ func planSkeleton(in *Input) Result {
 func planReminder(in *Input) Result {
 	var stderr bytes.Buffer
 	file := partialFile(in.SessionID)
-	data, err := os.ReadFile(file)
+	var data []byte
+	err := paths.WithFileLock(file, func() error {
+		var rerr error
+		if data, rerr = os.ReadFile(file); rerr != nil {
+			return rerr
+		}
+		if rerr = os.Remove(file); rerr != nil {
+			fmt.Fprintf(&stderr, "plan-reminder: %v\n", rerr)
+		}
+		return nil
+	})
 	if err != nil {
 		return Result{}
-	}
-	if err := os.Remove(file); err != nil {
-		fmt.Fprintf(&stderr, "plan-reminder: %v\n", err)
 	}
 	items := stillPartial(string(data))
 	if items == "" {

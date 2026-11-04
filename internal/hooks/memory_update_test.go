@@ -619,7 +619,7 @@ func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
 	}
 }
 
-// TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth: countSubagentEdits trusts a cached edit count
+// TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth: subagentEdits trusts a cached edit count
 // outright when the summed subagent file size hasn't moved, and only rescans once it grows.
 func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 	dir := t.TempDir()
@@ -636,7 +636,7 @@ func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 	}
 	size := fi.Size()
 
-	edits, bytes := countSubagentEdits(tr, 0, 0)
+	edits, bytes := subagentEdits(tr, 0, 0, true)
 	if edits != 2 || bytes != size {
 		t.Fatalf("initial scan = (%d,%d), want (2,%d)", edits, bytes, size)
 	}
@@ -644,7 +644,7 @@ func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 	// A deliberately wrong cached edit count, paired with the SAME cached size, must be trusted as-is:
 	// this is the only way to prove the unchanged-size path skips the rescan rather than coincidentally
 	// recomputing the same answer.
-	edits2, bytes2 := countSubagentEdits(tr, size, 999)
+	edits2, bytes2 := subagentEdits(tr, size, 999, true)
 	if edits2 != 999 || bytes2 != size {
 		t.Fatalf("unchanged size must skip the rescan: got (%d,%d), want (999,%d)", edits2, bytes2, size)
 	}
@@ -658,7 +658,7 @@ func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 	if size2 == size {
 		t.Fatal("test setup: file did not grow")
 	}
-	edits3, bytes3 := countSubagentEdits(tr, size, 999)
+	edits3, bytes3 := subagentEdits(tr, size, 999, true)
 	if edits3 != 5 || bytes3 != size2 {
 		t.Fatalf("grown file must be rescanned: got (%d,%d), want (5,%d)", edits3, bytes3, size2)
 	}
@@ -687,7 +687,7 @@ func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) 
 	writeEdits(t, b, 2)
 	writeEdits(t, c, 3)
 
-	edits, totalBytes := countSubagentEdits(tr, 0, 0)
+	edits, totalBytes := subagentEdits(tr, 0, 0, true)
 	if want := 1 + 2 + 3; edits != want {
 		t.Fatalf("initial scan edits = %d, want %d", edits, want)
 	}
@@ -703,7 +703,7 @@ func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	edits2, totalBytes2 := countSubagentEdits(tr, totalBytes, edits)
+	edits2, totalBytes2 := subagentEdits(tr, totalBytes, edits, true)
 	if totalBytes2 == totalBytes {
 		t.Fatal("test setup: total size did not move")
 	}
@@ -731,7 +731,7 @@ func TestCountSubagentEditsOffsetPastFileSizeRescansFromZero(t *testing.T) {
 	}
 	writeSidecar(sidecarPath(subDir), map[string]subFileState{a: {Offset: fi.Size() + 1_000, Edits: 999}})
 
-	edits, totalBytes := countSubagentEdits(tr, 0, 0) // cachedBytes=0 forces the rescan path
+	edits, totalBytes := subagentEdits(tr, 0, 0, true) // cachedBytes=0 forces the rescan path
 	if edits != 3 || totalBytes != fi.Size() {
 		t.Fatalf("stale-offset rescan = (%d,%d), want (3,%d)", edits, totalBytes, fi.Size())
 	}
@@ -751,7 +751,7 @@ func TestCountSubagentEditsGarbageSidecarTreatedAsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	edits, totalBytes := countSubagentEdits(tr, 0, 0)
+	edits, totalBytes := subagentEdits(tr, 0, 0, true)
 	fi, err := os.Stat(a)
 	if err != nil {
 		t.Fatal(err)
@@ -774,7 +774,7 @@ func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 	writeEdits(t, a, 1)
 	writeEdits(t, b, 2)
 
-	edits, totalBytes := countSubagentEdits(tr, 0, 0)
+	edits, totalBytes := subagentEdits(tr, 0, 0, true)
 	if edits != 3 {
 		t.Fatalf("initial scan edits = %d, want 3", edits)
 	}
@@ -783,7 +783,7 @@ func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 	}
 	writeEdits(t, b, 5) // move the total size so the cache is invalidated and a rescan actually runs
 
-	edits2, totalBytes2 := countSubagentEdits(tr, totalBytes, edits)
+	edits2, totalBytes2 := subagentEdits(tr, totalBytes, edits, true)
 	if totalBytes2 == totalBytes {
 		t.Fatal("test setup: total size did not move")
 	}
@@ -807,7 +807,7 @@ func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	writeEdits(t, a, 2)
 
-	edits0, bytes0 := countSubagentEdits(tr, 0, 0) // seed the sidecar
+	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
 	if edits0 != 2 {
 		t.Fatalf("seed scan edits = %d, want 2", edits0)
 	}
@@ -827,7 +827,7 @@ func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			e, b := countSubagentEdits(tr, bytes0, edits0)
+			e, b := subagentEdits(tr, bytes0, edits0, true)
 			results[i] = struct {
 				edits int
 				bytes int64
@@ -848,7 +848,7 @@ func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 }
 
 // TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting: when the sidecar lock is held by
-// another writer, countSubagentEdits must fall back to the caller's cached totals, write nothing, and
+// another writer, subagentEdits must fall back to the caller's cached totals, write nothing, and
 // return within its (test-shortened) lock wait rather than hang.
 func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testing.T) {
 	oldWait := sidecarLockWait
@@ -857,10 +857,10 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	writeEdits(t, a, 2)
-	edits0, bytes0 := countSubagentEdits(tr, 0, 0) // seed the sidecar
+	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
 	before := readSidecar(sidecarPath(subDir))
 
-	writeEdits(t, a, 9) // grows past the cached size: countSubagentEdits must attempt the lock
+	writeEdits(t, a, 9) // grows past the cached size: subagentEdits must attempt the lock
 
 	held := make(chan struct{})
 	release := make(chan struct{})
@@ -875,16 +875,16 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	defer close(release)
 
 	start := time.Now()
-	edits, bytes := countSubagentEdits(tr, bytes0, edits0)
+	edits, bytes := subagentEdits(tr, bytes0, edits0, true)
 	elapsed := time.Since(start)
 
 	// The lock-busy path keeps the caller's cached totals entirely (edits AND bytes): caching the new
 	// totalBytes against stale edits would make the next call's fast-path skip the recount permanently.
 	if edits != edits0 || bytes != bytes0 {
-		t.Fatalf("lock held elsewhere: countSubagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, bytes0)
+		t.Fatalf("lock held elsewhere: subagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, bytes0)
 	}
 	if elapsed > time.Second {
-		t.Fatalf("countSubagentEdits took %s waiting on a held lock, want it to give up near its %s wait", elapsed, sidecarLockWait)
+		t.Fatalf("subagentEdits took %s waiting on a held lock, want it to give up near its %s wait", elapsed, sidecarLockWait)
 	}
 	after := readSidecar(sidecarPath(subDir))
 	if !reflect.DeepEqual(after, before) {
@@ -961,9 +961,9 @@ func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
 	writeEdits(t, tr, 1)
 
 	// No subagents dir exists — Glob should handle this gracefully.
-	edits, bytes := countSubagentEdits(tr, 0, 0)
+	edits, bytes := subagentEdits(tr, 0, 0, true)
 	if edits != 0 || bytes != 0 {
-		t.Errorf("countSubagentEdits with no subagents dir = (%d, %d), want (0, 0)", edits, bytes)
+		t.Errorf("subagentEdits with no subagents dir = (%d, %d), want (0, 0)", edits, bytes)
 	}
 
 	// Now create a subagents dir with agent files.
@@ -973,9 +973,9 @@ func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
 	}
 	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
 
-	edits2, _ := countSubagentEdits(tr, 0, 0)
+	edits2, _ := subagentEdits(tr, 0, 0, true)
 	if edits2 != 3 {
-		t.Errorf("countSubagentEdits after adding agent files = %d, want 3", edits2)
+		t.Errorf("subagentEdits after adding agent files = %d, want 3", edits2)
 	}
 }
 

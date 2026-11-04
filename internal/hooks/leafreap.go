@@ -45,7 +45,7 @@ func leafOutputFiles(transcript string) []string {
 	defer f.Close()
 	var files []string
 	seen := map[string]bool{}
-	textutil.EachLine(f, func(b []byte) {
+	err = textutil.EachLineErr(f, func(b []byte) {
 		line := string(b)
 		if !strings.Contains(line, `"tool_result"`) {
 			return
@@ -57,6 +57,9 @@ func leafOutputFiles(transcript string) []string {
 			}
 		}
 	})
+	if err != nil {
+		return nil // an unreadable transcript reaps nothing
+	}
 	return files
 }
 

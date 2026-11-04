@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -141,14 +142,21 @@ func recordPartials(session, plan, planPath string, tasks []string, stderr io.Wr
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return
 	}
-	f, err := os.OpenFile(partialFile(session), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	var b strings.Builder
+	for _, t := range tasks {
+		fmt.Fprintf(&b, "%s\t%s: %s\n", planPath, plan, t)
+	}
+	file := partialFile(session)
+	err := paths.WithFileLock(file, func() error {
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		_, werr := f.WriteString(b.String())
+		return errors.Join(werr, f.Close())
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
-		return
-	}
-	defer f.Close()
-	for _, t := range tasks {
-		fmt.Fprintf(f, "%s\t%s: %s\n", planPath, plan, t)
 	}
 }
 

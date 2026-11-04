@@ -78,6 +78,7 @@ var writers = map[string]string{
 	"internal/hooks/plan.go:planSkeleton":                              unversioned("text: plan skeleton injected marker"),
 	"internal/hooks/plantick.go:recordPartials":                        unversioned("text: partly landed plan tasks"),
 	"internal/hooks/plan.go:recordDest":                                unversioned("text: plan draft destination pointer"),
+	"internal/hooks/plan.go:claimPlanFile":                             unversioned("marker: reserved dated plan file, replaced by the plan"),
 	"internal/plans/tick.go:writePlan":                                 unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/stop_format.go:stopFormat":                         "stop-format",
 	"internal/hooks/watch.go:spawnIdleWatcher":                         unversioned("marker: idle watcher claim file"),
