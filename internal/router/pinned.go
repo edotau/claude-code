@@ -45,26 +45,34 @@ func (t *RouteTable) gateProfile(
 		return nil, false
 	}
 	c := Cell{Model: pinnedModel(agent, alias, cell, p, model, now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
-	if sp := providers.SpellPin(p, model); model != "" && model != BYOKModel && sp != "" && c.Model != sp {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + c.Model})
-	}
+	noteNotReady(res, agent, pin, model, c.Model, p)
 	if err := configured(agent, c); err != nil {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 		return nil, false
 	}
-	billing := t.Billing[c.Account]
-	if billing == "" {
-		billing = BillSubscription
-		if p.APIKeyAuth() {
-			billing = BillCredits
-		}
-	}
+	billing := cmp.Or(t.Billing[c.Account], defaultBilling(p))
 	cand, ok := t.gateAccount(ctx, agent, c, billing, st, o, now, res)
 	if !ok {
 		return nil, false
 	}
 	cand.Profile = pin
 	return []Candidate{cand}, true
+}
+
+// noteNotReady records a Skip when the pinned model is spelled but swapped for another because it is not READY.
+func noteNotReady(res *PickResult, agent, pin, model, used string, p *providers.Provider) {
+	sp := providers.SpellPin(p, model)
+	if model != "" && model != BYOKModel && sp != "" && used != sp {
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + used})
+	}
+}
+
+// defaultBilling is credits for an API-key provider, else subscription.
+func defaultBilling(p *providers.Provider) string {
+	if p.APIKeyAuth() {
+		return BillCredits
+	}
+	return BillSubscription
 }
 
 // pinnedModel resolves the pin's model, then swaps one a fresh served listing marks not READY for the first READY one.

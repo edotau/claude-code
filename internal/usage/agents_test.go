@@ -126,9 +126,9 @@ func TestParseCodexSessionCountsOnlyGrowthInsideWindow(t *testing.T) {
 	}
 }
 
-// TestCodexUsageParsesFixture: one fixture session file under CODEX_HOME/sessions becomes a codex
-// agentUsage row: 1 session, tokens/turns/model from parseCodexSession, provider openai.
-func TestCodexUsageParsesFixture(t *testing.T) {
+// codexFixtureUsage writes the fixture as the only session under a temp CODEX_HOME and returns codexUsage over it.
+func codexFixtureUsage(t *testing.T) agentUsage {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	sessDir := filepath.Join(home, "sessions")
@@ -139,8 +139,13 @@ func TestCodexUsageParsesFixture(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessDir, "rollout.jsonl"), fixture, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return codexUsage(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
+}
 
-	got := codexUsage(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
+// TestCodexUsageParsesFixture: one fixture session file under CODEX_HOME/sessions becomes a codex
+// agentUsage row: 1 session, tokens/turns/model from parseCodexSession, provider openai.
+func TestCodexUsageParsesFixture(t *testing.T) {
+	got := codexFixtureUsage(t)
 	if got.Agent != "codex" {
 		t.Fatalf("agent = %q, want codex", got.Agent)
 	}
@@ -153,6 +158,11 @@ func TestCodexUsageParsesFixture(t *testing.T) {
 	if got.Tokens != 2200 {
 		t.Errorf("tokens = %d, want 2200", got.Tokens)
 	}
+}
+
+// TestCodexUsageFixtureModelRow: the fixture's model row is openai/gpt-6-astra and the row carries no note.
+func TestCodexUsageFixtureModelRow(t *testing.T) {
+	got := codexFixtureUsage(t)
 	if len(got.Models) != 1 || got.Models[0].Provider != "openai" || got.Models[0].Model != "gpt-6-astra" {
 		t.Errorf("models = %+v, want one openai/gpt-6-astra row", got.Models)
 	}

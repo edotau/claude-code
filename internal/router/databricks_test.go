@@ -42,44 +42,58 @@ func hasDbxSkip(r PickResult, gate string) bool {
 	})
 }
 
-func TestCodexDatabricksCandidate(t *testing.T) {
-	gpt := providers.OpencodeModel{ID: "gpt-6-1-sol", Label: "GPT", Responses: true}
-	claudeNoResp := providers.OpencodeModel{ID: "claude-opus-5-5", Label: "Opus"}
-	claudeResp := providers.OpencodeModel{ID: "claude-sonnet-5-5", Label: "Sonnet", Responses: true}
-	chatgpt, dbx := "openai·chatgpt", "databricks·dev"
+var (
+	dbxGPT          = providers.OpencodeModel{ID: "gpt-6-1-sol", Label: "GPT", Responses: true}
+	dbxClaudeNoResp = providers.OpencodeModel{ID: "claude-opus-5-5", Label: "Opus"}
+	dbxClaudeResp   = providers.OpencodeModel{ID: "claude-sonnet-5-5", Label: "Sonnet", Responses: true}
+)
 
-	// Databricks on + Responses model: candidate right behind ChatGPT; the non-Responses Claude entry is skipped over.
-	accts, r := dbxCandidates(t, "dev", []providers.OpencodeModel{claudeNoResp, gpt}, nil)
-	if !slices.Equal(accts, []string{chatgpt, dbx}) {
-		t.Fatalf("accounts = %v, want [%s %s]", accts, chatgpt, dbx)
+const (
+	dbxChatgpt = "openai·chatgpt"
+	dbxAcct    = "databricks·dev"
+)
+
+// Databricks on + Responses model: candidate right behind ChatGPT; the non-Responses Claude entry is skipped over.
+func TestCodexDatabricksCandidateResponsesModel(t *testing.T) {
+	accts, r := dbxCandidates(t, "dev", []providers.OpencodeModel{dbxClaudeNoResp, dbxGPT}, nil)
+	if !slices.Equal(accts, []string{dbxChatgpt, dbxAcct}) {
+		t.Fatalf("accounts = %v, want [%s %s]", accts, dbxChatgpt, dbxAcct)
 	}
-	d := r.Candidates[slices.IndexFunc(r.Candidates, func(c Candidate) bool { return c.Account == dbx })]
-	if d.Profile != "dev" || d.Model == "" || d.Model == claudeNoResp.ID || !slices.Contains([]string{gpt.ID, "databricks-" + gpt.ID}, d.Model) {
+	d := r.Candidates[slices.IndexFunc(r.Candidates, func(c Candidate) bool { return c.Account == dbxAcct })]
+	if d.Profile != "dev" || d.Model == "" || d.Model == dbxClaudeNoResp.ID || !slices.Contains([]string{dbxGPT.ID, "databricks-" + dbxGPT.ID}, d.Model) {
 		t.Errorf("databricks candidate = %+v, want profile dev and the GPT wire id, not the non-Responses Claude", d)
 	}
+}
 
-	// A Responses-flagged Claude id counts as usable.
-	accts, _ = dbxCandidates(t, "dev", []providers.OpencodeModel{claudeResp}, nil)
-	if !slices.Equal(accts, []string{chatgpt, dbx}) {
+// A Responses-flagged Claude id counts as usable.
+func TestCodexDatabricksCandidateResponsesFlaggedClaude(t *testing.T) {
+	accts, _ := dbxCandidates(t, "dev", []providers.OpencodeModel{dbxClaudeResp}, nil)
+	if !slices.Equal(accts, []string{dbxChatgpt, dbxAcct}) {
 		t.Errorf("Responses-flagged Claude: accounts = %v", accts)
 	}
+}
 
-	// No Responses model served: routing unchanged, no skip noise.
-	accts, r = dbxCandidates(t, "dev", []providers.OpencodeModel{claudeNoResp}, nil)
-	if !slices.Equal(accts, []string{chatgpt}) || hasDbxSkip(r, "") {
+// No Responses model served: routing unchanged, no skip noise.
+func TestCodexDatabricksCandidateNoResponsesModel(t *testing.T) {
+	accts, r := dbxCandidates(t, "dev", []providers.OpencodeModel{dbxClaudeNoResp}, nil)
+	if !slices.Equal(accts, []string{dbxChatgpt}) || hasDbxSkip(r, "") {
 		t.Errorf("no Responses model: accounts = %v skipped = %+v", accts, r.Skipped)
 	}
+}
 
-	// Databricks off (session on a non-Databricks profile): ChatGPT only, no skip.
-	accts, r = dbxCandidates(t, "personal", []providers.OpencodeModel{gpt}, nil)
-	if !slices.Equal(accts, []string{chatgpt}) || hasDbxSkip(r, "") {
+// Databricks off (session on a non-Databricks profile): ChatGPT only, no skip.
+func TestCodexDatabricksCandidateOff(t *testing.T) {
+	accts, r := dbxCandidates(t, "personal", []providers.OpencodeModel{dbxGPT}, nil)
+	if !slices.Equal(accts, []string{dbxChatgpt}) || hasDbxSkip(r, "") {
 		t.Errorf("databricks off: accounts = %v skipped = %+v", accts, r.Skipped)
 	}
+}
 
-	// Exhausted Databricks account: no candidate, one matching skip.
-	st := State{dbx: {UsedPct: 100, ExhaustedUntil: now0.Add(3600e9), Seen: now0}}
-	accts, r = dbxCandidates(t, "dev", []providers.OpencodeModel{gpt}, st)
-	if !slices.Equal(accts, []string{chatgpt}) || !hasDbxSkip(r, GateExhausted) {
+// Exhausted Databricks account: no candidate, one matching skip.
+func TestCodexDatabricksCandidateExhausted(t *testing.T) {
+	st := State{dbxAcct: {UsedPct: 100, ExhaustedUntil: now0.Add(3600e9), Seen: now0}}
+	accts, r := dbxCandidates(t, "dev", []providers.OpencodeModel{dbxGPT}, st)
+	if !slices.Equal(accts, []string{dbxChatgpt}) || !hasDbxSkip(r, GateExhausted) {
 		t.Errorf("exhausted: accounts = %v skipped = %+v", accts, r.Skipped)
 	}
 }

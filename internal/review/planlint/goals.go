@@ -146,16 +146,7 @@ func findOversizedTasks(text string) []OversizedTask {
 			continue
 		}
 		line := m[1]
-		var reasons []string
-		if n := countPackageMentions(line); n > 3 {
-			reasons = append(reasons, fmt.Sprintf("names %d packages (limit 3)", n))
-		}
-		if n, ok := maxFindingsCount(line); ok && n >= 11 {
-			reasons = append(reasons, fmt.Sprintf("mentions %d findings/items (limit 10)", n))
-		}
-		if codeTaskRe().MatchString(line) && !ownsRe().MatchString(line) {
-			reasons = append(reasons, "code task has no `owns:` segment")
-		}
+		reasons := oversizeReasons(line)
 		if len(reasons) == 0 {
 			continue
 		}
@@ -164,33 +155,56 @@ func findOversizedTasks(text string) []OversizedTask {
 	return out
 }
 
+// oversizeReasons lists why a task line is not leaf-sized; empty means it is fine.
+func oversizeReasons(line string) []string {
+	var reasons []string
+	if n := countPackageMentions(line); n > 3 {
+		reasons = append(reasons, fmt.Sprintf("names %d packages (limit 3)", n))
+	}
+	if n, ok := maxFindingsCount(line); ok && n >= 11 {
+		reasons = append(reasons, fmt.Sprintf("mentions %d findings/items (limit 10)", n))
+	}
+	if codeTaskRe().MatchString(line) && !ownsRe().MatchString(line) {
+		reasons = append(reasons, "code task has no `owns:` segment")
+	}
+	return reasons
+}
+
 func extractSteps(text string) []string {
 	if phaseRe().MatchString(text) {
-		var steps []string
-		var current []string
-		level := 0
-		for _, line := range splitLines(text) {
-			heading := headingRe().FindStringSubmatch(line)
-			phase := phaseRe().MatchString(line)
-			if level > 0 && heading != nil && (len(heading[1]) <= level || phase) {
-				steps = append(steps, strings.Join(current, "\n"))
-				current = nil
-				level = 0
-			}
-			if phase {
-				level = len(heading[1])
-				current = []string{line}
-			} else if level > 0 {
-				// The template label alone is not verification evidence.
-				current = append(current, strings.ReplaceAll(line, "**Verify:**", ""))
-			}
-		}
-		if level > 0 {
-			steps = append(steps, strings.Join(current, "\n"))
-		}
-		return steps
+		return extractPhaseSteps(text)
 	}
+	return extractListSteps(text)
+}
 
+// extractPhaseSteps collects each phase heading and its body, up to the next heading of equal or higher level.
+func extractPhaseSteps(text string) []string {
+	var steps []string
+	var current []string
+	level := 0
+	for _, line := range splitLines(text) {
+		heading := headingRe().FindStringSubmatch(line)
+		phase := phaseRe().MatchString(line)
+		if level > 0 && heading != nil && (len(heading[1]) <= level || phase) {
+			steps = append(steps, strings.Join(current, "\n"))
+			current = nil
+			level = 0
+		}
+		if phase {
+			level = len(heading[1])
+			current = []string{line}
+		} else if level > 0 {
+			// The template label alone is not verification evidence.
+			current = append(current, strings.ReplaceAll(line, "**Verify:**", ""))
+		}
+	}
+	if level > 0 {
+		steps = append(steps, strings.Join(current, "\n"))
+	}
+	return steps
+}
+
+func extractListSteps(text string) []string {
 	var steps []string
 	var current []string
 	building := false
@@ -240,20 +254,7 @@ type analysis struct {
 	oversizedTasks       []OversizedTask
 }
 
-func analyze(text, source string) analysis {
-	oversized := findOversizedTasks(text)
-	steps := extractSteps(text)
-	if len(steps) == 0 {
-		return analysis{
-			source:          source,
-			noPlan:          true,
-			verdict:         "NO_PLAN",
-			stepResults:     []StepResult{},
-			recommendations: []string{"No numbered/bulleted steps found. Is this a plan?"},
-			oversizedTasks:  oversized,
-		}
-	}
-
+func scoreSteps(steps []string) ([]StepResult, int) {
 	results := make([]StepResult, 0, len(steps))
 	total := 0
 	for _, step := range steps {
@@ -261,17 +262,20 @@ func analyze(text, source string) analysis {
 		total += pts
 		results = append(results, StepResult{Title: textutil.TruncateRunes(textutil.FirstLine(step), 120), Score: pts, Level: level})
 	}
+	return results, total
+}
 
-	maxScore := len(steps) * 3
-	pct := pyRound1(float64(total) / float64(maxScore) * 100)
-	hasFinal := finalRe().MatchString(steps[len(steps)-1])
-	verdict := "MISSING"
-	if pct >= 70 {
-		verdict = "STRONG"
-	} else if pct >= 40 {
-		verdict = "WEAK"
+func goalsVerdict(pct float64) string {
+	switch {
+	case pct >= 70:
+		return "STRONG"
+	case pct >= 40:
+		return "WEAK"
 	}
+	return "MISSING"
+}
 
+func goalRecommendations(results []StepResult, hasFinal bool) []string {
 	noneN, vagueN := 0, 0
 	for _, r := range results {
 		switch r.Level {
@@ -294,6 +298,29 @@ func analyze(text, source string) analysis {
 	if len(recs) == 0 {
 		recs = append(recs, "Strong verification coverage. Good to go.")
 	}
+	return recs
+}
+
+func analyze(text, source string) analysis {
+	oversized := findOversizedTasks(text)
+	steps := extractSteps(text)
+	if len(steps) == 0 {
+		return analysis{
+			source:          source,
+			noPlan:          true,
+			verdict:         "NO_PLAN",
+			stepResults:     []StepResult{},
+			recommendations: []string{"No numbered/bulleted steps found. Is this a plan?"},
+			oversizedTasks:  oversized,
+		}
+	}
+
+	results, total := scoreSteps(steps)
+	maxScore := len(steps) * 3
+	pct := pyRound1(float64(total) / float64(maxScore) * 100)
+	hasFinal := finalRe().MatchString(steps[len(steps)-1])
+	verdict := goalsVerdict(pct)
+	recs := goalRecommendations(results, hasFinal)
 
 	return analysis{
 		source:               source,
@@ -324,25 +351,33 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	a := analyze(text, source)
 
 	if jsonOut {
-		var b []byte
-		if a.noPlan {
-			b, _ = reviewsource.PyMarshalIndent(noStepsResult{
-				Status: "ok", Source: a.source, StepsFound: 0, Verdict: a.verdict,
-				Score: 0, MaxScore: 0, StepResults: a.stepResults, Recommendations: a.recommendations,
-				OversizedTasks: a.oversizedTasks,
-			})
-		} else {
-			b, _ = reviewsource.PyMarshalIndent(stepsResult{
-				Status: "ok", Source: a.source, StepsFound: a.stepsFound, Score: a.score, MaxScore: a.maxScore,
-				Percentage: pyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
-				StepResults: a.stepResults, Recommendations: a.recommendations, OversizedTasks: a.oversizedTasks,
-			})
-		}
-		fmt.Fprintln(stdout, string(b))
+		fmt.Fprintln(stdout, string(goalsJSON(a)))
 		return 0
 	}
+	printGoals(stdout, a)
+	return 0
+}
 
-	fmt.Fprintf(stdout, "Goal Verifier — %s\n", source)
+func goalsJSON(a analysis) []byte {
+	var b []byte
+	if a.noPlan {
+		b, _ = reviewsource.PyMarshalIndent(noStepsResult{
+			Status: "ok", Source: a.source, StepsFound: 0, Verdict: a.verdict,
+			Score: 0, MaxScore: 0, StepResults: a.stepResults, Recommendations: a.recommendations,
+			OversizedTasks: a.oversizedTasks,
+		})
+		return b
+	}
+	b, _ = reviewsource.PyMarshalIndent(stepsResult{
+		Status: "ok", Source: a.source, StepsFound: a.stepsFound, Score: a.score, MaxScore: a.maxScore,
+		Percentage: pyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
+		StepResults: a.stepResults, Recommendations: a.recommendations, OversizedTasks: a.oversizedTasks,
+	})
+	return b
+}
+
+func printGoals(stdout io.Writer, a analysis) {
+	fmt.Fprintf(stdout, "Goal Verifier — %s\n", a.source)
 	pctStr := "0"
 	if !a.noPlan {
 		pctStr = formatPyFloat(a.percentage)
@@ -364,5 +399,4 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  ! %s  (%s)\n", textutil.TruncateRunes(t.Title, 100), t.Reason)
 		}
 	}
-	return 0
 }

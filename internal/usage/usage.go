@@ -154,8 +154,18 @@ func foldResponses(path string, resps []transcript.Response, cutoff time.Time, c
 	return kept
 }
 
-// Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
-func Run(args []string, claudeDir string, out, errw io.Writer) int {
+// usageOpts are the validated `usage` flags.
+type usageOpts struct {
+	session      string
+	days         int
+	show         string
+	jsonOut      bool
+	workflows    bool
+	wantProvider bool
+}
+
+// parseUsageArgs parses and validates the flags; done is true when the caller should exit with code.
+func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done bool) {
 	fs := helptext.NewFlagSet("usage", helptext.Page{
 		Usage: "claude-code usage [flags]",
 		About: "Token totals and peak rate across Claude Code sessions plus the codex, opencode\n" +
@@ -169,31 +179,40 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	providersFlag := fs.Bool("providers", true, "append live plan quotas for every provider; =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default), left, or total")
 	if code, done := helptext.Parse(fs, args); done {
-		return code
+		return usageOpts{}, code, true
 	}
 	if err := helptext.CheckFormat(*formatFlag); err != nil {
 		fmt.Fprintln(errw, "usage:", err)
-		return 2
+		return usageOpts{}, 2, true
 	}
 	show := *showFlag
-	if show != "left" && show != "used" && show != "total" {
+	if !slices.Contains([]string{"left", "used", "total"}, show) {
 		fmt.Fprintf(errw, "usage: --show must be left, used, or total (got %q)\n", *showFlag)
-		return 2
+		return usageOpts{}, 2, true
 	}
-	session, days, jsonOut, workflowsOut := *sessionFlag, *daysFlag, *formatFlag == helptext.JSON, *workflowsFlag
-	if workflowsOut && jsonOut {
+	o = usageOpts{session: *sessionFlag, days: *daysFlag, show: show, jsonOut: *formatFlag == helptext.JSON,
+		workflows: *workflowsFlag, wantProvider: *providersFlag && show != "total"}
+	if o.workflows && o.jsonOut {
 		fmt.Fprintln(errw, "usage: --workflows has no JSON form; drop --format json (the per-model aggregate does)")
-		return 2
+		return usageOpts{}, 2, true
 	}
-	if session == "" && days <= 0 {
-		days = 1 // the same window scanUsage scans
+	if o.session == "" && o.days <= 0 {
+		o.days = 1 // the same window scanUsage scans
 	}
-	if workflowsOut {
-		return runUsageWorkflows(claudeDir, out, errw, session, days)
-	}
+	return o, 0, false
+}
 
-	if jsonOut {
-		doc, err := Report(claudeDir, session, days, *providersFlag && show != "total", errw)
+// Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
+func Run(args []string, claudeDir string, out, errw io.Writer) int {
+	o, code, done := parseUsageArgs(args, errw)
+	if done {
+		return code
+	}
+	if o.workflows {
+		return runUsageWorkflows(claudeDir, out, errw, o.session, o.days)
+	}
+	if o.jsonOut {
+		doc, err := Report(claudeDir, o.session, o.days, o.wantProvider, errw)
 		if err != nil {
 			fmt.Fprintln(errw, "usage:", err)
 			return 1
@@ -203,10 +222,15 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		}
 		return 0
 	}
+	return runUsageText(o, claudeDir, out, errw)
+}
 
+// runUsageText prints the five text sections, overlapping the quota fetch and agent aggregation with the local scan.
+func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
+	session, days, show := o.session, o.days, o.show
 	// Launched now so the live network round-trips overlap the local scan/aggregation below instead of
 	// following them; startQuotaFetch yields an empty result immediately when quotas aren't wanted.
-	quotasCh := startQuotaFetch(*providersFlag && show != "total")
+	quotasCh := startQuotaFetch(o.wantProvider)
 
 	scan, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {

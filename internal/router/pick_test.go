@@ -27,20 +27,30 @@ func allConfigured(string, Cell) error { return nil }
 
 var now0 = time.Date(2026, 10, 25, 2, 6, 0, 0, time.Local)
 
-func TestEveryCellResolvesAndTierOfRoundTrips(t *testing.T) {
-	tb := testTable(t)
+// assertEveryCellResolves checks each agent x alias cell has a model, account and billing, and AliasOf round-trips it.
+func assertEveryCellResolves(t *testing.T, tb *RouteTable) {
+	t.Helper()
 	for _, r := range TableAgents {
 		for _, alias := range Aliases {
 			c, ok := tb.Cell(r, alias)
 			if !ok || c.Model == "" || c.Account == "" || tb.Billing[c.Account] == "" {
 				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, alias, c, ok, tb.Billing[c.Account])
 			}
-			// codex and opencode serve one id at both opus and sonnet: the strongest alias claims a shared id
-			if got := tb.AliasOf(c.Model); got != alias && ((r != "codex" && r != "opencode") || alias != "sonnet" || got != "opus") {
+			if got := tb.AliasOf(c.Model); got != alias && !sharedStrongerAlias(r, alias, got) {
 				t.Errorf("AliasOf(%s) = %q, want %q", c.Model, got, alias)
 			}
 		}
 	}
+}
+
+// sharedStrongerAlias: codex and opencode serve one id at both opus and sonnet, so the strongest alias claims it.
+func sharedStrongerAlias(agent, alias, got string) bool {
+	return (agent == "codex" || agent == "opencode") && alias == "sonnet" && got == "opus"
+}
+
+func TestEveryCellResolvesAndTierOfRoundTrips(t *testing.T) {
+	tb := testTable(t)
+	assertEveryCellResolves(t, tb)
 	if a := tb.Rows["copilot"]["sonnet"].Account; a != "github·work-user" {
 		t.Errorf("copilot account = %q, want the pinned user only", a)
 	}
@@ -101,6 +111,9 @@ func TestParseReset(t *testing.T) {
 			t.Errorf("ParseReset(%q) = %v %v, want %v", c.text, got, ok, c.want)
 		}
 	}
+}
+
+func TestParseResetZones(t *testing.T) {
 	if got, _ := ParseReset("resets 2026-10-26T09:00:00Z", now0); !got.Equal(time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)) {
 		t.Errorf("a Z timestamp must keep UTC, got %v", got)
 	}
@@ -108,6 +121,9 @@ func TestParseReset(t *testing.T) {
 	if got := ResetFor("boom", BillCredits, Entry{}, time.Date(2026, 10, 31, 21, 0, 0, 0, ny)); !got.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("Oct 31 21:00 NY is Nov 1 UTC: next month boundary = %v", got)
 	}
+}
+
+func TestParseResetNoMatchAndQuota(t *testing.T) {
 	if _, ok := ParseReset("connection reset", now0); ok {
 		t.Error("no reset in a non-quota text")
 	}
@@ -178,8 +194,12 @@ func TestPickGatesBeatScore(t *testing.T) {
 	if last := r.Candidates[len(r.Candidates)-1]; last.Agent != "claude" || last.Model != "claude-sonnet-5-5" {
 		t.Errorf("claude dispatch = %+v, want sonnet alias kept", last)
 	}
+}
+
+func TestPickUnpinnedCopilotAndFallbackModes(t *testing.T) {
+	tb := testTable(t)
 	unpinned, _ := LoadFrom(nil, "")
-	r = pick(unpinned, "opus", "copilot", State{}, FallbackAgents)
+	r := pick(unpinned, "opus", "copilot", State{}, FallbackAgents)
 	if r.Skipped[0].Gate != GateAccount || strings.Contains(runners(r), "claude") {
 		t.Errorf("unpinned copilot must drop at the account gate, vendors mode has no claude: %+v %s", r.Skipped, runners(r))
 	}

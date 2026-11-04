@@ -83,10 +83,16 @@ var skeletonPatterns = map[string]func(string) string{
 	"orchestrator": orchestratorPattern,
 }
 
-// RunSkeleton is the Go entry point for workflow_skeleton.py's CLI.
-func RunSkeleton(args []string, stdout, stderr io.Writer) int {
-	name := "new-workflow"
-	var positionals, unrecognized []string
+// skeletonArgs is the parsed command line; code/done report an early exit (usage error or --help).
+type skeletonArgs struct {
+	name                      string
+	positionals, unrecognized []string
+	code                      int
+	done                      bool
+}
+
+func parseSkeletonArgs(args []string, stdout, stderr io.Writer) skeletonArgs {
+	p := skeletonArgs{name: "new-workflow"}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -94,22 +100,32 @@ func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stderr, "workflow_skeleton.py: error: argument --name: expected one argument")
-				return 2
+				return skeletonArgs{code: 2, done: true}
 			}
-			name = args[i]
+			p.name = args[i]
 		case strings.HasPrefix(a, "--name="):
-			name = strings.TrimPrefix(a, "--name=")
+			p.name = strings.TrimPrefix(a, "--name=")
 		case a == "-h" || a == "--help":
 			helptext.Fprint(stdout, skeletonUsage)
-			return 0
+			return skeletonArgs{done: true}
 		case strings.HasPrefix(a, "-") && a != "-":
-			unrecognized = append(unrecognized, a)
-		case len(positionals) == 1:
-			unrecognized = append(unrecognized, a)
+			p.unrecognized = append(p.unrecognized, a)
+		case len(p.positionals) == 1:
+			p.unrecognized = append(p.unrecognized, a)
 		default:
-			positionals = append(positionals, a)
+			p.positionals = append(p.positionals, a)
 		}
 	}
+	return p
+}
+
+// RunSkeleton is the Go entry point for workflow_skeleton.py's CLI.
+func RunSkeleton(args []string, stdout, stderr io.Writer) int {
+	parsed := parseSkeletonArgs(args, stdout, stderr)
+	if parsed.done {
+		return parsed.code
+	}
+	name, positionals, unrecognized := parsed.name, parsed.positionals, parsed.unrecognized
 	if len(unrecognized) > 0 {
 		helptext.Fprint(stderr, skeletonUsage)
 		fmt.Fprintf(stderr, "workflow_skeleton.py: error: unrecognized arguments: %s\n", strings.Join(unrecognized, " "))

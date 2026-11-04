@@ -255,42 +255,66 @@ var (
 // ParseReset reads when an exhausted account frees up from the failure text; ok is false when the text names none.
 func ParseReset(text string, now time.Time) (time.Time, bool) {
 	low := strings.ToLower(text)
-	if m := clockRE.FindStringSubmatch(low); m != nil {
-		h, _ := strconv.Atoi(m[1])
-		mi, _ := strconv.Atoi(m[2])
-		if ap := strings.ReplaceAll(m[3], ".", ""); ap == "pm" && h < 12 {
-			h += 12
-		} else if ap == "am" && h == 12 {
-			h = 0
-		}
-		t := time.Date(now.Year(), now.Month(), now.Day(), h, mi, 0, 0, now.Location())
-		if !t.After(now) {
-			t = t.Add(24 * time.Hour)
-		}
-		return t, true
-	}
-	if m := inRE.FindStringSubmatch(low); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		unit := map[byte]time.Duration{'s': time.Second, 'm': time.Minute, 'h': time.Hour, 'd': 24 * time.Hour}[m[2][0]]
-		return now.Add(time.Duration(n) * unit), true
-	}
-	if m := dateRE.FindStringSubmatch(low); m != nil {
-		layout, v := "2006-01-02", m[1]
-		if m[2] != "" {
-			layout, v = "2006-01-02T15:04", m[1]+"T"+m[2][:5]
-			if len(m[2]) == 8 {
-				layout, v = "2006-01-02T15:04:05", m[1]+"T"+m[2]
-			}
-			if m[3] != "" { // an explicit Z or offset wins over the local zone
-				layout, v = layout+"Z07:00", v+strings.ToUpper(normalizeOffset(m[3]))
-			}
-		}
-		if t, err := time.ParseInLocation(layout, v, now.Location()); err == nil && t.After(now) {
+	for _, parse := range []func(string, time.Time) (time.Time, bool){parseClockReset, parseInReset, parseDateReset} {
+		if t, ok := parse(low, now); ok {
 			return t, true
 		}
 	}
 	if monthlyRE.MatchString(low) {
 		return firstOfNextMonth(now), true
+	}
+	return time.Time{}, false
+}
+
+// parseClockReset reads "try again at|after H:MM [am|pm]" as the next such wall-clock time.
+func parseClockReset(low string, now time.Time) (time.Time, bool) {
+	m := clockRE.FindStringSubmatch(low)
+	if m == nil {
+		return time.Time{}, false
+	}
+	h, _ := strconv.Atoi(m[1])
+	mi, _ := strconv.Atoi(m[2])
+	if ap := strings.ReplaceAll(m[3], ".", ""); ap == "pm" && h < 12 {
+		h += 12
+	} else if ap == "am" && h == 12 {
+		h = 0
+	}
+	t := time.Date(now.Year(), now.Month(), now.Day(), h, mi, 0, 0, now.Location())
+	if !t.After(now) {
+		t = t.Add(24 * time.Hour)
+	}
+	return t, true
+}
+
+// parseInReset reads "try again in N unit" as now plus that duration.
+func parseInReset(low string, now time.Time) (time.Time, bool) {
+	m := inRE.FindStringSubmatch(low)
+	if m == nil {
+		return time.Time{}, false
+	}
+	n, _ := strconv.Atoi(m[1])
+	unit := map[byte]time.Duration{'s': time.Second, 'm': time.Minute, 'h': time.Hour, 'd': 24 * time.Hour}[m[2][0]]
+	return now.Add(time.Duration(n) * unit), true
+}
+
+// parseDateReset reads an ISO date, with optional time and zone, that lies in the future.
+func parseDateReset(low string, now time.Time) (time.Time, bool) {
+	m := dateRE.FindStringSubmatch(low)
+	if m == nil {
+		return time.Time{}, false
+	}
+	layout, v := "2006-01-02", m[1]
+	if m[2] != "" {
+		layout, v = "2006-01-02T15:04", m[1]+"T"+m[2][:5]
+		if len(m[2]) == 8 {
+			layout, v = "2006-01-02T15:04:05", m[1]+"T"+m[2]
+		}
+		if m[3] != "" { // an explicit Z or offset wins over the local zone
+			layout, v = layout+"Z07:00", v+strings.ToUpper(normalizeOffset(m[3]))
+		}
+	}
+	if t, err := time.ParseInLocation(layout, v, now.Location()); err == nil && t.After(now) {
+		return t, true
 	}
 	return time.Time{}, false
 }

@@ -251,39 +251,48 @@ func parseCodexSession(path string, cutoff time.Time, fallbackDay string) codexS
 				s.Model = p.Model
 			}
 		case "event_msg":
-			var p codexEventMsg
-			if json.Unmarshal(l.Payload, &p) != nil || p.Type != "token_count" {
-				return
-			}
-			cur := cumulativeOf(p.Info.TotalTokenUsage)
-			if cur.Tokens == 0 { // info:null lines carry no totals: no baseline reset, no turn
-				return
-			}
-			delta := cur.minus(prev)
-			prev = cur
-			day := fallbackDay
-			if ts, parseErr := time.Parse(time.RFC3339, l.Timestamp); parseErr == nil {
-				if ts.Before(cutoff) {
-					return
-				}
-				day = ts.Local().Format("2006-01-02")
-			}
-			s.Turns++
-			s.Tokens += delta.Tokens
-			s.Mix.add(delta.Mix)
-			if day == "" {
-				return
-			}
-			c := s.Days[day]
-			if c == nil {
-				c = &dayCount{}
-				s.Days[day] = c
-			}
-			c.tokens += delta.Tokens
-			c.turns++
+			s.addTokenCount(l, &prev, cutoff, fallbackDay)
 		}
 	})
 	return s
+}
+
+// addTokenCount folds one event_msg line into s as the growth over *prev; non token_count and out-of-window lines add nothing.
+func (s *codexSessionSummary) addTokenCount(l codexLine, prev *codexCumulative, cutoff time.Time, fallbackDay string) {
+	var p codexEventMsg
+	if json.Unmarshal(l.Payload, &p) != nil || p.Type != "token_count" {
+		return
+	}
+	cur := cumulativeOf(p.Info.TotalTokenUsage)
+	if cur.Tokens == 0 { // info:null lines carry no totals: no baseline reset, no turn
+		return
+	}
+	delta := cur.minus(*prev)
+	*prev = cur
+	day := fallbackDay
+	if ts, parseErr := time.Parse(time.RFC3339, l.Timestamp); parseErr == nil {
+		if ts.Before(cutoff) {
+			return
+		}
+		day = ts.Local().Format("2006-01-02")
+	}
+	s.Turns++
+	s.Tokens += delta.Tokens
+	s.Mix.add(delta.Mix)
+	if day != "" {
+		addDayCount(s.Days, day, delta.Tokens, 1)
+	}
+}
+
+// addDayCount adds tokens and turns to the day's accumulator, creating it on first use.
+func addDayCount(days map[string]*dayCount, day string, tokens, turns int) {
+	c := days[day]
+	if c == nil {
+		c = &dayCount{}
+		days[day] = c
+	}
+	c.tokens += tokens
+	c.turns += turns
 }
 
 // codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file;
@@ -298,20 +307,7 @@ func codexUsage(cutoff time.Time) agentUsage {
 		return agentUsage{Agent: "codex", Note: "store not found: " + dir}
 	}
 
-	var files []string
-	mtimeDay := map[string]string{} // fallback day for a token_count line with no usable timestamp
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
-			return nil
-		}
-		info, infoErr := d.Info()
-		if infoErr != nil || info.ModTime().Before(cutoff) {
-			return nil
-		}
-		files = append(files, path)
-		mtimeDay[path] = info.ModTime().Local().Format("2006-01-02")
-		return nil
-	})
+	files, mtimeDay := codexSessionFiles(dir, cutoff)
 	if len(files) == 0 {
 		return agentUsage{Agent: "codex", Note: "no sessions in window"}
 	}
@@ -325,29 +321,13 @@ func codexUsage(cutoff time.Time) agentUsage {
 		if s.Model == "" || s.Turns == 0 {
 			continue
 		}
-		m := byModel[s.Model]
-		if m == nil {
-			m = &agentModel{Provider: "openai", Model: s.Model}
-			byModel[s.Model] = m
-		}
-		m.Turns += s.Turns
-		m.Tokens += s.Tokens
-		if m.Mix == nil {
-			m.Mix = &tokenMix{}
-		}
-		m.Mix.add(s.Mix)
+		addCodexModel(byModel, s)
 		total += s.Tokens
 		totalTurns += s.Turns
 		mix.add(s.Mix)
 		sessions++
 		for day, d := range s.Days {
-			c := dayCounts[day]
-			if c == nil {
-				c = &dayCount{}
-				dayCounts[day] = c
-			}
-			c.tokens += d.tokens
-			c.turns += d.turns
+			addDayCount(dayCounts, day, d.tokens, d.turns)
 		}
 	}
 	if sessions == 0 {
@@ -363,6 +343,40 @@ func codexUsage(cutoff time.Time) agentUsage {
 		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
 }
 
+// codexSessionFiles lists *.jsonl under dir modified since cutoff, with each one's mtime day (the fallback day).
+func codexSessionFiles(dir string, cutoff time.Time) ([]string, map[string]string) {
+	var files []string
+	mtimeDay := map[string]string{} // fallback day for a token_count line with no usable timestamp
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil || info.ModTime().Before(cutoff) {
+			return nil
+		}
+		files = append(files, path)
+		mtimeDay[path] = info.ModTime().Local().Format("2006-01-02")
+		return nil
+	})
+	return files, mtimeDay
+}
+
+// addCodexModel folds one session into its model's running totals.
+func addCodexModel(byModel map[string]*agentModel, s codexSessionSummary) {
+	m := byModel[s.Model]
+	if m == nil {
+		m = &agentModel{Provider: "openai", Model: s.Model}
+		byModel[s.Model] = m
+	}
+	m.Turns += s.Turns
+	m.Tokens += s.Tokens
+	if m.Mix == nil {
+		m.Mix = &tokenMix{}
+	}
+	m.Mix.add(s.Mix)
+}
+
 // lookPathSqlite3 is the "is sqlite3 installed" seam; tests stub it to force the "not installed" note.
 var lookPathSqlite3 = func() error {
 	_, err := exec.LookPath("sqlite3")
@@ -371,6 +385,33 @@ var lookPathSqlite3 = func() error {
 
 func sqliteJSON(ctx context.Context, dbPath, query string) ([]byte, error) {
 	return exec.CommandContext(ctx, "sqlite3", "-readonly", "-json", dbPath, query).Output()
+}
+
+// sqliteStoreNote is the usage note for a missing store file or missing sqlite3 binary, "" when both are present.
+func sqliteStoreNote(dbPath string) string {
+	if _, statErr := os.Stat(dbPath); statErr != nil {
+		return "store not found: " + dbPath
+	}
+	if lookErr := lookPathSqlite3(); lookErr != nil {
+		return "sqlite3 not installed"
+	}
+	return ""
+}
+
+// sqliteRows runs q through run and decodes its JSON rows; note is the usage note on failure. emptyOK treats the
+// zero-row case (sqlite3 -json prints nothing) as no rows instead of unreadable output.
+func sqliteRows[T any](ctx context.Context, run func(context.Context, string, string) ([]byte, error), dbPath, q string, emptyOK bool) (rows []T, note string) {
+	out, err := run(ctx, dbPath, q)
+	if err != nil {
+		return nil, "sqlite3 query failed: " + commandErrorLine(out, err)
+	}
+	if emptyOK && len(bytes.TrimSpace(out)) == 0 {
+		return nil, ""
+	}
+	if jsonErr := json.Unmarshal(out, &rows); jsonErr != nil {
+		return nil, "sqlite3 output unreadable: " + jsonErr.Error()
+	}
+	return rows, ""
 }
 
 // opencodeSqliteCmd is the opencode.db exec seam; tests replace it so no test shells out to sqlite3.
@@ -405,52 +446,23 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	if dbPath == "" {
 		return agentUsage{Agent: "opencode", Note: "store not found: OPENCODE_DB is :memory:"}
 	}
-	if _, statErr := os.Stat(dbPath); statErr != nil {
-		return agentUsage{Agent: "opencode", Note: "store not found: " + dbPath}
-	}
-	if lookErr := lookPathSqlite3(); lookErr != nil {
-		return agentUsage{Agent: "opencode", Note: "sqlite3 not installed"}
+	if note := sqliteStoreNote(dbPath); note != "" {
+		return agentUsage{Agent: "opencode", Note: note}
 	}
 
-	cutoffMs := cutoff.UnixMilli()
-	where := fmt.Sprintf(`json_extract(data,'$.role')='assistant' AND json_extract(data,'$.time.created') >= %d`, cutoffMs)
+	totalsQ, modelsQ, dailyQ := opencodeQueries(cutoff.UnixMilli())
 
-	totalsQ := fmt.Sprintf(`SELECT COUNT(*) AS turns, COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens,
-		COALESCE(SUM(json_extract(data,'$.cost')),0) AS cost_usd, COUNT(DISTINCT session_id) AS sessions,
-		COALESCE(SUM(json_extract(data,'$.tokens.input')),0) AS input,
-		COALESCE(SUM(json_extract(data,'$.tokens.output')),0) + COALESCE(SUM(json_extract(data,'$.tokens.reasoning')),0) AS output,
-		COALESCE(SUM(json_extract(data,'$.tokens.cache.read')),0) AS cache_read,
-		COALESCE(SUM(json_extract(data,'$.tokens.cache.write')),0) AS cache_write
-		FROM message WHERE %s;`, where)
-	modelsQ := fmt.Sprintf(`SELECT json_extract(data,'$.providerID') AS provider, json_extract(data,'$.modelID') AS model,
-		COUNT(*) AS turns, COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens,
-		COALESCE(SUM(json_extract(data,'$.cost')),0) AS cost_usd
-		FROM message WHERE %s GROUP BY provider, model;`, where)
-	dailyQ := fmt.Sprintf(`SELECT date(json_extract(data,'$.time.created')/1000,'unixepoch','localtime') AS date,
-		COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens, COUNT(*) AS turns
-		FROM message WHERE %s GROUP BY date;`, where)
-
-	totalsOut, totalsErr := opencodeSqliteCmd(ctx, dbPath, totalsQ)
-	if totalsErr != nil {
-		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + commandErrorLine(totalsOut, totalsErr)}
-	}
-	var totals []opencodeTotalsRow
-	if len(bytes.TrimSpace(totalsOut)) > 0 { // sqlite3 -json prints nothing for zero rows
-		if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil {
-			return agentUsage{Agent: "opencode", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
-		}
+	totals, note := sqliteRows[opencodeTotalsRow](ctx, opencodeSqliteCmd, dbPath, totalsQ, true)
+	if note != "" {
+		return agentUsage{Agent: "opencode", Note: note}
 	}
 	if len(totals) == 0 || totals[0].Turns == 0 {
 		return agentUsage{Agent: "opencode", Note: "no sessions in window"}
 	}
 
-	modelsOut, modelsErr := opencodeSqliteCmd(ctx, dbPath, modelsQ)
-	if modelsErr != nil {
-		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + commandErrorLine(modelsOut, modelsErr)}
-	}
-	var rows []opencodeModelRow
-	if jsonErr := json.Unmarshal(modelsOut, &rows); jsonErr != nil {
-		return agentUsage{Agent: "opencode", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
+	rows, note := sqliteRows[opencodeModelRow](ctx, opencodeSqliteCmd, dbPath, modelsQ, false)
+	if note != "" {
+		return agentUsage{Agent: "opencode", Note: note}
 	}
 	models := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
@@ -464,6 +476,27 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	mix := tokenMix{Input: t.Input, Output: t.Output, CacheRead: t.CacheRead, CacheWrite: t.CacheWrite}
 	return agentUsage{Agent: "opencode", Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, CostUSD: t.CostUSD, Models: models,
 		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
+}
+
+// opencodeQueries builds the totals, per-model and per-day queries over assistant messages created at or after cutoffMs.
+func opencodeQueries(cutoffMs int64) (totalsQ, modelsQ, dailyQ string) {
+	where := fmt.Sprintf(`json_extract(data,'$.role')='assistant' AND json_extract(data,'$.time.created') >= %d`, cutoffMs)
+
+	totalsQ = fmt.Sprintf(`SELECT COUNT(*) AS turns, COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens,
+		COALESCE(SUM(json_extract(data,'$.cost')),0) AS cost_usd, COUNT(DISTINCT session_id) AS sessions,
+		COALESCE(SUM(json_extract(data,'$.tokens.input')),0) AS input,
+		COALESCE(SUM(json_extract(data,'$.tokens.output')),0) + COALESCE(SUM(json_extract(data,'$.tokens.reasoning')),0) AS output,
+		COALESCE(SUM(json_extract(data,'$.tokens.cache.read')),0) AS cache_read,
+		COALESCE(SUM(json_extract(data,'$.tokens.cache.write')),0) AS cache_write
+		FROM message WHERE %s;`, where)
+	modelsQ = fmt.Sprintf(`SELECT json_extract(data,'$.providerID') AS provider, json_extract(data,'$.modelID') AS model,
+		COUNT(*) AS turns, COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens,
+		COALESCE(SUM(json_extract(data,'$.cost')),0) AS cost_usd
+		FROM message WHERE %s GROUP BY provider, model;`, where)
+	dailyQ = fmt.Sprintf(`SELECT date(json_extract(data,'$.time.created')/1000,'unixepoch','localtime') AS date,
+		COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens, COUNT(*) AS turns
+		FROM message WHERE %s GROUP BY date;`, where)
+	return totalsQ, modelsQ, dailyQ
 }
 
 // fetchDailyBuckets runs a GROUP BY date query shaped exactly like []dailyBucket ({date,tokens,turns})
@@ -528,11 +561,8 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	if err != nil {
 		return agentUsage{Agent: "copilot", Note: "store not found: " + err.Error()}
 	}
-	if _, statErr := os.Stat(dbPath); statErr != nil {
-		return agentUsage{Agent: "copilot", Note: "store not found: " + dbPath}
-	}
-	if lookErr := lookPathSqlite3(); lookErr != nil {
-		return agentUsage{Agent: "copilot", Note: "sqlite3 not installed"}
+	if note := sqliteStoreNote(dbPath); note != "" {
+		return agentUsage{Agent: "copilot", Note: note}
 	}
 
 	cutoffStr := cutoff.UTC().Format("2006-01-02 15:04:05")
@@ -547,27 +577,17 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	dailyQ := fmt.Sprintf(`SELECT date(created_at,'localtime') AS date, %s AS tokens, COUNT(*) AS turns
 		FROM assistant_usage_events WHERE %s GROUP BY date;`, copilotTokenSum, where)
 
-	totalsOut, totalsErr := copilotSqliteCmd(ctx, dbPath, totalsQ)
-	if totalsErr != nil {
-		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + commandErrorLine(totalsOut, totalsErr)}
-	}
-	var totals []copilotTotalsRow
-	if len(bytes.TrimSpace(totalsOut)) > 0 { // sqlite3 -json prints nothing for zero rows
-		if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil {
-			return agentUsage{Agent: "copilot", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
-		}
+	totals, note := sqliteRows[copilotTotalsRow](ctx, copilotSqliteCmd, dbPath, totalsQ, true)
+	if note != "" {
+		return agentUsage{Agent: "copilot", Note: note}
 	}
 	if len(totals) == 0 || totals[0].Turns == 0 {
 		return agentUsage{Agent: "copilot", Note: "no sessions in window"}
 	}
 
-	modelsOut, modelsErr := copilotSqliteCmd(ctx, dbPath, modelsQ)
-	if modelsErr != nil {
-		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + commandErrorLine(modelsOut, modelsErr)}
-	}
-	var rows []copilotModelRow
-	if jsonErr := json.Unmarshal(modelsOut, &rows); jsonErr != nil {
-		return agentUsage{Agent: "copilot", Note: "sqlite3 output unreadable: " + jsonErr.Error()}
+	rows, note := sqliteRows[copilotModelRow](ctx, copilotSqliteCmd, dbPath, modelsQ, false)
+	if note != "" {
+		return agentUsage{Agent: "copilot", Note: note}
 	}
 	byModel := make([]agentModel, 0, len(rows))
 	for _, r := range rows {

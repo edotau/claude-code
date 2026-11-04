@@ -10,9 +10,33 @@ import (
 
 const driftDocRel = "skills/subagent-workflows/references/saved-workflows.md"
 
+const okBody = "export const meta = { name: 'x' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n"
+
+// writeDriftRoot builds a config root with one workflows/<name>.js per script and, when doc is set, the saved-workflows doc.
+func writeDriftRoot(t *testing.T, scripts []string, doc *string) string {
+	t.Helper()
+	root := t.TempDir()
+	wf := filepath.Join(root, "workflows")
+	if err := os.Mkdir(wf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range scripts {
+		writeScript(t, wf, s+".js", okBody)
+	}
+	if doc != nil {
+		p := filepath.Join(root, driftDocRel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(*doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
 // Saved-workflows doc vs workflows/*.js: each side must name the other, else the verb exits 1.
 func TestWorkflowLintDrift(t *testing.T) {
-	const okBody = "export const meta = { name: 'x' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n"
 	table := func(names ...string) string {
 		s := "| Workflow | Use |\n| --- | --- |\n"
 		var sSb18 strings.Builder
@@ -39,23 +63,7 @@ func TestWorkflowLintDrift(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			wf := filepath.Join(root, "workflows")
-			if err := os.Mkdir(wf, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			for _, s := range tc.scripts {
-				writeScript(t, wf, s+".js", okBody)
-			}
-			if tc.doc != nil {
-				p := filepath.Join(root, driftDocRel)
-				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(p, []byte(*tc.doc), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
+			root := writeDriftRoot(t, tc.scripts, tc.doc)
 			var out, errb bytes.Buffer
 			rc := RunWorkflowLint([]string{root}, &out, &errb)
 			if rc != tc.wantRC {

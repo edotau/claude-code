@@ -317,41 +317,14 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	th := complexityThresholds[parsed.threshold]
-	var extensions []string
-	for e := range strings.SplitSeq(parsed.ext, ",") {
-		e = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(e), "."))
-		if e != "" {
-			extensions = append(extensions, e)
-		}
-	}
-
-	seen := map[string]bool{}
-	var files []string
-	for _, target := range parsed.targets {
-		for _, f := range collectComplexityFiles(target, extensions) {
-			key := resolvePath(f)
-			if !seen[key] {
-				seen[key] = true
-				files = append(files, f)
-			}
-		}
-	}
+	extensions := parseExtensions(parsed.ext)
+	files := gatherComplexityFiles(parsed.targets, extensions)
 	if len(files) == 0 {
 		return reportNoFiles(stdout, stderr, extensions, parsed.targets, parsed.jsonOut)
 	}
 
 	sort.Strings(files)
-	var results []FileResult
-	for _, f := range files {
-		r, err := analyzeFileComplexity(f, th)
-		if err != nil {
-			fmt.Fprintf(stderr, "[warning] could not read %s: %v\n", f, err)
-			continue
-		}
-		if r != nil {
-			results = append(results, *r)
-		}
-	}
+	results := analyzeComplexityFiles(files, th, stderr)
 	summary := buildComplexitySummary(results, parsed.threshold)
 	if parsed.jsonOut {
 		if err := writeJSON(stdout, summary); err != nil {
@@ -366,6 +339,48 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 		printComplexityReport(stdout, summary)
 	}
 	return 0
+}
+
+func parseExtensions(list string) []string {
+	var extensions []string
+	for e := range strings.SplitSeq(list, ",") {
+		e = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(e), "."))
+		if e != "" {
+			extensions = append(extensions, e)
+		}
+	}
+	return extensions
+}
+
+// gatherComplexityFiles collects the files under every target, deduplicated by resolved path.
+func gatherComplexityFiles(targets, extensions []string) []string {
+	seen := map[string]bool{}
+	var files []string
+	for _, target := range targets {
+		for _, f := range collectComplexityFiles(target, extensions) {
+			key := resolvePath(f)
+			if !seen[key] {
+				seen[key] = true
+				files = append(files, f)
+			}
+		}
+	}
+	return files
+}
+
+func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer) []FileResult {
+	var results []FileResult
+	for _, f := range files {
+		r, err := analyzeFileComplexity(f, th)
+		if err != nil {
+			fmt.Fprintf(stderr, "[warning] could not read %s: %v\n", f, err)
+			continue
+		}
+		if r != nil {
+			results = append(results, *r)
+		}
+	}
+	return results
 }
 
 // reportNoFiles ports the argparse "no files matched" branch (advisory unless JSON output fails).

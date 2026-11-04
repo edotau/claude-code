@@ -19,18 +19,7 @@ func TestLoadEveryCellResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range TableAgents {
-		for _, alias := range Aliases {
-			c, ok := tb.Cell(r, alias)
-			if !ok || c.Model == "" || c.Account == "" || tb.Billing[c.Account] == "" {
-				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, alias, c, ok, tb.Billing[c.Account])
-			}
-			// codex and opencode serve one id at both opus and sonnet: the strongest alias claims a shared id.
-			if got := tb.AliasOf(c.Model); got != alias && ((r != "codex" && r != "opencode") || alias != "sonnet" || got != "opus") {
-				t.Errorf("AliasOf(%s) = %q, want %q", c.Model, got, alias)
-			}
-		}
-	}
+	assertEveryCellResolves(t, tb)
 }
 
 // TestLoadFromOverlayCellAndWeights checks LoadFrom applies a registry's per-cell Route override and

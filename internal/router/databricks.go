@@ -113,20 +113,31 @@ func (t *RouteTable) gateCandidate(
 		group = append(group, t.gateSessionCopilot(ctx, pg, alias, "", "", spec, group, st, o, now, configured, res)...)
 	}
 	if agent == "codex" && spec.Profile == "" {
-		if d, ok := t.gateDatabricksCodex(pg, alias, st, o, now, configured, res); ok && !hasProfileAccount(group, d.Account) {
-			group = append(group, d)
-		}
-		if res.Want == "codex" {
-			if _, model, effort, ok := t.codexHop(pg.reg, alias, o, now); ok {
-				hop := t.gateSessionCopilot(ctx, pg, alias, model, effort, pins["copilot"], nil, st, o, now, configured, res)
-				for _, c := range hop {
-					pg.held[c.Account] = true
-				}
-				group = append(group, hop...)
-			}
-		}
+		group = append(group, t.gateCodexExtras(ctx, pg, alias, group, pins["copilot"], st, o, now, configured, res)...)
 	}
 	return group, len(group) > 0
+}
+
+// gateCodexExtras adds the session Databricks codex candidate and, when codex is wanted, the copilot hop.
+func (t *RouteTable) gateCodexExtras(
+	ctx context.Context, pg *pickGate, alias string, group []Candidate, copilotSpec PinSpec, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	var extra []Candidate
+	if d, ok := t.gateDatabricksCodex(pg, alias, st, o, now, configured, res); ok && !hasProfileAccount(group, d.Account) {
+		extra = append(extra, d)
+	}
+	if res.Want != "codex" {
+		return extra
+	}
+	if _, model, effort, ok := t.codexHop(pg.reg, alias, o, now); ok {
+		hop := t.gateSessionCopilot(ctx, pg, alias, model, effort, copilotSpec, nil, st, o, now, configured, res)
+		for _, c := range hop {
+			pg.held[c.Account] = true
+		}
+		extra = append(extra, hop...)
+	}
+	return extra
 }
 
 // gateSessionCopilot checks copilot on the session's Databricks profile.
@@ -134,43 +145,50 @@ func (t *RouteTable) gateSessionCopilot(
 	ctx context.Context, pg *pickGate, alias, model, effort string, spec PinSpec, own []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
-	if spec.Off {
-		return nil
-	}
 	reg := pg.reg
-	if reg == nil {
+	if spec.Off || reg == nil || !copilotPinOK(reg, spec) {
 		return nil
-	}
-	if spec.Profile != "" {
-		p := reg.Providers[spec.Profile]
-		if p == nil || p.Provider != "github" {
-			return nil
-		}
 	}
 	profile, _, ok := sessionDatabricks(reg, "copilot", o.canServe)
 	if !ok {
 		return nil
 	}
 	account := ProviderAccount(profile)
-	if hasProfileAccount(own, account) || (own == nil && model == "" && pg.held[account]) {
+	if hasProfileAccount(own, account) || (own == nil && t.sessionCopilotTaken(pg, alias, account, model, spec, o)) {
 		return nil
-	}
-	if own == nil {
-		if cell, ok := t.Cell("copilot", alias); ok {
-			if spec.Profile != "" {
-				cell.Account = ProviderAccount(spec.Profile)
-			} else if o.Account != nil {
-				if a, _ := o.Account("copilot", cell); a != "" {
-					cell.Account = a
-				}
-			}
-			if cell.Account == account {
-				return nil
-			}
-		}
 	}
 	group, _ := t.gateProfile(ctx, reg, alias, "copilot", profile, model, effort, st, o, now, configured, res)
 	return group
+}
+
+// sessionCopilotTaken reports that account is already held by an earlier gate or is the copilot cell's own account.
+func (t *RouteTable) sessionCopilotTaken(pg *pickGate, alias, account, model string, spec PinSpec, o PickOpts) bool {
+	return (model == "" && pg.held[account]) || t.copilotCellOn(alias, account, spec, o)
+}
+
+// copilotPinOK is true when spec pins no profile, or pins a github one.
+func copilotPinOK(reg *providers.Registry, spec PinSpec) bool {
+	if spec.Profile == "" {
+		return true
+	}
+	p := reg.Providers[spec.Profile]
+	return p != nil && p.Provider == "github"
+}
+
+// copilotCellOn reports whether the table's own copilot cell for alias already resolves to account.
+func (t *RouteTable) copilotCellOn(alias, account string, spec PinSpec, o PickOpts) bool {
+	cell, ok := t.Cell("copilot", alias)
+	if !ok {
+		return false
+	}
+	if spec.Profile != "" {
+		cell.Account = ProviderAccount(spec.Profile)
+	} else if o.Account != nil {
+		if a, _ := o.Account("copilot", cell); a != "" {
+			cell.Account = a
+		}
+	}
+	return cell.Account == account
 }
 
 // sessionDatabricks is the session or pinned profile when it is a signed-in Databricks row agent can use.

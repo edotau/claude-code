@@ -112,25 +112,34 @@ func parseDiffFiles(diffText string) []*diffFileEntry {
 	for line := range strings.SplitSeq(diffText, "\n") {
 		switch {
 		case strings.HasPrefix(line, "diff --git"):
-			_, after, ok := strings.CutLast(line, " b/")
-			name := line
-			if ok {
-				name = after
-			}
-			current = &diffFileEntry{file: name}
+			current = &diffFileEntry{file: diffFileName(line)}
 			files = append(files, current)
 			inHunk = false
 		case current == nil:
 			continue
 		case strings.HasPrefix(line, "@@"):
 			inHunk = true
-		case !inHunk && (strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---")):
-			continue
-		case line != "" && (line[0] == '+' || line[0] == '-'):
+		case isBodyChange(line, inHunk):
 			current.changes = append(current.changes, line)
 		}
 	}
 	return files
+}
+
+// diffFileName returns the b/ path of a "diff --git" header, or the whole line when it has none.
+func diffFileName(line string) string {
+	if _, after, ok := strings.CutLast(line, " b/"); ok {
+		return after
+	}
+	return line
+}
+
+// isBodyChange reports a +/- line, excluding the ---/+++ file headers that precede the first hunk.
+func isBodyChange(line string, inHunk bool) bool {
+	if !inHunk && (strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---")) {
+		return false
+	}
+	return line != "" && (line[0] == '+' || line[0] == '-')
 }
 
 // isCommentLine reports a comment-only changed line using the leaders valid for the file extension.

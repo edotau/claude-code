@@ -277,112 +277,117 @@ func TestAgentInStringIsNotACall(t *testing.T) {
 	}
 }
 
-// FillModel: each case covers one shape the rewrite must handle (insert, empty object, one-arg
+// FillModel: each test covers one shape the rewrite must handle (insert, empty object, one-arg
 // append, already pinned, non-object options) or correctly refuse (identifier/spread/ternary options).
-func TestFillModel(t *testing.T) {
-	const model = "sonnet"
 
-	t.Run("label-only object gets model inserted, existing key survives", func(t *testing.T) {
-		out, ambiguous := FillModel("agent('p', { label: 'l' })\n", model)
-		if !strings.Contains(out, "model: 'sonnet',") {
-			t.Errorf("out = %q, want an inserted model: 'sonnet',", out)
-		}
-		if !strings.Contains(out, "label: 'l'") {
-			t.Errorf("out = %q, want the original label: 'l' to survive", out)
-		}
-		if len(ambiguous) != 0 {
-			t.Errorf("ambiguous = %v, want none", ambiguous)
-		}
-	})
+// Label-only object gets model inserted, existing key survives
+func TestFillModelLabelOnlyObject(t *testing.T) {
+	out, ambiguous := FillModel("agent('p', { label: 'l' })\n", "sonnet")
+	if !strings.Contains(out, "model: 'sonnet',") {
+		t.Errorf("out = %q, want an inserted model: 'sonnet',", out)
+	}
+	if !strings.Contains(out, "label: 'l'") {
+		t.Errorf("out = %q, want the original label: 'l' to survive", out)
+	}
+	if len(ambiguous) != 0 {
+		t.Errorf("ambiguous = %v, want none", ambiguous)
+	}
+}
 
-	t.Run("empty object gets model with no stray comma", func(t *testing.T) {
-		out, ambiguous := FillModel("agent('p', {})\n", model)
-		if stripped := strings.ReplaceAll(out, " ", ""); !strings.Contains(stripped, "{model:'sonnet'}") {
-			t.Errorf("out = %q, want {model: 'sonnet'} (any spacing)", out)
-		}
-		if len(ambiguous) != 0 {
-			t.Errorf("ambiguous = %v, want none", ambiguous)
-		}
-	})
+// Empty object gets model with no stray comma
+func TestFillModelEmptyObject(t *testing.T) {
+	out, ambiguous := FillModel("agent('p', {})\n", "sonnet")
+	if stripped := strings.ReplaceAll(out, " ", ""); !strings.Contains(stripped, "{model:'sonnet'}") {
+		t.Errorf("out = %q, want {model: 'sonnet'} (any spacing)", out)
+	}
+	if len(ambiguous) != 0 {
+		t.Errorf("ambiguous = %v, want none", ambiguous)
+	}
+}
 
-	t.Run("one-arg call gets an options object appended", func(t *testing.T) {
-		out, ambiguous := FillModel("agent('p')\n", model)
-		if !strings.Contains(out, ", { model: 'sonnet' }") {
-			t.Errorf("out = %q, want an appended , { model: 'sonnet' }", out)
-		}
-		if len(ambiguous) != 0 {
-			t.Errorf("ambiguous = %v, want none", ambiguous)
-		}
-	})
+// One-arg call gets an options object appended
+func TestFillModelOneArgCall(t *testing.T) {
+	out, ambiguous := FillModel("agent('p')\n", "sonnet")
+	if !strings.Contains(out, ", { model: 'sonnet' }") {
+		t.Errorf("out = %q, want an appended , { model: 'sonnet' }", out)
+	}
+	if len(ambiguous) != 0 {
+		t.Errorf("ambiguous = %v, want none", ambiguous)
+	}
+}
 
-	t.Run("already pinned calls are left unchanged", func(t *testing.T) {
-		for _, src := range []string{
-			"agent('p', { model: 'opus' })\n",
-			"agent('p', { agentType: 'code-worker', model: 'sonnet' })\n",
-		} {
-			out, ambiguous := FillModel(src, model)
-			if out != src {
-				t.Errorf("src = %q: out = %q, want unchanged", src, out)
-			}
-			if len(ambiguous) != 0 {
-				t.Errorf("src = %q: ambiguous = %v, want none", src, ambiguous)
-			}
-		}
-	})
-
-	t.Run("options as a bare identifier is ambiguous, unchanged", func(t *testing.T) {
-		src := "agent('p', opts)\n"
-		out, ambiguous := FillModel(src, model)
+// Already pinned calls are left unchanged
+func TestFillModelAlreadyPinned(t *testing.T) {
+	for _, src := range []string{
+		"agent('p', { model: 'opus' })\n",
+		"agent('p', { agentType: 'code-worker', model: 'sonnet' })\n",
+	} {
+		out, ambiguous := FillModel(src, "sonnet")
 		if out != src {
-			t.Errorf("out = %q, want unchanged", out)
+			t.Errorf("src = %q: out = %q, want unchanged", src, out)
+		}
+		if len(ambiguous) != 0 {
+			t.Errorf("src = %q: ambiguous = %v, want none", src, ambiguous)
+		}
+	}
+}
+
+// Options as a bare identifier is ambiguous, unchanged
+func TestFillModelBareIdentifierAmbiguous(t *testing.T) {
+	src := "agent('p', opts)\n"
+	out, ambiguous := FillModel(src, "sonnet")
+	if out != src {
+		t.Errorf("out = %q, want unchanged", out)
+	}
+	if len(ambiguous) != 1 || ambiguous[0] != "line 1" {
+		t.Errorf("ambiguous = %v, want exactly [\"line 1\"]", ambiguous)
+	}
+}
+
+// Spread or ternary options are ambiguous, unchanged
+func TestFillModelSpreadTernaryAmbiguous(t *testing.T) {
+	for _, src := range []string{
+		"agent('p', ...opts)\n",
+		"agent('p', cond ? a : b)\n",
+	} {
+		out, ambiguous := FillModel(src, "sonnet")
+		if out != src {
+			t.Errorf("src = %q: out = %q, want unchanged", src, out)
 		}
 		if len(ambiguous) != 1 || ambiguous[0] != "line 1" {
-			t.Errorf("ambiguous = %v, want exactly [\"line 1\"]", ambiguous)
+			t.Errorf("src = %q: ambiguous = %v, want exactly [\"line 1\"]", src, ambiguous)
 		}
-	})
+	}
+}
 
-	t.Run("spread or ternary options are ambiguous, unchanged", func(t *testing.T) {
-		for _, src := range []string{
-			"agent('p', ...opts)\n",
-			"agent('p', cond ? a : b)\n",
-		} {
-			out, ambiguous := FillModel(src, model)
-			if out != src {
-				t.Errorf("src = %q: out = %q, want unchanged", src, out)
-			}
-			if len(ambiguous) != 1 || ambiguous[0] != "line 1" {
-				t.Errorf("src = %q: ambiguous = %v, want exactly [\"line 1\"]", src, ambiguous)
-			}
-		}
-	})
+// Two calls on different lines both filled with correct back-to-front offsets
+func TestFillModelTwoCallsBackToFront(t *testing.T) {
+	src := "agent('a', { label: 'x' })\nagent('b', { label: 'y' })\n"
+	out, ambiguous := FillModel(src, "sonnet")
+	if len(ambiguous) != 0 {
+		t.Fatalf("ambiguous = %v, want none", ambiguous)
+	}
+	if n := strings.Count(out, "model: 'sonnet',"); n != 2 {
+		t.Errorf("out = %q, want 2 insertions, got %d", out, n)
+	}
+	if strings.Count(out, "\n") != strings.Count(src, "\n") {
+		t.Errorf("out = %q changed the line count", out)
+	}
+}
 
-	t.Run("two calls on different lines both filled with correct back-to-front offsets", func(t *testing.T) {
-		src := "agent('a', { label: 'x' })\nagent('b', { label: 'y' })\n"
-		out, ambiguous := FillModel(src, model)
-		if len(ambiguous) != 0 {
-			t.Fatalf("ambiguous = %v, want none", ambiguous)
-		}
-		if n := strings.Count(out, "model: 'sonnet',"); n != 2 {
-			t.Errorf("out = %q, want 2 insertions, got %d", out, n)
-		}
-		if strings.Count(out, "\n") != strings.Count(src, "\n") {
-			t.Errorf("out = %q changed the line count", out)
-		}
-	})
-
-	t.Run("a template literal mentioning agent( and model: is neither a call nor a pin", func(t *testing.T) {
-		src := "const prompt = `call agent(x) with model: sonnet`\nagent('p', { label: 'l' })\n"
-		out, ambiguous := FillModel(src, model)
-		if len(ambiguous) != 0 {
-			t.Fatalf("ambiguous = %v, want none (the template text is not a call)", ambiguous)
-		}
-		if n := strings.Count(out, "model: 'sonnet',"); n != 1 {
-			t.Errorf("out = %q, want exactly 1 real insertion, got %d", out, n)
-		}
-		if !strings.Contains(out, "call agent(x) with model: sonnet") {
-			t.Errorf("out = %q, template literal text must survive untouched", out)
-		}
-	})
+// A template literal mentioning agent( and model: is neither a call nor a pin
+func TestFillModelIgnoresTemplateLiteral(t *testing.T) {
+	src := "const prompt = `call agent(x) with model: sonnet`\nagent('p', { label: 'l' })\n"
+	out, ambiguous := FillModel(src, "sonnet")
+	if len(ambiguous) != 0 {
+		t.Fatalf("ambiguous = %v, want none (the template text is not a call)", ambiguous)
+	}
+	if n := strings.Count(out, "model: 'sonnet',"); n != 1 {
+		t.Errorf("out = %q, want exactly 1 real insertion, got %d", out, n)
+	}
+	if !strings.Contains(out, "call agent(x) with model: sonnet") {
+		t.Errorf("out = %q, template literal text must survive untouched", out)
+	}
 }
 
 // The shipped scripts must satisfy every check — a lint that lands red breaks make audit everywhere.

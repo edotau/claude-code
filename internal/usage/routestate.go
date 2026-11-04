@@ -20,7 +20,7 @@ func recordQuotas(qs []quota, now time.Time) int {
 	worst := map[string]quota{}
 	for _, q := range qs {
 		key := accountKey(q)
-		if key == "" || q.Window == "" || q.Group != "" || (q.Note != "" && !strings.HasPrefix(q.Note, "cached")) {
+		if key == "" || !recordable(q) {
 			continue
 		}
 		if w, ok := worst[key]; !ok || q.UsedPct > w.UsedPct {
@@ -34,6 +34,11 @@ func recordQuotas(qs []quota, now time.Time) int {
 		}
 	}
 	return n
+}
+
+// recordable is true for a windowed, ungrouped row that is not a failure note (a cached note still counts).
+func recordable(q quota) bool {
+	return q.Window != "" && q.Group == "" && (q.Note == "" || strings.HasPrefix(q.Note, "cached"))
 }
 
 // accountKey maps a quota row to route's account key; "" for providers the router has no column for.

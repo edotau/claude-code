@@ -265,16 +265,8 @@ func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quo
 	cache := readClaudeUsageCache(path)
 	now := claudeNow()
 
-	if cache != nil && now.Sub(cache.FetchedAt) < claudeUsageCacheTTL() {
-		return parseClaudeUsage(cache.Body, cache.SubscriptionType)
-	}
-	if cache != nil && cache.NotBefore != nil && now.Before(*cache.NotBefore) {
-		return claudeCachedOrNote(cache, "rate limited until "+cache.NotBefore.Local().Format("15:04"),
-			"usage unavailable: rate limited until "+cache.NotBefore.Local().Format("15:04"))
-	}
-
-	if exp := creds.ClaudeAiOauth.ExpiresAt; exp > 0 && now.UnixMilli() > exp { // claude refreshes it on its next use
-		return claudeCachedOrNote(cache, "token stale, refresh pending", "usage unavailable: token stale, refresh pending (use claude)")
+	if rows, done := claudeServeLocal(cache, creds, now); done {
+		return rows
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeOAuthURL, nil)
@@ -290,7 +282,26 @@ func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quo
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return claudeHandleResponse(resp, body, cache, creds, path, now)
+}
 
+// claudeServeLocal answers without a request: from a fresh cache, a rate-limit hold, or a stale token; done is false to fetch.
+func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.Time) (rows []quota, done bool) {
+	if cache != nil && now.Sub(cache.FetchedAt) < claudeUsageCacheTTL() {
+		return parseClaudeUsage(cache.Body, cache.SubscriptionType), true
+	}
+	if cache != nil && cache.NotBefore != nil && now.Before(*cache.NotBefore) {
+		return claudeCachedOrNote(cache, "rate limited until "+cache.NotBefore.Local().Format("15:04"),
+			"usage unavailable: rate limited until "+cache.NotBefore.Local().Format("15:04")), true
+	}
+	if exp := creds.ClaudeAiOauth.ExpiresAt; exp > 0 && now.UnixMilli() > exp { // claude refreshes it on its next use
+		return claudeCachedOrNote(cache, "token stale, refresh pending", "usage unavailable: token stale, refresh pending (use claude)"), true
+	}
+	return nil, false
+}
+
+// claudeHandleResponse maps the endpoint's status to rows, rewriting the cache on 200 and on 429.
+func claudeHandleResponse(resp *http.Response, body []byte, cache *claudeUsageCache, creds claudeOAuthCreds, path string, now time.Time) []quota {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		writeClaudeUsageCache(path, claudeUsageCache{

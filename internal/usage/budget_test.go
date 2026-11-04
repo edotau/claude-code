@@ -35,9 +35,10 @@ func budgetServer(t *testing.T, hits *atomic.Int32, handler http.HandlerFunc) *p
 const budgetPage1 = `{"budget_spend_statuses":[{"name":"b1","alert_spend_statuses":[{"scope_type":"ALERT_CONFIGURATION_SCOPE_TYPE_PER_USER","time_period":"MONTH","spend":"100.6","threshold":"100","percent_consumed":"100.6"}]}],"next_page_token":"p2"}`
 const budgetPage2 = `{"budget_spend_statuses":[{"name":"b2","alert_spend_statuses":[{"scope_type":"ALERT_CONFIGURATION_SCOPE_TYPE_WORKSPACE","time_period":"MONTH","spend":"5","threshold":"50","percent_consumed":"10"}]}]}`
 
-func TestBudgetQuotasPagesMapsAndCaches(t *testing.T) {
-	var hits atomic.Int32
-	p := budgetServer(t, &hits, func(w http.ResponseWriter, r *http.Request) {
+// pagedBudgetServer serves budgetPage1 then budgetPage2 (page_token=p2) and 404s any other request.
+func pagedBudgetServer(t *testing.T, hits *atomic.Int32) *providers.Provider {
+	t.Helper()
+	return budgetServer(t, hits, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/ai-gateway/v2/budget-spend-statuses" || r.URL.Query().Get("page_size") != "100" {
 			http.NotFound(w, r)
 			return
@@ -48,18 +49,34 @@ func TestBudgetQuotasPagesMapsAndCaches(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(body))
 	})
-	now := time.Now()
-	rows := budgetQuotas(context.Background(), p, now)
+}
+
+func TestBudgetQuotasPagesAndMaps(t *testing.T) {
+	var hits atomic.Int32
+	p := pagedBudgetServer(t, &hits)
+	rows := budgetQuotas(context.Background(), p, time.Now())
 	if len(rows) != 2 || hits.Load() != 2 {
 		t.Fatalf("rows=%+v hits=%d, want 2 rows over 2 pages", rows, hits.Load())
 	}
 	if r := rows[0]; r.Plan != "per-user" || r.Window != "month" || r.UsedPct != 100.6 || r.Used != 100.6 || r.Limit != 100 || r.Unit != "USD" {
 		t.Errorf("row 0 = %+v", r)
 	}
+}
+
+func TestBudgetQuotasStates(t *testing.T) {
+	var hits atomic.Int32
+	rows := budgetQuotas(context.Background(), pagedBudgetServer(t, &hits), time.Now())
 	setStates(rows, 80)
 	if rows[0].State != "exceeded" || rows[1].State != "ok" {
 		t.Errorf("states = %q, %q", rows[0].State, rows[1].State)
 	}
+}
+
+func TestBudgetQuotasCaches(t *testing.T) {
+	var hits atomic.Int32
+	p := pagedBudgetServer(t, &hits)
+	now := time.Now()
+	budgetQuotas(context.Background(), p, now)
 	if again := budgetQuotas(context.Background(), p, now.Add(time.Minute)); len(again) != 2 || hits.Load() != 2 {
 		t.Errorf("fresh cache refetched: rows=%d hits=%d", len(again), hits.Load())
 	}
