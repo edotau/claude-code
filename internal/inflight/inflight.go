@@ -22,6 +22,9 @@ const Idle = 15 * time.Minute
 // Grace: how long a spawn marker may wait for its agent transcript to appear before it is abandoned.
 const Grace = 2 * time.Minute
 
+// Settle: how long an answered spawn with no agent meta keeps its claim before it counts as refused.
+const Settle = 10 * time.Second
+
 // Prefix starts every marker name: agent-<owner pid>-<id>; the file holds the account key, then the session transcript.
 const Prefix = "agent-"
 

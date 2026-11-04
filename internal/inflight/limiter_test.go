@@ -266,7 +266,7 @@ func TestSelfSpawnPrune(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	past := time.Now().Add(-2 * Grace)
+	past := time.Now().Add(-30 * time.Second) // past Settle, inside Grace
 	if err := os.Chtimes(filepath.Join(Dir(), markerName(owner, "toolu_b")), past, past); err != nil {
 		t.Fatal(err)
 	}

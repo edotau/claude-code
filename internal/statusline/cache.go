@@ -1,6 +1,6 @@
 package statusline
 
-// Each render is a fresh process, so memos live in uid-scoped tmp stamp files ("f1|f2|…"); any
+// Each render is a fresh process, so memos live in stamp files under the state dir ("f1|f2|…"); any
 // failure falls open to a live recompute, never to a wrong bar.
 
 import (
@@ -10,13 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func stampFile(kind, key string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(key))
-	return filepath.Join(os.TempDir(),
-		".claude-statusline-"+kind+"-"+strconv.Itoa(os.Getuid())+"-"+strconv.FormatUint(h.Sum64(), 16))
+	return filepath.Join(paths.StateDir(), "statusline", kind+"-"+strconv.FormatUint(h.Sum64(), 16))
 }
 
 func readStamp(path string) []string {
@@ -28,7 +29,9 @@ func readStamp(path string) []string {
 }
 
 func writeStamp(path string, fields ...string) {
-	_ = os.WriteFile(path, []byte(strings.Join(fields, "|")), 0o600)
+	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
+		_ = paths.AtomicWrite(path, []byte(strings.Join(fields, "|")), 0o600)
+	}
 }
 
 // freshStamp returns the fields after a leading unix-ms timestamp younger than ttl, else nil.
