@@ -216,7 +216,7 @@ func (v *values) collectRouting(in Input, cfg Config, provider string, routed bo
 		v.provider = capProfile(v.providerFull, cfg.ProfileMax)
 	}
 	if cfg.seg("model", true) {
-		v.model = modelSegment(in, provider)
+		v.model = labelerFor(rowOf(provider)).model(in, provider)
 	}
 	if showProxy := cfg.seg("proxy", true); showProxy || routed { // a routed session restarts a down proxy
 		if seg := proxySegment(routed); showProxy {
@@ -278,14 +278,11 @@ func modelFamily(id string) string {
 	return ""
 }
 
-// providerLabel renders "<provider>·<profile>" from the registry row, the provider alone when the profile bears its name.
+// providerLabel renders the provider cell from the registry row; the bare name when no row names a kind.
 func providerLabel(name string) string {
 	if reg := registry(); reg != nil {
 		if p, err := reg.Get(name); err == nil && p.Provider != "" {
-			if p.Name == p.Provider {
-				return p.Provider
-			}
-			return p.Provider + "·" + profileName(p)
+			return labelerFor(p).provider(p)
 		}
 	}
 	return name
@@ -298,14 +295,6 @@ func capProfile(label string, max int) string {
 		return label
 	}
 	return prov + "·" + truncRunes(prof, max)
-}
-
-// profileName is the profile's name, "ultra" for the claude.ai login profile on a 20x account.
-func profileName(p *providers.Provider) string {
-	if p.Provider == "anthropic" && p.Auth.Type == providers.AuthCLI && providers.MaxTierName(claudeTier()) == "Ultra" {
-		return "ultra"
-	}
-	return p.Name
 }
 
 // modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
