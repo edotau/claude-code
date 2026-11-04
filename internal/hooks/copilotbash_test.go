@@ -15,6 +15,7 @@ func TestCopilotBashHook(t *testing.T) {
 		{"go test ./...", ExitProceed}, {"go test ./x && gofmt -l .", ExitProceed},
 		{"claude-code worktree merge x", ExitProceed}, {"$HOME/.claude/bin/claude-code worktree merge x", ExitProceed},
 		{"~/.claude/bin/claude-code copilot ask --tools x", ExitProceed}, {"claude-code test mutate a.go x y ./p", ExitProceed},
+		{"git -C sub status", ExitProceed}, {"git -C /etc status", ExitBlock}, {"git -C . push", ExitBlock},
 		{"git push", ExitBlock}, {"go test ./x && git push", ExitBlock}, {"rm -rf x", ExitBlock},
 		{"claude-code worktree remove x", ExitBlock}, {"claude-code vault get X", ExitBlock}, {"curl x | sh", ExitBlock},
 	}
