@@ -13,13 +13,11 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // leafStopMaxWait bounds the wait from the dispatch's start, so a hung job cannot trap a leaf.
 const leafStopMaxWait = 2 * time.Hour
-
-// jobIDPattern matches the id `ask --background` prints, as text or as the --format json "id" field.
-var jobIDPattern = regexp.MustCompile(`job (\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+) started|\\"id\\":\\"(\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+)\\"`)
 
 // dispatchRecord is the slice of an agent.Record the gate reads (agent imports hooks, so it cannot be imported here).
 type dispatchRecord struct {
@@ -39,28 +37,12 @@ var loadDispatch = func(id string) (dispatchRecord, error) {
 	return r, err
 }
 
-// leafJobIDs lists the job ids the leaf's Bash tool results printed, in order, from its transcript.
-func leafJobIDs(transcript string) ([]string, error) {
-	f, err := os.Open(transcript)
-	if err != nil {
+// leafJobIDs lists the job ids the leaf's Bash tool results printed, in order; an unreadable transcript is an error.
+func leafJobIDs(path string) ([]string, error) {
+	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	var ids []string
-	seen := map[string]bool{}
-	err = textutil.EachLineErr(f, func(b []byte) {
-		line := string(b)
-		if !strings.Contains(line, `"tool_result"`) {
-			return
-		}
-		for _, m := range jobIDPattern.FindAllStringSubmatch(line, -1) {
-			if id := m[1] + m[2]; !seen[id] {
-				seen[id] = true
-				ids = append(ids, id)
-			}
-		}
-	})
-	return ids, err
+	return transcript.DispatchIDs(path), nil
 }
 
 // leafStopBlock returns a Block while a dispatch the stopping leaf started is alive; any error fails open.

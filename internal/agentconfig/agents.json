@@ -32,7 +32,7 @@
             {
               "commands": ["git"],
               "check": "scopedGit",
-              "summary": "read-only git (git diff|log|show must start --no-ext-diff --no-textconv), git add <paths>, git commit (no --amend, --no-verify)",
+              "summary": "read-only git (git diff|log|show must start --no-ext-diff --no-textconv), git add <paths>, git commit (no --amend, --no-verify, -n, -c/-C)",
               "cliAllow": [
                 "git status", "git diff", "git log", "git show", "git blame", "git rev-parse", "git branch --list",
                 "git add", "git commit"

@@ -393,3 +393,29 @@ func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 		t.Fatalf("no tool ran: err=%v events=%v, want none emitted", err, sink.types)
 	}
 }
+
+// Usage events sum across calls; the SDK's inputTokens include cache reads/writes, which agent.Usage keeps apart.
+func TestAssistantCollectorSumsUsage(t *testing.T) {
+	n := func(v int64) *int64 { return &v }
+	var col assistantCollector
+	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantUsageData{
+		Model: "m", InputTokens: n(1000), OutputTokens: n(50), CacheReadTokens: n(600), CacheWriteTokens: n(100),
+	}})
+	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: " hi "}})
+	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantUsageData{Model: "m", InputTokens: n(200), OutputTokens: n(25)}})
+	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantUsageData{Model: "m"}})
+	text, _, got := col.snapshot()
+	want := agent.Usage{InputTokens: 500, CacheReadTokens: 600, CacheCreationTokens: 100, OutputTokens: 75}
+	if got != want || text != "hi" {
+		t.Fatalf("snapshot = %q, %+v; want hi, %+v", text, got, want)
+	}
+}
+
+// A failed run keeps the usage the collector summed before the failure.
+func TestCopilotPartialKeepsUsage(t *testing.T) {
+	want := agent.Usage{InputTokens: 7, OutputTokens: 3}
+	res, _ := copilotPartial(agent.Result{}, SDKResult{Text: "partial", Usage: want}, errors.New("boom"), agent.Discard)
+	if res.Usage != want {
+		t.Fatalf("Usage = %+v, want %+v", res.Usage, want)
+	}
+}

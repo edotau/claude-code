@@ -197,6 +197,26 @@ func TestLeafJobIDs(t *testing.T) {
 	}
 }
 
+// The envelope "dispatch_id" and the `ask: dispatch` exit line count too (the old pattern missed both).
+func TestLeafJobIDsEnvelopeAndExitLine(t *testing.T) {
+	const envID, exitID = "20261030T101500.123-codex-aaaa", "20261030T101501.456-claude-bbbb"
+	tx := filepath.Join(t.TempDir(), "agent.jsonl")
+	lines := []string{
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"agent\":\"codex\",\"dispatch_id\":\"` + envID + `\"}"}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"ask: dispatch ` + exitID + ` (replay)"}]}}`,
+	}
+	if err := os.WriteFile(tx, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := leafJobIDs(tx)
+	if err != nil || strings.Join(got, ",") != envID+","+exitID {
+		t.Fatalf("leafJobIDs = %v, %v", got, err)
+	}
+	if _, err := leafJobIDs(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing transcript: want an error so the gate fails open")
+	}
+}
+
 // coworkerTx writes a coworker leaf transcript (the brief, then the given tool results) with its meta.json beside it.
 func coworkerTx(t *testing.T, brief string, toolResults ...string) *Input {
 	t.Helper()

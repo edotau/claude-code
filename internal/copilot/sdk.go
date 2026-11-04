@@ -62,6 +62,7 @@ type SDKResult struct {
 	Model     string
 	Duration  time.Duration
 	ToolRan   bool // a tool request was approved, so the run may have side effects
+	Usage     agent.Usage
 }
 
 // BuildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
@@ -399,39 +400,58 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 
 	start := time.Now()
 	sendErr := sendPrompt(ctx, session, o, prompt, images)
-	text, model := col.snapshot()
-	res := SDKResult{Text: text, SessionID: session.SessionID, Model: model, Duration: time.Since(start), ToolRan: approved.Load()}
+	text, model, usage := col.snapshot()
+	res := SDKResult{Text: text, SessionID: session.SessionID, Model: model, Duration: time.Since(start), ToolRan: approved.Load(), Usage: usage}
 	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}
 	return res, nil
 }
 
-// assistantCollector accumulates assistant text and model; events arrive on the SDK goroutine, hence the mutex.
+// assistantCollector accumulates assistant text, model and usage; events arrive on the SDK goroutine, hence the mutex.
 type assistantCollector struct {
 	mu    sync.Mutex
 	text  strings.Builder
 	model string
+	usage agent.Usage
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
-	d, ok := ev.Data.(*copilot.AssistantMessageData)
-	if !ok {
-		return
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.text.WriteString(d.Content)
-	if d.Model != nil {
-		c.model = *d.Model
+	switch d := ev.Data.(type) {
+	case *copilot.AssistantMessageData:
+		c.text.WriteString(d.Content)
+		if d.Model != nil {
+			c.model = *d.Model
+		}
+	case *copilot.AssistantUsageData:
+		c.addUsage(d)
 	}
 }
 
-// snapshot returns the trimmed text and last model seen so far.
-func (c *assistantCollector) snapshot() (text, model string) {
+// addUsage sums one call's usage; the SDK's inputTokens include cache reads and writes, agent.Usage keeps them apart.
+func (c *assistantCollector) addUsage(d *copilot.AssistantUsageData) {
+	in, out := tokenCount(d.InputTokens), tokenCount(d.OutputTokens)
+	read, write := tokenCount(d.CacheReadTokens), tokenCount(d.CacheWriteTokens)
+	c.usage.InputTokens += max(in-read-write, 0)
+	c.usage.CacheReadTokens += read
+	c.usage.CacheCreationTokens += write
+	c.usage.OutputTokens += out
+}
+
+func tokenCount(p *int64) int {
+	if p == nil {
+		return 0
+	}
+	return int(*p)
+}
+
+// snapshot returns the trimmed text, last model and summed usage seen so far.
+func (c *assistantCollector) snapshot() (text, model string, usage agent.Usage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return strings.TrimSpace(c.text.String()), c.model
+	return strings.TrimSpace(c.text.String()), c.model, c.usage
 }
 
 // sendPrompt sends the prompt (fleet mode when asked) and waits for the turn to finish.
