@@ -583,3 +583,14 @@ func TestSafetyAnyOperandGitOptionsShellDownloaders(t *testing.T) {
 		})
 	}
 }
+
+// A ' inside "…" is literal, so a $(…) or backtick after it still runs and must reach the shared-config git check.
+func TestHarnessGitBlockedApostropheInDoubleQuotes(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for _, cmd := range []string{`git commit -m "it's $(git stash)"`, "git commit -m \"it's `git reset --hard`\""} {
+		if !harnessGitBlocked(cmd, cfg) {
+			t.Errorf("harnessGitBlocked(%q) = false, want true", cmd)
+		}
+	}
+}

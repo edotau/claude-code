@@ -400,7 +400,7 @@ func commitLongFlag(a string) (ok, skip bool) {
 
 // commitShortFlags judges a short-flag cluster; skip means a trailing m takes the next arg.
 func commitShortFlags(a string) (ok, skip bool) {
-	if strings.ContainsAny(a, "nc") { // -n skips hooks; -c/-C reuse another commit
+	if strings.ContainsAny(a, "ncC") { // -n skips hooks; -c/-C reuse another commit
 		return false, false
 	}
 	return true, strings.HasSuffix(a, "m")
