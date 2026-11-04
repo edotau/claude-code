@@ -202,7 +202,9 @@ func TestWorkflowLintByNameUnknownProceeds(t *testing.T) {
 	}
 }
 
-func TestWorkflowLintByNameInlinesScript(t *testing.T) {
+// wfLintWriteGateLoop installs workflows/gate-loop.js in a fresh config dir and returns its path.
+func wfLintWriteGateLoop(t *testing.T, content string) string {
+	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	wfDir := filepath.Join(dir, "workflows")
@@ -210,27 +212,41 @@ func TestWorkflowLintByNameInlinesScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(wfDir, "gate-loop.js")
-	if err := os.WriteFile(path, []byte("agent('x', { model: 'sonnet' });\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return path
+}
+
+type wfLintInlineDoc struct {
+	HSO struct {
+		AdditionalContext string         `json:"additionalContext"`
+		UpdatedInput      map[string]any `json:"updatedInput"`
+	} `json:"hookSpecificOutput"`
+}
+
+// decodeWfLintInline parses the single JSON line the by-name rewrite writes to stdout.
+func decodeWfLintInline(t *testing.T, out string) wfLintInlineDoc {
+	t.Helper()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 1 || lines[0] == "" {
+		t.Fatalf("stdout = %q, want exactly one JSON line", out)
+	}
+	var doc wfLintInlineDoc
+	if err := json.Unmarshal([]byte(lines[0]), &doc); err != nil {
+		t.Fatalf("invalid JSON (%v): %q", err, lines[0])
+	}
+	return doc
+}
+
+func TestWorkflowLintByNameInlinesScript(t *testing.T) {
+	path := wfLintWriteGateLoop(t, "agent('x', { model: 'sonnet' });\n")
 	payload := wfLintPayload(t, map[string]any{"name": "gate-loop", "args": map[string]any{"k": 1}})
 	code, out, errb := runWorkflowLint(payload)
 	if code != ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed (stderr=%q)", code, errb)
 	}
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 1 || lines[0] == "" {
-		t.Fatalf("stdout = %q, want exactly one JSON line", out)
-	}
-	var doc struct {
-		HSO struct {
-			AdditionalContext string         `json:"additionalContext"`
-			UpdatedInput      map[string]any `json:"updatedInput"`
-		} `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal([]byte(lines[0]), &doc); err != nil {
-		t.Fatalf("invalid JSON (%v): %q", err, lines[0])
-	}
+	doc := decodeWfLintInline(t, out)
 	gotScript, _ := doc.HSO.UpdatedInput["script"].(string)
 	if gotScript != "agent('x', { model: 'sonnet' });\n" {
 		t.Errorf("updatedInput.script = %q, want the file's text inlined", gotScript)

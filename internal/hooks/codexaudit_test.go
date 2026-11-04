@@ -66,6 +66,30 @@ func verifiedCodexRows(rows []codexRouteRecord) []codexRouteRecord {
 	return out
 }
 
+// codexAuditJoinEvents returns the two arrival-order halves of the spawn-result / child-start causal join.
+func codexAuditJoinEvents(t *testing.T, model string) (result, child func()) {
+	t.Helper()
+	result = func() {
+		runCodexAuditHandler(t, "codex-routing-result", map[string]any{"tool_name": "collaborationspawn_agent", "tool_use_id": "spawn-1", "tool_response": `{"agent_id":"child-uuid"}`})
+	}
+	child = func() {
+		runCodexAuditHandler(t, "codex-subagent-start", map[string]any{"agent_id": "child-uuid", "model": model})
+	}
+	return result, child
+}
+
+// requireCodexCausalVerification asserts the single verified row for spawn-1 / child-uuid and its model match.
+func requireCodexCausalVerification(t *testing.T, verified []codexRouteRecord, model string) {
+	t.Helper()
+	if len(verified) != 1 {
+		t.Fatalf("verified rows = %+v", verified)
+	}
+	got := verified[0]
+	if got.ToolUseID != "spawn-1" || got.AgentID != "child-uuid" || got.Model != model || got.RequestedModel != codexRouteWireModel || got.Matches == nil || *got.Matches != (model == codexRouteWireModel) {
+		t.Fatalf("causal verification = %+v", got)
+	}
+}
+
 func TestCodexAuditCausalJoinBothArrivalOrders(t *testing.T) {
 	for _, order := range []string{"result first", "child first"} {
 		for _, model := range []string{codexRouteWireModel, "databricks-gpt-6-sol"} {
@@ -74,35 +98,19 @@ func TestCodexAuditCausalJoinBothArrivalOrders(t *testing.T) {
 				if runCodexRoute(t, codexRoutePayload(map[string]any{"fork_turns": "none", "message": "add a --verbose flag"})) == nil {
 					t.Fatal("fixture did not route")
 				}
-				result := func() {
-					runCodexAuditHandler(t, "codex-routing-result", map[string]any{"tool_name": "collaborationspawn_agent", "tool_use_id": "spawn-1", "tool_response": `{"agent_id":"child-uuid"}`})
-				}
-				child := func() {
-					runCodexAuditHandler(t, "codex-subagent-start", map[string]any{"agent_id": "child-uuid", "model": model})
-				}
+				result, child := codexAuditJoinEvents(t, model)
+				first, second := child, result
 				if order == "result first" {
-					result()
-				} else {
-					child()
+					first, second = result, child
 				}
+				first()
 				rows, _ := readCodexAuditFixture(t)
 				if len(verifiedCodexRows(rows)) != 0 {
 					t.Fatal("verified before the causal chain was complete")
 				}
-				if order == "result first" {
-					child()
-				} else {
-					result()
-				}
+				second()
 				rows, body := readCodexAuditFixture(t)
-				verified := verifiedCodexRows(rows)
-				if len(verified) != 1 {
-					t.Fatalf("verified rows = %+v", verified)
-				}
-				got := verified[0]
-				if got.ToolUseID != "spawn-1" || got.AgentID != "child-uuid" || got.Model != model || got.RequestedModel != codexRouteWireModel || got.Matches == nil || *got.Matches != (model == codexRouteWireModel) {
-					t.Fatalf("causal verification = %+v", got)
-				}
+				requireCodexCausalVerification(t, verifiedCodexRows(rows), model)
 				result()
 				child()
 				rows, _ = readCodexAuditFixture(t)
@@ -244,7 +252,15 @@ func appendAndJoin(t *testing.T, content string) {
 	if err != nil {
 		t.Fatalf("readCodexRoutes after append: %v", err)
 	}
-	var verified, children int
+	verified, children := countCodexJoinRows(t, rows)
+	if verified != 1 || children != 1 {
+		t.Fatalf("verified=%d child-start=%d, want 1 and 1; rows=%+v", verified, children, rows)
+	}
+}
+
+// countCodexJoinRows counts verified and child-start rows, asserting every verified row matches.
+func countCodexJoinRows(t *testing.T, rows []codexRouteRecord) (verified, children int) {
+	t.Helper()
 	for _, r := range rows {
 		switch r.Event {
 		case "verified":
@@ -256,9 +272,7 @@ func appendAndJoin(t *testing.T, content string) {
 			children++
 		}
 	}
-	if verified != 1 || children != 1 {
-		t.Fatalf("verified=%d child-start=%d, want 1 and 1; rows=%+v", verified, children, rows)
-	}
+	return verified, children
 }
 
 func TestCodexRoutesTruncatedLastLine(t *testing.T) {

@@ -100,30 +100,37 @@ func TestMakeFormatRefusesProvisioningAndUnreachedVariable(t *testing.T) {
 	}
 }
 
-// The declared python chain runs each declared tool from the project venv, in order; an undeclared
-// project falls through to ruff.
-func TestFormatPythonDeclaredChain(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh not on PATH")
-	}
-	root := t.TempDir()
+// formatPythonFixture builds a project whose .venv/bin tools append their argv to a trace file.
+func formatPythonFixture(t *testing.T) (root, py, trace string) {
+	t.Helper()
+	root = t.TempDir()
 	bin := filepath.Join(root, ".venv", "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	trace := filepath.Join(root, "trace")
+	trace = filepath.Join(root, "trace")
 	for _, tool := range []string{"ruff", "autoflake", "isort", "black"} {
 		script := "#!/bin/sh\necho " + tool + " \"$@\" >> " + trace + "\n"
 		if err := os.WriteFile(filepath.Join(bin, tool), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	py := filepath.Join(root, "pkg", "m.py")
+	py = filepath.Join(root, "pkg", "m.py")
 	if err := os.MkdirAll(filepath.Dir(py), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(py, []byte("x=1\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.black]\nline-length = 100\n[tool.autoflake]\nremove-all-unused-imports = true\n[tool.ruff.lint]\nselect = [\"E\"]\n"), 0o644)
+	return root, py, trace
+}
+
+// The declared python chain runs each declared tool from the project venv, in order; an undeclared
+// project falls through to ruff.
+func TestFormatPythonDeclaredChain(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not on PATH")
+	}
+	root, py, trace := formatPythonFixture(t)
 
 	if !formatPython(py) {
 		t.Fatal("the declared chain must report it ran")

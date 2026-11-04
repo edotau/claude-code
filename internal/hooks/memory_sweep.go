@@ -100,19 +100,9 @@ func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int) strin
 
 // sweepCandidates lists finished sessions needing a save, newest first; all=false stops at catchupMax.
 func sweepCandidates(current string, now time.Time, all bool, count func(string, string) int) ([]sweepCand, map[string]int) {
-	files, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "*.jsonl"))
-	var recent []sweepCand
-	skips := map[string]int{}
-	for _, p := range files {
-		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
-		fi, err := os.Stat(p)
-		if err != nil || !memrecall.LooksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
-			continue
-		}
-		recent = append(recent, sweepCand{id: id, path: p, mtime: fi.ModTime()})
-	}
-	sort.Slice(recent, func(i, j int) bool { return recent[i].mtime.After(recent[j].mtime) })
+	recent := recentSessions(now)
 	var out []sweepCand
+	skips := map[string]int{}
 	for _, c := range recent {
 		if !all && len(out) >= catchupMax {
 			break
@@ -130,6 +120,22 @@ func sweepCandidates(current string, now time.Time, all bool, count func(string,
 		out = append(out, c)
 	}
 	return out, skips
+}
+
+// recentSessions lists transcripts modified inside the catch-up window, newest first.
+func recentSessions(now time.Time) []sweepCand {
+	files, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "*.jsonl"))
+	var recent []sweepCand
+	for _, p := range files {
+		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
+		fi, err := os.Stat(p)
+		if err != nil || !memrecall.LooksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
+			continue
+		}
+		recent = append(recent, sweepCand{id: id, path: p, mtime: fi.ModTime()})
+	}
+	sort.Slice(recent, func(i, j int) bool { return recent[i].mtime.After(recent[j].mtime) })
+	return recent
 }
 
 // CatchUpSweep is `memory catchup`: saves up to catchupMax finished sessions whose update was missed.

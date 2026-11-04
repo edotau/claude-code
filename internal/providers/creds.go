@@ -40,20 +40,12 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if sealedAuth(p.Auth.Type) {
 		return authCredential(ctx, p, false)
 	}
-	var vaultErr error
-	for _, n := range keyNames(p) {
-		v, _, err := vault.EffectiveSecret(n)
-		vaultErr = cmp.Or(vaultErr, err)
-		if err == nil && v != "" {
-			return v, nil
-		}
+	v, vaultErr := vaultCredential(p)
+	if v != "" {
+		return v, nil
 	}
-	if p.Auth.File != "" {
-		if b, err := os.ReadFile(paths.ExpandHome(p.Auth.File)); err == nil {
-			if v := strings.TrimSpace(string(b)); v != "" {
-				return v, nil
-			}
-		}
+	if v := fileCredential(p); v != "" {
+		return v, nil
 	}
 	if p.Auth.Command != "" {
 		return commandCredential(ctx, p, false)
@@ -62,6 +54,31 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 		return "", fmt.Errorf("%s: no credential (vault: %v)", p.Name, vaultErr)
 	}
 	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, orDash(p.Auth.Env), hint(p))
+}
+
+// vaultCredential returns the first non-empty effective secret among the key names, plus the first vault error seen.
+func vaultCredential(p *Provider) (string, error) {
+	var vaultErr error
+	for _, n := range keyNames(p) {
+		v, _, err := vault.EffectiveSecret(n)
+		vaultErr = cmp.Or(vaultErr, err)
+		if err == nil && v != "" {
+			return v, vaultErr
+		}
+	}
+	return "", vaultErr
+}
+
+// fileCredential returns the trimmed contents of auth.file, or "" when unset, unreadable or blank.
+func fileCredential(p *Provider) string {
+	if p.Auth.File == "" {
+		return ""
+	}
+	b, err := os.ReadFile(paths.ExpandHome(p.Auth.File))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // keyNames are the vault/env names a key row's credential may sit under: its new name, then auth.env (old/agent name).
@@ -156,8 +173,7 @@ func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if exp, ok := jwtExp(v); ok && p.Auth.RefreshCommand != "" && cmd != p.Auth.RefreshCommand &&
-		time.Until(time.Unix(exp, 0)) < expiryMargin {
+	if rotateNearExpiry(p, cmd, v) {
 		if v, err = runAuthCommand(ctx, p, p.Auth.RefreshCommand); err != nil {
 			return "", err
 		}
@@ -170,6 +186,13 @@ func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
 		return "", err
 	}
 	return v, nil
+}
+
+// rotateNearExpiry reports whether v came from the primary command, is near expiry and a refresh command exists.
+func rotateNearExpiry(p *Provider, cmd, v string) bool {
+	exp, ok := jwtExp(v)
+	return ok && p.Auth.RefreshCommand != "" && cmd != p.Auth.RefreshCommand &&
+		time.Until(time.Unix(exp, 0)) < expiryMargin
 }
 
 // finishCredential is the shared tail of every mint: issuer check, expiry record, cache until min(ttl, exp-10m).

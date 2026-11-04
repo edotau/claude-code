@@ -212,18 +212,90 @@ func TestWSLDefault(t *testing.T) {
 	}
 }
 
+type wslCDPCase struct {
+	name         string
+	alreadyReady bool
+	readyOnStart bool
+	dryRun       bool
+	wantKind     string
+	wantExecuted bool
+	wantError    string
+	wantProbes   int
+	wantSleeps   int
+}
+
+// runWSLSetupCDP runs setupWSL under tt's probe/sleep fakes and returns the actions plus the probe and sleep counts.
+func runWSLSetupCDP(t *testing.T, tt wslCDPCase, f *fakeRun) (acts Actions, probes, sleeps int) {
+	t.Helper()
+	env := newWSLTestEnv(t, f)
+	writeWSLExe(t, env, "edge")
+	env.DryRun = tt.dryRun
+	env.Probe = func() string {
+		probes++
+		if tt.alreadyReady || (tt.readyOnStart && len(f.calls) > 0) {
+			return "Edg/120"
+		}
+		return ""
+	}
+	env.Sleep = func(d time.Duration) {
+		sleeps++
+		if d != 500*time.Millisecond {
+			t.Errorf("Sleep duration = %v, want 500ms", d)
+		}
+	}
+	acts = setupWSL(env, Browser{Name: "edge", DisplayName: "Microsoft Edge"})
+	return acts, probes, sleeps
+}
+
+// checkStartCDPCommand asserts the PowerShell argv of a start-cdp action.
+func checkStartCDPCommand(t *testing.T, a Action) {
+	t.Helper()
+	if len(a.Command) != 4 || !reflect.DeepEqual(a.Command[:3], []string{"powershell.exe", "-NoProfile", "-Command"}) {
+		t.Fatalf("Command = %q, want PowerShell script argv", a.Command)
+	}
+	ps := a.Command[len(a.Command)-1]
+	for _, fragment := range []string{"--remote-debugging-port=9222", "edge-cdp"} {
+		if !strings.Contains(ps, fragment) {
+			t.Errorf("PowerShell script = %q, want substring %q", ps, fragment)
+		}
+	}
+}
+
+// wantWSLCDPCalls lists the commands setupWSL is expected to have run for tt.
+func wantWSLCDPCalls(t *testing.T, tt wslCDPCase, acts Actions, f *fakeRun) []string {
+	t.Helper()
+	a := acts.Items[1]
+	var wantCalls []string
+	if tt.wantKind == "start-cdp" {
+		checkStartCDPCommand(t, a)
+		if !tt.dryRun {
+			wantCalls = append(wantCalls, strings.Join(a.Command, " "))
+		}
+		if tt.wantError != "" { // the failure path queries stale profile processes
+			wantCalls = append(wantCalls, f.calls[1])
+		}
+	}
+	if !tt.dryRun {
+		wantCalls = append(wantCalls, strings.Join(acts.Items[2].Command, " "))
+	}
+	return wantCalls
+}
+
+// checkCDPAction asserts the CDP action's kind, executed flag and error text against tt.
+func checkCDPAction(t *testing.T, tt wslCDPCase, a Action) {
+	t.Helper()
+	if a.Kind != tt.wantKind || a.Executed != tt.wantExecuted {
+		t.Errorf("CDP action = %+v, want Kind=%q Executed=%v", a, tt.wantKind, tt.wantExecuted)
+	}
+	if tt.wantError == "" && a.Error != "" {
+		t.Errorf("Error = %q, want empty", a.Error)
+	} else if tt.wantError != "" && !strings.Contains(a.Error, tt.wantError) {
+		t.Errorf("Error = %q, want substring %q", a.Error, tt.wantError)
+	}
+}
+
 func TestWSLSetupCDP(t *testing.T) {
-	tests := []struct {
-		name         string
-		alreadyReady bool
-		readyOnStart bool
-		dryRun       bool
-		wantKind     string
-		wantExecuted bool
-		wantError    string
-		wantProbes   int
-		wantSleeps   int
-	}{
+	tests := []wslCDPCase{
 		{name: "already_running", alreadyReady: true, wantKind: "noop", wantExecuted: true, wantProbes: 1},
 		{name: "starts_ready", readyOnStart: true, wantKind: "start-cdp", wantExecuted: true, wantProbes: 2},
 		{name: "poll_exhausted", wantKind: "start-cdp", wantError: "networkingMode=mirrored", wantProbes: 21, wantSleeps: 20},
@@ -232,62 +304,15 @@ func TestWSLSetupCDP(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &fakeRun{}
-			env := newWSLTestEnv(t, f)
-			writeWSLExe(t, env, "edge")
-			env.DryRun = tt.dryRun
-			probes, sleeps := 0, 0
-			env.Probe = func() string {
-				probes++
-				if tt.alreadyReady || (tt.readyOnStart && len(f.calls) > 0) {
-					return "Edg/120"
-				}
-				return ""
-			}
-			env.Sleep = func(d time.Duration) {
-				sleeps++
-				if d != 500*time.Millisecond {
-					t.Errorf("Sleep duration = %v, want 500ms", d)
-				}
-			}
-
-			acts := setupWSL(env, Browser{Name: "edge", DisplayName: "Microsoft Edge"})
+			acts, probes, sleeps := runWSLSetupCDP(t, tt, f)
 			if acts.Browser != "edge" || len(acts.Items) != 3 {
 				t.Fatalf("Actions = %+v, want edge with 3 items", acts)
 			}
-			a := acts.Items[1]
-			if a.Kind != tt.wantKind || a.Executed != tt.wantExecuted {
-				t.Errorf("CDP action = %+v, want Kind=%q Executed=%v", a, tt.wantKind, tt.wantExecuted)
-			}
-			if tt.wantError == "" && a.Error != "" {
-				t.Errorf("Error = %q, want empty", a.Error)
-			} else if tt.wantError != "" && !strings.Contains(a.Error, tt.wantError) {
-				t.Errorf("Error = %q, want substring %q", a.Error, tt.wantError)
-			}
+			checkCDPAction(t, tt, acts.Items[1])
 			if probes != tt.wantProbes || sleeps != tt.wantSleeps {
 				t.Errorf("Probe/Sleep calls = %d/%d, want %d/%d", probes, sleeps, tt.wantProbes, tt.wantSleeps)
 			}
-			var wantCalls []string
-			if tt.wantKind == "start-cdp" {
-				if len(a.Command) != 4 || !reflect.DeepEqual(a.Command[:3], []string{"powershell.exe", "-NoProfile", "-Command"}) {
-					t.Fatalf("Command = %q, want PowerShell script argv", a.Command)
-				}
-				ps := a.Command[len(a.Command)-1]
-				for _, fragment := range []string{"--remote-debugging-port=9222", "edge-cdp"} {
-					if !strings.Contains(ps, fragment) {
-						t.Errorf("PowerShell script = %q, want substring %q", ps, fragment)
-					}
-				}
-				if !tt.dryRun {
-					wantCalls = append(wantCalls, strings.Join(a.Command, " "))
-				}
-				if tt.wantError != "" { // the failure path queries stale profile processes
-					wantCalls = append(wantCalls, f.calls[1])
-				}
-			}
-			if !tt.dryRun {
-				wantCalls = append(wantCalls, strings.Join(acts.Items[2].Command, " "))
-			}
-			if !reflect.DeepEqual(f.calls, wantCalls) {
+			if wantCalls := wantWSLCDPCalls(t, tt, acts, f); !reflect.DeepEqual(f.calls, wantCalls) {
 				t.Errorf("Run calls = %q, want %q", f.calls, wantCalls)
 			}
 		})
@@ -310,10 +335,7 @@ func TestWSLSetupRegisterMCP(t *testing.T) {
 			writeWSLExe(t, env, "edge")
 			env.Probe = func() string { return "Edg/120" }
 			if tt.registered {
-				if err := os.WriteFile(filepath.Join(env.Home, ".claude.json"),
-					[]byte(`{"mcpServers":{"chrome-devtools":{}}}`), 0o644); err != nil {
-					t.Fatal(err)
-				}
+				writeRegisteredMCPConfig(t, env)
 			}
 
 			acts := setupWSL(env, Browser{Name: "edge", DisplayName: "Microsoft Edge"})
@@ -324,21 +346,35 @@ func TestWSLSetupRegisterMCP(t *testing.T) {
 			if a.Kind != tt.wantKind || !a.Executed || a.Error != "" {
 				t.Errorf("MCP action = %+v, want executed %q with no error", a, tt.wantKind)
 			}
-			wantCommand := []string{"claude", "mcp", "add", "-s", "user", "chrome-devtools", "--",
-				"npx", "-y", "chrome-devtools-mcp@1.11.0", "--browserUrl", "http://localhost:9222"}
-			if tt.registered {
-				if len(f.calls) != 0 || len(a.Command) != 0 {
-					t.Errorf("Run calls = %q, Command = %q, want no registration", f.calls, a.Command)
-				}
-			} else {
-				if !reflect.DeepEqual(a.Command, wantCommand) {
-					t.Errorf("Command = %q, want %q", a.Command, wantCommand)
-				}
-				if !reflect.DeepEqual(f.calls, []string{strings.Join(wantCommand, " ")}) {
-					t.Errorf("Run calls = %q, want only MCP registration", f.calls)
-				}
-			}
+			checkMCPRegistration(t, tt.registered, a, f)
 		})
+	}
+}
+
+func writeRegisteredMCPConfig(t *testing.T, env Env) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(env.Home, ".claude.json"),
+		[]byte(`{"mcpServers":{"chrome-devtools":{}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkMCPRegistration asserts the registration command ran exactly when the server was not yet registered.
+func checkMCPRegistration(t *testing.T, registered bool, a Action, f *fakeRun) {
+	t.Helper()
+	if registered {
+		if len(f.calls) != 0 || len(a.Command) != 0 {
+			t.Errorf("Run calls = %q, Command = %q, want no registration", f.calls, a.Command)
+		}
+		return
+	}
+	wantCommand := []string{"claude", "mcp", "add", "-s", "user", "chrome-devtools", "--",
+		"npx", "-y", "chrome-devtools-mcp@1.11.0", "--browserUrl", "http://localhost:9222"}
+	if !reflect.DeepEqual(a.Command, wantCommand) {
+		t.Errorf("Command = %q, want %q", a.Command, wantCommand)
+	}
+	if !reflect.DeepEqual(f.calls, []string{strings.Join(wantCommand, " ")}) {
+		t.Errorf("Run calls = %q, want only MCP registration", f.calls)
 	}
 }
 

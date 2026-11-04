@@ -44,15 +44,17 @@ func placementPayload(t *testing.T, tool, path string) string {
 	return string(b)
 }
 
-func TestPlanGateTemplate(t *testing.T) {
-	cases := []struct {
-		name     string
-		tool     string
-		path     string
-		content  string
-		existing bool
-		want     int
-	}{
+type planGateCase struct {
+	name     string
+	tool     string
+	path     string
+	content  string
+	existing bool
+	want     int
+}
+
+func planGateCases() []planGateCase {
+	return []planGateCase{
 		{"freeform Write", "Write", "plans/draft.md", "freeform", false, ExitBlock},
 		{"freeform create", "create", "plans/draft.md", "freeform", false, ExitBlock},
 		{"legacy empty tool", "", "plans/draft.md", "freeform", false, ExitBlock},
@@ -66,20 +68,42 @@ func TestPlanGateTemplate(t *testing.T) {
 		{"nested plan", "Write", "plans/project/draft.md", "freeform", false, ExitProceed},
 		{"outside plans", "Write", "other/draft.md", "freeform", false, ExitProceed},
 	}
+}
+
+// seedPlanGateDraft creates an empty draft at cfg/rel so the gate sees an existing file.
+func seedPlanGateDraft(t *testing.T, cfg, rel string) {
+	t.Helper()
+	path := filepath.Join(cfg, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// requirePlanGateDenied asserts the block diagnostic and that the denied draft stays absent.
+func requirePlanGateDenied(t *testing.T, cfg, rel string, stderr *bytes.Buffer) {
+	t.Helper()
+	if !strings.HasPrefix(stderr.String(), "plan-template: BLOCKED") ||
+		!strings.Contains(stderr.String(), `missing "# Plan:"`) ||
+		!strings.Contains(stderr.String(), plans.TemplatePath(cfg)) {
+		t.Errorf("missing first heading/template diagnostic: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, rel)); !os.IsNotExist(err) {
+		t.Errorf("denied draft must remain absent: %v", err)
+	}
+}
+
+func TestPlanGateTemplate(t *testing.T) {
 	for _, knob := range []string{"1", "0"} {
-		for _, c := range cases {
+		for _, c := range planGateCases() {
 			t.Run("docs="+knob+"/"+c.name, func(t *testing.T) {
 				cfg := t.TempDir()
 				t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 				t.Setenv(docsPlacementDisableEnv, knob)
 				if c.existing {
-					path := filepath.Join(cfg, c.path)
-					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-						t.Fatal(err)
-					}
-					if err := os.WriteFile(path, nil, 0o600); err != nil {
-						t.Fatal(err)
-					}
+					seedPlanGateDraft(t, cfg, c.path)
 				}
 				var stdout, stderr bytes.Buffer
 				code := RunArgs("PreToolUse", []string{"--docs-plan-gate"}, strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content)), &stdout, &stderr)
@@ -90,14 +114,7 @@ func TestPlanGateTemplate(t *testing.T) {
 					t.Errorf("unexpected stdout: %s", &stdout)
 				}
 				if c.want == ExitBlock {
-					if !strings.HasPrefix(stderr.String(), "plan-template: BLOCKED") ||
-						!strings.Contains(stderr.String(), `missing "# Plan:"`) ||
-						!strings.Contains(stderr.String(), plans.TemplatePath(cfg)) {
-						t.Errorf("missing first heading/template diagnostic: %s", &stderr)
-					}
-					if _, err := os.Stat(filepath.Join(cfg, c.path)); !os.IsNotExist(err) {
-						t.Errorf("denied draft must remain absent: %v", err)
-					}
+					requirePlanGateDenied(t, cfg, c.path, &stderr)
 				} else if stderr.Len() != 0 {
 					t.Errorf("allowed write emitted a diagnostic: %s", &stderr)
 				}

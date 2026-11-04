@@ -309,12 +309,9 @@ func TestServeDispatchesToolCallsConcurrently(t *testing.T) {
 	}
 }
 
-// TestEnrichResults: each page's own text (tags stripped, entities decoded) is APPENDED after the
-// hit's snippet — the snippet is Tavily's query-relevance extract and must survive — fetches run
-// concurrently, and any failing fetch keeps the snippet alone.
-func TestEnrichResults(t *testing.T) {
-	slow := make(chan struct{})
-	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// enrichTestPage serves a good HTML page, a binary one, a hanging one (until slow closes) and 404s otherwise.
+func enrichTestPage(slow chan struct{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/good":
 			w.Header().Set("Content-Type", "text/html")
@@ -327,7 +324,15 @@ func TestEnrichResults(t *testing.T) {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	}
+}
+
+// TestEnrichResults: each page's own text (tags stripped, entities decoded) is APPENDED after the
+// hit's snippet — the snippet is Tavily's query-relevance extract and must survive — fetches run
+// concurrently, and any failing fetch keeps the snippet alone.
+func TestEnrichResults(t *testing.T) {
+	slow := make(chan struct{})
+	page := httptest.NewServer(enrichTestPage(slow))
 	defer page.Close()
 	defer close(slow)
 
@@ -346,14 +351,18 @@ func TestEnrichResults(t *testing.T) {
 			t.Errorf("%s: failed enrichment must keep the snippet, got %q", r.Title, r.Content)
 		}
 	}
+	checkEnrichSlowBounded(t, page.URL+"/slow")
+}
 
-	// The slow fetch is bounded by ctx, not waited on serially: a short deadline returns promptly.
+// checkEnrichSlowBounded: a hung fetch is bounded by ctx, not waited on serially, and keeps its snippet.
+func checkEnrichSlowBounded(t *testing.T, slowURL string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	slowres := []tavilyResult{
-		{URL: page.URL + "/slow", Content: "snippet s1"},
-		{URL: page.URL + "/slow", Content: "snippet s2"},
+		{URL: slowURL, Content: "snippet s1"},
+		{URL: slowURL, Content: "snippet s2"},
 	}
 	enrichResults(ctx, slowres)
 	if e := time.Since(start); e > 2*time.Second {

@@ -122,27 +122,39 @@ func parseCodexRoutes(data []byte) []codexRouteRecord {
 	return records
 }
 
-// Join by tool and child IDs, never by model or event arrival order.
-func codexRouteMatches(records []codexRouteRecord) []codexRouteRecord {
-	decisions, results, starts := map[string]codexRouteRecord{}, map[string]string{}, map[string]codexRouteRecord{}
-	verified := map[string]bool{}
+// codexRouteIndex holds the audit events keyed by the IDs the join runs on.
+type codexRouteIndex struct {
+	decisions map[string]codexRouteRecord
+	results   map[string]string
+	starts    map[string]codexRouteRecord
+	verified  map[string]bool
+}
+
+func indexCodexRoutes(records []codexRouteRecord) codexRouteIndex {
+	idx := codexRouteIndex{map[string]codexRouteRecord{}, map[string]string{}, map[string]codexRouteRecord{}, map[string]bool{}}
 	for _, row := range records {
 		switch row.Event {
 		case "decision":
-			decisions[row.ToolUseID] = row
+			idx.decisions[row.ToolUseID] = row
 		case "tool-result":
-			results[row.ToolUseID] = row.AgentID
+			idx.results[row.ToolUseID] = row.AgentID
 		case "child-start":
-			starts[row.AgentID] = row
+			idx.starts[row.AgentID] = row
 		case "verified":
-			verified[row.ToolUseID] = true
+			idx.verified[row.ToolUseID] = true
 		}
 	}
+	return idx
+}
+
+// Join by tool and child IDs, never by model or event arrival order.
+func codexRouteMatches(records []codexRouteRecord) []codexRouteRecord {
+	idx := indexCodexRoutes(records)
 	var matches []codexRouteRecord
-	for toolID, decision := range decisions {
-		agentID := results[toolID]
-		start, exists := starts[agentID]
-		if toolID == "" || agentID == "" || !exists || start.Model == "" || verified[toolID] {
+	for toolID, decision := range idx.decisions {
+		agentID := idx.results[toolID]
+		start, exists := idx.starts[agentID]
+		if toolID == "" || agentID == "" || !exists || start.Model == "" || idx.verified[toolID] {
 			continue
 		}
 		match := decision.RequestedModel == start.Model

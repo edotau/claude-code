@@ -35,6 +35,12 @@ func mustParse(t *testing.T, overlay string) *Registry {
 func TestPresetExpansion(t *testing.T) {
 	reg := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://adb-1.azuredatabricks.net/", "cliProfile": "work"}}}}`)
 	p := reg.Providers["dbx"]
+	t.Run("routes", func(t *testing.T) { checkPresetRoutes(t, p) })
+	t.Run("auth", func(t *testing.T) { checkPresetAuth(t, p) })
+	t.Run("models and env", func(t *testing.T) { checkPresetModelsEnv(t, p) })
+}
+
+func checkPresetRoutes(t *testing.T, p *Provider) {
 	if p.Protocol != ProtocolAnthropic || p.BaseURL != "https://adb-1.azuredatabricks.net/serving-endpoints/anthropic" {
 		t.Errorf("kind/base = %q %q", p.Protocol, p.BaseURL)
 	}
@@ -46,6 +52,9 @@ func TestPresetExpansion(t *testing.T) {
 	if got, _ := p.Route(ProtocolAnthropic); got != p.BaseURL {
 		t.Errorf("Route(anthropic) = %q", got)
 	}
+}
+
+func checkPresetAuth(t *testing.T, p *Provider) {
 	if p.Auth.Type != AuthKey || p.Auth.TTL != 1800 {
 		t.Errorf("auth = %+v", p.Auth)
 	}
@@ -60,6 +69,9 @@ func TestPresetExpansion(t *testing.T) {
 			t.Errorf("command uses -t: %q", c)
 		}
 	}
+}
+
+func checkPresetModelsEnv(t *testing.T, p *Provider) {
 	wantModels := map[string]string{"opus": "databricks-claude-opus-5-5", "sonnet": "databricks-claude-sonnet-5-5", "haiku": "databricks-claude-haiku-5-5"}
 	if !reflect.DeepEqual(p.Models, wantModels) {
 		t.Errorf("models = %v", p.Models)
@@ -81,6 +93,11 @@ func TestPresetExplicitFieldsWin(t *testing.T) {
 		"protocol": "openai", "base_url": "https://own/base", "routes": {"openai": "https://own/oa"},
 		"auth": {"type":"key","header":"x-api-key", "ttl": 60, "command": "echo mine", "refreshCommand": "echo fresh"},
 		"models": {"opus": "my-opus"}, "env": {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "0", "OTHER": "x"}}}}}`).Providers["dbx"]
+	t.Run("routes", func(t *testing.T) { checkExplicitRoutes(t, p) })
+	t.Run("auth models env", func(t *testing.T) { checkExplicitAuthModelsEnv(t, p) })
+}
+
+func checkExplicitRoutes(t *testing.T, p *Provider) {
 	if p.Protocol != "openai" || p.BaseURL != "https://own/base" {
 		t.Errorf("kind/base overridden: %q %q", p.Protocol, p.BaseURL)
 	}
@@ -90,6 +107,9 @@ func TestPresetExplicitFieldsWin(t *testing.T) {
 	if got, _ := p.Route(ProtocolResponses); got != "https://h.example.com/serving-endpoints" {
 		t.Errorf("responses route = %q", got)
 	}
+}
+
+func checkExplicitAuthModelsEnv(t *testing.T, p *Provider) {
 	if p.Auth.Type != AuthKey || p.Auth.Header != HeaderXAPIKey || p.Auth.TTL != 60 || p.Auth.Command != "echo mine" || p.Auth.RefreshCommand != "echo fresh" {
 		t.Errorf("auth overridden: %+v", p.Auth)
 	}

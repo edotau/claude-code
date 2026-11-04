@@ -69,6 +69,28 @@ func waitFor(t *testing.T, d time.Duration, what string, cond func() bool) {
 	t.Fatalf("timed out after %v waiting for %s", d, what)
 }
 
+// readTreeFrames forwards each `event: tree` data payload of the SSE body to frames, closing it at EOF.
+func readTreeFrames(ctx context.Context, resp *http.Response, frames chan<- string) {
+	defer resp.Body.Close()
+	defer close(frames)
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	ev := ""
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			ev = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: ") && ev == "tree":
+			select {
+			case frames <- strings.TrimPrefix(line, "data: "):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
 // openEvents opens /api/events and returns a channel of `event: tree` data payloads plus the cancel func.
 func openEvents(t *testing.T, base string) (<-chan string, context.CancelFunc) {
 	t.Helper()
@@ -90,26 +112,7 @@ func openEvents(t *testing.T, base string) (<-chan string, context.CancelFunc) {
 		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
 	}
 	frames := make(chan string, 16)
-	go func() {
-		defer resp.Body.Close()
-		defer close(frames)
-		sc := bufio.NewScanner(resp.Body)
-		sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-		ev := ""
-		for sc.Scan() {
-			line := sc.Text()
-			switch {
-			case strings.HasPrefix(line, "event: "):
-				ev = strings.TrimPrefix(line, "event: ")
-			case strings.HasPrefix(line, "data: ") && ev == "tree":
-				select {
-				case frames <- strings.TrimPrefix(line, "data: "):
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
+	go readTreeFrames(ctx, resp, frames)
 	return frames, cancel
 }
 

@@ -187,6 +187,11 @@ func applyOverlay(base, o *Registry) error {
 		base.AgentPlanFormat = o.AgentPlanFormat
 	}
 	applyRoutingOverlay(&base.Routing, &o.Routing)
+	return applyProviderOverlay(base, o)
+}
+
+// applyProviderOverlay merges o's profiles into base; a null profile removes a built-in.
+func applyProviderOverlay(base, o *Registry) error {
 	if base.Providers == nil {
 		base.Providers = map[string]*Provider{}
 	}
@@ -210,15 +215,7 @@ func applyOverlay(base, o *Registry) error {
 // applyRoutingOverlay merges o into base: cells cell by cell (matching how router.LoadFrom applies
 // them), every other field replaced whole when the overlay sets it.
 func applyRoutingOverlay(base, o *Routing) {
-	for agent, aliases := range o.Cells {
-		if base.Cells == nil {
-			base.Cells = map[string]map[string]RouteCell{}
-		}
-		if base.Cells[agent] == nil {
-			base.Cells[agent] = map[string]RouteCell{}
-		}
-		maps.Copy(base.Cells[agent], aliases)
-	}
+	mergeCells(base, o)
 	if o.Weights != nil {
 		base.Weights = o.Weights // an overlay replaces the weights whole, per its docstring
 	}
@@ -237,16 +234,34 @@ func applyRoutingOverlay(base, o *Routing) {
 		}
 		base.Ladders[name] = ladder // a ladder is one owned list: replaced whole by name
 	}
-	if o.Opencode.Ladder != nil {
-		base.Opencode.Ladder = o.Opencode.Ladder
+	applyOpencodeOverlay(&base.Opencode, &o.Opencode)
+}
+
+// mergeCells copies o's route cells into base cell by cell.
+func mergeCells(base, o *Routing) {
+	for agent, aliases := range o.Cells {
+		if base.Cells == nil {
+			base.Cells = map[string]map[string]RouteCell{}
+		}
+		if base.Cells[agent] == nil {
+			base.Cells[agent] = map[string]RouteCell{}
+		}
+		maps.Copy(base.Cells[agent], aliases)
 	}
-	if o.Opencode.WorkRepoMarkers != nil {
-		base.Opencode.WorkRepoMarkers = o.Opencode.WorkRepoMarkers
+}
+
+// applyOpencodeOverlay replaces each opencode field whole when the overlay sets it.
+func applyOpencodeOverlay(base, o *OpencodeRouting) {
+	if o.Ladder != nil {
+		base.Ladder = o.Ladder
 	}
-	if o.Opencode.FreeTiers != nil {
-		base.Opencode.FreeTiers = o.Opencode.FreeTiers
+	if o.WorkRepoMarkers != nil {
+		base.WorkRepoMarkers = o.WorkRepoMarkers
 	}
-	if o.Opencode.FreeFirstOutput != "" {
-		base.Opencode.FreeFirstOutput = o.Opencode.FreeFirstOutput
+	if o.FreeTiers != nil {
+		base.FreeTiers = o.FreeTiers
+	}
+	if o.FreeFirstOutput != "" {
+		base.FreeFirstOutput = o.FreeFirstOutput
 	}
 }

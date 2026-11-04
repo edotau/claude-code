@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -84,18 +85,7 @@ func pickerNew(p *Provider, saved, live []ModelInfo) []ModelInfo {
 }
 
 func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []OpencodeModel) []ModelInfo {
-	seen := make(map[string]bool)
-	for _, id := range p.Models {
-		seen[p.WireModel(models.Strip1M(id))] = true
-	}
-	if p.Preset == PresetDatabricks {
-		for _, m := range baseline {
-			seen[p.WireModel(m.ID)] = true
-		}
-	}
-	for _, m := range saved {
-		seen[p.WireModel(models.Strip1M(m.ID))] = true
-	}
+	seen := pickerSeen(p, saved, baseline)
 	var out []ModelInfo
 	for _, m := range live {
 		if m.ID == "" || seen[p.WireModel(models.Strip1M(m.ID))] {
@@ -108,16 +98,25 @@ func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []Open
 		// Do not persist readiness or capabilities as a claim of current availability.
 		out = append(out, ModelInfo{ID: m.ID, Name: m.Name, UseCase: m.UseCase})
 	}
-	slices.SortFunc(out, func(a, b ModelInfo) int {
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(out, func(a, b ModelInfo) int { return cmp.Compare(a.ID, b.ID) })
 	return out
+}
+
+// pickerSeen is the set of wire ids already offered: configured aliases, the legacy menu (Databricks), saved additions.
+func pickerSeen(p *Provider, saved []ModelInfo, baseline []OpencodeModel) map[string]bool {
+	seen := make(map[string]bool)
+	for _, id := range p.Models {
+		seen[p.WireModel(models.Strip1M(id))] = true
+	}
+	if p.Preset == PresetDatabricks {
+		for _, m := range baseline {
+			seen[p.WireModel(m.ID)] = true
+		}
+	}
+	for _, m := range saved {
+		seen[p.WireModel(models.Strip1M(m.ID))] = true
+	}
+	return seen
 }
 
 // PreviewPickerModels computes additions without writing any discovery state.

@@ -123,20 +123,64 @@ func runBudgeted(b Bound, in *Input, wg *sync.WaitGroup) (Result, error) {
 // skipOrBlock names what a failed handler's log line reports, keyed by Spec.Blocks.
 var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
 
+// dispatchMerge accumulates the handlers' results for one Dispatch call.
+type dispatchMerge struct {
+	merged         Result
+	ctx, sys, errs []string
+	firstErr       error
+	log            io.Writer
+}
+
+func (m *dispatchMerge) fail(err error) {
+	fmt.Fprintln(m.log, "hook dispatch:", err)
+	if m.firstErr == nil {
+		m.firstErr = err
+	}
+}
+
+// add folds one successful handler result into the merge.
+func (m *dispatchMerge) add(b Bound, event string, r Result) {
+	merged := &m.merged
+	if r.Decision > merged.Decision {
+		merged.Decision, merged.Reason = r.Decision, r.Reason
+	} else if r.Decision == merged.Decision && merged.Reason == "" {
+		merged.Reason = r.Reason
+	}
+	if r.ExitCode != 0 {
+		r.Stderr = fmt.Sprintf("%s\n(hook exit %d)", r.Stderr, r.ExitCode)
+	}
+	m.ctx, m.sys, m.errs = appendNonEmpty(m.ctx, r.Context), appendNonEmpty(m.sys, r.SystemMessage), appendNonEmpty(m.errs, r.Stderr)
+	if r.UpdatedInput != nil {
+		if merged.UpdatedInput != nil {
+			m.fail(fmt.Errorf("%s/%s: second updatedInput on %s", b.Group, b.Spec.Name, event))
+			return
+		}
+		merged.UpdatedInput = r.UpdatedInput
+	}
+	m.addWorktree(b, r)
+}
+
+// addWorktree folds the worktree group's exit code and raw stdout, the only group allowed either.
+func (m *dispatchMerge) addWorktree(b Bound, r Result) {
+	if r.ExitCode != 0 && b.Group == "worktree" && m.merged.ExitCode == 0 {
+		m.merged.ExitCode = r.ExitCode
+	}
+	if r.Stdout == "" {
+		return
+	}
+	if b.Group != "worktree" {
+		m.fail(fmt.Errorf("%s/%s: raw stdout is reserved for the worktree group", b.Group, b.Spec.Name))
+		return
+	}
+	m.merged.Stdout = r.Stdout
+}
+
 // Dispatch runs, in order, every bound handler on event whose matcher hits and merges the results. A handler
 // that panics or overruns is logged and skipped (a Blocks gate blocks); a second updatedInput or raw stdout errors.
 func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, error) {
-	var merged Result
-	var ctx, sys, errs []string
-	var firstErr error
+	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
 	var longest time.Duration
-	fail := func(err error) {
-		fmt.Fprintln(log, "hook dispatch:", err)
-		if firstErr == nil {
-			firstErr = err
-		}
-	}
 	for _, b := range bound {
 		if b.Spec.Event != event || !matches(b.Spec.Matcher, in.ToolName) {
 			continue
@@ -146,42 +190,17 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 		if err != nil {
 			fmt.Fprintf(log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
 			if b.Spec.Blocks { // a gate that could not run fails closed
-				merged.Decision, merged.Reason = Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
+				m.merged.Decision, m.merged.Reason = Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
 			}
 			continue
 		}
-		if r.Decision > merged.Decision {
-			merged.Decision, merged.Reason = r.Decision, r.Reason
-		} else if r.Decision == merged.Decision && merged.Reason == "" {
-			merged.Reason = r.Reason
-		}
-		if r.ExitCode != 0 {
-			r.Stderr = fmt.Sprintf("%s\n(hook exit %d)", r.Stderr, r.ExitCode)
-		}
-		ctx, sys, errs = appendNonEmpty(ctx, r.Context), appendNonEmpty(sys, r.SystemMessage), appendNonEmpty(errs, r.Stderr)
-		if r.UpdatedInput != nil {
-			if merged.UpdatedInput != nil {
-				fail(fmt.Errorf("%s/%s: second updatedInput on %s", b.Group, b.Spec.Name, event))
-				continue
-			}
-			merged.UpdatedInput = r.UpdatedInput
-		}
-		if r.ExitCode != 0 && b.Group == "worktree" && merged.ExitCode == 0 {
-			merged.ExitCode = r.ExitCode
-		}
-		if r.Stdout != "" {
-			if b.Group != "worktree" {
-				fail(fmt.Errorf("%s/%s: raw stdout is reserved for the worktree group", b.Group, b.Spec.Name))
-				continue
-			}
-			merged.Stdout = r.Stdout
-		}
+		m.add(b, event, r)
 	}
 	drain(&wg, longest, log)
-	merged.Context = capContext(strings.Join(ctx, "\n\n"))
-	merged.SystemMessage = strings.Join(sys, "; ")
-	merged.Stderr = strings.Join(errs, "\n")
-	return merged, firstErr
+	m.merged.Context = capContext(strings.Join(m.ctx, "\n\n"))
+	m.merged.SystemMessage = strings.Join(m.sys, "; ")
+	m.merged.Stderr = strings.Join(m.errs, "\n")
+	return m.merged, m.firstErr
 }
 
 func appendNonEmpty(list []string, s string) []string {

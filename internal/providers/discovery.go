@@ -28,19 +28,20 @@ func DiscoverySource(p *Provider) (source, skip string) {
 		}
 		return "databricks-serving-endpoints", ""
 	}
-	if _, ok := p.Route(ProtocolGemini); ok {
-		return "gemini-models", ""
-	}
-	if _, ok := p.Route(ProtocolAnthropic); ok {
-		return "anthropic-models", ""
-	}
-	if _, ok := p.Route(ProtocolOpenAI); ok {
-		return "openai-models", ""
-	}
-	if _, ok := p.Route(ProtocolResponses); ok {
-		return "openai-models", ""
+	for _, r := range discoveryRoutes {
+		if _, ok := p.Route(r.protocol); ok {
+			return r.source, ""
+		}
 	}
 	return "", "profile has no supported live model-list route"
+}
+
+// discoveryRoutes maps a route protocol to its discovery source, in priority order.
+var discoveryRoutes = []struct{ protocol, source string }{
+	{ProtocolGemini, "gemini-models"},
+	{ProtocolAnthropic, "anthropic-models"},
+	{ProtocolOpenAI, "openai-models"},
+	{ProtocolResponses, "openai-models"},
 }
 
 // DiscoverModels lists live only, with bounded pagination and no partial or fallback results.
@@ -62,16 +63,7 @@ func discoverPages(ctx context.Context, p *Provider, source, base string) ([]Mod
 	cursor, cursorKey := "", ""
 	visited := make(map[string]bool)
 	for range 100 {
-		u, err := url.Parse(base)
-		if err != nil {
-			return nil, errors.New("invalid catalog route")
-		}
-		q := u.Query()
-		if cursor != "" {
-			q.Set(cursorKey, cursor)
-		}
-		u.RawQuery = q.Encode()
-		body, err := discoveryGet(ctx, p, u.String(), source)
+		body, err := fetchCatalogPage(ctx, p, source, base, cursorKey, cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -100,6 +92,20 @@ func discoverPages(ctx context.Context, p *Provider, source, base string) ([]Mod
 		visited[next], cursor, cursorKey = true, next, key
 	}
 	return nil, errors.New("catalog pagination exceeded 100 pages; no partial catalog saved")
+}
+
+// fetchCatalogPage GETs one catalog page, adding the cursor to base's own query.
+func fetchCatalogPage(ctx context.Context, p *Provider, source, base, cursorKey, cursor string) ([]byte, error) {
+	u, err := url.Parse(base)
+	if err != nil {
+		return nil, errors.New("invalid catalog route")
+	}
+	q := u.Query()
+	if cursor != "" {
+		q.Set(cursorKey, cursor)
+	}
+	u.RawQuery = q.Encode()
+	return discoveryGet(ctx, p, u.String(), source)
 }
 
 // discoveryBase returns the list URL (without query) for a discovery source.
@@ -155,25 +161,35 @@ func decodeCatalogPage(body []byte, source string) (doc catalogDoc, empty bool, 
 	if json.Unmarshal(body, &fields) != nil || fields == nil {
 		return doc, false, errors.New("invalid catalog JSON object")
 	}
-	array := "data"
-	switch source {
-	case "databricks-serving-endpoints":
-		array = "endpoints"
-	case "gemini-models":
-		array = "models"
-	}
+	array := catalogArrayKey(source)
 	// Protobuf JSON omits empty repeated fields for Gemini and serving endpoints.
 	if _, ok := fields[array]; !ok && len(fields) == 0 && array != "data" {
 		return doc, true, nil
 	}
-	raw := strings.TrimSpace(string(fields[array]))
-	if len(raw) == 0 || raw[0] != '[' || jsonSet(fields["error"]) || jsonSet(fields["error_code"]) {
+	if !validCatalogArray(fields, array) {
 		return doc, false, errors.New("catalog response missing expected model array or contains an error")
 	}
 	if json.Unmarshal(body, &doc) != nil {
 		return doc, false, errors.New("invalid catalog JSON response")
 	}
 	return doc, false, nil
+}
+
+// validCatalogArray reports a JSON-array model field with no error field beside it.
+func validCatalogArray(fields map[string]json.RawMessage, array string) bool {
+	raw := strings.TrimSpace(string(fields[array]))
+	return len(raw) > 0 && raw[0] == '[' && !jsonSet(fields["error"]) && !jsonSet(fields["error_code"])
+}
+
+// catalogArrayKey is the JSON field holding a source's model array.
+func catalogArrayKey(source string) string {
+	switch source {
+	case "databricks-serving-endpoints":
+		return "endpoints"
+	case "gemini-models":
+		return "models"
+	}
+	return "data"
 }
 
 // jsonSet reports a present, non-null JSON field value.
@@ -184,42 +200,57 @@ func jsonSet(raw json.RawMessage) bool {
 
 // catalogEntries converts one decoded page into models for the source.
 func catalogEntries(source string, body []byte, doc catalogDoc) ([]ModelInfo, error) {
-	var out []ModelInfo
 	switch source {
 	case "databricks-serving-endpoints":
-		entries, err := decodeServingEndpoints("catalog", body)
-		if err != nil {
-			return nil, errors.New("invalid serving endpoints response")
-		}
-		for _, e := range entries {
-			if strings.TrimSpace(e.id) == "" {
-				return nil, errors.New("catalog entry missing model ID")
-			}
-			out = append(out, ModelInfo{ID: e.id, Name: displayName(e.id), UseCase: models.UseCase(e.id, e.name), Task: e.task, Ready: e.ready})
-		}
+		return servingCatalogEntries(body)
 	case "gemini-models":
-		for _, m := range doc.Models {
-			if strings.TrimSpace(strings.TrimPrefix(m.Name, "models/")) == "" {
-				return nil, errors.New("catalog entry missing model ID")
-			}
-			if !slices.Contains(m.Methods, "generateContent") {
-				continue
-			}
-			// generateContent clients take the id without the resource's models/ prefix.
-			id := strings.TrimPrefix(m.Name, "models/")
-			out = append(out, ModelInfo{ID: id, Name: m.DisplayName, UseCase: models.UseCase(id, m.DisplayName)})
+		return geminiCatalogEntries(doc)
+	}
+	return dataCatalogEntries(source, doc)
+}
+
+func servingCatalogEntries(body []byte) ([]ModelInfo, error) {
+	var out []ModelInfo
+	entries, err := decodeServingEndpoints("catalog", body)
+	if err != nil {
+		return nil, errors.New("invalid serving endpoints response")
+	}
+	for _, e := range entries {
+		if strings.TrimSpace(e.id) == "" {
+			return nil, errors.New("catalog entry missing model ID")
 		}
-	default:
-		for _, m := range doc.Data {
-			if strings.TrimSpace(m.ID) == "" {
-				return nil, errors.New("catalog entry missing model ID")
-			}
-			name := m.DisplayName
-			if name == "" {
-				name = displayName(m.ID)
-			}
-			out = append(out, ModelInfo{ID: m.ID, Name: name, UseCase: models.UseCase(m.ID, name), Gateway: source == "databricks-ai-gateway"})
+		out = append(out, ModelInfo{ID: e.id, Name: displayName(e.id), UseCase: models.UseCase(e.id, e.name), Task: e.task, Ready: e.ready})
+	}
+	return out, nil
+}
+
+func geminiCatalogEntries(doc catalogDoc) ([]ModelInfo, error) {
+	var out []ModelInfo
+	for _, m := range doc.Models {
+		if strings.TrimSpace(strings.TrimPrefix(m.Name, "models/")) == "" {
+			return nil, errors.New("catalog entry missing model ID")
 		}
+		if !slices.Contains(m.Methods, "generateContent") {
+			continue
+		}
+		// generateContent clients take the id without the resource's models/ prefix.
+		id := strings.TrimPrefix(m.Name, "models/")
+		out = append(out, ModelInfo{ID: id, Name: m.DisplayName, UseCase: models.UseCase(id, m.DisplayName)})
+	}
+	return out, nil
+}
+
+func dataCatalogEntries(source string, doc catalogDoc) ([]ModelInfo, error) {
+	var out []ModelInfo
+	for _, m := range doc.Data {
+		if strings.TrimSpace(m.ID) == "" {
+			return nil, errors.New("catalog entry missing model ID")
+		}
+		name := m.DisplayName
+		if name == "" {
+			name = displayName(m.ID)
+		}
+		out = append(out, ModelInfo{ID: m.ID, Name: name, UseCase: models.UseCase(m.ID, name), Gateway: source == "databricks-ai-gateway"})
 	}
 	return out, nil
 }
@@ -252,24 +283,8 @@ func discoveryGet(ctx context.Context, p *Provider, u, source string) ([]byte, e
 		return nil, errors.New("cannot construct catalog request")
 	}
 	req.Header.Set("anthropic-version", "2023-06-01")
-	if p.Auth.Type == AuthCLI {
-		tok := HeadlessOAuthToken()
-		if tok == "" {
-			return nil, errors.New("no harness-readable subscription credential")
-		}
-		req.Header.Set("Authorization", "Bearer "+tok)
-		req.Header.Set("anthropic-beta", anthropicOAuthBeta)
-	} else if err := Authorize(ctx, p, req.Header); err != nil {
-		return nil, errors.New("catalog authentication unavailable; check profile credentials")
-	}
-	if source == "gemini-models" && p.Auth.Type == AuthKey {
-		token, err := Credential(ctx, p)
-		if err != nil {
-			return nil, errors.New("gemini API credential unavailable")
-		}
-		req.Header.Del("Authorization")
-		req.Header.Del("X-Api-Key")
-		req.Header.Set("X-Goog-Api-Key", token)
+	if err := authorizeDiscovery(ctx, p, req, source); err != nil {
+		return nil, err
 	}
 	client := httpClient()
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -287,4 +302,28 @@ func discoveryGet(ctx context.Context, p *Provider, u, source string) ([]byte, e
 		return nil, errors.New("cannot read bounded catalog response")
 	}
 	return body, nil
+}
+
+// authorizeDiscovery sets the credential headers on a catalog GET; errors name no secret.
+func authorizeDiscovery(ctx context.Context, p *Provider, req *http.Request, source string) error {
+	if p.Auth.Type == AuthCLI {
+		tok := HeadlessOAuthToken()
+		if tok == "" {
+			return errors.New("no harness-readable subscription credential")
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("anthropic-beta", anthropicOAuthBeta)
+	} else if err := Authorize(ctx, p, req.Header); err != nil {
+		return errors.New("catalog authentication unavailable; check profile credentials")
+	}
+	if source == "gemini-models" && p.Auth.Type == AuthKey {
+		token, err := Credential(ctx, p)
+		if err != nil {
+			return errors.New("gemini API credential unavailable")
+		}
+		req.Header.Del("Authorization")
+		req.Header.Del("X-Api-Key")
+		req.Header.Set("X-Goog-Api-Key", token)
+	}
+	return nil
 }

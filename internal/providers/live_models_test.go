@@ -58,9 +58,9 @@ func liveDbxProvider(t *testing.T, host, token string) *Provider {
 		Auth: Auth{Type: AuthKey, Env: env}}
 }
 
-func TestListModelsDatabricksServingEndpoints(t *testing.T) {
-	var rec pathRecorder
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// servingHandler serves the serving-endpoints listing and a /v1/models that must never be read, recording each hit.
+func servingHandler(rec *pathRecorder) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		rec.hit(r)
 		switch r.URL.Path {
 		case "/api/2.0/serving-endpoints":
@@ -70,7 +70,12 @@ func TestListModelsDatabricksServingEndpoints(t *testing.T) {
 		default:
 			writeJSON(w, 404, `{}`)
 		}
-	}))
+	}
+}
+
+func TestListModelsDatabricksServingEndpoints(t *testing.T) {
+	var rec pathRecorder
+	srv := httptest.NewTLSServer(servingHandler(&rec))
 	t.Cleanup(srv.Close)
 	trustTestTLS(t, srv)
 	p := liveDbxProvider(t, srv.URL, "tok-abc123")
@@ -79,6 +84,23 @@ func TestListModelsDatabricksServingEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListModels: %v", err)
 	}
+	checkServingRows(t, got)
+	if !rec.saw("/api/2.0/serving-endpoints") {
+		t.Errorf("serving-endpoints not hit; paths = %v", rec.paths)
+	}
+	if rec.saw("/v1/models") {
+		t.Errorf("Databricks provider hit /v1/models; paths = %v", rec.paths)
+	}
+	for _, a := range rec.auth {
+		if a != "Bearer tok-abc123" {
+			t.Errorf("Authorization = %q, want %q", a, "Bearer tok-abc123")
+		}
+	}
+}
+
+// checkServingRows asserts the three rows dbxServingBody decodes to.
+func checkServingRows(t *testing.T, got []ModelInfo) {
+	t.Helper()
 	want := []struct{ id, caps, task, ready string }{
 		{"databricks-claude-sonnet", "llm/v1/chat · READY", "llm/v1/chat", "READY"},
 		{"embed-small", "llm/v1/embeddings · NOT_READY", "llm/v1/embeddings", "NOT_READY"},
@@ -90,17 +112,6 @@ func TestListModelsDatabricksServingEndpoints(t *testing.T) {
 	for i, w := range want {
 		if got[i].ID != w.id || got[i].Capabilities != w.caps || got[i].Task != w.task || got[i].Ready != w.ready {
 			t.Errorf("row %d = %+v, want id=%q caps=%q task=%q ready=%q", i, got[i], w.id, w.caps, w.task, w.ready)
-		}
-	}
-	if !rec.saw("/api/2.0/serving-endpoints") {
-		t.Errorf("serving-endpoints not hit; paths = %v", rec.paths)
-	}
-	if rec.saw("/v1/models") {
-		t.Errorf("Databricks provider hit /v1/models; paths = %v", rec.paths)
-	}
-	for _, a := range rec.auth {
-		if a != "Bearer tok-abc123" {
-			t.Errorf("Authorization = %q, want %q", a, "Bearer tok-abc123")
 		}
 	}
 }

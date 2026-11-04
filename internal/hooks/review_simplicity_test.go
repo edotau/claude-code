@@ -71,26 +71,28 @@ func TestReviewSimplicityIgnoresNonSource(t *testing.T) {
 	}
 }
 
+// rsGit runs each git argument set in dir, failing the test on the first error.
+func rsGit(t *testing.T, dir string, argSets ...[]string) {
+	t.Helper()
+	for _, a := range argSets {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", a, err, out)
+		}
+	}
+}
+
 func TestReviewSimplicityWriteUsesGitHead(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
 	dir := t.TempDir()
-	for _, a := range [][]string{{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "t"}} {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", a, err, out)
-		}
-	}
+	rsGit(t, dir, []string{"init", "-q"}, []string{"config", "user.email", "t@example.com"}, []string{"config", "user.name", "t"})
 	noisy := rsClean + "\n// old one\n// old two\nfunc Old() {}\n"
 	p := filepath.Join(dir, "a.go")
 	if err := os.WriteFile(p, []byte(noisy), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range [][]string{{"add", "a.go"}, {"commit", "-q", "-m", "x"}} {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", a, err, out)
-		}
-	}
+	rsGit(t, dir, []string{"add", "a.go"}, []string{"commit", "-q", "-m", "x"})
 	// Rewrite the whole file with the old block intact: only the added block is new.
 	if err := os.WriteFile(p, []byte(noisy+"\n// new one\n// new two\nfunc N() {}\n"), 0o644); err != nil {
 		t.Fatal(err)

@@ -81,6 +81,12 @@ func expandDatabricks(p *Provider) {
 	if p.Auth.TTL == 0 {
 		p.Auth.TTL = 1800
 	}
+	fillDatabricksModelsEnv(p)
+	applyCLIProfile(p)
+}
+
+// fillDatabricksModelsEnv fills the default model aliases and the beta-off env key where unset.
+func fillDatabricksModelsEnv(p *Provider) {
 	for alias, id := range databricksModels {
 		if p.Models[alias] == "" {
 			p.Models = withKey(p.Models, alias, id)
@@ -89,6 +95,10 @@ func expandDatabricks(p *Provider) {
 	if p.Env[BetaOffKey] == "" {
 		p.Env = withKey(p.Env, BetaOffKey, "1")
 	}
+}
+
+// applyCLIProfile derives auth.command / auth.refreshCommand from a well-formed cliProfile where unset.
+func applyCLIProfile(p *Provider) {
 	if p.CLIProfile == "" || !cliProfileRE.MatchString(p.CLIProfile) {
 		return
 	}
@@ -160,6 +170,12 @@ func validatePreset(n string, p *Provider) []string {
 	if p.Preset != PresetDatabricks {
 		return append(errs, fmt.Sprintf("%s: unknown preset %q (known: %s)", n, p.Preset, PresetDatabricks))
 	}
+	return append(errs, validateDatabricksFields(n, p)...)
+}
+
+// validateDatabricksFields checks the host, cliProfile and wire of a databricks-preset provider.
+func validateDatabricksFields(n string, p *Provider) []string {
+	var errs []string
 	if PresetHost(p.Host) == "" {
 		errs = append(errs, fmt.Sprintf("%s: preset %s needs host as an absolute https URL with no path", n, p.Preset))
 	}

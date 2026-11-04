@@ -111,6 +111,11 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 	if rtkGitInLinkedWorktree(cmd, cwd) {
 		return true // Claude Code's worktree-isolation check cannot verify an rtk-wrapped git
 	}
+	return rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd)
+}
+
+// rtkGitValueVetoed reports whether any git segment runs a value subcommand or one gitRTKSubcommand can't classify.
+func rtkGitValueVetoed(cmd string) bool {
 	for _, seg := range cmdSegment.Split(cmd, -1) {
 		args := rtkGitArgs(seg)
 		if args == nil {
@@ -121,6 +126,11 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// rtkMachineReadableFlag reports whether cmd carries a flag that asks for machine-readable output.
+func rtkMachineReadableFlag(cmd string) bool {
 	tokens := shellTokens(strings.ToLower(cmd))
 	for i, token := range tokens {
 		name, _, _ := strings.Cut(token, "=")
@@ -159,6 +169,20 @@ func rtkGitInLinkedWorktree(cmd, cwd string) bool {
 	if !hasGit {
 		return false
 	}
+	for _, d := range rtkChainDirs(cmd, cwd) {
+		d, ok := rtkAbsDir(d, cwd)
+		if !ok {
+			continue
+		}
+		if top, main := paths.CheckoutOf(d); top != "" && main != top {
+			return true
+		}
+	}
+	return false
+}
+
+// rtkChainDirs lists cwd, every `cd <dir>` target and every `git -C <dir>` target in the chain.
+func rtkChainDirs(cmd, cwd string) []string {
 	dirs := []string{cwd}
 	for _, seg := range cmdSegment.Split(cmd, -1) {
 		t := shellTokens(seg)
@@ -169,23 +193,24 @@ func rtkGitInLinkedWorktree(cmd, cwd string) bool {
 			dirs = append(dirs, strings.Trim(m[1], `"'`))
 		}
 	}
-	for _, d := range dirs {
-		if d == "" {
-			continue
-		}
-		if d == "~" || strings.HasPrefix(d, "~/") {
-			d = paths.ExpandHome(d)
-		} else if !filepath.IsAbs(d) {
-			if cwd == "" {
-				continue
-			}
-			d = filepath.Join(cwd, d)
-		}
-		if top, main := paths.CheckoutOf(d); top != "" && main != top {
-			return true
-		}
+	return dirs
+}
+
+// rtkAbsDir resolves a candidate dir against cwd (~ expanded); false when it is empty or relative with no cwd.
+func rtkAbsDir(d, cwd string) (string, bool) {
+	if d == "" {
+		return "", false
 	}
-	return false
+	if d == "~" || strings.HasPrefix(d, "~/") {
+		return paths.ExpandHome(d), true
+	}
+	if filepath.IsAbs(d) {
+		return d, true
+	}
+	if cwd == "" {
+		return "", false
+	}
+	return filepath.Join(cwd, d), true
 }
 
 // RTKBinary reports the resolved rtk binary for the CLI's status line, or "".

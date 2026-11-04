@@ -39,32 +39,43 @@ func oauthToken(baseURL, clientID, clientSecret string, httpClient *http.Client)
 		if !force && cached != "" && time.Now().Before(expires) {
 			return cached, nil
 		}
-		form := url.Values{"client_id": {clientID}, "client_secret": {clientSecret}}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/oauth/token", strings.NewReader(form.Encode()))
+		out, err := mintToken(ctx, baseURL, clientID, clientSecret, httpClient)
 		if err != nil {
 			return "", err
-		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return "", err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("tailscale: oauth token mint: HTTP %d", resp.StatusCode)
-		}
-		var out struct {
-			AccessToken string `json:"access_token"`
-			ExpiresIn   int    `json:"expires_in"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			return "", err
-		}
-		if out.AccessToken == "" {
-			return "", errors.New("tailscale: oauth token mint: empty access_token")
 		}
 		cached = out.AccessToken
 		expires = time.Now().Add(time.Duration(out.ExpiresIn)*time.Second - 60*time.Second)
 		return cached, nil
 	}
+}
+
+type tokenResponse struct {
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+// mintToken POSTs the client_credentials form to /oauth/token and decodes the minted token.
+func mintToken(ctx context.Context, baseURL, clientID, clientSecret string, httpClient *http.Client) (tokenResponse, error) {
+	var out tokenResponse
+	form := url.Values{"client_id": {clientID}, "client_secret": {clientSecret}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/oauth/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return out, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("tailscale: oauth token mint: HTTP %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return out, err
+	}
+	if out.AccessToken == "" {
+		return out, errors.New("tailscale: oauth token mint: empty access_token")
+	}
+	return out, nil
 }

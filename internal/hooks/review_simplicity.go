@@ -47,24 +47,37 @@ func editContents(in *Input) (path, before, after string, ok bool) {
 	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") {
 		return "", "", "", false
 	}
-	if info, err := os.Stat(path); err != nil || info.Size() > simplicityMaxFile {
+	after, ok = readSmallFile(path)
+	if !ok {
 		return "", "", "", false
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", "", "", false
-	}
-	after = string(data)
 	if in.ToolName == "Write" {
 		return path, gitHeadContent(path), after, true
 	}
+	before, ok = editBefore(in, after)
+	return path, before, after, ok
+}
+
+// editBefore reverses an Edit on its post-edit content; false when the edit's occurrence is ambiguous.
+func editBefore(in *Input, after string) (string, bool) {
 	oldStr, newStr, all := in.nested("tool_input", "old_string"), in.nested("tool_input", "new_string"),
 		in.ToolInput()["replace_all"] == true
 	if !all && newStr != "" && strings.Count(after, newStr) > 1 {
-		return "", "", "", false // ambiguous: cannot tell which occurrence the edit wrote
+		return "", false // ambiguous: cannot tell which occurrence the edit wrote
 	}
-	before = undoEdit(after, oldStr, newStr, all)
-	return path, before, after, true
+	return undoEdit(after, oldStr, newStr, all), true
+}
+
+// readSmallFile returns the file's content unless it is unreadable or over simplicityMaxFile.
+func readSmallFile(path string) (string, bool) {
+	if info, err := os.Stat(path); err != nil || info.Size() > simplicityMaxFile {
+		return "", false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
 }
 
 // undoEdit reverses an Edit on the post-edit content: new_string back to old_string (first or all occurrences).

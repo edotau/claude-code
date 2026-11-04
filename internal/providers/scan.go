@@ -100,28 +100,38 @@ func claudeMetadataPath(path []string) bool {
 	case 1:
 		return claudeMetadataKey(path[0])
 	case 2:
-		switch path[0] {
-		case "oauthAccount", "cachedArtifactRoster":
-			return path[1] == "accountUuid" || path[1] == "organizationUuid"
-		case "chromeExtension":
-			return path[1] == "pairedDeviceId"
-		case "promoStartupStatusCache", "cachedUsageUtilization":
-			return path[1] == "accountUuid"
-		case "githubWebConnectionStatusCache":
-			return path[1] == "accountUuid" || path[1] == "orgUuid"
-		}
+		return claudeMetadataPath2(path)
 	case 3:
-		switch path[0] {
-		case "projects":
-			return claudeMetadataKey(path[2])
-		case "clientDataCacheSlots":
-			return path[2] == "org"
-		case "cachedExperimentData":
-			return path[2] == "experimentId"
-		}
+		return claudeMetadataPath3(path)
 	case 4:
 		return path[0] == "projects" && path[2] == "activeWorktreeSession" &&
 			(path[3] == "originalHeadCommit" || path[3] == "sessionId")
+	}
+	return false
+}
+
+func claudeMetadataPath2(path []string) bool {
+	switch path[0] {
+	case "oauthAccount", "cachedArtifactRoster":
+		return path[1] == "accountUuid" || path[1] == "organizationUuid"
+	case "chromeExtension":
+		return path[1] == "pairedDeviceId"
+	case "promoStartupStatusCache", "cachedUsageUtilization":
+		return path[1] == "accountUuid"
+	case "githubWebConnectionStatusCache":
+		return path[1] == "accountUuid" || path[1] == "orgUuid"
+	}
+	return false
+}
+
+func claudeMetadataPath3(path []string) bool {
+	switch path[0] {
+	case "projects":
+		return claudeMetadataKey(path[2])
+	case "clientDataCacheSlots":
+		return path[2] == "org"
+	case "cachedExperimentData":
+		return path[2] == "experimentId"
 	}
 	return false
 }
@@ -182,35 +192,7 @@ func (s *Scanner) ScanFile(path string) {
 func (s *Scanner) ScanVault() {
 	var found []string
 	err := vault.View(func(t *vault.Tx) error {
-		for _, key := range []string{"providers", "providers.prev", "agents"} {
-			raw, ok := t.Get(vault.Overlay, key)
-			if !ok {
-				continue
-			}
-			var doc any
-			if json.Unmarshal([]byte(raw), &doc) != nil {
-				found = append(found, "vault:overlay/"+key+" is not valid JSON, so it could not be scanned")
-				continue
-			}
-			walkJSONStrings(nil, doc, func(p []string, val string) {
-				if vault.LooksLikeSecret(envPairValue(val)) {
-					found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
-				}
-			})
-		}
-		for _, bucket := range []string{vault.Pins, vault.Env} {
-			kv := t.All(bucket)
-			keys := make([]string, 0, len(kv))
-			for k := range kv {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				if v := kv[k]; v != SecretRef && vault.LooksLikeSecret(v) {
-					found = append(found, "vault:"+bucket+" → "+k+" holds an inline secret")
-				}
-			}
-		}
+		found = append(scanOverlayDocs(t), scanSecretBuckets(t)...)
 		return nil
 	})
 	if err != nil {
@@ -223,6 +205,47 @@ func (s *Scanner) ScanVault() {
 	if len(found) == 0 {
 		s.ok("vault — clean")
 	}
+}
+
+// scanOverlayDocs reports inline secrets (and unparsable docs) in the overlay's providers and agents documents.
+func scanOverlayDocs(t *vault.Tx) []string {
+	var found []string
+	for _, key := range []string{"providers", "providers.prev", "agents"} {
+		raw, ok := t.Get(vault.Overlay, key)
+		if !ok {
+			continue
+		}
+		var doc any
+		if json.Unmarshal([]byte(raw), &doc) != nil {
+			found = append(found, "vault:overlay/"+key+" is not valid JSON, so it could not be scanned")
+			continue
+		}
+		walkJSONStrings(nil, doc, func(p []string, val string) {
+			if vault.LooksLikeSecret(envPairValue(val)) {
+				found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
+			}
+		})
+	}
+	return found
+}
+
+// scanSecretBuckets reports inline secret values in the pins and env buckets, key-sorted.
+func scanSecretBuckets(t *vault.Tx) []string {
+	var found []string
+	for _, bucket := range []string{vault.Pins, vault.Env} {
+		kv := t.All(bucket)
+		keys := make([]string, 0, len(kv))
+		for k := range kv {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if v := kv[k]; v != SecretRef && vault.LooksLikeSecret(v) {
+				found = append(found, "vault:"+bucket+" → "+k+" holds an inline secret")
+			}
+		}
+	}
+	return found
 }
 
 // ScanConfigs audits targets (defaultScanTargets plus the vault when empty) and prints the summary line.

@@ -45,7 +45,19 @@ func TestCreateAuthKeyBodyShape(t *testing.T) {
 	if gotAuth != "Bearer tok" {
 		t.Errorf("Authorization = %q", gotAuth)
 	}
-	devices, _ := gotBody["capabilities"].(map[string]any)["devices"].(map[string]any)
+	checkAuthKeyCapabilities(t, gotBody)
+	if gotBody["expirySeconds"] != float64(90*24*3600) {
+		t.Errorf("expirySeconds = %v, want %d", gotBody["expirySeconds"], 90*24*3600)
+	}
+	if gotBody["description"] != "ci runner" {
+		t.Errorf("description = %v", gotBody["description"])
+	}
+}
+
+// checkAuthKeyCapabilities asserts the create flags and tags of a CreateAuthKey request body.
+func checkAuthKeyCapabilities(t *testing.T, body map[string]any) {
+	t.Helper()
+	devices, _ := body["capabilities"].(map[string]any)["devices"].(map[string]any)
 	create, _ := devices["create"].(map[string]any)
 	if create["ephemeral"] != true || create["preauthorized"] != true || create["reusable"] != false {
 		t.Errorf("create flags = %+v, want ephemeral+preauthorized, not reusable", create)
@@ -53,12 +65,6 @@ func TestCreateAuthKeyBodyShape(t *testing.T) {
 	tags, _ := create["tags"].([]any)
 	if len(tags) != 2 || tags[0] != "tag:ci" {
 		t.Errorf("tags = %v", tags)
-	}
-	if gotBody["expirySeconds"] != float64(90*24*3600) {
-		t.Errorf("expirySeconds = %v, want %d", gotBody["expirySeconds"], 90*24*3600)
-	}
-	if gotBody["description"] != "ci runner" {
-		t.Errorf("description = %v", gotBody["description"])
 	}
 }
 
@@ -151,18 +157,7 @@ func TestRequestGivesUpAfterSecond401(t *testing.T) {
 // TestEnableRoutesKeepsEnabled: approving a subnet must not drop routes the tailnet already enabled.
 func TestEnableRoutesKeepsEnabled(t *testing.T) {
 	var gotBody map[string]any
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/device/dev1/routes" {
-			t.Errorf("path = %q", r.URL.Path)
-		}
-		switch r.Method {
-		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0"]}`))
-		case http.MethodPost:
-			_ = json.NewDecoder(r.Body).Decode(&gotBody)
-			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"]}`))
-		}
-	}))
+	ts := httptest.NewServer(enableRoutesHandler(t, &gotBody))
 	defer ts.Close()
 	c := staticClient(ts, "tok")
 	cur, err := c.Routes(context.Background(), "dev1")
@@ -179,6 +174,22 @@ func TestEnableRoutesKeepsEnabled(t *testing.T) {
 	}
 	if len(enabled) != 3 {
 		t.Errorf("enabled after = %v", enabled)
+	}
+}
+
+// enableRoutesHandler serves GET (two enabled routes) and POST (all three, body captured into gotBody) on dev1.
+func enableRoutesHandler(t *testing.T, gotBody *map[string]any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/device/dev1/routes" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0"]}`))
+		case http.MethodPost:
+			_ = json.NewDecoder(r.Body).Decode(gotBody)
+			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"]}`))
+		}
 	}
 }
 

@@ -1,12 +1,9 @@
 package web
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
@@ -15,15 +12,12 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 )
@@ -260,61 +254,61 @@ func postDispatchRaw(t *testing.T, s *Server, token, contentType, body string) *
 	return do(s, req)
 }
 
-// A form or multipart body over maxBodyBytes must be rejected before any field is even decoded.
-func TestDispatchBodyCap(t *testing.T) {
-	huge := strings.Repeat("x", int(maxBodyBytes)+1000)
-
-	t.Run("form", func(t *testing.T) {
-		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
-		form := dispatchForm("localhost", "claude", huge, "hi")
-		w := postDispatch(t, s, testCSRFToken, form)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("oversize form body: status = %d, want 400; body=%s", w.Code, w.Body.String())
-		}
-	})
-
-	t.Run("multipart", func(t *testing.T) {
-		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
-		var buf bytes.Buffer
-		mw := multipart.NewWriter(&buf)
-		for field, val := range map[string]string{"host": "localhost", "agent": "claude", "dir": huge, "task": "hi"} {
-			if err := mw.WriteField(field, val); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if err := mw.Close(); err != nil {
+// multipartForm encodes fields as a multipart body and returns its content type and payload.
+func multipartForm(t *testing.T, fields map[string]string) (contentType, body string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for field, val := range fields {
+		if err := mw.WriteField(field, val); err != nil {
 			t.Fatal(err)
 		}
-		w := postDispatchRaw(t, s, testCSRFToken, mw.FormDataContentType(), buf.String())
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("oversize multipart body: status = %d, want 400; body=%s", w.Code, w.Body.String())
-		}
-	})
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return mw.FormDataContentType(), buf.String()
+}
 
-	t.Run("multipart-accepted", func(t *testing.T) {
-		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
-		var buf bytes.Buffer
-		mw := multipart.NewWriter(&buf)
-		for field, val := range map[string]string{"host": "localhost", "agent": "claude", "task": "hi"} {
-			_ = mw.WriteField(field, val)
-		}
-		_ = mw.Close()
-		w := postDispatchRaw(t, s, testCSRFToken, mw.FormDataContentType(), buf.String())
-		if w.Code != http.StatusOK {
-			t.Fatalf("multipart dispatch: status = %d, want 200; body=%s", w.Code, w.Body.String())
-		}
-	})
+// A form or multipart body over maxBodyBytes must be rejected before any field is even decoded.
+func TestDispatchBodyCapForm(t *testing.T) {
+	huge := strings.Repeat("x", int(maxBodyBytes)+1000)
+	s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+	form := dispatchForm("localhost", "claude", huge, "hi")
+	w := postDispatch(t, s, testCSRFToken, form)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("oversize form body: status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
 
-	// An 8KiB all-space task, percent-encoded %20 (3x expansion, the worst case maxBodyBytes sizes
-	// for), stays within the body cap and must still be accepted.
-	t.Run("worst-case-encoding-accepted", func(t *testing.T) {
-		s := newTestServer(t, Options{DryRunDispatch: true}, nil)
-		body := "host=localhost&agent=claude&dir=&task=" + strings.Repeat("%20", maxTaskBytes)
-		w := postDispatchRaw(t, s, testCSRFToken, "application/x-www-form-urlencoded", body)
-		if w.Code != http.StatusOK {
-			t.Fatalf("worst-case-encoded 8KiB task: status = %d, want 200; body=%s", w.Code, w.Body.String())
-		}
-	})
+func TestDispatchBodyCapMultipart(t *testing.T) {
+	huge := strings.Repeat("x", int(maxBodyBytes)+1000)
+	s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+	ctype, body := multipartForm(t, map[string]string{"host": "localhost", "agent": "claude", "dir": huge, "task": "hi"})
+	w := postDispatchRaw(t, s, testCSRFToken, ctype, body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("oversize multipart body: status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDispatchBodyCapMultipartAccepted(t *testing.T) {
+	s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+	ctype, body := multipartForm(t, map[string]string{"host": "localhost", "agent": "claude", "task": "hi"})
+	w := postDispatchRaw(t, s, testCSRFToken, ctype, body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("multipart dispatch: status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+}
+
+// An 8KiB all-space task, percent-encoded %20 (3x expansion, the worst case maxBodyBytes sizes
+// for), stays within the body cap and must still be accepted.
+func TestDispatchBodyCapWorstCaseEncodingAccepted(t *testing.T) {
+	s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+	body := "host=localhost&agent=claude&dir=&task=" + strings.Repeat("%20", maxTaskBytes)
+	w := postDispatchRaw(t, s, testCSRFToken, "application/x-www-form-urlencoded", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("worst-case-encoded 8KiB task: status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
 }
 
 // resolveHosts must return opts.Hosts verbatim, every call, without ever touching the tailnet cache.
@@ -341,6 +335,45 @@ func TestDispatchMissingFieldsRejected(t *testing.T) {
 // --- hostile task reaches dry-run argv as the same quoted payload tailscale.BuildRemoteCommand builds,
 // and nothing executes (dry-run never calls exec.Command) ---
 
+// checkHostileDryRun posts task as a dry-run dispatch and asserts the argv equals dispatch's own builder output.
+func checkHostileDryRun(t *testing.T, task string) {
+	t.Helper()
+	s := newTestServer(t, Options{DryRunDispatch: true}, nil)
+	w := postDispatch(t, s, testCSRFToken, dispatchForm("localhost", "claude", "", task))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var resp dispatchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, w.Body.String())
+	}
+	if resp.Session == "" || len(resp.Argv) == 0 {
+		t.Fatalf("dry-run response missing session/argv: %+v", resp)
+	}
+	// Rebuild the exact same remote command using the session name the handler generated,
+	// and confirm the handler's dry-run argv is byte-identical to dispatch's own builder.
+	wantCmd, wantName, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{
+		Agent: "claude", Task: task, Name: resp.Session,
+	})
+	if err != nil {
+		t.Fatalf("BuildRemoteCommand: %v", err)
+	}
+	if wantName != resp.Session {
+		t.Fatalf("name mismatch: got %q want %q", resp.Session, wantName)
+	}
+	wantArgv := tailscale.ExecArgs(context.Background(), "localhost", wantCmd, true) // localhost runs locally, no ssh
+	if len(resp.Argv) != len(wantArgv) {
+		t.Fatalf("argv length = %d, want %d: got=%v want=%v", len(resp.Argv), len(wantArgv), resp.Argv, wantArgv)
+	}
+	for i := range wantArgv {
+		if resp.Argv[i] != wantArgv[i] {
+			t.Errorf("argv[%d] = %q, want %q", i, resp.Argv[i], wantArgv[i])
+		}
+	}
+}
+
+// Byte-identical argv is the authoritative proof the hostile payload went through the same QuoteSH escaping
+// dispatch itself uses, with no extra interpolation from the web layer; --dry-run-dispatch never execs.
 func TestDispatchHostileTaskDryRunMatchesBuildRemoteCommand(t *testing.T) {
 	hostileTasks := []string{
 		`'; touch /tmp/x; '`,
@@ -349,44 +382,7 @@ func TestDispatchHostileTaskDryRunMatchesBuildRemoteCommand(t *testing.T) {
 		"`whoami`",
 	}
 	for _, task := range hostileTasks {
-		t.Run(task, func(t *testing.T) {
-			s := newTestServer(t, Options{DryRunDispatch: true}, nil)
-			w := postDispatch(t, s, testCSRFToken, dispatchForm("localhost", "claude", "", task))
-			if w.Code != http.StatusOK {
-				t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
-			}
-			var resp dispatchResponse
-			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-				t.Fatalf("decode response: %v; body=%s", err, w.Body.String())
-			}
-			if resp.Session == "" || len(resp.Argv) == 0 {
-				t.Fatalf("dry-run response missing session/argv: %+v", resp)
-			}
-			// Rebuild the exact same remote command using the session name the handler generated,
-			// and confirm the handler's dry-run argv is byte-identical to dispatch's own builder.
-			wantCmd, wantName, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{
-				Agent: "claude", Task: task, Name: resp.Session,
-			})
-			if err != nil {
-				t.Fatalf("BuildRemoteCommand: %v", err)
-			}
-			if wantName != resp.Session {
-				t.Fatalf("name mismatch: got %q want %q", resp.Session, wantName)
-			}
-			wantArgv := tailscale.ExecArgs(context.Background(), "localhost", wantCmd, true) // localhost runs locally, no ssh
-			if len(resp.Argv) != len(wantArgv) {
-				t.Fatalf("argv length = %d, want %d: got=%v want=%v", len(resp.Argv), len(wantArgv), resp.Argv, wantArgv)
-			}
-			for i := range wantArgv {
-				if resp.Argv[i] != wantArgv[i] {
-					t.Errorf("argv[%d] = %q, want %q", i, resp.Argv[i], wantArgv[i])
-				}
-			}
-			// Byte-identical to dispatch's own builder (checked above) is the authoritative proof
-			// the hostile payload went through the same QuoteSH escaping dispatch itself uses, with
-			// no extra interpolation from the web layer. Nothing executes either way: --dry-run-dispatch
-			// returns the argv instead of calling exec.Command.
-		})
+		t.Run(task, func(t *testing.T) { checkHostileDryRun(t, task) })
 	}
 }
 
@@ -554,167 +550,11 @@ func TestHandleDispatchesCaptureFailureIsBadGatewayWhenNothingCached(t *testing.
 	}
 }
 
-// --- dashboard template escapes pane status fields before interpolating them into HTML ---
-
-func TestRenderDispatchesTemplateEscapesStatusFields(t *testing.T) {
-	src, err := assetsFS.ReadFile("assets/index.html.tmpl")
-	if err != nil {
-		t.Fatalf("read index.html.tmpl: %v", err)
-	}
-	body := string(src)
-	start := strings.Index(body, "function renderDispatches")
-	if start < 0 {
-		t.Fatal("renderDispatches function not found in the dashboard template")
-	}
-	end := strings.Index(body[start:], "\n}\n")
-	if end < 0 {
-		t.Fatal("could not find the end of renderDispatches")
-	}
-	fn := body[start : start+end]
-	for _, field := range []string{"p.session", "p.agent", "p.reason"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderDispatches interpolates %s without escapeHTML(...): regression risk for a pane running attacker-controlled text\n%s", field, fn)
-		}
-	}
-}
-
-// --- dashboard template escapes the new activity/dispatch/snapshot/browser fields before interpolating ---
-
-// extractJSFunc returns the body of the first JS function named name in src, the same
-// start/end-delimiter approach TestRenderDispatchesTemplateEscapesStatusFields uses.
-func extractJSFunc(t *testing.T, src, name string) string {
-	t.Helper()
-	start := strings.Index(src, "function "+name)
-	if start < 0 {
-		t.Fatalf("function %s not found in the dashboard template", name)
-	}
-	end := strings.Index(src[start:], "\n}\n")
-	if end < 0 {
-		t.Fatalf("could not find the end of %s", name)
-	}
-	return src[start : start+end]
-}
-
-func templateSource(t *testing.T) string {
-	t.Helper()
-	src, err := assetsFS.ReadFile("assets/index.html.tmpl")
-	if err != nil {
-		t.Fatalf("read index.html.tmpl: %v", err)
-	}
-	return string(src)
-}
-
-func TestRenderActivityEscapesToolAndText(t *testing.T) {
-	fn := extractJSFunc(t, templateSource(t), "renderActivity")
-	for _, field := range []string{"text"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderActivity interpolates %s without escapeHTML(...): regression risk for an agent's own text/tool output\n%s", field, fn)
-		}
-	}
-}
-
-func TestRenderLegEscapesVendorFields(t *testing.T) {
-	fn := extractJSFunc(t, templateSource(t), "renderDispatch")
-	for _, field := range []string{"l.fallback", "l.agent", "l.model", "l.duration"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderDispatch interpolates %s without escapeHTML(...): regression risk for vendor-reported agent/model/fallback text\n%s", field, fn)
-		}
-	}
-}
-
-func TestRenderSubagentsEscapesDataAttributes(t *testing.T) {
-	fn := extractJSFunc(t, templateSource(t), "renderSubagents")
-	for _, field := range []string{"sessionId", "s.id"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderSubagents interpolates %s without escapeHTML(...): regression risk in the data-session/data-agent attributes\n%s", field, fn)
-		}
-	}
-}
-
-func TestRenderSnapshotEscapesLabelAndFields(t *testing.T) {
-	fn := extractJSFunc(t, templateSource(t), "renderSnapshot")
-	for _, field := range []string{"snap.label || snap.id", "snap.workflow", "snap.model || ''", "snap.result", "lines"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderSnapshot interpolates %s without escapeHTML(...): regression risk for agent-controlled label/result/event text\n%s", field, fn)
-		}
-	}
-}
-
-// --- dashboard template escapes workflow-run fields (name/phase; status goes through chip()) ---
-
-func TestRenderWorkflowsEscapesNameAndPhase(t *testing.T) {
-	fn := extractJSFunc(t, templateSource(t), "renderWorkflows")
-	for _, field := range []string{"run.name || run.id", "phase.name"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderWorkflows interpolates %s without escapeHTML(...): regression risk for a workflow run's own name/phase text\n%s", field, fn)
-		}
-	}
-	// run.status/is rendered only through chip(...), which escapes internally — not a bare escapeHTML(...) call.
-	if !strings.Contains(fn, "chip(run.status)") {
-		t.Errorf("renderWorkflows must route run.status through chip(...) (which itself escapes)\n%s", fn)
-	}
-}
-
-func TestRenderBrowsersEscapesReportFields(t *testing.T) {
-	fn := extractJSFunc(t, templateSource(t), "renderBrowsers")
-	for _, field := range []string{"b.displayName || b.name", "b.host || ''"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderBrowsers interpolates %s without escapeHTML(...): regression risk for browser-report text\n%s", field, fn)
-		}
-	}
-}
-
 type simulatedSSHErr string
 
 func (e simulatedSSHErr) Error() string { return string(e) }
 
 var errSimulatedSSH = simulatedSSHErr("ssh: connection refused")
-
-// Regression: a fetch that began before an SSE render must not overwrite it; the guard lives in the page script.
-func TestIndexTreeFetchGuardedByEpoch(t *testing.T) {
-	src := templateSource(t)
-	load := extractJSFunc(t, src, "loadTree")
-	for _, want := range []string{"const started = treeEpoch", "if (treeEpoch !== started) return;"} {
-		if !strings.Contains(load, want) {
-			t.Fatalf("loadTree lacks %q", want)
-		}
-	}
-	watch := extractJSFunc(t, src, "watchTree")
-	if i, j := strings.Index(watch, "treeEpoch++"), strings.Index(watch, "paintTree("); i < 0 || j < 0 || i > j {
-		t.Fatal("watchTree must bump treeEpoch before rendering an SSE snapshot")
-	}
-	if !strings.Contains(watch, "es.onerror") || !strings.Contains(src, "if (!treeLive) loadTree();") {
-		t.Fatal("polling fallback missing")
-	}
-}
-
-// Runs the page's real loadTree/watchTree in node: a fetch that resolves after an SSE snapshot must not overwrite it.
-func TestIndexStaleFetchLosesToSSEInNode(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not on PATH")
-	}
-	src := templateSource(t)
-	script := `let treeEpoch = 0; let treeLive = false;
-const el = {innerHTML: ''}; const document = {getElementById: () => el};
-function renderTree(t) { return t.v; }
-let resolveFetch; function fetch() { return new Promise(r => { resolveFetch = r; }); }
-let listener; const window = {EventSource: true};
-function EventSource() { this.addEventListener = (n, f) => { if (n === 'tree') listener = f; }; this.close = () => {}; }
-` + extractJSFunc(t, src, "loadTree") + "\n}\n" + extractJSFunc(t, src, "watchTree") + "\n}" + `
-loadTree(); watchTree();
-listener({data: JSON.stringify({v: 'sse'})});
-resolveFetch({json: () => ({v: 'stale'})});
-setTimeout(() => { process.stdout.write(el.innerHTML); }, 10);
-`
-	out, err := exec.Command(node, "-e", script).CombinedOutput()
-	if err != nil {
-		t.Fatalf("node: %v\n%s", err, out)
-	}
-	if string(out) != "sse" {
-		t.Fatalf("tree shows %q after a stale fetch resolved, want the SSE snapshot \"sse\"", out)
-	}
-}
 
 func TestValidateBindAddr(t *testing.T) {
 	cases := []struct {
@@ -766,146 +606,6 @@ func TestIsCGNAT(t *testing.T) {
 	}
 }
 
-// countingBrowserEnv returns a browser.Env whose Run never touches a real binary (every probe
-// reports "not found") and counts how many times it was invoked, so cache-hit vs. cache-miss
-// behavior can be asserted without mdfind/xdg-settings/defaults ever running for real.
-func countingBrowserEnv(t *testing.T) (browser.Env, *int) {
-	t.Helper()
-	n := 0
-	var mu sync.Mutex
-	return browser.Env{
-		Home:       t.TempDir(),
-		AppSupport: t.TempDir(),
-		GOOS:       "linux", // deterministic probe set off this machine's actual installed browsers
-		Run: func(name string, args ...string) (string, error) {
-			mu.Lock()
-			n++
-			mu.Unlock()
-			return "", errNotFound
-		},
-		Now: time.Now,
-	}, &n
-}
-
-type notFoundErr string
-
-func (e notFoundErr) Error() string { return string(e) }
-
-const errNotFound = notFoundErr("not found")
-
-// newBrowserTestServer is newTestServer plus an injected fake browser.Env and clock, mirroring
-// newStatusTestServer's pattern for /api/dispatches.
-func newBrowserTestServer(t *testing.T, env browser.Env, now func() time.Time) *Server {
-	t.Helper()
-	s := newTestServer(t, Options{}, nil)
-	s.browserEnv = env
-	s.browsers = newBrowserCache()
-	s.now = now
-	return s
-}
-
-// --- /api/browsers guard (host allowlist) ---
-
-func TestHandleBrowsersGuardRejectsBadHost(t *testing.T) {
-	env, _ := countingBrowserEnv(t)
-	s := newBrowserTestServer(t, env, time.Now)
-	req := newReq(t, "GET", "/api/browsers", "evil.example")
-	w := do(s, req)
-	if w.Code != http.StatusMisdirectedRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusMisdirectedRequest)
-	}
-}
-
-func TestHandleBrowsersGuardRejectsCrossOrigin(t *testing.T) {
-	env, _ := countingBrowserEnv(t)
-	s := newBrowserTestServer(t, env, time.Now)
-	req := newReq(t, "GET", "/api/browsers", "127.0.0.1:7777")
-	req.Header.Set("Origin", "http://evil.example")
-	w := do(s, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
-}
-
-// --- decodes to browser.Report ---
-
-func TestHandleBrowsersDecodesReport(t *testing.T) {
-	env, _ := countingBrowserEnv(t)
-	s := newBrowserTestServer(t, env, time.Now)
-	w := do(s, newReq(t, "GET", "/api/browsers", "127.0.0.1:7777"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
-	}
-	var rep browser.Report
-	if err := json.Unmarshal(w.Body.Bytes(), &rep); err != nil {
-		t.Fatalf("decode /api/browsers body into browser.Report: %v; body=%s", err, w.Body.String())
-	}
-	if len(rep.Browsers) == 0 {
-		t.Error("Report.Browsers is empty, want every known browser reported (even if not-installed)")
-	}
-}
-
-// --- cached within the TTL: one browser.Detect probe pass across three requests ---
-
-func TestHandleBrowsersServesWithinTTLFromCacheWithoutReDetecting(t *testing.T) {
-	env, calls := countingBrowserEnv(t)
-	fakeNow := time.Now()
-	s := newBrowserTestServer(t, env, func() time.Time { return fakeNow })
-
-	for i := range 3 {
-		w := do(s, newReq(t, "GET", "/api/browsers", "127.0.0.1:7777"))
-		if w.Code != http.StatusOK {
-			t.Fatalf("request %d: status = %d, want 200", i, w.Code)
-		}
-	}
-	first := *calls
-	if first == 0 {
-		t.Fatal("expected at least one Env.Run call from the first request's detection pass")
-	}
-	// A second or third request within the cache TTL must not trigger any further Env.Run calls:
-	// the call count after 3 requests must equal the count after request 1.
-	w := do(s, newReq(t, "GET", "/api/browsers", "127.0.0.1:7777"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("4th request: status = %d, want 200", w.Code)
-	}
-	if *calls != first {
-		t.Errorf("4 requests within the cache TTL triggered more Env.Run calls: first-pass=%d, after=%d", first, *calls)
-	}
-}
-
-// --- re-detects once the TTL has elapsed ---
-
-func TestHandleBrowsersRedetectsAfterTTL(t *testing.T) {
-	env, calls := countingBrowserEnv(t)
-	fakeNow := time.Now()
-	s := newBrowserTestServer(t, env, func() time.Time { return fakeNow })
-
-	w1 := do(s, newReq(t, "GET", "/api/browsers", "127.0.0.1:7777"))
-	if w1.Code != http.StatusOK {
-		t.Fatalf("first request: status = %d, want 200", w1.Code)
-	}
-	first := *calls
-
-	// Still within the TTL: no further probing.
-	w2 := do(s, newReq(t, "GET", "/api/browsers", "127.0.0.1:7777"))
-	if w2.Code != http.StatusOK {
-		t.Fatalf("second request: status = %d, want 200", w2.Code)
-	}
-	if *calls != first {
-		t.Fatalf("precondition failed: second request within TTL re-probed (calls %d -> %d)", first, *calls)
-	}
-
-	// Advance the fake clock past the cache TTL: the next request must trigger a fresh detection pass.
-	fakeNow = fakeNow.Add(browserCacheTTL + time.Second)
-	w3 := do(s, newReq(t, "GET", "/api/browsers", "127.0.0.1:7777"))
-	if w3.Code != http.StatusOK {
-		t.Fatalf("third request (post-expiry): status = %d, want 200", w3.Code)
-	}
-	if *calls <= first {
-		t.Errorf("a request past the cache TTL should re-detect, got %d calls after expiry, want > %d", *calls, first)
-	}
-}
-
 func tickReq(t *testing.T, token string, body any) *http.Request {
 	t.Helper()
 	b, err := json.Marshal(body)
@@ -921,270 +621,55 @@ func tickReq(t *testing.T, token string, body any) *http.Request {
 	return req
 }
 
-// Spanning: the endpoint ticks with s.now(), then answers 403/409/400 and leaves the plan alone on each.
-func TestPlanTickEndpoint(t *testing.T) {
+const tickTitle = "1.2 Open owns: b.go"
+
+func tickBody(path, title string) map[string]any {
+	return map[string]any{"path": path, "line": 6, "title": title, "done": true}
+}
+
+// tickServer is a plans server whose clock is fixed, plus the old plan's relative and full path.
+func tickServer(t *testing.T) (s *Server, rel, full string) {
+	t.Helper()
 	s, dir := plansServer(t)
 	fixed := time.Date(2026, 10, 31, 12, 30, 0, 0, time.UTC)
 	s.now = func() time.Time { return fixed }
-	rel := "2026-10-01-old.md"
-	full := filepath.Join(dir, "plans", rel)
-	title := "1.2 Open owns: b.go"
-	body := func(path, ttl string) map[string]any {
-		return map[string]any{"path": path, "line": 6, "title": ttl, "done": true}
-	}
-	read := func() string { b, _ := os.ReadFile(full); return string(b) }
-	orig := read()
+	rel = "2026-10-01-old.md"
+	return s, rel, filepath.Join(dir, "plans", rel)
+}
 
-	if w := do(s, tickReq(t, "", body(rel, title))); w.Code != http.StatusForbidden {
+func readFileString(full string) string { b, _ := os.ReadFile(full); return string(b) }
+
+// The endpoint answers 403/409/400 on bad requests and leaves the plan alone on each.
+func TestPlanTickEndpointRejectsBadRequests(t *testing.T) {
+	s, rel, full := tickServer(t)
+	orig := readFileString(full)
+
+	if w := do(s, tickReq(t, "", tickBody(rel, tickTitle))); w.Code != http.StatusForbidden {
 		t.Fatalf("no CSRF = %d, want 403", w.Code)
 	}
-	if w := do(s, tickReq(t, testCSRFToken, body(rel, "9.9 Nope"))); w.Code != http.StatusConflict {
+	if w := do(s, tickReq(t, testCSRFToken, tickBody(rel, "9.9 Nope"))); w.Code != http.StatusConflict {
 		t.Fatalf("wrong title = %d %s, want 409", w.Code, w.Body)
 	}
 	for _, p := range []string{"../settings.md", "../../etc/passwd"} {
-		if w := do(s, tickReq(t, testCSRFToken, body(p, title))); w.Code != http.StatusBadRequest {
+		if w := do(s, tickReq(t, testCSRFToken, tickBody(p, tickTitle))); w.Code != http.StatusBadRequest {
 			t.Fatalf("path %q = %d, want 400", p, w.Code)
 		}
 	}
-	if read() != orig {
-		t.Fatalf("rejected requests changed the plan:\n%s", read())
+	if got := readFileString(full); got != orig {
+		t.Fatalf("rejected requests changed the plan:\n%s", got)
 	}
+}
 
-	w := do(s, tickReq(t, testCSRFToken, body(rel, title)))
+// The endpoint ticks with s.now() and keeps the working claim.
+func TestPlanTickEndpointTicks(t *testing.T) {
+	s, rel, full := tickServer(t)
+	w := do(s, tickReq(t, testCSRFToken, tickBody(rel, tickTitle)))
 	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"ok":true}` {
 		t.Fatalf("tick = %d %s", w.Code, w.Body)
 	}
-	got := read()
+	got := readFileString(full)
 	if !strings.Contains(got, "- [x] 1.2 Open") || !strings.Contains(got, "<!-- user: ticked 2026-10-31T12:30:00Z -->") ||
 		!strings.Contains(got, "<!-- working: bob -->") {
 		t.Fatalf("plan after tick:\n%s", got)
 	}
-}
-
-// withEmptyDispatchDir points internal/agent's dispatch log at an empty temp dir for the duration of
-// the test, so a /api/view request's vendor-dispatch lookup never touches this machine's real dispatch
-// log under ~/.claude/state/harness/dispatch.
-func withEmptyDispatchDir(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-}
-
-// --- /api/view guard (host allowlist) ---
-
-func TestHandleViewGuardRejectsBadHost(t *testing.T) {
-	withEmptyDispatchDir(t)
-	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
-	req := newReq(t, "GET", "/api/view?session=finished-session-aaaa1111&agent=fakewfagent002", "evil.example")
-	w := do(s, req)
-	if w.Code != http.StatusMisdirectedRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusMisdirectedRequest)
-	}
-}
-
-func TestHandleViewGuardRejectsCrossOrigin(t *testing.T) {
-	withEmptyDispatchDir(t)
-	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
-	req := newReq(t, "GET", "/api/view?session=finished-session-aaaa1111&agent=fakewfagent002", "127.0.0.1:7777")
-	req.Header.Set("Origin", "http://evil.example")
-	w := do(s, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
-}
-
-// --- missing/unknown agent: 400/404, never 500 ---
-
-func TestHandleViewMissingAgentIsBadRequest(t *testing.T) {
-	withEmptyDispatchDir(t)
-	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
-	w := do(s, newReq(t, "GET", "/api/view?session=finished-session-aaaa1111", "127.0.0.1:7777"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("missing ?agent: status = %d, want 400; body=%s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleViewUnknownAgentIsNotFoundNot500(t *testing.T) {
-	withEmptyDispatchDir(t)
-	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
-	w := do(s, newReq(t, "GET", "/api/view?agent=no-such-agent-at-all", "127.0.0.1:7777"))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("unknown agent: status = %d, want 404 (not 500); body=%s", w.Code, w.Body.String())
-	}
-}
-
-// --- snapshot JSON decodes to tree.Snapshot ---
-
-func TestHandleViewSnapshotDecodesAgenttreeSnapshot(t *testing.T) {
-	withEmptyDispatchDir(t)
-	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
-	req := newReq(t, "GET", "/api/view?session=finished-session-aaaa1111&agent=fakewfagent002", "127.0.0.1:7777")
-	w := do(s, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		t.Errorf("Content-Type = %q, want application/json", ct)
-	}
-	var snap tree.Snapshot
-	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
-		t.Fatalf("decode /api/view body into tree.Snapshot: %v; body=%s", err, w.Body.String())
-	}
-	if snap.ID != "fakewfagent002" {
-		t.Errorf("snap.ID = %q, want fakewfagent002", snap.ID)
-	}
-	if snap.SessionID != "finished-session-aaaa1111" {
-		t.Errorf("snap.SessionID = %q, want finished-session-aaaa1111", snap.SessionID)
-	}
-}
-
-// --- follow=1 streams at least one line for an agent that already has a terminal result ---
-
-func TestHandleViewFollowStreamsResultLine(t *testing.T) {
-	withEmptyDispatchDir(t)
-	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
-	req := newReq(t, "GET", "/api/view?session=finished-session-aaaa1111&agent=fakewfagent002&follow=1", "127.0.0.1:7777")
-	w := do(s, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("follow=1: status = %d, want 200; body=%s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
-		t.Errorf("follow=1 Content-Type = %q, want text/plain", ct)
-	}
-	// fakewfagent002's journal already carries a result (see internal/agenttree's own
-	// TestViewSnapshotFields), so Follow emits that result line on its very first poll and returns.
-	if lines := strings.TrimSpace(w.Body.String()); lines == "" {
-		t.Fatal("follow=1 streamed zero lines for an already-resulted agent")
-	} else if !strings.Contains(lines, "result") {
-		t.Errorf("follow=1 body = %q, want a line containing %q", lines, "result")
-	}
-}
-
-// --- follow=1 stops when the request context is cancelled, for an agent that never finishes ---
-
-// TestHandleViewFollowStopsOnContextCancel uses an agent with no new events and no terminal result
-// (agent-fakeagentid002.meta.json: "finished":false): the headers arrive at once (handleView flushes
-// before the poll loop), the body stays open, and cancelling the request must end the server-side
-// Follow loop and the body read promptly.
-func TestHandleViewFollowStopsOnContextCancel(t *testing.T) {
-	withEmptyDispatchDir(t)
-	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
-	// A real server (not httptest.ResponseRecorder) so cancelling mid-request is a genuine client
-	// disconnect the server side can observe via r.Context().
-	srv := httptest.NewServer(s.mux)
-	defer srv.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		srv.URL+"/api/view?session=finished-session-aaaa1111&agent=fakeagentid002&follow=1", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Host = "127.0.0.1:7777"
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Do() must return as soon as the headers are flushed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	errc := make(chan error, 1)
-	go func() {
-		_, err := io.ReadAll(resp.Body) // blocks until the stream ends
-		errc <- err
-	}()
-
-	time.Sleep(200 * time.Millisecond) // let handleView reach tree.Follow's poll loop
-	cancel()
-
-	select {
-	case err := <-errc:
-		if err == nil {
-			t.Fatal("the body ended cleanly although the request was cancelled before any event")
-		}
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("body read error = %v, want it to wrap context.Canceled", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("cancelling the request context did not unblock handleView's follow within 5s")
-	}
-}
-
-// --- follow=1 must survive the server's own WriteTimeout: handleView clears the write deadline,
-// so a late event (after the timeout would otherwise have fired) still reaches the client ---
-
-func TestFollowSurvivesWriteTimeout(t *testing.T) {
-	withEmptyDispatchDir(t)
-	claudeDir := t.TempDir()
-	if err := copyDir(t, agenttreeTestdata, claudeDir); err != nil {
-		t.Fatal(err)
-	}
-	transcript := filepath.Join(claudeDir, "projects", "-Users-fake-demo-repo",
-		"finished-session-aaaa1111", "subagents", "agent-fakeagentid002.jsonl")
-
-	s := newTestServer(t, Options{ClaudeDir: claudeDir, Days: 36500}, nil)
-	ts := httptest.NewUnstartedServer(s.mux)
-	ts.Config.WriteTimeout = 300 * time.Millisecond
-	ts.Start()
-	defer ts.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		ts.URL+"/api/view?session=finished-session-aaaa1111&agent=fakeagentid002&follow=1", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Host = "127.0.0.1:7777"
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("Do(): %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-
-	go func() {
-		time.Sleep(350 * time.Millisecond) // past ts.Config.WriteTimeout; Follow emits it at its 500ms tick
-		f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0o644)
-		if err != nil {
-			return
-		}
-		defer f.Close()
-		fmt.Fprintln(f, `{"type":"assistant","message":{"content":[{"type":"text","text":"after write timeout"}]}}`)
-	}()
-
-	sc := bufio.NewScanner(resp.Body)
-	for sc.Scan() {
-		if strings.Contains(sc.Text(), "after write timeout") {
-			return
-		}
-	}
-	t.Fatalf("stream ended without the post-timeout line; scanner err=%v", sc.Err())
-}
-
-// copyDir recursively copies src into dst (dst must already exist).
-func copyDir(t *testing.T, src, dst string) error {
-	t.Helper()
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, 0o700)
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, raw, 0o600)
-	})
 }

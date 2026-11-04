@@ -26,24 +26,9 @@ import (
 // When the approved plan traces back to an undated draft the plan-mirror hook already filed, its recorded
 // destination is reused (the date stays the draft's creation date) instead of minting a new one for today.
 func savePlan(in *Input, stderr io.Writer) int {
-	plan := []byte(in.nested("tool_input", "plan"))
-	if len(plan) == 0 {
-		plan = []byte(in.nested("tool_response", "plan"))
-	}
 	responsePath := in.nested("tool_response", "filePath")
 	inputPath := in.nested("tool_input", "planFilePath")
-	for _, path := range []string{responsePath, inputPath} {
-		if len(plan) != 0 {
-			break
-		}
-		if path != "" {
-			var err error
-			plan, err = os.ReadFile(path)
-			if err != nil {
-				fmt.Fprintf(stderr, "save-plan: %v\n", err)
-			}
-		}
-	}
+	plan := approvedPlanBytes(in, responsePath, inputPath, stderr)
 	if len(bytes.TrimSpace(plan)) == 0 {
 		return ExitProceed
 	}
@@ -64,22 +49,51 @@ func savePlan(in *Input, stderr io.Writer) int {
 		retireDraft(draftPath, approvedText, stderr) // the dated file already holds this plan
 		return ExitProceed
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-		fmt.Fprintf(stderr, "save-plan: %v\n", err)
-		return ExitProceed
-	}
-	if err := plans.WriteFile(dest, plan); err != nil {
-		fmt.Fprintf(stderr, "save-plan: %v\n", err)
-		return ExitProceed
-	}
-	// Verify the dated file actually holds the plan before touching the draft it was mirrored from.
-	if got, err := os.ReadFile(dest); err != nil || !bytes.Equal(got, plan) {
-		fmt.Fprintf(stderr, "save-plan: verification failed for %s\n", dest)
+	if !writeVerifiedPlan(dest, plan, stderr) {
 		return ExitProceed
 	}
 	audit.Log(audit.PlanSaved, "save-plan", dest)
 	retireDraft(draftPath, approvedText, stderr)
 	return ExitProceed
+}
+
+// approvedPlanBytes prefers the approved plan text, then falls back to the plan scratch files.
+func approvedPlanBytes(in *Input, responsePath, inputPath string, stderr io.Writer) []byte {
+	plan := []byte(in.nested("tool_input", "plan"))
+	if len(plan) == 0 {
+		plan = []byte(in.nested("tool_response", "plan"))
+	}
+	for _, path := range []string{responsePath, inputPath} {
+		if len(plan) != 0 {
+			break
+		}
+		if path != "" {
+			var err error
+			plan, err = os.ReadFile(path)
+			if err != nil {
+				fmt.Fprintf(stderr, "save-plan: %v\n", err)
+			}
+		}
+	}
+	return plan
+}
+
+// writeVerifiedPlan writes plan to dest and re-reads it; it reports false (after logging) on any failure.
+func writeVerifiedPlan(dest string, plan []byte, stderr io.Writer) bool {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		fmt.Fprintf(stderr, "save-plan: %v\n", err)
+		return false
+	}
+	if err := plans.WriteFile(dest, plan); err != nil {
+		fmt.Fprintf(stderr, "save-plan: %v\n", err)
+		return false
+	}
+	// Verify the dated file actually holds the plan before touching the draft it was mirrored from.
+	if got, err := os.ReadFile(dest); err != nil || !bytes.Equal(got, plan) {
+		fmt.Fprintf(stderr, "save-plan: verification failed for %s\n", dest)
+		return false
+	}
+	return true
 }
 
 // retireDraft removes the mirrored draft and its .dest record once the approved plan is filed. A draft edited after
@@ -371,20 +385,8 @@ func recordDest(draftBase, dest string) error {
 // file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
 // file, via planDestination's collision check); it is then recorded so a later H1 change keeps the same file.
 func planMirror(in *Input, stderr io.Writer) int {
-	tool := strings.ToLower(in.ToolName)
-	if tool != "" && tool != "write" && tool != "edit" && tool != "create" {
-		return ExitProceed
-	}
-	path := in.nested("tool_input", "file_path")
-	if path == "" {
-		return ExitProceed
-	}
-	path = resolveCWDPath(path, in.CWD)
-	if !isUndatedDraft(path) {
-		return ExitProceed
-	}
-	content, err := os.ReadFile(path)
-	if err != nil || len(bytes.TrimSpace(content)) == 0 {
+	path, content, ok := mirrorSource(in)
+	if !ok {
 		return ExitProceed
 	}
 	base := filepath.Base(path)
@@ -403,6 +405,27 @@ func planMirror(in *Input, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 	}
 	return ExitProceed
+}
+
+// mirrorSource returns the undated draft a Write/Edit touched and its non-blank content.
+func mirrorSource(in *Input) (path string, content []byte, ok bool) {
+	tool := strings.ToLower(in.ToolName)
+	if tool != "" && tool != "write" && tool != "edit" && tool != "create" {
+		return "", nil, false
+	}
+	path = in.nested("tool_input", "file_path")
+	if path == "" {
+		return "", nil, false
+	}
+	path = resolveCWDPath(path, in.CWD)
+	if !isUndatedDraft(path) {
+		return "", nil, false
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(content)) == 0 {
+		return "", nil, false
+	}
+	return path, content, true
 }
 
 func skeletonMarker(session string) string {

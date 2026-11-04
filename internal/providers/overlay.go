@@ -40,47 +40,69 @@ func UpdateOverlayDocForce(apply, force bool, fn func(top map[string]json.RawMes
 	}
 	err = run(func(tx *vault.Tx) error {
 		old, _ := tx.Get(vault.Overlay, "providers")
-		top := map[string]json.RawMessage{}
-		if old != "" {
-			if err := json.Unmarshal([]byte(old), &top); err != nil {
-				return fmt.Errorf("vault overlay/providers: %w", err)
-			}
-		}
-		if top == nil {
-			top = map[string]json.RawMessage{}
-		}
-		oldDoc, err = nestedDoc(top)
-		if err != nil {
-			return err
-		}
-		flat, owner, err := flattenTop(top)
-		if err != nil {
-			return err
-		}
-		order := profileOrder(top["providers"])
-		if err := fn(flat, tx); err != nil {
-			return err
-		}
-		if newDoc, err = renderNested(flat, owner, order); err != nil {
-			return err
-		}
-		if err := Validate(newDoc); err != nil {
-			return err
-		}
-		if !force {
-			if err := checkAuthTypeChange(oldDoc, newDoc); err != nil {
-				return err
-			}
-		}
-		if !apply {
-			return nil
-		}
-		if err := tx.Put(vault.Overlay, "providers.prev", old); err != nil {
-			return err
-		}
-		return tx.Put(vault.Overlay, "providers", string(newDoc))
+		var err error
+		oldDoc, newDoc, err = overlayTx(tx, old, apply, force, fn)
+		return err
 	})
 	return oldDoc, newDoc, err
+}
+
+// overlayTx is one UpdateOverlayDocForce transaction over the stored doc old: decode, edit, validate, optionally store.
+func overlayTx(tx *vault.Tx, old string, apply, force bool,
+	fn func(top map[string]json.RawMessage, tx *vault.Tx) error) (oldDoc, newDoc []byte, err error) {
+	top, err := decodeOverlayTop(old)
+	if err != nil {
+		return nil, nil, err
+	}
+	if oldDoc, err = nestedDoc(top); err != nil {
+		return oldDoc, nil, err
+	}
+	flat, owner, err := flattenTop(top)
+	if err != nil {
+		return oldDoc, nil, err
+	}
+	order := profileOrder(top["providers"])
+	if err := fn(flat, tx); err != nil {
+		return oldDoc, nil, err
+	}
+	if newDoc, err = renderNested(flat, owner, order); err != nil {
+		return oldDoc, newDoc, err
+	}
+	if err := checkOverlayDoc(oldDoc, newDoc, force); err != nil {
+		return oldDoc, newDoc, err
+	}
+	if !apply {
+		return oldDoc, newDoc, nil
+	}
+	if err := tx.Put(vault.Overlay, "providers.prev", old); err != nil {
+		return oldDoc, newDoc, err
+	}
+	return oldDoc, newDoc, tx.Put(vault.Overlay, "providers", string(newDoc))
+}
+
+// decodeOverlayTop decodes the stored overlay doc into its top-level raw fields; empty gives an empty map.
+func decodeOverlayTop(old string) (map[string]json.RawMessage, error) {
+	top := map[string]json.RawMessage{}
+	if old != "" {
+		if err := json.Unmarshal([]byte(old), &top); err != nil {
+			return nil, fmt.Errorf("vault overlay/providers: %w", err)
+		}
+	}
+	if top == nil {
+		top = map[string]json.RawMessage{}
+	}
+	return top, nil
+}
+
+// checkOverlayDoc validates the new doc and, unless force is set, refuses a sealed auth.type change.
+func checkOverlayDoc(oldDoc, newDoc []byte, force bool) error {
+	if err := Validate(newDoc); err != nil {
+		return err
+	}
+	if force {
+		return nil
+	}
+	return checkAuthTypeChange(oldDoc, newDoc)
 }
 
 // flattenTop returns a copy of top whose providers value is the flat {profile: row} view, plus each profile's provider.

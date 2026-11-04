@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,6 +35,21 @@ func TestUsageAssetsMatchExtensionSource(t *testing.T) {
 	}
 }
 
+// assertUsageJSON requires a 200 whose body decodes to the same JSON tree as want.
+func assertUsageJSON(t *testing.T, call int, w *httptest.ResponseRecorder, want []byte) {
+	t.Helper()
+	var got, wantTree any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(want, &wantTree); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusOK || !reflect.DeepEqual(got, wantTree) {
+		t.Fatalf("call %d: %d %q, want 200 %q", call, w.Code, w.Body.String(), want)
+	}
+}
+
 // /api/usage returns the masked JSON of usage.Report for the asked window, cached for usageTTL.
 func TestUsageEndpointServesReportJSONAndCaches(t *testing.T) {
 	calls, now := 0, time.Now()
@@ -52,16 +68,7 @@ func TestUsageEndpointServesReportJSONAndCaches(t *testing.T) {
 	}
 	for i := range 2 {
 		w := do(s, newReq(t, "GET", "/api/usage?days=7", "127.0.0.1:7777"))
-		var got, wantTree any
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-			t.Fatal(err)
-		}
-		if err := json.Unmarshal(want.Bytes(), &wantTree); err != nil {
-			t.Fatal(err)
-		}
-		if w.Code != http.StatusOK || !reflect.DeepEqual(got, wantTree) {
-			t.Fatalf("call %d: %d %q, want 200 %q", i, w.Code, w.Body.String(), want.String())
-		}
+		assertUsageJSON(t, i, w, want.Bytes())
 	}
 	if calls != 1 {
 		t.Fatalf("report built %d times for two requests inside the TTL, want 1", calls)

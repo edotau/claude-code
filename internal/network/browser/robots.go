@@ -99,21 +99,26 @@ func parseRobots(txt string) []robotsRule {
 			agents = append(agents, strings.ToLower(v))
 		case "allow", "disallow":
 			inRules = true
-			for _, a := range agents {
-				if v == "" {
-					if _, ok := groups[a]; !ok {
-						groups[a] = nil
-					}
-					continue
-				}
-				groups[a] = append(groups[a], robotsRule{allow: k == "allow", pattern: v})
-			}
+			addRobotsRule(groups, agents, k == "allow", v)
 		}
 	}
 	if r, ok := groups[robotsAgent]; ok {
 		return r
 	}
 	return groups["*"]
+}
+
+// addRobotsRule records one rule for every agent of the group; an empty pattern only declares the group.
+func addRobotsRule(groups map[string][]robotsRule, agents []string, allow bool, pattern string) {
+	for _, a := range agents {
+		if pattern == "" {
+			if _, ok := groups[a]; !ok {
+				groups[a] = nil
+			}
+			continue
+		}
+		groups[a] = append(groups[a], robotsRule{allow: allow, pattern: pattern})
+	}
 }
 
 // robotsDisallows applies longest-match semantics (Allow wins ties) and returns the deciding Disallow rule.

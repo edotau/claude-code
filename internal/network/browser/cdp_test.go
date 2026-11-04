@@ -162,15 +162,14 @@ func ctx5(t *testing.T) context.Context {
 	return ctx
 }
 
-// Spans dialCDP -> Navigate (event wait) -> Eval (fragmented reply + ping) -> Close (tab closed over HTTP).
-func TestRoundTrip(t *testing.T) {
-	var navURL string
-	f := newFakeBrowser(t, func(f *fakeBrowser, id int, method string, params json.RawMessage) {
+// roundTripHandler answers navigate (recording the URL), evaluate (fragmented reply + ping) and the rest with {}.
+func roundTripHandler(navURL *string) func(f *fakeBrowser, id int, method string, params json.RawMessage) {
+	return func(f *fakeBrowser, id int, method string, params json.RawMessage) {
 		switch method {
 		case "Page.navigate":
 			var p struct{ URL string }
 			_ = json.Unmarshal(params, &p)
-			navURL = p.URL
+			*navURL = p.URL
 			f.reply(id, `{"frameId":"F"}`)
 			f.send(frame(true, opText, []byte(`{"method":"Page.loadEventFired","params":{"timestamp":1}}`)))
 		case "Runtime.evaluate":
@@ -181,27 +180,13 @@ func TestRoundTrip(t *testing.T) {
 		default:
 			f.reply(id, `{}`)
 		}
-	})
-	c, err := dialCDP(ctx5(t), f.srv.URL)
-	if err != nil {
-		t.Fatal(err)
 	}
-	if err := c.Navigate(ctx5(t), "https://example.test/x"); err != nil {
-		t.Fatal(err)
-	}
-	if navURL != "https://example.test/x" {
-		t.Fatalf("navigate url = %q", navURL)
-	}
-	var out [][]*string
-	if err := c.Eval(ctx5(t), "1+1", &out); err != nil {
-		t.Fatal(err)
-	}
-	if len(out) != 2 || out[0][1] != nil || *out[1][1] != "c" {
-		t.Fatalf("eval out = %v", out)
-	}
-	if err := c.Close(); err != nil {
-		t.Fatal(err)
-	}
+}
+
+// assertRoundTripShutdown checks the socket closed, the tab was closed over HTTP, the ping was answered
+// and every client frame was masked.
+func assertRoundTripShutdown(t *testing.T, f *fakeBrowser) {
+	t.Helper()
 	select {
 	case <-f.wsDone:
 	case <-ctx5(t).Done():
@@ -223,6 +208,33 @@ func TestRoundTrip(t *testing.T) {
 			t.Fatalf("client frame %d unmasked", i)
 		}
 	}
+}
+
+// Spans dialCDP -> Navigate (event wait) -> Eval (fragmented reply + ping) -> Close (tab closed over HTTP).
+func TestRoundTrip(t *testing.T) {
+	var navURL string
+	f := newFakeBrowser(t, roundTripHandler(&navURL))
+	c, err := dialCDP(ctx5(t), f.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Navigate(ctx5(t), "https://example.test/x"); err != nil {
+		t.Fatal(err)
+	}
+	if navURL != "https://example.test/x" {
+		t.Fatalf("navigate url = %q", navURL)
+	}
+	var out [][]*string
+	if err := c.Eval(ctx5(t), "1+1", &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 || out[0][1] != nil || *out[1][1] != "c" {
+		t.Fatalf("eval out = %v", out)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertRoundTripShutdown(t, f)
 }
 
 func TestEvalExceptionIsError(t *testing.T) {

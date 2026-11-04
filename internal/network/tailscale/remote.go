@@ -227,15 +227,8 @@ func IsLocalHost(ctx context.Context, host string) bool {
 	if _, at, ok := strings.Cut(h, "@"); ok {
 		h = at
 	}
-	if h == "localhost" || h == "127.0.0.1" || h == "::1" {
+	if h == "localhost" || h == "127.0.0.1" || h == "::1" || isOwnHostname(h) {
 		return true
-	}
-	if n, err := os.Hostname(); err == nil {
-		n = strings.ToLower(strings.TrimSuffix(n, "."))
-		short, _, _ := strings.Cut(n, ".")
-		if h != "" && (h == n || h == short) {
-			return true
-		}
 	}
 	selfMu.Lock()
 	if selfReady || now().Before(selfRetryAt) {
@@ -248,18 +241,34 @@ func IsLocalHost(ctx context.Context, host string) bool {
 	selfMu.Lock()
 	defer selfMu.Unlock()
 	if !selfReady {
-		if err != nil {
-			selfRetryAt = now().Add(selfFailureBackoff)
-		} else {
-			selfReady = true
-			selfNames = append(selfNames, st.IPs...)
-			if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
-				short, _, _ := strings.Cut(dns, ".")
-				selfNames = append(selfNames, dns, short)
-			}
-		}
+		recordSelf(st, err)
 	}
 	return slices.Contains(selfNames, h)
+}
+
+// isOwnHostname reports whether h is this machine's OS hostname or its short form.
+func isOwnHostname(h string) bool {
+	n, err := os.Hostname()
+	if err != nil {
+		return false
+	}
+	n = strings.ToLower(strings.TrimSuffix(n, "."))
+	short, _, _ := strings.Cut(n, ".")
+	return h != "" && (h == n || h == short)
+}
+
+// recordSelf caches this node's tailnet names after a status call, or starts the failure backoff; selfMu is held.
+func recordSelf(st Local, err error) {
+	if err != nil {
+		selfRetryAt = now().Add(selfFailureBackoff)
+		return
+	}
+	selfReady = true
+	selfNames = append(selfNames, st.IPs...)
+	if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
+		short, _, _ := strings.Cut(dns, ".")
+		selfNames = append(selfNames, dns, short)
+	}
 }
 
 // AttachArgs is the argv for `ssh -t host tmux attach -t session`, meant to replace the caller's

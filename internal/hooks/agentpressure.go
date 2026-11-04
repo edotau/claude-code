@@ -78,20 +78,11 @@ func billsSubscription() bool {
 // applyPressure rewrites updated under Anthropic quota pressure and returns the context note ("" = untouched).
 // An explicit dispatch model is never changed; base is the model the dispatch will run (classifier or roster pin).
 func applyPressure(in *Input, updated map[string]any, promptField, base string) (note, systemMessage string) {
-	if on, _ := providers.RouteSubagentsOn(); !on {
+	pct, window, ok := pressureActive()
+	if !ok {
 		return "", ""
 	}
-	if os.Getenv(envTestPct) == "" && !billsSubscription() {
-		return "", ""
-	}
-	pct, window, ok := claudePressure()
-	if !ok || pct < router.LowPct {
-		return "", ""
-	}
-	alias := base
-	if alias != models.Opus && alias != models.Sonnet && alias != models.Haiku {
-		alias = "sonnet"
-	}
+	alias := pressureAlias(base)
 	agent, model := routeHint(alias)
 	hint := ""
 	if agent != "" {
@@ -99,21 +90,12 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 	}
 	kind := in.nested("tool_input", "subagent_type")
 	if pct >= OffloadPct && offloadTypes[kind] && agent != "" {
-		updated["subagent_type"], updated["model"] = "coworker", "haiku"
-		prompt, _ := updated[promptField].(string)
-		updated[promptField] = fmt.Sprintf("Routed by agent-effort (Claude %s window at %.0f%%): do this task through %s, "+
-			"then verify and report.\n\n%s", window, pct, hint, prompt)
+		offloadToCoworker(updated, promptField, window, hint, pct)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",
 				window, pct, kind, hint),
 			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s (%s)", pct, window, agent, model, alias)
 	}
-	down := models.NextAlias(base)
-	if down == "" && base == models.Haiku {
-		down = base
-	}
-	if down != "" && down != base {
-		updated["model"] = down
-	}
+	down := downshiftModel(updated, base)
 	offload := ""
 	if hint != "" {
 		offload = "; offload agent work with " + hint
@@ -121,6 +103,49 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 	return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — model %s→%s%s.",
 			window, pct, cmpOr(base, "inherit"), cmpOr(down, base, "inherit"), offload),
 		fmt.Sprintf("agent-effort: %.0f%% %s → %s", pct, window, cmpOr(down, base, "inherit"))
+}
+
+// pressureAlias maps the dispatch's model onto the alias the offload hint is routed for.
+func pressureAlias(base string) string {
+	if base != models.Opus && base != models.Sonnet && base != models.Haiku {
+		return "sonnet"
+	}
+	return base
+}
+
+// downshiftModel moves the dispatch one model alias down (haiku stays) and returns the alias chosen ("" = none).
+func downshiftModel(updated map[string]any, base string) string {
+	down := models.NextAlias(base)
+	if down == "" && base == models.Haiku {
+		down = base
+	}
+	if down != "" && down != base {
+		updated["model"] = down
+	}
+	return down
+}
+
+// pressureActive reports the Claude quota pressure when subagent routing is on and the session bills a subscription.
+func pressureActive() (pct float64, window string, ok bool) {
+	if on, _ := providers.RouteSubagentsOn(); !on {
+		return 0, "", false
+	}
+	if os.Getenv(envTestPct) == "" && !billsSubscription() {
+		return 0, "", false
+	}
+	pct, window, ok = claudePressure()
+	if !ok || pct < router.LowPct {
+		return 0, "", false
+	}
+	return pct, window, true
+}
+
+// offloadToCoworker retargets the dispatch at a haiku coworker and prefixes its prompt with the routing note.
+func offloadToCoworker(updated map[string]any, promptField, window, hint string, pct float64) {
+	updated["subagent_type"], updated["model"] = "coworker", "haiku"
+	prompt, _ := updated[promptField].(string)
+	updated[promptField] = fmt.Sprintf("Routed by agent-effort (Claude %s window at %.0f%%): do this task through %s, "+
+		"then verify and report.\n\n%s", window, pct, hint, prompt)
 }
 
 func cmpOr(vs ...string) string {

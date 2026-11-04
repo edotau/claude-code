@@ -139,25 +139,31 @@ func ReadEnvFile(path string) map[string]string {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		if k, v, ok := parseEnvLine(sc.Text()); ok {
+			out[k] = v
 		}
-		line = strings.TrimPrefix(line, "export ")
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		v = strings.TrimSpace(v)
-		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
-			v = v[1 : len(v)-1]
-		}
-		out[strings.TrimSpace(k)] = v
 	}
 	if err := sc.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: env file %s read stopped early: %v\n", path, err)
 	}
 	return out
+}
+
+// parseEnvLine parses one KEY=VALUE line; ok is false for blanks, comments and lines without "=".
+func parseEnvLine(line string) (k, v string, ok bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", "", false
+	}
+	k, v, ok = strings.Cut(strings.TrimPrefix(line, "export "), "=")
+	if !ok {
+		return "", "", false
+	}
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		v = v[1 : len(v)-1]
+	}
+	return strings.TrimSpace(k), v, true
 }
 
 // Pin reads key from the vault pins; it never reads the process env.

@@ -13,10 +13,17 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// TestStopCombinesBlocksAndStillFormats: through the Stop event, checkpoint and update both block with both
-// messages shown, the format group runs anyway, stop_hook_active skips only the checkpoint, and a disabled
-// format group leaves the file unformatted while memory still blocks.
-func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
+// stopFormatFixture is a git repo holding an unformatted mine.go plus a transcript that triggers the stop gates.
+type stopFormatFixture struct {
+	mine  string
+	ugly  string
+	stop  func(id string, active bool) (int, string)
+	reset func()
+}
+
+// newStopFormatFixture hermetically sets up the Stop event run through the checkpoint, update and format groups.
+func newStopFormatFixture(t *testing.T) stopFormatFixture {
+	t.Helper()
 	for _, bin := range []string{"gofmt", "git"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skip(bin + " not on PATH")
@@ -48,7 +55,15 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 		code := RunEvent("Stop", false, strings.NewReader(p), &out, &errb)
 		return code, errb.String() + out.String()
 	}
+	return stopFormatFixture{mine: mine, ugly: ugly, stop: stop, reset: reset}
+}
 
+// TestStopCombinesBlocksAndStillFormats: through the Stop event, checkpoint and update both block with both
+// messages shown, the format group runs anyway, stop_hook_active skips only the checkpoint, and a disabled
+// format group leaves the file unformatted while memory still blocks.
+func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
+	f := newStopFormatFixture(t)
+	mine, ugly, stop, reset := f.mine, f.ugly, f.stop, f.reset
 	code, msg := stop("s1", false)
 	if code != ExitBlock {
 		t.Fatalf("the memory update blocks: got %d, want ExitBlock; msg=%q", code, msg)

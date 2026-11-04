@@ -38,15 +38,15 @@ func TestAttributionFooterBlocked(t *testing.T) {
 	}
 }
 
-// A footer commit in any repo asks with a reason; the rest proceeds.
-func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
-	cases := []struct {
-		name string
-		cmd  string
-		want Decision
-	}{
+type attributionScanCase struct {
+	name string
+	cmd  string
+	want Decision
+}
+
+// attributionScanCases lists footer commits (Ask) and look-alikes (Allow); otherRepo is not the harness tree.
+func attributionScanCases(otherRepo string) []attributionScanCase {
+	return []attributionScanCase{
 		{
 			"inline -m footer",
 			`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`,
@@ -88,7 +88,13 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 			Allow,
 		},
 	}
-	for _, c := range cases {
+}
+
+// A footer commit in any repo asks with a reason; the rest proceeds.
+func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
+	for _, c := range attributionScanCases(otherRepo) {
 		t.Run(c.name, func(t *testing.T) {
 			res := safetyScan(ParseInput(bashPayload(c.cmd)))
 			if res.Decision != c.want {

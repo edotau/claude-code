@@ -52,22 +52,36 @@ func (c *capBuffer) Bytes() []byte { return c.buf.Bytes() }
 // outputInGroup runs cmd in a group led by a sleeping sentinel and kills the group as soon as cmd exits, before its
 // pipes are drained; the unreaped sentinel keeps the group id ours, so the signal never reaches a reused group.
 func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
-	hold, release, err := os.Pipe() // the sentinel blocks reading hold until we close release
+	lead, release, err := startSentinel()
 	if err != nil {
 		return nil, err
 	}
-	lead := exec.CommandContext(context.Background(), "sh", "-c", "read _") // only sh, which the auth command needs anyway
+	pg := lead.Process.Pid
+	killGroup := func() error { return syscall.Kill(-pg, syscall.SIGKILL) }
+	defer func() { _ = killGroup(); _ = release.Close(); _ = lead.Wait() }()
+	return runInGroup(cmd, pg, killGroup)
+}
+
+// startSentinel starts the sleeping process-group leader; it blocks reading a pipe until release is closed.
+func startSentinel() (lead *exec.Cmd, release *os.File, err error) {
+	hold, release, err := os.Pipe() // the sentinel blocks reading hold until we close release
+	if err != nil {
+		return nil, nil, err
+	}
+	lead = exec.CommandContext(context.Background(), "sh", "-c", "read _") // only sh, which the auth command needs anyway
 	lead.Stdin = hold
 	lead.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := lead.Start(); err != nil {
 		_ = hold.Close()
 		_ = release.Close()
-		return nil, fmt.Errorf("auth command: cannot start its process-group sentinel: %w", err)
+		return nil, nil, fmt.Errorf("auth command: cannot start its process-group sentinel: %w", err)
 	}
 	_ = hold.Close()
-	pg := lead.Process.Pid
-	killGroup := func() error { return syscall.Kill(-pg, syscall.SIGKILL) }
-	defer func() { _ = killGroup(); _ = release.Close(); _ = lead.Wait() }()
+	return lead, release, nil
+}
+
+// runInGroup runs cmd in process group pg with capped stdout/stderr, killing the group once cmd exits.
+func runInGroup(cmd *exec.Cmd, pg int, killGroup func() error) ([]byte, error) {
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -97,6 +111,18 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 	go drain(stderr, errR)
 	werr := cmd.Wait()
 	_ = killGroup() // leftovers die now, closing the pipe ends they inherited
+	awaitDrain(done, outR, errR)
+	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
+		ee.Stderr = stderr.Bytes()
+	}
+	if werr == nil && stdout.over {
+		return nil, fmt.Errorf("auth command printed more than %d bytes", stdout.max)
+	}
+	return stdout.Bytes(), werr
+}
+
+// awaitDrain waits for both copies; past authDrainLimit it closes the read ends to unblock them.
+func awaitDrain(done <-chan struct{}, outR, errR *os.File) {
 	expire := time.After(authDrainLimit)
 	for range 2 {
 		select {
@@ -109,11 +135,4 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 	}
 	_ = outR.Close()
 	_ = errR.Close()
-	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
-		ee.Stderr = stderr.Bytes()
-	}
-	if werr == nil && stdout.over {
-		return nil, fmt.Errorf("auth command printed more than %d bytes", stdout.max)
-	}
-	return stdout.Bytes(), werr
 }

@@ -66,7 +66,12 @@ func TestDispatchCapBlockReleaseAndStop(t *testing.T) {
 	if n := len(markerNames(t)); n != capN-1 {
 		t.Fatalf("release of u0 left %d markers, want %d", n, capN-1)
 	}
+	inflightStopFreesSlot(t, capN)
+}
 
+// inflightStopFreesSlot resolves a SubagentStop through meta.json: u1's slot frees once; unknown agents free none.
+func inflightStopFreesSlot(t *testing.T, capN int) {
+	t.Helper()
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
 	sub := inflight.SubagentDir(tx)
 	if err := os.MkdirAll(sub, 0o700); err != nil {

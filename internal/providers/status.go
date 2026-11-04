@@ -1,10 +1,6 @@
 package providers
 
 import (
-	"os"
-	"strings"
-
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -39,19 +35,22 @@ func Resolve(p *Provider) ProviderStatus {
 			st.Note = "vault unreadable: " + err.Error()
 		}
 	}
-	if st.Source == "" && p.Auth.File != "" {
-		if b, err := os.ReadFile(paths.ExpandHome(p.Auth.File)); err == nil && strings.TrimSpace(string(b)) != "" {
-			st.Source = "auth.file"
-		}
-	}
-	if st.Source == "" && p.Auth.Command != "" {
-		st.Source = "command"
-	}
 	if st.Source == "" {
-		st.Source = "none"
-		if p.Auth.Env != "" && st.Note == "" {
-			st.Note = "set " + p.Auth.Env
-		}
+		st.Source = fallbackSource(p)
+	}
+	if st.Source == "none" && p.Auth.Env != "" && st.Note == "" {
+		st.Note = "set " + p.Auth.Env
 	}
 	return st
+}
+
+// fallbackSource names the auth.file or command source when the vault has none, else "none".
+func fallbackSource(p *Provider) string {
+	switch {
+	case fileCredential(p) != "":
+		return "auth.file"
+	case p.Auth.Command != "":
+		return "command"
+	}
+	return "none"
 }

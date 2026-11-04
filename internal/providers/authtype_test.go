@@ -19,27 +19,36 @@ import (
 
 func TestAuthMethodPerType(t *testing.T) {
 	for _, typ := range []string{AuthOAuth, AuthM2M, AuthPAT, AuthKey, AuthCLI, AuthNone} {
-		a := Auth{Type: typ}
-		if a.Method() != typ {
-			t.Errorf("Method() for %q = %q", typ, a.Method())
-		}
-		wantSealed := typ == AuthOAuth || typ == AuthM2M || typ == AuthPAT
-		if a.Sealed() != wantSealed {
-			t.Errorf("Sealed() for %q = %v, want %v", typ, a.Sealed(), wantSealed)
-		}
-		wantHeader := ""
-		if wantSealed || typ == AuthKey {
-			wantHeader = HeaderBearer
-		}
-		if a.HeaderStyle() != wantHeader {
-			t.Errorf("HeaderStyle() for %q = %q, want %q", typ, a.HeaderStyle(), wantHeader)
-		}
+		t.Run(typ, func(t *testing.T) { checkAuthType(t, typ) })
 	}
-	if (Auth{}).Method() != "" {
-		t.Error("an unset Auth must report an empty method")
+	t.Run("unset", func(t *testing.T) {
+		if (Auth{}).Method() != "" {
+			t.Error("an unset Auth must report an empty method")
+		}
+	})
+	t.Run("explicit header", func(t *testing.T) {
+		if got := (Auth{Type: AuthKey, Header: HeaderXAPIKey}).HeaderStyle(); got != HeaderXAPIKey {
+			t.Errorf("explicit header = %q", got)
+		}
+	})
+}
+
+func checkAuthType(t *testing.T, typ string) {
+	t.Helper()
+	a := Auth{Type: typ}
+	if a.Method() != typ {
+		t.Errorf("Method() for %q = %q", typ, a.Method())
 	}
-	if got := (Auth{Type: AuthKey, Header: HeaderXAPIKey}).HeaderStyle(); got != HeaderXAPIKey {
-		t.Errorf("explicit header = %q", got)
+	wantSealed := typ == AuthOAuth || typ == AuthM2M || typ == AuthPAT
+	if a.Sealed() != wantSealed {
+		t.Errorf("Sealed() for %q = %v, want %v", typ, a.Sealed(), wantSealed)
+	}
+	wantHeader := ""
+	if wantSealed || typ == AuthKey {
+		wantHeader = HeaderBearer
+	}
+	if a.HeaderStyle() != wantHeader {
+		t.Errorf("HeaderStyle() for %q = %q, want %q", typ, a.HeaderStyle(), wantHeader)
 	}
 }
 
