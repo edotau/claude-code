@@ -93,3 +93,28 @@ func TestTwolineAlignRight(t *testing.T) {
 		t.Errorf("too narrow: row padded: %v", got)
 	}
 }
+
+// The twoline head collapses its path to the first and last elements; a two-element path is left whole.
+func TestCollapsePath(t *testing.T) {
+	for in, want := range map[string]string{"~/worktrees/.claude/feat": "~/.../feat", "~/.claude": "~/.claude", "/srv/a/b": "/.../b"} {
+		if got := collapsePath(in); got != want {
+			t.Errorf("collapsePath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Row 1's head gives way first: a path that does not fit collapses, then trims, so the tail keeps its width.
+func TestTwolineFitHead(t *testing.T) {
+	cfg := embeddedConfig()
+	v := values{userHost: "u", path: "~/worktrees/.claude/feature-branch"}
+	if got := fitHead(v, cfg, 10, 80).path; got != v.path {
+		t.Errorf("room to spare: path = %q, want it whole", got)
+	}
+	if got := fitHead(v, cfg, 10, 35).path; got != "~/.../feature-branch" { // room 35-10-3 = 22 = its head
+		t.Errorf("collapse: path = %q", got)
+	}
+	got := fitHead(v, cfg, 10, 25)
+	if w := headWidth(got, cfg); w > 25-10-3 || !strings.HasSuffix(got.path, "…") {
+		t.Errorf("trim: path = %q (head %d wide), want ≤ 12 ending in …", got.path, w)
+	}
+}
