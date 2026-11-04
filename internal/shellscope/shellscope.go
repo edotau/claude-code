@@ -152,6 +152,8 @@ func splitShell(cmd string) ([][]string, bool) {
 			} else {
 				cur.WriteRune(r)
 			}
+		case !inWord && quote == 0 && stderrToStdout(rs, i):
+			i += len("2>&1") - 1 // 2>&1 only merges output already going to the terminal
 		case strings.ContainsRune("`$<>\\\n\r(){}*?[~", r):
 			return nil, false // substitution, redirection, globbing and grouping are not judged
 		case r == '\'' || r == '"':
@@ -179,14 +181,21 @@ func splitShell(cmd string) ([][]string, bool) {
 	return segs, true
 }
 
-// Command reports whether every segment of cmd passes the allowlist or extra (which may be nil).
-func Command(cmd, workDir string, extra func(words []string) bool) bool {
+// stderrToStdout reports whether rs[i:] starts a standalone "2>&1" token.
+func stderrToStdout(rs []rune, i int) bool {
+	end := i + len("2>&1")
+	return end <= len(rs) && string(rs[i:end]) == "2>&1" && (end == len(rs) || strings.ContainsRune(" \t;|", rs[end]))
+}
+
+// Command reports whether every segment of cmd passes the allowlist inside one of roots, or extra (which may be nil).
+func Command(cmd string, roots []string, extra func(words []string) bool) bool {
 	segs, ok := splitShell(cmd)
 	if !ok {
 		return false
 	}
 	for _, w := range segs {
-		if !scopedSegment(w, workDir) && (extra == nil || !extra(w)) {
+		inRoot := slices.ContainsFunc(roots, func(root string) bool { return scopedSegment(w, root) })
+		if !inRoot && (extra == nil || !extra(w)) {
 			return false
 		}
 	}

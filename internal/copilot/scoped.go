@@ -31,7 +31,7 @@ func scopedAllowed(req copilot.PermissionRequest, workDir string) bool {
 		return true
 	case rpc.PermissionRequestKindShell:
 		cmd, ok := shellCommand(req)
-		return ok && shellscope.Command(cmd, workDir, nil)
+		return ok && shellscope.Command(cmd, []string{workDir}, nil)
 	}
 	return false
 }

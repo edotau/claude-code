@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/shellscope"
@@ -14,7 +15,7 @@ import (
 // CopilotBashHook is the `claude-code hook <name>` spelling agents/copilot.md carries; it is not a settings.json event.
 const CopilotBashHook = "copilot-bash"
 
-const copilotBashReason = "copilot-bash: BLOCKED — Bash is limited to go test|vet|build|fmt|list|mod tidy, gofmt, goimports, make lint|fmt|test|build, read-only git, git add <paths>, git commit (no --amend, --no-verify), ls cat head tail wc grep rg find, claude-code copilot|worktree merge|test mutate."
+const copilotBashReason = "copilot-bash: BLOCKED — Bash is limited to go test|vet|build|fmt|list|mod tidy, gofmt, goimports, make lint|fmt|test|build, read-only git, git add <paths>, git commit (no --amend, --no-verify), 2>&1, paths in the cwd or ~/worktrees, ls cat head tail wc grep rg find, claude-code copilot|worktree merge|test mutate."
 
 // claudeSelf spells the harness binary the way shells and agents write it; each form reads as plain claude-code.
 func claudeSelf() []string {
@@ -50,7 +51,8 @@ func copilotBash(stdin io.Reader, stderr io.Writer) int {
 	for _, self := range claudeSelf() {
 		cmd = strings.ReplaceAll(cmd, self+" ", "claude-code ")
 	}
-	if !shellscope.Command(cmd, workDir, copilotBashExtra) {
+	home, _ := os.UserHomeDir() // ~/worktrees holds the linked worktrees a ~/.claude session works in
+	if !shellscope.Command(cmd, []string{workDir, filepath.Join(home, "worktrees")}, copilotBashExtra) {
 		fmt.Fprintln(stderr, copilotBashReason)
 		return ExitBlock
 	}
