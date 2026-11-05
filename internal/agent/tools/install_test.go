@@ -594,14 +594,14 @@ func TestInstallClaudeScienceDarwinRefusesForeignSigner(t *testing.T) {
 	}
 }
 
+// agy installs where Link looks (~/.local/bin), not into the bin dir, or bin/gemini is never linked.
 func TestInstallAgyDryRunPassesDir(t *testing.T) {
 	setupToolsTestEnv(t)
-	dir := t.TempDir()
 	var buf bytes.Buffer
-	if err := installAgy(context.Background(), &buf, dir, true); err != nil {
+	if err := installAgy(context.Background(), &buf, t.TempDir(), true); err != nil {
 		t.Fatal(err)
 	}
-	if want := agyInstallScriptURL + " [--dir " + dir + "]"; !strings.Contains(buf.String(), want) {
+	if want := agyInstallScriptURL + " [--dir " + localBinDir() + "]"; !strings.Contains(buf.String(), want) {
 		t.Errorf("output = %q, want %q", buf.String(), want)
 	}
 }
