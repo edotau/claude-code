@@ -42,6 +42,8 @@ type askFlags struct {
 	agents                                                                                                                                                                                                            agentsFlag
 	attach                                                                                                                                                                                                            attachFlag
 	keepEnv                                                                                                                                                                                                           keepEnvFlag
+	permAllow, permAsk, permDeny                                                                                                                                                                                      ruleFlag
+	permMode                                                                                                                                                                                                          string
 	env                                                                                                                                                                                                               envFlag
 }
 
@@ -61,6 +63,10 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.session, "session", "", "resume this session id")
 	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	fs.BoolVar(&f.readOnly, "read-only", false, "tools may read files but never write, run shell or commit; implies --tools")
+	fs.Var(&f.permAllow, "allow", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)")
+	fs.Var(&f.permAsk, "ask", "ask before a tool call matching the rule (repeatable)")
+	fs.Var(&f.permDeny, "deny", "deny a tool call matching the rule (repeatable)")
+	fs.StringVar(&f.permMode, "mode", "", "permission mode for unmatched calls: default|auto|plan")
 	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
 	fs.BoolVar(&f.safeMode, "safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
@@ -113,6 +119,7 @@ type askRun struct {
 	jobRec  *agent.Record
 	prompt  string
 	state   *askState
+	perms   agent.Permissions
 }
 
 // RunAsk is CmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
@@ -122,7 +129,7 @@ func RunAsk(args []string, resume bool) int {
 		return code
 	}
 	r := &askRun{f: f, fs: fs, args: args, resume: resume}
-	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.dispatchMode, r.resolveRecord} {
+	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.parsePerms} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -178,6 +185,17 @@ func (r *askRun) selectAgent() (int, bool) {
 	return 0, false
 }
 
+// parsePerms validates --allow/--ask/--deny/--mode into r.perms; it runs again once a --retry record has filled them in.
+func (r *askRun) parsePerms() (int, bool) {
+	f := r.f
+	p, err := agent.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)
+	if err != nil {
+		return r.fail(err, 2)
+	}
+	r.perms = p
+	return 0, false
+}
+
 // dispatchMode handles --batch and --log, which end the run before a single task is built.
 func (r *askRun) dispatchMode() (int, bool) {
 	f := r.f
@@ -199,7 +217,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 	return agent.RunOptions{Model: f.model, Provider: f.provider, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
 		Timeout: f.timeout, KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: []string(f.env), OutputSchema: r.schema, Agents: r.defs}
+		Env: []string(f.env), OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms}
 }
 
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
@@ -241,6 +259,7 @@ func (r *askRun) askState() *askState {
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback,
+		PermMode: &f.permMode, PermAllow: (*[]string)(&f.permAllow), PermAsk: (*[]string)(&f.permAsk), PermDeny: (*[]string)(&f.permDeny),
 		rubric: &f.rubric, env: &f.env}
 }
 
@@ -280,7 +299,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 		Attach: []string(f.attach), KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, DebugFile: f.debugFile, SystemPrompt: f.systemPrompt,
 		AppendSystemPrompt: f.appendSystemPrompt, Env: []string(f.env), OutputSchema: r.schema, Persona: r.persona,
-		Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background}
+		Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background, Permissions: r.perms}
 }
 
 // askBatch layers the overlay over base and runs the --batch tasks.
@@ -511,6 +530,15 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 		}
 		if f.Name == "keep-env" {
 			*s.KeepEnv = nil
+		}
+		if f.Name == "allow" {
+			*s.PermAllow = nil
+		}
+		if f.Name == "ask" {
+			*s.PermAsk = nil
+		}
+		if f.Name == "deny" {
+			*s.PermDeny = nil
 		}
 		if f.Name == "env" {
 			*s.env = nil

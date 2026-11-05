@@ -27,6 +27,9 @@ type askRetryCase struct {
 	wantTimeout time.Duration
 	wantAttach  []string
 	wantKeepEnv []string
+	recPerms    bool
+	wantAllow   []string
+	wantDeny    []string
 }
 
 func askRetryCases() []askRetryCase {
@@ -46,6 +49,10 @@ func askRetryCases() []askRetryCase {
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt", "c.txt"}},
 		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "LANG,HOME"},
 			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"LANG", "HOME"}},
+		{name: "retry keeps recorded permissions", retry: true, recPerms: true,
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}, wantAllow: []string{"Bash(ls:*)"}, wantDeny: []string{"Bash(rm:*)"}},
+		{name: "retry --allow replaces recorded allow only", retry: true, recPerms: true, flags: []string{"--allow", "Read"},
+			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}, wantAllow: []string{"Read"}, wantDeny: []string{"Bash(rm:*)"}},
 	}
 }
 
@@ -55,10 +62,18 @@ func askRetryArgs(t *testing.T, dir string, tt askRetryCase) ([]string, int) {
 	args := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
 	wantRecords := 1
 	if tt.retry {
-		rec := agent.NewRecord("claude", agent.RunOptions{
+		opts := agent.RunOptions{
 			Prompt: "say ok", Tools: true, Timeout: 5 * time.Minute,
 			Attach: []string{filepath.Join(dir, "a.txt")},
-		}, time.Now().Add(-time.Hour))
+		}
+		if tt.recPerms {
+			p, err := agent.ParsePermissions("", []string{"Bash(ls:*)"}, nil, []string{"Bash(rm:*)"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			opts.Permissions = p
+		}
+		rec := agent.NewRecord("claude", opts, time.Now().Add(-time.Hour))
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)
 		}
@@ -89,6 +104,37 @@ func assertAskRetryRequest(t *testing.T, dir string, tt askRetryCase, req agent.
 	}
 	if !slices.Equal(req.KeepEnv, tt.wantKeepEnv) {
 		t.Errorf("keepEnv = %q, want %q", req.KeepEnv, tt.wantKeepEnv)
+	}
+	if got := ruleStrs(req.Permissions.Allow); !slices.Equal(got, tt.wantAllow) {
+		t.Errorf("allow = %q, want %q", got, tt.wantAllow)
+	}
+	if got := ruleStrs(req.Permissions.Deny); !slices.Equal(got, tt.wantDeny) {
+		t.Errorf("deny = %q, want %q", got, tt.wantDeny)
+	}
+}
+
+func ruleStrs(rules []agent.Rule) []string {
+	var out []string
+	for _, r := range rules {
+		out = append(out, r.String())
+	}
+	return out
+}
+
+// A malformed permission rule exits 2 before any dispatch is recorded or launched.
+func TestCmdAskBadPermissionRuleNeverLaunches(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", dir)
+	code, _, stderr := captureOutput(t, func() int {
+		return CmdAsk([]string{"--agent", "claude", "--fallback", "none", "--deny", "Bash(", "say ok"})
+	})
+	if code != 2 || !strings.Contains(stderr, `permission rule "Bash("`) {
+		t.Fatalf("exit = %d, stderr = %q; want 2 naming the rule", code, stderr)
+	}
+	if n := len(agent.RecentRecords(2)); n != 0 {
+		t.Fatalf("%d dispatch records written; the bad rule must stop before launch", n)
 	}
 }
 

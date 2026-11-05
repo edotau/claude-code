@@ -78,6 +78,19 @@ func (e *envFlag) Set(s string) error {
 	return nil
 }
 
+// ruleFlag collects repeatable --allow/--ask/--deny permission rules; RunAsk validates them after Parse.
+type ruleFlag []string
+
+func (r *ruleFlag) String() string { return strings.Join(*r, ",") }
+
+// Placeholder names the FLAGS placeholder for ruleFlag (helptext.Placeholder).
+func (r *ruleFlag) Placeholder() string { return "RULE" }
+
+func (r *ruleFlag) Set(s string) error {
+	*r = append(*r, s)
+	return nil
+}
+
 // agentsFlag is the --agents value: inline JSON or a file of agent definitions.
 type agentsFlag string
 
