@@ -14,6 +14,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/memory"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -81,7 +82,7 @@ type effortPlan struct {
 
 // recall appends the memory-recall block to the prompt, or returns it as a note in auto mode.
 func (e *effortPlan) recall(in *core.Input, promptField, task string, auto bool) string {
-	recallBlock, _ := agentRecall(in.SessionID, in.CWD, task)
+	recallBlock, _ := memory.AgentRecall(in.SessionID, in.CWD, task)
 	if recallBlock == "" {
 		return ""
 	}

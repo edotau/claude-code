@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
@@ -328,10 +330,10 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stubSpawn(t, true)
+	memory.StubSpawnForTest(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 3)
-	if sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != core.ExitProceed {
+	if memory.Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))).Decision == core.Block {
 		t.Fatal("update blocked")
 	}
 	data, err := os.ReadFile(filepath.Join(memstore.Dir(main), "worktrees", "wt-h.md"))
@@ -433,4 +435,16 @@ func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
 	if top, _, skip := checkoutOf(ctx, main); top != main || len(skip) != 1 || skip[0] != nested {
 		t.Fatalf("from the main tree: top %q, skip %v; want top %q and skip [%s]", top, skip, main, nested)
 	}
+}
+
+func writeEdits(t *testing.T, path string, n int) {
+	t.Helper()
+	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func updatePayload(tr, cwd string) string {
+	return fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q}`, cwd, tr)
 }

@@ -1,4 +1,4 @@
-package hooks
+package memory
 
 import (
 	"bytes"
@@ -44,7 +44,7 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	}
 
 	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	payload := fmt.Sprintf(`{"session_id":"sub-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
 	if code := sessionUpdateCode(core.ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != core.ExitProceed || calls.Load() != 1 {
 		t.Fatalf("subagent edits must arm the update gate: code=%d calls=%d", code, calls.Load())
@@ -66,7 +66,7 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	}
 
 	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	payload := fmt.Sprintf(`{"session_id":"commit-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
 	if code := sessionUpdateCode(core.ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != core.ExitProceed || calls.Load() != 1 {
 		t.Fatalf("a bare git commit must arm the update gate: code=%d calls=%d", code, calls.Load())

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/memory"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -17,13 +18,13 @@ var Native = map[string]core.Runner{
 	"safety-scan":               safetyScan,
 	"rtk-rewrite":               rtkRewrite,
 	"docs-placement":            viaStderr(docsPlacement),
-	"memory-start":              sessionStart,
-	"memory-recall":             memoryRecall,
+	"memory-start":              memory.Start,
+	"memory-recall":             memory.Recall,
 	"paths-resolve":             nativePathResolver,
-	"memory-update":             memoryUpdateStop,
+	"memory-update":             memory.Stop,
 	"review-simplicity":         reviewSimplicity,
 	"format-stop":               stopFormatRun,
-	"memory-end":                sessionUpdateEnd,
+	"memory-end":                memory.End,
 	"dispatch-effort":           dispatchPre,
 	"codex-agent-route":         nativeCodexAgentRoute,
 	"codex-routing-start":       nativeCodexRoutingStart,
@@ -39,7 +40,7 @@ var Native = map[string]core.Runner{
 	"docs-plan-mirror":          viaStderr(planMirror),
 	"docs-plan-save":            viaStderr(savePlan),
 	"dispatch-stop":             subagentStopRunner,
-	"memory-compact":            preCompact,
+	"memory-compact":            memory.Compact,
 	"worktree-create":           worktreeCreate,
 	"worktree-remove":           viaStderr(worktreeRemove),
 	"worktree-mode":             worktreeMode,

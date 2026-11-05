@@ -3,12 +3,10 @@
 package hooks
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // spawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).
@@ -48,10 +46,4 @@ func subagentStopRunner(in *core.Input) core.Result {
 		}
 	}
 	return note
-}
-
-// ownerDead is true only when the probe itself is trusted: off unix Alive is always false, and
-// treating every pid as dead there would silently disable both this and the idle-update watcher.
-func ownerDead(pid int) bool {
-	return pid > 0 && proc.Alive(os.Getpid()) && !proc.Alive(pid)
 }

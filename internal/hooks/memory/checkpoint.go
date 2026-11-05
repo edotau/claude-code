@@ -1,4 +1,4 @@
-package hooks
+package memory
 
 import (
 	"bytes"
@@ -48,8 +48,8 @@ func contextCheckpoint(in *core.Input) {
 	}
 }
 
-// memoryUpdateStop runs the context checkpoint and memory update; only the memory update can block the stop.
-func memoryUpdateStop(in *core.Input) core.Result {
+// Stop runs the context checkpoint and memory update; only the memory update can block the stop.
+func Stop(in *core.Input) core.Result {
 	var hv bytes.Buffer
 	contextCheckpoint(in)
 	code, failedOpen := sessionUpdate(in, &hv)

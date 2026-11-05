@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/hooks"
+	hookmem "github.com/edotau/claude-code/internal/hooks/memory"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
@@ -296,11 +296,11 @@ func cmdMemoryDigest(args []string) int {
 }
 
 func cmdMemoryWatch(args []string) int {
-	return hooks.IdleUpdateWatch(args, os.Stderr) // spawned detached by the Stop gate; its own flag set
+	return hookmem.IdleUpdateWatch(args, os.Stderr) // spawned detached by the Stop gate; its own flag set
 }
 
 func cmdMemoryCatchup(args []string) int {
-	return hooks.CatchUpSweep(args, os.Stdout, os.Stderr) // spawned detached at session start; its own flag set
+	return hookmem.CatchUpSweep(args, os.Stdout, os.Stderr) // spawned detached at session start; its own flag set
 }
 
 func cmdMemoryFmt(args []string) int {
