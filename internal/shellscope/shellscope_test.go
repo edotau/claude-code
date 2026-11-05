@@ -52,3 +52,38 @@ func TestCommandGoEnvAndGitGrep(t *testing.T) {
 		}
 	}
 }
+
+// TestCommandDashFormsAndPathValues pins double-dash banned flags, attached path values and git grep flag parsing.
+func TestCommandDashFormsAndPathValues(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"go vet --vettool=/usr/bin/true ./...", false},
+		{"GOOS=darwin go vet --vettool=/usr/bin/true ./...", false},
+		{"go build --toolexec=/usr/bin/true ./...", false},
+		{"go test --exec=/usr/bin/true ./...", false},
+		{"go build -o=/tmp/x ./cmd", false},
+		{"go build -o/tmp/x ./cmd", false},
+		{"go build --o=/tmp/x ./cmd", false},
+		{"go build -modfile=/tmp/go.mod ./...", false},
+		{"go test -coverprofile=/tmp/c.out ./...", false},
+		{"go build -o=../x ./cmd", false},
+		{"go build -o=bin/x ./cmd", true},
+		{"git grep -f /tmp/p foo", false},
+		{"git grep -f/tmp/p foo", false},
+		{"git grep --file=/tmp/p foo", false},
+		{"git grep -nf ../p foo", false},
+		{"git grep -f pats foo", true},
+		{"git log --no-ext-diff --no-textconv -SFOO", true},
+		{"git diff --no-ext-diff --no-textconv -Oorderfile", true},
+		{"git grep -eFOO", true},
+		{"git grep -e foo -nO bar", false},
+	}
+	for _, c := range cases {
+		if got := Command(c.cmd, []string{root}, nil); got != c.want {
+			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
