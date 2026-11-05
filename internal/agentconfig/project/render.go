@@ -56,14 +56,80 @@ func geminiTools(claude []string) []string {
 	return out
 }
 
-// renderCopilotAgent: ~/.copilot/agents/<name>.md — Claude-style frontmatter loads as-is; tools pass through.
-func renderCopilotAgent(agent Source) string {
-	return renderToolAgent(agent, toolList(agent.frontmatter["tools"]))
+// copilotToolNames maps Claude Code tool names onto Copilot's custom-agent tool aliases.
+var copilotToolNames = map[string]string{
+	"Read": "read", "Grep": "search", "Glob": "search", "LS": "search", "Edit": "edit", "Write": "edit",
+	"Bash": "execute", "Agent": "agent", "WebFetch": "web", "WebSearch": "web",
 }
 
-// renderOpenCodeAgent: ~/.config/opencode/agents/<name>.md — description + mode: subagent; body is the prompt.
+// copilotTools translates a Claude tool list (deduplicated, order kept) and returns the names with no Copilot alias.
+func copilotTools(claude []string) (mapped, dropped []string) {
+	seen := map[string]bool{}
+	for _, name := range claude {
+		c, ok := copilotToolNames[name]
+		switch {
+		case !ok:
+			dropped = append(dropped, name)
+		case !seen[c]:
+			seen[c] = true
+			mapped = append(mapped, c)
+		}
+	}
+	return mapped, dropped
+}
+
+// concreteModel returns the frontmatter model when it names a real model; Claude tier aliases have no other-CLI route.
+func concreteModel(agent Source) string {
+	m := toString(agent.frontmatter["model"])
+	switch strings.ToLower(m) {
+	case "", "inherit", "sonnet", "opus", "haiku":
+		return ""
+	}
+	return m
+}
+
+// readOnlyTools reports an explicit tools: list that grants none of Edit, Write or Bash.
+func readOnlyTools(agent Source) bool {
+	tools := toolList(agent.frontmatter["tools"])
+	for _, t := range tools {
+		if t == "Edit" || t == "Write" || t == "Bash" {
+			return false
+		}
+	}
+	return len(tools) > 0
+}
+
+// renderCopilotAgent: ~/.copilot/agents/<name>.md — tools in Copilot's names (untranslatable ones listed in a
+// comment line under the banner), model only when concrete.
+func renderCopilotAgent(agent Source) string {
+	tools, dropped := copilotTools(toolList(agent.frontmatter["tools"]))
+	fields := []orderedField{{"name", agent.Name()}, {"description", skillDescription(agent)}}
+	if len(tools) > 0 {
+		fields = append(fields, orderedField{"tools", tools})
+	}
+	if m := concreteModel(agent); m != "" {
+		fields = append(fields, orderedField{"model", m})
+	}
+	note := ""
+	if len(dropped) > 0 {
+		note = htmlComment("Tools with no Copilot equivalent, dropped: "+strings.Join(dropped, ", ")) + "\n\n"
+	}
+	return buildFrontmatterFile(fields, agentBanner(agent, htmlComment)+"\n\n"+note+agentBody(agent))
+}
+
+// renderOpenCodeAgent: ~/.config/opencode/agents/<name>.md — description + mode: subagent; read-only agents deny
+// edit and bash; model only when concrete.
 func renderOpenCodeAgent(agent Source) string {
-	return renderMarkdownAgent(agent, []orderedField{{"description", skillDescription(agent)}, {"mode", "subagent"}})
+	fields := []orderedField{{"description", skillDescription(agent)}, {"mode", "subagent"}}
+	if m := concreteModel(agent); m != "" {
+		fields = append(fields, orderedField{"model", m})
+	}
+	out := renderMarkdownAgent(agent, fields)
+	if !readOnlyTools(agent) {
+		return out
+	}
+	// The field writer only emits scalars and flat lists, so the nested permission block is spliced in before the closing ---.
+	return strings.Replace(out, "\n---\n\n", "\npermission:\n  edit: deny\n  bash: deny\n---\n\n", 1)
 }
 
 // renderCodexAgent: ~/.codex/agents/<name>.toml — name, description, developer_instructions, reasoning effort.

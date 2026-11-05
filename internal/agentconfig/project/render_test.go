@@ -92,14 +92,49 @@ func TestRenderGeminiAgentEmitsOnlyStrictFields(t *testing.T) {
 	}
 }
 
-// Copilot loads Claude-style frontmatter, so tools pass through as a list; opencode needs mode: subagent.
-func TestRenderCopilotAndOpenCodeFrontmatter(t *testing.T) {
-	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Grep"}, body: "body\n"}
-	fm, _ := textutil.ParseFrontmatter(renderCopilotAgent(agent))
-	if tools, _ := fm["tools"].([]string); strings.Join(tools, ",") != "Read,Grep" {
-		t.Errorf("copilot tools = %v, want [Read Grep]", fm["tools"])
+// Copilot gets tools in its own names with untranslatable ones listed in one comment line; model only when concrete.
+func TestRenderCopilotAgentTranslatesTools(t *testing.T) {
+	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Grep, Glob, Bash, mcp__x__y, NotebookEdit", "model": "sonnet"}, body: "body\n"}
+	got := renderCopilotAgent(agent)
+	fm, body := textutil.ParseFrontmatter(got)
+	if tools, _ := fm["tools"].([]string); strings.Join(tools, ",") != "read,search,execute" {
+		t.Errorf("copilot tools = %v, want [read search execute]", fm["tools"])
 	}
-	fm, _ = textutil.ParseFrontmatter(renderOpenCodeAgent(agent))
+	if _, has := fm["model"]; has {
+		t.Errorf("tier alias must not map to a copilot model: %v", fm["model"])
+	}
+	lines := strings.Split(body, "\n")
+	if !strings.HasPrefix(lines[0], agentSkillBannerPrefix) || lines[2] != "<!-- Tools with no Copilot equivalent, dropped: mcp__x__y, NotebookEdit -->" {
+		t.Errorf("want banner then one dropped-tools comment, got:\n%s", body)
+	}
+	agent.frontmatter["model"] = "gpt-5"
+	agent.frontmatter["tools"] = "Read"
+	got = renderCopilotAgent(agent)
+	fm, body = textutil.ParseFrontmatter(got)
+	if fm["model"] != "gpt-5" || strings.Contains(body, "no Copilot equivalent") {
+		t.Errorf("concrete model kept and no comment when nothing dropped, got:\n%s", got)
+	}
+}
+
+// opencode: read-only tool lists get permission edit/bash deny; writers and inherit-all agents do not.
+func TestRenderOpenCodeAgentPermissions(t *testing.T) {
+	mk := func(tools any) Source {
+		fm := map[string]any{"name": "demo", "description": "d"}
+		if tools != nil {
+			fm["tools"] = tools
+		}
+		return Source{dirName: "demo", frontmatter: fm, body: "body\n"}
+	}
+	golden := "---\ndescription: \"d\"\nmode: \"subagent\"\npermission:\n  edit: deny\n  bash: deny\n---\n\n" + htmlComment("Synced from .claude/agents/demo.md; do not edit by hand.") + "\n\nbody\n"
+	if got := renderOpenCodeAgent(mk("Read, Grep, Glob")); got != golden {
+		t.Errorf("read-only render =\n%q\nwant\n%q", got, golden)
+	}
+	for _, tools := range []any{"Read, Bash", "Read, Edit", "Write", nil} {
+		if got := renderOpenCodeAgent(mk(tools)); strings.Contains(got, "permission") {
+			t.Errorf("tools %v must not be denied:\n%s", tools, got)
+		}
+	}
+	fm, _ := textutil.ParseFrontmatter(renderOpenCodeAgent(mk("Read")))
 	if fm["mode"] != "subagent" || fm["description"] != "d" {
 		t.Errorf("opencode frontmatter = %v, want description + mode: subagent", fm)
 	}

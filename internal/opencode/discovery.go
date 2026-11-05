@@ -1,40 +1,27 @@
 package opencode
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// opencodeRuleFiles is the sorted rules/**/*.md without `paths:` frontmatter: what Claude Code always loads.
-func opencodeRuleFiles() []string {
-	root := filepath.Join(paths.ConfigDir(), "rules")
-	var files []string
-	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".md") {
-			return nil
-		}
-		raw, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return nil
-		}
-		if fm, _ := textutil.ParseFrontmatter(string(raw)); fm["paths"] == nil {
-			files = append(files, p)
-		}
-		return nil
-	})
-	slices.Sort(files)
-	return files
-}
-
-// opencodeRulesOn adds the always-on rules to cfg as opencode `instructions`.
+// opencodeRulesOn adds the portable core to cfg as `instructions`, minus CLAUDE.md, which opencode reads natively.
 func opencodeRulesOn(cfg map[string]any) {
-	if files := opencodeRuleFiles(); len(files) > 0 {
-		cfg["instructions"] = files
+	core, err := project.PortableCore(paths.ConfigDir())
+	if err != nil {
+		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
+		return
+	}
+	if len(core) > 1 {
+		cfg["instructions"] = core[1:]
 	}
 }
 

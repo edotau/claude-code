@@ -113,15 +113,13 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 	return denv, opencodeArgv(opencodeDatabricksModel(denv), *h), nil
 }
 
-// opencodeHarnessConfig is the per-launch config: an interactive launch (h nil) gets the always-on rules as
-// instructions and the projected commands; a headless one is tools-off when asked, and no rules (+4.7k tokens per call).
+// opencodeHarnessConfig is the per-launch config: every launch gets the portable core as instructions and the
+// projected commands; a headless one is also tools-off when asked.
 func opencodeHarnessConfig(h *agent.Headless) func(map[string]any) {
 	return func(cfg map[string]any) {
-		switch {
-		case h == nil:
-			opencodeRulesOn(cfg)
-			opencodeCommandsOn(cfg)
-		case !h.Tools:
+		opencodeRulesOn(cfg)
+		opencodeCommandsOn(cfg)
+		if h != nil && !h.Tools {
 			opencodeToolsOff(cfg)
 		}
 	}
