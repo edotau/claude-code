@@ -88,7 +88,7 @@ func discoverSources(root, filename string) ([]Source, error) {
 		if d == "synced" {
 			continue
 		}
-		if !e.Type().IsDir() && !(e.Type()&os.ModeSymlink != 0 && symlinkInside(root, filepath.Join(root, d))) {
+		if !e.Type().IsDir() && (e.Type()&os.ModeSymlink == 0 || !symlinkInside(root, filepath.Join(root, d))) {
 			continue
 		}
 		defPath := filepath.Join(root, d, filename)
