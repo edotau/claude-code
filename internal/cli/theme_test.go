@@ -433,3 +433,19 @@ func TestThemeGetGradientSafety(t *testing.T) {
 		t.Errorf("theme nord: exit %d, want 0", code)
 	}
 }
+
+func TestThemeResetDeletesOverrideAndIsIdempotent(t *testing.T) {
+	dir := hermeticTheme(t)
+	if code, _, _ := captureOutput(t, func() int { return cmdTheme([]string{"nord"}) }); code != 0 {
+		t.Fatalf("theme nord exit %d", code)
+	}
+	for i, want := range []string{"override removed", "already on the default"} {
+		code, out, _ := captureOutput(t, func() int { return cmdTheme([]string{"--reset"}) })
+		if code != 0 || !strings.Contains(out, want) {
+			t.Fatalf("reset #%d: exit %d, stdout %q, want %q", i+1, code, out, want)
+		}
+		if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {
+			t.Fatalf("reset #%d: config.json still present (stat err %v)", i+1, err)
+		}
+	}
+}
