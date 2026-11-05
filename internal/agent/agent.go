@@ -199,6 +199,7 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
 	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
+	drop(c.Permissions, !req.Permissions.IsZero(), "--allow/--ask/--mode", func() { req.Permissions = Permissions{} })
 	drop(c.Persona, req.Persona != nil, "persona="+personaName(req.Persona), func() { req.Persona = nil })
 	if req.Persona != nil && c.Persona == Emulated {
 		req, dropped = emulatePersona(c, req, dropped)
@@ -242,7 +243,11 @@ func RefusePermissions(c Caps, agentName string, p Permissions) error {
 	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != "plan") {
 		return nil
 	}
-	return errors.New(agentName + " cannot enforce permission deny rules yet; dispatch refused")
+	what := "permission deny rules"
+	if len(p.Deny) == 0 {
+		what = "--mode plan"
+	}
+	return errors.New(agentName + " cannot enforce " + what + " yet; dispatch refused")
 }
 
 // fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.

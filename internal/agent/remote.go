@@ -57,7 +57,7 @@ func (r remoteEngine) Name() string { return r.agent }
 func (r remoteEngine) Caps() Caps {
 	n := Native
 	return Caps{Model: n, Provider: n, Effort: n, WorkDir: n, SessionID: n, Tools: n, NoTools: n, Autonomous: n, Memory: n,
-		NoPersist: n, SafeMode: n, Direct: n, SystemPrompt: n, AppendSystemPrompt: n, Env: n, OutputSchema: n, Persona: n}
+		NoPersist: n, SafeMode: n, Direct: n, SystemPrompt: n, AppendSystemPrompt: n, Env: n, OutputSchema: n, Persona: n, Permissions: n}
 }
 
 func (r remoteEngine) Available() error { return nil }
@@ -131,7 +131,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 		flag  string
 		rules []Rule
 	}{{"--allow", req.Permissions.Allow}, {"--ask", req.Permissions.Ask}, {"--deny", req.Permissions.Deny}} {
-		for _, s := range ruleStrings(set.rules) {
+		for _, s := range RuleStrings(set.rules) {
 			opt(set.flag, s)
 		}
 	}
@@ -152,7 +152,7 @@ func validateRemoteScript(bin, agentName string, req RunOptions) error {
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
 	for _, rules := range [][]Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
-		vals = append(vals, ruleStrings(rules)...)
+		vals = append(vals, RuleStrings(rules)...)
 	}
 	for _, v := range vals {
 		if strings.ContainsRune(v, 0) {

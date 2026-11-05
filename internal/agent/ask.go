@@ -214,7 +214,7 @@ func (t *AskTarget) Apply(rec Record, errw io.Writer) {
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host, *t.RemoteBin = rec.Host, rec.RemoteBin
 	p := rec.Request.Permissions
-	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, ruleStrings(p.Allow), ruleStrings(p.Ask), ruleStrings(p.Deny)
+	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, RuleStrings(p.Allow), RuleStrings(p.Ask), RuleStrings(p.Deny)
 	if t.Persona != nil {
 		*t.Persona = rec.Request.Persona
 	}
@@ -224,15 +224,6 @@ func (t *AskTarget) Apply(rec Record, errw io.Writer) {
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
-}
-
-// ruleStrings renders rules back to their flag form, "Tool" or "Tool(arg)".
-func ruleStrings(rules []Rule) []string {
-	var out []string
-	for _, r := range rules {
-		out = append(out, r.String())
-	}
-	return out
 }
 
 // ErrJobNotFresh marks a --job record that is not a fresh background job.

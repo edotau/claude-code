@@ -105,20 +105,12 @@ func assertAskRetryRequest(t *testing.T, dir string, tt askRetryCase, req agent.
 	if !slices.Equal(req.KeepEnv, tt.wantKeepEnv) {
 		t.Errorf("keepEnv = %q, want %q", req.KeepEnv, tt.wantKeepEnv)
 	}
-	if got := ruleStrs(req.Permissions.Allow); !slices.Equal(got, tt.wantAllow) {
+	if got := agent.RuleStrings(req.Permissions.Allow); !slices.Equal(got, tt.wantAllow) {
 		t.Errorf("allow = %q, want %q", got, tt.wantAllow)
 	}
-	if got := ruleStrs(req.Permissions.Deny); !slices.Equal(got, tt.wantDeny) {
+	if got := agent.RuleStrings(req.Permissions.Deny); !slices.Equal(got, tt.wantDeny) {
 		t.Errorf("deny = %q, want %q", got, tt.wantDeny)
 	}
-}
-
-func ruleStrs(rules []agent.Rule) []string {
-	var out []string
-	for _, r := range rules {
-		out = append(out, r.String())
-	}
-	return out
 }
 
 // A malformed permission rule exits 2 before any dispatch is recorded or launched.
