@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -17,6 +19,9 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Anthropic auth modes for the `anthropic` verb.
@@ -168,17 +173,6 @@ type apiResponse struct {
 	OutputTokens int64
 }
 
-// apiError is an HTTP failure with the status and Retry-After the caller's retry loop needs.
-type apiError struct {
-	Status int
-	After  time.Duration
-	msg    string
-}
-
-func (e *apiError) Error() string             { return e.msg }
-func (e *apiError) StatusCode() int           { return e.Status }
-func (e *apiError) RetryAfter() time.Duration { return e.After }
-
 // streamMessages sends r and writes text deltas to w as they arrive.
 func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse, error) {
 	client := anthropic.NewClient(
@@ -237,13 +231,70 @@ func boxSDKError(err error) error {
 	if !errors.As(err, &apiErr) {
 		return err
 	}
-	out := &apiError{Status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
+	out := &httpError{status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
 	if apiErr.Response != nil {
 		// Keep the SDK caller's integer-only header policy.
 		v := apiErr.Response.Header.Get("Retry-After")
 		if v == strings.TrimSpace(v) && !strings.Contains(v, ":") {
-			out.After, _ = textutil.ParseRetryAfter(v, time.Now())
+			out.after, _ = textutil.ParseRetryAfter(v, time.Now())
 		}
 	}
 	return out
+}
+
+// AnthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
+func AnthropicSecret(o AnthropicOptions, store func(name string) int) (string, error) {
+	if v, err := readAnthropicSecret(o); err != nil {
+		return "", fmt.Errorf("%s: %w", o.Name, err)
+	} else if v != "" {
+		return v, nil
+	}
+	missing := fmt.Errorf("%s is not in the vault; store it with `claude-code vault set %s`", o.Name, o.Name)
+	if o.PrintEnv || !tui.StdinIsTerminal() || !ansi.IsTerminal(os.Stderr) {
+		return "", missing
+	}
+	if !tui.Confirm(o.Name+" is not in the vault — set it now?", true) {
+		return "", missing
+	}
+	if err := storeAnthropicSecret(o, store); err != nil {
+		return "", err
+	}
+	if v, err := readAnthropicSecret(o); err != nil {
+		return "", fmt.Errorf("%s: %w", o.Name, err)
+	} else if v != "" {
+		return v, nil
+	}
+	return "", missing
+}
+
+func readAnthropicSecret(o AnthropicOptions) (string, error) {
+	if o.Mode == AuthOAuth {
+		return providers.StoredSecret(o.Name), nil
+	}
+	v, _, err := vault.EffectiveSecret(o.Name)
+	return v, err
+}
+
+func storeAnthropicSecret(o AnthropicOptions, store func(name string) int) error {
+	if o.Mode == AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
+		runSetupToken()
+	}
+	if code := store(o.Name); code != 0 {
+		return fmt.Errorf("%s was not stored", o.Name)
+	}
+	return nil
+}
+
+// runSetupToken runs `claude setup-token` on the inherited terminal; a failure only means the user pastes a token.
+func runSetupToken() {
+	bin, err := ClaudeBinary()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code:", err)
+		return
+	}
+	cmd := exec.CommandContext(context.Background(), bin, "setup-token")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: claude setup-token:", err)
+	}
 }
