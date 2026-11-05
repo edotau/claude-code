@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -129,5 +130,20 @@ func TestHeadlessScopedFlags(t *testing.T) {
 	}
 	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !has(auto, "--allow-all-tools") {
 		t.Errorf("autonomous argv = %v", auto)
+	}
+}
+
+// With no --workdir the SDK root is the process cwd, so a scoped write inside it is approved.
+func TestScopedWriteWithoutWorkdirUsesCwd(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	opts := newSDKOptions("copilot", nil, agent.RunOptions{Tools: true}, providers.Target{}, true)
+	h := BuildSessionConfig(opts).OnPermissionRequest
+	d, err := h(scopedWrite(filepath.Join(dir, "b.txt")), copilot.PermissionInvocation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := d.(*rpc.PermissionDecisionApproveOnce); !ok {
+		t.Fatalf("write in cwd refused with WorkingDirectory %q: %T", opts.WorkingDirectory, d)
 	}
 }
