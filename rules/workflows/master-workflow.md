@@ -50,7 +50,7 @@ The same pass on the finished diff (SHIP IT / NEEDS WORK / BLOCK) is `claude-cod
 Three parallel `Explore` agents — Structure (layout, entry points), Conventions (naming, errors, tests),
 Dependencies (deps, env vars, CLIs) — produce one brief passed to every downstream agent. **Scope the fan-out to the
 directories the task touches**: a repo-wide sweep is the biggest avoidable token cost. Skip if a brief exists this
-session and nothing changed. `@agent-gemini` gives the same brief off Claude's budget: it fans out up to 4
+session and nothing changed. `@agent-gemini` gives the same brief off Claude's budget: it fans out up to 12
 `gemini explore` jobs (code + web) and merges them; `bridge` for whole-repo context.
 
 ## Phase 3: Research (new implementation, not pure refactor)

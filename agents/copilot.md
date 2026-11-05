@@ -1,7 +1,7 @@
 ---
 name: copilot
 description: |
-  Agent on the GitHub Copilot CLI, driven through `claude-code copilot <verb>` or headless `claude-code ask --agent copilot`. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/testing-guidelines.md`); use on a rename, module move, signature change or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Also: a delegated mechanical edit (`ask --tools [--background]`, `--read-only` for reads, `--fleet` for wide scans), a diff review (`review [--adversarial]`), `explore`, `resume <id>`, `transfer`. Copilot loads the harness instructions, skills and guard hooks. Not the release gate (main thread, owner-approved) nor memory (`opencode`).
+  Agent on the GitHub Copilot CLI, via `claude-code copilot <verb>` or headless `claude-code ask --agent copilot`. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior; use on a rename, module move, signature change or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Also: delegated edits (`ask --tools [--background]`, `--read-only`, `--fleet`), diff review (`review [--adversarial]`), `explore`, `resume <id>`, `transfer`. Loads the harness instructions, skills and guard hooks. Not the release gate nor memory (`opencode`).
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.
