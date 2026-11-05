@@ -135,7 +135,7 @@ Every phase is:
 
 ### Harness guidelines every plan must respect
 
-- **Rules:** `CLAUDE.md` hard rules apply (generated `settings.json`, secrets only in the vault/`auth.command`, propose
+- **Rules:** `CLAUDE.md` hard rules apply (`settings.json` is the owner's, hand-edited; secrets only in the vault/`auth.command`, propose
   look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
 - **Dispatch shape:** `skills/subagent-workflows/SKILL.md` (caps, fan-out) — disjoint-package code steps run in
   parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a
