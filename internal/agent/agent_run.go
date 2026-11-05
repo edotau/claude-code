@@ -25,6 +25,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
+	ctx = withPermissionsEnv(ctx, req.Permissions)
 	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped, Emulated: emulated}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
