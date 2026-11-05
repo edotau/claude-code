@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // BenchmarkScan runs the per-Stop scans over a real transcript; set HARNESS_BENCH_TRANSCRIPT to one.
@@ -490,7 +492,7 @@ func TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce(t *testing.T) {
 }
 
 // TestCountLineEditsMalformedSubstitutionWithEditStillCountsEdit: a Bash tool_use with a dangling `$(`
-// never actually panics (extractSubstitutions returns what it found so far; see
+// never actually panics (shell.ExtractSubstitutions returns what it found so far; see
 // TestExtractSubstitutionsDanglingOpen), so a sibling Edit tool_use in the same content array must still
 // count and the malformed command itself must not count as a commit. countLineEdits's whole-line recover
 // is therefore never exercised by this input — this test pins that no-panic path, not the recover itself.
@@ -543,8 +545,8 @@ func TestExtractSubstitutionsDanglingOpen(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := extractSubstitutions(tc.cmd); len(got) != 0 {
-				t.Errorf("extractSubstitutions(%q) = %v, want empty", tc.cmd, got)
+			if _, got := shell.ExtractSubstitutions(tc.cmd); len(got) != 0 {
+				t.Errorf("ExtractSubstitutions(%q) = %v, want empty", tc.cmd, got)
 			}
 		})
 	}
