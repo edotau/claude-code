@@ -1,5 +1,5 @@
 // `Profile:` brief line: a dispatch for another profile runs through a coworker leaf as `ask --profile <p>`.
-package hooks
+package agents
 
 import (
 	"cmp"

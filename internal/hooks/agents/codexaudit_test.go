@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"bytes"
@@ -49,7 +49,7 @@ func runCodexAuditHandler(t *testing.T, name string, payload map[string]any) {
 	payload["prompt"] = "PROMPT-SECRET-SENTINEL"
 	payload["tool_input"] = map[string]any{"message": "TASK-SECRET-SENTINEL", "task_name": "NAME-SECRET-SENTINEL"}
 	var out, stderr bytes.Buffer
-	if code := runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr); code != core.ExitProceed {
+	if code := runCodex(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr); code != core.ExitProceed {
 		t.Fatalf("exit = %d", code)
 	}
 	if out.Len() != 0 || stderr.Len() != 0 {
@@ -222,7 +222,7 @@ func TestCodexAuditIgnoresOtherVendorsAndMissingSessions(t *testing.T) {
 				payload["session_id"] = "session"
 			}
 			var out, stderr bytes.Buffer
-			if runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr) != core.ExitProceed {
+			if runCodex(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr) != core.ExitProceed {
 				t.Fatal("audit blocked")
 			}
 		}

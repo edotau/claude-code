@@ -1,7 +1,7 @@
 //go:build unix
 
 // The leaf-stop reaper: after a stop the gate lets through, kill the leaf's own leftover background shells.
-package hooks
+package agents
 
 import (
 	"bytes"

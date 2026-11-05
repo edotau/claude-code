@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"encoding/json"

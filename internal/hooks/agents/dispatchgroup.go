@@ -1,6 +1,6 @@
 // The dispatch group's PreToolUse runner: cap → pin → claim on one Agent/Task/Workflow spawn, so a blocked
 // dispatch claims nothing; the post-side runners live in inflight.go.
-package hooks
+package agents
 
 import (
 	"fmt"
@@ -18,8 +18,8 @@ import (
 // agentCallRe finds `agent(` call sites in a Workflow script.
 var agentCallRe = regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`)
 
-// dispatchPre: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
-func dispatchPre(in *core.Input) core.Result {
+// Effort: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
+func Effort(in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] && in.ToolName != "Workflow" {
 		return core.Result{}
 	}

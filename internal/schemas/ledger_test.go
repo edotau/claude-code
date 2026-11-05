@@ -68,7 +68,7 @@ var writers = map[string]string{
 	"internal/agentconfig/render/versions.go:writeBaseline":           "vendor-baseline",
 	"internal/history/history.go:stageFile":                           unversioned("text: session history snapshot of a transcript"),
 	"internal/hooks/memhook/checkpoint.go:contextCheckpoint":          unversioned("marker: context-checkpoint flag file"),
-	"internal/hooks/codexaudit.go:appendCodexRoute":                   "codex-routing",
+	"internal/hooks/agents/codexaudit.go:appendCodexRoute":            "codex-routing",
 	"internal/hooks/wthook/claims.go:appendClaims":                    "claims",
 	"internal/notices/notices.go:Append":                              "notices",
 	"internal/hooks/wthook/claimcheck.go:appendIfNew":                 unversioned("marker: per-session claim advisory dedupe lines"),

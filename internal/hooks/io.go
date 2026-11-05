@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
@@ -29,13 +30,13 @@ var Native = map[string]core.Runner{
 	"review-simplicity":         quality.ReviewSimplicity,
 	"format-stop":               quality.StopFormat,
 	"memory-end":                memhook.End,
-	"dispatch-effort":           dispatchPre,
-	"codex-agent-route":         nativeCodexAgentRoute,
-	"codex-routing-start":       nativeCodexRoutingStart,
-	"codex-routing-result":      nativeCodexRoutingResult,
-	"codex-subagent-start":      nativeCodexSubagentStart,
-	"dispatch-failure":          releaseSpawn,
-	"dispatch-workflow":         releaseSpawn,
+	"dispatch-effort":           agents.Effort,
+	"codex-agent-route":         agents.CodexAgentRoute,
+	"codex-routing-start":       agents.CodexRoutingStart,
+	"codex-routing-result":      agents.CodexRoutingResult,
+	"codex-subagent-start":      agents.CodexSubagentStart,
+	"dispatch-failure":          agents.Release,
+	"dispatch-workflow":         agents.Release,
 	"docs-plan-gate":            viaStderr(docs.Gate),
 	"docs-plan-skeleton":        docs.Skeleton,
 	"docs-plan-skeleton-prompt": docs.Skeleton,
@@ -43,7 +44,7 @@ var Native = map[string]core.Runner{
 	"docs-plan-reminder":        docs.Reminder,
 	"docs-plan-mirror":          viaStderr(docs.Mirror),
 	"docs-plan-save":            viaStderr(docs.Save),
-	"dispatch-stop":             subagentStopRunner,
+	"dispatch-stop":             agents.Stop,
 	"memory-compact":            memhook.Compact,
 	"worktree-create":           wthook.Create,
 	"worktree-remove":           viaStderr(wthook.Remove),
