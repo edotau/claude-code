@@ -1,6 +1,6 @@
 // `workflow-lint` — PreToolUse on Workflow: an inline script's unpinned agent() leaves are pinned to
 // the medium-tier model; ambiguous ones block; a by-name call is redirected to its on-disk script and linted there.
-package hooks
+package quality
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ import (
 
 const workflowLintName = "inline workflow"
 
-// workflowResult rewrites every unpinned agent() leaf in an inline script to pin the medium-tier model, or
+// WorkflowResult rewrites every unpinned agent() leaf in an inline script to pin the medium-tier model, or
 // blocks when a leaf's options argument can't be rewritten safely or a pin's literal value is bad. A
 // saved script given by scriptPath can't be rewritten, so it only blocks (on a model/agentType/value
 // problem, never a missing effort — that's a `workflow lint` concern, not this hook's). A by-name call
@@ -24,7 +24,7 @@ const workflowLintName = "inline workflow"
 // session start, so an edit made mid-session would otherwise run the stale copy; a scriptPath outside
 // the session's cwd is refused by the tool) and linted the same way; a name with no matching file (a
 // built-in, or a bogus name) proceeds untouched.
-func workflowResult(in *core.Input) core.Result {
+func WorkflowResult(in *core.Input) core.Result {
 	if script := in.Nested("tool_input", "script"); script != "" {
 		return workflowInline(in, script)
 	}

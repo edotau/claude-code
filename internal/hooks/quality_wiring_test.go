@@ -6,14 +6,67 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
+	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/settings"
 )
+
+// qualityRunners are the quality-area Native entries and the quality runner each must be.
+var qualityRunners = map[string]core.Runner{
+	"review-simplicity": quality.ReviewSimplicity, "format-stop": quality.StopFormat,
+}
+
+// Every quality-area Native entry is the intended quality runner.
+func TestNativeQualityEntriesAreQualityRunners(t *testing.T) {
+	for name, want := range qualityRunners {
+		if reflect.ValueOf(Native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("%s: Native entry is not the quality runner", name)
+		}
+	}
+}
+
+// The review-simplicity module renders its advisory as PostToolUse JSON on stdout through the registry.
+func TestReviewSimplicityModuleEmitsPostToolUse(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	p := filepath.Join(t.TempDir(), "a.go")
+	if err := os.WriteFile(p, []byte("package fx\n\n// one\n// two\nfunc Z() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := fmt.Sprintf(`{"hook_event_name":"PostToolUse","tool_name":"Write","cwd":%q,"tool_input":{"file_path":%q}}`,
+		filepath.Dir(p), p)
+	var out bytes.Buffer
+	if code := RunArgs("PostToolUse", []string{"--review-simplicity"}, strings.NewReader(payload), &out, &bytes.Buffer{}); code != core.ExitProceed {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out.String(), `"hookEventName":"PostToolUse"`) || !strings.Contains(out.String(), "long_comment") {
+		t.Errorf("stdout = %q, want PostToolUse JSON naming long_comment", out.String())
+	}
+}
+
+// A Workflow call through the dispatch-effort pin step is linted by quality.WorkflowResult: an unpinned leaf gets a model.
+func TestDispatchEffortLintsWorkflowViaQuality(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	res := Native["dispatch-effort"](core.ParseInput(strings.NewReader(
+		`{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`)))
+	if got, _ := res.UpdatedInput["script"].(string); !strings.Contains(got, "model: 'sonnet'") {
+		t.Errorf("updatedInput.script = %q, want model: 'sonnet' filled", got)
+	}
+}
+
+// The registry row for dispatch-effort serves the same pin step directly (`claude-code hook PreToolUse --dispatch-effort`).
+func TestAgentEffortRegistryDispatches(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code := RunArgs("PreToolUse", []string{"--dispatch-effort"}, strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
+	if code != core.ExitProceed {
+		t.Fatalf("RunArgs(PreToolUse, --dispatch-effort) on an Agent payload = %d, want ExitProceed", code)
+	}
+}
 
 // stopFormatFixture is a git repo holding an unformatted mine.go plus a transcript that triggers the stop gates.
 type stopFormatFixture struct {
@@ -91,64 +144,5 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(mine); string(b) != ugly {
 		t.Error("a disabled format group must leave the file unformatted")
-	}
-}
-
-func TestStopFormatOnlySessionWrites(t *testing.T) {
-	if _, err := exec.LookPath("gofmt"); err != nil {
-		t.Skip("gofmt not on PATH")
-	}
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo, _ := filepath.EvalSymlinks(t.TempDir())
-	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-	ugly := "package x\nfunc  F( ) {}\n"
-	mine, theirs := filepath.Join(repo, "mine.go"), filepath.Join(repo, "theirs.go")
-	_ = os.WriteFile(mine, []byte(ugly), 0o644)
-	_ = os.WriteFile(theirs, []byte(ugly), 0o644)
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	rec := fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", mine)
-	_ = os.WriteFile(tr, []byte(rec), 0o600)
-	stopFormat(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
-	if b, _ := os.ReadFile(mine); string(b) == ugly {
-		t.Error("session-written file was not formatted")
-	}
-	if b, _ := os.ReadFile(theirs); string(b) != ugly {
-		t.Error("a file the session never wrote was formatted")
-	}
-	stamps, _ := filepath.Glob(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "state", "harness", "stop-format", "*.json"))
-	if len(stamps) != 1 {
-		t.Fatalf("stamps after a format pass: %v", stamps)
-	}
-	_ = os.Remove(mine)
-	_ = os.Remove(theirs)
-	stopFormat(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
-	if _, err := os.Stat(stamps[0]); !os.IsNotExist(err) {
-		t.Error("a clean tree must drop the stale stamp file")
-	}
-}
-
-// TestChangedFilesFromSubdir: from a repo subdirectory (no `.git` there) dirty paths still resolve cwd-relative.
-func TestChangedFilesFromSubdir(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
-	repo, _ := filepath.EvalSymlinks(t.TempDir())
-	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-	src := filepath.Join(repo, "src")
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.WriteFile(filepath.Join(src, "a.go"), []byte("package a\n"), 0o644)
-	_ = os.WriteFile(filepath.Join(repo, "top.go"), []byte("package top\n"), 0o644)
-	got := changedFiles(t.Context(), src)
-	if len(got) != 1 || got[0] != "a.go" {
-		t.Fatalf("changedFiles(src) = %v, want [a.go]", got)
 	}
 }

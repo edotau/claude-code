@@ -1,7 +1,7 @@
 // The formatter chain stop-format drives: format ONE file the way its own project formats it — the
 // repo's `make format`/`fmt` target when it honors a per-file variable, else the project's declared
 // python chain, else the per-extension tool. Best-effort; every step reports whether it ran cleanly.
-package hooks
+package quality
 
 import (
 	"context"

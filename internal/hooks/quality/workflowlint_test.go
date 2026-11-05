@@ -1,7 +1,6 @@
-package hooks
+package quality
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -25,11 +24,22 @@ func wfLintPayload(t *testing.T, extra map[string]any) string {
 	return string(b)
 }
 
-// runWorkflowLint runs the pin step and returns its exit code plus the captured stdout/stderr.
+// runWorkflowLint runs WorkflowResult and renders it like the PreToolUse emitter: a block reason on stderr, else
+// an updatedInput JSON line on stdout.
 func runWorkflowLint(stdin string) (code int, stdout, stderr string) {
-	var out, errb bytes.Buffer
-	code = renderEffort(agentEffortResult(core.ParseInput(strings.NewReader(stdin))), &out, &errb)
-	return code, out.String(), errb.String()
+	res := WorkflowResult(core.ParseInput(strings.NewReader(stdin)))
+	if res.Decision == core.Block {
+		return core.ExitBlock, "", res.Reason + "\n"
+	}
+	if res.UpdatedInput == nil {
+		return core.ExitProceed, "", ""
+	}
+	inner := map[string]any{"hookEventName": "PreToolUse", "updatedInput": res.UpdatedInput}
+	if res.Context != "" {
+		inner["additionalContext"] = res.Context
+	}
+	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": inner})
+	return core.ExitProceed, string(out) + "\n", ""
 }
 
 func TestWorkflowLintNonWorkflowToolProceeds(t *testing.T) {
@@ -292,15 +302,6 @@ func TestWorkflowLintByNameResolvedFileUnpinnedBlocksAndNamesFile(t *testing.T) 
 	}
 }
 
-// The registry row for dispatch-effort serves the same pin step directly (`claude-code hook PreToolUse --dispatch-effort`).
-func TestAgentEffortRegistryDispatches(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code := RunArgs("PreToolUse", []string{"--dispatch-effort"}, strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
-	if code != core.ExitProceed {
-		t.Fatalf("RunArgs(PreToolUse, --dispatch-effort) on an Agent payload = %d, want ExitProceed", code)
-	}
-}
-
 // TestWorkflowLintAutoModeByNameUnderCwdBlocksWithScriptPath: auto mode can't review a rewritten call, so a
 // by-name call whose script is under the cwd is blocked with the scriptPath re-issue instruction.
 func TestWorkflowLintAutoModeByNameUnderCwdBlocksWithScriptPath(t *testing.T) {
@@ -314,7 +315,7 @@ func TestWorkflowLintAutoModeByNameUnderCwdBlocksWithScriptPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := fmt.Sprintf(`{"tool_name":"Workflow","permission_mode":"auto","cwd":%q,"tool_input":{"name":"gate-loop"}}`, dir)
-	res := agentEffortResult(core.ParseInput(strings.NewReader(in)))
+	res := WorkflowResult(core.ParseInput(strings.NewReader(in)))
 	if res.Decision != core.Block || !strings.Contains(res.Reason, "scriptPath: "+fmt.Sprintf("%q", path)) {
 		t.Errorf("result = %+v, want a Block naming scriptPath %s", res, path)
 	}

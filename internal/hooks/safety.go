@@ -165,7 +165,7 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "shared config git mutation"
 	}
-	if attributionFooterBlocked(cmd) {
+	if shell.AttributionFooterCommit(cmd) {
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Rerun this commit without the Co-Authored-By / Generated-with lines; that needs no approval."
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "attribution footer"

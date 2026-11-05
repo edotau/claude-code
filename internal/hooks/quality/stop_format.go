@@ -1,4 +1,4 @@
-package hooks
+package quality
 
 import (
 	"context"
@@ -29,8 +29,8 @@ const (
 	stopFormatWorkers  = 4
 )
 
-// `stop-format` (Stop, format group): formats files dirty in git and written by this session.
-func stopFormatRun(in *core.Input) core.Result { stopFormat(in); return core.Result{} }
+// StopFormat is the `format-stop` runner (Stop, format group): formats files dirty in git and written by this session.
+func StopFormat(in *core.Input) core.Result { stopFormat(in); return core.Result{} }
 
 // stopFormat formats files that are dirty in git AND that this session's transcript shows it writing;
 // a dirty file Claude never wrote is the user's hand edit and is left alone.
@@ -194,7 +194,7 @@ func porcelainPaths(records []string, cwd, root string) []string {
 const stopFormatSchema = 1
 
 var stopFormatFormat = schemas.Register(schemas.Format{
-	Name: "stop-format", Owner: "internal/hooks", Kind: schemas.Cache,
+	Name: "stop-format", Owner: "internal/hooks/quality", Kind: schemas.Cache,
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "stop-format", "*.json") },
 	New:     func() any { return &stampFile{} },
 	Version: stopFormatSchema, Keep: "rebuildable stamps; v0 bare map is dropped, not migrated",
