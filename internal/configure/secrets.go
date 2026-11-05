@@ -1,7 +1,6 @@
 package configure
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 
@@ -10,7 +9,7 @@ import (
 )
 
 // EnvName is a valid secret name: an env var identifier.
-var EnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var EnvName = vault.EnvName
 
 // TrackedSecret is one row of the secrets dialog: a name the harness knows of and where it resolves today.
 type TrackedSecret struct {

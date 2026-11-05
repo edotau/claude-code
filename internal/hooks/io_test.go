@@ -408,26 +408,17 @@ func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 	}
 }
 
-// mainTB lets TestMain call the testing.TB stubs: Cleanup is deferred until the whole run ends.
-type mainTB struct {
-	testing.TB
-	cleanups []func()
-}
-
-func (m *mainTB) Helper()          {}
-func (m *mainTB) Cleanup(f func()) { m.cleanups = append(m.cleanups, f) }
-
 // TestMain stubs the live-process scans, detached spawns and the usage cache so no hook test reads the machine or spawns.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
-	tb := &mainTB{}
+	tb := &hosttest.MainTB{}
 	memhook.StubSpawnForTest(tb, true)
 	agents.ClaudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	agents.RouteHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
-	for _, f := range tb.cleanups {
+	for _, f := range tb.Cleanups {
 		f()
 	}
 	gittest.Cleanup()

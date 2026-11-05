@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -72,7 +73,7 @@ func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
 	if runOut.Len() == 0 || runOut.String() != directOut.String() {
 		t.Fatalf("Run output %q != direct %q (want a non-empty routed allow)", &runOut, &directOut)
 	}
-	h, _ := oneDoc(t, runOut.String())["hookSpecificOutput"].(map[string]any)
+	h, _ := hosttest.OneDoc(t, runOut.String())["hookSpecificOutput"].(map[string]any)
 	if updated, _ := h["updatedInput"].(map[string]any); h["permissionDecision"] != "allow" || updated["model"] != "databricks-gpt-6-astra" {
 		t.Fatalf("wire shape = %v", h)
 	}

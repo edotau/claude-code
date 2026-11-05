@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -394,29 +394,6 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	}
 }
 
-func gitIn(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
-		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return string(out)
-}
-
-func writeRel(t *testing.T, root, rel, body string) {
-	t.Helper()
-	p := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // tickFixture commits a/one.go and "b/two file.go" in a fresh repo with a two-task plan; tick feeds a Bash commit result.
 func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out string) string) {
 	t.Helper()
@@ -425,17 +402,17 @@ func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out str
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitIn(t, repo, "init", "-q")
-	gitIn(t, repo, "config", "commit.gpgsign", "false")
-	writeRel(t, repo, "a/one.go", "package a\n")
-	writeRel(t, repo, "b/two file.go", "package b\n")
-	gitIn(t, repo, "add", "a/one.go", "b/two file.go")
-	gitIn(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
-	sha = strings.TrimSpace(gitIn(t, repo, "rev-parse", "--short=7", "HEAD"))
+	gittest.In(t, repo, "init", "-q")
+	gittest.In(t, repo, "config", "commit.gpgsign", "false")
+	gittest.WriteRel(t, repo, "a/one.go", "package a\n")
+	gittest.WriteRel(t, repo, "b/two file.go", "package b\n")
+	gittest.In(t, repo, "add", "a/one.go", "b/two file.go")
+	gittest.In(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
+	sha = strings.TrimSpace(gittest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 
 	dir := plans.Home(repo)
 	planPath = filepath.Join(dir, "2026-10-29-widgets.md")
-	writeRel(t, dir, "2026-10-29-widgets.md", "# Plan: w\n\n## Tasks\n\n"+
+	gittest.WriteRel(t, dir, "2026-10-29-widgets.md", "# Plan: w\n\n## Tasks\n\n"+
 		"- [ ] 1.1 Full task owns: a/one.go, b/two file.go\n"+
 		"- [ ] 1.2 Partial task owns: a/one.go, c/never.go\n")
 	t.Setenv("HOME", home)
@@ -502,20 +479,20 @@ func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitIn(t, repo, "init", "-q")
-	gitIn(t, repo, "config", "commit.gpgsign", "false")
+	gittest.In(t, repo, "init", "-q")
+	gittest.In(t, repo, "config", "commit.gpgsign", "false")
 	commit := func(rel string) string {
-		writeRel(t, repo, rel, "x\n")
-		gitIn(t, repo, "add", rel)
-		gitIn(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
-		return strings.TrimSpace(gitIn(t, repo, "rev-parse", "--short=7", "HEAD"))
+		gittest.WriteRel(t, repo, rel, "x\n")
+		gittest.In(t, repo, "add", rel)
+		gittest.In(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
+		return strings.TrimSpace(gittest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 	}
 	s1 := commit("a/one.go")
 	s2 := commit("b/café two.go")
 
 	dir := plans.Home(repo)
 	planPath := filepath.Join(dir, "2026-10-29-gadgets.md")
-	writeRel(t, dir, "2026-10-29-gadgets.md", "# Plan: g\n\n- [ ] 1.1 First owns: a/one.go\n"+
+	gittest.WriteRel(t, dir, "2026-10-29-gadgets.md", "# Plan: g\n\n- [ ] 1.1 First owns: a/one.go\n"+
 		"- [ ] 1.2 Second owns: b/café two.go\n\n```md\n- [ ] 1.3 Fenced owns: a/one.go\n```\n")
 	runDocs(t, Tick, map[string]any{
 		"hook_event_name": "PostToolUse", "session_id": "mc1", "tool_name": "Bash", "cwd": repo,
@@ -561,7 +538,7 @@ type commitLookup struct{ sha, cwd, want string }
 func commitRepoFixture(t *testing.T, root string, worktrees bool) (string, []commitLookup) {
 	t.Helper()
 	g := func(dir string, args ...string) string {
-		return strings.TrimSpace(gitIn(t, dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...))
+		return strings.TrimSpace(gittest.In(t, dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...))
 	}
 	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
 	g(root, "init", "-q", a)

@@ -199,18 +199,7 @@ func canonDeep(p string) string {
 	if a, err := filepath.Abs(p); err == nil {
 		p = a
 	}
-	tail := ""
-	for cur := p; ; {
-		if r, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(r, tail)
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return p
-		}
-		tail = filepath.Join(filepath.Base(cur), tail)
-		cur = parent
-	}
+	return paths.CanonDeep(p)
 }
 
 // isTracked reports whether git lists rel (repo-RELATIVE, slash-separated) at root; err is git's failure.

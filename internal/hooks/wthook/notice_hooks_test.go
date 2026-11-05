@@ -19,20 +19,20 @@ func divergedClone(t *testing.T) string {
 	t.Setenv(worktreeModeEnv, "off")
 	origin := gittest.Repo(t)
 	work := filepath.Join(t.TempDir(), "work")
-	gitIn(t, origin, "clone", "-q", origin, work)
+	gittest.In(t, origin, "clone", "-q", origin, work)
 	work = core.CanonPath(work)
-	writeRel(t, origin, "up.txt", "up\n")
-	gitIn(t, origin, "add", ".")
-	gitIn(t, origin, "commit", "-qm", "upstream")
-	writeRel(t, work, "mine.txt", "mine\n")
-	gitIn(t, work, "add", ".")
-	gitIn(t, work, "commit", "-qm", "local")
-	gitIn(t, work, "fetch", "-q")
-	short := strings.TrimSpace(gitIn(t, work, "rev-parse", "--short=7", "HEAD"))
+	gittest.WriteRel(t, origin, "up.txt", "up\n")
+	gittest.In(t, origin, "add", ".")
+	gittest.In(t, origin, "commit", "-qm", "upstream")
+	gittest.WriteRel(t, work, "mine.txt", "mine\n")
+	gittest.In(t, work, "add", ".")
+	gittest.In(t, work, "commit", "-qm", "local")
+	gittest.In(t, work, "fetch", "-q")
+	short := strings.TrimSpace(gittest.In(t, work, "rev-parse", "--short=7", "HEAD"))
 	if err := os.MkdirAll(claimsDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeRel(t, claimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
+	gittest.WriteRel(t, claimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
 	orig, origPeers := claimAlive, PeerAgents
 	claimAlive = func(pid int) bool { return pid == liveOwner }
 	PeerAgents = func(string, []string) ([]worktree.Proc, error) {

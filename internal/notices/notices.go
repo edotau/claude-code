@@ -53,18 +53,7 @@ func Append(session string, n Notice) error {
 	if err != nil {
 		return err
 	}
-	file := inbox(session)
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		return err
-	}
-	return paths.WithFileLock(file, func() error {
-		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return err
-		}
-		_, err = f.Write(append(line, '\n'))
-		return errors.Join(err, f.Close())
-	})
+	return paths.AppendLine(inbox(session), line)
 }
 
 // Drain returns and removes session's notices (at most drainMax, newest last); errors yield none.

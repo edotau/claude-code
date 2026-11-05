@@ -2,7 +2,6 @@ package wthook
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,10 +18,10 @@ func claimFixture(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := core.CanonPath(gittest.Repo(t))
-	writeRel(t, repo, "a.txt", "a\n")
-	writeRel(t, repo, "b.txt", "b\n")
-	gitIn(t, repo, "add", ".")
-	gitIn(t, repo, "commit", "-qm", "files")
+	gittest.WriteRel(t, repo, "a.txt", "a\n")
+	gittest.WriteRel(t, repo, "b.txt", "b\n")
+	gittest.In(t, repo, "add", ".")
+	gittest.In(t, repo, "commit", "-qm", "files")
 	orig := claimAlive
 	claimAlive = func(pid int) bool { return pid == liveOwner }
 	t.Cleanup(func() { claimAlive = orig })
@@ -33,7 +32,7 @@ func claimFixture(t *testing.T) string {
 func claimEdit(t *testing.T, repo string, owner int, session, rel string) {
 	t.Helper()
 	useClaimOwner(t, owner)
-	writeRel(t, repo, rel, "edited by "+session+"\n")
+	gittest.WriteRel(t, repo, rel, "edited by "+session+"\n")
 	Claim(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": rel}}))
 }
@@ -75,8 +74,8 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 	repo := claimFixture(t)
 	useClaimOwner(t, liveOwner)
 	tr := filepath.Join(t.TempDir(), "S.jsonl")
-	writeRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", "{}\n")
-	writeRel(t, repo, "a.txt", "leaf one\n")
+	gittest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", "{}\n")
+	gittest.WriteRel(t, repo, "a.txt", "leaf one\n")
 	Claim(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leafone1", "cwd": repo,
 		"transcript_path": tr, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
 	r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
@@ -90,10 +89,10 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 func TestClaimCheckDropsLandedClaim(t *testing.T) {
 	repo := claimFixture(t)
 	claimEdit(t, repo, liveOwner, "A", "a.txt")
-	gitIn(t, repo, "add", "a.txt")
+	gittest.In(t, repo, "add", "a.txt")
 	t.Setenv("GIT_COMMITTER_DATE", time.Now().Add(time.Hour).Format(time.RFC3339))
-	gitIn(t, repo, "commit", "-qm", "A lands a.txt")
-	writeRel(t, repo, "a.txt", "B's own edit\n")
+	gittest.In(t, repo, "commit", "-qm", "A lands a.txt")
+	gittest.WriteRel(t, repo, "a.txt", "B's own edit\n")
 	if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add a.txt"}); r.Decision != core.Allow {
 		t.Fatalf("landed claim: %v %q; want allow", r.Decision, r.Reason)
 	}
@@ -103,8 +102,8 @@ func TestClaimCheckDropsLandedClaim(t *testing.T) {
 func TestClaimCheckBashEditClaimedByAdd(t *testing.T) {
 	repo := claimFixture(t)
 	useClaimOwner(t, liveOwner)
-	writeRel(t, repo, "b.txt", "sed -i by A\n")
-	gitIn(t, repo, "add", "b.txt")
+	gittest.WriteRel(t, repo, "b.txt", "sed -i by A\n")
+	gittest.In(t, repo, "add", "b.txt")
 	Claim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "git add b.txt"}, "tool_response": map[string]any{"stdout": ""}}))
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x"})
@@ -117,9 +116,9 @@ func TestClaimCheckBashEditClaimedByAdd(t *testing.T) {
 func TestClaimCheckCommitAskCountsWholeStage(t *testing.T) {
 	repo := claimFixture(t)
 	claimEdit(t, repo, liveOwner, "A", "a.txt")
-	writeRel(t, repo, "c.txt", "unclaimed\n")
-	writeRel(t, repo, "d.txt", "unclaimed\n")
-	gitIn(t, repo, "add", "a.txt", "c.txt", "d.txt")
+	gittest.WriteRel(t, repo, "c.txt", "unclaimed\n")
+	gittest.WriteRel(t, repo, "d.txt", "unclaimed\n")
+	gittest.In(t, repo, "add", "a.txt", "c.txt", "d.txt")
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x"})
 	if r.Decision != core.Ask || !strings.Contains(r.Reason, "takes 3 file(s), 1 of them") {
 		t.Fatalf("bare commit of 3 staged, 1 claimed: %v %q; want the ask to count 3 and 1", r.Decision, r.Reason)
@@ -130,8 +129,8 @@ func TestClaimCheckCommitAskCountsWholeStage(t *testing.T) {
 func TestClaimCheckCommitAskNamesSafeForm(t *testing.T) {
 	repo := claimFixture(t)
 	claimEdit(t, repo, liveOwner, "A", "a.txt")
-	gitIn(t, repo, "add", "a.txt")
-	writeRel(t, repo, "b.txt", "B's own\n")
+	gittest.In(t, repo, "add", "a.txt")
+	gittest.WriteRel(t, repo, "b.txt", "B's own\n")
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add b.txt && git commit -q -m x"})
 	safe := strings.Contains(r.Reason, "git commit -- <your files>")
 	if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") || !safe {
@@ -242,27 +241,4 @@ func TestStageOperandsAttachedValueTakesNoNextWord(t *testing.T) {
 			t.Errorf("stageOperands(commit, %v) ops=%v, want %v", c.args, ops, c.ops)
 		}
 	}
-}
-
-func writeRel(t *testing.T, root, rel, body string) {
-	t.Helper()
-	p := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func gitIn(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
-		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return string(out)
 }

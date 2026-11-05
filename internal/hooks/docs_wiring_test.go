@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -137,7 +138,7 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 			if directOut.String() != eventOut.String() {
 				t.Fatalf("direct %q != dispatched %q", &directOut, &eventOut)
 			}
-			wantVendorPromptDoc(t, vendor, oneDoc(t, directOut.String()))
+			wantVendorPromptDoc(t, vendor, hosttest.OneDoc(t, directOut.String()))
 		})
 	}
 }

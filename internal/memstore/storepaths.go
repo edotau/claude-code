@@ -59,18 +59,8 @@ func InsideStore(p string) (rel string, ok bool) {
 	return rel, true
 }
 
-// ResolvePath is EvalSymlinks tolerant of an absent tail: the deepest existing ancestor resolves, the rest rejoins.
-func ResolvePath(p string) string {
-	p = filepath.Clean(p)
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
-	}
-	parent := filepath.Dir(p)
-	if parent == p {
-		return p
-	}
-	return filepath.Join(ResolvePath(parent), filepath.Base(p))
-}
+// ResolvePath is paths.CanonDeep, kept for the memory package and tests that call it.
+func ResolvePath(p string) string { return paths.CanonDeep(p) }
 
 // StateDir holds update stamps, results, logs and the session chain.
 func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }

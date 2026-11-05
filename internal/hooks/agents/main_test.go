@@ -2,7 +2,6 @@ package agents
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -17,26 +16,17 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// mainTB lets TestMain call the testing.TB stubs: Cleanup is deferred until the whole run ends.
-type mainTB struct {
-	testing.TB
-	cleanups []func()
-}
-
-func (m *mainTB) Helper()          {}
-func (m *mainTB) Cleanup(f func()) { m.cleanups = append(m.cleanups, f) }
-
 // TestMain stubs the live-process scans, detached spawns, the usage cache and the route pick so no test reads the machine.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
-	tb := &mainTB{}
+	tb := &hosttest.MainTB{}
 	memhook.StubSpawnForTest(tb, true)
 	ClaudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	RouteHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
-	for _, f := range tb.cleanups {
+	for _, f := range tb.Cleanups {
 		f()
 	}
 	gittest.Cleanup()
@@ -71,17 +61,4 @@ func runEvent(t *testing.T, event, payload string) string {
 	var out, errb bytes.Buffer
 	core.Emit(in.Agent(), event, runners[event](in), &out, &errb)
 	return out.String()
-}
-
-func oneDoc(t *testing.T, s string) map[string]any {
-	t.Helper()
-	dec := json.NewDecoder(strings.NewReader(s))
-	var m map[string]any
-	if err := dec.Decode(&m); err != nil {
-		t.Fatalf("not JSON: %q: %v", s, err)
-	}
-	if dec.More() {
-		t.Fatalf("more than one JSON document: %q", s)
-	}
-	return m
 }
