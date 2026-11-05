@@ -88,36 +88,36 @@ func agySignedInSince(marker string, before []byte, beforeInfo os.FileInfo) bool
 // stopAgy stops a still-running agy and its descendants: SIGINT, then SIGTERM, then SIGKILL, each after AgyStopGrace.
 func stopAgy(cmd *exec.Cmd, done <-chan struct{}) {
 	desc := proc.Descendants(cmd.Process.Pid)
-	_ = cmd.Process.Signal(syscall.SIGINT)
-	signalDescendants(desc, syscall.SIGINT)
-	select {
-	case <-done:
-		waitOrTermDescendants(desc)
-	case <-time.After(AgyStopGrace):
-		_ = cmd.Process.Signal(syscall.SIGTERM)
-		signalAliveDescendants(desc, syscall.SIGTERM)
-		select {
-		case <-done:
-		case <-time.After(AgyStopGrace):
-			_ = cmd.Process.Kill()
-			signalAliveDescendants(desc, syscall.SIGKILL)
-			<-done
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+		_ = cmd.Process.Signal(sig)
+		signalAliveDescendants(desc, sig)
+		if waitAgy(done, desc) {
+			return
 		}
 	}
+	_ = cmd.Process.Kill()
+	signalAliveDescendants(desc, syscall.SIGKILL)
+	<-done
 }
 
-func waitOrTermDescendants(pids []int) {
-	deadline := time.Now().Add(AgyStopGrace)
+func waitAgy(done <-chan struct{}, pids []int) bool {
+	deadline := time.NewTimer(AgyStopGrace)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	for {
-		alive := slices.ContainsFunc(pids, proc.Alive)
-		if !alive {
-			return
+		select {
+		case <-done:
+			if !slices.ContainsFunc(pids, proc.Alive) {
+				return true
+			}
+		default:
 		}
-		if time.Now().After(deadline) {
-			signalAliveDescendants(pids, syscall.SIGTERM)
-			return
+		select {
+		case <-deadline.C:
+			return false
+		case <-ticker.C:
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
