@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -141,8 +142,11 @@ func TestGeminiSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err == nil {
-		t.Fatalf("Run: want an error for invalid JSON\n%s", out.String())
+	if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "gemini-settings: skipped: ") {
+		t.Errorf("output lacks the skip note:\n%s", out.String())
 	}
 
 	raw, err := os.ReadFile(path)
@@ -210,8 +214,11 @@ func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 					}
 				}()
 				var out bytes.Buffer
-				if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err == nil {
-					t.Fatalf("Run: want an error for %s settings.json\n%s", content, out.String())
+				if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+					t.Fatalf("Run: %v\n%s", err, out.String())
+				}
+				if !strings.Contains(out.String(), "gemini-settings: skipped: ") {
+					t.Errorf("output lacks the skip note:\n%s", out.String())
 				}
 			}()
 
@@ -223,6 +230,25 @@ func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 				t.Errorf("%s settings.json was modified: got %q, want %q", content, raw, content)
 			}
 		})
+	}
+}
+
+// An unreadable agy settings.json (here a directory) is skipped, never mistaken for a missing file and overwritten.
+func TestGeminiSettingsUnreadableIsSkipped(t *testing.T) {
+	home := scratch(t)
+	path := geminiSettingsPath(home)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := agent.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "gemini-settings: skipped: cannot read") {
+		t.Errorf("output lacks the cannot-read skip note:\n%s", out.String())
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		t.Fatalf("path was replaced: %v", err)
 	}
 }
 
