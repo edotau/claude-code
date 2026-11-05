@@ -27,27 +27,60 @@ var instructionFiles = map[string]string{
 // docsPathsNote tells a vendor CLI how to resolve the relative paths CLAUDE.md names.
 const docsPathsNote = "Paths in this file are relative to `~/.claude`."
 
-// standardsSection renders rules/standards/*.md without `paths:` frontmatter (the always-on set), H1s demoted.
-func standardsSection(root string) (string, error) {
+// PortableCore lists the portable instruction core: root CLAUDE.md, then unscoped rules/standards/*.md sorted.
+func PortableCore(root string) ([]string, error) {
+	claude := filepath.Join(root, "CLAUDE.md")
+	if _, err := os.Stat(claude); err != nil {
+		return nil, fmt.Errorf("portable core: %w", err)
+	}
+	standards, err := unscopedStandards(root)
+	if err != nil {
+		return nil, err
+	}
+	paths := []string{claude}
+	for _, s := range standards {
+		paths = append(paths, s.path)
+	}
+	return paths, nil
+}
+
+// CoreProvenance is the header line naming every portable-core source.
+func CoreProvenance(paths []string) string {
+	return "<!-- sources: " + strings.Join(paths, ", ") + " -->"
+}
+
+type standard struct{ path, body string }
+
+// unscopedStandards reads rules/standards/*.md without `paths:` frontmatter, sorted; a read failure names the file.
+func unscopedStandards(root string) ([]standard, error) {
 	files, err := filepath.Glob(filepath.Join(root, "rules", "standards", "*.md"))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	slices.Sort(files)
-	var b strings.Builder
+	var out []standard
 	for _, f := range files {
 		raw, err := os.ReadFile(f)
 		if err != nil {
-			return "", fmt.Errorf("read standards: %w", err)
+			return nil, fmt.Errorf("read standards %s: %w", f, err)
 		}
 		fm, body := textutil.ParseFrontmatter(string(raw))
-		if fm["paths"] != nil {
-			continue
+		if fm["paths"] == nil {
+			out = append(out, standard{f, body})
 		}
-		b.WriteString("\n" + demoteH1(strings.Trim(body, "\n")) + "\n")
 	}
-	if b.Len() == 0 {
-		return "", nil
+	return out, nil
+}
+
+// standardsSection renders the always-on rules/standards/*.md, H1s demoted.
+func standardsSection(root string) (string, error) {
+	standards, err := unscopedStandards(root)
+	if err != nil || len(standards) == 0 {
+		return "", err
+	}
+	var b strings.Builder
+	for _, s := range standards {
+		b.WriteString("\n" + demoteH1(strings.Trim(s.body, "\n")) + "\n")
 	}
 	return "\n## Standards\n" + b.String(), nil
 }
