@@ -1,15 +1,11 @@
 package copilot
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
-	"slices"
-	"strconv"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,116 +13,28 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 )
 
-// init turns this test binary into a fake copilot CLI when the SDK spawns it with FAKE_COPILOT_CLI=1; it runs
-// before TestMain, so a child never reaches the real tests.
-func init() {
-	if os.Getenv("FAKE_COPILOT_CLI") == "1" {
-		fakeCopilotCLI(os.Stdin, os.Stdout)
-		os.Exit(0)
+// buildFakeCLI compiles the hermetic fake copilot CLI once per test into a temp dir.
+func buildFakeCLI(t *testing.T) string {
+	t.Helper()
+	exe := filepath.Join(t.TempDir(), "fake")
+	if out, err := exec.Command("go", "build", "-o", exe, "./testdata/fakecli").CombinedOutput(); err != nil {
+		t.Fatalf("build fakecli: %v\n%s", err, out)
 	}
-}
-
-// fakeCopilotCLI speaks Content-Length framed JSON-RPC: version from FAKE_COPILOT_VERSION, switchTo accepts only
-// FAKE_COPILOT_MODELS (comma list), and every call is appended to FAKE_COPILOT_LOG as "method params".
-func fakeCopilotCLI(in io.Reader, out io.Writer) {
-	r := bufio.NewReader(in)
-	known := strings.Split(os.Getenv("FAKE_COPILOT_MODELS"), ",")
-	logf, _ := os.OpenFile(os.Getenv("FAKE_COPILOT_LOG"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	send := func(v any) {
-		b, _ := json.Marshal(v)
-		fmt.Fprintf(out, "Content-Length: %d\r\n\r\n%s", len(b), b)
-	}
-	for {
-		body, ok := readFramedBody(r)
-		if !ok {
-			return
-		}
-		var req struct {
-			ID     json.RawMessage `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-		}
-		if json.Unmarshal(body, &req) != nil || req.Method == "" || len(req.ID) == 0 {
-			continue // a response or notification: nothing to answer
-		}
-		fmt.Fprintf(logf, "%s %s\n", req.Method, req.Params)
-		res, errMsg := fakeCopilotReply(req.Method, req.Params, known)
-		if errMsg != "" {
-			send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": errMsg}})
-			continue
-		}
-		send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
-	}
-}
-
-// readFramedBody reads one Content-Length framed message body; ok is false at EOF or a short read.
-func readFramedBody(r *bufio.Reader) (body []byte, ok bool) {
-	n := 0
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return nil, false
-		}
-		if line = strings.TrimSpace(line); line == "" {
-			break
-		}
-		if v, found := strings.CutPrefix(line, "Content-Length:"); found {
-			n, _ = strconv.Atoi(strings.TrimSpace(v))
-		}
-	}
-	body = make([]byte, n)
-	if _, err := io.ReadFull(r, body); err != nil {
-		return nil, false
-	}
-	return body, true
-}
-
-// fakeCopilotReply answers one method; a non-empty errMsg is a JSON-RPC error (an unknown switchTo model).
-func fakeCopilotReply(method string, params json.RawMessage, known []string) (res map[string]any, errMsg string) {
-	var p struct {
-		SessionID string `json:"sessionId"`
-		ModelID   string `json:"modelId"`
-	}
-	_ = json.Unmarshal(params, &p)
-	res = map[string]any{}
-	switch method {
-	case "connect":
-		res = map[string]any{"ok": true, "protocolVersion": 3, "version": os.Getenv("FAKE_COPILOT_VERSION")}
-	case "status.get":
-		res = map[string]any{"version": os.Getenv("FAKE_COPILOT_VERSION"), "protocolVersion": 3}
-	case "session.create", "session.resume":
-		res = map[string]any{"sessionId": cmpOr(p.SessionID, "fake-session")}
-	case "session.model.switchTo":
-		if !slices.Contains(known, p.ModelID) {
-			return nil, "unknown model " + p.ModelID
-		}
-	}
-	return res, ""
-}
-
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
+	return exe
 }
 
 const registryPick = "dbx-openai/gpt-5-5"
 
-// registryOpts is a valid registry-route SDKOptions aimed at the fake CLI (this test binary).
+// registryOpts is a valid registry-route SDKOptions aimed at the fake CLI.
 func registryOpts(t *testing.T, version, log string, known ...string) SDKOptions {
 	t.Helper()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	return SDKOptions{
-		CLIPath: exe, Model: registryPick,
+		CLIPath: buildFakeCLI(t), Model: registryPick,
 		Providers: []NamedProvider{{Name: "dbx-openai", Type: "openai"}},
 		Models:    []RegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
 		Token:     func() (string, error) { return "tok", nil },
-		ChildEnv: []string{"FAKE_COPILOT_CLI=1", "FAKE_COPILOT_VERSION=" + version, "FAKE_COPILOT_LOG=" + log,
-			"FAKE_COPILOT_MODELS=" + strings.Join(known, ",")},
+		ChildEnv: []string{"FAKECLI_VERSION=" + version, "FAKECLI_RECORD=" + log,
+			"FAKECLI_MODELS=" + strings.Join(known, ",")},
 	}
 }
 
@@ -207,5 +115,40 @@ func TestRegistryProbeBelowMinimum(t *testing.T) {
 	}
 	if _, err := openSession(t, registryOpts(t, "1.0.104", t.TempDir()+"/log", registryPick)); err != nil {
 		t.Errorf("exactly the minimum was refused: %v", err)
+	}
+}
+
+// The fake CLI answers a send with an assistant message and records the session config it was created with.
+func TestFakeCLISendEmitsReply(t *testing.T) {
+	log := t.TempDir() + "/log"
+	s, err := openSession(t, registryOpts(t, "1.0.104", log, registryPick))
+	if err != nil {
+		t.Fatal(err)
+	}
+	idle := make(chan struct{})
+	var reply string
+	s.On(func(ev copilot.SessionEvent) {
+		switch d := ev.Data.(type) {
+		case *copilot.AssistantMessageData:
+			reply = d.Content
+		case *copilot.SessionIdleData:
+			close(idle)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := s.Send(ctx, copilot.MessageOptions{Prompt: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-idle:
+	case <-ctx.Done():
+		t.Fatal("no idle event")
+	}
+	if reply != "fake reply" {
+		t.Errorf("reply = %q, want %q", reply, "fake reply")
+	}
+	if got := strings.Join(calls(t, log), "\n"); !strings.Contains(got, "session.create ") {
+		t.Errorf("record = %q, want session.create params", got)
 	}
 }
