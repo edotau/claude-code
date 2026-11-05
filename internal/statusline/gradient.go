@@ -28,41 +28,96 @@ func easeAt(t, exp float64) float64 {
 	return math.Pow(t, exp)
 }
 
-// renderGradient paints "user:" then sweeps the ramp from the path across cfg.Order, the branch and the
-// velocity counts; separators, empty cells and the dot keep their own tones.
-func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
+// renderGradient paints "user:" and the ramp; a segment that would cross width starts the next row whole.
+func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	dim := ansi.Hex(pal.Sem("dim"))
-	cells := gradientCells(v, cfg)
-	total := max(len(cells)-1, 1)
+	b := gradientCells(v, cfg)
+	total := max(len(b.cells)-1, 1)
 	var out strings.Builder
-	if cfg.seg("path", true) {
-		if cfg.UserColor == "ansi" {
-			out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
-		} else {
-			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true))
-		}
-		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false))
+	col := writeUserHost(&out, v, cfg, pal, mode)
+	pieces := make([]string, len(b.cells))
+	for i, c := range b.cells {
+		pieces[i] = paintCell(c, mode, dim, ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase)))
 	}
-	for i, c := range cells {
-		rgb := ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase))
-		switch c.kind {
-		case "sep", "empty": // empty ─ cells take the separator dim: the trough tone all but vanished on them
-			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))
-		case "dot":
-			out.WriteString(ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true))
-		default:
-			out.WriteString(ansi.Paint(mode, rgb, string(c.ch), true))
-		}
-	}
+	col = wrapSegments(&out, pieces, b.brks, col, width)
 	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
-		out.WriteString(ansi.Paint(mode, dim, sepPath, false))
-		out.WriteString(velocityText(v, mode, pal, "/"))
+		writeVelocity(&out, velocityText(v, mode, pal, "/"), ansi.Paint(mode, dim, sepPath, false), col, width)
 	}
 	return out.String()
 }
 
+// writeUserHost paints "user@host:" when the path shows and returns the columns it took.
+func writeUserHost(out *strings.Builder, v values, cfg Config, pal theme.Palettes, mode string) int {
+	if !cfg.seg("path", true) {
+		return 0
+	}
+	if cfg.UserColor == "ansi" {
+		out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
+	} else {
+		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true))
+	}
+	out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false))
+	return utf8.RuneCountInString(v.userHost) + 1
+}
+
+// writeVelocity appends +A/-D after sep, or alone on a new row when it would cross width.
+func writeVelocity(out *strings.Builder, vel, sep string, col, width int) {
+	if width > 0 && col > 0 && col+len(sepPath)+visibleWidth(vel) > width {
+		out.WriteByte('\n')
+	} else {
+		out.WriteString(sep)
+	}
+	out.WriteString(vel)
+}
+
+func paintCell(c cell, mode string, dim, rgb ansi.RGB) string {
+	switch c.kind {
+	case "sep", "empty": // empty ─ cells take the separator dim: the trough tone all but vanished on them
+		return ansi.Paint(mode, dim, string(c.ch), false)
+	case "dot":
+		return ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true)
+	}
+	return ansi.Paint(mode, rgb, string(c.ch), true)
+}
+
+// wrapSegments writes pieces from col, swapping a separator for a newline before a segment crossing width (0: never).
+func wrapSegments(out *strings.Builder, pieces []string, brks []brk, col, width int) int {
+	next := 0
+	for i := 0; i < len(pieces); {
+		if next < len(brks) && brks[next].at == i {
+			sep := brks[next]
+			next++
+			end := len(pieces)
+			if next < len(brks) {
+				end = brks[next].at
+			}
+			if width > 0 && col > 0 && col+end-sep.at > width {
+				out.WriteByte('\n')
+				col, i = 0, sep.at+sep.n
+				continue
+			}
+		}
+		out.WriteString(pieces[i])
+		col++
+		i++
+	}
+	return col
+}
+
 // cellBuf accumulates the gradient line's characters with their paint kinds.
-type cellBuf struct{ cells []cell }
+type cellBuf struct {
+	cells []cell
+	brks  []brk // where a row may break: each separator between segments
+}
+
+// brk is a separator of n cells starting at cell at; a row break replaces it.
+type brk struct{ at, n int }
+
+// pushBreakable pushes separator s as a place the line may wrap.
+func (b *cellBuf) pushBreakable(s, kind string) {
+	b.brks = append(b.brks, brk{len(b.cells), utf8.RuneCountInString(s)})
+	b.push(s, kind)
+}
 
 func (b *cellBuf) push(s, kind string) {
 	for _, ch := range s {
@@ -72,6 +127,7 @@ func (b *cellBuf) push(s, kind string) {
 
 // pushSep pushes a separator, tagging the dot and bar glyphs so they take their own tone.
 func (b *cellBuf) pushSep(s string) {
+	b.brks = append(b.brks, brk{len(b.cells), utf8.RuneCountInString(s)})
 	for _, ch := range s {
 		kind := "g"
 		switch ch {
@@ -82,6 +138,16 @@ func (b *cellBuf) pushSep(s string) {
 		}
 		b.cells = append(b.cells, cell{ch, kind})
 	}
+}
+
+// pushContextBlock pushes the major separator and the context block; false when there is no context to show.
+func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
+	if !v.two.hasCtx {
+		return false
+	}
+	b.pushSep(sepMajor)
+	b.pushContext(v)
+	return true
 }
 
 // pushContext pushes twoline's "ctx <bar> NN.N% · used/size" block; the bar's filled and empty runs keep their tones.
@@ -95,20 +161,23 @@ func (b *cellBuf) pushContext(v values) {
 	b.push("ctx ", "g")
 	b.push(filled, "filled")
 	b.push(bar[len(filled):], "empty")
-	b.push(fmt.Sprintf(" %.1f%%", d.ctxPct)+twoSep+compactTokens(d.tokens)+"/"+compactTokens(d.size), "g")
+	b.push(fmt.Sprintf(" %.1f%%", d.ctxPct), "g")
+	b.pushBreakable(twoSep, "g")
+	b.push(compactTokens(d.tokens)+"/"+compactTokens(d.size), "g")
 	if v.limits != "" {
-		b.push(" "+v.limits, "g") // 7d:N% on a subscription, else the token countdown
+		b.pushBreakable(" ", "g")
+		b.push(v.limits, "g") // 7d:N% on a subscription, else the token countdown
 	}
 }
 
-func gradientCells(v values, cfg Config) []cell {
+func gradientCells(v values, cfg Config) cellBuf {
 	var b cellBuf
 	if cfg.seg("path", true) {
 		b.push(v.path, "g")
 		b.pushSep(sepPath)
 	}
 	b.pushMetrics(v, cfg)
-	return b.cells
+	return b
 }
 
 // pushMetrics pushes enabled cfg.Order segments but path, provider, limits and total: the context block after the
@@ -118,13 +187,11 @@ func (b *cellBuf) pushMetrics(v values, cfg Config) {
 	sepMinor := cfg.sep("minor", " · ")
 	emitted := false
 	for _, key := range cfg.Order {
-		if key == "path" || key == "provider" || key == "limits" || key == "total" || !cfg.seg(key, true) {
+		if gradientSkips(key) || !cfg.seg(key, true) {
 			continue
 		}
 		if key == "context" {
-			b.pushSep(sepMajor)
-			b.pushContext(v)
-			emitted = true
+			emitted = b.pushContextBlock(v, sepMajor) || emitted
 			continue
 		}
 		text := v.text(key)
@@ -137,6 +204,11 @@ func (b *cellBuf) pushMetrics(v values, cfg Config) {
 		b.push(text, "g")
 		emitted = true
 	}
+}
+
+// gradientSkips names the segments the gradient line paints elsewhere or never.
+func gradientSkips(key string) bool {
+	return key == "path" || key == "provider" || key == "limits" || key == "total"
 }
 
 // velocityText paints "+A<sep>-D" in the add/del tones, omitting a zero side.

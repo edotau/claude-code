@@ -150,7 +150,7 @@ func Render(raw []byte, style string) string {
 
 // renderFit tries full, then the capped profile, then no branch (velocity stays); the last pick is clipped to width.
 func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
-	if cfg.gradientStyle() { // one line, never split or clipped: the terminal wraps what does not fit
+	if cfg.gradientStyle() { // renderGradient wraps whole segments itself; nothing is clipped
 		return renderRaw(v, cfg, pal)
 	}
 	if width > 0 && cfg.Style != "twoline" { // twoline fits each row itself: shorter path, row 2 clipped alone
@@ -194,7 +194,7 @@ func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 		}
 		return head + body
 	}
-	return renderGradient(v, cfg, pal, stops, mode)
+	return renderGradient(v, cfg, pal, stops, mode, width)
 }
 
 // collect resolves every enabled segment; disabled ones skip their IO.

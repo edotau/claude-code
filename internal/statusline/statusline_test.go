@@ -139,8 +139,8 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", strconv.Itoa(30+ccMargin))
-	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] ·…" {
-		t.Errorf("COLUMNS clip %q", got)
+	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | Opus 5 [1m]\n+10/-3" {
+		t.Errorf("COLUMNS wrap %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
 		t.Error("a line within width must be untouched")
