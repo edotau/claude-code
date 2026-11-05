@@ -38,7 +38,7 @@ func eachGit(cmd, cwd string, fn gitFn, depth int) bool {
 		}
 	}
 	segs, seps := SegmentsSep(masked)
-	w := &segWalk{cwdTracker: cwdTracker{cwd: cwd}, segs: segs, seps: seps, fn: fn, depth: depth}
+	w := &segWalk{cwd: cwd, segs: segs, seps: seps, fn: fn, depth: depth}
 	for i, seg := range segs {
 		w.enter(seg)
 		if w.run(i) {

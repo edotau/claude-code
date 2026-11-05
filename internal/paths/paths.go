@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -183,7 +184,7 @@ func AppendLine(file string, line []byte) error {
 		return err
 	}
 	if len(line) == 0 || line[len(line)-1] != '\n' {
-		line = append(line[:len(line):len(line)], '\n')
+		line = append(slices.Clip(line), '\n')
 	}
 	return WithFileLock(file, func() error {
 		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)

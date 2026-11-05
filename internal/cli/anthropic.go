@@ -2,13 +2,13 @@ package cli
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 	"io"
 	"os"
 
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 )
 
 var anthropicPage = helptext.Page{

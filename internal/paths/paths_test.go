@@ -298,13 +298,11 @@ func TestAppendLineConcurrent(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "sub", "log")
 	var wg sync.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := AppendLine(file, []byte(fmt.Sprintf("line-%02d", i))); err != nil {
+		wg.Go(func() {
+			if err := AppendLine(file, fmt.Appendf(nil, "line-%02d", i)); err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	data, err := os.ReadFile(file)
