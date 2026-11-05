@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // stubProcesses swaps processesIn/parentOf for the duration of the test and restores the platform
@@ -90,16 +92,16 @@ func TestInUseByExcludesCallerAndAncestors(t *testing.T) {
 // match a process whose cwd is /a/foobar.
 func TestWithinPrefixNotConfused(t *testing.T) {
 	t.Parallel()
-	if within("/a/foobar", "/a/foo") {
-		t.Fatal("within(/a/foobar, /a/foo) = true, want false — foobar is a sibling, not a child")
+	if paths.Within("/a/foobar", "/a/foo") {
+		t.Fatal("paths.Within(/a/foobar, /a/foo) = true, want false — foobar is a sibling, not a child")
 	}
-	if !within("/a/foo", "/a/foo") {
-		t.Fatal("within(/a/foo, /a/foo) = false, want true — equal paths are inside")
+	if !paths.Within("/a/foo", "/a/foo") {
+		t.Fatal("paths.Within(/a/foo, /a/foo) = false, want true — equal paths are inside")
 	}
-	if !within("/a/foo/bar", "/a/foo") {
-		t.Fatal("within(/a/foo/bar, /a/foo) = false, want true — a real child")
+	if !paths.Within("/a/foo/bar", "/a/foo") {
+		t.Fatal("paths.Within(/a/foo/bar, /a/foo) = false, want true — a real child")
 	}
-	if !within("/a/foo/", "/a/foo") {
+	if !paths.Within("/a/foo/", "/a/foo") {
 		t.Fatal("within with a trailing separator should still match")
 	}
 }
@@ -123,7 +125,7 @@ func TestInUseBySymlinkedPathMatched(t *testing.T) {
 	}
 	stubProcesses(t, func(dir string) ([]Proc, error) {
 		// production processesIn implementations report the resolved cwd; dir passed in is already resolved.
-		if within(resolved, dir) {
+		if paths.Within(resolved, dir) {
 			return []Proc{{PID: 999999, Comm: "throughlink"}}, nil
 		}
 		return nil, nil

@@ -30,15 +30,23 @@ const (
 		"markdown bullet lines of durable facts. Keep dates and any [id] tags. Output only the bullets.\n\n%s"
 )
 
-// DigestInput is dir's raw archive (every archive/*.md except the digest itself), oldest file first, and its sources.
-func DigestInput(dir string) (string, []string, error) {
+// digestInput is dir's raw archive (every archive/*.md except the digest itself), oldest file first, and its sources.
+func digestInput(dir string) (string, []string, error) {
 	files, _ := filepath.Glob(filepath.Join(memstore.ArchiveDir(dir), "*.md"))
 	sort.Strings(files)
 	var b strings.Builder
 	var used []string
+	var total int64
 	for _, f := range files {
 		if filepath.Base(f) == DigestFile {
 			continue
+		}
+		fi, err := os.Stat(f)
+		if err != nil {
+			return "", nil, err
+		}
+		if total += fi.Size(); total > digestMaxInput { // bound before reading the rest
+			return "", used, fmt.Errorf("needs-scope: raw archive is over the %d KB digest cap; archive less or digest by hand", digestMaxInput>>10)
 		}
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -88,7 +96,7 @@ func Digest(ctx context.Context, dir, claude string) (string, error) {
 	if claude == "" {
 		return "", errors.New("claude binary not found")
 	}
-	input, used, err := DigestInput(dir)
+	input, used, err := digestInput(dir)
 	if err != nil || len(used) == 0 {
 		if err == nil {
 			err = fmt.Errorf("no raw archive under %s", memstore.ArchiveDir(dir))

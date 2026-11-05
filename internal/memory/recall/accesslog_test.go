@@ -156,3 +156,24 @@ func TestAccessNominationsHotAndCold(t *testing.T) {
 		t.Errorf("want a cold nomination, got %v", noms)
 	}
 }
+
+// An unopenable lock file degrades to a plain append: no rotate or trim runs unlocked.
+func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
+	tempConfig(t)
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	path := AccessLogPath(dir)
+	LogAccess(dir, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", AccessRecall)
+	_ = os.Remove(path + ".lock")
+	if err := os.Mkdir(path+".lock", 0o700); err != nil { // a directory cannot be opened as the lock file
+		t.Fatal(err)
+	}
+	LogAccess(dir, now, "bb000002", AccessRecall)
+	if _, err := os.Stat(path + ".1"); err == nil {
+		t.Error("rotation ran without the lock")
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "aa000001") || !strings.Contains(string(data), "bb000002") {
+		t.Errorf("fallback must append to the existing log, got %q", data)
+	}
+}

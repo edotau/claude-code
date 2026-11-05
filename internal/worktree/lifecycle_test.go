@@ -427,7 +427,7 @@ func TestCleanAllSkipsBusyEntryButRemovesOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 	stubProcesses(t, func(dir string) ([]Proc, error) {
-		if within(busyDest, dir) {
+		if paths.Within(busyDest, dir) {
 			return []Proc{{PID: 999999, Comm: "fakeproc"}}, nil
 		}
 		return nil, nil

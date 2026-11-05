@@ -60,7 +60,7 @@ func wrapBreakCases() []wrapCase {
 	}
 }
 
-// untouchedCases are the over-width surfaces FormatBankMarkdown must leave byte-identical.
+// untouchedCases are the over-width surfaces formatBankMarkdown must leave byte-identical.
 func untouchedCases() []wrapCase {
 	return []wrapCase{
 		{
@@ -98,14 +98,14 @@ func untouchedCases() []wrapCase {
 	}
 }
 
-// runWrapCases checks FormatBankMarkdown(input) == want for every case.
+// runWrapCases checks formatBankMarkdown(input) == want for every case.
 func runWrapCases(t *testing.T, cases []wrapCase) {
 	t.Helper()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := FormatBankMarkdown(c.input)
+			got := formatBankMarkdown(c.input)
 			if got != c.want {
-				t.Errorf("FormatBankMarkdown(%q)\n got: %q\nwant: %q", c.input, got, c.want)
+				t.Errorf("formatBankMarkdown(%q)\n got: %q\nwant: %q", c.input, got, c.want)
 			}
 		})
 	}
@@ -131,7 +131,7 @@ func TestFormatBankMarkdownNeverSplitsProtectedSpans(t *testing.T) {
 	t.Parallel()
 	longCode := "`" + strings.Join(repeatWords(13), " ") + "`" // spaces inside: 13*10+12 = 142 runes, >120
 	line := "see " + longCode + " for details"
-	out := FormatBankMarkdown(line)
+	out := formatBankMarkdown(line)
 	if !strings.Contains(out, longCode) {
 		t.Fatalf("code span split or altered:\n%s", out)
 	}
@@ -143,14 +143,14 @@ func TestFormatBankMarkdownNeverSplitsProtectedSpans(t *testing.T) {
 
 	link := "[" + strings.Join(repeatWords(6), " ") + "](http://example.com/a/b/c/with/a/long/path/here)"
 	line = "read " + link + " " + strings.Join(repeatWords(10), " ")
-	out = FormatBankMarkdown(line)
+	out = formatBankMarkdown(line)
 	if !strings.Contains(out, link) {
 		t.Fatalf("link split or altered:\n%s", out)
 	}
 
 	marker := "<!-- id:abcdef0123456789 -->"
 	line = "- " + strings.Join(repeatWords(12), " ") + " " + marker + " " + strings.Join(repeatWords(3), " ")
-	out = FormatBankMarkdown(line)
+	out = formatBankMarkdown(line)
 	if !strings.Contains(out, marker) {
 		t.Fatalf("HTML comment marker split or altered:\n%s", out)
 	}
@@ -163,7 +163,7 @@ func utf8RuneCount(s string) int { return len([]rune(s)) }
 func TestFormatBankMarkdownUnsplittableTokenStaysOverWidth(t *testing.T) {
 	t.Parallel()
 	token := strings.Repeat("y", 150)
-	out := FormatBankMarkdown("- " + token)
+	out := formatBankMarkdown("- " + token)
 	lines := strings.Split(out, "\n")
 	if len(lines) != 1 {
 		t.Fatalf("got %d lines, want 1 (one unsplittable token): %q", len(lines), out)
@@ -204,7 +204,7 @@ run ` + "`claude-code memory fmt --check`" + ` before committing. <!-- id:deadbe
 // not byte-equality, per the documented contract).
 func TestFormatBankMarkdownLosslessWordEquality(t *testing.T) {
 	t.Parallel()
-	out := FormatBankMarkdown(bankFmtFixture)
+	out := formatBankMarkdown(bankFmtFixture)
 	before := strings.Fields(bankFmtFixture)
 	after := strings.Fields(out)
 	if len(before) != len(after) {
@@ -221,15 +221,15 @@ func TestFormatBankMarkdownLosslessWordEquality(t *testing.T) {
 // and for the specific plain-paragraph-with-leading-indent case the implementer's fix targets.
 func TestFormatBankMarkdownIdempotent(t *testing.T) {
 	t.Parallel()
-	once := FormatBankMarkdown(bankFmtFixture)
-	twice := FormatBankMarkdown(once)
+	once := formatBankMarkdown(bankFmtFixture)
+	twice := formatBankMarkdown(once)
 	if once != twice {
 		t.Fatalf("not idempotent on the fixture:\nonce:\n%s\ntwice:\n%s", once, twice)
 	}
 
 	indented := "   " + strings.Join(repeatWords(15), " ")
-	once = FormatBankMarkdown(indented)
-	twice = FormatBankMarkdown(once)
+	once = formatBankMarkdown(indented)
+	twice = formatBankMarkdown(once)
 	if once != twice {
 		t.Fatalf("not idempotent on an indented paragraph:\nonce:\n%s\ntwice:\n%s", once, twice)
 	}
@@ -253,7 +253,7 @@ func bankFmtRepoStore(t *testing.T) (globalDir, repoDir string) {
 	return memstore.HomeBankDir(), dir
 }
 
-// TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex: BankFmtTargets walks the six typed
+// TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex: bankFmtTargets walks the six typed
 // files and archive/handoffs/reports under every store, and never index.md or MEMORY.md.
 func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.T) {
 	global, repo := bankFmtRepoStore(t)
@@ -267,7 +267,7 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 	write(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile), "catalog\n")
 	write(t, filepath.Join(global, "decisionLog.md"), "# decisionLog\nbody\n")
 
-	files, err := BankFmtTargets()
+	files, err := bankFmtTargets()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,12 +289,12 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 	}
 	for f := range want {
 		if !got[f] {
-			t.Errorf("BankFmtTargets missing %s", f)
+			t.Errorf("bankFmtTargets missing %s", f)
 		}
 	}
 	for _, never := range []string{filepath.Join(repo, NativeIndexFile), filepath.Join(memstore.StoreDir(), memstore.CatalogFile)} {
 		if got[never] {
-			t.Errorf("BankFmtTargets included %s, want never", never)
+			t.Errorf("bankFmtTargets included %s, want never", never)
 		}
 	}
 }

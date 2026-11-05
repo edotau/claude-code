@@ -36,7 +36,7 @@ const (
 
 // LogAccess appends one read to dir's log, failing open and redacting credential-shaped reasons.
 func LogAccess(dir string, now time.Time, entry, reason string) {
-	LogAccessBatch(dir, now, []string{entry}, reason)
+	logAccessBatch(dir, now, []string{entry}, reason)
 }
 
 // accessLines renders one log line per entry, sharing the timestamp and sanitized reason.
@@ -59,8 +59,8 @@ func accessLogWritable(path string) bool {
 	return os.MkdirAll(filepath.Dir(path), 0o755) == nil
 }
 
-// LogAccessBatch appends a recall batch with one open and write per bank.
-func LogAccessBatch(dir string, now time.Time, entries []string, reason string) {
+// logAccessBatch appends a recall batch with one open and write per bank.
+func logAccessBatch(dir string, now time.Time, entries []string, reason string) {
 	if dir == "" || len(entries) == 0 {
 		return
 	}
@@ -73,9 +73,7 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 		return
 	}
 	// Rotate, trim and append under one lock: concurrent hooks and verbs must never interleave the renames.
-	write := func() error {
-		maybeRotateAccessLog(path, now)
-		maybeTrimAccessLog(path)
+	appendLines := func() error {
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
 			return err
@@ -84,8 +82,13 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 		_, err = f.WriteString(lines)
 		return err
 	}
+	write := func() error {
+		maybeRotateAccessLog(path, now)
+		maybeTrimAccessLog(path)
+		return appendLines()
+	}
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
-		_ = write() // lock file unopenable: append unlocked rather than drop the line; a timeout drops it
+		_ = appendLines() // lock file unopenable: O_APPEND only, never rotate or trim unlocked; a timeout drops it
 	}
 }
 
@@ -148,20 +151,20 @@ func maybeTrimAccessLog(path string) {
 	_ = paths.AtomicWrite(path, []byte(strings.Join(lines[keep:], "\n")+"\n"), 0o600)
 }
 
-// AccessStat counts an entry's reads, distinct in-window UTC days and newest access.
-type AccessStat struct {
+// accessStat counts an entry's reads, distinct in-window UTC days and newest access.
+type accessStat struct {
 	Count  int
 	Days   int
 	Newest time.Time
 }
 
 // accessStatsAt folds rotated logs into entry counts and returns the oldest timestamp for the cold-entry gate.
-func accessStatsAt(path string, now time.Time, windowDays int) (map[string]AccessStat, time.Time) {
+func accessStatsAt(path string, now time.Time, windowDays int) (map[string]accessStat, time.Time) {
 	windowStart := time.Time{}
 	if windowDays > 0 && !now.IsZero() {
 		windowStart = now.AddDate(0, 0, -windowDays)
 	}
-	stats := map[string]AccessStat{}
+	stats := map[string]accessStat{}
 	days := map[string]map[string]bool{} // entry → set of in-window UTC days
 	oldest := time.Time{}
 	eachAccessLine(path, func(ts time.Time, entry, _ string) {
@@ -262,7 +265,7 @@ func LogHits(root string, hits []bank.SearchHit, reason string, now time.Time) {
 		grouped[dir] = append(grouped[dir], key)
 	}
 	for dir, entries := range grouped {
-		LogAccessBatch(dir, now, entries, reason)
+		logAccessBatch(dir, now, entries, reason)
 	}
 }
 

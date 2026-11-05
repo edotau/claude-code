@@ -29,8 +29,8 @@ var (
 // bankFmtTargetDirs is the glob paths inside one bank dir worth formatting; bare "*.md" is handled separately.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
-// BankFmtTargets lists every markdown file FormatBank formats, across every repo store and home/.
-func BankFmtTargets() ([]string, error) {
+// bankFmtTargets lists every markdown file FormatBank formats, across every repo store and home/.
+func bankFmtTargets() ([]string, error) {
 	dirs := []string{memstore.HomeBankDir()}
 	entries, err := memstore.RepoDirs()
 	if err != nil {
@@ -77,7 +77,7 @@ func FormatBank(check bool) (changed []string, err error) {
 
 // formatBankLocked is FormatBank's body; a writing caller holds the bank lock.
 func formatBankLocked(check bool) (changed []string, err error) {
-	files, err := BankFmtTargets()
+	files, err := bankFmtTargets()
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func formatFiles(files []string, check bool) (changed []string, err error) {
 		if rerr != nil {
 			return changed, rerr
 		}
-		next := FormatBankMarkdown(string(data))
+		next := formatBankMarkdown(string(data))
 		if next == string(data) {
 			continue
 		}
@@ -115,11 +115,11 @@ func formatFiles(files []string, check bool) (changed []string, err error) {
 	return changed, nil
 }
 
-// FormatBankMarkdown wraps text's over-width list/paragraph lines; fenced code, tables, headings, front
+// formatBankMarkdown wraps text's over-width list/paragraph lines; fenced code, tables, headings, front
 // matter and comment-only lines pass through untouched. Lossless: joining a wrapped line's continuations
 // (after trimming their indent) with single spaces reproduces the original; idempotent: a line already
 // ≤ BankFmtMaxLine never changes, so a second pass is a no-op.
-func FormatBankMarkdown(text string) string {
+func formatBankMarkdown(text string) string {
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))
 	var scan bankScan
@@ -163,12 +163,12 @@ func passThroughLine(trimmed string) bool {
 		bankFmtComment.MatchString(trimmed)
 }
 
-// GroupLogicalLines splits text's physical lines into logical-line groups: a continuation line that
+// groupLogicalLines splits text's physical lines into logical-line groups: a continuation line that
 // wrapBankLine would have produced (leading spaces matching its predecessor's content column) joins
 // that predecessor's group; every fence/front-matter/heading/comment/blank/table line, and every new
-// bullet/ordered/paragraph line, starts its own group. Mirrors FormatBankMarkdown's state machine line
+// bullet/ordered/paragraph line, starts its own group. Mirrors formatBankMarkdown's state machine line
 // for line so the two can never drift on what counts as "one line".
-func GroupLogicalLines(text string) [][]string {
+func groupLogicalLines(text string) [][]string {
 	text = strings.TrimRight(text, "\n")
 	if text == "" {
 		return nil
@@ -182,7 +182,7 @@ func GroupLogicalLines(text string) [][]string {
 	return g.groups
 }
 
-// lineGrouper is GroupLogicalLines' state machine; contCol is the content column an indent-only
+// lineGrouper is groupLogicalLines' state machine; contCol is the content column an indent-only
 // continuation must match (-1 = none open).
 type lineGrouper struct {
 	groups  [][]string
@@ -192,7 +192,7 @@ type lineGrouper struct {
 
 func (g *lineGrouper) open(line string) { g.groups = append(g.groups, []string{line}) }
 
-// special opens a group for a line FormatBankMarkdown passes through untouched; false means a content line.
+// special opens a group for a line formatBankMarkdown passes through untouched; false means a content line.
 func (g *lineGrouper) special(i int, line string) bool {
 	if !g.scan.special(i, line) {
 		return false
@@ -221,10 +221,10 @@ func (g *lineGrouper) content(line string) {
 	}
 }
 
-// LogicalLineCount is len(GroupLogicalLines(text)) — the cap unit every bank line cap counts in: a
+// LogicalLineCount is len(groupLogicalLines(text)) — the cap unit every bank line cap counts in: a
 // wrapped bullet or paragraph counts once, matching the pre-wrap line count exactly.
 func LogicalLineCount(text string) int {
-	return len(GroupLogicalLines(text))
+	return len(groupLogicalLines(text))
 }
 
 // wrapBankLine wraps one list-item or paragraph line at word boundaries, never inside an inline code

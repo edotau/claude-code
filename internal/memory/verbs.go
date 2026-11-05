@@ -301,7 +301,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 func TimelineReport(w io.Writer, repo string, n int) {
 	entries, sessions := Timeline(memstore.Root(repo), n)
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s  %-8s %s\n", e.Time.Format("2006-01-02 15:04"), e.Kind, e.Line)
+		fmt.Fprintf(w, "%s  update   %s\n", e.Time.Format("2006-01-02 15:04"), e.Line)
 	}
 	if len(sessions) > 0 {
 		fmt.Fprintln(w, "-- sessionHistory --")

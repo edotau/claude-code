@@ -103,8 +103,8 @@ func assertFreshRepoEmpty(t *testing.T, r Repo) {
 	if log, err := r.Log(5); err != nil || log != nil {
 		t.Fatalf("Log on empty repo = %v, %v", log, err)
 	}
-	if remotes, err := r.Remotes(); err != nil || len(remotes) != 0 {
-		t.Fatalf("fresh repo Remotes() = %v, %v; want none", remotes, err)
+	if remotes, err := r.remotes(); err != nil || len(remotes) != 0 {
+		t.Fatalf("fresh repo remotes() = %v, %v; want none", remotes, err)
 	}
 }
 

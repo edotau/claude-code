@@ -12,7 +12,7 @@ import (
 
 func hitHash(h bank.SearchHit) string { return textHash(h.File + "\x00" + h.Block) }
 
-func newSemantic(query []float32, rows map[string]VectorRow) *Semantic {
+func newSemantic(query []float32, rows map[string]vectorRow) *Semantic {
 	s := &Semantic{query: query, rows: rows, blocks: make(map[string]string, len(rows))}
 	for id, row := range rows {
 		if row.BlockHash != "" {
@@ -31,7 +31,7 @@ func (s *Semantic) CosineHit(h bank.SearchHit) (float64, bool) {
 	return s.cosineRow(s.rows[id])
 }
 
-func (s *Semantic) cosineRow(row VectorRow) (float64, bool) {
+func (s *Semantic) cosineRow(row vectorRow) (float64, bool) {
 	if len(row.Vec) != 4*len(s.query) {
 		return 0, false
 	}
