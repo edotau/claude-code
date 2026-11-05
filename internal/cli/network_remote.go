@@ -64,6 +64,9 @@ func cmdNetworkRemote(args []string) int {
 	if f.host == "" {
 		return helptext.Fail("network remote: --host is required")
 	}
+	if f.list && f.attach {
+		return helptext.FailUsage("network remote: --list and --attach are mutually exclusive")
+	}
 	mode := f.mode()
 	if wrong := remoteModeFlags(fs, mode); wrong != nil {
 		return helptext.Fail("network remote: %v", wrong)

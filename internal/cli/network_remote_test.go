@@ -72,6 +72,17 @@ func TestDispatchMissingHost(t *testing.T) {
 	}
 }
 
+func TestDispatchConflictingModes(t *testing.T) {
+	hermeticDispatch(t)
+	fakeSSHOnPATH(t, "cc-claude-ab12|1700000000|1|claude|claude\n")
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdNetworkRemote([]string{"--host", "myhost", "--list", "--attach", "cc-claude-ab12"})
+	})
+	if code != 2 || out != "" || !strings.Contains(stderr, "mutually exclusive") {
+		t.Fatalf("conflicting modes: code=%d out=%q stderr=%q", code, out, stderr)
+	}
+}
+
 func TestDispatchMissingTask(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
