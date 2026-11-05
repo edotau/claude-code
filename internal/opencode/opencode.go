@@ -402,6 +402,11 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	if err != nil {
 		return p.Result, err
 	}
+	env, err := opencodeApplyPermissions(p.Env, req)
+	if err != nil {
+		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
+	}
+	p.Env = env
 	host := newHookHost(req)
 	argv, err := host.before(p.Argv, p.Prompt)
 	if err != nil {
