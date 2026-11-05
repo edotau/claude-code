@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -44,7 +45,7 @@ func CmdDispatch(args []string) int {
 	fs.Var(&parts, "part", "explore: one sub-question per leg (repeatable, max 12)")
 	noWeb := fs.Bool("no-web", false, "explore: code scan only, skip web research")
 	models := fs.String("models", "", "compare: model ids, comma-separated (default: the role's set)")
-	jobs := fs.Int("jobs", roles.MaxParts, "legs running at once (max 12)")
+	jobs := fs.Int("jobs", explore.MaxParts, "legs running at once (max 12)")
 	timeout := fs.Duration("timeout", 0, "per-leg time limit (0 = the agent's default)")
 	format := helptext.FormatFlag(fs)
 	background := fs.Bool("background", false, "detach each leg and print its id; no merged report")
@@ -59,8 +60,8 @@ func CmdDispatch(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if len(parts) > roles.MaxParts {
-		return helptext.FailUsage("dispatch: %d --part values; the fan-out cap is %d", len(parts), roles.MaxParts)
+	if len(parts) > explore.MaxParts {
+		return helptext.FailUsage("dispatch: %d --part values; the fan-out cap is %d", len(parts), explore.MaxParts)
 	}
 	role, err := roles.Lookup(pos[0])
 	if err != nil {
@@ -82,7 +83,7 @@ func CmdDispatch(args []string) int {
 func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int, format string, background bool) int {
 	client := NewClient()
 	if role.Name == "explore" && len(q.Parts) == 0 && !background {
-		q.Parts = roles.Split(ctx, client, q.Task)
+		q.Parts = explore.Split(ctx, client, q.Task)
 	}
 	legs := roles.Legs(role, q)
 	if len(legs) == 0 {
