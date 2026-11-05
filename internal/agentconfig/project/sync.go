@@ -15,6 +15,7 @@ type Options struct {
 	DryRun  bool
 	NoPrune bool
 	Check   bool
+	JSON    bool      // emit per-destination rows as JSON instead of status lines
 	Agent   string    // one of Names(); "" = every agent
 	Out     io.Writer // status lines; nil → os.Stdout
 }
@@ -67,6 +68,13 @@ type syncInputs struct {
 
 // Sync projects agents/ and skills/ into every agent home and prunes stale output. Exit 0 ok, 1 error or stale.
 func Sync(opts Options) int {
+	if opts.JSON {
+		return syncJSON(opts)
+	}
+	return runSync(opts)
+}
+
+func runSync(opts Options) int {
 	out := opts.Out
 	if out == nil {
 		out = os.Stdout
@@ -187,11 +195,11 @@ func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 		return 1
 	}
 	if opts.Check && res.skipped > 0 {
-		fmt.Fprintf(os.Stderr, "projection is blocked: %d foreign entr(ies) occupy managed names (KEEP lines above) — remove them, then run `claude-code agents sync`\n", res.skipped)
+		fmt.Fprintf(os.Stderr, "blocked: %d foreign entries on managed names; remove them, then run agents sync\n", res.skipped)
 		return 1
 	}
 	if opts.Check && (res.pending > 0 || pruned > 0) {
-		fmt.Fprintf(os.Stderr, "projection is stale (%d to write, %d to prune) — run `claude-code agents sync`\n", res.pending, pruned)
+		fmt.Fprintf(os.Stderr, "stale: %d to write, %d to prune; run `claude-code agents sync`\n", res.pending, pruned)
 		return 1
 	}
 	return 0

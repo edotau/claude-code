@@ -261,14 +261,15 @@ func cmdAgentsSync(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
+	format := fs.String("format", "text", "output: text|json (json = one row per destination)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if fs.NArg() > 0 {
+	if fs.NArg() > 0 || (*format != "text" && *format != "json") {
 		fs.Usage()
 		return 2
 	}
-	return project.Sync(project.Options{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *name, Out: os.Stdout})
+	return project.Sync(project.Options{JSON: *format == "json", DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *name, Out: os.Stdout})
 }
 
 // cmdAgentsList is bare `agents`: the local roster, or with --host the remote's own `agents` output.
