@@ -186,7 +186,7 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 }
 
 // TestAskFlagsMatchItsOwnFlagSet pins ask's completable flags against the literal flag.NewFlagSet
-// calls in cmdAsk (internal/cli/agent.go) — askFlags had silently fallen behind by five flags
+// calls in RunAsk (internal/cli/agents/ask.go) — askFlags had silently fallen behind by five flags
 // (fallback, attach, keep-env, autonomous, enable-memory) before this test existed; background and
 // job joined later (job dispatch control: --background detaches, --job replays a saved record).
 func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
