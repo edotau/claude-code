@@ -55,11 +55,17 @@ func TestOpencodePermissionGolden(t *testing.T) {
 	}
 }
 
-func TestOpencodePermissionRefusesBashDeny(t *testing.T) {
-	_, err := opencodePermission(agent.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")})
+// A Bash Deny renders natively again (the plugin's permission-gate covers `bash -c`); only --safe-mode refuses it.
+func TestOpencodePermissionBashDeny(t *testing.T) {
+	got, err := opencodePermission(agent.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")})
+	if want := `{"*":"allow","bash":{"rm *":"deny"}}`; err != nil || string(got) != want {
+		t.Errorf("got %s, %v; want %s", got, err, want)
+	}
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
+	_, err = opencodeApplyPermissions(nil, req)
 	var ae *agent.Error
 	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), "Bash(rm *)") {
-		t.Errorf("err = %v, want a fatal agent.Error naming the rule", err)
+		t.Errorf("--safe-mode err = %v, want a fatal agent.Error naming the rule", err)
 	}
 }
 

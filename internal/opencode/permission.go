@@ -115,11 +115,7 @@ func opencodeRule(r agent.Rule, action string) (key string, patterns []string, e
 	if !ok {
 		return "", nil, fmt.Errorf("opencode: cannot express %s %s (no opencode permission for tool %s)", action, r, r.Tool)
 	}
-	// NOTE: opencode's bash matcher is bypassed by `bash -c "..."`; O-3 lifts this refusal once a guard covers it.
-	if r.Tool == "Bash" && action == "deny" {
-		return "", nil, &agent.Error{Agent: "opencode", Kind: agent.KindFatal,
-			Err: fmt.Errorf("cannot enforce deny %s natively (bash -c bypasses its matcher)", r)}
-	}
+	// NOTE: `bash -c "..."` bypasses this matcher; the harness plugin's permission-gate enforces Bash Deny via Decide.
 	if r.Arg == "" {
 		return t.key, []string{"*"}, nil
 	}
@@ -166,6 +162,9 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 	if !req.Tools || req.Permissions.IsZero() {
 		return env, nil
 	}
+	if err := refusePureBashDeny(req); err != nil {
+		return nil, err
+	}
 	perm, err := opencodePermission(req.Permissions)
 	if err != nil {
 		return nil, err
@@ -175,6 +174,20 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 		return nil, err
 	}
 	return append(env, opencodePermissionEnv+"="+string(perm)), nil
+}
+
+// refusePureBashDeny: --pure loads no plugin, so nothing covers the `bash -c` bypass of a Bash Deny.
+func refusePureBashDeny(req agent.RunOptions) error {
+	if !req.SafeMode {
+		return nil
+	}
+	for _, r := range req.Permissions.Deny {
+		if r.Tool == "Bash" {
+			return &agent.Error{Agent: "opencode", Kind: agent.KindFatal,
+				Err: fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher)", r)}
+		}
+	}
+	return nil
 }
 
 // opencodePolicyArgv adds --auto when a policy applies, so "ask" goes to opencode's auto judge and deny still holds.
