@@ -110,13 +110,14 @@ func printPalettes(w io.Writer, colored bool) {
 	}
 }
 
-// themeApply is `claude-code theme apply [--dry-run]`: merge every theme/<tool>.json|.conf into that tool's config.
+// themeApply is `claude-code theme apply [--only a,b]`: merge every theme/<tool>.json|.conf into that tool's config.
 func themeApply(args []string) int {
 	fs := helptext.NewFlagSet("theme apply", helptext.Page{
 		Usage: "claude-code theme apply [flags]",
 		About: "Merge every theme/<tool>.json|.conf into that tool's config.",
 	})
 	dryRun := fs.Bool("dry-run", false, "report what would change; write nothing")
+	only := fs.String("only", "", "apply only these comma-separated targets (e.g. opencode-themes)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -124,7 +125,11 @@ func themeApply(args []string) int {
 	if err != nil {
 		return helptext.Fail("theme apply: %v", err)
 	}
-	out, err := theme.Apply(theme.Dir(), home, *dryRun)
+	var names []string
+	if *only != "" {
+		names = strings.Split(*only, ",")
+	}
+	out, err := theme.Apply(theme.Dir(), home, names, *dryRun)
 	for _, o := range out {
 		switch {
 		case o.Skipped != "":
