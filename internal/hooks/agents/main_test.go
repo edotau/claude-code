@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/memhook"
+	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	tb := &hosttest.MainTB{}
-	memhook.StubSpawnForTest(tb, true)
+	memhooktest.StubSpawn(tb, true)
 	ClaudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	RouteHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }

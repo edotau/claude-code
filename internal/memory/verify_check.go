@@ -92,8 +92,8 @@ func (v *claimVerifier) scopedPath(token string) (string, bool) {
 			}
 		}
 	}
-	path = memstore.ResolvePath(path)
-	return path, verifyWithin(memstore.ResolvePath(v.store.repo), path)
+	path = paths.CanonDeep(path)
+	return path, verifyWithin(paths.CanonDeep(v.store.repo), path)
 }
 
 func (v *claimVerifier) path(token string) verifyResult {
@@ -109,7 +109,7 @@ func (v *claimVerifier) path(token string) verifyResult {
 	case err == nil:
 		return verifyResult{"ok", "exists " + path}
 	case errors.Is(err, fs.ErrNotExist):
-		rel, err := filepath.Rel(memstore.ResolvePath(v.store.repo), path)
+		rel, err := filepath.Rel(paths.CanonDeep(v.store.repo), path)
 		if err != nil {
 			return verifyResult{"unverifiable", "cannot locate path in store repository"}
 		}

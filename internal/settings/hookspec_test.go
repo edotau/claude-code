@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -199,4 +200,60 @@ func checkDispatcherEntries(t *testing.T, block map[string][]MatcherGroup, own m
 			t.Errorf("%s: %d entries, want at least %d", ev, len(entries), 1+own[ev])
 		}
 	}
+}
+
+// Every non-agent-only registry spec reaches the rendered block: own entries by command, the rest via a dispatcher
+// whose matcher covers the spec's matcher.
+func TestEventsRenderEverySpec(t *testing.T) {
+	block := Events()
+	for _, g := range Registry {
+		if g.AgentOnly {
+			continue
+		}
+		for _, s := range g.Events {
+			if g.own(s) {
+				if !hasOwnEntry(block[s.Event], s) {
+					t.Errorf("%s/%s: no own entry %q with matcher %q on %s", g.Name, s.Name, s.Command(), s.Matcher, s.Event)
+				}
+				continue
+			}
+			if !dispatcherCovers(block[s.Event], s) {
+				t.Errorf("%s/%s: no %s dispatcher entry covers matcher %q", g.Name, s.Name, s.Event, s.Matcher)
+			}
+		}
+	}
+}
+
+func hasOwnEntry(entries []MatcherGroup, s EventSpec) bool {
+	for _, e := range entries {
+		if e.Matcher != s.Matcher {
+			continue
+		}
+		for _, h := range e.Hooks {
+			if h.Command == s.Command() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func dispatcherCovers(entries []MatcherGroup, s EventSpec) bool {
+	for _, e := range entries {
+		if len(e.Hooks) != 1 || e.Hooks[0].Command != DispatcherCommand(s.Event) {
+			continue
+		}
+		if e.Matcher == "" {
+			return true // no matcher matches every tool
+		}
+		if s.Matcher == "" {
+			return false
+		}
+		covered := true
+		for alt := range strings.SplitSeq(s.Matcher, "|") {
+			covered = covered && slices.Contains(strings.Split(e.Matcher, "|"), alt)
+		}
+		return covered
+	}
+	return false
 }

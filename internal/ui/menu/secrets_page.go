@@ -139,7 +139,7 @@ func addCustom(d *dialog) {
 		name = pn
 	}
 	switch {
-	case !configure.EnvName.MatchString(name):
+	case !vault.EnvName.MatchString(name):
 		d.printf("secrets: %q is not a valid name (letters, digits, underscore; not starting with a digit)\n", name)
 	case val == "":
 		d.printf("%s: no value entered\n", name)

@@ -234,7 +234,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	profileFixture(t, "")
 	line := batch.ParsedLine{N: 1, Task: batch.TaskLine{Prompt: "p", Profile: "acme"}}
-	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
+	bt, err := batch.BuildTask(line, batch.Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
 	bad := batch.ParsedLine{N: 2, Task: batch.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
-	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
+	bt, err = batch.BuildTask(bad, batch.Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
 	if err != nil {
 		t.Fatal(err)
 	}

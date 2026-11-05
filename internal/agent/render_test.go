@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/agenttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -34,7 +35,7 @@ func scratch(t *testing.T) string {
 	t.Setenv("GEMINI_API_KEY", "sk-test-gemini")
 	t.Setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
 	t.Setenv("OPENAI_API_KEY", "")
-	agent.StubRouterForTest(t, "http://127.0.0.1:9999")
+	agenttest.StubRouter(t, "http://127.0.0.1:9999")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	overlay := `{"default": "openai"}`
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")

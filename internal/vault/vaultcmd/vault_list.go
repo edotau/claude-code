@@ -42,11 +42,11 @@ func vaultList(args []string) int {
 		}
 	}
 	if err := helptext.CheckFormat(f); err != nil {
-		fail("vault list: %v", err)
+		helptext.Fail("vault list: %v", err)
 		return 2
 	}
 	if err := List(os.Stdout, f, sel); err != nil {
-		return fail("vault list: %v", err)
+		return helptext.Fail("vault list: %v", err)
 	}
 	return 0
 }

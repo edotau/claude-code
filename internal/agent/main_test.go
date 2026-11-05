@@ -96,7 +96,7 @@ func hermetic(t *testing.T, userProviders string) {
 	if userProviders != "" {
 		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
 	}
-	StubRouterForTest(t, "http://127.0.0.1:4000")
+	t.Cleanup(StubRouter("http://127.0.0.1:4000"))
 }
 
 func writeFile(path, body string) error { return os.WriteFile(path, []byte(body), 0o600) }

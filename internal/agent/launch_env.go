@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -142,11 +141,12 @@ var (
 	mintSession  = proxy.MintSessionToken
 )
 
-// StubRouterForTest points configure at base for t: an unstubbed Ensure would relaunch the test binary as the daemon.
-func StubRouterForTest(t testing.TB, base string) {
+// StubRouter points configure at base: an unstubbed Ensure would relaunch the test binary as the daemon.
+// Tests reach it through agenttest; restore undoes it.
+func StubRouter(base string) (restore func()) {
 	oe := ensureRouter
-	t.Cleanup(func() { ensureRouter = oe })
 	ensureRouter = func(context.Context) (string, error) { return base, nil }
+	return func() { ensureRouter = oe }
 }
 
 // StubProxyForTest stubs the router, its secret and session mints for a whole test binary (call from TestMain),

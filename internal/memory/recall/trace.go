@@ -117,7 +117,7 @@ func (t *RecallTrace) selected(picks []RecallPick) {
 		outcome := "over cap"
 		line := "- " + p.Entry.Pointer()
 		if i < recallBodies {
-			line = fmt.Sprintf("- [%s/%s] %s", p.Entry.Bank, p.Entry.File, recallCut(recallFlat(p.Entry), recallBodyCapRunes))
+			line = fmt.Sprintf("- [%s/%s] %s", p.Entry.Bank, p.Entry.File, Cut(recallFlat(p.Entry), recallBodyCapRunes))
 		}
 		if strings.Contains(context, "\n"+line) {
 			outcome = "pointer"

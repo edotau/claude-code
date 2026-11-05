@@ -8,15 +8,13 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // gitRepo makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	dir, err := canonical(gittest.Repo(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir := paths.Canon(gittest.Repo(t))
 	return dir
 }
 
@@ -24,20 +22,14 @@ func gitRepo(t *testing.T) string {
 func testRepo(t *testing.T) *Repo {
 	t.Helper()
 	main := gitRepo(t)
-	root, err := canonical(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := paths.Canon(t.TempDir())
 	return &Repo{Main: main, Root: filepath.Join(root, "worktrees", filepath.Base(main))}
 }
 
 func testDetachedRepo(t *testing.T) *Repo {
 	t.Helper()
 	main := detachedHead(t)
-	root, err := canonical(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := paths.Canon(t.TempDir())
 	return &Repo{Main: main, Root: filepath.Join(root, "worktrees", filepath.Base(main))}
 }
 

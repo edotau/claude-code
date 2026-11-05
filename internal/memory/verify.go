@@ -151,7 +151,7 @@ func verifyStores(o VerifyOptions) ([]verifyStore, error) {
 		if e.Name() != "home" {
 			s.repo, s.aliases = origins[e.Name()].Origin, origins[e.Name()].Aliases
 			if e.Name() == memstore.HarnessStoreKey() {
-				s.repo = memstore.ResolvePath(paths.ConfigDir())
+				s.repo = paths.CanonDeep(paths.ConfigDir())
 			}
 		}
 		stores = append(stores, s)
@@ -210,12 +210,12 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 	if err != nil {
 		return nil, err
 	}
-	cwd = memstore.ResolvePath(cwd)
+	cwd = paths.CanonDeep(cwd)
 	root := paths.MainCheckout(cwd, memstore.GitOut)
 	if root != "" {
-		root = memstore.ResolvePath(root)
+		root = paths.CanonDeep(root)
 	}
-	inStore := verifyWithin(memstore.ResolvePath(memstore.StoreDir()), cwd)
+	inStore := verifyWithin(paths.CanonDeep(memstore.StoreDir()), cwd)
 	best, home := bestStore(stores, cwd, root, inStore)
 	if best < 0 && (root == "" || inStore) {
 		best = home
@@ -243,7 +243,7 @@ func bestStore(stores []verifyStore, cwd, root string, inStore bool) (best, home
 			if candidate == "" {
 				continue
 			}
-			candidate = memstore.ResolvePath(candidate)
+			candidate = paths.CanonDeep(candidate)
 			if (verifyWithin(candidate, cwd) || candidate == root) && len(candidate) > length {
 				best, length = i, len(candidate)
 			}

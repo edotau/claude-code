@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func commitIn(t *testing.T, dir string, args ...string) {
@@ -66,10 +68,7 @@ func TestListCleanMergedWorktree(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
-	wantPath, err := canonical(dest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	wantPath := paths.Canon(dest)
 	e := entries[0]
 	if e.Path != wantPath {
 		t.Fatalf("Path = %q, want %q", e.Path, wantPath)

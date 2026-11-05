@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/agenttest"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -76,7 +77,7 @@ func hermetic(t *testing.T, userProviders string) {
 	oldFind, oldSelf := findClaude, selfBinary
 	findClaude = func() (string, error) { return "/opt/claude", nil }
 	selfBinary = func() (string, error) { return "/opt/bin/claude-code", nil }
-	agent.StubRouterForTest(t, "http://127.0.0.1:4000")
+	agenttest.StubRouter(t, "http://127.0.0.1:4000")
 	t.Cleanup(func() { findClaude, selfBinary = oldFind, oldSelf })
 }
 

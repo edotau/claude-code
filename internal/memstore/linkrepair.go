@@ -18,7 +18,7 @@ func NativeLinkTarget(link string) string {
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(link), target)
 	}
-	return ResolvePath(target)
+	return paths.CanonDeep(target)
 }
 
 // nativeLinkTargets uses recorded paths because project slugs cannot be decoded unambiguously.

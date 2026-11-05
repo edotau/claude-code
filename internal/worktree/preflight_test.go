@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/notices"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // mergeFixtureWrite writes content to file in dir and commits it with msg; a shared helper for every
@@ -507,10 +508,7 @@ func TestPlanOrResolveConflictNotifiesLedgerOwner(t *testing.T) {
 // conflictedOwnedWorktree is a repo whose worktree "feat", opened by session, conflicts with main on f.txt.
 func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
 	t.Helper()
-	home, err := canonical(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	home := paths.Canon(t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
 	main := gitRepo(t)

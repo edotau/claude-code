@@ -38,7 +38,7 @@ func Resolve(root string) Identity {
 	if !ok {
 		o := paths.MainCheckout(root, GitOut)
 		if o != "" {
-			o = ResolvePath(o)
+			o = paths.CanonDeep(o)
 		}
 		if o == "" {
 			var err error
@@ -62,11 +62,11 @@ func Resolve(root string) Identity {
 // storeIdentity maps a cwd inside the store to the repo a store dir describes, the store top to HomeBank; else ok=false.
 // Without it the store's own git repo resolves as a project named "memory".
 func storeIdentity(root string) (Identity, bool) {
-	canon, store := ResolvePath(root), ResolvePath(StoreDir())
+	canon, store := paths.CanonDeep(root), paths.CanonDeep(StoreDir())
 	if !within(canon, store) {
 		return Identity{}, false
 	}
-	if within(canon, ResolvePath(HarnessStoreDir())) {
+	if within(canon, paths.CanonDeep(HarnessStoreDir())) {
 		return harnessIdentity(), true
 	}
 	entries, err := RepoDirs()
@@ -74,7 +74,7 @@ func storeIdentity(root string) (Identity, bool) {
 		return Identity{HomeBank: true}, true // never memoized by Resolve, so a recovered vault re-resolves
 	}
 	for _, e := range entries {
-		if o := e.Origin.Origin; o != "" && within(canon, ResolvePath(e.Dir)) {
+		if o := e.Origin.Origin; o != "" && within(canon, paths.CanonDeep(e.Dir)) {
 			if paths.SamePath(o, paths.ConfigDir()) {
 				return harnessIdentity(), true
 			}
@@ -90,7 +90,7 @@ func within(p, dir string) bool {
 
 // workspaceOrigin is the pinned non-git workspace (a store whose origin names root or an ancestor of it), or "".
 func workspaceOrigin(root string) (string, error) {
-	canon := ResolvePath(root)
+	canon := paths.CanonDeep(root)
 	entries, err := RepoDirs()
 	if err != nil {
 		return "", err
@@ -107,7 +107,7 @@ func workspaceOrigin(root string) (string, error) {
 }
 
 func harnessIdentity() Identity {
-	o := ResolvePath(paths.ConfigDir())
+	o := paths.CanonDeep(paths.ConfigDir())
 	return Identity{Origin: o, Base: filepath.Base(o), Harness: true}
 }
 

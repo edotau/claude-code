@@ -53,7 +53,7 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 	if canon == "" {
 		return AliasResult{}, fmt.Errorf("%s is not a git checkout", abs)
 	}
-	canon = memstore.ResolvePath(canon)
+	canon = paths.CanonDeep(canon)
 	if opt.DryRun {
 		res, _, err := planAlias(opt, canon)
 		return res, err
@@ -325,7 +325,7 @@ func firstLine(s string) string {
 
 // projectLinksTo lists <cfg>/projects/*/memory symlinks that resolve to dir.
 func projectLinksTo(dir string) []string {
-	want := memstore.ResolvePath(dir)
+	want := paths.CanonDeep(dir)
 	m, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
 	var out []string
 	for _, l := range m {

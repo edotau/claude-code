@@ -145,8 +145,8 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 }
 
 // TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets pins four more verbs' completable flags
-// against the literal flag.NewFlagSet calls in their own handlers (internal/cli/launch.go,
-// internal/cli/providers.go) — every flag the handler defines must have a specTree candidate, or
+// against the literal helptext.NewFlagSet calls in their own handlers (internal/cli/configure.go, doctor.go,
+// providers.go) — every flag the handler defines must have a specTree candidate, or
 // tab-completion silently falls behind the handler the way askFlags once did.
 func TestConfigureDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 	cases := map[string][]string{

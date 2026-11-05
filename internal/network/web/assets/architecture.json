@@ -62,6 +62,8 @@
     "internal/agentconfig/template": {"kind": "assets", "purpose": "Embedded templates for agent config renders."},
     "internal/agentconfig/render": {"kind": "package", "purpose": "Shared config write path for agent configs: render, baseline, revert.", "addHere": "Writing a vendor config with a backup, its baseline and reverting it.", "notHere": "Config shape and pure renderers (agentconfig)."},
     "internal/agentconfig/render/rendertest": {"kind": "package", "purpose": "Shared hermetic fixture for vendor render tests.", "addHere": "Render test fixtures.", "notHere": "Production render code."},
+    "internal/hooks/memhook/memhooktest": {"kind": "package", "purpose": "Stubs memhook detached spawns for tests.", "notHere": "Production imports."},
+    "internal/agent/agenttest": {"kind": "package", "purpose": "Stubs the agent router so tests spawn no proxy daemon.", "notHere": "Production imports."},
     "internal/agentconfig/project": {"kind": "package", "purpose": "Projects agents/ into each agent's subagent dir, links skills, renders global instruction files. Imported by agent.", "addHere": "Projection rules.", "notHere": "Any import of internal/agent."},
     "internal/preflight": {"kind": "package", "purpose": "Per-agent pin check and post-install pong round. Missing a package doc.", "addHere": "Readiness checks over agents.", "notHere": "Anything agent itself must call."},
     "internal/agent/tools": {"kind": "package", "purpose": "Installs and updates agent CLIs into ~/.claude/bin.", "addHere": "A new CLI's install recipe.", "notHere": "Runtime dispatch."},

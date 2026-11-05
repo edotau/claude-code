@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func ledgerFile(t *testing.T, main, name string) string {
@@ -172,10 +173,7 @@ func TestAppendLedgerOutsideManagedWorktree(t *testing.T) {
 
 func ledgerSetup(t *testing.T, name string) (*Repo, string, string) {
 	t.Helper()
-	home, err := canonical(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	home := paths.Canon(t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
 	main := gitRepo(t)
