@@ -14,7 +14,7 @@ func TestApplyMergesKeepsForeignKeysAndIsIdempotent(t *testing.T) {
 	dir, home, dest := applyFixture(t)
 
 	assertDryRunKeepsFile(t, dir, home, dest)
-	out, err := Apply(dir, home, false)
+	out, err := Apply(dir, home, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestApplyMergesKeepsForeignKeysAndIsIdempotent(t *testing.T) {
 	if !o.Changed || o.Backup == "" || !appliedMergeKept(string(b)) {
 		t.Fatalf("apply: %+v\n%s", o, b)
 	}
-	out, _ = Apply(dir, home, false)
+	out, _ = Apply(dir, home, nil, false)
 	if o := find(out, "copilot"); o.Changed {
 		t.Error("second apply must be a no-op")
 	}
@@ -32,10 +32,29 @@ func TestApplyMergesKeepsForeignKeysAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// --only touches just the named target (a prefix picks its "<name>/…" rows) and rejects an unknown name.
+func TestApplyOnlyLimitsTargets(t *testing.T) {
+	dir, home, dest := applyFixture(t)
+	before, _ := os.ReadFile(dest)
+	out, err := Apply(dir, home, []string{"opencode-themes"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Name != "opencode-themes/gemini-plum" {
+		t.Fatalf("only opencode-themes: %+v", out)
+	}
+	if after, _ := os.ReadFile(dest); !bytes.Equal(before, after) {
+		t.Error("--only opencode-themes rewrote the copilot config")
+	}
+	if _, err := Apply(dir, home, []string{"nope"}, false); err == nil || !strings.Contains(err.Error(), "copilot") {
+		t.Errorf("unknown target must error listing valid names, got %v", err)
+	}
+}
+
 // assertDryRunKeepsFile requires a dry-run Apply to report the copilot change without backing up or writing dest.
 func assertDryRunKeepsFile(t *testing.T, dir, home, dest string) {
 	t.Helper()
-	out, err := Apply(dir, home, true)
+	out, err := Apply(dir, home, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +152,7 @@ func TestApplyReportsMergeErrorForEachFormat(t *testing.T) {
 			t.Cleanup(func() { beforeWrite = oldBeforeWrite })
 			beforeWrite = func(path string) { _ = os.WriteFile(path, []byte("{\"x\":1}\n"), 0o600) }
 
-			if _, err := Apply(dir, home, false); err == nil {
+			if _, err := Apply(dir, home, nil, false); err == nil {
 				t.Fatal("Apply hid the merge's concurrent-edit error")
 			}
 		})

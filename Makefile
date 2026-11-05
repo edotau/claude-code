@@ -67,8 +67,7 @@ install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0:
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
 		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) && \
 		$(MAKE) --no-print-directory tools-sync; fi
-	@d="$${XDG_CONFIG_HOME:-$$HOME/.config}/opencode/themes"; mkdir -p "$$d" && cp theme/opencode-themes/gemini-plum.json "$$d/gemini-plum.json" \
-		|| echo -e "$(C_NOTE)opencode gemini-plum theme not written (install itself succeeded)"
+	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@$(BIN) network restart || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
 
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it

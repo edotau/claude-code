@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -55,9 +56,13 @@ type Outcome struct {
 
 // Apply merges every present theme/<name>.json (or .conf) into its destination. dryRun reports without writing.
 // Keys the theme file omits are kept; a key it carries wins. Maps merge recursively for JSON; lines replace for .conf.
-func Apply(dir, home string, dryRun bool) ([]Outcome, error) {
+func Apply(dir, home string, only []string, dryRun bool) ([]Outcome, error) {
+	targets, err := selectTargets(Targets(home), only)
+	if err != nil {
+		return nil, err
+	}
 	var out []Outcome
-	for _, t := range Targets(home) {
+	for _, t := range targets {
 		o := Outcome{Name: t.Name, Dest: t.Dest}
 		src := t.Src
 		if src == "" {
@@ -82,6 +87,30 @@ func Apply(dir, home string, dryRun bool) ([]Outcome, error) {
 			return out, fmt.Errorf("%s → %s: %w", t.Name, t.Dest, err)
 		}
 		out = append(out, o)
+	}
+	return out, nil
+}
+
+// selectTargets keeps the named targets (a name also picks "<name>/…"); empty keeps all, an unknown name errors.
+func selectTargets(all []Target, only []string) ([]Target, error) {
+	if len(only) == 0 {
+		return all, nil
+	}
+	var out []Target
+	for _, n := range only {
+		hit := false
+		for _, t := range all {
+			if t.Name == n || strings.HasPrefix(t.Name, n+"/") {
+				out, hit = append(out, t), true
+			}
+		}
+		if !hit {
+			names := make([]string, len(all))
+			for i, t := range all {
+				names[i] = t.Name
+			}
+			return nil, fmt.Errorf("unknown theme target %q (valid: %s)", n, strings.Join(names, ", "))
+		}
 	}
 	return out, nil
 }
