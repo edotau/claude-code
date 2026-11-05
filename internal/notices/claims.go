@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Claim is one line of the hooks' claims ledger (written by internal/hooks/claims.go): a path or a commit.
+// Claim is one line of the hooks' claims ledger (written by internal/hooks/wthook/claims.go): a path or a commit.
 type Claim struct {
 	Path   string `json:"path,omitempty"`
 	Commit string `json:"commit,omitempty"`
