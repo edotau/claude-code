@@ -132,11 +132,12 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o render.Rend
 		return false, err
 	}
 
-	drift, err := render.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
+	// hooks.json goes first: a failed hooks write must not leave config.toml with trust hashes for absent hooks.
+	drift, err := render.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
 	if err != nil {
 		return drift, err
 	}
-	d, err := render.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
+	d, err := render.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
 	return drift || d, err
 }
 
