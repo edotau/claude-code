@@ -3,6 +3,7 @@
 package copilot
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -686,7 +687,7 @@ func scopedAllowed(req copilot.PermissionRequest, workDir string) bool {
 		return true
 	case rpc.PermissionRequestKindShell:
 		cmd, ok := shellCommand(req)
-		return ok && shell.CommandIn(shell.CanonicalSelf(cmd), shellCwd(req), []string{workDir}, nil)
+		return ok && shell.CommandIn(shell.CanonicalSelf(cmd), cmp.Or(shellCwd(req), workDir), []string{workDir}, nil)
 	}
 	return false
 }

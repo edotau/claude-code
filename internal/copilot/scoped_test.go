@@ -109,7 +109,6 @@ func TestScopedShellUsesRequestCwd(t *testing.T) {
 	}{
 		{"cwd is the workdir", scopedShell(safe, "rm a.go"), true},
 		{"cwd outside the workdir", scopedShell(outside, "rm a.go"), false},
-		{"cwd missing", rpc.PermissionRequestShell{FullCommandText: "rm a.go"}, false},
 		{"cwd relative", scopedShell("safe", "rm a.go"), false},
 	} {
 		d, err := h(tc.req, copilot.PermissionInvocation{})
@@ -140,5 +139,25 @@ func TestScopedWriteWithoutWorkdirUsesCwd(t *testing.T) {
 	}
 	if _, ok := d.(*rpc.PermissionDecisionApproveOnce); !ok {
 		t.Fatalf("write in cwd refused with WorkingDirectory %q: %T", opts.WorkingDirectory, d)
+	}
+}
+
+// The SDK sends no ResolvedWorkingDirectory: the run's workdir stands in, and the allowlist still applies.
+func TestScopedShellNilCwdFallsBackToWorkdir(t *testing.T) {
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: t.TempDir()}).OnPermissionRequest
+	for _, tc := range []struct {
+		cmd  string
+		want bool
+	}{
+		{"git status --short --branch", true},
+		{"git push", false},
+	} {
+		d, err := h(rpc.PermissionRequestShell{FullCommandText: tc.cmd}, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%q: approved = %v, want %v", tc.cmd, ok, tc.want)
+		}
 	}
 }
