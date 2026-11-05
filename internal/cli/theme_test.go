@@ -107,11 +107,11 @@ func TestThemeSetOnSecondCallPreservesFirstCallsOtherEdits(t *testing.T) {
 	}
 }
 
-func TestThemePreviewListsEveryPaletteAndWritesNothing(t *testing.T) {
+func TestThemePalettesListsEveryPaletteAndWritesNothing(t *testing.T) {
 	dir := hermeticTheme(t)
-	code, out, _ := captureOutput(t, func() int { return cmdTheme([]string{"--preview"}) })
+	code, out, _ := captureOutput(t, func() int { return cmdTheme([]string{"--palettes"}) })
 	if code != 0 {
-		t.Fatalf("theme --preview exit %d", code)
+		t.Fatalf("theme --palettes exit %d", code)
 	}
 	for _, name := range theme.GradientNames() {
 		if !strings.Contains(out, name) {
@@ -119,24 +119,18 @@ func TestThemePreviewListsEveryPaletteAndWritesNothing(t *testing.T) {
 		}
 	}
 	if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {
-		t.Errorf("--preview must not create config.json, stat err=%v", err)
+		t.Errorf("--palettes must not create config.json, stat err=%v", err)
 	}
 }
 
-func TestThemeNoArgsAlsoListsAndWritesNothing(t *testing.T) {
+func TestThemeNoArgsPrintsHelpWithoutPalettes(t *testing.T) {
 	dir := hermeticTheme(t)
 	code, _, out := captureOutput(t, func() int { return cmdTheme(nil) })
 	if code != 0 {
 		t.Fatalf("theme (no args) exit %d", code)
 	}
-	// bare `theme` is its help: usage, then the palettes with the current one marked
-	if !strings.Contains(out, "usage: claude-code theme") || !strings.Contains(out, "● "+theme.CurrentGradient()) {
-		t.Errorf("bare theme must print usage and mark the current palette:\n%s", out)
-	}
-	for _, name := range theme.GradientNames() {
-		if !strings.Contains(out, name) {
-			t.Errorf("no-arg listing missing palette %q:\n%s", name, out)
-		}
+	if !strings.Contains(out, "usage: claude-code theme") || strings.Contains(out, "PALETTES") {
+		t.Errorf("bare theme must print usage only; palettes belong to --palettes:\n%s", out)
 	}
 	if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {
 		t.Error("bare `theme` must not write config.json")

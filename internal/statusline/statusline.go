@@ -124,6 +124,11 @@ func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 		}
 		return 2
 	}
+	if f, ok := r.(*os.File); ok && ansi.IsTerminal(f) { // nothing piped in: ReadAll would wait for Ctrl+D
+		fmt.Fprintln(os.Stderr, "claude-code: theme statusline reads Claude Code's status JSON on stdin; "+
+			"try: echo '{}' | claude-code theme statusline")
+		return 2
+	}
 	raw, err := io.ReadAll(r)
 	fmt.Fprintln(w, Render(raw, *style)) // best-effort: render whatever was read even on a short read
 	if err != nil {
