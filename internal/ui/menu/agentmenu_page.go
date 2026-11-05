@@ -3,6 +3,7 @@ package menu
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -648,4 +650,107 @@ func opencodeMenu(d *dialog) agentMenu {
 		return agentMenu{state: agentState{modeSubscription, providers.Subscription{}, true}}
 	}
 	return agentMenu{state: agentState{mode: modeNone}}
+}
+
+// runAgy is AgySignIn with its message printed on d.
+func runAgy(d *dialog) bool {
+	ok, msg := configure.AgySignIn()
+	d.printf("%s\n", msg)
+	return ok
+}
+
+func geminiMenu(d *dialog) agentMenu {
+	st, auth := ownLoginState("gemini")
+	loginSel := auth.Present
+	return agentMenu{st, []billingRow{
+		{"Subscription", "Google login via agy · plan limits " + Bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
+			if loginSel {
+				d.printf("%-10s on its Google login (kept)\n", "agy")
+				return true
+			}
+			return runAgy(d)
+		}},
+		{"Login", "browser sign-in (agy)", "", func() bool {
+			return runAgy(d)
+		}},
+	}}
+}
+
+// setupLogins is each agent's existing sign-in path; an agent absent here has no Set up row.
+var setupLogins = map[string]func(d *dialog) error{
+	"claude": func(*dialog) error { return configure.RunLogin([]string{"claude", "auth", "login"}) },
+	"codex":  func(*dialog) error { return configure.RunLogin([]string{"codex", "login"}) },
+	"gemini": func(d *dialog) error {
+		if !runAgy(d) {
+			return errors.New("agy sign-in did not complete")
+		}
+		return nil
+	},
+	"opencode": func(*dialog) error {
+		bin, err := lookOpencode("opencode")
+		if err != nil {
+			return err
+		}
+		cancelled, err := runAttached([]string{bin, "auth", "login"})
+		invalidateOpencodeAuth()
+		if cancelled {
+			return errors.New("sign-in cancelled")
+		}
+		return err
+	},
+	"copilot": func(*dialog) error { return configure.RunLogin([]string{"copilot", "login"}) },
+}
+
+var (
+	setupState = func(d *dialog, agent string) agentState { return agentMenus[agent](d).state }
+
+	setupVerify = configure.VerifyAgent
+
+	setupRoute = routeAgent
+)
+
+// setupRow is the page's first row.
+func setupRow(d *dialog, agent string) billingRow {
+	return billingRow{label: "Set up", desc: "sign in, verify, pin the route", run: func() bool {
+		agentSetUp(d, agent)
+		return true
+	}}
+}
+
+// agentSetUp signs in (skipped when already verified), sends one small real request and offers the route pin.
+func agentSetUp(d *dialog, agent string) {
+	name := displayLabel(agent)
+	stop := func(step string, err error) {
+		d.printf("%s: set up stopped at %s: %s\n", name, step, shapes.Redact(err.Error()))
+	}
+	if setupState(d, agent).verified {
+		d.printf("%s: already signed in\n", name)
+	} else {
+		if err := setupLogins[agent](d); err != nil {
+			stop("sign-in", err)
+			return
+		}
+		d.changed = true
+		agentActiveOn(d, agent)
+	}
+	if err := setupVerify(context.Background(), agent); err != nil {
+		if agent == "copilot" && configure.QuotaFailure(err) {
+			err = fmt.Errorf("signed in, but copilot has no credits left, so this is not a login failure (%w)", err)
+		}
+		stop("verify", err)
+		return
+	}
+	d.printf("%s: verified with one live request\n", name)
+	changed, err := setupRoute(d, agent)
+	switch {
+	case err != nil:
+		stop("route", err)
+	case !changed:
+		d.printf("%s: signed in; the route was not changed\n", name)
+	}
+}
+
+// routeAgent runs the agent's profile picker; changed is false (err nil) when it was dismissed or left the profile as is.
+func routeAgent(d *dialog, agent string) (changed bool, err error) {
+	return pickAgentProfile(d, agent, vault.GetAgentRecord(agent).Profile)
 }
