@@ -3,7 +3,6 @@ package launch
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/settings"
 )
 
 // decodeObj decodes a JSON object into key->raw, for presence/absence and value assertions.
@@ -257,66 +255,6 @@ func TestInstallWindowsSettings_BOMPreserved(t *testing.T) {
 	})
 }
 
-// TestCheckWindowsSettingsDrift_Clean proves a just-installed Windows settings.json reports no drift.
-func TestCheckWindowsSettingsDrift_Clean(t *testing.T) {
-	profile := winHermetic(t)
-	file := winSettingsPath(profile)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var installOut bytes.Buffer
-	if err := InstallWindowsSettings(&installOut, false); err != nil {
-		t.Fatal(err)
-	}
-	drift, ok, err := CheckWindowsSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("ok = false, want true (profile resolved via HARNESS_WINDOWS_PROFILE)")
-	}
-	if drift.Drifted() {
-		t.Errorf("Drifted() = true right after install, want false; lines: %v", drift.LinesLabeled("settings (windows)"))
-	}
-}
-
-// TestCheckWindowsSettingsDrift_HandEditedKeyIsNotDrift proves a hand-edited plain key (theme) is not
-// drift: install refreshes only hooks, so the check has nothing to report.
-func TestCheckWindowsSettingsDrift_HandEditedKeyIsNotDrift(t *testing.T) {
-	profile := winHermetic(t)
-	file := winSettingsPath(profile)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var installOut bytes.Buffer
-	if err := InstallWindowsSettings(&installOut, false); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := decodeObj(t, b)
-	m["theme"] = json.RawMessage(`"dark"`)
-	edited, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(file, edited, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	drift, ok, err := CheckWindowsSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("ok = false, want true")
-	}
-	if drift.Drifted() {
-		t.Errorf("a hand-edited theme is the user's, not drift: %v", drift.LinesLabeled("settings (windows)"))
-	}
-}
-
 // brokenCmdPATH points PATH at an empty dir so `cmd.exe` can never be found, without touching the
 // real Windows profile or filesystem; it leaves HARNESS_WINDOWS_PROFILE unset so resolution falls
 // through to the real cmd.exe lookup, which then fails safely.
@@ -324,23 +262,6 @@ func brokenCmdPATH(t *testing.T) {
 	t.Helper()
 	t.Setenv(windowsProfileEnv, "")
 	t.Setenv("PATH", t.TempDir())
-}
-
-// TestCheckWindowsSettingsDrift_MissingProfile proves an unresolvable profile reports ok=false,
-// nil error, and no drift lines — a skip, not a failure.
-func TestCheckWindowsSettingsDrift_MissingProfile(t *testing.T) {
-	hermetic(t, "")
-	brokenCmdPATH(t)
-	drift, ok, err := CheckWindowsSettingsDrift()
-	if err != nil {
-		t.Fatalf("err = %v, want nil", err)
-	}
-	if ok {
-		t.Fatal("ok = true, want false (profile unresolvable)")
-	}
-	if len(drift.LinesLabeled("settings (windows)")) != 0 {
-		t.Errorf("lines %v, want none when the profile is unresolved", drift.LinesLabeled("settings (windows)"))
-	}
 }
 
 // TestInstallWindowsSettings_MissingProfileSkip proves InstallWindowsSettings prints a one-line skip
@@ -375,91 +296,5 @@ func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("non-WSL must no-op silently, got %q", out.String())
-	}
-}
-
-// TestCheckWindowsSettingsDrift_ForeignKeptNotDrift: a Windows-only key (foreign hooks, remote) is reported as
-// kept, never as drift, so `generate --check` stays green while install preserves it.
-func TestCheckWindowsSettingsDrift_ForeignKeptNotDrift(t *testing.T) {
-	profile := winHermetic(t)
-	file := winSettingsPath(profile)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(file, []byte(`{"remote":{"defaultEnvironmentId":"env_x"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var installOut bytes.Buffer
-	if err := InstallWindowsSettings(&installOut, false); err != nil {
-		t.Fatal(err)
-	}
-	drift, _, err := CheckWindowsSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if drift.Drifted() || len(drift.Foreign) != 0 {
-		t.Errorf("Drifted() = %v, Foreign = %v; want a kept key, not drift", drift.Drifted(), drift.Foreign)
-	}
-	want := "settings (windows): remote is kept (not in the defaults)"
-	if lines := drift.LinesLabeled("settings (windows)"); !slices.Contains(lines, want) {
-		t.Errorf("lines = %v, want %q", lines, want)
-	}
-}
-
-// TestCheckWindowsSettingsDrift_BOMIsNotInvalid: install keeps a UTF-8 BOM, so the drift check must read past it.
-func TestCheckWindowsSettingsDrift_BOMIsNotInvalid(t *testing.T) {
-	profile := winHermetic(t)
-	file := winSettingsPath(profile)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(file, append([]byte{0xEF, 0xBB, 0xBF}, `{"theme":"light"}`...), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var installOut bytes.Buffer
-	if err := InstallWindowsSettings(&installOut, false); err != nil {
-		t.Fatal(err)
-	}
-	drift, _, err := CheckWindowsSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if drift.Invalid != nil || drift.Drifted() {
-		t.Errorf("after install of a BOM file: Invalid=%v Drifted=%v lines=%v", drift.Invalid, drift.Drifted(),
-			drift.LinesLabeled("settings (windows)"))
-	}
-}
-
-// update rewrites docs/templates/examples/settings/settings.windows.json (same convention as
-// internal/settings's TestRenderGolden): `go test ./internal/launch -run TestDocsTemplateExampleWindows -update`.
-var update = flag.Bool("update", false, "rewrite docs/templates/examples/settings.windows.json")
-
-// TestDocsTemplateExampleWindows renders the Windows subset of the live settings render (via
-// stripWindowsOnly) and keeps docs/templates/examples/settings/settings.windows.json in sync with it.
-func TestDocsTemplateExampleWindows(t *testing.T) {
-	rendered, err := settings.Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	winRendered, err := stripWindowsOnly(rendered)
-	if err != nil {
-		t.Fatal(err)
-	}
-	example := filepath.Join("..", "..", "docs", "templates", "examples", "settings", "settings.windows.json")
-	if *update {
-		if err := os.MkdirAll(filepath.Dir(example), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(example, winRendered, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(example)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(winRendered) != string(want) {
-		t.Errorf("docs/templates/examples/settings/settings.windows.json drifted from stripWindowsOnly(settings.Render()) " +
-			"(go test ./internal/launch -run TestDocsTemplateExampleWindows -update)")
 	}
 }

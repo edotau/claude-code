@@ -134,11 +134,6 @@ func checkHostHealth(check func(bool, bool, string, string)) {
 	clipOK, clipDetail := clipboard.DoctorDetail()
 	check(clipOK, false, "wl-paste proxy", clipDetail)
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
-	driftOK, driftDetail := DoctorSettingsDrift()
-	check(driftOK, false, "settings drift", driftDetail)
-	if wdrift, wok, werr := CheckWindowsSettingsDrift(); wok {
-		check(werr == nil && !wdrift.Drifted(), false, "settings (windows)", settingsDriftDetailLabeled(wdrift, werr, "settings (windows)"))
-	}
 }
 
 // routeDetail is the "<agent> route" row; the caller loaded the registry already, so a miss is not a doctor failure.
@@ -288,26 +283,6 @@ func nestedDetail(n clean.Nested) string {
 	default:
 		return n.Dir + " is redundant (claude-code clean)"
 	}
-}
-
-// settingsDriftDetail is the doctor detail text for the "settings drift" check.
-func settingsDriftDetail(d SettingsDrift, err error) string {
-	return settingsDriftDetailLabeled(d, err, "settings")
-}
-
-// settingsDriftDetailLabeled strips label+": " off each drift line, for the doctor detail column.
-func settingsDriftDetailLabeled(d SettingsDrift, err error, label string) string {
-	if err != nil {
-		return err.Error()
-	}
-	lines := d.LinesLabeled(label)
-	if len(lines) == 0 {
-		return "clean"
-	}
-	for i, l := range lines {
-		lines[i] = strings.TrimPrefix(l, label+": ") // LinesLabeled already caps each line at 80
-	}
-	return strings.Join(lines, "; ")
 }
 
 // auditSummary counts the last week's audited actions, e.g. "2 hook_blocked, 1 provider_switch".

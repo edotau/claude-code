@@ -126,7 +126,6 @@ func Render() ([]byte, error) {
 // Summary describes what Merge did, for `install --dry-run`.
 type Summary struct {
 	Kept         []string // existing top-level keys the template does not own
-	Drift        []string // keys other than hooks that differ from the defaults render (set by install)
 	ForeignHooks int      // non-harness hook commands preserved
 	HarnessHooks int
 }

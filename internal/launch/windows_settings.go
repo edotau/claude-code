@@ -148,50 +148,6 @@ func readStrippingBOM(path string) (data []byte, hadBOM bool, err error) {
 	return raw, false, nil
 }
 
-// CheckWindowsSettingsDrift compares the Windows settings.json against the Windows subset of the live
-// render. ok is false when the Windows profile can't be resolved — the caller reports no line then.
-func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
-	file := WindowsSettingsFile()
-	if file == "" {
-		return SettingsDrift{}, false, nil
-	}
-	rendered, err := settings.RenderLive()
-	if err != nil {
-		return SettingsDrift{File: file}, true, err
-	}
-	winRendered, err := stripWindowsOnly(rendered)
-	if err != nil {
-		return SettingsDrift{File: file}, true, err
-	}
-	d, err = checkSettingsDriftAt(file, winRendered)
-	// Windows-side writers (foreign hooks, remote, a bash statusLine) own their keys; install keeps them, so not drift.
-	d.Kept, d.Foreign = d.Foreign, nil
-	return d, true, err
-}
-
-// checkSettingsDriftAt is CheckSettingsDriftWith generalized over the settings file.
-func checkSettingsDriftAt(file string, rendered []byte) (SettingsDrift, error) {
-	d := SettingsDrift{File: file}
-	existing, _, rerr := readStrippingBOM(file) // install preserves a BOM; Diff must not see it
-	switch {
-	case rerr != nil && !errors.Is(rerr, fs.ErrNotExist):
-		return d, rerr
-	case rerr != nil:
-		d.Differs = []string{"(missing)"}
-	default:
-		differs, foreign, derr := settings.Diff(existing, rendered)
-		if derr != nil {
-			if errors.Is(derr, settings.ErrInvalidJSON) {
-				d.Invalid = fmt.Errorf("invalid JSON; restore %s", filepath.Base(newestBackup(file)))
-				return d, nil
-			}
-			return d, derr
-		}
-		d.Differs, d.Foreign = differs, foreign
-	}
-	return d, nil
-}
-
 // filterObject decodes a JSON object preserving key order, keeps the entries keep accepts (optionally
 // transforming the value), and remarshals indented like the rest of the settings package.
 func filterObject(raw []byte, keep func(key string, val json.RawMessage) (json.RawMessage, bool, error)) ([]byte, error) {

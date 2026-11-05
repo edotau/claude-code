@@ -2,7 +2,6 @@ package settings
 
 import (
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 )
@@ -198,23 +197,6 @@ func checkDispatcherEntries(t *testing.T, block map[string][]MatcherGroup, own m
 		}
 		if len(entries) < 1+own[ev] {
 			t.Errorf("%s: %d entries, want at least %d", ev, len(entries), 1+own[ev])
-		}
-	}
-}
-
-func TestGroupNoEventLostVsGolden(t *testing.T) {
-	raw, err := os.ReadFile("testdata/settings.golden.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var golden struct{ Hooks map[string]json.RawMessage }
-	if err := json.Unmarshal(raw, &golden); err != nil {
-		t.Fatal(err)
-	}
-	got := Events()
-	for ev := range golden.Hooks {
-		if len(got[ev]) == 0 {
-			t.Errorf("event %s lost", ev)
 		}
 	}
 }

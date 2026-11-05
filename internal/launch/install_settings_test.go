@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 
@@ -99,9 +98,6 @@ func TestApplySettingsExistingFileOnlyRefreshesHooks(t *testing.T) {
 	if !strings.Contains(string(got["hooks"]), "my-foreign") || sum.HarnessHooks == 0 || sum.ForeignHooks != 1 {
 		t.Errorf("hooks not refreshed with the foreign one kept: %s %+v", got["hooks"], sum)
 	}
-	if len(sum.Drift) == 0 || slices.Contains(sum.Drift, "hooks") {
-		t.Errorf("Drift = %v, want the non-hook keys that differ from the defaults", sum.Drift)
-	}
 }
 
 func assertUserSettingsKeys(t *testing.T, got, want map[string]json.RawMessage) {
@@ -113,53 +109,6 @@ func assertUserSettingsKeys(t *testing.T, got, want map[string]json.RawMessage) 
 	}
 	if len(got) != len(want) {
 		t.Errorf("keys = %d, want the user's %d (no template key added)", len(got), len(want))
-	}
-}
-
-// Changed keys are information; invalid JSON still fails.
-func TestDoctorSettingsDriftIsInfoNotFailure(t *testing.T) {
-	vaulttest.Use(t)
-	if _, err := RestoreSettings(SettingsFile()); err != nil {
-		t.Fatal(err)
-	}
-	if ok, detail := DoctorSettingsDrift(); !ok || detail != "clean" {
-		t.Fatalf("after restore: ok=%v detail=%q, want clean", ok, detail)
-	}
-	if err := os.WriteFile(SettingsFile(), []byte(`{"model":"x","zzExtra":1}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	ok, detail := DoctorSettingsDrift()
-	if !ok || !strings.Contains(detail, "keys differ from your defaults — claude-code configure --restore") {
-		t.Errorf("changed keys: ok=%v detail=%q, want info", ok, detail)
-	}
-	if err := os.WriteFile(SettingsFile(), []byte(`{nope`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if ok, detail := DoctorSettingsDrift(); ok {
-		t.Errorf("invalid JSON: ok=true detail=%q, want a failure", detail)
-	}
-}
-
-// An extra env var the merge would keep is drift, because --restore replaces the whole file.
-func TestCheckSettingsDriftSeesWhatRestoreWouldRemove(t *testing.T) {
-	vaulttest.Use(t)
-	if _, err := RestoreSettings(SettingsFile()); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := os.ReadFile(SettingsFile())
-	edited := strings.Replace(string(raw), `"env": {`, `"env": {`+"\n    \"ZZ_EXTRA\": \"1\",", 1)
-	if edited == string(raw) {
-		t.Fatal("no env block to edit")
-	}
-	if err := os.WriteFile(SettingsFile(), []byte(edited), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	d, err := CheckSettingsDrift()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !d.Drifted() || !strings.Contains(strings.Join(d.Differs, ","), "env.ZZ_EXTRA") {
-		t.Errorf("drift = %+v, want env.ZZ_EXTRA reported", d)
 	}
 }
 

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 //go:embed claude-code-settings.schema.json
@@ -430,3 +433,22 @@ func mustCompact(raw json.RawMessage) string {
 
 // HasRef reports a schema entry using $ref; its constraints are unresolved, so the picker does not offer it.
 func (k Key) HasRef() bool { return k.ref }
+
+// compactStr compacts raw JSON for comparison; a missing value (nil) compacts to "".
+func compactStr(raw json.RawMessage) (string, error) {
+	if raw == nil {
+		return "", nil
+	}
+	// Decode and re-encode so escape-equivalent spellings (\u003c vs <) compare equal.
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return "", err
+	}
+	raw, err := textutil.MarshalNoEscape(v)
+	if err != nil {
+		return "", err
+	}
+	return string(raw) + "\n", nil
+}
