@@ -4,8 +4,7 @@
 //   - gemini: Claude's ask/deny carried over as GuardRules (templateGuardRules), opted in by
 //     agents.json `useGuardRules`; converted in internal/gemini (agyGuardRules).
 //   - copilot shell allowlist: agents.json agents.copilot.permission.shell, read here by ShellPolicy() and
-//     enforced by internal/shell (SDK --tools tier and the `hook copilot-bash` guard); the CLI's
-//     --allow-tool/--deny-tool lists come from CLIAllow/CLIDeny. Argument-level git logic stays Go
+//     enforced by internal/shell (SDK --tools tier and the `hook copilot-bash` guard). Argument-level git logic stays Go
 //     (shell check "scopedGit"); a rule's "check" names such a Go rule.
 //   - codex, copilot, opencode launch knobs: agents.json (approvalPolicy, sandboxMode, launch args).
 //   - safety-scan hook: internal/hooks/safety*.go blocks destructive shapes for every agent, on top of all of the above.
@@ -46,18 +45,16 @@ type ShellRule struct {
 	BannedFlags []string `json:"bannedFlags,omitempty"` // no arg is one of these, alone or as flag=value
 	ArgsInside  bool     `json:"argsInside,omitempty"`  // absolute and .. args must resolve inside the workdir
 	Check       string   `json:"check,omitempty"`       // a named Go rule in shell, run on the args after the match
-	CLIAllow    []string `json:"cliAllow,omitempty"`    // CLI allow prefixes, replacing the generated ones
 	Summary     string   `json:"summary,omitempty"`     // prose, replacing the generated one (required with a check)
 }
 
-// ShellRules is an ordered rule list; order drives Summary and CLIAllow.
+// ShellRules is an ordered rule list; order drives Summary.
 type ShellRules []ShellRule
 
-// ShellScope is copilot's scoped shell: Commands everywhere, HookExtras for the hook only, CLIDeny for the CLI.
+// ShellScope is copilot's scoped shell: Commands everywhere, HookExtras for the hook only.
 type ShellScope struct {
 	Commands   ShellRules `json:"commands"`
 	HookExtras ShellRules `json:"hookExtras"`
-	CLIDeny    []string   `json:"cliDeny"`
 }
 
 var shellPolicy = sync.OnceValue(func() ShellScope {
@@ -109,27 +106,6 @@ func (rs ShellRules) Summary() string {
 		}
 	}
 	return strings.Join(items, ", ")
-}
-
-// CLIAllow is the copilot CLI's --allow-tool shell prefixes, one per command and admitted subcommand.
-func (p ShellScope) CLIAllow() []string {
-	var out []string
-	for _, r := range p.Commands {
-		if r.CLIAllow != nil {
-			out = append(out, r.CLIAllow...)
-			continue
-		}
-		for _, c := range r.Commands {
-			subs := r.args()
-			if len(subs) == 0 {
-				out = append(out, c)
-			}
-			for _, s := range subs {
-				out = append(out, c+" "+s)
-			}
-		}
-	}
-	return out
 }
 
 // args lists the rule's admitted leading args in policy order.

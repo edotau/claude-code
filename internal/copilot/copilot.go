@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -458,26 +457,8 @@ func copilotHeadless(h *agent.Headless) []string {
 	switch {
 	case h.Tools && h.Autonomous:
 		argv = append(argv, "--allow-all-tools")
-	case h.Tools:
-		argv = append(argv, scopedCLIArgs()...)
 	}
 	return argv
-}
-
-// scopedCLIArgs approximates approveScoped; the CLI cannot confine write to the workdir or ban git add -A beyond a prefix.
-func scopedCLIArgs() []string {
-	p := agentconfig.ShellPolicy()
-	return slices.Concat([]string{"--disallow-temp-dir", "--allow-tool=read", "--allow-tool=write"},
-		toolFlags("--allow-tool", p.CLIAllow()...), toolFlags("--deny-tool", p.CLIDeny...))
-}
-
-// toolFlags spells each shell command prefix as one flag=shell(prefix:*) argument.
-func toolFlags(flag string, cmds ...string) []string {
-	out := make([]string, len(cmds))
-	for i, c := range cmds {
-		out[i] = flag + "=shell(" + c + ":*)"
-	}
-	return out
 }
 
 // CopilotCatalog is where `copilot models` lists from: a Databricks row's endpoints, or GitHub's own catalog.

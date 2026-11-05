@@ -76,13 +76,6 @@ var claudeProbeMemo struct {
 	flight   *probeCall
 }
 
-// resetClaudeProbe drops the memo so the next ClaudeLoginProbe runs the binary again.
-func resetClaudeProbe() {
-	claudeProbeMemo.mu.Lock()
-	defer claudeProbeMemo.mu.Unlock()
-	claudeProbeMemo.at = time.Time{}
-}
-
 // ClaudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown. Single-flight; logged-in memo 10s.
 func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
 	m := &claudeProbeMemo
