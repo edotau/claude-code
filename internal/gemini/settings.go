@@ -1,11 +1,14 @@
 package gemini
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 )
@@ -74,3 +77,94 @@ func mergeAgyDeny(existing []any, rules []string) []string {
 	}
 	return merged
 }
+
+// loadAgentConfig is the agents.json loader; a package var so tests can fail it.
+var loadAgentConfig = agentconfig.LoadConfig
+
+// agyPermissionSettings renders p as agy's per-run --settings JSON; guard denies always ride along, since a --settings
+// permissions block may replace the global one. Ask runs as Allow (agy has no headless judge). A Deny agy can't hold
+// natively is an error (Deny is the hard boundary); unmapped Allow/Ask rules are returned for Result.Emulated.
+func agyPermissionSettings(p agent.Permissions, cwd string, out io.Writer) (settings string, unmapped []string, err error) {
+	if p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 {
+		return "", nil, nil
+	}
+	cfg, err := loadAgentConfig()
+	if err != nil {
+		return "", nil, fmt.Errorf("agy: guard denies for --settings: %w", err)
+	}
+	var deny []string
+	if cfg.Agent("gemini").Permission.UseGuardRules {
+		deny = agyGuardRules(cfg.Guard().Deny, io.Discard)
+	}
+	// NEXT: a Bash Deny needs an agy PreToolUse hook calling Permissions.Decide; `a && x` slips past command(x).
+	var bashDeny, pathDeny []agent.Rule
+	for _, r := range p.Deny {
+		if r.Tool == "Bash" {
+			bashDeny = append(bashDeny, r)
+		} else {
+			pathDeny = append(pathDeny, r)
+		}
+	}
+	deny, unDeny := appendAgyRules(deny, pathDeny, cwd)
+	if refused := slices.Concat(bashDeny, unDeny); len(refused) > 0 {
+		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: dispatch refused", joinRules(refused))
+	}
+	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
+	for _, r := range p.Ask {
+		fmt.Fprintf(out, "agy: ask rule %s runs as allow (no --mode auto judge)\n", r)
+	}
+	perms := map[string][]string{"deny": mergeAgyDeny(nil, deny)}
+	if len(allow) > 0 {
+		perms["allow"] = mergeAgyDeny(nil, allow)
+	}
+	b, err := json.Marshal(map[string]any{"permissions": perms})
+	if err != nil {
+		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
+	}
+	return string(b), ruleStrings(unAllow), nil
+}
+
+// appendAgyRules appends each rule agy can express natively to dst and names the rest.
+func appendAgyRules(dst []string, rules []agent.Rule, cwd string) ([]string, []agent.Rule) {
+	var unmapped []agent.Rule
+	for _, r := range rules {
+		if s, ok := agyRule(r, cwd); ok {
+			dst = append(dst, s)
+		} else {
+			unmapped = append(unmapped, r)
+		}
+	}
+	return dst, unmapped
+}
+
+// agyRule maps an exact Bash command or a glob-free Read/Write/Edit path; agy's `*` did not match live, so no patterns.
+func agyRule(r agent.Rule, cwd string) (string, bool) {
+	if r.Arg == "" || strings.ContainsAny(r.Arg, "*?[") {
+		return "", false
+	}
+	if r.Tool == "Bash" {
+		return "command(" + strings.TrimSpace(r.Arg) + ")", true
+	}
+	fn := map[string]string{"Read": "read_file", "Write": "write_file", "Edit": "write_file"}[r.Tool]
+	if fn == "" {
+		return "", false
+	}
+	p := r.Arg
+	if !filepath.IsAbs(p) {
+		if cwd == "" {
+			return "", false
+		}
+		p = filepath.Join(cwd, p)
+	}
+	return fn + "(" + filepath.Clean(p) + ")", true
+}
+
+func ruleStrings(rules []agent.Rule) []string {
+	out := make([]string, len(rules))
+	for i, r := range rules {
+		out[i] = r.String()
+	}
+	return out
+}
+
+func joinRules(rules []agent.Rule) string { return strings.Join(ruleStrings(rules), ", ") }

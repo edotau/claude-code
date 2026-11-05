@@ -30,6 +30,14 @@ type Permissions struct {
 	Deny  []Rule `json:"deny,omitempty"`
 }
 
+// String is the rule in ParseRule's syntax.
+func (r Rule) String() string {
+	if r.Arg == "" {
+		return r.Tool
+	}
+	return r.Tool + "(" + r.Arg + ")"
+}
+
 // ParseRule parses "Tool" or "Tool(arg)".
 func ParseRule(s string) (Rule, error) {
 	s = strings.TrimSpace(s)

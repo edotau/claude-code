@@ -46,9 +46,15 @@ func (geminiEngine) Before(req agent.RunOptions, t providers.Target) providers.T
 }
 
 func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
-	areq := newAgyRequest(p, req)
+	areq, err := newAgyRequest(p, req)
+	if err != nil {
+		return p.Result, err
+	}
 	res := p.Result
 	res.Model = areq.Model
+	for _, r := range areq.Unmapped {
+		res.Emulated = append(res.Emulated, "permissions:"+r)
+	}
 	out, err := runAgy(ctx, areq, sink)
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	if out.SessionID != "" {
@@ -298,8 +304,10 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 type agyRequest struct {
 	Prompt, Model, Effort, Cwd, SessionID string
 	Tools, Autonomous                     bool
-	DebugFile                             string // --log-file
-	OutputSchema                          string // --json-schema
+	DebugFile                             string   // --log-file
+	OutputSchema                          string   // --json-schema
+	Settings                              string   // --settings JSON: the dispatch's permissions
+	Unmapped                              []string // Allow/Ask rules agy can't express: reported in Result.Emulated, not enforced
 	Env, KeepEnv                          []string
 }
 
@@ -330,6 +338,9 @@ func agyArgv(r agyRequest) []string {
 	}
 	if r.DebugFile != "" {
 		argv = append(argv, "--log-file", r.DebugFile)
+	}
+	if r.Settings != "" {
+		argv = append(argv, "--settings", r.Settings)
 	}
 	return append(argv, "-p=")
 }
@@ -601,11 +612,16 @@ func agyModel(req agent.RunOptions, t providers.Target) string {
 }
 
 // newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
-func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
+func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) (agyRequest, error) {
+	settings, unmapped, err := agyPermissionSettings(req.Permissions, req.WorkDir, os.Stderr)
+	if err != nil {
+		return agyRequest{}, err
+	}
 	return agyRequest{
 		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
-	}
+		Settings: settings, Unmapped: unmapped,
+	}, nil
 }
 
 // agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
@@ -623,7 +639,10 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 	if err != nil {
 		return nil, nil, "", err
 	}
-	areq := newAgyRequest(p, req)
+	areq, err := newAgyRequest(p, req)
+	if err != nil {
+		return nil, nil, "", err
+	}
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("gemini: %w", err)
