@@ -41,6 +41,15 @@ func (r Rule) String() string {
 	return r.Tool + "(" + r.Arg + ")"
 }
 
+// RuleStrings renders rules back to their flag form, "Tool" or "Tool(arg)".
+func RuleStrings(rules []Rule) []string {
+	var out []string
+	for _, r := range rules {
+		out = append(out, r.String())
+	}
+	return out
+}
+
 // ParseRule parses "Tool" or "Tool(arg)".
 func ParseRule(s string) (Rule, error) {
 	s = strings.TrimSpace(s)
@@ -187,10 +196,18 @@ func wildcardMatches(pattern, cmd string) bool {
 		return true
 	}
 	parts := strings.Split(pattern, "*")
-	for i, part := range parts {
-		parts[i] = regexp.QuoteMeta(part)
+	rest, ok := strings.CutPrefix(cmd, parts[0])
+	if !ok {
+		return false
 	}
-	return regexp.MustCompile("^" + strings.Join(parts, ".*") + "$").MatchString(cmd)
+	for _, mid := range parts[1 : len(parts)-1] {
+		i := strings.Index(rest, mid)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(mid):]
+	}
+	return strings.HasSuffix(rest, parts[len(parts)-1])
 }
 
 // domainMatches takes a bare host or a URL and accepts the domain itself and its subdomains.
