@@ -3,6 +3,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -41,6 +43,9 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	base, _ = s.Mode.scrub(base, s.Keep)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), s.dropper(ctx))
 	env = append(append(env, s.Set...), s.Extra...)
+	if kv, ok := ctx.Value(permissionsKey{}).(string); ok { // the dispatch's policy wins over any inherited copy
+		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, DispatchPermissionsEnv+"=") }), kv)
+	}
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
@@ -56,6 +61,41 @@ func (m EnvMode) scrub(env, keep []string) (kept, dropped []string) {
 		return proc.ScrubAgent(env, proc.EnvKeepSet(keep))
 	}
 	return env, nil
+}
+
+// DispatchPermissionsEnv carries a dispatch's Permissions as JSON to every agent child, for the in-agent permission-gate.
+const DispatchPermissionsEnv = "HARNESS_DISPATCH_PERMISSIONS"
+
+type permissionsKey struct{}
+
+// inheritPermissions keeps an outer dispatch's Deny rules and plan mode in a nested dispatch, so an inner policy
+// can never drop them; with no inner policy the outer one applies whole.
+func inheritPermissions(p Permissions) (Permissions, error) {
+	raw := os.Getenv(DispatchPermissionsEnv)
+	if raw == "" {
+		return p, nil
+	}
+	var outer Permissions
+	if err := json.Unmarshal([]byte(raw), &outer); err != nil {
+		return p, fmt.Errorf("unreadable %s from the outer dispatch: %w", DispatchPermissionsEnv, err)
+	}
+	if p.IsZero() {
+		return outer, nil
+	}
+	p.Deny = append(slices.Clone(p.Deny), outer.Deny...)
+	if outer.Mode == "plan" {
+		p.Mode = "plan"
+	}
+	return p, nil
+}
+
+// withPermissionsEnv makes every child env built under ctx carry p as DispatchPermissionsEnv; a zero p changes nothing.
+func withPermissionsEnv(ctx context.Context, p Permissions) context.Context {
+	if p.IsZero() {
+		return ctx
+	}
+	raw, _ := json.Marshal(p) // strings and string slices always marshal
+	return context.WithValue(ctx, permissionsKey{}, DispatchPermissionsEnv+"="+string(raw))
 }
 
 type unsetKey struct{}

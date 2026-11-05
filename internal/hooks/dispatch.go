@@ -269,6 +269,7 @@ var Native = map[string]core.Runner{
 	"worktree-busy":             wthook.Busy,
 	"worktree-claim":            wthook.Claim,
 	"worktree-claim-check":      wthook.ClaimCheck,
+	"permission-gate":           safety.PermissionGate,
 }
 
 // runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with

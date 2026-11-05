@@ -276,7 +276,7 @@ func TestSpecsFor(t *testing.T) {
 		{"copilot", "sdk", len(names("copilot", "native")), "memory-recall", "rtk-rewrite"},
 		{"codex", "sdk", 0, "", ""},
 		{"opencode", "hosted", 16, "memory-end", "rtk-rewrite"},
-		{"opencode", "plugin", 4, "worktree-claim-check", "memory-end"},
+		{"opencode", "plugin", 5, "worktree-claim-check", "memory-end"},
 		{"opencode", "native", 0, "", ""},
 		{"claude", "bogus", 0, "", ""},
 	}
