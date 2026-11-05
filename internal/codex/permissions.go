@@ -30,10 +30,14 @@ func codexRender(p agent.Permissions, tools bool) (codexPolicy, error) {
 		return pol, fmt.Errorf("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
 	}
 	var b strings.Builder
-	for _, set := range []struct {
+	sets := []struct {
 		rules    []agent.Rule
 		decision string
-	}{{p.Deny, "forbidden"}, {p.Ask, "prompt"}, {p.Allow, "allow"}} {
+	}{{p.Deny, "forbidden"}, {p.Ask, "prompt"}, {p.Allow, "allow"}}
+	if !tools {
+		sets = sets[:1] // no tools: an allow/prompt rule could auto-approve what the dispatch should not run
+	}
+	for _, set := range sets {
 		for _, r := range set.rules {
 			line, err := codexRule(r, set.decision, tools)
 			if err != nil && set.decision == "forbidden" {
@@ -59,6 +63,12 @@ func codexRule(r agent.Rule, decision string, tools bool) (string, error) {
 		return "", fmt.Errorf("codex: cannot enforce %s %s (codex has only Bash prefix rules and a read-only sandbox)", decision, r)
 	}
 	prefix, wild := strings.CutSuffix(r.Arg, ":*")
+	if !wild {
+		prefix, wild = strings.CutSuffix(r.Arg, " *") // Claude's trailing wildcard, same as ":*"
+	}
+	if strings.Contains(prefix, "*") {
+		return "", fmt.Errorf("codex: cannot enforce %s %s (a mid-pattern * is not a prefix rule)", decision, r)
+	}
 	toks := shell.Tokens(prefix)
 	if r.Arg == "" || len(toks) == 0 || len(shell.Segments(prefix)) != 1 || strings.ContainsAny(prefix, "<>`$()|&;") {
 		return "", fmt.Errorf("codex: cannot render %s as a command prefix", r)
@@ -144,7 +154,7 @@ func isLink(p string) bool {
 func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, outEnv []string, remove func(), err error) {
 	remove = func() {}
 	p := req.Permissions
-	if p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 {
+	if p.IsZero() {
 		return argv, env, remove, nil
 	}
 	pol, err := codexRender(p, req.Tools)
