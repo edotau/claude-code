@@ -76,17 +76,64 @@ func TestCodexApplyPermissionsArgv(t *testing.T) {
 	}
 }
 
-// With the gate hook in the codex home, a Bash Deny that is no command prefix is dropped from the rules, not refused.
+func TestCodexApplyPermissionsSafeModeRejectsDispatchRules(t *testing.T) {
+	argv := []string{"exec", "--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write", "-"}
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
+		Deny: []agent.Rule{{Tool: "Bash", Arg: "rm:*"}},
+	}}
+	_, _, remove, err := codexApplyPermissions(req, argv, []string{CodexKeyEnv + "=test-key"})
+	defer remove()
+	if err == nil || !strings.Contains(err.Error(), "--safe-mode") {
+		t.Fatalf("safe-mode deny err = %v, want an explicit refusal", err)
+	}
+}
+
+func TestCodexApplyPermissionsSafeModeDoesNotUseGate(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	writeCodexTestHooks(t, codexGateHooks)
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
+		Deny: []agent.Rule{{Tool: "Bash", Arg: "git * --force"}},
+	}}
+	_, _, remove, err := codexApplyPermissions(req, nil, []string{CodexKeyEnv + "=test-key"})
+	defer remove()
+	if err == nil || !strings.Contains(err.Error(), "Bash(git * --force)") {
+		t.Fatalf("safe-mode non-prefix deny err = %v, want the unenforceable rule named", err)
+	}
+}
+
+const codexGateHooks = `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate"}]}]}}`
+
+func writeCodexTestHooks(t *testing.T, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(codexHome(), "hooks.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCodexGateInstalled(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	if codexGateInstalled() {
 		t.Fatal("empty codex home reported the gate installed")
 	}
-	if err := os.WriteFile(filepath.Join(codexHome(), "hooks.json"), []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"command":"x hook PreToolUse --permission-gate"}]}]}}`), 0o600); err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "synchronous PreToolUse Bash gate", body: codexGateHooks, want: true},
+		{name: "PostToolUse mention only", body: `{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate"}]}]}}`},
+		{name: "substring in unrelated command", body: `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo --permission-gate"}]}]}}`},
+		{name: "matcher excludes Bash", body: `{"hooks":{"PreToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate"}]}]}}`},
+		{name: "async gate", body: `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate","async":true}]}]}}`},
 	}
-	if !codexGateInstalled() {
-		t.Fatal("hooks.json with --permission-gate not detected")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CODEX_HOME", t.TempDir())
+			writeCodexTestHooks(t, c.body)
+			if got := codexGateInstalled(); got != c.want {
+				t.Fatalf("codexGateInstalled() = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 

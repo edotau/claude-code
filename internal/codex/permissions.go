@@ -1,16 +1,19 @@
 package codex
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -32,7 +35,32 @@ func (e notPrefixError) Error() string { return e.msg }
 // codexGateInstalled reports whether the codex home's hooks.json runs the permission gate.
 func codexGateInstalled() bool {
 	b, err := os.ReadFile(filepath.Join(codexHome(), "hooks.json"))
-	return err == nil && strings.Contains(string(b), "--permission-gate")
+	if err != nil {
+		return false
+	}
+	var config struct {
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
+	}
+	if json.Unmarshal(b, &config) != nil {
+		return false
+	}
+	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
+	for _, group := range config.Hooks[settings.EventPreToolUse] {
+		if group.Matcher != "" {
+			matcher, err := regexp.Compile("^(?:" + group.Matcher + ")$")
+			if err != nil || !matcher.MatchString("Bash") {
+				continue
+			}
+		}
+		for _, hook := range group.Hooks {
+			cmd := strings.TrimSpace(hook.Command)
+			if hook.Type == "command" && !hook.Async &&
+				(cmd == command || cmd == settings.AgentEnv+"=codex "+command) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // codexRender maps p onto codex; a Deny it cannot enforce is an error naming the rule, so nothing runs unguarded.
@@ -193,9 +221,12 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	if p.IsZero() {
 		return argv, env, remove, nil
 	}
-	pol, err := codexRender(p, req.Tools, codexGateInstalled())
+	pol, err := codexRender(p, req.Tools, !req.SafeMode && codexGateInstalled())
 	if err != nil {
 		return nil, nil, remove, err
+	}
+	if req.SafeMode && len(p.Deny) > 0 && pol.rules != "" {
+		return nil, nil, remove, errors.New("codex: --safe-mode disables permission rules and hooks; remove --safe-mode to enforce --deny")
 	}
 	for _, r := range pol.unmapped {
 		fmt.Fprintf(os.Stderr, "ask: codex cannot enforce permission rule %s\n", r)
