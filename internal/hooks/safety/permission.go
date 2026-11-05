@@ -86,7 +86,7 @@ func gateArgs(in *core.Input, tool string) []string {
 // patchFiles are the files an apply_patch body adds, updates, deletes or moves to.
 func patchFiles(patch string) []string {
 	var out []string
-	for _, line := range strings.Split(patch, "\n") {
+	for line := range strings.SplitSeq(patch, "\n") {
 		for _, h := range patchHeaders {
 			if f, ok := strings.CutPrefix(line, h); ok && strings.TrimSpace(f) != "" {
 				out = append(out, strings.TrimSpace(f))
