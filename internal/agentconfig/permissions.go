@@ -4,9 +4,9 @@
 //   - gemini: Claude's ask/deny carried over as GuardRules (templateGuardRules), opted in by
 //     agents.json `useGuardRules`; converted in internal/gemini (agyGuardRules).
 //   - copilot shell allowlist: agents.json agents.copilot.permission.shell, read here by ShellPolicy() and
-//     enforced by internal/shellscope (SDK --tools tier and the `hook copilot-bash` guard); the CLI's
+//     enforced by internal/shell (SDK --tools tier and the `hook copilot-bash` guard); the CLI's
 //     --allow-tool/--deny-tool lists come from CLIAllow/CLIDeny. Argument-level git logic stays Go
-//     (shellscope check "scopedGit"); a rule's "check" names such a Go rule.
+//     (shell check "scopedGit"); a rule's "check" names such a Go rule.
 //   - codex, copilot, opencode launch knobs: agents.json (approvalPolicy, sandboxMode, launch args).
 //   - safety-scan hook: internal/hooks/safety*.go blocks destructive shapes for every agent, on top of all of the above.
 //
@@ -45,7 +45,7 @@ type ShellRule struct {
 	Targets     []string `json:"targets,omitempty"`     // every arg, at least one, is one of these
 	BannedFlags []string `json:"bannedFlags,omitempty"` // no arg is one of these, alone or as flag=value
 	ArgsInside  bool     `json:"argsInside,omitempty"`  // absolute and .. args must resolve inside the workdir
-	Check       string   `json:"check,omitempty"`       // a named Go rule in shellscope, run on the args after the match
+	Check       string   `json:"check,omitempty"`       // a named Go rule in shell, run on the args after the match
 	CLIAllow    []string `json:"cliAllow,omitempty"`    // CLI allow prefixes, replacing the generated ones
 	Summary     string   `json:"summary,omitempty"`     // prose, replacing the generated one (required with a check)
 }

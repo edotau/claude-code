@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/shellscope"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // rtkHermetic points the config dir (and the vault it holds) at throwaway temp dirs, the way
@@ -154,7 +154,7 @@ func fakeRTK(t *testing.T) string {
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(shellscope.RTKBinaryEnv, bin)
+	t.Setenv(shell.RTKBinaryEnv, bin)
 	return bin
 }
 

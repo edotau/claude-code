@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/shellscope"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
@@ -34,7 +34,7 @@ func fakeRTK(t *testing.T) string {
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(shellscope.RTKBinaryEnv, bin)
+	t.Setenv(shell.RTKBinaryEnv, bin)
 	return bin
 }
 
@@ -226,7 +226,7 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(shellscope.RTKBinaryEnv, bad)
+	t.Setenv(shell.RTKBinaryEnv, bad)
 	if got, ok := rtkOut(t, rtkBashIn("ls")); ok {
 		t.Errorf("unrunnable rtk rewrote to %q", got)
 	}
@@ -251,7 +251,7 @@ func TestRTKPinnedBinaryShellMetacharacters(t *testing.T) {
 			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv(shellscope.RTKBinaryEnv, bin)
+			t.Setenv(shell.RTKBinaryEnv, bin)
 			cmd, ok := rtkOut(t, rtkBashIn("ls"))
 			if !ok {
 				t.Fatal("expected rewrite using pinned binary")
@@ -275,7 +275,7 @@ func TestRTKNeverRewritesGitCommit(t *testing.T) {
 }
 
 func TestRTKMissingBinaryIsNoOp(t *testing.T) {
-	t.Setenv(shellscope.RTKBinaryEnv, "definitely-not-a-real-binary-xyz")
+	t.Setenv(shell.RTKBinaryEnv, "definitely-not-a-real-binary-xyz")
 	if got, ok := rtkOut(t, rtkBashIn("git log")); ok {
 		t.Errorf("missing binary still wrapped to %q — must degrade to a no-op", got)
 	}

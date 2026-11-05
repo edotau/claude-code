@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/shellscope"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // CopilotBashHook is the `claude-code hook <name>` spelling agents/copilot.md carries; it is not a settings.json event.
@@ -42,9 +42,9 @@ func CopilotBash(stdin io.Reader, stderr io.Writer) int {
 	if workDir == "" {
 		workDir, _ = os.Getwd()
 	}
-	cmd = shellscope.CanonicalSelf(cmd)
+	cmd = shell.CanonicalSelf(cmd)
 	home, _ := os.UserHomeDir() // ~/worktrees holds the linked worktrees a ~/.claude session works in
-	if !shellscope.Command(cmd, []string{workDir, filepath.Join(home, "worktrees")}, agentconfig.ShellPolicy().HookExtras) {
+	if !shell.Command(cmd, []string{workDir, filepath.Join(home, "worktrees")}, agentconfig.ShellPolicy().HookExtras) {
 		fmt.Fprintln(stderr, copilotBashReason())
 		return core.ExitBlock
 	}
