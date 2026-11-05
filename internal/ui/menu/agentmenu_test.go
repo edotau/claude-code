@@ -3,9 +3,12 @@ package menu
 import (
 	"bufio"
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -319,6 +322,22 @@ func TestAgentStateLabelAndCheck(t *testing.T) {
 	for _, c := range cases {
 		if c.s.label() != c.label || c.s.check() != c.check {
 			t.Errorf("%+v: label=%q check=%q, want %q/%q", c.s, c.s.label(), c.s.check(), c.label, c.check)
+		}
+	}
+}
+
+// Each codex Login pick runs its own sign-in: browser, device code, or (cancelled) nothing.
+func TestCodexLoginPicksMethod(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{{"1\n", "login\n"}, {"2\n", "login --device-auth\n"}, {"\n", ""}} {
+		cfg := t.TempDir()
+		t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+		log := filepath.Join(cfg, "argv")
+		pathstest.FakeVendor(t, "codex", "#!/bin/sh\necho \"$*\" >> "+log+"\n")
+		d := &dialog{out: discardWriter{}, br: bufio.NewReader(strings.NewReader(tc.in))}
+		codexLogin(d, func() bool { t.Error("API key path ran"); return false })
+		got, _ := os.ReadFile(log)
+		if string(got) != tc.want {
+			t.Errorf("pick %q ran %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
