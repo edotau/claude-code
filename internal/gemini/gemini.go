@@ -613,7 +613,7 @@ func agyModel(req agent.RunOptions, t providers.Target) string {
 
 // newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
 func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) (agyRequest, error) {
-	settings, unmapped, err := agyPermissionSettings(req.Permissions, req.WorkDir, os.Stderr)
+	settings, unmapped, err := agyPermissionSettings(req.Permissions, req.Tools, req.WorkDir, os.Stderr)
 	if err != nil {
 		return agyRequest{}, err
 	}

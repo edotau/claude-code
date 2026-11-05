@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -84,9 +85,12 @@ var loadAgentConfig = agentconfig.LoadConfig
 // agyPermissionSettings renders p as agy's per-run --settings JSON; guard denies always ride along, since a --settings
 // permissions block may replace the global one. Ask runs as Allow (agy has no headless judge). A Deny agy can't hold
 // natively is an error (Deny is the hard boundary); unmapped Allow/Ask rules are returned for Result.Emulated.
-func agyPermissionSettings(p agent.Permissions, cwd string, out io.Writer) (settings string, unmapped []string, err error) {
-	if p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 {
+func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.Writer) (settings string, unmapped []string, err error) {
+	if p.IsZero() {
 		return "", nil, nil
+	}
+	if p.Mode == "plan" && tools { // plan denies unmatched calls; agy has no deny-all, so --settings would run every tool
+		return "", nil, &agent.Error{Kind: agent.KindFatal, Agent: "gemini", Err: errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools")}
 	}
 	cfg, err := loadAgentConfig()
 	if err != nil {
