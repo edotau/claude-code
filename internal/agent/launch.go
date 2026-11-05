@@ -78,7 +78,7 @@ func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, a
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
 	showOwnLoginNote := o.PrintEnv || (IsTerminal(os.Stderr) && interactiveArgs(args))
 	if errors.Is(err, ErrOwnLogin) {
-		return ownLoginPlan(spec, args, note, showOwnLoginNote)
+		return ownLoginPlan(spec, withFlagModel(args, flagModel), note, showOwnLoginNote)
 	}
 	if err != nil {
 		return Plan{}, err
@@ -91,7 +91,7 @@ func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, a
 	env, prefix, err := spec.Configure(ctx, target, "")
 	if errors.Is(err, ErrOwnLogin) {
 		// The agent's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
-		return ownLoginPlan(spec, args, note, showOwnLoginNote)
+		return ownLoginPlan(spec, withFlagModel(args, flagModel), note, showOwnLoginNote)
 	}
 	if note != "" {
 		fmt.Fprintln(NoticeOut, note)
