@@ -3,11 +3,13 @@ package hooks
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // claimFixture is a repo with a.txt and b.txt committed, a config dir, and liveOwner as the only live pid.
@@ -151,6 +153,10 @@ func TestStageOperandsCommitUntrackedIsNotAll(t *testing.T) {
 		{"commit", []string{"-a", "-m", "x"}, true},
 		{"commit", []string{"--all", "-m", "x"}, true},
 		{"commit", []string{"-am", "x"}, true},
+		{"commit", []string{"-uall", "-m", "x"}, false},
+		{"commit", []string{"-unormal", "-m", "x"}, false},
+		{"commit", []string{"-uno", "-m", "x"}, false},
+		{"commit", []string{"-sa", "-m", "x"}, true},
 		{"add", []string{"-u"}, true},
 	}
 	for _, c := range cases {
@@ -169,6 +175,69 @@ func TestFirstSightingPersistsAcrossKeys(t *testing.T) {
 	}{{"k1", true}, {"k1", false}, {"k2", true}, {"k1", false}, {"k2", false}} {
 		if got := firstSighting("sess", step.key); got != step.want {
 			t.Fatalf("step %d firstSighting(%q)=%v, want %v", i, step.key, got, step.want)
+		}
+	}
+}
+
+// TestClaimCheckNestedStaging: git add/commit inside bash -c or a substitution still reaches the stage check.
+func TestClaimCheckNestedStaging(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	for _, cmd := range []string{"bash -c 'git add -A'", "echo $(git commit -a -m x)", "timeout -s KILL 5 git add -A"} {
+		r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": cmd})
+		if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") {
+			t.Errorf("%s: %v %q; want an ask naming a.txt", cmd, r.Decision, r.Reason)
+		}
+	}
+}
+
+// TestFirstSightingLeavesNoLockFile: the seen file locks itself, so no .lock sibling is left behind.
+func TestFirstSightingLeavesNoLockFile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	firstSighting("sess", "k1")
+	dir := filepath.Join(paths.StateDir(), "hooks", "claims-seen")
+	ents, err := os.ReadDir(dir)
+	if err != nil || len(ents) != 1 || strings.HasSuffix(ents[0].Name(), ".lock") {
+		t.Fatalf("claims-seen dir = %v (err %v); want only the seen file", ents, err)
+	}
+}
+
+// TestFirstSightingFailsOpenOnHeldLock: a held lock costs at most claimsSeenWait, then the advisory still shows.
+func TestFirstSightingFailsOpenOnHeldLock(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	file := filepath.Join(paths.StateDir(), "hooks", "claims-seen", "sess")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(file, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if !paths.TryLock(held) {
+		t.Skip("file locking unsupported")
+	}
+	start := time.Now()
+	if !firstSighting("sess", "k1") || time.Since(start) > 5*time.Second {
+		t.Fatalf("held lock: want fail-open true within the bounded wait, took %v", time.Since(start))
+	}
+}
+
+// TestStageOperandsAttachedValueTakesNoNextWord: git reads `-mc x` as message "c" with pathspec x, and `-um x` as -u<mode m>.
+func TestStageOperandsAttachedValueTakesNoNextWord(t *testing.T) {
+	cases := []struct {
+		args []string
+		ops  []string
+	}{
+		{[]string{"-mc", "x"}, []string{"x"}},
+		{[]string{"-um", "x"}, []string{"x"}},
+		{[]string{"-aum", "x"}, []string{"x"}},
+		{[]string{"-am", "msg", "y"}, []string{"y"}},
+		{[]string{"-m", "msg", "y"}, []string{"y"}},
+	}
+	for _, c := range cases {
+		if ops, _ := stageOperands("commit", c.args); !slices.Equal(ops, c.ops) {
+			t.Errorf("stageOperands(commit, %v) ops=%v, want %v", c.args, ops, c.ops)
 		}
 	}
 }

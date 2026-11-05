@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/shell"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // rewriteTimeout bounds the guard's git and process calls; safety-scan's budget is 5s.
@@ -49,67 +49,20 @@ func rewriteVerdict(in *core.Input) (d core.Decision, msg, detail, warn string) 
 
 // rewriteScan finds the first shared-tree rewrite in cmd, following `cd`, substitutions and nested `bash -c`/`eval`.
 func rewriteScan(in *core.Input, cmd, cwd string) (rewriteRisk, bool) {
-	masked, subs := shell.ExtractSubstitutions(dropRemoteHeredocs(cmd))
-	r, ok := firstRewrite(in, subs, cwd) // a substitution's cd only affects its own nested evaluation
-	if ok {
-		return r, true
-	}
-	warn := r.warn
-	for _, seg := range shell.Segments(masked) {
-		toks := shell.Tokens(seg)
-		if len(toks) == 0 || toks[0] == "ssh" { // ssh runs its command on the remote host
-			continue
-		}
-		if next, ok := cdTarget(toks, cwd); ok {
-			cwd = next
-			continue
-		}
-		r, ok := segmentRewrite(in, toks, cwd)
-		if ok {
-			return r, true
-		}
-		warn = cmp.Or(warn, r.warn)
-	}
-	return rewriteRisk{warn: warn}, false
-}
-
-// firstRewrite scans each command from cwd and returns the first risky rewrite, else the first warning.
-func firstRewrite(in *core.Input, cmds []string, cwd string) (rewriteRisk, bool) {
+	var found rewriteRisk
 	var warn string
-	for _, c := range cmds {
-		r, ok := rewriteScan(in, c, cwd)
-		if ok {
-			return r, true
-		}
-		warn = cmp.Or(warn, r.warn)
-	}
-	return rewriteRisk{warn: warn}, false
-}
-
-// segmentRewrite checks one segment's nested shell command and each of its git invocations.
-func segmentRewrite(in *core.Input, toks []string, cwd string) (rewriteRisk, bool) {
-	var warn string
-	if nested, ok := shell.NestedCommand(toks); ok {
-		r, risky := rewriteScan(in, nested, cwd)
-		if risky {
-			return r, true
-		}
-		warn = r.warn
-	}
-	for i, t := range toks {
-		if t != "git" {
-			continue
-		}
-		target, verb, args := shell.GitInvocation(toks[i+1:], cwd)
+	risky := shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
 		rng, ok := rewriteRange(verb, args)
 		if !ok {
-			continue
+			return false
 		}
-		r, risky := assessRewrite(in, target, verb, rng)
-		if risky {
-			return r, true
-		}
+		r, hit := assessRewrite(in, target, verb, rng)
 		warn = cmp.Or(warn, r.warn)
+		found = r
+		return hit
+	})
+	if risky {
+		return found, true
 	}
 	return rewriteRisk{warn: warn}, false
 }

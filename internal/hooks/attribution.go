@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/hooks/shell"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // footerPatterns match an agent-attribution footer anywhere in the raw command text (CLAUDE.md hard rule 3).
