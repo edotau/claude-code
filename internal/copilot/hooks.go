@@ -2,7 +2,6 @@ package copilot
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig/render"
@@ -26,9 +25,9 @@ func CopilotJSON() ([]byte, error) {
 		TimeoutSec int    `json:"timeoutSec"`
 	}
 	events := map[string][]entry{}
-	for _, s := range settings.Specs() {
+	for _, s := range settings.SpecsFor("copilot", "native") {
 		event := agentEvents[s.Event]
-		if !slices.Contains(s.Agents, "copilot") || event == "" {
+		if event == "" {
 			continue
 		}
 		command := s.Command()
