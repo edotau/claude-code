@@ -71,7 +71,8 @@ func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
 	return target
 }
 
-// GitCommitInvocation reports whether cmd, or a nested/substituted command within it, invokes `git commit`.
+// GitCommitInvocation reports whether cmd, or a nested/substituted command within it, invokes `git commit`;
+// nesting too deep to inspect counts as a possible commit.
 func GitCommitInvocation(cmd string) bool {
-	return EachGit(cmd, "", func(_, verb string, _ []string) bool { return verb == "commit" })
+	return EachGit(cmd, "", func(_, verb string, _ []string) bool { return verb == "commit" || verb == Uninspectable })
 }

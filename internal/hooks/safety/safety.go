@@ -161,8 +161,11 @@ func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 
 // askPatternVerdict asks on hard rule 4 git verbs, hard rule 3 footers and destructive SQL.
 func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
-	if harnessGitBlocked(cmd, in.CWD) {
+	if verb := harnessGitVerb(cmd, in.CWD); verb != "" {
 		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
+		if verb == shell.Uninspectable {
+			what = "command nests too deep to check, inside the shared config tree (CLAUDE.md hard rule 4)"
+		}
 		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "shared config git mutation"
 	}
@@ -183,17 +186,25 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 
 // harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
-func harnessGitBlocked(cmd, cwd string) bool {
-	var harness, worktrees string
-	return shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
-		return gitBannedUnder(target, verb, args, &harness, &worktrees)
+func harnessGitBlocked(cmd, cwd string) bool { return harnessGitVerb(cmd, cwd) != "" }
+
+// harnessGitVerb is the first banned verb (or shell.Uninspectable, nesting too deep to check) aimed at the harness tree.
+func harnessGitVerb(cmd, cwd string) string {
+	var harness, worktrees, hit string
+	shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
+		if !gitBannedUnder(target, verb, args, &harness, &worktrees) {
+			return false
+		}
+		hit = verb
+		return true
 	})
+	return hit
 }
 
 // bannedGit is a hard rule 4 verb that writes the tree; read-only `stash list|show` is fine.
 func bannedGit(verb string, args []string) bool {
 	readOnly := verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")
-	return bannedGitVerbs[verb] && !readOnly
+	return (bannedGitVerbs[verb] || verb == shell.Uninspectable) && !readOnly
 }
 
 // gitBannedUnder reports whether one git invocation is a banned verb targeting the harness tree.

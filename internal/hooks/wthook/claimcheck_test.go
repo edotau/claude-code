@@ -192,6 +192,15 @@ func TestClaimCheckNestedStaging(t *testing.T) {
 	}
 }
 
+func TestClaimCheckNestedTooDeepAsks(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "eval eval eval eval eval git add -A"})
+	if r.Decision != core.Ask || !strings.Contains(r.Reason, "nests too deep") {
+		t.Errorf("%v %q; want an ask naming the nesting", r.Decision, r.Reason)
+	}
+}
+
 // TestFirstSightingLeavesNoLockFile: the seen file locks itself, so no .lock sibling is left behind.
 func TestFirstSightingLeavesNoLockFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -452,6 +452,7 @@ func TestCountEditsGitCommitShellC(t *testing.T) {
 		// Combined short flags and -n (no-exec): -xc/-ec count as -c; -n anywhere blocks execution.
 		{"bash -xc combined flag still finds -c", bashLine(`bash -xc "git commit -m x"`), true},
 		{"bash -n -c is no-exec, never runs", bashLine(`bash -n -c "git commit -m x"`), false},
+		{"-n after the -c string is a positional arg", bashLine(`bash -c "git commit -m x" -n`), true},
 	})
 }
 
