@@ -7,7 +7,8 @@ paths:
 ---
 # Settings Management
 
-`~/.claude/settings.json` is the owner's one settings file: hand-edited, untracked. Nothing else writes it once it exists.
+`~/.claude/settings.json` is the owner's one settings file: hand-edited, untracked. Nothing else writes it once it
+exists.
 
 | To… | Run |
 | --- | --- |
@@ -26,8 +27,9 @@ paths:
 - **`configure --restore`** is the one reset: backup, then the clean render. `--check` and `--dry-run` are refused.
 - A hook change in `hookspec.go` reaches an existing file only through `configure --restore` or a hand edit.
 - Paths derive from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR` — never hardcode a machine path.
-- Confirm a new field's name and shape against the schema first (<https://www.schemastore.org/claude-code-settings.json>,
-  indexed at `internal/settings/claude-code-settings.schema.json`).
+- Confirm a new field's name and shape against the schema first
+  (<https://www.schemastore.org/claude-code-settings.json>, indexed at
+  `internal/settings/claude-code-settings.schema.json`).
 - **Propose permission additions first:** show new `permissions.allow` rules as a table and wait for the owner's pick
   before editing (`/fewer-permission-prompts` included).
 
