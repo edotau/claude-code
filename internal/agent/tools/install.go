@@ -30,6 +30,8 @@ var (
 	opencodeInstallScriptURL = "https://opencode.ai/install"
 	codexReleaseURL          = "https://api.github.com/repos/openai/codex/releases/latest"
 	claudeScienceBaseURL     = "https://downloads.claude.ai/claude-science/latest"
+	agyInstallScriptURL      = "https://antigravity.google/cli/install.sh"
+	tailscaleInstallScript   = "https://tailscale.com/install.sh"
 )
 
 // installCmdTimeout bounds each installer subprocess so a hung prompt or network never blocks the command forever.
@@ -389,14 +391,42 @@ func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bo
 	return runSelfUpdate(ctx, w, bin, dryRun)
 }
 
-// updateAgy runs the installed binary's own updater; agy has no known fresh-install path (Hint covers that).
+// installAgy runs Google's installer, which skips when dir/agy already exists (updates go through updateAgy).
+func installAgy(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	return runInstallScript(ctx, w, dryRun, agyInstallScriptURL, []string{"--dir", dir}, nil)
+}
+
+// updateAgy runs the installed binary's own updater; a missing binary falls back to a fresh install.
 func updateAgy(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		bin, err = paths.LookPathReal("agy")
 	}
 	if err != nil {
-		return errors.New("agy: not on PATH; no known install URL (claude-code configure signs it in)")
+		return installAgy(ctx, w, dir, dryRun)
 	}
 	return runSelfUpdate(ctx, w, bin, dryRun)
+}
+
+// installTailscale is a system install, not into dir: brew cask on macOS, the official script (sudo inside) on Linux.
+func installTailscale(ctx context.Context, w io.Writer, _ string, dryRun bool) error {
+	switch goosOverride {
+	case "linux":
+		return runInstallScript(ctx, w, dryRun, tailscaleInstallScript, nil, nil)
+	case "darwin":
+		fmt.Fprintln(w, "  exec     brew install --cask tailscale-app")
+		if dryRun {
+			return nil
+		}
+		brew, err := exec.LookPath("brew")
+		if err != nil {
+			return errors.New("tailscale: brew not found; install Homebrew or see https://tailscale.com/download")
+		}
+		ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, brew, "install", "--cask", "tailscale-app")
+		cmd.Stdout, cmd.Stderr = w, w
+		return cmd.Run()
+	}
+	return fmt.Errorf("tailscale: no installer for %s; see https://tailscale.com/download", goosOverride)
 }

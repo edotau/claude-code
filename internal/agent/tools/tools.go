@@ -41,8 +41,8 @@ var Tools = []Tool{
 	{Name: "codex", Binary: "codex", Install: installCodex},
 	{Name: "opencode", Binary: "opencode", Install: installOpencode},
 	{Name: "claude-science", Binary: "claude-science", Install: installClaudeScience, Update: updateClaudeScience},
-	{Name: "agy", Binary: "agy", Update: updateAgy, Hint: "no known install URL; claude-code configure signs it in"},
-	{Name: "tailscale", Binary: "tailscale", Hint: "system install: make tailscale-cli"},
+	{Name: "agy", Binary: "agy", Install: installAgy, Update: updateAgy},
+	{Name: "tailscale", Binary: "tailscale", Install: installTailscale},
 	{Name: "browser", Install: installBrowser, Hint: "claude-code network browser --setup; CDP + chrome-devtools-mcp on WSL"},
 	{Name: "clipboard", Install: installClipboard, Hint: "WSL only: wl-paste proxy for image paste"},
 }
