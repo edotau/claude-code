@@ -1,6 +1,7 @@
 package bank
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,26 @@ import (
 
 	"github.com/edotau/claude-code/internal/memstore"
 )
+
+func TestRotateSessionHistoryReportsReadError(t *testing.T) {
+	dir := t.TempDir()
+	if n, err := RotateSessionHistory(dir, time.Now()); n != 0 || err != nil {
+		t.Fatalf("missing history: got %d, %v", n, err)
+	}
+	path := filepath.Join(dir, "sessionHistory.md")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, readErr := os.ReadFile(path)
+	var want *os.PathError
+	if !errors.As(readErr, &want) {
+		t.Fatalf("fixture did not produce a read error: %v", readErr)
+	}
+	n, err := RotateSessionHistory(dir, time.Now())
+	if n != 0 || !errors.Is(err, want.Err) {
+		t.Fatalf("unreadable history: got %d, %v; want wrapped %v", n, err, want.Err)
+	}
+}
 
 // TestSettleBankLockLivesUnderStateNotStore: SettleBank's physical lock is BankLockPath() under state
 // — never a dotfile beside the committed bank files.

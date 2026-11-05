@@ -34,10 +34,13 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}
-	dir := memstore.Dir(root)
+	dir, err := memstore.EnsureRepoDir(root)
+	if err != nil {
+		return "", err
+	}
 	path := filepath.Join(dir, file)
 	var line, id string
-	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
+	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var werr error
 		if file == "decisionLog.md" {
 			line = "## " + now.Format("2006-01-02") + " — " + fact

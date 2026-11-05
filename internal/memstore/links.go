@@ -79,7 +79,7 @@ func (r LinkResult) blocked(detail string) LinkResult {
 // relink removes a wrong symlink (Action "relinked"), keeps a right one (Action "ok"), or reports blocked.
 func relink(r LinkResult) LinkResult {
 	cur, _ := os.Readlink(r.Link)
-	if paths.SamePath(cur, r.Target) {
+	if paths.SamePath(NativeLinkTarget(r.Link), r.Target) {
 		r.Action = "ok"
 		return r
 	}

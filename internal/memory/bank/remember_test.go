@@ -28,6 +28,32 @@ func TestRememberEmptyFactErrors(t *testing.T) {
 	}
 }
 
+func TestRememberFreshRepoKeepsItsStore(t *testing.T) {
+	tempConfig(t)
+	root := gitRepo(t, canonTemp(t, t.TempDir()), "fresh")
+	dir, err := memstore.RepoDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := Remember(root, "feedback", "keep fresh repository facts discoverable", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := memstore.Dir(root); got != dir {
+		t.Fatalf("Remember orphaned its store: directory changed from %s to %s", dir, got)
+	}
+	origin, err := memstore.ReadOrigin(dir)
+	if err != nil || !origin.Accepts(root) {
+		t.Fatalf("Remember did not record the repository origin: %+v, %v", origin, err)
+	}
+	for _, hit := range CorpusBlocks(root) {
+		if BlockID(hit.Block) == id {
+			return
+		}
+	}
+	t.Fatalf("remembered id %s is absent from the repository corpus", id)
+}
+
 // TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop: a "project" fact lands as a dated,
 // newest-first heading in decisionLog.md, and the returned id round-trips through recall.
 func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
