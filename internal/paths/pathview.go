@@ -74,9 +74,7 @@ func (r *Resolver) resolveForm(p string) (string, bool) {
 		return r.resolveURL(strings.ToLower(scheme), rest)
 	}
 	if strings.HasPrefix(p, "//") {
-		if l, ok := r.resolveUNC(p); ok {
-			return l, true
-		}
+		return r.resolveUNC(p)
 	}
 	if strings.HasPrefix(p, "/") {
 		return cleanLocal(p), true
@@ -226,7 +224,7 @@ func (r *Resolver) fromRemote(host, rp string, kinds ...Kind) (string, bool) {
 	var cands []candidate
 	for i := range r.Mounts {
 		m := &r.Mounts[i]
-		if !hasKind(kinds, m.Kind) || !strings.EqualFold(m.Host, host) {
+		if !slices.Contains(kinds, m.Kind) || !strings.EqualFold(m.Host, host) {
 			continue
 		}
 		if rest, ok := trimPrefixPath(rp, m.RemotePath, m.Kind == KindSMB); ok {
@@ -283,10 +281,6 @@ func climbsOut(rest []string) bool {
 		}
 	}
 	return false
-}
-
-func hasKind(kinds []Kind, k Kind) bool {
-	return slices.Contains(kinds, k)
 }
 
 // trimPrefixPath strips prefix from p on a path-element boundary.

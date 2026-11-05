@@ -612,3 +612,19 @@ func TestClaimsWorktreeMatchesWholeName(t *testing.T) {
 		t.Error("worktree fix-2 did not match its own claim")
 	}
 }
+
+func TestSelectAbbreviatedPartialOwns(t *testing.T) {
+	hermetic(t)
+	home := t.TempDir()
+	planPath := filepath.Join(home, "2026-11-05-abbreviated.md")
+	writeFile(t, planPath, "- [ ] 1.1 Parser owns: internal/plans/plans.go, tick.go\n")
+	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/plans/tick.go"}}}
+	plan, tied := Select(home, "", nil, commits)
+	if plan != planPath || len(tied) != 0 {
+		t.Fatalf("partial abbreviated ownership: plan=%q tied=%v, want %q", plan, tied, planPath)
+	}
+	results, err := TickCommits(plan, commits, false)
+	if err != nil || len(results) != 1 || len(results[0].Partial) != 1 || len(results[0].Ticked) != 0 {
+		t.Fatalf("partial annotation: results=%+v err=%v", results, err)
+	}
+}

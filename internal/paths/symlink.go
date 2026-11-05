@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -8,8 +9,7 @@ import (
 
 // SwapSymlink points link at target via a temp link and rename, so link is never absent or half-made.
 func SwapSymlink(target, link string) error {
-	tmp := fmt.Sprintf("%s.tmp%d", link, os.Getpid())
-	_ = os.Remove(tmp)
+	tmp := fmt.Sprintf("%s.tmp%d-%s", link, os.Getpid(), rand.Text())
 	if err := os.Symlink(target, tmp); err != nil {
 		return err
 	}

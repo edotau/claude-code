@@ -389,12 +389,15 @@ func scorePlan(plan Plan, files []string) (s planScore) {
 			s.exact++
 			continue
 		}
+		prev := ""
 		for _, o := range t.Owns {
 			entry := filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(o, "")))
+			entry = spliceOwn(prev, entry, files)
+			prev = entry
 			if isDirOwn(entry) {
 				continue
 			}
-			if _, any := Covers([]string{o}, files); any {
+			if touchesEntry(entry, strings.TrimSuffix(entry, "/"), files) {
 				s.touched++
 				break
 			}
