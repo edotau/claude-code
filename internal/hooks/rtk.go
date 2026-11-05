@@ -8,10 +8,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // rtkBinaryEnv overrides the proxy binary. Exists for tests, which cannot rely on rtk being
@@ -40,10 +42,7 @@ var rtkValueSubcommands = map[string]bool{
 // rtkRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
 func rtkRewrite(in *core.Input) core.Result {
-	if in.Agent() != core.AgentClaude {
-		return core.Result{}
-	}
-	if in.ToolName != "" && in.ToolName != "Bash" {
+	if !rtkApplies(in) {
 		return core.Result{}
 	}
 	cmd := in.ToolCommand()
@@ -71,23 +70,31 @@ func rtkRewrite(in *core.Input) core.Result {
 	return core.Result{Context: note, UpdatedInput: updated}
 }
 
+// rtkApplies reports whether the hook handles in at all: a Claude session's Bash call.
+func rtkApplies(in *core.Input) bool {
+	return in.Agent() == core.AgentClaude && (in.ToolName == "" || in.ToolName == "Bash")
+}
+
 // rtkRewritten asks `rtk rewrite` for cmd's replacement: exit 0 or 3 with different non-empty stdout.
 // Anything else, a timeout or an error is "" (leave unchanged).
 func rtkRewritten(bin, cmd string) string {
 	ctx, cancel := core.HookContext("rtk-rewrite")
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "rewrite", cmd).Output()
-	if err != nil {
-		var ee *exec.ExitError
-		if !errors.As(err, &ee) || ee.ExitCode() != 3 {
-			return ""
-		}
+	if !rtkExitOK(err) {
+		return ""
 	}
 	got := strings.TrimSpace(string(out))
 	if got == cmd {
 		return ""
 	}
 	return got
+}
+
+// rtkExitOK reports whether `rtk rewrite` exited 0 or 3, the two codes that carry a rewrite.
+func rtkExitOK(err error) bool {
+	var ee *exec.ExitError
+	return err == nil || errors.As(err, &ee) && ee.ExitCode() == 3
 }
 
 // rtkCommandWord matches a bare `rtk` at command position: the start, or after `&&`, `||`, `;`, `|` or a newline.
@@ -117,7 +124,7 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 
 // rtkGitValueVetoed reports whether any git segment runs a value subcommand or one gitRTKSubcommand can't classify.
 func rtkGitValueVetoed(cmd string) bool {
-	for _, seg := range cmdSegment.Split(cmd, -1) {
+	for _, seg := range shell.Segments(cmd) {
 		args := rtkGitArgs(seg)
 		if args == nil {
 			continue
@@ -132,7 +139,7 @@ func rtkGitValueVetoed(cmd string) bool {
 
 // rtkMachineReadableFlag reports whether cmd carries a flag that asks for machine-readable output.
 func rtkMachineReadableFlag(cmd string) bool {
-	tokens := shellTokens(strings.ToLower(cmd))
+	tokens := shell.Tokens(strings.ToLower(cmd))
 	for i, token := range tokens {
 		name, _, _ := strings.Cut(token, "=")
 		for _, flag := range rtkMachineReadable {
@@ -148,26 +155,20 @@ func rtkMachineReadableFlag(cmd string) bool {
 	return false
 }
 
-// rtkGitArgs returns the argv after `git` when the segment runs git (env assignments skipped), else nil.
+// rtkGitArgs returns the argv after `git` when the segment runs git, else nil. Wrappers (env, sudo, time…) are
+// seen through so the vetoes still apply to them; whether rtk rewrites a wrapped command is rtk's own call.
 func rtkGitArgs(seg string) []string {
-	tokens := shellTokens(seg)
-	for len(tokens) > 0 && strings.Contains(tokens[0], "=") && !strings.HasPrefix(tokens[0], "-") {
-		tokens = tokens[1:]
-	}
-	if len(tokens) == 0 || tokens[0] != "git" {
+	rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+	if len(rest) == 0 || rest[0] != "git" {
 		return nil
 	}
-	return append([]string{}, tokens[1:]...)
+	return append([]string{}, rest[1:]...)
 }
 
 // rtkGitInLinkedWorktree reports whether any chain segment runs git from a linked worktree: the cwd, a
 // `cd <dir>` target or a `git -C <dir>` target.
 func rtkGitInLinkedWorktree(cmd, cwd string) bool {
-	hasGit := false
-	for _, seg := range cmdSegment.Split(cmd, -1) {
-		hasGit = hasGit || rtkGitArgs(seg) != nil
-	}
-	if !hasGit {
+	if !slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool { return rtkGitArgs(seg) != nil }) {
 		return false
 	}
 	for _, d := range rtkChainDirs(cmd, cwd) {
@@ -182,16 +183,18 @@ func rtkGitInLinkedWorktree(cmd, cwd string) bool {
 	return false
 }
 
-// rtkChainDirs lists cwd, every `cd <dir>` target and every `git -C <dir>` target in the chain.
+// rtkChainDirs lists cwd, every `cd <dir>` result and every git target (`-C`, `env -C`) in the chain.
 func rtkChainDirs(cmd, cwd string) []string {
 	dirs := []string{cwd}
-	for _, seg := range cmdSegment.Split(cmd, -1) {
-		t := shellTokens(seg)
-		if len(t) == 2 && t[0] == "cd" {
-			dirs = append(dirs, t[1])
-		}
-		if m := gitDirArg.FindStringSubmatch(seg); m != nil {
-			dirs = append(dirs, strings.Trim(m[1], `"'`))
+	cur := cwd
+	for _, seg := range shell.Segments(cmd) {
+		rest, dir := shell.Unwrap(shell.Tokens(seg), cur)
+		if next, ok := shell.CdTarget(rest, cur); ok {
+			cur = next
+			dirs = append(dirs, cur)
+		} else if len(rest) > 0 && rest[0] == "git" {
+			target, _, _ := shell.GitInvocation(rest[1:], dir)
+			dirs = append(dirs, target)
 		}
 	}
 	return dirs

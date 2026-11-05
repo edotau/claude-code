@@ -128,6 +128,8 @@ func TestRewriteGuard(t *testing.T) {
 		{name: "codex", cmd: amend, cwd: "work", peerIn: "work", agent: core.AgentCodex, want: core.Block},
 		{name: "bash -c cd", cmd: `bash -c "cd ` + work + ` && git commit --amend"`, cwd: "wt", peerIn: "work",
 			want: core.Block},
+		{name: "timeout -s wrapper", cmd: "timeout -s KILL 5 bash -c 'git commit --amend'", cwd: "work", live: true,
+			want: core.Block, text: "live config tree"},
 		{name: "git missing", cmd: amend, cwd: "work", live: true, noGit: true, want: core.Allow, text: "could not check"},
 	}
 	for _, c := range cases {

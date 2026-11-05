@@ -96,20 +96,30 @@ func TestGradientEmptyCellsVisible(t *testing.T) {
 	}
 }
 
-// Too wide for the terminal: the gradient line breaks before the bar instead of being clipped.
-func TestGradientWrapsBeforeContext(t *testing.T) {
+// Too wide for the terminal: rows break only between segments, each row fits, and no text is clipped or lost.
+func TestGradientWrapsWholeSegments(t *testing.T) {
 	hermetic(t)
 	dir := t.TempDir()
 	t.Setenv("COLUMNS", "300")
 	wide := plain(Render([]byte(gradientPayload(dir)), "gradient"))
-	if strings.Contains(wide, "\n") {
-		t.Fatalf("wide terminal wrapped: %q", wide)
-	}
-	row1 := wide[:strings.Index(wide, " · ctx ")]
-	t.Setenv("COLUMNS", strconv.Itoa(visibleWidth(row1)+2+ccMargin)) // row 1 fits, the whole line does not
-	lines := strings.Split(plain(Render([]byte(gradientPayload(dir)), "gradient")), "\n")
-	if len(lines) != 2 || lines[0] != row1 || !strings.HasPrefix(lines[1], "ctx ━━━─") {
-		t.Errorf("narrow terminal: %q, want %q then the bar", lines, row1)
+	for _, cols := range []int{40, 75, 95} {
+		t.Setenv("COLUMNS", strconv.Itoa(cols))
+		lines := strings.Split(plain(Render([]byte(gradientPayload(dir)), "gradient")), "\n")
+		if len(lines) < 2 {
+			t.Fatalf("%d cols: want a wrap, got %q", cols, lines)
+		}
+		rest := wide
+		for _, l := range lines {
+			at := strings.Index(rest, l)
+			over := visibleWidth(l) > cols-ccMargin && strings.ContainsAny(l, "·|") // a lone segment may exceed
+			if over || at < 0 || strings.TrimLeft(rest[:at], " ·|") != "" || strings.HasPrefix(l, " ") {
+				t.Fatalf("%d cols: row %q splits a segment or overflows; full line %q", cols, l, wide)
+			}
+			rest = rest[at+len(l):]
+		}
+		if rest != "" {
+			t.Errorf("%d cols: lost %q", cols, rest)
+		}
 	}
 }
 
@@ -125,7 +135,7 @@ func TestGradientEaseColorsAlongLine(t *testing.T) {
 	sgr := regexp.MustCompile(`\x1b\[1;38;2;(\d+);(\d+);(\d+)m`)
 	for _, ease := range []float64{0.45, 0.65, 1, 1.5} {
 		cfg.GradientEase = ease
-		cells := sgr.FindAllStringSubmatch(renderGradient(v, cfg, pal, stops, ansi.TrueColor), -1)
+		cells := sgr.FindAllStringSubmatch(renderGradient(v, cfg, pal, stops, ansi.TrueColor, 0), -1)
 		if len(cells) != 41 {
 			t.Fatalf("ease %v: %d painted cells, want 41", ease, len(cells))
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // claim is one claims-ledger line: a file this session or leaf wrote, or a commit it made.
@@ -86,13 +87,13 @@ func stagedClaims(in *core.Input, now int64) []claim {
 	ctx, cancel := core.HookContext("worktree-claim")
 	defer cancel()
 	var out []claim
-	eachGitCall(in.ToolCommand(), in.CWD, func(target, verb string, args []string) bool {
+	shell.EachGit(in.ToolCommand(), in.CWD, func(target, verb string, args []string) bool {
 		if verb == "add" {
 			for _, p := range addedPaths(ctx, target, args) {
 				out = append(out, claim{Path: p, Agent: in.AgentID, TS: now})
 			}
 		}
-		return true
+		return false
 	})
 	return out
 }

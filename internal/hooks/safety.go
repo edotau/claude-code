@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // rmRecursive matches `rm` with any recursive flag spelling (-r, -Rf, -r -f, --recursive) and trailing flags.
@@ -44,15 +44,21 @@ type askRule struct {
 
 const gitPushPrefix = `git\s+((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'[^']*'|[^\s"']+)\s+)*push\s+`
 
+// forceFlag is a standalone --force or short-flag cluster containing f (-f, -fu, -uf).
+const forceFlag = `(--force|-[a-zA-Z]*f[a-zA-Z]*)(\s|$)`
+
+// protectedBranch is main/master as a whole refspec word: after whitespace, a quote, `:` or refs/heads/ (not feature-main).
+const protectedBranch = `(.*[\s"':]|.*refs/heads/)?(main|master)["']?(\s|$)`
+
 var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
 		lazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
 	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", lazyCompile(
-		gitPushPrefix+`.*(--force|-f)(\s|$).*\b(main|master)(\s|$)`,
-		gitPushPrefix+`.*\b(main|master)(\s|$).*(--force|-f)(\s|$)`,
-		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$).*\b(main|master)(\s|$)`,
-		gitPushPrefix+`.*\b(main|master)(\s|$).*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
-		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?\b(main|master)(\s|$)`,
+		gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch,
+		gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag,
+		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`+protectedBranch,
+		gitPushPrefix+protectedBranch+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
+		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)["']?(\s|$)`,
 	)},
 	{"recursive removal of a .git directory",
 		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
@@ -146,7 +152,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 	cmd := in.ToolCommand()
 	// Each pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
-	for _, seg := range shellSegments(cmd) {
+	for _, seg := range shell.Segments(cmd) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
 				if re.MatchString(seg) {
@@ -201,89 +207,24 @@ func safetyMessage(in *core.Input, decision core.Decision, what, pattern, hint s
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
 var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true, "switch": true}
 
-// shellWrapperNames launch a nested command STRING (not further argv tokens) that needs its own check.
-var shellWrapperNames = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true}
-
-// envAssignRe matches a leading `NAME=value` token (e.g. `BASH_ENV=x`) prefixed to a command.
-var envAssignRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
-})
-
-// skipEnvAssignments drops leading `NAME=value` tokens so the wrapper/eval check sees the real command.
-func skipEnvAssignments(toks []string) []string {
-	i := 0
-	for i < len(toks) && envAssignRe().MatchString(toks[i]) {
-		i++
-	}
-	return toks[i:]
-}
-
-// nestedShellCommand reports the command text a `bash -c "…"`/`eval "…"` token sequence would run.
-func nestedShellCommand(toks []string) (string, bool) {
-	toks = skipEnvAssignments(toks)
-	if len(toks) == 0 {
-		return "", false
-	}
-	if toks[0] == "eval" && len(toks) > 1 {
-		return strings.Join(toks[1:], " "), true
-	}
-	if shellWrapperNames[filepath.Base(toks[0])] {
-		for i := 1; i < len(toks)-1; i++ {
-			t := toks[i]
-			if len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t[1:], 'c') {
-				return toks[i+1], true
-			}
-		}
-	}
-	return "", false
-}
-
 // harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
 func harnessGitBlocked(cmd, cwd string) bool {
-	masked, subs := extractSubstitutions(dropRemoteHeredocs(cmd))
-	for _, sub := range subs {
-		if harnessGitBlocked(sub, cwd) { // a substitution's cd only affects its own nested evaluation
-			return true
-		}
-	}
 	var harness, worktrees string
-	for _, seg := range shellSegments(masked) {
-		if gitSegmentBlocked(seg, &cwd, &harness, &worktrees) {
-			return true
-		}
-	}
-	return false
+	return shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
+		return gitBannedUnder(target, verb, args, &harness, &worktrees)
+	})
 }
 
-// gitSegmentBlocked processes one shell segment: follows a `cd`'s cwd change and checks any git invocation.
-func gitSegmentBlocked(seg string, cwd, harness, worktrees *string) bool {
-	toks := shellTokens(seg)
-	if len(toks) == 0 || toks[0] == "ssh" { // ssh runs its command on the remote host, not in this checkout
-		return false
-	}
-	if next, ok := cdTarget(toks, *cwd); ok {
-		*cwd = next
-		return false
-	}
-	if nested, ok := nestedShellCommand(toks); ok && harnessGitBlocked(nested, *cwd) {
-		return true
-	}
-	for i, t := range toks {
-		if t != "git" { // any token: wrappers (env, command, timeout N) need no modelling
-			continue
-		}
-		if gitTokenBlocked(toks[i+1:], *cwd, harness, worktrees) {
-			return true
-		}
-	}
-	return false
+// bannedGit is a hard rule 4 verb that writes the tree; read-only `stash list|show` is fine.
+func bannedGit(verb string, args []string) bool {
+	readOnly := verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")
+	return bannedGitVerbs[verb] && !readOnly
 }
 
-// gitTokenBlocked reports whether one `git <rest>` invocation targets a banned verb under the harness tree.
-func gitTokenBlocked(rest []string, cwd string, harness, worktrees *string) bool {
-	target, verb, args := gitInvocation(rest, cwd)
-	if !bannedGitVerbs[verb] || (verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")) {
+// gitBannedUnder reports whether one git invocation is a banned verb targeting the harness tree.
+func gitBannedUnder(target, verb string, args []string, harness, worktrees *string) bool {
+	if !bannedGit(verb, args) {
 		return false
 	}
 	if *harness == "" {
@@ -294,50 +235,7 @@ func gitTokenBlocked(rest []string, cwd string, harness, worktrees *string) bool
 	if tp != *harness && !strings.HasPrefix(tp, *harness+string(filepath.Separator)) {
 		return false
 	}
-	if strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) {
-		return false // inside a linked worktree: its own checkout, the live tree is untouched
-	}
-	return true
-}
-
-// cdTarget reports the cwd a `cd`/`pushd` segment leaves behind; a dynamic target keeps the cwd we had.
-func cdTarget(toks []string, cwd string) (string, bool) {
-	if toks[0] != "cd" && toks[0] != "pushd" {
-		return cwd, false
-	}
-	if len(toks) == 1 {
-		if home, err := os.UserHomeDir(); err == nil && toks[0] == "cd" {
-			return home, true
-		}
-		return cwd, true
-	}
-	if p, ok := resolveShellPath(toks[1], cwd); ok {
-		return p, true
-	}
-	return cwd, true
-}
-
-// resolveShellPath expands `~`/$HOME and anchors p to base; ok=false while the token stays dynamic.
-func resolveShellPath(p, base string) (string, bool) {
-	p = strings.Trim(p, `'"`)
-	if p == "" || p == "-" {
-		return base, false
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		for _, pre := range []string{"~", "$HOME", "${HOME}"} {
-			if p == pre || strings.HasPrefix(p, pre+"/") {
-				p = home + p[len(pre):]
-				break
-			}
-		}
-	}
-	if strings.ContainsAny(p, "$`*?") {
-		return base, false
-	}
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(base, p)
-	}
-	return p, true
+	return !strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) // a linked worktree is its own checkout
 }
 
 // canonPath is absolute and symlink-resolved (or its parent is, for a path that does not exist yet).
@@ -354,184 +252,13 @@ func canonPath(p string) string {
 	return p
 }
 
-// dqEscapable are the bytes a backslash escapes inside POSIX double quotes; elsewhere it is literal.
-func dqEscapable(c byte) bool {
-	return c == '"' || c == '\\' || c == '$' || c == '`'
-}
-
-// extractSubstitutions pulls `$(...)` and backtick command substitutions out of cmd — including inside
-// double quotes, where the shell evaluates both — leaving a placeholder space so neighboring tokens don't
-// glue; single-quoted text is literal, so a substitution there is left untouched. Returns the bodies for
-// the caller to check separately: they run as their own nested command, not inline in the outer segment.
-func extractSubstitutions(s string) (string, []string) {
-	var out strings.Builder
-	var subs []string
-	var quote byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case quote == '\'':
-			if c == '\'' {
-				quote = 0
-			}
-		case escapedAt(s, i, quote):
-			out.WriteByte(c)
-			i++
-			c = s[i]
-		case c == '\'' && quote == 0: // inside "…" a ' is literal
-			quote = '\''
-		case c == '"':
-			quote = toggleDoubleQuote(quote)
-		default:
-			if body, end, ok := substitutionAt(s, i); ok {
-				subs = append(subs, body)
-				i = end
-				c = ' '
-			}
-		}
-		out.WriteByte(c)
-	}
-	return out.String(), subs
-}
-
-// escapedAt reports a backslash at s[i] that escapes the next byte (always outside quotes, dqEscapable inside).
-func escapedAt(s string, i int, quote byte) bool {
-	return s[i] == '\\' && i+1 < len(s) && (quote == 0 || dqEscapable(s[i+1]))
-}
-
-// toggleDoubleQuote opens a double quote outside quotes and closes an open one.
-func toggleDoubleQuote(quote byte) byte {
-	if quote == '"' {
-		return 0
-	}
-	return '"'
-}
-
-// substitutionAt reports a complete `$(…)` or backtick substitution starting at s[i]: its body and closing index.
-func substitutionAt(s string, i int) (string, int, bool) {
-	switch {
-	case s[i] == '$' && i+1 < len(s) && s[i+1] == '(':
-		if end := matchParen(s, i+1); end >= 0 {
-			return s[i+2 : end], end, true
-		}
-	case s[i] == '`':
-		if end := matchBacktick(s, i); end >= 0 {
-			return s[i+1 : end], end, true
-		}
-	}
-	return "", i, false
-}
-
-// quotedStep advances over s[i] inside quote: a double-quote escape consumes the next byte, the closing quote ends it.
-func quotedStep(s string, i int, quote byte) (int, byte) {
-	if s[i] == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
-		return i + 1, quote
-	}
-	if s[i] == quote {
-		return i, 0
-	}
-	return i, quote
-}
-
-// matchParen returns the index of the `)` matching the `(` at s[open], or -1; nested parens/quotes count.
-func matchParen(s string, open int) int {
-	depth, quote := 0, byte(0)
-	for i := open; i < len(s); i++ {
-		c := s[i]
-		if quote != 0 {
-			i, quote = quotedStep(s, i, quote)
-			continue
-		}
-		switch c {
-		case '\'', '"':
-			quote = c
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-// matchBacktick returns the index of the closing backtick matching s[start], or -1; quotes inside count.
-func matchBacktick(s string, start int) int {
-	quote := byte(0)
-	for i := start + 1; i < len(s); i++ {
-		c := s[i]
-		if quote != 0 {
-			i, quote = quotedStep(s, i, quote)
-			continue
-		}
-		switch c {
-		case '\'', '"':
-			quote = c
-		case '\\':
-			if i+1 < len(s) {
-				i++
-			}
-		case '`':
-			return i
-		}
-	}
-	return -1
-}
-
-// shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
-func shellSegments(cmd string) []string {
-	segs, _ := shellSegmentsSep(cmd)
-	return segs
-}
-
-// shellSegmentsSep is shellSegments plus the separator that ended each segment ("" for the last).
-func shellSegmentsSep(cmd string) (out, seps []string) {
-	var b strings.Builder
-	var quote byte
-	for i := 0; i < len(cmd); i++ {
-		c := cmd[i]
-		if quote != 0 {
-			j, q := quotedStep(cmd, i, quote)
-			b.WriteString(cmd[i : j+1])
-			i, quote = j, q
-			continue
-		}
-		switch {
-		case c == '\'' || c == '"':
-			quote = c
-		case c == '\\' && i+1 < len(cmd):
-			b.WriteByte(c)
-			i++
-			c = cmd[i]
-		case strings.IndexByte(";|&\n", c) >= 0:
-			sep, end := separatorAt(cmd, i)
-			out, seps = append(out, b.String()), append(seps, sep)
-			b.Reset()
-			i = end
-			continue
-		}
-		b.WriteByte(c)
-	}
-	return append(out, b.String()), append(seps, "")
-}
-
-// separatorAt is the separator starting at cmd[i] (one byte, or two when `|`/`&` follows) and its last index.
-func separatorAt(cmd string, i int) (string, int) {
-	if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
-		return cmd[i : i+2], i + 1
-	}
-	return cmd[i : i+1], i
-}
-
 // dropRemoteHeredocs removes heredoc bodies fed to ssh: they run on the remote host, not in this checkout.
 func dropRemoteHeredocs(cmd string) string {
 	lines := strings.Split(cmd, "\n")
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		toks := shellTokens(lines[i])
+		toks := shell.Tokens(lines[i])
 		m := heredocOp.FindStringSubmatch(lines[i])
 		if m == nil || len(toks) == 0 || toks[0] != "ssh" || strings.Contains(lines[i], "|") {
 			continue

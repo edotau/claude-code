@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // rewriteTimeout bounds the guard's git and process calls; safety-scan's budget is 5s.
@@ -24,10 +25,6 @@ var rebaseResumeFlags = map[string]bool{"--continue": true, "--skip": true, "--a
 	"--edit-todo": true, "--show-current-patch": true}
 var rebaseValueFlags = map[string]bool{"--onto": true, "-x": true, "--exec": true, "-s": true, "--strategy": true,
 	"-X": true, "--strategy-option": true}
-
-// gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
-var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
-	"--namespace": true, "--exec-path": true}
 
 // rewriteRisk is one history rewrite: its verb, how many commits it rewrites, and why the tree is shared.
 type rewriteRisk struct {
@@ -52,67 +49,20 @@ func rewriteVerdict(in *core.Input) (d core.Decision, msg, detail, warn string) 
 
 // rewriteScan finds the first shared-tree rewrite in cmd, following `cd`, substitutions and nested `bash -c`/`eval`.
 func rewriteScan(in *core.Input, cmd, cwd string) (rewriteRisk, bool) {
-	masked, subs := extractSubstitutions(dropRemoteHeredocs(cmd))
-	r, ok := firstRewrite(in, subs, cwd) // a substitution's cd only affects its own nested evaluation
-	if ok {
-		return r, true
-	}
-	warn := r.warn
-	for _, seg := range shellSegments(masked) {
-		toks := shellTokens(seg)
-		if len(toks) == 0 || toks[0] == "ssh" { // ssh runs its command on the remote host
-			continue
-		}
-		if next, ok := cdTarget(toks, cwd); ok {
-			cwd = next
-			continue
-		}
-		r, ok := segmentRewrite(in, toks, cwd)
-		if ok {
-			return r, true
-		}
-		warn = cmp.Or(warn, r.warn)
-	}
-	return rewriteRisk{warn: warn}, false
-}
-
-// firstRewrite scans each command from cwd and returns the first risky rewrite, else the first warning.
-func firstRewrite(in *core.Input, cmds []string, cwd string) (rewriteRisk, bool) {
+	var found rewriteRisk
 	var warn string
-	for _, c := range cmds {
-		r, ok := rewriteScan(in, c, cwd)
-		if ok {
-			return r, true
-		}
-		warn = cmp.Or(warn, r.warn)
-	}
-	return rewriteRisk{warn: warn}, false
-}
-
-// segmentRewrite checks one segment's nested shell command and each of its git invocations.
-func segmentRewrite(in *core.Input, toks []string, cwd string) (rewriteRisk, bool) {
-	var warn string
-	if nested, ok := nestedShellCommand(toks); ok {
-		r, risky := rewriteScan(in, nested, cwd)
-		if risky {
-			return r, true
-		}
-		warn = r.warn
-	}
-	for i, t := range toks {
-		if t != "git" {
-			continue
-		}
-		target, verb, args := gitInvocation(toks[i+1:], cwd)
+	risky := shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
 		rng, ok := rewriteRange(verb, args)
 		if !ok {
-			continue
+			return false
 		}
-		r, risky := assessRewrite(in, target, verb, rng)
-		if risky {
-			return r, true
-		}
+		r, hit := assessRewrite(in, target, verb, rng)
 		warn = cmp.Or(warn, r.warn)
+		found = r
+		return hit
+	})
+	if risky {
+		return found, true
 	}
 	return rewriteRisk{warn: warn}, false
 }
@@ -266,66 +216,4 @@ func gitOut(ctx context.Context, dir string, args ...string) ([]string, bool, er
 		return nil, false, err
 	}
 	return strings.Split(strings.TrimSpace(string(out)), "\n"), true, nil
-}
-
-// gitInvocation parses git's global options up to the verb: the target tree, the verb, the verb's words.
-func gitInvocation(toks []string, cwd string) (target, verb string, args []string) {
-	var cPaths []string
-	var gitDir, workTree string
-	i := 0
-	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
-		var name, val string
-		var ok bool
-		if name, val, i, ok = gitGlobalOpt(toks, i); !ok {
-			continue
-		}
-		switch name {
-		case "-C":
-			cPaths = append(cPaths, val)
-		case "--git-dir":
-			gitDir = val
-		case "--work-tree":
-			workTree = val
-		}
-	}
-	if i < len(toks) {
-		verb, args = toks[i], toks[i+1:]
-	}
-	return gitTarget(cwd, gitDir, workTree, cPaths), verb, args
-}
-
-// gitGlobalOpt splits the global option at toks[i] into name and value, returning the next index; false if valueless.
-func gitGlobalOpt(toks []string, i int) (name, val string, next int, ok bool) {
-	t := toks[i]
-	i++
-	if n, v, found := strings.Cut(t, "="); found {
-		return n, v, i, true
-	}
-	if gitValueOpts[t] {
-		if i < len(toks) {
-			return t, toks[i], i + 1, true
-		}
-		return t, "", i, true
-	}
-	if after, found := strings.CutPrefix(t, "-C"); found {
-		return "-C", after, i, true
-	}
-	return "", "", i, false // valueless global option: --no-pager, --bare…
-}
-
-// gitTarget is the tree git acts on: --work-tree, else a .git --git-dir's parent, else the -C chain from cwd.
-func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
-	if p, ok := resolveShellPath(workTree, cwd); workTree != "" && ok {
-		return p
-	}
-	if p, ok := resolveShellPath(gitDir, cwd); gitDir != "" && ok && filepath.Base(p) == ".git" {
-		return filepath.Dir(p)
-	}
-	target := cwd
-	for _, c := range cPaths { // successive -C paths apply relative to each other
-		if p, ok := resolveShellPath(c, target); ok {
-			target = p
-		}
-	}
-	return target
 }

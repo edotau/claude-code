@@ -73,7 +73,6 @@ type rateWindow struct {
 
 // values holds the resolved per-segment strings the renderers paint.
 type values struct {
-	wrap         bool // gradient: break before the context block instead of joining it with the major separator
 	userHost     string
 	path         string
 	model        string
@@ -151,9 +150,8 @@ func Render(raw []byte, style string) string {
 
 // renderFit tries full, then the capped profile, then no branch (velocity stays); the last pick is clipped to width.
 func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
-	if width > 0 && cfg.gradientStyle() { // too wide: wrap before the context block, like twoline's second row
-		v.wrap = longestLine(renderRaw(v, cfg, pal)) > width
-		return render(v, cfg, pal)
+	if cfg.gradientStyle() { // renderGradient wraps whole segments itself; nothing is clipped
+		return renderRaw(v, cfg, pal)
 	}
 	if width > 0 && cfg.Style != "twoline" { // twoline fits each row itself: shorter path, row 2 clipped alone
 		wide := v
@@ -196,7 +194,7 @@ func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 		}
 		return head + body
 	}
-	return renderGradient(v, cfg, pal, stops, mode)
+	return renderGradient(v, cfg, pal, stops, mode, width)
 }
 
 // collect resolves every enabled segment; disabled ones skip their IO.
