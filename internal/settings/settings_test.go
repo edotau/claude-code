@@ -4,18 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/defaults"
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestRenderValidJSON(t *testing.T) {
@@ -25,277 +19,6 @@ func TestRenderValidJSON(t *testing.T) {
 	}
 	if !json.Valid(got) {
 		t.Error("render is not valid JSON")
-	}
-}
-
-const existing = `{
-  "env": {"KEEP_ME": "1"},
-  "companyAnnouncements": ["hi"],
-  "permissions": {"allow": ["Bash(ls:*)"], "deny": ["Read(~/.ssh/**)"], "additionalDirectories": ["/x"]},
-  "statusLine": {"type": "command", "command": "mine"},
-  "hooks": {
-    "Stop": [{"hooks": [
-      {"type": "command", "command": "foreign-hook && echo '<done>'", "timeout": 10},
-      {"type": "command", "command": "$HOME/.claude/bin/claude-code hook retired-hook", "timeout": 5}
-    ]}],
-    "SessionEnd": [{"hooks": [{"type": "command", "command": "foreign-end"}]}]
-  },
-  "autoUpdates": false
-}`
-
-func TestMergePreservesForeign(t *testing.T) {
-	rendered, _ := Render()
-	merged, sum, err := Merge([]byte(existing), rendered)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc struct {
-		Env         map[string]string          `json:"env"`
-		Tips        *bool                      `json:"spinnerTipsEnabled"`
-		Permissions map[string]json.RawMessage `json:"permissions"`
-		StatusLine  map[string]any             `json:"statusLine"`
-		Hooks       map[string][]MatcherGroup  `json:"hooks"`
-		Output      string                     `json:"outputStyle"`
-	}
-	if err := json.Unmarshal(merged, &doc); err != nil {
-		t.Fatalf("%v\n%s", err, merged)
-	}
-	if len(doc.Env) != 1 || doc.Env["KEEP_ME"] != "1" {
-		t.Errorf("env was changed: %v", doc.Env)
-	}
-	if doc.Tips != nil || doc.Output != "" {
-		t.Error("a template key the user lacks was added")
-	}
-	var allow []string
-	_ = json.Unmarshal(doc.Permissions["allow"], &allow)
-	if len(doc.Permissions) != 3 || !slices.Equal(allow, []string{"Bash(ls:*)"}) {
-		t.Errorf("permissions were changed: %s", merged)
-	}
-	checkMergedHooks(t, doc.Hooks, merged, sum)
-	checkMergeSummary(t, sum)
-	checkMergeIdempotent(t, merged, rendered)
-}
-
-func checkMergeIdempotent(t *testing.T, merged, rendered []byte) {
-	t.Helper()
-	again, _, err := Merge(merged, rendered)
-	if err != nil || string(again) != string(merged) {
-		t.Errorf("merge is not idempotent:\n%s", again)
-	}
-}
-
-func checkMergedHooks(t *testing.T, hooks map[string][]MatcherGroup, merged []byte, sum Summary) {
-	t.Helper()
-	cmds := hookCommands(hooks)
-	stop := strings.Join(cmds["Stop"], "\n")
-	if !strings.Contains(stop, "foreign-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook Stop") {
-		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
-	}
-	// PreToolUse carries the dispatcher entry plus the safety gate's own entry.
-	wantPre, claudeHooks := renderedHookCounts()
-	if len(cmds["SessionEnd"]) != 2 || cmds["SessionEnd"][1] != "foreign-end" || len(cmds["PreToolUse"]) != wantPre {
-		t.Errorf("hooks: %v", cmds)
-	}
-	if strings.Contains(string(merged), "\\u0026") {
-		t.Error("merge HTML-escaped a foreign command")
-	}
-	if sum.ForeignHooks != 2 || sum.HarnessHooks != claudeHooks {
-		t.Errorf("summary %+v", sum)
-	}
-}
-
-func checkMergeSummary(t *testing.T, sum Summary) {
-	t.Helper()
-	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "companyAnnouncements,autoUpdates") {
-		t.Errorf("kept %v", sum.Kept)
-	}
-}
-
-func hookCommands(hooks map[string][]MatcherGroup) map[string][]string {
-	cmds := map[string][]string{}
-	for ev, groups := range hooks {
-		for _, g := range groups {
-			for _, h := range g.Hooks {
-				cmds[ev] = append(cmds[ev], h.Command)
-			}
-		}
-	}
-	return cmds
-}
-
-func renderedHookCounts() (wantPre, claudeHooks int) {
-	for ev, groups := range Events() {
-		for _, g := range groups {
-			claudeHooks += len(g.Hooks)
-			if ev == EventPreToolUse {
-				wantPre += len(g.Hooks)
-			}
-		}
-	}
-	return wantPre, claudeHooks
-}
-
-// hermeticCacheDir isolates CLAUDE_CONFIG_DIR so WriteWithBackup's paths.BackupPath never touches
-// the real ~/.claude/state/harness.
-func hermeticCacheDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	return dir
-}
-
-func TestMergeEmptyAndBackup(t *testing.T) {
-	hermeticCacheDir(t)
-	rendered, _ := Render()
-	merged, _, err := Merge(nil, rendered)
-	if err != nil || string(merged) != string(rendered) {
-		t.Fatalf("merge onto nothing should equal the render: %v", err)
-	}
-	dir := t.TempDir()
-	file := filepath.Join(dir, "settings.json")
-	if b, err := WriteWithBackup(file, []byte("{}\n")); err != nil || b != "" {
-		t.Fatalf("fresh write: %q %v", b, err)
-	}
-	beforeSiblings, _ := os.ReadDir(dir)
-	b, err := WriteWithBackup(file, merged)
-	if err != nil || b == "" {
-		t.Fatalf("backup: %q %v", b, err)
-	}
-	if old, _ := os.ReadFile(b); string(old) != "{}\n" {
-		t.Errorf("backup content %q", old)
-	}
-	if !strings.HasPrefix(b, filepath.Join(paths.CacheDir(), "backups")) {
-		t.Errorf("backup %q, want it under CacheDir()/backups", b)
-	}
-	afterSiblings, _ := os.ReadDir(dir)
-	if len(afterSiblings) != len(beforeSiblings) {
-		t.Errorf("files beside dest changed: before %v, after %v", beforeSiblings, afterSiblings)
-	}
-}
-
-func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
-	hermeticCacheDir(t)
-	dir := t.TempDir()
-	file := filepath.Join(dir, "settings.json")
-	original := []byte("{\"original\":true}\n")
-	if err := os.WriteFile(file, original, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	first, err := WriteWithBackup(file, []byte("{\"updated\":true}\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := WriteWithBackup(file, []byte("{}\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first == second {
-		t.Errorf("back-to-back writes reused backup path %q", first)
-	}
-	got, err := os.ReadFile(first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, original) {
-		t.Errorf("first backup = %q, want %q", got, original)
-	}
-	checkBackupLocations(t, first, second)
-	siblings, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(siblings) != 2 { // settings.json and its advisory lock file
-		t.Errorf("files beside dest = %v, want only settings.json and its .lock", siblings)
-	}
-}
-
-func checkBackupLocations(t *testing.T, backups ...string) {
-	t.Helper()
-	for _, b := range backups {
-		if !strings.HasPrefix(b, filepath.Join(paths.CacheDir(), "backups")) {
-			t.Errorf("backup %q, want it under CacheDir()/backups", b)
-		}
-	}
-}
-
-func TestMergeKeepsForeignKeysInOrder(t *testing.T) {
-	rendered, err := Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	in := `{"companyAnnouncements":["hi"],"zzForeign":{"a":1}}`
-	out, sum, err := Merge([]byte(in), rendered)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(sum.Kept, ",") != "companyAnnouncements,zzForeign" {
-		t.Errorf("kept = %v (want foreign keys in order)", sum.Kept)
-	}
-	if i, j := strings.Index(string(out), "companyAnnouncements"), strings.Index(string(out), "zzForeign"); i < 0 || j < i {
-		t.Errorf("foreign key order lost:\n%s", out)
-	}
-	again, _, err := Merge(out, rendered)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(again) != string(out) {
-		t.Error("merge is not idempotent")
-	}
-}
-
-func TestMergeHooksPreservesForeignFieldsAndOrder(t *testing.T) {
-	base := `{"Stop":[{"matcher":"x","extra":{"keep":true},"hooks":[
-		{"custom":1,"type":"command","command":"first","tail":false},
-		{"command":"$HOME/.claude/bin/claude-code hook retired-hook"},
-		{"type":"prompt","prompt":"keep this","custom":2}
-	],"timeout":9},{"hooks":[{"command":"last"}],"tail":"end"}]}`
-	want := `{"Stop":[{"matcher":"x","extra":{"keep":true},"hooks":[{"custom":1,"type":"command","command":"first","tail":false},{"type":"prompt","prompt":"keep this","custom":2}],"timeout":9},{"hooks":[{"command":"last"}],"tail":"end"}]}`
-	var sum Summary
-	got, err := mergeHooks(json.RawMessage(base), json.RawMessage(`{}`), &sum)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, got); err != nil {
-		t.Fatal(err)
-	}
-	if compact.String() != want || sum.ForeignHooks != 3 || sum.HarnessHooks != 0 {
-		t.Fatalf("mergeHooks = %s, %+v", got, sum)
-	}
-}
-
-// A rendered file carrying the stale `rtk hook claude` entry loses it; a real foreign hook stays.
-func TestMergeDropsStaleRTKHookKeepsForeign(t *testing.T) {
-	base := `{"PreToolUse":[{"matcher":"Bash","hooks":[
-		{"type":"command","command":"/Users/x/.claude/bin/rtk hook claude"},
-		{"type":"command","command":"rtk hook claude"},
-		{"type":"command","command":"my-linter --check"}
-	]}]}`
-	var sum Summary
-	got, err := mergeHooks(json.RawMessage(base), json.RawMessage(`{}`), &sum)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(got), "rtk hook claude") || !strings.Contains(string(got), "my-linter --check") || sum.ForeignHooks != 1 {
-		t.Fatalf("mergeHooks = %s, %+v", got, sum)
-	}
-}
-
-func TestMergeKeepsRuntimeKeysWithoutReportingThem(t *testing.T) {
-	rendered, _ := Render()
-	live := `{"modelSettings":{"claude-fable-5-1":{"effortLevel":"high"}},"someForeign":1}`
-	merged, sum, err := Merge([]byte(live), rendered)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(merged), `"effortLevel": "high"`) && !strings.Contains(string(merged), `"effortLevel":"high"`) {
-		t.Errorf("modelSettings not kept:\n%s", merged)
-	}
-	if slices.Contains(sum.Kept, "modelSettings") {
-		t.Errorf("runtime key reported as foreign: %v", sum.Kept)
-	}
-	if !slices.Contains(sum.Kept, "someForeign") {
-		t.Errorf("a real foreign key must still be reported: %v", sum.Kept)
 	}
 }
 
@@ -323,9 +46,6 @@ func TestAutoMemoryDirectoryRejected(t *testing.T) {
 	ov := map[string]json.RawMessage{"autoMemoryDirectory": json.RawMessage(`"/tmp/x"`)}
 	if err := ValidateOverlay(ov); err == nil || !strings.Contains(err.Error(), "retired") {
 		t.Errorf("overlay accepted autoMemoryDirectory: %v", err)
-	}
-	if _, err := applyOverlay([]byte(`{}`), ov); err == nil {
-		t.Error("applyOverlay accepted autoMemoryDirectory")
 	}
 	if !StructuralKey("autoMemoryDirectory") {
 		t.Error("picker would offer autoMemoryDirectory")
@@ -527,55 +247,9 @@ func TestSectionsKeepCatalogKeysMissingFromDefaults(t *testing.T) {
 	}
 }
 
-func TestUpdateWithBackupMergesFromLockedRead(t *testing.T) {
-	hermeticCacheDir(t)
-	file := filepath.Join(t.TempDir(), "settings.json")
-	if err := os.WriteFile(file, []byte("old"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var seen string
-	b, err := UpdateWithBackup(file, func(old []byte) ([]byte, error) { seen = string(old); return []byte("new"), nil })
-	got, _ := os.ReadFile(file)
-	if err != nil || seen != "old" || string(got) != "new" || b == "" {
-		t.Fatalf("seen=%q file=%q backup=%q err=%v", seen, got, b, err)
-	}
-}
-
 func TestKeyValidateRefusesUncompiledPattern(t *testing.T) {
 	k := Key{Name: "x", Kind: KindString, patternErr: errors.New("bad")}
 	if err := k.Validate(json.RawMessage(`"a"`)); err == nil {
 		t.Error("a key whose pattern failed to compile validated a value")
-	}
-}
-
-// UpdateWithBackup holds the file lock across read-merge-write, so concurrent writers' keys all survive.
-func TestUpdateWithBackupKeepsConcurrentKeys(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "settings.json")
-	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	const n = 8
-	var wg sync.WaitGroup
-	for i := range n {
-		wg.Go(func() {
-			_, err := UpdateWithBackup(path, func(old []byte) ([]byte, error) {
-				var m map[string]int
-				if err := json.Unmarshal(old, &m); err != nil {
-					return nil, err
-				}
-				time.Sleep(2 * time.Millisecond)
-				m[fmt.Sprintf("k%d", i)] = i
-				return json.Marshal(m)
-			})
-			if err != nil {
-				t.Error(err)
-			}
-		})
-	}
-	wg.Wait()
-	b, _ := os.ReadFile(path)
-	var got map[string]int
-	if err := json.Unmarshal(b, &got); err != nil || len(got) != n {
-		t.Errorf("settings keys = %v (%v), want %d", got, err, n)
 	}
 }

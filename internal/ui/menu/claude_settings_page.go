@@ -22,6 +22,9 @@ import (
 // pickSettingsPage is the sectioned picker seam; tests replace it.
 var pickSettingsPage = tui.PickSections
 
+// templateBytes is the settings template, read-only (hooks are not part of the page).
+func templateBytes() ([]byte, error) { return settings.Template(), nil }
+
 // addSettingList is the filterable "+ add a setting" picker seam; tests replace it.
 var addSettingList = tui.List
 
@@ -229,7 +232,7 @@ func runClaudeSettings(d *dialog) bool {
 // reportClaudeSettings prints one line per Catalog key under its section header: key, effective value,
 // source (default|mine[ · live differs]) — no prompts, no writes.
 func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []settings.Section) bool {
-	tmpl, err := configure.RenderObject(settings.Render)
+	tmpl, err := configure.RenderObject(templateBytes)
 	if err != nil {
 		d.printf("claude code: %v\n", err)
 		return false
@@ -388,7 +391,7 @@ type claudeSettingsPage struct {
 // loadMaps re-renders the repo template and re-reads the live settings, both with env flattened; a live read
 // error other than not-exist is printed and ignored.
 func (pg *claudeSettingsPage) loadMaps() (tmpl, live map[string]json.RawMessage, err error) {
-	tmpl, err = configure.RenderObject(settings.Render)
+	tmpl, err = configure.RenderObject(templateBytes)
 	if err != nil {
 		return nil, nil, err
 	}

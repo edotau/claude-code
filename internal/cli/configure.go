@@ -26,8 +26,8 @@ var configurePage = helptext.Page{
 		"claude-code configure --restore|--revert [flags]\n" +
 		"claude-code configure provider --all [<profile>] [--check]",
 	About: "Guided setup for the profile, model pins and each agent CLI; bare walks every page in order. " +
-		"--restore rewrites settings.json from your defaults and re-renders the agent configs " +
-		"(settings.local.json is never touched); with --check it reports drift and exits 1. " +
+		"--restore resets settings.json to the template (backup first), then re-renders the agent configs; " +
+		"with --agents or --agent it renders only the agent configs and leaves settings.json alone. " +
 		"--revert puts agent configs back from their backups.",
 	Commands: [][2]string{
 		{"provider", "pick the session profile; --list shows credential state"},
@@ -58,10 +58,10 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing")
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if anything is unset")
-	fs.BoolVar(&o.restore, "restore", false, "rewrite settings.json from your defaults and re-render the agent configs")
+	fs.BoolVar(&o.restore, "restore", false, "reset settings.json to the template (backup first)")
 	fs.BoolVar(&o.revert, "revert", false, "put agent configs back from their timestamped backups")
-	fs.StringVar(&o.out, "out", "", "with --restore: write the render here (after a timestamped backup)")
-	fs.BoolVar(&o.agents, "agents", false, "with --restore: render agent configs even off the default ~/.claude")
+	fs.StringVar(&o.out, "out", "", "with --restore: reset this file instead of settings.json")
+	fs.BoolVar(&o.agents, "agents", false, "with --restore: agent configs only, even off ~/.claude")
 	fs.BoolVar(&o.noAgents, "no-agents", false, "with --restore: settings.json only, skip the agent configs")
 	fs.BoolVar(&o.list, "list", false, "with provider: list profiles and credential state")
 	fs.BoolVar(&o.all, "all", false, "with provider: check every profile's sign-in and log in where needed")
@@ -157,26 +157,29 @@ func knownProfile(profile string) error {
 
 // configureRender runs --restore / --revert; the agent flag is a comma list there.
 func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
-	if err := renderModeConflict(restore, revert, section, agents, renderAgents); err != nil {
+	if err := renderModeConflict(restore, revert, section); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	if revert {
 		return configureRevert(agents, dryRun, check || out != "" || renderAgents || noAgents)
 	}
-	return configureRestore(agents, out, check, dryRun, renderAgents, noAgents)
+	if check || dryRun {
+		return helptext.Fail("configure: --restore takes no --check or --dry-run")
+	}
+	return configureRestore(agents, out, renderAgents, noAgents)
 }
 
-func configureRestore(agents, out string, check, dryRun, renderAgents, noAgents bool) int {
+func configureRestore(agents, out string, renderAgents, noAgents bool) int {
 	if err := unknownAgent(agents); err != nil {
 		return helptext.Fail("%v", err)
-	}
-	if check && dryRun {
-		return helptext.Fail("configure: --check and --dry-run are mutually exclusive")
 	}
 	if noAgents && (renderAgents || agents != "") {
 		return helptext.Fail("configure: --no-agents excludes --agents and --agent")
 	}
-	return cmdRestore(agents, out, check, dryRun, renderAgents, noAgents)
+	if out != "" && (renderAgents || agents != "") {
+		return helptext.Fail("configure: --out resets a settings file; --agents and --agent never write one")
+	}
+	return cmdRestore(agents, out, renderAgents, noAgents)
 }
 
 // configureRevert runs --revert; extras is true when a flag that only --restore takes was given.
@@ -190,14 +193,12 @@ func configureRevert(agents string, dryRun, extras bool) int {
 	return cmdRevert(agents, dryRun)
 }
 
-func renderModeConflict(restore, revert bool, section, agents string, renderAgents bool) error {
+func renderModeConflict(restore, revert bool, section string) error {
 	switch {
 	case restore && revert:
 		return errors.New("configure: --restore and --revert are mutually exclusive")
 	case section != "":
 		return fmt.Errorf("configure: --restore/--revert take no page (got %q)", section)
-	case restore && agents != "" && !renderAgents:
-		return errors.New("configure: agent-config rollback moved to --revert (--restore --agent needs --agents)")
 	}
 	return nil
 }

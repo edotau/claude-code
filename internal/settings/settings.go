@@ -1,5 +1,4 @@
-// Package settings renders the harness settings.json and refreshes the hooks of an existing one,
-// leaving every other key and every foreign hook as the user has it.
+// Package settings seeds a missing settings.json and resets it on the owner's request; nothing else writes it.
 package settings
 
 import (
@@ -7,12 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/defaults"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -99,9 +95,12 @@ func (s *sectionState) addEnv(raw json.RawMessage) error {
 	return nil
 }
 
+// Template is the embedded settings template, read-only: the harness keys a fresh settings.json starts from.
+func Template() []byte { return defaults.Claude }
+
 // loadDefaults parses the embedded defaults file, expanding ${HOOK_BIN}.
 func loadDefaults() (*object, error) {
-	expanded := strings.ReplaceAll(string(defaults.Claude), "${HOOK_BIN}", HookBin)
+	expanded := strings.ReplaceAll(string(Template()), "${HOOK_BIN}", HookBin)
 	o, err := parseObject([]byte(expanded))
 	if err != nil {
 		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
@@ -109,7 +108,7 @@ func loadDefaults() (*object, error) {
 	return o, nil
 }
 
-// Render loads the defaults file, expands ${HOOK_BIN}, and adds the hook registry block.
+// Render is the template plus the hook registry block; only SeedSettings and ResetSettings may call it.
 func Render() ([]byte, error) {
 	o, err := loadDefaults()
 	if err != nil {
@@ -121,181 +120,6 @@ func Render() ([]byte, error) {
 	}
 	o.set("hooks", hooks)
 	return o.marshal()
-}
-
-// Summary describes what Merge did, for `install --dry-run`.
-type Summary struct {
-	Kept         []string // existing top-level keys the template does not own
-	ForeignHooks int      // non-harness hook commands preserved
-	HarnessHooks int
-}
-
-// runtimeKeys are written by Claude Code itself (e.g. /effort → modelSettings): merge keeps them, drift ignores them.
-var runtimeKeys = []string{"modelSettings"}
-
-// Merge refreshes only the hooks of an existing file (harness hooks replaced, foreign kept after them) and
-// leaves every other key as is; an empty existing is a fresh file and takes every rendered key.
-func Merge(existing, rendered []byte) ([]byte, Summary, error) {
-	var sum Summary
-	fresh := len(bytes.TrimSpace(existing)) == 0
-	if fresh {
-		existing = []byte("{}")
-	}
-	ex, err := parseObject(existing)
-	if err != nil {
-		return nil, sum, fmt.Errorf("existing settings: %w", err)
-	}
-	tp, err := parseObject(rendered)
-	if err != nil {
-		return nil, sum, err
-	}
-	sum.Kept = keptKeys(ex, tp)
-	for _, k := range tp.keys {
-		if k != "hooks" && !fresh {
-			continue
-		}
-		v := tp.vals[k]
-		if k == "hooks" {
-			if v, err = mergeHooks(ex.vals[k], v, &sum); err != nil {
-				return nil, sum, fmt.Errorf("merge %s: %w", k, err)
-			}
-		}
-		ex.set(k, v)
-	}
-	out, err := ex.marshal()
-	return out, sum, err
-}
-
-func keptKeys(ex, tp *object) []string {
-	var kept []string
-	for _, k := range ex.keys {
-		if _, owned := tp.vals[k]; !owned && !slices.Contains(runtimeKeys, k) {
-			kept = append(kept, k)
-		}
-	}
-	return kept
-}
-
-// mergeHooks strips harness commands from existing events, then writes harness groups followed by the
-// foreign ones; foreign groups and hooks keep their bytes and field order.
-func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, error) {
-	b, err := parseObject(orEmpty(base))
-	if err != nil {
-		return nil, err
-	}
-	o, err := parseObject(overlay)
-	if err != nil {
-		return nil, err
-	}
-	events := map[string][]json.RawMessage{}
-	for _, ev := range b.keys {
-		events[ev], err = foreignHookGroups(ev, b.vals[ev], sum)
-		if err != nil {
-			return nil, err
-		}
-	}
-	for _, ev := range o.keys {
-		raws, err := harnessHookGroups(o.vals[ev], sum)
-		if err != nil {
-			return nil, err
-		}
-		events[ev] = append(raws, events[ev]...)
-		if _, ok := b.vals[ev]; !ok {
-			b.keys = append(b.keys, ev)
-		}
-	}
-	out := &object{vals: map[string]json.RawMessage{}}
-	for _, ev := range b.keys {
-		if len(events[ev]) > 0 {
-			out.set(ev, rawList(events[ev]))
-		}
-	}
-	return out.marshal()
-}
-
-func harnessHookGroups(raw json.RawMessage, sum *Summary) ([]json.RawMessage, error) {
-	var groups []MatcherGroup
-	if err := json.Unmarshal(raw, &groups); err != nil {
-		return nil, err
-	}
-	var raws []json.RawMessage
-	for _, g := range groups {
-		sum.HarnessHooks += len(g.Hooks)
-		raw, err := textutil.MarshalNoEscape(g)
-		if err != nil {
-			return nil, err
-		}
-		raws = append(raws, raw)
-	}
-	return raws, nil
-}
-
-func foreignHookGroups(event string, raw json.RawMessage, sum *Summary) ([]json.RawMessage, error) {
-	var groups, foreign []json.RawMessage
-	if err := json.Unmarshal(raw, &groups); err != nil {
-		return nil, fmt.Errorf("hooks.%s: %w", event, err)
-	}
-	for _, raw := range groups {
-		g, err := parseObject(raw)
-		if err != nil {
-			return nil, fmt.Errorf("hooks.%s: %w", event, err)
-		}
-		var hooks, keep []json.RawMessage
-		if raw := g.vals["hooks"]; len(raw) > 0 {
-			if err := json.Unmarshal(raw, &hooks); err != nil {
-				return nil, fmt.Errorf("hooks.%s group: %w", event, err)
-			}
-		}
-		for _, h := range hooks {
-			var cmd struct {
-				Command string `json:"command"`
-			}
-			_ = json.Unmarshal(h, &cmd)
-			if !IsHarness(cmd.Command) {
-				keep = append(keep, h)
-			}
-		}
-		if len(keep) == 0 {
-			continue
-		}
-		sum.ForeignHooks += len(keep)
-		g.set("hooks", rawList(keep))
-		if raw, err = g.marshal(); err != nil {
-			return nil, err
-		}
-		foreign = append(foreign, raw)
-	}
-	return foreign, nil
-}
-
-// WriteWithBackup copies to the cache-mirrored backup path (numbered on collision), then writes data atomically.
-func WriteWithBackup(path string, data []byte) (backup string, err error) {
-	return UpdateWithBackup(path, func([]byte) ([]byte, error) { return data, nil })
-}
-
-// UpdateWithBackup holds the file lock while it reads path (nil if absent), backs it up and writes merge(old).
-func UpdateWithBackup(path string, merge func(old []byte) ([]byte, error)) (backup string, err error) {
-	err = paths.WithFileLock(path, func() error {
-		mode := os.FileMode(0o644)
-		old, rerr := os.ReadFile(path)
-		switch {
-		case rerr == nil:
-			if fi, serr := os.Stat(path); serr == nil {
-				mode = fi.Mode().Perm()
-			}
-			if backup, err = paths.Backup(path, old); err != nil {
-				return fmt.Errorf("backup %s: %w", path, err)
-			}
-		case !os.IsNotExist(rerr):
-			return fmt.Errorf("read %s: %w", path, rerr)
-		}
-		data, err := merge(old)
-		if err != nil {
-			return err
-		}
-		return paths.AtomicWrite(path, data, mode)
-	})
-	return backup, err
 }
 
 // object is a JSON object that remembers key order, so a merge leaves the user's layout intact.
@@ -355,14 +179,6 @@ func (o *object) marshal() ([]byte, error) {
 	}
 	buf.WriteString("}\n")
 	return buf.Bytes(), nil
-}
-
-func rawList(items []json.RawMessage) json.RawMessage {
-	parts := make([][]byte, len(items))
-	for i, it := range items {
-		parts[i] = bytes.TrimSpace(it)
-	}
-	return json.RawMessage("[" + string(bytes.Join(parts, []byte(","))) + "]")
 }
 
 func orEmpty(raw json.RawMessage) json.RawMessage {

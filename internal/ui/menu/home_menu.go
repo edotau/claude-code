@@ -26,7 +26,7 @@ var submitRow = EnterRow("save keys to the secrets manager and exit")
 
 // runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
 // picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
-// narrows it to that agent's row. Any change made here re-renders settings.json and the agent configs on exit.
+// narrows it to that agent's row. Any change made here re-renders the agent configs on exit.
 func runMenu(d *dialog) int {
 	d.pending = map[string]stagedKey{}
 	defer func() {

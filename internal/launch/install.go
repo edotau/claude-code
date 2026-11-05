@@ -2,7 +2,6 @@ package launch
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -119,7 +118,7 @@ func checkHostHealth(check func(bool, bool, string, string)) {
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
 	check(true, false, "vscode serve", vscodeServeDoctorDetail())
-	has, err := settingsHasHooks(settings.SettingsFile())
+	settingsErr := settings.CheckFile(settings.SettingsFile())
 	nested := setup.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
 	strayOK, strayDetail := strayClaudeJSON()
@@ -129,7 +128,7 @@ func checkHostHealth(check func(bool, bool, string, string)) {
 	check(true, false, "browser", browserDoctorDetail())
 	clipOK, clipDetail := clipboard.DoctorDetail()
 	check(clipOK, false, "wl-paste proxy", clipDetail)
-	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
+	check(settingsErr == nil, false, "settings.json", orErr("valid", settingsErr))
 }
 
 // routeDetail is the "<agent> route" row; the caller loaded the registry already, so a miss is not a doctor failure.
@@ -399,29 +398,6 @@ func vscodeServeDoctorDetail() string {
 	}
 	url, _, _ := strings.Cut(st.URL, "?")
 	return fmt.Sprintf("running on :%d -> %s", st.Port, url)
-}
-
-func settingsHasHooks(file string) (bool, error) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return false, err
-	}
-	var doc struct {
-		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
-	}
-	if err := json.Unmarshal(b, &doc); err != nil {
-		return false, err
-	}
-	for _, groups := range doc.Hooks {
-		for _, g := range groups {
-			for _, h := range g.Hooks {
-				if settings.IsHarness(h.Command) {
-					return true, nil
-				}
-			}
-		}
-	}
-	return false, nil
 }
 
 // toolDoctorOK is false only for a bin/<agent> entry that exists but cannot run (broken link, retired shim).

@@ -11,13 +11,9 @@ import (
 )
 
 // cmdRestore is `configure --restore`; the work lives in launch.Restore.
-func cmdRestore(agents, out string, check, dryRun, forceHomes, noAgents bool) int {
-	drift, err := launch.Restore(os.Stdout, agents, out, check, dryRun, forceHomes, noAgents)
-	if err != nil {
+func cmdRestore(agents, out string, forceHomes, noAgents bool) int {
+	if err := launch.Restore(os.Stdout, agents, out, forceHomes, noAgents); err != nil {
 		return helptext.Fail("%v", err)
-	}
-	if drift {
-		return 1
 	}
 	return 0
 }
@@ -59,7 +55,7 @@ func cmdInstall(args []string) int {
 	}
 	fs := helptext.NewFlagSet("install", helptext.Page{
 		Usage: "claude-code install [flags]\nclaude-code install --setup <mode> [flags]",
-		About: "Build-time setup: install the Claude Code CLI and agent links, then render settings.json. " +
+		About: "Build-time setup: install the Claude Code CLI and agent links, then seed settings.json when it is missing. " +
 			"--tools installs only the agent CLIs; --setup migrates, wipes or scopes a .claude/ tree.",
 		Hint: "claude-code install --setup -h lists the setup modes.",
 	})

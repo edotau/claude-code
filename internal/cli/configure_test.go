@@ -8,12 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/desktop"
-	"github.com/edotau/claude-code/internal/history"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -52,10 +49,11 @@ func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
 		{"revert with check", []string{"--revert", "--check"}, "--revert takes only"},
 		{"revert with out", []string{"--revert", "--out", "x.json"}, "--revert takes only"},
 		{"revert with agents", []string{"--revert", "--agents"}, "--revert takes only"},
-		{"restore with agent rolls back no more", []string{"--restore", "--agent", "codex"}, "moved to --revert"},
 		{"out without restore", []string{"--out", "x.json"}, "need --restore"},
 		{"agents without restore", []string{"--agents"}, "need --restore"},
-		{"check and dry-run", []string{"--restore", "--check", "--dry-run"}, "mutually exclusive"},
+		{"restore with check", []string{"--restore", "--check"}, "takes no --check or --dry-run"},
+		{"restore with dry-run", []string{"--restore", "--dry-run"}, "takes no --check or --dry-run"},
+		{"out with agents", []string{"--restore", "--agents", "--out", "x.json"}, "never write one"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,133 +68,50 @@ func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
 	}
 }
 
-// TestConfigureRestoreAgentCommaListScopesVendors: --agent a,b splits on the comma and renders only those vendors.
-func TestConfigureRestoreAgentCommaListScopesVendors(t *testing.T) {
-	resetEnv(t)
-	code, out, stderr := captureOutput(t, func() int {
-		return cmdConfigure([]string{"--restore", "--dry-run", "--agents", "--agent", "codex,opencode"})
-	})
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, stderr)
-	}
-	if !strings.Contains(out, " (codex) ---") || !strings.Contains(out, " (opencode) ---") {
-		t.Errorf("comma list did not render both vendors:\n%s", out)
-	}
-	for _, other := range []string{"copilot", "gemini"} {
-		if strings.Contains(out, " ("+other+") ---") {
-			t.Errorf("--agent codex,opencode also rendered %s:\n%s", other, out)
-		}
-	}
-}
-
-func TestConfigureRestoreBareWritesLiveSettings(t *testing.T) {
+// TestConfigureRestoreResetsSettingsAfterBackup: bare --restore copies settings.json aside, then writes the render.
+func TestConfigureRestoreResetsSettingsAfterBackup(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
 	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	want, err := settings.RenderLive()
-	if err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore"}) })
 	if code != 0 {
 		t.Fatalf("bare --restore exit %d: %s", code, stderr)
 	}
-	got, err := os.ReadFile(live)
-	if err != nil || string(got) != string(want) {
-		t.Fatalf("settings.json != render (err %v):\n%s", err, got)
+	if got, _ := os.ReadFile(live); strings.Contains(string(got), "stale") || !strings.Contains(string(got), "--safety-scan") {
+		t.Fatalf("settings.json is not the render:\n%s", got)
 	}
 	_, after, ok := strings.Cut(stdout, "(backup ")
 	if !ok {
 		t.Fatalf("no backup reported:\n%s", stdout)
 	}
-	bk := strings.TrimSuffix(strings.SplitN(after, ")", 2)[0], " ")
-	if old, err := os.ReadFile(bk); err != nil || string(old) != `{"stale":true}` {
+	bk, _, _ := strings.Cut(after, ")")
+	if old, err := os.ReadFile(bk); err != nil || string(old) != `{"stale":true}` || !strings.HasPrefix(bk, live+".bak.") {
 		t.Errorf("backup %q missing or wrong (err %v): %s", bk, err, old)
 	}
 }
 
-func TestConfigureRestoreDryRunLeavesLiveUntouched(t *testing.T) {
-	live := filepath.Join(resetEnv(t), "settings.json")
-	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
+// TestConfigureRestoreAgentsNeverTouchesSettings: --agents/--agent render only the agent configs.
+func TestConfigureRestoreAgentsNeverTouchesSettings(t *testing.T) {
+	dir := resetEnv(t)
+	live := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(live, []byte(`{"model":"mine"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	past := time.Now().Add(-time.Hour).Truncate(time.Second)
-	if err := os.Chtimes(live, past, past); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--dry-run"}) }); code != 0 {
-		t.Fatalf("--restore --dry-run exit %d: %s", code, stderr)
-	}
-	got, _ := os.ReadFile(live)
-	fi, err := os.Stat(live)
-	if err != nil || string(got) != `{"stale":true}` || !fi.ModTime().Equal(past) {
-		t.Errorf("dry-run touched live settings: %s mtime %v (want %v)", got, fi.ModTime(), past)
-	}
-}
-
-// TestConfigureRestoreSpansDefaultsOverlayAndHistory: defaults + vault overlay (a catalog key and an env
-// variable), three hand-changed live keys, then --restore leaves exactly the render and a "before restore" snapshot.
-func TestConfigureRestoreSpansDefaultsOverlayAndHistory(t *testing.T) {
-	file, want := configureRestoreDriftFixture(t)
-	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--no-agents"}) })
-	if code != 0 {
-		t.Fatalf("--restore exit %d: %s", code, stderr)
-	}
-	got, err := os.ReadFile(file)
-	if err != nil || string(got) != string(want) {
-		t.Fatalf("settings.json != render (err %v):\n%s", err, got)
-	}
-	if !strings.Contains(string(got), `"DISABLE_TELEMETRY": "1"`) {
-		t.Errorf("overlay env variable missing from the restored file:\n%s", got)
-	}
-	checkConfigureRestoreHistory(t, file, stdout)
-}
-
-func configureRestoreDriftFixture(t *testing.T) (string, []byte) {
-	t.Helper()
-	dir := vaulttest.Use(t)
-	t.Setenv("HOME", t.TempDir())
-	ov := map[string]json.RawMessage{
-		"prefersReducedMotion": json.RawMessage("false"),
-		"DISABLE_TELEMETRY":    json.RawMessage(`"1"`),
-	}
-	if err := settings.SaveOverlay(ov); err != nil {
-		t.Fatal(err)
-	}
-	want, err := settings.RenderLive()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var live map[string]json.RawMessage
-	if err := json.Unmarshal(want, &live); err != nil {
-		t.Fatal(err)
-	}
-	live["model"] = json.RawMessage(`"drifted"`)
-	live["prefersReducedMotion"] = json.RawMessage("true")
-	live["zzExtra"] = json.RawMessage("1")
-	edited, _ := json.Marshal(live)
-	file := filepath.Join(dir, "settings.json")
-	if err := os.WriteFile(file, edited, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return file, want
-}
-
-func checkConfigureRestoreHistory(t *testing.T, file, stdout string) {
-	t.Helper()
-	log, err := (&history.Store{Dir: history.Dir()}).Log(1, "config")
-	if err != nil || len(log) != 1 || !strings.Contains(log[0], "before restore") {
-		t.Errorf("history log = %v, %v; want a before-restore snapshot", log, err)
-	}
-	if !strings.Contains(stdout, "before restore") || !strings.Contains(stdout, "restored "+file) {
-		t.Errorf("stdout lacks the snapshot and restored lines:\n%s", stdout)
+	for _, args := range [][]string{{"--restore", "--agents", "--agent", "codex"}, {"--restore", "--agent", "codex"}} {
+		if code, _, stderr := captureOutput(t, func() int { return cmdConfigure(args) }); code != 0 {
+			t.Fatalf("%v exit %d: %s", args, code, stderr)
+		}
+		baks, _ := filepath.Glob(live + ".bak.*")
+		if got, _ := os.ReadFile(live); string(got) != `{"model":"mine"}` || len(baks) != 0 {
+			t.Errorf("%v touched settings.json: %s (backups %v)", args, got, baks)
+		}
 	}
 }
 
 func TestConfigureRestoreRejectsUnknownAgent(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int {
-		return cmdConfigure([]string{"--restore", "--dry-run", "--agents", "--agent", "x"})
+		return cmdConfigure([]string{"--restore", "--agents", "--agent", "x"})
 	})
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)

@@ -2,7 +2,6 @@ package launch
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,16 +19,13 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// No settings.json restores the render whole; an existing file keeps its foreign keys through the merge.
-func TestInstallSettingsFreshRestoresThenMergesExisting(t *testing.T) {
+// No settings.json is seeded from the render; an existing file is never written, invalid or not.
+func TestInstallSettingsSeedsMissingAndNeverWritesExisting(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
-	want, err := settings.RenderLive()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := installSettings(&bytes.Buffer{}, true); err != nil {
-		t.Fatal(err)
+	var out bytes.Buffer
+	if err := installSettings(&out, true); err != nil || !strings.Contains(out.String(), "would seed") {
+		t.Fatalf("dry run: %v %q", err, out.String())
 	}
 	if _, err := os.Stat(settings.SettingsFile()); err == nil {
 		t.Fatal("--dry-run created settings.json")
@@ -37,78 +33,23 @@ func TestInstallSettingsFreshRestoresThenMergesExisting(t *testing.T) {
 	if err := installSettings(&bytes.Buffer{}, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(settings.SettingsFile()); string(got) != string(want) {
-		t.Fatalf("fresh install != render:\n%s", got)
+	if got, _ := os.ReadFile(settings.SettingsFile()); !strings.Contains(string(got), "hook PreToolUse --safety-scan") {
+		t.Fatalf("seeded settings.json has no harness hooks:\n%s", got)
 	}
-	merged := strings.Replace(string(want), "{\n", "{\n  \"zzForeign\": 1,\n", 1)
-	if err := os.WriteFile(settings.SettingsFile(), []byte(merged), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := installSettings(&bytes.Buffer{}, false); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := os.ReadFile(settings.SettingsFile()); !strings.Contains(string(got), "zzForeign") {
-		t.Errorf("install over an existing file dropped a foreign key:\n%s", got)
-	}
-}
-
-const applySettingsUserFixture = `{
-  "env": {
-    "MY_VAR": "1"
-  },
-  "permissions": {
-    "allow": [
-      "Bash(mytool *)"
-    ]
-  },
-  "theme": "light",
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/usr/bin/my-foreign"
-          }
-        ]
-      }
-    ]
-  }
-}
-`
-
-// Existing env, permissions and every other key stay user-owned; hooks refresh while preserving foreign hooks.
-func TestApplySettingsExistingFileOnlyRefreshesHooks(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("HOME", t.TempDir())
-	user := applySettingsUserFixture
-	if err := os.WriteFile(settings.SettingsFile(), []byte(user), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, _, merged, sum, _, err := settings.ApplySettings(false, agent.NoticeOut)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got, want map[string]json.RawMessage
-	if err := json.Unmarshal(merged, &got); err != nil {
-		t.Fatal(err)
-	}
-	_ = json.Unmarshal([]byte(user), &want)
-	assertUserSettingsKeys(t, got, want)
-	if !strings.Contains(string(got["hooks"]), "my-foreign") || sum.HarnessHooks == 0 || sum.ForeignHooks != 1 {
-		t.Errorf("hooks not refreshed with the foreign one kept: %s %+v", got["hooks"], sum)
-	}
-}
-
-func assertUserSettingsKeys(t *testing.T, got, want map[string]json.RawMessage) {
-	t.Helper()
-	for _, k := range []string{"env", "permissions", "theme"} {
-		if !bytes.Equal(got[k], want[k]) {
-			t.Errorf("%s = %s, want the user's %s", k, got[k], want[k])
+	for _, user := range []string{`{"model": "sonnet", "zzForeign": 1}`, `{"cleanupPeriodDays": "x"`} {
+		if err := os.WriteFile(settings.SettingsFile(), []byte(user), 0o600); err != nil {
+			t.Fatal(err)
 		}
-	}
-	if len(got) != len(want) {
-		t.Errorf("keys = %d, want the user's %d (no template key added)", len(got), len(want))
+		out.Reset()
+		if err := installSettings(&out, false); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := os.ReadFile(settings.SettingsFile()); string(got) != user {
+			t.Errorf("install rewrote an existing settings.json:\n%s", got)
+		}
+		if !strings.Contains(out.String(), "kept (yours)") {
+			t.Errorf("status line %q, want kept (yours)", out.String())
+		}
 	}
 }
 
