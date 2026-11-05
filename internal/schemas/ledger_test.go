@@ -170,6 +170,7 @@ var writers = map[string]string{
 	"internal/copilot/home.go:copySettings":                           unversioned("foreign: copilot private home settings copy"),
 	"internal/agentconfig/render_opencode.go:WriteOpencodeOverlay":    "opencode-overlay",
 	"internal/opencode/hooks.go:openHookLog":                          unversioned("log: opencode hook log, text lines"),
+	"internal/opencode/plugin.go:writePlugin":                         unversioned("foreign: generated opencode JS plugin, opencode-owned shape"),
 	"internal/opencode/auth.go:updateOpencodeDiskCache":               "opencode-auth-cache",
 	"internal/network/vscode/vscode.go:writeGuarded":                  unversioned("foreign: VS Code settings.json, keybindings.json and backup"),
 	"internal/network/vscode/serve.go:prepareDataDir":                 unversioned("foreign: VS Code machine settings seed"),

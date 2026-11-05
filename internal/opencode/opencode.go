@@ -405,7 +405,15 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
 	}
 	p.Env, p.Argv = env, opencodePolicyArgv(p.Argv, req)
+	env, plugged, err := opencodeApplyPlugin(p.Env, req)
+	if err != nil {
+		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
+	}
+	p.Env = env
 	host := newHookHost(req)
+	if plugged {
+		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
+	}
 	argv, err := host.before(p.Argv, p.Prompt)
 	if err != nil {
 		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -86,6 +87,18 @@ func hostedBound(safeMode bool) []hooks.Bound {
 		}
 	}
 	return bound
+}
+
+// dropPlugin removes the specs the injected plugin already runs in-process, so no guard runs twice (no-op on nil).
+func (h *hookHost) dropPlugin() {
+	if h == nil {
+		return
+	}
+	plugin := map[string]bool{}
+	for _, s := range settings.SpecsFor("opencode", "plugin") {
+		plugin[s.Name] = true
+	}
+	h.bound = slices.DeleteFunc(h.bound, func(b hooks.Bound) bool { return plugin[b.Spec.Name] })
 }
 
 // openHookLog appends to state/harness/opencode/hooks.log (0600); io.Discard when it cannot be opened.
