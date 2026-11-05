@@ -1,6 +1,6 @@
-// agentRecallBlock: the <memory-recall> pointer block appended to a subagent spawn's prompt inside the
+// AgentRecall: the <memory-recall> pointer block appended to a subagent spawn's prompt inside the
 // agent-effort hook — a spawned subagent gets no UserPromptSubmit, so this is its only recall surface.
-package memory
+package memhook
 
 import (
 	"fmt"
@@ -13,11 +13,11 @@ import (
 // block stays well under additionalContext's cost and the spec's 1KB cap.
 const (
 	agentRecallPreviewRunes  = 160
-	AgentRecallBlockCapBytes = 1024
+	agentRecallBlockCapBytes = 1024
 )
 
-// AgentRecallMarker guards against appending twice if a caller already attached one.
-const AgentRecallMarker = "<memory-recall>"
+// agentRecallMarker guards against appending twice if a caller already attached one.
+const agentRecallMarker = "<memory-recall>"
 
 // AgentRecall ranks root's banks against task and returns a "\n\n<memory-recall>…" block plus the ids
 // it cites, for up to 3 hits (persisted id or derived ContentRef — `memory show` loads either);
@@ -25,7 +25,7 @@ const AgentRecallMarker = "<memory-recall>"
 func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	cwd = memrecall.SessionRoot(sessionID, cwd)
 	q := strings.TrimSpace(task)
-	if q == "" || strings.Contains(q, AgentRecallMarker) {
+	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
 	picks, _ := memrecall.RecallPicks(cwd, sessionID, q, false, false)
@@ -43,13 +43,13 @@ func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 }
 
 // capRecallLines assembles the block, dropping whole trailing lines (never cutting one mid-string)
-// until it fits AgentRecallBlockCapBytes; ("", 0) when no line (or none alone) fits. n is how many
+// until it fits agentRecallBlockCapBytes; ("", 0) when no line (or none alone) fits. n is how many
 // lines survived, so the caller can trim its parallel ids slice to match.
 func capRecallLines(lines []string) (string, int) {
 	const footer = "\nLoad one with: claude-code memory show <id>\n</memory-recall>"
 	for len(lines) > 0 {
-		block := fmt.Sprintf("\n\n%s%s%s", AgentRecallMarker, strings.Join(lines, ""), footer)
-		if len(block) <= AgentRecallBlockCapBytes {
+		block := fmt.Sprintf("\n\n%s%s%s", agentRecallMarker, strings.Join(lines, ""), footer)
+		if len(block) <= agentRecallBlockCapBytes {
 			return block, len(lines)
 		}
 		lines = lines[:len(lines)-1]

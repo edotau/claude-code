@@ -1,8 +1,7 @@
-package memory
+package memhook
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,22 +14,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/worktree"
 )
-
-// TestMain stubs the detached dream spawn so no SessionStart test launches a real process.
-func TestMain(m *testing.M) {
-	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
-	spawnDream = func(string) bool { return true }
-	code := m.Run()
-	cleanup()
-	os.Exit(code)
-}
 
 func writeEdits(t *testing.T, path string, n int) {
 	t.Helper()
@@ -80,7 +68,7 @@ func newUpdateRun(t *testing.T) *updateRun {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(bank.UpdateChildEnv, "")
-	return &updateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: StubSpawnForTest(t, true)}
+	return &updateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: &StubSpawnForTest(t, true).Update}
 }
 
 func (u *updateRun) stop() int {
@@ -174,18 +162,7 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 // sessionStartContext runs the memory-start hook and returns the additionalContext it injected ("" when silent).
 func sessionStartContext(t *testing.T, session, cwd string) string {
 	t.Helper()
-	var out bytes.Buffer
-	runDirect("memory-start", strings.NewReader(fmt.Sprintf(`{"session_id":%q,"cwd":%q}`, session, cwd)), &out, io.Discard)
-	if out.Len() == 0 {
-		return ""
-	}
-	var doc struct {
-		H struct{ AdditionalContext string } `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-		t.Fatal(err)
-	}
-	return doc.H.AdditionalContext
+	return Start(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":%q,"cwd":%q}`, session, cwd)))).Context
 }
 
 // memoryGitRepo git-inits a fresh repo under a temp dir, skipping the test when git is missing.
@@ -353,17 +330,17 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := StubSpawnForTest(t, true)
-	run := func() int {
-		return runDirect("memory-compact", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard)
+	calls := &StubSpawnForTest(t, true).Update
+	run := func() core.Decision {
+		return Compact(core.ParseInput(strings.NewReader(updatePayload(tr, cwd)))).Decision
 	}
 
 	writeEdits(t, tr, 0)
-	if run() != core.ExitProceed || calls.Load() != 0 {
+	if run() == core.Block || calls.Load() != 0 {
 		t.Fatal("no edits must not spawn")
 	}
 	writeEdits(t, tr, 1) // below the Stop floor: a compaction still checkpoints it
-	if run() != core.ExitProceed || calls.Load() != 1 {
+	if run() == core.Block || calls.Load() != 1 {
 		t.Fatalf("uncovered edit must spawn once, calls=%d", calls.Load())
 	}
 	if run(); calls.Load() != 1 {
@@ -382,7 +359,7 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := StubSpawnForTest(t, true)
+	calls := &StubSpawnForTest(t, true).Update
 	run := func() int {
 		return sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	}
@@ -408,25 +385,25 @@ func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := StubSpawnForTest(t, true)
+	calls := &StubSpawnForTest(t, true).Update
 	payload := func() *strings.Reader { return strings.NewReader(updatePayload(tr, cwd)) }
 
 	writeEdits(t, tr, 3)
-	if runDirect("memory-compact", payload(), io.Discard, io.Discard); calls.Load() != 1 {
+	if Compact(core.ParseInput(payload())); calls.Load() != 1 {
 		t.Fatalf("3 edits must spawn at pre-compact, calls=%d", calls.Load())
 	}
 	appendUserTurns(t, tr, 4) // the only new work since the stamp: 4 turns = 2 work units
-	if runDirect("memory-compact", payload(), io.Discard, io.Discard); calls.Load() != 2 {
+	if Compact(core.ParseInput(payload())); calls.Load() != 2 {
 		t.Fatalf("new user turns since the stamp must spawn, calls=%d", calls.Load())
 	}
-	if runDirect("memory-end", payload(), io.Discard, io.Discard); calls.Load() != 2 {
+	if End(core.ParseInput(payload())); calls.Load() != 2 {
 		t.Error("no new work since the stamp must not re-update")
 	}
 	appendUserTurns(t, tr, 2)
-	if runDirect("memory-end", payload(), io.Discard, io.Discard); calls.Load() != 3 {
+	if End(core.ParseInput(payload())); calls.Load() != 3 {
 		t.Errorf("2 new turns (1 work unit) past the stamp must spawn, calls=%d", calls.Load())
 	}
-	if runDirect("memory-end", payload(), io.Discard, io.Discard); calls.Load() != 3 {
+	if End(core.ParseInput(payload())); calls.Load() != 3 {
 		t.Error("session end with nothing new re-updated")
 	}
 }
@@ -728,4 +705,36 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 func sessionUpdateCode(in *core.Input, stderr io.Writer) int {
 	code, _ := sessionUpdate(in, stderr)
 	return code
+}
+
+// An update in a linked worktree dispatches the background worker and logs one ledger line.
+func TestUpdateAppendsWorktreeLedger(t *testing.T) {
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
+	t.Setenv(bank.UpdateChildEnv, "")
+	main := filepath.Join(home, "repo")
+	for _, a := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "i"}} {
+		if out, err := exec.Command("git", a...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", a, err, out)
+		}
+	}
+	repo, err := worktree.ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := worktree.Create(repo, "wt-h", worktree.CreateOptions{Log: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spawns := StubSpawnForTest(t, true)
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 3)
+	if res := Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))); res.Decision == core.Block || spawns.Update.Load() != 1 {
+		t.Fatalf("update = %+v, spawns=%d; want not blocked and one background worker", res, spawns.Update.Load())
+	}
+	data, err := os.ReadFile(filepath.Join(memstore.Dir(main), "worktrees", "wt-h.md"))
+	if err != nil || !strings.Contains(string(data), "update (") || !strings.Contains(string(data), "3 edits, session s1") {
+		t.Fatalf("no update line in ledger: %v\n%s", err, data)
+	}
 }

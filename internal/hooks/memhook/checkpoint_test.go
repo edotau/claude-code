@@ -1,4 +1,4 @@
-package memory
+package memhook
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ func TestContextCheckpoint(t *testing.T) {
 	line := `{"type":"assistant","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":%d,"cache_read_input_tokens":0,"output_tokens":0}}}` + "\n"
 	payload := fmt.Sprintf(`{"session_id":"s1","transcript_path":%q}`, tr)
 	_ = os.WriteFile(tr, fmt.Appendf(nil, line, 100_000), 0o600)
-	calls := StubSpawnForTest(t, true)
+	calls := &StubSpawnForTest(t, true).Update
 	contextCheckpoint(core.ParseInput(strings.NewReader(payload)))
 	if calls.Load() != 0 {
 		t.Fatalf("50%% must not spawn, got %d", calls.Load())

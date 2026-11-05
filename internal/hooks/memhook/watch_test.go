@@ -1,4 +1,4 @@
-package memory
+package memhook
 
 import (
 	"bytes"
@@ -70,7 +70,7 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 9)
-	calls := StubSpawnForTest(t, true)
+	calls := &StubSpawnForTest(t, true).Update
 	writeStamp(stampPath("idle"), time.Now().Add(-time.Hour), "bg", 4) // a checkpoint covered 4 of the 9
 
 	if !idleDispatched(tr, "idle") || calls.Load() != 1 {
@@ -107,7 +107,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
-	calls := StubSpawnForTest(t, true)
+	calls := &StubSpawnForTest(t, true).Update
 
 	if !idleDispatched(tr, "idle-sub") || calls.Load() != 1 {
 		t.Fatalf("1 main + 10 subagent edits must dispatch the final update (calls=%d)", calls.Load())
@@ -198,7 +198,7 @@ func TestIdleUpdateWatchUpdatesQuietTranscript(t *testing.T) {
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
-	calls := StubSpawnForTest(t, true)
+	calls := &StubSpawnForTest(t, true).Update
 	var note bytes.Buffer
 	done := make(chan int, 1)
 	go func() {
@@ -234,7 +234,7 @@ func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
-	calls := StubSpawnForTest(t, true)
+	calls := &StubSpawnForTest(t, true).Update
 	done := make(chan int, 1)
 	go func() {
 		done <- IdleUpdateWatch([]string{"--session", "fresh", "--transcript", tr, "--cwd", filepath.Dir(tr),

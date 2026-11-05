@@ -1,19 +1,23 @@
-package memory
+package memhook
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+	"testing"
+)
 
-// StubSpawnForTest replaces the detached update, idle-watcher and dream spawns so no test starts a real process.
-// The counter is atomic: the idle watcher runs the stub on its own goroutine while the test polls.
-func StubSpawnForTest(t interface {
-	Helper()
-	Cleanup(func())
-}, ok bool) *atomic.Int64 {
+// Spawns counts the stubbed detached spawns; atomic because the idle watcher calls its stub on its own goroutine.
+type Spawns struct{ Update, Watch, Dream, Catchup, Served atomic.Int64 }
+
+// StubSpawnForTest replaces every detached spawn (update ok-flagged, the rest succeed) so no test relaunches the test binary.
+func StubSpawnForTest(t testing.TB, ok bool) *Spawns {
 	t.Helper()
-	calls := new(atomic.Int64)
-	orig, origWatch, origDream := spawnUpdate, spawnWatcher, spawnDream
-	spawnUpdate = func(string, string, string) bool { calls.Add(1); return ok }
-	spawnWatcher = func([]string, string) bool { return true }
-	spawnDream = func(string) bool { return true }
-	t.Cleanup(func() { spawnUpdate, spawnWatcher, spawnDream = orig, origWatch, origDream })
-	return calls
+	s := new(Spawns)
+	oU, oW, oD, oC, oS := spawnUpdate, spawnWatcher, spawnDream, spawnCatchup, spawnServed
+	spawnUpdate = func(string, string, string) bool { s.Update.Add(1); return ok }
+	spawnWatcher = func([]string, string) bool { s.Watch.Add(1); return true }
+	spawnDream = func(string) bool { s.Dream.Add(1); return true }
+	spawnCatchup = func(string, string) bool { s.Catchup.Add(1); return true }
+	spawnServed = func(string) bool { s.Served.Add(1); return true }
+	t.Cleanup(func() { spawnUpdate, spawnWatcher, spawnDream, spawnCatchup, spawnServed = oU, oW, oD, oC, oS })
+	return s
 }
