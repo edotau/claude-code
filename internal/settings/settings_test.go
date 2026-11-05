@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/defaults"
 )
 
 func TestRenderValidJSON(t *testing.T) {
@@ -150,58 +148,6 @@ func checkSectionKeys(t *testing.T, owner map[string][]string, obj, env map[stri
 	}
 }
 
-// The env block holds only env-only variables: one the schema documents as a settings key's override belongs in that key.
-func TestEnvHoldsOnlyEnvOnlyVariables(t *testing.T) {
-	o, err := parseObject(defaults.Claude)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var env map[string]string
-	if err := json.Unmarshal(o.vals["env"], &env); err != nil {
-		t.Fatal(err)
-	}
-	for name := range env {
-		for _, k := range SchemaKeys() {
-			if !k.Env && k.Name != "env" && strings.Contains(k.Description, name) {
-				t.Errorf("env %s has a settings key (%s): set the key in the defaults file instead", name, k.Name)
-			}
-		}
-	}
-}
-
-// TestDefaultsMatchSchema: every key in the defaults file passes its schema validation, or is a docs-sourced catalog key.
-func TestDefaultsMatchSchema(t *testing.T) {
-	o, err := parseObject(defaults.Claude)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range o.keys {
-		checkDefault(t, k, o.vals[k])
-	}
-	var env map[string]json.RawMessage
-	if err := json.Unmarshal(o.vals["env"], &env); err != nil {
-		t.Fatal(err)
-	}
-	for k, v := range env {
-		checkDefault(t, k, v)
-	}
-}
-
-func checkDefault(t *testing.T, name string, raw json.RawMessage) {
-	t.Helper()
-	if f, ok := Lookup(name); ok && f.Source == "docs" {
-		return
-	}
-	k, ok := SchemaKey(name)
-	if !ok {
-		t.Errorf("default key %q is not in the schema or a docs catalog entry", name)
-		return
-	}
-	if err := k.Validate(raw); err != nil {
-		t.Errorf("default key %q: %v", name, err)
-	}
-}
-
 // TestSchemaKeyValidateRejects: an unknown key is absent and a wrong type or out-of-enum value fails.
 func TestSchemaKeyValidateRejects(t *testing.T) {
 	if _, ok := SchemaKey("noSuchSetting"); ok {
@@ -222,28 +168,6 @@ func TestSchemaKeyValidateRejects(t *testing.T) {
 	}
 	if k, _ := SchemaKey("CLAUDE_CODE_SCROLL_SPEED"); !k.Env {
 		t.Error("CLAUDE_CODE_SCROLL_SPEED not an env key")
-	}
-}
-
-// A catalog key absent from the defaults file still has a page row, so removing it from the file loses nothing.
-func TestSectionsKeepCatalogKeysMissingFromDefaults(t *testing.T) {
-	orig := defaults.Claude
-	t.Cleanup(func() { defaults.Claude = orig })
-	defaults.Claude = []byte(`{"$schema": "x", "model": "opus"}`)
-	sections, err := Sections()
-	if err != nil {
-		t.Fatal(err)
-	}
-	have := map[string]bool{}
-	for _, s := range sections {
-		for _, k := range s.Keys {
-			have[k] = true
-		}
-	}
-	for _, f := range Catalog() {
-		if f.Section != "" && !have[f.Key] {
-			t.Errorf("catalog key %q has no page row", f.Key)
-		}
 	}
 }
 

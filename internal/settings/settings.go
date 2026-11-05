@@ -3,12 +3,11 @@ package settings
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -27,9 +26,9 @@ var (
 // Sections groups the editable keys by section: the defaults file's scalar keys and env variables first,
 // then every sectioned catalog key the file lacks, so a key removed from the file stays on the page.
 func Sections() ([]Section, error) {
-	o, err := parseObject(defaults.Claude)
+	o, err := parseObject(Template())
 	if err != nil {
-		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
+		return nil, fmt.Errorf("settings template: %w", err)
 	}
 	state := sectionState{by: map[string][]string{}, seen: map[string]bool{}}
 	for _, k := range o.keys {
@@ -85,7 +84,7 @@ func (s *sectionState) addDefault(k string, raw json.RawMessage) error {
 func (s *sectionState) addEnv(raw json.RawMessage) error {
 	env, err := parseObject(raw)
 	if err != nil {
-		return fmt.Errorf("defaults/claude/settings.json env: %w", err)
+		return fmt.Errorf("settings template env: %w", err)
 	}
 	for _, e := range env.keys {
 		if _, ok := FieldFor(e); ok && !CredentialKey(e) {
@@ -95,24 +94,17 @@ func (s *sectionState) addEnv(raw json.RawMessage) error {
 	return nil
 }
 
-// Template is the embedded settings template, read-only: the harness keys a fresh settings.json starts from.
-func Template() []byte { return defaults.Claude }
+//go:embed template.json
+var template []byte
 
-// loadDefaults parses the embedded defaults file, expanding ${HOOK_BIN}.
-func loadDefaults() (*object, error) {
-	expanded := strings.ReplaceAll(string(Template()), "${HOOK_BIN}", HookBin)
-	o, err := parseObject([]byte(expanded))
-	if err != nil {
-		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
-	}
-	return o, nil
-}
+// Template is the embedded settings template, read-only: the harness keys a fresh settings.json starts from.
+func Template() []byte { return template }
 
 // Render is the template plus the hook registry block; only SeedSettings and ResetSettings may call it.
 func Render() ([]byte, error) {
-	o, err := loadDefaults()
+	o, err := parseObject(Template())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("settings template: %w", err)
 	}
 	hooks, err := SettingsJSON()
 	if err != nil {

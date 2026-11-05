@@ -1,6 +1,6 @@
 // Package agentconfig is each agent CLI's spec; this header indexes every agent's allow/deny policy source.
 //
-//   - Claude Code: defaults/claude/settings.json `permissions` (allow/ask/deny), rendered into settings.json.
+//   - Claude Code: internal/settings/template.json `permissions` (ask/deny), seeded into a missing settings.json.
 //   - gemini: Claude's ask/deny carried over as GuardRules (templateGuardRules), opted in by
 //     agents.json `useGuardRules`; converted in internal/gemini (agyGuardRules).
 //   - copilot shell allowlist: agents.json agents.copilot.permission.shell, read here by ShellPolicy() and
