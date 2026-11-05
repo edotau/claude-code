@@ -1,0 +1,451 @@
+{
+  "info": {
+    "id": "ses_e547d1047ffesXHNY3i1IvY5N5",
+    "slug": "crisp-canyon",
+    "projectID": "global",
+    "directory": "/tmp/agent-harness-sync-parity/probes/repo",
+    "path": "",
+    "title": "New session - 2026-11-05T11:40:47.417Z",
+    "agent": "build",
+    "model": {
+      "id": "beam-free",
+      "providerID": "opencode",
+      "variant": "default"
+    },
+    "version": "1.19.3",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 18816,
+      "output": 113,
+      "reasoning": 145,
+      "cache": {
+        "read": 76800,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1793878847417,
+      "updated": 1793878877721
+    }
+  },
+  "messages": [
+    {
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1793878847944
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode",
+          "modelID": "beam-free"
+        },
+        "summary": {
+          "diffs": [
+            {
+              "file": "note.txt",
+              "patch": "Index: note.txt\n===================================================================\n--- note.txt\t\n+++ note.txt\t\n@@ -0,0 +1,1 @@\n+goodbye\n\\ No newline at end of file\n",
+              "additions": 1,
+              "deletions": 0,
+              "status": "added"
+            }
+          ]
+        },
+        "id": "msg_1ab82f1c8001Ne3zhM90RYr7mf",
+        "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5"
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "\"Use the write tool to create file note.txt containing 'hello', then use edit to change hello to goodbye, then reply DONE.\"",
+          "id": "prt_1ab82f1dc001nV745jG5y9oGUc",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab82f1c8001Ne3zhM90RYr7mf"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_1ab82f1c8001Ne3zhM90RYr7mf",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/agent-harness-sync-parity/probes/repo",
+          "root": "/tmp/agent-harness-sync-parity/probes/repo"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 23839,
+          "input": 18353,
+          "output": 33,
+          "reasoning": 77,
+          "cache": {
+            "write": 0,
+            "read": 5376
+          }
+        },
+        "modelID": "beam-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1793878851019,
+          "completed": 1793878870114
+        },
+        "finish": "tool-calls",
+        "id": "msg_1ab82fdcb001yomcnLtsTUIZW4",
+        "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5"
+      },
+      "parts": [
+        {
+          "snapshot": "64f054dc547e438b6db07ccd56723bf48899bd0f",
+          "type": "step-start",
+          "id": "prt_1ab834086001g1yjZ1SslVS6VJ",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab82fdcb001yomcnLtsTUIZW4"
+        },
+        {
+          "type": "reasoning",
+          "text": "<redacted>",
+          "time": {
+            "start": 1793878868113,
+            "end": 1793878869133
+          },
+          "id": "prt_1ab834091001sPiC77cobcZhQA",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab82fdcb001yomcnLtsTUIZW4"
+        },
+        {
+          "type": "tool",
+          "tool": "write",
+          "callID": "call-3816931c-7a0e-40e3-9ebe-79b30844e09d",
+          "state": {
+            "status": "completed",
+            "input": {
+              "content": "hello",
+              "filePath": "/tmp/agent-harness-sync-parity/probes/repo/note.txt"
+            },
+            "output": "Wrote file successfully.",
+            "title": "note.txt",
+            "time": {
+              "start": 1793878869415,
+              "end": 1793878869559
+            }
+          },
+          "id": "prt_1ab8344a9001lSM1tCc2x572QK",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab82fdcb001yomcnLtsTUIZW4"
+        },
+        {
+          "reason": "tool-calls",
+          "snapshot": "6eb57f357b8577f490ede8b5f54da588f48168ef",
+          "type": "step-finish",
+          "tokens": {
+            "total": 23839,
+            "input": 18353,
+            "output": 33,
+            "reasoning": 77,
+            "cache": {
+              "write": 0,
+              "read": 5376
+            }
+          },
+          "cost": 0,
+          "id": "prt_1ab83476b001Y9bgPfdSmdYIDL",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab82fdcb001yomcnLtsTUIZW4"
+        },
+        {
+          "type": "patch",
+          "hash": "64f054dc547e438b6db07ccd56723bf48899bd0f",
+          "files": [
+            "/tmp/agent-harness-sync-parity/probes/repo/note.txt"
+          ],
+          "id": "prt_1ab83485c001Q2zk9Ni6EKcAd3",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab82fdcb001yomcnLtsTUIZW4"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_1ab82f1c8001Ne3zhM90RYr7mf",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/agent-harness-sync-parity/probes/repo",
+          "root": "/tmp/agent-harness-sync-parity/probes/repo"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 23917,
+          "input": 176,
+          "output": 32,
+          "reasoning": 29,
+          "cache": {
+            "write": 0,
+            "read": 23680
+          }
+        },
+        "modelID": "beam-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1793878870143,
+          "completed": 1793878872413
+        },
+        "finish": "tool-calls",
+        "id": "msg_1ab83487f001dNS3x3Gt0FJZsG",
+        "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5"
+      },
+      "parts": [
+        {
+          "snapshot": "6eb57f357b8577f490ede8b5f54da588f48168ef",
+          "type": "step-start",
+          "id": "prt_1ab834d36001FD2VXL8A63TqeU",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83487f001dNS3x3Gt0FJZsG"
+        },
+        {
+          "type": "reasoning",
+          "text": "<redacted>",
+          "time": {
+            "start": 1793878871368,
+            "end": 1793878871874
+          },
+          "id": "prt_1ab834d48001d9PiutgHx9FiJd",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83487f001dNS3x3Gt0FJZsG"
+        },
+        {
+          "type": "tool",
+          "tool": "read",
+          "callID": "call-c45a8a43-7a19-4840-bb76-94e8b0ac834f",
+          "state": {
+            "status": "completed",
+            "input": {
+              "filePath": "/tmp/agent-harness-sync-parity/probes/repo/note.txt"
+            },
+            "output": "<path>/tmp/agent-harness-sync-parity/probes/repo/note.txt</path>\n<type>file</type>\n<content>\n1: hello\n\n(End of file - total 1 lines)\n</content>",
+            "title": "note.txt",
+            "time": {
+              "start": 1793878871978,
+              "end": 1793878872097
+            }
+          },
+          "id": "prt_1ab834f470010IoeGf0X58xXeY",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83487f001dNS3x3Gt0FJZsG"
+        },
+        {
+          "reason": "tool-calls",
+          "snapshot": "6eb57f357b8577f490ede8b5f54da588f48168ef",
+          "type": "step-finish",
+          "tokens": {
+            "total": 23917,
+            "input": 176,
+            "output": 32,
+            "reasoning": 29,
+            "cache": {
+              "write": 0,
+              "read": 23680
+            }
+          },
+          "cost": 0,
+          "id": "prt_1ab8350b4001gEfNAygxjgTBPA",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83487f001dNS3x3Gt0FJZsG"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_1ab82f1c8001Ne3zhM90RYr7mf",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/agent-harness-sync-parity/probes/repo",
+          "root": "/tmp/agent-harness-sync-parity/probes/repo"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 24041,
+          "input": 167,
+          "output": 46,
+          "reasoning": 20,
+          "cache": {
+            "write": 0,
+            "read": 23808
+          }
+        },
+        "modelID": "beam-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1793878872429,
+          "completed": 1793878876087
+        },
+        "finish": "tool-calls",
+        "id": "msg_1ab83516d001mrCw376HdFF1uQ",
+        "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5"
+      },
+      "parts": [
+        {
+          "snapshot": "6eb57f357b8577f490ede8b5f54da588f48168ef",
+          "type": "step-start",
+          "id": "prt_1ab835cf4001FX9mCyzNXDxgvw",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83516d001mrCw376HdFF1uQ"
+        },
+        {
+          "type": "reasoning",
+          "text": "<redacted>",
+          "time": {
+            "start": 1793878875394,
+            "end": 1793878875597
+          },
+          "id": "prt_1ab835d02001yXNbBn7mM70Crx",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83516d001mrCw376HdFF1uQ"
+        },
+        {
+          "type": "tool",
+          "tool": "edit",
+          "callID": "call-40d18f4e-dd12-48e3-b12b-25b764c89cfb",
+          "state": {
+            "status": "completed",
+            "input": {
+              "filePath": "/tmp/agent-harness-sync-parity/probes/repo/note.txt",
+              "newString": "goodbye",
+              "oldString": "hello"
+            },
+            "output": "Edit applied successfully.",
+            "title": "note.txt",
+            "time": {
+              "start": 1793878875889,
+              "end": 1793878875916
+            }
+          },
+          "id": "prt_1ab835dd1001e3WWyuH62VLeVi",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83516d001mrCw376HdFF1uQ"
+        },
+        {
+          "reason": "tool-calls",
+          "snapshot": "7d1452c4b69cc6f578d68c7eca9c94220a5ba14e",
+          "type": "step-finish",
+          "tokens": {
+            "total": 24041,
+            "input": 167,
+            "output": 46,
+            "reasoning": 20,
+            "cache": {
+              "write": 0,
+              "read": 23808
+            }
+          },
+          "cost": 0,
+          "id": "prt_1ab835f79001cnz8tb9u5Qha9t",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83516d001mrCw376HdFF1uQ"
+        },
+        {
+          "type": "patch",
+          "hash": "6eb57f357b8577f490ede8b5f54da588f48168ef",
+          "files": [
+            "/tmp/agent-harness-sync-parity/probes/repo/note.txt"
+          ],
+          "id": "prt_1ab835fb3001DLmFpHqLFkyPnu",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab83516d001mrCw376HdFF1uQ"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_1ab82f1c8001Ne3zhM90RYr7mf",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/agent-harness-sync-parity/probes/repo",
+          "root": "/tmp/agent-harness-sync-parity/probes/repo"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 24077,
+          "input": 120,
+          "output": 2,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 23936
+          }
+        },
+        "modelID": "beam-free",
+        "providerID": "opencode",
+        "time": {
+          "created": 1793878876091,
+          "completed": 1793878877686
+        },
+        "finish": "stop",
+        "id": "msg_1ab835fbb001CwloXOOYYegRMZ",
+        "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5"
+      },
+      "parts": [
+        {
+          "snapshot": "7d1452c4b69cc6f578d68c7eca9c94220a5ba14e",
+          "type": "step-start",
+          "id": "prt_1ab8363bc00159E00YWZjGhbeN",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab835fbb001CwloXOOYYegRMZ"
+        },
+        {
+          "type": "reasoning",
+          "text": "<redacted>",
+          "time": {
+            "start": 1793878877120,
+            "end": 1793878877376
+          },
+          "id": "prt_1ab8363c0001hhYTrvM4c6jqTA",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab835fbb001CwloXOOYYegRMZ"
+        },
+        {
+          "type": "text",
+          "text": "DONE",
+          "time": {
+            "start": 1793878877386,
+            "end": 1793878877391
+          },
+          "id": "prt_1ab8364c9001sf1YxK9sSr8NvR",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab835fbb001CwloXOOYYegRMZ"
+        },
+        {
+          "reason": "stop",
+          "snapshot": "7d1452c4b69cc6f578d68c7eca9c94220a5ba14e",
+          "type": "step-finish",
+          "tokens": {
+            "total": 24077,
+            "input": 120,
+            "output": 2,
+            "reasoning": 19,
+            "cache": {
+              "write": 0,
+              "read": 23936
+            }
+          },
+          "cost": 0,
+          "id": "prt_1ab83654b001oV3sN3uPJVpZvY",
+          "sessionID": "ses_e547d1047ffesXHNY3i1IvY5N5",
+          "messageID": "msg_1ab835fbb001CwloXOOYYegRMZ"
+        }
+      ]
+    }
+  ]
+}
