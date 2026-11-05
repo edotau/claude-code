@@ -105,6 +105,9 @@ try {
     gate: stepOf(a.steps, 'gate', {}, CLAUDE_ONLY),
   }
 } catch (e) { return { exit: 'error', error: 'code-analyzer: ' + e.message, rounds: [] } }
+// Audit and refute must read files: opencode's read-only mode drops every tool, so its answers are invented tool calls.
+if ([S.audit, ...S.refute].some(s => s.kind === 'external' && s.agent === 'opencode'))
+  return { exit: 'error', error: 'code-analyzer: opencode cannot audit or refute (its read-only mode has no file access); use it for fix or test', rounds: [] }
 const REFUTE_CLAUDE = S.refute.filter(s => s.kind === 'claude')
 if (REFUTE_CLAUDE.length > 1) return { exit: 'error', error: 'code-analyzer: steps.refute takes at most one claude entry', rounds: [] }
 // The Claude refuter always runs; external entries are second opinions.
@@ -241,7 +244,9 @@ const REFUTERS_OK = []
 const askAgent = opts => workflow('code-agent', opts).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
 // One code-agent call for an external step: no fallback, so a dead agent is "no result", never a silent Claude run.
 const askStep = (st, task, tools) => askAgent({
-  agent: st.agent, vendorModel: st.vendorModel, profile: st.profile, cwd: CWD || undefined, smoke: false, fallback: false, task, ...(tools ? { tools: true } : {}),
+  agent: st.agent, vendorModel: st.vendorModel, profile: st.profile, cwd: CWD || undefined, smoke: false, fallback: false, task,
+  // a read stage on copilot needs --read-only: without it copilot has no file reads at all
+  ...(tools ? { tools: true } : st.agent === 'copilot' ? { readOnly: true } : {}),
 })
 const smoked = new Set()
 for (const st of REFUTERS) {
@@ -330,8 +335,10 @@ for (let round = 1; round <= ROUNDS; round++) {
         '"title":"<one-sentence defect>","scenario":"<input/state → wrong result>","evidence":"<grep/diff/test output>","severity":"critical|high|medium|low"}]} and nothing else.')
         .then(r => {
           const fs = parseAnswer(r, 'findings')
-          if (!fs) log(`find:${round}:${u.key}: ${S.audit.agent} returned no parsable findings (${(r && r.error) || 'bad JSON'})`)
-          return { findings: (fs || []).filter(f => f && f.file && f.title) }
+          if (fs) return { findings: fs.filter(f => f && f.file && f.title) }
+          // an unparsable answer is no coverage, never "no findings": the chunk is re-audited by Claude
+          log(`find:${round}:${u.key}: ${S.audit.agent} returned no parsable findings (${(r && r.error) || 'bad JSON'}); re-auditing on claude`)
+          return agent(prompt, { label: `find:${round}:${u.key}:claude`, phase: 'Find', schema: FINDINGS_SCHEMA, model: 'sonnet', effort: u.dim.effort || 'low' })
         })
     }
     return agent(prompt,
