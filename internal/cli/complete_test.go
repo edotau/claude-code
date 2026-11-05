@@ -83,8 +83,8 @@ func TestCompletionFlags(t *testing.T) {
 	if got := completionCandidates([]string{"install", "--"}); !slices.Equal(got, []string{"--dry-run", "--setup", "--tools", "--verbose"}) {
 		t.Errorf("install -- = %v, want [--dry-run --setup --tools --verbose]", got)
 	}
-	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--preview"}) {
-		t.Errorf("theme -- = %v, want [--preview]", got)
+	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--palettes", "--reset"}) {
+		t.Errorf("theme -- = %v, want [--palettes --reset]", got)
 	}
 	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format", "--git", "--range", "--scan", "--secrets", "--since"}) {
 		t.Errorf("doctor -- = %v, want [--audit --days --format --git --range --scan --secrets --since]", got)

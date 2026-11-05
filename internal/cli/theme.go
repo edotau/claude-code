@@ -21,8 +21,8 @@ var themeStatuslinePage = helptext.Page{
 
 var themePage = helptext.Page{
 	Usage: "claude-code theme [<palette>|<command>] [flags]",
-	About: "Pick the status line's gradient palette and theme the tools around it. Bare shows this help " +
-		"and every palette; a palette name sets it.",
+	About: "Pick the status line's gradient palette and theme the tools around it. A palette name sets it; " +
+		"--palettes lists them.",
 	Commands: [][2]string{
 		{"apply", "merge theme/<tool>.json into each tool's config"},
 		{"statusline", "render the status line (settings.json runs it)"},
@@ -31,8 +31,8 @@ var themePage = helptext.Page{
 	Hint: "claude-code theme <command> -h lists that command's flags.",
 }
 
-// cmdTheme picks the statusline's gradient palette persistently. No argument (or --preview) lists
-// every palette, painted in its own gradient on a terminal; a name sets it; an unknown name exits 2.
+// cmdTheme picks the statusline's gradient palette persistently. --palettes lists every palette, painted in its
+// own gradient on a terminal; a name sets it; an unknown name exits 2; no argument prints help.
 func cmdTheme(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -44,14 +44,7 @@ func cmdTheme(args []string) int {
 		}
 	}
 	fs := helptext.NewFlagSet("theme", themePage)
-	fs.Usage = func() { // help and the palettes it chooses from, so bare `theme` and `-h` show both
-		p := themePage
-		p.Flags = fs
-		p.Fprint(os.Stderr)
-		fmt.Fprintln(os.Stderr)
-		printPalettes(os.Stderr, ansi.Enabled(os.Stderr))
-	}
-	preview := fs.Bool("preview", false, "print every palette and change nothing")
+	palettes := fs.Bool("palettes", false, "list every palette (● current) and change nothing")
 	reset := fs.Bool("reset", false, "delete state/statusline/config.json; the default design renders")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -59,11 +52,11 @@ func cmdTheme(args []string) int {
 	if *reset {
 		return resetThemeConfig()
 	}
-	if len(fs.Args()) == 0 && !*preview {
+	if len(fs.Args()) == 0 && !*palettes {
 		fs.Usage()
 		return 0
 	}
-	if *preview {
+	if *palettes {
 		printPalettes(os.Stdout, ansi.Enabled(os.Stdout))
 		return 0
 	}

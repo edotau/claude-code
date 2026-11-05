@@ -83,7 +83,7 @@ func coreSpecNodes(askFlags []flagInfo) map[string]*compNode {
 		"ask":      {flags: askFlags},
 		"dispatch": {args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, flags: []flagInfo{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background")}},
-		"theme": {args: []func() []string{theme.GradientNames}, flags: []flagInfo{boolFlag("preview")},
+		"theme": {args: []func() []string{theme.GradientNames}, flags: []flagInfo{boolFlag("palettes"), boolFlag("reset")},
 			sub: map[string]*compNode{
 				"apply":      {flags: []flagInfo{boolFlag("dry-run")}},
 				"statusline": {flags: []flagInfo{valuedFlag("style", statuslineStyles)}},

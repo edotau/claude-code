@@ -422,7 +422,7 @@ every embedded (`//go:embed`) template.
 | Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Housekeeping | `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `network mcp` |
-| Theme, VS Code | `claude-code theme [--preview] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |
+| Theme, VS Code | `claude-code theme [--palettes|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |
 
 ## Development
 
