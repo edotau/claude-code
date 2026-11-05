@@ -51,24 +51,24 @@ func SetEmbedRecallWait(d time.Duration) (restore func()) {
 
 var embedFormat = schemas.Register(schemas.Format{
 	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
-	Glob: EmbedDBPath,
+	Glob: embedDBPath,
 	Keep: "bbolt profile metadata and binary float32 rows; a version mismatch is a miss",
 })
 
 var safeProfile = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// VectorRecord holds content vectors scoped to a profile, workspace and model.
-type VectorRecord struct {
+// vectorRecord holds content vectors scoped to a profile, workspace and model.
+type vectorRecord struct {
 	Schema    int                  `json:"schema"`
 	Namespace string               `json:"namespace"`
 	Model     string               `json:"model"`
 	Dim       int                  `json:"dim,omitempty"`       // vector dimension of the endpoint's latest response
 	DimAt     int64                `json:"dim_at,omitempty"`    // ns of the run that set Dim
 	MintedAt  int64                `json:"minted_at,omitempty"` // ns of the last full mint
-	Rows      map[string]VectorRow `json:"rows"`
+	Rows      map[string]vectorRow `json:"rows"`
 }
 
-type VectorRow struct {
+type vectorRow struct {
 	Root      string `json:"root,omitempty"` // bank root whose index wrote the row; pruning never crosses roots
 	Hash      string `json:"hash"`           // sha256 of the embedded text
 	Vec       string `json:"-"`              // binary little-endian float32, L2-normalised
@@ -83,8 +83,8 @@ type EmbedClient struct {
 	EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-// Embedder turns text batches into embedding vectors.
-type Embedder interface {
+// embedder turns text batches into embedding vectors.
+type embedder interface {
 	Embed(context.Context, []string) ([][]float32, error)
 }
 
@@ -110,8 +110,8 @@ func textHash(s string) string {
 }
 
 // freshEmbedCache is an empty cache for c's namespace.
-func freshEmbedCache(c *EmbedClient) VectorRecord {
-	return VectorRecord{Namespace: c.Namespace, Model: c.Model, Rows: map[string]VectorRow{}}
+func freshEmbedCache(c *EmbedClient) vectorRecord {
+	return vectorRecord{Namespace: c.Namespace, Model: c.Model, Rows: map[string]vectorRow{}}
 }
 
 // currentEntryHashes is the content hash of each embeddable entry in root's corpus right now.
@@ -140,7 +140,7 @@ func ReembedEntries(ctx context.Context, root string, c *EmbedClient) (embedded,
 }
 
 // checkEmbedLease is nil when a mint may start on rec: expired or missing, or force inside the override window.
-func checkEmbedLease(rec VectorRecord, now time.Time, force bool) error {
+func checkEmbedLease(rec vectorRecord, now time.Time, force bool) error {
 	if force {
 		if at, open := reembedOpensAt(rec, now); !open {
 			return fmt.Errorf("%w: opens at %s", ErrReembedEarly, at.Format("15:04"))
@@ -154,16 +154,16 @@ func checkEmbedLease(rec VectorRecord, now time.Time, force bool) error {
 }
 
 // embedBase is the cache a mint starts from: c's record, or a fresh one when forced or from another namespace.
-func embedBase(c *EmbedClient, now time.Time, force bool) (VectorRecord, error) {
+func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) {
 	if !SafeProfile(c.Profile) {
-		return VectorRecord{}, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
+		return vectorRecord{}, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
 	}
 	rec, err := readEmbedCache(c.Profile)
 	if err != nil {
-		return VectorRecord{}, err
+		return vectorRecord{}, err
 	}
 	if err := checkEmbedLease(rec, now, force); err != nil {
-		return VectorRecord{}, err
+		return vectorRecord{}, err
 	}
 	if force || rec.Namespace != c.Namespace || rec.Rows == nil {
 		rec = freshEmbedCache(c)
@@ -190,7 +190,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	if !ok {
 		return 0, total, fmt.Errorf("%w until %s", ErrEmbedBusy, held.Format("15:04"))
 	}
-	run := &embedRun{c: c, root: root, force: force, fresh: map[string]VectorRow{}, started: started}
+	run := &embedRun{c: c, root: root, force: force, fresh: map[string]vectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
 	run.current = currentEntryHashes(root)
 	stored, cerr := run.store(owner, embedErr == nil)
@@ -203,7 +203,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 
 // store merges the run into the current record under owner's claim; complete starts the lease, a partial run does not.
 func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
-	stored, err = vectorStore.Put(VectorWrite{Profile: r.c.Profile, Owner: owner, Started: r.started, Merge: func(cur VectorRecord) VectorRecord {
+	stored, err = vectorStore.Put(VectorWrite{Profile: r.c.Profile, Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
 		out := r.merge(cur)
 		if complete { // a partial run keeps its paid-for rows but does not start the lease
 			out.MintedAt = time.Now().UnixNano()
@@ -217,7 +217,7 @@ func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
 }
 
 // cacheRowCurrent reports whether row matches the entry's text and block hashes and decodes to the cache's dimension.
-func cacheRowCurrent(row VectorRow, hash, blockHash string, cacheDim int) bool {
+func cacheRowCurrent(row vectorRow, hash, blockHash string, cacheDim int) bool {
 	if row.Hash != hash || row.BlockHash != blockHash {
 		return false
 	}
@@ -226,7 +226,7 @@ func cacheRowCurrent(row VectorRow, hash, blockHash string, cacheDim int) bool {
 }
 
 // pendingEmbeds lists root's live entries whose vector in cache is missing, stale or undecodable, and the live count.
-func pendingEmbeds(root string, cache VectorRecord) (ids, texts, hashes, blocks []string, total int) {
+func pendingEmbeds(root string, cache vectorRecord) (ids, texts, hashes, blocks []string, total int) {
 	live := map[string]bool{}
 	cacheDim := cacheDimOf(cache)
 	for _, h := range bank.CorpusBlocks(root) {
@@ -251,13 +251,13 @@ type embedRun struct {
 	c        *EmbedClient
 	root     string
 	force    bool // override: fresh rows replace the old ones even when their hash matches
-	fresh    map[string]VectorRow
+	fresh    map[string]vectorRow
 	freshDim int
 	started  int64
 	current  map[string]string // content hash of each embeddable entry in root right now
 }
 
-func (r *embedRun) merge(cur VectorRecord) VectorRecord {
+func (r *embedRun) merge(cur vectorRecord) vectorRecord {
 	if cur.Namespace != r.c.Namespace || cur.Rows == nil {
 		cur = freshEmbedCache(r.c)
 	}
@@ -275,7 +275,7 @@ func (r *embedRun) merge(cur VectorRecord) VectorRecord {
 }
 
 // absorb folds fresh rows for still-current entries into cur; an equal-hash, same-dimension row keeps its vector.
-func (r *embedRun) absorb(cur VectorRecord, fresh map[string]VectorRow) {
+func (r *embedRun) absorb(cur vectorRecord, fresh map[string]vectorRow) {
 	for id, row := range fresh {
 		if want, ok := r.current[id]; !ok || row.Hash != want {
 			continue
@@ -290,7 +290,7 @@ func (r *embedRun) absorb(cur VectorRecord, fresh map[string]VectorRow) {
 }
 
 // moveDim handles the endpoint's dimension moving: drop vectors it cannot match and record the new dimension.
-func (r *embedRun) moveDim(cur *VectorRecord) {
+func (r *embedRun) moveDim(cur *vectorRecord) {
 	for id, row := range cur.Rows {
 		if v, ok := decodeVec(row.Vec); ok && len(v) > 0 && len(v) != r.freshDim {
 			delete(cur.Rows, id)
@@ -299,14 +299,14 @@ func (r *embedRun) moveDim(cur *VectorRecord) {
 	cur.Dim, cur.DimAt = r.freshDim, r.started
 }
 
-func sameDim(a, b VectorRow) bool {
+func sameDim(a, b vectorRow) bool {
 	av, aok := decodeVec(a.Vec)
 	bv, bok := decodeVec(b.Vec)
 	return aok && bok && len(av) == len(bv)
 }
 
 // shed drops this root's rows whose entry is gone once the root holds more than embedMaxRows.
-func (r *embedRun) shed(cur VectorRecord) {
+func (r *embedRun) shed(cur vectorRecord) {
 	own := 0
 	for _, row := range cur.Rows {
 		if row.Root == r.root {
@@ -326,7 +326,7 @@ func (r *embedRun) shed(cur VectorRecord) {
 // Semantic scores entries against one embedded query, from the cached entry vectors.
 type Semantic struct {
 	query  []float32
-	rows   map[string]VectorRow
+	rows   map[string]vectorRow
 	blocks map[string]string
 }
 
@@ -393,7 +393,7 @@ func (s *Semantic) Cosine(e bank.Entry) (float64, bool) {
 }
 
 // dominantDim returns the most frequent decoded vector dimension, with ties going to the larger dimension.
-func dominantDim(rows map[string]VectorRow) int {
+func dominantDim(rows map[string]vectorRow) int {
 	counts := map[int]int{}
 	for _, r := range rows {
 		if v, ok := decodeVec(r.Vec); ok {
@@ -410,7 +410,7 @@ func dominantDim(rows map[string]VectorRow) int {
 }
 
 // cacheDimOf is the endpoint dimension recorded in the cache, else the dominant row dimension.
-func cacheDimOf(c VectorRecord) int {
+func cacheDimOf(c vectorRecord) int {
 	if c.Dim > 0 {
 		return c.Dim
 	}
@@ -418,7 +418,7 @@ func cacheDimOf(c VectorRecord) int {
 }
 
 // cacheDimMatches reports whether the cache's vector dimension is dim.
-func cacheDimMatches(c VectorRecord, dim int) bool {
+func cacheDimMatches(c vectorRecord, dim int) bool {
 	cacheDim := cacheDimOf(c)
 	return cacheDim > 0 && cacheDim == dim
 }
@@ -459,8 +459,8 @@ func decodeVec(s string) ([]float32, bool) {
 	return v, true
 }
 
-// PickEmbeddingModel chooses a ready embeddings endpoint from a live catalog, preferring gte then bge.
-func PickEmbeddingModel(infos []providers.ModelInfo) (string, bool) {
+// pickEmbeddingModel chooses a ready embeddings endpoint from a live catalog, preferring gte then bge.
+func pickEmbeddingModel(infos []providers.ModelInfo) (string, bool) {
 	var ids []string
 	for _, m := range infos {
 		if strings.Contains(m.Task, "embed") && (m.Ready == "" || m.Ready == "READY") {
@@ -530,7 +530,7 @@ func decodeEmbeddings(raw []byte) ([][]float32, error) {
 	return out, nil
 }
 
-func (r *embedRun) embed(ctx context.Context, client Embedder, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
+func (r *embedRun) embed(ctx context.Context, client embedder, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
 	for i := 0; i < len(texts) && embedErr == nil; i += embedBatch { // network calls stay outside any transaction
 		j := min(i+embedBatch, len(texts))
 		vecs, err := client.Embed(ctx, texts[i:j])
@@ -543,16 +543,16 @@ func (r *embedRun) embed(ctx context.Context, client Embedder, ids, texts, hashe
 		}
 		for k, v := range vecs {
 			r.freshDim = len(v)
-			r.fresh[ids[i+k]] = VectorRow{Root: r.root, Hash: hashes[i+k], BlockHash: blocks[i+k], Vec: encodeVec(normalize(v))}
+			r.fresh[ids[i+k]] = vectorRow{Root: r.root, Hash: hashes[i+k], BlockHash: blocks[i+k], Vec: encodeVec(normalize(v))}
 		}
 		embedded += j - i
 	}
 	return embedded, embedErr
 }
 
-func semanticCache() (string, VectorRecord, error) {
+func semanticCache() (string, vectorRecord, error) {
 	var profile string
-	var cache VectorRecord
+	var cache vectorRecord
 	var readErr error
 	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
 		if name == "" || name == profile || !SafeProfile(name) {
@@ -570,9 +570,9 @@ func semanticCache() (string, VectorRecord, error) {
 	}
 	if profile == "" {
 		if readErr != nil {
-			return "", VectorRecord{}, fmt.Errorf("embedding cache unreadable: %w", readErr)
+			return "", vectorRecord{}, fmt.Errorf("embedding cache unreadable: %w", readErr)
 		}
-		return "", VectorRecord{}, errors.New("no embedding cache")
+		return "", vectorRecord{}, errors.New("no embedding cache")
 	}
 	return profile, cache, nil
 }
@@ -582,7 +582,7 @@ type semanticResult struct {
 	err error
 }
 
-func querySemantic(ctx context.Context, profile, query string, cache VectorRecord) semanticResult {
+func querySemantic(ctx context.Context, profile, query string, cache vectorRecord) semanticResult {
 	c, err := OpenEmbedClient(ctx, profile, cache.Model)
 	if err != nil {
 		return semanticResult{err: err}

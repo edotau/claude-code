@@ -47,8 +47,8 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 			t.Errorf("surface carried an out-of-scope section (%q):\n%s", absent, s)
 		}
 	}
-	if n := len([]rune(s)); n > TotalCapChars {
-		t.Errorf("unified surface %d chars > cap %d", n, TotalCapChars)
+	if n := len([]rune(s)); n > totalCapChars {
+		t.Errorf("unified surface %d chars > cap %d", n, totalCapChars)
 	}
 }
 

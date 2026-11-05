@@ -224,3 +224,18 @@ func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 		t.Errorf("knowledge ref does not expand: %v %q", err, block)
 	}
 }
+
+func TestLogicalNameMatchesTypedStemExactlyOrArchive(t *testing.T) {
+	cases := map[string]string{
+		"/x/decisionLog.md":           "decisionLog.md",
+		"/x/decisionLog-2026-10.md":   "decisionLog.md",
+		"/x/sessionHistory-notes.md":  "sessionHistory-notes.md",
+		"/x/conventionsGuide.md":      "conventionsGuide.md",
+		"/x/decisionLog-2026-10-x.md": "decisionLog-2026-10-x.md",
+	}
+	for path, want := range cases {
+		if got := logicalName(path); got != want {
+			t.Errorf("logicalName(%q) = %q, want %q", path, got, want)
+		}
+	}
+}

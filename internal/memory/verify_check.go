@@ -93,7 +93,7 @@ func (v *claimVerifier) scopedPath(token string) (string, bool) {
 		}
 	}
 	path = paths.CanonDeep(path)
-	return path, verifyWithin(paths.CanonDeep(v.store.repo), path)
+	return path, paths.Within(path, paths.CanonDeep(v.store.repo))
 }
 
 func (v *claimVerifier) path(token string) verifyResult {

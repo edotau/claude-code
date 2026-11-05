@@ -54,8 +54,9 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
   is the only route to home.
 - `memory index` — regenerates the `MEMORY.md` bank region and `memory/index.md`, rotates sessionHistory, commits the
   store. **Never hand-edit generated regions.**
-- `memory review` — caps, staleness, dupes, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — moves
-  the entry and links back. `memory alias --repo <checkout> --into <key>` — folds a second checkout's store.
+- `memory review` — caps, staleness, dupes, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — `home`
+  moves the block (no link back); the others print the block, target and procedure and edit nothing.
+  `memory alias --repo <checkout> --into <key>` — folds a second checkout's store.
 - `memory init` scaffolds a fresh repo's store (also minted on first use).
 
 The store's git repo is never pushed and nothing in it rides a project's commits.

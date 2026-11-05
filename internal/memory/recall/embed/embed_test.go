@@ -133,14 +133,14 @@ func TestPickEmbeddingModelPrefersGteThenBge(t *testing.T) {
 		{ID: "databricks-bge-large-en", Task: "llm/v1/embeddings", Ready: "READY"},
 		{ID: "databricks-gte-large-en", Task: "llm/v1/embeddings", Ready: "NOT_READY"},
 	}
-	if got, ok := PickEmbeddingModel(infos); !ok || got != "databricks-bge-large-en" {
+	if got, ok := pickEmbeddingModel(infos); !ok || got != "databricks-bge-large-en" {
 		t.Errorf("not-ready gte must be skipped; got %q %v", got, ok)
 	}
 	infos[3].Ready = "READY"
-	if got, _ := PickEmbeddingModel(infos); got != "databricks-gte-large-en" {
+	if got, _ := pickEmbeddingModel(infos); got != "databricks-gte-large-en" {
 		t.Errorf("gte first; got %q", got)
 	}
-	if _, ok := PickEmbeddingModel(infos[:1]); ok {
+	if _, ok := pickEmbeddingModel(infos[:1]); ok {
 		t.Error("a chat-only catalog has no embedding model")
 	}
 }
@@ -159,7 +159,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 			nested = true
 			write(t, bankFile, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
 			cur := freshEmbedCache(inner)
-			cur.Rows["aaaa0002"] = VectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
@@ -241,9 +241,9 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
-	f := VectorRecord{Namespace: c.Namespace, Model: c.Model, Rows: map[string]VectorRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
+	f := vectorRecord{Namespace: c.Namespace, Model: c.Model, Rows: map[string]vectorRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
 	for i := range embedMaxRows + 1 {
-		f.Rows[fmt.Sprintf("stale-%d", i)] = VectorRow{Root: root, Hash: "h"}
+		f.Rows[fmt.Sprintf("stale-%d", i)] = vectorRow{Root: root, Hash: "h"}
 	}
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 			nested = true
 			write(t, bankFile, v2)
 			cur := freshEmbedCache(inner)
-			cur.Rows["aaaa0001"] = VectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0001"] = vectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
@@ -383,8 +383,8 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 	vaulttest.SetRecord(t, "claude", "profile", "dev")
 	t.Setenv("CLAUDE_PROFILE", "qa")
 	seed := func(profile string) {
-		row := VectorRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
-		f := VectorRecord{Namespace: profile + "|h|gte", Model: "gte", Rows: map[string]VectorRow{"aaaa0001": row}}
+		row := vectorRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
+		f := vectorRecord{Namespace: profile + "|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": row}}
 		if err := saveEmbedCache(profile, f); err != nil {
 			t.Fatal(err)
 		}
@@ -407,7 +407,7 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 	if _, err := NewSemantic("q"); err != nil || len(opened) != 1 || opened[0] != "qa" {
 		t.Fatalf("qa cache present: opened %v err %v, want the session's own qa profile", opened, err)
 	}
-	if saveEmbedCache("../escape", VectorRecord{}) == nil {
+	if saveEmbedCache("../escape", vectorRecord{}) == nil {
 		t.Error("an unsafe profile name must not be stored")
 	}
 }
@@ -418,7 +418,7 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	t.Cleanup(SetEmbedRecallWait(50 * time.Millisecond))
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "fake")
-	f := VectorRecord{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]VectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	f := vectorRecord{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}
@@ -445,19 +445,19 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 }
 
 // loadEmbedCache is readEmbedCache with every failure folded into an empty record.
-func loadEmbedCache(profile string) VectorRecord {
+func loadEmbedCache(profile string) vectorRecord {
 	if !SafeProfile(profile) {
-		return VectorRecord{}
+		return vectorRecord{}
 	}
 	f, err := readEmbedCache(profile)
 	if err != nil {
-		return VectorRecord{}
+		return vectorRecord{}
 	}
 	return f
 }
 
 // saveEmbedCache stores f as profile's record unconditionally (one Put); the mint path uses commitEmbedMint.
-func saveEmbedCache(profile string, f VectorRecord) error {
+func saveEmbedCache(profile string, f vectorRecord) error {
 	if !SafeProfile(profile) {
 		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
 	}
@@ -519,7 +519,7 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 		cur := freshEmbedCache(newer)
 		cur.Dim, cur.DimAt = 2, time.Now().UnixNano()
 		for id, h := range currentEntryHashes(root) {
-			cur.Rows[id] = VectorRow{Root: root, Hash: h, Vec: encodeVec([]float32{1, 0})}
+			cur.Rows[id] = vectorRow{Root: root, Hash: h, Vec: encodeVec([]float32{1, 0})}
 		}
 		if err := saveEmbedCache("fake", cur); err != nil {
 			t.Error(err)
@@ -549,9 +549,9 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	write(t, bankFile, "# D\n\n"+e1)
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
-	f := VectorRecord{Namespace: inner.Namespace, Model: inner.Model, Rows: map[string]VectorRow{}}
+	f := vectorRecord{Namespace: inner.Namespace, Model: inner.Model, Rows: map[string]vectorRow{}}
 	for i := range embedMaxRows + 1 {
-		f.Rows[fmt.Sprintf("stale-%d", i)] = VectorRow{Root: root, Hash: "h"}
+		f.Rows[fmt.Sprintf("stale-%d", i)] = vectorRow{Root: root, Hash: "h"}
 	}
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
@@ -562,7 +562,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 			nested = true
 			write(t, bankFile, "# D\n\n"+e1+e2)
 			cur := loadEmbedCache("fake")
-			cur.Rows["aaaa0002"] = VectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
@@ -579,13 +579,13 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 
 // The dimension check is deterministic (dominant dimension), and an obsolete-dimension row is re-embedded.
 func TestMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
-	rows := map[string]VectorRow{}
+	rows := map[string]vectorRow{}
 	for _, id := range []string{"a", "b", "c"} {
-		rows[id] = VectorRow{Vec: encodeVec([]float32{1, 0, 0})}
+		rows[id] = vectorRow{Vec: encodeVec([]float32{1, 0, 0})}
 	}
-	rows["d"] = VectorRow{Vec: encodeVec([]float32{1, 0, 0, 0, 0})}
+	rows["d"] = vectorRow{Vec: encodeVec([]float32{1, 0, 0, 0, 0})}
 	for range 100 {
-		if !cacheDimMatches(VectorRecord{Rows: rows}, 3) || cacheDimMatches(VectorRecord{Rows: rows}, 5) {
+		if !cacheDimMatches(vectorRecord{Rows: rows}, 3) || cacheDimMatches(vectorRecord{Rows: rows}, 5) {
 			t.Fatal("dimension check must follow the dominant dimension on every call")
 		}
 	}

@@ -3,6 +3,7 @@ package memory
 import (
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -47,7 +48,7 @@ func NativeDupes(dir string, threshold float64) []NativeDupe {
 				cluster.Keep = c
 			}
 		}
-		cluster.Losers = without(append([]string{a}, cluster.Losers...), cluster.Keep)
+		cluster.Losers = slices.DeleteFunc(append([]string{a}, cluster.Losers...), func(n string) bool { return n == cluster.Keep })
 		seen[cluster.Keep] = true
 		out = append(out, cluster)
 	}
@@ -68,15 +69,4 @@ func dupeCluster(a string, rest []string, sets map[string]map[string]bool, seen 
 		}
 	}
 	return cluster
-}
-
-// without returns names minus drop, order preserved.
-func without(names []string, drop string) []string {
-	var out []string
-	for _, n := range names {
-		if n != drop {
-			out = append(out, n)
-		}
-	}
-	return out
 }

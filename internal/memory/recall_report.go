@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memory/recall"
@@ -45,7 +46,11 @@ func recallLoad(out, errw io.Writer, hits []bank.SearchHit, n int) {
 		}
 		block = strings.TrimSpace(block)
 		if len(block) > budget {
-			block = block[:budget]
+			cut := budget
+			for cut > 0 && !utf8.RuneStart(block[cut]) {
+				cut--
+			}
+			block = block[:cut]
 		}
 		fmt.Fprintf(out, "\n<!-- %s -->\n%s\n", h.ID, block)
 		budget -= len(block)

@@ -76,7 +76,7 @@ func (r Repo) Ensure() error {
 	if err := r.checkRoot(gitDir); err != nil {
 		return err
 	}
-	if remotes, err := r.Remotes(); err != nil {
+	if remotes, err := r.remotes(); err != nil {
 		return err
 	} else if len(remotes) > 0 {
 		return fmt.Errorf("memory repo is local-only but has remotes: %s", strings.Join(remotes, ", "))
@@ -123,8 +123,8 @@ func writeIfAbsent(path, body string, mode os.FileMode) error {
 	return os.WriteFile(path, []byte(body), mode)
 }
 
-// Remotes lists configured remote names; the store must have none.
-func (r Repo) Remotes() ([]string, error) {
+// remotes lists configured remote names; the store must have none.
+func (r Repo) remotes() ([]string, error) {
 	out, err := r.run("remote")
 	if err != nil {
 		return nil, err

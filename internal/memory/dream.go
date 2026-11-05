@@ -72,16 +72,7 @@ func PreviewDream(root string, now time.Time) DreamPreview {
 // previewOverflowCount is archiveFile's split, read-only: how many oldest blocks would
 // overflow path's cap.
 func previewOverflowCount(path string, capLines int) int {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0 // absent file — nothing to preview
-	}
-	if bank.LogicalLineCount(string(data)) <= capLines {
-		return 0
-	}
-	base := filepath.Base(path)
-	header, blocks := bank.EntryBlocks(base, string(data))
-	_, overflow := settledSplit(base, header, blocks, capLines)
+	_, _, overflow, _ := splitOverflow(path, capLines)
 	return len(overflow)
 }
 

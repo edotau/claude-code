@@ -71,7 +71,7 @@ var (
 
 // Verify prints mechanical evidence only; stale findings are data, not command failures.
 func Verify(w io.Writer, o VerifyOptions) error {
-	known, err := verifyStores(VerifyOptions{AllStores: true})
+	known, err := verifyStores()
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func writeVerifySummary(w io.Writer, counts map[string]int) error {
 	return err
 }
 
-func verifyStores(o VerifyOptions) ([]verifyStore, error) {
+func verifyStores() ([]verifyStore, error) {
 	origins, err := verifyOrigins()
 	if err != nil {
 		return nil, err
@@ -156,10 +156,7 @@ func verifyStores(o VerifyOptions) ([]verifyStore, error) {
 		}
 		stores = append(stores, s)
 	}
-	if o.AllStores {
-		return stores, nil
-	}
-	return verifySelectStore(stores, o.CWD)
+	return stores, nil
 }
 
 // verifyOrigins avoids ReadOrigin/RepoDirs, whose legacy fallback imports rows into the vault.
@@ -215,7 +212,7 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 	if root != "" {
 		root = paths.CanonDeep(root)
 	}
-	inStore := verifyWithin(paths.CanonDeep(memstore.StoreDir()), cwd)
+	inStore := paths.Within(cwd, paths.CanonDeep(memstore.StoreDir()))
 	best, home := bestStore(stores, cwd, root, inStore)
 	if best < 0 && (root == "" || inStore) {
 		best = home
@@ -244,17 +241,12 @@ func bestStore(stores []verifyStore, cwd, root string, inStore bool) (best, home
 				continue
 			}
 			candidate = paths.CanonDeep(candidate)
-			if (verifyWithin(candidate, cwd) || candidate == root) && len(candidate) > length {
+			if (paths.Within(cwd, candidate) || candidate == root) && len(candidate) > length {
 				best, length = i, len(candidate)
 			}
 		}
 	}
 	return best, home
-}
-
-func verifyWithin(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
@@ -264,7 +256,7 @@ func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
 			return err
 		}
 		if d.IsDir() {
-			if path != store.dir && (!archives || !verifyWithin(memstore.ArchiveDir(store.dir), path)) {
+			if path != store.dir && (!archives || !paths.Within(path, memstore.ArchiveDir(store.dir))) {
 				return filepath.SkipDir
 			}
 			return nil

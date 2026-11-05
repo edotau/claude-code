@@ -64,10 +64,10 @@ func Resolve(root string) Identity {
 // Without it the store's own git repo resolves as a project named "memory".
 func storeIdentity(root string) (Identity, bool) {
 	canon, store := paths.CanonDeep(root), paths.CanonDeep(StoreDir())
-	if !within(canon, store) {
+	if !paths.Within(canon, store) {
 		return Identity{}, false
 	}
-	if within(canon, paths.CanonDeep(HarnessStoreDir())) {
+	if paths.Within(canon, paths.CanonDeep(HarnessStoreDir())) {
 		return harnessIdentity(), true
 	}
 	entries, err := RepoDirs()
@@ -75,7 +75,7 @@ func storeIdentity(root string) (Identity, bool) {
 		return Identity{HomeBank: true}, true // never memoized by Resolve, so a recovered vault re-resolves
 	}
 	for _, e := range entries {
-		if o := e.Origin.Origin; o != "" && within(canon, paths.CanonDeep(e.Dir)) {
+		if o := e.Origin.Origin; o != "" && paths.Within(canon, paths.CanonDeep(e.Dir)) {
 			if paths.SamePath(o, paths.ConfigDir()) {
 				return harnessIdentity(), true
 			}
@@ -83,10 +83,6 @@ func storeIdentity(root string) (Identity, bool) {
 		}
 	}
 	return Identity{HomeBank: true}, true
-}
-
-func within(p, dir string) bool {
-	return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator))
 }
 
 // workspaceOrigin is the pinned non-git workspace (a store whose origin names root or an ancestor of it), or "".
@@ -346,8 +342,8 @@ func RepoDirs() ([]RepoEntry, error) {
 	return out, nil
 }
 
-// BankLockFile is the ONE store-wide lock; every harness write and every memory Git operation runs under it.
-const BankLockFile = "bank.lock"
+// bankLockFile is the ONE store-wide lock; every harness write and every memory Git operation runs under it.
+const bankLockFile = "bank.lock"
 
 // BankLockWait bounds how long a worker waits for the bank before giving up with ErrBankBusy.
 var BankLockWait = 5 * time.Second
@@ -356,7 +352,7 @@ var BankLockWait = 5 * time.Second
 var ErrBankBusy = errors.New("memory store busy: another harness worker holds the bank lock")
 
 // BankLockPath is the PHYSICAL lock file; nothing appends ".lock" to it (plan §3.1: no .lock.lock variants).
-func BankLockPath() string { return filepath.Join(StateDir(), BankLockFile) }
+func BankLockPath() string { return filepath.Join(StateDir(), bankLockFile) }
 
 // storeLockKey namespaces a bank dir's runtime lock files under state: the store dir's base name,
 // or "home" for the home bank itself — locks never live beside the committed memory store.

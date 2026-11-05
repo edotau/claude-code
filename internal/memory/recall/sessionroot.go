@@ -58,6 +58,9 @@ func RecordSessionRoot(sessionID, cwd string) {
 	if err == nil {
 		if err = os.Link(tmp, path); errors.Is(err, fs.ErrExist) {
 			err = nil
+			if SessionRoot(sessionID, "") == "" { // existing file is corrupt or relative: replace it
+				err = os.Rename(tmp, path)
+			}
 		}
 		_ = os.Remove(tmp)
 	}

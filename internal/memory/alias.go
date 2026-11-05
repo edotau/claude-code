@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // AliasOptions names the checkout to record and the store key it joins.
@@ -70,8 +71,14 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 		if res, p, perr = planAlias(opt, canon); perr != nil { // replan: the store may have moved since the preview read
 			return perr
 		}
+		if p.source == "" { // the separate store vanished before the lock; nothing to fold
+			return nil
+		}
 		return p.apply(opt.Now)
 	})
+	if err == nil && p.source == "" {
+		return res, memstore.AddOriginAlias(p.target, canon)
+	}
 	return res, err
 }
 
@@ -134,13 +141,13 @@ func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) 
 	return res, p, nil
 }
 
-func (p *aliasPlan) rel(dir, name string) string {
+func storeRel(dir, name string) string {
 	r, _ := filepath.Rel(memstore.StoreDir(), filepath.Join(dir, name))
 	return r
 }
 
 func (p *aliasPlan) addWrite(dir, name string, data []byte, res *AliasResult, line string) {
-	p.changes = append(p.changes, bank.Change{Rel: p.rel(dir, name), Data: data})
+	p.changes = append(p.changes, bank.Change{Rel: storeRel(dir, name), Data: data})
 	res.Lines = append(res.Lines, line)
 }
 
@@ -161,7 +168,7 @@ func (p *aliasPlan) foldFiles(src, tgt memstore.RepoEntry, res *AliasResult) err
 		if err != nil {
 			return err
 		}
-		p.changes = append(p.changes, bank.Change{Rel: p.rel(src.Dir, rel), Delete: true})
+		p.changes = append(p.changes, bank.Change{Rel: storeRel(src.Dir, rel), Delete: true})
 		return p.foldOne(path, rel, data, src, tgt, res)
 	})
 }
@@ -281,12 +288,12 @@ func mergeLog(name, tgt, src string) (string, int) {
 func blocksMissingFrom(blocks, sblocks []string) []string {
 	ids, texts := map[string]bool{}, map[string]bool{}
 	for _, b := range blocks {
-		ids[bank.BlockID(firstLine(b))] = true
+		ids[bank.BlockID(textutil.FirstLine(b))] = true
 		texts[strings.TrimSpace(bank.StripID(b))] = true
 	}
 	var add []string
 	for _, b := range sblocks {
-		id, t := bank.BlockID(firstLine(b)), strings.TrimSpace(bank.StripID(b))
+		id, t := bank.BlockID(textutil.FirstLine(b)), strings.TrimSpace(bank.StripID(b))
 		if (id != "" && ids[id]) || texts[t] {
 			continue
 		}
@@ -316,11 +323,6 @@ func sortNewestFirst(all []string) []string {
 		sorted[i] = all[j]
 	}
 	return sorted
-}
-
-func firstLine(s string) string {
-	l, _, _ := strings.Cut(s, "\n")
-	return l
 }
 
 // projectLinksTo lists <cfg>/projects/*/memory symlinks that resolve to dir.
