@@ -1,4 +1,4 @@
-package clean
+package setup
 
 import (
 	"bytes"
@@ -40,7 +40,7 @@ func TestSessionsRegistryDeadPidOldEntryRemoved(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, jsonPath) || exists(t, keyPath) {
@@ -61,7 +61,7 @@ func TestSessionsRegistryAlivePidKept(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if !exists(t, jsonPath) || !exists(t, keyPath) {
@@ -72,7 +72,7 @@ func TestSessionsRegistryAlivePidKept(t *testing.T) {
 	pidAlive = func(int) bool { return false }
 	out.Reset()
 	errw.Reset()
-	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, jsonPath) || exists(t, keyPath) {
@@ -92,7 +92,7 @@ func TestSessionsRegistryDeadPidRecentEntryRemoved(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", time.Now())
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, jsonPath) || exists(t, keyPath) {
@@ -113,7 +113,7 @@ func TestSessionsRegistryUnparsableNameKept(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "notapid", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if !exists(t, jsonPath) || !exists(t, keyPath) {
@@ -135,13 +135,13 @@ func TestSessionsRegistrySplitFromSessionsTarget(t *testing.T) {
 	liveJSON, liveKey := seedRegistryEntry(t, dir, "1111", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target sessions = %d: %s", code, errw.String())
 	}
 	if !exists(t, deadJSON) || !exists(t, deadKey) {
 		t.Error("--target sessions removed registry files; they belong to session-registry")
 	}
-	if code := Run(nil, &out, &errw); code != 0 {
+	if code := Clean(nil, &out, &errw); code != 0 {
 		t.Fatalf("bare Run = %d: %s", code, errw.String())
 	}
 	if exists(t, deadJSON) || exists(t, deadKey) {
@@ -167,7 +167,7 @@ func TestSessionsRegressionTranscriptStillRemovedAlongsideRegistry(t *testing.T)
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, transcript) || exists(t, sessDir) {
@@ -198,7 +198,7 @@ func TestCleanCopilotRegistryTargetKeepsLivePid(t *testing.T) {
 	write(t, dead, "{}")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "copilot-registry"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "copilot-registry"}, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d: %s", code, errw.String())
 	}
 	if exists(t, dead) || !exists(t, live) {

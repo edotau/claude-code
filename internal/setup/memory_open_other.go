@@ -1,6 +1,6 @@
 //go:build !linux
 
-package clean
+package setup
 
 import (
 	"context"

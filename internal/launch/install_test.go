@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/paths"
@@ -22,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -66,11 +66,11 @@ func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
 
 // A nested dir that holds only Claude Code's own worktrees is fine; other Keep reasons still ask for a move.
 func TestNestedDetailWorktrees(t *testing.T) {
-	only := clean.Nested{Dir: "/x/.claude", Files: []string{"worktrees"}, Keep: []string{clean.KeepWorktrees}}
+	only := setup.Nested{Dir: "/x/.claude", Files: []string{"worktrees"}, Keep: []string{setup.KeepWorktrees}}
 	if !only.OnlyWorktrees() || !strings.Contains(nestedDetail(only), "holds only linked worktrees") {
 		t.Fatalf("only-worktrees nested dir: %q", nestedDetail(only))
 	}
-	mixed := clean.Nested{Dir: "/x/.claude", Files: []string{"worktrees", "settings.json"}, Keep: []string{"settings.json:model", clean.KeepWorktrees}}
+	mixed := setup.Nested{Dir: "/x/.claude", Files: []string{"worktrees", "settings.json"}, Keep: []string{"settings.json:model", setup.KeepWorktrees}}
 	if d := nestedDetail(mixed); mixed.OnlyWorktrees() || !strings.Contains(d, "move settings.json:model into") || strings.Contains(d, "worktrees") {
 		t.Fatalf("mixed nested dir: %q", d)
 	}

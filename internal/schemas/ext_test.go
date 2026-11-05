@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/clean"
 	_ "github.com/edotau/claude-code/internal/cli" // links every package that registers a row
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/setup"
 )
 
 var update = flag.Bool("update", false, "regenerate testdata/registry.golden")
@@ -203,7 +203,7 @@ func TestContractCleanSweeps(t *testing.T) {
 func cleanSweep(t *testing.T, target string) string {
 	t.Helper()
 	var out, errw bytes.Buffer
-	if code := clean.Run([]string{"--target", target, "--dry-run", "--older-than", "30d"}, &out, &errw); code != 0 {
+	if code := setup.Clean([]string{"--target", target, "--dry-run", "--older-than", "30d"}, &out, &errw); code != 0 {
 		t.Fatalf("clean exit %d: %s", code, errw.String())
 	}
 	return out.String() + errw.String()
