@@ -209,9 +209,12 @@ var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 // Dimension.Name(); today "price", "headroom"); this package only validates shape, router owns the scoring.
 var routeWeightNames = []string{"price", "headroom"}
 
+// FirstPartyAccountKeys are each vendor's own CLI login on its own subscription (router's first-party ladder).
+var FirstPartyAccountKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "opencode·go"}
+
 // routeBillingKeys are the routing table's static account_key values; a "github·" prefix also passes (added at load).
-var routeBillingKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "github·copilot",
-	"opencode·go", "opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free"}
+var routeBillingKeys = append(slices.Clone(FirstPartyAccountKeys), "github·copilot",
+	"opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free")
 
 // routeOpencodeModelPrefixes are the prefixes an opencode override cell may carry.
 var routeOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}

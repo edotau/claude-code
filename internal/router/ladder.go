@@ -25,11 +25,9 @@ var RouteModes = []string{RouteDefault, routeFirstParty}
 // gateLadder drops a candidate the chosen ladder rules out (not first-party, or a rung model the account can't serve).
 const gateLadder = "ladder"
 
-// firstPartyAccounts are each vendor's own CLI login on its own subscription; a "github·" account also passes.
-var firstPartyAccounts = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "opencode·go"}
-
+// firstPartyAccount is a vendor's own login (providers.FirstPartyAccountKeys); a pinned "github·" account also passes.
 func firstPartyAccount(account string) bool {
-	return (strings.HasPrefix(account, "github·") && account != CopilotUnpinned) || slices.Contains(firstPartyAccounts, account)
+	return (strings.HasPrefix(account, "github·") && account != CopilotUnpinned) || slices.Contains(providers.FirstPartyAccountKeys, account)
 }
 
 // ladderName is first-party only when HARNESS_ROUTE (`--route` sets it) asks; else default (agent pins decide).
