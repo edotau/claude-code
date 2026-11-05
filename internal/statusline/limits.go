@@ -45,30 +45,32 @@ func onSubscription(session string) bool {
 	return p != nil && p.Provider == "anthropic" && p.Auth.Method() == providers.AuthCLI
 }
 
-// tokenLabel names the credential in the countdown: "m2m" for a service principal, else "u2m" (a recorded expiry is a user OAuth JWT).
+// tokenLabel names the credential in the countdown: pat or m2m by the profile's auth, else u2m (a user OAuth JWT).
 func tokenLabel(session string) string {
 	if reg := registry(); reg != nil {
 		if p := reg.Providers[session]; p != nil {
-			if p.Auth.Method() == providers.AuthM2M {
-				return providers.AuthM2M
+			if m := p.Auth.Method(); m == providers.AuthM2M || m == providers.AuthPAT {
+				return m
 			}
 		}
 	}
 	return "u2m"
 }
 
-// tokenLeft renders the time until exp: "u2m:42min", "m2m:1h05min", "u2m:<1min", or "u2m:exp" once past.
+// tokenLeft renders the time until exp: "u2m:30m", "m2m:1h05m", "pat:89d", "u2m:<1m", or "u2m:exp" once past.
 func tokenLeft(method string, exp, now time.Time) string {
 	left := exp.Sub(now)
 	switch {
 	case left <= 0:
 		return method + ":exp"
 	case left < time.Minute:
-		return method + ":<1min"
+		return method + ":<1m"
 	case left < time.Hour:
-		return fmt.Sprintf("%s:%dmin", method, int(left/time.Minute))
+		return fmt.Sprintf("%s:%dm", method, int(left/time.Minute))
+	case left < 24*time.Hour:
+		return fmt.Sprintf("%s:%dh%02dm", method, int(left/time.Hour), int(left%time.Hour/time.Minute))
 	}
-	return fmt.Sprintf("%s:%dh%02dmin", method, int(left/time.Hour), int(left%time.Hour/time.Minute))
+	return fmt.Sprintf("%s:%dd", method, int(left/(24*time.Hour)))
 }
 
 // pct is the window's rounded used percent; -1 when absent or its reset already passed.

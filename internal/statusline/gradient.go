@@ -29,12 +29,11 @@ func easeAt(t, exp float64) float64 {
 }
 
 // renderGradient paints "user:" then sweeps the ramp from the path across cfg.Order, the branch and the
-// velocity counts; separators, troughs and the dot keep their own tones.
+// velocity counts; separators, empty cells and the dot keep their own tones.
 func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	dim := ansi.Hex(pal.Sem("dim"))
 	cells := gradientCells(v, cfg)
 	total := max(len(cells)-1, 1)
-	trough := troughTone(cfg.Bar)
 	var out strings.Builder
 	if cfg.seg("path", true) {
 		if cfg.UserColor == "ansi" {
@@ -47,10 +46,10 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 	for i, c := range cells {
 		rgb := ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase))
 		switch c.kind {
-		case "sep":
+		case "sep", "empty": // empty ─ cells take the separator dim: the trough tone all but vanished on them
 			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))
-		case "empty":
-			out.WriteString(ansi.Paint(mode, trough, string(c.ch), false))
+		case "nl":
+			out.WriteByte('\n')
 		case "dot":
 			out.WriteString(ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true))
 		default:
@@ -98,7 +97,19 @@ func (b *cellBuf) pushContext(v values) {
 	b.push("ctx ", "g")
 	b.push(filled, "filled")
 	b.push(bar[len(filled):], "empty")
-	b.push(fmt.Sprintf(" %.1f%%", d.ctxPct)+twoSep+compactTokens(d.tokens)+"/"+strings.ToLower(compactTokens(d.size)), "g")
+	b.push(fmt.Sprintf(" %.1f%%", d.ctxPct)+twoSep+compactTokens(d.tokens)+"/"+compactTokens(d.size), "g")
+	if v.limits != "" {
+		b.push(" "+v.limits, "g") // 7d:N% on a subscription, else the token countdown
+	}
+}
+
+// pushBreak starts the context block: a line break when the line wraps, else the major separator.
+func (b *cellBuf) pushBreak(wrap bool, sepMajor string) {
+	if wrap {
+		b.cells = append(b.cells, cell{'\n', "nl"})
+		return
+	}
+	b.pushSep(sepMajor)
 }
 
 func gradientCells(v values, cfg Config) []cell {
@@ -111,18 +122,18 @@ func gradientCells(v values, cfg Config) []cell {
 	return b.cells
 }
 
-// pushMetrics pushes every enabled segment in cfg.Order but path, limits and total: the context block after the
+// pushMetrics pushes enabled cfg.Order segments but path, provider, limits and total: the context block after the
 // major separator, the rest as text joined by the minor separator.
 func (b *cellBuf) pushMetrics(v values, cfg Config) {
 	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")
 	emitted := false
 	for _, key := range cfg.Order {
-		if key == "path" || key == "limits" || key == "total" || !cfg.seg(key, true) {
+		if key == "path" || key == "provider" || key == "limits" || key == "total" || !cfg.seg(key, true) {
 			continue
 		}
 		if key == "context" {
-			b.pushSep(sepMajor)
+			b.pushBreak(v.wrap, sepMajor)
 			b.pushContext(v)
 			emitted = true
 			continue

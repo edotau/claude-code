@@ -37,7 +37,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("want 2 rows, got %q", rows)
 	}
-	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42min · Fable 5.1:high"; rows[0] != want {
+	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42m · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
 	want := "ctx ━━━━━━━━━─────────── 47.2% · 94.4k/200k · 7d ━━──────── 18%"
