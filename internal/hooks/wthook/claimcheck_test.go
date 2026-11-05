@@ -43,6 +43,50 @@ func claimCheckOn(t *testing.T, repo, session, tool string, input map[string]any
 		"tool_input": input}))
 }
 
+func TestClaimCheckGitPathspecs(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	for _, args := range []string{"'" + filepath.Join(repo, "a.txt") + "'", "'*.txt'", "':(top)a.txt'"} {
+		r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add -- " + args})
+		if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") {
+			t.Errorf("git add -- %s: %v %q; want an ask for a.txt", args, r.Decision, r.Reason)
+		}
+	}
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add -- . ':(exclude)a.txt'"})
+	if r.Decision != core.Allow {
+		t.Fatalf("excluded peer file: %v %q; want allow", r.Decision, r.Reason)
+	}
+	if err := os.Remove(filepath.Join(repo, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	gittest.In(t, repo, "add", "--", "a.txt")
+	useClaimOwner(t, liveOwner)
+	Claim(claimInput(t, map[string]any{"session_id": "deleter", "cwd": repo, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "git add -- a.txt"}}))
+	claims, err := liveClaims(&core.Input{SessionID: "A"})
+	if err != nil || len(claims[filepath.Join(repo, "a.txt")]) != 1 {
+		t.Fatalf("staged deletion lost its claim: %v, err = %v", claims, err)
+	}
+	r = claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x -- a.txt"})
+	if r.Decision != core.Ask {
+		t.Fatalf("commit of staged deletion: %v %q; want ask", r.Decision, r.Reason)
+	}
+}
+
+func TestClaimCheckQuotedStagedPath(t *testing.T) {
+	repo := claimFixture(t)
+	const name = "caf\u00e9.txt"
+	gittest.WriteRel(t, repo, name, "external edit\n")
+	gittest.In(t, repo, "-c", "core.quotePath=true", "add", "--", name)
+	useClaimOwner(t, liveOwner)
+	Claim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "git add -- ."}}))
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git -c core.quotePath=true commit -m x"})
+	if r.Decision != core.Ask || !strings.Contains(r.Reason, name+" takes") {
+		t.Fatalf("bare commit of quoted filename: %v %q; want an ask for %s", r.Decision, r.Reason, name)
+	}
+}
+
 // TestClaimCheck: a live peer's dirty claim advises once and asks on staging; a dead owner's claim and file go.
 func TestClaimCheck(t *testing.T) {
 	repo := claimFixture(t)

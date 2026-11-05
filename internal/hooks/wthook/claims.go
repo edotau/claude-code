@@ -54,11 +54,8 @@ func Claim(in *core.Input) core.Result {
 	}
 	now := time.Now().Unix()
 	var lines []claim
-	if p := in.Nested("tool_input", "file_path"); p != "" {
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(in.CWD, p)
-		}
-		lines = append(lines, claim{Path: core.CanonPath(p), Agent: in.AgentID, TS: now})
+	if p := editPath(in); p != "" {
+		lines = append(lines, claim{Path: p, Agent: in.AgentID, TS: now})
 	} else if in.ToolName == "Bash" {
 		lines = bashClaims(in, now)
 	}
@@ -104,11 +101,17 @@ func addedPaths(ctx context.Context, target string, args []string) []string {
 		return nil
 	}
 	top := core.CanonPath(tops[0])
-	scopes, _ := stageScopes(ctx, top, target, "add", args) // add never runs git here, so never errors
-	staged, _, _ := core.Git(ctx, top, "diff", "--cached", "--name-only")
+	scopes, err := stageScopes(ctx, top, target, "add", args)
+	if err != nil {
+		return nil
+	}
+	staged, err := gitPaths(ctx, top, top, "diff", "--cached", "--name-only", "-z")
+	if err != nil {
+		return nil
+	}
 	var out []string
-	for _, s := range staged {
-		if p := filepath.Join(top, s); s != "" && underAny(p, scopes) {
+	for _, p := range staged {
+		if underAny(p, scopes) {
 			out = append(out, p)
 		}
 	}

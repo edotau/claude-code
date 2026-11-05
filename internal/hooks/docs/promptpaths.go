@@ -82,7 +82,7 @@ func scanPosixTokens(text string) []pathToken {
 // else type/size. ok=false for non-regular files (a bare directory match is noise, not an attachment).
 func describe(p string) (detail string, isImage bool, ok bool) {
 	fi, err := os.Stat(p)
-	if err != nil || fi.IsDir() {
+	if err != nil || !fi.Mode().IsRegular() {
 		return "", false, false
 	}
 	size := strings.ReplaceAll(textutil.HumanBytes(fi.Size()), "iB", "B")
