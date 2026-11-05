@@ -1,4 +1,4 @@
-package hooks
+package memory
 
 import (
 	"encoding/json"
@@ -59,8 +59,8 @@ func sessionUpdate(in *core.Input, stderr io.Writer) (code int, failedOpen bool)
 	return core.ExitProceed, failedOpen
 }
 
-// sessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
-func sessionUpdateEnd(in *core.Input) core.Result {
+// End (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
+func End(in *core.Input) core.Result {
 	in = sessionRootInput(in)
 	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
@@ -70,8 +70,8 @@ func sessionUpdateEnd(in *core.Input) core.Result {
 	return core.Result{}
 }
 
-// preCompact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
-func preCompact(in *core.Input) core.Result {
+// Compact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
+func Compact(in *core.Input) core.Result {
 	in = sessionRootInput(in)
 	if !updatable(in) {
 		return core.Result{}

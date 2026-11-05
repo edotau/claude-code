@@ -1,4 +1,4 @@
-package hooks
+package memory
 
 import (
 	"bytes"
@@ -27,9 +27,6 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	spawnDream = func(string) bool { return true }
-	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
-	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
-	peerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	cleanup()
 	os.Exit(code)
@@ -67,22 +64,6 @@ func appendUserTurns(t *testing.T, path string, n int) {
 	}
 }
 
-// stubSpawn replaces BOTH detached seams: a successful update dispatch also claims an idle watcher, and a
-// test must never start a real one.
-// The counter is atomic: the idle watcher runs the stub on its own goroutine while the test polls.
-func stubSpawn(t *testing.T, ok bool) *atomic.Int64 {
-	t.Helper()
-	calls := new(atomic.Int64)
-	orig, origWatch, origDream := spawnUpdate, spawnWatcher, spawnDream
-	spawnUpdate = func(string, string, string) bool { calls.Add(1); return ok }
-	spawnWatcher = func([]string, string) bool { return true }
-	spawnDream = func(string) bool { return true }
-	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
-	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
-	t.Cleanup(func() { spawnUpdate, spawnWatcher, spawnDream = orig, origWatch, origDream })
-	return calls
-}
-
 func updatePayload(tr, cwd string) string {
 	return fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q}`, cwd, tr)
 }
@@ -99,7 +80,7 @@ func newUpdateRun(t *testing.T) *updateRun {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(bank.UpdateChildEnv, "")
-	return &updateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: stubSpawn(t, true)}
+	return &updateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: StubSpawnForTest(t, true)}
 }
 
 func (u *updateRun) stop() int {
@@ -107,7 +88,7 @@ func (u *updateRun) stop() int {
 }
 
 func (u *updateRun) end() {
-	runDirect("memory-end", strings.NewReader(updatePayload(u.tr, u.cwd)), io.Discard, io.Discard)
+	End(core.ParseInput(strings.NewReader(updatePayload(u.tr, u.cwd))))
 }
 
 // wantSpawns fails the test unless exactly want detached updates have been dispatched so far.
@@ -165,7 +146,7 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	writeEdits(t, tr, 5)
-	stubSpawn(t, false)
+	StubSpawnForTest(t, false)
 	codes := []int{}
 	for range 5 {
 		var errb bytes.Buffer
@@ -372,7 +353,7 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	run := func() int {
 		return runDirect("memory-compact", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard)
 	}
@@ -401,7 +382,7 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	run := func() int {
 		return sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	}
@@ -427,7 +408,7 @@ func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	payload := func() *strings.Reader { return strings.NewReader(updatePayload(tr, cwd)) }
 
 	writeEdits(t, tr, 3)
@@ -544,7 +525,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 20)
 	cwd := t.TempDir()
-	stubSpawn(t, false)
+	StubSpawnForTest(t, false)
 	var errb bytes.Buffer
 	code := sessionUpdateCode(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
 	if code != core.ExitBlock && code != core.ExitProceed {
@@ -734,7 +715,7 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	writeEdits(t, tr, 5)
-	stubSpawn(t, false)
+	StubSpawnForTest(t, false)
 	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}

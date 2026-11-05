@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/memory"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -274,7 +275,7 @@ func seedHomeRecallBlock(t *testing.T, n int) {
 const recallPrompt = "stage the deploy pipeline staging signoff rollout"
 
 // TestAgentEffortRecallBlockCappedAtThreeHitsAndByteBudget: agentRecall never cites more than 3
-// ids and the appended block (whole lines only) never exceeds agentRecallBlockCapBytes.
+// ids and the appended block (whole lines only) never exceeds memory.AgentRecallBlockCapBytes.
 func TestAgentEffortRecallBlockCappedAtThreeHitsAndByteBudget(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedHomeRecallBlock(t, 5) // more candidates than the k=3 cap
@@ -288,31 +289,8 @@ func TestAgentEffortRecallBlockCappedAtThreeHitsAndByteBudget(t *testing.T) {
 	if n := strings.Count(block, "\n- "); n == 0 || n > 3 {
 		t.Errorf("recall block cites %d ids, want 1-3: %q", n, block)
 	}
-	if len(block) > agentRecallBlockCapBytes {
-		t.Errorf("recall block is %d bytes, want <= %d: %q", len(block), agentRecallBlockCapBytes, block)
-	}
-}
-
-// TestCapRecallLinesDropsWholeTrailingLinesToFitByteBudget: capRecallLines is the last line of
-// defense once a future preview widening pushes a block over budget — it must drop whole trailing
-// lines (never truncate one mid-string) until the block fits, and return the matching kept count.
-func TestCapRecallLinesDropsWholeTrailingLinesToFitByteBudget(t *testing.T) {
-	long := "\n- " + strings.Repeat("x", 350)
-	block, n := capRecallLines([]string{long, long, long})
-	if n != 2 || strings.Count(block, long) != 2 {
-		t.Fatalf("kept n=%d, want 2 whole lines: %q", n, block)
-	}
-	if len(block) > agentRecallBlockCapBytes {
-		t.Errorf("block is %d bytes, want <= %d", len(block), agentRecallBlockCapBytes)
-	}
-	if strings.Contains(block, "x…") || strings.Contains(block, "…") {
-		t.Errorf("a line was cut mid-string instead of dropped whole: %q", block)
-	}
-	if block, n := capRecallLines(nil); block != "" || n != 0 {
-		t.Errorf("capRecallLines(nil) = (%q, %d), want (\"\", 0)", block, n)
-	}
-	if _, n := capRecallLines([]string{strings.Repeat("y", 2000)}); n != 0 {
-		t.Errorf("a single line too big alone must drop to empty, got n=%d", n)
+	if len(block) > memory.AgentRecallBlockCapBytes {
+		t.Errorf("recall block is %d bytes, want <= %d: %q", len(block), memory.AgentRecallBlockCapBytes, block)
 	}
 }
 
@@ -328,7 +306,7 @@ func TestAgentEffortExplicitModelRecallAppendsPromptOnly(t *testing.T) {
 		t.Errorf("model = %v, want untouched \"opus\"", doc.HSO.UpdatedInput["model"])
 	}
 	prompt, _ := doc.HSO.UpdatedInput["prompt"].(string)
-	if !strings.Contains(prompt, agentRecallMarker) {
+	if !strings.Contains(prompt, memory.AgentRecallMarker) {
 		t.Errorf("prompt missing the recall block: %q", prompt)
 	}
 	if doc.SystemMessage != "" {
@@ -351,7 +329,7 @@ func TestAgentEffortNoHitsNoPinEmitsNothing(t *testing.T) {
 func TestAgentEffortRecallSkipsPromptAlreadyCarryingMarker(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedHomeRecallBlock(t, 1)
-	already := recallPrompt + "\n\n" + agentRecallMarker + "\n- old hit\n</memory-recall>"
+	already := recallPrompt + "\n\n" + memory.AgentRecallMarker + "\n- old hit\n</memory-recall>"
 	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q,"model":"opus"}}`, already)
 	got, _ := runAgentEffort(t, in)
 	if got != nil {
@@ -381,7 +359,7 @@ func TestAgentEffortRecallPreservesAllInputKeysWithModelFill(t *testing.T) {
 		t.Error("model was not filled alongside the recall append")
 	}
 	prompt, _ := got["prompt"].(string)
-	if !strings.Contains(prompt, agentRecallMarker) {
+	if !strings.Contains(prompt, memory.AgentRecallMarker) {
 		t.Errorf("prompt missing the recall block: %q", prompt)
 	}
 }
@@ -414,7 +392,7 @@ func TestAgentRecallHandlesCwdGracefully(t *testing.T) {
 
 	// agentRecall should not panic or crash when CWD is empty (Getwd fallback path).
 	// The result might be empty (no hits) but the function should not crash.
-	block, ids := agentRecall("test-session", "", "alpha bravo charlie strong pattern matching")
+	block, ids := memory.AgentRecall("test-session", "", "alpha bravo charlie strong pattern matching")
 
 	// No assertions on finding content (would need a real bank setup), just that it doesn't crash.
 	_ = block // might be empty if no bank is available

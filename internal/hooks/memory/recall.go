@@ -1,4 +1,4 @@
-package hooks
+package memory
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 )
 
-func memoryRecall(in *core.Input) core.Result {
+func Recall(in *core.Input) core.Result {
 	in = sessionRootInput(in)
 	picks, trace := memrecall.RecallPicks(in.CWD, in.SessionID, in.Prompt, true, false)
 	if after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: "); ok {

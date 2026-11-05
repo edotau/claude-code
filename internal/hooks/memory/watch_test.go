@@ -1,4 +1,4 @@
-package hooks
+package memory
 
 import (
 	"bytes"
@@ -70,7 +70,7 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 9)
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	writeStamp(stampPath("idle"), time.Now().Add(-time.Hour), "bg", 4) // a checkpoint covered 4 of the 9
 
 	if !idleDispatched(tr, "idle") || calls.Load() != 1 {
@@ -89,7 +89,7 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	}
 	var note bytes.Buffer
 	writeEdits(t, tr, 5)
-	stubSpawn(t, false)
+	StubSpawnForTest(t, false)
 	if _, failed := idleUpdateOnce(tr, filepath.Dir(tr), "idle2", &note); !failed || !strings.Contains(note.String(), "not spawned") {
 		t.Errorf("a failed spawn must be noted and flagged for retry: failed=%v %q", failed, note.String())
 	}
@@ -107,7 +107,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 
 	if !idleDispatched(tr, "idle-sub") || calls.Load() != 1 {
 		t.Fatalf("1 main + 10 subagent edits must dispatch the final update (calls=%d)", calls.Load())
@@ -129,7 +129,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	writeEdits(t, tr, 6)
-	stubSpawn(t, true)
+	StubSpawnForTest(t, true)
 	watches := stubWatcher(t, true)
 	run := func() { sessionUpdateCode(core.ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}) }
 
@@ -198,7 +198,7 @@ func TestIdleUpdateWatchUpdatesQuietTranscript(t *testing.T) {
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	var note bytes.Buffer
 	done := make(chan int, 1)
 	go func() {
@@ -234,7 +234,7 @@ func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
-	calls := stubSpawn(t, true)
+	calls := StubSpawnForTest(t, true)
 	done := make(chan int, 1)
 	go func() {
 		done <- IdleUpdateWatch([]string{"--session", "fresh", "--transcript", tr, "--cwd", filepath.Dir(tr),

@@ -1,4 +1,4 @@
-package hooks
+package memory
 
 import (
 	"fmt"
@@ -18,8 +18,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// sessionStart injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
-func sessionStart(in *core.Input) core.Result {
+// Start injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
+func Start(in *core.Input) core.Result {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()

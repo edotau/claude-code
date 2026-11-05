@@ -3,7 +3,7 @@
 // stretch of work stays in the transcript. One detached watcher per session polls the transcript's
 // mtime; once it has been quiet for the idle period and holds edits no dispatch covered, it dispatches
 // the same detached worker the Stop gate uses, then keeps watching until its owner or lifetime is gone.
-package hooks
+package memory
 
 import (
 	"fmt"
@@ -169,4 +169,10 @@ func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnF
 	}
 	_ = writeStamp(stamp, time.Now(), "bg", edits) // best effort: a lost stamp only re-dispatches later
 	return true, false
+}
+
+// ownerDead is true only when the probe itself is trusted: off unix Alive is always false, and
+// treating every pid as dead there would silently disable the idle-update watcher.
+func ownerDead(pid int) bool {
+	return pid > 0 && proc.Alive(os.Getpid()) && !proc.Alive(pid)
 }

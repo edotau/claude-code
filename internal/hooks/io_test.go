@@ -14,8 +14,9 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func bashPayload(cmd string) *strings.Reader {
@@ -273,44 +274,6 @@ func TestRegistryMatchesHookspec(t *testing.T) {
 	}
 }
 
-func TestContextCheckpoint(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
-		t.Setenv(k, "")
-	}
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	line := `{"type":"assistant","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":%d,"cache_read_input_tokens":0,"output_tokens":0}}}` + "\n"
-	payload := fmt.Sprintf(`{"session_id":"s1","transcript_path":%q}`, tr)
-	_ = os.WriteFile(tr, fmt.Appendf(nil, line, 100_000), 0o600)
-	calls := stubSpawn(t, true)
-	contextCheckpoint(core.ParseInput(strings.NewReader(payload)))
-	if calls.Load() != 0 {
-		t.Fatalf("50%% must not spawn, got %d", calls.Load())
-	}
-	_ = os.WriteFile(tr, fmt.Appendf(nil, line, 180_000), 0o600)
-	contextCheckpoint(core.ParseInput(strings.NewReader(payload)))
-	if calls.Load() != 1 {
-		t.Fatalf("90%% must spawn once, got %d", calls.Load())
-	}
-	contextCheckpoint(core.ParseInput(strings.NewReader(payload)))
-	if calls.Load() != 1 {
-		t.Errorf("second Stop in the same session must not spawn again, got %d", calls.Load())
-	}
-	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-5[1m]")
-	other := strings.Replace(payload, "s1", "s2", 1)
-	contextCheckpoint(core.ParseInput(strings.NewReader(other)))
-	if calls.Load() != 1 {
-		t.Error("a [1m] session at 180K is 18% and must not spawn")
-	}
-	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "")
-	spawnUpdate = func(string, string, string) bool { return false }
-	failed := strings.Replace(payload, "s1", "s3", 1)
-	contextCheckpoint(core.ParseInput(strings.NewReader(failed)))
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "checkpoint", "s3")); err == nil {
-		t.Error("a failed spawn must clear the once-per-session flag")
-	}
-}
-
 // Every command in the rendered codex/copilot hook files is `hook <Event> --<module>` for a module on that event.
 func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 	cmdRe := regexp.MustCompile(`claude-code hook (\S+)(?: --([a-z][a-z0-9-]*))?`)
@@ -484,4 +447,16 @@ func TestHarnessGitBlocked(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMain stubs the live-process scans and the usage cache so no hook test reads the real machine.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
+	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
+	peerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
