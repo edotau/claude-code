@@ -44,7 +44,7 @@ func CopilotBash(stdin io.Reader, stderr io.Writer) int {
 	}
 	cmd = shell.CanonicalSelf(cmd)
 	home, _ := os.UserHomeDir() // ~/worktrees holds the linked worktrees a ~/.claude session works in
-	if !shell.Command(cmd, []string{workDir, filepath.Join(home, "worktrees")}, agentconfig.ShellPolicy().HookExtras) {
+	if !shell.CommandIn(cmd, workDir, []string{workDir, filepath.Join(home, "worktrees")}, agentconfig.ShellPolicy().HookExtras) {
 		fmt.Fprintln(stderr, copilotBashReason())
 		return core.ExitBlock
 	}

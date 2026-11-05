@@ -250,6 +250,21 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 	return "", false
 }
 
+// shellCwd is the directory the shell request runs in ("" when the runtime did not report one).
+func shellCwd(req copilot.PermissionRequest) string {
+	var wd *string
+	switch r := req.(type) {
+	case rpc.PermissionRequestShell:
+		wd = r.ResolvedWorkingDirectory
+	case *rpc.PermissionRequestShell:
+		wd = r.ResolvedWorkingDirectory
+	}
+	if wd == nil {
+		return ""
+	}
+	return *wd
+}
+
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	cmd, ok := shellCommand(req)
 	if !readOnlyKinds[req.Kind()] && (!ok || !shell.ReadOnlyGit(cmd)) {
@@ -524,7 +539,7 @@ func scopedAllowed(req copilot.PermissionRequest, workDir string) bool {
 		return true
 	case rpc.PermissionRequestKindShell:
 		cmd, ok := shellCommand(req)
-		return ok && shell.Command(shell.CanonicalSelf(cmd), []string{workDir}, nil)
+		return ok && shell.CommandIn(shell.CanonicalSelf(cmd), shellCwd(req), []string{workDir}, nil)
 	}
 	return false
 }

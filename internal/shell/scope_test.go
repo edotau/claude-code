@@ -144,6 +144,16 @@ func TestCommandRm(t *testing.T) {
 			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
 		}
 	}
+	for _, cwd := range []string{"", "sub", outside} {
+		for _, cmd := range []string{"rm a.go", "ls"} {
+			if CommandIn(cmd, cwd, []string{root, wt}, nil) {
+				t.Errorf("CommandIn allowed %q from cwd %q outside the roots", cmd, cwd)
+			}
+		}
+	}
+	if !CommandIn("rm c.go", filepath.Join(root, "sub"), []string{root, wt}, nil) {
+		t.Error("rm c.go from cwd root/sub was refused")
+	}
 	// .git itself is a symlink to an in-root dir: the lexical .git component must still refuse.
 	if err := os.RemoveAll(filepath.Join(root, ".git")); err != nil {
 		t.Fatal(err)
