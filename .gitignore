@@ -51,6 +51,8 @@ SEARCHABLE.md
 # claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.
 /skills/synced/
 /skills/.trash/
+# Claude Code's local feedback drafts (/feedback); never committed.
+/feedback/
 
 # Generated settings and credentials (settings.json is rendered by `claude-code install`)
 /settings.json
