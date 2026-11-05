@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -96,20 +95,16 @@ func TestGradientEmptyCellsVisible(t *testing.T) {
 	}
 }
 
-// Too wide for the terminal: the gradient line breaks before the bar instead of being clipped.
-func TestGradientWrapsBeforeContext(t *testing.T) {
+// Too wide for the terminal: the gradient line stays one unclipped line and the terminal wraps the overflow.
+func TestGradientNeverSplitsOrClips(t *testing.T) {
 	hermetic(t)
 	dir := t.TempDir()
 	t.Setenv("COLUMNS", "300")
 	wide := plain(Render([]byte(gradientPayload(dir)), "gradient"))
-	if strings.Contains(wide, "\n") {
-		t.Fatalf("wide terminal wrapped: %q", wide)
-	}
-	row1 := wide[:strings.Index(wide, " · ctx ")]
-	t.Setenv("COLUMNS", strconv.Itoa(visibleWidth(row1)+2+ccMargin)) // row 1 fits, the whole line does not
-	lines := strings.Split(plain(Render([]byte(gradientPayload(dir)), "gradient")), "\n")
-	if len(lines) != 2 || lines[0] != row1 || !strings.HasPrefix(lines[1], "ctx ━━━─") {
-		t.Errorf("narrow terminal: %q, want %q then the bar", lines, row1)
+	t.Setenv("COLUMNS", "40")
+	narrow := plain(Render([]byte(gradientPayload(dir)), "gradient"))
+	if narrow != wide || strings.ContainsAny(narrow, "\n…") {
+		t.Errorf("narrow terminal: %q, want the full line %q", narrow, wide)
 	}
 }
 
