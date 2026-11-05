@@ -1,4 +1,4 @@
-package clean
+package setup
 
 import (
 	"bytes"
@@ -111,7 +111,7 @@ func exists(t *testing.T, p string) bool {
 func TestCleanDryRunPreviewsDeletesNothing(t *testing.T) {
 	dir := seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--dry-run"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--dry-run"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --dry-run = %d, want 0", code)
 	}
 	if !exists(t, filepath.Join(dir, "state/harness/memory/update-20260101-000000.log")) {
@@ -126,7 +126,7 @@ func TestCleanDryRunPreviewsDeletesNothing(t *testing.T) {
 func TestCleanAppliesByDefault(t *testing.T) {
 	dir := seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run(nil, &out, &errw); code != 0 {
+	if code := Clean(nil, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0", code)
 	}
 	for _, gone := range []string{
@@ -162,7 +162,7 @@ func TestCleanAppliesByDefault(t *testing.T) {
 func TestCleanApplyReportsNonZeroBytes(t *testing.T) {
 	seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run(nil, &out, &errw); code != 0 {
+	if code := Clean(nil, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0", code)
 	}
 	if strings.Contains(errw.String(), "reclaimed 0 B") {
@@ -176,7 +176,7 @@ func TestCleanRespectsOlderThan(t *testing.T) {
 	young := filepath.Join(dir, "state/harness/memory/update-20261231-000000.log")
 	write(t, young, "x")
 	var out, errw bytes.Buffer
-	Run(nil, &out, &errw)
+	Clean(nil, &out, &errw)
 	if !exists(t, young) {
 		t.Error("a file inside the age threshold was swept")
 	}
@@ -186,7 +186,7 @@ func TestCleanRespectsOlderThan(t *testing.T) {
 func TestCleanTargetScopesToOneTarget(t *testing.T) {
 	dir := seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "proxy-log"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "proxy-log"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target proxy-log = %d, want 0", code)
 	}
 	if exists(t, filepath.Join(dir, "state/harness/router.log")) {
@@ -201,7 +201,7 @@ func TestCleanTargetScopesToOneTarget(t *testing.T) {
 func TestCleanTargetRejectsUnknownTarget(t *testing.T) {
 	seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "not-a-real-target"}, &out, &errw); code != 2 {
+	if code := Clean([]string{"--target", "not-a-real-target"}, &out, &errw); code != 2 {
 		t.Errorf("Run --target bogus = %d, want 2", code)
 	}
 }
@@ -210,7 +210,7 @@ func TestCleanTargetRejectsUnknownTarget(t *testing.T) {
 func TestCleanWhatFlagRejected(t *testing.T) {
 	seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--what", "router-log"}, &out, &errw); code != 2 {
+	if code := Clean([]string{"--what", "router-log"}, &out, &errw); code != 2 {
 		t.Errorf("Run --what router-log = %d, want 2 (unknown flag)", code)
 	}
 	if !strings.Contains(errw.String(), "what") {
@@ -412,7 +412,7 @@ func TestNestedConfig(t *testing.T) {
 	write(t, filepath.Join(nested, "settings.json"), `{"outputStyle": "Concise", "prefersReducedMotion": true}`)
 
 	var out, errw bytes.Buffer
-	Run(nil, &out, &errw)
+	Clean(nil, &out, &errw)
 	if !strings.Contains(errw.String(), "settings.json:prefersReducedMotion") {
 		t.Fatalf("uncovered key not reported: %s", errw.String())
 	}
@@ -428,7 +428,7 @@ func TestNestedConfig(t *testing.T) {
 
 	os.RemoveAll(filepath.Join(nested, "agents"))
 	errw.Reset()
-	Run(nil, &out, &errw)
+	Clean(nil, &out, &errw)
 	if _, err := os.Stat(nested); !os.IsNotExist(err) {
 		t.Fatalf("covered nested dir not removed: %s", errw.String())
 	}
@@ -448,7 +448,7 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 	}
 
 	var out, errw bytes.Buffer
-	Run(nil, &out, &errw)
+	Clean(nil, &out, &errw)
 	if !exists(t, gitFile) {
 		t.Error("--apply removed a linked worktree's .git pointer")
 	}
@@ -466,7 +466,7 @@ func TestBackupsMirrorNeverSwept(t *testing.T) {
 		_ = os.Chtimes(p, old, old)
 	}
 	var out, errw bytes.Buffer
-	Run(nil, &out, &errw)
+	Clean(nil, &out, &errw)
 	if _, err := os.Stat(mirror); err != nil {
 		t.Errorf("revert mirror swept: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestCleanListShowsBackupsTarget(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--list"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--list"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --list = %d, want 0", code)
 	}
 	if !strings.Contains(out.String(), "settings-backups") || !strings.Contains(out.String(), "state/harness/backups") {
@@ -499,7 +499,7 @@ func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
 	unrelated := filepath.Join(dir, "settings.json.bak-20260101-000000")
 	write(t, unrelated, "x")
 	var out, errw bytes.Buffer
-	Run(nil, &out, &errw)
+	Clean(nil, &out, &errw)
 	if !exists(t, unrelated) {
 		t.Errorf("clean swept a root file outside state/harness/backups: %s", unrelated)
 	}
@@ -517,7 +517,7 @@ func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
 	pointer := filepath.Join(slug, "bridge-pointer.json")
 	ageUnder(t, slug, time.Now().Add(-40*24*time.Hour), memory, pointer)
 	var out, errw bytes.Buffer
-	if code := Run(nil, &out, &errw); code != 0 {
+	if code := Clean(nil, &out, &errw); code != 0 {
 		t.Fatalf("bare Run = %d, want 0: %s", code, errw.String())
 	}
 	if !exists(t, transcript) || !exists(t, sessDir) {
@@ -525,7 +525,7 @@ func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
 	}
 	out.Reset()
 	errw.Reset()
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, transcript) || exists(t, sessDir) {
@@ -571,7 +571,7 @@ func TestCleanSessionsRefusesWithoutTTYOrYes(t *testing.T) {
 	transcript, sessDir := seedAgedSession(t, dir)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "sessions"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target sessions = %d, want 0 (refusal is not an error exit)", code)
 	}
 	if !exists(t, transcript) || !exists(t, sessDir) {
@@ -589,7 +589,7 @@ func TestCleanSessionsYesDeletes(t *testing.T) {
 	transcript, sessDir := seedAgedSession(t, dir)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, transcript) || exists(t, sessDir) {
@@ -606,7 +606,7 @@ func TestCleanSessionsOlderThanStillFilters(t *testing.T) {
 	write(t, young, "x")
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
 	}
 	if !exists(t, young) {
@@ -626,7 +626,7 @@ func TestCleanSessionsTTYPrompt(t *testing.T) {
 		oldTTY, oldIn := stdinIsTTY, promptIn
 		stdinIsTTY, promptIn = func() bool { return true }, strings.NewReader(tc.answer)
 		var out, errw bytes.Buffer
-		Run([]string{"--target", "sessions"}, &out, &errw)
+		Clean([]string{"--target", "sessions"}, &out, &errw)
 		stdinIsTTY, promptIn = oldTTY, oldIn
 		if got := !exists(t, transcript); got != tc.deleted {
 			t.Errorf("answer %q: deleted=%v, want %v (%s)", tc.answer, got, tc.deleted, errw.String())

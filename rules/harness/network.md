@@ -1,7 +1,7 @@
 ---
 paths:
   - "internal/network/**"
-  - "internal/clean/**"
+  - "internal/setup/**"
 ---
 # Network, Web, MCP, Cleanup
 

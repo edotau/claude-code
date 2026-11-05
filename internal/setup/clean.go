@@ -9,7 +9,7 @@
 //     and migration state (state/harness/memory/{migrate,journal}, bank.lock) are NEVER targets. Access state is protected except the two named orphan logs.
 //  3. The opt-in `--target sessions` target always requires confirmation before it deletes anything:
 //     a [y/N] prompt on a TTY, --yes without one.
-package clean
+package setup
 
 import (
 	"bufio"
@@ -204,8 +204,8 @@ func cliCacheTargets() []target {
 	}
 }
 
-// Run is `claude-code clean`: applies unless --dry-run.
-func Run(args []string, out, errw io.Writer) int {
+// Clean is `claude-code clean`: applies unless --dry-run.
+func Clean(args []string, out, errw io.Writer) int {
 	fs := helptext.NewFlagSet("clean", helptext.Page{
 		Usage: "claude-code clean [flags]",
 		About: "Delete caches, run dirs and backups older than --older-than. Credentials,\n" +

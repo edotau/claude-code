@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/network/vscode"
@@ -121,7 +120,7 @@ func checkHostHealth(check func(bool, bool, string, string)) {
 	check(tsOK, false, "tailscale", tsDetail)
 	check(true, false, "vscode serve", vscodeServeDoctorDetail())
 	has, err := settingsHasHooks(settings.SettingsFile())
-	nested := clean.NestedConfig()
+	nested := setup.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
 	strayOK, strayDetail := strayClaudeJSON()
 	check(strayOK, false, "claude.json", strayDetail)
@@ -268,14 +267,14 @@ func PrintChecks(w io.Writer, checks []Check) {
 }
 
 // nestedDetail says whether <config dir>/.claude exists and what keeps clean from removing it.
-func nestedDetail(n clean.Nested) string {
+func nestedDetail(n setup.Nested) string {
 	switch {
 	case n.Dir == "":
 		return "none"
 	case n.OnlyWorktrees():
 		return n.Dir + " holds only linked worktrees"
 	case len(n.Keep) > 0:
-		keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == clean.KeepWorktrees })
+		keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == setup.KeepWorktrees })
 		return n.Dir + " layers over user settings; move " + strings.Join(keep, ", ") + " into the defaults first"
 	default:
 		return n.Dir + " is redundant (claude-code clean)"
