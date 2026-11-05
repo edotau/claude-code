@@ -21,13 +21,15 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// hostedHooks are the hook modules run around a headless `opencode run`; PreToolUse ones only detect (the tool already ran).
-var hostedHooks = map[string]bool{
-	"memory-start": true, "worktree-mode": true, // before: SessionStart
-	"memory-recall": true, "paths-resolve": true, "docs-plan-skeleton-prompt": true, "worktree-busy": true, // before: prompt
-	"safety-scan": true, "docs-placement": true, "docs-plan-gate": true, // during: PreToolUse
-	"docs-plan-mirror": true, "review-simplicity": true, "docs-plan-tick": true, // during: PostToolUse
-	"memory-update": true, "format-stop": true, "docs-plan-reminder": true, "memory-end": true, // after
+// hostedHooks are the registry's hook modules run around a headless `opencode run`; PreToolUse ones only detect.
+var hostedHooks = hostedSet()
+
+func hostedSet() map[string]bool {
+	set := map[string]bool{}
+	for _, s := range settings.SpecsFor("opencode", "hosted") {
+		set[s.Name] = true
+	}
+	return set
 }
 
 // reasonLogRunes caps a hook's reason in the log line.
