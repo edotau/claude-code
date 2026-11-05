@@ -180,8 +180,11 @@ func pinnedProfile(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := ValidAgentPin(reg, name, pin.Profile); err != nil || reg.Providers[pin.Profile] == nil {
+	if err := ValidAgentPin(reg, name, pin.Profile); err != nil {
 		return "", fmt.Errorf("%s: pinned profile %q is not a registry profile", name, pin.Profile)
+	}
+	if reg.Providers[pin.Profile] == nil {
+		return "", nil // an own-login or PinIDs pin (opencode-go) launches on the agent's own plan
 	}
 	return pin.Profile, nil
 }
