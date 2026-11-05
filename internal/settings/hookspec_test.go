@@ -257,3 +257,39 @@ func dispatcherCovers(entries []MatcherGroup, s EventSpec) bool {
 	}
 	return false
 }
+
+func TestSpecsFor(t *testing.T) {
+	names := func(agent, surface string) []string {
+		var out []string
+		for _, s := range SpecsFor(agent, surface) {
+			out = append(out, s.Name)
+		}
+		return out
+	}
+	tests := []struct {
+		agent, surface string
+		count          int // -1 = not checked
+		has, lacks     string
+	}{
+		{"claude", "native", -1, "rtk-rewrite", "codex-agent-route"},
+		{"copilot", "native", -1, "safety-scan", "rtk-rewrite"},
+		{"copilot", "sdk", len(names("copilot", "native")), "memory-recall", "rtk-rewrite"},
+		{"codex", "sdk", 0, "", ""},
+		{"opencode", "hosted", 16, "memory-end", "rtk-rewrite"},
+		{"opencode", "plugin", 4, "worktree-claim-check", "memory-end"},
+		{"opencode", "native", 0, "", ""},
+		{"claude", "bogus", 0, "", ""},
+	}
+	for _, tc := range tests {
+		got := names(tc.agent, tc.surface)
+		if tc.count >= 0 && len(got) != tc.count {
+			t.Errorf("%s/%s: %d specs %v, want %d", tc.agent, tc.surface, len(got), got, tc.count)
+		}
+		if tc.has != "" && !slices.Contains(got, tc.has) {
+			t.Errorf("%s/%s lacks %s", tc.agent, tc.surface, tc.has)
+		}
+		if tc.lacks != "" && slices.Contains(got, tc.lacks) {
+			t.Errorf("%s/%s must not have %s", tc.agent, tc.surface, tc.lacks)
+		}
+	}
+}

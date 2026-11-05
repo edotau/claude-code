@@ -48,6 +48,8 @@ type EventSpec struct {
 	Budget        time.Duration // the handler's deadline and its share of the dispatcher's timeout
 	Blocks        bool          // preserve blocking exits; other Copilot hooks are advisory
 	Agents        []string      // explicit allowlist for non-Claude sessions
+	Hosted        []string      // agents whose headless host runs the module around a run
+	Plugin        []string      // agents whose in-process plugin runs the module
 	Async         bool          // runs in the background, so it renders as its own entry, never in the dispatcher
 	StatusMessage string        // spinner text Claude Code shows while the hook runs
 }
@@ -91,7 +93,7 @@ const sec = time.Second
 // Registry is the whole chain: groups in execution order, each naming its events.
 var Registry = []Group{
 	{Name: "safety", Gate: true, Events: []EventSpec{
-		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Agents: []string{"codex", "copilot"}},
+		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten to run through the rtk output compressor (Claude only).
@@ -99,20 +101,20 @@ var Registry = []Group{
 	}},
 	{Name: "docs", Events: []EventSpec{
 		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
-		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}},
+		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// The first write to a native plan draft must carry the plan template; the denial pastes the skeleton.
-		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}},
+		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
-		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec},
+		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Hosted: []string{"opencode"}},
 		// An approved plan is filed under plans/, tagged with its repo.
 		{Name: "docs-plan-save", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
 		// The plan template is injected on entering plan mode and, once per plan, on a plan-mode prompt.
 		{Name: "docs-plan-skeleton", Event: EventPostToolUse, Matcher: "EnterPlanMode", Budget: 5 * sec},
-		{Name: "docs-plan-skeleton-prompt", Event: EventUserPromptSubmit, Budget: 5 * sec},
+		{Name: "docs-plan-skeleton-prompt", Event: EventUserPromptSubmit, Budget: 5 * sec, Hosted: []string{"opencode"}},
 		// A landed git commit ticks the active plan's tasks whose owns: it covers; partial coverage is noted.
-		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Budget: 10 * sec},
+		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Budget: 10 * sec, Hosted: []string{"opencode"}},
 		// Commits that only partly landed a task are reported once at Stop (advisory).
-		{Name: "docs-plan-reminder", Event: EventStop, Budget: 5 * sec},
+		{Name: "docs-plan-reminder", Event: EventStop, Budget: 5 * sec, Hosted: []string{"opencode"}},
 	}},
 	{Name: "dispatch", Events: []EventSpec{
 		// One PreToolUse runner: cap, then model pin (Workflow leaves too), then the claim.
@@ -125,37 +127,37 @@ var Registry = []Group{
 	}},
 	{Name: "paths", Events: []EventSpec{
 		// A pasted or dragged Windows path (C:\…) resolves to its /mnt form for the model; a no-op off WSL.
-		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}},
+		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "memory", Events: []EventSpec{
 		// One Stop hook: context checkpoint, then the memory update; a block from either blocks.
-		{Name: "memory-update", Event: EventStop, Budget: 20 * sec},
-		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory"},
+		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Hosted: []string{"opencode"}},
+		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
-		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}},
-		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec},
+		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
+		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec, Hosted: []string{"opencode"}},
 		// Before a compaction, update edits no earlier dispatch covered (never blocks; the transcript survives).
 		{Name: "memory-compact", Event: EventPreCompact, Budget: 15 * sec},
 	}},
 	{Name: "format", Events: []EventSpec{
 		// Formats files dirty in git that this session wrote; a repo with its own pre-commit switches the group off.
-		{Name: "format-stop", Event: EventStop, Budget: 30 * sec},
+		{Name: "format-stop", Event: EventStop, Budget: 30 * sec, Hosted: []string{"opencode"}},
 	}},
 	{Name: "review", Events: []EventSpec{
 		// Advisory comment, complexity and smell findings an edit just introduced, fed back to the model.
-		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec},
+		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec, Hosted: []string{"opencode"}},
 	}},
 	{Name: "worktree", Events: []EventSpec{
 		// Native worktrees live at ~/worktrees/<repo>/<name>; these replace Claude's git logic.
 		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},
 		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt, so it stays cheap.
-		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec},
-		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
+		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec, Hosted: []string{"opencode"}},
+		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec, Hosted: []string{"opencode"}},
 		// Each Write/Edit path (and each landed commit sha) appends to this session's claims ledger; never blocks.
 		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|Bash", Budget: 5 * sec},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
-		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|Bash", Budget: 5 * sec},
+		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|Bash", Budget: 5 * sec, Plugin: []string{"opencode"}},
 	}},
 	{Name: "codex", AgentOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},
@@ -297,4 +299,29 @@ func HookModules() string {
 		line += sp.Name + "|"
 	}
 	return strings.Join(append(lines, strings.TrimSuffix(line, "|")), "\n")
+}
+
+// SpecsFor lists the specs agentName runs on a surface: native, sdk, hosted or plugin; unknown combinations are nil.
+func SpecsFor(agentName, surface string) []EventSpec {
+	var out []EventSpec
+	for _, s := range Specs() {
+		if specApplies(s, agentName, surface) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func specApplies(s EventSpec, agentName, surface string) bool {
+	switch surface {
+	case "native":
+		return agentName == "claude" && s.Group != "codex" || slices.Contains(s.Agents, agentName)
+	case "sdk":
+		return agentName == "copilot" && slices.Contains(s.Agents, agentName)
+	case "hosted":
+		return slices.Contains(s.Hosted, agentName)
+	case "plugin":
+		return slices.Contains(s.Plugin, agentName)
+	}
+	return false
 }
