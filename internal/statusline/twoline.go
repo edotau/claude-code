@@ -39,6 +39,12 @@ func collectTwoline(in Input, session string) twoData {
 			d.auth = tokenLeft(tokenLabel(session), exp, time.Now())
 		}
 	}
+	d.fillContext(in)
+	return d
+}
+
+// fillContext sets the context facts (percent, size, used tokens) from the payload's context_window.
+func (d *twoData) fillContext(in Input) {
 	if cw := in.ContextWindow; cw != nil {
 		d.hasCtx, d.size, d.tokens = true, cw.Size, cw.TotalInput
 		d.ctxPct = float64(contextPct(in))
@@ -46,7 +52,6 @@ func collectTwoline(in Input, session string) twoData {
 			d.ctxPct = *cw.UsedPercentage
 		}
 	}
-	return d
 }
 
 // compactTokens is 950, 94.4k, 200k, 1.2M.

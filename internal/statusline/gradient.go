@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -57,15 +58,10 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 		}
 	}
 	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
-		out.WriteString(ansi.Paint(mode, dim, cfg.sep("minor", " · "), false))
-		out.WriteString(velocityText(v, mode, pal))
+		out.WriteString(ansi.Paint(mode, dim, sepPath, false))
+		out.WriteString(velocityText(v, mode, pal, "/"))
 	}
 	return out.String()
-}
-
-// joinsMetrics is true when key continues the context/limits/total metric group after prev.
-func joinsMetrics(prev, key string) bool {
-	return (key == "limits" || key == "total") && (prev == "context" || prev == "limits" || prev == "total")
 }
 
 // cellBuf accumulates the gradient line's characters with their paint kinds.
@@ -91,14 +87,18 @@ func (b *cellBuf) pushSep(s string) {
 	}
 }
 
-// pushContext pushes the context bar (filled, empty, then the percent unless it leads the bar).
-func (b *cellBuf) pushContext(v values, cfg Config) {
-	filled, empty := contextBarParts(v.contextPct, cfg.Bar)
-	b.push(filled, "filled")
-	b.push(empty, "empty")
-	if cfg.Bar.Percent != "before" {
-		b.push(" "+strconv.Itoa(v.contextPct)+"%", "g")
+// pushContext pushes twoline's "ctx <bar> NN.N% · used/size" block; the bar's filled and empty runs keep their tones.
+func (b *cellBuf) pushContext(v values) {
+	d := v.two
+	if !d.hasCtx {
+		return
 	}
+	bar := twoBar(d.ctxPct, 10)
+	filled := strings.TrimRight(bar, "─")
+	b.push("ctx ", "g")
+	b.push(filled, "filled")
+	b.push(bar[len(filled):], "empty")
+	b.push(fmt.Sprintf(" %.1f%%", d.ctxPct)+twoSep+compactTokens(d.tokens)+"/"+strings.ToLower(compactTokens(d.size)), "g")
 }
 
 func gradientCells(v values, cfg Config) []cell {
@@ -108,46 +108,39 @@ func gradientCells(v values, cfg Config) []cell {
 		b.pushSep(sepPath)
 	}
 	b.pushMetrics(v, cfg)
-	if cfg.seg("git", true) && v.branch != "" { // the git section: the branch
-		b.push(cfg.sep("git", " │ "), "sep")
-		b.push(v.branch, "g")
-	}
 	return b.cells
 }
 
-// pushMetrics pushes every enabled segment in cfg.Order but path: the context bar after the major separator, the
-// rest as text joined by the minor separator (a space inside the context/limits/total group).
+// pushMetrics pushes every enabled segment in cfg.Order but path, limits and total: the context block after the
+// major separator, the rest as text joined by the minor separator.
 func (b *cellBuf) pushMetrics(v values, cfg Config) {
 	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")
-	emitted, prev := false, ""
+	emitted := false
 	for _, key := range cfg.Order {
-		if key == "path" || !cfg.seg(key, true) {
+		if key == "path" || key == "limits" || key == "total" || !cfg.seg(key, true) {
 			continue
 		}
 		if key == "context" {
 			b.pushSep(sepMajor)
-			b.pushContext(v, cfg)
-			emitted, prev = true, key
+			b.pushContext(v)
+			emitted = true
 			continue
 		}
 		text := v.text(key)
 		if text == "" {
 			continue
 		}
-		switch {
-		case emitted && joinsMetrics(prev, key):
-			b.push(" ", "g")
-		case emitted:
+		if emitted {
 			b.pushSep(sepMinor)
 		}
 		b.push(text, "g")
-		emitted, prev = true, key
+		emitted = true
 	}
 }
 
-// velocityText paints "+A -D" in the add/del tones, omitting a zero side.
-func velocityText(v values, mode string, pal theme.Palettes) string {
+// velocityText paints "+A<sep>-D" in the add/del tones, omitting a zero side.
+func velocityText(v values, mode string, pal theme.Palettes, sep string) string {
 	var parts []string
 	if v.adds != 0 {
 		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.Sem("add")), "+"+strconv.Itoa(v.adds), false))
@@ -155,7 +148,7 @@ func velocityText(v values, mode string, pal theme.Palettes) string {
 	if v.dels != 0 {
 		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.Sem("del")), "-"+strconv.Itoa(v.dels), false))
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, sep)
 }
 
 // contextBarParts returns the filled and empty runs separately so renderers classify cells by construction.

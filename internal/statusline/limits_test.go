@@ -35,7 +35,7 @@ func TestLimitsSegmentFromPayload(t *testing.T) {
 	payload := fmt.Sprintf(`{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"},
 		"rate_limits":{"five_hour":{"used_percentage":23.4,"resets_at":%d},"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`,
 		future, future)
-	got := plain(Render([]byte(payload), "gradient"))
+	got := plain(Render([]byte(payload), "minimal"))
 	if want := "7d:41%"; !strings.Contains(got, want) || strings.Contains(got, "5h:") {
 		t.Errorf("want only %q in %q", want, got)
 	}
@@ -47,7 +47,7 @@ func TestLimitsSegmentPayloadWindowExpired(t *testing.T) {
 	past := time.Now().Add(-time.Hour).Unix()
 	payload := fmt.Sprintf(`{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"},
 		"rate_limits":{"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`, past)
-	got := plain(Render([]byte(payload), "gradient"))
+	got := plain(Render([]byte(payload), "minimal"))
 	if strings.Contains(got, "7d:") {
 		t.Errorf("expired window rendered: %q", got)
 	}
@@ -58,7 +58,7 @@ func TestLimitsSegmentFromCache(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour)
 	writeLimitsCache(t, time.Now(), 23, 41, future, future)
-	got := plain(Render([]byte(runningPayload), "gradient"))
+	got := plain(Render([]byte(runningPayload), "minimal"))
 	if want := "7d:41%"; !strings.Contains(got, want) || strings.Contains(got, "5h:") {
 		t.Errorf("want only %q in %q", want, got)
 	}
@@ -69,7 +69,7 @@ func TestLimitsSegmentStaleCacheIgnored(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour)
 	writeLimitsCache(t, time.Now().Add(-7*time.Hour), 23, 41, future, future)
-	got := plain(Render([]byte(runningPayload), "gradient"))
+	got := plain(Render([]byte(runningPayload), "minimal"))
 	if strings.Contains(got, "5h:") || strings.Contains(got, "7d:") {
 		t.Errorf("stale cache used: %q", got)
 	}
@@ -78,7 +78,7 @@ func TestLimitsSegmentStaleCacheIgnored(t *testing.T) {
 // Neither the payload nor a usable cache leaves the segment empty, not a stray separator.
 func TestLimitsSegmentEmptyWhenNeitherSource(t *testing.T) {
 	hermetic(t)
-	got := plain(Render([]byte(runningPayload), "gradient"))
+	got := plain(Render([]byte(runningPayload), "minimal"))
 	if strings.Contains(got, "5h:") || strings.Contains(got, "7d:") {
 		t.Errorf("limits rendered with no source: %q", got)
 	}

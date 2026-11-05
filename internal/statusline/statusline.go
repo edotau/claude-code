@@ -206,11 +206,23 @@ func collect(in Input, cfg Config) values {
 		v.branch = gitBranch(cwd)
 	}
 	v.collectUsage(in, cfg, cwd, provider)
+	if cfg.gradientStyle() {
+		v.two.fillContext(in)
+		v.model = displayLabel(in, v.model)
+	}
 	if cfg.Style == "twoline" {
 		v.path = filepath.Base(cwd) // twoline's head names only the current directory
 		v.two = collectTwoline(in, provider)
 	}
 	return v
+}
+
+// displayLabel prefers the payload display name over the short id; a routed "⇄prov" label stays.
+func displayLabel(in Input, model string) string {
+	if name := displayModel(in.Model.DisplayName); name != "" && !strings.Contains(model, "⇄") && model != "" {
+		return name
+	}
+	return model
 }
 
 // sessionCwd is the session's working dir: the workspace's current dir, then the payload cwd, then the process cwd.
