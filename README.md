@@ -433,5 +433,6 @@ make lint AGENT=on         # auto-fix, then Claude Sonnet (medium effort) fixes 
 make test                  # full gate, once before pushing (= make audit = CI)
 ```
 
-- `git push` runs the same gate via `.githooks/pre-push`; `--no-verify` bypasses it.
+- `git push` runs no gate (`.githooks/pre-push` is disabled): run `make test` yourself before pushing; CI runs it on
+  `main`.
 - `settings.json` is yours (hand-edited, untracked); install never writes an existing one: `rules/harness/settings-management.md`.
