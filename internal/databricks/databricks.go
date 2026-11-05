@@ -110,7 +110,7 @@ func plan(args []string) (Plan, error) {
 		return Plan{}, fmt.Errorf("load providers: %w", err)
 	}
 	if p.Provider = resolveProfile(reg, name); p.Provider == "" {
-		return Plan{}, errors.New("no Databricks profile; add one with `databricks import` or pass --profile")
+		return Plan{}, errNoProfile
 	}
 	if !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
 		return Plan{}, fmt.Errorf("--profile %q is not a Databricks profile", p.Provider)
@@ -160,6 +160,9 @@ func defaultModel(reg *providers.Registry, profile string) string {
 	}
 	return id
 }
+
+// errNoProfile is what a verb reports when resolveProfile finds no Databricks profile to default to.
+var errNoProfile = errors.New("no Databricks profile; import ~/.databrickscfg with `claude-code databricks import --apply`, or pass --profile")
 
 // resolveProfile is name, else the session profile, else the claude record profile, each only when it is
 // a Databricks profile, else the first Databricks profile; "" when there is none.
