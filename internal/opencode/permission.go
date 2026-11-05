@@ -31,7 +31,7 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	if base == "" {
 		base = "ask"
 	}
-	byKey := map[string][]opencodeEntry{}
+	byKey := planEntries(p.Mode)
 	sets := []struct {
 		rules  []agent.Rule
 		action string
@@ -41,6 +41,9 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 			key, pats, err := opencodeRule(r, set.action)
 			if err != nil {
 				return nil, err
+			}
+			if p.Mode == "plan" && set.action != "deny" && planDenied[key] {
+				continue // plan mode is read-only: an allow or ask never reopens a write tool
 			}
 			for _, pat := range pats {
 				byKey[key] = appendEntry(byKey[key], opencodeEntry{pat, set.action})
@@ -60,6 +63,24 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	}
 	b.WriteString("}")
 	return b.Bytes(), nil
+}
+
+// planDenied are the keys plan mode keeps closed; the rest of opencode's read-only tools are open unless a Deny matches.
+var planDenied = map[string]bool{"edit": true, "bash": true, "task": true}
+
+// planEntries seeds plan mode's read-only policy: read tools allow, write tools deny, other tools fall to "*".
+func planEntries(mode string) map[string][]opencodeEntry {
+	byKey := map[string][]opencodeEntry{}
+	if mode != "plan" {
+		return byKey
+	}
+	for _, k := range []string{"read", "glob", "grep", "list", "webfetch"} {
+		byKey[k] = []opencodeEntry{{"*", "allow"}}
+	}
+	for k := range planDenied {
+		byKey[k] = []opencodeEntry{{"*", "deny"}}
+	}
+	return byKey
 }
 
 // appendEntry adds e after dropping an earlier entry for the same pattern, so the later decision is the one that stands.
@@ -92,13 +113,18 @@ func quote(s string) string {
 func opencodeRule(r agent.Rule, action string) (key string, patterns []string, err error) {
 	t, ok := opencodeTools[r.Tool]
 	if !ok {
-		return "", nil, fmt.Errorf("opencode: cannot enforce %s (no opencode permission for tool %s)", r, r.Tool)
+		return "", nil, fmt.Errorf("opencode: cannot express %s %s (no opencode permission for tool %s)", action, r, r.Tool)
+	}
+	// NOTE: opencode's bash matcher is bypassed by `bash -c "..."`; O-3 lifts this refusal once a guard covers it.
+	if r.Tool == "Bash" && action == "deny" {
+		return "", nil, &agent.Error{Agent: "opencode", Kind: agent.KindFatal,
+			Err: fmt.Errorf("cannot enforce deny %s natively (bash -c bypasses its matcher)", r)}
 	}
 	if r.Arg == "" {
 		return t.key, []string{"*"}, nil
 	}
 	if !t.args {
-		return "", nil, fmt.Errorf("opencode: cannot enforce %s (opencode %s permission has no argument patterns)", r, t.key)
+		return "", nil, fmt.Errorf("opencode: cannot express %s %s (opencode %s permission has no argument patterns)", action, r, t.key)
 	}
 	if !t.pathy {
 		if r.Tool == "Bash" {
@@ -108,7 +134,7 @@ func opencodeRule(r agent.Rule, action string) (key string, patterns []string, e
 	}
 	// opencode's * also crosses directories: that over-matches a deny, but would widen an allow.
 	if action == "allow" && strings.ContainsAny(r.Arg, "*?") {
-		return "", nil, fmt.Errorf("opencode: cannot enforce %s (a path wildcard would match more directories than Claude's)", r)
+		return "", nil, fmt.Errorf("opencode: cannot express %s %s (a path wildcard would match more directories than Claude's)", action, r)
 	}
 	arg := strings.NewReplacer("**/", "*", "**", "*").Replace(strings.TrimPrefix(r.Arg, "./"))
 	return t.key, opencodePaths(arg, action), nil
