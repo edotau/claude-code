@@ -1,11 +1,17 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "cleanupPeriodDays": 12,
   "env": {
     "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage",
     "CLAUDE_CODE_SCROLL_SPEED": "1",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
     "ENABLE_PROMPT_CACHING_1H": "1",
     "ENABLE_TOOL_SEARCH": "1"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
   },
   "permissions": {
     "allow": [
@@ -18,7 +24,14 @@
       "Bash(claude-code *)",
       "Bash(gofmt -l *)",
       "Bash(systemctl --user is-active *)",
-      "Bash(make *)"
+      "Bash(make *)",
+      "Bash(/home/edotau/.claude/bin/rtk ls *)",
+      "Read(//home/edotau/.copilot/**)",
+      "Bash(awk *)",
+      "Bash(python3 *)",
+      "Bash(npx *)",
+      "Bash(git grep:*)",
+      "Bash(sed -i *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -42,11 +55,8 @@
     ],
     "defaultMode": "auto"
   },
-  "statusLine": {
-    "type": "command",
-    "command": "$HOME/.claude/bin/claude-code theme statusline",
-    "padding": 0
-  },
+  "model": "opus",
+  "disableClaudeAiConnectors": true,
   "hooks": {
     "PostToolUse": [
       {
@@ -185,29 +195,31 @@
       }
     ]
   },
-  "model": "opus",
-  "outputStyle": "Concise",
-  "switchModelsOnFlag": true,
-  "theme": "auto",
-  "tui": "fullscreen",
-  "prefersReducedMotion": true,
-  "spinnerTipsEnabled": false,
-  "preferredNotifChannel": "auto",
-  "awaySummaryEnabled": false,
-  "feedbackDrafts": "off",
-  "feedbackSurveyRate": 0,
-  "askUserQuestionTimeout": "never",
-  "cleanupPeriodDays": 12,
-  "autoConnectIde": false,
-  "disableClaudeAiConnectors": true,
-  "useAutoModeDuringPlan": true,
-  "skipWorkflowUsageWarning": true,
   "worktree": {
     "baseRef": "head"
   },
-  "attribution": {
-    "commit": "",
-    "pr": "",
-    "sessionUrl": false
-  }
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
+    "padding": 0
+  },
+  "outputStyle": "Concise",
+  "feedbackSurveyRate": 0,
+  "feedbackDrafts": "off",
+  "spinnerTipsEnabled": false,
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "medium"
+    }
+  },
+  "awaySummaryEnabled": false,
+  "askUserQuestionTimeout": "never",
+  "tui": "fullscreen",
+  "prefersReducedMotion": true,
+  "skipWorkflowUsageWarning": true,
+  "theme": "auto",
+  "preferredNotifChannel": "auto",
+  "switchModelsOnFlag": true,
+  "useAutoModeDuringPlan": true,
+  "autoConnectIde": false
 }
