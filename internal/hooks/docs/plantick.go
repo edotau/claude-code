@@ -1,4 +1,4 @@
-package hooks
+package docs
 
 import (
 	"bytes"
@@ -23,17 +23,15 @@ import (
 )
 
 var (
-	gitCommitCmd = regexp.MustCompile(`\bgit\b[^;&|\n]*\bcommit\b`)
-	commitLine   = regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
-	gitDirArg    = regexp.MustCompile(`\bgit\s+(?:-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
-	cmdSegment   = regexp.MustCompile(`&&|\|\||[;|\n]`)
-	leadingCD    = regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
+	gitDirArg  = regexp.MustCompile(`\bgit\s+(?:-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
+	cmdSegment = regexp.MustCompile(`&&|\|\||[;|\n]`)
+	leadingCD  = regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
 )
 
-// planTick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
-func planTick(in *core.Input) core.Result {
+// Tick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
+func Tick(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	if in.ToolName != "Bash" || !gitCommitCmd.MatchString(cmd) {
+	if in.ToolName != "Bash" || !core.GitCommitCmd.MatchString(cmd) {
 		return core.Result{}
 	}
 	out := in.Nested("tool_response", "stdout")
@@ -43,7 +41,7 @@ func planTick(in *core.Input) core.Result {
 	var blocks []string
 	var stderr bytes.Buffer
 	seen := map[string]bool{}
-	for _, m := range commitLine.FindAllStringSubmatch(out, -1) {
+	for _, m := range core.CommitLine.FindAllStringSubmatch(out, -1) {
 		if !seen[m[1]] {
 			seen[m[1]] = true
 			blocks = append(blocks, tickCommit(in, cmd, m[1], &stderr)...)
@@ -128,7 +126,7 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 func commitCandidates(cwd, cmd string) []string {
 	var cands []string
 	for _, seg := range cmdSegment.Split(cmd, -1) { // only commit invocations name a candidate repo
-		if !gitCommitCmd.MatchString(seg) {
+		if !core.GitCommitCmd.MatchString(seg) {
 			continue
 		}
 		if m := gitDirArg.FindStringSubmatch(seg); m != nil {
@@ -170,10 +168,10 @@ var (
 	nonWordRe   = regexp.MustCompile(`[^\p{L}\p{N}.]+`)
 )
 
-// claimPlanTask claims the active plan's task a spawn names (a `Task:` brief line, else a unique checklist title
+// ClaimPlanTask claims the active plan's task a spawn names (a `Task:` brief line, else a unique checklist title
 // the description matches); no confident match, no plan or any error claims nothing.
-func claimPlanTask(in *core.Input, id string) {
-	if !spawnTools[in.ToolName] || id == "" {
+func ClaimPlanTask(in *core.Input, id string) {
+	if !core.SpawnTools[in.ToolName] || id == "" {
 		return
 	}
 	plan, worktreeName, ok := activePlan(in.CWD)
@@ -196,8 +194,8 @@ func claimPlanTask(in *core.Input, id string) {
 	_, _ = worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(plan), ".md"), time.Now())
 }
 
-// clearPlanClaim removes the claim a stopping agent's spawn wrote, found by its tool_use_id in the claim text.
-func clearPlanClaim(cwd, id string) {
+// ClearPlanClaim removes the claim a stopping agent's spawn wrote, found by its tool_use_id in the claim text.
+func ClearPlanClaim(cwd, id string) {
 	if id == "" {
 		return
 	}
@@ -273,11 +271,11 @@ func only(ts []plans.Task) (plans.Task, bool) {
 	return ts[0], true
 }
 
-// clearStoppedClaim resolves the stopping agent's spawn id from its meta.json and clears that spawn's plan claim.
-func clearStoppedClaim(in *core.Input, dirs []string, id string) {
+// ClearStoppedClaim resolves the stopping agent's spawn id from its meta.json and clears that spawn's plan claim.
+func ClearStoppedClaim(in *core.Input, dirs []string, id string) {
 	for _, d := range dirs {
 		if tu := inflight.ToolUseID(d, id); tu != "" {
-			clearPlanClaim(in.CWD, tu)
+			ClearPlanClaim(in.CWD, tu)
 			return
 		}
 	}

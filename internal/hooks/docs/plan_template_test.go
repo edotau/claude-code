@@ -1,4 +1,4 @@
-package hooks
+package docs
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ func TestPlanTemplateTeeth(t *testing.T) {
 	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
 
 	var stderr bytes.Buffer
-	code := checkPlanTemplate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "just some free-form draft text\n"))), &stderr)
+	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "just some free-form draft text\n"))), &stderr)
 	if code != core.ExitBlock {
 		t.Fatalf("free-form first write: PlanTemplate = %d, want ExitBlock", code)
 	}
@@ -53,7 +53,7 @@ func TestPlanTemplateAllowsTemplatedFirstWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
-	code := checkPlanTemplate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate))), &bytes.Buffer{})
+	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate))), &bytes.Buffer{})
 	if code != core.ExitProceed {
 		t.Fatalf("templated first write: PlanTemplate = %d, want ExitProceed", code)
 	}
@@ -71,7 +71,7 @@ func TestPlanTemplateOnlyGatesTheFirstWrite(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code := checkPlanTemplate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "no headings now\n"))), &bytes.Buffer{})
+	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "no headings now\n"))), &bytes.Buffer{})
 	if code != core.ExitProceed {
 		t.Fatalf("second write to an existing draft: PlanTemplate = %d, want ExitProceed", code)
 	}
@@ -86,13 +86,13 @@ func TestPlanTemplateAllFourHeadingsPresent(t *testing.T) {
 	}
 	draft := filepath.Join(cfg, "plans", "all-headings.md")
 	content := "# Plan: Z\n\n## Context\n\nwhy\n\n## Phases\n\n### Phase 1\n\n## Tasks\n\n- [ ] Phase 1\n"
-	code := checkPlanTemplate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, content))), &bytes.Buffer{})
+	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, content))), &bytes.Buffer{})
 	if code != core.ExitProceed {
-		t.Fatalf("all 4 headings present: checkPlanTemplate = %d, want ExitProceed", code)
+		t.Fatalf("all 4 headings present: Gate = %d, want ExitProceed", code)
 	}
 }
 
-// TestPlanTemplateRejectsFencedOnlyHeading: checkPlanTemplate now parses the mdsmith AST, so a heading that
+// TestPlanTemplateRejectsFencedOnlyHeading: Gate now parses the mdsmith AST, so a heading that
 // only appears inside a fenced code block does not count as present (fixed from a strings.Contains scan,
 // which previously let this through as ExitProceed).
 func TestPlanTemplateRejectsFencedOnlyHeading(t *testing.T) {
@@ -105,7 +105,7 @@ func TestPlanTemplateRejectsFencedOnlyHeading(t *testing.T) {
 	// "## Tasks" only appears inside the fence below, never as a real heading.
 	content := "# Plan: Z\n\n## Context\n\nwhy\n\n## Phases\n\n```\n## Tasks\n```\n"
 	var stderr bytes.Buffer
-	code := checkPlanTemplate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, content))), &stderr)
+	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, content))), &stderr)
 	if code != core.ExitBlock {
 		t.Fatalf("fenced-only heading = %d, want ExitBlock (fence content must not satisfy the template check)", code)
 	}
@@ -122,7 +122,7 @@ func TestPlanTemplateIgnoresDatedAndOutsidePlans(t *testing.T) {
 		filepath.Join(cfg, "plans", "sub", "funny-random-words.md"),
 		filepath.Join(t.TempDir(), "elsewhere.md"),
 	} {
-		code := checkPlanTemplate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, path, "no headings\n"))), &bytes.Buffer{})
+		code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, path, "no headings\n"))), &bytes.Buffer{})
 		if code != core.ExitProceed {
 			t.Errorf("PlanTemplate(%s) = %d, want ExitProceed (not an undated top-level draft)", path, code)
 		}

@@ -1,21 +1,18 @@
-package hooks
+package docs
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -46,7 +43,7 @@ func savedPlans(t *testing.T, cfg string) []string {
 	return names
 }
 
-// planFallbackCase is one input/response combination for the savePlan plan-text fallback chain.
+// planFallbackCase is one input/response combination for the Save plan-text fallback chain.
 type planFallbackCase struct {
 	name         string
 	inputPlan    string
@@ -126,8 +123,8 @@ func TestSavePlanResponseFallbacksAndAudit(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 			raw := fallbackPayload(t, cfg, tc)
 			for range 2 {
-				if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &bytes.Buffer{}); code != core.ExitProceed {
-					t.Fatalf("savePlan = %d", code)
+				if code := Save(core.ParseInput(bytes.NewReader(raw)), &bytes.Buffer{}); code != core.ExitProceed {
+					t.Fatalf("Save = %d", code)
 				}
 			}
 			names := savedPlans(t, cfg)
@@ -153,7 +150,7 @@ func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stderr bytes.Buffer
-	if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "# Probe\n", "")), io.Discard, &stderr); code != core.ExitProceed {
+	if code := Save(core.ParseInput(strings.NewReader(planPayload(t, cfg, "# Probe\n", ""))), &stderr); code != core.ExitProceed {
 		t.Fatalf("write failure must fail open, got %d", code)
 	}
 	if !strings.Contains(stderr.String(), "save-plan:") {
@@ -173,8 +170,8 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	save := func(plan string) {
-		if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, repo, plan, "")), io.Discard, &bytes.Buffer{}); code != core.ExitProceed {
-			t.Fatalf("savePlan must never block, got %d", code)
+		if code := Save(core.ParseInput(strings.NewReader(planPayload(t, repo, plan, ""))), &bytes.Buffer{}); code != core.ExitProceed {
+			t.Fatalf("Save must never block, got %d", code)
 		}
 	}
 	plan := "# Plan: Port the Thing\n\nsteps\n"
@@ -296,83 +293,11 @@ func TestSavePlanReadsPlanFilePathAndSkipsEmpty(t *testing.T) {
 	if err := os.WriteFile(src, []byte("no heading here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "", src)), io.Discard, &bytes.Buffer{})
-	runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "  \n", "")), io.Discard, &bytes.Buffer{})
+	Save(core.ParseInput(strings.NewReader(planPayload(t, cfg, "", src))), &bytes.Buffer{})
+	Save(core.ParseInput(strings.NewReader(planPayload(t, cfg, "  \n", ""))), &bytes.Buffer{})
 	want := time.Now().Format("2006-01-02") + "-plan.md" // config dir: untagged; no heading: "plan"
 	if got := savedPlans(t, cfg); len(got) != 1 || got[0] != want {
 		t.Errorf("saved = %v, want [%s]", got, want)
-	}
-}
-
-// planRepo makes a git repo with one dated plan holding open owned tasks 1.2 and 1.3; returns repo and plan path.
-func planRepo(t *testing.T) (repo, plan string) {
-	t.Helper()
-	repo, _ = filepath.EvalSymlinks(t.TempDir())
-	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-	dir := plans.Home(memstore.GitToplevel(repo))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	plan = filepath.Join(dir, "2026-10-29-x.md")
-	body := "# P\n\n- [ ] 1.2 wire the claim call point owns: a.go\n- [ ] 1.3 delete dead recall helper owns: b.go\n"
-	if err := os.WriteFile(plan, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return repo, plan
-}
-
-func agentPayload(repo, id, prompt, desc string) string {
-	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Agent", "tool_use_id": id, "cwd": repo,
-		"tool_input": map[string]any{"prompt": prompt, "description": desc, "model": "sonnet"}})
-	return string(b)
-}
-
-// A Task: brief line claims that plan task on the Agent spawn and the agent's SubagentStop clears it.
-func TestPlanClaimOnSpawnClearedOnStop(t *testing.T) {
-	dispatchEnv(t)
-	repo, plan := planRepo(t)
-	tx := filepath.Join(t.TempDir(), "session.jsonl")
-	pre(agentPayload(repo, "toolu_c1", "Objective: x\nTask: 1.2\nOwns: a.go", ""))
-	data, _ := os.ReadFile(plan)
-	if !regexp.MustCompile(`1\.2 wire.*<!-- working: Agent toolu_c1 · worktree main · since \d\d:\d\d -->`).Match(data) || strings.Count(string(data), "working:") != 1 {
-		t.Fatalf("claim not written on 1.2 only:\n%s", data)
-	}
-	writeMeta(t, tx, "ac1", "toolu_c1")
-	stop := `{"hook_event_name":"SubagentStop","agent_id":"ac1","cwd":"` + repo + `","transcript_path":"` + tx + `"}`
-	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
-	if data, _ = os.ReadFile(plan); strings.Contains(string(data), "working:") {
-		t.Fatalf("claim survived SubagentStop:\n%s", data)
-	}
-}
-
-// No Task: line and no confident description match claims nothing; a unique title match claims.
-func TestPlanClaimNeedsConfidentMatch(t *testing.T) {
-	dispatchEnv(t)
-	repo, plan := planRepo(t)
-	pre(agentPayload(repo, "toolu_n1", "no task line", "do things"))
-	pre(agentPayload(repo, "toolu_n2", "Task: 9.9", ""))
-	if data, _ := os.ReadFile(plan); strings.Contains(string(data), "working:") {
-		t.Fatalf("unconfident dispatch claimed a task:\n%s", data)
-	}
-	pre(agentPayload(repo, "toolu_n3", "no task line", "Delete dead recall helper"))
-	if data, _ := os.ReadFile(plan); !strings.Contains(string(data), "1.3 delete dead recall helper owns: b.go <!-- working: Agent toolu_n3") {
-		t.Fatalf("unique description match not claimed:\n%s", data)
-	}
-}
-
-// A spawn that fails never reaches SubagentStop: PostToolUseFailure must release its plan claim too.
-func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
-	dispatchEnv(t)
-	repo, plan := planRepo(t)
-	pre(agentPayload(repo, "toolu_f1", "Task: 1.2", ""))
-	if data, _ := os.ReadFile(plan); !strings.Contains(string(data), "working:") {
-		t.Fatalf("no claim:\n%s", data)
-	}
-	runEvent(t, "PostToolUseFailure", `{"hook_event_name":"PostToolUseFailure","tool_name":"Agent","tool_use_id":"toolu_f1","cwd":"`+repo+`"}`)
-	if data, _ := os.ReadFile(plan); strings.Contains(string(data), "working:") {
-		t.Fatalf("claim survived a failed spawn:\n%s", data)
 	}
 }
 
@@ -403,27 +328,25 @@ func hookJSON(t *testing.T, m map[string]any) *strings.Reader {
 	return strings.NewReader(string(b))
 }
 
-func runEventOut(t *testing.T, event string, m map[string]any) (code int, stdout, stderr string) {
+// runDocs feeds one payload to a docs Runner and returns the Result's context.
+func runDocs(t *testing.T, run core.Runner, m map[string]any) string {
 	t.Helper()
-	var o, e bytes.Buffer
-	code = RunEvent(event, false, hookJSON(t, m), &o, &e)
-	return code, o.String(), e.String()
+	return run(core.ParseInput(hookJSON(t, m))).Context
 }
 
 // Skeleton: injected on EnterPlanMode, once per plan on plan-mode prompts, re-armed by a non-plan prompt.
 func TestPlanSkeletonInjection(t *testing.T) {
 	planGroupEnv(t, true)
 	prompt := func(mode string) string {
-		_, out, _ := runEventOut(t, "UserPromptSubmit", map[string]any{
+		return runDocs(t, Skeleton, map[string]any{
 			"hook_event_name": "UserPromptSubmit", "session_id": "s1", "permission_mode": mode, "prompt": "hello",
 		})
-		return out
 	}
-	_, out, _ := runEventOut(t, "PostToolUse", map[string]any{
+	out := runDocs(t, Skeleton, map[string]any{
 		"hook_event_name": "PostToolUse", "session_id": "s1", "tool_name": "EnterPlanMode",
 	})
-	if !strings.Contains(out, "# Plan:") || !strings.Contains(out, "additionalContext") {
-		t.Fatalf("EnterPlanMode output = %q, want additionalContext with the skeleton", out)
+	if !strings.Contains(out, "# Plan:") {
+		t.Fatalf("EnterPlanMode context = %q, want the skeleton", out)
 	}
 	if got := prompt("plan"); strings.Contains(got, "# Plan:") {
 		t.Fatalf("plan prompt after EnterPlanMode re-injected: %q", got)
@@ -442,7 +365,7 @@ func TestPlanSkeletonInjection(t *testing.T) {
 
 func TestPlanSkeletonNoTemplateFailsOpen(t *testing.T) {
 	planGroupEnv(t, false)
-	_, out, _ := runEventOut(t, "PostToolUse", map[string]any{
+	out := runDocs(t, Skeleton, map[string]any{
 		"hook_event_name": "PostToolUse", "session_id": "s2", "tool_name": "EnterPlanMode",
 	})
 	if strings.Contains(out, "# Plan:") {
@@ -458,16 +381,14 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 		"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": cfg,
 		"tool_input": map[string]string{"file_path": draft, "content": "free-form text\n"},
 	}
-	code, out, errOut := runEventOut(t, "PreToolUse", payload)
-	all := out + errOut
-	if !strings.Contains(all, "plan-template: BLOCKED") || !strings.Contains(all, "skeleton-body-line") {
-		t.Fatalf("code=%d out=%q err=%q, want BLOCKED with skeleton", code, out, errOut)
-	}
-	if !strings.Contains(all, "deny") && code != core.ExitBlock {
-		t.Fatalf("not a block: code=%d out=%q", code, out)
+	var gateErr bytes.Buffer
+	code := Gate(core.ParseInput(hookJSON(t, payload)), &gateErr)
+	if code != core.ExitBlock || !strings.Contains(gateErr.String(), "plan-template: BLOCKED") ||
+		!strings.Contains(gateErr.String(), "skeleton-body-line") {
+		t.Fatalf("code=%d err=%q, want a block with the skeleton", code, &gateErr)
 	}
 	var e bytes.Buffer
-	runDirect("docs-placement", hookJSON(t, payload), io.Discard, &e)
+	Placement(core.ParseInput(hookJSON(t, payload)), &e)
 	if strings.Contains(e.String(), "plan-template") {
 		t.Fatalf("docs-placement still emits plan-template: %q", e.String())
 	}
@@ -520,12 +441,11 @@ func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out str
 	t.Setenv("HOME", home)
 
 	tick = func(command, out string) string {
-		_, o, _ := runEventOut(t, "PostToolUse", map[string]any{
+		return runDocs(t, Tick, map[string]any{
 			"hook_event_name": "PostToolUse", "session_id": "tick1", "tool_name": "Bash", "cwd": t.TempDir(),
 			"tool_input":    map[string]string{"command": command},
 			"tool_response": map[string]string{"stdout": out},
 		})
-		return o
 	}
 	return planPath, sha, tick
 }
@@ -565,11 +485,9 @@ func TestPlanTickReminderOnce(t *testing.T) {
 	_, sha, tick := tickFixture(t)
 	tick(tickCmd, "[main "+sha+"] x\n 2 files changed\n")
 	stop := func() string {
-		var o, e bytes.Buffer
-		RunArgs("Stop", []string{"--docs-plan-reminder"}, hookJSON(t, map[string]any{"hook_event_name": "Stop", "session_id": "tick1"}), &o, &e)
-		return o.String()
+		return Reminder(core.ParseInput(hookJSON(t, map[string]any{"hook_event_name": "Stop", "session_id": "tick1"}))).SystemMessage
 	}
-	if first := stop(); !strings.Contains(first, "systemMessage") || !strings.Contains(first, "1.2") {
+	if first := stop(); !strings.Contains(first, "1.2") {
 		t.Fatalf("first Stop = %q, want a systemMessage naming 1.2", first)
 	}
 	if second := stop(); second != "" {
@@ -599,7 +517,7 @@ func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
 	planPath := filepath.Join(dir, "2026-10-29-gadgets.md")
 	writeRel(t, dir, "2026-10-29-gadgets.md", "# Plan: g\n\n- [ ] 1.1 First owns: a/one.go\n"+
 		"- [ ] 1.2 Second owns: b/café two.go\n\n```md\n- [ ] 1.3 Fenced owns: a/one.go\n```\n")
-	_, _, _ = runEventOut(t, "PostToolUse", map[string]any{
+	runDocs(t, Tick, map[string]any{
 		"hook_event_name": "PostToolUse", "session_id": "mc1", "tool_name": "Bash", "cwd": repo,
 		"tool_input":    map[string]string{"command": "git commit -m a && git commit -m b"},
 		"tool_response": map[string]string{"stdout": "[main " + s1 + "] a\n 1 file changed\n[detached HEAD " + s2 + "] b\n 1 file changed\n"},

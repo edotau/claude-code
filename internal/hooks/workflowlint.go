@@ -116,7 +116,7 @@ func workflowByName(in *core.Input, name string) core.Result {
 func inCWD(path, cwd string) bool {
 	p, err1 := filepath.Abs(path)
 	d, err2 := filepath.Abs(cwd)
-	return cwd != "" && err1 == nil && err2 == nil && underDir(d, p)
+	return cwd != "" && err1 == nil && err2 == nil && core.UnderDir(d, p)
 }
 
 // lintSavedFile reads path and returns the pin problems worth blocking on; a read error returns nil

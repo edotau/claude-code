@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -19,7 +20,7 @@ var agentCallRe = regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`)
 
 // dispatchPre: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
 func dispatchPre(in *core.Input) core.Result {
-	if !spawnTools[in.ToolName] && in.ToolName != "Workflow" {
+	if !core.SpawnTools[in.ToolName] && in.ToolName != "Workflow" {
 		return core.Result{}
 	}
 	owner := inflight.SessionOwner()
@@ -44,7 +45,7 @@ func dispatchPre(in *core.Input) core.Result {
 	if ok, snap := inflight.TryClaim(claim, lim); !ok {
 		return blockAtCap(snap, account, lim)
 	}
-	claimPlanTask(in, claim.ID)
+	docs.ClaimPlanTask(in, claim.ID)
 	return res
 }
 

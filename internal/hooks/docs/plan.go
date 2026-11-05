@@ -1,4 +1,4 @@
-package hooks
+package docs
 
 import (
 	"bytes"
@@ -22,11 +22,11 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// savePlan files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
+// Save files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
 // PostToolUse only fires on approval; prefer approved input text, then the response, then their scratch files.
 // When the approved plan traces back to an undated draft the plan-mirror hook already filed, its recorded
 // destination is reused (the date stays the draft's creation date) instead of minting a new one for today.
-func savePlan(in *core.Input, stderr io.Writer) int {
+func Save(in *core.Input, stderr io.Writer) int {
 	responsePath := in.Nested("tool_response", "filePath")
 	inputPath := in.Nested("tool_input", "planFilePath")
 	plan := approvedPlanBytes(in, responsePath, inputPath, stderr)
@@ -98,7 +98,7 @@ func writeVerifiedPlan(dest string, plan []byte, stderr io.Writer) bool {
 }
 
 // retireDraft removes the mirrored draft and its .dest record once the approved plan is filed. A draft edited after
-// approval is kept, and its record is dropped so planMirror cannot later overwrite the approved dated plan.
+// approval is kept, and its record is dropped so Mirror cannot later overwrite the approved dated plan.
 func retireDraft(draftPath string, approvedText []byte, stderr io.Writer) {
 	if draftPath == "" || !isUndatedDraft(draftPath) {
 		return
@@ -301,9 +301,9 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 	return false
 }
 
-// checkPlanTemplate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
+// Gate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
 // template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
-func checkPlanTemplate(in *core.Input, stderr io.Writer) int {
+func Gate(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "create" {
 		return core.ExitProceed
@@ -381,11 +381,11 @@ func recordDest(draftBase, dest string) error {
 	return paths.AtomicWrite(destRecordPath(draftBase), []byte(dest), 0o600)
 }
 
-// planMirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
-// copied to its dated, repo-tagged file (savePlan's own slug/title/dest logic), so the draft is never the
+// Mirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
+// copied to its dated, repo-tagged file (Save's own slug/title/dest logic), so the draft is never the
 // file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
 // file, via planDestination's collision check); it is then recorded so a later H1 change keeps the same file.
-func planMirror(in *core.Input, stderr io.Writer) int {
+func Mirror(in *core.Input, stderr io.Writer) int {
 	path, content, ok := mirrorSource(in)
 	if !ok {
 		return core.ExitProceed
@@ -437,8 +437,8 @@ func partialFile(session string) string {
 	return filepath.Join(plansScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
 }
 
-// planSkeleton injects the plan template on EnterPlanMode and, once per plan, on a plan-mode prompt.
-func planSkeleton(in *core.Input) core.Result {
+// Skeleton injects the plan template on EnterPlanMode and, once per plan, on a plan-mode prompt.
+func Skeleton(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	event := in.HookEventName
 	marker := skeletonMarker(in.SessionID)
@@ -471,8 +471,8 @@ func planSkeleton(in *core.Input) core.Result {
 	return res
 }
 
-// planReminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
-func planReminder(in *core.Input) core.Result {
+// Reminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
+func Reminder(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	file := partialFile(in.SessionID)
 	var data []byte

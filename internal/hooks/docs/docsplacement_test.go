@@ -1,4 +1,4 @@
-package hooks
+package docs
 
 import (
 	"bytes"
@@ -106,13 +106,10 @@ func TestPlanGateTemplate(t *testing.T) {
 				if c.existing {
 					seedPlanGateDraft(t, cfg, c.path)
 				}
-				var stdout, stderr bytes.Buffer
-				code := RunArgs("PreToolUse", []string{"--docs-plan-gate"}, strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content)), &stdout, &stderr)
+				var stderr bytes.Buffer
+				code := Gate(core.ParseInput(strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content))), &stderr)
 				if code != c.want {
 					t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
-				}
-				if stdout.Len() != 0 {
-					t.Errorf("unexpected stdout: %s", &stdout)
 				}
 				if c.want == core.ExitBlock {
 					requirePlanGateDenied(t, cfg, c.path, &stderr)
@@ -136,39 +133,24 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 	}
 	for _, c := range []struct {
 		knob string
-		hook string
+		hook func(*core.Input, io.Writer) int
 		want string
 		not  string
 	}{
-		{"1", "docs-placement", "docs-placement: BLOCKED", "plan-template: BLOCKED"},
-		{"0", "docs-plan-gate", "plan-template: BLOCKED", "docs-placement: BLOCKED"},
+		{"1", Placement, "docs-placement: BLOCKED", "plan-template: BLOCKED"},
+		{"0", Gate, "plan-template: BLOCKED", "docs-placement: BLOCKED"},
 	} {
 		t.Run("docs="+c.knob, func(t *testing.T) {
 			t.Setenv(docsPlacementDisableEnv, c.knob)
-			var stdout, stderr bytes.Buffer
+			var stderr bytes.Buffer
 			payload := writePayload(t, "Write", cfg, filepath.Join(plans, "draft.md"), "freeform")
-			if code := RunArgs("PreToolUse", []string{"--" + c.hook}, strings.NewReader(payload), &stdout, &stderr); code != core.ExitBlock {
+			if code := c.hook(core.ParseInput(strings.NewReader(payload)), &stderr); code != core.ExitBlock {
 				t.Fatalf("code = %d, want ExitBlock; stderr=%s", code, &stderr)
 			}
 			if !strings.HasPrefix(stderr.String(), c.want) || strings.Contains(stderr.String(), c.not) {
 				t.Errorf("want only %s denial, got %s", c.want, &stderr)
 			}
 		})
-	}
-}
-
-func TestPlanTemplateCommandRetired(t *testing.T) {
-	for _, old := range []string{"plan-template", "plan-gate"} {
-		if _, ok := Native[old]; ok {
-			t.Fatalf("retired %s module remains registered", old)
-		}
-	}
-	var stdout, stderr bytes.Buffer
-	if code := RunArgs("PreToolUse", []string{"--plan-template"}, strings.NewReader("{}"), &stdout, &stderr); code != 1 {
-		t.Fatalf("retired module returned %d, want 1", code)
-	}
-	if stdout.Len() != 0 || stderr.String() != "claude-code hook: no module on PreToolUse named \"plan-template\"\n" {
-		t.Fatalf("stdout=%q stderr=%q", &stdout, &stderr)
 	}
 }
 
@@ -193,7 +175,7 @@ func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 						t.Fatal(err)
 					}
 					var stderr bytes.Buffer
-					if code := runDirect("docs-placement", bytes.NewReader(raw), io.Discard, &stderr); code != core.ExitBlock {
+					if code := Placement(core.ParseInput(bytes.NewReader(raw)), &stderr); code != core.ExitBlock {
 						t.Fatalf("code = %d, want block: %s", code, &stderr)
 					}
 					if !strings.Contains(stderr.String(), "docs-placement: BLOCKED") {
@@ -234,7 +216,7 @@ func TestDocsPlacementGate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, c.tool, c.path)), io.Discard, &stderr)
+			code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, c.tool, c.path))), &stderr)
 			want := core.ExitProceed
 			if c.block {
 				want = core.ExitBlock
@@ -256,7 +238,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != core.ExitBlock {
+	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md")))), &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
 	for _, want := range []string{
@@ -281,7 +263,7 @@ func TestDocsPlacementKnobOff(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != core.ExitProceed {
+	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md")))), &stderr); code != core.ExitProceed {
 		t.Fatalf("code = %d, want proceed when the knob is 0 (stderr: %s)", code, stderr.String())
 	}
 }
@@ -311,7 +293,7 @@ func TestDocsPlacementThroughSymlink(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr)
+			code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr)
 			want := core.ExitProceed
 			if c.block {
 				want = core.ExitBlock
@@ -330,7 +312,7 @@ func TestDocsPlacementGlobShapedNameStillBlocks(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md"))), io.Discard, &stderr); code != core.ExitBlock {
+	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md")))), &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block for a glob-shaped root doc (stderr: %s)", code, stderr.String())
 	}
 }
@@ -388,7 +370,7 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr)
+			code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr)
 			want := core.ExitProceed
 			if c.block {
 				want = core.ExitBlock
@@ -420,7 +402,7 @@ func TestDocsPlacementExcludedLocalDoc(t *testing.T) {
 		{"DESIGN.md", core.ExitProceed}, {"docs/local.md", core.ExitProceed}, {"NOTES.md", core.ExitBlock}, {"docs/new.md", core.ExitBlock},
 	} {
 		var stderr bytes.Buffer
-		code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Edit", filepath.Join(repo, c.path))), io.Discard, &stderr)
+		code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Edit", filepath.Join(repo, c.path)))), &stderr)
 		if code != c.want {
 			t.Errorf("%s: code = %d, want %d (stderr: %s)", c.path, code, c.want, stderr.String())
 		}
@@ -443,7 +425,7 @@ func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	} {
 		var stderr bytes.Buffer
 		p := filepath.Join(harness, "docs", filepath.FromSlash(name))
-		if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", p)), io.Discard, &stderr); code != want {
+		if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", p))), &stderr); code != want {
 			t.Errorf("%s: code = %d, want %d (stderr: %s)", name, code, want, stderr.String())
 		}
 	}
@@ -473,7 +455,7 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr); code != c.want {
+			if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr); code != c.want {
 				t.Fatalf("code = %d, want %d (stderr: %s)", code, c.want, stderr.String())
 			}
 		})
