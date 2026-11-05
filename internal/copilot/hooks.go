@@ -14,6 +14,8 @@ var agentEvents = map[string]string{
 	settings.EventPreToolUse:       "preToolUse",
 	settings.EventPostToolUse:      "postToolUse",
 	settings.EventUserPromptSubmit: "userPromptSubmitted",
+	settings.EventStop:             "agentStop",
+	settings.EventSessionEnd:       "sessionEnd",
 }
 
 // CopilotJSON renders user-level hooks; advisory failures must never deny a tool.
