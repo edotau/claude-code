@@ -3,7 +3,7 @@
 // stretch of work stays in the transcript. One detached watcher per session polls the transcript's
 // mtime; once it has been quiet for the idle period and holds edits no dispatch covered, it dispatches
 // the same detached worker the Stop gate uses, then keeps watching until its owner or lifetime is gone.
-package memory
+package memhook
 
 import (
 	"fmt"

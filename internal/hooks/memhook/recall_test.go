@@ -1,11 +1,10 @@
-package memory
+package memhook
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -30,20 +29,11 @@ func recall(t *testing.T, prompt, cwd string) string {
 func recallAs(t *testing.T, session, prompt, cwd string) string {
 	t.Helper()
 	raw, _ := json.Marshal(map[string]string{"prompt": prompt, "cwd": cwd, "session_id": session})
-	var out bytes.Buffer
-	if code := runDirect("memory-recall", bytes.NewReader(raw), &out, io.Discard); code != core.ExitProceed {
-		t.Fatalf("MemoryRecall = %d", code)
+	res := Recall(core.ParseInput(bytes.NewReader(raw)))
+	if res.Decision == core.Block {
+		t.Fatalf("Recall blocked: %q", res.Reason)
 	}
-	if out.Len() == 0 {
-		return ""
-	}
-	var doc struct {
-		H struct{ AdditionalContext string } `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-		t.Fatalf("stdout is not the context envelope: %v %s", err, out.String())
-	}
-	return doc.H.AdditionalContext
+	return res.Context
 }
 
 func TestMemoryRecall(t *testing.T) {
@@ -91,7 +81,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	const sessionS = "44444444-4444-4444-8444-444444444444"
 	const sessionT = "55555555-5555-4555-8555-555555555555"
 	raw, _ := json.Marshal(map[string]string{"cwd": cwd, "session_id": sessionS})
-	if runDirect("memory-start", bytes.NewReader(raw), &bytes.Buffer{}, io.Discard) != core.ExitProceed {
+	if Start(core.ParseInput(bytes.NewReader(raw))).Decision == core.Block {
 		t.Fatal("SessionStart failed")
 	}
 	got := recallAs(t, sessionS, "alpha bravo charlie delta echo", cwd)
@@ -128,18 +118,15 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 
 	// Test 1: With explicit CWD provided, recall works.
 	raw, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": cwd})
-	var out1 bytes.Buffer
-	code1 := runDirect("memory-recall", bytes.NewReader(raw), &out1, io.Discard)
-	if code1 != core.ExitProceed {
-		t.Fatalf("MemoryRecall with explicit CWD failed: code=%d", code1)
+	res1 := Recall(core.ParseInput(bytes.NewReader(raw)))
+	if res1.Decision == core.Block || !strings.Contains(res1.Context, "strong") {
+		t.Fatalf("Recall with explicit CWD = %+v, want the seeded hit", res1)
 	}
 
 	// Test 2: With empty CWD, fallback to Getwd should work (on most systems).
 	raw2, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": ""})
-	var out2 bytes.Buffer
-	code2 := runDirect("memory-recall", bytes.NewReader(raw2), &out2, io.Discard)
-	if code2 != core.ExitProceed {
-		t.Fatalf("MemoryRecall with empty CWD failed: code=%d", code2)
+	if res2 := Recall(core.ParseInput(bytes.NewReader(raw2))); res2.Decision == core.Block {
+		t.Fatalf("Recall with empty CWD blocked: %q", res2.Reason)
 	}
 }
 
@@ -349,15 +336,15 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(map[string]string{"cwd": t.TempDir(), "session_id": "probe-x"})
-	var out bytes.Buffer
-	if runDirect("memory-start", bytes.NewReader(raw), &out, io.Discard) != core.ExitProceed {
+	res := Start(core.ParseInput(bytes.NewReader(raw)))
+	if res.Decision == core.Block {
 		t.Fatal("SessionStart failed")
 	}
-	if strings.Contains(out.String(), "repo-000") || strings.Contains(out.String(), "repo-119") {
-		t.Errorf("catalog rows injected:\n%s", out.String())
+	if strings.Contains(res.Context, "repo-000") || strings.Contains(res.Context, "repo-119") {
+		t.Errorf("catalog rows injected:\n%s", res.Context)
 	}
-	if !strings.Contains(out.String(), "other repos:") || out.Len() > 1500 {
-		t.Errorf("want the one-line pointer and a small surface, got %d bytes:\n%s", out.Len(), out.String())
+	if !strings.Contains(res.Context, "other repos:") || len(res.Context) > 1500 {
+		t.Errorf("want the one-line pointer and a small surface, got %d bytes:\n%s", len(res.Context), res.Context)
 	}
 }
 
