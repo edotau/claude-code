@@ -42,6 +42,9 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink agent.Si
 			}
 		}
 	}
+	if err := refuseUnmappedDeny(req.Permissions); err != nil {
+		return agent.Result{}, err
+	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
 		return agent.Result{}, err
@@ -93,7 +96,7 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 		{req.AppendSystemPrompt != "", []string{"--append-system-prompt", req.AppendSystemPrompt}},
 		{req.OutputSchema != "", []string{"--json-schema", req.OutputSchema}},
 		{req.SessionID != "", []string{"--resume", req.SessionID}},
-		{req.Autonomous && req.Tools, []string{"--permission-mode", "bypassPermissions"}},
+		{req.Autonomous && req.Tools && req.Permissions.IsZero(), []string{"--permission-mode", "bypassPermissions"}},
 	} {
 		if f.on {
 			args = append(args, f.flag...)
@@ -102,6 +105,7 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 	if req.Persona != nil {
 		args = append(args, agent.PersonaArgs(req.Persona)...)
 	}
+	args = append(args, permissionArgs(req)...)
 	if !req.Tools {
 
 		args = append(args, "--tools", "", "--setting-sources", "")
@@ -109,6 +113,48 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 		args = append(args, "--exclude-dynamic-system-prompt-sections") // per-session sections defeat the prompt cache
 	}
 	return args
+}
+
+// readOnlyDeny is --read-only as deny rules: deny beats allow in claude, so read-only git cannot be carved back out.
+var readOnlyDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
+
+// permissionArgs renders the request's Permissions (plus --read-only) as claude flags; empty for neither.
+// Mode plan sets no --permission-mode: claude's plan mode is an interactive exit-plan flow, while
+// --permission-prompts none already denies whatever no rule matched, which is Decide's plan fallback.
+func permissionArgs(req agent.RunOptions) []string {
+	p := req.Permissions
+	if req.ReadOnly && req.Tools {
+		p.Deny = append(slices.Clone(p.Deny), readOnlyDeny...)
+	}
+	if p.IsZero() {
+		return nil
+	}
+	var args []string
+	for _, l := range []struct {
+		flag  string
+		rules []agent.Rule
+	}{{"--allowedTools", p.Allow}, {"--disallowedTools", p.Deny}} {
+		if len(l.rules) > 0 {
+			args = append(args, l.flag)
+			for _, r := range l.rules {
+				args = append(args, r.String())
+			}
+		}
+	}
+	if p.Mode != "plan" { // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
+		args = append(args, "--permission-mode", "auto")
+	}
+	return append(args, "--permission-prompts", "none")
+}
+
+// refuseUnmappedDeny fails closed: claude takes any "Tool(arg)" rule natively, so only a nameless Deny rule cannot be enforced.
+func refuseUnmappedDeny(p agent.Permissions) error {
+	for _, r := range p.Deny {
+		if r.Tool == "" {
+			return fmt.Errorf("claude: cannot enforce deny rule %q: no tool name", r.String())
+		}
+	}
+	return nil
 }
 
 // claudeCmd resolves the launch plan for args and returns the unstarted child with its env layered (--env last).

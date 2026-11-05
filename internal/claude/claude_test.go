@@ -218,3 +218,47 @@ func TestParseClaudeStreamErrorResultKeepsAssistantText(t *testing.T) {
 		t.Fatalf("res = %+v, err = %v; want Answer Hello and a 529 error", res, err)
 	}
 }
+
+func TestClaudeArgsPermissions(t *testing.T) {
+	rules := func(s ...string) (r []agent.Rule) {
+		for _, x := range s {
+			p, err := agent.ParseRule(x)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r = append(r, p)
+		}
+		return r
+	}
+	tail := []string{"--exclude-dynamic-system-prompt-sections"}
+	cases := []struct {
+		name string
+		req  agent.RunOptions
+		want []string
+	}{
+		{"empty keeps today", agent.RunOptions{Tools: true}, tail},
+		{"empty autonomous keeps bypass", agent.RunOptions{Tools: true, Autonomous: true}, append([]string{"--permission-mode", "bypassPermissions"}, tail...)},
+		{"empty no tools", agent.RunOptions{}, []string{"--tools", "", "--setting-sources", ""}},
+		{"allow", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Allow: rules("Bash(git *)", "Edit")}},
+			append([]string{"--allowedTools", "Bash(git *)", "Edit", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
+		{"deny with auto", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "auto", Deny: rules("Bash(rm:*)")}},
+			append([]string{"--disallowedTools", "Bash(rm:*)", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
+		{"ask", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Ask: rules("Write")}},
+			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
+		{"plan sets no mode", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "plan", Ask: rules("Write")}},
+			append([]string{"--permission-prompts", "none"}, tail...)},
+		{"policy replaces bypass", agent.RunOptions{Tools: true, Autonomous: true, Permissions: agent.Permissions{Mode: "auto"}},
+			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
+		{"read-only", agent.RunOptions{Tools: true, ReadOnly: true},
+			append([]string{"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
+	}
+	for _, c := range cases {
+		if got := claudeArgs(nil, c.req); !slices.Equal(got, c.want) {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+	err := refuseUnmappedDeny(agent.Permissions{Deny: []agent.Rule{{Arg: "x"}}})
+	if err == nil || !strings.Contains(err.Error(), "(x)") {
+		t.Errorf("nameless deny rule must be refused naming it, got %v", err)
+	}
+}
