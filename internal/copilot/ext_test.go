@@ -55,8 +55,8 @@ func TestCopilotSettingsMergesDefaultPermissionModeKeepingOtherKeys(t *testing.T
 	renderCopilotOnly(t, home)
 
 	got, raw := readSettingsJSON(t, path)
-	if got["defaultPermissionMode"] != "assisted" {
-		t.Errorf("defaultPermissionMode = %v, want assisted: %s", got["defaultPermissionMode"], raw)
+	if got["defaultPermissionMode"] != "allow-all" {
+		t.Errorf("defaultPermissionMode = %v, want allow-all: %s", got["defaultPermissionMode"], raw)
 	}
 	if got["theme"] != "default" {
 		t.Errorf("foreign key \"theme\" dropped or altered: %s", raw)

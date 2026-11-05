@@ -127,7 +127,8 @@ func codexBlockFromArgv(argv []string) (string, error) {
 	b.WriteString("\n")
 	b.WriteString("[model_providers.claude-code]\n")
 	for _, f := range splitTopLevelInline(tableVal) {
-		b.WriteString(f + "\n")
+		b.WriteString(f)
+		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }

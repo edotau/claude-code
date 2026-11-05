@@ -18,7 +18,9 @@
       "Edit",
       "Read",
       "Write",
-      "WebFetch(*)"
+      "WebFetch(*)",
+      "Read(~/.claude/settings.json)",
+      "Read(~/.claude/internal/agentconfig/agents.json)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -28,7 +30,11 @@
       "Read(**/state/vault.db)",
       "Edit(~/.ssh/**)",
       "Edit(**/state/vault.db)",
-      "Edit(**/.credentials.json)"
+      "Edit(**/.credentials.json)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/internal/agentconfig/agents.json)",
+      "Write(~/.claude/internal/agentconfig/agents.json)",
+      "Write(~/.claude/settings.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
@@ -41,7 +47,7 @@
   "model": "opus",
   "statusLine": {
     "type": "command",
-    "command": "${HOOK_BIN} theme statusline",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
     "padding": 0
   },
   "outputStyle": "Concise",
