@@ -25,9 +25,9 @@ const maxShellRecursionDepth = 3
 var shellCNames = map[string]bool{"bash": true, "sh": true, "zsh": true}
 
 // gitCommitCommand reports whether cmd actually RUNS `git … commit …` in some shell segment: split on
-// &&/||/;/|/newline, tokenize each segment (quotes collapse to one token, so quoted text never matches),
-// skip a leading env assignment or sudo/env, then require `git` (or a .../git path) followed by global
-// options up to the verb `commit`. Heredoc bodies are skipped first (this is a counter, not the safety
+// &&/||/;/|/&/newline, tokenize each segment (quotes collapse to one token, so quoted text never matches),
+// skip env assignments, `!`/then/do/else/elif and sudo/env/time/command/exec/nohup, then require `git`
+// (or a .../git path) followed by global options up to the verb `commit`. Heredoc bodies are skipped first (this is a counter, not the safety
 // guard — undercounting a piped heredoc body is acceptable); `$(...)`/backtick substitutions are scanned
 // too, since a captured `git commit` still runs.
 func gitCommitCommand(cmd string) bool {
@@ -347,15 +347,16 @@ func skipWrapperFlags(wrapper string, toks []string) []string {
 		if wrapper == "env" {
 			valueFlags = envValueFlags
 		}
+		drop := 1
 		if valueFlags[toks[0]] {
-			toks = toks[1:]
+			drop = min(2, len(toks))
 		}
-		toks = toks[1:]
+		toks = toks[drop:]
 	}
 	return toks
 }
 
-// commitShellSegments splits cmd on &&, ||, ;, |, newline — quoted delimiters stay inside their segment.
+// commitShellSegments splits cmd on &&, ||, ;, |, a lone &, newline — quoted delimiters stay inside their segment.
 // A backslash escapes the next char literally outside single quotes (so `\"` never closes a double
 // quote); a backslash-newline outside single quotes is a line continuation and vanishes entirely.
 func commitShellSegments(cmd string) []string {

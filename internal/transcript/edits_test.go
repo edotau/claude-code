@@ -640,3 +640,12 @@ func TestStripHeredocBodiesKeepsLinesAfterShiftOperator(t *testing.T) {
 		t.Errorf("stripHeredocBodies dropped lines after a shift: %q", got)
 	}
 }
+
+// TestGitCommitCommandTrailingWrapperFlag: a sudo/env value flag as the last token must not panic.
+func TestGitCommitCommandTrailingWrapperFlag(t *testing.T) {
+	for _, cmd := range []string{"echo x; sudo -u", "sudo -g", "env -u", "env --unset", "sudo --user"} {
+		if gitCommitCommand(cmd) {
+			t.Errorf("gitCommitCommand(%q) = true, want false", cmd)
+		}
+	}
+}
