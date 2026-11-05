@@ -9,7 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
-	"github.com/edotau/claude-code/internal/hooks/memory"
+	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -19,13 +19,13 @@ var Native = map[string]core.Runner{
 	"safety-scan":               safetyScan,
 	"rtk-rewrite":               rtkRewrite,
 	"docs-placement":            viaStderr(docs.Placement),
-	"memory-start":              memory.Start,
-	"memory-recall":             memory.Recall,
+	"memory-start":              memhook.Start,
+	"memory-recall":             memhook.Recall,
 	"paths-resolve":             docs.ResolvePaths,
-	"memory-update":             memory.Stop,
+	"memory-update":             memhook.Stop,
 	"review-simplicity":         reviewSimplicity,
 	"format-stop":               stopFormatRun,
-	"memory-end":                memory.End,
+	"memory-end":                memhook.End,
 	"dispatch-effort":           dispatchPre,
 	"codex-agent-route":         nativeCodexAgentRoute,
 	"codex-routing-start":       nativeCodexRoutingStart,
@@ -41,7 +41,7 @@ var Native = map[string]core.Runner{
 	"docs-plan-mirror":          viaStderr(docs.Mirror),
 	"docs-plan-save":            viaStderr(docs.Save),
 	"dispatch-stop":             subagentStopRunner,
-	"memory-compact":            memory.Compact,
+	"memory-compact":            memhook.Compact,
 	"worktree-create":           worktreeCreate,
 	"worktree-remove":           viaStderr(worktreeRemove),
 	"worktree-mode":             worktreeMode,

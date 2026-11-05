@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -455,14 +456,28 @@ func TestHarnessGitBlocked(t *testing.T) {
 	}
 }
 
-// TestMain stubs the live-process scans and the usage cache so no hook test reads the real machine.
+// mainTB lets TestMain call the testing.TB stubs: Cleanup is deferred until the whole run ends.
+type mainTB struct {
+	testing.TB
+	cleanups []func()
+}
+
+func (m *mainTB) Helper()          {}
+func (m *mainTB) Cleanup(f func()) { m.cleanups = append(m.cleanups, f) }
+
+// TestMain stubs the live-process scans, detached spawns and the usage cache so no hook test reads the machine or spawns.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
+	tb := &mainTB{}
+	memhook.StubSpawnForTest(tb, true)
 	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	peerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
+	for _, f := range tb.cleanups {
+		f()
+	}
 	cleanup()
 	os.Exit(code)
 }

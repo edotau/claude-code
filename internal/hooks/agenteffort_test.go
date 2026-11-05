@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/memory"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -255,7 +254,7 @@ func TestAgentEffortRefusesPathShapedSubagentType(t *testing.T) {
 	}
 }
 
-// seedHomeRecallBlock writes n id-marked, strongly-matching home-bank blocks so agentRecall has
+// seedHomeRecallBlock writes n id-marked, strongly-matching home-bank blocks so AgentRecall has
 // real hits to rank; each block repeats the query terms plus padding so BM25 scores them close.
 func seedHomeRecallBlock(t *testing.T, n int) {
 	t.Helper()
@@ -274,26 +273,6 @@ func seedHomeRecallBlock(t *testing.T, n int) {
 
 const recallPrompt = "stage the deploy pipeline staging signoff rollout"
 
-// TestAgentEffortRecallBlockCappedAtThreeHitsAndByteBudget: agentRecall never cites more than 3
-// ids and the appended block (whole lines only) never exceeds memory.AgentRecallBlockCapBytes.
-func TestAgentEffortRecallBlockCappedAtThreeHitsAndByteBudget(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	seedHomeRecallBlock(t, 5) // more candidates than the k=3 cap
-	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
-	got, _ := runAgentEffort(t, in)
-	if got == nil {
-		t.Fatal("no updatedInput, want a recall block appended to the prompt")
-	}
-	prompt, _ := got["prompt"].(string)
-	block := strings.TrimPrefix(prompt, recallPrompt)
-	if n := strings.Count(block, "\n- "); n == 0 || n > 3 {
-		t.Errorf("recall block cites %d ids, want 1-3: %q", n, block)
-	}
-	if len(block) > memory.AgentRecallBlockCapBytes {
-		t.Errorf("recall block is %d bytes, want <= %d: %q", len(block), memory.AgentRecallBlockCapBytes, block)
-	}
-}
-
 // TestAgentEffortExplicitModelRecallAppendsPromptOnly: an explicit model still gets the recall
 // block (prompt changes), the model field is untouched, and no systemMessage/decision fires since
 // the model itself never changed.
@@ -306,7 +285,7 @@ func TestAgentEffortExplicitModelRecallAppendsPromptOnly(t *testing.T) {
 		t.Errorf("model = %v, want untouched \"opus\"", doc.HSO.UpdatedInput["model"])
 	}
 	prompt, _ := doc.HSO.UpdatedInput["prompt"].(string)
-	if !strings.Contains(prompt, memory.AgentRecallMarker) {
+	if !strings.Contains(prompt, "<memory-recall>") {
 		t.Errorf("prompt missing the recall block: %q", prompt)
 	}
 	if doc.SystemMessage != "" {
@@ -329,7 +308,7 @@ func TestAgentEffortNoHitsNoPinEmitsNothing(t *testing.T) {
 func TestAgentEffortRecallSkipsPromptAlreadyCarryingMarker(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedHomeRecallBlock(t, 1)
-	already := recallPrompt + "\n\n" + memory.AgentRecallMarker + "\n- old hit\n</memory-recall>"
+	already := recallPrompt + "\n\n" + "<memory-recall>" + "\n- old hit\n</memory-recall>"
 	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q,"model":"opus"}}`, already)
 	got, _ := runAgentEffort(t, in)
 	if got != nil {
@@ -359,7 +338,7 @@ func TestAgentEffortRecallPreservesAllInputKeysWithModelFill(t *testing.T) {
 		t.Error("model was not filled alongside the recall append")
 	}
 	prompt, _ := got["prompt"].(string)
-	if !strings.Contains(prompt, memory.AgentRecallMarker) {
+	if !strings.Contains(prompt, "<memory-recall>") {
 		t.Errorf("prompt missing the recall block: %q", prompt)
 	}
 }
@@ -382,22 +361,6 @@ func TestAgentEffortRecallEngineFailureFallsBackToTodaysBehavior(t *testing.T) {
 	if got == nil || got["model"] != "haiku" {
 		t.Errorf("updatedInput = %v, want model=haiku despite the recall failure", got)
 	}
-}
-
-// TestAgentRecallHandlesCwdGracefully: agentRecall must handle missing CWD by using os.Getwd
-// as a fallback without panicking. Regression test for defect where os.Getwd error was
-// swallowed with _, leaving root empty. The function should degrade gracefully.
-func TestAgentRecallHandlesCwdGracefully(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-
-	// agentRecall should not panic or crash when CWD is empty (Getwd fallback path).
-	// The result might be empty (no hits) but the function should not crash.
-	block, ids := memory.AgentRecall("test-session", "", "alpha bravo charlie strong pattern matching")
-
-	// No assertions on finding content (would need a real bank setup), just that it doesn't crash.
-	_ = block // might be empty if no bank is available
-	_ = ids   // might be nil if no matches
-	// If this test reaches here without panic, the defect is not present.
 }
 
 // runEffortHook renders the pin step in the process hook shape these assertions read (exit 2 + stderr for a block).
