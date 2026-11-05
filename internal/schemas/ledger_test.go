@@ -79,6 +79,7 @@ var writers = map[string]string{
 	"internal/hooks/wthook/worktree.go:busyLine":                      unversioned("marker: per-session worktree-busy dedupe stamp"),
 	"internal/memory/recall/sessionroot.go:RecordSessionRoot":         unversioned("text: per-session launch repository root"),
 	"internal/hooks/memhook/memory.go:writeChain":                     unversioned("text: last-session chain stamp"),
+	"internal/hooks/memhook/agent_input.go:writeSynthTranscript":      unversioned("text: Claude-shaped transcript synthesized from an agent session"),
 	"internal/hooks/memhook/memory_update.go:writeCountState":         unversioned("text: edit count stamp"),
 	"internal/hooks/memhook/memory_update.go:writeSidecar":            unversioned("text: update sidecar text"),
 	"internal/hooks/memhook/memory_update.go:writeStamp":              unversioned("text: update stamp"),
