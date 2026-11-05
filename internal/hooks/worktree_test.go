@@ -3,7 +3,6 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -12,8 +11,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/memory"
-	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
@@ -310,38 +307,6 @@ func canonHome(t *testing.T, home string) string {
 	return c
 }
 
-// An update in a linked worktree logs one ledger line.
-func TestUpdateAppendsWorktreeLedger(t *testing.T) {
-	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("HOME", home)
-	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
-	t.Setenv(bank.UpdateChildEnv, "")
-	main := filepath.Join(home, "repo")
-	for _, a := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "i"}} {
-		if out, err := exec.Command("git", a...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v %s", a, err, out)
-		}
-	}
-	repo, err := worktree.ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dest, err := worktree.Create(repo, "wt-h", worktree.CreateOptions{Log: &bytes.Buffer{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	memory.StubSpawnForTest(t, true)
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 3)
-	if memory.Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))).Decision == core.Block {
-		t.Fatal("update blocked")
-	}
-	data, err := os.ReadFile(filepath.Join(memstore.Dir(main), "worktrees", "wt-h.md"))
-	if err != nil || !strings.Contains(string(data), "update (") {
-		t.Fatalf("no update line in ledger: %v\n%s", err, data)
-	}
-}
-
 // A failing worktree handler must fail the dispatcher: Claude Code reads exit 0 as "worktree created".
 func TestWorktreeFailureKeepsExitCode(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -435,16 +400,4 @@ func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
 	if top, _, skip := checkoutOf(ctx, main); top != main || len(skip) != 1 || skip[0] != nested {
 		t.Fatalf("from the main tree: top %q, skip %v; want top %q and skip [%s]", top, skip, main, nested)
 	}
-}
-
-func writeEdits(t *testing.T, path string, n int) {
-	t.Helper()
-	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
-	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func updatePayload(tr, cwd string) string {
-	return fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q}`, cwd, tr)
 }

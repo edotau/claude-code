@@ -14,7 +14,7 @@ const (
 	recallQueryCapRunes = 2000
 	recallBodies        = 2 // entries injected whole; the rest ride as one-line pointers
 	recallPointers      = 3
-	recallK             = 3 // agentRecall's pointer count
+	recallK             = 3 // AgentRecall's pointer count
 	recallBodyCapRunes  = 380
 	recallTotalCapChars = 1500
 	recallScoreFloor    = 0.5 // keep hits within half of the top score: BM25 is unnormalised
