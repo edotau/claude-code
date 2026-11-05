@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 
@@ -22,10 +21,7 @@ import (
 // CodexJSON renders only explicitly allowed hooks in Codex's Claude-compatible schema.
 func CodexJSON() ([]byte, error) {
 	events := map[string][]settings.MatcherGroup{}
-	for _, s := range settings.Specs() {
-		if !slices.Contains(s.Agents, "codex") {
-			continue
-		}
+	for _, s := range settings.SpecsFor("codex", "native") {
 		h := settings.Hook{Type: "command", Command: settings.AgentEnv + "=codex " + s.Command(), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
 		groups := events[s.Event]
 		if n := len(groups); n > 0 && groups[n-1].Matcher == s.Matcher {
