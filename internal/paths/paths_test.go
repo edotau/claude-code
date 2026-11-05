@@ -326,3 +326,33 @@ func readStr(t *testing.T, f string) string {
 	}
 	return string(b)
 }
+
+func TestSwapSymlinkConcurrent(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("initial", link); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range 32 {
+		wg.Go(func() {
+			<-start
+			for range 10 {
+				if err := SwapSymlink(fmt.Sprintf("target-%d", i), link); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if target, err := os.Readlink(link); err != nil || !strings.HasPrefix(target, "target-") {
+		t.Fatalf("final link = %q, %v", target, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("temporary links left behind: %v, %v", entries, err)
+	}
+}

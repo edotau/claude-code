@@ -118,6 +118,18 @@ func TestViewFrom(t *testing.T) {
 	}
 }
 
+func TestResolveUnknownSlashUNC(t *testing.T) {
+	r := testResolver()
+	for _, input := range []string{"//stranger/team/docs", "//fileserver/team/other", "//wsl.localhost/Debian/etc"} {
+		if got, ok := r.Resolve(input); ok || got != "" {
+			t.Errorf("Resolve(%q) = %q, %v; unknown UNC must not become a local path", input, got, ok)
+		}
+	}
+	if got, ok := r.Resolve("//fileserver/team/docs/a"); !ok || got != "/srv/share one/a" {
+		t.Fatalf("known UNC = %q, %v", got, ok)
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	r := testResolver()
 	for _, tc := range []struct {
