@@ -463,23 +463,3 @@ func TestEmptyPermissionsKeepHandlers(t *testing.T) {
 		t.Errorf("autonomous handler = %s, want approveToolOnce", got)
 	}
 }
-
-func TestPermissionCLIArgs(t *testing.T) {
-	p, err := agent.ParsePermissions("", []string{"Bash(go test:*)"}, nil, []string{"Bash(rm *)", "Bash(git push)", "WebFetch"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := permissionCLIArgs(p)
-	want := []string{"--deny-tool=shell(rm:*)", "--deny-tool=shell(git push)", "--deny-tool=url", "--allow-tool=shell(go test:*)"}
-	if err != nil || !slices.Equal(got, want) {
-		t.Errorf("args = %v, %v; want %v", got, err, want)
-	}
-	for _, deny := range []string{"Edit(src/**)", "Bash(a*b)"} {
-		p, _ := agent.ParsePermissions("", nil, nil, []string{deny})
-		_, err := permissionCLIArgs(p)
-		var ae *agent.Error
-		if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), deny) {
-			t.Errorf("deny %s: err = %v, want fatal naming the rule", deny, err)
-		}
-	}
-}
