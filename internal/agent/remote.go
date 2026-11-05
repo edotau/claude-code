@@ -126,6 +126,15 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	for _, kv := range req.Env {
 		opt("--env", kv)
 	}
+	opt("--mode", req.Permissions.Mode)
+	for _, set := range []struct {
+		flag  string
+		rules []Rule
+	}{{"--allow", req.Permissions.Allow}, {"--ask", req.Permissions.Ask}, {"--deny", req.Permissions.Deny}} {
+		for _, s := range ruleStrings(set.rules) {
+			opt(set.flag, s)
+		}
+	}
 	for _, b := range []struct {
 		on   bool
 		flag string
@@ -142,6 +151,9 @@ func validateRemoteScript(bin, agentName string, req RunOptions) error {
 	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
+	for _, rules := range [][]Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
+		vals = append(vals, ruleStrings(rules)...)
+	}
 	for _, v := range vals {
 		if strings.ContainsRune(v, 0) {
 			return errors.New("remote ask: a NUL byte cannot cross the remote argv")
