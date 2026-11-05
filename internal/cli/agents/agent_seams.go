@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"github.com/edotau/claude-code/internal/agent"

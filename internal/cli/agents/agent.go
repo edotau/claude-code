@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"encoding/json"
@@ -12,10 +12,13 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
-	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	usagepkg "github.com/edotau/claude-code/internal/usage"
 )
+
+// RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.
+var RouteRefresh = usagepkg.RefreshAccount
 
 // attachFlag collects repeatable --attach paths; Set resolves each to an absolute path and fails fast
 // unless it names an existing regular file.
@@ -69,7 +72,7 @@ func (e *envFlag) String() string { return strings.Join(*e, ",") }
 // Placeholder names the FLAGS placeholder for envFlag (helptext.Placeholder).
 func (e *envFlag) Placeholder() string { return "NAME=VALUE" }
 
-// Set accepts anything: the flag parser echoes a rejected value in its error, so runAsk validates after Parse.
+// Set accepts anything: the flag parser echoes a rejected value in its error, so RunAsk validates after Parse.
 func (e *envFlag) Set(s string) error {
 	*e = append(*e, s)
 	return nil
@@ -83,14 +86,15 @@ func (a *agentsFlag) String() string { return string(*a) }
 // Placeholder names the FLAGS placeholder for agentsFlag (helptext.Placeholder).
 func (a *agentsFlag) Placeholder() string { return "JSON|FILE" }
 
-// Set accepts anything: the flag parser echoes a rejected value in its error, so runAsk validates after Parse.
+// Set accepts anything: the flag parser echoes a rejected value in its error, so RunAsk validates after Parse.
 func (a *agentsFlag) Set(s string) error {
 	*a = agentsFlag(s)
 	return nil
 }
 
-func newClient() *agent.Client {
-	return agent.NewClient(router.RuleClassifier{}.Alias, routeRefresh,
+// NewClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
+func NewClient() *agent.Client {
+	return agent.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 
@@ -112,8 +116,8 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 	return extra
 }
 
-// reportBackgroundStart tells the caller how to track a detached job.
-func reportBackgroundStart(format string, rec agent.Record) {
+// ReportBackgroundStart tells the caller how to track a detached job.
+func ReportBackgroundStart(format string, rec agent.Record) {
 	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			ID  string `json:"id"`
@@ -199,7 +203,7 @@ var agentsReapPage = helptext.Page{
 		"agent-inflight markers.",
 }
 
-func cmdAgents(args []string) int {
+func CmdAgents(args []string) int {
 	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && !slices.Contains([]string{"-h", "--help"}, args[0])) {
 		return cmdAgentsList(args)
 	}
@@ -207,7 +211,7 @@ func cmdAgents(args []string) int {
 	case "sync":
 		return cmdAgentsSync(args[1:])
 	case "tree":
-		return agents.Tree(args[1:])
+		return Tree(args[1:])
 	case "reap":
 		return cmdAgentsReap(args[1:])
 	case "status", "result", "tail", "cancel":
@@ -286,4 +290,15 @@ func listAgents(format string) int {
 		fmt.Println(r.Line())
 	}
 	return 0
+}
+
+// ApplyRoute exports --route as HARNESS_ROUTE, so this process's picks (and the jobs it spawns) follow that ladder.
+func ApplyRoute(route string) error {
+	if route == "" {
+		return nil
+	}
+	if !slices.Contains(router.RouteModes, route) {
+		return fmt.Errorf("--route %q unknown (%s)", route, strings.Join(router.RouteModes, "|"))
+	}
+	return os.Setenv(router.EnvRoute, route)
 }

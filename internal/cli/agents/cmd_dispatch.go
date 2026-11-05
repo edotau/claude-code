@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func (p *partFlag) Set(s string) error {
 	return nil
 }
 
-func cmdDispatch(args []string) int {
+func CmdDispatch(args []string) int {
 	fs := helptext.NewFlagSet("dispatch", dispatchPage)
 	var parts partFlag
 	fs.Var(&parts, "part", "explore: one sub-question per leg (repeatable, max 12)")
@@ -80,7 +80,7 @@ func cmdDispatch(args []string) int {
 
 // dispatchRun builds the legs (splitting explore when no --part) and runs or detaches them.
 func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int, format string, background bool) int {
-	client := newClient()
+	client := NewClient()
 	if role.Name == "explore" && len(q.Parts) == 0 && !background {
 		q.Parts = roles.Split(ctx, client, q.Task)
 	}
@@ -138,7 +138,7 @@ func dispatchDetach(ctx context.Context, client *agent.Client, legs []roles.Leg,
 			continue
 		}
 		fmt.Printf("%s\t", leg.Label)
-		reportBackgroundStart(helptext.Text, prepared.Record)
+		ReportBackgroundStart(helptext.Text, prepared.Record)
 	}
 	return code
 }

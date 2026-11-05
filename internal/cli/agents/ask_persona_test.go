@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"os"
@@ -30,10 +30,10 @@ func personaFixture(t *testing.T) (other string) {
 	return other
 }
 
-// askLoggedRequest runs cmdAsk against the missing agent binary and returns the request it logged.
+// askLoggedRequest runs CmdAsk against the missing agent binary and returns the request it logged.
 func askLoggedRequest(t *testing.T, args ...string) agent.RunOptions {
 	t.Helper()
-	if code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) }); code != 1 {
+	if code, _, stderr := captureOutput(t, func() int { return CmdAsk(args) }); code != 1 {
 		t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 	}
 	return agent.RecentRecords(1)[0].Request
@@ -64,7 +64,7 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	if got := ask(append(base, "--retry", rec.ID)...).Persona; got == nil || got.Name != "tester" {
 		t.Fatalf("retry persona = %+v, want tester", got)
 	}
-	code, _, stderr := captureOutput(t, func() int { return cmdAsk(append(base, "--agent", "claude:nope", "go")) })
+	code, _, stderr := captureOutput(t, func() int { return CmdAsk(append(base, "--agent", "claude:nope", "go")) })
 	if code != 2 || stderr == "" {
 		t.Fatalf("unknown persona: exit %d stderr %q, want 2 with a message", code, stderr)
 	}

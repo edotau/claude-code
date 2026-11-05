@@ -1,6 +1,6 @@
 //go:build unix
 
-package cli
+package agents
 
 import (
 	"errors"
@@ -30,7 +30,7 @@ func TestBatchPipeHelper(t *testing.T) {
 	file := batchFile(t,
 		taskLine(t, map[string]any{"id": "slow", "agent": "claude", "prompt": "SLOW", "workdir": t.TempDir(), "tools": true}),
 		taskLine(t, map[string]any{"id": "fast", "agent": "claude", "prompt": "quick", "workdir": t.TempDir(), "tools": true}))
-	os.Exit(Run([]string{"claude-code", "ask", "--batch", file, "--jobs", "2"}))
+	os.Exit(CmdAsk([]string{"--batch", file, "--jobs", "2"}))
 }
 
 // A closed stdout must not kill the process with SIGPIPE: the batch cancels, exits non-zero, and its children die.

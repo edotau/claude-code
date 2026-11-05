@@ -4,20 +4,16 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	usagepkg "github.com/edotau/claude-code/internal/usage"
 )
-
-// routeRefresh re-fetches a stale account for a pick; a var so tests stay offline.
-var routeRefresh = usagepkg.RefreshAccount
 
 // cmdGatewayRouter is `claude-code gateway router`: the pick for a model and every skipped agent with its gate; it
 // reads quota state (refreshing a stale account) and never dispatches.
@@ -42,7 +38,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := applyRoute(*route); err != nil {
+	if err := agents.ApplyRoute(*route); err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
@@ -54,7 +50,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if *want != "" && !slices.Contains(router.TableAgents, *want) {
 		return helptext.Fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableAgents, "|"))
 	}
-	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, routeRefresh)
+	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, agents.RouteRefresh)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
@@ -90,17 +86,6 @@ func renderGatewayRoute(name string, res router.PickResult, format string, withP
 		printProxyState(ps)
 	}
 	return 0
-}
-
-// applyRoute exports --route as HARNESS_ROUTE, so this process's picks (and the jobs it spawns) follow that ladder.
-func applyRoute(route string) error {
-	if route == "" {
-		return nil
-	}
-	if !slices.Contains(router.RouteModes, route) {
-		return fmt.Errorf("--route %q unknown (%s)", route, strings.Join(router.RouteModes, "|"))
-	}
-	return os.Setenv(router.EnvRoute, route)
 }
 
 // routeSources names where each routing knob printed by `gateway router` came from.

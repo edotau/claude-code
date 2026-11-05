@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"context"
@@ -76,7 +76,7 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunO
 	if as := fs.Lookup("as"); as != nil {
 		bo.Identity = as.Value.String()
 	}
-	id, ok := batch.Run(ctx, lines, bo, base, helptext.Explicit(fs, "timeout"), newClient, os.Stdout)
+	id, ok := batch.Run(ctx, lines, bo, base, helptext.Explicit(fs, "timeout"), NewClient, os.Stdout)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
 		return 1
@@ -87,5 +87,5 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunO
 // batchTask is batch.BuildTask over the cli client.
 func batchTask(l batch.ParsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (batch.BatchTask, error) {
-	return batch.BuildTask(l, batch.Opts{Agent: o.agent, Fallback: o.fallback, Native: o.native}, base, timeoutSet, cwd, seen, newClient)
+	return batch.BuildTask(l, batch.Opts{Agent: o.agent, Fallback: o.fallback, Native: o.native}, base, timeoutSet, cwd, seen, NewClient)
 }

@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"bufio"
@@ -31,7 +31,7 @@ var askPage = helptext.Page{
 	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
 }
 
-func cmdAsk(args []string) int { return runAsk(args, false) }
+func CmdAsk(args []string) int { return RunAsk(args, false) }
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
@@ -115,8 +115,8 @@ type askRun struct {
 	state   *askState
 }
 
-// runAsk is cmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
-func runAsk(args []string, resume bool) int {
+// RunAsk is CmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
+func RunAsk(args []string, resume bool) int {
 	fs, f := askFlagSet()
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -137,7 +137,7 @@ func (r *askRun) fail(err error, code int) (int, bool) {
 // prelude applies the route and overlays and validates the flags.
 func (r *askRun) prelude() (int, bool) {
 	f := r.f
-	if err := applyRoute(f.route); err != nil {
+	if err := ApplyRoute(f.route); err != nil {
 		return r.fail(err, 2)
 	}
 	if code := askEnableOverlays(f.overlayDebug, f.overlayPath); code != 0 {
@@ -330,7 +330,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return failAskCode(format, name, err, 2)
 	}
 	req = agent.ApplyOverlay(req, ov)
-	client := newClient()
+	client := NewClient()
 	ctx = providers.WithIdentity(ctx, as)
 	prepared, err := client.Prepare(ctx, req, jobRec)
 	if err != nil {
@@ -421,7 +421,7 @@ func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, n
 	if err := job.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
 		return failAsk(format, name, err)
 	}
-	reportBackgroundStart(format, prepared.Record)
+	ReportBackgroundStart(format, prepared.Record)
 	return 0
 }
 

@@ -12,9 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/review"
+	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -168,9 +168,9 @@ func agentResume(name string, args []string) int {
 		return helptext.Fail("%s resume: usage: claude-code %s resume <id> <task>", name, name)
 	}
 	if strings.HasPrefix(args[0], "-") { // flags first: ask's own parser, the session id is its first positional
-		return runAsk(append([]string{"--agent", name}, args...), true)
+		return agents.RunAsk(append([]string{"--agent", name}, args...), true)
 	}
-	return cmdAsk(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
+	return agents.CmdAsk(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
 }
 
 // agentStatus is `claude-code <v> status [id] [--all] [--format text|json]`.
@@ -199,7 +199,7 @@ func agentStatus(name string, args []string) int {
 		return 0
 	}
 	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, statusDetail(r))
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, agents.StatusDetail(r))
 	}
 	return 0
 }
@@ -220,16 +220,7 @@ func agentTail(name string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%s tail: %v", name, err)
 	}
-	return tailExit(rec, *follow)
-}
-
-// tailExit is a tail's exit code: 1 for an errored job, or for a followed job that is still "running" (lost).
-func tailExit(rec agent.Record, follow bool) int {
-	if rec.Status == "running" && follow {
-		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
-		return 1
-	}
-	return resultExit(rec)
+	return agents.TailExit(rec, *follow)
 }
 
 // agentResult is `claude-code <v> result [id] [--format text|json]`.
@@ -259,7 +250,7 @@ func agentResult(name string, args []string) int {
 		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
 			return helptext.Fail("%s result: %v", name, err)
 		}
-		return resultExit(rec)
+		return agents.ResultExit(rec)
 	}
 	fmt.Print(log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
@@ -269,7 +260,7 @@ func agentResult(name string, args []string) int {
 		fmt.Printf("session: %s\n", rec.SessionID)
 		printResumeHint(s, rec.SessionID)
 	}
-	return resultExit(rec)
+	return agents.ResultExit(rec)
 }
 
 // printResumeHint prints the agent's resume command for a session; nothing when it has none (ResumeHint("") is "").
@@ -277,15 +268,6 @@ func printResumeHint(s agent.Schema, sessionID string) {
 	if hint := s.ResumeHint(sessionID); hint != "" {
 		fmt.Printf("resume: %s\n", hint)
 	}
-}
-
-// resultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
-func resultExit(rec agent.Record) int {
-	if rec.Status != "error" {
-		return 0
-	}
-	fmt.Fprintf(os.Stderr, "error: %s\n", shapes.Redact(rec.Error)) // the stderr tail in it may carry a key
-	return 1
 }
 
 // agentCancel is `claude-code <v> cancel [id]`.
@@ -365,7 +347,7 @@ func agentReview(name string, args []string) int {
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	defer cleanup()
-	return cmdAsk(askArgs)
+	return agents.CmdAsk(askArgs)
 }
 
 // agentExplore is `claude-code <v> explore [--no-web] [--background] [--format f] <question>`.
@@ -387,7 +369,7 @@ func agentExplore(name string, args []string) int {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)
 	}
-	return cmdAsk(askArgs)
+	return agents.CmdAsk(askArgs)
 }
 
 // agentTransfer is `claude-code <v> transfer [--source f] [--wait] [note…]`.
@@ -409,7 +391,7 @@ func agentTransfer(name string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%s transfer: %v", name, err)
 	}
-	code := cmdAsk(transcript.TransferArgs(name, cwd, prompt, *wait))
+	code := agents.CmdAsk(transcript.TransferArgs(name, cwd, prompt, *wait))
 	if code == 0 && *wait {
 		if rec, _, err := job.JobResult(context.Background(), name, cwd, ""); err == nil {
 			s, _ := agent.LookupSchema(name)
@@ -507,16 +489,4 @@ func launchFlags(name string) *flag.FlagSet {
 		fs.String("f", "", "config.toml whose keys ride as -c overrides")
 	}
 	return fs
-}
-
-// statusDetail is a status row's tail: progress and preview, or the preview plus the one-line error text.
-func statusDetail(r job.Row) string {
-	d := r.Preview
-	if r.Progress != "" {
-		d = "[" + r.Progress + "] " + d
-	}
-	if r.Error != "" {
-		d += " -- " + shapes.Preview(r.Error, 300)
-	}
-	return d
 }

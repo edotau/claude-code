@@ -1,6 +1,7 @@
-package cli
+package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -36,14 +37,14 @@ func writeFixtureFile(t *testing.T, path, content string) {
 }
 
 // (i) CLI wiring: `agents tree --format json` resolves claudeDir from CLAUDE_CONFIG_DIR, dispatches
-// through cmdAgents, and emits the documented {sessions:[...]} schema on stdout.
+// through CmdAgents, and emits the documented {sessions:[...]} schema on stdout.
 func TestCmdAgentsTreeFormatJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	writeFixtureFile(t, filepath.Join(dir, "projects", "-Users-fake-repo", "sess0001.jsonl"),
 		`{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hello"},"cwd":"/Users/fake/repo","gitBranch":"main"}`)
 
-	code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"tree", "--days", "365", "--format", "json"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return CmdAgents([]string{"tree", "--days", "365", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("agents tree --format json exit %d, stderr=%s", code, stderr)
 	}
@@ -63,7 +64,7 @@ func TestCmdAgentsTreeFormatJSON(t *testing.T) {
 // agents tree rejects an unknown --format value before touching the filesystem.
 func TestCmdAgentsTreeRejectsBadFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return cmdAgents([]string{"tree", "--format", "xml"}) })
+	code, _, stderr := captureOutput(t, func() int { return CmdAgents([]string{"tree", "--format", "xml"}) })
 	if code != 2 {
 		t.Errorf("exit = %d, want 2", code)
 	}
@@ -139,7 +140,7 @@ func TestTimeoutExplicit(t *testing.T) {
 // agents tree's text output (the default) renders without error when no sessions are in scope.
 func TestCmdAgentsTreeTextNoSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, _ := captureOutput(t, func() int { return cmdAgents([]string{"tree"}) })
+	code, stdout, _ := captureOutput(t, func() int { return CmdAgents([]string{"tree"}) })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -191,7 +192,7 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
-	client := newClient()
+	client := NewClient()
 	for _, profile := range []string{"acme", "chatgpt"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: router.FallbackAgents}, nil)
@@ -214,12 +215,12 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 // A cancelled batch prepares nothing and never refreshes quota.
 func TestClientPrepareHonorsCancellation(t *testing.T) {
 	refreshes := 0
-	prev := routeRefresh
-	routeRefresh = func(context.Context, string) bool { refreshes++; return false }
-	t.Cleanup(func() { routeRefresh = prev })
+	prev := RouteRefresh
+	RouteRefresh = func(context.Context, string) bool { refreshes++; return false }
+	t.Cleanup(func() { RouteRefresh = prev })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: router.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
+	if _, err := NewClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: router.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 	if refreshes != 0 {
@@ -232,7 +233,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	client := newClient()
+	client := NewClient()
 	for _, profile := range []string{"chatgpt", "acme"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: router.FallbackAgents}, nil)
@@ -254,7 +255,7 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	client := newClient()
+	client := NewClient()
 	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: name, Provider: "acme", Prompt: "p", Fallback: router.FallbackAll}, nil)
@@ -309,7 +310,7 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 	young := writeDispatch(t, "20261024T000004.000-codex", "running", 0, 5*time.Second)
 	old0 := writeDispatch(t, "20261024T000005.000-codex", "running", 0, 10*time.Minute)
 
-	code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"reap"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return CmdAgents([]string{"reap"}) })
 	if code != 0 {
 		t.Fatalf("reap exit %d, stderr=%s", code, stderr)
 	}
@@ -348,7 +349,7 @@ func TestCmdAgentsReapDryRunChangesNothing(t *testing.T) {
 	writeFixtureFile(t, marker, "")
 	before, _ := os.ReadFile(dead)
 
-	code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"reap", "--dry-run"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return CmdAgents([]string{"reap", "--dry-run"}) })
 	if code != 0 {
 		t.Fatalf("reap --dry-run exit %d, stderr=%s", code, stderr)
 	}
@@ -373,7 +374,7 @@ func TestCmdAgentsReapMarkers(t *testing.T) {
 	for _, p := range []string{deadM, liveM, lock, stray} {
 		writeFixtureFile(t, p, "")
 	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdAgents([]string{"reap"}) }); code != 0 {
+	if code, _, stderr := captureOutput(t, func() int { return CmdAgents([]string{"reap"}) }); code != 0 {
 		t.Fatalf("reap exit %d, stderr=%s", code, stderr)
 	}
 	if _, err := os.Stat(deadM); !os.IsNotExist(err) {
@@ -388,7 +389,7 @@ func TestCmdAgentsReapMarkers(t *testing.T) {
 
 func TestCmdAgentsReapNothingToDo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if code, _, stderr := captureOutput(t, func() int { return cmdAgents([]string{"reap"}) }); code != 0 {
+	if code, _, stderr := captureOutput(t, func() int { return CmdAgents([]string{"reap"}) }); code != 0 {
 		t.Fatalf("reap on empty state exit %d, stderr=%s", code, stderr)
 	}
 }
@@ -398,7 +399,7 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	writeDispatch(t, "20261024T000003.000-codex", "ok", os.Getpid(), time.Minute)
-	code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"tree", "--days", "1"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return CmdAgents([]string{"tree", "--days", "1"}) })
 	if code != 0 {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
 	}
@@ -411,7 +412,9 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 }
 
 func TestAgentsUsageFits80(t *testing.T) {
-	usage := renderHelpPage(agentsPage)
+	var buf bytes.Buffer
+	agentsPage.Fprint(&buf)
+	usage := buf.String()
 	for line := range strings.SplitSeq(usage, "\n") {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("agentsUsage row is %d runes (>80): %q", n, line)
@@ -420,7 +423,7 @@ func TestAgentsUsageFits80(t *testing.T) {
 	if !strings.Contains(usage, "  reap") {
 		t.Error("agentsPage must document reap")
 	}
-	code, _, stderr := captureOutput(t, func() int { return cmdAgents([]string{"reap", "-h"}) })
+	code, _, stderr := captureOutput(t, func() int { return CmdAgents([]string{"reap", "-h"}) })
 	if code != 0 || !strings.Contains(stderr, "--dry-run") {
 		t.Errorf("agents reap help must document --dry-run: exit %d:\n%s", code, stderr)
 	}
@@ -431,7 +434,7 @@ func TestCmdAgentsTreeBackgroundKeepsRunningDispatches(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	for _, flag := range []string{"--background", "-bg"} {
-		code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"tree", flag, "--days", "1"}) })
+		code, stdout, stderr := captureOutput(t, func() int { return CmdAgents([]string{"tree", flag, "--days", "1"}) })
 		if code != 0 {
 			t.Fatalf("%s: exit %d, stderr=%s", flag, code, stderr)
 		}
