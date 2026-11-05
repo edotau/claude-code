@@ -111,7 +111,7 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 		}
 	}
 	if len(bashDeny) > 0 && !agyGateInstalled(cwd) {
-		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook is not in %s; run `claude-code agents sync --agent gemini`: dispatch refused",
+		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook is not in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
 			joinRules(bashDeny), agyHooksPath())
 	}
 	deny, _ = appendAgyRules(deny, bashDeny, cwd) // an inexact rule is the hook's alone; the exact ones also ride natively
