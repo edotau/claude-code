@@ -186,11 +186,23 @@ func leafStopVerdict(agentID string, rec agentpkg.Record) (core.Result, bool) {
 // ranOnPattern matches the `ask: ran on` stderr line or the --format json "ran_on" field, as a tool result printed it.
 var ranOnPattern = regexp.MustCompile(`ask: ran on |\\"ran_on\\":`)
 
-// leafBrief is the text of the leaf's first user message and whether a tool result printed a ran-on line.
-func leafBrief(path string) (brief string, ranOn bool, err error) {
+// coworkerGateMark opens the coworker gate's reason; a tool result carrying it means the leaf was already gated once.
+const coworkerGateMark = "No tool result of yours carries an `ask: ran on` line"
+
+// handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
+const handedBackMark = "Report delivered to your caller"
+
+// leafScan is what the gates read from a leaf transcript: its brief and which tool results it has seen.
+type leafScan struct {
+	brief                    string
+	ranOn, gated, handedBack bool
+}
+
+// leafBrief scans a leaf transcript for its first user message and the ran-on, gate and hand-back tool results.
+func leafBrief(path string) (s leafScan, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", false, err
+		return s, err
 	}
 	defer f.Close()
 	err = textutil.EachLineErr(f, func(b []byte) {
@@ -203,15 +215,18 @@ func leafBrief(path string) (brief string, ranOn bool, err error) {
 		if json.Unmarshal(b, &m) != nil {
 			return
 		}
-		if brief == "" && m.Type == "user" {
-			brief = transcript.ContentText(m.Message.Content)
+		if s.brief == "" && m.Type == "user" {
+			s.brief = transcript.ContentText(m.Message.Content)
 		}
 		line := string(b)
-		if strings.Contains(line, `"tool_result"`) && ranOnPattern.MatchString(line) {
-			ranOn = true
+		if !strings.Contains(line, `"tool_result"`) {
+			return
 		}
+		s.ranOn = s.ranOn || ranOnPattern.MatchString(line)
+		s.gated = s.gated || strings.Contains(line, coworkerGateMark)
+		s.handedBack = s.handedBack || strings.Contains(line, handedBackMark)
 	})
-	return brief, ranOn, err
+	return s, err
 }
 
 // leafAgentType is the stopping leaf's type: the payload's agent_type, else the meta.json beside its transcript.
@@ -241,18 +256,32 @@ func requestsAgent(brief string) bool {
 	return agentLineRe.MatchString(brief) || briefProfile(brief) != ""
 }
 
-// coworkerRanOnVerdict blocks a coworker's stop once when no tool result carried a ran-on line; the repeat stop passes.
+// coworkerRanOnVerdict blocks a coworker's stop or hand-back once when no ran-on line was seen; a repeat passes.
 func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	if leafAgentType(in) != "coworker" {
 		return core.Result{}, false
 	}
-	brief, ranOn, err := leafBrief(in.AgentTranscriptPath)
-	if err != nil || ranOn || !requestsAgent(brief) {
+	s, err := leafBrief(in.AgentTranscriptPath)
+	if err != nil || s.ranOn || !requestsAgent(s.brief) {
 		return core.Result{}, false
 	}
-	if in.StopHookActive {
+	if in.StopHookActive || s.gated || s.handedBack {
 		return core.Result{SystemMessage: fmt.Sprintf("coworker %s: finished with no ran-on line", agentID)}, false
 	}
-	return core.Result{Decision: core.Block, Reason: "No tool result of yours carries an `ask: ran on` line (or a `ran_on` field), so the external " +
-		"agent was never called. Run the `claude-code ask` the brief requests, or report BLOCKED with the reason; do not do the work in-context."}, true
+	return core.Result{Decision: core.Block, Reason: coworkerGateMark + " (or a `ran_on` field), so the external agent was never " +
+		"called. Run the `claude-code ask` the brief requests, or report BLOCKED with the reason; do not do the work in-context."}, true
+}
+
+// Handback runs the stop gates on SubagentHandback, which ends a background leaf before SubagentStop can block it.
+func Handback(in *core.Input) core.Result {
+	id := in.SubagentID()
+	if id == "" || in.ToolName != "SubagentHandback" {
+		return core.Result{}
+	}
+	leaf := *in
+	if leaf.AgentTranscriptPath == "" {
+		leaf.AgentTranscriptPath = filepath.Join(inflight.SubagentDir(in.TranscriptPath), "agent-"+id+".jsonl")
+	}
+	res, _ := leafStopBlock(&leaf, id)
+	return res
 }

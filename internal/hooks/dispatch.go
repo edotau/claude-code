@@ -262,6 +262,7 @@ var Native = map[string]core.Runner{
 	"docs-plan-mirror":          viaStderr(docs.Mirror),
 	"docs-plan-save":            viaStderr(docs.Save),
 	"dispatch-stop":             agents.Stop,
+	"dispatch-handback":         agents.Handback,
 	"memory-compact":            memhook.Compact,
 	"worktree-create":           wthook.Create,
 	"worktree-remove":           viaStderr(wthook.Remove),
