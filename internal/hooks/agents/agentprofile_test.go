@@ -58,6 +58,15 @@ func TestProfileBriefDefaultsToClaudeAsk(t *testing.T) {
 	}
 }
 
+// A sentence-ending period after the name ("Profile: dbx.") still routes to dbx, not an unknown "dbx.".
+func TestProfileTrailingPeriodIsNotPartOfName(t *testing.T) {
+	stubProfiles(t, []string{"dbx"}, true)
+	updated := map[string]any{"subagent_type": "code-worker", "prompt": "Profile: dbx.\ndo it"}
+	if note, deny := applyProfile(updated, "prompt", "Profile: dbx.\ndo it"); deny != nil || !strings.Contains(note, "--profile dbx`") {
+		t.Fatalf("note=%q deny=%v", note, deny)
+	}
+}
+
 // An unknown profile is a Block that lists every valid name; an unreadable registry fails open.
 func TestProfileUnknownDeniedAndRegistryFailureOpen(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -26,7 +26,7 @@ var profileNames = func() ([]string, bool) {
 // briefProfile is the profile the brief's `Profile:` line names, or "".
 func briefProfile(task string) string {
 	if m := profileLineRe.FindStringSubmatch(task); m != nil {
-		return m[1]
+		return strings.TrimRight(m[1], ".") // "Profile: dev." ends a sentence, not the name
 	}
 	return ""
 }
