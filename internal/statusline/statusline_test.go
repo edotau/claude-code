@@ -67,7 +67,6 @@ func sample() values {
 func TestStyleGoldens(t *testing.T) {
 	hermetic(t)
 	cases := map[string]string{
-		"gradient":  "tester:~/proj | openrouter · Opus 5 [1m] · proxy:18765 · █████ 42% 1.23M · 12m │ main · +10 -3",
 		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  proxy:18765  42%  1.23M  12m   main  +10 -3",
 		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( 1.23M ) ( 12m ) (  main ) +10 -3",
 		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  1.23M  ·  12m  ·   main  +10 -3",
@@ -526,7 +525,7 @@ func TestProviderLabelAnthropicFamilyRows(t *testing.T) {
 	}
 }
 
-// Width known: full, then profileMax, then no branch with velocity kept; no line exceeds the width.
+// Width known: full, then profileMax; the gradient line has no branch and keeps velocity; no line exceeds the width.
 func TestProfileFitsWidth(t *testing.T) {
 	hermetic(t)
 	const full = "databricks·my-long-workspace-profile"
@@ -543,8 +542,7 @@ func TestProfileFitsWidth(t *testing.T) {
 	for _, tc := range []struct {
 		width int
 		want  string
-	}{{200, full + " │ feature/x · +12 -3"}, {60, "databricks·my-long-workspa… │ feature/x · +12 -3"},
-		{50, "databricks·my-long-workspa… · +12 -3"}, {20, "…"}} {
+	}{{200, full + " | +12/-3"}, {50, "databricks·my-long-workspa… | +12/-3"}, {20, "…"}} {
 		termWidth = func() int { return tc.width + ccMargin } // the terminal; the line gets ccMargin less
 		_ = os.RemoveAll(filepath.Dir(stampFile("termwidth", "x")))
 		cfg := embeddedConfig()

@@ -84,3 +84,12 @@ func loadConfig() Config {
 	}
 	return cfg
 }
+
+// gradientStyle is true for the default style: any Style renderRaw does not route elsewhere.
+func (c Config) gradientStyle() bool {
+	switch c.Style {
+	case "twoline", "dashboard", "powerline", "capsule", "minimal":
+		return false
+	}
+	return true
+}
