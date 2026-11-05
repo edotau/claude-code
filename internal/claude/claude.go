@@ -115,19 +115,18 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 	return args
 }
 
-// readOnlyDeny is --read-only as deny rules: deny beats allow in claude, so read-only git cannot be carved back out.
-var readOnlyDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
+// planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, which a bare plan mode does not.
+var planDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
 
-// permissionArgs renders the request's Permissions (plus --read-only) as claude flags; empty for neither.
-// Mode plan sets no --permission-mode: claude's plan mode is an interactive exit-plan flow, while
-// --permission-prompts none already denies whatever no rule matched, which is Decide's plan fallback.
+// permissionArgs renders the request's Permissions as claude flags; empty for none.
+// Mode plan adds planDeny and sets no --permission-mode: --permission-prompts none denies what no rule matched.
 func permissionArgs(req agent.RunOptions) []string {
 	p := req.Permissions
-	if req.ReadOnly && req.Tools {
-		p.Deny = append(slices.Clone(p.Deny), readOnlyDeny...)
-	}
 	if p.IsZero() {
 		return nil
+	}
+	if p.Mode == "plan" && req.Tools {
+		p.Deny = append(slices.Clone(p.Deny), planDeny...)
 	}
 	var args []string
 	for _, l := range []struct {
@@ -151,7 +150,7 @@ func permissionArgs(req agent.RunOptions) []string {
 func refuseUnmappedDeny(p agent.Permissions) error {
 	for _, r := range p.Deny {
 		if r.Tool == "" {
-			return fmt.Errorf("claude: cannot enforce deny rule %q: no tool name", r.String())
+			return &agent.Error{Kind: agent.KindFatal, Agent: "claude", Err: fmt.Errorf("cannot enforce deny rule %q: no tool name", r.String())}
 		}
 	}
 	return nil
