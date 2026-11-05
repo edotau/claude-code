@@ -1,6 +1,8 @@
 package codex
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +15,7 @@ func TestCodexRender(t *testing.T) {
 		name    string
 		p       agent.Permissions
 		tools   bool
+		gate    bool // the permission-gate hook is installed
 		rules   string
 		approve bool
 		err     string
@@ -28,6 +31,9 @@ func TestCodexRender(t *testing.T) {
 		{name: "wildcard deny is a prefix", p: agent.Permissions{Deny: []agent.Rule{bash("rm *")}},
 			rules: `pattern=["rm"], decision="forbidden"`},
 		{name: "mid wildcard deny refused", p: agent.Permissions{Deny: []agent.Rule{bash("git * --force")}}, err: "Bash(git * --force)"},
+		{name: "mid wildcard deny left to the gate hook", p: agent.Permissions{Deny: []agent.Rule{bash("git * --force")}}, gate: true},
+		{name: "pipeline deny left to the gate hook", p: agent.Permissions{Deny: []agent.Rule{bash("cat x | wc")}}, gate: true},
+		{name: "non-Bash deny still refused with the gate", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Read", Arg: ".env"}}}, gate: true, err: "Read(.env)"},
 		{name: "allow without tools writes nothing", p: agent.Permissions{Allow: []agent.Rule{bash("git status:*")}}},
 		{name: "exact allow skipped", p: agent.Permissions{Allow: []agent.Rule{bash("ls")}}},
 		{name: "write deny covered by read-only", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "src/**"}}}},
@@ -40,7 +46,7 @@ func TestCodexRender(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := codexRender(c.p, c.tools)
+			got, err := codexRender(c.p, c.tools, c.gate)
 			if c.err != "" {
 				if err == nil || !strings.Contains(err.Error(), c.err) {
 					t.Fatalf("err = %v, want it to name %q", err, c.err)
@@ -67,5 +73,37 @@ func TestCodexApplyPermissionsArgv(t *testing.T) {
 	defer rm2()
 	if want := "exec -c x=1 --skip-git-repo-check --approve-for-me -"; err != nil || strings.Join(gotArgv, " ") != want {
 		t.Fatalf("auto argv = %q (%v), want %q", gotArgv, err, want)
+	}
+}
+
+// With the gate hook in the codex home, a Bash Deny that is no command prefix is dropped from the rules, not refused.
+func TestCodexGateInstalled(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	if codexGateInstalled() {
+		t.Fatal("empty codex home reported the gate installed")
+	}
+	if err := os.WriteFile(filepath.Join(codexHome(), "hooks.json"), []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"command":"x hook PreToolUse --permission-gate"}]}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !codexGateInstalled() {
+		t.Fatal("hooks.json with --permission-gate not detected")
+	}
+}
+
+// A dispatch's CODEX_HOME carries config.toml with its hook-trust keys moved to its own hooks.json, so the hooks still run.
+func TestLinkHomeRetargetsHookTrust(t *testing.T) {
+	real, home := t.TempDir(), t.TempDir()
+	trust := func(dir string) string {
+		return `["hooks"."state"."` + CodexHookSourcePath(filepath.Join(dir, "hooks.json")) + `:pre_tool_use:0:0"]`
+	}
+	if err := os.WriteFile(filepath.Join(real, "config.toml"), []byte(trust(real)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := linkHome(real, home, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(home, "config.toml"))
+	if err != nil || !strings.Contains(string(got), trust(home)) || strings.Contains(string(got), trust(real)) {
+		t.Fatalf("config.toml = %q (%v), want trust keys under %s", got, err, home)
 	}
 }
