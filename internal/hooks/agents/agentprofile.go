@@ -77,6 +77,11 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 	if inContextBrief(task) {
 		return "agent-effort: Profile: " + p + " ignored for an in-context leaf.", nil
 	}
+	return routeProfile(updated, promptField, task, p, st), nil
+}
+
+// routeProfile prepends the ask command to the prompt and moves a non-coworker dispatch to coworker.
+func routeProfile(updated map[string]any, promptField, task, p, st string) (note string) {
 	var cmds []string
 	for _, a := range cmpSlice(briefAgents(task), []string{"claude"}) {
 		cmds = append(cmds, fmt.Sprintf("claude-code ask --agent %s --profile %s", a, p))
@@ -91,7 +96,7 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 		note = strings.TrimSpace(fmt.Sprintf("agent-effort: Profile: %s — %s dispatch moved to coworker (the session route cannot change profile). %s",
 			p, cmp.Or(st, "general-purpose"), note))
 	}
-	return note, nil
+	return note
 }
 
 // profileSuffix appends `·<profile>` to a label unless it already ends with that name.

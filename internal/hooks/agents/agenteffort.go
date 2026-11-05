@@ -48,12 +48,7 @@ func agentEffortResult(in *core.Input) core.Result {
 		return core.Result{}
 	}
 
-	promptField := "prompt"
-	task := in.Nested("tool_input", "prompt")
-	if task == "" {
-		promptField = "description"
-		task = in.Nested("tool_input", "description")
-	}
+	promptField, task := spawnTask(in)
 
 	// auto mode's classifier returns no verdict on a rewritten call, so non-functional edits ride additionalContext
 	auto := in.Nested("permission_mode") == "auto"
@@ -71,6 +66,14 @@ func agentEffortResult(in *core.Input) core.Result {
 	e.byok(in, task, auto)
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
+}
+
+// spawnTask is the spawn's prompt, or its description when the prompt is empty, with the field it came from.
+func spawnTask(in *core.Input) (field, task string) {
+	if task = in.Nested("tool_input", "prompt"); task != "" {
+		return "prompt", task
+	}
+	return "description", in.Nested("tool_input", "description")
 }
 
 // effortPlan accumulates agentEffortResult's rewrite of one spawn: the new tool_input and the notes to surface.
@@ -342,36 +345,40 @@ func labelModel(updated map[string]any, st, task string) string {
 
 // Label lookups are seams: tests stub them so a dispatch label never reads the live vault or route table.
 var (
-	labelProfileModel = func(profile, alias string) string {
-		reg, err := providers.Load()
-		if err != nil || reg.Providers[profile] == nil {
-			return ""
-		}
-		return models.Strip1M(reg.Providers[profile].Models[alias])
-	}
-	labelCell = func(agent, alias string) string {
-		t, err := router.Load()
-		if err != nil {
-			return ""
-		}
-		c, _ := t.Cell(agent, alias)
-		pins, err := agentpkg.AgentPins()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
-			return ""
-		}
-		pin := pins[agent]
-		if pin.Profile == "" && pin.Model == "" {
-			return c.Model
-		}
-		reg, err := providers.Load()
-		if err != nil {
-			return c.Model
-		}
-		m, _ := router.PinnedModel(agent, alias, c, reg.Providers[pin.Profile], pin.Model)
-		return m
-	}
+	labelProfileModel = profileModelFor
+	labelCell         = cellModelFor
 )
+
+func profileModelFor(profile, alias string) string {
+	reg, err := providers.Load()
+	if err != nil || reg.Providers[profile] == nil {
+		return ""
+	}
+	return models.Strip1M(reg.Providers[profile].Models[alias])
+}
+
+func cellModelFor(agent, alias string) string {
+	t, err := router.Load()
+	if err != nil {
+		return ""
+	}
+	c, _ := t.Cell(agent, alias)
+	pins, err := agentpkg.AgentPins()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
+		return ""
+	}
+	pin := pins[agent]
+	if pin.Profile == "" && pin.Model == "" {
+		return c.Model
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return c.Model
+	}
+	m, _ := router.PinnedModel(agent, alias, c, reg.Providers[pin.Profile], pin.Model)
+	return m
+}
 
 // byokPoolSize is the curated BYOK pool's model count (a var so tests can pin it).
 var byokPoolSize = func() int { return len(router.BYOKPool()) }

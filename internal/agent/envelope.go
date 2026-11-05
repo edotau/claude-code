@@ -121,15 +121,7 @@ func RanOn(res Result) string {
 	if len(res.Hops) == 0 && res.Status == StatusError { // no dispatch started: nothing ran
 		return ""
 	}
-	who, acct, model := res.Agent, "", res.Model
-	if n := len(res.Hops); n > 0 {
-		h := res.Hops[n-1]
-		who, model = cmp.Or(h.Agent, who), cmp.Or(h.Model, model)
-		acct = h.Account
-		if h.Profile != "" && !strings.HasSuffix(acct, h.Profile) { // the account label may already name the profile
-			acct = strings.Join(slices.DeleteFunc([]string{acct, h.Profile}, func(s string) bool { return s == "" }), "·")
-		}
-	}
+	who, acct, model := finalHop(res)
 	if who == "" {
 		return ""
 	}
@@ -139,6 +131,21 @@ func RanOn(res Result) string {
 	}
 	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fb) +
 		ranOnCost(res)
+}
+
+// finalHop is the agent, account label and model of a run's last hop, falling back to the result's own.
+func finalHop(res Result) (who, acct, model string) {
+	who, model = res.Agent, res.Model
+	n := len(res.Hops)
+	if n == 0 {
+		return who, "", model
+	}
+	h := res.Hops[n-1]
+	who, model, acct = cmp.Or(h.Agent, who), cmp.Or(h.Model, model), h.Account
+	if h.Profile != "" && !strings.HasSuffix(acct, h.Profile) { // the account label may already name the profile
+		acct = strings.Join(slices.DeleteFunc([]string{acct, h.Profile}, func(s string) bool { return s == "" }), "·")
+	}
+	return who, acct, model
 }
 
 // ranOnCost is " · <tokens> tok · <time>" for what the run reported; a missing measure is left out.

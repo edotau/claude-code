@@ -14,17 +14,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	if sink == nil {
 		sink = Discard
 	}
-	var err error
-	req.Permissions, err = inheritPermissions(req.Permissions)
-	if err == nil {
-		err = RefusePersona(r.Caps(), r.Name(), req.Persona)
-	}
-	if err == nil {
-		err = RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly)
-	}
-	if err == nil {
-		err = RefusePermissions(r.Caps(), r.Name(), req.Permissions)
-	}
+	req, err := checkRun(r, req)
 	if err != nil {
 		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
@@ -54,6 +44,21 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	return state.finish(r.Name(), start, e, recoverErr)
 }
 
+// checkRun resolves inherited permissions, then refuses a persona, read-only or permission set r cannot honor.
+func checkRun(r Engine, req RunOptions) (RunOptions, error) {
+	var err error
+	if req.Permissions, err = inheritPermissions(req.Permissions); err != nil {
+		return req, err
+	}
+	if err = RefusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
+		return req, err
+	}
+	if err = RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly); err != nil {
+		return req, err
+	}
+	return req, RefusePermissions(r.Caps(), r.Name(), req.Permissions)
+}
+
 type fallbackState struct {
 	req          RunOptions
 	res          Result
@@ -74,13 +79,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 		return true, nil
 	}
 	if cerr := ctx.Err(); cerr != nil {
-		ce := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: cerr}
-		if i == 0 {
-			s.res = Result{Agent: ce.Agent, Status: statusOf(ce)}
-			return true, ce
-		}
-		s.err, s.res.Status, s.stopped = ce, statusOf(ce), true
-		return true, nil
+		return true, s.cancelled(i, disp, cerr)
 	}
 	if i > 0 {
 		s.reasons = append(s.reasons, hopLabel(s.prevDispatch)+": "+FallbackReason(s.err))
@@ -99,6 +98,17 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 		return true, nil
 	}
 	return false, nil
+}
+
+// cancelled records a context cancel; only a first-hop cancel is returned as the error.
+func (s *fallbackState) cancelled(i int, disp Dispatch, cerr error) error {
+	ce := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: cerr}
+	if i == 0 {
+		s.res = Result{Agent: ce.Agent, Status: statusOf(ce)}
+		return ce
+	}
+	s.err, s.res.Status, s.stopped = ce, statusOf(ce), true
+	return nil
 }
 
 func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispatch, sink Sink, notify func(string)) bool {
