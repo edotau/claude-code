@@ -1,4 +1,4 @@
-package hooks
+package safety
 
 import (
 	"bytes"
@@ -117,24 +117,23 @@ func TestSafetyScanChecksPythonHeredocBodies(t *testing.T) {
 	cases := []struct {
 		name string
 		cmd  string
-		want int
+		want core.Decision
 	}{
-		{"import then exec", "python3 <<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", core.ExitBlock},
-		{"exec then import", "python <<'PY'\nexec(__import__('base64').b64decode('cGFzcw=='))\nPY", core.ExitBlock},
-		{"decode then exec later", "python3 - <<'PY'\nimport base64\ncode = base64.b64decode('cGFzcw==')\nexec(code)\nPY", core.ExitBlock},
-		{"tab stripped eval", "python3 <<-'PY'\n\tfrom base64 import b64decode\n\teval(b64decode('MQ=='))\nPY", core.ExitBlock},
-		{"here string eval", "python3 <<<\"eval(__import__('base64').b64decode('MQ=='))\"", core.ExitBlock},
-		{"no space before heredoc", "python3<<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", core.ExitBlock},
-		{"versioned interpreter", "python3.12 <<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", core.ExitBlock},
-		{"decode name then exec", "python <<'PY'\ncode = b64decode('cGFzcw==')\nexec(code)\nPY", core.ExitBlock},
-		{"print only", "python3 <<'PY'\nprint('hello')\nPY", core.ExitProceed},
-		{"decode and print only", "python3 <<'PY'\nimport base64\nprint(base64.b64decode('aGVsbG8='))\nPY", core.ExitProceed},
+		{"import then exec", "python3 <<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", core.Block},
+		{"exec then import", "python <<'PY'\nexec(__import__('base64').b64decode('cGFzcw=='))\nPY", core.Block},
+		{"decode then exec later", "python3 - <<'PY'\nimport base64\ncode = base64.b64decode('cGFzcw==')\nexec(code)\nPY", core.Block},
+		{"tab stripped eval", "python3 <<-'PY'\n\tfrom base64 import b64decode\n\teval(b64decode('MQ=='))\nPY", core.Block},
+		{"here string eval", "python3 <<<\"eval(__import__('base64').b64decode('MQ=='))\"", core.Block},
+		{"no space before heredoc", "python3<<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", core.Block},
+		{"versioned interpreter", "python3.12 <<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", core.Block},
+		{"decode name then exec", "python <<'PY'\ncode = b64decode('cGFzcw==')\nexec(code)\nPY", core.Block},
+		{"print only", "python3 <<'PY'\nprint('hello')\nPY", core.Allow},
+		{"decode and print only", "python3 <<'PY'\nimport base64\nprint(base64.b64decode('aGVsbG8='))\nPY", core.Allow},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var errb bytes.Buffer
-			if got := runDirect("safety-scan", bashPayload(c.cmd), io.Discard, &errb); got != c.want {
-				t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, errb.String())
+			if got, msg := safetyScanDecision(t, bashPayload(c.cmd)); got != c.want {
+				t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, msg)
 			}
 		})
 	}
@@ -147,9 +146,8 @@ func TestSafetyScanChecksExecutedHeredocBodiesCopilot(t *testing.T) {
 		payload, _ := json.Marshal(map[string]any{
 			"sessionId": "x", "toolName": "Bash", "toolArgs": map[string]string{"command": cmd},
 		})
-		var out, errb bytes.Buffer
-		if got := runDirect("safety-scan", bytes.NewReader(payload), &out, &errb); got != core.ExitBlock {
-			t.Errorf("copilot shape %q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
+		if got, msg := safetyScanDecision(t, bytes.NewReader(payload)); got != core.Block {
+			t.Errorf("copilot shape %q: got %d want Block (%s)", cmd, got, msg)
 		}
 	}
 }
@@ -189,9 +187,8 @@ func TestSafetyScanBlocksHeredocDataSinkMentions(t *testing.T) {
 func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "echo $((1<<y))"
-	var errb bytes.Buffer
-	if got := runDirect("safety-scan", bashPayload(cmd), io.Discard, &errb); got != core.ExitProceed {
-		t.Errorf("%q: got %d want ExitProceed (%s)", cmd, got, errb.String())
+	if got, msg := safetyScanDecision(t, bashPayload(cmd)); got != core.Allow {
+		t.Errorf("%q: got %d want Allow (%s)", cmd, got, msg)
 	}
 }
 
@@ -199,12 +196,12 @@ func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 func TestSafetyScanBlockMessageShowsOriginalCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "bash <<'EOF'\nsudo rm -rf /\nEOF"
-	var errb bytes.Buffer
-	if got := runDirect("safety-scan", bashPayload(cmd), io.Discard, &errb); got != core.ExitBlock {
-		t.Fatalf("got %d want ExitBlock", got)
+	got, msg := safetyScanDecision(t, bashPayload(cmd))
+	if got != core.Block {
+		t.Fatalf("got %d want Block", got)
 	}
-	if !strings.Contains(errb.String(), "sudo rm -rf /") {
-		t.Errorf("block message dropped the original command: %s", errb.String())
+	if !strings.Contains(msg, "sudo rm -rf /") {
+		t.Errorf("block message dropped the original command: %s", msg)
 	}
 }
 
@@ -226,31 +223,20 @@ func TestSafetyScanStillCatchesExecutedShapes(t *testing.T) {
 	}
 }
 
-// safetyScanDecision distinguishes a Claude ask from a silent allow at exit zero.
+// scanPayload runs the safety-scan runner on a hook payload.
+func scanPayload(payload io.Reader) core.Result { return Scan(core.ParseInput(payload)) }
+
+// bashPayload is a Claude-shaped Bash hook payload for cmd.
+func bashPayload(cmd string) *strings.Reader {
+	b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": cmd}})
+	return strings.NewReader(string(b))
+}
+
+// safetyScanDecision is the runner's decision and the message a reader would see (reason plus warnings).
 func safetyScanDecision(t *testing.T, payload io.Reader) (core.Decision, string) {
 	t.Helper()
-	var out, errb bytes.Buffer
-	code := runDirect("safety-scan", payload, &out, &errb)
-	if code == core.ExitBlock {
-		return core.Block, errb.String()
-	}
-	if code != core.ExitProceed {
-		t.Fatalf("SafetyScan exit = %d, want 0 or 2", code)
-	}
-	if out.Len() > 0 {
-		var doc struct {
-			Output struct {
-				Decision string `json:"permissionDecision"`
-			} `json:"hookSpecificOutput"`
-		}
-		if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-			t.Fatalf("SafetyScan stdout is not JSON: %v (%s)", err, out.String())
-		}
-		if doc.Output.Decision == "ask" {
-			return core.Ask, errb.String()
-		}
-	}
-	return core.Allow, errb.String()
+	res := scanPayload(payload)
+	return res.Decision, res.Reason + res.Stderr
 }
 
 // safetyTierCase is one Bash command, its optional payload cwd, and its expected tier on the Claude shape.
@@ -320,26 +306,14 @@ func copilotBashPayloadCwd(cmd, cwd string) io.Reader {
 	return strings.NewReader(string(b))
 }
 
-// askReason runs the Claude shape and returns the ask document's permissionDecisionReason.
+// askReason runs the Claude shape and returns the ask decision's reason.
 func askReason(t *testing.T, payload io.Reader) string {
 	t.Helper()
-	var out, errb bytes.Buffer
-	if code := runDirect("safety-scan", payload, &out, &errb); code != core.ExitProceed {
-		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
+	res := scanPayload(payload)
+	if res.Decision != core.Ask {
+		t.Fatalf("decision = %d, want Ask (reason %q)", res.Decision, res.Reason)
 	}
-	var doc struct {
-		Output struct {
-			Decision string `json:"permissionDecision"`
-			Reason   string `json:"permissionDecisionReason"`
-		} `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-		t.Fatalf("stdout is not the ask document: %v (%s)", err, out.String())
-	}
-	if doc.Output.Decision != "ask" {
-		t.Fatalf("permissionDecision = %q, want ask (%s)", doc.Output.Decision, out.String())
-	}
-	return doc.Output.Reason
+	return res.Reason
 }
 
 // safetyBlockCases are the unrecoverable and credential-exfiltration shapes.
@@ -403,56 +377,6 @@ func TestSafetyResetHardWarnsButProceeds(t *testing.T) {
 	}
 }
 
-// TestSafetyAskDocumentExactShape pins the Claude ask document: exactly one top-level key, three inner keys.
-func TestSafetyAskDocumentExactShape(t *testing.T) {
-	tierHarness(t)
-	var out, errb bytes.Buffer
-	if code := runDirect("safety-scan", bashPayload("sudo apt-get install jq"), &out, &errb); code != core.ExitProceed {
-		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
-	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(out.Bytes(), &top); err != nil {
-		t.Fatalf("stdout is not JSON: %v (%s)", err, out.String())
-	}
-	if len(top) != 1 || top["hookSpecificOutput"] == nil {
-		t.Fatalf("top-level keys = %v, want exactly [hookSpecificOutput]", keys(top))
-	}
-	event, decision, reason := askDocFields(t, top["hookSpecificOutput"])
-	if event != "PreToolUse" || decision != "ask" || reason == "" {
-		t.Errorf("event=%q decision=%q reason=%q, want PreToolUse/ask/non-empty", event, decision, reason)
-	}
-}
-
-// askDocFields decodes hookSpecificOutput, failing unless it holds exactly the three string keys.
-func askDocFields(t *testing.T, raw json.RawMessage) (event, decision, reason string) {
-	t.Helper()
-	var inner map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &inner); err != nil {
-		t.Fatalf("hookSpecificOutput is not an object: %v", err)
-	}
-	if len(inner) != 3 {
-		t.Fatalf("inner keys = %v, want exactly [hookEventName permissionDecision permissionDecisionReason]", keys(inner))
-	}
-	for k, dst := range map[string]*string{"hookEventName": &event, "permissionDecision": &decision, "permissionDecisionReason": &reason} {
-		v, ok := inner[k]
-		if !ok {
-			t.Fatalf("inner keys = %v, missing %s", keys(inner), k)
-		}
-		if err := json.Unmarshal(v, dst); err != nil {
-			t.Fatalf("%s is not a string: %v", k, err)
-		}
-	}
-	return event, decision, reason
-}
-
-func keys(m map[string]json.RawMessage) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}
-
 // TestSafetyAskReasonNamesAlternative pins the hint that names the safer alternative.
 func TestSafetyAskReasonNamesAlternative(t *testing.T) {
 	harness := tierHarness(t)
@@ -479,13 +403,9 @@ func TestSafetyAskFallsBackToBlockOffClaude(t *testing.T) {
 	t.Run("codex", func(t *testing.T) {
 		t.Setenv("HARNESS_HOOK_AGENT", "codex")
 		for _, c := range askRows {
-			var out, errb bytes.Buffer
-			if code := runDirect("safety-scan", tierPayload(c.cmd, c.cwd), &out, &errb); code != core.ExitBlock {
-				t.Errorf("%q: exit = %d, want block (stderr %s)", c.cmd, code, errb.String())
-				continue
-			}
-			if !strings.Contains(errb.String(), "no ask decision on codex") {
-				t.Errorf("%q: block message does not name the vendor: %q", c.cmd, errb.String())
+			res := scanPayload(tierPayload(c.cmd, c.cwd))
+			if res.Decision != core.Block || !strings.Contains(res.Reason, "no ask decision on codex") {
+				t.Errorf("%q: decision %d, reason %q; want a block naming the vendor", c.cmd, res.Decision, res.Reason)
 			}
 		}
 	})
@@ -495,24 +415,9 @@ func TestSafetyAskFallsBackToBlockOffClaude(t *testing.T) {
 			if c.cwd != "" {
 				payload = copilotBashPayloadCwd(c.cmd, c.cwd)
 			}
-			var out, errb bytes.Buffer
-			if code := runDirect("safety-scan", payload, &out, &errb); code != core.ExitBlock {
-				t.Errorf("%q: exit = %d, want block (stderr %s)", c.cmd, code, errb.String())
-				continue
-			}
-			var doc struct {
-				Decision string `json:"permissionDecision"`
-				Reason   string `json:"permissionDecisionReason"`
-			}
-			if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-				t.Errorf("%q: stdout is not the deny document: %v (%s)", c.cmd, err, out.String())
-				continue
-			}
-			if doc.Decision != "deny" {
-				t.Errorf("%q: permissionDecision = %q, want deny", c.cmd, doc.Decision)
-			}
-			if !strings.Contains(doc.Reason, "no ask decision on copilot") {
-				t.Errorf("%q: deny reason does not name the vendor: %q", c.cmd, doc.Reason)
+			res := scanPayload(payload)
+			if res.Decision != core.Block || !strings.Contains(res.Reason, "no ask decision on copilot") {
+				t.Errorf("%q: decision %d, reason %q; want a block naming the vendor", c.cmd, res.Decision, res.Reason)
 			}
 		}
 	})
@@ -524,53 +429,6 @@ func TestSafetyBlockPrecedenceOverAsk(t *testing.T) {
 	for _, cmd := range []string{"sudo rm -rf /", "git push --force origin main && rm -rf /"} {
 		if got, stderr := safetyScanDecision(t, bashPayload(cmd)); got != core.Block {
 			t.Errorf("%q: got %v want Block (stderr %s)", cmd, got, stderr)
-		}
-	}
-}
-
-// TestSafetyDispatcherGateVsBare: `--all` carries the gate's ask, the bare dispatcher must not.
-func TestSafetyDispatcherGateVsBare(t *testing.T) {
-	harness := tierHarness(t)
-	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef") // hermetic vault (as in dispatch_test.go)
-	t.Setenv("HARNESS_RTK_BIN", "claude-test-no-such-rtk-binary")     // rtk stays a no-op
-	payload, _ := json.Marshal(map[string]any{
-		"tool_name": "Bash", "cwd": t.TempDir(),
-		"tool_input": map[string]string{"command": "git -C " + harness + " stash"},
-	})
-	t.Run("gate carries the ask", func(t *testing.T) {
-		var out, errb bytes.Buffer
-		if code := RunEvent("PreToolUse", true, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
-			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
-		}
-		var doc struct {
-			Output struct {
-				Decision string `json:"permissionDecision"`
-			} `json:"hookSpecificOutput"`
-		}
-		if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-			t.Fatalf("stdout is not the ask document: %v (%s)", err, out.String())
-		}
-		if doc.Output.Decision != "ask" {
-			t.Errorf("permissionDecision = %q, want ask (%s)", doc.Output.Decision, out.String())
-		}
-	})
-	t.Run("bare dispatcher omits the gate decision", func(t *testing.T) {
-		var out, errb bytes.Buffer
-		if code := RunEvent("PreToolUse", false, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
-			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
-		}
-		if strings.Contains(out.String(), "permissionDecision") {
-			t.Errorf("bare dispatcher must not carry the safety decision: %s", out.String())
-		}
-	})
-}
-
-// TestSafetyStaleGuardNameFailsClosed: a vendor hook file still calling the removed bash-guard blocks every command.
-func TestSafetyStaleGuardNameFailsClosed(t *testing.T) {
-	tierHarness(t)
-	for _, cmd := range []string{"rm -rf /", "ls"} {
-		if got := RunArgs("bash-guard", nil, bashPayload(cmd), io.Discard, io.Discard); got != core.ExitBlock {
-			t.Fatalf("hook bash-guard on %q = %d, want ExitBlock", cmd, got)
 		}
 	}
 }
@@ -672,5 +530,56 @@ func TestSafetyHarnessGitWrapperForms(t *testing.T) {
 	}
 	if harnessGitBlocked("env -C /tmp git stash && git status", harness) {
 		t.Errorf("env -C /tmp must not leak into the config tree, nor later segments block")
+	}
+}
+
+// TestHarnessGitBlocked pins harnessGitBlocked's current behavior directly (gocognit refactor-risk,
+// internal/hooks/safety/safety.go): banned verbs inside the config tree, the worktree exception, -C/
+// --work-tree/--git-dir target resolution, cd tracking, substitutions and nested shells.
+func TestHarnessGitBlocked(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	outside := t.TempDir()
+	worktree := filepath.Join(cfg, ".claude", "worktrees", "repo", "slug")
+
+	cases := []struct {
+		name string
+		cmd  string
+		cwd  string
+		want bool
+	}{
+		{"stash inside tree", "git stash", cfg, true},
+		{"checkout inside tree", "git checkout main", cfg, true},
+		{"reset inside tree", "git reset --hard HEAD", cfg, true},
+		{"restore inside tree", "git restore .", cfg, true},
+		{"clean -f inside tree", "git clean -f", cfg, true},
+		{"commit inside tree allowed", "git commit -m x", cfg, false},
+		{"push inside tree allowed", "git push", cfg, false},
+		{"stash outside tree", "git stash", outside, false},
+		{"stash list inside tree allowed", "git stash list", cfg, false},
+		{"stash show inside tree allowed", "git stash show", cfg, false},
+		{"stash pop inside tree blocked", "git stash pop", cfg, true},
+		{"worktree exception", "git reset --hard HEAD", worktree, false},
+		{"-C into tree from outside cwd", "git -C " + cfg + " reset --hard", outside, true},
+		{"--work-tree into tree", "git --work-tree=" + cfg + " --git-dir=" + cfg + "/.git reset --hard", outside, true},
+		{"cd into tree then reset", "cd " + cfg + " && git reset --hard", outside, true},
+		{"cd out of tree then reset", "cd " + outside + " && git reset --hard", cfg, false},
+		{"command substitution into tree", "echo $(cd " + cfg + " && git reset --hard)", outside, true},
+		{"nested bash -c into tree", `bash -c "git reset --hard"`, cfg, true},
+		{"nested bash -c outside tree", `bash -c "git reset --hard"`, outside, false},
+		{"eval into tree", "eval git reset --hard", cfg, true},
+		{"non-git command", "ls -la", cfg, false},
+		{"ssh command runs remotely", "ssh wks git reset --hard", cfg, false},
+		{"ssh heredoc runs remotely", "ssh wks 'bash -s' > log 2>&1 <<'EOF'\ngit checkout -q HEAD\nEOF", cfg, false},
+		{"local git after ssh heredoc", "ssh wks <<'EOF'\nuptime\nEOF\ngit reset --hard", cfg, true},
+		{"bash heredoc stays local", "bash -s <<'EOF'\ngit reset --hard\nEOF", cfg, true},
+		{"ssh heredoc piped to a local shell", "ssh wks <<'EOF' | bash\ngit reset --hard\nEOF", cfg, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := harnessGitBlocked(tt.cmd, tt.cwd); got != tt.want {
+				t.Errorf("harnessGitBlocked(%q, %q) = %v, want %v", tt.cmd, tt.cwd, got, tt.want)
+			}
+		})
 	}
 }

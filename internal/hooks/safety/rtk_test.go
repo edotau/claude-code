@@ -1,37 +1,24 @@
-package hooks
+package safety
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/shellscope"
 )
 
 func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
-	var sb strings.Builder
-	if rc := runDirect("rtk-rewrite", strings.NewReader(in), &sb, io.Discard); rc != core.ExitProceed {
-		t.Fatalf("rc = %d, want ExitProceed (%d) for this safe command", rc, core.ExitProceed)
-	}
-	if strings.TrimSpace(sb.String()) == "" {
+	res := RTKRewrite(core.ParseInput(strings.NewReader(in)))
+	if res.UpdatedInput == nil {
 		return "", false
 	}
-	var out struct {
-		HookSpecificOutput struct {
-			UpdatedInput map[string]any `json:"updatedInput"`
-		} `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal([]byte(sb.String()), &out); err != nil {
-		t.Fatalf("emitted non-JSON: %v\n%s", err, sb.String())
-	}
-	s, _ := out.HookSpecificOutput.UpdatedInput["command"].(string)
+	s, _ := res.UpdatedInput["command"].(string)
 	return s, true
 }
 
@@ -46,7 +33,7 @@ func fakeRTK(t *testing.T) string {
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(rtkBinaryEnv, bin)
+	t.Setenv(shellscope.RTKBinaryEnv, bin)
 	return bin
 }
 
@@ -86,35 +73,9 @@ func TestCodexSafetyScanStillBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	fakeRTK(t)
-	var stdout, stderr strings.Builder
-	rc := runDirect("safety-scan", strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
-	if rc != core.ExitBlock {
-		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, core.ExitBlock)
-	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "BLOCKED") {
-		t.Fatalf("want stderr denial without Copilot JSON: stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-}
-
-func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_HOOK_AGENT", "codex")
-	payload := `{"sessionId":"copilot","toolName":"bash","toolArgs":{"command":"sudo apt install x"}}`
-	if vendor := core.ParseInput(strings.NewReader(payload)).Agent(); vendor != core.AgentCopilot {
-		t.Fatalf("Vendor() = %q, want %q", vendor, core.AgentCopilot)
-	}
-	var stdout strings.Builder
-	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != core.ExitBlock {
-		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, core.ExitBlock)
-	}
-	var out struct {
-		PermissionDecision string `json:"permissionDecision"`
-	}
-	if err := json.Unmarshal([]byte(stdout.String()), &out); err != nil {
-		t.Fatal(err)
-	}
-	if out.PermissionDecision != "deny" {
-		t.Fatalf("Copilot permission decision = %q, want deny", out.PermissionDecision)
+	res := scanPayload(strings.NewReader(rtkBashIn("sudo apt install x")))
+	if res.Decision != core.Block || !strings.Contains(res.Reason, "BLOCKED") {
+		t.Fatalf("want a block naming BLOCKED: decision=%d reason=%q", res.Decision, res.Reason)
 	}
 }
 
@@ -149,19 +110,12 @@ func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
 // updatedInput REPLACES the whole record, so every sibling key must survive the rewrite.
 func TestRTKPreservesOtherInputKeys(t *testing.T) {
 	fakeRTK(t)
-	var sb strings.Builder
-	runDirect("rtk-rewrite", strings.NewReader(rtkBashIn("npm install")), &sb, io.Discard)
-	var out struct {
-		HookSpecificOutput struct {
-			UpdatedInput map[string]any `json:"updatedInput"`
-		} `json:"hookSpecificOutput"`
+	updated := RTKRewrite(core.ParseInput(strings.NewReader(rtkBashIn("npm install")))).UpdatedInput
+	if updated["description"] != "d" {
+		t.Errorf("description dropped: %#v", updated)
 	}
-	json.Unmarshal([]byte(sb.String()), &out)
-	if out.HookSpecificOutput.UpdatedInput["description"] != "d" {
-		t.Errorf("description dropped: %#v", out.HookSpecificOutput.UpdatedInput)
-	}
-	if out.HookSpecificOutput.UpdatedInput["timeout"] == nil {
-		t.Errorf("timeout dropped: %#v", out.HookSpecificOutput.UpdatedInput)
+	if updated["timeout"] == nil {
+		t.Errorf("timeout dropped: %#v", updated)
 	}
 }
 
@@ -271,7 +225,7 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(rtkBinaryEnv, bad)
+	t.Setenv(shellscope.RTKBinaryEnv, bad)
 	if got, ok := rtkOut(t, rtkBashIn("ls")); ok {
 		t.Errorf("unrunnable rtk rewrote to %q", got)
 	}
@@ -299,7 +253,7 @@ func TestRTKNeverRewritesGitCommit(t *testing.T) {
 }
 
 func TestRTKMissingBinaryIsNoOp(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "definitely-not-a-real-binary-xyz")
+	t.Setenv(shellscope.RTKBinaryEnv, "definitely-not-a-real-binary-xyz")
 	if got, ok := rtkOut(t, rtkBashIn("git log")); ok {
 		t.Errorf("missing binary still wrapped to %q — must degrade to a no-op", got)
 	}
@@ -380,72 +334,6 @@ func TestRTKChainParsingUsesShellHelpers(t *testing.T) {
 	requireRTKWrapped(t, "quoted ; in echo", quoted, main, bin+" "+quoted)
 }
 
-// rtkHermetic points the config dir (and the vault it holds) at throwaway temp dirs, the way
-// dispatch_test.go does; HOME moves too so nothing outside the temp dirs is touched.
-func rtkHermetic(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
-}
-
-// The rtk hook lives in its own non-gate group on PreToolUse/Bash, and settings.json reaches it
-// only through the event dispatcher — never as its own `hook PreToolUse --rtk-rewrite` entry.
-// requireRTKGroupShape asserts the rtk group is a vendor-neutral non-gate group on PreToolUse/Bash.
-func requireRTKGroupShape(t *testing.T) {
-	t.Helper()
-	g, ok := settings.GroupOf("rtk-rewrite")
-	if !ok {
-		t.Fatal(`settings.GroupOf("rtk-rewrite") found no group`)
-	}
-	if g.Name != "rtk" {
-		t.Errorf("group name = %q, want rtk", g.Name)
-	}
-	if g.Gate {
-		t.Error("rtk group must not be a gate — the safety gate is the only gate")
-	}
-	if g.AgentOnly {
-		t.Error("rtk group must not be vendor-only — it rewrites Claude's Bash commands")
-	}
-	if len(g.Events) != 1 || g.Events[0].Event != settings.EventPreToolUse || g.Events[0].Matcher != "Bash" {
-		t.Errorf("rtk group events = %+v, want exactly PreToolUse/Bash", g.Events)
-	}
-}
-
-// rtkDispatcherGroup returns the PreToolUse dispatcher entry, flagging any event that runs rtk as its own command.
-func rtkDispatcherGroup(t *testing.T, want string) *settings.MatcherGroup {
-	t.Helper()
-	own := settings.EventSpec{Name: "rtk-rewrite", Event: settings.EventPreToolUse}.Command()
-	var disp *settings.MatcherGroup
-	for event, groups := range settings.Events() {
-		for i := range groups {
-			for _, h := range groups[i].Hooks {
-				if h.Command == own {
-					t.Errorf("%s carries `hook PreToolUse --rtk-rewrite` as its own command; it must run inside the dispatcher", event)
-				}
-				if event == settings.EventPreToolUse && h.Command == want {
-					disp = &groups[i]
-				}
-			}
-		}
-	}
-	return disp
-}
-
-// The rtk hook lives in its own non-gate group on PreToolUse/Bash, and settings.json reaches it
-// only through the event dispatcher — never as its own `hook PreToolUse --rtk-rewrite` entry.
-func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
-	requireRTKGroupShape(t)
-	want := settings.DispatcherCommand(settings.EventPreToolUse)
-	disp := rtkDispatcherGroup(t, want)
-	if disp == nil {
-		t.Fatalf("PreToolUse has no %q dispatcher entry", want)
-	}
-	if !slices.Contains(strings.Split(disp.Matcher, "|"), "Bash") {
-		t.Errorf("dispatcher matcher = %q, want it to include Bash", disp.Matcher)
-	}
-}
-
 // The safety gate judges safety and nothing else: with rtk available it must NOT rewrite the
 // command — rewriting is the rtk group's job, in a separate process after the gate.
 func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
@@ -453,80 +341,12 @@ func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 	bin := fakeRTK(t)
 	payload := rtkBashIn("git status")
 
-	var stdout strings.Builder
-	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != core.ExitProceed {
-		t.Fatalf("SafetyScan rc = %d, want ExitProceed (%d)", rc, core.ExitProceed)
-	}
-	if stdout.Len() != 0 {
-		t.Fatalf("SafetyScan wrote %q to stdout — it must never emit updatedInput; rewriting belongs to the rtk group", stdout.String())
+	if res := scanPayload(strings.NewReader(payload)); res.Decision != core.Allow || res.UpdatedInput != nil || res.Context != "" {
+		t.Fatalf("SafetyScan result %+v — it must never emit updatedInput; rewriting belongs to the rtk group", res)
 	}
 
 	got, ok := rtkOut(t, payload)
 	if !ok || got != bin+" git status" {
 		t.Fatalf("RTKRewrite command = %q (emitted=%v), want %q", got, ok, bin+" git status")
-	}
-}
-
-// The bare dispatcher (the process settings.json runs for PreToolUse) runs the rtk group and
-// merges its rewrite, while the gate lives in its own process — no permissionDecision can appear.
-func TestRtkDispatcherBareRunsRtk(t *testing.T) {
-	rtkHermetic(t)
-	bin := fakeRTK(t)
-
-	run := func(cmd string) map[string]json.RawMessage {
-		t.Helper()
-		var out, errb strings.Builder
-		if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
-			t.Fatalf("%q: RunEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
-		}
-		var doc map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &doc); err != nil {
-			t.Fatalf("%q: dispatcher emitted non-JSON: %v\n%s", cmd, err, out.String())
-		}
-		return doc
-	}
-
-	doc := run("git status")
-	var inner struct {
-		UpdatedInput map[string]any `json:"updatedInput"`
-	}
-	raw, ok := doc["hookSpecificOutput"]
-	if !ok {
-		t.Fatalf("dispatcher emitted no hookSpecificOutput: %v", doc)
-	}
-	if err := json.Unmarshal(raw, &inner); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := inner.UpdatedInput["command"].(string); got != bin+" git status" {
-		t.Errorf("dispatcher updatedInput.command = %q, want %q", got, bin+" git status")
-	}
-	if strings.Contains(string(raw), "permissionDecision") {
-		t.Errorf("dispatcher output carries a permissionDecision — the gate is not in this process: %s", raw)
-	}
-	// An ask-tier command still gets no decision here: with the bare dispatcher the gate decides in its own process.
-	if raw := string(run("git push --force origin main")["hookSpecificOutput"]); strings.Contains(raw, "permissionDecision") {
-		t.Errorf("ask-tier command: bare dispatcher output carries a permissionDecision: %s", raw)
-	}
-}
-
-// The rtk group is an ordinary toggle: harnessHooks can switch it off, while the safety gate
-// refuses to be switched off.
-func TestRtkGroupToggle(t *testing.T) {
-	rtkHermetic(t)
-	fakeRTK(t)
-
-	if err := settings.SaveHarnessHooks(map[string]bool{"rtk": false}); err != nil {
-		t.Fatalf("SaveHarnessHooks(rtk:false): %v", err)
-	}
-	var out, errb strings.Builder
-	if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != core.ExitProceed {
-		t.Fatalf("RunEvent rc = %d, want ExitProceed; stderr=%q", rc, errb.String())
-	}
-	if strings.Contains(out.String(), "updatedInput") {
-		t.Errorf("rtk group switched off but dispatcher still rewrote: %s", out.String())
-	}
-
-	if err := settings.SaveHarnessHooks(map[string]bool{"safety": false}); err == nil {
-		t.Error("SaveHarnessHooks(safety:false) succeeded — a gate group must stay on")
 	}
 }

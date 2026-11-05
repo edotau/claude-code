@@ -1,5 +1,6 @@
 // `hook copilot-bash` — the copilot subagent's frontmatter PreToolUse(Bash) guard: only the scoped shell allowlist runs.
-package hooks
+
+package safety
 
 import (
 	"encoding/json"
@@ -24,8 +25,8 @@ func copilotBashReason() string {
 		p.HookExtras.Summary() + "."
 }
 
-// copilotBash reads one hook JSON from stdin and exits 2 unless every chained segment is allowed (fail closed).
-func copilotBash(stdin io.Reader, stderr io.Writer) int {
+// CopilotBash reads one hook JSON from stdin and exits 2 unless every chained segment is allowed (fail closed).
+func CopilotBash(stdin io.Reader, stderr io.Writer) int {
 	var in struct {
 		ToolInput struct {
 			Command string `json:"command"`

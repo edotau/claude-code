@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/hooks/quality"
+	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -18,8 +19,8 @@ import (
 
 // Native maps every hook module to its Runner; names must match settings.Registry.
 var Native = map[string]core.Runner{
-	"safety-scan":               safetyScan,
-	"rtk-rewrite":               rtkRewrite,
+	"safety-scan":               safety.Scan,
+	"rtk-rewrite":               safety.RTKRewrite,
 	"docs-placement":            viaStderr(docs.Placement),
 	"memory-start":              memhook.Start,
 	"memory-recall":             memhook.Recall,
@@ -100,8 +101,8 @@ func eventOf(name string) string { return specOf(name).Event }
 
 // RunArgs is `hook <Event> [--<module>|--all]`; an unknown event or module fails closed only when it reads as a guard.
 func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if event == CopilotBashHook {
-		return copilotBash(stdin, stderr)
+	if event == safety.CopilotBashHook {
+		return safety.CopilotBash(stdin, stderr)
 	}
 	if !IsEvent(event) {
 		return unknownHook(event, "unknown hook event", stderr)

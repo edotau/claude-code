@@ -1,4 +1,4 @@
-package hooks
+package safety
 
 import (
 	"encoding/json"
@@ -30,11 +30,11 @@ func TestCopilotBashHook(t *testing.T) {
 	for _, tc := range cases {
 		doc, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": tc.cmd}, "cwd": wd})
 		var stderr strings.Builder
-		if got := copilotBash(strings.NewReader(string(doc)), &stderr); got != tc.want {
+		if got := CopilotBash(strings.NewReader(string(doc)), &stderr); got != tc.want {
 			t.Errorf("%q = %d, want %d (%s)", tc.cmd, got, tc.want, stderr.String())
 		}
 	}
-	if got := copilotBash(strings.NewReader("not json"), &strings.Builder{}); got != core.ExitBlock {
+	if got := CopilotBash(strings.NewReader("not json"), &strings.Builder{}); got != core.ExitBlock {
 		t.Errorf("garbage stdin = %d, want block", got)
 	}
 }
