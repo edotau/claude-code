@@ -391,9 +391,13 @@ func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bo
 	return runSelfUpdate(ctx, w, bin, dryRun)
 }
 
-// installAgy runs Google's installer, which skips when dir/agy already exists (updates go through updateAgy).
-func installAgy(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	return runInstallScript(ctx, w, dryRun, agyInstallScriptURL, []string{"--dir", dir}, nil)
+// installAgy runs Google's installer into ~/.local/bin, where Link finds agy for bin/gemini; dir/agy would go unlinked.
+func installAgy(ctx context.Context, w io.Writer, _ string, dryRun bool) error {
+	local := localBinDir()
+	if local == "" {
+		return errors.New("agy: no home directory for ~/.local/bin")
+	}
+	return runInstallScript(ctx, w, dryRun, agyInstallScriptURL, []string{"--dir", local}, nil)
 }
 
 // updateAgy runs the installed binary's own updater; a missing binary falls back to a fresh install.
