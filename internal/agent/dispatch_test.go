@@ -549,3 +549,14 @@ func assertFreeAccountRuns(t *testing.T, l *limiter, free string) {
 		t.Fatal("a dispatch on a free account starved behind one waiting on a full account (Jobs=1)")
 	}
 }
+
+// An engine error already wrapped as "<agent>: failed:" is not wrapped again, and a leading agent name is not repeated.
+func TestErrorDoesNotRepeatAgentPrefix(t *testing.T) {
+	inner := &Error{Agent: "opencode", Kind: KindFatal, Err: errors.New("cannot enforce deny Bash(rm *)")}
+	if got, want := (&Error{Agent: "opencode", Kind: KindFatal, Err: inner}).Error(), "opencode: failed: cannot enforce deny Bash(rm *)"; got != want {
+		t.Errorf("nested = %q, want %q", got, want)
+	}
+	if got, want := (&Error{Agent: "codex", Kind: KindFatal, Err: errors.New("codex: cannot enforce x")}).Error(), "codex: failed: cannot enforce x"; got != want {
+		t.Errorf("plain = %q, want %q", got, want)
+	}
+}

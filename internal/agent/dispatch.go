@@ -60,8 +60,10 @@ func progressed(err error) bool {
 
 func (e *Error) Error() string {
 	msg := fmt.Sprintf("%s: %s", e.Agent, e.Kind)
-	if e.Err != nil {
-		msg += ": " + e.Err.Error()
+	if inner, ok := e.Err.(*Error); ok && inner.Agent == e.Agent && inner.Kind == e.Kind {
+		msg = inner.Error() // an engine already wrapped its own failure; wrapping it again repeats "<agent>: <kind>:"
+	} else if e.Err != nil {
+		msg += ": " + strings.TrimPrefix(e.Err.Error(), e.Agent+": ") // an engine error may lead with its own agent name
 	}
 	if e.Attempts > 1 {
 		msg += fmt.Sprintf(" (after %d attempts)", e.Attempts)
