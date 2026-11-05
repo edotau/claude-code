@@ -485,7 +485,7 @@ func TestCapabilityMatrixApplyCaps(t *testing.T) {
 		"codex":    {Native, Native, Native},
 		"gemini":   {Emulated, Emulated, Native},
 		"opencode": {Native, Emulated, Emulated},
-		"copilot":  {Emulated, Emulated, Emulated},
+		"copilot":  {Native, Native, Emulated},
 	}
 	for _, r := range Engines() {
 		w, ok := want[r.Name()]

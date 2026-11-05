@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -551,5 +552,20 @@ func TestCreateAndResumeCarryInstructions(t *testing.T) {
 	}
 	if created["ins"] == nil || created["skl"] == nil || created["agt"] == nil {
 		t.Errorf("directories missing: %v", created)
+	}
+}
+
+// Copilot carries system text natively: both caps are Native (so the prompt stays unfolded) and System is filled.
+func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
+	if row.CLI.Caps.SystemPrompt != agent.Native || row.CLI.Caps.AppendSystemPrompt != agent.Native {
+		t.Fatalf("caps = %v/%v, want Native/Native", row.CLI.Caps.SystemPrompt, row.CLI.Caps.AppendSystemPrompt)
+	}
+	req := agent.RunOptions{Prompt: "say hi", SystemPrompt: "be ZEBRA", AppendSystemPrompt: "end with ZEBRA"}
+	o := newSDKOptions("copilot", nil, req, providers.Target{}, false)
+	if o.System != "be ZEBRA\n\nend with ZEBRA" {
+		t.Errorf("System = %q, want both texts", o.System)
+	}
+	if cfg := BuildSessionConfig(o); cfg.SystemMessage == nil || cfg.SystemMessage.Mode != "append" {
+		t.Errorf("SystemMessage = %+v, want append mode", cfg.SystemMessage)
 	}
 }
