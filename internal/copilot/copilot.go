@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -145,13 +146,20 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.T
 	}
 	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
 	rec := vault.GetAgentRecord("copilot")
-	return SDKOptions{
+	o := SDKOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
 		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
 		Context:         rec.Context, WorkingDirectory: req.WorkDir,
 		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, Permissions: req.Permissions, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
+		System:    strings.TrimSpace(req.SystemPrompt + "\n\n" + req.AppendSystemPrompt),
 	}
+	if home, err := paths.CopilotHome(); err == nil { // the dirs the harness renders under the copilot home
+		o.InstructionDirs = existingDirs(home)
+		o.SkillDirs = existingDirs(filepath.Join(home, "skills"))
+		o.AgentDirs = existingDirs(filepath.Join(home, "agents"))
+	}
+	return o
 }
 
 // copilotPrompt inlines text attachments; the SDK never resolves @<path>, so images ride as absolute file paths.
