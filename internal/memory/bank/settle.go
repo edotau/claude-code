@@ -44,8 +44,11 @@ func BuildBankIndex(dir string, now time.Time) string {
 func RotateSessionHistory(dir string, now time.Time) (int, error) {
 	path := filepath.Join(dir, "sessionHistory.md")
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if os.IsNotExist(err) {
 		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("rotate session history: %w", err)
 	}
 	header, entries := SplitHeadingBlocks(string(data))
 	if len(entries) <= SessionHistoryMaxEntries {

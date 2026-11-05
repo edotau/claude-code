@@ -98,3 +98,18 @@ func TestLinkNativeForNoopBeforeCutover(t *testing.T) {
 		t.Error("LinkNativeFor before cutover must report ok=false")
 	}
 }
+
+func TestEnsureLinkPreservesCorrectRelativeTarget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	target := filepath.Join(dir, "store")
+	mustMkdir(t, target)
+	link := filepath.Join(dir, "memory")
+	if err := os.Symlink("store", link); err != nil {
+		t.Fatal(err)
+	}
+	wantAction(t, "correct relative link", ensureLink(link, target), "ok")
+	if got, err := os.Readlink(link); err != nil || got != "store" {
+		t.Fatalf("correct relative link was rewritten: %q, %v", got, err)
+	}
+}
