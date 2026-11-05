@@ -43,20 +43,20 @@ func gatewayRoute(args []string, withProxy bool) int {
 		return code
 	}
 	if err := applyRoute(*route); err != nil {
-		return fail(name+": %v", err)
+		return helptext.Fail(name+": %v", err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat(name, err)
+		return helptext.BadFormat(name, err)
 	}
 	if !slices.Contains(router.FallbackModes, *fallback) {
-		return fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(router.FallbackModes, "|"))
+		return helptext.Fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(router.FallbackModes, "|"))
 	}
 	if *want != "" && !slices.Contains(router.TableAgents, *want) {
-		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableAgents, "|"))
+		return helptext.Fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableAgents, "|"))
 	}
 	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, routeRefresh)
 	if err != nil {
-		return fail(name+": %v", err)
+		return helptext.Fail(name+": %v", err)
 	}
 	return renderGatewayRoute(name, res, *format, withProxy)
 }
@@ -66,13 +66,13 @@ func renderGatewayRoute(name string, res router.PickResult, format string, withP
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	pins, err := routePins()
 	if err != nil {
-		return fail(name+": %v", err)
+		return helptext.Fail(name+": %v", err)
 	}
 	rj := newRouteJSON(res, src, pins)
 	var ps proxy.Status
 	if withProxy {
 		if ps, err = proxy.LoadStatus(context.Background()); err != nil {
-			return fail(name+": %v", err)
+			return helptext.Fail(name+": %v", err)
 		}
 	}
 	if format == helptext.JSON {
@@ -83,7 +83,7 @@ func renderGatewayRoute(name string, res router.PickResult, format string, withP
 				Proxy proxy.Status `json:"proxy"`
 			}{rj, ps}
 		}
-		return writeJSONOrFail("gateway router", payload)
+		return helptext.WriteJSONOrFail("gateway router", payload)
 	}
 	printRoute(res, src, pins)
 	if withProxy {

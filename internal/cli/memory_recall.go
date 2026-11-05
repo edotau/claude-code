@@ -21,14 +21,14 @@ func cmdMemoryRecall(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("memory recall", err)
+		return helptext.BadFormat("memory recall", err)
 	}
 	if len(terms) == 0 {
-		return fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
+		return helptext.Fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
 	}
 	if *explain {
 		if *all || *format == helptext.JSON || *load != 0 {
-			return fail("memory recall: --explain does not support --all, --format json, or --load")
+			return helptext.Fail("memory recall: --explain does not support --all, --format json, or --load")
 		}
 		memory.RecallExplain(os.Stdout, *repo, strings.Join(terms, " "))
 		return 0
@@ -36,7 +36,7 @@ func cmdMemoryRecall(args []string) int {
 	hits, _ := recall.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
-			return fail("memory recall: %v", err)
+			return helptext.Fail("memory recall: %v", err)
 		}
 		return 0
 	}

@@ -276,7 +276,7 @@ func cmdCompletion(args []string) int {
 	}
 	path, err := completion.Install(completionBin)
 	if err != nil {
-		return fail("completion: %v", err)
+		return helptext.Fail("completion: %v", err)
 	}
 	fmt.Println(path)
 	fmt.Println("installed — open a new shell (or 'source' the file) and double-Tab claude-code")

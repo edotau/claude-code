@@ -63,7 +63,7 @@ func cmdNetwork(args []string) int {
 	for i, c := range networkPage.Commands {
 		names[i] = c[0]
 	}
-	return fail("network: unknown subcommand %q (%s)", args[0], strings.Join(names, "|"))
+	return helptext.Fail("network: unknown subcommand %q (%s)", args[0], strings.Join(names, "|"))
 }
 
 // cmdNetworkMCP reads every MCP scope, runs live health, and flags drift and plaintext secrets; exit 1 on any.
@@ -76,11 +76,11 @@ func cmdNetworkMCP(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("network mcp", err)
+		return helptext.BadFormat("network mcp", err)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fail("network mcp: %v", err)
+		return helptext.Fail("network mcp: %v", err)
 	}
 	claude, _ := claude.ClaudeBinary() // "" on error: Doctor fails OPEN on a missing claude binary
 	cwd, _ := os.Getwd()
@@ -139,14 +139,14 @@ func cmdRestart(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("restart", err)
+		return helptext.BadFormat("restart", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	row := proxy.RestartReport(ctx, *dry, *force)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []proxy.RestartRow{row}}); err != nil {
-			return fail("restart: %v", err)
+			return helptext.Fail("restart: %v", err)
 		}
 	} else {
 		printRestartRow(row)
@@ -186,7 +186,7 @@ func cmdNetworkView(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("network view", err)
+		return helptext.BadFormat("network view", err)
 	}
 	if len(rest) != 1 {
 		fs.Usage()
@@ -195,11 +195,11 @@ func cmdNetworkView(args []string) int {
 	opts := tree.ViewOptions{ClaudeDir: paths.ConfigDir(), Session: *session, Days: *days, Agent: rest[0], N: *n}
 	snap, err := tree.View(opts)
 	if err != nil {
-		return fail("network view: %v", err)
+		return helptext.Fail("network view: %v", err)
 	}
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, snap); err != nil {
-			return fail("network view: %v", err)
+			return helptext.Fail("network view: %v", err)
 		}
 	} else {
 		uitree.RenderSnapshot(os.Stdout, snap)
@@ -210,7 +210,7 @@ func cmdNetworkView(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := uitree.Follow(ctx, opts, os.Stdout); err != nil && ctx.Err() == nil {
-		return fail("network view: %v", err)
+		return helptext.Fail("network view: %v", err)
 	}
 	return 0
 }
@@ -235,7 +235,7 @@ func cmdNetworkPage(args []string) int {
 		Addr: *addr, Hosts: hostList, Days: *days, DryRunDispatch: *dryRun,
 		ErrOut: os.Stderr, Verbs: func() any { return verbTree() },
 	}); err != nil {
-		return fail("network page: %v", err)
+		return helptext.Fail("network page: %v", err)
 	}
 	return 0
 }

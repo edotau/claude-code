@@ -110,7 +110,7 @@ func configureAllProfile(o *configureOpts, section string, pos []string) (string
 
 func configureList(section string, pos []string, format string) int {
 	if section != "provider" {
-		return fail("configure: --list needs the provider page")
+		return helptext.Fail("configure: --list needs the provider page")
 	}
 	name := ""
 	if len(pos) > 0 {
@@ -122,7 +122,7 @@ func configureList(section string, pos []string, format string) int {
 func configureRun(o *configureOpts, section string, pos []string) int {
 	profile, err := configureAllProfile(o, section, pos)
 	if err != nil {
-		return fail("configure: %v", err)
+		return helptext.Fail("configure: %v", err)
 	}
 	if o.list || *o.format != helptext.Text && !o.all {
 		return configureList(section, pos, *o.format)
@@ -131,7 +131,7 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents, o.noAgents)
 	}
 	if o.out != "" || o.agents || o.noAgents {
-		return fail("configure: --out, --agents and --no-agents need --restore")
+		return helptext.Fail("configure: --out, --agents and --no-agents need --restore")
 	}
 	return configureMenu(o, section, profile)
 }
@@ -158,7 +158,7 @@ func knownProfile(profile string) error {
 // configureRender runs --restore / --revert; the agent flag is a comma list there.
 func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
 	if err := renderModeConflict(restore, revert, section, agents, renderAgents); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if revert {
 		return configureRevert(agents, dryRun, check || out != "" || renderAgents || noAgents)
@@ -168,13 +168,13 @@ func configureRender(restore, revert bool, section, agents, out string, check, d
 
 func configureRestore(agents, out string, check, dryRun, renderAgents, noAgents bool) int {
 	if err := unknownAgent(agents); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if check && dryRun {
-		return fail("configure: --check and --dry-run are mutually exclusive")
+		return helptext.Fail("configure: --check and --dry-run are mutually exclusive")
 	}
 	if noAgents && (renderAgents || agents != "") {
-		return fail("configure: --no-agents excludes --agents and --agent")
+		return helptext.Fail("configure: --no-agents excludes --agents and --agent")
 	}
 	return cmdRestore(agents, out, check, dryRun, renderAgents, noAgents)
 }
@@ -182,10 +182,10 @@ func configureRestore(agents, out string, check, dryRun, renderAgents, noAgents 
 // configureRevert runs --revert; extras is true when a flag that only --restore takes was given.
 func configureRevert(agents string, dryRun, extras bool) int {
 	if extras {
-		return fail("configure: --revert takes only --agent and --dry-run")
+		return helptext.Fail("configure: --revert takes only --agent and --dry-run")
 	}
 	if err := unknownAgent(agents); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	return cmdRevert(agents, dryRun)
 }
@@ -254,17 +254,17 @@ func cmdConfigureDesktop(args []string) int {
 		return code
 	}
 	if fs.NArg() != 0 {
-		return fail("configure desktop: unexpected argument %q", fs.Arg(0))
+		return helptext.Fail("configure desktop: unexpected argument %q", fs.Arg(0))
 	}
 	if *revert && *profile != "" {
-		return fail("configure desktop: --profile cannot be combined with --revert")
+		return helptext.Fail("configure desktop: --profile cannot be combined with --revert")
 	}
 	root, err := desktopRoot()
 	if err != nil {
-		return fail("configure desktop: %v", err)
+		return helptext.Fail("configure desktop: %v", err)
 	}
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
-		return fail("configure desktop: open Claude Desktop once first (missing directory %s)", root)
+		return helptext.Fail("configure desktop: open Claude Desktop once first (missing directory %s)", root)
 	}
 	opts := desktop.Options{Root: root, Revert: *revert, DryRun: *dryRun}
 	return configureDesktopOptions(opts, *profile)
@@ -274,16 +274,16 @@ func configureDesktopOptions(opts desktop.Options, profile string) int {
 	if !opts.Revert {
 		reg, err := providers.Load()
 		if err != nil {
-			return fail("configure desktop: %v", err)
+			return helptext.Fail("configure desktop: %v", err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		if opts, err = desktop.BuildOptions(ctx, reg, profile, opts.DryRun, opts, desktopHelper, desktopEnsure); err != nil {
-			return fail("configure desktop: %v", err)
+			return helptext.Fail("configure desktop: %v", err)
 		}
 	}
 	if err := desktop.Configure(opts, os.Stdout); err != nil {
-		return fail("configure desktop: %v", err)
+		return helptext.Fail("configure desktop: %v", err)
 	}
 	return 0
 }

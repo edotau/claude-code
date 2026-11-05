@@ -36,7 +36,7 @@ func cmdAgentsJob(verb string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("agents "+verb, err)
+		return helptext.BadFormat("agents "+verb, err)
 	}
 	if len(pos) != 1 {
 		fs.Usage()
@@ -44,7 +44,7 @@ func cmdAgentsJob(verb string, args []string) int {
 	}
 	rec, err := job.Find(pos[0])
 	if err != nil {
-		return fail("agents %s: %v", verb, err)
+		return helptext.Fail("agents %s: %v", verb, err)
 	}
 	cwd, _ := os.Getwd()
 	switch verb {
@@ -61,7 +61,7 @@ func cmdAgentsJob(verb string, args []string) int {
 func agentsCancel(rec agent.Record, format, cwd string) int {
 	rec, err := job.CancelJob(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
-		return fail("agents cancel: %v", err)
+		return helptext.Fail("agents cancel: %v", err)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
@@ -69,7 +69,7 @@ func agentsCancel(rec agent.Record, format, cwd string) int {
 			Status string `json:"status"`
 			Error  string `json:"error,omitempty"`
 		}{rec.ID, rec.Status, rec.Error}); err != nil {
-			return fail("agents cancel: %v", err)
+			return helptext.Fail("agents cancel: %v", err)
 		}
 		return 0
 	}
@@ -80,11 +80,11 @@ func agentsCancel(rec agent.Record, format, cwd string) int {
 func agentsStatus(rec agent.Record, format, cwd string) int {
 	rows, err := job.Status(context.Background(), rec.Agent, cwd, rec.ID, true)
 	if err != nil {
-		return fail("agents status: %v", err)
+		return helptext.Fail("agents status: %v", err)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, rows); err != nil {
-			return fail("agents status: %v", err)
+			return helptext.Fail("agents status: %v", err)
 		}
 		return 0
 	}
@@ -104,7 +104,7 @@ func agentsTail(rec agent.Record, format string, follow bool, cwd string) int {
 		rec, err = job.Tail(ctx, rec.Agent, cwd, rec.ID, follow, os.Stdout)
 	}
 	if err != nil {
-		return fail("agents tail: %v", err)
+		return helptext.Fail("agents tail: %v", err)
 	}
 	return tailExit(rec, follow)
 }
@@ -112,11 +112,11 @@ func agentsTail(rec agent.Record, format string, follow bool, cwd string) int {
 func agentsResult(rec agent.Record, format, cwd string) int {
 	rec, log, err := job.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
-		return fail("agents result: %v", err)
+		return helptext.Fail("agents result: %v", err)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, agent.RecordEnvelope(rec, os.Stderr)); err != nil {
-			return fail("agents result: %v", err)
+			return helptext.Fail("agents result: %v", err)
 		}
 		return resultExit(rec)
 	}

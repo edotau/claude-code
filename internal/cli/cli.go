@@ -268,28 +268,6 @@ func cmdVersion([]string) int {
 	return 0
 }
 
-// fail prints a one-line error and returns exit code 1.
-func fail(format string, a ...any) int {
-	fmt.Fprintf(os.Stderr, "claude-code: "+format+"\n", a...)
-	return 1
-}
-
-// writeJSONOrFail writes v as indented JSON to stdout; a write error is reported under label and returns 1.
-func writeJSONOrFail(label string, v any) int {
-	if err := helptext.WriteJSON(os.Stdout, v); err != nil {
-		return fail("%s: %v", label, err)
-	}
-	return 0
-}
-
-// badFormat reports an invalid --format value as a usage error (exit 2).
-func badFormat(prefix string, err error) int {
-	if prefix == "" {
-		return failUsage("%v", err)
-	}
-	return failUsage(prefix+": %v", err)
-}
-
 // cmdTest dispatches `test <sub>`.
 func cmdTest(args []string) int {
 	if len(args) > 0 && args[0] == "mutate" {
@@ -302,7 +280,7 @@ func cmdTest(args []string) int {
 		testPage.Fprint(os.Stderr)
 		return 0
 	}
-	fail("test: unknown subcommand %q", args[0])
+	helptext.Fail("test: unknown subcommand %q", args[0])
 	testPage.Fprint(os.Stderr)
 	return 2
 }

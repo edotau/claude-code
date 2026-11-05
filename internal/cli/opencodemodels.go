@@ -68,7 +68,9 @@ type menuOpts struct {
 	fs                                                     *flag.FlagSet
 }
 
-func (m *menuOpts) fail(f string, a ...any) int { return fail("opencode catalog "+m.verb+": "+f, a...) }
+func (m *menuOpts) fail(f string, a ...any) int {
+	return helptext.Fail("opencode catalog "+m.verb+": "+f, a...)
+}
 
 func (m *menuOpts) done(err error) int {
 	if err != nil {
@@ -122,7 +124,7 @@ func cmdOpencodeMenu(args []string) int {
 	}
 	if verb == "list" || verb == "check" {
 		if err := helptext.CheckFormat(*m.format); err != nil {
-			return badFormat("opencode catalog "+verb, err)
+			return helptext.BadFormat("opencode catalog "+verb, err)
 		}
 	}
 	return m.run(pos)

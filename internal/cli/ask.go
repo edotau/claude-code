@@ -451,7 +451,7 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	}
 	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; ask --retry <id> replays it)")
 	if err != nil {
-		return fail("ask: %v", err)
+		return helptext.Fail("ask: %v", err)
 	}
 	return 0
 }
@@ -528,7 +528,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 func printDispatchLog(format string) int {
 	recs := agent.RecentRecords(20)
 	if format == helptext.JSON {
-		return writeJSONOrFail("ask", recs)
+		return helptext.WriteJSONOrFail("ask", recs)
 	}
 	if len(recs) == 0 {
 		fmt.Println("no dispatches logged yet")

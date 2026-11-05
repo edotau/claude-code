@@ -62,16 +62,16 @@ func cmdNetworkRemote(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if f.host == "" {
-		return fail("network remote: --host is required")
+		return helptext.Fail("network remote: --host is required")
 	}
 	mode := f.mode()
 	if wrong := remoteModeFlags(fs, mode); wrong != nil {
-		return fail("network remote: %v", wrong)
+		return helptext.Fail("network remote: %v", wrong)
 	}
 	ctx := context.Background()
 	resolved, err := tailscale.ResolveHost(ctx, f.host)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	return dispatchRemoteMode(ctx, resolved, mode, f, rest)
 }
@@ -102,12 +102,12 @@ func dispatchRemoteMode(ctx context.Context, host, mode string, f *remoteFlags, 
 		return dispatchList(ctx, host, f.format, f.status, f.interval)
 	case "attach":
 		if len(rest) != 1 {
-			return fail("network remote --attach: give exactly one session name")
+			return helptext.Fail("network remote --attach: give exactly one session name")
 		}
 		return dispatchAttach(host, rest[0])
 	default:
 		if !tailscale.ValidAgent(f.agent) {
-			return fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(tailscale.RemoteAgents, "|"))
+			return helptext.Fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(tailscale.RemoteAgents, "|"))
 		}
 		return dispatchStart(ctx, host, f.dir, f.agent, f.name, strings.Join(rest, " "), f.dryRun)
 	}
@@ -115,11 +115,11 @@ func dispatchRemoteMode(ctx context.Context, host, mode string, f *remoteFlags, 
 
 func dispatchStart(ctx context.Context, host, dir, agentName, name, task string, dryRun bool) int {
 	if task == "" {
-		return fail("network remote: give a task as the final argument")
+		return helptext.Fail("network remote: give a task as the final argument")
 	}
 	remoteCmd, session, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{Dir: dir, Agent: agentName, Name: name, Task: task})
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	argv := tailscale.ExecArgs(ctx, host, remoteCmd, false)
 	if dryRun {
@@ -132,7 +132,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	out, err := tailscale.RunRemote(ctx, argv)
 	_, writeErr := os.Stdout.Write(out)
 	if err := errors.Join(err, writeErr); err != nil {
-		return fail("network remote: %v", err)
+		return helptext.Fail("network remote: %v", err)
 	}
 	fmt.Printf("remote: started %s on %s\n", session, host)
 	fmt.Println("attach:", tailscale.AttachCommand(host, session))
@@ -142,7 +142,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 // dispatchList dispatches to the plain session list or, with withStatus, the pane-status sampler.
 func dispatchList(ctx context.Context, host, format string, withStatus bool, interval time.Duration) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return badFormat("", err)
+		return helptext.BadFormat("", err)
 	}
 	if !withStatus {
 		return dispatchListPlain(ctx, host, format)
@@ -153,10 +153,10 @@ func dispatchList(ctx context.Context, host, format string, withStatus bool, int
 func dispatchListPlain(ctx context.Context, host, format string) int {
 	sessions, err := tailscale.ListRemoteSessions(ctx, host)
 	if err != nil {
-		return fail("network remote --list: %v", err)
+		return helptext.Fail("network remote --list: %v", err)
 	}
 	if format == helptext.JSON {
-		return writeJSONOrFail("network remote --list", sessions)
+		return helptext.WriteJSONOrFail("network remote --list", sessions)
 	}
 	for _, s := range sessions {
 		fmt.Printf("%-24s created=%-12s attached=%-5v cmd=%s\n", s.Name, s.Created, s.Attached, s.CurrentCmd)
@@ -170,7 +170,7 @@ func dispatchListStatus(ctx context.Context, host, format string, interval time.
 		return printPaneStatus(s, format)
 	})
 	if err != nil {
-		return fail("network remote --status: %v", err)
+		return helptext.Fail("network remote --status: %v", err)
 	}
 	return 0
 }
@@ -188,7 +188,7 @@ func printPaneStatus(statuses []tailscale.PaneStatus, format string) error {
 
 func dispatchAttach(host, session string) int {
 	if err := tailscale.AttachSession(host, session); err != nil {
-		return fail("network remote --attach: %v", err)
+		return helptext.Fail("network remote --attach: %v", err)
 	}
 	return 0
 }

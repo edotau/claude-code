@@ -102,7 +102,7 @@ func cmdMemoryInit(args []string) int {
 		return code
 	}
 	if err := memory.InitBank(os.Stdout, memstore.Root(*repo)); err != nil {
-		return fail("memory init: %v", err)
+		return helptext.Fail("memory init: %v", err)
 	}
 	return 0
 }
@@ -116,12 +116,12 @@ func cmdMemoryRemember(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if len(terms) == 0 {
-		return fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
+		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
 	root := memstore.Root(*repo)
 	id, err := bank.Remember(root, *kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
-		return fail("memory remember: %v", err)
+		return helptext.Fail("memory remember: %v", err)
 	}
 	fmt.Printf("remembered [%s] -> %s\n", id, memstore.Dir(root))
 	return 0
@@ -137,10 +137,10 @@ func cmdMemorySearch(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("memory search", err)
+		return helptext.BadFormat("memory search", err)
 	}
 	if len(terms) == 0 {
-		return fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
+		return helptext.Fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
 	}
 	res := memory.Search(memory.SearchOptions{Repo: *repo, All: *all, Query: strings.Join(terms, " "), K: *k,
 		Expand: len(terms) == 1 && *format != helptext.JSON})
@@ -150,7 +150,7 @@ func cmdMemorySearch(args []string) int {
 	}
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, res.Hits); err != nil {
-			return fail("memory search: %v", err)
+			return helptext.Fail("memory search: %v", err)
 		}
 		return 0
 	}
@@ -177,11 +177,11 @@ func cmdMemoryShow(args []string) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		return failUsage("memory show: give one block id (from `memory search` or a MEMORY.md region)")
+		return helptext.FailUsage("memory show: give one block id (from `memory search` or a MEMORY.md region)")
 	}
 	path, block, err := memory.Show(fs.Arg(0))
 	if err != nil {
-		return fail("memory show %s: %v", fs.Arg(0), err)
+		return helptext.Fail("memory show %s: %v", fs.Arg(0), err)
 	}
 	fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 	return 0
@@ -195,7 +195,7 @@ func cmdMemoryIndex(args []string) int {
 		return code
 	}
 	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{Repo: *repo, Reembed: *reembed, MintOnly: *mintOnly}); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	return 0
 }
@@ -220,12 +220,12 @@ func cmdMemoryUpdate(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return failUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
+		return helptext.FailUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
 		DryRun: *dryRun, Historical: *historical, ClaudeBin: claude.ClaudeBinary, Run: memoryAgent(), Out: os.Stdout, Err: os.Stderr})
 	if err != nil {
-		return fail("memory update: %v", err)
+		return helptext.Fail("memory update: %v", err)
 	}
 	return 0
 }
@@ -239,11 +239,11 @@ func cmdMemoryVerify(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return failUsage("memory verify: unexpected argument %q", fs.Arg(0))
+		return helptext.FailUsage("memory verify: unexpected argument %q", fs.Arg(0))
 	}
 	if err := memory.Verify(os.Stdout, memory.VerifyOptions{CWD: *cwd, Archives: *archives,
 		AllStores: *all, HelpVerb: memoryVerifyHelpVerb}); err != nil {
-		return fail("memory verify: %v", err)
+		return helptext.Fail("memory verify: %v", err)
 	}
 	return 0
 }
@@ -274,7 +274,7 @@ func cmdMemoryDream(args []string) int {
 		return code
 	}
 	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: memoryAgent(), Out: os.Stdout}); err != nil {
-		return fail("memory dream: %v", err)
+		return helptext.Fail("memory dream: %v", err)
 	}
 	return 0
 }
@@ -289,7 +289,7 @@ func cmdMemoryDigest(args []string) int {
 	defer stop()
 	path, err := memory.DigestRepo(ctx, *repo, claudeBin)
 	if err != nil {
-		return fail("memory digest: %v", err)
+		return helptext.Fail("memory digest: %v", err)
 	}
 	fmt.Println("wrote " + path)
 	return 0
@@ -311,7 +311,7 @@ func cmdMemoryFmt(args []string) int {
 	}
 	dirty, err := memory.FormatReport(os.Stdout, *check)
 	if err != nil {
-		return fail("memory fmt: %v", err)
+		return helptext.Fail("memory fmt: %v", err)
 	}
 	if dirty {
 		return 1
@@ -332,7 +332,7 @@ func cmdMemoryReview(args []string) int {
 	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{Repo: *repo, StaleDays: *staleDays, Brief: *brief,
 		Notice: *notice, Candidates: *candidates})
 	if err != nil {
-		return fail("memory review: %v", err)
+		return helptext.Fail("memory review: %v", err)
 	}
 	return 0
 }
@@ -359,12 +359,12 @@ func cmdMemoryPromote(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if len(pos) != 1 || *to == "" {
-		fail("memory promote: usage: %s", memorySubPage("promote").Usage)
+		helptext.Fail("memory promote: usage: %s", memorySubPage("promote").Usage)
 		return 2
 	}
 	out, err := memory.Promote(memstore.Root(*repo), pos[0], *to, *dryRun, time.Now())
 	if err != nil {
-		return fail("memory promote: %v", err)
+		return helptext.Fail("memory promote: %v", err)
 	}
 	fmt.Print(out)
 	return 0
@@ -404,7 +404,7 @@ func cmdMemory(args []string) int {
 	sub := args[0]
 	h, ok := memorySubcommands[sub]
 	if !ok {
-		return fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
+		return helptext.Fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
 	return h(args[1:])
 }
@@ -424,11 +424,11 @@ func cmdMemoryAlias(args []string) int {
 		return code
 	}
 	if *repo == "" || *into == "" || fs.NArg() > 0 {
-		return fail("memory alias: --repo and --into are required (usage: %s)", memoryAliasPage.Usage)
+		return helptext.Fail("memory alias: --repo and --into are required (usage: %s)", memoryAliasPage.Usage)
 	}
 	res, err := memory.AliasRepo(memory.AliasOptions{Repo: *repo, Into: *into, DryRun: *dryRun, Now: time.Now()})
 	if err != nil {
-		return fail("memory alias: %v", err)
+		return helptext.Fail("memory alias: %v", err)
 	}
 	verb := "applied"
 	if *dryRun {
