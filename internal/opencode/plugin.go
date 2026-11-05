@@ -20,7 +20,8 @@ import { execFileSync } from "node:child_process"
 
 const BIN = __BIN__
 const MODULES = __MODULES__
-const TOOLS = { bash: "Bash", edit: "Edit", write: "Write", multiedit: "MultiEdit", read: "Read", webfetch: "WebFetch" }
+const TOOLS = { bash: "Bash", edit: "Edit", write: "Write", multiedit: "MultiEdit", read: "Read", webfetch: "WebFetch",
+  apply_patch: "Edit", glob: "Glob", grep: "Grep", list: "Read" }
 const KEYS = { filePath: "file_path", oldString: "old_string", newString: "new_string", replaceAll: "replace_all" }
 
 function claudeInput(args) {

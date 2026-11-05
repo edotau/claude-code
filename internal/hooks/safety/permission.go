@@ -16,6 +16,7 @@ import (
 // gateTools maps a hook tool name, Claude's or opencode's, to the rule tool Decide judges it as.
 var gateTools = map[string]string{
 	"bash": "Bash", "write": "Edit", "edit": "Edit", "multiedit": "Edit", "read": "Read", "webfetch": "WebFetch",
+	"glob": "Glob", "grep": "Grep",
 }
 
 // PermissionGate blocks a tool call the dispatch's Deny rules (or plan mode) refuse; with no policy in env it passes.
@@ -33,19 +34,23 @@ func PermissionGate(in *core.Input) core.Result {
 	if !ok {
 		return core.Result{}
 	}
-	arg := gateArg(in, tool)
 	judge := p
-	if tool == "Read" || tool == "WebFetch" {
+	if tool != "Bash" && tool != "Edit" {
 		judge = agent.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
 	}
-	d := judge.Decide(tool, arg)
-	if tool == "Edit" {
-		d = min(d, judge.Decide("Write", arg)) // opencode's edit permission covers both, so either rule refuses
+	for _, arg := range gateArgs(in, tool) {
+		d := judge.Decide(tool, arg)
+		if tool == "Edit" {
+			d = min(d, judge.Decide("Write", arg)) // opencode's edit permission covers both, so either rule refuses
+		}
+		if d == agent.Deny {
+			return denyResult(p, agent.Rule{Tool: tool, Arg: arg})
+		}
 	}
-	if d != agent.Deny {
-		return core.Result{}
-	}
-	call := agent.Rule{Tool: tool, Arg: arg}
+	return core.Result{}
+}
+
+func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the dispatch's permission rules deny " +
 		call.String() + "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ") + modeNote(p) +
 		"\nReport it instead of retrying another way."}
@@ -58,14 +63,41 @@ func modeNote(p agent.Permissions) string {
 	return "\n  mode: " + p.Mode
 }
 
-// gateArg is the argument a rule matches for tool: the command, a cwd-relative path, or the URL.
-func gateArg(in *core.Input, tool string) string {
+// gateArgs are the arguments a rule matches for tool: the command, the URL, or the cwd-relative paths — one per file an
+// opencode apply_patch touches, each judged on its own.
+func gateArgs(in *core.Input, tool string) []string {
 	switch tool {
 	case "Bash":
-		return in.ToolCommand()
+		return []string{in.ToolCommand()}
 	case "WebFetch":
-		return in.Nested("tool_input", "url")
+		return []string{in.Nested("tool_input", "url")}
 	}
+	if patch := in.Nested("tool_input", "patchText"); patch != "" {
+		var out []string
+		for _, f := range patchFiles(patch) {
+			out = append(out, relToCWD(in.CWD, f))
+		}
+		return out
+	}
+	return []string{gatePath(in)}
+}
+
+// patchFiles are the files an apply_patch body adds, updates, deletes or moves to.
+func patchFiles(patch string) []string {
+	var out []string
+	for _, line := range strings.Split(patch, "\n") {
+		for _, h := range patchHeaders {
+			if f, ok := strings.CutPrefix(line, h); ok && strings.TrimSpace(f) != "" {
+				out = append(out, strings.TrimSpace(f))
+			}
+		}
+	}
+	return out
+}
+
+var patchHeaders = []string{"*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"}
+
+func gatePath(in *core.Input) string {
 	for _, key := range []string{"file_path", "filePath", "path"} {
 		if p := in.Nested("tool_input", key); p != "" {
 			return relToCWD(in.CWD, p)
