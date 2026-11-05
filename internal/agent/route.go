@@ -66,12 +66,6 @@ func modelRow(model string) (alias, row, exact string) {
 	return alias, canonical, ""
 }
 
-// RouteChain turns a pick at alias (or a Claude row) into dispatches; each dispatch runs that row's cell of its agent.
-func RouteChain(ctx context.Context, want, alias, mode string, explicitModel, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
-	t, row, _ := modelRow(alias)
-	return routeChain(ctx, want, cmp.Or(t, alias), row, "", "", mode, explicitModel, native, o)
-}
-
 // RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
 func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
 	alias, row, exact := modelRow(model)

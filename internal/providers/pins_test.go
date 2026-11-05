@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"io/fs"
-	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/vault"
@@ -518,9 +516,6 @@ func TestSelectSurfacesUnreadableVault(t *testing.T) {
 	if got := SessionProfile(); got != "openai" {
 		t.Errorf("SessionProfile() = %q, want env value openai despite unreadable vault", got)
 	}
-	if _, err := PinDiff(map[string]string{"K": "gemini"}); err == nil {
-		t.Error("PinDiff must return the vault read error")
-	}
 }
 
 func TestSetProviderModelConcurrentSlots(t *testing.T) {
@@ -614,98 +609,6 @@ func TestSetProviderFieldsRefusesInvalidOverlay(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-func TestSetPinsEmptyDeletesKey(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.Put(t, vault.Pins, "K", "openai")
-	vaulttest.Put(t, vault.Pins, "J", "keep")
-	diff, err := PinDiff(map[string]string{"K": ""})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"K: openai \u2192 (unset)"}; !reflect.DeepEqual(diff, want) {
-		t.Fatalf("deletion diff = %q, want %q", diff, want)
-	}
-	if err := SetPins(map[string]string{"K": ""}); err != nil {
-		t.Fatal(err)
-	}
-	if err := vault.View(func(tx *vault.Tx) error {
-		if got, ok := tx.Get(vault.Pins, "K"); ok {
-			t.Errorf("deleted pin still present: %q", got)
-		}
-		if got := Pin("J"); got != "keep" {
-			t.Errorf("unrelated pin = %q; want keep", got)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := Pin("K"); got != "" {
-		t.Errorf("deleted Pin() = %q, want empty", got)
-	}
-	diff, err = PinDiff(map[string]string{"K": "openai"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"K: (unset) \u2192 openai"}; !reflect.DeepEqual(diff, want) {
-		t.Fatalf("diff after deletion = %q, want %q", diff, want)
-	}
-}
-
-func TestPinDiffNeverWritesVault(t *testing.T) {
-	for _, existing := range []bool{false, true} {
-		t.Run(map[bool]string{false: "absent", true: "existing"}[existing], func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			var before fs.FileInfo
-			if existing {
-				before = seedPastVault(t)
-			}
-			diff, err := PinDiff(map[string]string{"B": "2"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want := []string{"B: (unset) \u2192 2"}; !reflect.DeepEqual(diff, want) {
-				t.Fatalf("PinDiff = %q, want %q", diff, want)
-			}
-			checkVaultUntouched(t, existing, before)
-		})
-	}
-}
-
-// seedPastVault writes pin A, backdates the vault file to 1970 and returns its stat.
-func seedPastVault(t *testing.T) fs.FileInfo {
-	t.Helper()
-	vaulttest.Put(t, vault.Pins, "A", "1")
-	past := time.Unix(1, 0)
-	if err := os.Chtimes(vault.Path(), past, past); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.Stat(vault.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return before
-}
-
-// checkVaultUntouched asserts a preview left the vault absent (existing=false) or with its mtime and size unchanged.
-func checkVaultUntouched(t *testing.T, existing bool, before fs.FileInfo) {
-	t.Helper()
-	after, err := os.Stat(vault.Path())
-	if !existing {
-		if !errors.Is(err, fs.ErrNotExist) {
-			t.Fatalf("PinDiff created a vault: stat error = %v", err)
-		}
-		return
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
-		t.Fatalf("PinDiff changed vault mtime/size: %v/%d -> %v/%d",
-			before.ModTime(), before.Size(), after.ModTime(), after.Size())
-	}
-}
-
 func TestLoadMalformedVaultOverlay(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", "{not json")

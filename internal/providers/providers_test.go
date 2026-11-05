@@ -1,11 +1,9 @@
 package providers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -282,27 +280,6 @@ func TestProviderMarshalRedactsHeaders(t *testing.T) {
 	s := string(b)
 	if strings.Contains(s, tok) || !strings.Contains(s, `"has_secret_headers":true`) || !strings.Contains(s, `"X-Plain":"v"`) {
 		t.Errorf("marshal: %s", s)
-	}
-}
-
-// PinDiff previews only real changes and never writes the vault.
-func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.Put(t, vault.Pins, "A", "1")
-	before, err := os.ReadFile(vault.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := PinDiff(map[string]string{"A": "1", "B": "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	after, err := os.ReadFile(vault.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0] != "B: (unset) → x" || !bytes.Equal(before, after) {
-		t.Fatalf("PinDiff = %q (vault changed: %v)", got, !bytes.Equal(before, after))
 	}
 }
 

@@ -49,10 +49,6 @@ func (s *boltVectorStore) Put(write VectorWrite) (stored bool, err error) {
 	return stored, err
 }
 
-func (s *boltVectorStore) Delete(profile string) error {
-	return updateEmbedDB(func(tx *bbolt.Tx) error { return deleteEmbedRecord(tx.Bucket(embedCacheBucket), profile) })
-}
-
 const (
 	embedValidity   = time.Hour        // a minted record is left alone for this long
 	embedOverrideAt = 8 * time.Minute  // --reembed opens in the record's final stretch of the lease
