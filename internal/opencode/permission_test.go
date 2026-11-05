@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -29,11 +30,14 @@ func TestOpencodePermissionGolden(t *testing.T) {
 	}{
 		{"mode auto alone", agent.Permissions{Mode: "auto"}, `{"*":"allow"}`},
 		{"default mode asks unmatched", agent.Permissions{Mode: "default"}, `{"*":"ask"}`},
-		{"bash prefix deny after allow", agent.Permissions{Mode: "auto", Allow: rules(t, "Bash"), Deny: rules(t, "Bash(rm *)", "Bash(git push:*)")},
-			`{"*":"allow","bash":{"*":"allow","rm *":"deny","git push *":"deny"}}`},
+		{"bash allow prefix", agent.Permissions{Mode: "auto", Allow: rules(t, "Bash", "Bash(git log:*)")},
+			`{"*":"allow","bash":{"*":"allow","git log *":"allow"}}`},
 		{"ask stays ask", agent.Permissions{Mode: "auto", Ask: rules(t, "Bash(git log:*)")}, `{"*":"allow","bash":{"git log *":"ask"}}`},
-		{"default mode asks", agent.Permissions{Deny: rules(t, "Bash(rm *)")}, `{"*":"ask","bash":{"rm *":"deny"}}`},
-		{"plan mode denies", agent.Permissions{Mode: "plan"}, `{"*":"deny"}`},
+		{"default mode asks", agent.Permissions{Deny: rules(t, "Read(.env)")}, `{"*":"ask","read":{".env":"deny","*/.env":"deny"}}`},
+		{"plan mode is read-only", agent.Permissions{Mode: "plan"},
+			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow"}`},
+		{"plan mode keeps a read deny and ignores a write allow", agent.Permissions{Mode: "plan", Allow: rules(t, "Edit"), Deny: rules(t, "Read(.env)")},
+			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":{"*":"allow",".env":"deny","*/.env":"deny"},"task":"deny","webfetch":"allow"}`},
 		{"deny outranks allow on the same pattern", agent.Permissions{Allow: rules(t, "Read"), Deny: rules(t, "Read")}, `{"*":"ask","read":"deny"}`},
 		{"read relative deny", agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}, `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`},
 		{"edit and write share edit", agent.Permissions{Allow: rules(t, "Edit", "Write")}, `{"*":"ask","edit":"allow"}`},
@@ -51,14 +55,22 @@ func TestOpencodePermissionGolden(t *testing.T) {
 	}
 }
 
+func TestOpencodePermissionRefusesBashDeny(t *testing.T) {
+	_, err := opencodePermission(agent.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")})
+	var ae *agent.Error
+	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), "Bash(rm *)") {
+		t.Errorf("err = %v, want a fatal agent.Error naming the rule", err)
+	}
+}
+
 func TestOpencodePermissionRefusesWhatItCannotExpress(t *testing.T) {
 	for _, r := range []string{"WebFetch(domain:evil.com)", "NotebookEdit", "Glob(src/**)"} {
 		_, err := opencodePermission(agent.Permissions{Deny: rules(t, r)})
-		if err == nil || !strings.Contains(err.Error(), r) {
+		if err == nil || !strings.Contains(err.Error(), "cannot express deny "+r) {
 			t.Errorf("deny %s: err = %v, want it to name the rule", r, err)
 		}
 	}
-	if _, err := opencodePermission(agent.Permissions{Allow: rules(t, "Read(src/*.go)")}); err == nil {
+	if _, err := opencodePermission(agent.Permissions{Allow: rules(t, "Read(src/*.go)")}); err == nil || !strings.Contains(err.Error(), "cannot express allow") {
 		t.Error("an allow whose * would cross directories must refuse")
 	}
 }
@@ -69,9 +81,9 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0] != "A=1" {
 		t.Errorf("empty policy changed env: %v, %v", got, err)
 	}
-	req := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")}}
+	req := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}}
 	got, err = opencodeApplyPermissions([]string{opencodeConfigEnv + `={"model":"m"}`}, req)
-	perm := `{"*":"allow","bash":{"rm *":"deny"}}`
+	perm := `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`
 	if err != nil || got[0] != opencodeConfigEnv+`={"model":"m","permission":`+perm+`}` || got[1] != opencodePermissionEnv+"="+perm {
 		t.Errorf("got %v, %v", got, err)
 	}
@@ -82,7 +94,7 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 }
 
 func TestOpencodePolicyArgv(t *testing.T) {
-	pol := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
+	pol := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Read(.env)")}}
 	if got := opencodePolicyArgv([]string{"run"}, pol); !slices.Equal(got, []string{"run", "--auto"}) {
 		t.Fatalf("policy argv = %v, want --auto appended", got)
 	}
