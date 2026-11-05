@@ -7,6 +7,11 @@
     "ENABLE_PROMPT_CACHING_1H": "1",
     "ENABLE_TOOL_SEARCH": "1"
   },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
       "Agent",
