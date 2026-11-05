@@ -50,7 +50,7 @@ func TestUpstreamUserAgentOnEveryRoute(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.name+"/"+agent, func(t *testing.T) {
 				before := len(up.got())
-				hdr := map[string]string{"User-Agent": "client-ua/9", proxy.SessionHeader: "sess-leak"}
+				hdr := map[string]string{"User-Agent": "client-ua/9"}
 				if agent != "" {
 					hdr[proxy.AgentHeader] = agent
 				}
@@ -160,7 +160,7 @@ func TestParseHeadersWarnsOnce(t *testing.T) {
 func checkAttribution(t *testing.T, h http.Header, agent string) {
 	t.Helper()
 	checkUpstreamUserAgent(t, h.Values("User-Agent"), agent)
-	for _, k := range []string{proxy.AgentHeader, proxy.SessionHeader, proxy.ClientHeader} {
+	for _, k := range []string{proxy.AgentHeader, proxy.ClientHeader} {
 		if v := h.Get(k); v != "" {
 			t.Errorf("%s reached upstream: %q", k, v)
 		}

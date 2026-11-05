@@ -42,21 +42,6 @@ func TestEmbeddedDefaultsValid(t *testing.T) {
 	}
 }
 
-// the github profile's embedded default pins OpencodeVariant to "medium", the opencode model-variant suffix.
-func TestEmbeddedDefaultsGithubCopilotOpencodeVariant(t *testing.T) {
-	reg, err := Parse(defaultsJSON, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, ok := reg.Providers["personal"]
-	if !ok {
-		t.Fatal("personal (github) profile missing from embedded defaults")
-	}
-	if p.OpencodeVariant != "medium" {
-		t.Errorf("OpencodeVariant = %q, want %q", p.OpencodeVariant, "medium")
-	}
-}
-
 func TestOverlayAndRoutes(t *testing.T) {
 	reg := load(t)
 	if _, ok := reg.Providers["nvidia"]; ok {
@@ -462,6 +447,24 @@ func TestIsQuotaCoversEveryOldMarker(t *testing.T) {
 	for _, text := range []string{"429 Too Many Requests, retry in 2s", "rate limit exceeded", "line 4021"} {
 		if IsQuota(text) {
 			t.Errorf("IsQuota(%q) = true, want false (a plain rate limit, not a quota exhaustion)", text)
+		}
+	}
+}
+
+// TestBare402IsNotQuota pins that a stray 402 (port, byte count) is not account exhaustion, and does not veto
+// ModelDenied, while a status-context 402 still does.
+func TestBare402IsNotQuota(t *testing.T) {
+	for _, text := range []string{"read tcp 10.0.0.1:402: connection reset", "stream ended after 402 bytes"} {
+		if IsQuota(text) {
+			t.Errorf("IsQuota(%q) = true, want false", text)
+		}
+		if !ModelDenied(text + " limit: 0") {
+			t.Errorf("ModelDenied(%q) = false, want true (a bare 402 must not veto)", text+" limit: 0")
+		}
+	}
+	for _, text := range []string{"status 402", "status=402", "code: 402"} {
+		if !IsQuota(text) {
+			t.Errorf("IsQuota(%q) = false, want true", text)
 		}
 	}
 }

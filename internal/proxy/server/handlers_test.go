@@ -54,8 +54,8 @@ func TestHeadTailBufferBoundsMemoryKeepsBothEnds(t *testing.T) {
 	if got := len(b.Bytes()); got > 2*tailCap {
 		t.Errorf("retained %d bytes, want <= %d", got, 2*tailCap)
 	}
-	if u := scrapeAnthropicUsage(b.Bytes()); u.input != 7 || u.output != 10 {
-		t.Errorf("usage = %+v, want input 7 output 10 from head and tail", u)
+	if u := scrapeAnthropicUsage(b.Bytes()); u.input != 7 || u.output != 9 {
+		t.Errorf("usage = %+v, want input 7 output 9 (max, cumulative) from head and tail", u)
 	}
 }
 

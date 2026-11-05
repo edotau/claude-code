@@ -68,8 +68,8 @@ func Release() {
 	}
 }
 
-// ClaimRestart takes the watchdog restart slot; false while held, or when another restart was claimed within restartRetry.
-func ClaimRestart(now time.Time) bool {
+// claimRestart takes the watchdog restart slot; false while held, or when another restart was claimed within restartRetry.
+func claimRestart(now time.Time) bool {
 	path := filepath.Join(paths.StateDir(), "proxy.restart-claim")
 	claimed, ran := false, false
 	err := paths.WithFileLock(path, func() error { // check-and-stamp under one lock: concurrent refreshes claim once
@@ -82,7 +82,7 @@ func ClaimRestart(now time.Time) bool {
 	return claimed
 }
 
-// claimRestartLocked is ClaimRestart's check-and-stamp; the caller holds the claim lock when it can.
+// claimRestartLocked is claimRestart's check-and-stamp; the caller holds the claim lock when it can.
 func claimRestartLocked(path string, now time.Time) bool {
 	if _, err := os.Stat(heldPath()); err == nil {
 		return false
@@ -98,7 +98,7 @@ func claimRestartLocked(path string, now time.Time) bool {
 
 // SpawnStart starts `gateway proxy --start` detached; false when claimed within 15s, or the binary can't be resolved.
 func SpawnStart() bool {
-	if !ClaimRestart(time.Now()) {
+	if !claimRestart(time.Now()) {
 		return false
 	}
 	exe, err := executable()

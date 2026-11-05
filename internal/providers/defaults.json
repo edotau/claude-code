@@ -80,7 +80,6 @@
           "haiku": "auto"
         },
         "opencode_fallback": "claude-opus-5.5",
-        "opencode_variant": "medium",
         "opencodeID": "github-copilot"
       }
     },

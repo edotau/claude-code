@@ -61,7 +61,7 @@ func scrapeLastUsage(body []byte, inKey, outKey, detailsKey string) ledgerUsage 
 	return u
 }
 
-// scrapeAnthropicUsage sums every usage object: a stream splits input (message_start) from output (message_delta).
+// scrapeAnthropicUsage takes each field's max across usage objects: stream usage is cumulative, so summing double-counts.
 func scrapeAnthropicUsage(body []byte) ledgerUsage {
 	var u ledgerUsage
 	for _, m := range usageBlockRE.FindAll(body, -1) {
@@ -71,9 +71,9 @@ func scrapeAnthropicUsage(body []byte) ledgerUsage {
 			CacheRead int `json:"cache_read_input_tokens"`
 		}
 		if json.Unmarshal(wrapUsage(m), &raw) == nil {
-			u.input += raw.Input
-			u.output += raw.Output
-			u.cacheRead += raw.CacheRead
+			u.input = max(u.input, raw.Input)
+			u.output = max(u.output, raw.Output)
+			u.cacheRead = max(u.cacheRead, raw.CacheRead)
 		}
 	}
 	return u
@@ -87,10 +87,7 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 	if u.input == 0 && u.output == 0 && u.cacheRead == 0 {
 		return
 	}
-	session := in.Header.Get(proxy.SessionHeader)
-	if session == "" {
-		session = in.Header.Get("X-Claude-Code-Session-Id")
-	}
+	session := in.Header.Get("X-Claude-Code-Session-Id")
 	tokenledger.Append(tokenledger.Entry{
 		Ts: time.Now(), Profile: p.Name, Provider: p.Provider, Model: model,
 		Agent: in.Header.Get(proxy.AgentHeader), Session: session,

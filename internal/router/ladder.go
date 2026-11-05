@@ -32,8 +32,8 @@ func firstPartyAccount(account string) bool {
 	return (strings.HasPrefix(account, "github·") && account != CopilotUnpinned) || slices.Contains(firstPartyAccounts, account)
 }
 
-// LadderName is first-party only when HARNESS_ROUTE (`--route` sets it) asks; else default (agent pins decide).
-func LadderName() string {
+// ladderName is first-party only when HARNESS_ROUTE (`--route` sets it) asks; else default (agent pins decide).
+func ladderName() string {
 	if strings.TrimSpace(os.Getenv(EnvRoute)) == routeFirstParty {
 		return providers.LadderFirstParty
 	}
@@ -50,8 +50,8 @@ type pickLadder struct {
 
 // ladderFor is the table's ladder for the resolved name; an unset ladder keeps today's score-only order.
 func (t *RouteTable) ladderFor() pickLadder {
-	name := LadderName()
-	l := pickLadder{rungs: t.Ladders[name], firstParty: name == providers.LadderFirstParty && len(t.Ladders[name]) > 0}
+	name := ladderName()
+	l := pickLadder{rungs: t.Ladders[name], firstParty: name == providers.LadderFirstParty}
 	l.claudeRungs = slices.ContainsFunc(l.rungs, func(g providers.Rung) bool { return g.Agent == "claude" })
 	l.anywhere = t.ClaudeAnywhere && !l.claudeRungs && len(l.rungs) > 0
 	return l
@@ -143,7 +143,7 @@ func skipLabel(c Candidate) string {
 	return c.Agent + "·" + c.Account
 }
 
-// accountProvider is the provider half of a "<provider>·<profile>" account key.
+// accountProvider is the part before the first "·": the provider of an account key or the agent of a Skip label.
 func accountProvider(account string) string {
 	p, _, _ := strings.Cut(account, "·")
 	return p
