@@ -25,6 +25,24 @@ every module on the event, the gate included.
 - **Agents:** codex and copilot run only `safety-scan`, `docs-placement`, `docs-plan-gate`, `paths-resolve` and
   `memory-recall`, each as `hook <Event> --<module>`. Neither has an ask decision, so a safety ask blocks there.
 
+## Applicability by agent
+
+`settings.SpecsFor(agent, surface)` is the one answer to "which hooks run where"; surfaces: `native` (the agent's
+own hook file: Claude settings, `~/.codex`, `~/.copilot/hooks`), `sdk` (copilot `ask` callbacks), `hosted` (the
+harness runs the module around a headless `opencode run`), `plugin` (opencode in-process plugin).
+
+| Agent · surface | Modules | Mode |
+| --- | --- | --- |
+| claude · native | every group except `codex` | **block** (`safety` also asks); post/prompt hooks inject context |
+| codex · native | `safety-scan`, `docs-*` gates, `paths-resolve`, `memory-recall`, `codex-*` | **block** (an ask blocks) |
+| copilot · native / sdk | the same five (no `codex-*`) | **block** (an ask blocks) |
+| opencode · hosted | `Hosted` specs (gates, docs, memory, format, review, worktree) | PreToolUse **detect-only** (logged, cannot stop the call); the rest **advisory** |
+| opencode · plugin | `safety-scan`, `docs-placement`, `docs-plan-gate`, `worktree-claim-check` | **block** (throws in `tool.execute.before`); pending merge, see `agent.md` |
+
+The `permission-gate` module (judges a call with `Permissions.Decide`, covers `bash -c`) is on the
+`worktree-permission-gate` branch and not in `Registry` on main. Skills, instruction sources and the opencode
+Bash-deny path: `agent.md` → Skills and instructions parity.
+
 ## Event → hook matrix
 
 | Hook | Event | What it does |
