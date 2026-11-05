@@ -1,7 +1,7 @@
 ---
 name: claude
 description: |
-  Full-lifecycle in-context coding agent (@agent-claude, `subagent_type: claude`, `/claude`, headless `claude-code ask --agent claude`); does its own work, not the fan-out leaf (that is code-worker). Use it to explore, design, implement, simplify (mandatory gate) and self-review before handoff: "how should we build this" through "ready to verify", or "review my diff" (`review` default, `simplify`, or a build task). Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution). Headless it runs `--tools`/`--read-only`/`--no-tools`, `--live` + `agents send`, `--background`, `--session`, `--output-schema`, `--system-prompt`, `--as user|sp`, and loads your hooks, CLAUDE.md, rules and skills.
+  Full-lifecycle in-context coding agent (@agent-claude, `subagent_type: claude`, headless `claude-code ask --agent claude`); does its own work, not the fan-out leaf (that is code-worker). Use it to explore, design, implement, simplify and self-review before handoff: "how should we build this" through "ready to verify", or "review my diff". Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution). Headless: `--tools`/`--read-only`/`--no-tools`, `--live` + `agents send`, `--background`, `--session`, `--output-schema`, `--system-prompt`, `--as user|sp`; loads your hooks, CLAUDE.md, rules and skills.
 
   <example>
   Context: Cross-module change with real design choices to make.
@@ -30,8 +30,8 @@ merge-base HEAD main`. With `--profile`/`--model`, run the work as `claude-code 
 
 ## Usage
 
-**In a session** — `@agent-claude <request>` or `Agent` with `subagent_type: claude`; `/claude [review | simplify |
-<build task>] [range | path]` is the launcher (`commands/claude.md`), blank = `review` of the current diff.
+**In a session** — `@agent-claude <request>` or `Agent` with `subagent_type: claude`; a request of `review`, `simplify`
+or a build task, over an optional range or path (blank = `review` of the current diff).
 
 **Headless** — `claude-code ask --agent claude` (the default `--agent`); read-only unless `--tools`:
 
@@ -59,7 +59,7 @@ merge-base HEAD main`. With `--profile`/`--model`, run the work as `claude-code 
 **Workflows**
 
 1. Feature: `@agent-claude "<task>"` → Design (or skip) → Implement → Simplify → Review → report.
-2. Diff review: `/claude review [range]` → `SHIP | FIX REQUIRED | BLOCK`.
+2. Diff review: `@agent-claude review [range]` → `SHIP | FIX REQUIRED | BLOCK`.
 3. Scripted leg: `ask --agent claude --tools --format json --output-schema <schema> "<task>"` → read `.answer`.
 4. Long edit: `ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` → `agents tail -f <id>` →
    `agents result <id>` → `git diff --stat`.

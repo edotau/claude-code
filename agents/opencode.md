@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Model-discovery coding agent on the OpenCode CLI, driven through `claude-code opencode <verb>` or headless `claude-code ask --agent opencode`: it reaches the widest model pool (its own catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model (`--model <m>`, `catalog list|sync`, `/coworkers model=byok`). It also implements, edits and fixes code (`ask --tools [--background]`, then `status`/`tail -f`/`result`), reviews a diff (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`), continues a session (`resume <id>`), scans code + web (`explore`), refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP). It loads the harness rules, skills and guard plugin: `--deny` holds.
+  Model-discovery coding agent on the OpenCode CLI, driven through `claude-code opencode <verb>` or headless `claude-code ask --agent opencode`: it reaches the widest model pool (its own catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model (`--model <m>`, `catalog list|sync`, `/coworkers model=byok`). It also implements and fixes code (`ask --tools [--background]`, then `status`/`tail -f`/`result`), reviews a diff (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`), continues a session (`resume <id>`), scans code + web (`explore`), refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP). It loads the harness rules, skills and guard plugin: `--deny` holds.
 
   <example>
   Context: User wants a small feature in a named package.
@@ -104,7 +104,7 @@ Typical pool (~50 ids; the live list is `claude-code opencode catalog list`, ids
 | Family | Usual ids | Good for |
 | --- | --- | --- |
 | Claude | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, older 4.x/5 | default code work |
-| GPT (Responses) | `gpt-6-1-sol`, `gpt-6-astra` (~10x cost), `gpt-5-5`, `gpt-5-5-pro`, `gpt-5-4-mini` | review, second opinion |
+| GPT | Responses: `gpt-6-1-sol`, `gpt-6-astra` (~10x cost), `gpt-5-5`, `gpt-5-5-pro`; chat: `gpt-5-4-mini`; chat, no tool calls: `gpt-6-sol`, `gpt-6-1-terra`, `gpt-5-6-sol` | review, second opinion |
 | Gemini / Gemma | `gemini-3-8-flash`, `gemini-3-7-flash`, `gemini-3-5-flash`, `gemma-3-12b` | fast sweeps |
 | Open-weight | `kimi-k3`, `deepseek-v4-pro-0813`, `deepseek-v4-1-flash`, `glm-5-3`, `glm-5-3-flash`, `qwen35-122b-a10b` | cheap drafts, compare |
 | Other | `grok-4-7`, `llama-4-maverick`, `gpt-oss-120b`, `meta-llama-3-3-70b-instruct` | compare runs |

@@ -22,20 +22,22 @@ every module on the event, the gate included.
   block, and it cannot be switched off.
 - **Switches:** any other group turns off with `"<group>": false` under `harnessHooks` in the vault overlay
   (`claude-code vault edit`); an unknown group or a gate group is rejected.
-- **Agents:** codex and copilot run only `safety-scan`, `docs-placement`, `docs-plan-gate`, `paths-resolve` and
-  `memory-recall`, each as `hook <Event> --<module>`. Neither has an ask decision, so a safety ask blocks there.
+- **Agents:** codex, copilot and agy run only the modules in the table below, each as `hook <Event> --<module>`.
+  None has an ask decision, so an ask blocks there.
 
 ## Applicability by agent
 
 `settings.SpecsFor(agent, surface)` is the one answer to "which hooks run where"; surfaces: `native` (the agent's
-own hook file: Claude settings, `~/.codex`, `~/.copilot/hooks`), `sdk` (copilot `ask` callbacks), `hosted` (the
+own hook file: Claude settings, `~/.codex/hooks.json`, `~/.copilot/hooks`,
+`~/.gemini/config/hooks.json`), `sdk` (copilot `ask` callbacks), `hosted` (the
 harness runs the module around a headless `opencode run`), `plugin` (opencode in-process plugin).
 
 | Agent · surface | Modules | Mode |
 | --- | --- | --- |
 | claude · native | every group except `codex` | **block** (`safety` also asks); post/prompt hooks inject context |
-| codex · native | `safety-scan`, `docs-*` gates, `paths-resolve`, `memory-recall`, `codex-*` | **block** (an ask blocks) |
-| copilot · native / sdk | the same five (no `codex-*`) | **block** (an ask blocks) |
+| codex · native | `safety-scan`, `permission-gate`, `docs-*` gates, `paths-resolve`, `memory-recall`, `codex-*` | **block** (an ask blocks) |
+| copilot · native / sdk | `safety-scan`, `docs-*` gates, `paths-resolve`, `memory-recall`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block** (an ask blocks); the rest advisory |
+| gemini (agy) · native | `permission-gate` only | **block** |
 | opencode · hosted | `Hosted` specs (gates, docs, memory, format, review, worktree) | PreToolUse **detect-only** (logged, cannot stop the call); the rest **advisory** |
 | opencode · plugin | `safety-scan`, `docs-placement`, `docs-plan-gate`, `worktree-claim-check` | **block** (throws in `tool.execute.before`, headless and TUI; the host then skips these) |
 
