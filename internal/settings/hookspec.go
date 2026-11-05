@@ -128,6 +128,8 @@ var Registry = []Group{
 		{Name: "dispatch-workflow", Event: EventPostToolUse, Matcher: "Workflow", Budget: 5 * sec},
 		// Retires the stopping subagent's slot by agent id.
 		{Name: "dispatch-stop", Event: EventSubagentStop, Budget: 15 * sec},
+		// A background leaf ends at SubagentHandback, before SubagentStop: the same stop gates run there.
+		{Name: "dispatch-handback", Event: EventPreToolUse, Matcher: "SubagentHandback", Budget: 5 * sec},
 	}},
 	{Name: "paths", Events: []EventSpec{
 		// A pasted or dragged Windows path (C:\…) resolves to its /mnt form for the model; a no-op off WSL.

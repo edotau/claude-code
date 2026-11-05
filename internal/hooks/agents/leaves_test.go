@@ -720,3 +720,29 @@ func TestCoworkerBriefContentRepresentations(t *testing.T) {
 		})
 	}
 }
+
+// A coworker hand-back with no ran-on line is denied once; after a denial or a delivered hand-back the gates pass.
+func TestHandbackGatesCoworkerOnce(t *testing.T) {
+	src := coworkerTx(t, "Objective: x\nProfile: dev\n", "ls output")
+	parent := filepath.Join(t.TempDir(), "session.jsonl")
+	sub := inflight.SubagentDir(parent)
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"agent-a1.jsonl", "agent-a1.meta.json"} {
+		b, _ := os.ReadFile(filepath.Join(filepath.Dir(src.AgentTranscriptPath), name))
+		if err := os.WriteFile(filepath.Join(sub, name), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	payload := `{"hook_event_name":"PreToolUse","tool_name":"SubagentHandback","agent_id":"a1","transcript_path":"` + parent + `"}`
+	if r := Handback(core.ParseInput(strings.NewReader(payload))); r.Decision != core.Block || !strings.Contains(r.Reason, coworkerGateMark) {
+		t.Fatalf("first hand-back must be denied with the gate reason, got %+v", r)
+	}
+	for _, prior := range []string{coworkerGateMark + " ...", `{"success":true,"message":"` + handedBackMark + `."}`} {
+		in := coworkerTx(t, "Objective: x\nProfile: dev\n", prior)
+		if r, blocked := leafStopBlock(in, "a1"); blocked {
+			t.Errorf("after %q the gate must pass, got %+v", prior, r)
+		}
+	}
+}
