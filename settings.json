@@ -34,13 +34,6 @@
     "defaultMode": "auto"
   },
   "model": "opus",
-  "statusLine": {
-    "type": "command",
-    "command": "$HOME/.claude/bin/claude-code theme statusline",
-    "padding": 0
-  },
-  "outputStyle": "Concise",
-  "theme": "auto",
   "hooks": {
     "PostToolUse": [
       {
@@ -178,5 +171,16 @@
         ]
       }
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
+    "padding": 0
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "outputStyle": "Concise",
+  "theme": "auto",
+  "tui": "fullscreen"
 }
