@@ -48,8 +48,6 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 		switch c.kind {
 		case "sep", "empty": // empty ─ cells take the separator dim: the trough tone all but vanished on them
 			out.WriteString(ansi.Paint(mode, dim, string(c.ch), false))
-		case "nl":
-			out.WriteByte('\n')
 		case "dot":
 			out.WriteString(ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true))
 		default:
@@ -103,15 +101,6 @@ func (b *cellBuf) pushContext(v values) {
 	}
 }
 
-// pushBreak starts the context block: a line break when the line wraps, else the major separator.
-func (b *cellBuf) pushBreak(wrap bool, sepMajor string) {
-	if wrap {
-		b.cells = append(b.cells, cell{'\n', "nl"})
-		return
-	}
-	b.pushSep(sepMajor)
-}
-
 func gradientCells(v values, cfg Config) []cell {
 	var b cellBuf
 	if cfg.seg("path", true) {
@@ -133,7 +122,7 @@ func (b *cellBuf) pushMetrics(v values, cfg Config) {
 			continue
 		}
 		if key == "context" {
-			b.pushBreak(v.wrap, sepMajor)
+			b.pushSep(sepMajor)
 			b.pushContext(v)
 			emitted = true
 			continue
