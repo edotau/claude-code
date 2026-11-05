@@ -56,6 +56,11 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	if err != nil {
 		return res, err
 	}
+	argv, env, removePolicy, err := codexApplyPermissions(req, argv, env)
+	if err != nil {
+		return res, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
+	}
+	defer removePolicy()
 	extra := codexInstructionArgs(req)
 	if req.OutputSchema != "" {
 		file, err := codexSchemaFile(req.OutputSchema)
