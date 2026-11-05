@@ -17,16 +17,16 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// qualityRunners are the quality-area Native entries and the quality runner each must be.
+// qualityRunners are the quality-area native entries and the quality runner each must be.
 var qualityRunners = map[string]core.Runner{
 	"review-simplicity": quality.ReviewSimplicity, "format-stop": quality.StopFormat,
 }
 
-// Every quality-area Native entry is the intended quality runner.
+// Every quality-area native entry is the intended quality runner.
 func TestNativeQualityEntriesAreQualityRunners(t *testing.T) {
 	for name, want := range qualityRunners {
-		if reflect.ValueOf(Native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
-			t.Errorf("%s: Native entry is not the quality runner", name)
+		if reflect.ValueOf(native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("%s: native entry is not the quality runner", name)
 		}
 	}
 }
@@ -52,7 +52,7 @@ func TestReviewSimplicityModuleEmitsPostToolUse(t *testing.T) {
 // A Workflow call through the dispatch-effort pin step is linted by quality.WorkflowResult: an unpinned leaf gets a model.
 func TestDispatchEffortLintsWorkflowViaQuality(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	res := Native["dispatch-effort"](core.ParseInput(strings.NewReader(
+	res := native["dispatch-effort"](core.ParseInput(strings.NewReader(
 		`{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`)))
 	if got, _ := res.UpdatedInput["script"].(string); !strings.Contains(got, "model: 'sonnet'") {
 		t.Errorf("updatedInput.script = %q, want model: 'sonnet' filled", got)
@@ -107,7 +107,7 @@ func newStopFormatFixture(t *testing.T) stopFormatFixture {
 	stop := func(id string, active bool) (int, string) {
 		p := fmt.Sprintf(`{"session_id":%q,"cwd":%q,"transcript_path":%q,"stop_hook_active":%t}`, id, repo, tr, active)
 		var out, errb bytes.Buffer
-		code := RunEvent("Stop", false, strings.NewReader(p), &out, &errb)
+		code := runEvent("Stop", false, strings.NewReader(p), &out, &errb)
 		return code, errb.String() + out.String()
 	}
 	return stopFormatFixture{mine: mine, ugly: ugly, stop: stop, reset: reset}

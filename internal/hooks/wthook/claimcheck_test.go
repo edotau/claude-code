@@ -288,6 +288,9 @@ func TestStageOperandsAttachedValueTakesNoNextWord(t *testing.T) {
 		{[]string{"-aum", "x"}, []string{"x"}},
 		{[]string{"-am", "msg", "y"}, []string{"y"}},
 		{[]string{"-m", "msg", "y"}, []string{"y"}},
+		{[]string{"--trailer", "Reviewed-by: x"}, nil},
+		{[]string{"--cleanup", "strip", "y"}, []string{"y"}},
+		{[]string{"--pathspec-from-file", "F", "y"}, []string{"y"}},
 	}
 	for _, c := range cases {
 		if ops, _ := stageOperands("commit", c.args); !slices.Equal(ops, c.ops) {

@@ -87,14 +87,25 @@ func writeVerifiedPlan(dest string, plan []byte, stderr io.Writer) bool {
 	}
 	if err := plans.WriteFile(dest, plan); err != nil {
 		fmt.Fprintf(stderr, "save-plan: %v\n", err)
+		dropEmptyClaim(dest)
 		return false
 	}
 	// Verify the dated file actually holds the plan before touching the draft it was mirrored from.
 	if got, err := os.ReadFile(dest); err != nil || !bytes.Equal(got, plan) {
 		fmt.Fprintf(stderr, "save-plan: verification failed for %s\n", dest)
+		dropEmptyClaim(dest)
 		return false
 	}
 	return true
+}
+
+// dropEmptyClaim removes the 0-byte placeholder planDestination claimed, so a retry reuses the name.
+func dropEmptyClaim(dest string) {
+	if fi, err := os.Stat(dest); err == nil && fi.Size() == 0 {
+		if err := os.Remove(dest); err != nil {
+			fmt.Fprintf(os.Stderr, "docs-plan: drop empty claim %s: %v\n", dest, err)
+		}
+	}
 }
 
 // retireDraft removes the mirrored draft and its .dest record once the approved plan is filed. A draft edited after
@@ -365,10 +376,12 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
+		dropEmptyClaim(dest)
 		return core.ExitProceed
 	}
 	if err := plans.WriteFile(dest, content); err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
+		dropEmptyClaim(dest)
 	}
 	return core.ExitProceed
 }

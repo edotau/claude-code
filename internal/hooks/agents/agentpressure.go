@@ -20,8 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/usage"
 )
 
-// OffloadPct is the window share at which a code-worker dispatch moves to a coworker leaf.
-const OffloadPct = 97.0
+// offloadPct is the window share at which a code-worker dispatch moves to a coworker leaf.
+const offloadPct = 97.0
 
 // envTestPct forces a reading for live checks; the subagents opt-out is providers.RouteSubagentsOn.
 const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
@@ -90,7 +90,7 @@ func applyPressure(in *core.Input, updated map[string]any, promptField, base str
 		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, alias)
 	}
 	kind := in.Nested("tool_input", "subagent_type")
-	if pct >= OffloadPct && offloadTypes[kind] && agent != "" {
+	if pct >= offloadPct && offloadTypes[kind] && agent != "" {
 		offloadToCoworker(updated, promptField, window, hint, pct)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",
 				window, pct, kind, hint),

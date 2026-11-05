@@ -21,37 +21,36 @@ var schemaJSON []byte
 type Kind int
 
 const (
-	KindBool Kind = iota
-	KindEnum
-	KindInt
-	KindString
-	KindObject
-	KindNumber
-	KindArray
+	kindBool Kind = iota
+	kindEnum
+	kindInt
+	kindString
+	kindObject
+	kindNumber
+	kindArray
 )
 
 // Key is one setting (or env variable) the schemastore schema documents.
 type Key struct {
-	Name        string
-	Kind        Kind
-	Enum        []string
-	Min         *float64
-	Max         *float64
-	ExMin       *float64 // exclusive bounds
-	ExMax       *float64
-	Description string
-	Env         bool
-	pattern     *regexp.Regexp // alternate accepted string form (theme "custom:<slug>")
-	patternErr  error          // a pattern that failed to compile: Validate refuses rather than skip the check
-	alts        []Key          // union branches (anyOf, oneOf, a type list): valid when any accepts
-	items       *Key           // array element schema
-	props       map[string]Key // object property schemas
-	required    []string
-	constVal    json.RawMessage
-	noExtra     bool // additionalProperties: false
-	addl        *Key // additionalProperties schema applied to unlisted properties
-	ref         bool // uses $ref, which is not resolved: the picker skips it
-	untyped     bool // no type, enum or not of its own (a bare $ref or {}): any value passes
+	Name       string
+	Kind       Kind
+	Enum       []string
+	Min        *float64
+	Max        *float64
+	ExMin      *float64 // exclusive bounds
+	ExMax      *float64
+	Env        bool
+	pattern    *regexp.Regexp // alternate accepted string form (theme "custom:<slug>")
+	patternErr error          // a pattern that failed to compile: Validate refuses rather than skip the check
+	alts       []Key          // union branches (anyOf, oneOf, a type list): valid when any accepts
+	items      *Key           // array element schema
+	props      map[string]Key // object property schemas
+	required   []string
+	constVal   json.RawMessage
+	noExtra    bool // additionalProperties: false
+	addl       *Key // additionalProperties schema applied to unlisted properties
+	ref        bool // uses $ref, which is not resolved: childRef and validateProperty read it
+	untyped    bool // no type, enum or not of its own (a bare $ref or {}): any value passes
 }
 
 // schemaType is a JSON-Schema "type": one name or a list, kept whole so unions validate every branch.
@@ -104,23 +103,22 @@ func (e *schemaEnum) UnmarshalJSON(b []byte) error {
 }
 
 type schemaNode struct {
-	Type        schemaType            `json:"type"`
-	Enum        schemaEnum            `json:"enum"`
-	Minimum     *float64              `json:"minimum"`
-	Maximum     *float64              `json:"maximum"`
-	ExMinimum   *float64              `json:"exclusiveMinimum"`
-	ExMaximum   *float64              `json:"exclusiveMaximum"`
-	Pattern     string                `json:"pattern"`
-	Description string                `json:"description"`
-	AnyOf       []schemaNode          `json:"anyOf"`
-	OneOf       []schemaNode          `json:"oneOf"`
-	Items       *schemaNode           `json:"items"`
-	Properties  map[string]schemaNode `json:"properties"`
-	Required    []string              `json:"required"`
-	Const       json.RawMessage       `json:"const"`
-	AddlProps   json.RawMessage       `json:"additionalProperties"`
-	Ref         string                `json:"$ref"`
-	Not         json.RawMessage       `json:"not"`
+	Type       schemaType            `json:"type"`
+	Enum       schemaEnum            `json:"enum"`
+	Minimum    *float64              `json:"minimum"`
+	Maximum    *float64              `json:"maximum"`
+	ExMinimum  *float64              `json:"exclusiveMinimum"`
+	ExMaximum  *float64              `json:"exclusiveMaximum"`
+	Pattern    string                `json:"pattern"`
+	AnyOf      []schemaNode          `json:"anyOf"`
+	OneOf      []schemaNode          `json:"oneOf"`
+	Items      *schemaNode           `json:"items"`
+	Properties map[string]schemaNode `json:"properties"`
+	Required   []string              `json:"required"`
+	Const      json.RawMessage       `json:"const"`
+	AddlProps  json.RawMessage       `json:"additionalProperties"`
+	Ref        string                `json:"$ref"`
+	Not        json.RawMessage       `json:"not"`
 }
 
 // flatten folds an anyOf node's branches into one node: enum and type from the first typed branch, pattern from any.
@@ -155,7 +153,7 @@ func (n schemaNode) key(name string, env bool) Key {
 	branches := n.unionBranches()
 	n = n.flatten()
 	k := Key{Name: name, Enum: slices.Clone(n.Enum), Min: n.Minimum, Max: n.Maximum, ExMin: n.ExMinimum,
-		ExMax: n.ExMaximum, Description: n.Description, Env: env}
+		ExMax: n.ExMaximum, Env: env}
 	if len(branches) > 1 {
 		for _, b := range branches {
 			k.alts = append(k.alts, b.key(name, env))
@@ -212,21 +210,21 @@ func (k Key) childRef() bool {
 // kind maps the node's enum/type to a Kind; anything else is a string.
 func (n schemaNode) kind() Kind {
 	if len(n.Enum) > 0 {
-		return KindEnum
+		return kindEnum
 	}
 	switch n.Type.first() {
 	case "boolean":
-		return KindBool
+		return kindBool
 	case "integer":
-		return KindInt
+		return kindInt
 	case "number":
-		return KindNumber
+		return kindNumber
 	case "object":
-		return KindObject
+		return kindObject
 	case "array":
-		return KindArray
+		return kindArray
 	}
-	return KindString
+	return kindString
 }
 
 var schemaIndex = sync.OnceValue(func() map[string]Key {
@@ -258,13 +256,13 @@ var schemaIndex = sync.OnceValue(func() map[string]Key {
 	return m
 })
 
-// SchemaKey returns the schema entry for a settings key or an env variable name.
-func SchemaKey(name string) (Key, bool) {
+// schemaKey returns the schema entry for a settings key or an env variable name.
+func schemaKey(name string) (Key, bool) {
 	k, ok := schemaIndex()[name]
 	return k, ok
 }
 
-// Validate checks raw against the key's kind, enum and minimum.
+// Validate checks raw against the key's schema: kind, enum, const, unions, pattern, bounds, required, extra props.
 func (k Key) Validate(raw json.RawMessage) error {
 	if k.patternErr != nil {
 		return fmt.Errorf("%s: schema pattern does not compile: %w", k.Name, k.patternErr)
@@ -300,20 +298,20 @@ func (k Key) validateAlternatives(raw json.RawMessage) error {
 
 func (k Key) validateKind(raw json.RawMessage) error {
 	switch k.Kind {
-	case KindBool:
+	case kindBool:
 		var b bool
 		if json.Unmarshal(raw, &b) != nil {
 			return fmt.Errorf("%s: want a boolean", k.Name)
 		}
-	case KindInt, KindNumber:
+	case kindInt, kindNumber:
 		return k.validateNumber(raw)
-	case KindEnum:
+	case kindEnum:
 		return k.validateEnum(raw)
-	case KindString:
+	case kindString:
 		return k.validateString(raw)
-	case KindObject:
+	case kindObject:
 		return k.validateObject(raw)
-	case KindArray:
+	case kindArray:
 		return k.validateArray(raw)
 	default:
 		return fmt.Errorf("%s: unknown kind", k.Name)
@@ -326,7 +324,7 @@ func (k Key) validateNumber(raw json.RawMessage) error {
 	if json.Unmarshal(raw, &n) != nil {
 		return fmt.Errorf("%s: want a number", k.Name)
 	}
-	if k.Kind == KindInt && n != float64(int64(n)) {
+	if k.Kind == kindInt && n != float64(int64(n)) {
 		return fmt.Errorf("%s: want an integer, got %v", k.Name, n)
 	}
 	return k.checkRange(n)

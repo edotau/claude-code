@@ -88,8 +88,8 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	run := func(cmd string) map[string]json.RawMessage {
 		t.Helper()
 		var out, errb strings.Builder
-		if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
-			t.Fatalf("%q: RunEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
+		if rc := runEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
+			t.Fatalf("%q: runEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
 		}
 		var doc map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &doc); err != nil {
@@ -131,8 +131,8 @@ func TestRtkGroupToggle(t *testing.T) {
 		t.Fatalf("SaveHarnessHooks(rtk:false): %v", err)
 	}
 	var out, errb strings.Builder
-	if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != core.ExitProceed {
-		t.Fatalf("RunEvent rc = %d, want ExitProceed; stderr=%q", rc, errb.String())
+	if rc := runEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != core.ExitProceed {
+		t.Fatalf("runEvent rc = %d, want ExitProceed; stderr=%q", rc, errb.String())
 	}
 	if strings.Contains(out.String(), "updatedInput") {
 		t.Errorf("rtk group switched off but dispatcher still rewrote: %s", out.String())

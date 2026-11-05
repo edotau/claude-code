@@ -34,20 +34,30 @@ var opencodeExport = func(sessionID, cwd string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "opencode", "export", sessionID)
 	cmd.Dir = cwd
 	var out bytes.Buffer
-	cmd.Stdout = &out
+	cmd.Stdout = &capWriter{buf: &out, max: exportMaxBytes}
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
-	if out.Len() > exportMaxBytes {
-		return nil, os.ErrInvalid
-	}
 	return out.Bytes(), nil
+}
+
+// capWriter fails a write that would grow buf past max, so the child is cut off before memory grows unbounded.
+type capWriter struct {
+	buf *bytes.Buffer
+	max int
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.max {
+		return 0, os.ErrInvalid
+	}
+	return w.buf.Write(p)
 }
 
 // AgentInput returns in with TranscriptPath pointing at a Claude-shaped transcript synthesized from an opencode
 // export or a Copilot events.jsonl; any other input, or a failed load, comes back unchanged (fail open).
 func AgentInput(in *core.Input) *core.Input {
-	var at AgentTranscript
+	var at agentTranscript
 	var err error
 	switch {
 	case in.SessionID == "":
@@ -55,10 +65,10 @@ func AgentInput(in *core.Input) *core.Input {
 	case os.Getenv(settings.AgentEnv) == agentOpencode || in.Nested(harnessAgentKey) == agentOpencode:
 		var data []byte
 		if data, err = opencodeExport(in.SessionID, in.CWD); err == nil {
-			at, err = LoadOpencodeExport(data)
+			at, err = loadOpencodeExport(data)
 		}
 	case in.Agent() == core.AgentCopilot && in.TranscriptPath != "":
-		at = LoadCopilotEvents(in.SessionID, copilotEventsFrom(in.TranscriptPath, in.CWD))
+		at = loadCopilotEvents(in.SessionID, copilotEventsFrom(in.TranscriptPath, in.CWD))
 	default:
 		return in
 	}
@@ -75,7 +85,7 @@ func AgentInput(in *core.Input) *core.Input {
 }
 
 // writeSynthTranscript writes one Claude-shaped Edit line per edit plus the final text; the path is stable per session.
-func writeSynthTranscript(sessionID string, at AgentTranscript) (string, error) {
+func writeSynthTranscript(sessionID string, at agentTranscript) (string, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for i := 0; i < at.Edits; i++ {
@@ -102,13 +112,13 @@ var patchFileRe = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.
 
 // copilotEventsFrom reads a Copilot events.jsonl into the loader's events. Successful tool.execution_complete
 // fileEdits are the edit source; start arguments (apply_patch text expanded per file) only when no fileEdits exist.
-func copilotEventsFrom(path, cwd string) []CopilotEvent {
+func copilotEventsFrom(path, cwd string) []copilotEvent {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
-	var texts, starts, done []CopilotEvent
+	var texts, starts, done []copilotEvent
 	var sawFileEdits bool
 	_ = transcript.EachLine(f, func(line []byte) {
 		var rec struct {
@@ -128,14 +138,14 @@ func copilotEventsFrom(path, cwd string) []CopilotEvent {
 		}
 		switch rec.Type {
 		case "assistant.message":
-			texts = append(texts, CopilotEvent{Type: rec.Type, Content: rec.Data.Content})
+			texts = append(texts, copilotEvent{Type: rec.Type, Content: rec.Data.Content})
 		case "tool.execution_start":
 			starts = append(starts, copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, cwd)...)
 		case "tool.execution_complete":
 			sawFileEdits = sawFileEdits || len(rec.Data.FileEdits) > 0
 			for _, fe := range rec.Data.FileEdits {
 				if rec.Data.Success {
-					done = append(done, CopilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
+					done = append(done, copilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
 				}
 			}
 		}
@@ -146,20 +156,20 @@ func copilotEventsFrom(path, cwd string) []CopilotEvent {
 	return append(texts, starts...)
 }
 
-func copilotToolEvents(tool string, raw json.RawMessage, cwd string) []CopilotEvent {
+func copilotToolEvents(tool string, raw json.RawMessage, cwd string) []copilotEvent {
 	var text string
 	if json.Unmarshal(raw, &text) != nil {
 		var args map[string]any
 		_ = json.Unmarshal(raw, &args)
-		return []CopilotEvent{{Type: "tool.execution_start", ToolName: tool, Arguments: args}}
+		return []copilotEvent{{Type: "tool.execution_start", ToolName: tool, Arguments: args}}
 	}
-	var out []CopilotEvent
+	var out []copilotEvent
 	for _, m := range patchFileRe.FindAllStringSubmatch(text, -1) {
 		p := strings.TrimSpace(m[1])
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(cwd, p)
 		}
-		out = append(out, CopilotEvent{Type: "tool.execution_start", ToolName: tool, Arguments: map[string]any{"path": p}})
+		out = append(out, copilotEvent{Type: "tool.execution_start", ToolName: tool, Arguments: map[string]any{"path": p}})
 	}
 	return out
 }

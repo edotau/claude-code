@@ -602,3 +602,25 @@ func dateStamp() string { return time.Now().Format("2006-01-02") }
 
 const planTemplate = "# Plan: Widget Refactor\n\n## Context\n\nwhy\n\n## Phases\n\n### Phase 1 — do thing\n\n" +
 	"**Files:** x\n\n## Tasks\n\n- [ ] Phase 1\n"
+
+func TestWriteVerifiedPlanDropsEmptyClaimOnFailure(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "state"), []byte("x"), 0o600); err != nil { // plans.lock cannot be created
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "plans", "2026-11-05-probe.md")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, nil, 0o600); err != nil { // the claim planDestination makes
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if writeVerifiedPlan(dest, []byte("# Probe\n"), &stderr) {
+		t.Fatal("write with an unusable state dir succeeded")
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("empty claim left behind after failed write: stat err = %v", err)
+	}
+}

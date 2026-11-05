@@ -53,17 +53,21 @@ func editContents(in *core.Input) (path, before, after string, ok bool) {
 		return "", "", "", false
 	}
 	if in.ToolName == "Write" {
-		return path, gitHeadContent(path), after, true
+		before, ok = gitHeadContent(path)
+		return path, before, after, ok
 	}
 	before, ok = editBefore(in, after)
 	return path, before, after, ok
 }
 
-// editBefore reverses an Edit on its post-edit content; false when the edit's occurrence is ambiguous.
+// editBefore reverses an Edit on its post-edit content; false when the edit is a deletion or its occurrence is ambiguous.
 func editBefore(in *core.Input, after string) (string, bool) {
 	oldStr, newStr, all := in.Nested("tool_input", "old_string"), in.Nested("tool_input", "new_string"),
 		in.ToolInput()["replace_all"] == true
-	if !all && newStr != "" && strings.Count(after, newStr) > 1 {
+	if newStr == "" {
+		return "", false // a deletion leaves no marker to locate where old_string was
+	}
+	if !all && strings.Count(after, newStr) > 1 {
 		return "", false // ambiguous: cannot tell which occurrence the edit wrote
 	}
 	return undoEdit(after, oldStr, newStr, all), true
@@ -83,9 +87,6 @@ func readSmallFile(path string) (string, bool) {
 
 // undoEdit reverses an Edit on the post-edit content: new_string back to old_string (first or all occurrences).
 func undoEdit(after, oldStr, newStr string, all bool) string {
-	if newStr == "" {
-		return after
-	}
 	n := 1
 	if all {
 		n = -1
@@ -93,15 +94,21 @@ func undoEdit(after, oldStr, newStr string, all bool) string {
 	return strings.Replace(after, newStr, oldStr, n)
 }
 
-// gitHeadContent is the file at HEAD, or "" when untracked or outside a repo.
-func gitHeadContent(path string) string {
+// gitHeadContent is the file at HEAD ("" when untracked or outside a repo); false when git failed for another reason.
+func gitHeadContent(path string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	out, err := proc.RunGitRaw(ctx, filepath.Dir(path), "show", "HEAD:./"+filepath.Base(path))
-	if err != nil {
-		return ""
+	if err == nil {
+		return out, true
 	}
-	return out
+	msg := err.Error()
+	for _, m := range []string{"not in 'HEAD'", "does not exist in 'HEAD'", "not a git repository"} {
+		if ctx.Err() == nil && strings.Contains(msg, m) {
+			return "", true
+		}
+	}
+	return "", false
 }
 
 // simplicityText renders the header plus up to simplicityMaxLines findings within simplicityMaxChars.

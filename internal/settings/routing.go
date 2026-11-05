@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -23,11 +24,11 @@ const (
 
 // RoutingField is one typed routing knob: read/write providers.Routing, rendered as one configure row.
 type RoutingField struct {
-	Key, Label, Help string
-	Kind             routingKind
-	Values           []string // RoutingEnum only
-	Get              func(providers.Routing) string
-	Set              func(*providers.Routing, string) error // "" resets to default (removes the overlay field)
+	Key    string
+	Kind   routingKind
+	Values []string // RoutingEnum only
+	Get    func(providers.Routing) string
+	Set    func(*providers.Routing, string) error // "" resets to default (removes the overlay field)
 	// IsSet reports whether the vault overlay's own routing object (providers.RoutingOverlay, never the
 	// merged registry) sets this field — the provenance check: "vault" when true, else "default".
 	IsSet func(providers.Routing) bool
@@ -66,10 +67,8 @@ func (routingModule) Env(r providers.Routing) map[string]string {
 
 func weightsPriceField() RoutingField {
 	return RoutingField{
-		Key:   "weights.price",
-		Label: "price weight",
-		Help:  "0..1; headroom gets the rest, so the two weights still sum to 1",
-		Kind:  RoutingNumber,
+		Key:  "weights.price",
+		Kind: RoutingNumber,
 		Get: func(r providers.Routing) string {
 			return strconv.FormatFloat(r.Weights["price"], 'g', -1, 64)
 		},
@@ -83,7 +82,7 @@ func weightsPriceField() RoutingField {
 			if err != nil {
 				return fmt.Errorf("weights.price: %w", err)
 			}
-			if v < 0 || v > 1 {
+			if math.IsNaN(v) || v < 0 || v > 1 {
 				return fmt.Errorf("weights.price: %v out of [0,1]", v)
 			}
 			r.Weights = map[string]float64{"price": v, "headroom": 1 - v}
@@ -93,21 +92,19 @@ func weightsPriceField() RoutingField {
 }
 
 func subagentsField() RoutingField {
-	return boolField("subagents", "subagents", "offload pressure to subagents; off pins HARNESS_ROUTE_SUBAGENTS=0 at launch",
+	return boolField("subagents",
 		providers.Routing.SubagentsOn, func(r *providers.Routing) **bool { return &r.Subagents })
 }
 
 func servedAwareField() RoutingField {
-	return boolField("servedAware", "served-aware", "pick Databricks models the workspace lists READY; off = static menu",
+	return boolField("servedAware",
 		providers.Routing.ServedAwareOn, func(r *providers.Routing) **bool { return &r.ServedAware })
 }
 
 // boolField is a tri-state setting: on resolves the default, an empty input clears the override slot.
-func boolField(key, label, help string, on func(providers.Routing) bool, slot func(*providers.Routing) **bool) RoutingField {
+func boolField(key string, on func(providers.Routing) bool, slot func(*providers.Routing) **bool) RoutingField {
 	return RoutingField{
 		Key:   key,
-		Label: label,
-		Help:  help,
 		Kind:  RoutingBool,
 		Get:   func(r providers.Routing) string { return strconv.FormatBool(on(r)) },
 		IsSet: func(r providers.Routing) bool { return *slot(&r) != nil },
@@ -150,8 +147,6 @@ func splitList(input string) []string {
 func ladderField() RoutingField {
 	return RoutingField{
 		Key:   "opencode.ladder",
-		Label: "ladder",
-		Help:  "comma-separated paid backends, in try order (zen-free always runs first regardless)",
 		Kind:  RoutingList,
 		Get:   func(r providers.Routing) string { return strings.Join(r.Opencode.LadderOrder(), ",") },
 		IsSet: func(r providers.Routing) bool { return r.Opencode.Ladder != nil },
@@ -169,10 +164,8 @@ func ladderField() RoutingField {
 
 func workRepoMarkersField() RoutingField {
 	return RoutingField{
-		Key:   "opencode.workRepoMarkers",
-		Label: "work-repo markers",
-		Help:  "comma-separated remote-URL substrings marking a repo as work (zen-free never serves one)",
-		Kind:  RoutingList,
+		Key:  "opencode.workRepoMarkers",
+		Kind: RoutingList,
 		Get: func(r providers.Routing) string {
 			m := r.Opencode.Markers()
 			if len(m) == 0 {
@@ -198,8 +191,6 @@ var freeTierValues = []string{"sonnet,haiku", "haiku", "none"}
 func freeTiersField() RoutingField {
 	return RoutingField{
 		Key:    "opencode.freeTiers",
-		Label:  "free tiers",
-		Help:   "which aliases zen-free may serve; opus is never eligible",
 		Kind:   RoutingEnum,
 		Values: freeTierValues,
 		Get: func(r providers.Routing) string {
@@ -238,8 +229,6 @@ func freeTiersField() RoutingField {
 func freeFirstOutputField() RoutingField {
 	return RoutingField{
 		Key:   "opencode.freeFirstOutput",
-		Label: "free first-output cutoff",
-		Help:  "zen-free must emit its first byte within this long, else fail over (a Go duration, e.g. 90s)",
 		Kind:  RoutingText,
 		Get:   func(r providers.Routing) string { return r.Opencode.FirstOutput().String() },
 		IsSet: func(r providers.Routing) bool { return r.Opencode.FreeFirstOutput != "" },

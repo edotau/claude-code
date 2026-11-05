@@ -14,14 +14,14 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/safety"
 )
 
-// safetyRunners are the safety-area Native entries and the safety runner each must be.
+// safetyRunners are the safety-area native entries and the safety runner each must be.
 var safetyRunners = map[string]core.Runner{"safety-scan": safety.Scan, "rtk-rewrite": safety.RTKRewrite, "permission-gate": safety.PermissionGate}
 
-// Every safety-area Native entry is the intended safety runner.
+// Every safety-area native entry is the intended safety runner.
 func TestNativeSafetyEntriesAreSafetyRunners(t *testing.T) {
 	for name, want := range safetyRunners {
-		if reflect.ValueOf(Native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
-			t.Errorf("%s: Native entry is not the safety runner", name)
+		if reflect.ValueOf(native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("%s: native entry is not the safety runner", name)
 		}
 	}
 }
@@ -128,7 +128,7 @@ func TestSafetyDispatcherGateVsBare(t *testing.T) {
 	})
 	t.Run("gate carries the ask", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		if code := RunEvent("PreToolUse", true, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
+		if code := runEvent("PreToolUse", true, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
 			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 		}
 		var doc struct {
@@ -145,7 +145,7 @@ func TestSafetyDispatcherGateVsBare(t *testing.T) {
 	})
 	t.Run("bare dispatcher omits the gate decision", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		if code := RunEvent("PreToolUse", false, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
+		if code := runEvent("PreToolUse", false, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
 			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 		}
 		if strings.Contains(out.String(), "permissionDecision") {

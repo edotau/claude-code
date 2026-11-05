@@ -47,7 +47,7 @@ func TestWeightsPriceRoundTripsAndResets(t *testing.T) {
 func TestWeightsPriceRejectsOutOfRange(t *testing.T) {
 	f := fieldByKey(t, "weights.price")
 	var r providers.Routing
-	for _, bad := range []string{"1.5", "-0.1", "not-a-number"} {
+	for _, bad := range []string{"1.5", "-0.1", "not-a-number", "NaN"} {
 		if err := f.Set(&r, bad); err == nil {
 			t.Errorf("weights.price=%q: want an error", bad)
 		}

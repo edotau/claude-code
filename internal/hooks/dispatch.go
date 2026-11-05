@@ -31,13 +31,12 @@ type Bound struct {
 	Run   core.Runner
 }
 
-// Bind pairs every hookspec handler with its Native Runner.
+// Bind pairs every hookspec handler with its native Runner.
 func Bind() []Bound {
 	var out []Bound
 	for _, g := range settings.Registry {
 		for _, s := range g.Events {
-			s.Group = g.Name
-			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: Native[s.Name]})
+			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: native[s.Name]})
 		}
 	}
 	return out
@@ -178,8 +177,8 @@ func appendNonEmpty(list []string, s string) []string {
 	return append(list, s)
 }
 
-// IsEvent reports whether name is a lifecycle event the dispatcher serves (`claude-code hook <Event>`).
-func IsEvent(name string) bool {
+// isEvent reports whether name is a lifecycle event the dispatcher serves (`claude-code hook <Event>`).
+func isEvent(name string) bool {
 	for _, g := range settings.Registry {
 		for _, s := range g.Events {
 			if s.Event == name {
@@ -202,8 +201,8 @@ func enabledGroups() func(group string, gate bool) bool {
 	}
 }
 
-// RunEvent is `hook <Event> [--all]`: run every enabled group once, own-process modules only when all is set.
-func RunEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer) int {
+// runEvent is `hook <Event> [--all]`: run every enabled group once, own-process modules only when all is set.
+func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
 	enabled := enabledGroups()
 	var bound []Bound
@@ -235,8 +234,8 @@ func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
 	}
 }
 
-// Native maps every hook module to its Runner; names must match settings.Registry.
-var Native = map[string]core.Runner{
+// native maps every hook module to its Runner; names must match settings.Registry.
+var native = map[string]core.Runner{
 	"safety-scan":               safety.Scan,
 	"rtk-rewrite":               safety.RTKRewrite,
 	"docs-placement":            viaStderr(docs.Placement),
@@ -276,7 +275,7 @@ var Native = map[string]core.Runner{
 // runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with
 // its reason on stderr, which is how a guard run by an agent or by safety-scan's own entry blocks.
 func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
-	run, ok := Native[name]
+	run, ok := native[name]
 	if !ok {
 		return core.ExitProceed
 	}
@@ -327,14 +326,14 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 	if event == safety.CopilotBashHook {
 		return safety.CopilotBash(stdin, stderr)
 	}
-	if !IsEvent(event) {
+	if !isEvent(event) {
 		return unknownHook(event, "unknown hook event", stderr)
 	}
 	switch {
 	case len(flags) == 0:
-		return RunEvent(event, false, stdin, stdout, stderr)
+		return runEvent(event, false, stdin, stdout, stderr)
 	case len(flags) == 1 && flags[0] == settings.AllFlag:
-		return RunEvent(event, true, stdin, stdout, stderr)
+		return runEvent(event, true, stdin, stdout, stderr)
 	case len(flags) == 1 && strings.HasPrefix(flags[0], "--"):
 		return runModule(event, strings.TrimPrefix(flags[0], "--"), stdin, stdout, stderr)
 	}
@@ -344,7 +343,7 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 
 // runModule runs one module on its declared event; a group switched off in harnessHooks proceeds.
 func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if _, ok := Native[name]; !ok || eventOf(name) != event {
+	if _, ok := native[name]; !ok || eventOf(name) != event {
 		return unknownHook(name, "no module on "+event+" named", stderr)
 	}
 	if g, found := settings.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {

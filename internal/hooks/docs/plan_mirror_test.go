@@ -244,3 +244,19 @@ func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {
 		t.Errorf("draft directory contents changed: err=%v content=%q", err, got)
 	}
 }
+
+// TestPlanMirrorFailedWriteDropsEmptyClaim: a first mirror whose write fails leaves no 0-byte dated placeholder.
+func TestPlanMirrorFailedWriteDropsEmptyClaim(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "state"), []byte("x"), 0o600); err != nil { // plans.lock cannot be created
+		t.Fatal(err)
+	}
+	plansDir := filepath.Join(cfg, "plans")
+	draft := writeMirrorDraft(t, plansDir, "funny-random-words.md", planTemplate)
+	mirrorRun(t, "failing mirror", "Write", cfg, draft)
+	dest := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("empty claim left behind after failed mirror: stat err = %v", err)
+	}
+}

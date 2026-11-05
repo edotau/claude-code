@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// AgentTranscript is what memory-update/memory-end/format-stop need from a non-Claude session.
-type AgentTranscript struct {
+// agentTranscript is what memory-update/memory-end/format-stop need from a non-Claude session.
+type agentTranscript struct {
 	ID          string
 	Edits       int
 	EditedPaths []string // unique, sorted
@@ -23,7 +23,7 @@ var copilotEditTools = map[string]bool{"edit": true, "create": true, "write": tr
 // pathBuilder dedups edited paths while counting every edit call.
 type pathBuilder struct {
 	seen map[string]bool
-	out  AgentTranscript
+	out  agentTranscript
 }
 
 func (b *pathBuilder) edit(path string) {
@@ -34,13 +34,13 @@ func (b *pathBuilder) edit(path string) {
 	}
 }
 
-func (b *pathBuilder) done() AgentTranscript {
+func (b *pathBuilder) done() agentTranscript {
 	sort.Strings(b.out.EditedPaths)
 	return b.out
 }
 
-// LoadOpencodeExport parses `opencode export <id>` JSON; final text is the last assistant text part.
-func LoadOpencodeExport(data []byte) (AgentTranscript, error) {
+// loadOpencodeExport parses `opencode export <id>` JSON; final text is the last assistant text part.
+func loadOpencodeExport(data []byte) (agentTranscript, error) {
 	var doc struct {
 		Info struct {
 			ID string `json:"id"`
@@ -63,7 +63,7 @@ func LoadOpencodeExport(data []byte) (AgentTranscript, error) {
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return AgentTranscript{}, fmt.Errorf("opencode export: %w", err)
+		return agentTranscript{}, fmt.Errorf("opencode export: %w", err)
 	}
 	b := &pathBuilder{seen: map[string]bool{}}
 	b.out.ID = doc.Info.ID
@@ -83,8 +83,8 @@ func LoadOpencodeExport(data []byte) (AgentTranscript, error) {
 	return b.done(), nil
 }
 
-// CopilotEvent is the slice of an SDK session event the loader reads; the engine fills it from rpc.SessionEvent.
-type CopilotEvent struct {
+// copilotEvent is the slice of an SDK session event the loader reads; the engine fills it from rpc.SessionEvent.
+type copilotEvent struct {
 	Type      string // "tool.execution_start" or "assistant.message"
 	ToolName  string
 	Arguments map[string]any
@@ -92,8 +92,8 @@ type CopilotEvent struct {
 	AgentID   string // non-empty for sub-agent events, which are skipped
 }
 
-// LoadCopilotEvents folds an in-memory Copilot event list; copilot has no on-disk transcript.
-func LoadCopilotEvents(sessionID string, events []CopilotEvent) AgentTranscript {
+// loadCopilotEvents folds an in-memory Copilot event list; copilot has no on-disk transcript.
+func loadCopilotEvents(sessionID string, events []copilotEvent) agentTranscript {
 	b := &pathBuilder{seen: map[string]bool{}}
 	b.out.ID = sessionID
 	for _, e := range events {

@@ -16,61 +16,61 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// plainDocsRunners are the docs-area Native entries registered without a viaStderr wrapper.
+// plainDocsRunners are the docs-area native entries registered without a viaStderr wrapper.
 var plainDocsRunners = map[string]core.Runner{
 	"docs-plan-skeleton": docs.Skeleton, "docs-plan-skeleton-prompt": docs.Skeleton, "docs-plan-tick": docs.Tick,
 	"docs-plan-reminder": docs.Reminder, "paths-resolve": docs.ResolvePaths,
 }
 
-// stderrDocsRunners are the docs-area helpers Native wraps in viaStderr.
+// stderrDocsRunners are the docs-area helpers native wraps in viaStderr.
 var stderrDocsRunners = map[string]func(*core.Input, io.Writer) int{
 	"docs-placement": docs.Placement, "docs-plan-gate": docs.Gate, "docs-plan-mirror": docs.Mirror, "docs-plan-save": docs.Save,
 }
 
-// Every docs-area Native entry is the intended docs runner: same function, or the same Result as the wrapped helper.
+// Every docs-area native entry is the intended docs runner: same function, or the same Result as the wrapped helper.
 func TestNativeDocsEntriesAreDocsRunners(t *testing.T) {
 	for name, want := range plainDocsRunners {
-		if reflect.ValueOf(Native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
-			t.Errorf("%s: Native entry is not the docs runner", name)
+		if reflect.ValueOf(native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("%s: native entry is not the docs runner", name)
 		}
 	}
 	for name, helper := range stderrDocsRunners {
 		payload := `{"tool_name":"Write","tool_input":{"file_path":"` + filepath.Join(t.TempDir(), "x.txt") + `"}}`
 		var b bytes.Buffer
 		want := core.ExitResult(helper(core.ParseInput(strings.NewReader(payload)), &b), b.String())
-		if got := Native[name](core.ParseInput(strings.NewReader(payload))); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: Native result %+v, want %+v", name, got, want)
+		if got := native[name](core.ParseInput(strings.NewReader(payload))); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: native result %+v, want %+v", name, got, want)
 		}
 	}
 }
 
 // The paths and codex groups run natively: Bind must hand each declared handler the Runner from
-// Native (same function pointer), and that Runner returns a Result directly.
+// native (same function pointer), and that Runner returns a Result directly.
 func TestBindPrefersNativeRunners(t *testing.T) {
-	if len(Native) == 0 {
-		t.Fatal("Native is empty")
+	if len(native) == 0 {
+		t.Fatal("native is empty")
 	}
 	wantNativeBindings(t)
 	wantPathsResolveResult(t)
 }
 
-// wantNativeBindings requires every Native runner to be bound by Bind to the same function pointer.
+// wantNativeBindings requires every native runner to be bound by Bind to the same function pointer.
 func wantNativeBindings(t *testing.T) {
 	t.Helper()
 	seen := map[string]bool{}
 	for _, b := range Bind() {
-		native, ok := Native[b.Spec.Name]
+		want, ok := native[b.Spec.Name]
 		if !ok {
 			continue
 		}
 		seen[b.Spec.Name] = true
-		if reflect.ValueOf(b.Run).Pointer() != reflect.ValueOf(native).Pointer() {
-			t.Errorf("%s: not bound to its Native runner", b.Spec.Name)
+		if reflect.ValueOf(b.Run).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("%s: not bound to its native runner", b.Spec.Name)
 		}
 	}
-	for name := range Native {
+	for name := range native {
 		if !seen[name] {
-			t.Errorf("%s: declared in Native but never bound", name)
+			t.Errorf("%s: declared in native but never bound", name)
 		}
 	}
 }
@@ -132,8 +132,8 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 				t.Fatalf("Run exit = %d (stderr %s)", code, &directErr)
 			}
 			var eventOut, eventErr bytes.Buffer
-			if code := RunEvent("UserPromptSubmit", false, strings.NewReader(payload), &eventOut, &eventErr); code != core.ExitProceed {
-				t.Fatalf("RunEvent exit = %d (stderr %s)", code, &eventErr)
+			if code := runEvent("UserPromptSubmit", false, strings.NewReader(payload), &eventOut, &eventErr); code != core.ExitProceed {
+				t.Fatalf("runEvent exit = %d (stderr %s)", code, &eventErr)
 			}
 			if directOut.String() != eventOut.String() {
 				t.Fatalf("direct %q != dispatched %q", &directOut, &eventOut)
@@ -145,7 +145,7 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 
 func TestPlanTemplateCommandRetired(t *testing.T) {
 	for _, old := range []string{"plan-template", "plan-gate"} {
-		if _, ok := Native[old]; ok {
+		if _, ok := native[old]; ok {
 			t.Fatalf("retired %s module remains registered", old)
 		}
 	}

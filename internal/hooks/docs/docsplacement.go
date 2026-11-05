@@ -112,10 +112,11 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	if root == "" {
 		return core.ExitProceed
 	}
-	rel, ok := repoRel(root, abs)
+	rel, ok := core.RelWithin(root, abs)
 	if !ok {
 		return core.ExitProceed
 	}
+	rel = filepath.ToSlash(rel)
 	atRoot := dir == root
 	inDocs := strings.HasPrefix(rel, "docs/")
 	if !atRoot && !inDocs {
@@ -218,10 +219,4 @@ func isIgnored(ctx context.Context, root, rel string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
-}
-
-// repoRel is abs as a repo-relative slash path; false when abs escapes root.
-func repoRel(root, abs string) (string, bool) {
-	rel, ok := core.RelWithin(root, abs)
-	return filepath.ToSlash(rel), ok
 }

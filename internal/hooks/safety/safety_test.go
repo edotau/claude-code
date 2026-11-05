@@ -471,8 +471,8 @@ func TestHarnessGitBlockedApostropheInDoubleQuotes(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	for _, cmd := range []string{`git commit -m "it's $(git stash)"`, "git commit -m \"it's `git reset --hard`\""} {
-		if !harnessGitBlocked(cmd, cfg) {
-			t.Errorf("harnessGitBlocked(%q) = false, want true", cmd)
+		if harnessGitVerb(cmd, cfg) == "" {
+			t.Errorf("harnessGitVerb(%q) = false, want true", cmd)
 		}
 	}
 }
@@ -488,11 +488,11 @@ func TestHarnessGitBlockedOptionsAndWrappers(t *testing.T) {
 		"exec sh -c 'git stash'", "time bash -c 'git stash'", "nice -n 5 bash -c 'git stash'",
 	}
 	for _, cmd := range blocked {
-		if !harnessGitBlocked(cmd, cfg) {
-			t.Errorf("harnessGitBlocked(%q) = false, want true", cmd)
+		if harnessGitVerb(cmd, cfg) == "" {
+			t.Errorf("harnessGitVerb(%q) = false, want true", cmd)
 		}
-		if strings.HasPrefix(cmd, "cd ") && !harnessGitBlocked(cmd, t.TempDir()) {
-			t.Errorf("harnessGitBlocked(%q) from another cwd = false, want true", cmd)
+		if strings.HasPrefix(cmd, "cd ") && harnessGitVerb(cmd, t.TempDir()) == "" {
+			t.Errorf("harnessGitVerb(%q) from another cwd = false, want true", cmd)
 		}
 	}
 }
@@ -502,8 +502,8 @@ func TestHarnessGitNotBlockedOptionsAndWrappers(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	for _, cmd := range []string{"cd -P", "env", "timeout", "sudo -u", "cd -P " + cfg + " && git stash list", "env bash -c 'git status'"} {
-		if harnessGitBlocked(cmd, cfg) {
-			t.Errorf("harnessGitBlocked(%q) = true, want false", cmd)
+		if harnessGitVerb(cmd, cfg) != "" {
+			t.Errorf("harnessGitVerb(%q) = true, want false", cmd)
 		}
 	}
 }
@@ -524,16 +524,16 @@ func TestSafetyHarnessGitWrapperForms(t *testing.T) {
 		{"env --chdir=" + harness + " git stash", "/tmp"},
 	}
 	for _, c := range cases {
-		if !harnessGitBlocked(c.cmd, c.cwd) {
-			t.Errorf("harnessGitBlocked(%q, %q) = false, want true", c.cmd, c.cwd)
+		if harnessGitVerb(c.cmd, c.cwd) == "" {
+			t.Errorf("harnessGitVerb(%q, %q) = false, want true", c.cmd, c.cwd)
 		}
 	}
-	if harnessGitBlocked("env -C /tmp git stash && git status", harness) {
+	if harnessGitVerb("env -C /tmp git stash && git status", harness) != "" {
 		t.Errorf("env -C /tmp must not leak into the config tree, nor later segments block")
 	}
 }
 
-// TestHarnessGitBlocked pins harnessGitBlocked's current behavior directly (gocognit refactor-risk,
+// TestHarnessGitBlocked pins harnessGitVerb's current behavior directly (gocognit refactor-risk,
 // internal/hooks/safety/safety.go): banned verbs inside the config tree, the worktree exception, -C/
 // --work-tree/--git-dir target resolution, cd tracking, substitutions and nested shells.
 func TestHarnessGitBlocked(t *testing.T) {
@@ -599,8 +599,8 @@ func TestHarnessGitBlocked(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := harnessGitBlocked(tt.cmd, tt.cwd); got != tt.want {
-				t.Errorf("harnessGitBlocked(%q, %q) = %v, want %v", tt.cmd, tt.cwd, got, tt.want)
+			if got := harnessGitVerb(tt.cmd, tt.cwd) != ""; got != tt.want {
+				t.Errorf("harnessGitVerb(%q, %q) = %v, want %v", tt.cmd, tt.cwd, got, tt.want)
 			}
 		})
 	}

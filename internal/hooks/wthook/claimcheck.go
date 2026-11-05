@@ -426,7 +426,8 @@ func gitPaths(ctx context.Context, top, dir string, args ...string) ([]string, e
 // commitValueFlags are git commit options whose value is the next word.
 var commitValueFlags = map[string]bool{"-m": true, "-F": true, "-C": true, "-c": true, "--author": true,
 	"--date": true, "-t": true, "--fixup": true, "--squash": true, "--message": true, "--file": true,
-	"--template": true, "--reuse-message": true, "--reedit-message": true}
+	"--template": true, "--reuse-message": true, "--reedit-message": true,
+	"--trailer": true, "--cleanup": true, "--pathspec-from-file": true}
 
 // allTracked are the add flags that stage every tracked change when no pathspec is given (commit: -a/--all only).
 var allTracked = map[string]bool{"-A": true, "--all": true, "-u": true, "--update": true}

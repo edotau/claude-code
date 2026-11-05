@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -58,18 +59,12 @@ func NestedIn(top string, worktrees []string) []string {
 	return out
 }
 
-// CanonPath is absolute and symlink-resolved (or its parent is, for a path that does not exist yet).
+// CanonPath is absolute and symlink-resolved through the deepest existing ancestor (see paths.CanonDeep).
 func CanonPath(p string) string {
 	if a, err := filepath.Abs(p); err == nil {
 		p = a
 	}
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
-	}
-	if r, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
-		return filepath.Join(r, filepath.Base(p))
-	}
-	return p
+	return paths.CanonDeep(p)
 }
 
 // LazyCompile compiles the patterns on first use and caches them.
