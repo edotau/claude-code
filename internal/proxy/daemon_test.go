@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -53,6 +54,9 @@ func TestReclaimKeepsDifferentBuildWithLiveWork(t *testing.T) {
 		terminated++
 		return errors.New("unexpected termination")
 	}
+	prevComm := holderComm
+	t.Cleanup(func() { holderComm = prevComm })
+	holderComm = func(int) string { return "claude-code" }
 
 	for _, live := range []struct {
 		name     string
@@ -135,7 +139,27 @@ func stubTerminate(t *testing.T) *[]int {
 	t.Cleanup(func() { terminateHolder = prev })
 	var killed []int
 	terminateHolder = func(pid int) error { killed = append(killed, pid); return nil }
+	prevComm := holderComm
+	t.Cleanup(func() { holderComm = prevComm })
+	holderComm = func(int) string { return "claude-code" }
 	return &killed
+}
+
+// A /healthz reply naming a pid that is not a claude-code process is foreign: that pid is never signalled.
+func TestReclaimRefusesPidOfAnotherProcess(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	killed := stubTerminate(t)
+	holderComm = func(int) string { return "sshd" }
+	port := occupy(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(PIDHeader, strconv.Itoa(1<<30))
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	if err := Reclaim(context.Background(), port, false); !errors.Is(err, ErrForeignHolder) || !strings.Contains(err.Error(), "sshd") {
+		t.Fatalf("Reclaim = %v, want ErrForeignHolder naming sshd", err)
+	}
+	if len(*killed) != 0 {
+		t.Fatalf("signalled %v, want nothing", *killed)
+	}
 }
 
 // Foreign holders are never signalled.
@@ -177,5 +201,33 @@ func TestReclaimOwnConfigStillReclaimed(t *testing.T) {
 	err := Reclaim(context.Background(), pidless, false)
 	if err == nil || errors.Is(err, ErrForeignHolder) {
 		t.Fatalf("pid-less holder: Reclaim = %v, want a non-foreign error", err)
+	}
+}
+
+// A holder claiming a pid by headers alone (no config id) is signalled only when proxy.json records that pid.
+func TestReclaimUnrecordedPIDIsNotSignalled(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	killed := stubTerminate(t)
+	port := occupy(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(PIDHeader, strconv.Itoa(1<<30)) // not a live pid: the drain wait ends at once
+		w.Header().Set(HeaderBuild, textutil.BuildVersion()+"-other")
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	if err := Reclaim(context.Background(), port, false); !errors.Is(err, ErrForeignHolder) {
+		t.Fatalf("Reclaim of an unrecorded pid = %v, want ErrForeignHolder", err)
+	}
+	if len(*killed) != 0 {
+		t.Fatalf("signalled unrecorded pid: %v", *killed)
+	}
+	cleanup, err := WriteState(State{PID: 1 << 30, Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	if err := Reclaim(context.Background(), port, false); err != nil {
+		t.Fatalf("Reclaim of the recorded pid = %v, want nil", err)
+	}
+	if len(*killed) != 1 {
+		t.Fatalf("terminated %v, want the recorded pid once", *killed)
 	}
 }

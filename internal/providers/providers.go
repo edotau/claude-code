@@ -207,12 +207,12 @@ var RouteAgents = []string{"claude", "copilot", "codex", "opencode", "gemini"}
 // RouteAliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
 var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 
-// RouteWeightNames are the dimension names a route weights map must sum to 1 over (internal/route's
+// routeWeightNames are the dimension names a route weights map must sum to 1 over (internal/route's
 // Dimension.Name(); today "price", "headroom"); this package only validates shape, route owns the scoring.
-var RouteWeightNames = []string{"price", "headroom"}
+var routeWeightNames = []string{"price", "headroom"}
 
-// RouteBillingKeys are the routing table's static account_key values; a "github·" prefix also passes (added at load).
-var RouteBillingKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "github·copilot",
+// routeBillingKeys are the routing table's static account_key values; a "github·" prefix also passes (added at load).
+var routeBillingKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "github·copilot",
 	"opencode·go", "opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free"}
 
 // RouteOpencodeModelPrefixes are the prefixes an opencode override cell may carry (see internal/router).
@@ -223,7 +223,7 @@ var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "n
 
 // validRouteAccountKey reports whether key is a known static billing key or the "github·" dynamic family.
 func validRouteAccountKey(key string) bool {
-	return strings.HasPrefix(key, "github·") || slices.Contains(RouteBillingKeys, key)
+	return strings.HasPrefix(key, "github·") || slices.Contains(routeBillingKeys, key)
 }
 
 // routeModelPrefix returns the provider prefix of a "prefix/model" id ("" when model carries no prefix).
@@ -235,22 +235,22 @@ func routeModelPrefix(model string) string {
 	return prefix
 }
 
-// ValidateRouteWeights requires one weight per RouteWeightNames entry, each in [0,1], summing to 1; an
+// ValidateRouteWeights requires one weight per routeWeightNames entry, each in [0,1], summing to 1; an
 // empty map is skipped (an overlay that does not touch weights leaves the table's own weights alone).
 func ValidateRouteWeights(weights map[string]float64) error {
 	if len(weights) == 0 {
 		return nil
 	}
 	sum := 0.0
-	for _, name := range RouteWeightNames {
+	for _, name := range routeWeightNames {
 		w, ok := weights[name]
 		if !ok || w < 0 || w > 1 {
 			return fmt.Errorf("route weight %q missing or outside [0,1]", name)
 		}
 		sum += w
 	}
-	if len(weights) != len(RouteWeightNames) {
-		return fmt.Errorf("route weights name %d dimensions, want %d", len(weights), len(RouteWeightNames))
+	if len(weights) != len(routeWeightNames) {
+		return fmt.Errorf("route weights name %d dimensions, want %d", len(weights), len(routeWeightNames))
 	}
 	if math.Abs(sum-1) > 1e-9 {
 		return fmt.Errorf("route weights sum to %g, want 1", sum)

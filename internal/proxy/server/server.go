@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,10 +46,10 @@ type Router struct {
 	mu       sync.Mutex
 	reg      *providers.Registry
 	regStamp time.Time
-	cool     map[string]time.Time  // provider → cooling-down until (after a 429)
-	dead     map[string]time.Time  // provider:model → quota-dead until (a hard 429: the key cannot use that model)
-	cred     map[string]credResult // provider name → cached providers.CredentialPresent, TTL credTTL
-	credGen  map[string]int        // provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
+	cool     map[string]time.Time // provider → cooling-down until (after a 429)
+	dead     map[string]time.Time // provider:model → quota-dead until (a hard 429: the key cannot use that model)
+	cred     map[string]time.Time // provider name → present-credential cache expiry (credTTL)
+	credGen  map[string]int       // provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
 
 	authState func(account string, now time.Time) (string, bool) // cached router.LoadState().AuthMarked lookup for attempts
 	authAt    time.Time                                          // when authState was loaded
@@ -63,18 +62,12 @@ type Router struct {
 	tags      string                                             // validated HARNESS_REQUEST_TAGS JSON, "" when unset or invalid
 }
 
-// credResult is one provider's cached CredentialPresent outcome.
-type credResult struct {
-	present bool
-	until   time.Time
-}
-
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
 const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
-		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}, credGen: map[string]int{},
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.tags = parseRequestTags(os.Getenv(proxy.RequestTagsEnv), r.log)
@@ -359,9 +352,9 @@ func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
 func (r *Router) credentialPresent(p *providers.Provider) bool {
 	now := r.now()
 	r.mu.Lock()
-	if c, ok := r.cred[p.Name]; ok && now.Before(c.until) {
+	if until, ok := r.cred[p.Name]; ok && now.Before(until) {
 		r.mu.Unlock()
-		return c.present
+		return true
 	}
 	startGen := r.credGen[p.Name]
 	r.mu.Unlock()
@@ -379,7 +372,7 @@ func (r *Router) storeCredentialPresent(name string, startGen int, until time.Ti
 	if r.credGen[name] != startGen {
 		return
 	}
-	r.cred[name] = credResult{present: true, until: until}
+	r.cred[name] = until
 }
 
 // invalidateCredential clears cached presence and advances the generation to reject stale probes.
@@ -462,7 +455,7 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []by
 		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 	}
 	if !count && metered(p) {
-		var capture bytes.Buffer
+		var capture headTailBuffer
 		orig := resp.Body
 		resp.Body = teeReadCloser{io.TeeReader(orig, &capture), orig}
 		relay(w, resp)

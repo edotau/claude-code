@@ -42,7 +42,7 @@ func TestModelTableLinesAligns(t *testing.T) {
 		{ID: "models/gemini-2.5-flash", Name: "Gemini 2.5 Flash", UseCase: "Balanced", Capabilities: ""},
 		{ID: "x", Name: "y", UseCase: "High volume", Capabilities: "vision · x2"},
 	}
-	lines := ModelTableLines(infos)
+	lines := modelTableLines(infos)
 	stdout := strings.Join(lines, "\n")
 	if len(lines) != 3 {
 		t.Fatalf("got %d lines, want a header + 2 rows:\n%s", len(lines), stdout)

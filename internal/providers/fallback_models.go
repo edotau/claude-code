@@ -17,21 +17,21 @@ import (
 // route) falls back to codex's local model cache. Any other provider's error is returned unchanged.
 func FallbackModels(p *Provider, liveErr error) ([]ModelInfo, string, error) {
 	if p.provider() == "openai" && p.Auth.Login == "codex" {
-		if cached, cerr := CodexCachedModels(); cerr == nil && len(cached) > 0 {
+		if cached, cerr := codexCachedModels(); cerr == nil && len(cached) > 0 {
 			return cached, "chatgpt has no live /models route; showing codex's local model cache (~/.codex/models_cache.json, may be stale)", nil
 		}
 		return nil, "", fmt.Errorf("%v (run `codex` once to populate ~/.codex/models_cache.json, or pin a model id by hand: claude-code models --pin opus=chatgpt:<id>)", liveErr)
 	}
 	if p.Auth.Type == AuthCLI {
-		if known := RegistryModels(p); len(known) > 0 {
+		if known := registryModels(p); len(known) > 0 {
 			return known, fmt.Sprintf("live catalog needs an API key (%v); showing the registry's known Claude models", liveErr), nil
 		}
 	}
 	return nil, "", liveErr
 }
 
-// RegistryModels is provider p's configured alias models, in alias order, each tagged with its use case.
-func RegistryModels(p *Provider) []ModelInfo {
+// registryModels is provider p's configured alias models, in alias order, each tagged with its use case.
+func registryModels(p *Provider) []ModelInfo {
 	var out []ModelInfo
 	for _, s := range models.AliasNames {
 		if id := p.Models[s]; id != "" {
@@ -41,8 +41,8 @@ func RegistryModels(p *Provider) []ModelInfo {
 	return out
 }
 
-// CodexCachedModels reads codex's models_cache.json under $CODEX_HOME (default ~/.codex); never a network call.
-func CodexCachedModels() ([]ModelInfo, error) {
+// codexCachedModels reads codex's models_cache.json under $CODEX_HOME (default ~/.codex); never a network call.
+func codexCachedModels() ([]ModelInfo, error) {
 	dir, err := paths.CodexHome()
 	if err != nil {
 		return nil, err
@@ -71,20 +71,20 @@ func CodexCachedModels() ([]ModelInfo, error) {
 // the same account may still serve): Gemini free tier ("limit: 0"), OpenAI ("insufficient_quota").
 var modelDeniedRE = regexp.MustCompile(`limit: 0|exceeded your current quota|insufficient_quota|quota exceeded for metric`)
 
+// accountTail is the account-exhaustion alternation shared by accountRE and hardAccountRE.
+const accountTail = `usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
+	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`
+
 // accountRE covers the broader markers meaning "this ACCOUNT is exhausted" (plan window, credits, a hard
 // 402), as opposed to a transient rate limit worth waiting out: a 402 body, "usage limit ... try again at
 // <time>", or a monthly/weekly plan quota.
-var accountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` +
-	`usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
-	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`)
+var accountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` + accountTail)
 
 // hardAccountRE is accountRE's subset ModelDenied vetoes on: a 402, "payment required", "usage limit", a
 // named monthly/weekly plan quota, or credits out. Deliberately drops accountRE's "exceeded your current
 // quota/limit" — Gemini's free-tier per-model denial reuses that exact phrase alongside "limit: 0"
 // (modelDeniedRE), and that one is a MODEL-specific denial, not account-wide exhaustion.
-var hardAccountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` +
-	`usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
-	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`)
+var hardAccountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` + accountTail)
 
 // ModelDenied reports whether a 429 body or error text denies this MODEL outright on the current key; the
 // caller should demote to the provider's next alias instead of retrying the same model. Account-wide

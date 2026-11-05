@@ -1,6 +1,8 @@
 package router
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -76,5 +78,30 @@ func TestBYOKPoolOverlayOverridesSeedAndSeedIsCloned(t *testing.T) {
 		if got := BYOKPool(); !slices.Equal(got, DatabricksBYOKPool) {
 			t.Errorf("overlay %q: pool = %v, want the seed", bad, got)
 		}
+	}
+}
+
+func TestSkipBYOKReportsNothingWhenSkipNotPersisted(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	vaulttest.UseKeyring(t)
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, byokPoolKey, `["m-a"]`) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(StatePath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(StatePath()+".lock", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(StatePath()), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(StatePath()), 0o755) })
+	if os.WriteFile(filepath.Join(filepath.Dir(StatePath()), "probe"), nil, 0o600) == nil {
+		t.Skip("state dir stays writable (running as root)")
+	}
+	if m := SkipBYOK("opencode", poolProvider(), "m-a"); m != "" {
+		t.Fatalf("SkipBYOK with an unwritable quota.json = %q, want empty", m)
 	}
 }

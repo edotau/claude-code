@@ -39,7 +39,7 @@ func byokDispatch(disp Dispatch, alias string, reg *providers.Registry, profile 
 	if p != nil && p.Preset == providers.PresetDatabricks {
 		disp.repick = byokRepick(disp.Agent.Name(), alias, cell, p, prefix)
 	}
-	if picked && byokPoolModel(disp.Model, p) {
+	if picked && router.IsPoolModel(p, disp.Model) {
 		return disp
 	}
 	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.BYOKModel)
@@ -59,10 +59,6 @@ func byokProvider(disp Dispatch, reg *providers.Registry, profile string) (*prov
 		return nil, ""
 	}
 	return p, p.Name + ":"
-}
-
-func byokPoolModel(model string, p *providers.Provider) bool {
-	return router.IsPoolModel(p, model)
 }
 
 // byokRepick skips the failed model for this agent, then returns the next pool pick ("" if unchanged).

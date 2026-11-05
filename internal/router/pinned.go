@@ -218,7 +218,7 @@ func byokSkipped(e Entry, agent, entry string, now time.Time) bool {
 // SkipBYOK marks the pool entry p serves as wire unusable for agent and returns it, "" when none matches.
 func SkipBYOK(agent string, p *providers.Provider, wire string) string {
 	var hit string
-	_ = Update(func(s State) {
+	err := Update(func(s State) {
 		for _, entry := range BYOKPool() {
 			if providers.SpellPin(p, entry) != wire {
 				continue
@@ -235,6 +235,9 @@ func SkipBYOK(agent string, p *providers.Provider, wire string) string {
 			return
 		}
 	})
+	if err != nil {
+		return ""
+	}
 	return hit
 }
 

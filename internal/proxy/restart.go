@@ -29,9 +29,10 @@ func RestartReport(ctx context.Context, dry, force bool) RestartRow {
 		return row
 	}
 	if !force {
-		if n := Inflight(ctx, st.Port); n > 0 {
+		// Holder's Inflight is 0 when unreadable, so a wedged proxy can still be restarted.
+		if held, _ := Holder(ctx, st.Port); held.Inflight > 0 {
 			row.Status, row.OldPID = "skipped", st.PID
-			row.Note = fmt.Sprintf("requests in flight: %d; --force restarts anyway", n)
+			row.Note = fmt.Sprintf("requests in flight: %d; --force restarts anyway", held.Inflight)
 			return row
 		}
 	}
@@ -39,7 +40,7 @@ func RestartReport(ctx context.Context, dry, force bool) RestartRow {
 		row.Status, row.OldPID = "would restart", st.PID
 		return row
 	}
-	old, cur, restarted, err := Restart(ctx)
+	old, cur, restarted, err := restart(ctx)
 	switch {
 	case err != nil:
 		row.Status, row.OldPID, row.Note = "failed", old.PID, err.Error()
@@ -100,12 +101,9 @@ func SpawnStart() bool {
 	if !ClaimRestart(time.Now()) {
 		return false
 	}
-	exe, err := os.Executable()
+	exe, err := executable()
 	if err != nil {
 		return false
-	}
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
 	}
 	return proc.SpawnDetached(exe, []string{"gateway", "proxy", "--start"}, "", nil)
 }

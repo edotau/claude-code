@@ -39,12 +39,15 @@ func invalidToken(resp *http.Response, p *providers.Provider) bool {
 	if resp.StatusCode != http.StatusBadRequest {
 		return false
 	}
-	peek, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-	resp.Body = struct {
-		io.Reader
-		io.Closer
-	}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+	peek := peekBody(resp, 256)
 	return providers.IsInvalidTokenResponse(p, resp.StatusCode, peek)
+}
+
+// peekBody reads up to n bytes of resp.Body and leaves the whole body readable again.
+func peekBody(resp *http.Response, n int64) []byte {
+	peek, _ := io.ReadAll(io.LimitReader(resp.Body, n))
+	resp.Body = teeReadCloser{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+	return peek
 }
 
 // credentialMarkers are lower-cased 403 body fragments naming a refused credential, not a policy or WAF block.
@@ -60,11 +63,7 @@ func rejectedAfterRemint(resp *http.Response, p *providers.Provider) bool {
 		if strings.Contains(strings.ToLower(resp.Header.Get("WWW-Authenticate")), "invalid_token") {
 			return true
 		}
-		peek, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		resp.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+		peek := peekBody(resp, 4<<10)
 		low := strings.ToLower(string(peek))
 		return slices.ContainsFunc(credentialMarkers, func(m string) bool { return strings.Contains(low, m) })
 	}
@@ -78,11 +77,7 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 		return false, false
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		peek, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		resp.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+		peek := peekBody(resp, 64<<10)
 		if hard = providers.ModelDenied(string(peek)); hard {
 			r.markDead(t)
 			if _, ok := r.demotion(t); ok {
@@ -111,11 +106,7 @@ func tooLong(resp *http.Response) bool {
 	if resp.StatusCode != http.StatusBadRequest {
 		return false
 	}
-	peek, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	resp.Body = struct {
-		io.Reader
-		io.Closer
-	}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+	peek := peekBody(resp, 512)
 	m := promptTooLong.Find(peek)
 	if m == nil {
 		return false
@@ -252,11 +243,6 @@ func (r *Router) health(w http.ResponseWriter) {
 
 func exhausted(w http.ResponseWriter, ladder []providers.Target, lastErr error) (string, string, int) {
 	t := ladder[len(ladder)-1]
-	var failure *fallbackError
-	if errors.As(lastErr, &failure) && failure.auth {
-		writeError(w, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", t.Provider.Name, authHint(t.Provider)))
-		return t.Provider.Name, t.Model, len(ladder)
-	}
-	writeError(w, http.StatusBadGateway, fmt.Sprintf("proxy: %s: %v", t.Provider.Name, lastErr))
+	writeSendError(w, t.Provider, lastErr)
 	return t.Provider.Name, t.Model, len(ladder)
 }

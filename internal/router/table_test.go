@@ -163,7 +163,7 @@ func TestRowsKeyedByClaudeID(t *testing.T) {
 	for _, alias := range Aliases {
 		id, _ := models.Alias(alias)
 		for _, key := range []string{alias, id, strings.TrimPrefix(id, "claude-")} {
-			row, ok := tb.Row(key)
+			row, ok := tb.ByModel[rowKey(key)]
 			if !ok || len(row) != len(TableAgents) {
 				t.Fatalf("Row(%q) ok=%v runners=%d", key, ok, len(row))
 			}
@@ -172,7 +172,7 @@ func TestRowsKeyedByClaudeID(t *testing.T) {
 			}
 		}
 	}
-	if _, ok := tb.Row("gpt-6-1-sol"); ok {
+	if _, ok := tb.ByModel[rowKey("gpt-6-1-sol")]; ok {
 		t.Error("a non-Claude id must not name a row")
 	}
 }

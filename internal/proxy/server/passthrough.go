@@ -95,7 +95,6 @@ func (r *Router) passthroughRoute(w http.ResponseWriter, provider, dialect strin
 		return nil, "", false, false
 	}
 	route, ok = p.Route(dialect)
-	dbxGemini = false
 	if !ok && dialect == providers.ProtocolGemini {
 		route, ok = databricksGemini(p)
 		dbxGemini = ok
@@ -144,7 +143,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 	}
 	resp, err := r.sendMethod(in, in.Method, p, target, body, copyClientHeaders(in))
 	if err != nil {
-		writePassthroughSendError(sw, p, err)
+		writeSendError(sw, p, err)
 		return model, ""
 	}
 	extra := passthroughDiag(resp)
@@ -174,14 +173,14 @@ func copyClientHeaders(in *http.Request) func(http.Header) {
 	}
 }
 
-// writePassthroughSendError answers a failed upstream send: 401 with a hint for auth failures, else 502.
-func writePassthroughSendError(sw *statusWriter, p *providers.Provider, err error) {
+// writeSendError answers a failed upstream send: 401 with a hint for auth failures, else 502.
+func writeSendError(w http.ResponseWriter, p *providers.Provider, err error) {
 	var failure *fallbackError
 	if errors.As(err, &failure) && failure.auth {
-		writeError(sw, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", p.Name, authHint(p)))
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", p.Name, authHint(p)))
 		return
 	}
-	writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
+	writeError(w, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
 }
 
 // teeUsageTail wraps a metered 200 POST reply so its closing usage chunk is captured; nil when not metered.
@@ -304,6 +303,26 @@ type tailBuffer struct{ buf []byte }
 
 const tailCap = 256 << 10
 
+// headTailBuffer keeps the first and last tailCap bytes written: usage sits in a stream's first and last events.
+type headTailBuffer struct {
+	head []byte
+	tail tailBuffer
+}
+
+func (h *headTailBuffer) Write(p []byte) (int, error) {
+	if room := tailCap - len(h.head); room > 0 {
+		h.head = append(h.head, p[:min(room, len(p))]...)
+		p = p[min(room, len(p)):]
+	}
+	return h.tail.Write(p)
+}
+
+// Bytes returns the head followed by the retained tail, dropping an oversized middle.
+func (h *headTailBuffer) Bytes() []byte {
+	t := h.tail.buf
+	return append(append([]byte(nil), h.head...), t[max(0, len(t)-tailCap):]...)
+}
+
 func (t *tailBuffer) Write(p []byte) (int, error) {
 	t.buf = append(t.buf, p...)
 	if len(t.buf) > 2*tailCap {
@@ -317,26 +336,7 @@ func scrapeUsage(body []byte) ledgerUsage {
 	if u := scrapeChatUsage(body); u.input != 0 || u.output != 0 || u.cacheRead != 0 {
 		return u
 	}
-	matches := usageBlockRE.FindAll(body, -1)
-	if len(matches) == 0 {
-		return ledgerUsage{}
-	}
-	var raw struct {
-		Input   int `json:"input_tokens"`
-		Output  int `json:"output_tokens"`
-		Details *struct {
-			Cached int `json:"cached_tokens"`
-		} `json:"input_tokens_details"`
-	}
-	if json.Unmarshal(wrapUsage(matches[len(matches)-1]), &raw) != nil {
-		return ledgerUsage{}
-	}
-	u := ledgerUsage{input: raw.Input, output: raw.Output}
-	if raw.Details != nil && raw.Details.Cached > 0 && raw.Details.Cached <= u.input {
-		u.cacheRead = raw.Details.Cached
-		u.input -= u.cacheRead
-	}
-	return u
+	return scrapeLastUsage(body, "input_tokens", "output_tokens", "input_tokens_details")
 }
 
 // attemptsKey carries a passthrough's upstream-attempt counter into sendMethod (auth refresh replays count).
@@ -364,11 +364,7 @@ func passthroughDiag(resp *http.Response) string {
 		b.WriteString(" retry_after=" + diagToken(v))
 	}
 	if resp.StatusCode >= 400 {
-		peek, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		resp.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+		peek := peekBody(resp, 64<<10)
 		var e struct {
 			Code  string `json:"error_code"`
 			Error struct {
