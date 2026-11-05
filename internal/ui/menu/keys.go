@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
@@ -15,8 +17,236 @@ import (
 	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
+
+// pickKey is the terminal picker seam; tests replace it.
+var pickKey = tui.PickBack
+
+// keysMenu lists every credential with its status; picking one opens its Login / OAuth token / API key actions
+// (or the set-up flow when absent), then returns to the list. Back leaves. Nothing changes unless a row is picked.
+func keysMenu(d *dialog) (allOK, changed bool) {
+	start, stale := 0, true
+	var targets []configure.KeyTarget
+	var rows [][2]string
+	var ok bool
+	for {
+		if stale { // re-probe only after a change: each probe can take seconds
+			var err error
+			if targets, err = configure.KeyTargets(d.reg, d.o.Agent); err != nil {
+				d.println(err)
+				return false, changed
+			}
+			rows, ok = keyRows(targets)
+		}
+		idx, err := pickKey("keys — pick a credential to change, or Back to leave", rows, start)
+		if err != nil || idx < 0 {
+			return ok, changed
+		}
+		start = idx
+		stale = changeKey(d, targets[idx])
+		changed = changed || stale
+	}
+}
+
+// keyRows renders one picker row per credential (name, then mode and check aligned) and reports whether every
+// credential is present and accepted.
+func keyRows(targets []configure.KeyTarget) ([][2]string, bool) {
+	names := make([]string, len(targets))
+	cols := make([][2]string, len(targets))
+	allOK := true
+	var wg sync.WaitGroup
+	for i, kt := range targets {
+		names[i] = kt.Label
+		wg.Go(func() { cols[i] = keyCols(kt) }) // probes run in parallel, not one 4s cap after another
+	}
+	wg.Wait()
+	for _, c := range cols {
+		allOK = allOK && c[1] == "verified"
+	}
+	return WithChecks(names, cols), allOK
+}
+
+// keyCols is one credential's mode (how it signs in · how it bills) and check: verified, unverified, rejected or
+// missing. A login counts as verified when its own CLI's status check confirmed it.
+func keyCols(kt configure.KeyTarget) [2]string {
+	if !kt.Present {
+		return [2]string{"not set up", "not verified"}
+	}
+	if kt.Provider != nil && kt.EnvVar != "" {
+		status, _ := configure.Probe(kt)
+		if status == "verified" {
+			return [2]string{modeAPIKey, "verified"}
+		}
+		if status == "login" {
+			return [2]string{loginLine(kt), "verified"}
+		}
+		return [2]string{modeAPIKey, "not verified"}
+	}
+	return [2]string{loginLine(kt), "verified"}
+}
+
+var tierRE = regexp.MustCompile(`\((\w+)\)`)
+
+// loginLine is a login credential's mode: "subscription", with the tier when the CLI reports one ("subscription (max)").
+func loginLine(kt configure.KeyTarget) string {
+	if kt.Label == "claude" {
+		if m := tierRE.FindStringSubmatch(kt.Source); m != nil {
+			return "subscription (" + m[1] + ")"
+		}
+	}
+	return "subscription"
+}
+
+// changeKey runs the picked credential's actions: rotate when present, set up when absent.
+func changeKey(d *dialog, kt configure.KeyTarget) bool {
+	if !kt.Present {
+		if !actionConfirmed("Set up " + kt.Label) {
+			return false
+		}
+		return resolveKey(d, kt)
+	}
+	if len(configure.RotateOptions(kt)) == 0 {
+		d.printf("%-10s nothing to rotate here: %s\n", kt.Label, kt.Source)
+		return false
+	}
+	return runRotate(d, kt)
+}
+
+// replaceKey pastes a new value for kt's keyed credential, probes it live before it overwrites the
+// stored one (a rejected/unreachable paste asks whether to keep the old one instead), and writes it
+// back to the vault.
+func replaceKey(d *dialog, kt configure.KeyTarget) bool {
+	if kt.EnvVar == "" {
+		return false
+	}
+	if _, src, _ := vault.Get(kt.EnvVar); src == "env" {
+		d.printf("%s: env-only, not in the vault; edit where exported\n", kt.EnvVar)
+		return false
+	}
+	if !actionConfirmed("Paste a new " + kt.EnvVar + " to rotate it") {
+		return false
+	}
+	if u := configure.ConsoleURLs[kt.EnvVar]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the new key?") {
+		openBrowser(u)
+	}
+	val, err := secretLine(d, "Paste the new value for "+kt.EnvVar+" (input hidden, Enter when done): ")
+	if err != nil || strings.TrimSpace(val) == "" {
+		d.printf("%s: no value entered\n", kt.EnvVar)
+		return false
+	}
+	_, v := configure.ParseAssignment(val)
+	if keepOldKey(d, kt, v) {
+		return false
+	}
+	return storeValue(d, kt.EnvVar, v)
+}
+
+// keepOldKey probes the pasted value v live; true when it is rejected or unreachable and the user keeps the old key.
+func keepOldKey(d *dialog, kt configure.KeyTarget, v string) bool {
+	if kt.Provider == nil {
+		return false
+	}
+	status, detail := configure.ProbeValue(kt.Provider, kt.EnvVar, v)
+	if status != "rejected" && status != "unreachable" {
+		return false
+	}
+	d.printf("%s: new value %s (%s)\n", kt.EnvVar, status, detail)
+	return d.shell().Confirm("Keep the old key and discard this paste?")
+}
+
+// runMint asks first (a stray Enter must never start a mint), then runs the token-minting CLI.
+func runMint(argv []string) (string, error) {
+	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
+		return "", nil
+	}
+	return configure.RunMint(argv)
+}
+
+// regenerate re-runs an agent's own login or mint CLI to rotate a credential that is already present.
+// A login reports the outcome (the session lives in the agent's own file, not the vault).
+// A mint writes the printed token back to the vault.
+func regenerate(d *dialog, kt configure.KeyTarget, argv []string, mint bool) bool {
+	if !mint {
+		if err := configure.RunLogin(argv); err != nil {
+			d.printf("%s: %v\n", kt.Label, err)
+			return false
+		}
+		d.printf("%-10s logged in again\n", kt.Label)
+		return true
+	}
+	tok, err := runMint(argv)
+	if err != nil {
+		d.printf("%s: %v\n", kt.Label, err)
+		return false
+	}
+	if tok == "" {
+		d.printf("%s: no token found in the output; try again or paste one\n", kt.EnvVar)
+		return false
+	}
+	if _, src, _ := vault.Get(kt.EnvVar); src == "env" {
+		d.printf("%s: minted a new token, saving it to the vault; the exported %s still overrides it\n", kt.Label, kt.EnvVar)
+	}
+	return storeValue(d, kt.EnvVar, tok)
+}
+
+// runRotate offers kt's rotate options (generate first, else paste) and runs the chosen one; false
+// means skipped, cancelled, or nothing to rotate.
+func runRotate(d *dialog, kt configure.KeyTarget) bool {
+	opts := configure.RotateOptions(kt)
+	if len(opts) == 0 {
+		return false
+	}
+	chosen := 0
+	if len(opts) > 1 {
+		var ok bool
+		if chosen, ok = chooseRotateOption(d, kt, opts); !ok {
+			return false
+		}
+	}
+	o := opts[chosen]
+	switch {
+	case len(o.Argv) > 0:
+		return regenerate(d, kt, o.Argv, false)
+	case len(o.Mint) > 0:
+		return regenerate(d, kt, o.Mint, true)
+	default:
+		return replaceKey(d, kt)
+	}
+}
+
+// chooseRotateOption picks among several rotate options: a picker on a terminal, else a confirm on the first
+// (no selects the second); ok is false when the picker is cancelled.
+func chooseRotateOption(d *dialog, kt configure.KeyTarget, opts []configure.AuthOption) (chosen int, ok bool) {
+	if !isStdinTTY() || d.o.In != os.Stdin {
+		if d.shell().Confirm(opts[0].Label() + "?") {
+			return 0, true
+		}
+		return 1, true
+	}
+	rows := make([]uidialog.Row, len(opts))
+	for i, o := range opts {
+		rows[i] = uidialog.Row{Name: o.Action, Detail: o.Desc}
+	}
+	idx, err := d.shell().Pick(kt.Label+" — rotate which credential?", uidialog.Pairs(rows))
+	if err != nil || idx < 0 {
+		return 0, false
+	}
+	return idx, true
+}
+
+// ensureKey makes sure kt's keyed credential is usable before a sub-picker pins it: absent asks to add
+// one, present defaults to keeping it and only replaces on an explicit no.
+func ensureKey(d *dialog, kt configure.KeyTarget, present bool) bool {
+	if !present {
+		return resolveKey(d, kt)
+	}
+	if d.shell().Confirm(kt.Label + " key present — keep it?") {
+		return true
+	}
+	return replaceKey(d, kt)
+}
 
 // sourceLabel names the effective source and flags an env override of a vault value.
 func sourceLabel(src, shadowed string) string {

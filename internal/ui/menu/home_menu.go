@@ -2,12 +2,18 @@
 package menu
 
 import (
+	"cmp"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -168,4 +174,82 @@ func discardKeys(d *dialog) {
 		}
 	}
 	d.pending = nil
+}
+
+// labels.go — an agent's mode column from agentPlans + agentPlanFormat (vault overlay/providers), else today's text.
+
+// labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).
+const labelMax = 48
+
+// agentMaker is the provider a plan names when its entry gives none.
+var agentMaker = map[string]string{"claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "copilot": "GitHub", "opencode": "opencode"}
+
+// modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry (tier and provider
+// default to the detected plan and the agent's agent). No entry and no format keeps today's label.
+func modeLabel(d *dialog, name string, st agentState) string {
+	if d.reg == nil || (len(d.reg.AgentPlans) == 0 && d.reg.AgentPlanFormat == "") {
+		return st.label()
+	}
+	plans, ok := d.reg.AgentPlans[name]
+	if !ok {
+		plans = d.reg.AgentPlans[displayLabel(name)] // "antigravity" names gemini too
+	}
+	id := rawPlanID(d, name, st)
+	plan, matched := matchPlan(plans, id)
+	if !matched && d.reg.AgentPlanFormat == "" {
+		return st.label()
+	}
+	format := d.reg.AgentPlanFormat
+	if format == "" { // default: the mode, then the plan as its provider names it ("subscription (Google AI Pro)")
+		return textutil.Truncate(withTier(st.mode, cmp.Or(plan.Tier, st.tier.Name)), labelMax)
+	}
+	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentMaker[name]), "{mode}", st.mode,
+		"{tier}", cmp.Or(plan.Tier, st.tier.Name), "{id}", id).Replace(format)
+	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
+	return textutil.Truncate(out, labelMax)
+}
+
+// matchPlan picks the plan whose id equals the raw id, else the longest matching * glob.
+func matchPlan(plans []providers.Plan, id string) (providers.Plan, bool) {
+	best, found := providers.Plan{}, false
+	for _, p := range plans {
+		switch {
+		case p.ID == id:
+			return p, true
+		case strings.Contains(p.ID, "*") && glob(p.ID, id) && (!found || len(p.ID) > len(best.ID)):
+			best, found = p, true
+		}
+	}
+	return best, found
+}
+
+// glob matches s against a pattern whose only wildcard is * (any run, / included).
+func glob(pattern, s string) bool {
+	re := "^" + strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*`, ".*") + "$"
+	ok, _ := regexp.MatchString(re, s)
+	return ok
+}
+
+// withTier renders a mode with its tier when one is known: "subscription (Max 20x)".
+func withTier(mode, tier string) string {
+	if tier == "" {
+		return mode
+	}
+	return mode + " (" + tier + ")"
+}
+
+// rawPlanID is what the agent's sign-in reports (claude rate tier, ChatGPT plan, copilot_plan); on an API key it
+// is the account's opus model id, so a pattern can match a provider's prefixed ids.
+func rawPlanID(d *dialog, name string, st agentState) string {
+	if st.mode != modeSubscription {
+		if name == "copilot" && d.reg != nil {
+			model, _ := providers.CopilotModel(d.reg)
+			return model
+		}
+		if p, claude := modelTarget(d, name); p != nil {
+			return currentModel(d, p, claude, models.Opus)
+		}
+		return ""
+	}
+	return st.tier.Raw
 }
