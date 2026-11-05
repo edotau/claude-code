@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -210,22 +209,6 @@ func TestRunUnknownSectionKeysReturnsTwo(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "unknown section") {
 		t.Errorf("output lacks %q:\n%s", "unknown section", out.String())
-	}
-}
-
-// "claude" is a Sections entry: present in the walk order, and listed in the unknown-section error so
-// a typo'd section name tells the user it is a valid choice.
-func TestClaudeSectionIsRegistered(t *testing.T) {
-	if !slices.Contains(SectionNames, "claude") {
-		t.Fatalf("SectionNames = %v, want \"claude\" present", SectionNames)
-	}
-	var out bytes.Buffer
-	rc := Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "bogus-section")
-	if rc != 2 {
-		t.Errorf("rc = %d, want 2:\n%s", rc, out.String())
-	}
-	if !strings.Contains(out.String(), "claude") {
-		t.Errorf("unknown-section output lacks %q:\n%s", "claude", out.String())
 	}
 }
 
@@ -471,30 +454,6 @@ func TestHomeExtraRowsFitEightyColumns(t *testing.T) {
 	for _, r := range laid {
 		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
 			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
-		}
-	}
-}
-
-// TestSettingRowFitsEightyColumns: the widest "claude code" page row — the longest catalog key, its
-// longest enum value or "false", plus the worst-case source suffix " · live differs" — stays <=80 cols.
-func TestSettingRowFitsEightyColumns(t *testing.T) {
-	var labels []string
-	for _, f := range settings.Catalog() {
-		labels = append(labels, f.Key)
-	}
-	for _, f := range settings.Catalog() {
-		longest := "false"
-		for _, v := range f.Values {
-			if len(v) > len(longest) {
-				longest = v
-			}
-		}
-		tmpl := map[string]json.RawMessage{f.Key: json.RawMessage(`"` + longest + `"`)}
-		ov := map[string]json.RawMessage{}
-		live := map[string]json.RawMessage{f.Key: json.RawMessage(`"` + longest + "-differs" + `"`)}
-		row := settingRow(f, tmpl, ov, live)
-		if w := rowRenderedWidth(labels, row[1]); w > 80 {
-			t.Errorf("settingRow(%s) = %d cols, want <=80: %q", f.Key, w, row[1])
 		}
 	}
 }

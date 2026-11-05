@@ -1,6 +1,6 @@
 // routing.go — the "routing" page: every internal/agent agent module's fields, grouped by agent, edited
 // and held until the page is left, then written to the providers overlay's routing object via
-// providers.UpdateRouting. Mirrors the "claude code" page's editing shape (claude_settings.go).
+// providers.UpdateRouting.
 package configure
 
 import (

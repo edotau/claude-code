@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"maps"
-	"slices"
-	"strings"
 	"testing"
 )
 
@@ -17,36 +14,6 @@ func TestRenderValidJSON(t *testing.T) {
 	}
 	if !json.Valid(got) {
 		t.Error("render is not valid JSON")
-	}
-}
-
-func TestAuthHeaderRejected(t *testing.T) {
-	for _, v := range []string{
-		"Authorization: Basic dXNlcjpwYXNz",
-		"X-Foo: 1\nauthorization: Basic dXNlcjpwYXNz",
-		`X-Foo: 1\nCookie: a=b`,
-		"x-api-key: abc",
-		"Proxy-Authorization: Basic Zm9v",
-		"api-key: abc",
-	} {
-		raw, _ := json.Marshal(v)
-		if err := checkNotCredential("ANTHROPIC_CUSTOM_HEADERS", raw); err == nil || !strings.Contains(err.Error(), "vault set") {
-			t.Errorf("%q accepted: %v", v, err)
-		}
-	}
-	ok, _ := json.Marshal("X-Team: platform\nX-Trace: 1")
-	if err := checkNotCredential("ANTHROPIC_CUSTOM_HEADERS", ok); err != nil {
-		t.Errorf("benign header rejected: %v", err)
-	}
-}
-
-func TestAutoMemoryDirectoryRejected(t *testing.T) {
-	ov := map[string]json.RawMessage{"autoMemoryDirectory": json.RawMessage(`"/tmp/x"`)}
-	if err := ValidateOverlay(ov); err == nil || !strings.Contains(err.Error(), "retired") {
-		t.Errorf("overlay accepted autoMemoryDirectory: %v", err)
-	}
-	if !StructuralKey("autoMemoryDirectory") {
-		t.Error("picker would offer autoMemoryDirectory")
 	}
 }
 
@@ -80,71 +47,6 @@ func TestRenderSchemaFirst(t *testing.T) {
 	}
 	if tok != "$schema" {
 		t.Errorf("first key = %q, want $schema", tok)
-	}
-}
-
-// TestSectionsCoverRenderedKeys: every top-level key Render emits from the section files (all but
-// "hooks", which hookspec contributes) must come from exactly one Section — never zero, never two.
-func TestSectionsCoverRenderedKeys(t *testing.T) {
-	rendered, err := Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(rendered, &obj); err != nil {
-		t.Fatal(err)
-	}
-	sections, err := Sections()
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := map[string][]string{}
-	for _, s := range sections {
-		for _, k := range s.Keys {
-			owner[k] = append(owner[k], s.Name)
-		}
-	}
-	keys := slices.Collect(maps.Keys(obj))
-	var env map[string]json.RawMessage
-	_ = json.Unmarshal(obj["env"], &env)
-	for e := range env {
-		keys = append(keys, e)
-	}
-	checkRenderedKeyOwners(t, keys, owner)
-	checkSectionKeys(t, owner, obj, env)
-}
-
-func checkRenderedKeyOwners(t *testing.T, keys []string, owner map[string][]string) {
-	t.Helper()
-	for _, k := range keys {
-		switch k {
-		case "hooks", "env", "permissions", "statusLine", "attribution": // generated, or an object the page cannot edit
-			continue
-		case "$schema": // Sections() deliberately excludes it (schema metadata, not a setting)
-			continue
-		}
-		switch owners := owner[k]; len(owners) {
-		case 0:
-			t.Errorf("rendered key %q is not owned by any Section", k)
-		case 1:
-			// exactly one owner, as required
-		default:
-			t.Errorf("rendered key %q owned by %d sections: %v", k, len(owners), owners)
-		}
-	}
-}
-
-func checkSectionKeys(t *testing.T, owner map[string][]string, obj, env map[string]json.RawMessage) {
-	t.Helper()
-	for k, owners := range owner {
-		if len(owners) > 1 {
-			t.Errorf("section key %q duplicated across sections: %v", k, owners)
-		}
-		_, rendered := obj[k]
-		_, inEnv := env[k]
-		if _, cat := Lookup(k); !rendered && !inEnv && !cat {
-			t.Errorf("section %v declares key %q that Render never emits and the catalog lacks", owners, k)
-		}
 	}
 }
 

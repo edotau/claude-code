@@ -275,7 +275,7 @@ func reportNested(errw io.Writer, apply bool, tot *sweepTotals) {
 		return
 	}
 	if len(n.Keep) > 0 {
-		fmt.Fprintf(errw, "%-16s kept %s: move %s into defaults/claude/settings.json, make install, re-run\n",
+		fmt.Fprintf(errw, "%-16s kept %s: move %s into ~/.claude/settings.json by hand, re-run\n",
 			"nested-config", n.Dir, strings.Join(n.Keep, ", "))
 		return
 	}

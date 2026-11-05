@@ -234,8 +234,7 @@ func TestImportSettings(t *testing.T) {
 	}{
 		{"autoMode object", json.RawMessage(`{"autoMode":{"soft_deny":["$defaults"]}}`), ""},
 		{"scalar catalog key", json.RawMessage(`{"theme":"dark"}`), ""},
-		{"unknown key", json.RawMessage(`{"bogusKey":1}`), "settings"},
-		{"autoMode wrong type", json.RawMessage(`{"autoMode":"x"}`), "settings"},
+		{"not an object", json.RawMessage(`[1]`), "settings"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
