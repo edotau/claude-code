@@ -379,3 +379,14 @@ func TestParseAgyResponseSurvivesLaterDecodeError(t *testing.T) {
 		t.Fatalf("res = %+v, err = %v; want the decode error with Answer R", res, err)
 	}
 }
+
+// A tool step a pre-tool hook refused ends in ERROR; the answer that follows is a success, not a partial result.
+func TestParseAgyRefusedToolStepIsNotPartial(t *testing.T) {
+	stream := `{"event":"step_update","step_update":{"step_type":"tool","state":"ACTIVE"}}
+{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR"}}
+{"event":"result","result":{"status":"SUCCESS","response":"blocked as asked"}}`
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	if err != nil || res.Answer != "blocked as asked" {
+		t.Fatalf("res.Answer = %q, err = %v; want the answer and no partial error", res.Answer, err)
+	}
+}
