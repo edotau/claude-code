@@ -1,6 +1,10 @@
 package shell
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TestGitCommitAllowedRefusesReuse pins that -c/-C (reuse another commit's message) are refused, clustered or not.
 func TestGitCommitAllowedRefusesReuse(t *testing.T) {
@@ -86,6 +90,44 @@ func TestCommandDashFormsAndPathValues(t *testing.T) {
 		{"git diff --no-ext-diff --no-textconv -Oorderfile", true},
 		{"git grep -eFOO", true},
 		{"git grep -e foo -nO bar", false},
+	}
+	for _, c := range cases {
+		if got := Command(c.cmd, []string{root}, nil); got != c.want {
+			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
+
+// TestCommandRm pins that plain rm admits only existing regular files inside the roots, clear of .git, state and settings.
+func TestCommandRm(t *testing.T) {
+	home, outside := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, ".claude")
+	for _, f := range []string{"a.go", "b.go", "sub/c.go", ".git/config", "state/vault.db", "state/other.txt", "-f", "settings.json", "settings.local.json"} {
+		p := filepath.Join(root, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{"link-out": outside, "link-in": filepath.Join(root, "a.go")} {
+		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"rm a.go", true}, {"rm a.go b.go sub/c.go", true}, {"rm " + filepath.Join(root, "a.go"), true},
+		{"rm", false}, {"rm -f a.go", false}, {"rm -f", false}, {"rm state/other.txt", false}, {"rm -r sub", false}, {"rm -- -rf", false}, {"rm --force a.go", false},
+		{"rm '*.go'", false}, {"rm 'a.?o'", false}, {"rm '~/x'", false}, {"rm ../x.go", false}, {"rm sub/../../x", false},
+		{"rm /etc/passwd", false}, {"rm .git/config", false}, {"rm state/vault.db", false}, {"rm settings.json", false},
+		{"rm settings.local.json", false}, {"rm link-out", false}, {"rm link-in", false}, {"rm link-out/x", false},
+		{"rm sub", false}, {"rm missing.go", false}, {"rm a.go sub", false}, {"rm a.go; rm b.go", true},
+		{"cd sub && rm c.go", false},
 	}
 	for _, c := range cases {
 		if got := Command(c.cmd, []string{root}, nil); got != c.want {
