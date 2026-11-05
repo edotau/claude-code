@@ -21,13 +21,13 @@ per area under `rules/harness/` and `rules/workflows/` (index: `CLAUDE.md` → H
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install                  # build, link agent CLIs into bin/, write settings.json (existing: hooks only), add linters (DEV_TOOLS=0 skips)
+make install                  # build, link agent CLIs into bin/, seed settings.json if missing (never overwritten), add linters (DEV_TOOLS=0 skips)
 claude-code doctor            # check binaries, providers, credentials, proxy
 ```
 
 - `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
   (`CHECK=1` runs `configure --check` instead; `TAILSCALE=1` adds tailscale).
-- `claude-code install --dry-run` previews; foreign hooks in `settings.json` are kept, with a timestamped backup.
+- `claude-code install --dry-run` previews; an existing `settings.json` is kept as yours and only checked for validity.
 - A missing agent CLI is reported, never downloaded. `make agent-clis` installs or updates them all and runs
   `claude-code doctor` (`TOOLS=copilot,codex` picks; `DRY_RUN=1` previews); `claude-code install --tools=<name>` is
   the same without the check. Each vendor installer runs with credentials scrubbed and puts its binary in
@@ -48,10 +48,10 @@ claude-code --resume    # a leading flag passes to claude, on the session provid
 
 ```bash
 claude-code configure                 # interactive menu: providers, logins/keys, models, agents; Submit seals keys
-claude-code configure models          # one page (provider|models|agents|router|github|remote|browser|claude|codex|routing|databricks|doctor)
-claude-code configure claude|codex    # per-machine settings overrides | codex effort and verbosity (vault)
+claude-code configure models          # one page (provider|models|agents|router|github|remote|browser|codex|routing|databricks|doctor)
+claude-code configure codex           # codex effort and verbosity (vault)
 claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code configure --restore [--out f|--check|--dry-run]   # render settings + agent CLI configs
+claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
 claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
 ```
 
@@ -59,7 +59,7 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 - **Claude subscription** keeps Remote Control; **API key** pays per token. For headless runs on a Max plan,
   `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
 - Agent CLI configs are merged, never replaced, with 5 backups per file; details: `rules/harness/agent.md`.
-- From a worktree, render only that checkout:
+- From a worktree, reset only that checkout:
   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"`
   (agent CLI homes are skipped unless `--agents`).
 
@@ -434,7 +434,4 @@ make test                  # full gate, once before pushing (= make audit = CI)
 ```
 
 - `git push` runs the same gate via `.githooks/pre-push`; `--no-verify` bypasses it.
-- `settings.json` is generated: edit `defaults/claude/settings.json` (or `claude-code configure` →
-  "Save to repo defaults"), then `make install`.
-  Install refreshes only `hooks` in an existing `settings.json`; every other key stays yours, and on a
-  terminal it offers to restore the defaults when they differ (`configure --restore` does it any time).
+- `settings.json` is yours (hand-edited, untracked); install never writes an existing one: `rules/harness/settings-management.md`.

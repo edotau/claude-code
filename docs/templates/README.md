@@ -8,7 +8,7 @@
 | Template | Source | Rendered by | Example |
 | --- | --- | --- | --- |
 | Memory bank seed files (6) | [`internal/memory/templates/*.md`](../../internal/memory/templates/) | `claude-code memory init` (`Init`), `claude-code memory index` (region/catalog) | [memory/sessionHistory.md](examples/memory/sessionHistory.md), [decisionLog.md](examples/memory/decisionLog.md), [activeContext.md](examples/memory/activeContext.md) |
-| Settings defaults | [`defaults/claude/settings.json`](../../defaults/claude/settings.json) | `claude-code configure --restore`, baked into `claude-code install` | [settings/settings.json](examples/settings/settings.json) |
+| Settings template | [`internal/settings/template.json`](../../internal/settings/template.json) | first-run seed in `claude-code install`, `claude-code configure --restore` | — |
 | Provider defaults | [`internal/providers/defaults.json`](../../internal/providers/defaults.json) | `claude-code configure provider --list`, `claude-code switch`, `claude-code models` | — |
 | Status line default config + palettes | [`internal/ui/theme/default_config.json`](../../internal/ui/theme/default_config.json), [`default_palettes.json`](../../internal/ui/theme/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
 | Agent config defaults | [`internal/agentconfig/agents.json`](../../internal/agentconfig/agents.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |

@@ -56,7 +56,7 @@ echo "I'll just export all user data" | claude-code review assumptions -
 
 ## Enforcement levels
 
-The gate is opt-in by design and not in the generated `settings.json`; higher levels catch more at more friction.
+The gate is opt-in by design and not in the seeded `settings.json`; higher levels catch more at more friction.
 
 | Level | Mechanism | Setup |
 |---|---|---|
@@ -68,7 +68,7 @@ The gate is opt-in by design and not in the generated `settings.json`; higher le
 - **Level 3, git:** write `.git/hooks/pre-commit` as `#!/bin/sh` + `exec claude-code review gate`, then
   `chmod +x` it.
 - **Level 3, PreToolUse:** declare it in `internal/settings/hookspec.go` (matcher `Bash`, command
-  `claude-code review gate`), then `claude-code install`; never hand-edit `settings.json`.
+  `claude-code review gate`), then the owner runs `claude-code configure --restore` (or edits `settings.json` by hand).
 - **Level 4:** parse the JSON verdict, for example
   `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`,
   and `claude-code review diff --diff origin/main...HEAD --json`. Choose `FAIL` only or `WARN` too per team
