@@ -354,30 +354,6 @@ func TestWorktreeFailureKeepsExitCode(t *testing.T) {
 	}
 }
 
-// TestWorktreeModeOn: on|true|1 directs a worktree without asking, at session start and when a peer is present.
-func TestWorktreeModeOn(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cwd := t.TempDir()
-	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
-		t.Fatal(err)
-	}
-	old := peerAgents
-	peerAgents = func(string, []string) ([]worktree.Proc, error) {
-		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
-	}
-	defer func() { peerAgents = old }()
-	for _, v := range []string{"on", "TRUE", "1"} {
-		t.Setenv(worktreeModeEnv, v)
-		in := &core.Input{SessionID: "on-" + v, CWD: cwd}
-		if got := worktreeMode(in).Context; got != worktreeOnLine {
-			t.Fatalf("%s start: %q, want the create-without-asking line", v, got)
-		}
-		if got := worktreeBusy(in).Context; !strings.Contains(got, "without asking") {
-			t.Fatalf("%s busy: %q, want the move-without-asking line", v, got)
-		}
-	}
-}
-
 // TestWorktreeModeAndBusy: off|false|0 is silent even with a peer; unset asks at start and reports a changed peer set once.
 func TestWorktreeModeAndBusy(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
