@@ -103,6 +103,24 @@ func refreshServed() {
 	}
 }
 
+// preflightRefresh re-lists stale served-endpoint caches within the preflight budget, silently.
+func preflightRefresh(reg *providers.Registry) {
+	now := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
+	defer cancel()
+	preflight.RefreshStale(ctx, reg, preflight.Check(reg, now), now, false)
+}
+
+// preflightLive runs the post-install pong round against the running binary.
+func preflightLive(reg *providers.Registry) int {
+	bin, err := os.Executable()
+	if err != nil {
+		return helptext.Fail("preflight: %v", err)
+	}
+	preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
+	return 0
+}
+
 // cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func cmdPreflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
@@ -130,19 +148,11 @@ func cmdPreflight(args []string) int {
 		return helptext.Fail("preflight: %v", err)
 	}
 	if *refresh {
-		now := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
-		defer cancel()
-		preflight.RefreshStale(ctx, reg, preflight.Check(reg, now), now, false)
+		preflightRefresh(reg)
 		return 0
 	}
 	if *live {
-		bin, err := os.Executable()
-		if err != nil {
-			return helptext.Fail("preflight: %v", err)
-		}
-		preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
-		return 0
+		return preflightLive(reg)
 	}
 	for _, p := range preflight.Check(reg, time.Now()) {
 		fmt.Printf("%-8s %-9s %s\n", p.Agent, p.Status, p.Line())
