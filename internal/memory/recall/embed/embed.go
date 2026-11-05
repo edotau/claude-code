@@ -36,7 +36,7 @@ const (
 	embedMaxRows   = 4000
 	embedBodyLimit = 32 << 20
 	embedCachePre  = "embeddings-"
-	embedBackoff   = 5 * time.Minute // after a failed query, keyword-only for this long
+	embedBackoff   = time.Minute // after a failed query, keyword-only for this long
 )
 
 // embedRecallWait is the hard budget for the per-prompt embedding, credential included; tests shorten it.
