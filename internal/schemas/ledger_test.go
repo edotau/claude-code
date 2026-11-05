@@ -60,6 +60,8 @@ var writers = map[string]string{
 	"internal/databricks/export.go:mergeInto":                         unversioned("foreign: export --merge into ~/.databrickscfg"),
 	"internal/databricks/export.go:writeFile0600":                     unversioned("foreign: -o export output"),
 	"internal/desktop/transaction.go:restoreFile":                     "desktop-state",
+	"internal/codex/permissions.go:codexRulesHome":                    unversioned("foreign: per-dispatch CODEX_HOME rules dir and execpolicy file, removed after the run"),
+	"internal/codex/permissions.go:linkHome":                          unversioned("foreign: per-dispatch CODEX_HOME symlinks into the user's ~/.codex"),
 	"internal/codex/settings.go:applyCodexRestore":                    unversioned("foreign: codex config.toml revert in the vendor home"),
 	"internal/codex/settings.go:writeCodexConfigLocked":               unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agentconfig/render/render.go:CommitOverlayFile":         unversioned("foreign: generated vendor overlay, vendor-owned shape"),
