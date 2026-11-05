@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -182,4 +183,19 @@ func emitOpenCodeTool(sink agent.Sink, ev openCodeEvent, seen map[string]bool) e
 		return sink.Emit(agent.Event{Type: agent.EventToolResult, Tool: &agent.ToolRef{Name: p.Tool, ID: p.CallID}, Status: p.State.Status})
 	}
 	return nil
+}
+
+// toolCallMarkupRE matches tool-call markup a model writes as text when it has no tools to call.
+var toolCallMarkupRE = regexp.MustCompile(`(?s)<(invoke|function_calls|antml:invoke)\b.*?(</(invoke|function_calls|antml:invoke)>|$)|\b_?tool_use\b`)
+
+// refuseToolCallText fails a tools-off run whose whole answer is tool-call markup: the model tried to act, nothing ran.
+func refuseToolCallText(name string, req agent.RunOptions, answer string) error {
+	if (req.Tools && !req.ReadOnly) || !toolCallMarkupRE.MatchString(answer) {
+		return nil
+	}
+	if rest := strings.TrimSpace(toolCallMarkupRE.ReplaceAllString(answer, "")); len(rest) > 40 {
+		return nil // prose around the markup is a real answer that quotes it
+	}
+	return &agent.Error{Kind: agent.KindFatal, Agent: name, Err: errors.New(
+		"the model answered with tool calls, but tools are off so none ran; re-run with --tools or use another agent")}
 }
