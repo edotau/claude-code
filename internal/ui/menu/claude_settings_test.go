@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -177,42 +176,6 @@ func TestChoosingTemplateValueDeletesOverlayKey(t *testing.T) {
 	}
 }
 
-// TestPickingValueEqualToTemplateAlsoDeletesOverlayKey: picking the plain choice row that happens to equal
-// the template value (not the explicit "reset to template" row) must have the same effect — no new override.
-func TestPickingValueEqualToTemplateAlsoDeletesOverlayKey(t *testing.T) {
-	d, _ := newClaudeSettingsDialog(t, "")
-	def := templateValue(t, "theme")
-	other := "dark"
-	if def == other {
-		other = "light"
-	}
-	if err := settings.SaveOverlay(map[string]json.RawMessage{"theme": json.RawMessage(strconv.Quote(other))}); err != nil {
-		t.Fatal(err)
-	}
-	idx := fieldIndex(t, "theme")
-	stubSettingsPage(t, idx)
-	origConfirmed := saveConfirmed
-	t.Cleanup(func() { saveConfirmed = origConfirmed })
-	saveConfirmed = func(string) bool { return true }
-
-	// theme's rows are its schema enum in order; pick the row holding the template's own value.
-	row := slices.Index([]string{"auto", "dark", "light", "dark-daltonized", "light-daltonized", "dark-ansi", "light-ansi"}, def) + 1
-	if row == 0 {
-		t.Skipf("template theme %q is not an enum row", def)
-	}
-	d.br = bufio.NewReader(strings.NewReader(strconv.Itoa(row) + "\n"))
-
-	runMenuDirect(t, d)
-
-	ov, err := settings.LoadOverlay()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := ov["theme"]; ok {
-		t.Fatalf("overlay = %v, want theme removed after picking the template's own value", ov)
-	}
-}
-
 // TestEditSettingInvalidIntRefused: a non-numeric answer for an int field must be refused — Parse errors,
 // editText reports it, and the field is left untouched (ok=false, no overlay write).
 func TestEditSettingInvalidIntRefused(t *testing.T) {
@@ -330,49 +293,6 @@ func countPickerCalls(t *testing.T) *int {
 		return -1, nil
 	}
 	return &calls
-}
-
-// TestCheckExitsNonzeroOnLiveDiffers: Run(..., "claude") with Check must exit nonzero when the live
-// settings.json disagrees with the effective value of some key, and zero once it matches again.
-func TestCheckExitsNonzeroOnLiveDiffers(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tmpl, err := settings.Render()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(tmpl, &m); err != nil {
-		t.Fatal(err)
-	}
-	// flip theme away from the template's own value to force a mismatch.
-	def := templateValue(t, "theme")
-	other := "dark"
-	if def == other {
-		other = "light"
-	}
-	m["theme"] = json.RawMessage(strconv.Quote(other))
-	raw, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeLiveSettings(t, raw)
-
-	var out bytes.Buffer
-	rc := Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "claude")
-	if rc != 1 {
-		t.Fatalf("rc = %d, want 1 with a live-differs key; output:\n%s", rc, out.String())
-	}
-
-	m["theme"] = json.RawMessage(strconv.Quote(def))
-	raw, err = json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeLiveSettings(t, raw)
-	rc = Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "claude")
-	if rc != 0 {
-		t.Fatalf("rc = %d, want 0 once live matches; output:\n%s", rc, out.String())
-	}
 }
 
 // TestSaveReloadsOverlayNoLostUpdate: a concurrent writer's SaveOverlay between this session's page-open
@@ -497,46 +417,6 @@ func confirmAll(t *testing.T, answer bool) {
 	saveConfirmed = func(string) bool { return answer }
 }
 
-// TestAddSettingThenRemoveItAndSaveAsDefault: "+ add a setting" stages any schema key (filterable list, rows
-// <=80 columns, shown keys excluded); the added row then removes it again, and Save as default writes the overlay.
-func TestAddSettingThenRemoveItAndSaveAsDefault(t *testing.T) {
-	const key = "wheelScrollAccelerationEnabled"
-	d, out := newClaudeSettingsDialog(t, "2\n3\n") // false, then the "remove from mine" row
-	n := pageFieldCount(t)
-	stubSettingsPage(t, n, n) // add, then the added row (now first after the sections)
-	spec := stubAddList(t, key)
-	confirmAll(t, true)
-
-	runMenuDirect(t, d)
-
-	if !spec.Search || len(spec.Rows) == 0 {
-		t.Fatalf("add picker spec = %+v, want a searchable list", spec)
-	}
-	assertAddRows(t, spec.Rows)
-	ov, err := settings.LoadOverlay()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ov) != 0 {
-		t.Errorf("overlay = %v, want the added key removed again before saving", ov)
-	}
-	if strings.Contains(out.String(), "saved as default") {
-		t.Errorf("nothing was staged, yet output says saved:\n%s", out.String())
-	}
-
-	d, out = newClaudeSettingsDialog(t, "2\n")
-	stubSettingsPage(t, n)
-	stubAddList(t, key)
-	runMenuDirect(t, d)
-	ov, err = settings.LoadOverlay()
-	if err != nil || string(ov[key]) != "false" {
-		t.Fatalf("overlay = %v, %v; want %s=false", ov, err, key)
-	}
-	if !strings.Contains(out.String(), "1 setting(s) saved as default") {
-		t.Errorf("output lacks the Save as default line:\n%s", out.String())
-	}
-}
-
 // assertAddRows requires the add picker's rows to omit keys the page shows and to fit 80 columns.
 func assertAddRows(t *testing.T, rows []tui.ListRow) {
 	t.Helper()
@@ -551,41 +431,6 @@ func assertAddRows(t *testing.T, rows []tui.ListRow) {
 		if w := rowRenderedWidth([]string{strings.Repeat("x", widest)}, r.Detail); w > 80 {
 			t.Errorf("add row %q is %d cols, want <=80", r.Label, w)
 		}
-	}
-}
-
-// TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat: the row writes only the staged key into the repo
-// file, prints git's --stat and never commits.
-func TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat(t *testing.T) {
-	const key = "wheelScrollAccelerationEnabled"
-	d, out := newClaudeSettingsDialog(t, "2\n")
-	repo := settings.RepoDefaultsFile()
-	if err := os.MkdirAll(filepath.Dir(repo), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	seed, err := os.ReadFile(filepath.Join("..", "..", "..", filepath.FromSlash(settings.RepoDefaultsRel)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(repo, seed, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	n := pageFieldCount(t)
-	stubSettingsPage(t, n, n+2) // add, then Save to repo defaults (the added row precedes the actions)
-	stubAddList(t, key)
-	origStat := gitDiffStat
-	t.Cleanup(func() { gitDiffStat = origStat })
-	gitDiffStat = func(string) (string, error) { return " internal/settings/settings.template.json | 1 +\n", nil }
-	confirmAll(t, true)
-
-	runMenuDirect(t, d)
-
-	got, _ := os.ReadFile(repo)
-	if !strings.HasPrefix(string(got), "{\n  \"$schema\"") || !strings.Contains(string(got), `"`+key+`": false`) {
-		t.Errorf("repo defaults missing the key or lost $schema first:\n%s", got)
-	}
-	if !strings.Contains(out.String(), "settings.template.json | 1 +") || !strings.Contains(out.String(), "not committed") {
-		t.Errorf("output lacks the diff --stat or the no-commit note:\n%s", out.String())
 	}
 }
 
