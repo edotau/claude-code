@@ -363,6 +363,7 @@ var errConfigLocation = errors.New("an agent config, permission or routing setti
 func configLocationName(up string) bool {
 	switch up {
 	case "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_TUI_CONFIG", "COPILOT_PROVIDERS_CONFIG", "COPILOT_HOME",
+		"COPILOT_ALLOW_ALL", "COPILOT_ASSISTED_APPROVAL", "COPILOT_CUSTOM_INSTRUCTIONS_DIRS",
 		"COPILOT_API_URL", "COPILOT_GH_HOST", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "ANTHROPIC_CUSTOM_HEADERS",
 		"XDG_CONFIG_HOME", "GEMINI_CLI_HOME":
 		return true
