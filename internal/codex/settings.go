@@ -231,40 +231,31 @@ func codexBasicString(value string) (parsed, rest string, err error) {
 	return parsed, value[len(quoted):], nil
 }
 
-// CodexSettingsDrift includes stale managed keys whose override was removed from the vault.
-func CodexSettingsDrift(home string) (bool, error) {
-	path, err := paths.CodexConfigPath(home)
-	if err != nil {
-		return false, err
+// settingsPatch locates codex's config.toml and returns its current bytes with the saved preferences applied as next.
+func settingsPatch(home string) (path string, old []byte, next string, existed bool, err error) {
+	if path, err = paths.CodexConfigPath(home); err != nil {
+		return "", nil, "", false, err
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, err
+	if old, existed, err = render.ReadExisting(path); err != nil {
+		return "", nil, "", false, err
 	}
 	overlay, err := LoadCodexOverlay()
 	if err != nil {
-		return false, err
+		return "", nil, "", false, err
 	}
-	next, err := patchCodexSettings(string(raw), overlay)
-	return !bytes.Equal(raw, []byte(next)), err
+	next, err = patchCodexSettings(string(old), overlay)
+	return path, old, next, existed, err
+}
+
+// CodexSettingsDrift includes stale managed keys whose override was removed from the vault.
+func CodexSettingsDrift(home string) (bool, error) {
+	_, old, next, _, err := settingsPatch(home)
+	return !bytes.Equal(old, []byte(next)), err
 }
 
 // ApplyCodexSettings applies only saved preferences, leaving provider generation and other agents alone.
 func ApplyCodexSettings(home string) error {
-	path, err := paths.CodexConfigPath(home)
-	if err != nil {
-		return err
-	}
-	old, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	existed := err == nil
-	overlay, err := LoadCodexOverlay()
-	if err != nil {
-		return err
-	}
-	next, err := patchCodexSettings(string(old), overlay)
+	path, old, next, existed, err := settingsPatch(home)
 	if err != nil || bytes.Equal(old, []byte(next)) {
 		return err
 	}
