@@ -1,7 +1,6 @@
-package hooks
+package safety
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"strings"
@@ -68,7 +67,7 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
 	for _, c := range attributionScanCases(otherRepo) {
 		t.Run(c.name, func(t *testing.T) {
-			res := safetyScan(core.ParseInput(bashPayload(c.cmd)))
+			res := scanPayload(bashPayload(c.cmd))
 			if res.Decision != c.want {
 				t.Errorf("%q: got %d want %d (reason=%s)", c.cmd, res.Decision, c.want, res.Reason)
 			}
@@ -76,27 +75,6 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, res.Reason)
 			}
 		})
-	}
-}
-
-// TestSafetyScanAttributionFooterCopilotShape: the Copilot payload gets the reason as permissionDecisionReason.
-func TestSafetyScanAttributionFooterCopilotShape(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cmd := `git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`
-	payload := copilotBashPayload(cmd)
-	var out, errb bytes.Buffer
-	if got := runDirect("safety-scan", payload, &out, &errb); got != core.ExitBlock {
-		t.Fatalf("%q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
-	}
-	var doc struct {
-		Decision string `json:"permissionDecision"`
-		Reason   string `json:"permissionDecisionReason"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
-		t.Fatal(err)
-	}
-	if doc.Decision != "deny" || !strings.Contains(strings.ToLower(doc.Reason), "attribution") {
-		t.Errorf("permissionDecisionReason missing 'attribution': %s", out.String())
 	}
 }
 

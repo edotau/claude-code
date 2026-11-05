@@ -1,4 +1,5 @@
-package hooks
+// Package safety is the command-safety hook area: safety-scan, the rtk rewrite and the copilot-bash guard.
+package safety
 
 import (
 	"fmt"
@@ -88,8 +89,8 @@ var softWarn = core.LazyCompile(
 	`git\s+clean\s+-[a-z]*f`,
 )
 
-// safetyScan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
-func safetyScan(in *core.Input) core.Result {
+// Scan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
+func Scan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {

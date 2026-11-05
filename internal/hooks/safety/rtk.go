@@ -1,5 +1,5 @@
 // The rtk hook routes eligible Bash commands through the rtk output compressor.
-package hooks
+package safety
 
 import (
 	"errors"
@@ -14,11 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/shellscope"
 )
-
-// rtkBinaryEnv overrides the proxy binary. Exists for tests, which cannot rely on rtk being
-// installed; a real override is also useful for a wrapper script or a pinned path.
-const rtkBinaryEnv = "HARNESS_RTK_BIN"
 
 // rtkMachineReadable are flags whose whole point is exact, parseable output. Compressing those
 // breaks every downstream parser — this harness's own gates read `git status --porcelain`, and
@@ -39,17 +36,17 @@ var rtkValueSubcommands = map[string]bool{
 	"check-ignore": true, "check-attr": true, "count-objects": true,
 }
 
-// rtkRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
+// RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
-func rtkRewrite(in *core.Input) core.Result {
+func RTKRewrite(in *core.Input) core.Result {
 	if !rtkApplies(in) {
 		return core.Result{}
 	}
 	cmd := in.ToolCommand()
-	if rtkVetoed(cmd, in.CWD, os.Getenv(rtkBinaryEnv)) {
+	if rtkVetoed(cmd, in.CWD, os.Getenv(shellscope.RTKBinaryEnv)) {
 		return core.Result{}
 	}
-	bin := rtkBinary()
+	bin := shellscope.RTKBinary()
 	if bin == "" {
 		return core.Result{}
 	}
@@ -215,27 +212,6 @@ func rtkAbsDir(d, cwd string) (string, bool) {
 		return "", false
 	}
 	return filepath.Join(cwd, d), true
-}
-
-// RTKBinary reports the resolved rtk binary for the CLI's status line, or "".
-func RTKBinary() string { return rtkBinary() }
-
-// rtkBinary returns the absolute proxy binary to invoke, or "" when it is not available. Absence is the
-// normal case on a machine without rtk and must degrade to a no-op, never an error.
-func rtkBinary() string {
-	candidates := []string{filepath.Join(paths.BinDir(), "rtk"), "rtk"} // the pinned install first, then PATH
-	if name := os.Getenv(rtkBinaryEnv); name != "" {
-		candidates = []string{name}
-	}
-	for _, name := range candidates {
-		if path, err := exec.LookPath(name); err == nil {
-			if abs, err := filepath.Abs(path); err == nil {
-				return abs
-			}
-			return path
-		}
-	}
-	return ""
 }
 
 // gitRTKGlobalValueFlags are git's own options that CONSUME the next argument. Their values must not

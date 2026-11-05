@@ -1,4 +1,4 @@
-package hooks
+package safety
 
 import (
 	"encoding/json"
@@ -138,7 +138,7 @@ func TestRewriteGuard(t *testing.T) {
 			rewriteSetup(t, c, dirs)
 			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": dirs[c.cwd],
 				"agent_id": c.agentID, "tool_input": map[string]string{"command": c.cmd}})
-			r := safetyScan(core.ParseInput(strings.NewReader(string(payload))))
+			r := Scan(core.ParseInput(strings.NewReader(string(payload))))
 			if got := r.Reason + r.Stderr; r.Decision != c.want || !strings.Contains(got, c.text) {
 				t.Fatalf("decision %v, want %v containing %q:\n%s", r.Decision, c.want, c.text, got)
 			}
