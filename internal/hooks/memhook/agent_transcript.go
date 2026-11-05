@@ -17,7 +17,7 @@ type AgentTranscript struct {
 
 var opencodeEditTools = map[string]bool{"write": true, "edit": true, "patch": true, "multiedit": true}
 
-// copilotEditTools are Copilot CLI editor tool names; unverified against a live event log.
+// copilotEditTools are Copilot CLI editor tool names; create and edit verified live (1.0.105), the rest are guesses.
 var copilotEditTools = map[string]bool{"edit": true, "create": true, "write": true, "str_replace_editor": true, "apply_patch": true}
 
 // pathBuilder dedups edited paths while counting every edit call.

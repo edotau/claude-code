@@ -145,7 +145,7 @@ var Registry = []Group{
 	}},
 	{Name: "format", Events: []EventSpec{
 		// Formats files dirty in git that this session wrote; a repo with its own pre-commit switches the group off.
-		{Name: "format-stop", Event: EventStop, Budget: 30 * sec, Hosted: []string{"opencode"}},
+		{Name: "format-stop", Event: EventStop, Budget: 30 * sec, Agents: []string{"copilot"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "review", Events: []EventSpec{
 		// Advisory comment, complexity and smell findings an edit just introduced, fed back to the model.
