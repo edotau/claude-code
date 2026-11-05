@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
@@ -118,14 +117,6 @@ func Mode(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	return core.Result{Context: worktreeAskLine}
-}
-
-// NestedConfigSweep runs on SessionStart: removes the nested settings.local.json; a failure is a stderr note only.
-func NestedConfigSweep(*core.Input) core.Result {
-	if _, err := clean.SweepNestedLocal(); err != nil {
-		return core.Result{Stderr: "nested-config-sweep: " + err.Error()}
-	}
-	return core.Result{}
 }
 
 // Busy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.

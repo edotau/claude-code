@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -452,46 +451,6 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 	Run(nil, &out, &errw)
 	if !exists(t, gitFile) {
 		t.Error("--apply removed a linked worktree's .git pointer")
-	}
-}
-
-// TestSweepNestedLocal: the "always allow" file goes at any content; worktrees and a real settings leak stay.
-func TestSweepNestedLocal(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	write(t, filepath.Join(dir, "settings.json"), `{"outputStyle": "Concise"}`)
-	nested := filepath.Join(dir, ".claude")
-	local := filepath.Join(nested, NestedLocal)
-	write(t, local, `{"permissions": {"allow": ["Bash(docker info *)"]}}`)
-	gitFile := filepath.Join(nested, "worktrees", "x", ".git")
-	write(t, gitFile, "gitdir: /elsewhere/.git/worktrees/x")
-	leak := filepath.Join(nested, "settings.json")
-	write(t, leak, `{"prefersReducedMotion": true}`)
-
-	if removed, err := SweepNestedLocal(); err != nil || !removed {
-		t.Fatalf("SweepNestedLocal = %v, %v; want removed", removed, err)
-	}
-	if exists(t, local) {
-		t.Error("settings.local.json survived the sweep")
-	}
-	if !exists(t, gitFile) || !exists(t, leak) {
-		t.Error("sweep removed a worktree or the nested settings.json")
-	}
-	if n := NestedConfig(); !slices.Contains(n.Keep, "settings.json:prefersReducedMotion") {
-		t.Errorf("nested settings.json leak no longer flagged: %v", n.Keep)
-	}
-
-	os.RemoveAll(filepath.Join(nested, "worktrees"))
-	os.Remove(leak)
-	write(t, local, `{"permissions": {"allow": ["Bash(docker info *)"]}}`)
-	if n := NestedConfig(); len(n.Keep) != 0 {
-		t.Errorf("settings.local.json kept by clean: %v", n.Keep)
-	}
-	if _, err := SweepNestedLocal(); err != nil || exists(t, nested) {
-		t.Errorf("emptied nested dir not removed (err %v)", err)
-	}
-	if removed, err := SweepNestedLocal(); err != nil || removed {
-		t.Errorf("sweep with no nested dir = %v, %v; want false, nil", removed, err)
 	}
 }
 

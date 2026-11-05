@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -600,22 +599,6 @@ func nestedKeepReasons(dir string, e os.DirEntry, user map[string]any) []string 
 		}
 	}
 	return keep
-}
-
-// SweepNestedLocal deletes the nested settings.local.json, then the nested dir if that left it empty.
-func SweepNestedLocal() (bool, error) {
-	dir := filepath.Join(paths.ConfigDir(), ".claude")
-	err := os.Remove(filepath.Join(dir, NestedLocal))
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if ents, rerr := os.ReadDir(dir); rerr == nil && len(ents) == 0 {
-		_ = os.Remove(dir) // a peer may refill it; non-empty is fine
-	}
-	return true, nil
 }
 
 // readJSON returns a file's top-level object, or nil when it is missing or not an object.
