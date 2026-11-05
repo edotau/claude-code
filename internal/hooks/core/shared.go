@@ -38,6 +38,15 @@ func UnderDir(dir, path string) bool {
 	return dir != "" && (path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)))
 }
 
+// RelWithin is abs relative to root; false when abs escapes root.
+func RelWithin(root, abs string) (string, bool) {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
+}
+
 // NestedIn keeps the worktree paths inside top: the peer scan skips those, never the tree that holds top.
 func NestedIn(top string, worktrees []string) []string {
 	var out []string

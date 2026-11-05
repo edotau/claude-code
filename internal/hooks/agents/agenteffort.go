@@ -327,14 +327,14 @@ func labelModel(updated map[string]any, st, task string) string {
 	if alias == "" {
 		alias = rosterModel(st)
 	}
-	names := briefAgents(task)
-	if len(names) == 0 || names[len(names)-1] == "claude" && briefProfile(task) == "" {
+	names, p := briefAgents(task), briefProfile(task)
+	if len(names) == 0 || names[len(names)-1] == "claude" && p == "" {
 		return alias
 	}
 	if !slices.Contains(models.AliasNames, alias) {
 		alias = models.Sonnet
 	}
-	if p := briefProfile(task); p != "" {
+	if p != "" {
 		return labelProfileModel(p, alias)
 	}
 	return labelCell(names[len(names)-1], alias)

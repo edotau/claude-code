@@ -78,12 +78,17 @@ func Remove(in *core.Input, stderr io.Writer) int {
 		_, derr := proc.RunGit(ctx, main, "branch", "-d", b)
 		branchDeleted = derr == nil
 	}
+	closeRemoved(main, path, strings.TrimSpace(head), branchDeleted, stderr)
+	return core.ExitProceed
+}
+
+// closeRemoved records the removal in the worktree ledger; a failed write only warns.
+func closeRemoved(main, path, head string, branchDeleted bool, stderr io.Writer) {
 	if err := worktree.CloseLedger(main, filepath.Base(filepath.Clean(path)), worktree.LedgerClose{
-		Via: "remove", Head: strings.TrimSpace(head), BranchDeleted: branchDeleted,
+		Via: "remove", Head: head, BranchDeleted: branchDeleted,
 	}); err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: warning: ledger: %v\n", err)
 	}
-	return core.ExitProceed
 }
 
 // worktreeModeEnv selects the mode: off|false|0 never asks; unset or anything else asks (session start, new peer).

@@ -222,9 +222,6 @@ func isIgnored(ctx context.Context, root, rel string) (bool, error) {
 
 // repoRel is abs as a repo-relative slash path; false when abs escapes root.
 func repoRel(root, abs string) (string, bool) {
-	rel, err := filepath.Rel(root, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return filepath.ToSlash(rel), true
+	rel, ok := core.RelWithin(root, abs)
+	return filepath.ToSlash(rel), ok
 }
