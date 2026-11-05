@@ -122,13 +122,8 @@ func TestScopedShellUsesRequestCwd(t *testing.T) {
 	}
 }
 
-func TestHeadlessScopedFlags(t *testing.T) {
-	has := slices.Contains[[]string]
-	scoped := copilotHeadless(&agent.Headless{Tools: true})
-	if has(scoped, "--allow-all-tools") || !has(scoped, "--deny-tool=shell(git push:*)") || !has(scoped, "--disallow-temp-dir") {
-		t.Errorf("scoped argv = %v", scoped)
-	}
-	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !has(auto, "--allow-all-tools") {
+func TestHeadlessAutonomousFlags(t *testing.T) {
+	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !slices.Contains(auto, "--allow-all-tools") {
 		t.Errorf("autonomous argv = %v", auto)
 	}
 }

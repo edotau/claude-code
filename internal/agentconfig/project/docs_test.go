@@ -43,9 +43,6 @@ func TestPortableCoreExcludesScopedIncludesStandardOnce(t *testing.T) {
 			t.Errorf("got[%d]=%s, want %s", i, got[i], w)
 		}
 	}
-	if !strings.Contains(CoreProvenance(got), got[2]) {
-		t.Errorf("provenance misses a source: %s", CoreProvenance(got))
-	}
 	out, _, err := renderDocs(root, nil)
 	if err != nil {
 		t.Fatal(err)

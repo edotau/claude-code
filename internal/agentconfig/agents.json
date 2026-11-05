@@ -29,8 +29,7 @@
             {
               "commands": ["rm"],
               "check": "regularFiles",
-              "summary": "rm <regular files inside the roots> (no flags, globs, symlinks, .git, state or settings files)",
-              "cliAllow": []
+              "summary": "rm <regular files inside the roots> (no flags, globs, symlinks, .git, state or settings files)"
             },
             {"commands": ["gofmt"], "argsInside": true},
             {"commands": ["goimports"], "argsInside": true},
@@ -38,11 +37,7 @@
             {
               "commands": ["git"],
               "check": "scopedGit",
-              "summary": "read-only git (git diff|log|show must start --no-ext-diff --no-textconv), git add <paths>, git commit (no --amend, --no-verify, -n, -c/-C)",
-              "cliAllow": [
-                "git status", "git diff", "git log", "git show", "git blame", "git grep", "git rev-parse", "git branch --list",
-                "git add", "git commit"
-              ]
+              "summary": "read-only git (git diff|log|show must start --no-ext-diff --no-textconv), git add <paths>, git commit (no --amend, --no-verify, -n, -c/-C)"
             },
             {
               "commands": ["ls", "cat", "head", "tail", "wc", "grep", "rg"],
@@ -64,11 +59,6 @@
           ],
           "hookExtras": [
             {"commands": ["claude-code"], "subcommands": ["copilot", "worktree merge"]}
-          ],
-          "cliDeny": [
-            "git push", "git reset", "git checkout", "git restore", "git stash", "git rebase", "git clean",
-            "git add -A", "git add --all", "git add .", "git commit --amend", "git commit --no-verify",
-            "rm", "sudo", "chmod", "chown", "curl", "wget", "find -delete", "find -exec"
           ]
         }
       },

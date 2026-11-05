@@ -44,11 +44,6 @@ func PortableCore(root string) ([]string, error) {
 	return paths, nil
 }
 
-// CoreProvenance is the header line naming every portable-core source.
-func CoreProvenance(paths []string) string {
-	return "<!-- sources: " + strings.Join(paths, ", ") + " -->"
-}
-
 type standard struct{ path, body string }
 
 // unscopedStandards reads rules/standards/*.md without `paths:` frontmatter, sorted; a read failure names the file.
