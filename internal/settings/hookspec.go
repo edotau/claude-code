@@ -304,18 +304,21 @@ func HookModules() string {
 // SpecsFor lists the specs agentName runs on a surface: native, sdk, hosted or plugin; unknown combinations are nil.
 func SpecsFor(agentName, surface string) []EventSpec {
 	var out []EventSpec
-	for _, s := range Specs() {
-		if specApplies(s, agentName, surface) {
-			out = append(out, s)
+	for _, g := range Registry {
+		for _, s := range g.Events {
+			if specApplies(s, g.AgentOnly, agentName, surface) {
+				out = append(out, s)
+			}
 		}
 	}
 	return out
 }
 
-func specApplies(s EventSpec, agentName, surface string) bool {
+// specApplies reports whether s runs for agentName on surface; claude skips AgentOnly groups, like Events.
+func specApplies(s EventSpec, agentOnly bool, agentName, surface string) bool {
 	switch surface {
 	case "native":
-		return agentName == "claude" && s.Group != "codex" || slices.Contains(s.Agents, agentName)
+		return agentName == "claude" && !agentOnly || slices.Contains(s.Agents, agentName)
 	case "sdk":
 		return agentName == "copilot" && slices.Contains(s.Agents, agentName)
 	case "hosted":
