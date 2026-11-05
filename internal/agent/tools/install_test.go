@@ -593,3 +593,38 @@ func TestInstallClaudeScienceDarwinRefusesForeignSigner(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallAgyDryRunPassesDir(t *testing.T) {
+	setupToolsTestEnv(t)
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	if err := installAgy(context.Background(), &buf, dir, true); err != nil {
+		t.Fatal(err)
+	}
+	if want := agyInstallScriptURL + " [--dir " + dir + "]"; !strings.Contains(buf.String(), want) {
+		t.Errorf("output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestInstallTailscaleDryRunPerOS(t *testing.T) {
+	setupToolsTestEnv(t)
+	old := goosOverride
+	t.Cleanup(func() { goosOverride = old })
+	for goos, want := range map[string]string{
+		"darwin": "brew install --cask tailscale-app",
+		"linux":  tailscaleInstallScript,
+	} {
+		goosOverride = goos
+		var buf bytes.Buffer
+		if err := installTailscale(context.Background(), &buf, t.TempDir(), true); err != nil {
+			t.Fatalf("%s: %v", goos, err)
+		}
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("%s output = %q, want %q", goos, buf.String(), want)
+		}
+	}
+	goosOverride = "windows"
+	if err := installTailscale(context.Background(), &bytes.Buffer{}, "", true); err == nil || !strings.Contains(err.Error(), "tailscale.com/download") {
+		t.Errorf("windows err = %v, want download URL", err)
+	}
+}
