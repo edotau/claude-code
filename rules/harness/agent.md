@@ -90,8 +90,8 @@ paths:
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
   runs it from the harness plugin's `tool.execute.before` (headless and TUI; refused only under `--safe-mode`, which
   loads no plugin), codex and agy as a native PreToolUse hook. Hook modes: `hooks.md` → Applicability. A live codex or
-  agy home picks up the hook only after the owner runs `configure --restore --agents --agent codex|gemini` (it also
-  restores `settings.json`); until then those agents keep refusing a Bash deny.
+  agy home picks up the hook only after the owner runs `configure --restore --agents --agent codex` (or `gemini`),
+  which re-renders only that agent's config; until then those agents keep refusing a Bash deny.
 
 ## Codex child routing
 
