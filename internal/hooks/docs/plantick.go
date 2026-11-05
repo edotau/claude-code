@@ -67,7 +67,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return nil
 	}
-	plan, tied := plans.Select(plans.Home(top), worktree, MirrorDests(), []plans.Commit{{Sha: sha, Files: files}})
+	plan, tied := plans.Select(plans.Home(top), worktree, plans.MirrorDests(), []plans.Commit{{Sha: sha, Files: files}})
 	if plan == "" {
 		if len(tied) > 0 {
 			fmt.Fprintf(stderr, "plan-tick: %d plans match %s equally; nothing annotated\n", len(tied), sha)
@@ -141,7 +141,7 @@ func commitCandidates(cwd, cmd string) []string {
 
 // recordPartials appends "<path>\\t<plan>: <task>" lines for the Stop reminder.
 func recordPartials(session, plan, planPath string, tasks []string, stderr io.Writer) {
-	if err := os.MkdirAll(plansScratchDir(), 0o700); err != nil {
+	if err := os.MkdirAll(plans.ScratchDir(), 0o700); err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return
 	}
@@ -221,7 +221,7 @@ func activePlan(cwd string) (plan, worktreeName string, ok bool) {
 		return "", "", false
 	}
 	worktreeName = plans.WorktreeName(top)
-	plan, ok = plans.Active(plans.Home(top), worktreeName, MirrorDests())
+	plan, ok = plans.Active(plans.Home(top), worktreeName, plans.MirrorDests())
 	return plan, worktreeName, ok
 }
 

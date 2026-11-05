@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -190,7 +189,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify,
 		Out: os.Stdout, Err: os.Stderr, ShowPlan: printMergePlan, ShowResolved: printResolved,
 		AfterPromote: func(ctx context.Context, rng string) error {
-			return plans.TickRange(ctx, repo.Main, name, rng, "", docs.MirrorDests(), false, os.Stdout)
+			return plans.TickRange(ctx, repo.Main, name, rng, "", plans.MirrorDests(), false, os.Stdout)
 		},
 	}
 	if *dryRun {

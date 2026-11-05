@@ -81,7 +81,7 @@ var writers = map[string]string{
 	"internal/hooks/memhook/memory_update.go:writeStamp":              unversioned("text: update stamp"),
 	"internal/hooks/docs/plan.go:Skeleton":                            unversioned("text: plan skeleton injected marker"),
 	"internal/hooks/docs/plantick.go:recordPartials":                  unversioned("text: partly landed plan tasks"),
-	"internal/hooks/docs/plan.go:recordDest":                          unversioned("text: plan draft destination pointer"),
+	"internal/plans/mirror.go:RecordDest":                             unversioned("text: plan draft destination pointer"),
 	"internal/hooks/docs/plan.go:claimPlanFile":                       unversioned("marker: reserved dated plan file, replaced by the plan"),
 	"internal/plans/tick.go:writePlan":                                unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/quality/stop_format.go:stopFormat":                "stop-format",

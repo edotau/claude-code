@@ -19,12 +19,11 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// updateIdleAfter: a transcript this quiet is an ended session. Poll and lifetime bound the watcher.
+// UpdateIdleAfter: a transcript this quiet is an ended session. Poll and lifetime bound the watcher.
 const (
-	updateIdleAfter = 10 * time.Minute
+	UpdateIdleAfter = 10 * time.Minute
 	updateWatchLife = 24 * time.Hour
 )
 
@@ -64,28 +63,26 @@ func spawnIdleWatcher(in *core.Input) {
 	}
 }
 
+// WatchOptions are `memory watch`'s parsed flags; Stderr receives its messages.
+type WatchOptions struct {
+	Session, Transcript, CWD string
+	Idle                     time.Duration
+	Owner                    int
+	Stderr                   io.Writer
+}
+
 // IdleUpdateWatch is `claude-code memory watch`: the detached per-session watcher described above.
-func IdleUpdateWatch(args []string, stderr io.Writer) int {
-	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
-		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
-	fs.SetOutput(stderr)
-	session := fs.String("session", "", "session id (names the stamp)")
-	tr := fs.String("transcript", "", "the session's transcript path")
-	cwd := fs.String("cwd", "", "project root whose bank to update")
-	idle := fs.Duration("idle", updateIdleAfter, "quiet period before the final update")
-	owner := fs.Int("owner", 0, "session process pid; the watcher exits once it is gone (0 = unbounded)")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if *session == "" || *tr == "" || *idle <= 0 {
+func IdleUpdateWatch(o WatchOptions) int {
+	stderr := o.Stderr
+	if o.Session == "" || o.Transcript == "" || o.Idle <= 0 {
 		fmt.Fprintln(stderr, "memory watch: --session, --transcript and a positive --idle are required")
 		return 2
 	}
-	if fi, err := os.Stat(*cwd); err != nil || !fi.IsDir() {
-		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", *cwd)
+	if fi, err := os.Stat(o.CWD); err != nil || !fi.IsDir() {
+		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", o.CWD)
 		return 2
 	}
-	w := &watchLoop{tr: *tr, cwd: *cwd, session: *session, idle: *idle, owner: *owner, stderr: stderr}
+	w := &watchLoop{tr: o.Transcript, cwd: o.CWD, session: o.Session, idle: o.Idle, owner: o.Owner, stderr: stderr}
 	deadline := time.Now().Add(updateWatchLife)
 	for time.Now().Before(deadline) {
 		time.Sleep(updateWatchPoll)

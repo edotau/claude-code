@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 const (
@@ -138,19 +137,19 @@ func recentSessions(now time.Time) []sweepCand {
 	return recent
 }
 
+// SweepOptions are `memory catchup`'s parsed flags: DryRun lists without saving, Skip is the session to leave alone.
+type SweepOptions struct {
+	DryRun         bool
+	Skip           string
+	Stdout, Stderr io.Writer
+}
+
 // CatchUpSweep is `memory catchup`: saves up to catchupMax finished sessions whose update was missed.
-func CatchUpSweep(args []string, stdout, stderr io.Writer) int {
-	fs := helptext.NewFlagSet("memory catchup", helptext.Page{Usage: "claude-code memory catchup [flags]",
-		About: "Session-start sweep: saves finished sessions whose memory update was missed."})
-	fs.SetOutput(stderr)
-	dry := fs.Bool("dry-run", false, "list the sessions it would save; write nothing")
-	skip := fs.String("skip", "", "session id to leave alone (the one that started the sweep)")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	current := *skip
+func CatchUpSweep(o SweepOptions) int {
+	stdout, stderr := o.Stdout, o.Stderr
+	current := o.Skip
 	now := time.Now()
-	if *dry {
+	if o.DryRun {
 		cands, skips := sweepCandidates(current, now, true, readOnlyEdits)
 		for i, c := range cands {
 			verb := "would save"

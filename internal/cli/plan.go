@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -105,7 +104,7 @@ func cmdPlanTick(args []string) int {
 	if top == "" {
 		return helptext.Fail("plan tick: %s is not in a git checkout", cwd)
 	}
-	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, docs.MirrorDests(), *dryRun, os.Stdout); err != nil {
+	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, plans.MirrorDests(), *dryRun, os.Stdout); err != nil {
 		return helptext.Fail("plan tick: %v", err)
 	}
 	return 0

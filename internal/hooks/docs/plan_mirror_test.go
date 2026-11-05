@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/plans"
 )
 
 func mirrorPayload(t *testing.T, tool, cwd, path string) string {
@@ -226,7 +227,7 @@ func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {
 	draft := filepath.Join(cfg, "plans", "draft.md")
 	child := writeMirrorDraft(t, draft, "keep", "keep") // the draft is a non-empty directory, so removal fails
 	dest := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
-	if err := recordDest(filepath.Base(draft), dest); err != nil {
+	if err := plans.RecordDest(filepath.Base(draft), dest); err != nil {
 		t.Fatal(err)
 	}
 	stderr := approvePlan(t, approvalPayload(t, cfg, draft, nil))
@@ -236,7 +237,7 @@ func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {
 	if got, err := os.ReadFile(dest); err != nil || string(got) != planTemplate {
 		t.Errorf("saved plan: err=%v content=%q", err, got)
 	}
-	if got, ok := readRecordedDest(filepath.Base(draft)); !ok || got != dest {
+	if got, ok := plans.ReadRecordedDest(filepath.Base(draft)); !ok || got != dest {
 		t.Errorf("retry destination = %q, ok=%v; want %q", got, ok, dest)
 	}
 	if got, err := os.ReadFile(child); err != nil || string(got) != "keep" {
