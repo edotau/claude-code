@@ -515,3 +515,34 @@ func TestNormHostHTTPOnlyOnLoopback(t *testing.T) {
 		}
 	}
 }
+
+// A response still being served when login finishes reaches the browser whole, not as EOF.
+func TestStopCallbackFinishesInFlightResponse(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrote := make(chan struct{})
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "Login complete.")
+		close(wrote)
+		time.Sleep(100 * time.Millisecond) // the handler has not returned yet when the server is stopped
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	got := make(chan string, 1)
+	go func() {
+		resp, err := http.Get("http://" + ln.Addr().String() + "/")
+		if err != nil {
+			got <- "error: " + err.Error()
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		got <- string(b)
+	}()
+	<-wrote
+	stopCallback(srv)
+	if body := <-got; body != "Login complete." {
+		t.Fatalf("client got %q, want the full response", body)
+	}
+}
