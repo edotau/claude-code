@@ -156,20 +156,34 @@ func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 // withAgentPins fills the profile the flags left empty from the agent's vault pin: --profile > pin > default.
 // The model pin is applied after the target resolves (agentModelTarget).
 func withAgentPins(name string, o LaunchOptions) (LaunchOptions, error) {
-	pins, err := AgentPins()
-	if err != nil {
-		return LaunchOptions{}, err
-	}
-	pin, ok := pins[name]
-	if !ok || pin.Off {
-		return o, nil
-	}
-	if o.Provider == "" && pin.Profile != "" {
-		if reg, err := providers.Load(); err == nil && ValidAgentPin(reg, name, pin.Profile) == nil && reg.Providers[pin.Profile] != nil {
-			o.Provider = pin.Profile
+	if o.Provider == "" {
+		pin, err := pinnedProfile(name)
+		if err != nil {
+			return LaunchOptions{}, err
 		}
+		o.Provider = pin
 	}
 	return o, nil
+}
+
+// pinnedProfile is agent name's vault-pinned registry profile; "" when unpinned or off, an error when the pin names no row.
+func pinnedProfile(name string) (string, error) {
+	pins, err := AgentPins()
+	if err != nil {
+		return "", err
+	}
+	pin, ok := pins[name]
+	if !ok || pin.Off || pin.Profile == "" {
+		return "", nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return "", err
+	}
+	if err := ValidAgentPin(reg, name, pin.Profile); err != nil || reg.Providers[pin.Profile] == nil {
+		return "", fmt.Errorf("%s: pinned profile %q is not a registry profile", name, pin.Profile)
+	}
+	return pin.Profile, nil
 }
 
 // registryPlan is the interactive launch on a CLI's native model registry (copilot on Databricks). It fails closed:
