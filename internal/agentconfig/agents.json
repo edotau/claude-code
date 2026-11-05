@@ -16,7 +16,7 @@
     },
     "copilot": {
       "permission": {
-        "defaultPermissionMode": "assisted",
+        "defaultPermissionMode": "allow-all",
         "shell": {
           "commands": [
             {
@@ -74,8 +74,7 @@
       },
       "launch": {
         "args": [
-          "--assisted-approval",
-          "--autopilot"
+          "--allow-all"
         ]
       }
     },

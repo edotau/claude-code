@@ -221,10 +221,10 @@ func checkCodexDefaults(t *testing.T, codex AgentConfig) {
 
 func checkCopilotDefaults(t *testing.T, copilot AgentConfig) {
 	t.Helper()
-	if copilot.Permission.DefaultPermissionMode != "assisted" {
-		t.Errorf("copilot.Permission.DefaultPermissionMode = %q, want assisted", copilot.Permission.DefaultPermissionMode)
+	if copilot.Permission.DefaultPermissionMode != "allow-all" {
+		t.Errorf("copilot.Permission.DefaultPermissionMode = %q, want allow-all", copilot.Permission.DefaultPermissionMode)
 	}
-	wantCopilotArgs := []string{"--assisted-approval", "--autopilot"}
+	wantCopilotArgs := []string{"--allow-all"}
 	if !reflect.DeepEqual(copilot.Launch.Args, wantCopilotArgs) {
 		t.Errorf("copilot.Launch.Args = %v, want %v", copilot.Launch.Args, wantCopilotArgs)
 	}
