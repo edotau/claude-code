@@ -39,7 +39,7 @@ func cmdNetworkVSCode(args []string) int {
 	default:
 		abs, err := filepath.Abs(*folder)
 		if err != nil {
-			return fail("network vscode: %v", err)
+			return helptext.Fail("network vscode: %v", err)
 		}
 		return vscodeServeStart(ctx, vscode.Options{Port: *port, NoTailscale: *noTailscale, Funnel: *funnel, Folder: abs}, *format)
 	}
@@ -47,17 +47,17 @@ func cmdNetworkVSCode(args []string) int {
 
 func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return badFormat("network vscode", err)
+		return helptext.BadFormat("network vscode", err)
 	}
 	res, err := vscode.Start(ctx, opts)
 	if err != nil {
-		return fail("network vscode: %v", err)
+		return helptext.Fail("network vscode: %v", err)
 	}
 	for _, n := range res.Notes {
 		fmt.Fprintln(os.Stderr, "claude-code: network vscode: "+n)
 	}
 	if format == helptext.JSON {
-		return writeJSONOrFail("network vscode", res.State)
+		return helptext.WriteJSONOrFail("network vscode", res.State)
 	}
 	fmt.Printf("claude-code: network vscode running pid %d port %d\n", res.State.PID, res.State.Port)
 	fmt.Println(res.State.URL)
@@ -67,23 +67,23 @@ func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) i
 
 func vscodeServeStop(format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return badFormat("network vscode", err)
+		return helptext.BadFormat("network vscode", err)
 	}
 	st, wasRunning := vscode.Running()
 	err := vscode.Stop()
 	if errors.Is(err, vscode.ErrNotRunning) || (err == nil && !wasRunning) {
 		if format == helptext.JSON {
-			return writeJSONOrFail("network vscode", map[string]bool{"running": false})
+			return helptext.WriteJSONOrFail("network vscode", map[string]bool{"running": false})
 		} else {
 			fmt.Println("claude-code: network vscode: not running")
 		}
 		return 0
 	}
 	if err != nil {
-		return fail("network vscode: %v", err)
+		return helptext.Fail("network vscode: %v", err)
 	}
 	if format == helptext.JSON {
-		return writeJSONOrFail("network vscode", struct {
+		return helptext.WriteJSONOrFail("network vscode", struct {
 			Stopped bool `json:"stopped"`
 			PID     int  `json:"pid"`
 		}{true, st.PID})
@@ -95,7 +95,7 @@ func vscodeServeStop(format string) int {
 // vscodeServeStatus reports the daemon from our state plus a live `tailscale serve status --json` re-query.
 func vscodeServeStatus(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return badFormat("network vscode", err)
+		return helptext.BadFormat("network vscode", err)
 	}
 	st, running := vscode.Running()
 	_, mapped := vscode.TailscaleMapping(ctx, st.Port)
@@ -105,7 +105,7 @@ func vscodeServeStatus(ctx context.Context, format string) int {
 			Mapped  bool `json:"tailscale_mapped"`
 			vscode.State
 		}{running, mapped, st}); err != nil {
-			return fail("network vscode: %v", err)
+			return helptext.Fail("network vscode: %v", err)
 		}
 		if !running {
 			return 1

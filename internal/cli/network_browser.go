@@ -30,15 +30,15 @@ func cmdNetworkBrowser(args []string) int {
 	}
 	if *ex.url != "" {
 		if *setup {
-			return failUsage("network browser: --extract and --setup are mutually exclusive")
+			return helptext.FailUsage("network browser: --extract and --setup are mutually exclusive")
 		}
 		return networkBrowserExtract(ex, explicitBrowserFormat(fs, *format))
 	}
 	if bad := extractFlagsSet(fs); bad != "" {
-		return failUsage("network browser: --%s belongs to --extract", bad)
+		return helptext.FailUsage("network browser: --%s belongs to --extract", bad)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("network browser", err)
+		return helptext.BadFormat("network browser", err)
 	}
 	if !*setup {
 		bad := ""
@@ -48,7 +48,7 @@ func cmdNetworkBrowser(args []string) int {
 			}
 		})
 		if bad != "" {
-			return failUsage("network browser: --%s belongs to --setup", bad)
+			return helptext.FailUsage("network browser: --%s belongs to --setup", bad)
 		}
 		return networkBrowserList(*format)
 	}
@@ -69,7 +69,7 @@ func networkBrowserList(format string) int {
 	rep := browser.Detect(browser.NewEnv())
 	if format == "json" {
 		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
-			return fail("network browser: %v", err)
+			return helptext.Fail("network browser: %v", err)
 		}
 		return 0
 	}
@@ -83,7 +83,7 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	env.DryRun = dryRun
 	acts, err := browser.Setup(env, name)
 	if err != nil {
-		return fail("network browser --setup: %v", err)
+		return helptext.Fail("network browser --setup: %v", err)
 	}
 	rc := 0
 	for _, a := range acts.Items {
@@ -93,7 +93,7 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	}
 	if format == "json" {
 		if err := helptext.WriteJSON(os.Stdout, acts); err != nil {
-			return fail("network browser --setup: %v", err)
+			return helptext.Fail("network browser --setup: %v", err)
 		}
 		return rc
 	}
@@ -172,14 +172,14 @@ func networkBrowserExtract(a *extractArgs, format string) int {
 		Template: *a.pages, LoadMore: *a.loadMore, Scroll: *a.scroll, MaxPages: *a.maxPages, Key: *a.key,
 		Format: format, IgnoreRobots: *a.ignoreRobots}
 	if err := opts.Validate(); err != nil {
-		return failUsage("network browser: %v", err)
+		return helptext.FailUsage("network browser: %v", err)
 	}
 	out := os.Stdout
 	var outFile *os.File
 	if *a.out != "" {
 		f, err := os.Create(*a.out)
 		if err != nil {
-			return fail("network browser: %v", err)
+			return helptext.Fail("network browser: %v", err)
 		}
 		outFile, out = f, f
 	}
@@ -192,7 +192,7 @@ func networkBrowserExtract(a *extractArgs, format string) int {
 		}
 	}
 	if err != nil {
-		return fail("network browser --extract: %s", strings.TrimSpace(err.Error()))
+		return helptext.Fail("network browser --extract: %s", strings.TrimSpace(err.Error()))
 	}
 	return 0
 }

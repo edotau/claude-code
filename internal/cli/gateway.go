@@ -42,7 +42,7 @@ func cmdGateway(args []string) int {
 			return cmdGatewayToken(args[1:])
 		}
 		if !strings.HasPrefix(args[0], "-") {
-			return fail("gateway: unknown command %q (router|proxy|token)", args[0])
+			return helptext.Fail("gateway: unknown command %q (router|proxy|token)", args[0])
 		}
 	}
 	return gatewayRoute(args, true)
@@ -88,10 +88,10 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 // check rejects stray args and flag combinations; ok is false when code is the exit status.
 func (o *proxyOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	if fs.NArg() > 0 {
-		return fail("gateway proxy: unexpected argument %q", fs.Arg(0)), false
+		return helptext.Fail("gateway proxy: unexpected argument %q", fs.Arg(0)), false
 	}
 	if err := helptext.CheckFormat(*o.format); err != nil {
-		return badFormat("gateway proxy", err), false
+		return helptext.BadFormat("gateway proxy", err), false
 	}
 	return o.checkCombos(fs)
 }
@@ -108,15 +108,15 @@ func (o *proxyOpts) modeCount() int {
 
 func (o *proxyOpts) checkCombos(fs *flag.FlagSet) (code int, ok bool) {
 	if o.modeCount() > 1 {
-		return fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve"), false
+		return helptext.Fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve"), false
 	}
 	portSet := false
 	fs.Visit(func(f *flag.Flag) { portSet = portSet || f.Name == "port" })
 	if portSet && !o.serve {
-		return fail("gateway proxy: --port needs --serve"), false
+		return helptext.Fail("gateway proxy: --port needs --serve"), false
 	}
 	if *o.format == helptext.JSON && (o.start || o.stop || o.restart || o.serve) {
-		return fail("gateway proxy: --format json applies to --status only"), false
+		return helptext.Fail("gateway proxy: --format json applies to --status only"), false
 	}
 	return 0, true
 }
@@ -149,7 +149,7 @@ func proxyStart(ctx context.Context) int {
 	defer cancel()
 	base, err := proxy.Ensure(ctx)
 	if err != nil {
-		return fail("proxy: %v", err)
+		return helptext.Fail("proxy: %v", err)
 	}
 	fmt.Println(base)
 	return 0
@@ -161,11 +161,11 @@ func proxyRestart(ctx context.Context) int {
 	if st, err := proxy.Stop(ctx); err == nil {
 		fmt.Printf("proxy: stopped pid %d\n", st.PID)
 	} else if !errors.Is(err, proxy.ErrNotRunning) {
-		return fail("proxy: %v", err)
+		return helptext.Fail("proxy: %v", err)
 	}
 	base, err := proxy.Ensure(ctx)
 	if err != nil {
-		return fail("proxy: %v", err)
+		return helptext.Fail("proxy: %v", err)
 	}
 	fmt.Println(base)
 	return 0
@@ -173,7 +173,7 @@ func proxyRestart(ctx context.Context) int {
 
 func proxyStop(ctx context.Context) int {
 	if err := proxy.Hold(); err != nil {
-		return fail("proxy: hold: %v", err)
+		return helptext.Fail("proxy: hold: %v", err)
 	}
 	st, err := proxy.Stop(ctx)
 	if errors.Is(err, proxy.ErrNotRunning) {
@@ -181,7 +181,7 @@ func proxyStop(ctx context.Context) int {
 		return 0
 	}
 	if err != nil {
-		return fail("proxy: %v", err)
+		return helptext.Fail("proxy: %v", err)
 	}
 	fmt.Printf("proxy: stopped pid %d\n", st.PID)
 	return 0
@@ -192,7 +192,7 @@ func proxyServe(ctx context.Context, port int) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := server.Serve(ctx, port); err != nil {
-		return fail("proxy: %v", err)
+		return helptext.Fail("proxy: %v", err)
 	}
 	return 0
 }
@@ -200,7 +200,7 @@ func proxyServe(ctx context.Context, port int) int {
 func proxyStatus(ctx context.Context, format string) int {
 	ps, err := proxy.LoadStatus(ctx)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, ps); err != nil {
@@ -233,7 +233,7 @@ func cmdGatewayToken(args []string) int {
 		return code
 	}
 	if fs.NArg() != 0 || *profile == "" {
-		return fail("gateway token: want --profile <name> and no other arguments")
+		return helptext.Fail("gateway token: want --profile <name> and no other arguments")
 	}
 	if *cfg != "" {
 		_ = os.Setenv("CLAUDE_CONFIG_DIR", *cfg)
@@ -241,15 +241,15 @@ func cmdGatewayToken(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if _, err := tokenEnsure(ctx); err != nil {
-		return fail("gateway token: proxy unavailable; run gateway proxy --start")
+		return helptext.Fail("gateway token: proxy unavailable; run gateway proxy --start")
 	}
 	st, ok := tokenState(ctx)
 	if !ok {
-		return fail("gateway token: proxy not running")
+		return helptext.Fail("gateway token: proxy not running")
 	}
 	token, err := tokenMint(ctx, *profile, st.PID)
 	if err != nil {
-		return fail("gateway token: %v", err)
+		return helptext.Fail("gateway token: %v", err)
 	}
 	if _, err := fmt.Fprintln(os.Stdout, token); err != nil {
 		return 1

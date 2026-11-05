@@ -156,7 +156,7 @@ func TestMemoryRecallFormatValidation(t *testing.T) {
 }
 
 // TestMemoryRecallFailReturnValue ensures memory recall returns a non-zero code
-// (regression for internal/cli/memory.go:150 where fail() return value not used).
+// (regression for internal/cli/memory.go:150 where helptext.Fail() return value not used).
 func TestMemoryRecallFailReturnValue(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code, _, stderr := captureOutput(t, func() int {

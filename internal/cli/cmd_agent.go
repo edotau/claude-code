@@ -146,7 +146,7 @@ func agentSub(name string, args []string) int {
 	if run := handlers[args[0]]; run != nil {
 		return run(name, args[1:])
 	}
-	return fail("%s: unknown subcommand %q", name, args[0])
+	return helptext.Fail("%s: unknown subcommand %q", name, args[0])
 }
 
 func agentCatalog(name string, args []string) int {
@@ -165,7 +165,7 @@ func agentResume(name string, args []string) int {
 		return 0
 	}
 	if len(args) < 1 {
-		return fail("%s resume: usage: claude-code %s resume <id> <task>", name, name)
+		return helptext.Fail("%s resume: usage: claude-code %s resume <id> <task>", name, name)
 	}
 	if strings.HasPrefix(args[0], "-") { // flags first: ask's own parser, the session id is its first positional
 		return runAsk(append([]string{"--agent", name}, args...), true)
@@ -183,16 +183,16 @@ func agentStatus(name string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat(name+" status", err)
+		return helptext.BadFormat(name+" status", err)
 	}
 	ref := firstPositional(pos)
 	cwd, _ := os.Getwd()
 	rows, err := job.Status(context.Background(), name, cwd, ref, *all)
 	if err != nil {
-		return fail("%s status: %v", name, err)
+		return helptext.Fail("%s status: %v", name, err)
 	}
 	if *format == helptext.JSON {
-		return writeJSONOrFail(name+" status", rows)
+		return helptext.WriteJSONOrFail(name+" status", rows)
 	}
 	if len(rows) == 0 {
 		fmt.Printf("no %s dispatches logged yet\n", name)
@@ -218,7 +218,7 @@ func agentTail(name string, args []string) int {
 	cwd, _ := os.Getwd()
 	rec, err := job.Tail(ctx, name, cwd, ref, *follow, os.Stdout)
 	if err != nil {
-		return fail("%s tail: %v", name, err)
+		return helptext.Fail("%s tail: %v", name, err)
 	}
 	return tailExit(rec, *follow)
 }
@@ -241,13 +241,13 @@ func agentResult(name string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat(name+" result", err)
+		return helptext.BadFormat(name+" result", err)
 	}
 	ref := firstPositional(pos)
 	cwd, _ := os.Getwd()
 	rec, log, err := job.JobResult(context.Background(), name, cwd, ref)
 	if err != nil {
-		return fail("%s result: %v", name, err)
+		return helptext.Fail("%s result: %v", name, err)
 	}
 	s, _ := agent.LookupSchema(name)
 	if *format == helptext.JSON {
@@ -257,7 +257,7 @@ func agentResult(name string, args []string) int {
 			Resume  string `json:"resume,omitempty"`
 			Log     string `json:"log"`
 		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
-			return fail("%s result: %v", name, err)
+			return helptext.Fail("%s result: %v", name, err)
 		}
 		return resultExit(rec)
 	}
@@ -298,7 +298,7 @@ func agentCancel(name string, args []string) int {
 	cwd, _ := os.Getwd()
 	rec, err := job.CancelJob(context.Background(), name, cwd, ref)
 	if err != nil {
-		return fail("%s cancel: %v", name, err)
+		return helptext.Fail("%s cancel: %v", name, err)
 	}
 	fmt.Printf("cancelled %s\n", rec.ID)
 	return 0
@@ -312,7 +312,7 @@ func agentSetup(name string, args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat(name+" setup", err)
+		return helptext.BadFormat(name+" setup", err)
 	}
 	row, ok := agent.LookupSchema(name)
 	if !ok {
@@ -321,7 +321,7 @@ func agentSetup(name string, args []string) int {
 	rep := row.Setup()
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
-			return fail("%s setup: %v", name, err)
+			return helptext.Fail("%s setup: %v", name, err)
 		}
 	} else {
 		for _, c := range rep.Checks {
@@ -349,12 +349,12 @@ func agentReview(name string, args []string) int {
 	}
 	scope, err := review.ParseScope(*uncommitted, *base, *commit, *pr)
 	if err != nil {
-		return fail("%s review: %v", name, err)
+		return helptext.Fail("%s review: %v", name, err)
 	}
 	cwd, _ := os.Getwd()
 	diff, err := review.Diff(context.Background(), cwd, scope)
 	if err != nil {
-		return fail("%s review: %v", name, err)
+		return helptext.Fail("%s review: %v", name, err)
 	}
 	focus := strings.Join(fs.Args(), " ")
 	if parts := review.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
@@ -362,7 +362,7 @@ func agentReview(name string, args []string) int {
 	}
 	askArgs, cleanup, err := review.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric)
 	if err != nil {
-		return fail("%s review: %v", name, err)
+		return helptext.Fail("%s review: %v", name, err)
 	}
 	defer cleanup()
 	return cmdAsk(askArgs)
@@ -379,7 +379,7 @@ func agentExplore(name string, args []string) int {
 	}
 	question := strings.Join(fs.Args(), " ")
 	if question == "" {
-		return fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
+		return helptext.Fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
 	}
 	cwd, _ := os.Getwd()
 	askArgs := agent.ExploreArgs(name, cwd, question, !*noWeb, *background)
@@ -401,13 +401,13 @@ func agentTransfer(name string, args []string) int {
 	cwd, _ := os.Getwd()
 	src, err := transcript.ResolveSource(*source, cwd)
 	if err != nil {
-		return fail("%s transfer: %v", name, err)
+		return helptext.Fail("%s transfer: %v", name, err)
 	}
 	fmt.Fprintf(os.Stderr, "transfer: source %s\n", src)
 	note := strings.Join(fs.Args(), " ")
 	prompt, err := transcript.Handoff(src, cwd, note)
 	if err != nil {
-		return fail("%s transfer: %v", name, err)
+		return helptext.Fail("%s transfer: %v", name, err)
 	}
 	code := cmdAsk(transcript.TransferArgs(name, cwd, prompt, *wait))
 	if code == 0 && *wait {
@@ -423,7 +423,7 @@ func agentTransfer(name string, args []string) int {
 func agentModels(name string, args []string) int {
 	s, ok := agent.LookupSchema(name)
 	if !ok || !s.External() {
-		return fail("unknown agent %q", name)
+		return helptext.Fail("unknown agent %q", name)
 	}
 	format := helptext.Text
 	if name == "copilot" {
@@ -449,19 +449,19 @@ func copilotCatalog(args []string) (string, int, bool) {
 		return "", code, true
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return "", badFormat(name+" catalog", err), true
+		return "", helptext.BadFormat(name+" catalog", err), true
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return "", fail("%v", err), true
+		return "", helptext.Fail("%v", err), true
 	}
 	cat, err := copilot.CopilotModelSource(context.Background(), reg, *profile)
 	if err != nil {
-		return "", fail("%s catalog: %v", name, err), true
+		return "", helptext.Fail("%s catalog: %v", name, err), true
 	}
 	if cat.Databricks {
 		if err := cat.Write(os.Stdout, *format); err != nil {
-			return "", fail("%s catalog: %v", name, err), true
+			return "", helptext.Fail("%s catalog: %v", name, err), true
 		}
 		return "", 0, true
 	}
@@ -476,11 +476,11 @@ func launchAgentCatalog(name string, s agent.Schema, format string) int {
 	case s.CLI.ModelsProvider != "":
 		reg, err := providers.Load()
 		if err != nil {
-			return fail("%v", err)
+			return helptext.Fail("%v", err)
 		}
 		n, err := s.ModelsProfile(reg)
 		if err != nil {
-			return fail("%v", err)
+			return helptext.Fail("%v", err)
 		}
 		return cmdModels([]string{"--live", "--profile", n, "--format", format})
 	case len(s.CLI.ModelsArgv) > 0:

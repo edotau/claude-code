@@ -16,7 +16,7 @@ import (
 // cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's record profile.
 func cmdAgentProfile(agent string, args []string) int {
 	if _, ok := agentpkg.LookupSchema(agent); !ok {
-		return fail("%s profile: unknown agent", agent)
+		return helptext.Fail("%s profile: unknown agent", agent)
 	}
 	fs := newAgentFlags(agent, "profile")
 	unpin := fs.Bool("clear", false, "unpin: launches use today's selection again")
@@ -25,13 +25,13 @@ func cmdAgentProfile(agent string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if len(pos) > 1 || (*unpin && len(pos) > 0) {
-		return fail("%s profile: want one profile name, or --clear", agent)
+		return helptext.Fail("%s profile: want one profile name, or --clear", agent)
 	}
 	switch {
 	case *unpin:
 		own := vault.OwnLoginProfiles[agent] // an external agent's cleared profile is its own login, not off
 		if _, err := configure.ApplyProfile([]string{agent}, own); err != nil {
-			return fail("%s profile: %v", agent, err)
+			return helptext.Fail("%s profile: %v", agent, err)
 		}
 		fmt.Printf("%s: profile cleared (own login)\n", agent)
 		return 0
@@ -45,10 +45,10 @@ func cmdAgentProfile(agent string, args []string) int {
 func setAgentProfile(agent, profile string) int {
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("%s profile: %v", agent, err)
+		return helptext.Fail("%s profile: %v", agent, err)
 	}
 	if _, err := configure.ApplyProfile([]string{agent}, profile); err != nil {
-		return fail("%s profile: %v (see claude-code configure provider --list)", agent, err)
+		return helptext.Fail("%s profile: %v (see claude-code configure provider --list)", agent, err)
 	}
 	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", agent, profile, agent)
 	preflight.Warm(os.Stdout, reg, time.Now())
@@ -69,20 +69,20 @@ func cmdAgentOnOff(agent string, on bool, args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return fail("%s %s: takes no arguments", agent, verb)
+		return helptext.Fail("%s %s: takes no arguments", agent, verb)
 	}
 	if agentpkg.VaultAgentIsClaude(agent) {
-		return fail("%s %s: %s is always on", agent, verb, agent)
+		return helptext.Fail("%s %s: %s is always on", agent, verb, agent)
 	}
 	if err := agentpkg.ValidAgentActive(agent, value); err != nil {
-		return fail("%s %s: %v", agent, verb, err)
+		return helptext.Fail("%s %s: %v", agent, verb, err)
 	}
 	profile := ""
 	if on {
 		profile = vault.OwnLoginProfiles[agent]
 	}
 	if _, err := configure.ApplyProfile([]string{agent}, profile); err != nil {
-		return fail("%s %s: %v", agent, verb, err)
+		return helptext.Fail("%s %s: %v", agent, verb, err)
 	}
 	if on {
 		fmt.Printf("%s: on\n", agent)

@@ -89,7 +89,7 @@ func historyLog(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("history", err)
+		return helptext.BadFormat("history", err)
 	}
 	store := &history.Store{Dir: history.Dir()}
 	rc := 0
@@ -107,7 +107,7 @@ func historyLog(args []string) int {
 		printLog(plane, lines)
 	}
 	if *format == helptext.JSON {
-		if jrc := writeJSONOrFail("history log", planes); jrc != 0 {
+		if jrc := helptext.WriteJSONOrFail("history log", planes); jrc != 0 {
 			return jrc
 		}
 	}

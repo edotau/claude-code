@@ -98,18 +98,18 @@ func cmdMenuSVG(args []string) int {
 	case *check != "":
 		got, err := os.ReadFile(*check)
 		if err != nil {
-			return fail("help-svg: %v", err)
+			return helptext.Fail("help-svg: %v", err)
 		}
 		if !bytes.Equal(got, svg) {
-			return fail("help-svg: %s is stale; run `make help-svg`", *check)
+			return helptext.Fail("help-svg: %s is stale; run `make help-svg`", *check)
 		}
 	case *out != "":
 		if err := os.WriteFile(*out, svg, 0o644); err != nil {
-			return fail("help-svg: %v", err)
+			return helptext.Fail("help-svg: %v", err)
 		}
 	default:
 		if _, err := os.Stdout.Write(svg); err != nil {
-			return fail("help-svg: %v", err)
+			return helptext.Fail("help-svg: %v", err)
 		}
 	}
 	return 0

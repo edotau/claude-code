@@ -44,13 +44,13 @@ func cmdWorktree(args []string) int {
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fail("worktree: %v", err)
+		return helptext.Fail("worktree: %v", err)
 	}
 	sub, rest := args[0], args[1:]
 	repo, err := worktree.ResolveRepo(cwd)
 	// a leading -h returns from the sub-verb's flag parse before repo is touched, so help works outside a repo
 	if err != nil && (len(rest) == 0 || (rest[0] != "-h" && rest[0] != "--help")) {
-		return fail("worktree: %v", err)
+		return helptext.Fail("worktree: %v", err)
 	}
 	return dispatchWorktree(repo, sub, rest)
 }
@@ -66,7 +66,7 @@ func dispatchWorktree(repo *worktree.Repo, sub string, args []string) int {
 	if handler, ok := handlers[sub]; ok {
 		return handler(repo, args)
 	}
-	fail("worktree: unknown subcommand %q", sub)
+	helptext.Fail("worktree: unknown subcommand %q", sub)
 	worktreePage.Fprint(os.Stderr)
 	return 2
 }
@@ -78,18 +78,18 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("", err)
+		return helptext.BadFormat("", err)
 	}
 	entries, err := worktree.List(repo)
 	if err != nil {
-		return fail("worktree list: %v", err)
+		return helptext.Fail("worktree list: %v", err)
 	}
 	if *format == helptext.JSON {
 		if entries == nil {
 			entries = []worktree.Entry{} // [] not null, so JSON consumers can iterate
 		}
 		if err := helptext.WriteJSON(os.Stdout, entries); err != nil {
-			return fail("worktree list: %v", err)
+			return helptext.Fail("worktree list: %v", err)
 		}
 		return 0
 	}
@@ -146,11 +146,11 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return fail("worktree create: give exactly one name")
+		return helptext.Fail("worktree create: give exactly one name")
 	}
 	dest, err := worktree.Create(repo, rest[0], worktree.CreateOptions{Branch: *branch, Session: "cli", Log: os.Stderr})
 	if err != nil {
-		return fail("worktree create: %v", err)
+		return helptext.Fail("worktree create: %v", err)
 	}
 	fmt.Println(dest)
 	return 0
@@ -174,11 +174,11 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 		return code
 	}
 	if *resolveAgent != "" && *resolveAgent != "claude" && *resolveAgent != "codex" {
-		return fail("worktree merge: --resolve-agent %q unknown (claude|codex)", *resolveAgent)
+		return helptext.Fail("worktree merge: --resolve-agent %q unknown (claude|codex)", *resolveAgent)
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return fail("worktree merge: give exactly one name")
+		return helptext.Fail("worktree merge: give exactly one name")
 	}
 	name := rest[0]
 
@@ -202,7 +202,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 		code = mergeLocked(ctx, repo, req)
 		return nil
 	}); err != nil {
-		return fail("worktree merge: %v", err)
+		return helptext.Fail("worktree merge: %v", err)
 	}
 	return code
 }
@@ -211,7 +211,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	plan, err := worktree.PlanOrResolve(ctx, repo, req, true)
 	if err != nil {
-		return fail("worktree merge: %v", err)
+		return helptext.Fail("worktree merge: %v", err)
 	}
 	if plan == nil {
 		return 1
@@ -223,7 +223,7 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	out, err := worktree.Merge(ctx, repo, req)
 	if err != nil {
-		return fail("worktree merge: %v", err)
+		return helptext.Fail("worktree merge: %v", err)
 	}
 	switch {
 	case out.Blocked:
@@ -278,7 +278,7 @@ func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return fail("worktree clean: give exactly one name")
+		return helptext.Fail("worktree clean: give exactly one name")
 	}
 	var result worktree.CleanResult
 	var err error
@@ -290,7 +290,7 @@ func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 		result, err = worktree.Clean(repo, rest[0], *dryRun)
 	}
 	if err != nil {
-		return fail("worktree clean: %v", err)
+		return helptext.Fail("worktree clean: %v", err)
 	}
 	printCleanResult(result, *dryRun)
 	if !result.Removed {
@@ -320,7 +320,7 @@ func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
 	apply := *yes && !*dryRun
 	results, err := worktree.CleanAll(repo, apply)
 	if err != nil {
-		return fail("worktree clean-all: %v", err)
+		return helptext.Fail("worktree clean-all: %v", err)
 	}
 	removed := 0
 	for _, r := range results {

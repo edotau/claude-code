@@ -44,11 +44,11 @@ func cmdModelsDiscover(args []string) int {
 		return 2
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("models discover", err)
+		return helptext.BadFormat("models discover", err)
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("models discover: cannot load provider registry")
+		return helptext.Fail("models discover: cannot load provider registry")
 	}
 	names := reg.Names()
 	slices.Sort(names)
@@ -69,7 +69,7 @@ func printDiscoverResults(results []discoverResult, apply bool, format string, c
 			Apply   bool             `json:"apply"`
 			Results []discoverResult `json:"results"`
 		}{apply, results}); err != nil {
-			return fail("models discover: cannot write JSON")
+			return helptext.Fail("models discover: cannot write JSON")
 		}
 	} else {
 		printDiscoverText(results)

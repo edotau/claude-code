@@ -744,7 +744,7 @@ func TestMemoryDreamGetWdError(t *testing.T) {
 }
 
 // TestMemorySearchFailReturnValue ensures memory search returns a non-zero code
-// (regression for internal/cli/memory.go:245 where fail() return value not used).
+// (regression for internal/cli/memory.go:245 where helptext.Fail() return value not used).
 func TestMemorySearchFailReturnValue(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code, _, stderr := captureOutput(t, func() int {
@@ -756,7 +756,7 @@ func TestMemorySearchFailReturnValue(t *testing.T) {
 	}
 }
 
-// TestMemoryShowFailReturnValue ensures memory show returns the error code from fail()
+// TestMemoryShowFailReturnValue ensures memory show returns the error code from helptext.Fail()
 // (regression for internal/cli/memory.go:277).
 func TestMemoryShowFailReturnValue(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

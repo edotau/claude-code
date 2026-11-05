@@ -81,7 +81,7 @@ func cmdGeminiBridge(args []string) int {
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fail("gemini bridge: %v", err)
+		return helptext.Fail("gemini bridge: %v", err)
 	}
 	o.Cwd, o.Dirs, o.Files = cwd, textutil.SplitCSV(o.dirs), textutil.SplitCSV(o.files)
 	o.IndexOnly = o.MaxFiles == 0
@@ -90,7 +90,7 @@ func cmdGeminiBridge(args []string) int {
 
 func checkGeminiBridge(o *geminiBridgeOpts, pos []string) int {
 	if o.format != "text" && o.format != "json" {
-		return fail("gemini bridge: --format %q unknown (text|json)", o.format)
+		return helptext.Fail("gemini bridge: --format %q unknown (text|json)", o.format)
 	}
 	if o.MaxFiles < 0 || o.MaxFileBytes < 0 {
 		fmt.Fprintln(os.Stderr, "claude-code: gemini bridge: --max-files and --max-file-bytes must not be negative")
@@ -114,14 +114,14 @@ func runGeminiBridge(opts gemini.GeminiOptions, format string) int {
 	if format == "json" {
 		body, merr := json.Marshal(agent.NewEnvelope(res, err, ""))
 		if merr != nil {
-			return fail("gemini bridge: encoding result: %v", merr)
+			return helptext.Fail("gemini bridge: encoding result: %v", merr)
 		}
 		fmt.Println(string(body))
 	} else if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()
 	}
 	if err != nil {
-		return fail("gemini bridge: %v", err)
+		return helptext.Fail("gemini bridge: %v", err)
 	}
 	return 0
 }

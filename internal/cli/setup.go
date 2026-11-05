@@ -37,7 +37,7 @@ func cmdSetup(args []string) int {
 	case "workspace":
 		return cmdSetupWorkspace(args[1:])
 	}
-	return fail("setup: unknown mode %q (adopt|nuke|workspace)", args[0])
+	return helptext.Fail("setup: unknown mode %q (adopt|nuke|workspace)", args[0])
 }
 
 func cmdSetupAdopt(args []string) int {
@@ -101,7 +101,7 @@ func setupExit(err error, verb string) int {
 		fmt.Fprintf(os.Stderr, "claude-code: %s: %v\n", verb, err)
 		return 2
 	default:
-		return fail("%s: %v", verb, err)
+		return helptext.Fail("%s: %v", verb, err)
 	}
 }
 

@@ -53,18 +53,18 @@ func cmdDispatch(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("dispatch", err)
+		return helptext.BadFormat("dispatch", err)
 	}
 	if len(pos) < 2 {
 		fs.Usage()
 		return 2
 	}
 	if len(parts) > roles.MaxParts {
-		return failUsage("dispatch: %d --part values; the fan-out cap is %d", len(parts), roles.MaxParts)
+		return helptext.FailUsage("dispatch: %d --part values; the fan-out cap is %d", len(parts), roles.MaxParts)
 	}
 	role, err := roles.Lookup(pos[0])
 	if err != nil {
-		return failUsage("dispatch: %v", err)
+		return helptext.FailUsage("dispatch: %v", err)
 	}
 	cwd, _ := os.Getwd()
 	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Web: !*noWeb, Timeout: *timeout}
@@ -86,7 +86,7 @@ func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int
 	}
 	legs := roles.Legs(role, q)
 	if len(legs) == 0 {
-		return failUsage("dispatch: role %q builds no legs (a renamed role must be explore, fleet or compare)", role.Name)
+		return helptext.FailUsage("dispatch: role %q builds no legs (a renamed role must be explore, fleet or compare)", role.Name)
 	}
 	if background {
 		return dispatchDetach(ctx, client, legs, format)
@@ -113,7 +113,7 @@ func dispatchDetach(ctx context.Context, client *agent.Client, legs []roles.Leg,
 	code := 0
 	for _, leg := range legs {
 		if leg.Err != "" {
-			code = fail("dispatch: %s: %s", leg.Label, leg.Err)
+			code = helptext.Fail("dispatch: %s: %s", leg.Label, leg.Err)
 			continue
 		}
 		leg.Opts.Background = true // the saved record must not carry this short-lived process's pid
@@ -125,7 +125,7 @@ func dispatchDetach(ctx context.Context, client *agent.Client, legs []roles.Leg,
 			err = job.Spawn(&prepared.Record, nil)
 		}
 		if err != nil {
-			code = fail("dispatch: %s: %v", leg.Label, err)
+			code = helptext.Fail("dispatch: %s: %v", leg.Label, err)
 			continue
 		}
 		if format == helptext.JSON {

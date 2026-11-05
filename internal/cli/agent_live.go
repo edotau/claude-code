@@ -113,7 +113,7 @@ func cmdAgentsSend(args []string) int {
 	}
 	prompt, err := agent.ResolveAskPrompt(strings.Join(pos[1:], " "))
 	if err != nil {
-		return fail("agents send: %v", err)
+		return helptext.Fail("agents send: %v", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
@@ -123,7 +123,7 @@ func cmdAgentsSend(args []string) int {
 	}
 	env, err := live.SendLive(ctx, id, prompt, askStdoutSink(*format, id))
 	if err != nil {
-		return fail("agents send: %v", err)
+		return helptext.Fail("agents send: %v", err)
 	}
 	printLiveEnvelope(env, *format)
 	if env.Status != agent.StatusOK {

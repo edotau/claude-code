@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"io"
 	"os"
 	"slices"
@@ -59,7 +60,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 		WorkDir: cwd, Background: true}
 	rec, err := newClient().Record(context.Background(), req, nil)
 	if err != nil {
-		return fail("%s review: %v", name, err)
+		return helptext.Fail("%s review: %v", name, err)
 	}
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
 	if err := rec.Save(); err != nil {
@@ -69,7 +70,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 		return a == "--background" || a == "-background" || a == "--background=true"
 	})...)
 	if err := job.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
-		return fail("%s review: %v", name, err)
+		return helptext.Fail("%s review: %v", name, err)
 	}
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
 		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)
@@ -88,7 +89,7 @@ func finishSplitReview(job *agent.Record, err error) int {
 		}
 	}
 	if err != nil {
-		return fail("review: %v", err)
+		return helptext.Fail("review: %v", err)
 	}
 	return 0
 }

@@ -73,7 +73,7 @@ func setThemePalette(name string) int {
 		return 2
 	}
 	if err := theme.SetGradient(name); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	fmt.Printf("statusline palette set to %s\n", name)
 	return 0
@@ -82,7 +82,7 @@ func setThemePalette(name string) int {
 func resetThemeConfig() int {
 	removed, err := theme.ResetConfig()
 	if err != nil {
-		return fail("theme --reset: %v", err)
+		return helptext.Fail("theme --reset: %v", err)
 	}
 	if !removed {
 		fmt.Println("statusline already on the default design (no config.json)")
@@ -122,7 +122,7 @@ func themeApply(args []string) int {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fail("theme apply: %v", err)
+		return helptext.Fail("theme apply: %v", err)
 	}
 	out, err := theme.Apply(theme.Dir(), home, *dryRun)
 	for _, o := range out {
@@ -140,7 +140,7 @@ func themeApply(args []string) int {
 		}
 	}
 	if err != nil {
-		return fail("theme apply: %v", err)
+		return helptext.Fail("theme apply: %v", err)
 	}
 	return 0
 }

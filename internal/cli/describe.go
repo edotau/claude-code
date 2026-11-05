@@ -77,15 +77,15 @@ func cmdDescribe(args []string) int {
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("describe: %v", err)
+		return helptext.Fail("describe: %v", err)
 	}
 	d, err := describe(reg)
 	if err != nil {
-		return fail("describe: %v", err)
+		return helptext.Fail("describe: %v", err)
 	}
 	switch *format {
 	case "json":
-		return writeJSONOrFail("describe", d)
+		return helptext.WriteJSONOrFail("describe", d)
 	case "text":
 		printDescribe(d)
 	default:

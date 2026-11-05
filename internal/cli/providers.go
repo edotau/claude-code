@@ -28,11 +28,11 @@ func printLines(lines []string) {
 // configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
 func configureProviderList(name, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return badFormat("configure provider", err)
+		return helptext.BadFormat("configure provider", err)
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if format == helptext.JSON {
 		return providerListJSON(reg, name)
@@ -43,7 +43,7 @@ func configureProviderList(name, format string) int {
 	}
 	p, err := reg.Get(name)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	source, note := providers.CredSource(p)
 	printLines(providers.ProfileDetail(p, source, note))
@@ -75,12 +75,12 @@ type providerListEntry struct {
 func providerListJSON(reg *providers.Registry, name string) int {
 	d, err := describe(reg)
 	if err != nil {
-		return fail("configure provider: %v", err)
+		return helptext.Fail("configure provider: %v", err)
 	}
 	var want *providers.Provider
 	if name != "" {
 		if want, err = reg.Get(name); err != nil {
-			return fail("%v", err)
+			return helptext.Fail("%v", err)
 		}
 	}
 	list := make([]providerListEntry, 0, len(d.Providers.List))
@@ -97,11 +97,11 @@ func providerListJSON(reg *providers.Registry, name string) int {
 	}
 	if want != nil {
 		if len(list) == 0 {
-			return fail("configure provider: %q not in the provider list", name)
+			return helptext.Fail("configure provider: %q not in the provider list", name)
 		}
-		return writeJSONOrFail("configure provider", list[0])
+		return helptext.WriteJSONOrFail("configure provider", list[0])
 	}
-	return writeJSONOrFail("configure provider", struct {
+	return helptext.WriteJSONOrFail("configure provider", struct {
 		Session  string              `json:"session"`
 		Default  string              `json:"default"`
 		Fallback []string            `json:"fallback,omitempty"`
@@ -141,18 +141,18 @@ func cmdModels(args []string) int {
 		return 2
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("models", err)
+		return helptext.BadFormat("models", err)
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if code, handled := applyModelPins(reg, *provider, *unpin, *dryRun, pins); handled {
 		return code
 	}
 	sel, err := providers.Select(reg, *provider)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	return renderModelSelection(reg, sel, *format, *live)
 }
@@ -163,11 +163,11 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	}
 	set, err := agentconfig.ParseModelPins(reg, provider, unpin, pins)
 	if err != nil {
-		return fail("%v", err), true
+		return helptext.Fail("%v", err), true
 	}
 	warn, err := copilot.ValidateCopilotPins(provider, pins)
 	if err != nil {
-		return fail("%v", err), true
+		return helptext.Fail("%v", err), true
 	}
 	if warn != "" {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", warn)
@@ -176,7 +176,7 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 		return printRecordDiff(func(m map[string]vault.AgentRecord) { m["claude"] = agentconfig.WithClaudeModels(m["claude"], set) }, nil), true
 	}
 	if err := agentconfig.ApplyClaudeModels(set); err != nil {
-		return fail("%v", err), true
+		return helptext.Fail("%v", err), true
 	}
 	return 0, false
 }
@@ -187,7 +187,7 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": sel.SpecsByAlias()}); err != nil {
-			return fail("models: %v", err)
+			return helptext.Fail("models: %v", err)
 		}
 		return 0
 	}
@@ -203,7 +203,7 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 	}
 	cat, err := providers.LoadCatalog(reg, p, own)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if cat.Note != "" {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", cat.Note)
@@ -212,7 +212,7 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 		fmt.Fprintln(os.Stderr, "claude-code: models: ai gateway listing unavailable:", cat.GatewayErr)
 	}
 	if format == helptext.JSON {
-		return writeJSONOrFail("models", cat.Rows())
+		return helptext.WriteJSONOrFail("models", cat.Rows())
 	}
 	printLines(cat.TableLines())
 	return 0
@@ -237,16 +237,16 @@ func cmdSwitch(args []string) int {
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if _, err := reg.Get(args[0]); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if dryRun {
 		return previewSwitchProfile(reg, args[0])
 	}
 	if err := configure.SwitchProfile(reg, args[0]); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
 	preflight.Warm(os.Stdout, reg, time.Now())
@@ -257,7 +257,7 @@ func previewSwitchProfile(reg *providers.Registry, profile string) int {
 	apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, profile) }
 	recs, err := vault.ReadAgentRecords(agent.RosterNames())
 	if err != nil {
-		return fail("switch preview: %v", err)
+		return helptext.Fail("switch preview: %v", err)
 	}
 	return printRecordDiff(apply, keptOff(reg, recs, profile))
 }
@@ -286,22 +286,22 @@ func cmdResolve(args []string) int {
 	if *viaRouter {
 		s, err := proxy.ClientSecret()
 		if err != nil {
-			return fail("%v", err)
+			return helptext.Fail("%v", err)
 		}
 		fmt.Println(s)
 		return 0
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	sel, err := providers.Select(reg, *profile)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	tok, err := providers.Credential(context.Background(), sel.Provider)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	fmt.Fprintln(os.Stdout, tok)
 	return 0
@@ -321,7 +321,7 @@ func keptOff(reg *providers.Registry, recs map[string]vault.AgentRecord, profile
 func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) int {
 	before, err := vault.ReadAgentRecords(agent.RosterNames())
 	if err != nil {
-		return fail("agent record preview: %v", err)
+		return helptext.Fail("agent record preview: %v", err)
 	}
 	after := maps.Clone(before)
 	apply(after)

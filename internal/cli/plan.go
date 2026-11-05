@@ -34,7 +34,7 @@ func cmdPlan(args []string) int {
 	case "tick":
 		return cmdPlanTick(args[1:])
 	default:
-		fail("plan: unknown subcommand %q", args[0])
+		helptext.Fail("plan: unknown subcommand %q", args[0])
 		planPage.Fprint(os.Stderr)
 		return 2
 	}
@@ -48,18 +48,18 @@ func cmdPlanStatus(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("", err)
+		return helptext.BadFormat("", err)
 	}
 	summaries, err := plans.Status(plans.Dirs(*all)...)
 	if err != nil {
-		return fail("plan status: %v", err)
+		return helptext.Fail("plan status: %v", err)
 	}
 	if *format == helptext.JSON {
 		if summaries == nil {
 			summaries = []plans.Summary{}
 		}
 		if err := helptext.WriteJSON(os.Stdout, summaries); err != nil {
-			return fail("plan status: %v", err)
+			return helptext.Fail("plan status: %v", err)
 		}
 		return 0
 	}
@@ -95,18 +95,18 @@ func cmdPlanTick(args []string) int {
 		return code
 	}
 	if *rng == "" {
-		return fail("plan tick: --range <a>..<b> is required")
+		return helptext.Fail("plan tick: --range <a>..<b> is required")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fail("plan tick: %v", err)
+		return helptext.Fail("plan tick: %v", err)
 	}
 	top, _ := paths.CheckoutOf(cwd)
 	if top == "" {
-		return fail("plan tick: %s is not in a git checkout", cwd)
+		return helptext.Fail("plan tick: %s is not in a git checkout", cwd)
 	}
 	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, docs.MirrorDests(), *dryRun, os.Stdout); err != nil {
-		return fail("plan tick: %v", err)
+		return helptext.Fail("plan tick: %v", err)
 	}
 	return 0
 }

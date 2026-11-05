@@ -38,11 +38,11 @@ func cmdClaude(args []string) int { return launchClaude("", args) }
 func launchClaude(alias string, args []string) int {
 	as, args, err := providers.TakeAs(args)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	opts, rest, err := parseLaunchArgs(args, true)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	opts.Alias = alias
 	plan, err := claude.Claude(providers.WithIdentity(context.Background(), as), opts, rest)
@@ -89,16 +89,16 @@ func cmdAnthropic(args []string) int {
 		return helptext.WrappedDocs("claude")
 	}
 	if err := databricks.RemovedFlagHint(args); err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	o, rest, err := claude.ParseAnthropicArgs(args)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	secret := ""
 	if o.Mode != claude.AuthLogin {
 		if secret, err = anthropicSecret(o); err != nil {
-			return fail("%v", err)
+			return helptext.Fail("%v", err)
 		}
 	}
 	plan, err := claude.Anthropic(context.Background(), o, rest, secret)
@@ -173,7 +173,7 @@ func parseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string,
 func launchAgent(name string, args []string) int {
 	opts, rest, err := parseLaunchArgs(args, false)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
 	if err == nil {
@@ -220,7 +220,7 @@ func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) 
 		return 2
 	}
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	ov, oerr := launchOverlay(opts)
 	if oerr == nil {
@@ -241,7 +241,7 @@ func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) 
 		}
 		return 0
 	}
-	return fail("exec %s: %v", plan.Binary, plan.Exec())
+	return helptext.Fail("exec %s: %v", plan.Binary, plan.Exec())
 }
 
 // launchOverlay is the overlay for an interactive launch: --overlay, else $COWORKER_OVERLAY; --print-env keeps vault
@@ -276,7 +276,7 @@ func cmdHook(args []string) int {
 func cmdRestore(agents, out string, check, dryRun, forceHomes, noAgents bool) int {
 	drift, err := launch.Restore(os.Stdout, agents, out, check, dryRun, forceHomes, noAgents)
 	if err != nil {
-		return fail("%v", err)
+		return helptext.Fail("%v", err)
 	}
 	if drift {
 		return 1
@@ -287,7 +287,7 @@ func cmdRestore(agents, out string, check, dryRun, forceHomes, noAgents bool) in
 // cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
 func cmdRevert(agents string, dryRun bool) int {
 	if err := launch.Revert(os.Stdout, agents, dryRun); err != nil {
-		return fail("configure --revert: %v", err)
+		return helptext.Fail("configure --revert: %v", err)
 	}
 	return 0
 }
@@ -334,16 +334,16 @@ func cmdInstall(args []string) int {
 		return code
 	}
 	if *setup != "" {
-		return fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
+		return helptext.Fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
 	}
 	if tf.set {
 		if err := tools.Install(context.Background(), os.Stdout, tf.names, *dry); err != nil {
-			return fail("install --tools: %v", err)
+			return helptext.Fail("install --tools: %v", err)
 		}
 		return 0
 	}
 	if err := launch.Install(os.Stdout, *dry, *verbose); err != nil {
-		return fail("install: %v", err)
+		return helptext.Fail("install: %v", err)
 	}
 	return 0
 }
@@ -384,10 +384,10 @@ func cmdDoctor(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*o.format); err != nil {
-		return badFormat("doctor", err)
+		return helptext.BadFormat("doctor", err)
 	}
 	if len(fs.Args()) > 0 && !o.scan {
-		fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
+		helptext.Fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
 		return 2
 	}
 	return runDoctor(o, fs.Args())
@@ -409,7 +409,7 @@ func runDoctor(o *doctorOpts, targets []string) int {
 			OK     bool           `json:"ok"`
 			Checks []launch.Check `json:"checks"`
 		}{ok, checks}); err != nil {
-			return fail("doctor: %v", err)
+			return helptext.Fail("doctor: %v", err)
 		}
 	} else {
 		launch.PrintChecks(os.Stdout, checks)
@@ -422,7 +422,7 @@ func runDoctor(o *doctorOpts, targets []string) int {
 
 func runDoctorAudits(o *doctorOpts, targets []string) int {
 	if *o.format == helptext.JSON {
-		fail("doctor: --scan, --git and --secrets print text only")
+		helptext.Fail("doctor: --scan, --git and --secrets print text only")
 		return 2
 	}
 	return providers.RunAudits(os.Stdout, providers.AuditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
@@ -454,13 +454,13 @@ func cmdPreflight(args []string) int {
 		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
 		defer cancel()
 		if err := copilot.RefreshProfile(ctx, *discover); err != nil {
-			return fail("preflight: %v", err)
+			return helptext.Fail("preflight: %v", err)
 		}
 		return 0
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fail("preflight: %v", err)
+		return helptext.Fail("preflight: %v", err)
 	}
 	if *refresh {
 		now := time.Now()
@@ -472,7 +472,7 @@ func cmdPreflight(args []string) int {
 	if *live {
 		bin, err := os.Executable()
 		if err != nil {
-			return fail("preflight: %v", err)
+			return helptext.Fail("preflight: %v", err)
 		}
 		preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
 		return 0
@@ -492,7 +492,7 @@ func printAudit(days int, format string) int {
 	}
 	ev, err := audit.Read(time.Now().AddDate(0, 0, -days))
 	if err != nil {
-		return fail("doctor --audit: %v", err)
+		return helptext.Fail("doctor --audit: %v", err)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
@@ -500,7 +500,7 @@ func printAudit(days int, format string) int {
 			Summary map[audit.Action]int `json:"summary"`
 			Events  []audit.Event        `json:"events"`
 		}{days, audit.Summary(ev), ev}); err != nil {
-			return fail("doctor --audit: %v", err)
+			return helptext.Fail("doctor --audit: %v", err)
 		}
 		return 0
 	}

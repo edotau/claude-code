@@ -131,7 +131,7 @@ func failAsk(format, agentName string, err error) int { return failAskCode(forma
 // failAskCode is failAsk exiting with code (2 for a usage error).
 func failAskCode(format, agentName string, err error, code int) int {
 	printAskFailure(format, agentName, err)
-	fail("ask: %v", err)
+	helptext.Fail("ask: %v", err)
 	return code
 }
 
@@ -218,7 +218,7 @@ func cmdAgents(args []string) int {
 		agentsPage.Fprint(os.Stderr)
 		return 0
 	}
-	fail("agents: unknown subcommand %q", args[0])
+	helptext.Fail("agents: unknown subcommand %q", args[0])
 	agentsPage.Fprint(os.Stderr)
 	return 1
 }
@@ -269,7 +269,7 @@ func cmdAgentsList(args []string) int {
 	}
 	if *host != "" {
 		if err := agent.ListRemote(*host, agent.RemoteBin(*remoteBin), *format, os.Stdout); err != nil {
-			return fail("%v", err)
+			return helptext.Fail("%v", err)
 		}
 		return 0
 	}
@@ -280,7 +280,7 @@ func cmdAgentsList(args []string) int {
 func listAgents(format string) int {
 	rows := agent.RosterRows()
 	if format == helptext.JSON {
-		return writeJSONOrFail("agents", rows)
+		return helptext.WriteJSONOrFail("agents", rows)
 	}
 	for _, r := range rows {
 		fmt.Println(r.Line())

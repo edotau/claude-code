@@ -26,13 +26,13 @@ func cmdClip(args []string) int {
 	}
 	if *serve { // stdout is the bridge socket: errors go to stderr only
 		if err := clipboard.ServePNG(os.Stdout); err != nil {
-			return fail("clip --serve: %v", err)
+			return helptext.Fail("clip --serve: %v", err)
 		}
 		return 0
 	}
 	path, dim, err := clipboard.Grab()
 	if err != nil {
-		return fail("clip: %v", err)
+		return helptext.Fail("clip: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "clipboard image %s saved\n", dim)
 	fmt.Println(path)
@@ -57,13 +57,13 @@ func cmdClipClear(args []string) int {
 	}
 	b, err := io.ReadAll(io.LimitReader(os.Stdin, 256))
 	if err != nil || strings.TrimSpace(string(b)) == "" {
-		return fail("clip-clear: no digest on stdin")
+		return helptext.Fail("clip-clear: no digest on stdin")
 	}
 	time.Sleep(*after)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // a hung clipboard tool must not block the clear
 	defer cancel()
 	if _, err := clipboard.ClearIfMatch(ctx, string(b)); err != nil {
-		return fail("clip-clear: %v", err)
+		return helptext.Fail("clip-clear: %v", err)
 	}
 	return 0
 }
