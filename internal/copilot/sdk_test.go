@@ -3,6 +3,8 @@ package copilot
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -461,5 +463,57 @@ func TestEmptyPermissionsKeepHandlers(t *testing.T) {
 	}
 	if got := funcName(baseHandler(SDKOptions{AllowAllTools: true, Autonomous: true})); got != funcName(approveToolOnce) {
 		t.Errorf("autonomous handler = %s, want approveToolOnce", got)
+	}
+}
+
+func TestAllowNeverLiftsProtectedRm(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, "victim"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	perms := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash", Arg: "rm:*"}}}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		{"protected settings", "rm " + filepath.Join(wd, "settings.json"), false},
+		{"protected in a chain", "make lint && rm " + filepath.Join(wd, "settings.local.json"), false},
+		{"protected in bash -c", "bash -c 'rm " + filepath.Join(wd, ".git", "HEAD") + "'", false},
+		{"plain rm in workdir", "rm " + filepath.Join(wd, "victim"), true},
+	} {
+		d, err := h(scopedShell(wd, tc.cmd), copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
+		}
+	}
+}
+
+func TestPlanModeLetsReadsThrough(t *testing.T) {
+	wd := t.TempDir()
+	perms := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Read", Arg: "secret/**"}}}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	for _, tc := range []struct {
+		name string
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{"read", rpc.PermissionRequestRead{Path: filepath.Join(wd, "a.go")}, true},
+		{"url", rpc.PermissionRequestURL{URL: "https://example.com"}, true},
+		{"denied read", rpc.PermissionRequestRead{Path: filepath.Join(wd, "secret", "k")}, false},
+		{"write", scopedWrite(filepath.Join(wd, "a.go")), false},
+		{"shell", scopedShell(wd, "make lint"), false},
+	} {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
+		}
 	}
 }

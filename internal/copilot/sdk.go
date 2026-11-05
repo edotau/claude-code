@@ -177,10 +177,13 @@ func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc, allowWide
 		}
 		switch o.Permissions.Decide(call.Tool, call.Arg) {
 		case agent.Deny:
+			if planReadThrough(o.Permissions, req, call) {
+				return next(req, inv)
+			}
 			feedback := "Refused by permission rule for " + call.String() + ": report it instead."
 			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 		case agent.Allow:
-			if allowWidens && !protectedWrite(req, o.WorkingDirectory) {
+			if allowWidens && !protectedWrite(req, o.WorkingDirectory) && !protectedRm(req, o.WorkingDirectory) {
 				return approveToolOnce(req, inv)
 			}
 		}
@@ -217,6 +220,41 @@ func relToWorkDir(workDir, p string) string {
 		return filepath.ToSlash(rel)
 	}
 	return p
+}
+
+// planReadThrough is a read or URL fetch that plan mode denied only by its fallback: no Deny rule names it.
+func planReadThrough(p agent.Permissions, req copilot.PermissionRequest, call agent.Rule) bool {
+	return p.Mode == "plan" && readOnlyKinds[req.Kind()] &&
+		agent.Permissions{Deny: p.Deny}.Decide(call.Tool, call.Arg) != agent.Deny
+}
+
+// protectedRm is a command running rm that the scoped tier refuses (protected targets, .git, keys): Allow never lifts it.
+func protectedRm(req copilot.PermissionRequest, workDir string) bool {
+	cmd, ok := shellCommand(req)
+	return ok && runsRm(cmd, 0) && !scopedAllowed(req, workDir)
+}
+
+// runsRm reports whether any segment, substitution or nested `bash -c` body of cmd runs rm.
+func runsRm(cmd string, depth int) bool {
+	if depth > 8 {
+		return true
+	}
+	outer, subs := shell.ExtractSubstitutions(cmd)
+	for _, sub := range subs {
+		if runsRm(sub, depth+1) {
+			return true
+		}
+	}
+	for _, seg := range shell.Segments(outer) {
+		toks, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(toks) > 0 && filepath.Base(toks[0]) == "rm" {
+			return true
+		}
+		if nested, ok := shell.NestedCommand(toks); ok && runsRm(nested, depth+1) {
+			return true
+		}
+	}
+	return false
 }
 
 // protectedWrite is a write the scoped tier refuses (outside the workdir, .git, .env*, state/, keys): Allow never lifts it.
