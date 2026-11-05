@@ -1,20 +1,121 @@
-// The leaf-stop gate: a leaf may not stop while its background dispatch runs; a coworker needs a ran-on line from a tool result.
+// The dispatch group's PreToolUse runner: cap → pin → claim on one Agent/Task/Workflow spawn, so a blocked
+// dispatch claims nothing; the post-side runners live in inflight.go.
 package agents
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
+
+// agentCallRe finds `agent(` call sites in a Workflow script.
+var agentCallRe = regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`)
+
+// Effort: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
+func Effort(in *core.Input) core.Result {
+	if !core.SpawnTools[in.ToolName] && in.ToolName != "Workflow" {
+		return core.Result{}
+	}
+	owner := inflight.SessionOwner()
+	if owner == 0 {
+		return agentEffortResult(in) // an unidentifiable owner claims nothing: fail open
+	}
+	account, lim := router.SessionAccount(), router.CurrentLimits()
+	claim := inflight.Claim{Owner: owner, ID: in.Nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
+	if claim.ID == "" {
+		claim.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	if ok, snap := inflight.Fits(claim, lim); !ok {
+		return blockAtCap(snap, account, lim)
+	}
+	res := agentEffortResult(in)
+	if res.Decision == core.Block {
+		return res
+	}
+	if in.ToolName == "Workflow" {
+		claim.N = min(max(workflowLeaves(in, res), 1), lim.For(account), lim.Total)
+	}
+	if ok, snap := inflight.TryClaim(claim, lim); !ok {
+		return blockAtCap(snap, account, lim)
+	}
+	docs.ClaimPlanTask(in, claim.ID)
+	return res
+}
+
+func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) core.Result {
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: %d agents already in flight (cap %d for %s, %d machine-wide) — "+
+		"wait for one to finish or run this task sequentially.", snap.Per[account], lim.For(account), account, lim.Total)}
+}
+
+// workflowLeaves counts agent() call sites in the script the Workflow will run: the pin step's rewrite, else the original.
+func workflowLeaves(in *core.Input, res core.Result) int {
+	script, _ := res.UpdatedInput["script"].(string)
+	if script == "" {
+		script = in.Nested("tool_input", "script")
+	}
+	if script == "" {
+		if path := in.Nested("tool_input", "scriptPath"); path != "" {
+			if data, err := os.ReadFile(path); err == nil {
+				script = string(data)
+			}
+		}
+	}
+	return len(agentCallRe.FindAllStringIndex(script, -1))
+}
+
+// The release side of the dispatch cap: PostToolUseFailure, PostToolUse(Workflow) and SubagentStop retire the
+// markers `agent-effort` claimed in internal/proc/inflight; back-pressure, not a mutex.
+
+// Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
+func Release(in *core.Input) core.Result {
+	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
+		inflight.Release(owner, id)
+		docs.ClearPlanClaim(in.CWD, id) // a failed spawn never reaches SubagentStop
+	}
+	return core.Result{}
+}
+
+// reapLeaf kills the stopping leaf's leftover background shells; set by leafreap.go where signals exist.
+var reapLeaf = func(*core.Input) {}
+
+// Stop retires the stopping agent's claim by agent id (first stop retires; a second is a no-op).
+func Stop(in *core.Input) core.Result {
+	owner, id := inflight.SessionOwner(), in.SubagentID()
+	if owner == 0 || id == "" {
+		return core.Result{}
+	}
+	dirs := []string{inflight.SubagentDir(in.TranscriptPath)}
+	if in.AgentTranscriptPath != "" {
+		dirs = append([]string{filepath.Dir(in.AgentTranscriptPath)}, dirs...)
+	}
+	note, blocked := leafStopBlock(in, id)
+	if blocked {
+		return note // a blocked stop retires nothing: the leaf is still running
+	}
+	reapLeaf(in)
+	docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
+	for _, d := range dirs {
+		if d != "" {
+			inflight.RetireAgent(owner, d, id)
+		}
+	}
+	return note
+}
+
+// The leaf-stop gate: a leaf may not stop while its background dispatch runs; a coworker needs a ran-on line from a tool result.
 
 // leafStopMaxWait bounds the wait from the dispatch's start, so a hung job cannot trap a leaf.
 const leafStopMaxWait = 2 * time.Hour
