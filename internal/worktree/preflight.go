@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/notices"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -323,10 +324,7 @@ func checkTargetState(ctx context.Context, path, gitDir, commitRange string) (*I
 
 // withHolders lists rels, each followed by the live sessions or leaves the claims ledger says are editing it.
 func withHolders(top string, rels []string) string {
-	root, err := canonicalExistingPrefix(top)
-	if err != nil {
-		root = top
-	}
+	root := paths.CanonDeep(top)
 	abs := make([]string, len(rels))
 	for i, r := range rels {
 		abs[i] = filepath.Join(root, r)

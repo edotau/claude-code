@@ -166,7 +166,7 @@ func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gittest.Repo(t)
 	wt := mustCreate(t, repo, "unmerged")
-	gitIn(t, wt, "commit", "--allow-empty", "-q", "-m", "unmerged work")
+	gittest.In(t, wt, "commit", "--allow-empty", "-q", "-m", "unmerged work")
 
 	if code, stderr := remove(wt, wt); code != core.ExitProceed {
 		t.Fatalf("remove: got %d, stderr %s", code, stderr)
@@ -282,7 +282,7 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
 	main := core.CanonPath(gittest.Repo(t))
 	nested := filepath.Join(main, ".wt", "x")
-	gitIn(t, main, "worktree", "add", "-q", "-b", "x", nested)
+	gittest.In(t, main, "worktree", "add", "-q", "-b", "x", nested)
 	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
 	if top, _, skip := CheckoutOf(ctx, nested); top != nested || len(skip) != 0 {

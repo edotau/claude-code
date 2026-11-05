@@ -177,6 +177,24 @@ func WithFileLock(path string, fn func() error) (err error) {
 	return fn()
 }
 
+// AppendLine appends line (plus a trailing newline when missing) to file under its lock, creating the 0700 parent dir.
+func AppendLine(file string, line []byte) error {
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return err
+	}
+	if len(line) == 0 || line[len(line)-1] != '\n' {
+		line = append(line[:len(line):len(line)], '\n')
+	}
+	return WithFileLock(file, func() error {
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(line)
+		return errors.Join(err, f.Close())
+	})
+}
+
 // ErrLockTimeout means WithFileLock gave up waiting for a held lock.
 var ErrLockTimeout = errors.New("timed out waiting for file lock")
 

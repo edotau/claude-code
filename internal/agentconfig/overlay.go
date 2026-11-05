@@ -59,7 +59,6 @@ type overlaySrc struct {
 var (
 	fileSrc     = overlaySrc{"overlay set", "overlay keep", "overlay unset", false}
 	flagSrc     = overlaySrc{"--env", "--keep-env", "unset", true}
-	envNameRE   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	secretKeyRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 )
 
@@ -267,7 +266,7 @@ func (o Overlay) checkSet(src overlaySrc, keep map[string]bool) error {
 
 func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 	for _, n := range o.Unset {
-		if !envNameRE.MatchString(n) {
+		if !vault.EnvName.MatchString(n) {
 			return fmt.Errorf("%s: want a NAME", src.unset)
 		}
 		if err := unsetRule(n); err != nil {
@@ -326,7 +325,7 @@ func runRules(rules []rule, c *ruleCtx) error {
 }
 
 var keepRules = []rule{
-	{func(c *ruleCtx) bool { return !envNameRE.MatchString(c.name) }, refuse(errors.New("want a NAME"))},
+	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errors.New("want a NAME"))},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
 	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") || credentialName(c.up) },
@@ -388,7 +387,7 @@ func routeRedirectName(up string) bool {
 }
 
 var setRules = []rule{
-	{func(c *ruleCtx) bool { return !envNameRE.MatchString(c.name) }, refuse(errors.New("want NAME=VALUE"))},
+	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errors.New("want NAME=VALUE"))},
 	{func(c *ruleCtx) bool {
 		return strings.HasPrefix(c.up, "HARNESS_") || strings.HasPrefix(c.up, OverlayVar)
 	},
@@ -422,7 +421,7 @@ func setRule(name, val string, keep map[string]bool, flag bool, route func(strin
 // refRule refuses a vault name an overlay may not pass on: harness-internal secrets and any profile's route credential.
 func refRule(ref string, route func(string) bool) error {
 	switch {
-	case !envNameRE.MatchString(ref):
+	case !vault.EnvName.MatchString(ref):
 		return errors.New("want @secret:<NAME> with an env-style NAME")
 	case providers.InternalSecretName(ref):
 		return fmt.Errorf("@secret:%s is harness-internal", ref)

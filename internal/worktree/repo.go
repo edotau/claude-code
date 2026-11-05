@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Repo is a git repository's canonical identity for worktree purposes: the main checkout (never a
@@ -115,10 +117,7 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 // prefix — plain canonical() would silently skip every symlink when repo.Root's own basename doesn't
 // exist yet, which is exactly the case on a first `create` for this repo.
 func rejectLiveCheckoutRoot(repo *Repo) error {
-	rootCanon, err := canonicalExistingPrefix(repo.Root)
-	if err != nil {
-		return err
-	}
+	rootCanon := paths.CanonDeep(repo.Root)
 	mainCanon, err := canonical(repo.Main)
 	if err != nil {
 		return err
@@ -127,27 +126,6 @@ func rejectLiveCheckoutRoot(repo *Repo) error {
 		return fmt.Errorf("worktree root %s is the live main checkout %s (or inside it), refusing to use it", repo.Root, repo.Main)
 	}
 	return nil
-}
-
-// canonicalExistingPrefix resolves symlinks in the longest prefix of p that actually exists on disk,
-// then rejoins the remaining (not-yet-created) suffix unresolved — so a path whose leaf doesn't exist
-// yet still gets every real symlink component (e.g. a symlinked worktree root) resolved, unlike
-// canonical()/EvalSymlinks, which require the entire path to exist.
-func canonicalExistingPrefix(p string) (string, error) {
-	p = filepath.Clean(p)
-	suffix := ""
-	cur := p
-	for {
-		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(resolved, suffix), nil
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return p, nil // reached the filesystem root without finding anything that exists
-		}
-		suffix = filepath.Join(filepath.Base(cur), suffix)
-		cur = parent
-	}
 }
 
 // ownsWorktree reports whether dest is itself a worktree sharing repo's common git dir — the only
@@ -212,11 +190,5 @@ func sharesCommonDir(ctx context.Context, repo *Repo, dest string) (bool, error)
 	return common == wantCommon, nil
 }
 
-// canonical cleans and resolves symlinks so two spellings of the same directory compare equal.
-func canonical(p string) (string, error) {
-	p = filepath.Clean(p)
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r, nil
-	}
-	return p, nil // unresolvable (e.g. already-deleted) path still compares consistently cleaned
-}
+// canonical is paths.Canon with the error return its callers expect (always nil).
+func canonical(p string) (string, error) { return paths.Canon(p), nil }

@@ -119,13 +119,31 @@ func hasGit(path string) bool {
 
 // SamePath compares two paths after Clean and symlink resolution (unresolvable paths compare cleaned).
 func SamePath(a, b string) bool {
-	return canon(a) == canon(b)
+	return Canon(a) == Canon(b)
 }
 
-func canon(p string) string {
+// Canon cleans p and resolves its symlinks; an unresolvable path (e.g. already deleted) stays cleaned.
+func Canon(p string) string {
 	p = filepath.Clean(p)
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
 	}
 	return p
+}
+
+// CanonDeep resolves symlinks in p's deepest existing ancestor and rejoins the missing tail unresolved.
+func CanonDeep(p string) string {
+	p = filepath.Clean(p)
+	tail := ""
+	for cur := p; ; {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(r, tail)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		tail = filepath.Join(filepath.Base(cur), tail)
+		cur = parent
+	}
 }

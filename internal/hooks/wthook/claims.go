@@ -1,12 +1,11 @@
 package wthook
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -118,21 +117,16 @@ func addedPaths(ctx context.Context, target string, args []string) []string {
 
 // appendClaims appends lines to file under its lock; any error drops them (the ledger is advisory).
 func appendClaims(file string, lines []claim) {
-	if len(lines) == 0 || os.MkdirAll(filepath.Dir(file), 0o700) != nil {
+	if len(lines) == 0 {
 		return
 	}
-	_ = paths.WithFileLock(file, func() error {
-		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return err
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for _, c := range lines {
+		c.Schema = claimsSchema
+		if enc.Encode(c) != nil {
+			return
 		}
-		enc := json.NewEncoder(f)
-		for _, c := range lines {
-			c.Schema = claimsSchema
-			if err := enc.Encode(c); err != nil {
-				return errors.Join(err, f.Close())
-			}
-		}
-		return f.Close()
-	})
+	}
+	_ = paths.AppendLine(file, buf.Bytes())
 }

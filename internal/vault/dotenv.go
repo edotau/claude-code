@@ -21,8 +21,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// dotenvName is the only key shape import accepts: an env var name (letters, digits, _; not leading a digit).
-var dotenvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// EnvName is a valid secret or env var name (letters, digits, _; not leading a digit); import accepts only this shape.
+var EnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Pair is one NAME=value line.
 type Pair struct{ Name, Value string }
@@ -40,7 +40,7 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 		name, value, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
 		value = unquoteDotenv(value)
 		switch {
-		case !ok || !dotenvName.MatchString(name):
+		case !ok || !EnvName.MatchString(name):
 			problems = append(problems, fmt.Sprintf("line %d: want NAME=value", n))
 		case value == "":
 			problems = append(problems, fmt.Sprintf("line %d: %s has no value", n, name))

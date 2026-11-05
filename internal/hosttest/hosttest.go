@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,4 +138,27 @@ func linkTools(bin string) {
 		}
 		_ = os.Symlink(p, filepath.Join(bin, t))
 	}
+}
+
+// MainTB lets TestMain call testing.TB stubs: Cleanup is deferred until the caller runs Run's returned funcs.
+type MainTB struct {
+	testing.TB
+	Cleanups []func()
+}
+
+func (m *MainTB) Helper()          {}
+func (m *MainTB) Cleanup(f func()) { m.Cleanups = append(m.Cleanups, f) }
+
+// OneDoc decodes s as exactly one JSON object, failing the test on anything else.
+func OneDoc(t *testing.T, s string) map[string]any {
+	t.Helper()
+	dec := json.NewDecoder(strings.NewReader(s))
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		t.Fatalf("not JSON: %q: %v", s, err)
+	}
+	if dec.More() {
+		t.Fatalf("more than one JSON document: %q", s)
+	}
+	return m
 }

@@ -1,10 +1,13 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -274,4 +277,54 @@ func TestTryFileLockContention(t *testing.T) {
 	if !ran {
 		t.Error("TryFileLock must run fn once the lock is released")
 	}
+}
+
+func TestCanonDeepMissingLeafThroughSymlink(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	want := filepath.Join(Canon(real), "a", "b")
+	if got := CanonDeep(filepath.Join(link, "a", "b")); got != want {
+		t.Fatalf("CanonDeep through symlink with missing tail = %q, want %q", got, want)
+	}
+	if got := Canon(filepath.Join(link, "a")); got != filepath.Join(link, "a") {
+		t.Fatalf("Canon of an unresolvable path = %q, want it cleaned only", got)
+	}
+}
+
+func TestAppendLineConcurrent(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sub", "log")
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := AppendLine(file, []byte(fmt.Sprintf("line-%02d", i))); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("got %d lines, want 20: %q", len(lines), data)
+	}
+	if err := AppendLine(file, []byte("x\n")); err != nil || !strings.HasSuffix(readStr(t, file), "\nx\n") {
+		t.Fatalf("pre-terminated line got a second newline or failed: %v", err)
+	}
+}
+
+func readStr(t *testing.T, f string) string {
+	t.Helper()
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

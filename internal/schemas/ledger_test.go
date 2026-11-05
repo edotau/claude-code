@@ -67,6 +67,7 @@ var writers = map[string]string{
 	"internal/agentconfig/render/versions.go:RevertOne":               unversioned("foreign: vendor config revert"),
 	"internal/agentconfig/render/versions.go:writeBaseline":           "vendor-baseline",
 	"internal/history/history.go:stageFile":                           unversioned("text: session history snapshot of a transcript"),
+	"internal/hosttest/gittest/gittest.go:WriteRel":                   unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:contextCheckpoint":          unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/agents/codexaudit.go:appendCodexRoute":            "codex-routing",
 	"internal/hooks/wthook/claims.go:appendClaims":                    "claims",
@@ -180,7 +181,7 @@ var writers = map[string]string{
 
 var writeCalls = map[string]bool{
 	"os.WriteFile": true, "os.Create": true, "os.CreateTemp": true, "os.OpenFile": true,
-	"paths.AtomicWrite": true, "paths.WriteIfChanged": true, "paths.Backup": true,
+	"paths.AtomicWrite": true, "paths.AppendLine": true, "paths.WriteIfChanged": true, "paths.Backup": true,
 }
 
 func scanWriters(t *testing.T) map[string]bool {
