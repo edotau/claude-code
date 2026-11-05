@@ -33,8 +33,8 @@ before editing the defaults or running `make install` (`/fewer-permission-prompt
 3. `configure --restore` (backs up the old file to `state/harness/backups/settings.json.bak-<timestamp>`), then
    `claude-code doctor`.
 
-`configure --restore --check` fails on invalid JSON, a key a restore would rewrite, a foreign key (including ones
-`/config` writes) and a nested `.claude/.claude`.
+`configure --restore --check` checks only the agent configs (codex, copilot, …); settings.json has no drift check —
+`make install` refreshes its hooks and leaves every other key as you set it.
 
 ## Where an override goes
 

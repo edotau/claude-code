@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -27,7 +26,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // Install copies the binary into BinDir, links the agent CLIs, and merges the harness settings
@@ -93,12 +91,9 @@ func installCompact(w io.Writer) error {
 	if err := linkOnPathCompact(w, target); err != nil {
 		return err
 	}
-	settingsLine, settingsDrift, settingsErr := settingsCompactLine()
+	settingsLine, settingsErr := settingsCompactLine()
 	if settingsLine != "" {
 		fmt.Fprintln(w, settingsLine)
-	}
-	if settingsErr == nil {
-		settingsErr = offerRestore(w, SettingsFile(), settingsDrift, false)
 	}
 	windowsSettingsCompact(w)
 	agentsSyncCompact(w)
@@ -241,16 +236,10 @@ func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum setti
 	if err != nil {
 		return file, existing, nil, settings.Summary{}, "", err
 	}
-	if len(existing) > 0 {
-		sum.Drift = driftExceptHooks(merged, rendered)
-	}
 	if string(merged) == string(existing) || dryRun {
 		return file, existing, merged, sum, "", nil
 	}
 	merged, sum, backup, err = updateMergedSettings(file, rendered, merged, sum)
-	if len(existing) > 0 {
-		sum.Drift = driftExceptHooks(merged, rendered)
-	}
 	return file, existing, merged, sum, backup, err
 }
 
@@ -276,31 +265,6 @@ func restoreMissingSettings(err error, dryRun bool) bool {
 	return errors.Is(err, fs.ErrNotExist) && !dryRun
 }
 
-// driftExceptHooks lists the keys of settings that differ from the defaults render, hooks aside.
-func driftExceptHooks(live, rendered []byte) []string {
-	keys, err := settings.DiffRendered(live, rendered)
-	if err != nil {
-		return nil
-	}
-	return slices.DeleteFunc(keys, func(k string) bool { return k == "hooks" })
-}
-
-// offerRestore tells the user their settings.json differs from the defaults; on a terminal outside a
-// dry run it asks to restore them whole (timestamped backup, `configure --revert` undoes).
-func offerRestore(w io.Writer, file string, drift []string, dryRun bool) error {
-	if len(drift) == 0 {
-		return nil
-	}
-	if dryRun || !tui.StdinIsTerminal() || !tui.StdoutIsTerminal() {
-		fmt.Fprintf(w, "settings differs from defaults (%d keys); `claude-code configure --restore` resets\n", len(drift))
-		return nil
-	}
-	if !tui.Confirm(fmt.Sprintf("settings.json differs from defaults (%d keys) — restore defaults?", len(drift)), false) {
-		return nil
-	}
-	return restoreSettingsFile(w, file)
-}
-
 // installSettings refreshes the hooks of settings.json (or generates it), backing up on a real write.
 func installSettings(w io.Writer, dryRun bool) error {
 	file, existing, merged, sum, backup, err := ApplySettings(dryRun)
@@ -324,18 +288,18 @@ func installSettings(w io.Writer, dryRun bool) error {
 	case backup != "":
 		fmt.Fprintf(w, "  backup %s\n", backup)
 	}
-	return offerRestore(w, file, sum.Drift, dryRun)
+	return nil
 }
 
 // settingsCompactLine is installSettings without the printing: it writes the settings the same way,
-// returning the one-line summary (or "" on error, which the caller reports) and the keys that differ from the defaults.
-func settingsCompactLine() (line string, drift []string, err error) {
+// returning the one-line summary (or "" on error, which the caller reports).
+func settingsCompactLine() (line string, err error) {
 	_, existing, merged, sum, backup, err := ApplySettings(false)
 	if err != nil {
 		if backup != "" {
-			return "settings error · backup …" + filepath.Base(backup), nil, err
+			return "settings error · backup …" + filepath.Base(backup), err
 		}
-		return "", nil, err
+		return "", err
 	}
 	status := "updated"
 	if string(merged) == string(existing) {
@@ -345,7 +309,7 @@ func settingsCompactLine() (line string, drift []string, err error) {
 	if backup != "" {
 		line += " · backup …" + filepath.Base(backup)
 	}
-	return line, sum.Drift, nil
+	return line, nil
 }
 
 // windowsSettingsCompact runs InstallWindowsSettings and condenses its full-detail output to one line;

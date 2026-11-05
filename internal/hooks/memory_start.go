@@ -16,11 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 )
-
-// defaultsDrift reads settings drift; var seam so tests can stub it.
-var defaultsDrift = settings.DefaultsDrift
 
 // sessionStart injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
 func sessionStart(in *core.Input) core.Result {
@@ -66,15 +62,14 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	return out
 }
 
-// sessionSurfaceText renders the start-of-session note, drift notice and (when a bank exists) its surface.
+// sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
 func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) string {
-	drift := driftNotice()
 	if surface := memory.SessionSurface(cwd); surface != "" {
 		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice(cwd)
-		return strings.TrimSpace(note+"\n"+drift) + "\n\n" + surface
+		return strings.TrimSpace(note) + "\n\n" + surface
 	}
 	// a fresh scaffold has no surface yet; still say where the bank went
-	return strings.TrimSpace(prefix + "\n" + drift)
+	return strings.TrimSpace(prefix)
 }
 
 // spawnStartWorkers launches the detached dream, catch-up sweep and served-endpoint refresh a start may owe.
@@ -138,21 +133,6 @@ func doctorNotice(root string) string {
 		notice = string(rs[:200])
 	}
 	return " memory review: " + notice + "."
-}
-
-// driftNotice returns a one-line settings drift notice vs defaults, or "" when clean or on error.
-func driftNotice() string {
-	if bank.IsUpdateChild() {
-		return ""
-	}
-	keys, err := defaultsDrift()
-	if err != nil || len(keys) == 0 {
-		return ""
-	}
-	if len(keys) == 1 {
-		return "Settings: 1 key differs from your defaults — claude-code configure --restore"
-	}
-	return fmt.Sprintf("Settings: %d keys differ from your defaults — claude-code configure --restore", len(keys))
 }
 
 // chainEntry is the session chain file: id (line 1), transcript path (line 2), cwd (line 3) — lines 2-3 are optional so a pre-upgrade one-line file still parses.

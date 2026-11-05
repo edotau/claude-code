@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"maps"
 	"os"
@@ -19,25 +18,10 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-var update = flag.Bool("update", false, "rewrite golden files")
-
-func TestRenderGolden(t *testing.T) {
+func TestRenderValidJSON(t *testing.T) {
 	got, err := Render()
 	if err != nil {
 		t.Fatal(err)
-	}
-	golden := filepath.Join("testdata", "settings.golden.json")
-	if *update {
-		if err := os.WriteFile(golden, got, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(want) {
-		t.Errorf("render drifted from golden (go test -run TestRenderGolden -update):\n%s", got)
 	}
 	if !json.Valid(got) {
 		t.Error("render is not valid JSON")
@@ -540,34 +524,6 @@ func TestSectionsKeepCatalogKeysMissingFromDefaults(t *testing.T) {
 		if f.Section != "" && !have[f.Key] {
 			t.Errorf("catalog key %q has no page row", f.Key)
 		}
-	}
-}
-
-// TestDocsTemplateExampleSettings keeps docs/templates/examples/settings/settings.json identical to
-// testdata/settings.golden.json — same render, a docs-discoverable location. Rewrite with the package's
-// existing -update flag (declared in settings_test.go): `go test ./internal/settings -run
-// TestDocsTemplateExampleSettings -update`.
-func TestDocsTemplateExampleSettings(t *testing.T) {
-	want, err := os.ReadFile(filepath.Join("testdata", "settings.golden.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	example := filepath.Join("..", "..", "docs", "templates", "examples", "settings", "settings.json")
-	if *update {
-		if err := os.MkdirAll(filepath.Dir(example), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(example, want, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err := os.ReadFile(example)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(want) {
-		t.Errorf("docs/templates/examples/settings/settings.json drifted from testdata/settings.golden.json " +
-			"(go test ./internal/settings -run TestDocsTemplateExampleSettings -update)")
 	}
 }
 

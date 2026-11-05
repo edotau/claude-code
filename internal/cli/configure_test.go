@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,34 +37,6 @@ func resetEnv(t *testing.T) string {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", t.TempDir())
 	return dir
-}
-
-func TestConfigureRestoreCheckExitCodes(t *testing.T) {
-	// --out keeps the check on one scratch file (no live Windows-profile drift on WSL, no vendor homes).
-	out := filepath.Join(resetEnv(t), "settings.json")
-	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--out", out}) }); code != 0 {
-		t.Fatalf("--restore exit %d: %s", code, stderr)
-	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--check", "--out", out}) }); code != 0 {
-		t.Fatalf("--restore --check on a fresh render exit %d, want 0: %s", code, stderr)
-	}
-	path := out
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		t.Fatal(err)
-	}
-	m["model"] = "drifted-model"
-	edited, _ := json.Marshal(m)
-	if err := os.WriteFile(path, edited, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, _ := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--check", "--out", out}) }); code != 1 {
-		t.Errorf("--restore --check after editing model exit %d, want 1", code)
-	}
 }
 
 func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
@@ -164,19 +135,6 @@ func TestConfigureRestoreDryRunLeavesLiveUntouched(t *testing.T) {
 	}
 }
 
-func TestConfigureRestoreBareCheckDoesNotWrite(t *testing.T) {
-	live := filepath.Join(resetEnv(t), "settings.json")
-	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, _ := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--check"}) }); code != 1 {
-		t.Errorf("--restore --check on a stale file exit %d, want 1", code)
-	}
-	if got, _ := os.ReadFile(live); string(got) != `{"stale":true}` {
-		t.Errorf("--check wrote the file: %s", got)
-	}
-}
-
 // TestConfigureRestoreSpansDefaultsOverlayAndHistory: defaults + vault overlay (a catalog key and an env
 // variable), three hand-changed live keys, then --restore leaves exactly the render and a "before restore" snapshot.
 func TestConfigureRestoreSpansDefaultsOverlayAndHistory(t *testing.T) {
@@ -222,9 +180,6 @@ func configureRestoreDriftFixture(t *testing.T) (string, []byte) {
 	if err := os.WriteFile(file, edited, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if keys, err := settings.DefaultsDrift(); err != nil || !slices.Equal(keys, []string{"model", "prefersReducedMotion", "zzExtra"}) {
-		t.Fatalf("DefaultsDrift before = %v, %v", keys, err)
-	}
 	return file, want
 }
 
@@ -236,9 +191,6 @@ func checkConfigureRestoreHistory(t *testing.T, file, stdout string) {
 	}
 	if !strings.Contains(stdout, "before restore") || !strings.Contains(stdout, "restored "+file) {
 		t.Errorf("stdout lacks the snapshot and restored lines:\n%s", stdout)
-	}
-	if keys, err := settings.DefaultsDrift(); err != nil || len(keys) != 0 {
-		t.Errorf("DefaultsDrift after = %v, %v; want none", keys, err)
 	}
 }
 
