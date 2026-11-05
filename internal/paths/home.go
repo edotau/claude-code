@@ -41,3 +41,15 @@ func ConfigDirIsDefault() bool {
 	home, err := os.UserHomeDir()
 	return err == nil && filepath.Clean(ConfigDir()) == filepath.Join(home, ".claude")
 }
+
+// Within reports whether path equals base or sits under it, after cleaning both (so /a/foo is not inside /a/foobar).
+func Within(path, base string) bool {
+	path, base = filepath.Clean(path), filepath.Clean(base)
+	if path == base {
+		return true
+	}
+	if !strings.HasSuffix(base, string(filepath.Separator)) {
+		base += string(filepath.Separator) // the root "/" already ends in one
+	}
+	return strings.HasPrefix(path, base)
+}

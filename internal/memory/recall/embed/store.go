@@ -24,10 +24,10 @@ var vectorStore = &boltVectorStore{}
 // VectorWrite replaces a record or atomically merges a mint while releasing its claim.
 type VectorWrite struct {
 	Profile string
-	Record  VectorRecord
+	Record  vectorRecord
 	Owner   int64
 	Started int64
-	Merge   func(VectorRecord) VectorRecord
+	Merge   func(vectorRecord) vectorRecord
 }
 
 func (s *boltVectorStore) Put(write VectorWrite) (stored bool, err error) {
@@ -81,20 +81,20 @@ var (
 	ErrReembedEarly = errors.New("re-embed is not open yet")
 )
 
-// EmbedDBPath is the one bbolt file holding every profile's entry-vector record, scoped like StateDir.
-func EmbedDBPath() string { return filepath.Join(memstore.StateDir(), "embeddings.db") }
+// embedDBPath is the one bbolt file holding every profile's entry-vector record, scoped like StateDir.
+func embedDBPath() string { return filepath.Join(memstore.StateDir(), "embeddings.db") }
 
 func SafeProfile(profile string) bool { return safeProfile.MatchString(profile) }
 
-func MintedTime(f VectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
+func MintedTime(f vectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
 
 // embedValid reports whether f was minted less than embedValidity before now; a future MintedAt is not valid.
-func embedValid(f VectorRecord, now time.Time) bool {
+func embedValid(f vectorRecord, now time.Time) bool {
 	return f.MintedAt > 0 && !MintedTime(f).After(now) && now.Sub(MintedTime(f)) < embedValidity
 }
 
 // reembedOpensAt reports the override opening time and whether it is open now.
-func reembedOpensAt(f VectorRecord, now time.Time) (time.Time, bool) {
+func reembedOpensAt(f vectorRecord, now time.Time) (time.Time, bool) {
 	if !embedValid(f, now) {
 		return time.Time{}, true
 	}
@@ -116,20 +116,20 @@ func ReembedWindow(profile string, now time.Time) (opensAt time.Time, open bool,
 }
 
 // readEmbedCache reads profile's record without blocking long; a missing file or record is empty.
-func readEmbedCache(profile string) (VectorRecord, error) {
+func readEmbedCache(profile string) (vectorRecord, error) {
 	return vectorStore.Vectors(profile)
 }
 
-func (s *boltVectorStore) Vectors(profile string) (VectorRecord, error) {
-	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
+func (s *boltVectorStore) Vectors(profile string) (vectorRecord, error) {
+	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
 	if errors.Is(err, os.ErrNotExist) {
-		return VectorRecord{}, nil
+		return vectorRecord{}, nil
 	}
 	if err != nil {
-		return VectorRecord{}, err
+		return vectorRecord{}, err
 	}
 	defer db.Close()
-	var f VectorRecord
+	var f vectorRecord
 	err = db.View(func(tx *bbolt.Tx) error {
 		f = decodeEmbedRecord(tx, profile)
 		return nil
@@ -137,26 +137,26 @@ func (s *boltVectorStore) Vectors(profile string) (VectorRecord, error) {
 	return f, err
 }
 
-func decodeEmbedMetadata(tx *bbolt.Tx, profile string) VectorRecord {
+func decodeEmbedMetadata(tx *bbolt.Tx, profile string) vectorRecord {
 	b := tx.Bucket(embedCacheBucket)
 	if b == nil || b.Bucket([]byte(profile)) == nil {
-		return VectorRecord{}
+		return vectorRecord{}
 	}
-	var f VectorRecord
+	var f vectorRecord
 	if !schemas.DecodeOK(embedFormat, b.Bucket([]byte(profile)).Get(embedMetadataKey), &f) {
-		return VectorRecord{}
+		return vectorRecord{}
 	}
 	return f
 }
 
-func decodeEmbedRecord(tx *bbolt.Tx, profile string) VectorRecord {
+func decodeEmbedRecord(tx *bbolt.Tx, profile string) vectorRecord {
 	f := decodeEmbedMetadata(tx, profile)
 	if f.Rows == nil {
 		return f
 	}
 	rows := tx.Bucket(embedCacheBucket).Bucket([]byte(profile)).Bucket(embedRowsBucket)
 	if rows == nil {
-		return VectorRecord{}
+		return vectorRecord{}
 	}
 	for id, row := range f.Rows {
 		raw := rows.Get([]byte(id))
@@ -175,7 +175,7 @@ func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
 	if err := os.MkdirAll(memstore.StateDir(), 0o700); err != nil {
 		return err
 	}
-	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{Timeout: embedWriteTimeout})
+	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{Timeout: embedWriteTimeout})
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func deleteEmbedRecord(cache *bbolt.Bucket, profile string) error {
 	return cache.Delete(key)
 }
 
-func putEmbedRecord(tx *bbolt.Tx, profile string, f VectorRecord) error {
+func putEmbedRecord(tx *bbolt.Tx, profile string, f vectorRecord) error {
 	f.Schema = embedCacheSchema
 	raw, err := json.Marshal(f)
 	if err != nil {
@@ -244,7 +244,7 @@ func embedClaimExpiry(ctx context.Context, now time.Time) time.Time {
 	return now.Add(embedClaimTTL)
 }
 
-// claimEmbedMint takes profile's claim for owner until expiry; held is the live claim's expiry when another has it.
+// Claim takes profile's claim for owner until expiry; held is the live claim's expiry when another has it.
 func (s *boltVectorStore) Claim(profile string, owner int64, now, expiry time.Time) (held time.Time, ok bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(embedClaimBucket)
@@ -271,17 +271,17 @@ func dropClaim(tx *bbolt.Tx, profile string, owner int64) error {
 	return nil
 }
 
-// releaseEmbedMint drops owner's claim on profile; a claim another owner took over is left alone.
+// Release drops owner's claim on profile; a claim another owner took over is left alone.
 func (s *boltVectorStore) Release(profile string, owner int64) {
 	_ = updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, profile, owner) })
 }
 
-// embedRefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint.
+// RefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint.
 func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
 	if !SafeProfile(profile) {
 		return false
 	}
-	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})
+	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})
 	if errors.Is(err, os.ErrNotExist) {
 		return true
 	}

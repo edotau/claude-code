@@ -24,7 +24,7 @@ func StoreFiles(e memstore.RepoEntry) []CorpusFile {
 	for _, name := range BankFiles() {
 		out = append(out, CorpusFile{Bank: e.Key, Path: filepath.Join(e.Dir, name), Mode: SegEntries})
 	}
-	for _, path := range SearchTopicFiles(e.Dir) {
+	for _, path := range searchTopicFiles(e.Dir) {
 		out = append(out, CorpusFile{Bank: e.Key, Path: path, Mode: SegNative})
 	}
 	return out

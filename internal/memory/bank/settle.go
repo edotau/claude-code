@@ -14,8 +14,8 @@ import (
 // BankIndexFile is the generated routing index inside a bank dir — never hand-edit.
 const BankIndexFile = "index.md"
 
-// BuildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.
-func BuildBankIndex(dir string, now time.Time) string {
+// buildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.
+func buildBankIndex(dir string, now time.Time) string {
 	var b strings.Builder
 	total := 0
 	section := func(name, prefix, unit string) {
@@ -73,8 +73,8 @@ func LockPath(dir string) string { return filepath.Join(memstore.StoreLockDir(di
 // the index was refreshed. A single "moved" number would hide rotation and index refreshes entirely.
 type BankSettlement struct {
 	Rotated  int  // sessionHistory entries moved to <bank>/archive/sessionHistory-<yyyy-mm>.md
-	Promoted int  // blocks moved local → home, deduped
-	Archived int  // blocks moved to <bank>/archive — the relief valve when local IS home
+	Promoted int  // unused: settle never promotes to home
+	Archived int  // unused: settle never archives overflow
 	Indexed  bool // the routing index was rewritten
 }
 

@@ -26,7 +26,7 @@ func embeddingModelFor(ctx context.Context, reg *providers.Registry, p *provider
 	if err != nil {
 		return "", err
 	}
-	model, ok := PickEmbeddingModel(infos)
+	model, ok := pickEmbeddingModel(infos)
 	if !ok {
 		return "", fmt.Errorf("profile %s serves no embeddings endpoint", p.Name)
 	}

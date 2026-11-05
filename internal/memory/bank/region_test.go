@@ -40,7 +40,7 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 	write(t, filepath.Join(dir, "decisionLog.md"), b.String())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	region := BuildBankRegion(dir, now)
+	region := buildBankRegion(dir, now)
 
 	if n := LineCount(region); n > BankRegionMaxLines {
 		t.Errorf("region has %d lines, want <= %d:\n%s", n, BankRegionMaxLines, region)

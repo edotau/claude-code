@@ -16,7 +16,6 @@ import (
 // TimelineEntry is one recall row from an update receipt.
 type TimelineEntry struct {
 	Time time.Time
-	Kind string // update
 	Line string
 }
 
@@ -32,7 +31,7 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 		if r.BankUpdated {
 			line += ", bank updated"
 		}
-		entries = append(entries, TimelineEntry{Time: r.Time, Kind: "update", Line: line + "  (session " + headID(id) + ")"})
+		entries = append(entries, TimelineEntry{Time: r.Time, Line: line + "  (session " + headID(id) + ")"})
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Time.After(entries[j].Time) })
 	if limit > 0 && len(entries) > limit {

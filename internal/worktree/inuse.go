@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Proc identifies a live process with a cwd inside a worktree that Clean is about to remove.
@@ -54,7 +56,7 @@ func InUseBy(dest string) (string, error) {
 		real = dest // not resolvable yet; compare against the raw path
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		if resolved, err := filepath.EvalSymlinks(cwd); err == nil && within(resolved, real) {
+		if resolved, err := filepath.EvalSymlinks(cwd); err == nil && paths.Within(resolved, real) {
 			return "current directory is inside it; cd out first", nil
 		}
 	}
@@ -87,14 +89,6 @@ func foreignProc(dir string, excluded map[int]bool) (*Proc, error) {
 		}
 	}
 	return nil, nil
-}
-
-// within reports whether path equals base or sits under it, comparing with a trailing separator so
-// /a/foo does not match /a/foobar.
-func within(path, base string) bool {
-	path = strings.TrimRight(path, string(filepath.Separator))
-	base = strings.TrimRight(base, string(filepath.Separator))
-	return path == base || strings.HasPrefix(path, base+string(filepath.Separator))
 }
 
 // ancestry walks pid's parent chain so InUseBy can exclude the caller's own process tree.
@@ -131,7 +125,7 @@ var scanProcs func() ([]procCwd, error)
 func filterProcs(all []procCwd, dir string) []Proc {
 	var procs []Proc
 	for _, p := range all {
-		if !within(p.Cwd, dir) {
+		if !paths.Within(p.Cwd, dir) {
 			continue
 		}
 		if p.Comm == "" && commName != nil {
@@ -189,7 +183,7 @@ func knownAgents(pids map[int]bool) map[int]bool {
 func pidsWithin(all []procCwd, dirs []string) map[int]bool {
 	pids := map[int]bool{}
 	for _, p := range all {
-		if slices.ContainsFunc(dirs, func(d string) bool { return within(p.Cwd, d) }) {
+		if slices.ContainsFunc(dirs, func(d string) bool { return paths.Within(p.Cwd, d) }) {
 			pids[p.PID] = true
 		}
 	}

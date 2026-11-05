@@ -31,7 +31,7 @@ func leaseClient(calls *int, hook func()) *EmbedClient {
 }
 
 // backdate rewrites the record's MintedAt to age ago.
-func backdate(t *testing.T, age time.Duration) VectorRecord {
+func backdate(t *testing.T, age time.Duration) vectorRecord {
 	t.Helper()
 	f := loadEmbedCache("fake")
 	f.MintedAt = time.Now().Add(-age).UnixNano()
@@ -137,7 +137,7 @@ func (e *leaseEnv) raceKeepsWinner() {
 		f := loadEmbedCache("fake")
 		f.MintedAt = time.Now().UnixNano()
 		winner = f.MintedAt
-		f.Rows = map[string]VectorRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
+		f.Rows = map[string]vectorRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
 		if err := saveEmbedCache("fake", f); err != nil {
 			e.t.Error(err)
 		}
@@ -192,7 +192,7 @@ func leaseFixture(t *testing.T) string {
 // readClaim returns the live claim's expiry and owner for profile "fake".
 func readClaim(t *testing.T) (exp time.Time, owner int64, ok bool) {
 	t.Helper()
-	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Second})
+	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestEmbedSupersededIsReported(t *testing.T) {
 	c := leaseClient(&calls, func() {
 		f := loadEmbedCache("fake")
 		f.MintedAt = time.Now().UnixNano()
-		f.Rows = map[string]VectorRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
+		f.Rows = map[string]vectorRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
 		if err := saveEmbedCache("fake", f); err != nil {
 			t.Error(err)
 		}
@@ -300,7 +300,7 @@ func TestEmbedCommitErrorReleasesClaim(t *testing.T) {
 	var calls int
 	freed := make(chan struct{})
 	c := leaseClient(&calls, func() {
-		db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{Timeout: time.Second})
+		db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{Timeout: time.Second})
 		if err != nil {
 			t.Error(err)
 			close(freed)
@@ -355,15 +355,15 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "qa")
 	vaulttest.SetRecord(t, "claude", "profile", "dev")
-	f := VectorRecord{Namespace: "dev|h|gte", Model: "gte", Rows: map[string]VectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	f := vectorRecord{Namespace: "dev|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
 	if err := saveEmbedCache("dev", f); err != nil {
 		t.Fatal(err)
 	}
 	prevRead, prevOpen := ReadProfileCache, OpenEmbedClient
 	t.Cleanup(func() { ReadProfileCache, OpenEmbedClient = prevRead, prevOpen })
-	ReadProfileCache = func(profile string) (VectorRecord, error) {
+	ReadProfileCache = func(profile string) (vectorRecord, error) {
 		if profile == "qa" {
-			return VectorRecord{}, errors.New("timeout")
+			return vectorRecord{}, errors.New("timeout")
 		}
 		return prevRead(profile)
 	}
@@ -377,7 +377,7 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 	if _, err := NewSemantic("q"); err != nil || opened != "dev" {
 		t.Fatalf("qa unreadable: opened %q err %v, want the pinned dev profile", opened, err)
 	}
-	ReadProfileCache = func(string) (VectorRecord, error) { return VectorRecord{}, errors.New("timeout") }
+	ReadProfileCache = func(string) (vectorRecord, error) { return vectorRecord{}, errors.New("timeout") }
 	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("every profile unreadable: err %v, want 'unreadable'", err)
 	}
@@ -388,7 +388,7 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "fake")
-	f := VectorRecord{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]VectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	f := vectorRecord{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}

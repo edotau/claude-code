@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -61,23 +62,32 @@ func archivePath(dir, base string, now time.Time) string {
 	return filepath.Join(dir, "archive", strings.TrimSuffix(base, ".md")+"-"+now.Format("2006-01")+".md")
 }
 
-// archiveFile prunes path to capLines, appending its oldest overflow blocks to the archive first so
-// nothing is lost if the rewrite fails.
-func archiveFile(path string, capLines int, now time.Time) (int, error) {
+// splitOverflow reads path and splits off its oldest blocks beyond capLines; an absent or in-cap file has none.
+func splitOverflow(path string, capLines int) (header string, keep, overflow []string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, nil // absent file — nothing to archive
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
+		return "", nil, nil, err
 	}
 	if bank.LogicalLineCount(string(data)) <= capLines {
-		return 0, nil
+		return "", nil, nil, nil
 	}
 	base := filepath.Base(path)
 	header, blocks := bank.EntryBlocks(base, string(data))
-	keep, overflow := settledSplit(base, header, blocks, capLines)
-	if len(overflow) == 0 {
-		return 0, nil
+	keep, overflow = settledSplit(base, header, blocks, capLines)
+	return header, keep, overflow, nil
+}
+
+// archiveFile prunes path to capLines, appending its oldest overflow blocks to the archive first so
+// nothing is lost if the rewrite fails.
+func archiveFile(path string, capLines int, now time.Time) (int, error) {
+	header, keep, overflow, err := splitOverflow(path, capLines)
+	if err != nil || len(overflow) == 0 {
+		return 0, err
 	}
-	if err := bank.AppendBlocks(archivePath(filepath.Dir(path), base, now), overflow); err != nil {
+	if err := bank.AppendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
 		return 0, err
 	}
 	if err := paths.AtomicWrite(path, []byte(bank.Rejoin(header, keep)), 0o600); err != nil {
@@ -179,7 +189,13 @@ func extractBlock(dir, id string) (string, string, error) {
 	marker := "<!-- id:" + id + " -->"
 	for name := range bank.IdFiles {
 		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil || !strings.Contains(string(data), marker) {
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", "", err
+		}
+		if !strings.Contains(string(data), marker) {
 			continue
 		}
 		_, blocks := bank.EntryBlocks(name, string(data))

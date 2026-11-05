@@ -95,7 +95,7 @@ var writers = map[string]string{
 	"internal/claude/science.go:scienceDefaultsFile":                  unversioned("foreign: science TOML defaults for a vendor"),
 	"internal/launch/tmux.go:seedTmuxConf":                            unversioned("foreign: user tmux.conf"),
 	"internal/network/mcp/doctor.go:mcpList":                          unversioned("foreign: temp output of claude mcp list"),
-	"internal/memory/recall/accesslog.go:LogAccessBatch":              unversioned("log: memory access log, text lines"),
+	"internal/memory/recall/accesslog.go:logAccessBatch":              unversioned("log: memory access log, text lines"),
 	"internal/memory/recall/accesslog.go:maybeTrimAccessLog":          unversioned("log: memory access log trim"),
 	"internal/memory/bank/fmt.go:formatFiles":                         unversioned("memory-bank: bank markdown format"),
 	"internal/memory/bank/blocks.go:AppendBlocks":                     unversioned("memory-bank: bank blocks"),
