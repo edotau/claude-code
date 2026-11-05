@@ -308,9 +308,14 @@ func TestBusyLineAbandonsHungScan(t *testing.T) {
 	t.Cleanup(func() { close(release); PeerAgents = old })
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	start := time.Now()
-	got := busyLine(ctx, &core.Input{SessionID: "s1", CWD: cwd})
-	if got != "" || time.Since(start) > 3*time.Second {
-		t.Fatalf("busyLine = %q after %v; want \"\" within the deadline", got, time.Since(start))
+	done := make(chan string, 1)
+	go func() { done <- busyLine(ctx, &core.Input{SessionID: "s1", CWD: cwd}) }()
+	select {
+	case got := <-done:
+		if got != "" {
+			t.Fatalf("busyLine = %q; want \"\" once the deadline passes", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("busyLine still blocked on the hung scan 3s after a 200ms deadline")
 	}
 }
