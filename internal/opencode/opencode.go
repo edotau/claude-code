@@ -419,6 +419,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	}
 	p.Env = env
 	host := newHookHost(req)
+	p.Env = withHostedMarker(p.Env, host)
 	if plugged {
 		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
 	}

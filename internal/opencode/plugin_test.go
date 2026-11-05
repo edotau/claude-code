@@ -3,6 +3,7 @@ package opencode
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -87,5 +88,62 @@ func TestInteractiveConfigCarriesPlugin(t *testing.T) {
 	opencodeHarnessConfig(&agent.Headless{Tools: true})(headless)
 	if _, ok := headless["plugin"]; ok {
 		t.Error("a headless config must not carry the plugin here: Exec injects it after the permissions")
+	}
+}
+
+// idleHookExecs renders the plugin over a fake binary that logs each hook exec and runs 600ms, drives it under node
+// with two back-to-back session.idle events then a third once the first exec ended, and returns the exec count.
+func idleHookExecs(t *testing.T, env []string) int {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed")
+	}
+	dir := t.TempDir()
+	logf := filepath.Join(dir, "execs.log")
+	bin := filepath.Join(dir, "fakecc")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+logf+"\nsleep 0.6\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, err := renderPlugin(bin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver := `import { ClaudeCodeHarness } from "./plugin.mjs"
+const h = await ClaudeCodeHarness({ directory: "/tmp" })
+const idle = { event: { type: "session.idle", properties: { sessionID: "s1" } } }
+await h.event(idle); await h.event(idle)
+await new Promise((r) => setTimeout(r, 1500))
+await h.event(idle)
+await new Promise((r) => setTimeout(r, 1000))
+`
+	for name, data := range map[string]string{"plugin.mjs": string(body), "driver.mjs": driver} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command(node, filepath.Join(dir, "driver.mjs"))
+	cmd.Env = env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("node driver: %v\n%s", err, out)
+	}
+	data, _ := os.ReadFile(logf)
+	return strings.Count(string(data), "hook Stop --memory-update")
+}
+
+// TestPluginIdleKeepsOneMemoryUpdateInFlight: a session.idle while that session's memory-update still runs starts no second.
+func TestPluginIdleKeepsOneMemoryUpdateInFlight(t *testing.T) {
+	if got := idleHookExecs(t, os.Environ()); got != 2 {
+		t.Errorf("memory-update execs = %d, want 2 (idle 1 and idle 3; idle 2 overlapped idle 1)", got)
+	}
+}
+
+// TestHostedDispatchSilencesPluginMemoryHooks: the env a hosted Exec hands the child makes the plugin fire no Stop hook.
+func TestHostedDispatchSilencesPluginMemoryHooks(t *testing.T) {
+	if got := idleHookExecs(t, withHostedMarker(os.Environ(), &hookHost{})); got != 0 {
+		t.Errorf("hosted memory-update execs = %d, want 0 (the Go host fires Stop itself)", got)
+	}
+	if env := withHostedMarker([]string{"A=1"}, nil); len(env) != 1 {
+		t.Errorf("no host must leave the env alone (the TUI plugin owns the memory hooks), got %v", env)
 	}
 }
