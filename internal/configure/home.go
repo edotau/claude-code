@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/paths"
@@ -47,16 +48,36 @@ func ClaudeJSONWired(path string) bool {
 	return ok && filepath.Base(s.Command) == "claude-code" && slices.Equal(s.Args, webSearchArgs)
 }
 
-// codexMCPBlock matches config.toml's [mcp_servers.web_search] table up to the next table.
-var codexMCPBlock = regexp.MustCompile(`(?m)^\[mcp_servers\.web_search\]\n(?:[^\[\n].*(?:\n|\z)|\n)*`)
+// codexMCPHeader recognizes the web_search table, including quoted keys and trailing comments.
+var codexMCPHeader = regexp.MustCompile(`^\[\s*(?:mcp_servers|"mcp_servers"|'mcp_servers')\s*\.\s*(?:web_search|"web_search"|'web_search')\s*\]\s*(?:#.*)?$`)
+
+// codexMCPRange locates the real table without treating multiline strings or arrays as headers.
+func codexMCPRange(raw []byte) (start, end int) {
+	start, offset := -1, 0
+	multiline, depth := "", 0
+	for _, line := range strings.SplitAfter(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if multiline == "" && depth == 0 && strings.HasPrefix(trimmed, "[") {
+			if start >= 0 {
+				return start, offset
+			}
+			if codexMCPHeader.MatchString(trimmed) {
+				start = offset
+			}
+		}
+		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
+		offset += len(line)
+	}
+	return start, len(raw)
+}
 
 func CodexWired(path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	b := codexMCPBlock.Find(raw)
-	return b != nil && strings.Contains(string(b), "claude-code") && strings.Contains(string(b), `args = ["network", "websearch"]`)
+	start, end := codexMCPRange(raw)
+	return start >= 0 && strings.Contains(string(raw[start:end]), "claude-code") && strings.Contains(string(raw[start:end]), `args = ["network", "websearch"]`)
 }
 
 func RegisterClaudeMCP(bin string) error {
@@ -84,7 +105,7 @@ func RegisterClaudeMCPContext(ctx context.Context, bin string) error {
 		return cerr
 	}
 	if err != nil {
-		return fmt.Errorf("claude mcp add: %v: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("claude mcp add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -96,9 +117,12 @@ func RegisterCodexMCP(path, bin string) error {
 		return err
 	}
 	block := fmt.Sprintf("[mcp_servers.web_search]\ncommand = %q\nargs = [\"network\", \"websearch\"]\n\n", bin)
-	next := codexMCPBlock.ReplaceAllLiteral(raw, []byte(block))
-	if !codexMCPBlock.Match(raw) {
-		next = append(append(raw, '\n'), block...)
+	start, end := codexMCPRange(raw)
+	var next []byte
+	if start < 0 {
+		next = []byte(agentconfig.AppendTOML(string(raw), block))
+	} else {
+		next = []byte(string(raw[:start]) + block + string(raw[end:]))
 	}
 	if len(raw) > 0 {
 		if err := codex.CodexBackup(path, raw, true); err != nil {

@@ -279,12 +279,16 @@ func RunMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := ctxErr(ctx, "mint token"); err != nil {
 		return "", err
 	}
+	argv, err := CliArgv(argv)
+	if err != nil {
+		return "", err
+	}
 	defer tui.Preserve()()
 	var buf bytes.Buffer
 	cmd := attachedCommand(ctx, argv)
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
 	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
-	err := cmd.Run()
+	err = cmd.Run()
 	if cerr := ctxErr(ctx, "mint token"); cerr != nil {
 		return "", cerr
 	}
