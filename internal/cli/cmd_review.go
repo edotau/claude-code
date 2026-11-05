@@ -3,8 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/cli/agents"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 	"io"
 	"os"
 	"slices"
@@ -14,6 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/review"
+	"github.com/edotau/claude-code/internal/cli/agents"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // reviewJobEnv names the parent job record a detached split review updates with progress and its outcome.
