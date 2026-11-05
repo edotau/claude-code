@@ -43,3 +43,25 @@ func TestCopilotJSONRendersNativeSpecs(t *testing.T) {
 		}
 	}
 }
+
+// Stop and SessionEnd map to Copilot's agentStop and sessionEnd, advisory (never denying).
+func TestCopilotJSONMemoryEvents(t *testing.T) {
+	body, err := CopilotJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Bash string `json:"bash"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for event, module := range map[string]string{"agentStop": "memory-update", "sessionEnd": "memory-end"} {
+		entries := doc.Hooks[event]
+		if len(entries) != 1 || !strings.Contains(entries[0].Bash, module) || !strings.HasSuffix(entries[0].Bash, " || true") {
+			t.Errorf("%s = %+v, want one advisory %s entry", event, entries, module)
+		}
+	}
+}
