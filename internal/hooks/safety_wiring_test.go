@@ -212,3 +212,22 @@ func copilotJSON(cmd string) []byte {
 	b, _ := json.Marshal(map[string]any{"sessionId": "x", "toolName": "Bash", "toolArgs": map[string]string{"command": cmd}})
 	return b
 }
+
+// agy blocks on a JSON deny at exit 0, not exit 2: the permission-gate entry prints {"decision":"deny","reason":…}.
+func TestPermissionGateAgyDenyIsJSON(t *testing.T) {
+	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
+	t.Setenv("HARNESS_DISPATCH_PERMISSIONS", `{"deny":[{"Tool":"Bash","Arg":"rm *"}]}`)
+	var out, errb bytes.Buffer
+	payload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"bash -c \"rm v3\""}},"workspacePaths":["/w"]}`
+	if code := runDirect("permission-gate", strings.NewReader(payload), &out, &errb); code != core.ExitProceed {
+		t.Fatalf("exit %d, want 0 (stderr %q)", code, errb.String())
+	}
+	var doc struct{ Decision, Reason string }
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || doc.Decision != "deny" || !strings.Contains(doc.Reason, `bash -c "rm v3"`) {
+		t.Fatalf("stdout %q (%v), want a deny naming the command", out.String(), err)
+	}
+	out.Reset()
+	if code := runDirect("permission-gate", strings.NewReader(`{"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`), &out, &errb); code != core.ExitProceed || out.Len() != 0 {
+		t.Fatalf("allowed call: exit %d stdout %q, want silent", code, out.String())
+	}
+}

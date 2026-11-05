@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -100,7 +101,7 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 	if cfg.Agent("gemini").Permission.UseGuardRules {
 		deny = agyGuardRules(cfg.Guard().Deny, io.Discard)
 	}
-	// NEXT: a Bash Deny needs an agy PreToolUse hook calling Permissions.Decide; `a && x` slips past command(x).
+	// Bash Deny rules agy's exact command(x) cannot express (patterns, `a && x`) are judged by the permission-gate hook.
 	var bashDeny, pathDeny []agent.Rule
 	for _, r := range p.Deny {
 		if r.Tool == "Bash" {
@@ -109,9 +110,14 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 			pathDeny = append(pathDeny, r)
 		}
 	}
+	if len(bashDeny) > 0 && !agyGateInstalled(cwd) {
+		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook is not in %s; run `claude-code agents sync --agent gemini`: dispatch refused",
+			joinRules(bashDeny), agyHooksPath())
+	}
+	deny, _ = appendAgyRules(deny, bashDeny, cwd) // an inexact rule is the hook's alone; the exact ones also ride natively
 	deny, unDeny := appendAgyRules(deny, pathDeny, cwd)
-	if refused := slices.Concat(bashDeny, unDeny); len(refused) > 0 {
-		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: dispatch refused", joinRules(refused))
+	if len(unDeny) > 0 {
+		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: dispatch refused", joinRules(unDeny))
 	}
 	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
 	for _, r := range p.Ask {
@@ -161,6 +167,22 @@ func agyRule(r agent.Rule, cwd string) (string, bool) {
 		p = filepath.Join(cwd, p)
 	}
 	return fn + "(" + filepath.Clean(p) + ")", true
+}
+
+// agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the permission gate.
+func agyHooksPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".gemini", "config", "hooks.json")
+}
+
+// agyGateInstalled reports whether the global hooks.json, or the workspace's .agents/hooks.json, runs the permission gate.
+func agyGateInstalled(cwd string) bool {
+	for _, p := range []string{agyHooksPath(), filepath.Join(cwd, ".agents", "hooks.json")} {
+		if b, err := os.ReadFile(p); err == nil && strings.Contains(string(b), "--permission-gate") {
+			return true
+		}
+	}
+	return false
 }
 
 func ruleStrings(rules []agent.Rule) []string {

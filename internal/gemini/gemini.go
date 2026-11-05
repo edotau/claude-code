@@ -137,7 +137,11 @@ func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home 
 		return d, err
 	}
 	gd, err := renderGeminiSettings(home, o, out)
-	return d || gd, err
+	if err != nil {
+		return d || gd, err
+	}
+	hd, err := renderGeminiHooks(home, o, out)
+	return d || gd || hd, err
 }
 
 func (geminiEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
@@ -145,7 +149,10 @@ func (geminiEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []render.LabelPath{{Label: "gemini-settings", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
+	return []render.LabelPath{
+		{Label: "gemini-settings", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")},
+		{Label: "gemini-hooks", Path: filepath.Join(home, ".gemini", "config", "hooks.json")},
+	}, nil
 }
 
 func (geminiEngine) RouteDetail() (string, bool) { return geminiRouteDetail(), true }

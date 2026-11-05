@@ -6,6 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // TestPermissionGate drives the gate with real hook JSON under each env shape the dispatch can hand a child.
@@ -64,5 +65,32 @@ func TestPermissionGateApplyPatchJudgesEachFile(t *testing.T) {
 				t.Errorf("decision %v reason %q, want block=%v naming %q", res.Decision, res.Reason, c.block, c.reason)
 			}
 		})
+	}
+}
+
+// TestPermissionGateAgentPayloads: the captured codex and agy PreToolUse payloads map to the rule tool the Deny names.
+func TestPermissionGateAgentPayloads(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"deny":[{"Tool":"Bash","Arg":"rm *"},{"Tool":"Read","Arg":"s.txt"},{"Tool":"Edit","Arg":"n.txt"}]}`)
+	cases := []struct {
+		name, agent, payload, reason string
+	}{
+		{"codex Bash compound", "codex", `{"session_id":"s","cwd":"/w","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi && rm v2"}}`, "Bash(echo hi && rm v2)"},
+		{"agy run_command subshell", "gemini", `{"toolCall":{"name":"run_command","args":{"CommandLine":"(rm v4)"}},"workspacePaths":["/w"]}`, "Bash((rm v4))"},
+		{"agy read_file", "gemini", `{"toolCall":{"name":"read_file","args":{"Path":"/w/s.txt"}},"workspacePaths":["/w"]}`, "Read(s.txt)"},
+		{"agy write_file", "gemini", `{"toolCall":{"name":"write_file","args":{"Path":"/w/n.txt","Content":"a"}},"workspacePaths":["/w"]}`, "Edit(n.txt)"},
+		{"agy edit_file", "gemini", `{"toolCall":{"name":"edit_file","args":{"Path":"/w/n.txt","Target":"a","Replacement":"b"}},"workspacePaths":["/w"]}`, "Edit(n.txt)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(settings.AgentEnv, c.agent)
+			res := PermissionGate(core.ParseInput(strings.NewReader(c.payload)))
+			if res.Decision != core.Block || !strings.Contains(res.Reason, c.reason) {
+				t.Errorf("decision %v reason %q, want a block naming %s", res.Decision, res.Reason, c.reason)
+			}
+		})
+	}
+	t.Setenv(settings.AgentEnv, "gemini")
+	if res := PermissionGate(core.ParseInput(strings.NewReader(`{"toolCall":{"name":"run_command","args":{"CommandLine":"touch ok.txt"}}}`))); res.Decision == core.Block {
+		t.Errorf("an allowed agy command was blocked: %q", res.Reason)
 	}
 }

@@ -285,6 +285,10 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if name == "safety-scan" && in.Agent() == core.AgentCopilot {
 			fmt.Fprintln(stdout, core.OutputCopilot(settings.EventPreToolUse, res))
 		}
+		if in.Agent() == core.AgentGemini {
+			fmt.Fprintln(stdout, core.OutputGemini(settings.EventPreToolUse, res)) // agy blocks on a JSON deny, not exit 2
+			return core.ExitProceed
+		}
 		fmt.Fprintln(stderr, res.Reason)
 		return core.ExitBlock
 	}
