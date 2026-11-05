@@ -26,6 +26,12 @@
               "bannedFlags": ["-exec", "-toolexec", "-vettool", "-overlay"],
               "argsInside": true
             },
+            {
+              "commands": ["rm"],
+              "check": "regularFiles",
+              "summary": "rm <regular files inside the roots> (no flags, globs, symlinks, .git, state or settings files)",
+              "cliAllow": []
+            },
             {"commands": ["gofmt"], "argsInside": true},
             {"commands": ["goimports"], "argsInside": true},
             {"commands": ["make"], "targets": ["lint", "fmt", "test", "build"]},

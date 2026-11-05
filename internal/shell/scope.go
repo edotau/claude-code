@@ -323,6 +323,7 @@ func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
 var checks = map[string]func(args []string, workDir string) bool{
 	"scopedGit":    func(args []string, workDir string) bool { return scopedGit(append([]string{"git"}, args...), workDir) },
 	"noOutputFlag": func(args []string, _ string) bool { return !outputFlag(args) },
+	"regularFiles": rmAllowed,
 }
 
 // allows reports whether any rule for w's command admits w inside workDir (an unknown check admits nothing).
@@ -415,6 +416,45 @@ func argsInside(args []string, workDir string) bool {
 		}
 	}
 	return true
+}
+
+// rmAllowed admits plain `rm` of existing regular files (symlinks refused outright) inside workDir, clear of secrets.
+func rmAllowed(args []string, workDir string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	home, _ := os.UserHomeDir()
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") || strings.HasPrefix(a, "~") || strings.ContainsAny(a, "*?[{") || slices.Contains(strings.Split(a, "/"), "..") {
+			return false
+		}
+		abs := filepath.Clean(a)
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(workDir, abs)
+		}
+		if st, err := os.Lstat(abs); err != nil || !st.Mode().IsRegular() {
+			return false
+		}
+		rel, ok := RelInside(abs, workDir)
+		if !ok || !rmTargetAllowed(rel, ResolveReal(abs, workDir), filepath.Join(home, ".claude", "state")) {
+			return false
+		}
+	}
+	return true
+}
+
+// rmTargetAllowed refuses .git contents, the harness state dir and settings or credential files.
+func rmTargetAllowed(rel, real, stateDir string) bool {
+	parts := strings.Split(rel, string(filepath.Separator))
+	if slices.ContainsFunc(parts, func(p string) bool { return strings.EqualFold(p, ".git") }) {
+		return false
+	}
+	if real == stateDir || strings.HasPrefix(real, stateDir+string(filepath.Separator)) {
+		return false
+	}
+	base := parts[len(parts)-1]
+	return base != "settings.json" && base != "settings.local.json" && !strings.HasSuffix(base, ".credentials.json") &&
+		!strings.HasPrefix(base, "vault.db")
 }
 
 func scopedGit(w []string, workDir string) bool {
