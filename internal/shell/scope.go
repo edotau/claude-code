@@ -379,31 +379,32 @@ func noFlag(args []string, banned ...string) bool {
 	})
 }
 
-// pathOptions are the options whose value is a file the tool writes or reads; the value may be attached or follow =.
-var pathOptions = []string{"o", "C", "modfile", "overlay", "coverprofile", "cpuprofile", "memprofile", "trace", "outputdir", "pkgdir"}
-
 // pathLooking is an absolute path or one climbing with ..; relative names stay inside by construction.
 func pathLooking(a string) bool {
 	return strings.HasPrefix(a, "/") || a == ".." || strings.HasPrefix(a, "../") || strings.Contains(a, "/../") || strings.HasSuffix(a, "/..")
 }
 
-// optionValue is the value glued to a pathOptions flag in a ("-o/x", "--o=/x"), or "" when a is not one.
+// optionValue is the value of a "-name=value" flag whatever its name, or of an attached -o/-C ("-o/x"); "" otherwise.
 func optionValue(a string) string {
 	if !strings.HasPrefix(a, "-") {
 		return ""
 	}
 	flag := strings.TrimLeft(a, "-")
-	for _, o := range pathOptions {
-		if rest, ok := strings.CutPrefix(flag, o); ok {
-			return strings.TrimPrefix(rest, "=")
-		}
+	if _, val, ok := strings.Cut(flag, "="); ok {
+		return val
+	}
+	if len(flag) > 1 && (flag[0] == 'o' || flag[0] == 'C') {
+		return flag[1:]
 	}
 	return ""
 }
 
-// argsInside requires every path-looking arg, and the value glued to a path option, to resolve inside workDir.
+// argsInside requires every path-looking arg, and every -name=value or attached -o/-C value, to resolve inside workDir.
 func argsInside(args []string, workDir string) bool {
 	for _, a := range args {
+		if strings.HasPrefix(optionValue(a), "~") {
+			return false
+		}
 		for _, v := range []string{a, optionValue(a)} {
 			if !pathLooking(v) {
 				continue
