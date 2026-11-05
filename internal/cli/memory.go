@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -459,5 +460,72 @@ func cmdMemoryAlias(args []string) int {
 	for _, l := range res.Lines {
 		fmt.Println("  " + l)
 	}
+	return 0
+}
+
+// `memory archive` governs Claude Code's native MEMORY.md/SEARCHABLE.md pair: the cap/settle
+// machinery in memory.go owns the six typed bank files BY NAME, so native auto-memory — injected
+// every session, uncapped — has no verb at all otherwise.
+
+var memoryArchivePage = helptext.Page{
+	Usage: "claude-code memory archive [flags] [<topic>...]",
+	About: "Audit the native MEMORY.md store's injected cost (no writes); --apply moves named\n" +
+		"topics to or from the archive, or --split N trims MEMORY.md to N pointer lines.",
+}
+
+// cmdMemoryArchive audits the native store's injected cost by default (names + stats, no writes);
+// --apply moves named topics to/from the archive, or --split N trims MEMORY.md to N pointer lines.
+func cmdMemoryArchive(args []string) int {
+	fs := helptext.NewFlagSet("memory archive", memoryArchivePage)
+	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
+	apply := fs.Bool("apply", false, "perform the moves/split (default: dry run)")
+	restore := fs.Bool("restore", false, "move the named topics back out of the archive")
+	dupes := fs.Bool("dupes", false, "report near-duplicate topic files (no writes)")
+	split := fs.Int("split", -1, "trim MEMORY.md to N pointers; move rest to SEARCHABLE.md")
+	names, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memstore.NativeDir(memstore.Root(*repo)),
+		Names: names, Apply: *apply, Restore: *restore, Dupes: *dupes, Split: *split})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "memory archive:", err)
+		return 1
+	}
+	return 0
+}
+
+func cmdMemoryRecall(args []string) int {
+	fs, repo := memoryRepoFlagSet("recall")
+	k := fs.Int("k", 3, "maximum hits")
+	all := fs.Bool("all", false, "search the home tier and every repo store")
+	load := fs.Int("load", 0, "append the show bodies of the top N hits (4KB cap)")
+	explain := fs.Bool("explain", false, "explain hook recall selection and candidate scores")
+	format := helptext.FormatFlag(fs)
+	terms, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("memory recall", err)
+	}
+	if len(terms) == 0 {
+		return helptext.Fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
+	}
+	if *explain {
+		if *all || *format == helptext.JSON || *load != 0 {
+			return helptext.Fail("memory recall: --explain does not support --all, --format json, or --load")
+		}
+		memory.RecallExplain(os.Stdout, *repo, strings.Join(terms, " "))
+		return 0
+	}
+	hits, _ := recall.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
+			return helptext.Fail("memory recall: %v", err)
+		}
+		return 0
+	}
+	memory.RecallReport(os.Stdout, os.Stderr, hits, *load)
 	return 0
 }
