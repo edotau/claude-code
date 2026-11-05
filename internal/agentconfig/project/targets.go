@@ -17,7 +17,7 @@ type projectionTarget struct {
 var targets = map[string]projectionTarget{
 	"gemini":   {ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: GeminiSkillsDir},
 	"codex":    {ext: ".toml", home: sub(".codex", "agents"), render: renderCodexAgent},
-	"copilot":  {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent},
+	"copilot":  {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent, skills: CopilotSkillsDir},
 	"opencode": {ext: ".md", home: sub(".config", "opencode", "agents"), render: renderOpenCodeAgent},
 }
 
@@ -56,3 +56,6 @@ func LegacyGeminiSkillsDir(home string) string { return filepath.Join(home, ".ge
 func GeminiSkillsDir(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "skills")
 }
+
+// CopilotSkillsDir is copilot's native skills dir; the copilot pass links skills here too, beside AgentsSkillsDir.
+func CopilotSkillsDir(home string) string { return filepath.Join(home, ".copilot", "skills") }
