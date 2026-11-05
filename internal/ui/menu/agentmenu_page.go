@@ -260,9 +260,7 @@ func codexMenu(d *dialog) agentMenu {
 			return signIn(d, "codex", []string{"codex", "login"})
 		}},
 		key,
-		{"Login", "browser sign-in (codex login)", "", func() bool {
-			return signIn(d, "codex", []string{"codex", "login"})
-		}},
+		{"Login", "browser, headless or API key sign-in", "", func() bool { return codexLogin(d, ensure) }},
 		{"Settings", "reasoning effort, verbosity", "", func() bool { return runCodexSettings(d) }},
 		{"Models", "discover what " + cmp.Or(pinned, "the pinned profile") + " serves", "", func() bool { return codexModels(d, pinned) }},
 	}}
@@ -326,6 +324,24 @@ var codexKeyLogin = func(key string) error {
 	cmd := exec.CommandContext(ctx, bin, "login", "--with-api-key")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = strings.NewReader(key), os.Stdout, os.Stderr
 	return cmd.Run()
+}
+
+// codexLogin picks codex's sign-in method: ChatGPT in a browser, ChatGPT by device code, or a pasted API key.
+func codexLogin(d *dialog, ensureKey func() bool) bool {
+	idx, err := d.shell().Pick("codex — sign in", [][2]string{
+		{"ChatGPT (browser)", "codex login"},
+		{"ChatGPT (headless)", "codex login --device-auth"},
+		{"API key", "paste OPENAI_API_KEY, then codex login --with-api-key"},
+	})
+	switch {
+	case err != nil || idx < 0:
+		return false
+	case idx == 0:
+		return signIn(d, "codex", []string{"codex", "login"})
+	case idx == 1:
+		return signIn(d, "codex", []string{"codex", "login", "--device-auth"})
+	}
+	return ensureKey() && codexUseKey(d)
 }
 
 // codexUseKey points codex's own auth at the stored OPENAI_API_KEY.
