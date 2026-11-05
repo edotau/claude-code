@@ -107,6 +107,9 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 	if h == nil {
 		return denv, nil, nil
 	}
+	if !h.Tools {
+		denv = append(denv, opencodePermissionEnv+`="deny"`) // an inherited value would override the tools-off deny
+	}
 	return denv, opencodeArgv(opencodeDatabricksModel(denv), *h), nil
 }
 
@@ -200,6 +203,7 @@ func opencodeMCPOff() map[string]any {
 func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 	if !h.Tools {
 		env, _ = mutateOpencodeConfigEnv(nil, true, opencodeToolsOff)
+		env = append(env, opencodePermissionEnv+`="deny"`) // pin it: an inherited value would override the tools-off deny
 	}
 	return env, opencodeArgv(model, h)
 }
@@ -319,6 +323,8 @@ const OwnLogin = "zen-free"
 const opencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
 
 // opencodeNoModelsFetch skips opencode's startup models.dev fetch; set only when the inline config defines the models.
+const opencodePermissionEnv = "OPENCODE_PERMISSION"
+
 const opencodeNoModelsFetch = "OPENCODE_DISABLE_MODELS_FETCH"
 
 // modelsDefined adds opencodeNoModelsFetch=1 unless the user's shell already sets it (their value wins).

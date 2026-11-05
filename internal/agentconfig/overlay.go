@@ -357,7 +357,7 @@ func flagSetRule(name, val string) error {
 var errBaseURL = errors.New("a route endpoint, proxy or TLS setting: pick the endpoint with --profile; " +
 	"an override would send the route's credential elsewhere")
 
-var errConfigLocation = errors.New("an agent config or routing location: the launch owns it; use --profile")
+var errConfigLocation = errors.New("an agent config, permission or routing setting: the harness sets it per launch; use --profile")
 
 // configLocationName reports a name that injects or relocates an agent's config or route; refused in set, keep and unset.
 func configLocationName(up string) bool {
@@ -367,7 +367,8 @@ func configLocationName(up string) bool {
 		"XDG_CONFIG_HOME", "GEMINI_CLI_HOME":
 		return true
 	}
-	return strings.HasSuffix(up, "_CONFIG_CONTENT") || strings.HasPrefix(up, "COPILOT_PROVIDER_")
+	return up == "OPENCODE_PERMISSION" || strings.HasPrefix(up, "OPENCODE_DISABLE_") ||
+		strings.HasSuffix(up, "_CONFIG_CONTENT") || strings.HasPrefix(up, "COPILOT_PROVIDER_")
 }
 
 // routeRedirectName reports a name that can redirect a route credential or weaken TLS; refused in set and keep.
