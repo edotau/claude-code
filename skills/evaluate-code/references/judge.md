@@ -46,8 +46,8 @@ code exists. Workflow `code-analyzer {fix: false}` finds new defects; this refut
 
    In this harness, add the local frauds:
 
-   - **Hand-edited `settings.json`** — generated artifact; the change belongs in
-     `defaults/claude/settings.json` and dies on the next regenerate (CLAUDE.md hard rule 1).
+   - **Settings that are not valid** — `settings.json` is hand-edited by the owner; flag a key the schema rejects
+     (`claude-code doctor`), not the hand edit itself.
    - **A secret outside the vault** — an API key, token, or profile key in a plain file,
      `settings.json`, a commit, or a log line instead of `claude-code vault set` or a provider's
      `auth.command` (hard rule 2).

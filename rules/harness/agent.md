@@ -14,8 +14,7 @@ paths:
 - opencode's `~/.config/opencode/` gets only the theme file and `agents sync`'s agent files; model/MCP/theme config
   come from a tracked overlay injected at launch (`OPENCODE_CONFIG` / `OPENCODE_TUI_CONFIG`,
   `internal/agentconfig/template/`).
-- On a terminal, `configure --restore` prompts before overwriting hand-edited lines; non-interactive runs write and
-  warn. Each overwrite keeps 5 timestamped backups; `configure --revert [--agent a]` steps back one version.
+- Each agent-config overwrite keeps 5 timestamped backups; `configure --revert [--agent a]` steps back one version.
 - Codex pins live in the vault (`codex-settings` overlay) and apply to `$CODEX_HOME/config.toml`; its snapshots
   and baseline are vault-encrypted (`settings_backups`, rotated with the key, excluded from exports), last 5 kept.
   Provider config, hook trust and unknown native keys are preserved; an unavailable vault key aborts changed writes.
