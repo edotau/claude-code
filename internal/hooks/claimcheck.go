@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -223,14 +224,29 @@ func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, 
 // firstSighting records key in this session's claims-seen file; false when it was already shown.
 func firstSighting(session, key string) bool {
 	file := filepath.Join(paths.StateDir(), "hooks", "claims-seen", paths.Slug(session, "", 80, "session"))
-	prev, _ := os.ReadFile(file)
-	if slices.Contains(strings.Split(string(prev), "\n"), key) {
-		return false
+	first := true
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err == nil {
+		err = paths.WithFileLock(file, func() error {
+			prev, rerr := os.ReadFile(file)
+			if rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+				return rerr
+			}
+			if first = !slices.Contains(strings.Split(string(prev), "\n"), key); !first {
+				return nil
+			}
+			f, oerr := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			if oerr != nil {
+				return oerr
+			}
+			_, werr := f.WriteString(key + "\n")
+			return errors.Join(werr, f.Close())
+		})
 	}
-	if os.MkdirAll(filepath.Dir(file), 0o700) == nil {
-		_ = os.WriteFile(file, append(prev, []byte(key+"\n")...), 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "worktree-claim-check: claims-seen: %v\n", err)
 	}
-	return true
+	return first
 }
 
 func relTo(top, p string) string {
@@ -389,7 +405,7 @@ var commitValueFlags = map[string]bool{"-m": true, "-F": true, "-C": true, "-c":
 	"--date": true, "-t": true, "--fixup": true, "--squash": true, "--message": true, "--file": true,
 	"--template": true, "--reuse-message": true, "--reedit-message": true}
 
-// allTracked are the add/commit flags that stage every tracked change when no pathspec is given.
+// allTracked are the add flags that stage every tracked change when no pathspec is given (commit: -a/--all only).
 var allTracked = map[string]bool{"-A": true, "--all": true, "-u": true, "--update": true}
 
 // stageOperands splits a git add/commit's words into pathspecs and whether an all-tracked flag is present.
@@ -418,7 +434,7 @@ func stageFlag(verb, a string) (takesValue, stagesAll bool) {
 	if verb != "commit" {
 		return false, allTracked[a]
 	}
-	return commitValueFlags[a] || valueCluster(a), allTracked[a] || isShortCluster(a, 'a')
+	return commitValueFlags[a] || valueCluster(a), a == "--all" || isShortCluster(a, 'a')
 }
 
 // valueCluster is a short-flag cluster such as -am whose last flag takes the next word as its value.
