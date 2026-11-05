@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/shell"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -132,7 +133,7 @@ func rtkGitValueVetoed(cmd string) bool {
 
 // rtkMachineReadableFlag reports whether cmd carries a flag that asks for machine-readable output.
 func rtkMachineReadableFlag(cmd string) bool {
-	tokens := shellTokens(strings.ToLower(cmd))
+	tokens := shell.Tokens(strings.ToLower(cmd))
 	for i, token := range tokens {
 		name, _, _ := strings.Cut(token, "=")
 		for _, flag := range rtkMachineReadable {
@@ -150,7 +151,7 @@ func rtkMachineReadableFlag(cmd string) bool {
 
 // rtkGitArgs returns the argv after `git` when the segment runs git (env assignments skipped), else nil.
 func rtkGitArgs(seg string) []string {
-	tokens := shellTokens(seg)
+	tokens := shell.Tokens(seg)
 	for len(tokens) > 0 && strings.Contains(tokens[0], "=") && !strings.HasPrefix(tokens[0], "-") {
 		tokens = tokens[1:]
 	}
@@ -186,7 +187,7 @@ func rtkGitInLinkedWorktree(cmd, cwd string) bool {
 func rtkChainDirs(cmd, cwd string) []string {
 	dirs := []string{cwd}
 	for _, seg := range cmdSegment.Split(cmd, -1) {
-		t := shellTokens(seg)
+		t := shell.Tokens(seg)
 		if len(t) == 2 && t[0] == "cd" {
 			dirs = append(dirs, t[1])
 		}
