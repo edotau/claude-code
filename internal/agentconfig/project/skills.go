@@ -62,6 +62,9 @@ func ensureLink(out io.Writer, link, target, ownedRoot string, dryRun bool) writ
 	return written
 }
 
+// syncedDir holds claude.ai account skills; no agent gets them, and a link into it is never pruned.
+const syncedDir = "synced"
+
 // pruneSkillLinks removes unprojected symlinks in agentsSkills that point under skillsDir; all else is untouched.
 func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected map[string]bool, dryRun bool) syncResult {
 	match := func(e os.DirEntry) (string, bool) {
@@ -70,6 +73,10 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 		}
 		dest, err := os.Readlink(filepath.Join(agentsSkills, e.Name()))
 		if err != nil || !under(dest, skillsDir) {
+			return "", false
+		}
+		if under(dest, filepath.Join(skillsDir, syncedDir)) {
+			fmt.Fprintf(out, "  EXTRA %s (synced skills go to no agent; preserved)\n", paths.ShortHome(filepath.Join(agentsSkills, e.Name())))
 			return "", false
 		}
 		return "orphaned link -> " + paths.ShortHome(dest), true
