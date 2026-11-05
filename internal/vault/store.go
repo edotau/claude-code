@@ -200,9 +200,6 @@ func HasSecretErr(name string) (source string, err error) {
 	return "", nil
 }
 
-// Has reports whether name is a sealed vault secret.
-func Has(name string) bool { return slices.Contains(Names(), name) }
-
 // LookupAll resolves each name (vault, then process env); the first unset or unreadable name is the error.
 func LookupAll(names []string) ([]string, error) {
 	values := make([]string, len(names))

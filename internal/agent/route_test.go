@@ -70,7 +70,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	all := router.PickOpts{Configured: allConfigured}
-	c, _, err := RouteChain(context.Background(), "opencode", "sonnet", router.FallbackAll, false, true, all)
+	c, _, err := RouteChainFor(context.Background(), "opencode", "sonnet", "", router.FallbackAll, true, all)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 			t.Errorf("the hub opencode cell must not also run: %+v", c.Dispatches)
 		}
 	}
-	none, _, _ := RouteChain(context.Background(), "opencode", "sonnet", router.FallbackNone, false, true, all)
+	none, _, _ := RouteChainFor(context.Background(), "opencode", "sonnet", "", router.FallbackNone, true, all)
 	if len(none.Dispatches) != 1 {
 		t.Errorf("fallback none = %d dispatches, want the native dispatch only", len(none.Dispatches))
 	}

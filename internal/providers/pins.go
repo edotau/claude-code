@@ -166,35 +166,10 @@ func parseEnvLine(line string) (k, v string, ok bool) {
 	return strings.TrimSpace(k), v, true
 }
 
-// Pin reads key from the vault pins; it never reads the process env.
-func Pin(key string) string {
-	pin, err := PinLookup()
-	warnVault("pins", err)
-	return pin(key)
-}
-
-// PinLookup reads the vault pins once.
-func PinLookup() (func(string) string, error) {
-	pins, err := readPins()
-	return func(key string) string { return strings.TrimSpace(pins[key]) }, err
-}
-
 // readPins is the vault pins table (non-agent keys; agent settings live in records).
 func readPins() (pins map[string]string, err error) {
 	err = vault.View(func(tx *vault.Tx) error { pins = tx.All(vault.Pins); return nil })
 	return pins, err
-}
-
-// SetPins writes (value != "") or clears (value == "") keys of the pins table in one transaction.
-func SetPins(kv map[string]string) error {
-	return vault.Update(func(tx *vault.Tx) error {
-		for k, v := range kv {
-			if err := tx.Put(vault.Pins, k, v); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 // AuditRecords audits claude's record changes after their transaction succeeds: a profile switch, a model pin or unpin.
@@ -255,24 +230,6 @@ func recordFields(r vault.AgentRecord) map[string]string {
 		f["aliases."+alias] = v
 	}
 	return f
-}
-
-// PinDiff previews SetPins(kv): one "KEY: old → new" line per key whose value would change, sorted.
-func PinDiff(kv map[string]string) ([]string, error) {
-	cur, err := readPins()
-	if err != nil {
-		return nil, err
-	}
-	keys := slices.Sorted(maps.Keys(kv))
-	var out []string
-	for _, k := range keys {
-		was := strings.TrimSpace(cur[k])
-		if was == kv[k] {
-			continue
-		}
-		out = append(out, k+": "+cmp.Or(was, "(unset)")+" → "+cmp.Or(kv[k], "(unset)"))
-	}
-	return out, nil
 }
 
 // RenderPins renders the vault pins table as the plain-text snapshot history records.
