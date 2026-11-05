@@ -139,7 +139,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", strconv.Itoa(30+ccMargin))
-	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | openrouter · …" {
+	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | Opus 5 [1m] ·…" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
@@ -525,14 +525,14 @@ func TestProviderLabelAnthropicFamilyRows(t *testing.T) {
 	}
 }
 
-// Width known: full, then profileMax; the gradient line has no branch and keeps velocity; no line exceeds the width.
+// Width known: full, then profileMax; no line exceeds the width (minimal: the gradient line shows no profile).
 func TestProfileFitsWidth(t *testing.T) {
 	hermetic(t)
 	const full = "databricks·my-long-workspace-profile"
 	pal := theme.LoadPalettes()
-	v := values{userHost: "u@h", path: "~/p", providerFull: full, branch: "feature/x", adds: 12, dels: 3}
+	v := values{userHost: "u@h", path: "~/p", providerFull: full, adds: 12, dels: 3}
 	cfg := embeddedConfig()
-	cfg.Style, cfg.Order = "gradient", []string{"provider"}
+	cfg.Style, cfg.Order = "minimal", []string{"provider"}
 	v.provider = capProfile(full, cfg.ProfileMax)
 	if !strings.Contains(plain(render(v, cfg, pal)), "databricks·my-long-workspa…") {
 		t.Fatalf("profileMax cap missing: %q", plain(render(v, cfg, pal)))
@@ -542,13 +542,11 @@ func TestProfileFitsWidth(t *testing.T) {
 	for _, tc := range []struct {
 		width int
 		want  string
-	}{{200, full + " | +12/-3"}, {50, "databricks·my-long-workspa… | +12/-3"}, {20, "…"}} {
+	}{{200, full}, {50, "databricks·my-long-workspa…"}, {20, "…"}} {
 		termWidth = func() int { return tc.width + ccMargin } // the terminal; the line gets ccMargin less
 		_ = os.RemoveAll(filepath.Dir(stampFile("termwidth", "x")))
-		cfg := embeddedConfig()
-		cfg.Style, cfg.Order = "gradient", []string{"provider"}
 		got := plain(renderFit(v, cfg, pal, lineWidth(cfg)))
-		if !strings.Contains(got, tc.want) || (tc.width == 50 && strings.Contains(got, "feature")) || longestLine(got) > tc.width {
+		if !strings.Contains(got, tc.want) || longestLine(got) > tc.width {
 			t.Errorf("width %d: got %q, want %q within %d cells", tc.width, got, tc.want, tc.width)
 		}
 	}

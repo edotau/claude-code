@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -47,9 +48,9 @@ func TestGradientLine(t *testing.T) {
 	}
 	git("add", "f")
 	git("commit", "-qm", "f")
-	const ctx = "Opus 5.5 · ctx ━━━─────── 31.0% · 309.5k/1m"
+	const ctx = " | claude-opus-5-5 · ctx ━━━─────── 31.0% · 309.5k/1M 7d:15%"
 	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
-		t.Errorf("clean tree: %q must end %q", got, ctx)
+		t.Errorf("clean tree: %q must end %q (no provider, id without claude-)", got, ctx)
 	}
 	if err := os.WriteFile(filepath.Join(repo, "f"), []byte("a\nc\nd\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -57,5 +58,51 @@ func TestGradientLine(t *testing.T) {
 	_ = os.RemoveAll(filepath.Dir(stampFile("velocity", "x"))) // drop the clean tree's cached velocity
 	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx+" | +2/-1") {
 		t.Errorf("dirty tree: %q must end %q", got, ctx+" | +2/-1")
+	}
+}
+
+// The gradient label is the raw payload id: claude- kept, a [1m] tag and a profile: prefix dropped, a routed label kept.
+func TestRawModelID(t *testing.T) {
+	for id, want := range map[string]string{
+		"claude-opus-5-5": "claude-opus-5-5", "databricks-claude-opus-5-5": "databricks-claude-opus-5-5",
+		"claude-opus-5-5[1m]": "claude-opus-5-5", "work:claude-opus-5-5": "claude-opus-5-5", "": "short",
+	} {
+		if got := rawModelID(Input{Model: struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		}{ID: id}}, "short"); got != want {
+			t.Errorf("rawModelID(%q) = %q, want %q", id, got, want)
+		}
+	}
+	if got := rawModelID(Input{}, "opus ⇄acme"); got != "opus ⇄acme" {
+		t.Errorf("routed label replaced: %q", got)
+	}
+}
+
+// Empty bar cells take the separator dim, not the trough tone that all but vanished on the terminal background.
+func TestGradientEmptyCellsVisible(t *testing.T) {
+	hermetic(t)
+	line := Render([]byte(gradientPayload(t.TempDir())), "gradient")
+	sep := line[:strings.Index(line, "|")]
+	dimSGR := sep[strings.LastIndex(sep, "\x1b["):]
+	if strings.Count(line, dimSGR+"─") != 7 {
+		t.Errorf("want 7 empty cells painted %q (the | color) at 31%%: %q", dimSGR, line)
+	}
+}
+
+// Too wide for the terminal: the gradient line breaks before the bar instead of being clipped.
+func TestGradientWrapsBeforeContext(t *testing.T) {
+	hermetic(t)
+	dir := t.TempDir()
+	t.Setenv("COLUMNS", "300")
+	wide := plain(Render([]byte(gradientPayload(dir)), "gradient"))
+	if strings.Contains(wide, "\n") {
+		t.Fatalf("wide terminal wrapped: %q", wide)
+	}
+	row1 := wide[:strings.Index(wide, " · ctx ")]
+	t.Setenv("COLUMNS", strconv.Itoa(visibleWidth(row1)+2+ccMargin)) // row 1 fits, the whole line does not
+	lines := strings.Split(plain(Render([]byte(gradientPayload(dir)), "gradient")), "\n")
+	if len(lines) != 2 || lines[0] != row1 || !strings.HasPrefix(lines[1], "ctx ━━━─") {
+		t.Errorf("narrow terminal: %q, want %q then the bar", lines, row1)
 	}
 }
