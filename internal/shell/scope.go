@@ -312,6 +312,9 @@ func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
 	rules := agentconfig.ShellPolicy().Commands
 	for _, w := range segs {
 		w = stripGoEnv(w)
+		if len(roots) > 0 {
+			w = absolutizeRm(w, roots[0])
+		}
 		if !slices.ContainsFunc(roots, func(root string) bool { return allows(rules, w, root) || allows(extra, w, root) }) {
 			return false
 		}
@@ -418,43 +421,60 @@ func argsInside(args []string, workDir string) bool {
 	return true
 }
 
-// rmAllowed admits plain `rm` of existing regular files (symlinks refused outright) inside workDir, clear of secrets.
+// absolutizeRm joins rm's plain relative operands onto cwd (the first root), so no other root can rebase them.
+func absolutizeRm(w []string, cwd string) []string {
+	if w[0] != "rm" {
+		return w
+	}
+	out := slices.Clone(w)
+	for i, a := range out[1:] {
+		if !rmOperandPlain(a) || filepath.IsAbs(a) {
+			continue
+		}
+		out[i+1] = filepath.Join(cwd, a)
+	}
+	return out
+}
+
+// rmOperandPlain is an operand with no flag, home, glob or .. form.
+func rmOperandPlain(a string) bool {
+	return !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "~") && !strings.ContainsAny(a, "*?[{") &&
+		!slices.Contains(strings.Split(a, "/"), "..")
+}
+
+// rmAllowed admits plain `rm` of absolute (see absolutizeRm) existing regular files, never symlinks, inside workDir.
 func rmAllowed(args []string, workDir string) bool {
 	if len(args) == 0 {
 		return false
 	}
 	home, _ := os.UserHomeDir()
+	state := filepath.Join(home, ".claude", "state")
 	for _, a := range args {
-		if strings.HasPrefix(a, "-") || strings.HasPrefix(a, "~") || strings.ContainsAny(a, "*?[{") || slices.Contains(strings.Split(a, "/"), "..") {
+		if !rmOperandPlain(a) || !filepath.IsAbs(a) {
 			return false
 		}
 		abs := filepath.Clean(a)
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(workDir, abs)
-		}
 		if st, err := os.Lstat(abs); err != nil || !st.Mode().IsRegular() {
 			return false
 		}
-		rel, ok := RelInside(abs, workDir)
-		if !ok || !rmTargetAllowed(rel, ResolveReal(abs, workDir), filepath.Join(home, ".claude", "state")) {
+		if _, ok := RelInside(abs, workDir); !ok || rmProtected(abs, state) || rmProtected(ResolveReal(abs, workDir), ResolveReal(state, "/")) {
 			return false
 		}
 	}
 	return true
 }
 
-// rmTargetAllowed refuses .git contents, the harness state dir and settings or credential files.
-func rmTargetAllowed(rel, real, stateDir string) bool {
-	parts := strings.Split(rel, string(filepath.Separator))
-	if slices.ContainsFunc(parts, func(p string) bool { return strings.EqualFold(p, ".git") }) {
-		return false
+// rmProtected is a path (lexical or resolved) inside .git or the state dir, or a settings, credential or vault file, any case.
+func rmProtected(path, state string) bool {
+	low := strings.ToLower(path)
+	st := strings.ToLower(state)
+	if slices.Contains(strings.Split(low, string(filepath.Separator)), ".git") ||
+		low == st || strings.HasPrefix(low, st+string(filepath.Separator)) {
+		return true
 	}
-	if real == stateDir || strings.HasPrefix(real, stateDir+string(filepath.Separator)) {
-		return false
-	}
-	base := parts[len(parts)-1]
-	return base != "settings.json" && base != "settings.local.json" && !strings.HasSuffix(base, ".credentials.json") &&
-		!strings.HasPrefix(base, "vault.db")
+	base := filepath.Base(low)
+	return base == "settings.json" || base == "settings.local.json" || strings.HasSuffix(base, ".credentials.json") ||
+		strings.HasPrefix(base, "vault.db")
 }
 
 func scopedGit(w []string, workDir string) bool {

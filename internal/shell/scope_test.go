@@ -112,6 +112,14 @@ func TestCommandRm(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	wt := filepath.Join(home, "worktrees")
+	for _, f := range []string{"metadata/config", "SETTINGS.JSON", "VAULT.DB", "X.CREDENTIALS.JSON", "STATE/x"} {
+		touch(t, filepath.Join(root, f))
+	}
+	touch(t, filepath.Join(outside, "record"))
+	touch(t, filepath.Join(wt, "dirlink", "record")) // a decoy under the second root
+	mustSymlink(t, outside, filepath.Join(root, "dirlink"))
+	mustSymlink(t, ".git", filepath.Join(root, "viagit"))
 	for link, target := range map[string]string{"link-out": outside, "link-in": filepath.Join(root, "a.go")} {
 		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
 			t.Fatal(err)
@@ -128,10 +136,37 @@ func TestCommandRm(t *testing.T) {
 		{"rm settings.local.json", false}, {"rm link-out", false}, {"rm link-in", false}, {"rm link-out/x", false},
 		{"rm sub", false}, {"rm missing.go", false}, {"rm a.go sub", false}, {"rm a.go; rm b.go", true},
 		{"cd sub && rm c.go", false},
+		{"rm dirlink/record", false}, {"rm SETTINGS.JSON", false}, {"rm VAULT.DB", false}, {"rm X.CREDENTIALS.JSON", false},
+		{"rm STATE/x", false}, {"rm " + filepath.Join(root, "STATE", "x"), false}, {"rm viagit/config", false}, {"rm metadata/config", true},
 	}
 	for _, c := range cases {
-		if got := Command(c.cmd, []string{root}, nil); got != c.want {
+		if got := Command(c.cmd, []string{root, wt}, nil); got != c.want {
 			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
 		}
+	}
+	// .git itself is a symlink to an in-root dir: the lexical .git component must still refuse.
+	if err := os.RemoveAll(filepath.Join(root, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, "metadata", filepath.Join(root, ".git"))
+	if Command("rm .git/config", []string{root, wt}, nil) {
+		t.Error("rm .git/config through a symlinked .git was allowed")
+	}
+}
+
+func touch(t *testing.T, p string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
 	}
 }
