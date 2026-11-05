@@ -195,5 +195,5 @@ func opencodePolicyArgv(argv []string, req agent.RunOptions) []string {
 	if !req.Tools || req.Permissions.IsZero() || slices.Contains(argv, "--auto") {
 		return argv
 	}
-	return append(argv, "--auto")
+	return slices.Insert(slices.Clone(argv), min(1, len(argv)), "--auto")
 }

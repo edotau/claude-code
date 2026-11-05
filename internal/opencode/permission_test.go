@@ -102,12 +102,25 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 func TestOpencodePolicyArgv(t *testing.T) {
 	pol := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Read(.env)")}}
 	if got := opencodePolicyArgv([]string{"run"}, pol); !slices.Equal(got, []string{"run", "--auto"}) {
-		t.Fatalf("policy argv = %v, want --auto appended", got)
+		t.Fatalf("policy argv = %v, want --auto added", got)
 	}
 	if got := opencodePolicyArgv([]string{"run", "--auto"}, pol); len(got) != 2 {
 		t.Fatalf("--auto duplicated: %v", got)
 	}
 	if got := opencodePolicyArgv([]string{"run"}, agent.RunOptions{Tools: true}); len(got) != 1 {
 		t.Fatalf("no policy must leave argv unchanged: %v", got)
+	}
+}
+
+// TestOpencodePolicyArgvKeepsPromptLast pins --auto before options, attachments and the dash-prefixed prompt.
+func TestOpencodePolicyArgvKeepsPromptLast(t *testing.T) {
+	pol := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Read(.env)")}}
+	h := agent.Headless{Prompt: "-draft", Attach: []string{"notes.txt"}, Tools: true}
+	argv := opencodeArgv("p/m", h)
+	got := opencodePolicyArgv(argv, pol)
+	want := []string{"run", "--auto", "--format", "json", "-m", "p/m", "--title", "opencode: -draft",
+		"-f", "notes.txt", "--", "-draft"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("policy argv = %v, want %v with the prompt last", got, want)
 	}
 }

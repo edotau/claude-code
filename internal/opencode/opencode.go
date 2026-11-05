@@ -53,6 +53,9 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	if h == nil {
 		return env, nil, nil
 	}
+	if !h.Tools {
+		env = append(env, opencodePermissionEnv+`="deny"`)
+	}
 	return env, opencodeArgv(id+"/"+model, *h), nil
 }
 
@@ -509,10 +512,11 @@ func (e opencodeEngine) NoRoute(reg *providers.Registry, _ providers.Target) err
 
 // LaunchEnv points every opencode launch at the tracked overlay; a failed write is best-effort, opencode runs without it.
 func (opencodeEngine) LaunchEnv() []string {
+	env, _ := opencodeCredential("opencode")
 	if cfg, tui, err := agentconfig.WriteOpencodeOverlay(); err == nil {
-		return []string{"OPENCODE_CONFIG=" + cfg, "OPENCODE_TUI_CONFIG=" + tui}
+		return append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
 	}
-	return nil
+	return env
 }
 
 func (opencodeEngine) Presence(c router.Cell) error {
