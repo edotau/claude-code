@@ -512,7 +512,7 @@ func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink agent.Sink) error {
 	if ev.StepUpdate.StepType != agyToolStep {
 		return nil
 	}
-	open := ev.StepUpdate.State != "DONE"
+	open := !agyStepEnded(ev.StepUpdate.State)
 	start := open && !*toolOpen
 	*toolOpen = open
 	if !start {
@@ -524,7 +524,7 @@ func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink agent.Sink) error {
 // noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
 func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg agent.StreamLog) {
 	if t, st := ev.StepUpdate.StepType, ev.StepUpdate.State; t != "agent_response" && t != "user_input" && st != "" {
-		if st != "DONE" {
+		if !agyStepEnded(st) {
 			*openStep = t
 		} else if *openStep == t {
 			*openStep = ""
@@ -535,6 +535,9 @@ func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg agent.StreamLog) {
 		}
 	}
 }
+
+// agyStepEnded: DONE and ERROR both end a step; a tool call a hook refused ends in ERROR, not unfinished.
+func agyStepEnded(state string) bool { return state == "DONE" || state == "ERROR" }
 
 // finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in
 // result.response (no agent_response deltas) still answers.
