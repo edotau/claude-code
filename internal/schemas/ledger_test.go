@@ -141,7 +141,6 @@ var writers = map[string]string{
 	"internal/schemas/schemas.go:rewrite":                             unversioned("foreign: rewrites registered formats in place during migration"),
 	"internal/vault/nofollow_unix.go:openAppendNoFollow":              unversioned("foreign: user .env file"),
 	"internal/vault/nofollow_other.go:openAppendNoFollow":             unversioned("foreign: user .env file"),
-	"internal/settings/overlay.go:mergeRepoDefaults":                  unversioned("foreign: repo defaults settings.json, Claude-owned shape"),
 	"internal/settings/apply.go:ResetSettings":                        unversioned("foreign: owner-run settings.json reset and its .bak copy"),
 	"internal/settings/apply.go:SeedSettings":                         unversioned("foreign: first-setup settings.json seed, only when missing"),
 	"internal/vault/schema.go:snapshotBeforeMigration":                unversioned("foreign: pre-migration byte copy of the vault"),

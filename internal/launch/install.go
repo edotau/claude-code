@@ -274,7 +274,7 @@ func nestedDetail(n setup.Nested) string {
 		return n.Dir + " holds only linked worktrees"
 	case len(n.Keep) > 0:
 		keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == setup.KeepWorktrees })
-		return n.Dir + " layers over user settings; move " + strings.Join(keep, ", ") + " into the defaults first"
+		return n.Dir + " layers over user settings; move " + strings.Join(keep, ", ") + " into ~/.claude/settings.json first"
 	default:
 		return n.Dir + " is redundant (claude-code clean)"
 	}

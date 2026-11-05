@@ -11,89 +11,6 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Section groups the default keys shown under one configure-page header.
-type Section struct {
-	Name string
-	Keys []string
-}
-
-// sectionOrder is the header order; structuralSection homes the schema keys the catalog does not section.
-var (
-	sectionOrder      = []string{"model", "ui", "notifications", "session", "env", "more"}
-	structuralSection = map[string]string{"model": "model"}
-)
-
-// Sections groups the editable keys by section: the defaults file's scalar keys and env variables first,
-// then every sectioned catalog key the file lacks, so a key removed from the file stays on the page.
-func Sections() ([]Section, error) {
-	o, err := parseObject(Template())
-	if err != nil {
-		return nil, fmt.Errorf("settings template: %w", err)
-	}
-	state := sectionState{by: map[string][]string{}, seen: map[string]bool{}}
-	for _, k := range o.keys {
-		if err := state.addDefault(k, o.vals[k]); err != nil {
-			return nil, err
-		}
-	}
-	for _, f := range Catalog() {
-		if f.Section != "" {
-			state.add(f.Section, f.Key)
-		}
-	}
-	sections := make([]Section, 0, len(sectionOrder))
-	for _, name := range sectionOrder {
-		if keys := state.by[name]; len(keys) > 0 {
-			sections = append(sections, Section{Name: name, Keys: keys})
-		}
-	}
-	return sections, nil
-}
-
-type sectionState struct {
-	by   map[string][]string
-	seen map[string]bool
-}
-
-func (s *sectionState) add(name, key string) {
-	if !s.seen[key] {
-		s.seen[key] = true
-		s.by[name] = append(s.by[name], key)
-	}
-}
-
-func (s *sectionState) addDefault(k string, raw json.RawMessage) error {
-	if k == "env" {
-		return s.addEnv(raw)
-	}
-	f, ok := FieldFor(k)
-	if !ok || f.Kind == KindObject || f.Kind == KindArray || CredentialKey(k) {
-		return nil
-	}
-	name := f.Section
-	if name == "" {
-		name = structuralSection[k]
-	}
-	if name == "" {
-		name = "more"
-	}
-	s.add(name, k)
-	return nil
-}
-
-func (s *sectionState) addEnv(raw json.RawMessage) error {
-	env, err := parseObject(raw)
-	if err != nil {
-		return fmt.Errorf("settings template env: %w", err)
-	}
-	for _, e := range env.keys {
-		if _, ok := FieldFor(e); ok && !CredentialKey(e) {
-			s.add("env", e)
-		}
-	}
-	return nil
-}
-
 //go:embed template.json
 var template []byte
 
@@ -114,7 +31,7 @@ func Render() ([]byte, error) {
 	return o.marshal()
 }
 
-// object is a JSON object that remembers key order, so a merge leaves the user's layout intact.
+// object is a JSON object that remembers key order, so the render keeps the template's layout.
 type object struct {
 	keys []string
 	vals map[string]json.RawMessage
@@ -171,11 +88,4 @@ func (o *object) marshal() ([]byte, error) {
 	}
 	buf.WriteString("}\n")
 	return buf.Bytes(), nil
-}
-
-func orEmpty(raw json.RawMessage) json.RawMessage {
-	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
-		return json.RawMessage("{}")
-	}
-	return raw
 }

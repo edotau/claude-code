@@ -17,6 +17,19 @@ import (
 //go:embed claude-code-settings.schema.json
 var schemaJSON []byte
 
+// Kind is the shape a schema key's value takes in settings.json.
+type Kind int
+
+const (
+	KindBool Kind = iota
+	KindEnum
+	KindInt
+	KindString
+	KindObject
+	KindNumber
+	KindArray
+)
+
 // Key is one setting (or env variable) the schemastore schema documents.
 type Key struct {
 	Name        string
@@ -251,31 +264,6 @@ func SchemaKey(name string) (Key, bool) {
 	return k, ok
 }
 
-// SubField returns the Field for a scalar property of an object setting (parent.sub); ok is false for anything else.
-func SubField(parent, sub string) (Field, bool) {
-	pk, ok := SchemaKey(parent)
-	sk, found := pk.props[sub]
-	if !ok || !found || sk.Kind == KindObject || sk.Kind == KindArray || sk.ref {
-		return Field{}, false
-	}
-	f := Field{Key: parent + "." + sub, Kind: sk.Kind, Values: sk.Enum, Source: "schema"}
-	if sk.Min != nil {
-		f.Min = int(*sk.Min)
-	}
-	return f, true
-}
-
-// SchemaKeys returns every schema entry sorted by name.
-func SchemaKeys() []Key {
-	m := schemaIndex()
-	keys := make([]Key, 0, len(m))
-	for _, k := range m {
-		keys = append(keys, k)
-	}
-	slices.SortFunc(keys, func(a, b Key) int { return strings.Compare(a.Name, b.Name) })
-	return keys
-}
-
 // Validate checks raw against the key's kind, enum and minimum.
 func (k Key) Validate(raw json.RawMessage) error {
 	if k.patternErr != nil {
@@ -436,9 +424,6 @@ func mustCompact(raw json.RawMessage) string {
 	c, _ := compactStr(raw)
 	return c
 }
-
-// HasRef reports a schema entry using $ref; its constraints are unresolved, so the picker does not offer it.
-func (k Key) HasRef() bool { return k.ref }
 
 // compactStr compacts raw JSON for comparison; a missing value (nil) compacts to "".
 func compactStr(raw json.RawMessage) (string, error) {

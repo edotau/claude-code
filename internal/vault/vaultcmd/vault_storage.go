@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -137,13 +136,10 @@ func validateOverlaySections(d *Doc) error {
 	return validateKeyCommand(d.Vault.KeyCommand)
 }
 
-// validateSettingsSection checks the settings overlay parses as an object of valid overlay keys.
+// validateSettingsSection checks the retired settings overlay (nothing reads it now) still parses as an object.
 func validateSettingsSection(raw json.RawMessage) error {
 	var ov map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &ov); err != nil {
-		return sectionError("settings", err)
-	}
-	if err := settings.ValidateOverlay(ov); err != nil {
 		return sectionError("settings", err)
 	}
 	return nil

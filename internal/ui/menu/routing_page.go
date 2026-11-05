@@ -10,6 +10,9 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
+// pickSettingsPage is the sectioned picker seam; tests replace it.
+var pickSettingsPage = tui.PickSections
+
 // routingRow is the main-menu "routing" row: N overrides from default, or "vault error" on a load failure.
 func routingRow(d *dialog) homeRow {
 	overlay, err := providers.RoutingOverlay()

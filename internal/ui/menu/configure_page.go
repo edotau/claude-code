@@ -27,7 +27,7 @@ import (
 )
 
 // SectionNames runs in this order when no section is named.
-var SectionNames = []string{"provider", "models", "agents", "github", "remote", "claude", "codex", "routing", "databricks"}
+var SectionNames = []string{"provider", "models", "agents", "github", "remote", "codex", "routing", "databricks"}
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
@@ -176,8 +176,6 @@ func runSection(d *dialog, s string) bool {
 		return runGithub(d)
 	case "remote":
 		return runRemote(d)
-	case "claude":
-		return runClaudeSettings(d)
 	case "codex":
 		return runCodexSettings(d)
 	case "routing":

@@ -229,10 +229,10 @@ func dirSize(path string) int64 {
 	return total
 }
 
-// userContentPaths lists the vault, local settings, and untracked repo files Nuke archives.
+// userContentPaths lists the vault, settings.json, local settings, and untracked repo files Nuke archives.
 func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	var out []string
-	for _, rel := range []string{"state/vault.db", "settings.local.json"} {
+	for _, rel := range []string{"state/vault.db", "settings.json", "settings.local.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			out = append(out, rel)
 		}

@@ -35,7 +35,6 @@ var configurePage = helptext.Page{
 		{"agents", "set up each agent CLI's routing (--agent for one)"},
 		{"github", "GitHub Copilot logins and opencode's fallback ladder"},
 		{"remote", "tailscale connectivity and remote hosts (read-only)"},
-		{"claude", "per-machine settings.json overrides"},
 		{"desktop", "Claude Desktop loopback profile; --revert restores selection"},
 		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
