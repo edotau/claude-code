@@ -101,21 +101,14 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o render.Rend
 	if err != nil {
 		return false, err
 	}
-	path, err := paths.CodexConfigPath(o.Home)
+	path, raw, existed, err := readCodexConfig(o.Home)
 	if err != nil {
 		return false, err
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("codex: %w", err)
-	}
-	existed := err == nil
-	stripped := codexBannerRE().ReplaceAllString(string(raw), "") // sans any prior banner, for the user-value check
-	section, err := codexProviderSection(reg, sel, stripped, out)
+	next, err := codexProviderConfig(reg, sel, string(raw), out)
 	if err != nil {
 		return false, err
 	}
-	next := insertCodexSection(string(raw), section)
 
 	// Compute the hooks merge (and read the existing hooks.json) before computing trust entries or
 	// committing config.toml: trust keys must come from the real post-merge positions, and a malformed
@@ -132,13 +125,41 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o render.Rend
 		return false, err
 	}
 
-	// hooks.json goes first: a failed hooks write must not leave config.toml with trust hashes for absent hooks.
+	return commitCodexFiles(hooksPath, hooksRaw, mergedHooks, hooksExisted, path, raw, next, existed, o, out)
+}
+
+// commitCodexFiles writes hooks.json first, so a failed hooks write leaves config.toml without trust hashes for it.
+func commitCodexFiles(hooksPath string, hooksRaw, mergedHooks []byte, hooksExisted bool,
+	path string, raw []byte, next string, existed bool, o render.RenderOptions, out io.Writer) (bool, error) {
 	drift, err := render.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
 	if err != nil {
 		return drift, err
 	}
 	d, err := render.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
 	return drift || d, err
+}
+
+// readCodexConfig returns the config.toml path, its bytes and whether it existed.
+func readCodexConfig(home string) (path string, raw []byte, existed bool, err error) {
+	path, err = paths.CodexConfigPath(home)
+	if err != nil {
+		return "", nil, false, err
+	}
+	raw, err = os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", nil, false, fmt.Errorf("codex: %w", err)
+	}
+	return path, raw, err == nil, nil
+}
+
+// codexProviderConfig is raw with the provider section inserted, any prior banner removed.
+func codexProviderConfig(reg *providers.Registry, sel providers.Selection, raw string, out io.Writer) (string, error) {
+	stripped := codexBannerRE().ReplaceAllString(raw, "") // sans any prior banner, for the user-value check
+	section, err := codexProviderSection(reg, sel, stripped, out)
+	if err != nil {
+		return "", err
+	}
+	return insertCodexSection(raw, section), nil
 }
 
 func insertCodexSection(raw, section string) string {

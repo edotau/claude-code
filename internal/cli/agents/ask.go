@@ -385,13 +385,23 @@ func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback, as, name 
 // askCheckCombos rejects the flag combinations that need the resolved agent.
 func askCheckCombos(fs *flag.FlagSet, name string, live, hasPersona bool, host string, background bool, job, batchSrc string, hasEnv bool) error {
 	if live {
-		if hasPersona {
-			return errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor")
-		}
-		if err := askLiveCheck(fs, name); err != nil {
+		if err := askLiveCombos(fs, name, hasPersona); err != nil {
 			return err
 		}
 	}
+	return askHostEnvCombos(host, background, job, batchSrc, hasEnv)
+}
+
+// askLiveCombos rejects --live with a persona, then checks the flags --live cannot take.
+func askLiveCombos(fs *flag.FlagSet, name string, hasPersona bool) error {
+	if hasPersona {
+		return errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor")
+	}
+	return askLiveCheck(fs, name)
+}
+
+// askHostEnvCombos rejects --host with --background/--job/--batch, and --env with --background.
+func askHostEnvCombos(host string, background bool, job, batchSrc string, hasEnv bool) error {
 	if host != "" && (background || job != "" || batchSrc != "") {
 		return errors.New("--host cannot be combined with --background, --job or --batch")
 	}

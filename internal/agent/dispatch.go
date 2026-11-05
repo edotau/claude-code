@@ -152,15 +152,20 @@ func classifyText(err error) (Kind, time.Duration) {
 	case transientRE.MatchString(low):
 		kind = KindTransient
 	}
-	var delay time.Duration
-	if m := retryAfterRE.FindStringSubmatch(low); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		delay = time.Duration(n) * time.Second
-		if m[2] != "" {
-			delay = time.Duration(n) * time.Minute
-		}
+	return kind, retryAfterText(low)
+}
+
+// retryAfterText reads a "retry after N seconds|minutes" hint out of lower-cased error text.
+func retryAfterText(low string) time.Duration {
+	m := retryAfterRE.FindStringSubmatch(low)
+	if m == nil {
+		return 0
 	}
-	return kind, delay
+	n, _ := strconv.Atoi(m[1])
+	if m[2] != "" {
+		return time.Duration(n) * time.Minute
+	}
+	return time.Duration(n) * time.Second
 }
 
 // Policy bounds one retry loop.

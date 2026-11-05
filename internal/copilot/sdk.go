@@ -202,20 +202,34 @@ func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc, allowWide
 		if !ok {
 			return next(req, inv)
 		}
-		switch o.Permissions.Decide(call.Tool, call.Arg) {
-		case agent.Deny:
-			if planReadThrough(o.Permissions, req, call) {
-				return next(req, inv)
-			}
-			feedback := "Refused by permission rule for " + call.String() + ": report it instead."
-			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
-		case agent.Allow:
-			if allowWidens && !protectedWrite(req, o.WorkingDirectory) && !protectedRm(req, o.WorkingDirectory) {
-				return approveToolOnce(req, inv)
-			}
+		if d, handled := ruleDecision(o, req, inv, call, allowWidens); handled {
+			return d.decision, d.err
 		}
 		return next(req, inv)
 	}
+}
+
+type ruleOutcome struct {
+	decision rpc.PermissionDecision
+	err      error
+}
+
+// ruleDecision judges call against o.Permissions; handled is false when next should decide.
+func ruleDecision(o SDKOptions, req copilot.PermissionRequest, inv copilot.PermissionInvocation, call agent.Rule, allowWidens bool) (ruleOutcome, bool) {
+	switch o.Permissions.Decide(call.Tool, call.Arg) {
+	case agent.Deny:
+		if planReadThrough(o.Permissions, req, call) {
+			return ruleOutcome{}, false
+		}
+		feedback := "Refused by permission rule for " + call.String() + ": report it instead."
+		return ruleOutcome{decision: &rpc.PermissionDecisionReject{Feedback: &feedback}}, true
+	case agent.Allow:
+		if allowWidens && !protectedWrite(req, o.WorkingDirectory) && !protectedRm(req, o.WorkingDirectory) {
+			d, err := approveToolOnce(req, inv)
+			return ruleOutcome{d, err}, true
+		}
+	}
+	return ruleOutcome{}, false
 }
 
 // ruleCall is the Claude-style Tool(arg) a request is judged as; ok is false for kinds no rule names.
@@ -500,27 +514,36 @@ func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptio
 	return session, nil
 }
 
+// startClient starts the runtime; the returned stop joins any stop error into *errp.
+func startClient(ctx context.Context, o SDKOptions, errp *error) (*copilot.Client, func(), error) {
+	clientOpts, err := BuildClientOptions(ctx, o)
+	if err != nil {
+		return nil, nil, err
+	}
+	client := copilot.NewClient(clientOpts)
+	if err := client.Start(ctx); err != nil {
+		return nil, nil, fmt.Errorf("start copilot runtime: %w", err)
+	}
+	// SDK starts the CLI outside childCmd: ForceStop on ctx cancel kills it (direct child only, no process group)
+	stop := context.AfterFunc(ctx, client.ForceStop)
+	return client, func() {
+		if stopErr := client.Stop(); stopErr != nil { // before stop(): a cancel during Stop still force-stops
+			*errp = errors.Join(*errp, fmt.Errorf("stop copilot runtime: %w", stopErr))
+		}
+		stop()
+	}, nil
+}
+
 // SDKAsk runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
 func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (result SDKResult, err error) {
 	if strings.TrimSpace(prompt) == "" {
 		return SDKResult{}, errors.New("empty prompt")
 	}
-	clientOpts, err := BuildClientOptions(ctx, o)
+	client, stopClient, err := startClient(ctx, o, &err)
 	if err != nil {
 		return SDKResult{}, err
 	}
-	client := copilot.NewClient(clientOpts)
-	if err := client.Start(ctx); err != nil {
-		return SDKResult{}, fmt.Errorf("start copilot runtime: %w", err)
-	}
-	// SDK starts the CLI outside childCmd: ForceStop on ctx cancel kills it (direct child only, no process group)
-	stop := context.AfterFunc(ctx, client.ForceStop)
-	defer stop()
-	defer func() {
-		if stopErr := client.Stop(); stopErr != nil {
-			err = errors.Join(err, fmt.Errorf("stop copilot runtime: %w", stopErr))
-		}
-	}()
+	defer stopClient()
 
 	var approved atomic.Bool
 	session, err := newOrResumedSession(ctx, client, o, &approved)

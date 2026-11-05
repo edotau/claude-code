@@ -355,30 +355,34 @@ func mutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)
 			continue
 		}
 		found = true
-		var cfg map[string]any
-		if err := json.Unmarshal([]byte(body), &cfg); err != nil && !lenient {
-			return nil, err
-		}
-		if cfg == nil { // unreadable (lenient) or JSON null
-			cfg = map[string]any{}
-		}
-		fn(cfg)
-		out, err := json.Marshal(cfg)
+		out, err := mutateConfigJSON(body, lenient, fn)
 		if err != nil {
 			return nil, err
 		}
-		env[i] = opencodeConfigEnv + "=" + string(out)
+		env[i] = opencodeConfigEnv + "=" + out
 	}
 	if found {
 		return env, nil
 	}
-	cfg := map[string]any{}
-	fn(cfg)
-	out, err := json.Marshal(cfg)
+	out, err := mutateConfigJSON("{}", false, fn)
 	if err != nil {
 		return nil, err
 	}
-	return append(env, opencodeConfigEnv+"="+string(out)), nil
+	return append(env, opencodeConfigEnv+"="+out), nil
+}
+
+// mutateConfigJSON applies fn to the JSON object in body; unreadable JSON is an error unless lenient (then empty).
+func mutateConfigJSON(body string, lenient bool, fn func(map[string]any)) (string, error) {
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(body), &cfg); err != nil && !lenient {
+		return "", err
+	}
+	if cfg == nil { // unreadable (lenient) or JSON null
+		cfg = map[string]any{}
+	}
+	fn(cfg)
+	out, err := json.Marshal(cfg)
+	return string(out), err
 }
 
 // opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only dispatch (no
@@ -592,10 +596,8 @@ func opencodeCredential(prefix string) (env []string, err error) {
 	if slices.Contains(logins, id) {
 		return nil, nil
 	}
-	if id == "opencode" {
-		if v, _, ok := vault.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
-			return []string{OpencodeAPIKeyEnv + "=" + strings.TrimSpace(v)}, nil
-		}
+	if key := opencodeVaultKey(id); key != "" {
+		return []string{OpencodeAPIKeyEnv + "=" + key}, nil
 	}
 	if lerr != nil { // a failed probe is not "no login": say so rather than sending the user to re-login
 		return nil, fmt.Errorf("opencode logins could not be read: %w", lerr)
@@ -604,6 +606,15 @@ func opencodeCredential(prefix string) (env []string, err error) {
 		return nil, fmt.Errorf("opencode has no opencode login (opencode auth login) and no %s in the vault", OpencodeAPIKeyEnv)
 	}
 	return nil, fmt.Errorf("opencode has no %s login (opencode auth login)", id)
+}
+
+// opencodeVaultKey is the vault's opencode API key for the `opencode` credential id, else "".
+func opencodeVaultKey(id string) string {
+	if id != "opencode" {
+		return ""
+	}
+	v, _, _ := vault.Get(OpencodeAPIKeyEnv)
+	return strings.TrimSpace(v)
 }
 
 // ownLoginTTL bounds how long OpencodeOwnLoginPresent reuses an answer: one launch's route calls, not a later vault edit.
