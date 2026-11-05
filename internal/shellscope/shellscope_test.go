@@ -19,3 +19,36 @@ func TestGitCommitAllowedRefusesReuse(t *testing.T) {
 		}
 	}
 }
+
+// TestCommandGoEnvAndGitGrep pins that only GOOS/GOARCH/CGO_ENABLED may prefix go, and git grep never opens a pager.
+func TestCommandGoEnvAndGitGrep(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"GOOS=darwin go vet ./internal/x/...", true},
+		{"GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...", true},
+		{"git grep -n foo", true},
+		{"LD_PRELOAD=x go vet ./...", false},
+		{"GOFLAGS=-toolexec=x go vet ./...", false},
+		{"GOOS=darwin LD_PRELOAD=x go vet ./...", false},
+		{"GOOS=darwin rm -rf x", false},
+		{"GOOS=darwin ls", false},
+		{"GOOS=darwin env go vet ./...", false},
+		{"GOOS=darwin go vet -vettool=x ./...", false},
+		{"GOOS=darwin go run ./...", false},
+		{"GOOS=darwin", false},
+		{"GOOS=dar-win go vet ./...", false},
+		{"git grep -O foo", false},
+		{"git grep -nO foo", false},
+		{"git grep --open-files-in-pager foo", false},
+		{"git grep --open-files-in-pager=less foo", false},
+		{"git grep --open foo", false},
+	}
+	for _, c := range cases {
+		if got := Command(c.cmd, []string{root}, nil); got != c.want {
+			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}

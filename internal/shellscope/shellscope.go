@@ -4,6 +4,7 @@ package shellscope
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -11,7 +12,7 @@ import (
 )
 
 // readOnlyGit are the git subcommands a read-only run may shell out to.
-var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "show": true, "blame": true, "rev-parse": true, "branch": true}
+var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "show": true, "blame": true, "rev-parse": true, "branch": true, "grep": true}
 
 // gitBannedFlags also match any abbreviation git would accept (--out=x is --output=x).
 var gitBannedFlags = []string{
@@ -23,6 +24,21 @@ var gitBannedFlags = []string{
 var gitLeadingFlags = map[string][]string{
 	"diff": {"--no-ext-diff", "--no-textconv"}, "log": {"--no-ext-diff", "--no-textconv"},
 	"show": {"--no-ext-diff", "--no-textconv"}, "blame": {"--no-textconv"},
+}
+
+// goEnvPrefix is the only env assignment tolerated before `go` (cross-compile vet and build checks).
+var goEnvPrefix = regexp.MustCompile(`^(GOOS|GOARCH|CGO_ENABLED)=[A-Za-z0-9_]+$`)
+
+// stripGoEnv drops leading goEnvPrefix words from w when the command that follows is go; otherwise w is unchanged.
+func stripGoEnv(w []string) []string {
+	i := 0
+	for i < len(w) && goEnvPrefix.MatchString(w[i]) {
+		i++
+	}
+	if i == 0 || i >= len(w) || w[i] != "go" {
+		return w
+	}
+	return w[i:]
 }
 
 // gitVerbFlags are those verbs' only dash args: branch must carry --list or -l, and `git status -v` runs textconv.
@@ -67,7 +83,12 @@ func readOnlyGitArgs(verb string, args []string) bool {
 
 // badGitArg is -c, a ~ path, a banned flag, or a dash arg outside the verb's allowed set (when it has one).
 func badGitArg(a string, allowed map[string]bool) bool {
-	return a == "-c" || strings.HasPrefix(a, "~") || bannedGitFlag(a) || allowed != nil && strings.HasPrefix(a, "-") && !allowed[a]
+	return a == "-c" || strings.HasPrefix(a, "~") || pagerShortFlag(a) || bannedGitFlag(a) || allowed != nil && strings.HasPrefix(a, "-") && !allowed[a]
+}
+
+// pagerShortFlag is a short-flag cluster holding -O (git grep --open-files-in-pager runs the program it names).
+func pagerShortFlag(a string) bool {
+	return strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "O")
 }
 
 func bannedGitFlag(arg string) bool {
@@ -244,6 +265,7 @@ func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
 	}
 	rules := agentconfig.ShellPolicy().Commands
 	for _, w := range segs {
+		w = stripGoEnv(w)
 		if !slices.ContainsFunc(roots, func(root string) bool { return allows(rules, w, root) || allows(extra, w, root) }) {
 			return false
 		}
