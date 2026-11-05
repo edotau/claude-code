@@ -13,7 +13,12 @@
       "Edit",
       "Read",
       "Write",
-      "WebFetch(*)"
+      "WebFetch(*)",
+      "Bash(go *)",
+      "Bash(claude-code *)",
+      "Bash(gofmt -l *)",
+      "Bash(systemctl --user is-active *)",
+      "Bash(make *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -33,7 +38,11 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "opus",
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
+    "padding": 0
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -172,15 +181,24 @@
       }
     ]
   },
-  "statusLine": {
-    "type": "command",
-    "command": "$HOME/.claude/bin/claude-code theme statusline",
-    "padding": 0
-  },
-  "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true
-  },
+  "model": "opus",
   "outputStyle": "Concise",
+  "switchModelsOnFlag": true,
   "theme": "auto",
-  "tui": "fullscreen"
+  "tui": "fullscreen",
+  "prefersReducedMotion": true,
+  "spinnerTipsEnabled": false,
+  "preferredNotifChannel": "auto",
+  "awaySummaryEnabled": false,
+  "feedbackDrafts": "off",
+  "feedbackSurveyRate": 0,
+  "askUserQuestionTimeout": "never",
+  "cleanupPeriodDays": 12,
+  "autoConnectIde": false,
+  "disableClaudeAiConnectors": true,
+  "useAutoModeDuringPlan": true,
+  "skipWorkflowUsageWarning": true,
+  "worktree": {
+    "baseRef": "head"
+  }
 }
