@@ -286,7 +286,7 @@ func modelTableLines(infos []ModelInfo) []string {
 
 // DryRunLines is the shared --dry-run body for switch and models: the record change plus notes, or that there is none.
 func DryRunLines(before, after map[string]vault.AgentRecord, notes []string) []string {
-	diff := append(RecordDiff(before, after), notes...)
+	diff := append(recordDiff(before, after), notes...)
 	if len(diff) == 0 {
 		return []string{"no change to the agent records"}
 	}

@@ -232,13 +232,7 @@ func (t *RouteTable) gateAccount(
 		res.Skipped = append(res.Skipped, Skip{name, GateExhausted, ExhaustedReason(c.Account, e, now)})
 		return Candidate{}, false
 	}
-	return Candidate{Agent: agentOf(name), Cell: c, State: s, Billing: billing}, true
-}
-
-// agentOf strips a "<agent>·<sub>" Skip label back to the agent.
-func agentOf(name string) string {
-	a, _, _ := strings.Cut(name, "·")
-	return a
+	return Candidate{Agent: accountProvider(name), Cell: c, State: s, Billing: billing}, true
 }
 
 // opencodeOrder is the sub-pick's fixed order: the free Zen catalog first, then the ladder's paid backends

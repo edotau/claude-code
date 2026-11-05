@@ -76,15 +76,15 @@ const accountTail = `usage limit|out of (?:premium )?(?:credits|requests)|(?:mon
 	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`
 
 // accountRE covers the broader markers meaning "this ACCOUNT is exhausted" (plan window, credits, a hard
-// 402), as opposed to a transient rate limit worth waiting out: a 402 body, "usage limit ... try again at
+// HTTP 402), as opposed to a transient rate limit worth waiting out: a 402 body, "usage limit ... try again at
 // <time>", or a monthly/weekly plan quota.
-var accountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` + accountTail)
+var accountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` + accountTail)
 
 // hardAccountRE is accountRE's subset ModelDenied vetoes on: a 402, "payment required", "usage limit", a
 // named monthly/weekly plan quota, or credits out. Deliberately drops accountRE's "exceeded your current
 // quota/limit" — Gemini's free-tier per-model denial reuses that exact phrase alongside "limit: 0"
 // (modelDeniedRE), and that one is a MODEL-specific denial, not account-wide exhaustion.
-var hardAccountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` + accountTail)
+var hardAccountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` + accountTail)
 
 // ModelDenied reports whether a 429 body or error text denies this MODEL outright on the current key; the
 // caller should demote to the provider's next alias instead of retrying the same model. Account-wide
@@ -112,7 +112,7 @@ func Demote(p *Provider, model string) (Target, bool) {
 		alias = models.Opus
 	}
 	for next := models.NextAlias(alias); next != ""; next = models.NextAlias(next) {
-		if id := p.Models[next]; id != "" && !SameModel(id, model) {
+		if id := p.Models[next]; id != "" && !sameModel(id, model) {
 			return Target{Provider: p, Model: id}, true
 		}
 	}

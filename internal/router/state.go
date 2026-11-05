@@ -292,8 +292,12 @@ func parseInReset(low string, now time.Time) (time.Time, bool) {
 	if m == nil {
 		return time.Time{}, false
 	}
-	n, _ := strconv.Atoi(m[1])
 	unit := map[byte]time.Duration{'s': time.Second, 'm': time.Minute, 'h': time.Hour, 'd': 24 * time.Hour}[m[2][0]]
+	const maxIn = 365 * 24 * time.Hour
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n < 0 || time.Duration(n) > maxIn/unit {
+		return now.Add(maxIn), true // clamp: a huge N must not wrap into the past
+	}
 	return now.Add(time.Duration(n) * unit), true
 }
 

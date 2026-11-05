@@ -260,7 +260,7 @@ func awaitPortFree(ctx context.Context, port int) error {
 		d := net.Dialer{Timeout: 200 * time.Millisecond}
 		c, err := d.DialContext(ctx, "tcp", addr)
 		if err != nil {
-			return nil
+			return ctx.Err() // a cancelled ctx is not a free port
 		}
 		_ = c.Close()
 	}
@@ -427,8 +427,5 @@ func WriteState(st State) (func(), error) {
 	}, nil
 }
 
-// Optional launcher-set request headers that attribute a ledger entry; AgentHeader is set by the claude, agent, copilot and desktop launchers; SessionHeader by none.
-const (
-	AgentHeader   = "X-Claude-Code-Agent"
-	SessionHeader = "X-Claude-Code-Session"
-)
+// AgentHeader is the optional launcher-set request header (claude, agent, copilot, desktop) that attributes a ledger entry.
+const AgentHeader = "X-Claude-Code-Agent"

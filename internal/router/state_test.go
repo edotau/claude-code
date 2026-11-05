@@ -383,3 +383,17 @@ func TestQuotaNewerSchemaIsNotOverwritten(t *testing.T) {
 		t.Fatalf("newer file overwritten: %s", raw)
 	}
 }
+
+func TestParseResetHugeNClampsToFuture(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	for _, text := range []string{
+		"try again in 99999999999999999999 days",
+		"try again in 9223372036854775807 days",
+		"try again in 9999999999 hours",
+	} {
+		got, ok := ParseReset(text, now)
+		if !ok || !got.After(now) {
+			t.Errorf("ParseReset(%q) = %v, %v; want a reset after now", text, got, ok)
+		}
+	}
+}

@@ -48,3 +48,24 @@ func TestPickFollowsLadder(t *testing.T) {
 		t.Errorf("firstParty skips = %+v, want opencode·zen-free dropped as not first-party", r.Skipped)
 	}
 }
+
+// TestFirstPartyRouteWithoutLadderStillFilters: an empty first-party ladder must not turn the first-party filter off.
+func TestFirstPartyRouteWithoutLadderStillFilters(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tb, err := LoadFrom(&providers.Registry{Routing: providers.DefaultRouting()}, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb.Ladders = map[string][]providers.Rung{providers.LadderDefault: tb.Ladders[providers.LadderDefault]}
+	t.Setenv(EnvRoute, routeFirstParty)
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
+	for _, c := range r.Candidates {
+		if !firstPartyAccount(c.Account) {
+			t.Errorf("candidate %s/%s admitted on first-party route with no first-party ladder", c.Agent, c.Account)
+		}
+	}
+	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "not first-party"}) {
+		t.Errorf("skips = %+v, want opencode·zen-free dropped as not first-party", r.Skipped)
+	}
+}

@@ -51,8 +51,6 @@ type Provider struct {
 	// OpencodeFallback is the model id opencode's own render substitutes whenever an alias resolves to
 	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
-	// OpencodeVariant, if set, is appended as "#<variant>" to the rendered opencode.json default model.
-	OpencodeVariant string `json:"opencode_variant,omitempty"`
 	// OpencodeID is this provider's key in opencode's own auth.json/provider catalog (e.g. "openai",
 	// "github-copilot", "google", "nvidia"); empty means the opencode hub cannot route to it.
 	OpencodeID string `json:"opencodeID,omitempty"`
@@ -109,7 +107,7 @@ type Auth struct {
 	RefreshCommand string `json:"refreshCommand,omitempty"`
 	ClientID       string `json:"clientId,omitempty"`   // m2m service-principal client id (not secret)
 	SPClientID     string `json:"spClientId,omitempty"` // paired oauth service-principal client id (not secret)
-	// AccountID and WorkspaceID are non-secret Databricks ids; stored and shown in --list json, no behavior uses them yet.
+	// AccountID and WorkspaceID are non-secret Databricks ids; validated by authtype, shown in --list json and written to the databricks config plan.
 	AccountID   string `json:"accountId,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
 }
@@ -156,16 +154,16 @@ func (p Provider) Dialects() []string {
 // AliasOf reverse-maps a model id to the alias it occupies in this provider, for cross-provider failover.
 func (p Provider) AliasOf(model string) string {
 	for _, alias := range models.AliasNames {
-		if id, ok := p.Models[alias]; ok && SameModel(id, model) {
+		if id, ok := p.Models[alias]; ok && sameModel(id, model) {
 			return alias
 		}
 	}
 	return ""
 }
 
-// SameModel reports whether two model ids name the same model: equal as typed, or the same catalog model
+// sameModel reports whether two model ids name the same model: equal as typed, or the same catalog model
 // once [1m] and any wire spelling are resolved.
-func SameModel(a, b string) bool {
+func sameModel(a, b string) bool {
 	if a == b {
 		return true
 	}
@@ -194,7 +192,7 @@ type Registry struct {
 	order   []string // profile names in declared order (defaults first, then new overlay rows); see ProfilesOf
 }
 
-// RouteCell is one overlay cell for internal/route's table.
+// RouteCell is one overlay cell for internal/router's table.
 type RouteCell struct {
 	Model   string `json:"model,omitempty"`
 	Effort  string `json:"effort,omitempty"`
@@ -207,16 +205,16 @@ var RouteAgents = []string{"claude", "copilot", "codex", "opencode", "gemini"}
 // RouteAliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
 var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 
-// routeWeightNames are the dimension names a route weights map must sum to 1 over (internal/route's
-// Dimension.Name(); today "price", "headroom"); this package only validates shape, route owns the scoring.
+// routeWeightNames are the dimension names a route weights map must sum to 1 over (internal/router's
+// Dimension.Name(); today "price", "headroom"); this package only validates shape, router owns the scoring.
 var routeWeightNames = []string{"price", "headroom"}
 
 // routeBillingKeys are the routing table's static account_key values; a "github·" prefix also passes (added at load).
 var routeBillingKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "github·copilot",
 	"opencode·go", "opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free"}
 
-// RouteOpencodeModelPrefixes are the prefixes an opencode override cell may carry (see internal/router).
-var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
+// routeOpencodeModelPrefixes are the prefixes an opencode override cell may carry.
+var routeOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
 
 // RouteOpencodeSubIDs are the ids an opencodeLadder entry may name; kept in sync with router's opencode_sub keys.
 var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "nvidia"}

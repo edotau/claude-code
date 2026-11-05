@@ -231,3 +231,21 @@ func TestReclaimUnrecordedPIDIsNotSignalled(t *testing.T) {
 		t.Fatalf("terminated %v, want the recorded pid once", *killed)
 	}
 }
+
+// TestAwaitPortFreeCancelledCtxIsNotFree: a cancelled ctx with the listener still bound is an error, a closed port is free.
+func TestAwaitPortFreeCancelledCtxIsNotFree(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := awaitPortFree(ctx, port); !errors.Is(err, context.Canceled) {
+		t.Fatalf("awaitPortFree with cancelled ctx and bound port = %v, want context.Canceled", err)
+	}
+	_ = ln.Close()
+	if err := awaitPortFree(context.Background(), port); err != nil {
+		t.Fatalf("awaitPortFree on closed port = %v, want nil", err)
+	}
+}

@@ -194,7 +194,7 @@ func validateCellAccount(agent, alias string, cell RouteCell) []string {
 	case cell.Account != "" && !validRouteAccountKey(cell.Account):
 		return []string{fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", agent, alias, cell.Account)}
 	case cell.Account == "" && agent == "opencode" && cell.Model != "" &&
-		!slices.Contains(RouteOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
+		!slices.Contains(routeOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
 		return []string{fmt.Sprintf("routing.cells opencode/%s model %q prefix has no known billing account; set account_key explicitly", alias, cell.Model)}
 	}
 	return nil
@@ -304,13 +304,13 @@ func validRouteRow(key string) bool {
 	return ok && slices.Contains(RouteAliases, models.FamilyOf(canonical))
 }
 
-// NormalizeOpencodeLadder maps each routing.opencode.ladder entry that names a registry provider (e.g. a
+// normalizeOpencodeLadder maps each routing.opencode.ladder entry that names a registry provider (e.g. a
 // legacy "chatgpt") to that provider's own OpencodeID (e.g. "openai"), so the ladder always carries sub
 // ids; an entry that is already a sub id, or names nothing in r.Providers, passes through unchanged
 // (Validate catches a truly unknown id). Duplicates after mapping are dropped, first occurrence wins.
 // Called from Parse before Validate, so a legacy provider-name entry normalizes before it is checked.
 // Migration: remove after 2026-11-13 once every machine has run a post-2026-10-25 build.
-func NormalizeOpencodeLadder(r *Registry) *[]string {
+func normalizeOpencodeLadder(r *Registry) *[]string {
 	ladder := r.Routing.Opencode.LadderOrder()
 	if ladder == nil {
 		return nil

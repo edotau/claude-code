@@ -198,8 +198,8 @@ func AuditModelPin(alias, spec string) {
 	audit.Log(audit.ModelPin, key, cmp.Or(spec, "unpinned"))
 }
 
-// RecordDiff lists "agent.field: old → new" for every record field that differs between before and after, sorted.
-func RecordDiff(before, after map[string]vault.AgentRecord) []string {
+// recordDiff lists "agent.field: old → new" for every record field that differs between before and after, sorted.
+func recordDiff(before, after map[string]vault.AgentRecord) []string {
 	var out []string
 	for _, a := range slices.Sorted(maps.Keys(mergeKeys(before, after))) {
 		b, n := recordFields(before[a]), recordFields(after[a])

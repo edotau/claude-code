@@ -41,7 +41,7 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
 	srv := setup(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`)
 	resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku"}`,
-		map[string]string{proxy.SessionHeader: "sess-1", proxy.AgentHeader: "code-worker"})
+		map[string]string{"X-Claude-Code-Session-Id": "sess-1", proxy.AgentHeader: "code-worker"})
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
@@ -93,16 +93,15 @@ func TestScrapeUsage(t *testing.T) {
 	}
 }
 
-// Session falls back to X-Claude-Code-Session-Id; absent headers leave empty fields, not a failure.
+// Session comes from X-Claude-Code-Session-Id; absent headers leave empty fields, not a failure.
 func TestLedgerAttributionHeaders(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		hdr            map[string]string
 		session, agent string
 	}{
-		{"both", map[string]string{proxy.SessionHeader: "s1", proxy.AgentHeader: "claude"}, "s1", "claude"},
+		{"both", map[string]string{"X-Claude-Code-Session-Id": "s1", proxy.AgentHeader: "claude"}, "s1", "claude"},
 		{"session-id fallback", map[string]string{"X-Claude-Code-Session-Id": "s2"}, "s2", ""},
-		{"session wins over session-id", map[string]string{proxy.SessionHeader: "s1", "X-Claude-Code-Session-Id": "s2"}, "s1", ""},
 		{"neither", nil, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,5 +165,14 @@ func TestLedgerDirectProviderNamed(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Provider != "anthropic" || got[0].Profile != "direct" {
 		t.Errorf("ledger = %+v, want provider anthropic profile direct", got)
+	}
+}
+
+func TestScrapeAnthropicUsageCumulativeDeltaNotSummed(t *testing.T) {
+	body := `data: {"type":"message_start","message":{"usage":{"input_tokens":100,"output_tokens":1,"cache_read_input_tokens":30}}}` + "\n" +
+		`data: {"type":"message_delta","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":30}}`
+	u := scrapeAnthropicUsage([]byte(body))
+	if u.input != 100 || u.output != 50 || u.cacheRead != 30 {
+		t.Errorf("usage = %+v, want 100/50/30 (cumulative delta must not be added to start)", u)
 	}
 }
