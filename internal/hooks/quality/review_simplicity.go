@@ -1,4 +1,4 @@
-package hooks
+package quality
 
 import (
 	"context"
@@ -20,8 +20,8 @@ const (
 	simplicityFixHint  = "Fix per rules/standards/quality.md → Comments, Simplify (built-in /simplify)"
 )
 
-// reviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
-func reviewSimplicity(in *core.Input) core.Result {
+// ReviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
+func ReviewSimplicity(in *core.Input) core.Result {
 	path, before, after, ok := editContents(in)
 	if !ok {
 		return core.Result{}

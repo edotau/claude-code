@@ -1,4 +1,4 @@
-package hooks
+package quality
 
 import (
 	"bytes"
@@ -23,11 +23,11 @@ func rsRun(t *testing.T, tool, path, oldS, newS string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
-	if code := runDirect("review-simplicity", bytes.NewReader(payload), &out, nil); code != core.ExitProceed {
-		t.Fatalf("exit %d, want %d", code, core.ExitProceed)
+	res := ReviewSimplicity(core.ParseInput(bytes.NewReader(payload)))
+	if res.Decision != core.Allow {
+		t.Fatalf("decision %d, want Allow", res.Decision)
 	}
-	return out.String()
+	return res.Context
 }
 
 func rsWrite(t *testing.T, name, content string) string {
@@ -45,19 +45,9 @@ func TestReviewSimplicityEdit(t *testing.T) {
 	p := rsWrite(t, "a.go", after)
 
 	out := rsRun(t, "Edit", p, "", block)
-	var doc struct {
-		HookSpecificOutput struct {
-			AdditionalContext string `json:"additionalContext"`
-			HookEventName     string `json:"hookEventName"`
-		} `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		t.Fatalf("stdout is not hook JSON: %q (%v)", out, err)
-	}
-	ctx := doc.HookSpecificOutput.AdditionalContext
-	if doc.HookSpecificOutput.HookEventName != "PostToolUse" || !strings.Contains(ctx, "long_comment") ||
-		!strings.Contains(ctx, "1 new finding") || !strings.HasSuffix(ctx, simplicityFixHint) {
-		t.Errorf("additionalContext = %q (event %q), want one long_comment finding", ctx, doc.HookSpecificOutput.HookEventName)
+	if !strings.Contains(out, "long_comment") || !strings.Contains(out, "1 new finding") ||
+		!strings.HasSuffix(out, simplicityFixHint) {
+		t.Errorf("context = %q, want one long_comment finding", out)
 	}
 
 	// Same noisy file, an unrelated edit: the old comment block is not re-reported.

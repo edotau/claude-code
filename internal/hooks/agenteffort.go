@@ -15,6 +15,7 @@ import (
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
+	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -35,7 +36,7 @@ var (
 // pressure, label); a Workflow gets the former workflow-lint rewrite or a Block.
 func agentEffortResult(in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
-		return workflowResult(in)
+		return quality.WorkflowResult(in)
 	}
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}

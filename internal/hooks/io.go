@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
+	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -23,8 +24,8 @@ var Native = map[string]core.Runner{
 	"memory-recall":             memhook.Recall,
 	"paths-resolve":             docs.ResolvePaths,
 	"memory-update":             memhook.Stop,
-	"review-simplicity":         reviewSimplicity,
-	"format-stop":               stopFormatRun,
+	"review-simplicity":         quality.ReviewSimplicity,
+	"format-stop":               quality.StopFormat,
 	"memory-end":                memhook.End,
 	"dispatch-effort":           dispatchPre,
 	"codex-agent-route":         nativeCodexAgentRoute,
