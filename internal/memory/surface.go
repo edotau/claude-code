@@ -17,7 +17,7 @@ import (
 // Surface caps: a character budget under hooks' 9,500-char additionalContext cap
 // (~1,000 left for the note). The index's slice is reserved so the current pair can never starve it.
 const (
-	TotalCapChars = 8500
+	totalCapChars = 8500
 	indexCapChars = 2500
 )
 
@@ -27,7 +27,7 @@ const (
 	homeFocusCapChars = 800
 )
 
-// SessionSurface is the session preload, capped at TotalCapChars ("" when empty): root's focus sections plus the home bank's, and one pointer to the other
+// SessionSurface is the session preload, capped at totalCapChars ("" when empty): root's focus sections plus the home bank's, and one pointer to the other
 // repos (no catalog rows); Claude Code loads the repo's MEMORY.md (with its generated bank region) itself.
 func SessionSurface(root string) string {
 	dir := memstore.Dir(root)
@@ -52,7 +52,7 @@ func SessionSurface(root string) string {
 			parts = append(parts, bank.CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}
-	return bank.CapChars(strings.Join(parts, "\n\n"), TotalCapChars)
+	return bank.CapChars(strings.Join(parts, "\n\n"), totalCapChars)
 }
 
 // repoFocus is a bank dir's injected sections: activeContext focus/blockers/next steps and progress "In Progress".

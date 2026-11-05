@@ -29,7 +29,6 @@ type Origin struct {
 	Key     string   `json:"key"`               // the directory name under StoreDir(); HarnessStoreKey() for the config checkout
 	Origin  string   `json:"origin"`            // canonical main-checkout path (EvalSymlinks); "" only for the store root
 	Aliases []string `json:"aliases,omitempty"` // other canonical checkout paths accepted as this repo — explicit only
-	Display []string `json:"display,omitempty"` // human names; never used for matching
 }
 
 // ErrOriginConflict is returned instead of ever overwriting an origin record that names a different repo.

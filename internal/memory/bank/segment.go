@@ -41,8 +41,8 @@ func CorpusFiles(root string) []CorpusFile {
 	for _, path := range archived {
 		out = append(out, CorpusFile{"archive", path, SegEntries})
 	}
-	for _, dir := range NativeDirs(root) {
-		for _, path := range SearchTopicFiles(dir) {
+	for _, dir := range nativeDirs(root) {
+		for _, path := range searchTopicFiles(dir) {
 			out = append(out, CorpusFile{"native", path, SegNative})
 		}
 	}
@@ -60,7 +60,7 @@ func ownerDir(bank, path string) string {
 	return filepath.Dir(path)
 }
 
-func SearchTopicFiles(dir string) []string {
+func searchTopicFiles(dir string) []string {
 	ents, _ := os.ReadDir(dir)
 	var files []string
 	for _, e := range ents {

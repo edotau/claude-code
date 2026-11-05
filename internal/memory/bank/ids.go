@@ -267,7 +267,7 @@ func blockWithRef(p, ref string, contentRef bool) (found string, ok bool) {
 func logicalName(path string) string {
 	base := filepath.Base(path)
 	for name := range IdFiles {
-		if strings.HasPrefix(base, strings.TrimSuffix(name, ".md")) {
+		if stem := strings.TrimSuffix(name, ".md"); base == name || regexp.MustCompile(`^`+stem+`-\d{4}-\d{2}\.md$`).MatchString(base) {
 			return name
 		}
 	}

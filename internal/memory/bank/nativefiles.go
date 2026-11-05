@@ -8,8 +8,8 @@ import (
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
-// NativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
-func NativeDirs(root string) []string {
+// nativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
+func nativeDirs(root string) []string {
 	out := []string{memstore.HomeBankDir()} // native shares the repo's store dir; the home tier holds the user-wide notes
 	if d := memstore.Dir(root); !slices.Contains(out, d) {
 		out = append(out, d)

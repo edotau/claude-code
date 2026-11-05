@@ -56,8 +56,8 @@ func topicName(dir, arg string) (string, error) {
 	return name, nil
 }
 
-// NativeArchiveDir is dir's own cold tier for archived topics and their pointer records (plan §3.2: dir/archive/native).
-func NativeArchiveDir(dir string) string {
+// nativeArchiveDir is dir's own cold tier for archived topics and their pointer records (plan §3.2: dir/archive/native).
+func nativeArchiveDir(dir string) string {
 	return filepath.Join(dir, nativeArchiveRel)
 }
 
@@ -293,7 +293,7 @@ func ArchiveNative(dir string, names []string, apply bool) (NativeResult, error)
 	return res, err
 }
 
-// nativeArchiveRel is NativeArchiveDir relative to its dir, the form the batch takes.
+// nativeArchiveRel is nativeArchiveDir relative to its dir, the form the batch takes.
 var nativeArchiveRel = filepath.Join("archive", "native")
 
 // archiveNativeLocked is ArchiveNative's apply path for a caller that already holds the bank lock: one batch that
@@ -339,10 +339,22 @@ type archiveIndexes struct {
 	searchable []byte
 }
 
+// readIfExists reads path; an absent file is empty, any other failure is returned.
+func readIfExists(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return data, err
+}
+
 // stageArchive adds the archive's writes to b: the record, both indexes struck, each landed copy, then the removals.
 func stageArchive(b *nativeBatch, dir string, todo []string, ix archiveIndexes, moves []archiveMove, recorded []string) (final string, err error) {
 	recRel := filepath.Join(nativeArchiveRel, bank.NativeArchiveIndexFile)
-	rec, _ := os.ReadFile(filepath.Join(dir, recRel))
+	rec, err := readIfExists(filepath.Join(dir, recRel))
+	if err != nil {
+		return "", err
+	}
 	if len(recorded) > 0 {
 		b.put(recRel, []byte(archiveIndexWith(rec, recorded)), rec)
 	}
@@ -386,7 +398,7 @@ type archiveMove struct {
 // planArchive resolves each todo name's landing and its struck pointer line, re-pointed at a stamped landing name
 // so restoring that version finds it.
 func planArchive(dir string, todo []string, links map[string]string) (moves []archiveMove, recorded []string, err error) {
-	archiveDir := NativeArchiveDir(dir)
+	archiveDir := nativeArchiveDir(dir)
 	for _, name := range todo {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -473,7 +485,7 @@ func retargetLine(line, to string) string {
 // the verbatim archived line if recorded, else one built from the topic's own frontmatter.
 func reconcileLines(dir, index string) []string {
 	links := indexedLinks(dir, index)
-	rec, _ := os.ReadFile(filepath.Join(NativeArchiveDir(dir), bank.NativeArchiveIndexFile))
+	rec, _ := os.ReadFile(filepath.Join(nativeArchiveDir(dir), bank.NativeArchiveIndexFile))
 	recorded := indexLinks(string(rec))
 	var missing []string
 	for _, p := range topicPaths(dir) {
@@ -586,7 +598,7 @@ func indexWithout(index string, names []string) (string, error) {
 // over a live one; a live file with different bytes aborts the whole pass before anything moves.
 func RestoreNative(dir string, names []string, apply bool) (NativeResult, error) {
 	res := NativeResult{Applied: apply}
-	archiveDir := NativeArchiveDir(dir)
+	archiveDir := nativeArchiveDir(dir)
 	var todo []string
 	for _, arg := range names {
 		name, err := topicName(archiveDir, arg)
@@ -616,7 +628,10 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 		return err
 	}
 	recRel := filepath.Join(nativeArchiveRel, bank.NativeArchiveIndexFile)
-	rec, _ := os.ReadFile(filepath.Join(dir, recRel))
+	rec, err := readIfExists(filepath.Join(dir, recRel))
+	if err != nil {
+		return err
+	}
 	b := newNativeBatch(dir)
 	moved, archived, err := stageRestoreFiles(b, dir, todo)
 	if err != nil {
@@ -625,7 +640,10 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 	lines := linesFor(indexLinks(string(rec)), moved)
 	if len(indexLinks(healed)) >= bank.NativeCoreCap {
 		// The injected core is full: the restored pointers stay recall-only, and the core takes only its repair.
-		searchable, _ := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
+		searchable, err := readIfExists(filepath.Join(dir, bank.NativeSearchableFile))
+		if err != nil {
+			return err
+		}
 		b.put(bank.NativeSearchableFile, []byte(indexWithLines(string(searchable), lines)), searchable)
 		lines = nil
 	}
@@ -730,7 +748,10 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 	kept, overflow := partitionLines(lines, drop)
 	// One batch, SEARCHABLE.md first: a crash between the two leaves a duplicated pointer, never a lost one.
 	b := newNativeBatch(dir)
-	searchable, _ := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
+	searchable, err := readIfExists(filepath.Join(dir, bank.NativeSearchableFile))
+	if err != nil {
+		return 0, err
+	}
 	b.put(bank.NativeSearchableFile, []byte(indexWithLines(string(searchable), overflow)), searchable)
 	trimmed := strings.Join(kept, "\n")
 	b.put(bank.NativeIndexFile, []byte(trimmed), raw)

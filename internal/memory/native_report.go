@@ -58,7 +58,7 @@ func reportMoved(out io.Writer, o ArchiveReportOptions, verb string, moved []str
 		fmt.Fprintf(out, "dry-run: would %s %d entr%s: %s\n", verb, len(moved), entrySuffix(len(moved)), strings.Join(moved, ", "))
 		fmt.Fprintln(out, "re-run with --apply to move them")
 	default:
-		fmt.Fprintf(out, "%sd %d entr%s -> %s\n", verb, len(moved), entrySuffix(len(moved)), NativeArchiveDir(o.Dir))
+		fmt.Fprintf(out, "%sd %d entr%s -> %s\n", verb, len(moved), entrySuffix(len(moved)), nativeArchiveDir(o.Dir))
 		for _, n := range moved {
 			fmt.Fprintln(out, "  ", n)
 		}

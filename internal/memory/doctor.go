@@ -19,8 +19,6 @@ import (
 // BankStat is one bank's roll-up: file count, total lines, newest mtime, per-file cap offenders.
 type BankStat struct {
 	Dir       string
-	Files     int
-	Lines     int
 	Updated   time.Time
 	Oversized []string
 }
@@ -38,8 +36,6 @@ func statBank(dir string) BankStat {
 		if err != nil {
 			continue
 		}
-		s.Files++
-		s.Lines += bank.LineCount(string(data))
 		if capLines, ok := FileCaps[name]; ok && bank.LogicalLineCount(string(data)) > capLines {
 			s.Oversized = append(s.Oversized, name)
 		}
