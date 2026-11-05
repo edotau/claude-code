@@ -83,7 +83,11 @@ func loginProfile(fs *flag.FlagSet, profileName string) (*providers.Provider, er
 	if err != nil {
 		return nil, err
 	}
-	p, err := reg.Get(resolveProfile(reg, profileName))
+	name := resolveProfile(reg, profileName)
+	if name == "" {
+		return nil, errNoProfile
+	}
+	p, err := reg.Get(name)
 	if err != nil {
 		return nil, err
 	}

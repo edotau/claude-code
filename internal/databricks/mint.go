@@ -162,13 +162,11 @@ func mint(args []string) int {
 		return fail("mint: %v", err)
 	}
 	name := resolveProfile(reg, *profileName)
+	if name == "" {
+		return fail("mint: %v", errNoProfile)
+	}
 	if *dryRun {
-		p, err := reg.Get(name)
-		if err != nil {
-			return fail("mint: %v", err)
-		}
-		fmt.Printf("would mint a fresh token for %s (%s) as %s; copy=%t; nothing written\n", p.Name, authLabel(p), asLabel(*as), *doCopy)
-		return 0
+		return mintDryRun(reg, name, *as, *doCopy)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -220,5 +218,15 @@ func copyToken(ctx context.Context, tok string, after time.Duration) int {
 		return fail("mint: copied, but the timed clear failed: %v", err)
 	}
 	fmt.Printf("copied · clears in %s\n", after)
+	return 0
+}
+
+// mintDryRun reports what mint would do for name; it mints nothing and writes nothing.
+func mintDryRun(reg *providers.Registry, name, as string, doCopy bool) int {
+	p, err := reg.Get(name)
+	if err != nil {
+		return fail("mint: %v", err)
+	}
+	fmt.Printf("would mint a fresh token for %s (%s) as %s; copy=%t; nothing written\n", p.Name, authLabel(p), asLabel(as), doCopy)
 	return 0
 }
