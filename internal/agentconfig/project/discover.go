@@ -49,7 +49,7 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 	return agents, nil
 }
 
-// DiscoverSkills reads skills/<dir>/SKILL.md sorted by dir, skipping symlinked dirs (they point into ~/.agents/skills).
+// DiscoverSkills reads skills/<dir>/SKILL.md, including symlinked dirs resolving inside skills/; skills/synced is excluded.
 func DiscoverSkills(skillsDir string) ([]Source, error) {
 	return discoverSources(skillsDir, "SKILL.md")
 }
@@ -76,7 +76,7 @@ func readDirOrNil(dir string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
-// discoverSources returns every real child dir of root holding a regular <filename>; read errors propagate.
+// discoverSources returns every child dir of root holding a regular <filename>; read errors propagate.
 func discoverSources(root, filename string) ([]Source, error) {
 	entries, err := readDirOrNil(root)
 	if err != nil {
@@ -84,10 +84,13 @@ func discoverSources(root, filename string) ([]Source, error) {
 	}
 	var out []Source
 	for _, e := range entries {
-		if !e.Type().IsDir() {
+		d := e.Name()
+		if d == "synced" {
 			continue
 		}
-		d := e.Name()
+		if !e.Type().IsDir() && !(e.Type()&os.ModeSymlink != 0 && symlinkInside(root, filepath.Join(root, d))) {
+			continue
+		}
 		defPath := filepath.Join(root, d, filename)
 		info, err := os.Stat(defPath)
 		if err != nil {
@@ -106,6 +109,27 @@ func discoverSources(root, filename string) ([]Source, error) {
 		out = append(out, src)
 	}
 	return out, nil
+}
+
+// symlinkInside reports whether link resolves to a directory inside root other than root/synced.
+func symlinkInside(root, link string) bool {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	target, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(realRoot, target)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	if rel == "synced" || strings.HasPrefix(rel, "synced"+string(filepath.Separator)) {
+		return false
+	}
+	info, err := os.Stat(target)
+	return err == nil && info.IsDir()
 }
 
 // loadSource reads and parses one agent or skill definition file.
