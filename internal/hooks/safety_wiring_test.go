@@ -15,7 +15,7 @@ import (
 )
 
 // safetyRunners are the safety-area Native entries and the safety runner each must be.
-var safetyRunners = map[string]core.Runner{"safety-scan": safety.Scan, "rtk-rewrite": safety.RTKRewrite}
+var safetyRunners = map[string]core.Runner{"safety-scan": safety.Scan, "rtk-rewrite": safety.RTKRewrite, "permission-gate": safety.PermissionGate}
 
 // Every safety-area Native entry is the intended safety runner.
 func TestNativeSafetyEntriesAreSafetyRunners(t *testing.T) {
