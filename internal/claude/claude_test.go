@@ -245,12 +245,10 @@ func TestClaudeArgsPermissions(t *testing.T) {
 			append([]string{"--disallowedTools", "Bash(rm:*)", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
 		{"ask", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Ask: rules("Write")}},
 			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"plan sets no mode", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "plan", Ask: rules("Write")}},
-			append([]string{"--permission-prompts", "none"}, tail...)},
+		{"plan denies writes, sets no mode", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "plan", Ask: rules("Write")}},
+			append([]string{"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash", "--permission-prompts", "none"}, tail...)},
 		{"policy replaces bypass", agent.RunOptions{Tools: true, Autonomous: true, Permissions: agent.Permissions{Mode: "auto"}},
 			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"read-only", agent.RunOptions{Tools: true, ReadOnly: true},
-			append([]string{"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
 	}
 	for _, c := range cases {
 		if got := claudeArgs(nil, c.req); !slices.Equal(got, c.want) {
@@ -258,7 +256,8 @@ func TestClaudeArgsPermissions(t *testing.T) {
 		}
 	}
 	err := refuseUnmappedDeny(agent.Permissions{Deny: []agent.Rule{{Arg: "x"}}})
-	if err == nil || !strings.Contains(err.Error(), "(x)") {
+	var ae *agent.Error
+	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), "(x)") {
 		t.Errorf("nameless deny rule must be refused naming it, got %v", err)
 	}
 }
