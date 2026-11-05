@@ -137,3 +137,38 @@ func TestClaimCheckCommitAskNamesSafeForm(t *testing.T) {
 		t.Fatalf("commit -- b.txt: %v %q; want allow", r.Decision, r.Reason)
 	}
 }
+
+// TestStageOperandsCommitUntrackedIsNotAll: on commit -u is --untracked-files, so only -a/--all/-am stage all tracked.
+func TestStageOperandsCommitUntrackedIsNotAll(t *testing.T) {
+	cases := []struct {
+		verb string
+		args []string
+		all  bool
+	}{
+		{"commit", []string{"-u", "-m", "x"}, false},
+		{"commit", []string{"--update", "-m", "x"}, false},
+		{"commit", []string{"-A", "-m", "x"}, false},
+		{"commit", []string{"-a", "-m", "x"}, true},
+		{"commit", []string{"--all", "-m", "x"}, true},
+		{"commit", []string{"-am", "x"}, true},
+		{"add", []string{"-u"}, true},
+	}
+	for _, c := range cases {
+		if _, all := stageOperands(c.verb, c.args); all != c.all {
+			t.Errorf("stageOperands(%s, %v) all=%v, want %v", c.verb, c.args, all, c.all)
+		}
+	}
+}
+
+// TestFirstSightingPersistsAcrossKeys: a key shows once, and a second distinct key never drops the first.
+func TestFirstSightingPersistsAcrossKeys(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for i, step := range []struct {
+		key  string
+		want bool
+	}{{"k1", true}, {"k1", false}, {"k2", true}, {"k1", false}, {"k2", false}} {
+		if got := firstSighting("sess", step.key); got != step.want {
+			t.Fatalf("step %d firstSighting(%q)=%v, want %v", i, step.key, got, step.want)
+		}
+	}
+}
