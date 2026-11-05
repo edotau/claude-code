@@ -85,8 +85,8 @@ func commands() []command {
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: cmdUsage},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
 		// SETTINGS
-		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json", run: cmdInstall},
-		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets to your defaults", run: cmdConfigure},
+		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: cmdInstall},
+		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: cmdConfigure},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme},
 	}, hiddenCommands()...)
 }

@@ -103,43 +103,6 @@ func putOverlay(t *vault.Tx, ov map[string]json.RawMessage) error {
 	return t.Put(vault.Overlay, overlayBucketKey, raw)
 }
 
-// RenderLive is Render with the vault overlay applied on top.
-func RenderLive() ([]byte, error) {
-	rendered, err := Render()
-	if err != nil {
-		return nil, err
-	}
-	ov, err := LoadOverlay()
-	if err != nil {
-		return nil, err
-	}
-	return applyOverlay(rendered, ov)
-}
-
-// applyOverlay is pure: it never touches the vault, so tests can drive it with fixed inputs.
-// An unknown key or a value Validate rejects is an error naming the key and the reason.
-func applyOverlay(rendered []byte, ov map[string]json.RawMessage) ([]byte, error) {
-	o, err := parseObject(rendered)
-	if err != nil {
-		return nil, err
-	}
-	for _, k := range slices.Sorted(maps.Keys(ov)) {
-		v := ov[k]
-		if err := validateKey(k, v); err != nil {
-			return nil, fmt.Errorf("vault overlay/settings: %s: %w", k, err)
-		}
-		if err := setKey(o, k, v); err != nil {
-			return nil, fmt.Errorf("vault overlay/settings: %s: %w", k, err)
-		}
-	}
-	hooks, err := SettingsJSON() // defence in depth: the generated hooks always win
-	if err != nil {
-		return nil, err
-	}
-	o.set("hooks", hooks)
-	return o.marshal()
-}
-
 // setKey sets a top-level key, or for a schema env variable puts it inside the env object.
 func setKey(o *object, k string, v json.RawMessage) error {
 	if sk, ok := SchemaKey(k); !ok || !sk.Env {

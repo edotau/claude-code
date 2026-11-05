@@ -3,6 +3,7 @@ package launch
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -215,91 +216,48 @@ func linkOnPathCompact(w io.Writer, target string) error {
 	return nil
 }
 
-// installSettings refreshes the hooks of settings.json (or generates it), backing up on a real write.
+// installSettings seeds a missing settings.json; an existing one is never written, only checked for validity.
 func installSettings(w io.Writer, dryRun bool) error {
-	file, existing, merged, sum, backup, err := settings.ApplySettings(dryRun, agent.NoticeOut)
+	line, err := settingsStatus(dryRun)
 	if err != nil {
-		if backup != "" {
-			fmt.Fprintf(w, "settings %s\n  backup %s\n", file, backup)
-		}
 		return err
 	}
-	if existing == nil && !dryRun {
-		fmt.Fprintf(w, "settings %s\n  new    generated from defaults\n", file)
-	} else {
-		fmt.Fprintf(w, "settings %s\n  hooks  %d harness refreshed + %d foreign kept; other keys yours\n",
-			file, sum.HarnessHooks, sum.ForeignHooks)
-	}
-	switch {
-	case string(merged) == string(existing):
-		fmt.Fprintln(w, "  unchanged")
-	case dryRun:
-		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
-	case backup != "":
-		fmt.Fprintf(w, "  backup %s\n", backup)
-	}
+	fmt.Fprintln(w, line)
 	return nil
 }
 
-// settingsCompactLine is installSettings without the printing: it writes the settings the same way,
-// returning the one-line summary (or "" on error, which the caller reports).
-func settingsCompactLine() (line string, err error) {
-	_, existing, merged, sum, backup, err := settings.ApplySettings(false, agent.NoticeOut)
+// settingsCompactLine is installSettings' one line for the compact install.
+func settingsCompactLine() (string, error) { return settingsStatus(false) }
+
+// settingsStatus seeds settings.json when it is missing (unless dryRun) and returns the one status line.
+func settingsStatus(dryRun bool) (string, error) {
+	file := settings.SettingsFile()
+	short := paths.ShortHome(file)
+	if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) && dryRun {
+		return "settings " + short + " missing · would seed from the template; --dry-run wrote nothing", nil
+	}
+	seeded, err := settings.SeedSettings(file, nil)
 	if err != nil {
-		if backup != "" {
-			return "settings error · backup …" + filepath.Base(backup), err
-		}
 		return "", err
 	}
-	status := "updated"
-	if string(merged) == string(existing) {
-		status = "unchanged"
+	if seeded {
+		return "settings " + short + " seeded from the template", nil
 	}
-	line = fmt.Sprintf("settings %s · %d harness hooks · %d foreign kept", status, sum.HarnessHooks, sum.ForeignHooks)
-	if backup != "" {
-		line += " · backup …" + filepath.Base(backup)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
 	}
-	return line, nil
+	if err := settings.Check(data); err != nil {
+		return fmt.Sprintf("settings %s kept (yours) · invalid: %v", short, err), nil
+	}
+	return "settings " + short + " kept (yours) · valid", nil
 }
 
-// windowsSettingsCompact runs InstallWindowsSettings and condenses its full-detail output to one line;
-// a skip note or write error (which InstallWindowsSettings already renders in full) passes through as-is.
+// windowsSettingsCompact runs InstallWindowsSettings; its lines are already one per state, plus any error.
 func windowsSettingsCompact(w io.Writer) {
-	var buf bytes.Buffer
-	err := InstallWindowsSettings(&buf, false)
-	lines := splitNonEmpty(buf.String())
-	switch {
-	case len(lines) == 0 && err == nil:
-		return // off WSL, or nothing changed
-	case len(lines) > 0 && strings.Contains(lines[0], "skip"):
-		for _, l := range lines {
-			fmt.Fprintln(w, l)
-		}
-	case err != nil:
-		for _, l := range lines {
-			fmt.Fprintln(w, l)
-		}
+	if err := InstallWindowsSettings(w, false); err != nil {
 		fmt.Fprintf(w, "settings (windows) error  %v\n", err)
-	default:
-		fmt.Fprintln(w, windowsSettingsSummary(lines))
 	}
-}
-
-func windowsSettingsSummary(lines []string) string {
-	status, backup := "updated", ""
-	for _, l := range lines {
-		switch tl := strings.TrimSpace(l); {
-		case tl == "unchanged":
-			status = "unchanged"
-		case strings.HasPrefix(tl, "backup "):
-			backup = strings.TrimSpace(strings.TrimPrefix(tl, "backup"))
-		}
-	}
-	line := "settings (windows) " + status
-	if backup != "" {
-		line += " · backup …" + filepath.Base(backup)
-	}
-	return line
 }
 
 // agentsSyncCompact runs the agents/skills/instructions projection and reports the agents synced, or

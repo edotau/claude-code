@@ -38,6 +38,7 @@ type Key struct {
 	noExtra     bool // additionalProperties: false
 	addl        *Key // additionalProperties schema applied to unlisted properties
 	ref         bool // uses $ref, which is not resolved: the picker skips it
+	untyped     bool // no type, enum or not of its own (a bare $ref or {}): any value passes
 }
 
 // schemaType is a JSON-Schema "type": one name or a list, kept whole so unions validate every branch.
@@ -106,6 +107,7 @@ type schemaNode struct {
 	Const       json.RawMessage       `json:"const"`
 	AddlProps   json.RawMessage       `json:"additionalProperties"`
 	Ref         string                `json:"$ref"`
+	Not         json.RawMessage       `json:"not"`
 }
 
 // flatten folds an anyOf node's branches into one node: enum and type from the first typed branch, pattern from any.
@@ -161,6 +163,7 @@ func (n schemaNode) key(name string, env bool) Key {
 	k.addl = n.addlKey(name, env)
 	k.ref = n.Ref != "" || k.childRef()
 	k.Kind = n.kind()
+	k.untyped = n.Type.first() == "" && len(n.Enum) == 0 && len(n.Not) == 0
 	if n.Pattern != "" {
 		k.pattern, k.patternErr = regexp.Compile(n.Pattern)
 	}
@@ -288,6 +291,9 @@ func (k Key) Validate(raw json.RawMessage) error {
 	}
 	if len(k.alts) > 0 {
 		return k.validateAlternatives(raw)
+	}
+	if k.untyped {
+		return nil
 	}
 	return k.validateKind(raw)
 }

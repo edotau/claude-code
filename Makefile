@@ -57,7 +57,7 @@ build: install  # (dev recipe, hidden from help) compile + install + lint fix + 
 	@$(MAKE) --no-print-directory lint
 	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
 
-# install.go already links the bare shims, renders settings.json, and writes bash completion
+# install.go already links the bare shims, seeds a missing settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
 install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
@@ -103,10 +103,8 @@ help-svg: compile  ## Redraw the README menu image
 	$(BIN) help-svg --out docs/images/cli-menu.svg
 
 .PHONY: examples
-examples: help-svg  ## Regenerate docs/templates examples + menu image
-	$(GO) test ./internal/settings -run 'TestRenderGolden|TestDocsTemplateExampleSettings' -update >/dev/null
-	$(GO) test ./internal/launch -run TestDocsTemplateExampleWindows -update >/dev/null
-	@echo -e "$(C_OK)examples regenerated; review git diff docs/"
+examples: help-svg  ## Regenerate the README menu image
+	@echo -e "$(C_OK)menu image regenerated; review git diff docs/"
 
 .PHONY: bootstrap
 bootstrap:  ## Set up a fresh box (TAILSCALE=1 adds tailscale)
@@ -212,7 +210,7 @@ fmt:  ## gofmt + goimports every Go file
 	@echo -e "$(C_OK)fmt applied"
 
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
-LINT_WHAT := go shell yaml help settings docs
+LINT_WHAT := go shell yaml help docs
 
 WHAT    ?= all
 AGENT   ?= $(HARNESS_LINT_AGENT)
@@ -244,14 +242,6 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only re
 	help) out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
 			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')"; \
 		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
-	settings) live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
-		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
-			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --check --no-agents $(if $(filter 1,$(CHECK)),, \
-				|| echo -e "$(C_NOTE)settings: warning only (CHECK=1 fails): make install syncs drift; delete a nested .claude/.claude by hand"); \
-		else t="$$(mktemp -d)"; trap 'rm -rf "$$t"' EXIT; \
-			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --out "$$t/settings.json" --no-agents >/dev/null && \
-			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --out "$$t/settings.json" --check --no-agents && \
-			echo -e "$(C_OK)settings template renders (worktree: no live settings.json needed)"; fi ;; \
 	docs) $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix); \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \

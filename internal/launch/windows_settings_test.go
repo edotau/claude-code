@@ -6,12 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -140,16 +137,12 @@ func winSettingsPath(profile string) string {
 	return filepath.Join(profile, ".claude", "settings.json")
 }
 
-// TestInstallWindowsSettings_MergeKeepsForeign proves Merge preserves a foreign `remote` key and the
-// user's own statusLine (harness's statusLine is stripped from the Windows render, so it never owns
-// that key), and the user's theme.
-func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
+// TestInstallWindowsSettingsSeedsMissingKeepsExisting: a missing file gets the render minus hooks and statusLine;
+// an existing one (BOM included) stays byte-identical.
+func TestInstallWindowsSettingsSeedsMissingKeepsExisting(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
-	existing := `{"remote":{"defaultEnvironmentId":"abc"},"statusLine":{"type":"command","command":"my-custom-status"},"theme":"light"}`
-	writeWindowsFixture(t, file, []byte(existing))
-	var out bytes.Buffer
-	if err := InstallWindowsSettings(&out, false); err != nil {
+	if err := InstallWindowsSettings(&bytes.Buffer{}, false); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(file)
@@ -157,102 +150,18 @@ func TestInstallWindowsSettings_MergeKeepsForeign(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := decodeObj(t, b)
-	assertWindowsForeignValues(t, m)
-	if _, ok := m["hooks"]; ok {
-		t.Error("hooks present in Windows settings.json, want absent (no hook runner on Windows)")
+	if _, ok := m["hooks"]; ok || m["$schema"] == nil {
+		t.Errorf("seeded Windows settings.json = %s, want the render without hooks", b)
 	}
-	if v, ok := m["theme"]; !ok || !rawEqual(t, v, json.RawMessage(`"light"`)) {
-		t.Errorf("theme = %s, want the user's \"light\" kept", v)
-	}
-	if !bytes.Contains(out.Bytes(), []byte("settings (windows)")) {
-		t.Errorf("output %q missing the settings (windows) banner", out.String())
-	}
-}
-
-func assertWindowsForeignValues(t *testing.T, m map[string]json.RawMessage) {
-	t.Helper()
-	if v, ok := m["remote"]; !ok || !rawEqual(t, v, json.RawMessage(`{"defaultEnvironmentId":"abc"}`)) {
-		t.Errorf("remote = %s, want kept foreign key unchanged", v)
-	}
-	if v, ok := m["statusLine"]; !ok || !rawEqual(t, v, json.RawMessage(`{"type":"command","command":"my-custom-status"}`)) {
-		t.Errorf("statusLine = %s, want the user's own kept (harness statusLine never reaches the Windows file)", v)
-	}
-}
-
-// TestInstallWindowsSettings_BackupCreated proves a changed write leaves a backup under
-// CacheDir()/backups, mirrored by file's path, and nothing new beside the file itself.
-func TestInstallWindowsSettings_BackupCreated(t *testing.T) {
-	profile := winHermetic(t)
-	file := winSettingsPath(profile)
-	writeWindowsFixture(t, file, []byte(`{"theme":"light"}`))
-	before, err := filepath.Glob(filepath.Join(filepath.Dir(file), "*"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	existing := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"theme":"light"}`)...)
+	writeWindowsFixture(t, file, existing)
 	var out bytes.Buffer
 	if err := InstallWindowsSettings(&out, false); err != nil {
 		t.Fatal(err)
 	}
-	sample := paths.BackupPath(file, time.Now())
-	prefix := sample[:strings.LastIndex(sample, ".bak-")+len(".bak-")]
-	matches, err := filepath.Glob(prefix + "*")
-	if err != nil {
-		t.Fatal(err)
+	if got, _ := os.ReadFile(file); !bytes.Equal(got, existing) || !strings.Contains(out.String(), "kept (yours)") {
+		t.Errorf("existing Windows settings.json rewritten: %q (%q)", got, out.String())
 	}
-	if len(matches) == 0 {
-		t.Error("no backup file created under CacheDir()/backups for a changed write")
-	}
-	for _, m := range matches {
-		if !strings.HasPrefix(m, filepath.Join(paths.CacheDir(), "backups")) {
-			t.Errorf("backup %q lands outside CacheDir()/backups", m)
-		}
-	}
-	after, err := filepath.Glob(filepath.Join(filepath.Dir(file), "*"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	after = slices.DeleteFunc(after, func(m string) bool { return m == file+".lock" }) // the write lock's sidecar
-	if len(after) != len(before) {
-		t.Errorf("files beside %s changed: before %v, after %v — want only %s itself", filepath.Dir(file), before, after, file)
-	}
-}
-
-// TestInstallWindowsSettings_BOMPreserved proves a UTF-8 BOM on the existing file survives the write,
-// and a file with none in gets none out.
-func TestInstallWindowsSettings_BOMPreserved(t *testing.T) {
-	t.Run("BOM in -> BOM out", func(t *testing.T) {
-		profile := winHermetic(t)
-		file := winSettingsPath(profile)
-		withBOM := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"theme":"light"}`)...)
-		writeWindowsFixture(t, file, withBOM)
-		var out bytes.Buffer
-		if err := InstallWindowsSettings(&out, false); err != nil {
-			t.Fatal(err)
-		}
-		b, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.HasPrefix(b, []byte{0xEF, 0xBB, 0xBF}) {
-			t.Error("BOM dropped on write, want preserved")
-		}
-	})
-	t.Run("no BOM in -> no BOM out", func(t *testing.T) {
-		profile := winHermetic(t)
-		file := winSettingsPath(profile)
-		writeWindowsFixture(t, file, []byte(`{"theme":"light"}`))
-		var out bytes.Buffer
-		if err := InstallWindowsSettings(&out, false); err != nil {
-			t.Fatal(err)
-		}
-		b, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if bytes.HasPrefix(b, []byte{0xEF, 0xBB, 0xBF}) {
-			t.Error("BOM added on write, want none (existing file carried none)")
-		}
-	})
 }
 
 // brokenCmdPATH points PATH at an empty dir so `cmd.exe` can never be found, without touching the

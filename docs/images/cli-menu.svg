@@ -74,10 +74,10 @@
 <text x="22.0" y="692" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="711" fill="#d7d4dc">  </text>
 <text x="38.8" y="711" fill="#f46a98" font-weight="bold">configure       </text>
-<text x="173.2" y="711" fill="#d7d4dc">guided setup; --restore resets to your defaults</text>
+<text x="173.2" y="711" fill="#d7d4dc">guided setup; --restore resets settings.json</text>
 <text x="22.0" y="730" fill="#d7d4dc">  </text>
 <text x="38.8" y="730" fill="#fc6b9b" font-weight="bold">install         </text>
-<text x="173.2" y="730" fill="#d7d4dc">install Claude Code + write settings.json</text>
+<text x="173.2" y="730" fill="#d7d4dc">install Claude Code; seed settings.json if missing</text>
 <text x="22.0" y="749" fill="#d7d4dc">  </text>
 <text x="38.8" y="749" fill="#ff6b9d" font-weight="bold">theme           </text>
 <text x="173.2" y="749" fill="#d7d4dc">palette, statusline, VS Code template, tool themes</text>

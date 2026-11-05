@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/paths"
@@ -22,7 +21,7 @@ func installTestBinary(t *testing.T) {
 	selfBinary = func() (string, error) { return self, nil }
 }
 
-func TestInstallMergesIntoConfigDir(t *testing.T) {
+func TestInstallKeepsExistingSettings(t *testing.T) {
 	hermetic(t, "")
 	codex := vendorPATHFixture(t, "codex", "")
 	t.Setenv("PATH", filepath.Dir(codex))
@@ -45,28 +44,20 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	if err := Install(&out, false, true); err != nil {
 		t.Fatal(err)
 	}
-	assertInstalledSettings(t, file)
+	assertInstalledSettings(t, file, orig)
 	assertInstalledLinks(t, file, codex)
 }
 
-func assertInstalledSettings(t *testing.T, file string) {
+func assertInstalledSettings(t *testing.T, file, orig string) {
 	t.Helper()
-	b, _ := os.ReadFile(file)
-	for _, want := range []string{`"spinnerTipsEnabled": false`, `"foreign stop"`, "hook Stop", "hook PreToolUse --safety-scan"} {
-		if !strings.Contains(string(b), want) {
-			t.Errorf("merged settings missing %s:\n%s", want, b)
-		}
+	if b, _ := os.ReadFile(file); string(b) != orig {
+		t.Errorf("install wrote an existing settings.json:\n%s", b)
 	}
 	if b, _ := os.ReadFile(tmuxConfPaths()[0]); !bytes.Equal(b, tmuxConf) {
 		t.Errorf("tmux.conf not seeded: %q", b)
 	}
-	bakSample := paths.BackupPath(file, time.Now())
-	baks, _ := filepath.Glob(filepath.Join(filepath.Dir(bakSample), filepath.Base(file)+".bak-*"))
-	if len(baks) != 1 {
-		t.Errorf("backups %v", baks)
-	}
-	if has, err := settingsHasHooks(file); !has || err != nil {
-		t.Errorf("doctor hook check: %v %v", has, err)
+	if err := settings.CheckFile(file); err != nil {
+		t.Errorf("doctor validity check: %v", err)
 	}
 }
 

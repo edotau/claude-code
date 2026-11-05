@@ -275,18 +275,11 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	d.changed = true
 }
 
-// rerenderConfigs runs both re-renders on d; false when settings.json could not be brought current.
-func rerenderConfigs(d *dialog) bool {
-	line, err := configure.RerenderSettings()
-	if err != nil {
-		d.printf("settings.json: %v\n", err)
-		return false
-	}
-	d.println(line)
+// rerenderConfigs re-renders the agent configs on d; settings.json is the owner's and is never written here.
+func rerenderConfigs(d *dialog) {
 	if err := configure.RenderAgentConfigs(d.out); err != nil {
 		d.printf("agent configs: %v\n", err)
 	}
-	return true
 }
 
 // cgnatRemote is the 100.64.0.0/10 block tailscale assigns IPv4 node addresses from.

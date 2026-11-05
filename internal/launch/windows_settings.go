@@ -68,9 +68,8 @@ func WindowsSettingsFile() string {
 	return filepath.Join(dir, ".claude", "settings.json")
 }
 
-// InstallWindowsSettings renders the Windows subset of the live settings and merges it into the
-// Windows settings.json (hooks only when the file exists), backing up first. A no-op off WSL, or with a one-line skip note when the
-// Windows profile can't be resolved.
+// InstallWindowsSettings seeds a missing Windows settings.json with the Windows subset of the template render;
+// an existing one is never written. A no-op off WSL, or a one-line skip note when the profile can't be resolved.
 func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if !proc.OnWSL() && os.Getenv(windowsProfileEnv) == "" {
 		return nil
@@ -80,72 +79,21 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "settings (windows) skip  %s not resolved (cmd.exe unavailable?)\n", "%USERPROFILE%")
 		return nil
 	}
-	rendered, err := settings.RenderLive()
-	if err != nil {
+	if _, err := os.Stat(file); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		if err == nil {
+			fmt.Fprintln(w, "settings (windows) kept (yours)")
+		}
 		return err
-	}
-	winRendered, err := stripWindowsOnly(rendered)
-	if err != nil {
-		return err
-	}
-	existing, merged, sum, err := mergeWindowsSettings(file, winRendered)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(w, "settings (windows) %s\n  hooks  %d harness refreshed + %d foreign kept; other keys yours\n",
-		file, sum.HarnessHooks, sum.ForeignHooks)
-	if string(merged) == string(existing) {
-		fmt.Fprintln(w, "  unchanged")
-		return nil
 	}
 	if dryRun {
-		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(merged), len(existing))
+		fmt.Fprintln(w, "settings (windows) missing · would seed; --dry-run wrote nothing")
 		return nil
 	}
-	return updateWindowsSettings(w, file, winRendered)
-}
-
-func mergeWindowsSettings(file string, rendered []byte) ([]byte, []byte, settings.Summary, error) {
-	existing, _, err := readStrippingBOM(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, settings.Summary{}, err
-	}
-	merged, sum, err := settings.Merge(existing, rendered)
-	return existing, merged, sum, err
-}
-
-func updateWindowsSettings(w io.Writer, file string, winRendered []byte) error {
-	// Re-merge from the bytes read under the file lock, so a Windows-side writer's concurrent edit survives.
-	backup, err := settings.UpdateWithBackup(file, func(old []byte) ([]byte, error) {
-		hadBOM := bytes.HasPrefix(old, bomBytes)
-		m, _, err := settings.Merge(bytes.TrimPrefix(old, bomBytes), winRendered)
-		if err != nil {
-			return nil, err
-		}
-		if hadBOM {
-			return append(append([]byte{}, bomBytes...), m...), nil
-		}
-		return m, nil
-	})
-	if backup != "" {
-		fmt.Fprintf(w, "  backup %s\n", backup)
+	seeded, err := settings.SeedSettings(file, stripWindowsOnly)
+	if seeded {
+		fmt.Fprintln(w, "settings (windows) seeded from the template")
 	}
 	return err
-}
-
-// bomBytes is the UTF-8 byte-order mark; preserved on write only when the existing file carried one.
-var bomBytes = []byte{0xEF, 0xBB, 0xBF}
-
-// readStrippingBOM reads path and reports whether it carried a UTF-8 BOM, stripped from the returned bytes.
-func readStrippingBOM(path string) (data []byte, hadBOM bool, err error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false, err
-	}
-	if bytes.HasPrefix(raw, bomBytes) {
-		return raw[len(bomBytes):], true, nil
-	}
-	return raw, false, nil
 }
 
 // filterObject decodes a JSON object preserving key order, keeps the entries keep accepts (optionally

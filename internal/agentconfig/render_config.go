@@ -123,17 +123,13 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.
 func templateGuardRules() (GuardRules, error) {
-	rendered, err := settings.Render()
-	if err != nil {
-		return GuardRules{}, fmt.Errorf("vendorconfig guard rules: %w", err)
-	}
 	var tpl struct {
 		Permissions struct {
 			Ask  []string `json:"ask"`
 			Deny []string `json:"deny"`
 		} `json:"permissions"`
 	}
-	if err := json.Unmarshal(rendered, &tpl); err != nil {
+	if err := json.Unmarshal(settings.Template(), &tpl); err != nil {
 		return GuardRules{}, fmt.Errorf("vendorconfig guard rules: %w", err)
 	}
 	return GuardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil

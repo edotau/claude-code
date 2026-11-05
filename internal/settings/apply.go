@@ -3,87 +3,59 @@ package settings
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // SettingsFile is the live Claude Code settings.json under the config dir.
 func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
 
-// ApplySettings is the read/render/merge/write of settings.json shared by install and configure's exit re-render:
-// a missing file is generated from the defaults; an existing one has only its hooks refreshed.
-func ApplySettings(dryRun bool, notice io.Writer) (file string, existing, merged []byte, sum Summary, backup string, err error) {
-	file = SettingsFile()
-	existing, err = os.ReadFile(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return file, nil, nil, Summary{}, "", err
-	}
-	if restoreMissingSettings(err, dryRun) { // a fresh install restores the defaults whole
-		merged, sum, backup, err = restoreNewSettings(file, notice)
-		return file, nil, merged, sum, backup, err
-	}
-	rendered, err := RenderLive()
-	if err != nil {
-		return file, existing, nil, Summary{}, "", err
-	}
-	merged, sum, err = Merge(existing, rendered)
-	if err != nil {
-		return file, existing, nil, Summary{}, "", err
-	}
-	if string(merged) == string(existing) || dryRun {
-		return file, existing, merged, sum, "", nil
-	}
-	merged, sum, backup, err = updateMergedSettings(file, rendered, merged, sum)
-	return file, existing, merged, sum, backup, err
-}
-
-func restoreNewSettings(file string, notice io.Writer) ([]byte, Summary, string, error) {
-	r, err := RestoreSettings(file, notice)
-	if err != nil {
-		return nil, Summary{}, "", err
-	}
-	_, sum, err := Merge(nil, r.Data)
-	return r.Data, sum, r.Backup, err
-}
-
-func updateMergedSettings(file string, rendered, merged []byte, sum Summary) ([]byte, Summary, string, error) {
-	backup, err := UpdateWithBackup(file, func(old []byte) ([]byte, error) {
-		var mergeErr error // re-merge the bytes read under the lock, so a concurrent writer's update survives
-		merged, sum, mergeErr = Merge(old, rendered)
-		return merged, mergeErr
+// SeedSettings writes Render (through transform when non-nil) to file only when file does not exist yet;
+// an existing file is never read or written.
+func SeedSettings(file string, transform func([]byte) ([]byte, error)) (seeded bool, err error) {
+	err = paths.WithFileLock(file, func() error {
+		if _, serr := os.Stat(file); !errors.Is(serr, fs.ErrNotExist) {
+			return serr
+		}
+		data, err := Render()
+		if err == nil && transform != nil {
+			data, err = transform(data)
+		}
+		if err != nil {
+			return err
+		}
+		seeded = true
+		return paths.AtomicWrite(file, data, 0o644)
 	})
-	return merged, sum, backup, err
+	return seeded && err == nil, err
 }
 
-func restoreMissingSettings(err error, dryRun bool) bool {
-	return errors.Is(err, fs.ErrNotExist) && !dryRun
-}
-
-// RestoreResult is what RestoreSettings did: the rendered bytes, the history commit and the backup path.
-type RestoreResult struct {
-	Data   []byte
-	Commit string
-	Backup string
-}
-
-// RestoreSettings snapshots history ("before restore"), renders defaults plus overlay and writes file whole.
-func RestoreSettings(file string, notice io.Writer) (RestoreResult, error) {
-	var r RestoreResult
-	if h, err := history.SnapshotConfig("before restore"); err != nil {
-		fmt.Fprintln(notice, "restore: history snapshot:", err)
-	} else {
-		r.Commit = h.Commit
-	}
-	data, err := RenderLive()
-	if err != nil {
-		return r, err
-	}
-	r.Data = data
-	r.Backup, err = WriteWithBackup(file, data)
-	return r, err
+// ResetSettings is the owner-run `configure --restore`: copy file to file.bak.<timestamp>, then write Render whole.
+func ResetSettings(file string) (backup string, err error) {
+	err = paths.WithFileLock(file, func() error {
+		mode := os.FileMode(0o644)
+		old, rerr := os.ReadFile(file)
+		switch {
+		case rerr == nil:
+			if fi, serr := os.Stat(file); serr == nil {
+				mode = fi.Mode().Perm()
+			}
+			backup = file + ".bak." + time.Now().Format("20060102-150405")
+			if err := os.WriteFile(backup, old, mode); err != nil {
+				return fmt.Errorf("backup %s: %w", file, err)
+			}
+		case !errors.Is(rerr, fs.ErrNotExist):
+			return fmt.Errorf("read %s: %w", file, rerr)
+		}
+		data, err := Render()
+		if err != nil {
+			return err
+		}
+		return paths.AtomicWrite(file, data, mode)
+	})
+	return backup, err
 }
