@@ -30,22 +30,23 @@ import (
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type RunOptions struct {
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
-	Attach                                              []string // absolute file paths, task text precedes them
-	KeepEnv                                             []string // names the credential scrub must not drop, from --keep-env
-	Tools, Autonomous, EnableMemory, Direct             bool     // Direct: agent keeps the provider route, skips the router
-	Fleet                                               bool     // copilot only: run in fleet mode (parallel subagents)
-	NoTools                                             bool     // claude only: answer from the provider directly, no claude process
-	ReadOnly                                            bool     // tools may read but never write, run shell or commit
-	NoPersist                                           bool     // claude, codex: no session persistence
-	SafeMode                                            bool     // claude, codex, opencode: no hooks/plugins/customizations
-	DebugFile                                           string   // claude, gemini: debug log at <path>
-	SystemPrompt, AppendSystemPrompt                    string   // claude only: replace / extend the system prompt
-	Env                                                 []string `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
-	EnvNames                                            []string `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
-	Unset                                               []string `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged
-	OverlaySet                                          []string `json:"-"`                   // names an overlay file sets; refused where the route sets them
-	OutputSchema                                        string   // JSON Schema text the answer must satisfy
-	Persona                                             *Schema  `json:"persona,omitempty"` // claude: native agent definition; others: emulated
+	Attach                                              []string    // absolute file paths, task text precedes them
+	KeepEnv                                             []string    // names the credential scrub must not drop, from --keep-env
+	Tools, Autonomous, EnableMemory, Direct             bool        // Direct: agent keeps the provider route, skips the router
+	Fleet                                               bool        // copilot only: run in fleet mode (parallel subagents)
+	NoTools                                             bool        // claude only: answer from the provider directly, no claude process
+	ReadOnly                                            bool        // tools may read but never write, run shell or commit
+	NoPersist                                           bool        // claude, codex: no session persistence
+	SafeMode                                            bool        // claude, codex, opencode: no hooks/plugins/customizations
+	DebugFile                                           string      // claude, gemini: debug log at <path>
+	SystemPrompt, AppendSystemPrompt                    string      // claude only: replace / extend the system prompt
+	Env                                                 []string    `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
+	EnvNames                                            []string    `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
+	Unset                                               []string    `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged
+	OverlaySet                                          []string    `json:"-"`                   // names an overlay file sets; refused where the route sets them
+	OutputSchema                                        string      // JSON Schema text the answer must satisfy
+	Permissions                                         Permissions `json:"permissions,omitzero"` // allow/ask/deny rules and mode; zero value = no policy
+	Persona                                             *Schema     `json:"persona,omitempty"`    // claude: native agent definition; others: emulated
 	Timeout                                             time.Duration
 	Launcher                                            Launcher           `json:"-"` // claude only: resolves the launch plan
 	Agent                                               string             `json:"-"`

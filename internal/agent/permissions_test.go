@@ -1,0 +1,146 @@
+package agent
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func mustPerms(t *testing.T, mode string, allow, ask, deny []string) Permissions {
+	t.Helper()
+	p, err := ParsePermissions(mode, allow, ask, deny)
+	if err != nil {
+		t.Fatalf("ParsePermissions: %v", err)
+	}
+	return p
+}
+
+// Given malformed rule strings, Then ParseRule errors; valid ones split into Tool and Arg.
+func TestPermissionParseRule(t *testing.T) {
+	for _, bad := range []string{"", "  ", "Bash(", "Bash(git", "Bash)", "(x)", "Bash()", "Bash(  )"} {
+		if r, err := ParseRule(bad); err == nil {
+			t.Errorf("ParseRule(%q) = %+v, want error", bad, r)
+		}
+	}
+	for in, want := range map[string]Rule{"Read": {Tool: "Read"}, "Bash(git log:*)": {"Bash", "git log:*"}} {
+		if got, err := ParseRule(in); err != nil || got != want {
+			t.Errorf("ParseRule(%q) = %+v, %v; want %+v", in, got, err, want)
+		}
+	}
+}
+
+// Given an unknown mode or a bad rule, Then ParsePermissions fails.
+func TestPermissionParsePermissionsErrors(t *testing.T) {
+	if _, err := ParsePermissions("yolo", nil, nil, nil); err == nil {
+		t.Error("unknown mode must error")
+	}
+	if _, err := ParsePermissions("auto", []string{"Bash()"}, nil, nil); err == nil {
+		t.Error("bad rule must error")
+	}
+}
+
+// Given the same call in Allow, Ask and Deny, Then Deny wins, then Ask, then Allow.
+func TestPermissionPrecedence(t *testing.T) {
+	r := []string{"Read(a.txt)"}
+	cases := []struct {
+		name            string
+		allow, ask, del []string
+		want            Decision
+	}{
+		{"all three", r, r, r, Deny},
+		{"ask+allow", r, r, nil, Ask},
+		{"allow", r, nil, nil, Allow},
+	}
+	for _, c := range cases {
+		if got := mustPerms(t, "auto", c.allow, c.ask, c.del).Decide("Read", "a.txt"); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Given an unset Decision or no matching rule, Then it is never Allow; plan denies, other modes ask.
+func TestPermissionFailClosedAndModeFallback(t *testing.T) {
+	var zero Decision
+	if zero == Allow {
+		t.Fatal("zero Decision must not be Allow")
+	}
+	for mode, want := range map[string]Decision{"": Ask, "default": Ask, "auto": Ask, "plan": Deny} {
+		if got := mustPerms(t, mode, []string{"Read(x)"}, nil, nil).Decide("Read", "y"); got != want {
+			t.Errorf("mode %q unmatched: got %v, want %v", mode, got, want)
+		}
+	}
+}
+
+// Given Bash(git log:*), Then it matches at a word boundary only.
+func TestPermissionBashWordBoundary(t *testing.T) {
+	p := mustPerms(t, "auto", []string{"Bash(git log:*)", "Bash(ls)"}, nil, nil)
+	cases := map[string]Decision{"git log": Allow, "git log -1": Allow, "git logx": Ask, "git logx -1": Ask, "ls": Allow, "ls -l": Ask}
+	for cmd, want := range cases {
+		if got := p.Decide("Bash", cmd); got != want {
+			t.Errorf("%q: got %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+// Given compound, wrapped and substituted commands with rm denied, Then the strictest part wins.
+func TestPermissionBashSegments(t *testing.T) {
+	p := mustPerms(t, "auto", []string{"Bash(git log:*)", "Bash(ls:*)"}, nil, []string{"Bash(rm:*)"})
+	cases := map[string]Decision{
+		"git log; rm -rf x": Deny, "ls && rm x": Deny, "(rm -rf x)": Deny, "FOO=1 rm x": Deny,
+		"sudo rm x": Deny, `bash -c "rm x"`: Deny, "echo $(rm x)": Deny,
+		"git log > /etc/x": Ask, "git logx": Ask, "ls | grep a": Ask,
+		"git log -1": Allow, "ls && git log": Allow,
+	}
+	for cmd, want := range cases {
+		if got := p.Decide("Bash", cmd); got != want {
+			t.Errorf("%q: got %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+// Given path globs, Then ** crosses directories, * stays in one, and a leading ./ is ignored.
+func TestPermissionPathGlobs(t *testing.T) {
+	p := mustPerms(t, "auto", []string{"Edit(internal/**)", "Read(src/*.go)"}, nil, nil)
+	cases := []struct {
+		tool, arg string
+		want      Decision
+	}{
+		{"Edit", "internal/a/b/c.go", Allow}, {"Edit", "./internal/a.go", Allow}, {"Edit", "other/a.go", Ask},
+		{"Read", "src/a.go", Allow}, {"Read", "./src/a.go", Allow}, {"Read", "src/sub/a.go", Ask},
+	}
+	for _, c := range cases {
+		if got := p.Decide(c.tool, c.arg); got != c.want {
+			t.Errorf("%s(%s): got %v, want %v", c.tool, c.arg, got, c.want)
+		}
+	}
+}
+
+// Given WebFetch(domain:example.com), Then the host and its subdomains match, case-insensitively, not look-alikes.
+func TestPermissionWebFetchDomain(t *testing.T) {
+	p := mustPerms(t, "auto", []string{"WebFetch(domain:example.com)"}, nil, nil)
+	cases := map[string]Decision{
+		"example.com": Allow, "https://API.Example.com/x": Allow, "https://notexample.com": Ask, "https://example.com.evil.io": Ask,
+	}
+	for u, want := range cases {
+		if got := p.Decide("WebFetch", u); got != want {
+			t.Errorf("%q: got %v, want %v", u, got, want)
+		}
+	}
+}
+
+// Given RunOptions, Then a zero Permissions is omitted from JSON and a populated one round-trips.
+func TestPermissionRunOptionsJSON(t *testing.T) {
+	b, _ := json.Marshal(RunOptions{Prompt: "x"})
+	if strings.Contains(string(b), "permissions") {
+		t.Errorf("zero Permissions serialised: %s", b)
+	}
+	in := RunOptions{Prompt: "x", Permissions: mustPerms(t, "plan", []string{"Read"}, []string{"Bash(git push:*)"}, []string{"Edit(.env*)"})}
+	b, _ = json.Marshal(in)
+	var out RunOptions
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Permissions.Mode != "plan" || len(out.Permissions.Allow) != 1 || out.Permissions.Ask[0] != (Rule{"Bash", "git push:*"}) || out.Permissions.Deny[0].Arg != ".env*" {
+		t.Errorf("round-trip lost data: %s -> %+v", b, out.Permissions)
+	}
+}
