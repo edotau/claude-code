@@ -70,7 +70,7 @@ func approvedPlanBytes(in *core.Input, responsePath, inputPath string, stderr io
 		}
 		if path != "" {
 			var err error
-			plan, err = os.ReadFile(path)
+			plan, err = os.ReadFile(resolveCWDPath(path, in.CWD))
 			if err != nil {
 				fmt.Fprintf(stderr, "save-plan: %v\n", err)
 			}

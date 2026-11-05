@@ -23,6 +23,12 @@ func scanWinPaths(text string) []string {
 	return out
 }
 
+func TestDescribeRejectsSpecialFiles(t *testing.T) {
+	if _, _, ok := describe(os.DevNull); ok {
+		t.Fatal("null device reported as a regular attachment")
+	}
+}
+
 // promptPathFeedback runs the hook core with res injected, so tests do not depend on the host's mounts.
 func promptPathFeedback(r io.Reader, stdout io.Writer, res *paths.Resolver) int {
 	in := core.ParseInput(r)

@@ -143,6 +143,28 @@ func TestSavePlanResponseFallbacksAndAudit(t *testing.T) {
 	}
 }
 
+func TestSavePlanRelativeFallback(t *testing.T) {
+	cfg, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	const plan = "# Relative approved plan\n"
+	if err := os.WriteFile(filepath.Join(cwd, "scratch.md"), []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	in := core.ParseInput(strings.NewReader(planPayload(t, cwd, "", "scratch.md")))
+	if code := Save(in, &stderr); code != core.ExitProceed || stderr.Len() != 0 {
+		t.Fatalf("Save = %d, stderr = %s", code, &stderr)
+	}
+	names := savedPlans(t, cfg)
+	if len(names) != 1 {
+		t.Fatalf("saved plans = %v, want one", names)
+	}
+	got, err := os.ReadFile(filepath.Join(cfg, "plans", names[0]))
+	if err != nil || !bytes.Equal(got, withTasks([]byte(plan))) {
+		t.Fatalf("saved plan = %q, err = %v", got, err)
+	}
+}
+
 func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

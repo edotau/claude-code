@@ -392,23 +392,35 @@ func isPatchFlag(a string) bool {
 func stageScopes(ctx context.Context, top, target, verb string, args []string) ([]string, error) {
 	ops, all := stageOperands(verb, args)
 	if len(ops) > 0 {
-		out := make([]string, 0, len(ops))
-		for _, o := range ops {
-			out = append(out, core.CanonPath(filepath.Join(target, o)))
+		args := append([]string{"ls-files", "--cached", "--others", "--exclude-standard", "--full-name", "-z", "--"}, ops...)
+		files, err := gitPaths(ctx, top, target, args...)
+		if err != nil {
+			return nil, err
 		}
-		return out, nil
+		// Staged deletions are no longer in the index but still belong to the command's pathspec.
+		args = append([]string{"diff", "--cached", "--name-only", "-z", "--"}, ops...)
+		staged, err := gitPaths(ctx, top, target, args...)
+		return append(files, staged...), err
 	}
 	if all || verb == "add" {
 		return []string{top}, nil // add -A/-u with no pathspec, commit -a
 	}
-	staged, _, err := core.Git(ctx, top, "diff", "--cached", "--name-only")
+	return gitPaths(ctx, top, top, "diff", "--cached", "--name-only", "-z")
+}
+
+// gitPaths reads NUL-delimited repo-relative names without Git's display quoting or whitespace trimming.
+func gitPaths(ctx context.Context, top, dir string, args ...string) ([]string, error) {
+	raw, err := proc.RunGit(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
-	for _, s := range staged {
+	for s := range strings.SplitSeq(raw, "\x00") {
 		if s != "" {
 			out = append(out, filepath.Join(top, s))
 		}
 	}
-	return out, err
+	return out, nil
 }
 
 // commitValueFlags are git commit options whose value is the next word.
