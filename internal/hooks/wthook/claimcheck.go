@@ -484,6 +484,6 @@ func commitAllCluster(a string) bool {
 // underAny reports whether p equals or sits under one of scopes.
 func underAny(p string, scopes []string) bool {
 	return slices.ContainsFunc(scopes, func(s string) bool {
-		return p == s || strings.HasPrefix(p, s+string(filepath.Separator))
+		return core.UnderDir(s, p)
 	})
 }

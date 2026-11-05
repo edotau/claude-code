@@ -182,8 +182,7 @@ func porcelainPaths(records []string, cwd, root string) []string {
 		if status == "  " || status == "!!" {
 			continue
 		}
-		rel, err := filepath.Rel(cwd, filepath.Join(root, path))
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if rel, ok := core.RelWithin(cwd, filepath.Join(root, path)); ok {
 			out = append(out, rel)
 		}
 	}
