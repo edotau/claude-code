@@ -104,7 +104,7 @@ func (l hubDispatch) WithFirstOutput(d time.Duration) agent.Engine {
 // Caps mirrors cliEngine's: every RunOptions field the opencode CLI can carry.
 func (l hubDispatch) Caps() agent.Caps {
 	return agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native, Tools: agent.Native, Autonomous: agent.Native,
-		SafeMode: agent.Native, Direct: agent.Native, Env: agent.Native, SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated}
+		SafeMode: agent.Native, Permissions: agent.Native, Direct: agent.Native, Env: agent.Native, SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated}
 }
 
 // Available requires the opencode binary and an opencode login for this dispatch's provider; a login-less
@@ -130,6 +130,10 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 	if err != nil {
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
 	}
+	env, plugged, err := opencodeApplyPlugin(env, req)
+	if err != nil {
+		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
+	}
 	cctx := ctx
 	var onFirstByte, onStep func()
 	if l.firstOutput > 0 {
@@ -138,6 +142,9 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 		defer stop()
 	}
 	host := newHookHost(req)
+	if plugged {
+		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
+	}
 	argv, err = host.before(argv, req.Prompt)
 	if err != nil {
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
@@ -174,6 +181,11 @@ func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, 
 	if err := agent.CheckRouteNames(env, req.OverlaySet); err != nil {
 		return "", nil, nil, err
 	}
+	env, err = opencodeApplyPermissions(env, req)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	argv = opencodePolicyArgv(argv, req)
 	env = append(env, req.Env...) // --env goes last so it wins
 	return bin, env, argv, nil
 }

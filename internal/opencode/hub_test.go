@@ -223,3 +223,29 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 		t.Errorf("control: an allowing hook must launch the process, marker: %v (run err: %v)", statErr, err)
 	}
 }
+
+// TestHubRunCarriesDenyAndPlugin: a hub dispatch with a Deny launches opencode with the permission pin and the gate plugin.
+func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	data, _ := fakeOpencode(t, "1.19.3", "", nil)
+	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
+	seen := filepath.Join(t.TempDir(), "env")
+	pathstest.FakeVendor(t, "opencode", `{ echo "PERM=$OPENCODE_PERMISSION"; echo "CFG=$OPENCODE_CONFIG_CONTENT"; } > `+seen)
+	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
+	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+	if l.Caps().Permissions != agent.Native {
+		t.Fatal("hub Caps.Permissions must be Native once Run enforces them")
+	}
+	deny, err := agent.ParseRule("Bash(rm *)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := agent.RunOptions{Prompt: "hi", Tools: true, Permissions: agent.Permissions{Deny: []agent.Rule{deny}}}
+	_, _ = l.Run(context.Background(), req, agent.Discard) // the fake prints nothing, so an empty-answer error is expected
+	got, _ := os.ReadFile(seen)
+	for _, want := range []string{`PERM={`, `"bash"`, `harness-hooks-`} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("launch env lacks %s:\n%s", want, got)
+		}
+	}
+}
