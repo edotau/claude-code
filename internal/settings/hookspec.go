@@ -275,3 +275,28 @@ func Events() map[string][]MatcherGroup {
 
 // SettingsJSON renders the object under settings.json's "hooks" key.
 func SettingsJSON() ([]byte, error) { return textutil.MarshalIndentNoEscape(Events()) }
+
+// HookEvents derives from the hook chain the registry declares, in declaration order, deduplicated.
+func HookEvents() []string {
+	var out []string
+	for _, s := range Specs() {
+		if !slices.Contains(out, s.Event) {
+			out = append(out, s.Event)
+		}
+	}
+	return out
+}
+
+// HookModules wraps the module names from Specs into help lines under 80 columns.
+func HookModules() string {
+	var lines []string
+	line := "modules: "
+	for _, sp := range Specs() {
+		if len(line)+len(sp.Name)+1 > 79 {
+			lines = append(lines, line)
+			line = "         "
+		}
+		line += sp.Name + "|"
+	}
+	return strings.Join(append(lines, strings.TrimSuffix(line, "|")), "\n")
+}
