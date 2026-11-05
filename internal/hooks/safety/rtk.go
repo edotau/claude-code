@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/shellscope"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // rtkMachineReadable are flags whose whole point is exact, parseable output. Compressing those
@@ -99,10 +100,7 @@ var rtkCommandWord = regexp.MustCompile(`(^|&&|\|\||[;|\n])(\s*)rtk(\s|$)`)
 
 // rtkAbsolute points every command-position `rtk` at the resolved bin, so the pinned binary always runs.
 func rtkAbsolute(cmd, bin string) string {
-	q := bin
-	if strings.ContainsAny(q, " \t'\"$`\\") {
-		q = "'" + strings.ReplaceAll(q, "'", `'\''`) + "'"
-	}
+	q := textutil.QuoteSH(bin)
 	return rtkCommandWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(q, "$", "$$")+"${3}")
 }
 

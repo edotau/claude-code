@@ -86,25 +86,27 @@ func leafStopVerdict(agentID string, rec agentpkg.Record) (core.Result, bool) {
 var ranOnPattern = regexp.MustCompile(`ask: ran on |\\"ran_on\\":`)
 
 // leafBrief is the text of the leaf's first user message and whether a tool result printed a ran-on line.
-func leafBrief(transcript string) (brief string, ranOn bool, err error) {
-	f, err := os.Open(transcript)
+func leafBrief(path string) (brief string, ranOn bool, err error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return "", false, err
 	}
 	defer f.Close()
 	err = textutil.EachLineErr(f, func(b []byte) {
+		var m struct {
+			Type    string `json:"type"`
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(b, &m) != nil {
+			return
+		}
+		if brief == "" && m.Type == "user" {
+			brief = transcript.ContentText(m.Message.Content)
+		}
 		line := string(b)
-		switch {
-		case brief == "" && strings.Contains(line, `"type":"user"`):
-			var m struct {
-				Message struct {
-					Content any `json:"content"`
-				} `json:"message"`
-			}
-			if json.Unmarshal(b, &m) == nil {
-				brief, _ = m.Message.Content.(string)
-			}
-		case strings.Contains(line, `"tool_result"`) && ranOnPattern.MatchString(line):
+		if strings.Contains(line, `"tool_result"`) && ranOnPattern.MatchString(line) {
 			ranOn = true
 		}
 	})

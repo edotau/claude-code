@@ -290,3 +290,34 @@ func TestLeafStopExpiredDoesNotHideLiveDispatch(t *testing.T) {
 		t.Fatalf("got %+v blocked=%v, want a Block naming the live dispatch %s", r, blocked, second)
 	}
 }
+
+func TestCoworkerBriefContentRepresentations(t *testing.T) {
+	brief := "Objective: inspect only\nAgent: codex\n"
+	for _, tc := range []struct {
+		name    string
+		content any
+		spaced  bool
+	}{
+		{"string", brief, false},
+		{"text parts", []map[string]any{{"type": "text", "text": brief}}, false},
+		{"spaced string", brief, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := coworkerTx(t, brief)
+			line, err := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": tc.content}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.spaced {
+				line = bytes.ReplaceAll(line, []byte(`":"`), []byte(`": "`))
+			}
+			if err := os.WriteFile(in.AgentTranscriptPath, append(line, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			r, blocked := leafStopBlock(in, "a1")
+			if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, "ran on") {
+				t.Fatalf("got %+v blocked=%v, want missing ran-on evidence to block", r, blocked)
+			}
+		})
+	}
+}

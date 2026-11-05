@@ -33,8 +33,8 @@ func CopilotBash(stdin io.Reader, stderr io.Writer) int {
 		} `json:"tool_input"`
 		CWD string `json:"cwd"`
 	}
-	raw, _ := io.ReadAll(stdin)
-	if err := json.Unmarshal(raw, &in); err != nil || strings.TrimSpace(in.ToolInput.Command) == "" {
+	raw, err := io.ReadAll(stdin)
+	if err != nil || json.Unmarshal(raw, &in) != nil || strings.TrimSpace(in.ToolInput.Command) == "" {
 		fmt.Fprintln(stderr, "copilot-bash: BLOCKED — unreadable hook input or no command.")
 		return core.ExitBlock
 	}
