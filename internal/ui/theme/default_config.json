@@ -2,7 +2,7 @@
   "style": "gradient",
   "colorMode": "auto",
   "gradient": "gemini",
-  "gradientEase": 0.45,
+  "gradientEase": 0,
   "powerlineTheme": "nord",
   "charset": "text",
   "userColor": "ansi",
