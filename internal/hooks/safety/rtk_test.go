@@ -3,6 +3,7 @@ package safety
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -239,6 +240,27 @@ func TestRTKAbsoluteAtEveryCommandPosition(t *testing.T) {
 	want := bin + " git log && " + bin + " ls | " + bin + " wc ; " + bin + " a || " + bin + " b\n" + bin + " c; echo rtk status"
 	if !ok || got != want {
 		t.Errorf("got %q (emitted=%v)\nwant %q", got, ok, want)
+	}
+}
+
+func TestRTKPinnedBinaryShellMetacharacters(t *testing.T) {
+	for _, name := range []string{"rtk;other", "rtk(other)", "rtk\nother", "rtk space", "rtk'quote", "rtk$dollar"} {
+		t.Run(name, func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), name)
+			script := "#!/bin/sh\nif [ \"$1\" = rewrite ]; then printf 'rtk ls'; else printf '%s' \"$1\"; fi\n"
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(shellscope.RTKBinaryEnv, bin)
+			cmd, ok := rtkOut(t, rtkBashIn("ls"))
+			if !ok {
+				t.Fatal("expected rewrite using pinned binary")
+			}
+			out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+			if err != nil || string(out) != "ls" {
+				t.Fatalf("rewritten command %q: output=%q error=%v, want pinned binary output ls", cmd, out, err)
+			}
+		})
 	}
 }
 

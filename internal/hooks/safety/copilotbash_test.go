@@ -2,11 +2,28 @@ package safety
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 )
+
+func TestCopilotBashRejectsReadError(t *testing.T) {
+	doc, err := json.Marshal(map[string]any{
+		"tool_input": map[string]string{"command": "go test ./..."}, "cwd": t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin := io.MultiReader(strings.NewReader(string(doc)), iotest.ErrReader(errors.New("broken input")))
+	var stderr strings.Builder
+	if got := CopilotBash(stdin, &stderr); got != core.ExitBlock || !strings.Contains(stderr.String(), "unreadable hook input") {
+		t.Fatalf("read error after valid JSON: exit=%d stderr=%q, want unreadable-input block", got, stderr.String())
+	}
+}
 
 func TestCopilotBashHook(t *testing.T) {
 	wd, home := t.TempDir(), t.TempDir()
