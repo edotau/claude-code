@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -36,7 +35,7 @@ func Width() int {
 
 // Text lays out each selected section (uppercase heading + aligned rows, in
 // Sections order), painting every section when color is on (agents paints its own rows).
-func Text(doc configure.Doc, stored []vault.Stored, sel []string, width int, color bool) string {
+func Text(doc Doc, stored []vault.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSecretsText(stored, width) },
 		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },

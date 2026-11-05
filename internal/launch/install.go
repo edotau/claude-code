@@ -49,9 +49,6 @@ var userBinDir = func() string {
 	return filepath.Join(home, ".local", "bin")
 }
 
-// SettingsFile is the live Claude Code settings.json under the config dir.
-func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
-
 // Check is one doctor line: Hard failures make the run fail; soft ones only report.
 type Check struct {
 	Name   string `json:"name"`
@@ -123,7 +120,7 @@ func checkHostHealth(check func(bool, bool, string, string)) {
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
 	check(true, false, "vscode serve", vscodeServeDoctorDetail())
-	has, err := settingsHasHooks(SettingsFile())
+	has, err := settingsHasHooks(settings.SettingsFile())
 	nested := clean.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
 	strayOK, strayDetail := strayClaudeJSON()

@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -40,7 +41,7 @@ func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	selfBinary = func() (string, error) { return self, nil }
-	file := SettingsFile()
+	file := settings.SettingsFile()
 	if err := os.MkdirAll(file, 0o755); err != nil { // settings.json as a directory: os.ReadFile fails, not ErrNotExist
 		t.Fatal(err)
 	}
@@ -214,7 +215,7 @@ func TestInstallCompactDefaultOutputLinesFitEightyColumns(t *testing.T) {
 // detail line, even though the surrounding run is otherwise compact.
 func TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull(t *testing.T) {
 	setupCompactFixture(t, []string{"claude", "codex", "opencode", "gemini"}) // copilot left unlinked
-	file := SettingsFile()
+	file := settings.SettingsFile()
 	if err := os.MkdirAll(file, 0o755); err != nil { // settings.json as a directory: forces its read to fail
 		t.Fatal(err)
 	}
@@ -292,7 +293,7 @@ func TestInstallSettingsSkipPrintsAfterTheStepsItClaimsRan(t *testing.T) {
 func assertSettingsSkipOrder(t *testing.T, verbose bool) {
 	t.Helper()
 	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
-	if err := os.MkdirAll(SettingsFile(), 0o755); err != nil { // settings.json as a directory: read fails
+	if err := os.MkdirAll(settings.SettingsFile(), 0o755); err != nil { // settings.json as a directory: read fails
 		t.Fatal(err)
 	}
 	var out bytes.Buffer

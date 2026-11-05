@@ -31,23 +31,23 @@ func TestInstallSettingsFreshRestoresThenMergesExisting(t *testing.T) {
 	if err := installSettings(&bytes.Buffer{}, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(SettingsFile()); err == nil {
+	if _, err := os.Stat(settings.SettingsFile()); err == nil {
 		t.Fatal("--dry-run created settings.json")
 	}
 	if err := installSettings(&bytes.Buffer{}, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(SettingsFile()); string(got) != string(want) {
+	if got, _ := os.ReadFile(settings.SettingsFile()); string(got) != string(want) {
 		t.Fatalf("fresh install != render:\n%s", got)
 	}
 	merged := strings.Replace(string(want), "{\n", "{\n  \"zzForeign\": 1,\n", 1)
-	if err := os.WriteFile(SettingsFile(), []byte(merged), 0o600); err != nil {
+	if err := os.WriteFile(settings.SettingsFile(), []byte(merged), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := installSettings(&bytes.Buffer{}, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(SettingsFile()); !strings.Contains(string(got), "zzForeign") {
+	if got, _ := os.ReadFile(settings.SettingsFile()); !strings.Contains(string(got), "zzForeign") {
 		t.Errorf("install over an existing file dropped a foreign key:\n%s", got)
 	}
 }
@@ -82,10 +82,10 @@ func TestApplySettingsExistingFileOnlyRefreshesHooks(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
 	user := applySettingsUserFixture
-	if err := os.WriteFile(SettingsFile(), []byte(user), 0o600); err != nil {
+	if err := os.WriteFile(settings.SettingsFile(), []byte(user), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, merged, sum, _, err := ApplySettings(false)
+	_, _, merged, sum, _, err := settings.ApplySettings(false, agent.NoticeOut)
 	if err != nil {
 		t.Fatal(err)
 	}

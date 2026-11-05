@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 func installTestBinary(t *testing.T) {
@@ -26,7 +27,7 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	codex := vendorPATHFixture(t, "codex", "")
 	t.Setenv("PATH", filepath.Dir(codex))
 	installTestBinary(t)
-	file := SettingsFile()
+	file := settings.SettingsFile()
 	orig := `{"spinnerTipsEnabled": false, "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "foreign stop"}]}]}}`
 	if err := os.WriteFile(file, []byte(orig), 0o600); err != nil {
 		t.Fatal(err)
@@ -184,7 +185,7 @@ func assertNoRetiredShims(t *testing.T, target string) {
 func TestInstallEnsuresClipboardProxy(t *testing.T) {
 	hermetic(t, "")
 	installTestBinary(t)
-	file := SettingsFile()
+	file := settings.SettingsFile()
 	if err := os.WriteFile(file, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

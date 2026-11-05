@@ -1,6 +1,6 @@
 // Package configure is the `claude-code configure` dialogue: provider, keys, models, agents
 // and more sections over the existing provider/secrets/agents verbs, piped or interactive.
-// It is also agent.LaunchPlan's auto-configure callback, scoped to one agent via Agent.
+// It is also agent.OfferConfigure's auto-configure callback, scoped to one agent via Agent.
 package configure
 
 import (

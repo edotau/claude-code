@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row the menu tests apply to
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 

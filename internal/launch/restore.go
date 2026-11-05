@@ -38,7 +38,7 @@ func Restore(w io.Writer, agents, out string, check, dryRun, forceHomes, noAgent
 
 func restoreOutputPath(out string, check, dryRun bool) string {
 	if out == "" && !check && !dryRun { // bare --restore writes the live settings.json
-		return SettingsFile()
+		return settings.SettingsFile()
 	}
 	return out
 }
@@ -57,7 +57,7 @@ func restoreSettingsOutput(w io.Writer, out string, check, dryRun bool, data []b
 
 // restoreSettingsFile snapshots history, then writes the whole render to file and reports both.
 func restoreSettingsFile(w io.Writer, file string) error {
-	r, err := RestoreSettings(file)
+	r, err := settings.RestoreSettings(file, agent.NoticeOut)
 	if r.Commit != "" {
 		fmt.Fprintf(w, "history %s (before restore snapshot)\n", r.Commit)
 	}

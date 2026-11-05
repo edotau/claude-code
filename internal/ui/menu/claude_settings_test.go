@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -259,13 +258,13 @@ func TestSettingRowFlagsLiveDiffers(t *testing.T) {
 	}
 }
 
-// writeLiveSettings seeds launch.SettingsFile() with raw, creating its parent dir.
+// writeLiveSettings seeds settings.SettingsFile() with raw, creating its parent dir.
 func writeLiveSettings(t *testing.T, raw []byte) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(launch.SettingsFile()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(settings.SettingsFile()), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(launch.SettingsFile(), raw, 0o644); err != nil {
+	if err := os.WriteFile(settings.SettingsFile(), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -309,7 +308,7 @@ func TestCheckAndDryRunNeverWriteOrPrompt(t *testing.T) {
 // liveSettingsAndOverlay reads the live settings.json (as text) and the vault overlay.
 func liveSettingsAndOverlay(t *testing.T) (string, map[string]json.RawMessage) {
 	t.Helper()
-	raw, err := os.ReadFile(launch.SettingsFile())
+	raw, err := os.ReadFile(settings.SettingsFile())
 	if err != nil {
 		t.Fatal(err)
 	}

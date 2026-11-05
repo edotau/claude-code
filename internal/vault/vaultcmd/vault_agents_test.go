@@ -1,4 +1,4 @@
-package configure
+package vaultcmd
 
 import (
 	"bytes"
