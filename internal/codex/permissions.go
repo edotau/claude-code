@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,8 +24,20 @@ type codexPolicy struct {
 	unmapped []string // Allow/Ask rules codex cannot express; logged, not enforced
 }
 
+// notPrefixError is a Bash rule that is no command prefix; with the permission-gate hook installed that Deny is the hook's.
+type notPrefixError struct{ msg string }
+
+func (e notPrefixError) Error() string { return e.msg }
+
+// codexGateInstalled reports whether the codex home's hooks.json runs the permission gate.
+func codexGateInstalled() bool {
+	b, err := os.ReadFile(filepath.Join(codexHome(), "hooks.json"))
+	return err == nil && strings.Contains(string(b), "--permission-gate")
+}
+
 // codexRender maps p onto codex; a Deny it cannot enforce is an error naming the rule, so nothing runs unguarded.
-func codexRender(p agent.Permissions, tools bool) (codexPolicy, error) {
+// gate means the permission-gate hook judges every Bash call, so a Bash Deny that is no command prefix is left to it.
+func codexRender(p agent.Permissions, tools, gate bool) (codexPolicy, error) {
 	var pol codexPolicy
 	if p.Mode == "plan" && tools {
 		return pol, fmt.Errorf("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
@@ -40,6 +53,9 @@ func codexRender(p agent.Permissions, tools bool) (codexPolicy, error) {
 	for _, set := range sets {
 		for _, r := range set.rules {
 			line, err := codexRule(r, set.decision, tools)
+			if errors.As(err, &notPrefixError{}) && set.decision == "forbidden" && gate {
+				continue
+			}
 			if err != nil && set.decision == "forbidden" {
 				return pol, err
 			}
@@ -67,11 +83,11 @@ func codexRule(r agent.Rule, decision string, tools bool) (string, error) {
 		prefix, wild = strings.CutSuffix(r.Arg, " *") // Claude's trailing wildcard, same as ":*"
 	}
 	if strings.Contains(prefix, "*") {
-		return "", fmt.Errorf("codex: cannot enforce %s %s (a mid-pattern * is not a prefix rule)", decision, r)
+		return "", notPrefixError{fmt.Sprintf("codex: cannot enforce %s %s (a mid-pattern * is not a prefix rule)", decision, r)}
 	}
 	toks := shell.Tokens(prefix)
 	if r.Arg == "" || len(toks) == 0 || len(shell.Segments(prefix)) != 1 || strings.ContainsAny(prefix, "<>`$()|&;") {
-		return "", fmt.Errorf("codex: cannot render %s as a command prefix", r)
+		return "", notPrefixError{fmt.Sprintf("codex: cannot render %s as a command prefix", r)}
 	}
 	if !wild && decision != "forbidden" {
 		return "", fmt.Errorf("codex: %s is an exact command; a prefix rule would match more", r) // only Deny may over-match
@@ -125,12 +141,21 @@ func linkHome(real, home, rules string) error {
 	user, _ := filepath.Glob(filepath.Join(real, "rules", "*.rules"))
 	links := make([]string, 0, len(entries)+len(user))
 	for _, e := range entries {
-		if !slices.Contains([]string{"rules", ".tmp", "tmp"}, e.Name()) {
+		if !slices.Contains([]string{"rules", ".tmp", "tmp", "config.toml"}, e.Name()) {
 			links = append(links, e.Name())
 		}
 	}
 	for _, name := range links {
 		if err := os.Symlink(filepath.Join(real, name), filepath.Join(home, name)); err != nil {
+			return err
+		}
+	}
+	cfg, err := retargetedConfig(real, home)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if err := os.WriteFile(filepath.Join(home, "config.toml"), cfg, 0o600); err != nil {
 			return err
 		}
 	}
@@ -145,6 +170,17 @@ func linkHome(real, home, rules string) error {
 	return os.WriteFile(filepath.Join(home, "rules", "dispatch.rules"), []byte(rules), 0o600)
 }
 
+// retargetedConfig is real's config.toml with each hook-trust key moved to home/hooks.json: codex keys trust by the
+// hooks.json path under CODEX_HOME, so without it the linked hooks.json is untrusted and none of its hooks run.
+func retargetedConfig(real, home string) ([]byte, error) {
+	raw, err := os.ReadFile(filepath.Join(real, "config.toml"))
+	if err != nil {
+		return nil, err
+	}
+	from, to := CodexHookSourcePath(filepath.Join(real, "hooks.json"))+":", CodexHookSourcePath(filepath.Join(home, "hooks.json"))+":"
+	return []byte(strings.ReplaceAll(string(raw), from, to)), nil
+}
+
 func isLink(p string) bool {
 	fi, err := os.Lstat(p)
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
@@ -157,7 +193,7 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	if p.IsZero() {
 		return argv, env, remove, nil
 	}
-	pol, err := codexRender(p, req.Tools)
+	pol, err := codexRender(p, req.Tools, codexGateInstalled())
 	if err != nil {
 		return nil, nil, remove, err
 	}
