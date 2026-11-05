@@ -163,6 +163,37 @@ func TestVendorSignInSkipsRouting(t *testing.T) {
 	}
 }
 
+// An own-login launch keeps an explicit --model whether PreRoute or Configure selects that route.
+func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
+	const model = "opencode-go/kimi-k3.1-pro"
+	cases := []struct{ name, auth, profile string }{
+		{"pre-route", `{"opencode":{"type":"api"}}`, ""},
+		{"configure", `{"github-copilot":{"type":"oauth"}}`, "personal"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hermetic(t, "")
+			pathstest.FakeVendor(t, "opencode", "")
+			dir := filepath.Join(os.Getenv("XDG_DATA_HOME"), "opencode")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(tc.auth), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := LaunchPlan(t.Context(), "opencode", LaunchOptions{
+				Model: model, Provider: tc.profile, PrintEnv: true,
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"--model", model}; !slices.Equal(plan.Argv, want) {
+				t.Errorf("Argv = %v, want %v", plan.Argv, want)
+			}
+		})
+	}
+}
+
 func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 	for _, name := range Names() {
 		t.Run(name, func(t *testing.T) {
