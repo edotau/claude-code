@@ -167,10 +167,10 @@ func opencodeAuthWithFallback(bin, file string) ([]OpencodeIntegration, error) {
 	return fallback, err
 }
 
-// opencodeAuthKeys is the binary key, the auth.json path and the cache key spanning both plus auth.json's stamp.
+// opencodeAuthKeys identifies the binary, auth.json and DB/WAL state for the in-memory cache.
 func opencodeAuthKeys() (bin, file, key string) {
 	bin, file = opencodeBinKey(), opencodeAuthFile()
-	return bin, file, bin + "\x00" + file + "\x00" + fileStamp(file)
+	return bin, file, bin + "\x00" + file + "\x00" + fileStamp(file) + "\x00" + opencodeDBKey()
 }
 
 // InvalidateOpencodeAuth drops the cached logins; call after a login, logout or switch.

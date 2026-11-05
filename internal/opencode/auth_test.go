@@ -343,6 +343,28 @@ func TestOpencodeDiskCacheDBAndWALChangeRelists(t *testing.T) {
 	}
 }
 
+// TestOpencodeAuthMemoryCacheDBAndWALChangeRelists pins same-process refreshes after another terminal changes 2.x auth.
+func TestOpencodeAuthMemoryCacheDBAndWALChangeRelists(t *testing.T) {
+	data, _, execs := fakeOpencodeOnDisk(t, "2.0.32", v2List, nil)
+	db := filepath.Join(data, "opencode", "opencode.db")
+	touch(t, db, "db", time.Unix(1000, 0))
+	authOnce(t)
+	touch(t, db, "db", time.Unix(2000, 0))
+	authOnce(t)
+	if *execs != 3 {
+		t.Fatalf("after db change execs = %d, want 3 (same-process list re-run)", *execs)
+	}
+	touch(t, db+"-wal", "wal", time.Unix(3000, 0))
+	authOnce(t)
+	if *execs != 4 {
+		t.Fatalf("after -wal change execs = %d, want 4", *execs)
+	}
+	authOnce(t)
+	if *execs != 4 {
+		t.Fatalf("unchanged db execs = %d, want 4 (memory cache reused)", *execs)
+	}
+}
+
 func TestOpencodeDiskCacheHonorsOpencodeDB(t *testing.T) {
 	_, _, execs := fakeOpencodeOnDisk(t, "2.0.32", v2List, nil)
 	db := filepath.Join(t.TempDir(), "custom.db")

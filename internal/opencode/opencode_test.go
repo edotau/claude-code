@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -207,5 +208,31 @@ func TestParseOpenCodeEventsDecodeErrorKeepsText(t *testing.T) {
 	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil, nil, nil)
 	if err == nil || res.Answer != "hi" || res.SessionID != "s-1" {
 		t.Fatalf("res = %+v, err = %v; want the decode error with text and session kept", res, err)
+	}
+}
+
+// TestOpencodeLaunchEnvIncludesVaultCredential pins the interactive own-login route's vault-only credential.
+func TestOpencodeLaunchEnvIncludesVaultCredential(t *testing.T) {
+	fakeOpencode(t, "1.19.3", "", nil)
+	vaulttest.Use(t)
+	vaulttest.Secret(t, OpencodeAPIKeyEnv, "sk-vault-only")
+	t.Setenv(OpencodeAPIKeyEnv, "")
+	env := (opencodeEngine{}).LaunchEnv()
+	if !slices.Contains(env, OpencodeAPIKeyEnv+"=sk-vault-only") {
+		t.Fatalf("LaunchEnv lacks the vault credential: %v", env)
+	}
+}
+
+// TestOpencodeToolsOffPinsPermission pins the env override an inherited OPENCODE_PERMISSION=allow would otherwise win.
+func TestOpencodeToolsOffPinsPermission(t *testing.T) {
+	t.Setenv(opencodePermissionEnv, `"allow"`)
+	p := &providers.Provider{Name: "keyed"}
+	h := &agent.Headless{Prompt: "Run pwd", Tools: false}
+	env, _, err := opencode(p, providers.ProtocolOpenAI, "https://example.test/v1", "m", "secret", false, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(env, opencodePermissionEnv+`="deny"`) {
+		t.Fatalf("tools-off env lacks the deny pin: %v", env)
 	}
 }
