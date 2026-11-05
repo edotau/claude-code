@@ -142,6 +142,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 		defer stop()
 	}
 	host := newHookHost(req)
+	env = withHostedMarker(env, host)
 	if plugged {
 		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
 	}
