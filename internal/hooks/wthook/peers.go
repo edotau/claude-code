@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"context"
@@ -12,15 +12,15 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// peersOf runs the peerAgents scan for top under ctx's deadline; a scan past it is abandoned as an error.
-func peersOf(ctx context.Context, top string, nested []string) ([]worktree.Proc, error) {
+// PeersOf runs the PeerAgents scan for top under ctx's deadline; a scan past it is abandoned as an error.
+func PeersOf(ctx context.Context, top string, nested []string) ([]worktree.Proc, error) {
 	type scan struct {
 		procs []worktree.Proc
 		err   error
 	}
 	done := make(chan scan, 1)
 	go func() {
-		procs, err := peerAgents(top, nested)
+		procs, err := PeerAgents(top, nested)
 		done <- scan{procs, err}
 	}()
 	select {
@@ -31,8 +31,8 @@ func peersOf(ctx context.Context, top string, nested []string) ([]worktree.Proc,
 	}
 }
 
-// sessionLabel names a peer from Claude Code's session registry (<config>/sessions/<pid>.json; never the .key file).
-func sessionLabel(p worktree.Proc) string {
+// SessionLabel names a peer from Claude Code's session registry (<config>/sessions/<pid>.json; never the .key file).
+func SessionLabel(p worktree.Proc) string {
 	fallback := fmt.Sprintf("%s pid %d", p.Comm, p.PID)
 	b, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "sessions", strconv.Itoa(p.PID)+".json"))
 	if err != nil {

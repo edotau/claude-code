@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"context"
@@ -49,7 +49,7 @@ func liveClaims(in *core.Input) (map[string][]claimHit, error) {
 		w := leaf(c) // own session: only a sibling leaf's claim counts
 		if slug != self {
 			if labels[pid] == "" {
-				labels[pid] = sessionLabel(worktree.Proc{PID: pid, Comm: "claude"})
+				labels[pid] = SessionLabel(worktree.Proc{PID: pid, Comm: "claude"})
 			}
 			w = labels[pid] // another session: every claim counts while its owner lives
 		}
@@ -102,9 +102,9 @@ type claimView struct {
 	claims map[string][]claimHit
 }
 
-// worktreeClaimCheck notes a dirty claimed file before an edit; asks (leaf: blocks) when git add/commit stages one.
+// ClaimCheck notes a dirty claimed file before an edit; asks (leaf: blocks) when git add/commit stages one.
 // Any git command also drains this session's notices and the divergence line into its context.
-func worktreeClaimCheck(in *core.Input) core.Result {
+func ClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
 	if in.SessionID == "" || in.ToolName == "Bash" && !gitAnyCmd.MatchString(cmd) {
 		return core.Result{}

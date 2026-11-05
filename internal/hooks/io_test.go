@@ -15,7 +15,9 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
+	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -391,7 +393,7 @@ func TestHookFlagAllIncludesGateBareExcludes(t *testing.T) {
 // docs-placement runs inside the bare PreToolUse dispatcher and its block survives as the merged deny.
 func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 	flagHarness(t)
-	repo := gitRepo(t)
+	repo := gittest.Repo(t)
 	payload, err := json.Marshal(map[string]any{
 		"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo,
 		"tool_input": map[string]string{"file_path": filepath.Join(repo, "NOTES.md"), "content": "# notes\n"},
@@ -473,11 +475,12 @@ func TestMain(m *testing.M) {
 	memhook.StubSpawnForTest(tb, true)
 	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
-	peerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
+	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	for _, f := range tb.cleanups {
 		f()
 	}
+	gittest.Cleanup()
 	cleanup()
 	os.Exit(code)
 }

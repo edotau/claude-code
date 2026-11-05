@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"bytes"
@@ -18,9 +18,9 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// worktreeCreate replaces Claude Code's `.claude/worktrees/<name>` with <root>/<repo>/<name>; stdout is the path.
+// Create replaces Claude Code's `.claude/worktrees/<name>` with <root>/<repo>/<name>; stdout is the path.
 // Unlike other hooks it fails CLOSED: a non-zero exit is the only way to report a worktree that was not made.
-func worktreeCreate(in *core.Input) core.Result {
+func Create(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	// The live payload carries only `name`; the documented worktree_path/branch are honored if they ever appear.
 	name := in.Nested("name")
@@ -44,8 +44,8 @@ func worktreeCreate(in *core.Input) core.Result {
 	return res
 }
 
-// worktreeRemove removes a hook-created worktree; no --force, so a dirty tree stays and the removal reports failure.
-func worktreeRemove(in *core.Input, stderr io.Writer) int {
+// Remove removes a hook-created worktree; no --force, so a dirty tree stays and the removal reports failure.
+func Remove(in *core.Input, stderr io.Writer) int {
 	path := in.Nested("worktree_path")
 	if path == "" {
 		fmt.Fprintln(stderr, "worktree-remove: payload has no worktree_path")
@@ -89,8 +89,8 @@ func worktreeRemove(in *core.Input, stderr io.Writer) int {
 // worktreeModeEnv selects the mode: off|false|0 never asks; unset or anything else asks (session start, new peer).
 const worktreeModeEnv = "HARNESS_WORKTREE"
 
-// peerAgents is the process scan; a var seam so tests never see the host's live sessions.
-var peerAgents = worktree.PeerAgents
+// PeerAgents is the process scan; a var seam so tests never see the host's live sessions.
+var PeerAgents = worktree.PeerAgents
 
 const worktreeAskLine = "Worktree: before starting a change, ask the user whether to work in a linked worktree " +
 	"(`claude-code worktree create <slug>` / EnterWorktree); without a yes, keep working in the checkout."
@@ -103,24 +103,24 @@ func worktreeModeOff() bool {
 	return false
 }
 
-// worktreeMode runs on SessionStart: the ask line on a fresh start only (not resume/clear/compact), unless the mode is off.
-func worktreeMode(in *core.Input) core.Result {
+// Mode runs on SessionStart: the ask line on a fresh start only (not resume/clear/compact), unless the mode is off.
+func Mode(in *core.Input) core.Result {
 	if worktreeModeOff() || (in.Source != "" && in.Source != "startup") {
 		return core.Result{}
 	}
 	return core.Result{Context: worktreeAskLine}
 }
 
-// nestedConfigSweep runs on SessionStart: removes the nested settings.local.json; a failure is a stderr note only.
-func nestedConfigSweep(*core.Input) core.Result {
+// NestedConfigSweep runs on SessionStart: removes the nested settings.local.json; a failure is a stderr note only.
+func NestedConfigSweep(*core.Input) core.Result {
 	if _, err := clean.SweepNestedLocal(); err != nil {
 		return core.Result{Stderr: "nested-config-sweep: " + err.Error()}
 	}
 	return core.Result{}
 }
 
-// worktreeBusy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.
-func worktreeBusy(in *core.Input) core.Result {
+// Busy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.
+func Busy(in *core.Input) core.Result {
 	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
 	busy := ""
@@ -137,11 +137,11 @@ func busyLine(ctx context.Context, in *core.Input) string {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	top, branch, nested := checkoutOf(ctx, cwd)
+	top, branch, nested := CheckoutOf(ctx, cwd)
 	if top == "" {
 		return ""
 	}
-	peers, err := peerAgents(top, nested)
+	peers, err := PeerAgents(top, nested)
 	if err != nil {
 		return ""
 	}
@@ -165,8 +165,8 @@ func busyLine(ctx context.Context, in *core.Input) string {
 		"ask the user whether to work in a linked worktree; without a yes, keep working here.", peers[0].Comm, peers[0].PID, branch)
 }
 
-// checkoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.
-func checkoutOf(ctx context.Context, cwd string) (top, branch string, nested []string) {
+// CheckoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.
+func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []string) {
 	git := func(args ...string) string {
 		out, err := proc.RunGit(ctx, cwd, args...)
 		if err != nil {

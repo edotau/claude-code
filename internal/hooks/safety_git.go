@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
@@ -113,7 +114,7 @@ func assessRewrite(in *core.Input, target, verb string, rng []string) (rewriteRi
 	if n == 0 {
 		return rewriteRisk{}, false // not a repo, a non-commit operand or an empty range: git rewrites nothing
 	}
-	_, branch, nested := checkoutOf(ctx, top)
+	_, branch, nested := wthook.CheckoutOf(ctx, top)
 	reasons, err := shareReasons(ctx, in, top, linked, nested)
 	r := rewriteRisk{verb: verb, branch: branch, commits: n, reasons: reasons}
 	if err != nil {
@@ -171,9 +172,9 @@ func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, 
 	if top == core.CanonPath(paths.ConfigDir()) {
 		reasons = append(reasons, "it is the live config tree "+top)
 	}
-	procs, err := peersOf(ctx, top, nested)
+	procs, err := wthook.PeersOf(ctx, top, nested)
 	for _, p := range procs {
-		reasons = append(reasons, sessionLabel(p)+" works in it")
+		reasons = append(reasons, wthook.SessionLabel(p)+" works in it")
 	}
 	if linked {
 		return reasons, err

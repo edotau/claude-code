@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"context"
@@ -91,14 +91,14 @@ func bothSides(line string) (ahead, behind int) {
 
 // checkoutShared is true for the live config tree or a checkout a peer session works in.
 func checkoutShared(ctx context.Context, dir string) (bool, error) {
-	top, _, nested := checkoutOf(ctx, dir)
+	top, _, nested := CheckoutOf(ctx, dir)
 	if top == "" {
 		return false, nil
 	}
 	if top == core.CanonPath(paths.ConfigDir()) {
 		return true, nil
 	}
-	peers, err := peersOf(ctx, top, nested)
+	peers, err := PeersOf(ctx, top, nested)
 	return len(peers) > 0, err
 }
 

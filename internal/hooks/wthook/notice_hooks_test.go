@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"os"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -16,7 +17,7 @@ func divergedClone(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(worktreeModeEnv, "off")
-	origin := gitRepo(t)
+	origin := gittest.Repo(t)
 	work := filepath.Join(t.TempDir(), "work")
 	gitIn(t, origin, "clone", "-q", origin, work)
 	work = core.CanonPath(work)
@@ -32,12 +33,12 @@ func divergedClone(t *testing.T) string {
 		t.Fatal(err)
 	}
 	writeRel(t, claimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
-	orig, origPeers := claimAlive, peerAgents
+	orig, origPeers := claimAlive, PeerAgents
 	claimAlive = func(pid int) bool { return pid == liveOwner }
-	peerAgents = func(string, []string) ([]worktree.Proc, error) {
+	PeerAgents = func(string, []string) ([]worktree.Proc, error) {
 		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
 	}
-	t.Cleanup(func() { claimAlive, peerAgents = orig, origPeers })
+	t.Cleanup(func() { claimAlive, PeerAgents = orig, origPeers })
 	return work
 }
 
@@ -45,19 +46,19 @@ func divergedClone(t *testing.T) string {
 func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 	work := divergedClone(t)
 	in := &core.Input{SessionID: "sB", CWD: work}
-	got := worktreeBusy(in)
+	got := Busy(in)
 	if !strings.Contains(got.Context, "local main diverged from origin/main (ahead 1, behind 1)") ||
 		!strings.Contains(got.Context, "ahead: session peers (pid 100)") || got.Stderr != "" {
 		t.Fatalf("first prompt = %+v, want the divergence line naming the ahead commit's session", got)
 	}
-	if again := worktreeBusy(in); again.Context != "" {
+	if again := Busy(in); again.Context != "" {
 		t.Fatalf("second prompt = %q, want the divergence line only once", again.Context)
 	}
 	if err := notices.Append("sB", notices.Notice{Kind: "conflict", From: "worktree merge", Text: "x.go"}); err != nil {
 		t.Fatal(err)
 	}
 	git := func() core.Result {
-		return worktreeClaimCheck(claimInput(t, map[string]any{"session_id": "sB", "cwd": work, "tool_name": "Bash",
+		return ClaimCheck(claimInput(t, map[string]any{"session_id": "sB", "cwd": work, "tool_name": "Bash",
 			"tool_input": map[string]any{"command": "git status"}}))
 	}
 	if r := git(); r.Context != "notice (conflict, from worktree merge): x.go" || r.Decision != core.Allow {
@@ -72,7 +73,7 @@ func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 func TestDivergenceInfraErrorWarnsAndAllows(t *testing.T) {
 	work := divergedClone(t)
 	t.Setenv("PATH", "/nonexistent")
-	got := worktreeBusy(&core.Input{SessionID: "sB", CWD: work})
+	got := Busy(&core.Input{SessionID: "sB", CWD: work})
 	if got.Context != "" || got.Decision != core.Allow || !strings.Contains(got.Stderr, "could not check branch divergence") {
 		t.Fatalf("no git = %+v, want allow + warning", got)
 	}

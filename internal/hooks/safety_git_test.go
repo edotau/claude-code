@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -42,7 +43,7 @@ func rewriteFixture(t *testing.T) (work, wt string) {
 	return work, wt
 }
 
-// peerPID is the fake peer the swapped peerAgents seam reports.
+// peerPID is the fake peer the swapped wthook.PeerAgents seam reports.
 const peerPID = 4242
 
 type rewriteCase struct {
@@ -62,14 +63,14 @@ func rewriteSetup(t *testing.T, c rewriteCase, dirs map[string]string) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv(settings.AgentEnv, c.agent)
 	writeSessionJSON(t, cfg)
-	orig := peerAgents
-	peerAgents = func(top string, _ []string) ([]worktree.Proc, error) {
+	orig := wthook.PeerAgents
+	wthook.PeerAgents = func(top string, _ []string) ([]worktree.Proc, error) {
 		if c.peerIn != "" && top == dirs[c.peerIn] {
 			return []worktree.Proc{{PID: peerPID, Comm: "claude"}}, nil
 		}
 		return nil, nil
 	}
-	t.Cleanup(func() { peerAgents = orig })
+	t.Cleanup(func() { wthook.PeerAgents = orig })
 	if c.leaves {
 		seedLeafMarker(t)
 	}

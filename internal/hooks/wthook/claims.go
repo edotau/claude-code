@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"cmp"
@@ -31,7 +31,7 @@ type claim struct {
 const claimsSchema = 1
 
 var _ = schemas.Register(schemas.Format{
-	Name: "claims", Owner: "internal/hooks", Kind: schemas.Log,
+	Name: "claims", Owner: "internal/hooks/wthook", Kind: schemas.Log,
 	Glob:    func() string { return filepath.Join(claimsDir(), "*.jsonl") },
 	New:     func() any { return &claim{} },
 	Version: claimsSchema, Keep: "per-session edit/commit claims; the claim check removes a dead owner pid's file",
@@ -47,8 +47,8 @@ func claimsFile(owner int, session string) string {
 	return filepath.Join(claimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, paths.Slug(session, "", 80, "session")))
 }
 
-// worktreeClaim records the written path, each sha a landed `git commit` printed, and each path `git add` staged.
-func worktreeClaim(in *core.Input) core.Result {
+// Claim records the written path, each sha a landed `git commit` printed, and each path `git add` staged.
+func Claim(in *core.Input) core.Result {
 	owner := claimOwner()
 	if owner == 0 || in.SessionID == "" {
 		return core.Result{}
