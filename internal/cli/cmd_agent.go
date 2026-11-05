@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/review"
 	"github.com/edotau/claude-code/internal/cli/agents"
@@ -364,7 +365,7 @@ func agentExplore(name string, args []string) int {
 		return helptext.Fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
 	}
 	cwd, _ := os.Getwd()
-	askArgs := agent.ExploreArgs(name, cwd, question, !*noWeb, *background)
+	askArgs := explore.Args(name, cwd, question, !*noWeb, *background)
 	if *format != "text" {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)

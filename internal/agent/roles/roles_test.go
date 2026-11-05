@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/explore"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini schema (ReadNeedsTools)
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -56,7 +56,7 @@ func TestRoleExploreLegsOnePerPart(t *testing.T) {
 		t.Fatalf("want legs a,b; got %+v", legs)
 	}
 	o := legs[1].Opts
-	if o.Agent != "gemini" || !o.Tools || o.WorkDir != "/w" || o.Prompt != agent.ExplorePrompt("b", true) {
+	if o.Agent != "gemini" || !o.Tools || o.WorkDir != "/w" || o.Prompt != explore.Prompt("b", true) {
 		t.Errorf("explore opts wrong: %+v", o)
 	}
 }
@@ -64,7 +64,7 @@ func TestRoleExploreLegsOnePerPart(t *testing.T) {
 func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 	vaulttest.Use(t)
 	legs := Legs(mustRole(t, "explore"), Request{Task: "whole", Web: false})
-	if len(legs) != 1 || legs[0].Opts.Prompt != agent.ExplorePrompt("whole", false) {
+	if len(legs) != 1 || legs[0].Opts.Prompt != explore.Prompt("whole", false) {
 		t.Fatalf("want one leg on the task; got %+v", legs)
 	}
 }
@@ -144,44 +144,6 @@ func TestRoleVaultOverlayMovesExplore(t *testing.T) {
 	}
 	if got := Legs(r, Request{Task: "x"})[0].Opts.Agent; got != "opencode" {
 		t.Errorf("leg agent %q", got)
-	}
-}
-
-func TestSplitFallsBackOnError(t *testing.T) {
-	orig := splitRun
-	splitRun = func(*agent.Client, context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
-		return agent.Result{Answer: "a\nb"}, errors.New("down")
-	}
-	t.Cleanup(func() { splitRun = orig })
-	if got := Split(context.Background(), nil, "q"); len(got) != 1 || got[0] != "q" {
-		t.Errorf("got %v", got)
-	}
-}
-
-func TestSplitCapsAtTwelve(t *testing.T) {
-	orig := splitRun
-	var lines []string
-	for i := range 20 {
-		lines = append(lines, fmt.Sprintf(" part %d ", i))
-	}
-	splitRun = func(*agent.Client, context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
-		return agent.Result{Answer: strings.Join(lines, "\n\n")}, nil
-	}
-	t.Cleanup(func() { splitRun = orig })
-	got := Split(context.Background(), nil, "q")
-	if len(got) != 12 || got[0] != "part 0" || got[11] != "part 11" {
-		t.Errorf("len=%d first/last=%q/%q", len(got), got[0], got[len(got)-1])
-	}
-}
-
-func TestSplitSingleLineReturnsQuestion(t *testing.T) {
-	orig := splitRun
-	splitRun = func(*agent.Client, context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
-		return agent.Result{Answer: "only one"}, nil
-	}
-	t.Cleanup(func() { splitRun = orig })
-	if got := Split(context.Background(), nil, "q"); len(got) != 1 || got[0] != "q" {
-		t.Errorf("got %v", got)
 	}
 }
 
