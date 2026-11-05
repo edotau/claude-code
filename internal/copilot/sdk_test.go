@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -515,5 +516,40 @@ func TestPlanModeLetsReadsThrough(t *testing.T) {
 		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
 			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
 		}
+	}
+}
+
+// Create and resume send the same append-mode system message and discovery roots; replace mode is never used.
+func TestCreateAndResumeCarryInstructions(t *testing.T) {
+	dir := t.TempDir()
+	fields := func(session string) map[string]any {
+		log := t.TempDir() + "/log"
+		o := registryOpts(t, "1.0.104", log, registryPick)
+		o.SessionID, o.System = session, "be brief"
+		o.InstructionDirs, o.SkillDirs, o.AgentDirs = []string{dir}, []string{dir + "/skills"}, []string{dir + "/agents"}
+		if _, err := openSession(t, o); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range calls(t, log) {
+			if _, params, ok := strings.Cut(c, " "); ok && (strings.HasPrefix(c, "session.create ") || strings.HasPrefix(c, "session.resume ")) {
+				var m map[string]any
+				if err := json.Unmarshal([]byte(params), &m); err != nil {
+					t.Fatal(err)
+				}
+				return map[string]any{"sys": m["systemMessage"], "ins": m["instructionDirectories"], "skl": m["skillDirectories"], "agt": m["agentDirectories"]}
+			}
+		}
+		t.Fatal("no session.create/resume recorded")
+		return nil
+	}
+	created, resumed := fields(""), fields("sess-1")
+	if !reflect.DeepEqual(created, resumed) {
+		t.Errorf("create = %v, resume = %v; want equal", created, resumed)
+	}
+	if sys, _ := created["sys"].(map[string]any); sys["mode"] != "append" || sys["content"] != "be brief" {
+		t.Errorf("systemMessage = %v, want append mode with the text", created["sys"])
+	}
+	if created["ins"] == nil || created["skl"] == nil || created["agt"] == nil {
+		t.Errorf("directories missing: %v", created)
 	}
 }
