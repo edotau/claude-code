@@ -14,7 +14,11 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	if sink == nil {
 		sink = Discard
 	}
-	err := RefusePersona(r.Caps(), r.Name(), req.Persona)
+	var err error
+	req.Permissions, err = inheritPermissions(req.Permissions)
+	if err == nil {
+		err = RefusePersona(r.Caps(), r.Name(), req.Persona)
+	}
 	if err == nil {
 		err = RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly)
 	}
