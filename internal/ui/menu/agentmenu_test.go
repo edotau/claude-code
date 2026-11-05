@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // copilotKeyRow's desc flips between [no token] and [token set] as COPILOT_GITHUB_TOKEN is stored.
@@ -338,6 +339,29 @@ func TestCodexLoginPicksMethod(t *testing.T) {
 		got, _ := os.ReadFile(log)
 		if string(got) != tc.want {
 			t.Errorf("pick %q ran %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// The API key pick pipes the vault's OPENAI_API_KEY to `codex login --with-api-key`, and only once ensureKey succeeds.
+func TestCodexLoginAPIKeyPipesVaultKey(t *testing.T) {
+	for _, tc := range []struct {
+		ensure bool
+		want   string
+	}{{true, "login --with-api-key stdin=sk-vault\n"}, {false, ""}} {
+		cfg := vaulttest.Use(t)
+		if err := vault.Store("OPENAI_API_KEY", "sk-vault"); err != nil {
+			t.Fatal(err)
+		}
+		log := filepath.Join(cfg, "argv")
+		pathstest.FakeVendor(t, "codex", "#!/bin/sh\necho \"$* stdin=$(cat)\" >> "+log+"\n")
+		d := &dialog{out: discardWriter{}, br: bufio.NewReader(strings.NewReader("3\n"))}
+		if got := codexLogin(d, func() bool { return tc.ensure }); got != tc.ensure {
+			t.Errorf("ensure=%v: codexLogin = %v", tc.ensure, got)
+		}
+		got, _ := os.ReadFile(log)
+		if string(got) != tc.want {
+			t.Errorf("ensure=%v ran %q, want %q", tc.ensure, got, tc.want)
 		}
 	}
 }
