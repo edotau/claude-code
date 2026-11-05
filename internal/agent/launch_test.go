@@ -56,6 +56,20 @@ func TestWithAgentPinsPrecedence(t *testing.T) {
 	}
 }
 
+// An opencode record pinned to opencode-go (valid via PinIDs, no registry row) resolves to its own plan, not an error.
+func TestPinnedProfileOpencodeGo(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.SetRecord(t, "opencode", "profile", "opencode-go")
+	got, err := pinnedProfile("opencode")
+	if err != nil || got != "" {
+		t.Errorf("pinnedProfile(opencode) = %q, %v; want empty profile and no error", got, err)
+	}
+	vaulttest.SetRecord(t, "opencode", "profile", "no-such-profile")
+	if _, err := pinnedProfile("opencode"); err == nil {
+		t.Error("an invalid pin must still be an error")
+	}
+}
+
 const pinDbxRow = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com",` +
 	`"auth":{"type":"pat"}}}}}`
 
