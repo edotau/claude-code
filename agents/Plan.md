@@ -6,7 +6,7 @@ description: |
   definition of plan writing). Read-only: explores the codebase, weighs trade-offs, and returns a plan in
   `docs/templates/plan.md`, ending with a `## Tasks` checklist. Use for "plan this", "how should we build", plan mode
   research, and any MEDIUM+ change before code is written.
-tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch]
+tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
 model: inherit
 ---
 
