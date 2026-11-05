@@ -101,6 +101,7 @@ func captureAnswer(f func() int) (string, int) {
 	if err != nil {
 		return "", f()
 	}
+	defer r.Close()
 	orig := os.Stdout
 	os.Stdout = w
 	done := make(chan string)

@@ -83,3 +83,18 @@ func TestGeminiBridgeJSONOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestGeminiBridgeJSONWriteFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Chdir(t.TempDir())
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdGeminiBridge([]string{"test", "--print-command", "--format", "json"})
+	})
+	if code != 0 || !json.Valid([]byte(out)) {
+		t.Fatalf("print-command: code=%d out=%q stderr=%q", code, out, stderr)
+	}
+	closedStdout(t)
+	if code := cmdGeminiBridge([]string{"test", "--print-command", "--format", "json"}); code == 0 {
+		t.Fatal("JSON output on closed stdout succeeded")
+	}
+}

@@ -112,11 +112,9 @@ func runGeminiBridge(opts gemini.GeminiOptions, format string) int {
 	defer stop()
 	res, err := gemini.RunGemini(ctx, opts, stream, os.Stderr)
 	if format == "json" {
-		body, merr := json.Marshal(agent.NewEnvelope(res, err, ""))
-		if merr != nil {
-			return helptext.Fail("gemini bridge: encoding result: %v", merr)
+		if werr := json.NewEncoder(os.Stdout).Encode(agent.NewEnvelope(res, err, "")); werr != nil {
+			return helptext.Fail("gemini bridge: writing result: %v", werr)
 		}
-		fmt.Println(string(body))
 	} else if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()
 	}
