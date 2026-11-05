@@ -41,6 +41,7 @@ const (
 	AgentClaude  = "claude"
 	AgentCodex   = "codex"
 	AgentCopilot = "copilot"
+	AgentGemini  = "gemini" // agy
 )
 
 // Agent uses the explicit hook agent or Copilot's payload shape, defaulting to Claude.
@@ -59,7 +60,7 @@ func ParseInput(r io.Reader) *Input {
 		return &Input{Raw: raw}
 	}
 	switch name := os.Getenv(settings.AgentEnv); name {
-	case AgentClaude, AgentCodex, AgentCopilot:
+	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini:
 		in.agent = name
 	}
 	in.SessionID = in.Nested("session_id")
@@ -90,7 +91,31 @@ func ParseInput(r io.Reader) *Input {
 	if in.Agent() == AgentCopilot {
 		in.normalizeToolArgs()
 	}
+	if in.Agent() == AgentGemini {
+		in.normalizeAgy()
+	}
 	return in
+}
+
+// normalizeAgy reads agy's {toolCall:{name,args}, workspacePaths} payload as tool_name/tool_input/cwd.
+func (in *Input) normalizeAgy() {
+	call, _ := in.doc["toolCall"].(map[string]any)
+	args, _ := call["args"].(map[string]any)
+	input := map[string]any{}
+	for k, v := range args {
+		input[k] = v
+	}
+	if cmd, _ := args["CommandLine"].(string); cmd != "" {
+		input["command"] = cmd
+	}
+	if path, _ := args["Path"].(string); path != "" {
+		input["file_path"] = path
+	}
+	in.ToolName, _ = call["name"].(string)
+	in.doc["tool_input"] = input
+	if paths, _ := in.doc["workspacePaths"].([]any); len(paths) > 0 && in.CWD == "" {
+		in.CWD, _ = paths[0].(string)
+	}
 }
 
 // normalizeToolArgs lets every existing tool_input consumer read Copilot's string or object arguments.

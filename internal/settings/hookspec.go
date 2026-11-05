@@ -97,7 +97,7 @@ var Registry = []Group{
 	}},
 	// AgentOnly: Claude enforces a dispatch's Permissions natively, so settings.json never renders the gate.
 	{Name: "permission", Gate: true, AgentOnly: true, Events: []EventSpec{
-		{Name: "permission-gate", Event: EventPreToolUse, Matcher: "Bash|Write|Edit|Read|WebFetch|Glob|Grep", Budget: 5 * sec, Blocks: true, Agents: []string{"codex"}, Plugin: []string{"opencode"}},
+		{Name: "permission-gate", Event: EventPreToolUse, Matcher: "Bash|Write|Edit|Read|WebFetch|Glob|Grep", Budget: 5 * sec, Blocks: true, Agents: []string{"codex", "gemini"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten to run through the rtk output compressor (Claude only).

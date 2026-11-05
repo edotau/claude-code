@@ -13,9 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
-// gateTools maps a hook tool name, Claude's or opencode's, to the rule tool Decide judges it as.
+// gateTools maps a hook tool name, Claude's, opencode's or agy's, to the rule tool Decide judges it as.
 var gateTools = map[string]string{
-	"bash": "Bash", "write": "Edit", "edit": "Edit", "multiedit": "Edit", "read": "Read", "webfetch": "WebFetch",
+	"bash": "Bash", "run_command": "Bash", "write": "Edit", "edit": "Edit", "multiedit": "Edit", "read": "Read",
+	"write_file": "Edit", "edit_file": "Edit", "read_file": "Read", "webfetch": "WebFetch",
 	"glob": "Glob", "grep": "Grep",
 }
 
