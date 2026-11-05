@@ -12,7 +12,7 @@ import (
 
 // plainWthookRunners are the worktree-area Native entries registered without a viaStderr wrapper.
 var plainWthookRunners = map[string]core.Runner{
-	"worktree-create": wthook.Create, "worktree-mode": wthook.Mode, "nested-config-sweep": wthook.NestedConfigSweep,
+	"worktree-create": wthook.Create, "worktree-mode": wthook.Mode,
 	"worktree-busy": wthook.Busy, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
 }
 

@@ -266,7 +266,6 @@ var Native = map[string]core.Runner{
 	"worktree-create":           wthook.Create,
 	"worktree-remove":           viaStderr(wthook.Remove),
 	"worktree-mode":             wthook.Mode,
-	"nested-config-sweep":       wthook.NestedConfigSweep,
 	"worktree-busy":             wthook.Busy,
 	"worktree-claim":            wthook.Claim,
 	"worktree-claim-check":      wthook.ClaimCheck,
