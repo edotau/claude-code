@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -234,7 +236,7 @@ func withRefreshLock(p *Provider, fn func() error) error {
 // authCredential mints (or serves from cache) the access token for a sealed auth type; force skips the cache.
 func authCredential(ctx context.Context, p *Provider, force bool) (string, error) {
 	if p.Auth.Type != AuthOAuth {
-		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p) })
+		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p, force) })
 	}
 	mode, err := ResolveIdentity(p.Identity, identityFrom(ctx))
 	if err != nil {
@@ -263,7 +265,7 @@ func userCredential(ctx context.Context, p *Provider, force bool) (string, error
 					return finishCredential(p, v, time.Time{})
 				}
 			}
-			v, err := mintAndCache(ctx, p)
+			v, err := mintAndCache(ctx, p, force)
 			out = v
 			if err == nil {
 				sealAccess(p, v)
@@ -339,7 +341,7 @@ func spCredential(ctx context.Context, p *Provider, force bool) (string, error) 
 				close(f.done)
 				spFlightMu.Unlock()
 			}()
-			f.val, f.err = mintSP(context.WithoutCancel(ctx), p)
+			f.val, f.err = mintSP(context.WithoutCancel(ctx), p, force)
 			return f.val, f.err
 		}
 		spFlightMu.Unlock()
@@ -355,7 +357,7 @@ func spCredential(ctx context.Context, p *Provider, force bool) (string, error) 
 }
 
 // mintSP mints the paired service principal's token (same workspace host); it never touches the user login.
-func mintSP(ctx context.Context, p *Provider) (string, error) {
+func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 	if p.Auth.SPClientID == "" {
 		return "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
 	}
@@ -367,7 +369,7 @@ func mintSP(ctx context.Context, p *Provider) (string, error) {
 	if secret == "" {
 		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
 	}
-	tok, err := mintM2M(ctx, AuthHost(p), p.Auth.SPClientID, secret)
+	tok, err := m2mToken(ctx, name, AuthHost(p), p.Auth.SPClientID, secret, force)
 	if err != nil {
 		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
@@ -436,8 +438,8 @@ func sealAccess(p *Provider, tok string) {
 	}
 }
 
-func mintAndCache(ctx context.Context, p *Provider) (string, error) {
-	tok, err := mintAuth(ctx, p)
+func mintAndCache(ctx context.Context, p *Provider, force bool) (string, error) {
+	tok, err := mintAuth(ctx, p, force)
 	if err != nil {
 		return "", err
 	}
@@ -448,7 +450,7 @@ func mintAndCache(ctx context.Context, p *Provider) (string, error) {
 }
 
 // mintAuth is the one path that turns a sealed credential into an access token.
-func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
+func mintAuth(ctx context.Context, p *Provider, force bool) (oauth.Token, error) {
 	name := AuthSecretName(p)
 	secret, err := mintSecret(p)
 	if err != nil {
@@ -465,9 +467,51 @@ func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
 	case AuthPAT:
 		return oauth.Token{Access: secret}, nil
 	case AuthM2M:
-		return mintM2M(ctx, host, p.Auth.ClientID, secret)
+		return m2mToken(ctx, name, host, p.Auth.ClientID, secret, force)
 	}
 	return mintU2M(ctx, p, host, name, secret)
+}
+
+// clientAccess is a client-credentials token sealed for other processes; Bind ties it to the host, client and secret.
+type clientAccess struct {
+	Access string `json:"access"`
+	Bind   string `json:"bind"`
+}
+
+// m2mToken serves an m2m/sp token sealed by any process while it is valid past expiryMargin; force mints anew.
+func m2mToken(ctx context.Context, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
+	name := secretName + "_ACCESS"
+	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
+	bind := hex.EncodeToString(sum[:8])
+	if !force {
+		if v, ok := sealedClientAccess(name, bind); ok {
+			return oauth.Token{Access: v}, nil
+		}
+	}
+	tok, err := mintM2M(ctx, host, clientID, secret)
+	if err != nil {
+		return tok, err
+	}
+	if b, err := json.Marshal(clientAccess{Access: tok.Access, Bind: bind}); err == nil {
+		if err := vault.Store(name, string(b)); err != nil {
+			fmt.Fprintf(os.Stderr, "cache access token (%s) failed\n", name)
+		}
+	}
+	return tok, nil
+}
+
+// sealedClientAccess returns the sealed token under name when bind matches and it stays valid past expiryMargin.
+func sealedClientAccess(name, bind string) (string, bool) {
+	raw, found, err := vault.ReadSecret(name)
+	var ca clientAccess
+	if err != nil || !found || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
+		return "", false
+	}
+	exp, ok := jwtExp(ca.Access)
+	if !ok || !time.Unix(exp, 0).Add(-expiryMargin).After(time.Now()) {
+		return "", false
+	}
+	return ca.Access, true
 }
 
 // noSecretError is the missing-credential error; an oauth row's is a LoginRequiredError.
