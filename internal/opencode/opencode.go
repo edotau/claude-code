@@ -437,6 +437,9 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
 	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser(nil))
 	host.after(res)
+	if err == nil {
+		err = refuseToolCallText(e.Name(), req, res.Answer)
+	}
 	return res, err
 }
 

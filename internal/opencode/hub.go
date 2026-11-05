@@ -157,10 +157,18 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
 	}
+	return res, l.runError(cctx, req, res.Answer, runErr)
+}
+
+// runError is the hub run's outcome: a stall after first output, then a tools-off answer that is only tool calls.
+func (l hubDispatch) runError(cctx context.Context, req agent.RunOptions, answer string, runErr error) error {
 	if l.firstOutput > 0 && errors.Is(context.Cause(cctx), agent.ErrStalled) {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.ErrStalled}
+		return &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.ErrStalled}
 	}
-	return res, runErr
+	if runErr != nil {
+		return runErr
+	}
+	return refuseToolCallText(l.agent, req, answer)
 }
 
 func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, []string, []string, error) {
