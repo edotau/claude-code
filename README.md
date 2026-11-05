@@ -270,8 +270,9 @@ claude-code usage --days 7                             # subagent token usage
 
 Without `--tools`, agents are read-only. `agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills`; no AGENTS.md
-lives at this root (Claude Code would load it as a second CLAUDE.md). Envelope fields and per-agent behavior:
-`rules/harness/agent.md`; in-session fan-out: `rules/workflows/master-workflow.md`.
+lives at this root (Claude Code would load it as a second CLAUDE.md). claude.ai `skills/synced/**` goes to no
+agent. Envelope fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in-session fan-out:
+`rules/workflows/master-workflow.md`.
 
 ### Sync the Databricks model menu
 
@@ -378,7 +379,8 @@ intent-dependent commands) keeps its own process and cannot be turned off; any o
 | `codex` | Codex only: child-agent routing and its log |
 
 The `review` group adds an advisory `review-simplicity` finding after each edit.
-Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
+Per-hook matrix and which agent runs what (block, detect-only or advisory):
+[`rules/harness/hooks.md`](rules/harness/hooks.md).
 
 ## Memory bank
 
