@@ -229,8 +229,8 @@ func (h *hookHost) after(res agent.Result) {
 		h.session = res.SessionID
 	}
 	// The child has exited, so a Block has nothing left to stop; fire has logged it.
-	_, _ = h.fire("after", settings.EventStop, "", map[string]any{"stop_hook_active": false})
-	_, _ = h.fire("after", settings.EventSessionEnd, "", map[string]any{"reason": "other"})
+	_, _ = h.fire("after", settings.EventStop, "", map[string]any{"stop_hook_active": false, "harness_agent": "opencode"})
+	_, _ = h.fire("after", settings.EventSessionEnd, "", map[string]any{"reason": "other", "harness_agent": "opencode"})
 }
 
 // claudeTool maps an opencode tool call to the Claude tool name and input the hooks read; ok is false if none watches it.
