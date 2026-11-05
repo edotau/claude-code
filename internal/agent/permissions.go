@@ -30,6 +30,9 @@ type Permissions struct {
 	Deny  []Rule `json:"deny,omitempty"`
 }
 
+// IsZero reports a request with no policy: no mode and no rules.
+func (p Permissions) IsZero() bool { return p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 }
+
 // String is the rule in ParseRule's syntax.
 func (r Rule) String() string {
 	if r.Arg == "" {
@@ -169,10 +172,25 @@ func commandMatches(pattern, cmd string) bool {
 	cmd = strings.TrimSpace(cmd)
 	prefix, ok := strings.CutSuffix(pattern, ":*")
 	if !ok {
-		return pattern == cmd
+		return wildcardMatches(pattern, cmd)
 	}
 	rest, has := strings.CutPrefix(cmd, prefix)
 	return has && (rest == "" || rest[0] == ' ' || rest[0] == '\t')
+}
+
+// wildcardMatches is Claude Code's Bash wildcard: "*" spans any text and a trailing " *" also matches the bare prefix.
+func wildcardMatches(pattern, cmd string) bool {
+	if !strings.Contains(pattern, "*") {
+		return pattern == cmd
+	}
+	if prefix, ok := strings.CutSuffix(pattern, " *"); ok && cmd == prefix {
+		return true
+	}
+	parts := strings.Split(pattern, "*")
+	for i, part := range parts {
+		parts[i] = regexp.QuoteMeta(part)
+	}
+	return regexp.MustCompile("^" + strings.Join(parts, ".*") + "$").MatchString(cmd)
 }
 
 // domainMatches takes a bare host or a URL and accepts the domain itself and its subdomains.

@@ -125,6 +125,7 @@ type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Fleet, Memory, NoPersist, SafeMode, DebugFile, Direct Level
 	ReadOnly                                                                                                                       Level
 	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                                   Level
+	Permissions                                                                                                                    Level // reads RunOptions.Permissions
 }
 
 // Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).
@@ -234,6 +235,14 @@ func RefuseReadOnly(c Caps, agentName string, readOnly bool) error {
 		return nil
 	}
 	return errors.New(agentName + " has no read-only mode (" + s.CLI.Binary + " cannot restrict tools); use --tools or another agent")
+}
+
+// RefusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
+func RefusePermissions(c Caps, agentName string, p Permissions) error {
+	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != "plan") {
+		return nil
+	}
+	return errors.New(agentName + " cannot enforce permission deny rules yet; dispatch refused")
 }
 
 // fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.

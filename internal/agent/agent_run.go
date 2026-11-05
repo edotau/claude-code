@@ -18,6 +18,9 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	if err == nil {
 		err = RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly)
 	}
+	if err == nil {
+		err = RefusePermissions(r.Caps(), r.Name(), req.Permissions)
+	}
 	if err != nil {
 		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}

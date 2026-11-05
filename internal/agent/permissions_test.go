@@ -144,3 +144,18 @@ func TestPermissionRunOptionsJSON(t *testing.T) {
 		t.Errorf("round-trip lost data: %s -> %+v", b, out.Permissions)
 	}
 }
+
+// Given Claude Code's Bash wildcard rules, Then "*" spans text and a trailing " *" keeps the word boundary.
+func TestPermissionBashWildcard(t *testing.T) {
+	p, err := ParsePermissions("", nil, nil, []string{"Bash(rm *)", "Bash(git * --force)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for cmd, want := range map[string]Decision{
+		"rm -rf x": Deny, "rm": Deny, "rmdir x": Ask, "git push origin --force": Deny, "git push": Ask,
+	} {
+		if got := p.Decide("Bash", cmd); got != want {
+			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
