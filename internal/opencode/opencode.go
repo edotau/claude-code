@@ -406,7 +406,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	if err != nil {
 		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
 	}
-	p.Env = env
+	p.Env, p.Argv = env, opencodePolicyArgv(p.Argv, req)
 	host := newHookHost(req)
 	argv, err := host.before(p.Argv, p.Prompt)
 	if err != nil {

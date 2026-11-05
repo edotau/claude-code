@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,16 +28,18 @@ func TestOpencodePermissionGolden(t *testing.T) {
 		want string
 	}{
 		{"mode auto alone", agent.Permissions{Mode: "auto"}, `{"*":"allow"}`},
-		{"default mode denies unmatched", agent.Permissions{Mode: "default"}, `{"*":"deny"}`},
+		{"default mode asks unmatched", agent.Permissions{Mode: "default"}, `{"*":"ask"}`},
 		{"bash prefix deny after allow", agent.Permissions{Mode: "auto", Allow: rules(t, "Bash"), Deny: rules(t, "Bash(rm *)", "Bash(git push:*)")},
 			`{"*":"allow","bash":{"*":"allow","rm *":"deny","git push *":"deny"}}`},
-		{"ask becomes deny", agent.Permissions{Mode: "auto", Ask: rules(t, "Bash(git log:*)")}, `{"*":"allow","bash":{"git log *":"deny"}}`},
-		{"deny outranks allow on the same pattern", agent.Permissions{Allow: rules(t, "Read"), Deny: rules(t, "Read")}, `{"*":"deny","read":"deny"}`},
+		{"ask stays ask", agent.Permissions{Mode: "auto", Ask: rules(t, "Bash(git log:*)")}, `{"*":"allow","bash":{"git log *":"ask"}}`},
+		{"default mode asks", agent.Permissions{Deny: rules(t, "Bash(rm *)")}, `{"*":"ask","bash":{"rm *":"deny"}}`},
+		{"plan mode denies", agent.Permissions{Mode: "plan"}, `{"*":"deny"}`},
+		{"deny outranks allow on the same pattern", agent.Permissions{Allow: rules(t, "Read"), Deny: rules(t, "Read")}, `{"*":"ask","read":"deny"}`},
 		{"read relative deny", agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}, `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`},
-		{"edit and write share edit", agent.Permissions{Allow: rules(t, "Edit", "Write")}, `{"*":"deny","edit":"allow"}`},
+		{"edit and write share edit", agent.Permissions{Allow: rules(t, "Edit", "Write")}, `{"*":"ask","edit":"allow"}`},
 		{"tool level keys", agent.Permissions{Allow: rules(t, "Glob", "Grep", "WebFetch", "Agent"), Deny: rules(t, "Agent(Explore)")},
-			`{"*":"deny","glob":"allow","grep":"allow","task":{"*":"allow","Explore":"deny"},"webfetch":"allow"}`},
-		{"double star deny", agent.Permissions{Deny: rules(t, "Read(**/.env)")}, `{"*":"deny","read":{"*.env":"deny"}}`},
+			`{"*":"ask","glob":"allow","grep":"allow","task":{"*":"allow","Explore":"deny"},"webfetch":"allow"}`},
+		{"double star deny", agent.Permissions{Deny: rules(t, "Read(**/.env)")}, `{"*":"ask","read":{"*.env":"deny"}}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -75,5 +78,18 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 	req.Tools = false
 	if got, _ = opencodeApplyPermissions(env, req); len(got) != 1 {
 		t.Errorf("tools-off keeps its own deny, got %v", got)
+	}
+}
+
+func TestOpencodePolicyArgv(t *testing.T) {
+	pol := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
+	if got := opencodePolicyArgv([]string{"run"}, pol); !slices.Equal(got, []string{"run", "--auto"}) {
+		t.Fatalf("policy argv = %v, want --auto appended", got)
+	}
+	if got := opencodePolicyArgv([]string{"run", "--auto"}, pol); len(got) != 2 {
+		t.Fatalf("--auto duplicated: %v", got)
+	}
+	if got := opencodePolicyArgv([]string{"run"}, agent.RunOptions{Tools: true}); len(got) != 1 {
+		t.Fatalf("no policy must leave argv unchanged: %v", got)
 	}
 }

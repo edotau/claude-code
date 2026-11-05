@@ -25,17 +25,17 @@ var opencodeTools = map[string]struct {
 type opencodeEntry struct{ pattern, action string }
 
 // opencodePermission renders p as opencode's permission JSON (ordered keys: the order is the precedence).
-// Ask becomes deny: opencode run has no judge to answer it.
+// Ask and unmatched calls stay "ask" for opencode's --auto judge (D3); plan mode denies what no rule allows.
 func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
-	base := "deny"
-	if p.Mode == "auto" {
-		base = "allow"
+	base := map[string]string{"auto": "allow", "plan": "deny"}[p.Mode]
+	if base == "" {
+		base = "ask"
 	}
 	byKey := map[string][]opencodeEntry{}
 	sets := []struct {
 		rules  []agent.Rule
 		action string
-	}{{p.Allow, "allow"}, {p.Ask, "deny"}, {p.Deny, "deny"}}
+	}{{p.Allow, "allow"}, {p.Ask, "ask"}, {p.Deny, "deny"}}
 	for _, set := range sets {
 		for _, r := range set.rules {
 			key, pats, err := opencodeRule(r, set.action)
@@ -149,4 +149,12 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 		return nil, err
 	}
 	return append(env, opencodePermissionEnv+"="+string(perm)), nil
+}
+
+// opencodePolicyArgv adds --auto when a policy applies, so "ask" goes to opencode's auto judge and deny still holds.
+func opencodePolicyArgv(argv []string, req agent.RunOptions) []string {
+	if !req.Tools || req.Permissions.IsZero() || slices.Contains(argv, "--auto") {
+		return argv
+	}
+	return append(argv, "--auto")
 }
