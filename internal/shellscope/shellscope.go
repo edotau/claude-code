@@ -78,17 +78,62 @@ func readOnlyGitArgs(verb string, args []string) bool {
 		}
 		list = list || a == "--list" || a == "-l"
 	}
-	return verb != "branch" || list
+	return (verb != "branch" || list) && (verb != "grep" || grepArgsSafe(args))
 }
 
 // badGitArg is -c, a ~ path, a banned flag, or a dash arg outside the verb's allowed set (when it has one).
 func badGitArg(a string, allowed map[string]bool) bool {
-	return a == "-c" || strings.HasPrefix(a, "~") || pagerShortFlag(a) || bannedGitFlag(a) || allowed != nil && strings.HasPrefix(a, "-") && !allowed[a]
+	return a == "-c" || strings.HasPrefix(a, "~") || bannedGitFlag(a) || allowed != nil && strings.HasPrefix(a, "-") && !allowed[a]
 }
 
-// pagerShortFlag is a short-flag cluster holding -O (git grep --open-files-in-pager runs the program it names).
-func pagerShortFlag(a string) bool {
-	return strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "O")
+// grepArgsSafe refuses git grep's pager flag (-O, --open-files-in-pager) and a pattern file (-f) outside the checkout.
+func grepArgsSafe(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return true
+		case strings.HasPrefix(a, "--"):
+			name, val, hasEq := strings.Cut(a, "=")
+			if len(name) >= 4 && strings.HasPrefix("--file", name) { // --fi.. may abbreviate --file
+				if !hasEq && i+1 < len(args) {
+					i, val = i+1, args[i+1]
+				}
+				if escapesPath(val) {
+					return false
+				}
+			}
+		case strings.HasPrefix(a, "-"):
+			var ok bool
+			if i, ok = grepShortCluster(args, i); !ok {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// grepShortCluster walks the short flags of args[i]; a value letter ends the cluster (its value may be the next arg).
+func grepShortCluster(args []string, i int) (int, bool) {
+	a := args[i]
+	for j := 1; j < len(a); j++ {
+		switch a[j] {
+		case 'O':
+			return i, false
+		case 'f', 'e', 'A', 'B', 'C', 'm':
+			val := a[j+1:]
+			if val == "" && i+1 < len(args) {
+				i, val = i+1, args[i+1]
+			}
+			return i, a[j] != 'f' || !escapesPath(val)
+		}
+	}
+	return i, true
+}
+
+// escapesPath is a value that is absolute, home-relative or climbs with .. (it may leave every root).
+func escapesPath(v string) bool {
+	return strings.HasPrefix(v, "/") || strings.HasPrefix(v, "~") || slices.Contains(strings.Split(v, "/"), "..")
 }
 
 func bannedGitFlag(arg string) bool {
@@ -322,19 +367,47 @@ func outputFlag(args []string) bool {
 	})
 }
 
-// noFlag reports whether no arg is (or starts with, for a =value form) one of the banned flags.
+// noFlag reports whether no arg is a banned flag in any dash count or =value form (go takes -x and --x alike).
 func noFlag(args []string, banned ...string) bool {
 	return !slices.ContainsFunc(args, func(a string) bool {
+		if !strings.HasPrefix(a, "-") {
+			return false
+		}
 		name, _, _ := strings.Cut(a, "=")
-		return slices.Contains(banned, name)
+		return slices.ContainsFunc(banned, func(b string) bool { return strings.TrimLeft(b, "-") == strings.TrimLeft(name, "-") })
 	})
 }
 
-// argsInside requires every path-looking arg (absolute or with ..) to resolve inside workDir.
+// pathOptions are the options whose value is a file the tool writes or reads; the value may be attached or follow =.
+var pathOptions = []string{"o", "C", "modfile", "overlay", "coverprofile", "cpuprofile", "memprofile", "trace", "outputdir", "pkgdir"}
+
+// pathLooking is an absolute path or one climbing with ..; relative names stay inside by construction.
+func pathLooking(a string) bool {
+	return strings.HasPrefix(a, "/") || a == ".." || strings.HasPrefix(a, "../") || strings.Contains(a, "/../") || strings.HasSuffix(a, "/..")
+}
+
+// optionValue is the value glued to a pathOptions flag in a ("-o/x", "--o=/x"), or "" when a is not one.
+func optionValue(a string) string {
+	if !strings.HasPrefix(a, "-") {
+		return ""
+	}
+	flag := strings.TrimLeft(a, "-")
+	for _, o := range pathOptions {
+		if rest, ok := strings.CutPrefix(flag, o); ok {
+			return strings.TrimPrefix(rest, "=")
+		}
+	}
+	return ""
+}
+
+// argsInside requires every path-looking arg, and the value glued to a path option, to resolve inside workDir.
 func argsInside(args []string, workDir string) bool {
 	for _, a := range args {
-		if strings.HasPrefix(a, "/") || a == ".." || strings.HasPrefix(a, "../") || strings.Contains(a, "/../") || strings.HasSuffix(a, "/..") {
-			if _, ok := RelInside(a, workDir); !ok {
+		for _, v := range []string{a, optionValue(a)} {
+			if !pathLooking(v) {
+				continue
+			}
+			if _, ok := RelInside(v, workDir); !ok {
 				return false
 			}
 		}
