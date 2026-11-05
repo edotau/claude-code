@@ -29,7 +29,7 @@ func Check(data []byte) error {
 		return errors.New("not a JSON object")
 	}
 	for _, k := range slices.Sorted(maps.Keys(top)) {
-		if sk, ok := SchemaKey(k); ok && !sk.Env {
+		if sk, ok := schemaKey(k); ok && !sk.Env {
 			if err := sk.Validate(top[k]); err != nil {
 				return err
 			}

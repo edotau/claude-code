@@ -44,8 +44,8 @@ func ResetSettings(file string) (backup string, err error) {
 			if fi, serr := os.Stat(file); serr == nil {
 				mode = fi.Mode().Perm()
 			}
-			backup = file + ".bak." + time.Now().Format("20060102-150405")
-			if err := os.WriteFile(backup, old, mode); err != nil {
+			backup = file + ".bak." + time.Now().Format("20060102-150405.000000000")
+			if err := writeBackup(backup, old, mode); err != nil {
 				return fmt.Errorf("backup %s: %w", file, err)
 			}
 		case !errors.Is(rerr, fs.ErrNotExist):
@@ -58,4 +58,17 @@ func ResetSettings(file string) (backup string, err error) {
 		return paths.AtomicWrite(file, data, mode)
 	})
 	return backup, err
+}
+
+// writeBackup creates the backup exclusively so a same-instant restore never truncates an earlier one.
+func writeBackup(name string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

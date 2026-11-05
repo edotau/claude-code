@@ -12,7 +12,7 @@ func TestLoadOpencodeExportRealBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := LoadOpencodeExport(data)
+	got, err := loadOpencodeExport(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,13 +26,13 @@ func TestLoadOpencodeExportRealBytes(t *testing.T) {
 }
 
 func TestLoadOpencodeExportBadJSON(t *testing.T) {
-	if _, err := LoadOpencodeExport([]byte("{")); err == nil {
+	if _, err := loadOpencodeExport([]byte("{")); err == nil {
 		t.Fatal("want error")
 	}
 }
 
 func TestLoadCopilotEvents(t *testing.T) {
-	got := LoadCopilotEvents("s1", []CopilotEvent{
+	got := loadCopilotEvents("s1", []copilotEvent{
 		{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": "/a"}},
 		{Type: "tool.execution_start", ToolName: "view", Arguments: map[string]any{"path": "/b"}},
 		{Type: "tool.execution_start", ToolName: "create", Arguments: map[string]any{"path": "/a"}},
@@ -40,7 +40,7 @@ func TestLoadCopilotEvents(t *testing.T) {
 		{Type: "assistant.message", Content: "first"},
 		{Type: "assistant.message", Content: "last"},
 	})
-	want := AgentTranscript{ID: "s1", Edits: 2, EditedPaths: []string{"/a"}, FinalText: "last"}
+	want := agentTranscript{ID: "s1", Edits: 2, EditedPaths: []string{"/a"}, FinalText: "last"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v want %+v", got, want)
 	}
@@ -54,11 +54,11 @@ func TestLoadOpencodeExportFilters(t *testing.T) {
 	{"type":"tool","tool":"write","state":{"status":"completed","input":{"filePath":"/z"}}},
 	{"type":"tool","tool":"edit","state":{"status":"completed","input":{"filePath":"/a"}}},
 	{"type":"text","text":"bye"}]}]}`
-	got, err := LoadOpencodeExport([]byte(doc))
+	got, err := loadOpencodeExport([]byte(doc))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := AgentTranscript{ID: "ses_x", Edits: 2, EditedPaths: []string{"/a", "/z"}, FinalText: "bye"}
+	want := agentTranscript{ID: "ses_x", Edits: 2, EditedPaths: []string{"/a", "/z"}, FinalText: "bye"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v want %+v", got, want)
 	}

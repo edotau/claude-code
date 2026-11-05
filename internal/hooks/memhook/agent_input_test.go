@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestAgentInputClaudePassesThrough(t *testing.T) {
 
 // Live copilot 1.0.105 log (trimmed); its rejected create is hand-added: a failed complete.
 func TestCopilotEventsFromUsesFileEdits(t *testing.T) {
-	got := LoadCopilotEvents("cop-live", copilotEventsFrom("testdata/copilot-live-events.jsonl", "/r"))
+	got := loadCopilotEvents("cop-live", copilotEventsFrom("testdata/copilot-live-events.jsonl", "/r"))
 	if got.Edits != 2 || len(got.EditedPaths) != 2 {
 		t.Fatalf("edits = %d paths %v, want the 2 successful fileEdits", got.Edits, got.EditedPaths)
 	}
@@ -81,5 +82,23 @@ func TestCopilotEventsFromUsesFileEdits(t *testing.T) {
 	}
 	if !strings.HasPrefix(got.FinalText, "I created") {
 		t.Fatalf("final text = %q", got.FinalText)
+	}
+}
+
+func TestOpencodeExportRejectsOutputOverCap(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nhead -c " + strconv.Itoa(exportMaxBytes+1<<20) + " /dev/zero\n"
+	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if data, err := opencodeExport("ses_1", dir); err == nil {
+		t.Fatalf("export over %d bytes accepted (%d bytes)", exportMaxBytes, len(data))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte("#!/bin/sh\nprintf '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := opencodeExport("ses_1", dir); err != nil || string(data) != "{}" {
+		t.Fatalf("small export = %q, %v; want {}", data, err)
 	}
 }

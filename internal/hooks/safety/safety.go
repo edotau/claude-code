@@ -185,11 +185,8 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
 var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true, "switch": true}
 
-// harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
-// segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
-func harnessGitBlocked(cmd, cwd string) bool { return harnessGitVerb(cmd, cwd) != "" }
-
-// harnessGitVerb is the first banned verb (or shell.Uninspectable, nesting too deep to check) aimed at the harness tree.
+// harnessGitVerb is the first banned verb (or shell.Uninspectable, nesting too deep to check) whose target tree
+// (--work-tree / --git-dir / -C chain, else the segment's cwd after any `cd`) is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
 	var harness, worktrees, hit string
 	shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {

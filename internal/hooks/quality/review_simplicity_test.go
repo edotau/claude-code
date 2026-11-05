@@ -102,3 +102,41 @@ func TestReviewSimplicityWriteUsesGitHead(t *testing.T) {
 		t.Errorf("untracked Write output = %q, want 1 new finding", out)
 	}
 }
+
+func TestReviewSimplicityEditDeletionReportsNothing(t *testing.T) {
+	noisy := rsClean + "\n// old one\n// old two\nfunc Old() {}\n"
+	p := rsWrite(t, "a.go", noisy)
+	if out := rsRun(t, "Edit", p, "func Gone() {}\n", ""); out != "" {
+		t.Errorf("deletion edit attributed findings to the edit: %q", out)
+	}
+	in := core.ParseInput(strings.NewReader(`{"tool_name":"Edit","tool_input":{"old_string":"x","new_string":"","replace_all":true}}`))
+	if before, ok := editBefore(in, noisy); ok {
+		t.Errorf("editBefore ok=true for a deletion, before = %q", before)
+	}
+}
+
+func TestReviewSimplicityGitFailureReportsNothing(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	rsGit(t, dir, []string{"init", "-q"}, []string{"config", "user.email", "t@example.com"}, []string{"config", "user.name", "t"})
+	noisy := rsClean + "\n// old one\n// old two\nfunc Old() {}\n"
+	p := filepath.Join(dir, "a.go")
+	if err := os.WriteFile(p, []byte(noisy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rsGit(t, dir, []string{"add", "a.go"}, []string{"commit", "-q", "-m", "x"})
+	// Corrupt the repo: delete the committed blob so `git show HEAD:./a.go` fails for a reason other than untracked.
+	sha, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD:a.go").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.TrimSpace(string(sha))
+	if err := os.Remove(filepath.Join(dir, ".git", "objects", s[:2], s[2:])); err != nil {
+		t.Fatal(err)
+	}
+	if out := rsRun(t, "Write", p, "", ""); out != "" {
+		t.Errorf("git failure output = %q, want no advisory (old debt must not be blamed on the edit)", out)
+	}
+}

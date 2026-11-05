@@ -8,7 +8,7 @@ import (
 func TestSchemaNumbersBoundsAndUnions(t *testing.T) {
 	ok := func(key, val string, want bool) {
 		t.Helper()
-		k, found := SchemaKey(key)
+		k, found := schemaKey(key)
 		if !found {
 			t.Fatalf("no schema key %s", key)
 		}
@@ -37,7 +37,7 @@ func TestSchemaNumbersBoundsAndUnions(t *testing.T) {
 }
 
 func TestObjectConstraintsEnforced(t *testing.T) {
-	k, _ := SchemaKey("subagentStatusLine")
+	k, _ := schemaKey("subagentStatusLine")
 	for val, want := range map[string]bool{
 		`{"type":"command","command":"c"}`:           true,
 		`{"command":"c"}`:                            false, // required

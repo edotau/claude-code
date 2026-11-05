@@ -18,18 +18,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// agentsRunners are the agent-dispatch Native entries and the agents runner each must be.
+// agentsRunners are the agent-dispatch native entries and the agents runner each must be.
 var agentsRunners = map[string]core.Runner{
 	"dispatch-effort": agents.Effort, "dispatch-failure": agents.Release, "dispatch-workflow": agents.Release,
 	"dispatch-stop": agents.Stop, "codex-agent-route": agents.CodexAgentRoute, "codex-routing-start": agents.CodexRoutingStart,
 	"codex-routing-result": agents.CodexRoutingResult, "codex-subagent-start": agents.CodexSubagentStart,
 }
 
-// Every agent-dispatch Native entry is the intended agents runner.
+// Every agent-dispatch native entry is the intended agents runner.
 func TestNativeAgentsEntriesAreAgentsRunners(t *testing.T) {
 	for name, want := range agentsRunners {
-		if reflect.ValueOf(Native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
-			t.Errorf("%s: Native entry is not the agents runner", name)
+		if reflect.ValueOf(native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("%s: native entry is not the agents runner", name)
 		}
 	}
 }
@@ -42,8 +42,8 @@ func TestAgentPostToolUseKeepsBackgroundClaim(t *testing.T) {
 	}
 	pre := `{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_use_id":"toolu_bg","tool_input":{"prompt":"x","model":"sonnet"}}`
 	post := `{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_use_id":"toolu_bg","tool_response":{"status":"async_launched"}}`
-	RunEvent("PreToolUse", false, strings.NewReader(pre), &bytes.Buffer{}, &bytes.Buffer{})
-	RunEvent("PostToolUse", false, strings.NewReader(post), &bytes.Buffer{}, &bytes.Buffer{})
+	runEvent("PreToolUse", false, strings.NewReader(pre), &bytes.Buffer{}, &bytes.Buffer{})
+	runEvent("PostToolUse", false, strings.NewReader(post), &bytes.Buffer{}, &bytes.Buffer{})
 	if m, _ := filepath.Glob(filepath.Join(inflight.Dir(), inflight.Prefix+"*toolu_bg")); len(m) != 1 {
 		t.Fatalf("claim markers after the Agent PostToolUse = %v, want the one claimed at PreToolUse", m)
 	}

@@ -105,7 +105,7 @@ func TestDispatchSecondUpdatedInputAndRawStdout(t *testing.T) {
 func TestContractModuleFlagsResolve(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, s := range settings.Specs() {
-		if _, ok := Native[s.Name]; !ok {
+		if _, ok := native[s.Name]; !ok {
 			t.Errorf("no handler for %s", s.Name)
 			continue
 		}
@@ -423,7 +423,7 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 
 func TestRegistryMatchesHookspec(t *testing.T) {
 	for _, s := range settings.Specs() {
-		if _, ok := Native[s.Name]; !ok {
+		if _, ok := native[s.Name]; !ok {
 			t.Errorf("hookspec %q has no handler", s.Name)
 		}
 	}
@@ -442,7 +442,7 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 			t.Fatalf("%s: no hook commands rendered", name)
 		}
 		for _, m := range ms {
-			if _, ok := Native[m[2]]; !ok || !IsEvent(m[1]) || eventOf(m[2]) != m[1] {
+			if _, ok := native[m[2]]; !ok || !isEvent(m[1]) || eventOf(m[2]) != m[1] {
 				t.Errorf("%s hook file calls %q, which no module on that event serves", name, m[0])
 			}
 		}
@@ -463,11 +463,11 @@ func TestRetiredAndUnknownGuardHookNames(t *testing.T) {
 
 // An oversized context on a module's own-process path is cut to the cap plus one ellipsis rune, blocks joined by a blank line.
 func TestRunDirectCapsContext(t *testing.T) {
-	orig := Native["memory-start"]
-	Native["memory-start"] = func(*core.Input) core.Result {
+	orig := native["memory-start"]
+	native["memory-start"] = func(*core.Input) core.Result {
 		return core.Result{Context: core.JoinContext("a", "", strings.Repeat("x", 20000))}
 	}
-	t.Cleanup(func() { Native["memory-start"] = orig })
+	t.Cleanup(func() { native["memory-start"] = orig })
 	var out strings.Builder
 	if code := runDirect("memory-start", strings.NewReader(`{"session_id":"s"}`), &out, io.Discard); code != core.ExitProceed {
 		t.Fatalf("exit %d", code)
