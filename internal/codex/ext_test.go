@@ -83,6 +83,45 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 	}
 }
 
+// seedCodexFile writes body to home/.codex/name and returns its path.
+func seedCodexFile(t *testing.T, home, name string, body []byte) string {
+	t.Helper()
+	path := filepath.Join(home, ".codex", name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A hooks.json changed between prepare and apply fails the render before config.toml gets new trust hashes.
+func TestRenderCodexHooksWriteConflictLeavesConfigTomlUntouched(t *testing.T) {
+	home := rendertest.Scratch(t)
+	originalToml := []byte("# existing config must survive a failed hooks write\n")
+	tomlPath := seedCodexFile(t, home, "config.toml", originalToml)
+	hooksPath := seedCodexFile(t, home, "hooks.json", []byte(`{"hooks":{}}`))
+	var out bytes.Buffer
+	plan, drift, err := agent.PrepareConfigs(agentrender.RenderOptions{
+		Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"},
+	})
+	if err != nil || !drift {
+		t.Fatalf("prepare: drift=%v, err=%v\n%s", drift, err, out.String())
+	}
+	newerHooks := []byte(`{"hooks":{},"foreign":"concurrent edit"}`)
+	seedCodexFile(t, home, "hooks.json", newerHooks)
+	if err := plan.Apply(); err == nil || !strings.HasPrefix(err.Error(), "codex-hooks:") ||
+		!strings.Contains(err.Error(), "changed since it was read") {
+		t.Fatalf("apply: expected hooks concurrency error, got %v\n%s", err, out.String())
+	}
+	for path, want := range map[string][]byte{tomlPath: originalToml, hooksPath: newerHooks} {
+		if got, _ := os.ReadFile(path); !bytes.Equal(got, want) {
+			t.Errorf("%s changed after the failed hooks write:\nwant:\n%s\ngot:\n%s", filepath.Base(path), want, got)
+		}
+	}
+}
+
 // Approval/sandbox top-level keys land before the first [table] header, never inside one, and a
 // second run is byte-identical (idempotent), even with pre-existing foreign tables in the file.
 func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
