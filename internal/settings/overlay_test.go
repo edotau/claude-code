@@ -27,15 +27,22 @@ func TestApplyOverlaySwapsKnownKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var obj map[string]json.RawMessage
+	var obj, base map[string]json.RawMessage
 	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(rendered, &base); err != nil {
 		t.Fatal(err)
 	}
 	if string(obj["theme"]) != `"dark"` {
 		t.Errorf("theme = %s, want \"dark\"", obj["theme"])
 	}
-	if string(obj["tui"]) != `"fullscreen"` {
-		t.Errorf("unrelated key tui changed: %s", obj["tui"])
+	for k, v := range base { // every other key is left exactly as rendered, whatever the defaults hold
+		got, _ := compactStr(obj[k])
+		want, _ := compactStr(v)
+		if k != "theme" && got != want {
+			t.Errorf("unrelated key %s changed: %s → %s", k, v, obj[k])
+		}
 	}
 }
 
