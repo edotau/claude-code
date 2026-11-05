@@ -1,6 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "cleanupPeriodDays": 12,
   "env": {
     "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage",
     "CLAUDE_CODE_SCROLL_SPEED": "1",
@@ -14,18 +13,7 @@
       "Edit",
       "Read",
       "Write",
-      "WebFetch(*)",
-      "Bash(go *)",
-      "Bash(claude-code *)",
-      "Bash(gofmt -l *)",
-      "Bash(systemctl --user is-active *)",
-      "Bash(go test ./...:*)",
-      "Bash(go build *)",
-      "Bash(go vet *)",
-      "Bash(go test *)",
-      "Bash(*/.claude/bin/rtk grep *)",
-      "Bash(*/.claude/bin/rtk ls *)",
-      "Bash(make *)"
+      "WebFetch(*)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -33,7 +21,6 @@
       "Bash(rm -rf ~)",
       "Read(~/.ssh/**)",
       "Read(**/state/vault.db)",
-      "Read(**/.credentials.json)",
       "Edit(~/.ssh/**)",
       "Edit(**/state/vault.db)",
       "Edit(**/.credentials.json)"
@@ -42,42 +29,16 @@
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
-      "Read(~/.ssh/**)",
-      "Read(**/state/vault.db)",
-      "Read(**/.credentials.json)",
-      "Bash(go test * ./...*)",
-      "Bash(claude-code vault set*)",
-      "Bash(claude-code vault delete*)",
-      "Bash(claude-code vault import*)",
-      "Bash(claude-code vault edit*)",
-      "Bash(claude-code vault rotate-secret*)",
-      "Bash(claude-code vault get*)",
-      "Bash(claude-code vault export*)"
+      "Read(~/.ssh/**)"
     ],
     "defaultMode": "auto"
   },
   "model": "opus",
-  "feedbackSurveyRate": 0,
   "statusLine": {
     "type": "command",
     "command": "${HOOK_BIN} theme statusline",
     "padding": 0
   },
   "outputStyle": "Concise",
-  "spinnerTipsEnabled": false,
-  "prefersReducedMotion": true,
-  "worktree": {
-    "baseRef": "head"
-  },
-  "tui": "fullscreen",
-  "useAutoModeDuringPlan": true,
-  "preferredNotifChannel": "auto",
-  "theme": "auto",
-  "awaySummaryEnabled": false,
-  "disableClaudeAiConnectors": true,
-  "askUserQuestionTimeout": "never",
-  "autoConnectIde": false,
-  "switchModelsOnFlag": true,
-  "feedbackDrafts": "off",
-  "skipWorkflowUsageWarning": true
+  "theme": "auto"
 }
