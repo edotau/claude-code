@@ -63,6 +63,33 @@ paths:
 - **gemini** runs only on `agy` and its Google sign-in; `gemini bridge` inlines tracked files only, never `.env*`,
   `state/` or keys.
 
+## Skills and instructions parity
+
+- **Skills.** `agents sync` links `skills/<name>/SKILL.md` (symlinked dirs resolving inside `skills/` included) into
+  `~/.agents/skills`, plus copilot's `~/.copilot/skills` and agy's `~/.gemini/antigravity-cli/skills`, which do not
+  read the shared dir (`internal/agentconfig/project/targets.go`). **`skills/synced/**` (claude.ai account skills)
+  goes to no agent**; `discover.go` skips it and `skills.go` never prunes a link into it.
+- **Portable core.** `CLAUDE.md` plus unscoped `rules/standards/*.md` (no `paths:` frontmatter), listed by
+  `project.PortableCore`; headless and interactive runs load the same core. Where each agent reads it:
+
+| Agent | Reads the core from | Probe |
+| --- | --- | --- |
+| codex | `~/.codex/AGENTS.md` (rendered by sync) | `project/docs.go` `instructionFiles` |
+| gemini (agy) | `~/.gemini/GEMINI.md` (rendered by sync) | same |
+| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md` | F0 `p7` |
+| copilot `ask` (SDK) | appended system text + instruction, skill, agent dirs | `copilot/sdk.go` |
+| opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | F0 `p2`, `p2b` |
+
+- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs through the SDK:
+  per-call `Decide` on the dispatch's permissions, hooks via SDK callbacks (`SpecsFor("copilot", "sdk")`).
+- **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge (opencode Ask = `--auto`). A Deny an
+  agent cannot enforce refuses the dispatch with `agent.Error{Kind: KindFatal}` naming the rule. opencode
+  `--read-only` stays tools-off.
+- **opencode Bash deny.** opencode's matcher is bypassed by `bash -c "..."`, so a native Bash deny is refused today
+  (`internal/opencode/permission.go`). The fix is the `permission-gate` PreToolUse module plus an opencode plugin
+  throwing in `tool.execute.before` (F0: blocks in `run`, subagent bash included, 1.19.3). Both are on the
+  `worktree-permission-gate` branch, **not merged to main yet**; hook modes: `hooks.md` → Applicability.
+
 ## Codex child routing
 
 - Native `spawn_agent` children use the Codex routing cells on a Databricks profile with a validated catalog — only
