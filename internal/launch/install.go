@@ -32,7 +32,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
-	"github.com/edotau/claude-code/internal/shellscope"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
@@ -314,7 +314,7 @@ func browserDoctorDetail() string {
 
 // rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.
 func rtkDoctorStatus() string {
-	if bin := shellscope.RTKBinary(); bin != "" {
+	if bin := shell.RTKBinary(); bin != "" {
 		return bin + " (rtk rewrite)"
 	}
 	return "not on PATH — the rtk hook skips the rewrite"

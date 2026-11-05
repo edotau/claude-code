@@ -1,4 +1,4 @@
-package shellscope
+package shell
 
 import (
 	"os"

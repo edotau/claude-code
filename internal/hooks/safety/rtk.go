@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
-	"github.com/edotau/claude-code/internal/shellscope"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -44,10 +43,10 @@ func RTKRewrite(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	cmd := in.ToolCommand()
-	if rtkVetoed(cmd, in.CWD, os.Getenv(shellscope.RTKBinaryEnv)) {
+	if rtkVetoed(cmd, in.CWD, os.Getenv(shell.RTKBinaryEnv)) {
 		return core.Result{}
 	}
-	bin := shellscope.RTKBinary()
+	bin := shell.RTKBinary()
 	if bin == "" {
 		return core.Result{}
 	}

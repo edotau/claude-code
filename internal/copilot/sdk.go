@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/shellscope"
+	"github.com/edotau/claude-code/internal/shell"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -252,7 +252,7 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	cmd, ok := shellCommand(req)
-	if !readOnlyKinds[req.Kind()] && (!ok || !shellscope.ReadOnlyGit(cmd)) {
+	if !readOnlyKinds[req.Kind()] && (!ok || !shell.ReadOnlyGit(cmd)) {
 		feedback := readOnlyFeedback
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}
@@ -515,16 +515,16 @@ func approveScoped(workDir string) copilot.PermissionHandlerFunc {
 func scopedAllowed(req copilot.PermissionRequest, workDir string) bool {
 	switch r := req.(type) {
 	case rpc.PermissionRequestWrite:
-		return shellscope.WriteAllowed(r.FileName, workDir)
+		return shell.WriteAllowed(r.FileName, workDir)
 	case *rpc.PermissionRequestWrite:
-		return shellscope.WriteAllowed(r.FileName, workDir)
+		return shell.WriteAllowed(r.FileName, workDir)
 	}
 	switch req.Kind() {
 	case rpc.PermissionRequestKindRead, rpc.PermissionRequestKindURL:
 		return true
 	case rpc.PermissionRequestKindShell:
 		cmd, ok := shellCommand(req)
-		return ok && shellscope.Command(shellscope.CanonicalSelf(cmd), []string{workDir}, nil)
+		return ok && shell.Command(shell.CanonicalSelf(cmd), []string{workDir}, nil)
 	}
 	return false
 }

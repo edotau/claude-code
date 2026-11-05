@@ -1,5 +1,6 @@
-// Package shellscope judges shell commands against the scoped allowlist shared by copilot's permission handler and hooks.
-package shellscope
+// Scoped allowlist: judges shell commands for copilot's permission handler and the copilot-bash hook (merged from shellscope).
+
+package shell
 
 import (
 	"os"
@@ -149,8 +150,8 @@ func bannedGitFlag(arg string) bool {
 	return false
 }
 
-// ResolvePath makes p absolute under base and resolves symlinks through its deepest existing ancestor.
-func ResolvePath(p, base string) string {
+// ResolveReal makes p absolute under base and resolves symlinks through its deepest existing ancestor.
+func ResolveReal(p, base string) string {
 	if p == "~" || strings.HasPrefix(p, "~/") {
 		return "~escape" // never inside a workdir
 	}
@@ -172,8 +173,8 @@ func ResolvePath(p, base string) string {
 
 // RelInside returns p's path relative to the resolved workDir, false when it escapes.
 func RelInside(p, workDir string) (string, bool) {
-	root := ResolvePath(workDir, ".")
-	rel, err := filepath.Rel(root, ResolvePath(p, root))
+	root := ResolveReal(workDir, ".")
+	rel, err := filepath.Rel(root, ResolveReal(p, root))
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", false
 	}
@@ -417,7 +418,7 @@ func argsInside(args []string, workDir string) bool {
 
 func scopedGit(w []string, workDir string) bool {
 	if len(w) >= 3 && w[1] == "-C" { // git -C <dir> is the same command run from dir, which must stay inside workDir
-		dir := ResolvePath(w[2], workDir)
+		dir := ResolveReal(w[2], workDir)
 		if _, ok := RelInside(dir, workDir); !ok {
 			return false
 		}
@@ -459,7 +460,7 @@ func gitAddPathAllowed(p, workDir string) bool {
 	if !ok {
 		return false
 	}
-	if st, err := os.Stat(ResolvePath(p, ResolvePath(workDir, "."))); err == nil && st.IsDir() || rel == "." {
+	if st, err := os.Stat(ResolveReal(p, ResolveReal(workDir, "."))); err == nil && st.IsDir() || rel == "." {
 		return false
 	}
 	return true
