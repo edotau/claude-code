@@ -560,3 +560,49 @@ func TestPlainHTTPNonLoopbackSealedRowDoesNotMint(t *testing.T) {
 		t.Fatalf("Credential = %q, %v; want an error and no token", got, err)
 	}
 }
+
+// clientRow is an m2m row, or with sp a paired u2m row on identity sp, plus the vault name of its client secret.
+func clientRow(t *testing.T, sp bool) (*Provider, string) {
+	if sp {
+		p, _, _, _ := spHarness(t, IdentitySP)
+		return p, SecretName(GroupDatabricks, p.Name, AuthM2M)
+	}
+	p := mintRow(t, "m2m-share", AuthM2M, "client", "https://h.example.com")
+	if err := vault.Store(AuthSecretName(p), "secret"); err != nil {
+		t.Fatal(err)
+	}
+	return p, AuthSecretName(p)
+}
+
+// An m2m/sp token minted by one process is reused by the next until its client secret changes or a refresh forces it.
+func TestClientTokenSharedAcrossProcesses(t *testing.T) {
+	for _, sp := range []bool{false, true} {
+		t.Run(fmt.Sprint("sp=", sp), func(t *testing.T) {
+			p, secretName := clientRow(t, sp)
+			calls, orig := 0, mintM2M
+			mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+				calls++
+				return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, "")}, nil
+			}
+			t.Cleanup(func() { mintM2M = orig })
+			newProcess := func() { cmdCache.Delete(p.Name); spCache.Delete(p.Name) }
+			ctx := context.Background()
+			first, err := Credential(ctx, p)
+			newProcess()
+			again, err2 := Credential(ctx, p)
+			if err != nil || err2 != nil || again != first || calls != 1 {
+				t.Fatalf("second process: same=%t calls=%d errs=%v,%v; want the sealed token reused", again == first, calls, err, err2)
+			}
+			if err := vault.Store(secretName, "rotated"); err != nil {
+				t.Fatal(err)
+			}
+			newProcess()
+			if rotated, err := Credential(ctx, p); err != nil || rotated == first || calls != 2 {
+				t.Fatalf("after secret rotation: reused=%t calls=%d err=%v; want a fresh mint", rotated == first, calls, err)
+			}
+			if _, err := Refresh(ctx, p); err != nil || calls != 3 {
+				t.Fatalf("Refresh: calls=%d err=%v; want a forced mint", calls, err)
+			}
+		})
+	}
+}
