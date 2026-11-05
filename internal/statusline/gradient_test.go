@@ -48,7 +48,7 @@ func TestGradientLine(t *testing.T) {
 	}
 	git("add", "f")
 	git("commit", "-qm", "f")
-	const ctx = " | claude-opus-5-5 · ctx ━━━─────── 31.0% · 309.5k/1M 7d:15%"
+	const ctx = " | Opus 5.5 · ctx ━━━─────── 31.0% · 309.5k/1M 7d:15%"
 	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
 		t.Errorf("clean tree: %q must end %q (no provider, id without claude-)", got, ctx)
 	}
@@ -61,20 +61,20 @@ func TestGradientLine(t *testing.T) {
 	}
 }
 
-// The gradient label is the raw payload id: claude- kept, a [1m] tag and a profile: prefix dropped, a routed label kept.
-func TestRawModelID(t *testing.T) {
-	for id, want := range map[string]string{
-		"claude-opus-5-5": "claude-opus-5-5", "databricks-claude-opus-5-5": "databricks-claude-opus-5-5",
-		"claude-opus-5-5[1m]": "claude-opus-5-5", "work:claude-opus-5-5": "claude-opus-5-5", "": "short",
+// The gradient label is the payload display name, minus its 1M tag; no name or a routed label keeps the short id.
+func TestDisplayLabel(t *testing.T) {
+	for name, want := range map[string]string{
+		"Opus 5.5": "Opus 5.5", "Opus 5.5 (1M context)": "Opus 5.5", "": "short",
 	} {
-		if got := rawModelID(Input{Model: struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-		}{ID: id}}, "short"); got != want {
-			t.Errorf("rawModelID(%q) = %q, want %q", id, got, want)
+		in := Input{}
+		in.Model.DisplayName = name
+		if got := displayLabel(in, "short"); got != want {
+			t.Errorf("displayLabel(%q) = %q, want %q", name, got, want)
 		}
 	}
-	if got := rawModelID(Input{}, "opus ⇄acme"); got != "opus ⇄acme" {
+	in := Input{}
+	in.Model.DisplayName = "Opus 5.5"
+	if got := displayLabel(in, "opus ⇄acme"); got != "opus ⇄acme" {
 		t.Errorf("routed label replaced: %q", got)
 	}
 }
