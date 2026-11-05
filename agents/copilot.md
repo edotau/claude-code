@@ -1,7 +1,7 @@
 ---
 name: copilot
 description: |
-  Two modes. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/testing-guidelines.md`). Use on a rename, module move, signature change, or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Not the release gate (the main thread's full suite, run with the owner's approval) nor memory (`opencode`). TEST edits may run in-agent; a large batch runs on the Copilot CLI via `claude-code copilot ask --tools`; `copilot review|resume|transfer|status|result` cover the rest of the CLI's verb surface.
+  Agent on the GitHub Copilot CLI, driven through `claude-code copilot <verb>` or headless `claude-code ask --agent copilot`. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/testing-guidelines.md`); use on a rename, module move, signature change or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Also: a delegated mechanical edit (`ask --tools [--background]`, `--read-only` for reads, `--fleet` for wide scans), a diff review (`review [--adversarial]`), `explore`, `resume <id>`, `transfer`. Copilot loads the harness instructions, skills and guard hooks. Not the release gate (main thread, owner-approved) nor memory (`opencode`).
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.
@@ -77,6 +77,50 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
   no usable Databricks profile, no Anthropic key. The `COPILOT_ACTIVE` pin is untouched, so it comes back on its own.
 - Pins in `claude-code vault edit`: `COPILOT_MODEL`, `COPILOT_EFFORT`, `COPILOT_CONTEXT`.
 - `claude-code copilot off|on` stops/resumes routing to copilot; `claude-code copilot setup` checks the route.
+
+## Usage
+
+**Interactive** — `claude-code copilot [launch flags] [args…]` opens the Copilot TUI on the routed profile:
+
+- `--model <m>` · `--profile <p>` · `--direct` (skip the proxy) · `--overlay <file>` (`{set,unset,keep}` env)
+- `--print-env` shows the resolved binary, argv and env without launching; `copilot -- <native args>` forces
+  passthrough; `copilot --docs` prints copilot's own help; resume natively with `copilot --resume <id>`.
+
+**Headless** — `claude-code copilot ask` = `claude-code ask --agent copilot`; no tools unless `--tools`:
+
+| Need | Flags |
+| --- | --- |
+| Edit files / run shell | `--tools` (scoped; `--autonomous` approves every request, needed for `worktree merge`) · `--workdir <repo>` |
+| Read only | `--read-only` (file reads, URL fetches, read-only git; implies `--tools`) |
+| Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode auto\|plan` (a Deny it cannot enforce refuses) |
+| Long run | `--background` → `copilot status [--all]` · `copilot tail -f <id>` · `copilot result <id>` · `copilot cancel` |
+| Wide scan / memory | `--fleet` (parallel subagents; verify with `git diff --stat`) · `--enable-memory` (session memory) |
+| Model and depth | `--model <alias\|wire id>` · `--effort low..max` · `--profile <p>` · `--direct` |
+| Input | task arg or stdin (`-`) · `--attach <file>` · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
+| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`, `ran_on`) · `stream-json` · `--output-schema` |
+| Continue | `--session <id>` (= `copilot resume <id> "<task>"`) |
+| Isolation | `--env NAME=VALUE` · `--fallback all\|agents\|none` · `--host <ssh>` |
+| Replay / bulk | `ask --log` · `ask --retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` |
+
+**What copilot loads** (refreshed by `claude-code agents sync`; `copilot setup` checks the projection):
+
+- Instructions: interactive reads `~/.copilot/copilot-instructions.md` (rendered `CLAUDE.md` + unscoped
+  `rules/standards/*.md`, not `~/.claude/CLAUDE.md`); `ask` (SDK) appends the same text plus the skill and agent dirs.
+- Skills: `~/.copilot/skills` (a link per `skills/<name>`); agents: `~/.copilot/agents/*.md`.
+- Hooks (`~/.copilot/hooks/claude-code-harness.json`, an ask blocks): preToolUse `safety-scan`, `docs-placement`,
+  `docs-plan-gate`; userPromptSubmitted `paths-resolve`, `memory-recall`; agentStop `memory-update`, `format-stop`;
+  sessionEnd `memory-end`. The SDK session loads the same file, so `ask` runs them too (`rules/harness/hooks.md`).
+
+**Workflows**
+
+1. Rename: implementer + copilot (TEST) in one message → baseline, classify, repair, re-run scoped tests.
+2. Batch test repair: `copilot ask --tools --workdir <repo> "<brief>"` → scoped tests → `git diff --stat`.
+3. Pre-merge: `copilot review --adversarial --base main` → fix → `copilot review --base main`.
+4. Long edit: `copilot ask --tools --background --deny 'Bash(git push:*)' "<brief>"` →
+   `copilot tail -f <id>` → `copilot result <id>`.
+5. Wide audit: `copilot ask --fleet --read-only "<question>"`; code + web brief: `copilot explore [--no-web] "<q>"`.
+6. Follow-up: `copilot result` prints the session → `copilot resume <session> "<next step>"`; hand over:
+   `copilot transfer`.
 
 ## Verbs
 

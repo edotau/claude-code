@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Model-discovery coding agent on the OpenCode CLI, driven through `claude-code opencode <verb>` or `claude-code ask --agent opencode --tools`: it reaches the widest model pool (its own catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it when a task should run on, compare, or find a non-Claude model (`--model <m>`, `/coworkers model=byok`). It also implements, edits, fixes and reviews code like codex and copilot, and refreshes docs (DOC-UPDATE) or answers library questions (DOC-LOOKUP). `opencode review [--adversarial]` reviews a diff, `opencode resume <id>` continues a session.
+  Model-discovery coding agent on the OpenCode CLI, driven through `claude-code opencode <verb>` or headless `claude-code ask --agent opencode`: it reaches the widest model pool (its own catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model (`--model <m>`, `catalog list|sync`, `/coworkers model=byok`). It also implements, edits and fixes code (`ask --tools [--background]`, then `status`/`tail -f`/`result`), reviews a diff (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`), continues a session (`resume <id>`), scans code + web (`explore`), refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP). It loads the harness rules, skills and guard plugin: `--deny` holds.
 
   <example>
   Context: User wants a small feature in a named package.
@@ -46,6 +46,53 @@ every call. `/opencode` runs the CLI directly, no subagent.
 - **Diff review on the OpenCode CLI**, when asked — `claude-code opencode review [--adversarial]`.
 - **Continuing a session** — `claude-code opencode resume <id> <task>`.
 - **Any delegated task** — `claude-code opencode ask --tools [--background] "<brief>"`.
+
+## Usage
+
+**Interactive** — `claude-code opencode [launch flags] [args…]` opens the opencode TUI on the routed profile:
+
+- `--model <m>` · `--profile <p>` · `--direct` (skip the proxy) · `--overlay <file>` (`{set,unset,keep}` env)
+- `--print-env` shows the resolved binary, argv and env without launching.
+- `claude-code opencode -- <native verb>` forces passthrough; `--docs` = opencode's own help.
+
+**Headless** — `claude-code opencode ask` = `claude-code ask --agent opencode`; read-only unless `--tools`:
+
+| Need | Flags |
+| --- | --- |
+| Edit files / run shell | `--tools` (`--read-only` drops opencode's tools: fail closed) · `--workdir <repo>` |
+| Guard the run | `--deny 'Bash(git push:*)'` (`permission-gate`) · `--allow` · `--ask` (opencode `--auto`) |
+| Long run | `--background` → `opencode status` · `tail -f <id>` · `result <id>` · `cancel` |
+| Model and depth | `--model <alias\|wire id>` (off-menu refused) · `--effort low..max` · `--profile <p>` |
+| Input | task arg or stdin (`-`) · `--attach <file>` · `--rubric <file>` · `--system-prompt` |
+| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema` |
+| Continue | `--session <id>` (= `opencode resume <id> "<task>"`) |
+| Isolation | `--safe-mode` (no hooks/plugins; refuses a Bash deny) · `--native` (skip the hub ladder, own login) |
+| Other | `--env NAME=VALUE` · `--fallback all\|agents\|none` · `--host <ssh>` · `--timeout` · `--autonomous` |
+| Replay / bulk | `ask --log` · `ask --retry <id>` · `--batch <jsonl> --jobs N` |
+
+Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `catalog sync --profile P [--apply]`;
+`opencode profile <p>|--clear` pins the profile, `opencode off|on` toggles routing, `opencode setup` checks it.
+
+**What opencode loads** (agents refreshed by `claude-code agents sync`; `opencode setup` checks the projection):
+
+- Instructions: `~/.claude/CLAUDE.md` natively plus the unscoped `rules/standards/*.md` from the launch overlay
+  (`OPENCODE_CONFIG`); sync writes no `AGENTS.md`, which would replace `CLAUDE.md`.
+- Skills: `~/.agents/skills` (and `~/.config/opencode/skills`); agents: `~/.config/opencode/agents/*.md`.
+- Commands: `/opencode`, `/codex`, `/copilot`, `/gemini`, `/discover-models`, `/lint-fix` ride the same overlay.
+- Plugin (`tool.execute.before`, headless and TUI): `safety-scan`, `docs-placement`, `docs-plan-gate`,
+  `worktree-claim-check` block; `permission-gate` applies the dispatch's Bash deny; the other hooks are advisory
+  (`rules/harness/hooks.md` → Applicability).
+
+**Workflows**
+
+1. Delegated edit: `opencode ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` →
+   `opencode tail -f <id>` → `opencode result <id>` → `git diff --stat`.
+2. Compare models: `claude-code dispatch compare --models a,b "<task>"`, or `opencode ask --model <id>` per id.
+3. Find a model: `claude-code models discover [--profile P] [--apply]` → `opencode catalog sync --profile P --apply`.
+4. Diff review: `opencode review --adversarial --base main`, or `opencode review --pr`.
+5. Follow-up: `opencode result` prints the session → `opencode resume <session> "<next step>"`.
+6. Code + web brief: `opencode explore [--no-web] "<question>"`; hand off this session:
+   `opencode transfer --wait "<note>"`.
 
 ## Models and routing
 
