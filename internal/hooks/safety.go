@@ -44,12 +44,15 @@ type askRule struct {
 
 const gitPushPrefix = `git\s+((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'[^']*'|[^\s"']+)\s+)*push\s+`
 
+// forceFlag is a standalone --force or short-flag cluster containing f (-f, -fu, -uf).
+const forceFlag = `(--force|-[a-zA-Z]*f[a-zA-Z]*)(\s|$)`
+
 var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
 		lazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
 	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", lazyCompile(
-		gitPushPrefix+`.*(--force|-f)(\s|$).*\b(main|master)(\s|$)`,
-		gitPushPrefix+`.*\b(main|master)(\s|$).*(--force|-f)(\s|$)`,
+		gitPushPrefix+`(.*\s)?`+forceFlag+`.*\b(main|master)["']?(\s|$)`,
+		gitPushPrefix+`.*\b(main|master)["']?(\s|$)(.*\s)?`+forceFlag,
 		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$).*\b(main|master)(\s|$)`,
 		gitPushPrefix+`.*\b(main|master)(\s|$).*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
 		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?\b(main|master)(\s|$)`,
@@ -218,9 +221,46 @@ func skipEnvAssignments(toks []string) []string {
 	return toks[i:]
 }
 
+// wrapperValueFlags are the option flags of a prefix wrapper that consume the next token.
+var wrapperValueFlags = map[string]map[string]bool{
+	"sudo": {"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-D": true, "-R": true, "-T": true, "-U": true},
+	"env":  {"-u": true, "-C": true, "-S": true},
+	"nice": {"-n": true},
+}
+
+// skipPrefixWrappers drops leading env/sudo/timeout/nohup/nice/command/exec/time wrappers and their options.
+func skipPrefixWrappers(toks []string) []string {
+	for {
+		toks = skipEnvAssignments(toks)
+		if len(toks) == 0 {
+			return toks
+		}
+		name := filepath.Base(toks[0])
+		switch name {
+		case "env", "sudo", "nice", "nohup", "command", "exec", "time", "timeout":
+		default:
+			return toks
+		}
+		toks = toks[1:]
+		for len(toks) > 0 && strings.HasPrefix(toks[0], "-") && toks[0] != "-" {
+			opt := toks[0]
+			toks = toks[1:]
+			if opt == "--" {
+				break
+			}
+			if wrapperValueFlags[name][opt] && len(toks) > 0 {
+				toks = toks[1:]
+			}
+		}
+		if name == "timeout" && len(toks) > 0 { // the duration operand
+			toks = toks[1:]
+		}
+	}
+}
+
 // nestedShellCommand reports the command text a `bash -c "…"`/`eval "…"` token sequence would run.
 func nestedShellCommand(toks []string) (string, bool) {
-	toks = skipEnvAssignments(toks)
+	toks = skipPrefixWrappers(toks)
 	if len(toks) == 0 {
 		return "", false
 	}
@@ -305,13 +345,21 @@ func cdTarget(toks []string, cwd string) (string, bool) {
 	if toks[0] != "cd" && toks[0] != "pushd" {
 		return cwd, false
 	}
-	if len(toks) == 1 {
+	args := toks[1:]
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") && args[0] != "-" {
+		opt := args[0]
+		args = args[1:]
+		if opt == "--" {
+			break
+		}
+	}
+	if len(args) == 0 {
 		if home, err := os.UserHomeDir(); err == nil && toks[0] == "cd" {
 			return home, true
 		}
 		return cwd, true
 	}
-	if p, ok := resolveShellPath(toks[1], cwd); ok {
+	if p, ok := resolveShellPath(args[0], cwd); ok {
 		return p, true
 	}
 	return cwd, true

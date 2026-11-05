@@ -268,6 +268,10 @@ func safetyAskCases(harness string) []safetyTierCase {
 		{"git push --force-with-lease origin main", "", core.Ask},
 		{"git push origin main --force-with-lease=main:abc", "", core.Ask},
 		{"git push origin +main", "", core.Ask},
+		{"git push -fu origin main", "", core.Ask},
+		{"git push -uf origin main", "", core.Ask},
+		{`git push -f origin "main"`, "", core.Ask},
+		{"git push origin 'master' -f", "", core.Ask},
 		{"git push origin +HEAD:main", "", core.Ask},
 		{"rm -rf .git", "", core.Ask},
 		{"rm --recursive --force .git", "", core.Ask},
@@ -355,6 +359,7 @@ func TestSafetyTierDecisions(t *testing.T) {
 		// Allow: near-miss shapes that must keep proceeding.
 		safetyTierCase{"git push --force-with-lease origin my-branch", "", core.Allow},
 		safetyTierCase{"git push origin main", "", core.Allow},
+		safetyTierCase{"git push my-f main", "", core.Allow},
 		safetyTierCase{"rm -rf .github", "", core.Allow},
 		safetyTierCase{"rm -rf .gitignore", "", core.Allow},
 		safetyTierCase{"rm .git/index.lock", "", core.Allow},
@@ -592,6 +597,28 @@ func TestHarnessGitBlockedApostropheInDoubleQuotes(t *testing.T) {
 	for _, cmd := range []string{`git commit -m "it's $(git stash)"`, "git commit -m \"it's `git reset --hard`\""} {
 		if !harnessGitBlocked(cmd, cfg) {
 			t.Errorf("harnessGitBlocked(%q) = false, want true", cmd)
+		}
+	}
+}
+
+// cd options and prefix wrappers must not hide a banned git verb in the shared config tree.
+func TestHarnessGitBlockedOptionsAndWrappers(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	blocked := []string{
+		"cd -P " + cfg + " && git stash", "cd -L " + cfg + " && git stash", "cd -- " + cfg + " && git reset --hard",
+		"env bash -c 'git stash'", `timeout 5 sh -c "git -C ` + cfg + ` reset --hard"`, "sudo -u root bash -c 'git stash'",
+		"nohup bash -c 'git stash'", `env FOO=1 eval "git stash"`, "command bash -c 'git stash'",
+		"exec sh -c 'git stash'", "time bash -c 'git stash'", "nice -n 5 bash -c 'git stash'",
+	}
+	for _, cmd := range blocked {
+		if !harnessGitBlocked(cmd, cfg) || (strings.HasPrefix(cmd, "cd ") && !harnessGitBlocked(cmd, t.TempDir())) {
+			t.Errorf("harnessGitBlocked(%q) = false, want true", cmd)
+		}
+	}
+	for _, cmd := range []string{"cd -P", "env", "timeout", "sudo -u", "cd -P " + cfg + " && git stash list", "env bash -c 'git status'"} {
+		if harnessGitBlocked(cmd, cfg) {
+			t.Errorf("harnessGitBlocked(%q) = true, want false", cmd)
 		}
 	}
 }
