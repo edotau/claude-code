@@ -113,7 +113,7 @@ func rtkAbsolute(cmd, bin string) string {
 // any commit (the plan tick reads git's own output), machine-readable flags, or git value subcommands.
 func rtkVetoed(cmd, cwd, bin string) bool {
 	fields := strings.Fields(cmd)
-	if len(fields) == 0 || fields[0] == bin || fields[0] == "rtk" || gitCommitCmd.MatchString(cmd) {
+	if len(fields) == 0 || fields[0] == bin || fields[0] == "rtk" || core.GitCommitCmd.MatchString(cmd) {
 		return true
 	}
 	if rtkGitInLinkedWorktree(cmd, cwd) {

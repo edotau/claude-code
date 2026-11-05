@@ -332,7 +332,7 @@ func flagHarness(t *testing.T) {
 	tierHarness(t)
 	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("HARNESS_RTK_BIN", "claude-test-no-such-rtk-binary")
-	t.Setenv(docsPlacementDisableEnv, "1")
+	t.Setenv("HARNESS_DOCS_PLACEMENT", "1")
 }
 
 // runFlags is `claude-code hook <event> <flags...>` on payload.
@@ -390,9 +390,15 @@ func TestHookFlagAllIncludesGateBareExcludes(t *testing.T) {
 // docs-placement runs inside the bare PreToolUse dispatcher and its block survives as the merged deny.
 func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 	flagHarness(t)
-	repo := placementRepo(t)
-	payload := writePayload(t, "Write", repo, filepath.Join(repo, "NOTES.md"), "# notes\n")
-	code, out, errb := runFlags("PreToolUse", strings.NewReader(payload))
+	repo := gitRepo(t)
+	payload, err := json.Marshal(map[string]any{
+		"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo,
+		"tool_input": map[string]string{"file_path": filepath.Join(repo, "NOTES.md"), "content": "# notes\n"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, errb := runFlags("PreToolUse", bytes.NewReader(payload))
 	if code != core.ExitProceed || !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "docs-placement: BLOCKED") {
 		t.Errorf("bare hook PreToolUse on a root NOTES.md = %d %q %q, want the docs-placement deny", code, out, errb)
 	}

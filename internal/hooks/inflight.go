@@ -6,17 +6,15 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/inflight"
 )
-
-// spawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).
-var spawnTools = map[string]bool{"Agent": true, "Task": true}
 
 // releaseSpawn retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
 func releaseSpawn(in *core.Input) core.Result {
 	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
-		clearPlanClaim(in.CWD, id) // a failed spawn never reaches SubagentStop
+		docs.ClearPlanClaim(in.CWD, id) // a failed spawn never reaches SubagentStop
 	}
 	return core.Result{}
 }
@@ -39,7 +37,7 @@ func subagentStopRunner(in *core.Input) core.Result {
 		return note // a blocked stop retires nothing: the leaf is still running
 	}
 	reapLeaf(in)
-	clearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
+	docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
 		if d != "" {
 			inflight.RetireAgent(owner, d, id)

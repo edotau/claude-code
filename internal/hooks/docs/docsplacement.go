@@ -1,7 +1,7 @@
 // `docs-placement` — PreToolUse(Write|Edit): BLOCKS a markdown write targeting a repo ROOT, or a
 // <repo>/docs page git REFUSES to keep (ignored -> gone on a fresh clone), naming the canonical
 // docs/ path instead. Root anchors, tracked files, and this harness's own docs tree pass.
-package hooks
+package docs
 
 import (
 	"context"
@@ -30,9 +30,9 @@ var rootAnchors = map[string]bool{
 	"contributing.md": true, "code_of_conduct.md": true, "security.md": true,
 }
 
-// docsPlacement gates markdown writes at a repo root. Fails open on anything unclear (no path, not a
+// Placement gates markdown writes at a repo root. Fails open on anything unclear (no path, not a
 // git repo, unreadable git state) — placement is a convention worth enforcing, never worth wedging on.
-func docsPlacement(in *core.Input, stderr io.Writer) int {
+func Placement(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" && tool != "apply_patch" {
 		return core.ExitProceed
@@ -99,7 +99,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	}
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := canonDeep(paths.ConfigDir())
-	if harnessDocs := canonDeep(filepath.Join(config, "docs")); underDir(harnessDocs, abs) {
+	if harnessDocs := canonDeep(filepath.Join(config, "docs")); core.UnderDir(harnessDocs, abs) {
 		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
 	return repoDocsPlacement(ctx, stderr, dir, base, abs)
@@ -107,7 +107,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 
 // repoDocsPlacement gates the two shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
 func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs string) int {
-	root := repoRootOf(dir)
+	root := core.RepoRootOf(dir)
 	if root == "" {
 		return core.ExitProceed
 	}
@@ -134,7 +134,7 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 // harnessDocsPlacement gates a write under the harness's own docs/: images and templates and tracked files pass.
 func harnessDocsPlacement(ctx context.Context, stderr io.Writer, config, harnessDocs, abs, base string) int {
 	for _, tier := range []string{"images", "templates"} {
-		if underDir(filepath.Join(harnessDocs, tier), abs) {
+		if core.UnderDir(filepath.Join(harnessDocs, tier), abs) {
 			return core.ExitProceed
 		}
 	}
@@ -192,21 +192,6 @@ func isMarkdownPath(path string) bool {
 	return ext == ".md" || ext == ".markdown"
 }
 
-// repoRootOf climbs from dir's nearest existing ancestor to the first dir holding a `.git` entry, or "".
-func repoRootOf(dir string) string {
-	for dir != "" {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-	return ""
-}
-
 // canonDeep resolves p's deepest existing ancestor and re-joins the missing tail, so a nested target
 // under a dir that does not exist yet (docs/reports/x/) still compares equal to the realpath git reports.
 func canonDeep(p string) string {
@@ -252,9 +237,4 @@ func repoRel(root, abs string) (string, bool) {
 		return "", false
 	}
 	return filepath.ToSlash(rel), true
-}
-
-// underDir reports whether path is dir itself or below it (both already canonical).
-func underDir(dir, path string) bool {
-	return dir != "" && (path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)))
 }

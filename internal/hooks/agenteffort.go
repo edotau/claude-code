@@ -37,7 +37,7 @@ func agentEffortResult(in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
 		return workflowResult(in)
 	}
-	if !spawnTools[in.ToolName] {
+	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;

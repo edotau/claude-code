@@ -1,15 +1,15 @@
-package hooks
+package docs
 
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
 func mirrorPayload(t *testing.T, tool, cwd, path string) string {
@@ -27,7 +27,7 @@ func mirrorPayload(t *testing.T, tool, cwd, path string) string {
 // mirrorRun feeds one docs-plan-mirror PostToolUse for tool/path and requires the hook to fail open.
 func mirrorRun(t *testing.T, label, tool, cwd, path string) {
 	t.Helper()
-	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, tool, cwd, path)), io.Discard, &bytes.Buffer{}); code != core.ExitProceed {
+	if code := Mirror(core.ParseInput(strings.NewReader(mirrorPayload(t, tool, cwd, path))), &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("%s = %d", label, code)
 	}
 }
@@ -75,8 +75,8 @@ func approvalPayload(t *testing.T, cwd, draft string, toolInput map[string]any) 
 func approvePlan(t *testing.T, raw []byte) string {
 	t.Helper()
 	var stderr bytes.Buffer
-	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &stderr); code != core.ExitProceed {
-		t.Fatalf("savePlan = %d", code)
+	if code := Save(core.ParseInput(bytes.NewReader(raw)), &stderr); code != core.ExitProceed {
+		t.Fatalf("Save = %d", code)
 	}
 	return stderr.String()
 }
@@ -85,7 +85,7 @@ func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "funny-random-words.md", planTemplate)
-	mirrorRun(t, "planMirror", "Write", cfg, draft)
+	mirrorRun(t, "Mirror", "Write", cfg, draft)
 	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
 	if _, err := os.Stat(filepath.Join(cfg, "state", "harness", "plans-scratch", "funny-random-words.md.dest")); err != nil {
 		t.Fatalf("expected a recorded dest: %v", err)
@@ -95,9 +95,9 @@ func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
 func TestPlanMirrorRepoTaggedWhenCWDIsAnotherRepo(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := gitRepo(t)
+	repo := gittest.Repo(t)
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "other-words.md", planTemplate)
-	mirrorRun(t, "planMirror", "Write", repo, draft)
+	mirrorRun(t, "Mirror", "Write", repo, draft)
 	want := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
 	if _, err := os.ReadFile(want); err != nil {
 		t.Fatalf("mirrored repo-tagged file missing at %s: %v", want, err)
@@ -153,7 +153,7 @@ func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
 	unrelated := "# Plan: Widget Refactor\n\nsome other plan, not ours\n"
 	preexisting := writeMirrorDraft(t, plansDir, dateStamp()+"-widget-refactor.md", unrelated)
 	draft := writeMirrorDraft(t, plansDir, "funny-random-words.md", planTemplate)
-	mirrorRun(t, "planMirror", "Write", cfg, draft)
+	mirrorRun(t, "Mirror", "Write", cfg, draft)
 	wantMirrorFile(t, preexisting, unrelated, "the unrelated dated file was touched:")
 	wantMirrorFile(t, filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md"), planTemplate, "mirror should have versioned to")
 }
@@ -187,9 +187,9 @@ func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
 func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := gitRepo(t)
+	repo := gittest.Repo(t)
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "other-words.md", planTemplate)
-	mirrorRun(t, "planMirror", "Write", repo, draft)
+	mirrorRun(t, "Mirror", "Write", repo, draft)
 	dest := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
 	if _, err := os.ReadFile(dest); err != nil {
 		t.Fatalf("mirror did not create %s: %v", dest, err)
@@ -206,7 +206,7 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 }
 
 // TestSavePlanKeepsDraftEditedAfterApproval: the draft on disk no longer matches the approved plan text
-// (e.g. a concurrent agent kept editing it) — savePlan must file the approved plan but leave the draft alone.
+// (e.g. a concurrent agent kept editing it) — Save must file the approved plan but leave the draft alone.
 func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

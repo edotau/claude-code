@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memory"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -17,10 +18,10 @@ import (
 var Native = map[string]core.Runner{
 	"safety-scan":               safetyScan,
 	"rtk-rewrite":               rtkRewrite,
-	"docs-placement":            viaStderr(docsPlacement),
+	"docs-placement":            viaStderr(docs.Placement),
 	"memory-start":              memory.Start,
 	"memory-recall":             memory.Recall,
-	"paths-resolve":             nativePathResolver,
+	"paths-resolve":             docs.ResolvePaths,
 	"memory-update":             memory.Stop,
 	"review-simplicity":         reviewSimplicity,
 	"format-stop":               stopFormatRun,
@@ -32,13 +33,13 @@ var Native = map[string]core.Runner{
 	"codex-subagent-start":      nativeCodexSubagentStart,
 	"dispatch-failure":          releaseSpawn,
 	"dispatch-workflow":         releaseSpawn,
-	"docs-plan-gate":            viaStderr(checkPlanTemplate),
-	"docs-plan-skeleton":        planSkeleton,
-	"docs-plan-skeleton-prompt": planSkeleton,
-	"docs-plan-tick":            planTick,
-	"docs-plan-reminder":        planReminder,
-	"docs-plan-mirror":          viaStderr(planMirror),
-	"docs-plan-save":            viaStderr(savePlan),
+	"docs-plan-gate":            viaStderr(docs.Gate),
+	"docs-plan-skeleton":        docs.Skeleton,
+	"docs-plan-skeleton-prompt": docs.Skeleton,
+	"docs-plan-tick":            docs.Tick,
+	"docs-plan-reminder":        docs.Reminder,
+	"docs-plan-mirror":          viaStderr(docs.Mirror),
+	"docs-plan-save":            viaStderr(docs.Save),
 	"dispatch-stop":             subagentStopRunner,
 	"memory-compact":            memory.Compact,
 	"worktree-create":           worktreeCreate,

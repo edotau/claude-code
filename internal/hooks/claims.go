@@ -70,9 +70,9 @@ func worktreeClaim(in *core.Input) core.Result {
 // bashClaims are each sha a landed `git commit` printed and each path a `git add` left staged.
 func bashClaims(in *core.Input, now int64) []claim {
 	var lines []claim
-	if gitCommitCmd.MatchString(in.ToolCommand()) {
+	if core.GitCommitCmd.MatchString(in.ToolCommand()) {
 		out := cmp.Or(in.Nested("tool_response", "stdout"), in.ToolResponseText())
-		for _, m := range commitLine.FindAllStringSubmatch(out, -1) {
+		for _, m := range core.CommitLine.FindAllStringSubmatch(out, -1) {
 			lines = append(lines, claim{Commit: m[1], Agent: in.AgentID, TS: now})
 		}
 	}

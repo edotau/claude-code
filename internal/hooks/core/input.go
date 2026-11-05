@@ -198,3 +198,6 @@ func HookContext(name string) (context.Context, context.CancelFunc) {
 	}
 	panic("unknown hook: " + name)
 }
+
+// SpawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).
+var SpawnTools = map[string]bool{"Agent": true, "Task": true}
