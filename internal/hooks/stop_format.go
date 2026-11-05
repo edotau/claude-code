@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -155,7 +155,7 @@ func loadStamps(path string) map[string]string {
 
 // changedFiles lists modified, staged and untracked paths relative to cwd; -z avoids git's C-quoting.
 func changedFiles(ctx context.Context, cwd string) []string {
-	data, err := exec.CommandContext(ctx, "git", "-C", cwd, "status", "--porcelain=v1", "-z", "--untracked-files=all").Output()
+	data, err := proc.RunGit(ctx, cwd, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil || len(data) == 0 {
 		return nil
 	}
@@ -163,7 +163,7 @@ func changedFiles(ctx context.Context, cwd string) []string {
 	if root == "" {
 		return nil
 	}
-	return porcelainPaths(strings.Split(string(data), "\x00"), cwd, root)
+	return porcelainPaths(strings.Split(data, "\x00"), cwd, root)
 }
 
 // porcelainPaths maps `status --porcelain=v1 -z` records to paths relative to cwd, dropping clean, ignored and

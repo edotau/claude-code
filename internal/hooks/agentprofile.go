@@ -2,6 +2,7 @@
 package hooks
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"slices"
@@ -42,7 +43,7 @@ func briefAgents(task string) []string {
 	}
 	var names []string
 	for _, w := range agentNameRe.FindAllString(line, -1) {
-		if labelAgents[w] && !containsStr(names, w) {
+		if labelAgents[w] && !slices.Contains(names, w) {
 			names = append(names, w)
 		}
 	}
@@ -58,10 +59,6 @@ func inContextBrief(task string) bool {
 	return m != nil && strings.Contains(strings.ToLower(m[1]), "in-context")
 }
 
-func containsStr(xs []string, s string) bool {
-	return slices.Contains(xs, s)
-}
-
 // applyProfile moves a Profile: dispatch to a coworker and prepends the exact ask command. deny is a Block
 // for an unknown profile; note is "" when the brief names no profile or the dispatch is already routed.
 func applyProfile(updated map[string]any, promptField, task string) (note string, deny *core.Result) {
@@ -69,7 +66,7 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 	if p == "" {
 		return "", nil
 	}
-	if names, ok := profileNames(); ok && !containsStr(names, p) {
+	if names, ok := profileNames(); ok && !slices.Contains(names, p) {
 		return "", &core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 			"agent-effort: unknown Profile: %q — valid profiles: %s.", p, strings.Join(names, ", "))}
 	}
@@ -92,7 +89,7 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 	if st != "coworker" {
 		updated["subagent_type"] = "coworker"
 		note = strings.TrimSpace(fmt.Sprintf("agent-effort: Profile: %s — %s dispatch moved to coworker (the session route cannot change profile). %s",
-			p, cmpOr(st, "general-purpose"), note))
+			p, cmp.Or(st, "general-purpose"), note))
 	}
 	return note, nil
 }

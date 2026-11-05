@@ -159,14 +159,14 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 		scan = cmd
 	}
 	if pattern, ok := firstHardBlock(scan); ok {
-		return core.Block, safetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern, true
+		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern, true
 	}
 	if scan == cmd {
 		return core.Allow, "", "", false // nothing was stripped, so the raw pass would find nothing new
 	}
 	if pattern, ok := firstHardBlock(cmd); ok {
 		what := "destructive command (matched only inside quoted/inert text)"
-		return core.Ask, safetyMessage(in, core.Ask, what, pattern, terminalHint), pattern, true
+		return core.Ask, core.SafetyMessage(in, core.Ask, what, pattern, terminalHint), pattern, true
 	}
 	return core.Allow, "", "", false
 }

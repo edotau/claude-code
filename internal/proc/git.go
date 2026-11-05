@@ -40,7 +40,17 @@ func RunGitInherit(ctx context.Context, dir string, args ...string) (string, err
 	return run(ctx, os.Environ(), dir, args...)
 }
 
+// RunGitRaw is RunGit with stdout returned byte-for-byte, trailing newlines kept (file contents).
+func RunGitRaw(ctx context.Context, dir string, args ...string) (string, error) {
+	return runRaw(ctx, GitEnv(), dir, args...)
+}
+
 func run(ctx context.Context, env []string, dir string, args ...string) (string, error) {
+	out, err := runRaw(ctx, env, dir, args...)
+	return strings.TrimRight(out, "\n"), err
+}
+
+func runRaw(ctx context.Context, env []string, dir string, args ...string) (string, error) {
 	full := args
 	if dir != "" {
 		full = append([]string{"-C", dir}, args...)
@@ -54,5 +64,5 @@ func run(ctx context.Context, env []string, dir string, args ...string) (string,
 		// and the message is the only place it becomes visible.
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(full, " "), err, strings.TrimSpace(errb.String()))
 	}
-	return strings.TrimRight(out.String(), "\n"), nil
+	return out.String(), nil
 }

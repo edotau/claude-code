@@ -59,7 +59,7 @@ func worktreeClaim(in *core.Input) core.Result {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(in.CWD, p)
 		}
-		lines = append(lines, claim{Path: canonPath(p), Agent: in.AgentID, TS: now})
+		lines = append(lines, claim{Path: core.CanonPath(p), Agent: in.AgentID, TS: now})
 	} else if in.ToolName == "Bash" {
 		lines = bashClaims(in, now)
 	}
@@ -100,13 +100,13 @@ func stagedClaims(in *core.Input, now int64) []claim {
 
 // addedPaths are the staged paths (absolute) under one git add's pathspecs; any git error yields none.
 func addedPaths(ctx context.Context, target string, args []string) []string {
-	tops, ok, err := gitOut(ctx, target, "rev-parse", "--show-toplevel")
+	tops, ok, err := core.Git(ctx, target, "rev-parse", "--show-toplevel")
 	if err != nil || !ok {
 		return nil
 	}
-	top := canonPath(tops[0])
+	top := core.CanonPath(tops[0])
 	scopes, _ := stageScopes(ctx, top, target, "add", args) // add never runs git here, so never errors
-	staged, _, _ := gitOut(ctx, top, "diff", "--cached", "--name-only")
+	staged, _, _ := core.Git(ctx, top, "diff", "--cached", "--name-only")
 	var out []string
 	for _, s := range staged {
 		if p := filepath.Join(top, s); s != "" && underAny(p, scopes) {

@@ -3,10 +3,7 @@ package hooks
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,7 +41,7 @@ func rewriteVerdict(in *core.Input) (d core.Decision, msg, detail, warn string) 
 		strings.Join(r.reasons, "; "))
 	hint := "Make a new commit instead; undo a commit with git revert. " +
 		"To rewrite history, do it in your own linked worktree: claude-code worktree create <slug>."
-	return core.Block, safetyMessage(in, core.Block, what, "", hint), "shared history rewrite", ""
+	return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "shared history rewrite", ""
 }
 
 // rewriteScan finds the first shared-tree rewrite in cmd, following `cd`, substitutions and nested `bash -c`/`eval`.
@@ -132,12 +129,12 @@ func rewriteWarn(verb string, err error) string {
 
 // probeRewrite resolves target's toplevel, whether it is a linked worktree, and the rewrite's commit count.
 func probeRewrite(ctx context.Context, target string, rng []string) (string, bool, int, error) {
-	dirs, ok, err := gitOut(ctx, target, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
+	dirs, ok, err := core.Git(ctx, target, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
 		"--git-common-dir")
 	if err != nil || !ok || len(dirs) != 3 {
 		return "", false, 0, err
 	}
-	top := canonPath(dirs[0])
+	top := core.CanonPath(dirs[0])
 	n, err := rewriteCount(ctx, top, rng)
 	return top, isLinkedWorktree(dirs[1], dirs[2]), n, err
 }
@@ -149,7 +146,7 @@ func rewriteCount(ctx context.Context, dir string, rng []string) (int, error) {
 			return 0, err
 		}
 	}
-	out, ok, err := gitOut(ctx, dir, append([]string{"rev-list", "--count"}, rng...)...)
+	out, ok, err := core.Git(ctx, dir, append([]string{"rev-list", "--count"}, rng...)...)
 	if err != nil || !ok {
 		return 0, err
 	}
@@ -159,19 +156,19 @@ func rewriteCount(ctx context.Context, dir string, rng []string) (int, error) {
 
 // isCommit reports whether rev names a commit in dir; false for a path or a missing upstream.
 func isCommit(ctx context.Context, dir, rev string) (bool, error) {
-	_, ok, err := gitOut(ctx, dir, "rev-parse", "--verify", "--quiet", rev+"^{commit}")
+	_, ok, err := core.Git(ctx, dir, "rev-parse", "--verify", "--quiet", rev+"^{commit}")
 	return ok, err
 }
 
 // isLinkedWorktree is true when the git dir is not the common dir: a `git worktree add` checkout.
 func isLinkedWorktree(gitDir, commonDir string) bool {
-	return canonPath(gitDir) != canonPath(commonDir)
+	return core.CanonPath(gitDir) != core.CanonPath(commonDir)
 }
 
 // shareReasons lists why top is shared: the live config tree, peer sessions in it, or this session's leaves.
 func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, nested []string) ([]string, error) {
 	var reasons []string
-	if top == canonPath(paths.ConfigDir()) {
+	if top == core.CanonPath(paths.ConfigDir()) {
 		reasons = append(reasons, "it is the live config tree "+top)
 	}
 	procs, err := peersOf(ctx, top, nested)
@@ -190,30 +187,4 @@ func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, 
 		}
 	}
 	return reasons, err
-}
-
-// nestedIn keeps the worktree paths inside top: the peer scan skips those, never the tree that holds top.
-func nestedIn(top string, worktrees []string) []string {
-	var out []string
-	for _, w := range worktrees {
-		if strings.HasPrefix(w, top+string(filepath.Separator)) {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
-// gitOut runs git in dir: ok=false when git itself refused; err for a missing binary or a timeout.
-func gitOut(ctx context.Context, dir string, args ...string) ([]string, bool, error) {
-	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).Output()
-	var exit *exec.ExitError
-	switch {
-	case ctx.Err() != nil:
-		return nil, false, ctx.Err()
-	case errors.As(err, &exit):
-		return nil, false, nil
-	case err != nil:
-		return nil, false, err
-	}
-	return strings.Split(strings.TrimSpace(string(out)), "\n"), true, nil
 }

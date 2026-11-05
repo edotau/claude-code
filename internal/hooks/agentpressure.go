@@ -102,8 +102,8 @@ func applyPressure(in *core.Input, updated map[string]any, promptField, base str
 		offload = "; offload agent work with " + hint
 	}
 	return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — model %s→%s%s.",
-			window, pct, cmpOr(base, "inherit"), cmpOr(down, base, "inherit"), offload),
-		fmt.Sprintf("agent-effort: %.0f%% %s → %s", pct, window, cmpOr(down, base, "inherit"))
+			window, pct, cmp.Or(base, "inherit"), cmp.Or(down, base, "inherit"), offload),
+		fmt.Sprintf("agent-effort: %.0f%% %s → %s", pct, window, cmp.Or(down, base, "inherit"))
 }
 
 // pressureAlias maps the dispatch's model onto the alias the offload hint is routed for.
@@ -147,13 +147,4 @@ func offloadToCoworker(updated map[string]any, promptField, window, hint string,
 	prompt, _ := updated[promptField].(string)
 	updated[promptField] = fmt.Sprintf("Routed by agent-effort (Claude %s window at %.0f%%): do this task through %s, "+
 		"then verify and report.\n\n%s", window, pct, hint, prompt)
-}
-
-func cmpOr(vs ...string) string {
-	for _, v := range vs {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

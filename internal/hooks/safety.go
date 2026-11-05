@@ -17,7 +17,7 @@ import (
 const rmRecursive = `rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(-\S+\s+)*`
 
 // hardBlocks are command shapes that are almost never intentional.
-var hardBlocks = lazyCompile(
+var hardBlocks = core.LazyCompile(
 	rmRecursive+`/(\*|\s|$|[)\x60"'])`,
 	rmRecursive+`/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$|/?[)\x60"'])`,
 	rmRecursive+`(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
@@ -29,7 +29,7 @@ var hardBlocks = lazyCompile(
 )
 
 // pipeBlocks match the WHOLE command text (minus inert data, see inertStripped) because pipes and encoded Python heredocs span shell segments.
-var pipeBlocks = lazyCompile(
+var pipeBlocks = core.LazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
 	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh)\s+(-\S*\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+["']?(\$\(\s*|\x60\s*)(\S*/)?(curl|wget)\s`,
 	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh|source|\.)\s+(-\S*\s+)*(<\s*)?<\(\s*(\S*/)?(curl|wget)\s`,
@@ -52,8 +52,8 @@ const protectedBranch = `(.*[\s"':]|.*refs/heads/)?(main|master)["']?(\s|$)`
 
 var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
-		lazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
-	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", lazyCompile(
+		core.LazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
+	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", core.LazyCompile(
 		gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch,
 		gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag,
 		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`+protectedBranch,
@@ -62,7 +62,7 @@ var askRules = []askRule{
 	)},
 	{"recursive removal of a .git directory",
 		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
-		lazyCompile(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`)},
+		core.LazyCompile(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`)},
 }
 
 const terminalHint = "If intentional, run it yourself in a terminal."
@@ -73,7 +73,7 @@ var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // exfilPatterns match credential-exfiltration shapes.
-var exfilPatterns = lazyCompile(
+var exfilPatterns = core.LazyCompile(
 	`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`,
 	`(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credentials\.json|secrets\.env|\.ssh/|\.aws/credentials|\.netrc).*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
 	`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`,
@@ -81,22 +81,12 @@ var exfilPatterns = lazyCompile(
 )
 
 // softWarn patterns print a warning but never block.
-var softWarn = lazyCompile(
+var softWarn = core.LazyCompile(
 	`kubectl\s+delete(\W|$)`,
 	`docker\s+system\s+prune`,
 	`git\s+reset\s+--hard`,
 	`git\s+clean\s+-[a-z]*f`,
 )
-
-func lazyCompile(pats ...string) func() []*regexp.Regexp {
-	return sync.OnceValue(func() []*regexp.Regexp {
-		out := make([]*regexp.Regexp, len(pats))
-		for i, p := range pats {
-			out[i] = regexp.MustCompile(p)
-		}
-		return out
-	})
-}
 
 // safetyScan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
 func safetyScan(in *core.Input) core.Result {
@@ -134,7 +124,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	scan := inertStripped(cmd)
 	for _, re := range pipeBlocks() {
 		if re.MatchString(scan) {
-			return core.Block, safetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
+			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
 	if d, msg, detail, ok := hardBlockVerdict(in, cmd, scan); ok {
@@ -142,7 +132,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	}
 	for _, re := range exfilPatterns() {
 		if re.MatchString(scan) {
-			return core.Block, safetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
+			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
 	return safetyAskVerdict(in)
@@ -156,7 +146,7 @@ func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
 				if re.MatchString(seg) {
-					return core.Ask, safetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
+					return core.Ask, core.SafetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
 		}
@@ -173,35 +163,18 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 	if harnessGitBlocked(cmd, in.CWD) {
 		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
 		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
-		return core.Ask, safetyMessage(in, core.Ask, what, "", hint), "shared config git mutation"
+		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "shared config git mutation"
 	}
 	if attributionFooterBlocked(cmd) {
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Rerun this commit without the Co-Authored-By / Generated-with lines; that needs no approval."
-		return core.Ask, safetyMessage(in, core.Ask, what, "", hint), "attribution footer"
+		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "attribution footer"
 	}
 	if sqlDestructive().MatchString(strings.ToLower(inertStripped(cmd))) {
 		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
-		return core.Ask, safetyMessage(in, core.Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
+		return core.Ask, core.SafetyMessage(in, core.Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
 	}
 	return core.Allow, "", ""
-}
-
-// safetyMessage renders the stderr/reason text; an ask that falls back to a block names the agent.
-func safetyMessage(in *core.Input, decision core.Decision, what, pattern, hint string) string {
-	word := "BLOCKED"
-	if decision == core.Ask {
-		if in.Agent() == core.AgentClaude {
-			word = "ASK"
-		} else {
-			what += " (no ask decision on " + in.Agent() + ")"
-		}
-	}
-	msg := fmt.Sprintf("safety: %s — %s\n", word, what)
-	if pattern != "" {
-		msg += "  pattern: " + pattern + "\n"
-	}
-	return msg + "  command: " + in.ToolCommand() + "\n" + hint + "\n"
 }
 
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
@@ -228,28 +201,14 @@ func gitBannedUnder(target, verb string, args []string, harness, worktrees *stri
 		return false
 	}
 	if *harness == "" {
-		*harness = canonPath(paths.ConfigDir())
-		*worktrees = canonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
+		*harness = core.CanonPath(paths.ConfigDir())
+		*worktrees = core.CanonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
 	}
-	tp := canonPath(target)
+	tp := core.CanonPath(target)
 	if tp != *harness && !strings.HasPrefix(tp, *harness+string(filepath.Separator)) {
 		return false
 	}
 	return !strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) // a linked worktree is its own checkout
-}
-
-// canonPath is absolute and symlink-resolved (or its parent is, for a path that does not exist yet).
-func canonPath(p string) string {
-	if a, err := filepath.Abs(p); err == nil {
-		p = a
-	}
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
-	}
-	if r, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
-		return filepath.Join(r, filepath.Base(p))
-	}
-	return p
 }
 
 // dropRemoteHeredocs removes heredoc bodies fed to ssh: they run on the remote host, not in this checkout.

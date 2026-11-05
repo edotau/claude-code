@@ -389,7 +389,7 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 
 // TestCheckoutOfPassesOnlyNestedWorktrees: a nested worktree never skips the main tree, which holds all its peers.
 func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
-	main := canonPath(gitRepo(t))
+	main := core.CanonPath(gitRepo(t))
 	nested := filepath.Join(main, ".wt", "x")
 	gitIn(t, main, "worktree", "add", "-q", "-b", "x", nested)
 	ctx, cancel := core.HookContext("worktree-busy")

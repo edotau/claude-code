@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -20,20 +19,11 @@ import (
 // leafStopMaxWait bounds the wait from the dispatch's start, so a hung job cannot trap a leaf.
 const leafStopMaxWait = 2 * time.Hour
 
-// dispatchRecord is the slice of an agent.Record the gate reads (agent imports hooks, so it cannot be imported here).
-type dispatchRecord struct {
-	ID     string    `json:"id"`
-	Time   time.Time `json:"time"`
-	Status string    `json:"status"`
-	PID    int       `json:"pid"`
-}
-
-// loadDispatch reads state/dispatch/<id>.json by its exact id; tests replace it.
-var loadDispatch = func(id string) (dispatchRecord, error) {
-	var r dispatchRecord
-	b, err := os.ReadFile(filepath.Join(paths.StateDir(), "dispatch", id+".json"))
-	if err == nil {
-		err = json.Unmarshal(b, &r)
+// loadDispatch reads state/dispatch/<id>.json by its exact id (LoadRecord also takes a prefix); tests replace it.
+var loadDispatch = func(id string) (agentpkg.Record, error) {
+	r, err := agentpkg.LoadRecord(id)
+	if err == nil && r.ID != id {
+		err = fmt.Errorf("dispatch %q: no exact match", id)
 	}
 	return r, err
 }
@@ -84,7 +74,7 @@ func liveDispatchVerdict(ids []string, agentID string) (expired core.Result, blo
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
-func leafStopVerdict(agentID string, rec dispatchRecord) (core.Result, bool) {
+func leafStopVerdict(agentID string, rec agentpkg.Record) (core.Result, bool) {
 	if time.Since(rec.Time) >= leafStopMaxWait {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}

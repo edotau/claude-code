@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -107,11 +107,11 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 		if d = resolveCWDPath(d, cwd); d == "" {
 			continue
 		}
-		if exec.CommandContext(ctx, "git", "-C", d, "cat-file", "-e", sha+"^{commit}").Run() != nil {
+		if _, err := proc.RunGit(ctx, d, "cat-file", "-e", sha+"^{commit}"); err != nil {
 			continue
 		}
-		head, err := exec.CommandContext(ctx, "git", "-C", d, "rev-parse", "HEAD").Output()
-		if err == nil && strings.HasPrefix(strings.TrimSpace(string(head)), sha) {
+		head, err := proc.RunGit(ctx, d, "rev-parse", "HEAD")
+		if err == nil && strings.HasPrefix(strings.TrimSpace(head), sha) {
 			return d // linked worktrees share objects; the one whose HEAD is the commit made it
 		}
 		holders = append(holders, d)
