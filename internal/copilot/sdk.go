@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -46,6 +47,9 @@ type SDKOptions struct {
 	Fleet            bool   // experimental session.RPC.Fleet.Start instead of SendAndWait
 	EnableMemory     bool   // SessionConfig.Memory.Enabled
 	SessionID        string // non-empty resumes this session instead of creating a new one
+	System           string // system text, sent as SystemMessage in append mode (replace would drop the SDK guardrails)
+	// InstructionDirs, SkillDirs and AgentDirs are the discovery roots the harness renders; missing ones are skipped.
+	InstructionDirs, SkillDirs, AgentDirs []string
 	// Providers+Models switch to the multi-provider route: Model is a provider/id of Models, Token feeds every
 	// provider's BearerTokenProvider (set by the SDK layer), and the child runs in a private login-free home.
 	Providers []NamedProvider
@@ -110,11 +114,32 @@ func BuildSessionConfig(o SDKOptions) *copilot.SessionConfig {
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
 	}
+	cfg.SystemMessage = systemMessage(o)
+	cfg.InstructionDirectories, cfg.SkillDirectories, cfg.AgentDirectories = o.InstructionDirs, o.SkillDirs, o.AgentDirs
 	if o.multiProvider() {
 		cfg.Provider = nil
 		cfg.Providers, cfg.Models = namedProviders(o)
 	}
 	return cfg
+}
+
+// systemMessage is o.System in append mode, nil when empty.
+func systemMessage(o SDKOptions) *copilot.SystemMessageConfig {
+	if strings.TrimSpace(o.System) == "" {
+		return nil
+	}
+	return &copilot.SystemMessageConfig{Mode: "append", Content: o.System}
+}
+
+// existingDirs keeps the entries that are directories, so an unrendered root is not handed to the runtime.
+func existingDirs(dirs ...string) []string {
+	var out []string
+	for _, d := range dirs {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // buildResumeSessionConfig mirrors BuildSessionConfig for client.ResumeSessionWithOptions.
@@ -131,6 +156,8 @@ func buildResumeSessionConfig(o SDKOptions) *copilot.ResumeSessionConfig {
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
 	}
+	cfg.SystemMessage = systemMessage(o)
+	cfg.InstructionDirectories, cfg.SkillDirectories, cfg.AgentDirectories = o.InstructionDirs, o.SkillDirs, o.AgentDirs
 	if o.multiProvider() {
 		cfg.Provider = nil
 		cfg.Providers, cfg.Models = namedProviders(o)
