@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -93,7 +92,7 @@ func TestCheckPinFollowsTheListing(t *testing.T) {
 		t.Fatalf("codex on an unready endpoint = %+v", c)
 	}
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model"})
-	if c := byAgent(Check(reg, now.Add(router.ServedTTL+time.Hour)))["codex"]; c.Status != StatusStale || c.Fix != "claude-code doctor --refresh" {
+	if c := byAgent(Check(reg, now.Add(25*time.Hour)))["codex"]; c.Status != StatusStale || c.Fix != "claude-code doctor --refresh" {
 		t.Fatalf("codex past the TTL = %+v, want stale", c)
 	}
 }

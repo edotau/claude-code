@@ -10,8 +10,8 @@ import (
 	"sync"
 )
 
-// ProviderKeys are the registry's provider keys, the parents of every profile.
-var ProviderKeys = []string{"anthropic", "databricks", "github", "openai", "google", "nvidia"}
+// providerKeys are the registry's provider keys, the parents of every profile.
+var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google", "nvidia"}
 
 // rawRow is one profile's raw JSON under its provider; raw == nil removes the built-in.
 type rawRow struct {
@@ -44,8 +44,8 @@ func providersField(doc []byte) json.RawMessage {
 // IsNull reports whether raw is the JSON null literal.
 func IsNull(raw json.RawMessage) bool { return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) }
 
-// RawOrNull is raw, or the JSON null literal when raw is nil.
-func RawOrNull(raw json.RawMessage) json.RawMessage {
+// rawOrNull is raw, or the JSON null literal when raw is nil.
+func rawOrNull(raw json.RawMessage) json.RawMessage {
 	if raw == nil {
 		return json.RawMessage("null")
 	}
@@ -84,8 +84,8 @@ func decodeRows(raw json.RawMessage, known map[string]string) (map[string]rawRow
 
 // removeEntry handles `"provider": null`: it drops that provider's built-in profiles.
 func removeEntry(out map[string]rawRow, key string, known map[string]string) error {
-	if !slices.Contains(ProviderKeys, key) {
-		return fmt.Errorf("unknown provider %q (known: %v)", key, ProviderKeys)
+	if !slices.Contains(providerKeys, key) {
+		return fmt.Errorf("unknown provider %q (known: %v)", key, providerKeys)
 	}
 	for n, p := range known {
 		if p == key {
@@ -96,8 +96,8 @@ func removeEntry(out map[string]rawRow, key string, known map[string]string) err
 }
 
 func addNested(out map[string]rawRow, key string, fields map[string]json.RawMessage) error {
-	if !slices.Contains(ProviderKeys, key) && key != providerLocal {
-		return fmt.Errorf("unknown provider %q (known: %v)", key, ProviderKeys)
+	if !slices.Contains(providerKeys, key) && key != providerLocal {
+		return fmt.Errorf("unknown provider %q (known: %v)", key, providerKeys)
 	}
 	for profile, row := range fields {
 		r := rawRow{provider: key}
@@ -140,7 +140,7 @@ func nestRows(rows map[string]rawRow, order []string) (json.RawMessage, error) {
 	for _, prov := range provs {
 		inner := map[string]json.RawMessage{}
 		for _, n := range groups[prov] {
-			inner[n] = RawOrNull(rows[n].raw)
+			inner[n] = rawOrNull(rows[n].raw)
 		}
 		b, err := MarshalOrdered(groups[prov], inner)
 		if err != nil {

@@ -16,9 +16,9 @@ func TestCodexCachedModelsHonoursCodexHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codex, "models_cache.json"), []byte(cache), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := CodexCachedModels()
+	got, err := codexCachedModels()
 	if err != nil || len(got) != 1 || got[0].ID != "gpt-x" {
-		t.Fatalf("CodexCachedModels = %+v, %v; want [gpt-x]", got, err)
+		t.Fatalf("codexCachedModels = %+v, %v; want [gpt-x]", got, err)
 	}
 }
 

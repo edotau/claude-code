@@ -614,3 +614,40 @@ func BenchmarkStream(b *testing.B) {
 		}
 	}
 }
+
+func TestToChatRequestToolResultIsErrorMarked(t *testing.T) {
+	in := `{"messages":[{"role":"user","content":[
+		{"type":"tool_result","tool_use_id":"t1","content":"command failed","is_error":true},
+		{"type":"tool_result","tool_use_id":"t2","content":"ok","is_error":false}]}]}`
+	out, _, err := ToChatRequest([]byte(in), "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, `"[tool error] command failed"`) {
+		t.Errorf("failed tool result not marked: %s", s)
+	}
+	if strings.Contains(s, "[tool error] ok") {
+		t.Errorf("successful tool result marked as error: %s", s)
+	}
+}
+
+func TestChatToolChoice(t *testing.T) {
+	cases := []struct {
+		in, want string
+		ok       bool
+	}{
+		{`null`, `null`, false},
+		{`"validated"`, `"auto"`, true},
+		{`"required"`, `"required"`, false},
+		{`{"type":"any"}`, `"required"`, true},
+		{`{"type":"tool","name":"f"}`, `{"type":"function","function":{"name":"f"}}`, true},
+	}
+	for _, c := range cases {
+		got, ok := ChatToolChoice(json.RawMessage(c.in))
+		if ok != c.ok {
+			t.Fatalf("%s: ok = %v, want %v", c.in, ok, c.ok)
+		}
+		jsonEqual(t, got, c.want)
+	}
+}

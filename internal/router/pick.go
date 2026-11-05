@@ -91,7 +91,6 @@ type PinSpec struct {
 
 // PickScope is what a Dimension may read: the account states and every candidate scored together.
 type PickScope struct {
-	Table      *RouteTable
 	State      State
 	Candidates []Candidate
 }
@@ -126,7 +125,7 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
-	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(reg), alias: alias, now: now, res: &res}
+	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(), alias: alias, now: now, res: &res}
 	restG, lastG = lp.l.claim(restG, lastG)
 	units := lp.units(restG)
 	restG = make([][]Candidate, len(units))
@@ -312,7 +311,7 @@ func (t *RouteTable) gateOpencodeSub(
 		res.Skipped = append(res.Skipped, Skip{name, GateRow, "unknown opencode ladder id"})
 		return opencodeSub{}, false
 	}
-	c, has := t.OpencodeSubCell(id, alias)
+	c, has := t.opencodeSubCell(id, alias)
 	if !has {
 		return opencodeSub{}, false // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not an alias check
 	}
@@ -372,7 +371,7 @@ func claudeLast(o PickOpts, gate func(string) ([]Candidate, bool)) [][]Candidate
 
 // score fills each candidate's per-dimension scores and weighted total.
 func (t *RouteTable) score(cs []Candidate, st State) []Candidate {
-	sc := PickScope{Table: t, State: st, Candidates: cs}
+	sc := PickScope{State: st, Candidates: cs}
 	out := make([]Candidate, len(cs))
 	for i, c := range cs {
 		c.Scores = map[string]float64{}

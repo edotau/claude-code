@@ -39,6 +39,9 @@ var ErrForeignHolder = errors.New("proxy: holder is not this config dir's proxy"
 
 var terminateHolder = terminate
 
+// holderComm names the process behind a holder's pid; tests stub it (the /healthz pid header is unauthenticated).
+var holderComm = proc.Comm
+
 // State is proxy.json: written by a serving daemon, removed when it exits.
 type State struct {
 	Schema  int       `json:"schema"`
@@ -98,23 +101,49 @@ func Running(ctx context.Context) (State, bool) {
 	return st, Health(ctx, st.Port) == nil
 }
 
-// Health GETs /healthz on port.
-func Health(ctx context.Context, port int) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
+// healthGet issues GET /healthz on port; the caller closes the body.
+func healthGet(ctx context.Context, port int) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, Base(port)+"/healthz", nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	return http.DefaultClient.Do(req)
+}
+
+// executable returns this binary's path with symlinks resolved, so a shim name does not change the dispatch.
+func executable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return exe, nil
+}
+
+// Health GETs /healthz on port.
+func Health(ctx context.Context, port int) error {
+	resp, err := probeHealth(ctx, port)
 	if err != nil {
 		return err
 	}
-	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("healthz: %s", resp.Status)
 	}
 	return nil
+}
+
+// probeHealth GETs /healthz with a 1s timeout and returns the response with its body already closed.
+func probeHealth(ctx context.Context, port int) (*http.Response, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	resp, err := healthGet(ctx, port)
+	if err != nil {
+		return nil, err
+	}
+	_ = resp.Body.Close()
+	return resp, nil
 }
 
 // Ensure starts the router daemon if it is not already healthy and returns its base URL (http://127.0.0.1:<port>).
@@ -160,16 +189,12 @@ func daemonCommand(exe string) *exec.Cmd {
 }
 
 func spawn() error {
-	exe, err := os.Executable()
+	exe, err := executable() // resolved: argv[0] `claude` would dispatch to the launcher, not `gateway proxy --serve`
 	if err != nil {
 		return err
 	}
 	if proc.IsSelfUnderTest(exe) {
 		return ErrTestBinary
-	}
-	// Resolve shims: argv[0] `claude` would dispatch to the launcher instead of `gateway proxy --serve`.
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
 	}
 	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	if fi, err := os.Stat(LogFile()); err == nil && fi.Size() > maxLogBytes {
@@ -212,13 +237,20 @@ func Stop(ctx context.Context) (State, error) {
 	if err := terminate(st.PID); err != nil {
 		return st, err
 	}
-	// The wait follows the daemon's drain: a busy router is still stopping, not failing to stop.
+	if !awaitExit(st.PID) {
+		return st, fmt.Errorf("pid %d signalled but still draining", st.PID)
+	}
+	return st, nil
+}
+
+// awaitExit waits for pid to exit, following the daemon's drain: a busy router is still stopping, not failing to stop.
+func awaitExit(pid int) bool {
 	for deadline := time.Now().Add(ShutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if !alive(st.PID) {
-			return st, nil
+		if !alive(pid) {
+			return true
 		}
 	}
-	return st, fmt.Errorf("pid %d signalled but still draining", st.PID)
+	return false
 }
 
 // awaitPortFree waits up to 5s for 127.0.0.1:port to stop accepting connections (the daemon closes it on SIGTERM).
@@ -235,9 +267,9 @@ func awaitPortFree(ctx context.Context, port int) error {
 	return fmt.Errorf("proxy still accepting on :%d after SIGTERM", port)
 }
 
-// Restart replaces a running router with one spawned from the current binary, leaving a gap of only the respawn time;
+// restart replaces a running router with one spawned from the current binary, leaving a gap of only the respawn time;
 // a stopped router is left alone.
-func Restart(ctx context.Context) (old, cur State, restarted bool, err error) {
+func restart(ctx context.Context) (old, cur State, restarted bool, err error) {
 	old, ok := Running(ctx)
 	if !ok {
 		return old, State{}, false, nil
@@ -287,17 +319,10 @@ type HolderState struct {
 
 // Holder identifies who answers on port: router reports a claude-code /healthz, pid its PIDHeader (0 = older build).
 func Holder(ctx context.Context, port int) (HolderState, bool) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, Base(port)+"/healthz", nil)
+	resp, err := probeHealth(ctx, port)
 	if err != nil {
 		return HolderState{}, false
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return HolderState{}, false
-	}
-	_ = resp.Body.Close()
 	var st HolderState
 	st.PID, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
 	st.Build = resp.Header.Get(HeaderBuild)
@@ -307,12 +332,6 @@ func Holder(ctx context.Context, port int) (HolderState, bool) {
 	return st, resp.StatusCode == http.StatusOK
 }
 
-// Inflight counts the requests in flight on port; 0 when unreadable, so a wedged proxy can still be restarted.
-func Inflight(ctx context.Context, port int) int64 {
-	st, _ := Holder(ctx, port)
-	return st.Inflight
-}
-
 // Reclaim stops an older claude-code proxy holding port; anything else is an error naming the holder.
 func Reclaim(ctx context.Context, port int, force bool) error {
 	st, router := Holder(ctx, port)
@@ -320,21 +339,27 @@ func Reclaim(ctx context.Context, port int, force bool) error {
 	if err := checkReclaimable(st, router, port, force); err != nil {
 		return err
 	}
+	if st.Config == "" && !recordedPID(pid) { // a pid claimed by unauthenticated headers alone is never signalled
+		return fmt.Errorf("%w (127.0.0.1:%d claims pid %d, which proxy.json does not record); free it or pass --port",
+			ErrForeignHolder, port, pid)
+	}
 	if err := terminateHolder(pid); err != nil {
 		return fmt.Errorf("proxy: stop older proxy pid %d on :%d: %w", pid, port, err)
 	}
 	return awaitHolderExit(pid, port)
 }
 
+// recordedPID reports whether the state file names pid as the proxy.
+func recordedPID(pid int) bool {
+	cur, err := ReadState()
+	return err == nil && cur.PID == pid
+}
+
 // checkReclaimable returns nil when the holder st on port is an older proxy of this config that may be stopped.
 func checkReclaimable(st HolderState, router bool, port int, force bool) error {
 	pid := st.PID
-	switch {
-	case !router:
-		return fmt.Errorf("%w (127.0.0.1:%d is held by another process); free it or pass --port", ErrForeignHolder, port)
-	case pid <= 0 || pid == os.Getpid():
-		return fmt.Errorf("proxy: 127.0.0.1:%d is held by an older claude-code proxy that reports no pid; "+
-			"find it with `ss -ltnp 'sport = :%d'` and kill it", port, port)
+	if err := checkHolderPid(router, pid, port); err != nil {
+		return err
 	}
 	if st.Config != "" && st.Config != ConfigID() { // another config dir's proxy is never ours to replace
 		return fmt.Errorf("%w (127.0.0.1:%d answers as a proxy of another config dir or host, left alone); pass --port",
@@ -348,13 +373,27 @@ func checkReclaimable(st HolderState, router bool, port int, force bool) error {
 	return nil
 }
 
+// checkHolderPid refuses a non-router holder, a pid-less one, and a pid that is not a claude-code process.
+func checkHolderPid(router bool, pid, port int) error {
+	switch {
+	case !router:
+		return fmt.Errorf("%w (127.0.0.1:%d is held by another process); free it or pass --port", ErrForeignHolder, port)
+	case pid <= 0 || pid == os.Getpid():
+		return fmt.Errorf("proxy: 127.0.0.1:%d is held by an older claude-code proxy that reports no pid; "+
+			"find it with `ss -ltnp 'sport = :%d'` and kill it", port, port)
+	}
+	if comm := holderComm(pid); comm != "claude-code" { // never signal a pid an unverified /healthz reply named
+		return fmt.Errorf("%w (127.0.0.1:%d names pid %d, which is %q, not claude-code); pass --port",
+			ErrForeignHolder, port, pid, comm)
+	}
+	return nil
+}
+
 // awaitHolderExit waits for pid to exit after it was told to stop.
 func awaitHolderExit(pid, port int) error {
-	for deadline := time.Now().Add(ShutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if !alive(pid) {
-			fmt.Fprintf(os.Stderr, "proxy: replaced older proxy pid %d on :%d\n", pid, port)
-			return nil
-		}
+	if awaitExit(pid) {
+		fmt.Fprintf(os.Stderr, "proxy: replaced older proxy pid %d on :%d\n", pid, port)
+		return nil
 	}
 	return fmt.Errorf("proxy: older proxy pid %d on :%d is still draining", pid, port)
 }
@@ -388,7 +427,7 @@ func WriteState(st State) (func(), error) {
 	}, nil
 }
 
-// Optional launcher-set request headers that attribute a ledger entry; absent today, so those fields stay empty.
+// Optional launcher-set request headers that attribute a ledger entry; AgentHeader is set by the claude, agent, copilot and desktop launchers; SessionHeader by none.
 const (
 	AgentHeader   = "X-Claude-Code-Agent"
 	SessionHeader = "X-Claude-Code-Session"

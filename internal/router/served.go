@@ -92,8 +92,8 @@ func MarkUnserved(p *providers.Provider, model string) error {
 	})
 }
 
-// ServedTTL is how long a cached workspace listing is trusted.
-const ServedTTL = 24 * time.Hour
+// servedTTL is how long a cached workspace listing is trusted.
+const servedTTL = 24 * time.Hour
 
 // servedSchema is the served-models cache's schema version; a mismatch is a cache miss.
 const servedSchema = 1
@@ -126,7 +126,7 @@ const clockSkew = 5 * time.Minute
 // Fresh reports whether s was fetched within TTL of now; a timestamp beyond clockSkew in the future is stale.
 func (s Served) Fresh(now time.Time) bool {
 	age := now.Sub(s.FetchedAt)
-	return age < ServedTTL && age > -clockSkew
+	return age < servedTTL && age > -clockSkew
 }
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)

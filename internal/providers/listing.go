@@ -242,17 +242,17 @@ func (c Catalog) Rows() []LiveModel {
 // TableLines is the text view: a Databricks serving-endpoints table plus the gateway's, or one merged model table.
 func (c Catalog) TableLines() []string {
 	if len(c.Infos) > 0 && c.Infos[0].Task != "" {
-		lines := EndpointTableLines(c.Infos)
+		lines := endpointTableLines(c.Infos)
 		if len(c.Gateway) > 0 {
-			lines = append(append(lines, "", "AI GATEWAY (anthropic)"), ModelTableLines(c.Gateway)...)
+			lines = append(append(lines, "", "AI GATEWAY (anthropic)"), modelTableLines(c.Gateway)...)
 		}
 		return lines
 	}
-	return ModelTableLines(append(slices.Clone(c.Infos), c.Gateway...))
+	return modelTableLines(append(slices.Clone(c.Infos), c.Gateway...))
 }
 
-// EndpointTableLines renders a Databricks serving-endpoints listing as aligned name/task/ready columns.
-func EndpointTableLines(infos []ModelInfo) []string {
+// endpointTableLines renders a Databricks serving-endpoints listing as aligned name/task/ready columns.
+func endpointTableLines(infos []ModelInfo) []string {
 	nameW, taskW := len("NAME"), len("TASK")
 	for _, m := range infos {
 		nameW, taskW = max(nameW, len(m.ID)), max(taskW, len(m.Task))
@@ -264,9 +264,9 @@ func EndpointTableLines(infos []ModelInfo) []string {
 	return lines
 }
 
-// ModelTableLines renders an aligned ID/Model/Use case/Capabilities table; widths come from the rows, and a
+// modelTableLines renders an aligned ID/Model/Use case/Capabilities table; widths come from the rows, and a
 // gemini "models/" id prefix is dropped for display only (JSON keeps the raw id).
-func ModelTableLines(infos []ModelInfo) []string {
+func modelTableLines(infos []ModelInfo) []string {
 	idW, nameW, caseW, capW := len("ID"), len("Model"), len("Use case"), len("Capabilities")
 	ids := make([]string, len(infos))
 	for i, m := range infos {

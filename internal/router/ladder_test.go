@@ -40,11 +40,11 @@ func TestPickFollowsLadder(t *testing.T) {
 	fp := []string{"copilot/github·work-user/claude-sonnet-5.5", "claude/anthropic·max/claude-sonnet-5-5",
 		"codex/openai·chatgpt/gpt-6.1-sol", "gemini/google·antigravity/gemini-3.8-flash",
 		"opencode/opencode·go/opencode-go/kimi-k3.1-pro"}
-	r := pickAt(RouteFirstParty)
+	r := pickAt(routeFirstParty)
 	if got := order(r); !slices.Equal(got, fp) {
 		t.Errorf("firstParty ladder order =\n%v\nwant\n%v", got, fp)
 	}
-	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", GateLadder, "not first-party"}) {
+	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "not first-party"}) {
 		t.Errorf("firstParty skips = %+v, want opencode·zen-free dropped as not first-party", r.Skipped)
 	}
 }

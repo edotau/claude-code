@@ -260,22 +260,15 @@ func opencodeOverrideAccount(prefix string) (string, error) {
 	}
 }
 
-// Row returns every agent's cell for a Claude row, named by alias (opus), short form (opus-5-5), canonical id or
-// any wire spelling; ok is false when no row matches.
-func (t *RouteTable) Row(key string) (map[string]Cell, bool) {
-	r, ok := t.ByModel[rowKey(key)]
-	return r, ok
-}
-
 // Cell returns the agent's row at alias; ok is false for an unknown agent or alias.
 func (t *RouteTable) Cell(agent, alias string) (Cell, bool) {
 	c, ok := t.Rows[agent][alias]
 	return c, ok
 }
 
-// OpencodeSubCell returns opencode's sub-candidate id's row at alias; ok is false when id serves no row at
+// opencodeSubCell returns opencode's sub-candidate id's row at alias; ok is false when id serves no row at
 // that alias (zen-free has no "opus" row — that is how it stays out of the opus alias, not an alias check).
-func (t *RouteTable) OpencodeSubCell(id, alias string) (Cell, bool) {
+func (t *RouteTable) opencodeSubCell(id, alias string) (Cell, bool) {
 	c, ok := t.OpencodeSub[id][alias]
 	return c, ok
 }

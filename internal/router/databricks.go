@@ -3,6 +3,7 @@ package router
 import (
 	"cmp"
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,9 +13,6 @@ import (
 
 // DatabricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
 func DatabricksResponses(reg *providers.Registry, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
-	if reg == nil {
-		return "", "", false
-	}
 	profile, p, ok := sessionDatabricks(reg, "codex", canServe)
 	if !ok {
 		return "", "", false
@@ -124,7 +122,7 @@ func (t *RouteTable) gateCodexExtras(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	var extra []Candidate
-	if d, ok := t.gateDatabricksCodex(pg, alias, st, o, now, configured, res); ok && !hasProfileAccount(group, d.Account) {
+	if d, ok := t.gateDatabricksCodex(pg, alias, st, o, now, configured, res); ok && !slices.ContainsFunc(group, func(c Candidate) bool { return c.Account == d.Account }) {
 		extra = append(extra, d)
 	}
 	if res.Want != "codex" {
@@ -154,7 +152,7 @@ func (t *RouteTable) gateSessionCopilot(
 		return nil
 	}
 	account := ProviderAccount(profile)
-	if hasProfileAccount(own, account) || (own == nil && t.sessionCopilotTaken(pg, alias, account, model, spec, o)) {
+	if slices.ContainsFunc(own, func(c Candidate) bool { return c.Account == account }) || (own == nil && t.sessionCopilotTaken(pg, alias, account, model, spec, o)) {
 		return nil
 	}
 	group, _ := t.gateProfile(ctx, reg, alias, "copilot", profile, model, effort, st, o, now, configured, res)
@@ -202,13 +200,4 @@ func sessionDatabricks(reg *providers.Registry, agent string, canServe func(stri
 		return "", nil, false
 	}
 	return profile, p, true
-}
-
-func hasProfileAccount(group []Candidate, account string) bool {
-	for _, c := range group {
-		if c.Account == account {
-			return true
-		}
-	}
-	return false
 }

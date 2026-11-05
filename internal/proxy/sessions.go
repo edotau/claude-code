@@ -88,11 +88,7 @@ func sendSession(ctx context.Context, url, path, secret string, body SessionRequ
 
 // verifyHolder confirms the /healthz answer on st.Port comes from st.PID before the router secret is sent there.
 func verifyHolder(ctx context.Context, st State) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, Base(st.Port)+"/healthz", nil)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := healthGet(ctx, st.Port)
 	if errors.Is(err, syscall.ECONNREFUSED) { // nothing listens: the recorded pid is not a live proxy
 		return ErrNotRunning
 	}

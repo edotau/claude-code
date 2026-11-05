@@ -13,17 +13,17 @@ import (
 // EnvRoute picks the ladder for every dispatch in the session (vault env or `--route`): default or first-party.
 const EnvRoute = "HARNESS_ROUTE"
 
-// Route modes `--route` and HARNESS_ROUTE accept; unset picks by the session profile.
+// Route modes `--route` and HARNESS_ROUTE accept; unset is default.
 const (
 	RouteDefault    = "default"
-	RouteFirstParty = "first-party"
+	routeFirstParty = "first-party"
 )
 
 // RouteModes lists the accepted --route values.
-var RouteModes = []string{RouteDefault, RouteFirstParty}
+var RouteModes = []string{RouteDefault, routeFirstParty}
 
-// GateLadder drops a candidate the chosen ladder rules out (not first-party, or a rung model the account can't serve).
-const GateLadder = "ladder"
+// gateLadder drops a candidate the chosen ladder rules out (not first-party, or a rung model the account can't serve).
+const gateLadder = "ladder"
 
 // firstPartyAccounts are each vendor's own CLI login on its own subscription; a "github·" account also passes.
 var firstPartyAccounts = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "opencode·go"}
@@ -34,7 +34,7 @@ func firstPartyAccount(account string) bool {
 
 // LadderName is first-party only when HARNESS_ROUTE (`--route` sets it) asks; else default (agent pins decide).
 func LadderName() string {
-	if strings.TrimSpace(os.Getenv(EnvRoute)) == RouteFirstParty {
+	if strings.TrimSpace(os.Getenv(EnvRoute)) == routeFirstParty {
 		return providers.LadderFirstParty
 	}
 	return providers.LadderDefault
@@ -49,7 +49,7 @@ type pickLadder struct {
 }
 
 // ladderFor is the table's ladder for the resolved name; an unset ladder keeps today's score-only order.
-func (t *RouteTable) ladderFor(reg *providers.Registry) pickLadder {
+func (t *RouteTable) ladderFor() pickLadder {
 	name := LadderName()
 	l := pickLadder{rungs: t.Ladders[name], firstParty: name == providers.LadderFirstParty && len(t.Ladders[name]) > 0}
 	l.claudeRungs = slices.ContainsFunc(l.rungs, func(g providers.Rung) bool { return g.Agent == "claude" })
@@ -111,7 +111,7 @@ func (l pickLadder) admit(u []Candidate, res *PickResult) []Candidate {
 		if firstPartyAccount(c.Account) {
 			return false
 		}
-		res.Skipped = append(res.Skipped, Skip{skipLabel(c), GateLadder, "not first-party"})
+		res.Skipped = append(res.Skipped, Skip{skipLabel(c), gateLadder, "not first-party"})
 		return true
 	})
 }
@@ -161,7 +161,7 @@ func (lp ladderPick) rungCandidates(g providers.Rung, u []Candidate) []Candidate
 		for _, c := range u {
 			model, why := lp.rungModel(c, m)
 			if why != "" {
-				lp.res.Skipped = append(lp.res.Skipped, Skip{skipLabel(c), GateLadder, why})
+				lp.res.Skipped = append(lp.res.Skipped, Skip{skipLabel(c), gateLadder, why})
 				continue
 			}
 			c.Model = model

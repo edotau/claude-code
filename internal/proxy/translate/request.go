@@ -10,7 +10,6 @@ import (
 )
 
 type messagesRequest struct {
-	Model         string          `json:"model"`
 	System        json.RawMessage `json:"system"`
 	Messages      []inMessage     `json:"messages"`
 	MaxTokens     int             `json:"max_tokens"`
@@ -91,6 +90,9 @@ const SkipThoughtSignature = "skip_thought_signature_validator"
 
 // ChatToolChoice rewrites a tool_choice Databricks Gemini rejects (Anthropic object, Copilot's "validated") into the chat form.
 func ChatToolChoice(raw json.RawMessage) (json.RawMessage, bool) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return raw, false
+	}
 	var str string
 	if json.Unmarshal(raw, &str) == nil {
 		switch str {
@@ -103,19 +105,25 @@ func ChatToolChoice(raw json.RawMessage) (json.RawMessage, bool) {
 	if json.Unmarshal(raw, &tc) != nil {
 		return raw, false
 	}
-	var out any
-	switch tc.Type {
-	case "auto", "none":
-		out = tc.Type
-	case "any":
-		out = "required"
-	case "tool":
-		out = map[string]any{"type": "function", "function": map[string]string{"name": tc.Name}}
-	default:
+	out, ok := chatToolChoice(tc.Type, tc.Name)
+	if !ok {
 		return raw, false
 	}
 	enc, err := json.Marshal(out)
 	return enc, err == nil
+}
+
+// chatToolChoice maps an Anthropic tool_choice type (and tool name) to its chat-completions value.
+func chatToolChoice(typ, name string) (any, bool) {
+	switch typ {
+	case "auto", "none":
+		return typ, true
+	case "any":
+		return "required", true
+	case "tool":
+		return map[string]any{"type": "function", "function": map[string]string{"name": name}}, true
+	}
+	return nil, false
 }
 
 // FlattenChatContent joins a non-stream chat response's content-part arrays (Databricks Gemini) into strings.
@@ -269,15 +277,8 @@ func chatTools(tools []inTool, wireModel string) []chatTool {
 // applyToolChoice maps in's tool_choice onto req; it applies only when req has tools.
 func applyToolChoice(req *chatRequest, in messagesRequest) {
 	if tc := in.ToolChoice; tc != nil && len(req.Tools) > 0 {
-		switch tc.Type {
-		case "auto":
-			req.ToolChoice = "auto"
-		case "any":
-			req.ToolChoice = "required"
-		case "none":
-			req.ToolChoice = "none"
-		case "tool":
-			req.ToolChoice = map[string]any{"type": "function", "function": map[string]string{"name": tc.Name}}
+		if v, ok := chatToolChoice(tc.Type, tc.Name); ok {
+			req.ToolChoice = v
 		}
 		if tc.DisableParallelToolUse {
 			f := false
@@ -345,7 +346,11 @@ func (u *userTurn) toolResult(b block) (chatMessage, error) {
 			u.addImage(ib.Source) // tool messages are text-only
 		}
 	}
-	return chatMessage{Role: "tool", ToolCallID: b.ToolUseID, Content: joinText(inner, "\n")}, nil
+	content := joinText(inner, "\n")
+	if b.IsError {
+		content = "[tool error] " + content // chat tool messages have no error flag
+	}
+	return chatMessage{Role: "tool", ToolCallID: b.ToolUseID, Content: content}, nil
 }
 
 // appendUser emits tool results first (they must directly follow the assistant tool_calls), then the user turn.

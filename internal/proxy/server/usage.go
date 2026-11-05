@@ -33,23 +33,29 @@ func wrapUsage(m []byte) []byte {
 
 // scrapeChatUsage reads the last OpenAI-dialect usage object; input excludes cached tokens, as translate does.
 func scrapeChatUsage(body []byte) ledgerUsage {
+	return scrapeLastUsage(body, "prompt_tokens", "completion_tokens", "prompt_tokens_details")
+}
+
+// scrapeLastUsage parses the last usage object using the dialect's field names; input excludes cached tokens.
+func scrapeLastUsage(body []byte, inKey, outKey, detailsKey string) ledgerUsage {
 	matches := usageBlockRE.FindAll(body, -1)
 	if len(matches) == 0 {
 		return ledgerUsage{}
 	}
-	var raw struct {
-		Prompt     int `json:"prompt_tokens"`
-		Completion int `json:"completion_tokens"`
-		Details    *struct {
-			Cached int `json:"cached_tokens"`
-		} `json:"prompt_tokens_details"`
-	}
+	var raw map[string]json.RawMessage
 	if json.Unmarshal(wrapUsage(matches[len(matches)-1]), &raw) != nil {
 		return ledgerUsage{}
 	}
-	u := ledgerUsage{input: raw.Prompt, output: raw.Completion}
-	if raw.Details != nil && raw.Details.Cached > 0 && raw.Details.Cached <= u.input {
-		u.cacheRead = raw.Details.Cached
+	var details struct {
+		Cached int `json:"cached_tokens"`
+	}
+	_ = json.Unmarshal(raw[detailsKey], &details)
+	var u ledgerUsage
+	if json.Unmarshal(raw[inKey], &u.input) != nil || json.Unmarshal(raw[outKey], &u.output) != nil {
+		return ledgerUsage{}
+	}
+	if details.Cached > 0 && details.Cached <= u.input {
+		u.cacheRead = details.Cached
 		u.input -= u.cacheRead
 	}
 	return u

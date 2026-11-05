@@ -47,8 +47,8 @@ const (
 	LadderFirstParty = "firstParty"
 )
 
-// LadderNames are the ladders routing.ladders may set.
-var LadderNames = []string{LadderDefault, LadderFirstParty}
+// ladderNames are the ladders routing.ladders may set.
+var ladderNames = []string{LadderDefault, LadderFirstParty}
 
 // Rung is one ladder step: an agent, a provider or both; Models orders its vendor models (opencode: sub ids).
 type Rung struct {
@@ -223,8 +223,8 @@ func validateOpencodeRouting(o OpencodeRouting) []string {
 func validateLadders(r *Registry) []string {
 	var errs []string
 	for _, name := range slices.Sorted(maps.Keys(r.Routing.Ladders)) {
-		if !slices.Contains(LadderNames, name) {
-			errs = append(errs, fmt.Sprintf("routing.ladders names unknown ladder %q (%s)", name, strings.Join(LadderNames, ", ")))
+		if !slices.Contains(ladderNames, name) {
+			errs = append(errs, fmt.Sprintf("routing.ladders names unknown ladder %q (%s)", name, strings.Join(ladderNames, ", ")))
 			continue
 		}
 		seen := map[string]bool{}
@@ -264,8 +264,8 @@ func rungNameErrors(label string, g Rung) []string {
 	if g.Agent != "" && !slices.Contains(RouteAgents, g.Agent) {
 		errs = append(errs, fmt.Sprintf("%s names unknown agent %q (%s)", label, g.Agent, strings.Join(RouteAgents, ", ")))
 	}
-	if g.Provider != "" && !slices.Contains(ProviderKeys, g.Provider) {
-		errs = append(errs, fmt.Sprintf("%s names unknown provider %q (%s)", label, g.Provider, strings.Join(ProviderKeys, ", ")))
+	if g.Provider != "" && !slices.Contains(providerKeys, g.Provider) {
+		errs = append(errs, fmt.Sprintf("%s names unknown provider %q (%s)", label, g.Provider, strings.Join(providerKeys, ", ")))
 	}
 	return errs
 }
