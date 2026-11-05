@@ -55,6 +55,9 @@ func ReadOnlyGit(cmd string) bool {
 		return false
 	}
 	f := strings.Fields(cmd)
+	if len(f) > 2 && f[0] == "git" && f[1] == "--no-pager" { // exactly one, which copilot adds itself
+		f = append([]string{"git"}, f[2:]...)
+	}
 	if len(f) < 2 || f[0] != "git" || !readOnlyGit[f[1]] {
 		return false
 	}
