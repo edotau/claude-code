@@ -181,7 +181,7 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 	}
 	cb := &callback{state: state, res: make(chan callbackResult, 1)}
 	srv := serveCallback(ln, cb)
-	defer srv.Close()
+	defer stopCallback(srv)
 
 	redirect := "http://localhost:" + strconv.Itoa(port)
 	authURL := authorizeURL(h, redirect, state, verifier)
@@ -207,6 +207,15 @@ func (opts LoginOptions) withDefaults() LoginOptions {
 		opts.Out = os.Stderr
 	}
 	return opts
+}
+
+// stopCallback lets an in-flight "Login complete" response finish before closing; Close alone cut it off (EOF).
+func stopCallback(srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if srv.Shutdown(ctx) != nil {
+		_ = srv.Close()
+	}
 }
 
 // serveCallback starts the loopback server on every listener of ln.
