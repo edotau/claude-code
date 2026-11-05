@@ -18,8 +18,8 @@ type scopedCase struct {
 	want bool
 }
 
-func scopedShell(c string) copilot.PermissionRequest {
-	return rpc.PermissionRequestShell{FullCommandText: c}
+func scopedShell(wd, c string) copilot.PermissionRequest {
+	return rpc.PermissionRequestShell{FullCommandText: c, ResolvedWorkingDirectory: &wd}
 }
 
 func scopedWrite(f string) copilot.PermissionRequest { return rpc.PermissionRequestWrite{FileName: f} }
@@ -48,8 +48,8 @@ func scopedWriteCases(wd string) []scopedCase {
 }
 
 // scopedShellCases covers shell-command requests: build/test/git allowed shapes and the refused ones.
-func scopedShellCases() []scopedCase {
-	sh := scopedShell
+func scopedShellCases(wd string) []scopedCase {
+	sh := func(c string) copilot.PermissionRequest { return scopedShell(wd, c) }
 	return []scopedCase{
 		{"test and fmt", sh("go test ./x && gofmt -l ."), true}, {"make", sh("make lint"), true}, {"make arg", sh("make -f evil test"), false},
 		{"git status", sh("git status"), true}, {"git diff", sh("git diff --no-ext-diff --no-textconv"), true},
@@ -65,7 +65,7 @@ func scopedShellCases() []scopedCase {
 		{"cat outside", sh("cat /etc/passwd"), false}, {"subst", sh("ls $(rm x)"), false}, {"background", sh("ls & rm x"), false},
 		{"go exec", sh("go test -exec=sh ./..."), false}, {"mutate", sh("claude-code test mutate a.go x y ./pkg"), true},
 		{"review", sh("claude-code review complexity internal/ui"), true}, {"abs self", sh(os.Getenv("HOME") + "/.claude/bin/claude-code test mutate a.go x y ./pkg"), true}, {"review -o", sh("claude-code review report -o /etc/x"), false},
-		{"redirect", rpc.PermissionRequestShell{FullCommandText: "ls", HasWriteFileRedirection: true}, false},
+		{"redirect", rpc.PermissionRequestShell{FullCommandText: "ls", HasWriteFileRedirection: true, ResolvedWorkingDirectory: &wd}, false},
 	}
 }
 
@@ -78,7 +78,7 @@ func TestScopedPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd}).OnPermissionRequest
-	cases := slices.Concat(scopedKindCases(), scopedWriteCases(wd), scopedShellCases())
+	cases := slices.Concat(scopedKindCases(), scopedWriteCases(wd), scopedShellCases(wd))
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d, err := h(tc.req, copilot.PermissionInvocation{})
@@ -89,6 +89,35 @@ func TestScopedPermissions(t *testing.T) {
 				t.Errorf("approved = %v, want %v", ok, tc.want)
 			}
 		})
+	}
+}
+
+// The runtime's resolved cwd, not the configured workdir, decides where a relative rm operand points.
+func TestScopedShellUsesRequestCwd(t *testing.T) {
+	safe, outside := t.TempDir(), t.TempDir()
+	for _, d := range []string{safe, outside} {
+		if err := os.WriteFile(filepath.Join(d, "a.go"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: safe}).OnPermissionRequest
+	for _, tc := range []struct {
+		name string
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{"cwd is the workdir", scopedShell(safe, "rm a.go"), true},
+		{"cwd outside the workdir", scopedShell(outside, "rm a.go"), false},
+		{"cwd missing", rpc.PermissionRequestShell{FullCommandText: "rm a.go"}, false},
+		{"cwd relative", scopedShell("safe", "rm a.go"), false},
+	} {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
+		}
 	}
 }
 

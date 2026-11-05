@@ -303,18 +303,27 @@ func CanonicalSelf(cmd string) string {
 	return cmd
 }
 
-// Command reports whether every segment of cmd passes the policy's commands, or extra (which may be nil), in a root.
+// Command is CommandIn with roots[0] as the execution cwd (the hook runs in its first root).
 func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
+	if len(roots) == 0 {
+		return false
+	}
+	return CommandIn(cmd, roots[0], roots, extra)
+}
+
+// CommandIn reports whether every segment of cmd, run in cwd, passes the policy's commands or extra (which may be nil)
+// in a root; cwd must be absolute and inside a root, and relative operands resolve against it, never another root.
+func CommandIn(cmd, cwd string, roots []string, extra agentconfig.ShellRules) bool {
+	if !filepath.IsAbs(cwd) || !slices.ContainsFunc(roots, func(root string) bool { _, ok := RelInside(cwd, root); return ok }) {
+		return false
+	}
 	segs, ok := splitShell(cmd)
 	if !ok {
 		return false
 	}
 	rules := agentconfig.ShellPolicy().Commands
 	for _, w := range segs {
-		w = stripGoEnv(w)
-		if len(roots) > 0 {
-			w = absolutizeRm(w, roots[0])
-		}
+		w = absolutizeOperands(stripGoEnv(w), cwd)
 		if !slices.ContainsFunc(roots, func(root string) bool { return allows(rules, w, root) || allows(extra, w, root) }) {
 			return false
 		}
@@ -421,17 +430,20 @@ func argsInside(args []string, workDir string) bool {
 	return true
 }
 
-// absolutizeRm joins rm's plain relative operands onto cwd (the first root), so no other root can rebase them.
-func absolutizeRm(w []string, cwd string) []string {
-	if w[0] != "rm" {
+// absolutizeOperands joins rm's plain relative operands and git -C's dir onto cwd, so no root can rebase them.
+func absolutizeOperands(w []string, cwd string) []string {
+	first, last := 1, len(w)
+	switch {
+	case w[0] == "git" && len(w) >= 3 && w[1] == "-C":
+		first, last = 2, 3
+	case w[0] != "rm":
 		return w
 	}
 	out := slices.Clone(w)
-	for i, a := range out[1:] {
-		if !rmOperandPlain(a) || filepath.IsAbs(a) {
-			continue
+	for i := first; i < last; i++ {
+		if rmOperandPlain(out[i]) && !filepath.IsAbs(out[i]) {
+			out[i] = filepath.Join(cwd, out[i])
 		}
-		out[i+1] = filepath.Join(cwd, a)
 	}
 	return out
 }
@@ -442,7 +454,7 @@ func rmOperandPlain(a string) bool {
 		!slices.Contains(strings.Split(a, "/"), "..")
 }
 
-// rmAllowed admits plain `rm` of absolute (see absolutizeRm) existing regular files, never symlinks, inside workDir.
+// rmAllowed admits plain `rm` of absolute (see absolutizeOperands) existing regular files, never symlinks, inside workDir.
 func rmAllowed(args []string, workDir string) bool {
 	if len(args) == 0 {
 		return false
