@@ -239,17 +239,7 @@ func codexMenu(d *dialog) agentMenu {
 			st = agentState{mode: modeAPIKey, verified: kt.Provider == nil || configure.KeyVerified(kt.Provider)}
 		}
 	}
-	key := keyRow(d, "codex", "openai", "pay per token (OPENAI_API_KEY)")
-	ensure := key.run
-	key.run = func() bool {
-		if !ensure() {
-			return false
-		}
-		if loggedIn && actionConfirmed("Switch codex from its ChatGPT login to OPENAI_API_KEY (`codex login --with-api-key`)") {
-			return codexUseKey(d)
-		}
-		return true
-	}
+	key, ensure := codexKeyRow(d, loggedIn)
 	pinned := vault.GetAgentRecord("codex").Profile
 	return agentMenu{st, []billingRow{
 		{"Subscription", "ChatGPT login · plan limits " + Bracket(loggedIn, withTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
@@ -264,6 +254,22 @@ func codexMenu(d *dialog) agentMenu {
 		{"Settings", "reasoning effort, verbosity", "", func() bool { return runCodexSettings(d) }},
 		{"Models", "discover what " + cmp.Or(pinned, "the pinned profile") + " serves", "", func() bool { return codexModels(d, pinned) }},
 	}}
+}
+
+// codexKeyRow is the OPENAI_API_KEY row, switching a ChatGPT login to the key once confirmed; ensure is the bare setup.
+func codexKeyRow(d *dialog, loggedIn bool) (key billingRow, ensure func() bool) {
+	key = keyRow(d, "codex", "openai", "pay per token (OPENAI_API_KEY)")
+	ensure = key.run
+	key.run = func() bool {
+		if !ensure() {
+			return false
+		}
+		if loggedIn && actionConfirmed("Switch codex from its ChatGPT login to OPENAI_API_KEY (`codex login --with-api-key`)") {
+			return codexUseKey(d)
+		}
+		return true
+	}
+	return key, ensure
 }
 
 // codexModels previews the menu shared by opencode, copilot and codex merged with what profile serves, writes it only
