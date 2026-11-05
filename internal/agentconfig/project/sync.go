@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Options configures a sync run; Check implies DryRun and exits 1 on any pending write, link or prune.
+// Options configures a sync run; Check implies DryRun and exits 1 on pending work or a foreign entry on a managed name.
 type Options struct {
 	DryRun  bool
 	NoPrune bool
@@ -78,7 +78,7 @@ func Sync(opts Options) int {
 	}
 	prune := !opts.NoPrune && len(in.agents)+len(in.skills) > 0
 	if !opts.NoPrune && !prune {
-		fmt.Fprintln(os.Stderr, "sync: no agents/skills discovered; refusing to prune")
+		fmt.Fprintln(os.Stderr, "sync: "+emptySourceNote(in.skillsDir)+"; refusing to prune")
 	}
 
 	docs, hasDocs, err := renderDocs(in.root, in.agents)
@@ -133,6 +133,14 @@ func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
 	return syncInputs{home: home, root: root, skillsDir: skillsDir, names: names, agents: agents, skills: skills}, 0, true
 }
 
+// emptySourceNote tells a readable skills/ with zero skills apart from one that is missing or unreadable.
+func emptySourceNote(skillsDir string) string {
+	if paths.IsDir(skillsDir) {
+		return "agents/ and skills/ are readable but hold zero sources"
+	}
+	return "skills directory not found, no agents/skills discovered"
+}
+
 // syncFail reports a fatal sync error on stderr and returns the exit code.
 func syncFail(err error) int {
 	fmt.Fprintln(os.Stderr, "sync:", err)
@@ -176,6 +184,10 @@ func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 	fmt.Fprintln(out, summary)
 	if res.errored > 0 {
 		fmt.Fprintf(os.Stderr, "sync: %d file(s) failed — projection is incomplete\n", res.errored)
+		return 1
+	}
+	if opts.Check && res.skipped > 0 {
+		fmt.Fprintf(os.Stderr, "projection is blocked: %d foreign entr(ies) occupy managed names (KEEP lines above) — remove them, then run `claude-code agents sync`\n", res.skipped)
 		return 1
 	}
 	if opts.Check && (res.pending > 0 || pruned > 0) {

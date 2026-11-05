@@ -592,3 +592,40 @@ func TestSyncRendersAlwaysOnStandardsOnly(t *testing.T) {
 		t.Error("--check after a standards edit = 0, want drift")
 	}
 }
+
+// --check exits 1 when a foreign entry occupies a managed name, naming it; a foreign extra on another name stays 0.
+func TestCheckBlockedByForeignEntryOnManagedName(t *testing.T) {
+	home, claude := isolate(t)
+	writeSource(t, claude, "agents", "keeper", "keeper")
+	writeSource(t, claude, "skills", "mine", "mine")
+	if code := Sync(Options{Out: io.Discard}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0", code)
+	}
+	projectWriteFile(t, filepath.Join(home, ".gemini", "agents", "extra.md"), "hand-made\n")
+	if code := Sync(Options{Check: true, Out: io.Discard}); code != 0 {
+		t.Fatalf("--check with a harmless foreign extra = %d, want 0", code)
+	}
+	link := filepath.Join(AgentsSkillsDir(home), "mine")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	projectWriteFile(t, filepath.Join(link, "SKILL.md"), "foreign\n")
+	var out bytes.Buffer
+	if code := Sync(Options{Check: true, Out: &out}); code != 1 {
+		t.Fatalf("--check with a foreign skill on a managed name = %d, want 1", code)
+	}
+	if !strings.Contains(out.String(), "KEEP  ~/.agents/skills/mine") {
+		t.Errorf("blocked entry not named:\n%s", out.String())
+	}
+}
+
+// A readable but empty source tree is reported apart from a missing skills directory.
+func TestEmptySourceNoteSeparatesReadableFromMissing(t *testing.T) {
+	dir := t.TempDir()
+	if got := emptySourceNote(dir); !strings.Contains(got, "readable") {
+		t.Errorf("readable dir note = %q", got)
+	}
+	if got := emptySourceNote(filepath.Join(dir, "nope")); !strings.Contains(got, "not found") {
+		t.Errorf("missing dir note = %q", got)
+	}
+}
