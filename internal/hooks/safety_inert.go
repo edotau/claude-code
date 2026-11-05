@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // heredocOp matches one `<<[-]DELIM` operator; groups: dash, single-quoted, double-quoted, bare delimiter.
@@ -20,12 +21,12 @@ func inertStripped(cmd string) string {
 	if strings.Contains(cmd, ">(") || strings.Contains(cmd, "<(") || fdToSubst.MatchString(cmd) {
 		return cmd
 	}
-	segs, seps := shellSegmentsSep(dropInertHeredocs(cmd))
+	segs, seps := shell.SegmentsSep(dropInertHeredocs(cmd))
 	var b strings.Builder
 	for i, seg := range segs {
 		// A piped segment feeds the next command, so its text stays: `echo "curl x" | sh` runs curl.
 		if inertSegment(seg) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||") {
-			_, subs := extractSubstitutions(seg)
+			_, subs := shell.ExtractSubstitutions(seg)
 			seg = ""
 			var kept strings.Builder
 			for _, sub := range subs {
@@ -43,7 +44,7 @@ func inertStripped(cmd string) string {
 
 // inertSegment reports a segment whose words are data: echo/printf, grep/rg patterns, commit/tag/gh text.
 func inertSegment(seg string) bool {
-	toks := shellTokens(seg)
+	toks := shell.Tokens(seg)
 	if len(toks) == 0 {
 		return false
 	}
@@ -120,7 +121,7 @@ func inertHeredocStart(line string) (delim string, quoted, dash, ok bool) {
 	if len(ms) != 1 {
 		return
 	}
-	toks := shellTokens(heredocOp.ReplaceAllString(line, " "))
+	toks := shell.Tokens(heredocOp.ReplaceAllString(line, " "))
 	if len(toks) == 0 || !strings.HasPrefix(strings.TrimLeft(line, " \t"), toks[0]+" ") || !writesFile(toks) {
 		return
 	}
@@ -152,67 +153,6 @@ func catRedirects(toks []string) bool {
 	return false
 }
 
-// shellTokens splits one segment into unquoted words, dropping a leading `(`/`{` so a subshell reads as its segment.
-func shellTokens(seg string) []string {
-	var out []string
-	var b strings.Builder
-	var quote byte
-	started := false
-	flush := func() {
-		if started {
-			out = append(out, b.String())
-			b.Reset()
-			started = false
-		}
-	}
-	for i := 0; i < len(seg); i++ {
-		c := seg[i]
-		if quote != 0 {
-			i, quote = unquoteStep(&b, seg, i, quote)
-			continue
-		}
-		switch {
-		case c == '\'' || c == '"':
-			quote = c
-		case c == '\\' && i+1 < len(seg):
-			i++
-			b.WriteByte(seg[i])
-		case strings.IndexByte(" \t\r\n)}", c) >= 0:
-			flush() // whitespace, or an unquoted close of a subshell/group: a word boundary, never part of the word
-			continue
-		default:
-			b.WriteByte(c)
-		}
-		started = true
-	}
-	flush()
-	return trimGroupOpen(out)
-}
-
-// unquoteStep writes quoted byte seg[i] to b, resolving a double-quote escape and dropping the closing quote.
-func unquoteStep(b *strings.Builder, seg string, i int, quote byte) (int, byte) {
-	if quote == '"' && seg[i] == '\\' && i+1 < len(seg) && dqEscapable(seg[i+1]) {
-		b.WriteByte(seg[i+1])
-		return i + 1, quote
-	}
-	if seg[i] == quote {
-		return i, 0
-	}
-	b.WriteByte(seg[i])
-	return i, quote
-}
-
-// trimGroupOpen drops a leading `(`/`{` from the first word, and the word itself when nothing else is left.
-func trimGroupOpen(out []string) []string {
-	if len(out) > 0 {
-		out[0] = strings.TrimLeft(out[0], "({")
-		if out[0] == "" {
-			out = out[1:]
-		}
-	}
-	return out
-}
-
 // hardBlockVerdict blocks a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string, bool) {
 	if strings.Contains(cmd, "<<") {
@@ -233,7 +173,7 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 
 // firstHardBlock is the first hard-block pattern any shell segment of text matches.
 func firstHardBlock(text string) (string, bool) {
-	for _, seg := range shellSegments(text) {
+	for _, seg := range shell.Segments(text) {
 		for _, re := range hardBlocks() {
 			if re.MatchString(seg) {
 				return re.String(), true

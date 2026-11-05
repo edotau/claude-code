@@ -366,6 +366,20 @@ func TestRTKGitInLinkedWorktreeIsNotRewritten(t *testing.T) {
 	requireRTKWrapped(t, "chain in main", "git log -1 && ls", main, bin+" git log -1 && ls")
 }
 
+// TestRTKChainParsingUsesShellHelpers: cd options, wrapped git and quoted separators read as the shell does.
+func TestRTKChainParsingUsesShellHelpers(t *testing.T) {
+	bin := fakeRTK(t)
+	main, wt := rtkWorktreeFixture(t)
+	for _, cmd := range []string{"cd -P " + wt + " && git status", "env -C " + wt + " git status",
+		"sudo git rev-parse HEAD", "env -u X git rev-parse HEAD", "time git rev-parse HEAD"} {
+		if got, ok := rtkOut(t, rtkCwdIn(cmd, main)); ok {
+			t.Errorf("%q rewritten to %q, want it left alone", cmd, got)
+		}
+	}
+	quoted := `echo 'a; cd ` + wt + `'&& git log -1`
+	requireRTKWrapped(t, "quoted ; in echo", quoted, main, bin+" "+quoted)
+}
+
 // rtkHermetic points the config dir (and the vault it holds) at throwaway temp dirs, the way
 // dispatch_test.go does; HOME moves too so nothing outside the temp dirs is touched.
 func rtkHermetic(t *testing.T) {

@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -220,17 +222,46 @@ func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, 
 	return slices.DeleteFunc(slices.Clone(v.claims[p]), func(h claimHit) bool { return h.TS < landed }), nil
 }
 
+// claimsSeenWait bounds the claims-seen lock wait; PreToolUse must not stall, so a held lock fails open.
+const claimsSeenWait = time.Second
+
 // firstSighting records key in this session's claims-seen file; false when it was already shown.
 func firstSighting(session, key string) bool {
 	file := filepath.Join(paths.StateDir(), "hooks", "claims-seen", paths.Slug(session, "", 80, "session"))
-	prev, _ := os.ReadFile(file)
+	first := true
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err == nil { // the seen file doubles as its own lock: no stray .lock sibling
+		var ran bool
+		ran, err = paths.TryFileLock(file, claimsSeenWait, func() error {
+			var rerr error
+			first, rerr = appendIfNew(file, key)
+			return rerr
+		})
+		if err == nil && !ran {
+			err = errors.New("claims-seen lock busy")
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "worktree-claim-check: claims-seen: %v\n", err)
+	}
+	return first
+}
+
+// appendIfNew appends key to file unless a line already holds it; false when it was already there.
+func appendIfNew(file, key string) (bool, error) {
+	prev, err := os.ReadFile(file)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return true, err
+	}
 	if slices.Contains(strings.Split(string(prev), "\n"), key) {
-		return false
+		return false, nil
 	}
-	if os.MkdirAll(filepath.Dir(file), 0o700) == nil {
-		_ = os.WriteFile(file, append(prev, []byte(key+"\n")...), 0o600)
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return true, err
 	}
-	return true
+	_, werr := f.WriteString(key + "\n")
+	return true, errors.Join(werr, f.Close())
 }
 
 func relTo(top, p string) string {
@@ -245,27 +276,11 @@ func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 // stageCheck asks (a leaf: blocks) when a git add/commit in the command would stage a dirty claimed file.
 func (v claimView) stageCheck() core.Result {
 	var res core.Result
-	eachGitCall(v.in.ToolCommand(), v.in.CWD, func(target, verb string, args []string) bool {
+	shell.EachGit(v.in.ToolCommand(), v.in.CWD, func(target, verb string, args []string) bool {
 		res = v.stageVerdict(target, verb, args)
-		return res.Decision == core.Allow && res.Stderr == ""
+		return res.Decision != core.Allow || res.Stderr != ""
 	})
 	return res
-}
-
-// eachGitCall calls fn with each git invocation in cmd, following cd, until fn returns false.
-func eachGitCall(cmd, cwd string, fn func(target, verb string, args []string) bool) {
-	for _, seg := range shellSegments(cmd) {
-		toks := shellTokens(seg)
-		if next, ok := cdTarget(toks, cwd); ok {
-			cwd = next
-			continue
-		}
-		for i, t := range toks {
-			if t == "git" && !fn(gitInvocation(toks[i+1:], cwd)) {
-				return
-			}
-		}
-	}
 }
 
 // stageVerdict checks one git invocation's staged set against the claims.
@@ -389,7 +404,7 @@ var commitValueFlags = map[string]bool{"-m": true, "-F": true, "-C": true, "-c":
 	"--date": true, "-t": true, "--fixup": true, "--squash": true, "--message": true, "--file": true,
 	"--template": true, "--reuse-message": true, "--reedit-message": true}
 
-// allTracked are the add/commit flags that stage every tracked change when no pathspec is given.
+// allTracked are the add flags that stage every tracked change when no pathspec is given (commit: -a/--all only).
 var allTracked = map[string]bool{"-A": true, "--all": true, "-u": true, "--update": true}
 
 // stageOperands splits a git add/commit's words into pathspecs and whether an all-tracked flag is present.
@@ -418,17 +433,40 @@ func stageFlag(verb, a string) (takesValue, stagesAll bool) {
 	if verb != "commit" {
 		return false, allTracked[a]
 	}
-	return commitValueFlags[a] || valueCluster(a), allTracked[a] || isShortCluster(a, 'a')
+	return commitValueFlags[a] || valueCluster(a), a == "--all" || commitAllCluster(a)
 }
 
-// valueCluster is a short-flag cluster such as -am whose last flag takes the next word as its value.
+// valueCluster is a short-flag cluster such as -am whose value flag is last, so the value is the next word;
+// a value flag with more letters after it (-mc) or -u/-S (-um) takes them as an attached value.
 func valueCluster(a string) bool {
-	return len(a) > 2 && !strings.HasPrefix(a, "--") && strings.ContainsRune("mFCct", rune(a[len(a)-1]))
+	if len(a) < 3 || a[0] != '-' || a[1] == '-' {
+		return false
+	}
+	for i := 1; i < len(a); i++ {
+		switch {
+		case strings.IndexByte("uS", a[i]) >= 0:
+			return false
+		case strings.IndexByte("mFCct", a[i]) >= 0:
+			return i == len(a)-1
+		}
+	}
+	return false
 }
 
-// isShortCluster reports a short-flag cluster such as -am that holds flag.
-func isShortCluster(a string, flag rune) bool {
-	return !strings.HasPrefix(a, "--") && strings.ContainsRune(a[1:], flag)
+// commitAllCluster reports a short-flag cluster such as -am holding -a; a value flag (-uall, -ma) ends the scan.
+func commitAllCluster(a string) bool {
+	if len(a) < 2 || a[0] != '-' || a[1] == '-' {
+		return false
+	}
+	for _, c := range a[1:] {
+		if c == 'a' {
+			return true
+		}
+		if strings.ContainsRune("uSmFCct", c) {
+			return false
+		}
+	}
+	return false
 }
 
 // underAny reports whether p equals or sits under one of scopes.
