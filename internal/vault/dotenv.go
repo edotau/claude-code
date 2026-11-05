@@ -34,7 +34,7 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for n := 1; sc.Scan(); n++ {
 		line := sc.Text()
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
 		name, value, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")

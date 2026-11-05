@@ -38,8 +38,8 @@ var LegacyAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
 
 var legacyAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
-// ParseAgentPin splits a legacy pin key into agent and field (PROFILE, MODEL, ..., claude's <TIER>_MODEL); ok=false else.
-func ParseAgentPin(key string) (agent, field string, ok bool) {
+// parseAgentPin splits a legacy pin key into agent and field (PROFILE, MODEL, ..., claude's <TIER>_MODEL); ok=false else.
+func parseAgentPin(key string) (agent, field string, ok bool) {
 	for _, a := range LegacyAgents {
 		f, found := strings.CutPrefix(key, strings.ToUpper(a)+"_")
 		if !found {
@@ -157,7 +157,7 @@ func foldAgentPins(recs map[string]AgentRecord, pins map[string]string) (folded 
 	keys := slices.Sorted(maps.Keys(pins))
 	for _, active := range []bool{false, true} {
 		for _, k := range keys {
-			a, f, ok := ParseAgentPin(k)
+			a, f, ok := parseAgentPin(k)
 			if !ok || (f == "ACTIVE") != active {
 				continue
 			}
@@ -168,7 +168,7 @@ func foldAgentPins(recs map[string]AgentRecord, pins map[string]string) (folded 
 		}
 	}
 	for _, k := range keys {
-		if _, f, ok := ParseAgentPin(k); ok && f == "ACTIVE" {
+		if _, f, ok := parseAgentPin(k); ok && f == "ACTIVE" {
 			folded = append(folded, k)
 		}
 	}
@@ -184,7 +184,7 @@ var OwnLoginProfiles = map[string]string{"codex": "chatgpt", "copilot": "persona
 func keepOwnLogin(recs map[string]AgentRecord, pins map[string]string) {
 	legacy := false
 	for k := range pins {
-		if _, _, ok := ParseAgentPin(k); ok {
+		if _, _, ok := parseAgentPin(k); ok {
 			legacy = true
 			break
 		}

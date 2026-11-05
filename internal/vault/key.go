@@ -19,8 +19,8 @@ import (
 )
 
 var keyringLookup = KeyringLookup
-var keyringSet = KeyringSet
-var keyringDelete = KeyringDelete
+var keyringSet = osKeyringSet
+var keyringDelete = osKeyringDelete
 
 // UseKeyringSeams swaps the lookup/set/delete functions this package shells out to for the OS
 // keyring, returning a restore func; exported solely for vaulttest's FakeKeyring.

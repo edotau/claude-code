@@ -1,4 +1,4 @@
-// Package vault renders `vault list`: the text sections, provider and agent tables, and the JSON document.
+// Package vaultcmd renders `vault list`: the text sections, provider and agent tables, and the JSON document.
 package vaultcmd
 
 import (
@@ -292,8 +292,8 @@ func vaultShownRows(rows [][]string) [][]string {
 	return out
 }
 
-// CredOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
-var CredOK = func(name string) bool {
+// credOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
+var credOK = func(name string) bool {
 	reg, err := providers.Load()
 	if err != nil {
 		return false
@@ -309,7 +309,7 @@ var dbxEnvOrder = []string{"dev", "qa", "prod"}
 func presetEnvs(names []string) string {
 	ok := map[string]bool{}
 	for _, n := range names {
-		ok[n] = CredOK(n)
+		ok[n] = credOK(n)
 	}
 	slices.SortFunc(names, func(a, b string) int { // failures first so a clipped cell still shows them
 		if ok[a] != ok[b] {

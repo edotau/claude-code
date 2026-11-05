@@ -2,6 +2,8 @@ package vaultcmd
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -20,9 +22,9 @@ func textHasRow(stdout, key, value string) bool {
 
 // TestVaultProvidersGroupsPresetRows: preset rows collapse into one row listing each env with its credential mark.
 func TestVaultProvidersGroupsPresetRows(t *testing.T) {
-	old := CredOK
-	CredOK = func(name string) bool { return name != "prod" }
-	t.Cleanup(func() { CredOK = old })
+	old := credOK
+	credOK = func(name string) bool { return name != "prod" }
+	t.Cleanup(func() { credOK = old })
 	raw := `{"providers":{"databricks":{"prod":{"preset":"databricks"},"dev":{"preset":"databricks"},"qa":{"preset":"databricks"}}}}`
 	got := strings.Join(strings.Fields(vaultProvidersText(json.RawMessage(raw), 200)), " ")
 	if !strings.Contains(got, "databricks databricks ✗prod ✓dev ✓qa") {
@@ -98,5 +100,20 @@ func TestTailscaleAPIVerdict(t *testing.T) {
 				t.Errorf("tailscaleAPIVerdict(id=%v,sec=%v,api=%v) = %q, want %q", tc.id, tc.sec, tc.api, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRecordLabelsReportsUnreadableVault(t *testing.T) {
+	dir := useVaultTest(t)
+	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state", "vault.db"), []byte("not a vault"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var labels map[string]string
+	_, _, stderr := captureOutput(t, func() int { labels = recordLabels(); return 0 })
+	if len(labels) != 0 || !strings.Contains(stderr, "vault list: reading labels:") {
+		t.Fatalf("labels=%v stderr=%q, want empty map and a reading-labels warning", labels, stderr)
 	}
 }

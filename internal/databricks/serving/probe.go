@@ -132,6 +132,7 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 		r.Status, r.Error = "fail", fmt.Sprintf("HTTP %d: %s", code, msg)
 		if transientHTTP(code) {
 			r.Status = StatusTransient
+			return r
 		}
 		if code2, ms2, _, err2 := probeRequest(ctx, p, o, url, body(false), anthropic); err2 == nil && code2/100 == 2 {
 			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", code2, ms2, "no", ""

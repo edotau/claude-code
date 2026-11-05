@@ -23,7 +23,6 @@ const (
 	// PlaceholderHost is the host baked into the embedded templates.
 	PlaceholderHost = "https://example.cloud.databricks.com"
 	WireAIGateway   = providers.WireAIGateway
-	WireServing     = providers.WireServing
 	AuthHarness     = "harness"
 	AuthCLI         = "cli"
 	TargetClaude    = "claude"

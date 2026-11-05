@@ -74,7 +74,9 @@ func writeExport(rows []ExportRow, out string, merge, force bool) int {
 	if !merge {
 		text := RenderExport(rows)
 		if out == "" {
-			_, _ = io.WriteString(os.Stdout, text)
+			if _, err := io.WriteString(os.Stdout, text); err != nil {
+				return fail("export: %v", err)
+			}
 			return 0
 		}
 		if err := writeFile0600(out, text, force); err != nil {

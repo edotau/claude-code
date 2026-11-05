@@ -264,3 +264,18 @@ func TestTokenShaped(t *testing.T) {
 		}
 	}
 }
+
+func TestScanGitRejectsOptionLikeRev(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim")
+	var out bytes.Buffer
+	if code := ScanGit(&out, dir, "--output="+victim, 0); code != ExitFindings {
+		t.Fatalf("exit = %d, want %d: %s", code, ExitFindings, out.String())
+	}
+	if _, err := os.Stat(victim); err == nil {
+		t.Errorf("git wrote %s: rev was parsed as an option", victim)
+	}
+	if !strings.Contains(out.String(), "invalid rev") {
+		t.Errorf("output = %q, want invalid rev notice", out.String())
+	}
+}

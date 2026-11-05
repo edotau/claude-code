@@ -54,11 +54,11 @@ var ErrKeyringNoAnswer = errors.New("keyring: did not answer")
 // keyring failure, not a positively established absence).
 var ErrKeyringUnavailable = errors.New("keyring: unavailable")
 
-// ErrKeyringNoTool means no keyring tool is on PATH, or this OS has none wired up (Windows). Wraps
+// errKeyringNoTool means no keyring tool is on PATH, or this OS has none wired up (Windows). Wraps
 // ErrKeyringUnavailable so errors.Is(err, ErrKeyringUnavailable) still matches; callers that must
 // treat "no tool ever existed" differently from "an installed tool just failed" (R4) check this
 // more specific sentinel first.
-var ErrKeyringNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrKeyringUnavailable)
+var errKeyringNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrKeyringUnavailable)
 
 // KeyringTool returns the plane's binary name for this OS, or "" where none is wired up.
 func KeyringTool() string {
@@ -86,14 +86,14 @@ func KeyringAvailable() bool {
 }
 
 // KeyringLookup looks up name in the OS keyring. err is ErrKeyringNoAnswer when the tool timed out or the
-// `down` latch is already set, ErrKeyringNoTool when no tool is on PATH for this OS; a plain,
+// `down` latch is already set, errKeyringNoTool when no tool is on PATH for this OS; a plain,
 // positively-established miss reads as ("", false, nil).
 func KeyringLookup(name string) (value string, found bool, err error) {
 	if name == "" {
 		return "", false, nil
 	}
 	if !KeyringAvailable() {
-		return "", false, ErrKeyringNoTool
+		return "", false, errKeyringNoTool
 	}
 	if down.Load() {
 		return "", false, ErrKeyringNoAnswer
@@ -143,9 +143,9 @@ func lookupFailure(err error) error {
 	return ErrKeyringUnavailable
 }
 
-// KeyringSet stores value under name, overwriting any existing entry. The value always goes on stdin, never
+// osKeyringSet stores value under name, overwriting any existing entry. The value always goes on stdin, never
 // argv: an argv secret is visible to every same-uid process (`ps`) for the life of the call.
-func KeyringSet(name, value string) error {
+func osKeyringSet(name, value string) error {
 	if err := checkKeyringSet(name, value); err != nil {
 		return err
 	}
@@ -203,7 +203,7 @@ func storeCommand(ctx context.Context, name, value string) *exec.Cmd {
 	return cmd
 }
 
-// storeFailure turns a store's exit error and redacted output into the error KeyringSet returns, nil on success.
+// storeFailure turns a store's exit error and redacted output into the error osKeyringSet returns, nil on success.
 func storeFailure(name, msg string, err error) error {
 	switch {
 	case err != nil && msg != "":
@@ -216,8 +216,8 @@ func storeFailure(name, msg string, err error) error {
 	return nil
 }
 
-// KeyringDelete removes name from the keyring; a name that is not stored is not an error, a refused delete is.
-func KeyringDelete(name string) error {
+// osKeyringDelete removes name from the keyring; a name that is not stored is not an error, a refused delete is.
+func osKeyringDelete(name string) error {
 	if name == "" || !KeyringAvailable() {
 		return nil
 	}

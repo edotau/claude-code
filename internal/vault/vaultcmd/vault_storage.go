@@ -20,8 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ErrChanged reports that the vault moved between Export and Import; Import wrote nothing.
-var ErrChanged = errors.New("vault changed while you edited; nothing saved")
+// errChanged reports that the vault moved between Export and Import; Import wrote nothing.
+var errChanged = errors.New("vault changed while you edited; nothing saved")
 
 // Doc is the editable, non-secret vault view: secrets and overlay/providers.prev never appear (D-a).
 // Agents is the agents overlay plus the agent records under "records".
@@ -287,7 +287,7 @@ func importTx(t *vault.Tx, orig []byte, d Doc, recs map[string]vault.AgentRecord
 		return nil, err
 	}
 	if !bytes.Equal(raw, orig) {
-		return nil, ErrChanged
+		return nil, errChanged
 	}
 	if cur.Agents, curRecs, err = splitAgentRecords(cur.Agents); err != nil {
 		return curRecs, err
@@ -320,8 +320,8 @@ func sectionError(section string, err error) error {
 	return fmt.Errorf("%s: %s", section, strings.NewReplacer("\n", " ", "\r", " ").Replace(err.Error()))
 }
 
-// RotateKey retains the old key so archived copies of this vault remain readable.
-func RotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
+// rotateKey retains the old key so archived copies of this vault remain readable.
+func rotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
 	old, next, err := vault.RotateKey(opts...)
 	if err != nil {
 		return err
@@ -435,7 +435,7 @@ func importEdited(stdout, stderr io.Writer, orig, edited []byte) (retry bool, er
 		fmt.Fprintln(stdout, "saved")
 		return false, nil
 	}
-	if errors.Is(err, ErrChanged) || !isTerminal() {
+	if errors.Is(err, errChanged) || !isTerminal() {
 		return false, err
 	}
 	fmt.Fprintln(stderr, "config:", err)

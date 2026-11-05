@@ -138,3 +138,28 @@ func TestProbeClientRoutesRejectUnsafeDestinations(t *testing.T) {
 		t.Fatalf("redirect must fail both tool/no-tool attempts without following: results=%+v err=%v calls=%d redirected=%d", got, err, calls.Load(), redirected.Load())
 	}
 }
+
+func TestProbeTransientWithToolsSkipsNoToolsRetry(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
+	var calls atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, withTools := body["tools"]; withTools {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	p := &providers.Provider{Name: "transient", Preset: providers.PresetDatabricks, Host: srv.URL,
+		Protocol: providers.ProtocolOpenAI, BaseURL: srv.URL + "/serving-endpoints",
+		Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+	targets := []CheckTarget{{ID: "glm-5-2", Wire: "databricks-glm-5-2"}}
+	got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client(), ClientRoutes: true})
+	if err != nil || len(got) != 1 || got[0].Status != StatusTransient || got[0].Tools != "" || got[0].HTTP != 429 || calls.Load() != 1 {
+		t.Fatalf("429 on the tools request must stay transient with no retry: results=%+v err=%v calls=%d", got, err, calls.Load())
+	}
+}

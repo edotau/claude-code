@@ -3,6 +3,7 @@ package vaultcmd
 import (
 	"cmp"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // recordLabels is every record's plaintext label by name; read without a key, so nothing is decrypted (a test seam).
 var recordLabels = func() map[string]string {
 	out := map[string]string{}
-	_ = vault.View(func(tx *vault.Tx) error {
+	err := vault.View(func(tx *vault.Tx) error {
 		recs, err := tx.Records()
 		for n, r := range recs {
 			if r.Label != "" {
@@ -25,6 +26,9 @@ var recordLabels = func() map[string]string {
 		}
 		return err
 	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "vault list: reading labels:", err)
+	}
 	return out
 }
 

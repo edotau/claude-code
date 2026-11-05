@@ -559,3 +559,19 @@ func TestPlanFailsClosedOnProviderLoadError(t *testing.T) {
 		t.Fatalf("plan = %+v, %v; want a load providers error", p, err)
 	}
 }
+
+func TestCutFlagFindsFlagAnywhere(t *testing.T) {
+	rest, ok := cutFlag([]string{"--profile", "x", "--all", "--model", "m"}, "--all")
+	if !ok || !slices.Equal(rest, []string{"--profile", "x", "--model", "m"}) {
+		t.Errorf("cutFlag = %v, %v", rest, ok)
+	}
+	if _, ok := cutFlag([]string{"opus"}, "--all"); ok {
+		t.Error("reported --all when absent")
+	}
+}
+
+func TestSubverbCheckAllAfterOtherArgs(t *testing.T) {
+	if _, ok := subverbExit([]string{"check", "--profile", "nope", "--all"}); !ok {
+		t.Error("check ... --all not routed to the sweep")
+	}
+}

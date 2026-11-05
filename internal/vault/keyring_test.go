@@ -45,10 +45,10 @@ func TestDegradesWithoutTool(t *testing.T) {
 	if _, ok, _ := KeyringLookup("ANYTHING"); ok {
 		t.Fatal("Get must miss when no keyring tool is available")
 	}
-	if err := KeyringSet("ANYTHING", "v"); err == nil {
+	if err := osKeyringSet("ANYTHING", "v"); err == nil {
 		t.Fatal("Set must error when no keyring tool is available")
 	}
-	if err := KeyringDelete("ANYTHING"); err != nil {
+	if err := osKeyringDelete("ANYTHING"); err != nil {
 		t.Fatalf("Delete must be a no-op, not an error, when no keyring tool is available: %v", err)
 	}
 }
@@ -88,13 +88,13 @@ func TestConcurrentLookupSetDeleteTimeout(t *testing.T) {
 		})
 		wg.Go(func() {
 			<-start
-			if err := KeyringSet("CONCURRENT", "value"); err == nil {
+			if err := osKeyringSet("CONCURRENT", "value"); err == nil {
 				t.Error("Set must fail when the tool times out")
 			}
 		})
 		wg.Go(func() {
 			<-start
-			if err := KeyringDelete("CONCURRENT"); err == nil {
+			if err := osKeyringDelete("CONCURRENT"); err == nil {
 				t.Error("Delete must fail when the tool times out")
 			}
 		})
@@ -144,13 +144,13 @@ func TestLookupPlainMiss(t *testing.T) {
 
 func TestSetRejectsEmptyAndMultiline(t *testing.T) {
 	hermetic(t)
-	if err := KeyringSet("NAME", ""); err == nil {
+	if err := osKeyringSet("NAME", ""); err == nil {
 		t.Fatal("Set must reject an empty value")
 	}
-	if err := KeyringSet("", "v"); err == nil || err.Error() != "keyring: empty name" {
+	if err := osKeyringSet("", "v"); err == nil || err.Error() != "keyring: empty name" {
 		t.Fatalf("Set with an empty name = %v, want keyring: empty name", err)
 	}
-	if err := KeyringSet("NAME", "line1\nline2"); err == nil {
+	if err := osKeyringSet("NAME", "line1\nline2"); err == nil {
 		t.Fatal("Set must reject a value spanning more than one line")
 	}
 }
@@ -172,8 +172,8 @@ func TestSetDeleteLatchedDownErrors(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{"Set", func() error { return KeyringSet("NAME", "value") }, "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"},
-		{"Delete", func() error { return KeyringDelete("NAME") }, "keyring: the keyring did not answer earlier this run"},
+		{"Set", func() error { return osKeyringSet("NAME", "value") }, "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"},
+		{"Delete", func() error { return osKeyringDelete("NAME") }, "keyring: the keyring did not answer earlier this run"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.run(); err == nil || err.Error() != tt.want {
@@ -267,7 +267,7 @@ func TestDeleteFailingKeyringIsNotAbsent(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("PATH", dir)
-			err := KeyringDelete("PHASE1B")
+			err := osKeyringDelete("PHASE1B")
 			if tc.wantErr && !errors.Is(err, ErrKeyringUnavailable) {
 				t.Fatalf("Delete = %v, want ErrKeyringUnavailable", err)
 			}

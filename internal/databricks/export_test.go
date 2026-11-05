@@ -168,3 +168,18 @@ func TestExportImportRoundTripYieldsIdenticalRows(t *testing.T) {
 		}
 	}
 }
+
+func TestExportStdoutWriteErrorExitsNonzero(t *testing.T) {
+	seedExportVault(t)
+	f, err := os.Open(os.DevNull) // read-only handle: every write fails
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	orig := os.Stdout
+	os.Stdout = f
+	t.Cleanup(func() { os.Stdout = orig })
+	if code, _, _ := captureOutput(t, func() int { os.Stdout = f; return export(nil) }); code == 0 {
+		t.Error("export exited 0 although the stdout write failed")
+	}
+}

@@ -311,8 +311,8 @@ func TestImportConflict(t *testing.T) {
 	})
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "concurrent-model")
 	before := vaultTestState(t)
-	if err := Import(orig, edited); !errors.Is(err, ErrChanged) {
-		t.Errorf("Import conflict = %v, want ErrChanged", err)
+	if err := Import(orig, edited); !errors.Is(err, errChanged) {
+		t.Errorf("Import conflict = %v, want errChanged", err)
 	}
 	if after := vaultTestState(t); !reflect.DeepEqual(after, before) {
 		t.Error("conflicting Import wrote edited data to the vault")
@@ -571,8 +571,8 @@ func assertEditEffect(t *testing.T, mode string, err error, before []byte) {
 			t.Errorf("saved pins = %v", pins)
 		}
 	case "race":
-		if !errors.Is(err, ErrChanged) {
-			t.Errorf("Edit() = %v, want ErrChanged", err)
+		if !errors.Is(err, errChanged) {
+			t.Errorf("Edit() = %v, want errChanged", err)
 		}
 		if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_OPUS_MODEL": "concurrent-model"}) {
 			t.Errorf("conflicting Edit wrote pins: %v", pins)
@@ -653,8 +653,8 @@ func assertReeditRefused(t *testing.T, mode string, err error, stdout string, be
 		}
 		return
 	}
-	if !errors.Is(err, ErrChanged) {
-		t.Errorf("re-edit = %v, want ErrChanged", err)
+	if !errors.Is(err, errChanged) {
+		t.Errorf("re-edit = %v, want errChanged", err)
 	}
 	if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_OPUS_MODEL": "concurrent-model"}) {
 		t.Errorf("conflicting re-edit wrote pins: %v", pins)

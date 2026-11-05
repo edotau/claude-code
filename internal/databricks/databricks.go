@@ -91,10 +91,22 @@ func subverbExit(args []string) (int, bool) {
 			return run(args[1:]), true
 		}
 	}
-	if len(args) > 1 && args[0] == "check" && args[1] == "--all" {
-		return checkAll(args[2:]), true
+	if len(args) > 1 && args[0] == "check" {
+		if rest, ok := cutFlag(args[1:], "--all"); ok {
+			return checkAll(rest), true
+		}
 	}
 	return 0, false
+}
+
+// cutFlag returns args without the first occurrence of flag, and whether it was present.
+func cutFlag(args []string, flag string) ([]string, bool) {
+	for i, a := range args {
+		if a == flag {
+			return append(append([]string{}, args[:i]...), args[i+1:]...), true
+		}
+	}
+	return args, false
 }
 
 // subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
