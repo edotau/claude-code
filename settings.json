@@ -200,5 +200,10 @@
   "skipWorkflowUsageWarning": true,
   "worktree": {
     "baseRef": "head"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
   }
 }
