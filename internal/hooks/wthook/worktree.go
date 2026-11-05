@@ -141,7 +141,7 @@ func busyLine(ctx context.Context, in *core.Input) string {
 	if top == "" {
 		return ""
 	}
-	peers, err := PeerAgents(top, nested)
+	peers, err := PeersOf(ctx, top, nested)
 	if err != nil {
 		return ""
 	}

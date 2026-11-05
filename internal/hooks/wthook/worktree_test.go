@@ -2,12 +2,14 @@ package wthook
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
@@ -290,5 +292,25 @@ func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
 	}
 	if top, _, skip := CheckoutOf(ctx, main); top != main || len(skip) != 1 || skip[0] != nested {
 		t.Fatalf("from the main tree: top %q, skip %v; want top %q and skip [%s]", top, skip, main, nested)
+	}
+}
+
+// TestBusyLineAbandonsHungScan: a process scan that never returns must not outlive the hook deadline.
+func TestBusyLineAbandonsHungScan(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := t.TempDir()
+	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	old := PeerAgents
+	PeerAgents = func(string, []string) ([]worktree.Proc, error) { <-release; return nil, nil }
+	t.Cleanup(func() { close(release); PeerAgents = old })
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	got := busyLine(ctx, &core.Input{SessionID: "s1", CWD: cwd})
+	if got != "" || time.Since(start) > 3*time.Second {
+		t.Fatalf("busyLine = %q after %v; want \"\" within the deadline", got, time.Since(start))
 	}
 }
