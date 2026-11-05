@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Bound pairs a declared handler with its Runner.
@@ -157,7 +156,7 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 		m.add(b, event, r)
 	}
 	drain(&wg, longest, log)
-	m.merged.Context = capContext(strings.Join(m.ctx, "\n\n"))
+	m.merged.Context = core.CapContext(strings.Join(m.ctx, "\n\n"))
 	m.merged.SystemMessage = strings.Join(m.sys, "; ")
 	m.merged.Stderr = strings.Join(m.errs, "\n")
 	return m.merged, m.firstErr
@@ -225,9 +224,4 @@ func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
 	case <-time.After(longest):
 		fmt.Fprintln(log, "hook dispatch: an overrun handler is still running at exit")
 	}
-}
-
-// capContext trims merged context to core.ContextCapChars, cutting the later blocks first.
-func capContext(s string) string {
-	return textutil.CapRunes(s, core.ContextCapChars, "…truncated")
 }

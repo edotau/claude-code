@@ -4,11 +4,12 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
 // footerPatterns match an agent-attribution footer anywhere in the raw command text (CLAUDE.md hard rule 3).
-var footerPatterns = lazyCompile(
+var footerPatterns = core.LazyCompile(
 	`(?i)co-authored-by:\s*(claude|codex|copilot|gemini|opencode)\b`,
 	`(?i)generated (with|by) \[?(claude code|codex|github copilot|copilot|gemini|opencode)\b`,
 )

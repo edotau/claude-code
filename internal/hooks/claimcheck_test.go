@@ -17,7 +17,7 @@ import (
 func claimFixture(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := canonPath(gitRepo(t))
+	repo := core.CanonPath(gitRepo(t))
 	writeRel(t, repo, "a.txt", "a\n")
 	writeRel(t, repo, "b.txt", "b\n")
 	gitIn(t, repo, "add", ".")

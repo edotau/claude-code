@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
@@ -97,13 +97,11 @@ func undoEdit(after, oldStr, newStr string, all bool) string {
 func gitHeadContent(path string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "show", "HEAD:./"+filepath.Base(path))
-	cmd.Dir = filepath.Dir(path)
-	out, err := cmd.Output()
+	out, err := proc.RunGitRaw(ctx, filepath.Dir(path), "show", "HEAD:./"+filepath.Base(path))
 	if err != nil {
 		return ""
 	}
-	return string(out)
+	return out
 }
 
 // simplicityText renders the header plus up to simplicityMaxLines findings within simplicityMaxChars.

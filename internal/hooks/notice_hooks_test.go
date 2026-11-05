@@ -19,7 +19,7 @@ func divergedClone(t *testing.T) string {
 	origin := gitRepo(t)
 	work := filepath.Join(t.TempDir(), "work")
 	gitIn(t, origin, "clone", "-q", origin, work)
-	work = canonPath(work)
+	work = core.CanonPath(work)
 	writeRel(t, origin, "up.txt", "up\n")
 	gitIn(t, origin, "add", ".")
 	gitIn(t, origin, "commit", "-qm", "upstream")

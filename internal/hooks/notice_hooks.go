@@ -30,7 +30,7 @@ func noticeContext(ctx context.Context, in *core.Input) (text, warn string) {
 	if line != "" {
 		lines = append(lines, line)
 	}
-	return capContext(strings.Join(lines, "\n")), warn
+	return core.CapContext(strings.Join(lines, "\n")), warn
 }
 
 // divergence is a checkout whose HEAD and upstream both have commits the other lacks.
@@ -62,7 +62,7 @@ func divergedLine(ctx context.Context, in *core.Input) (string, error) {
 
 // divergedAt reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.
 func divergedAt(ctx context.Context, dir string) (*divergence, error) {
-	counts, ok, err := gitOut(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+	counts, ok, err := core.Git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
 	if err != nil || !ok {
 		return nil, err // !ok: not a repo, detached, or no upstream
 	}
@@ -70,7 +70,7 @@ func divergedAt(ctx context.Context, dir string) (*divergence, error) {
 	if a == 0 || b == 0 {
 		return nil, nil
 	}
-	ids, _, err := gitOut(ctx, dir, "rev-parse", "--show-toplevel", "HEAD", "@{upstream}", "--abbrev-ref", "HEAD",
+	ids, _, err := core.Git(ctx, dir, "rev-parse", "--show-toplevel", "HEAD", "@{upstream}", "--abbrev-ref", "HEAD",
 		"@{upstream}")
 	if len(ids) != 5 {
 		return nil, err
@@ -95,7 +95,7 @@ func checkoutShared(ctx context.Context, dir string) (bool, error) {
 	if top == "" {
 		return false, nil
 	}
-	if top == canonPath(paths.ConfigDir()) {
+	if top == core.CanonPath(paths.ConfigDir()) {
 		return true, nil
 	}
 	peers, err := peersOf(ctx, top, nested)
@@ -131,7 +131,7 @@ func (d *divergence) authors(ctx context.Context, in *core.Input) string {
 
 // committers maps the commits in rng (at most 50) to the claimants whose short shas prefix them.
 func committers(ctx context.Context, top, rng string, byCommit map[string]string) []string {
-	shas, ok, err := gitOut(ctx, top, "rev-list", "--max-count=50", rng)
+	shas, ok, err := core.Git(ctx, top, "rev-list", "--max-count=50", rng)
 	if err != nil || !ok {
 		return nil
 	}

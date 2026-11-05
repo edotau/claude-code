@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // docsPlacementDisableEnv disables placement checks.
@@ -216,13 +217,13 @@ func canonDeep(p string) string {
 func isTracked(ctx context.Context, root, rel string) (bool, error) {
 	// :(literal) disables pathspec magic — a glob-shaped name ("*.md") would otherwise match some
 	// OTHER tracked file and wave the untracked write straight through the gate.
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "--", ":(literal)"+rel).Output()
-	return err == nil && strings.TrimSpace(string(out)) != "", err
+	out, err := proc.RunGit(ctx, root, "ls-files", "--", ":(literal)"+rel)
+	return err == nil && strings.TrimSpace(out) != "", err
 }
 
 // isIgnored reports whether rel is ignored AND untracked (check-ignore skips tracked paths); err is git's failure.
 func isIgnored(ctx context.Context, root, rel string) (bool, error) {
-	err := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--", rel).Run()
+	_, err := proc.RunGit(ctx, root, "check-ignore", "-q", "--", rel)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && ee.ExitCode() == 1 {
 		return false, nil

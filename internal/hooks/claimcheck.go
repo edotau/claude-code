@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -155,7 +154,7 @@ func editPath(in *core.Input) string {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(in.CWD, p)
 	}
-	return canonPath(p)
+	return core.CanonPath(p)
 }
 
 // editCheck returns the once-per-(session, path, who) advisory for an edit of a dirty claimed file.
@@ -184,17 +183,17 @@ func (v claimView) editCheck() core.Result {
 
 // dirtySet is dir's repo toplevel and its dirty paths (absolute, untracked included); "" top outside a repo.
 func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) {
-	out, ok, err := gitOut(ctx, dir, "rev-parse", "--show-toplevel")
+	out, ok, err := core.Git(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil || !ok {
 		return "", nil, err
 	}
-	top := canonPath(out[0])
-	raw, err := exec.CommandContext(ctx, "git", "-C", top, "status", "--porcelain", "-z", "--untracked-files=all").Output()
+	top := core.CanonPath(out[0])
+	raw, err := proc.RunGit(ctx, top, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
 	}
 	dirty := map[string]bool{}
-	recs := strings.Split(string(raw), "\x00")
+	recs := strings.Split(raw, "\x00")
 	for i := 0; i < len(recs); i++ {
 		if r := recs[i]; len(r) > 3 {
 			dirty[filepath.Join(top, r[3:])] = true
@@ -211,7 +210,7 @@ func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, 
 	if top == "" || !dirty[p] {
 		return nil, nil
 	}
-	out, _, err := gitOut(v.ctx, top, "log", "-1", "--format=%ct", "--", p)
+	out, _, err := core.Git(v.ctx, top, "log", "-1", "--format=%ct", "--", p)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +368,7 @@ func stageResult(in *core.Input, verb string, taken []string, n stageCount) core
 	if verb == "commit" {
 		hint = "commit only your own files: git commit -- <your files> (a bare commit takes everything staged)"
 	}
-	return core.Result{Decision: d, Reason: safetyMessage(in, d, what, "", hint)}
+	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
 }
 
 func isPatchFlag(a string) bool {
@@ -382,14 +381,14 @@ func stageScopes(ctx context.Context, top, target, verb string, args []string) (
 	if len(ops) > 0 {
 		out := make([]string, 0, len(ops))
 		for _, o := range ops {
-			out = append(out, canonPath(filepath.Join(target, o)))
+			out = append(out, core.CanonPath(filepath.Join(target, o)))
 		}
 		return out, nil
 	}
 	if all || verb == "add" {
 		return []string{top}, nil // add -A/-u with no pathspec, commit -a
 	}
-	staged, _, err := gitOut(ctx, top, "diff", "--cached", "--name-only")
+	staged, _, err := core.Git(ctx, top, "diff", "--cached", "--name-only")
 	var out []string
 	for _, s := range staged {
 		if s != "" {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -61,24 +61,25 @@ func worktreeRemove(in *core.Input, stderr io.Writer) int {
 	ctx, cancel := core.HookContext("worktree-remove")
 	defer cancel()
 	main := paths.MainCheckout(path)
-	branch, err := exec.CommandContext(ctx, "git", "-C", path, "branch", "--show-current").Output()
+	branch, err := proc.RunGit(ctx, path, "branch", "--show-current")
 	if err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: warning: branch probe failed, its branch is kept: %v\n", err)
 	}
-	head, err := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "HEAD").Output()
+	head, err := proc.RunGit(ctx, path, "rev-parse", "HEAD")
 	if err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: warning: HEAD probe failed, the ledger records no head: %v\n", err)
 	}
-	if out, err := exec.CommandContext(ctx, "git", "-C", main, "worktree", "remove", path).CombinedOutput(); err != nil {
-		fmt.Fprintf(stderr, "worktree-remove: %v: %s\n", err, strings.TrimSpace(string(out)))
+	if _, err := proc.RunGit(ctx, main, "worktree", "remove", path); err != nil {
+		fmt.Fprintf(stderr, "worktree-remove: %v\n", err)
 		return 1
 	}
 	branchDeleted := false
-	if b := strings.TrimSpace(string(branch)); b != "" {
-		branchDeleted = exec.CommandContext(ctx, "git", "-C", main, "branch", "-d", b).Run() == nil
+	if b := strings.TrimSpace(branch); b != "" {
+		_, derr := proc.RunGit(ctx, main, "branch", "-d", b)
+		branchDeleted = derr == nil
 	}
 	if err := worktree.CloseLedger(main, filepath.Base(filepath.Clean(path)), worktree.LedgerClose{
-		Via: "remove", Head: strings.TrimSpace(string(head)), BranchDeleted: branchDeleted,
+		Via: "remove", Head: strings.TrimSpace(head), BranchDeleted: branchDeleted,
 	}); err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: warning: ledger: %v\n", err)
 	}
@@ -167,11 +168,11 @@ func busyLine(ctx context.Context, in *core.Input) string {
 // checkoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.
 func checkoutOf(ctx context.Context, cwd string) (top, branch string, nested []string) {
 	git := func(args ...string) string {
-		out, err := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...).Output()
+		out, err := proc.RunGit(ctx, cwd, args...)
 		if err != nil {
 			return ""
 		}
-		return strings.TrimSpace(string(out))
+		return strings.TrimSpace(out)
 	}
 	top = git("rev-parse", "--show-toplevel")
 	if top == "" {
@@ -188,5 +189,5 @@ func checkoutOf(ctx context.Context, cwd string) (top, branch string, nested []s
 			others = append(others, real)
 		}
 	}
-	return top, branch, nestedIn(top, others)
+	return top, branch, core.NestedIn(top, others)
 }

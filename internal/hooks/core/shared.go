@@ -1,10 +1,14 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var (
@@ -32,4 +36,62 @@ func RepoRootOf(dir string) string {
 // UnderDir reports whether path is dir itself or below it (both already canonical).
 func UnderDir(dir, path string) bool {
 	return dir != "" && (path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)))
+}
+
+// NestedIn keeps the worktree paths inside top: the peer scan skips those, never the tree that holds top.
+func NestedIn(top string, worktrees []string) []string {
+	var out []string
+	for _, w := range worktrees {
+		if strings.HasPrefix(w, top+string(filepath.Separator)) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// CanonPath is absolute and symlink-resolved (or its parent is, for a path that does not exist yet).
+func CanonPath(p string) string {
+	if a, err := filepath.Abs(p); err == nil {
+		p = a
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	if r, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+		return filepath.Join(r, filepath.Base(p))
+	}
+	return p
+}
+
+// LazyCompile compiles the patterns on first use and caches them.
+func LazyCompile(pats ...string) func() []*regexp.Regexp {
+	return sync.OnceValue(func() []*regexp.Regexp {
+		out := make([]*regexp.Regexp, len(pats))
+		for i, p := range pats {
+			out[i] = regexp.MustCompile(p)
+		}
+		return out
+	})
+}
+
+// CapContext trims merged context to ContextCapChars, cutting the later blocks first.
+func CapContext(s string) string {
+	return textutil.CapRunes(s, ContextCapChars, "…truncated")
+}
+
+// SafetyMessage renders the stderr/reason text; an ask that falls back to a block names the agent.
+func SafetyMessage(in *Input, decision Decision, what, pattern, hint string) string {
+	word := "BLOCKED"
+	if decision == Ask {
+		if in.Agent() == AgentClaude {
+			word = "ASK"
+		} else {
+			what += " (no ask decision on " + in.Agent() + ")"
+		}
+	}
+	msg := fmt.Sprintf("safety: %s — %s\n", word, what)
+	if pattern != "" {
+		msg += "  pattern: " + pattern + "\n"
+	}
+	return msg + "  command: " + in.ToolCommand() + "\n" + hint + "\n"
 }

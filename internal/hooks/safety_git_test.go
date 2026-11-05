@@ -18,7 +18,7 @@ import (
 // rewriteFixture builds a bare origin, a clone with two pushed commits, and a linked worktree on a pushed branch.
 func rewriteFixture(t *testing.T) (work, wt string) {
 	t.Helper()
-	root := canonPath(t.TempDir())
+	root := core.CanonPath(t.TempDir())
 	work, wt = filepath.Join(root, "work"), filepath.Join(root, "wt")
 	run := func(dir string, args ...string) {
 		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)

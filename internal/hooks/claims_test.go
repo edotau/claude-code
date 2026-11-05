@@ -35,7 +35,7 @@ const liveOwner, deadOwner = 100, 200
 func TestWorktreeClaimRecordsEditsAndCommits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	useClaimOwner(t, liveOwner)
-	dir := canonPath(t.TempDir())
+	dir := core.CanonPath(t.TempDir())
 	worktreeClaim(claimInput(t, map[string]any{"session_id": "", "cwd": dir, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": "a.txt"}}))
 	if _, err := os.Stat(claimsDir()); !os.IsNotExist(err) {
