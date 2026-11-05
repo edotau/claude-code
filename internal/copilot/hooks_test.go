@@ -58,10 +58,16 @@ func TestCopilotJSONMemoryEvents(t *testing.T) {
 	if err := json.Unmarshal(body, &doc); err != nil {
 		t.Fatal(err)
 	}
-	for event, module := range map[string]string{"agentStop": "memory-update", "sessionEnd": "memory-end"} {
+	for event, modules := range map[string][]string{"agentStop": {"memory-update", "format-stop"}, "sessionEnd": {"memory-end"}} {
 		entries := doc.Hooks[event]
-		if len(entries) != 1 || !strings.Contains(entries[0].Bash, module) || !strings.HasSuffix(entries[0].Bash, " || true") {
-			t.Errorf("%s = %+v, want one advisory %s entry", event, entries, module)
+		if len(entries) != len(modules) {
+			t.Fatalf("%s = %+v, want advisory %v", event, entries, modules)
+		}
+		for i, module := range modules {
+			if !strings.Contains(entries[i].Bash, module) || !strings.HasSuffix(entries[i].Bash, " || true") {
+				t.Errorf("%s[%d] = %q, want advisory %s", event, i, entries[i].Bash, module)
+			}
 		}
 	}
+
 }

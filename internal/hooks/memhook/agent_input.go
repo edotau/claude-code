@@ -44,9 +44,9 @@ var opencodeExport = func(sessionID, cwd string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// agentInput returns in with TranscriptPath pointing at a Claude-shaped transcript synthesized from an opencode
+// AgentInput returns in with TranscriptPath pointing at a Claude-shaped transcript synthesized from an opencode
 // export or a Copilot events.jsonl; any other input, or a failed load, comes back unchanged (fail open).
-func agentInput(in *core.Input) *core.Input {
+func AgentInput(in *core.Input) *core.Input {
 	var at AgentTranscript
 	var err error
 	switch {
@@ -100,14 +100,16 @@ func synthLine(kind string, block map[string]any) map[string]any {
 
 var patchFileRe = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+)$`)
 
-// copilotEventsFrom reads a Copilot events.jsonl into the loader's events; apply_patch text expands to one event per file.
+// copilotEventsFrom reads a Copilot events.jsonl into the loader's events. Successful tool.execution_complete
+// fileEdits are the edit source; start arguments (apply_patch text expanded per file) only when no fileEdits exist.
 func copilotEventsFrom(path, cwd string) []CopilotEvent {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
-	var evs []CopilotEvent
+	var texts, starts, done []CopilotEvent
+	var sawFileEdits bool
 	_ = transcript.EachLine(f, func(line []byte) {
 		var rec struct {
 			Type string `json:"type"`
@@ -115,6 +117,10 @@ func copilotEventsFrom(path, cwd string) []CopilotEvent {
 				ToolName  string          `json:"toolName"`
 				Arguments json.RawMessage `json:"arguments"`
 				Content   string          `json:"content"`
+				Success   bool            `json:"success"`
+				FileEdits []struct {
+					Path string `json:"path"`
+				} `json:"fileEdits"`
 			} `json:"data"`
 		}
 		if json.Unmarshal(line, &rec) != nil {
@@ -122,12 +128,22 @@ func copilotEventsFrom(path, cwd string) []CopilotEvent {
 		}
 		switch rec.Type {
 		case "assistant.message":
-			evs = append(evs, CopilotEvent{Type: rec.Type, Content: rec.Data.Content})
+			texts = append(texts, CopilotEvent{Type: rec.Type, Content: rec.Data.Content})
 		case "tool.execution_start":
-			evs = append(evs, copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, cwd)...)
+			starts = append(starts, copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, cwd)...)
+		case "tool.execution_complete":
+			sawFileEdits = sawFileEdits || len(rec.Data.FileEdits) > 0
+			for _, fe := range rec.Data.FileEdits {
+				if rec.Data.Success {
+					done = append(done, CopilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
+				}
+			}
 		}
 	})
-	return evs
+	if sawFileEdits {
+		return append(texts, done...)
+	}
+	return append(texts, starts...)
 }
 
 func copilotToolEvents(tool string, raw json.RawMessage, cwd string) []CopilotEvent {

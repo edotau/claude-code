@@ -273,7 +273,7 @@ func TestSpecsFor(t *testing.T) {
 	}{
 		{"claude", "native", -1, "rtk-rewrite", "codex-agent-route"},
 		{"copilot", "native", -1, "safety-scan", "rtk-rewrite"},
-		{"copilot", "native", -1, "memory-update", "format-stop"},
+		{"copilot", "native", -1, "format-stop", "memory-start"},
 		{"copilot", "native", -1, "memory-end", "memory-start"},
 		{"copilot", "sdk", len(names("copilot", "native")), "memory-recall", "rtk-rewrite"},
 		{"codex", "sdk", 0, "", ""},

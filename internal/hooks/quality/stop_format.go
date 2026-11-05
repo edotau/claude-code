@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -35,6 +36,7 @@ func StopFormat(in *core.Input) core.Result { stopFormat(in); return core.Result
 // stopFormat formats files that are dirty in git AND that this session's transcript shows it writing;
 // a dirty file Claude never wrote is the user's hand edit and is left alone.
 func stopFormat(in *core.Input) int {
+	in = memhook.AgentInput(in) // copilot and opencode have no Claude-shaped transcript of their own
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
