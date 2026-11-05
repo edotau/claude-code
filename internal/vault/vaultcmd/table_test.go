@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
@@ -62,14 +61,14 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	}
 }
 
-// exportDoc decodes configure.Export()'s object for the current test vault.
-func exportDoc(t *testing.T) configure.Doc {
+// exportDoc decodes Export()'s object for the current test vault.
+func exportDoc(t *testing.T) Doc {
 	t.Helper()
-	raw, err := configure.Export()
+	raw, err := Export()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc configure.Doc
+	var doc Doc
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}

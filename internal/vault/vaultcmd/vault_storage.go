@@ -1,4 +1,4 @@
-package configure
+package vaultcmd
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -20,6 +21,9 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
+
+// envName is a valid secret name: an env var identifier.
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // ErrChanged reports that the vault moved between Export and Import; Import wrote nothing.
 var ErrChanged = errors.New("vault changed while you edited; nothing saved")
@@ -103,8 +107,8 @@ func decodeDoc(edited []byte) (Doc, error) {
 func validatePinsEnv(d Doc) error {
 	for section, values := range map[string]map[string]string{"pins": d.Pins, "env": d.Env} {
 		for name, value := range values {
-			if !EnvName.MatchString(name) {
-				return sectionError(section+"."+strings.NewReplacer("\n", " ", "\r", " ").Replace(name), fmt.Errorf("name must match %s", EnvName))
+			if !envName.MatchString(name) {
+				return sectionError(section+"."+strings.NewReplacer("\n", " ", "\r", " ").Replace(name), fmt.Errorf("name must match %s", envName))
 			}
 			if value == "" || strings.ContainsAny(value, "\n\r") {
 				return fmt.Errorf("%s.%s: value must be non-empty and single-line", section, name)

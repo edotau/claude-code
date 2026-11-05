@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // RenderObject parses render's output into a top-level key -> value map.
@@ -24,5 +24,5 @@ func RenderObject(render func() ([]byte, error)) (map[string]json.RawMessage, er
 
 // ReadLiveSettings parses the live settings.json; a missing file is not an error (just no rows to flag).
 func ReadLiveSettings() (map[string]json.RawMessage, error) {
-	return RenderObject(func() ([]byte, error) { return os.ReadFile(launch.SettingsFile()) })
+	return RenderObject(func() ([]byte, error) { return os.ReadFile(settings.SettingsFile()) })
 }

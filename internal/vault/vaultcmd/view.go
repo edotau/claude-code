@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -29,12 +28,12 @@ func List(out *os.File, format string, sel []string) error {
 			return err
 		}
 	}
-	raw, err := configure.Export()
+	raw, err := Export()
 	if err != nil {
 		return err
 	}
 	if format != helptext.JSON {
-		var doc configure.Doc
+		var doc Doc
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			return err
 		}
@@ -82,7 +81,7 @@ type secretJSON struct {
 	Length int    `json:"length"`
 }
 
-// JSON is configure.Export()'s object, filtered to sel, with a masked "secrets" array first when selected.
+// JSON is Export()'s object, filtered to sel, with a masked "secrets" array first when selected.
 func JSON(raw []byte, stored []vault.Stored, sel []string) ([]byte, error) {
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &doc); err != nil {

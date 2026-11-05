@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row the vault tests list
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )

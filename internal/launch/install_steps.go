@@ -3,7 +3,6 @@ package launch
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -216,58 +215,9 @@ func linkOnPathCompact(w io.Writer, target string) error {
 	return nil
 }
 
-// ApplySettings is the read/render/merge/write of settings.json shared by install and configure's exit re-render:
-// a missing file is generated from the defaults; an existing one has only its hooks refreshed.
-func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum settings.Summary, backup string, err error) {
-	file = SettingsFile()
-	existing, err = os.ReadFile(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return file, nil, nil, settings.Summary{}, "", err
-	}
-	if restoreMissingSettings(err, dryRun) { // a fresh install restores the defaults whole
-		merged, sum, backup, err = restoreNewSettings(file)
-		return file, nil, merged, sum, backup, err
-	}
-	rendered, err := settings.RenderLive()
-	if err != nil {
-		return file, existing, nil, settings.Summary{}, "", err
-	}
-	merged, sum, err = settings.Merge(existing, rendered)
-	if err != nil {
-		return file, existing, nil, settings.Summary{}, "", err
-	}
-	if string(merged) == string(existing) || dryRun {
-		return file, existing, merged, sum, "", nil
-	}
-	merged, sum, backup, err = updateMergedSettings(file, rendered, merged, sum)
-	return file, existing, merged, sum, backup, err
-}
-
-func restoreNewSettings(file string) ([]byte, settings.Summary, string, error) {
-	r, err := RestoreSettings(file)
-	if err != nil {
-		return nil, settings.Summary{}, "", err
-	}
-	_, sum, err := settings.Merge(nil, r.Data)
-	return r.Data, sum, r.Backup, err
-}
-
-func updateMergedSettings(file string, rendered, merged []byte, sum settings.Summary) ([]byte, settings.Summary, string, error) {
-	backup, err := settings.UpdateWithBackup(file, func(old []byte) ([]byte, error) {
-		var mergeErr error // re-merge the bytes read under the lock, so a concurrent writer's update survives
-		merged, sum, mergeErr = settings.Merge(old, rendered)
-		return merged, mergeErr
-	})
-	return merged, sum, backup, err
-}
-
-func restoreMissingSettings(err error, dryRun bool) bool {
-	return errors.Is(err, fs.ErrNotExist) && !dryRun
-}
-
 // installSettings refreshes the hooks of settings.json (or generates it), backing up on a real write.
 func installSettings(w io.Writer, dryRun bool) error {
-	file, existing, merged, sum, backup, err := ApplySettings(dryRun)
+	file, existing, merged, sum, backup, err := settings.ApplySettings(dryRun, agent.NoticeOut)
 	if err != nil {
 		if backup != "" {
 			fmt.Fprintf(w, "settings %s\n  backup %s\n", file, backup)
@@ -294,7 +244,7 @@ func installSettings(w io.Writer, dryRun bool) error {
 // settingsCompactLine is installSettings without the printing: it writes the settings the same way,
 // returning the one-line summary (or "" on error, which the caller reports).
 func settingsCompactLine() (line string, err error) {
-	_, existing, merged, sum, backup, err := ApplySettings(false)
+	_, existing, merged, sum, backup, err := settings.ApplySettings(false, agent.NoticeOut)
 	if err != nil {
 		if backup != "" {
 			return "settings error · backup …" + filepath.Base(backup), err
@@ -617,28 +567,4 @@ func formatsCompact(w io.Writer) string {
 		return ""
 	}
 	return fmt.Sprintf("formats %d migrated", len(done))
-}
-
-// RestoreResult is what RestoreSettings did: the rendered bytes, the history commit and the backup path.
-type RestoreResult struct {
-	Data   []byte
-	Commit string
-	Backup string
-}
-
-// RestoreSettings snapshots history ("before restore"), renders defaults plus overlay and writes file whole.
-func RestoreSettings(file string) (RestoreResult, error) {
-	var r RestoreResult
-	if h, err := history.SnapshotConfig("before restore"); err != nil {
-		fmt.Fprintln(agent.NoticeOut, "restore: history snapshot:", err)
-	} else {
-		r.Commit = h.Commit
-	}
-	data, err := settings.RenderLive()
-	if err != nil {
-		return r, err
-	}
-	r.Data = data
-	r.Backup, err = settings.WriteWithBackup(file, data)
-	return r, err
 }

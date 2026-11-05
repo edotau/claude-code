@@ -21,8 +21,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // webSearchArgs is the claude-code argv every client registers for the web_search MCP server.
@@ -111,7 +111,7 @@ func RegisterCodexMCP(path, bin string) error {
 // RerenderSettings refreshes settings.json hooks only (never prompts; backup first) and returns the
 // line to print; an error means settings.json could not be brought current.
 func RerenderSettings() (string, error) {
-	_, existing, merged, _, backup, err := launch.ApplySettings(false)
+	_, existing, merged, _, backup, err := settings.ApplySettings(false, agent.NoticeOut)
 	switch {
 	case err != nil:
 		return "", err
