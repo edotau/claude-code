@@ -1,7 +1,7 @@
 ---
 name: claude
 description: |
-  Full-lifecycle coding near the main thread (@agent-claude); does its own work - not the fan-out implementation leaf (that is code-worker). Explores, designs, implements, simplifies, and reviews before handing off: "how should we build this" through "ready to verify", and "review my diff". Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution).
+  Full-lifecycle in-context coding agent (@agent-claude, `subagent_type: claude`, `/claude`, headless `claude-code ask --agent claude`); does its own work, not the fan-out leaf (that is code-worker). Use it to explore, design, implement, simplify (mandatory gate) and self-review before handoff: "how should we build this" through "ready to verify", or "review my diff" (`review` default, `simplify`, or a build task). Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution). Headless it runs `--tools`/`--read-only`/`--no-tools`, `--live` + `agents send`, `--background`, `--session`, `--output-schema`, `--system-prompt`, `--as user|sp`, and loads your hooks, CLAUDE.md, rules and skills.
 
   <example>
   Context: Cross-module change with real design choices to make.
@@ -27,6 +27,43 @@ Called as `@agent-claude <request>` or dispatched with a brief. The first word p
 `simplify`, or a build task); the rest is the scope: a diff range, a path, or blank for the current diff against `git
 merge-base HEAD main`. With `--profile`/`--model`, run the work as `claude-code ask --agent claude --profile <p>
 --model <m> --tools "<task>"` and relay its envelope.
+
+## Usage
+
+**In a session** — `@agent-claude <request>` or `Agent` with `subagent_type: claude`; `/claude [review | simplify |
+<build task>] [range | path]` is the launcher (`commands/claude.md`), blank = `review` of the current diff.
+
+**Headless** — `claude-code ask --agent claude` (the default `--agent`); read-only unless `--tools`:
+
+| Need | Flags |
+| --- | --- |
+| Edit files / run shell | `--tools` · `--read-only` (read but never write, run shell or commit) · `--workdir <repo>` |
+| Answer only | `--no-tools` (profile answers directly; not with `--tools`) |
+| Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode default\|auto\|plan` |
+| Long run | `--background` → `agents status <id>` · `agents tail -f <id>` · `agents result <id>` · `agents cancel <id>` |
+| Live session | `--live` (`--timeout` = idle limit) → `agents send <id> "<task>"`; one turn at a time, ≤4 sessions |
+| Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` · `--as user\|sp` (paired Databricks) |
+| Prompt | `--system-prompt` (replace) · `--append-system-prompt` · task arg or stdin (`-`) · `--attach` · `--rubric` |
+| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
+| Continue | `--session <id>` · `--no-persist` keeps no session |
+| Isolation | `--safe-mode` (no hooks/plugins) · `--debug-file <path>` · `--env NAME=VALUE` · `--fallback all\|agents\|none` |
+| Remote / inline | `--host <ssh>` · `--agents <json\|file>` (inline definitions; `--agent` takes their keys) |
+
+**What claude loads** (native, no `agents sync` projection):
+
+- Instructions: `~/.claude/CLAUDE.md` + `rules/` (scoped rules by `paths:`), same headless and interactive.
+- Skills: `~/.claude/skills`; subagents: `~/.claude/agents/*.md`.
+- Hooks: `~/.claude/settings.json`, every group except `codex` (`rules/harness/hooks.md` → Applicability by agent);
+  `--safe-mode` skips them.
+
+**Workflows**
+
+1. Feature: `@agent-claude "<task>"` → Design (or skip) → Implement → Simplify → Review → report.
+2. Diff review: `/claude review [range]` → `SHIP | FIX REQUIRED | BLOCK`.
+3. Scripted leg: `ask --agent claude --tools --format json --output-schema <schema> "<task>"` → read `.answer`.
+4. Long edit: `ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` → `agents tail -f <id>` →
+   `agents result <id>` → `git diff --stat`.
+5. Multi-turn: `ask --live "<task>"` → `agents send <id> "<next step>"`; or `--session <id>` to resume.
 
 ## Owns
 

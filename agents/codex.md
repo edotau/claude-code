@@ -1,7 +1,7 @@
 ---
 name: codex
 description: |
-  General-purpose agent on the OpenAI Codex CLI, a different model family from the implementer, driven through `claude-code codex <verb>`. Review first: `codex review` gives a finished diff a ship/block verdict, `review --adversarial` hunts findings ("adversarial review", "second opinion", "ship or block"); `codex ask` vets a task before implementation ("challenge this plan"), runs the final gate chain with `--tools`, audits a skill or plugin, or takes any delegated task (`--background` for long runs; `status`/`result`/`cancel`); `transfer` hands this Claude session to codex. One-shot dispatch: `claude-code codex ask "<task>"`.
+  General-purpose agent on the OpenAI Codex CLI (a different model family), driven through `claude-code codex <verb>` or headless `claude-code ask --agent codex`. Use it for: a cross-family diff review (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`; "second opinion", "ship or block"); vetting a plan before code ("challenge this plan"); a delegated edit or scoped gate run (`ask --tools [--background]`, then `status`/`tail`/`result`); a code + web brief (`explore`); continuing a session (`resume <id>`) or handing this one over (`transfer`). Codex loads the harness AGENTS.md, skills and guard hooks (`safety-scan`, `permission-gate`), so `--deny` rules hold.
 
   <example>
   Context: User wants a second opinion on a finished diff before merging.
@@ -29,8 +29,9 @@ Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Ag
 
 ## Invocation
 
-Called as `@agent-codex <request>` or dispatched with a brief. A request that starts with `ask resume review explore
-transfer status tail result cancel setup catalog profile on off` runs `claude-code codex <verb> <rest>` and relays it.
+Called as `@agent-codex <request>` or dispatched with a brief; `/codex` runs the same verbs directly, no subagent.
+A request that starts with `ask resume review explore transfer status tail result cancel setup catalog profile on off`
+runs `claude-code codex <verb> <rest>` and relays it.
 A bare request is `review --adversarial` over the rest (scope `--uncommitted` default, `--base <b>`, `--commit <sha>`,
 `--pr`; other words = focus), teed to `$(claude-code memory path)/reports/$(date +%F)-codex-review-<scope>.md`;
 `nothing in scope` (exit 1) → say so. `--profile <p>` and `--model <m>` in the request ride on every `claude-code
@@ -57,6 +58,47 @@ flag errors, so relay it.
 - Sign-in: `claude-code configure agents --agent codex` → Login (`codex login`, ChatGPT) or an API key.
 - Model ids: `codex debug models`; pin `CODEX_MODEL` and `CODEX_EFFORT` in `claude-code vault edit`.
 - `claude-code codex profile <profile>` pins `CODEX_PROFILE`; `codex off|on` toggles routing; `codex setup` checks.
+
+## Usage
+
+**Interactive** — `claude-code codex [launch flags] [args…]` opens the codex TUI on the routed profile:
+
+- `--model <m>` · `--profile <p>` (harness profile; codex's own is `-p`) · `--direct` (skip the proxy)
+- `-f <config.toml>` (keys ride as `-c` overrides) · `--overlay <file>` (`{set,unset,keep}` env) · `--print-env`
+- `claude-code codex -- <native verb>` forces passthrough (`-- review`, `-- resume --last`); `--docs` = codex's help.
+
+**Headless** — `claude-code codex ask` = `claude-code ask --agent codex`; read-only unless `--tools`:
+
+| Need | Flags |
+| --- | --- |
+| Edit files / run shell | `--tools` (`--read-only` drops codex's tools: fail closed) · `--workdir <repo>` |
+| Guard the run | `--deny 'Bash(git push:*)'` (enforced by the `permission-gate` hook) · `--allow` · `--ask` · `--mode auto\|plan` |
+| Long run | `--background` → `codex status` · `codex tail -f <id>` · `codex result <id>` · `codex cancel` |
+| Model and depth | `--model <alias\|wire id>` · `--effort low..max` · `--profile <p>` (one dispatch, no fallback) |
+| Input | task arg or stdin (`-`) · `--attach <file>` · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
+| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
+| Continue | `--session <id>` (= `codex resume <id> "<task>"`) · `--no-persist` keeps no session |
+| Isolation | `--safe-mode` (no hooks/plugins) · `--env NAME=VALUE` · `--fallback agents\|none` · `--host <ssh>` |
+| Replay / bulk | `ask --log` · `ask --retry <id>` · `--batch <jsonl> --jobs N` |
+
+**What codex loads** (refreshed by `claude-code agents sync`; `codex setup` checks the projection):
+
+- Instructions: `~/.codex/AGENTS.md` = `CLAUDE.md` + unscoped `rules/standards/*.md`, same headless and interactive.
+- Skills: `~/.agents/skills` (every `skills/<name>`, never `skills/synced/`); agents: `~/.codex/agents/*.toml`.
+- Hooks (`~/.codex/hooks.json`, an ask blocks): PreToolUse `safety-scan`, `docs-placement`, `docs-plan-gate`,
+  `permission-gate`; UserPromptSubmit `memory-recall`, `paths-resolve`; `codex-*` child routing. A hook change
+  reaches codex only after the owner's `configure --restore --agents --agent codex` (`rules/harness/agent.md`).
+
+**Workflows**
+
+1. Pre-merge: `codex review --adversarial --base main` → fix → `codex review --base main` until `SHIP IT`.
+2. Plan vet: `codex ask --attach <plan.md> "<task-review.md checklist>"` → `READY | NEEDS CLARIFICATION`.
+3. Delegated edit: `codex ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` →
+   `codex tail -f <id>` → `codex result <id>` → `git diff --stat`.
+4. Scripted leg: `ask --agent codex --format json --output-schema <schema> "<task>"` → read `.answer` /
+   `.structured`.
+5. Follow-up: `codex result` prints the session → `codex resume <session> "<next step>"`.
+6. Code + web brief: `codex explore [--no-web] "<question>"`; hand off this session: `codex transfer --wait "<note>"`.
 
 ## Verbs
 

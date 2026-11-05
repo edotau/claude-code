@@ -1,7 +1,7 @@
 ---
 name: gemini
 description: |
-  Extended Explore agent on Gemini (agy) — fans out up to 12 parallel explore legs per wave (`claude-code dispatch explore`) (code scan + web research each), runs an optional second wave on named gaps ("deep research"), and merges them into one brief citing file:line and URLs. Use for broad codebase intel, web/library research, and before architecture decisions. Also drives `gemini bridge` (1M-token sweeps) and `gemini review [--adversarial]` (diff review on the Gemini family).
+  Extended Explore agent on Gemini via agy (Google sign-in), driven by `claude-code gemini <verb>` or headless `claude-code ask --agent gemini`. Use it for: a cited codebase + web brief (`dispatch explore [--part q]… [--no-web]` fans out up to 12 parallel legs, then an optional deep-research wave on named gaps); a 1M-token whole-repo or multi-module sweep (`bridge --dirs <d> [--files <globs>] [--diff] [--index]`, tracked files only); a diff review on the Gemini family (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`); a targeted trace or web lookup (`ask --tools [--background]`, then `status`/`result`); continuing a session (`resume <id>`). Read-only intent; Bash `--deny` rules hold through the `permission-gate` hook.
 
   <example>
   Context: Multi-part question mixing code and web research.
@@ -51,6 +51,57 @@ below), and `bridge` only for a whole-repo sweep. `--profile`/`--model` ride on 
 - Sign-in: `claude-code configure agents --agent gemini` → sign in (runs `agy`, Google); `--profile` picks an API key.
 - Model ids: `claude-code gemini catalog`; the effort is part of the id (`gemini-4-argon-high`).
 - Pin `GEMINI_MODEL` in `claude-code vault edit`; `gemini off|on` toggles routing; `gemini setup` checks.
+
+## Usage
+
+**Interactive** — `claude-code gemini [launch flags] [args…]` opens agy (Antigravity) on the routed profile:
+
+- `--model <m>` · `--profile <p>` (an API-key profile instead of the Google sign-in) · `--direct` (skip the proxy)
+- `--overlay <file>` (`{set,unset,keep}` env) · `--print-env` (resolved binary, argv, env; no launch)
+- `claude-code gemini -- <native args>` forces passthrough; `--docs` prints agy's own help.
+
+**Headless** — `claude-code gemini ask` = `claude-code ask --agent gemini`; read-only unless `--tools`:
+
+| Need | Flags |
+| --- | --- |
+| Search or read files | `--tools` (no search without it) · `--workdir <repo>`; `--read-only` is refused on agy |
+| Guard the run | `--deny 'Bash(git push:*)'` (`permission-gate` hook) · `--allow` · `--ask` · `--mode` |
+| Long run | `--background` → `gemini status` · `gemini tail -f <id>` · `gemini result <id>` · `gemini cancel` |
+| Model | `--model <alias\|version\|wire id>` (effort rides in the id, `gemini catalog`) · `--profile <p>` |
+| Input | task arg or stdin (`-`) · `--attach <file>` · `--rubric <file>` · system-prompt flags emulated |
+| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`, `ran_on`) · `stream-json` |
+| Continue | `--session <id>` (= `gemini resume <id> "<task>"`) · `--live` holds a session open for `agents send` |
+| Isolation | `--env NAME=VALUE` · `--fallback agents\|none` · `--host <ssh>` · `--debug-file <path>` |
+| Replay / bulk | `ask --log` · `ask --retry <id>` · `--batch <jsonl> --jobs N` |
+
+`--safe-mode`, `--no-persist` and `--autonomous` do nothing on agy.
+
+**Other verbs**
+
+- `dispatch explore [--part q]… [--no-web] [--jobs N] [--timeout d] [--background] "<task>"` — one agy leg per `--part`.
+- `gemini bridge [--dirs d] [--files globs] [--diff] [--index] [--max-files N] [--max-file-bytes N] [--effort e]
+  [--rubric f] [--format json] [--print-command] [--timeout d] "<task>"` — 1M-context sweep, tracked files only.
+- `gemini review [--adversarial] [--uncommitted|--base <b>|--commit <sha>|--pr] [--rubric f] [--background] [focus…]`.
+- `gemini explore [--no-web] [--background] [--format json] "<question>"` — one leg; `transfer [--source]` hands this
+  Claude session over; `setup` checks the binary, login, route and projection.
+
+**What gemini loads** (refreshed by `claude-code agents sync`; `gemini setup` checks the projection):
+
+- Instructions: `~/.gemini/GEMINI.md` = `CLAUDE.md` + unscoped `rules/standards/*.md`, same headless and interactive.
+- Skills: `~/.gemini/antigravity-cli/skills` (symlinks to `skills/<name>`, never `skills/synced/`); agents:
+  `~/.gemini/agents/*.md` (the other roster agents, not gemini itself).
+- Hooks (`~/.gemini/config/hooks.json`, an ask blocks): one PreToolUse `permission-gate` on
+  `run_command|read_file|write_file|edit_file` — no `safety-scan`, docs or memory hooks. A hook change reaches agy only
+  after the owner's `configure --restore --agents --agent gemini` (`rules/harness/agent.md`).
+
+**Workflows**
+
+1. Intel brief: `dispatch explore --part "<code q>" --part "<web q>" "<task>"` → merge with citations → spot-check.
+2. Deep research: wave 1 → name the gaps → one more `dispatch explore` wave (max 12 legs, never a third).
+3. Whole-repo sweep: `gemini bridge --dirs <d> --index -- "<task>"`; on overflow narrow `--dirs`/`--files` or `--diff`.
+4. Diff review: `gemini review --adversarial --base main` → fix → `gemini review --base main`.
+5. Targeted trace: `gemini ask --tools --workdir <repo> --background "<question>"` → `gemini result <id>`.
+6. Scripted leg: `ask --agent gemini --fallback none --format json "<task>"` → read `.answer` and `.ran_on`.
 
 ## Verbs
 
