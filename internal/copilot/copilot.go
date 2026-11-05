@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -146,10 +147,14 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.T
 	}
 	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
 	rec := vault.GetAgentRecord("copilot")
+	workDir := req.WorkDir
+	if workDir == "" {
+		workDir, _ = os.Getwd() // an empty root would make every scoped write fail RelInside
+	}
 	o := SDKOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
 		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
-		Context:         rec.Context, WorkingDirectory: req.WorkDir,
+		Context:         rec.Context, WorkingDirectory: workDir,
 		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, Permissions: req.Permissions, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 		System:    strings.TrimSpace(req.SystemPrompt + "\n\n" + req.AppendSystemPrompt),
