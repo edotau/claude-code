@@ -11,8 +11,23 @@ var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "-
 
 // GitInvocation parses git's global options up to the verb: the target tree, the verb, the verb's words.
 func GitInvocation(toks []string, cwd string) (target, verb string, args []string) {
+	target, verb, args, _ = parseGit(toks, cwd)
+	return target, verb, args
+}
+
+// resolvedGit is GitInvocation with the verb run through `-c alias.*` and checked for shell expansion (EachGit's view).
+func resolvedGit(toks []string, cwd string) (target, verb string, args []string) {
+	target, verb, args, aliases := parseGit(toks, cwd)
+	if verb != "" {
+		verb, args = expandVerb(verb, args, aliases)
+	}
+	return target, verb, args
+}
+
+func parseGit(toks []string, cwd string) (target, verb string, args []string, aliases map[string]string) {
 	var cPaths []string
 	var gitDir, workTree string
+	aliases = map[string]string{}
 	i := 0
 	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
 		var name, val string
@@ -27,12 +42,44 @@ func GitInvocation(toks []string, cwd string) (target, verb string, args []strin
 			gitDir = val
 		case "--work-tree":
 			workTree = val
+		case "-c":
+			recordAlias(aliases, val)
 		}
 	}
 	if i < len(toks) {
 		verb, args = toks[i], toks[i+1:]
 	}
-	return gitTarget(cwd, gitDir, workTree, cPaths), verb, args
+	return gitTarget(cwd, gitDir, workTree, cPaths), verb, args, aliases
+}
+
+// recordAlias stores `alias.NAME=VALUE` (the value of a `-c`) into aliases.
+func recordAlias(aliases map[string]string, kv string) {
+	if n, v, found := strings.Cut(kv, "="); found && strings.HasPrefix(strings.ToLower(n), "alias.") {
+		aliases[strings.ToLower(n)[len("alias."):]] = v
+	}
+}
+
+// gitBuiltins are verbs git never lets an alias shadow; the rest of an alias's first word is its real verb.
+var gitBuiltins = map[string]bool{"checkout": true, "stash": true, "reset": true, "restore": true, "clean": true,
+	"switch": true, "commit": true, "rebase": true, "status": true, "log": true, "add": true, "diff": true}
+
+// expandVerb resolves `-c alias.*`; a `!` alias or a verb the shell expands (`$v`, `{a,b}`) is Uninspectable.
+func expandVerb(verb string, args []string, aliases map[string]string) (string, []string) {
+	for range maxNest {
+		if strings.ContainsAny(verb, "$`{"+subMask) {
+			return Uninspectable, nil
+		}
+		val, ok := aliases[verb]
+		if !ok || gitBuiltins[verb] {
+			return verb, args
+		}
+		words := strings.Fields(val)
+		if len(words) == 0 || strings.HasPrefix(val, "!") {
+			return Uninspectable, nil
+		}
+		verb, args = words[0], append(words[1:len(words):len(words)], args...)
+	}
+	return Uninspectable, nil
 }
 
 // gitGlobalOpt splits the global option at toks[i] into name and value, returning the next index; false if valueless.
