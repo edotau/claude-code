@@ -419,3 +419,67 @@ func TestCopilotPartialKeepsUsage(t *testing.T) {
 		t.Fatalf("Usage = %+v, want %+v", res.Usage, want)
 	}
 }
+
+func TestPermissionsDecideInHandler(t *testing.T) {
+	wd := t.TempDir()
+	perms := agent.Permissions{
+		Deny:  []agent.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Edit", Arg: "secret/**"}},
+		Allow: []agent.Rule{{Tool: "Bash", Arg: "curl:*"}, {Tool: "Edit", Arg: "**"}},
+	}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	for _, tc := range []struct {
+		name string
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{"deny beats scoped allow", scopedShell(wd, "rm victim"), false},
+		{"deny in a chain", scopedShell(wd, "make lint && rm victim"), false},
+		{"allow lifts the scoped allowlist", scopedShell(wd, "curl example.com"), true},
+		{"unmatched falls to scoped", scopedShell(wd, "make lint"), true},
+		{"unmatched refused by scoped", scopedShell(wd, "git push"), false},
+		{"path deny", scopedWrite(wd + "/secret/k.txt"), false},
+		{"path allow", scopedWrite(wd + "/ok.txt"), true},
+		{"allow never lifts a guarded write", scopedWrite(wd + "/.env"), false},
+	} {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
+		}
+	}
+}
+
+func TestEmptyPermissionsKeepHandlers(t *testing.T) {
+	for _, o := range []SDKOptions{{}, {AllowAllTools: true}, {AllowAllTools: true, Autonomous: true}, {AllowAllTools: true, ReadOnlyTools: true}} {
+		with := o
+		with.Permissions = agent.Permissions{}
+		if funcName(baseHandler(o)) != funcName(baseHandler(with)) {
+			t.Errorf("%+v: handler changed", o)
+		}
+	}
+	if got := funcName(baseHandler(SDKOptions{AllowAllTools: true, Autonomous: true})); got != funcName(approveToolOnce) {
+		t.Errorf("autonomous handler = %s, want approveToolOnce", got)
+	}
+}
+
+func TestPermissionCLIArgs(t *testing.T) {
+	p, err := agent.ParsePermissions("", []string{"Bash(go test:*)"}, nil, []string{"Bash(rm *)", "Bash(git push)", "WebFetch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := permissionCLIArgs(p)
+	want := []string{"--deny-tool=shell(rm:*)", "--deny-tool=shell(git push)", "--deny-tool=url", "--allow-tool=shell(go test:*)"}
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("args = %v, %v; want %v", got, err, want)
+	}
+	for _, deny := range []string{"Edit(src/**)", "Bash(a*b)"} {
+		p, _ := agent.ParsePermissions("", nil, nil, []string{deny})
+		_, err := permissionCLIArgs(p)
+		var ae *agent.Error
+		if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), deny) {
+			t.Errorf("deny %s: err = %v, want fatal naming the rule", deny, err)
+		}
+	}
+}

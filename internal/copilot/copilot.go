@@ -149,7 +149,7 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.T
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
 		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
 		Context:         rec.Context, WorkingDirectory: req.WorkDir,
-		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
+		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, Permissions: req.Permissions, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 	}
 }
@@ -456,6 +456,52 @@ func scopedCLIArgs() []string {
 	p := agentconfig.ShellPolicy()
 	return slices.Concat([]string{"--disallow-temp-dir", "--allow-tool=read", "--allow-tool=write"},
 		toolFlags("--allow-tool", p.CLIAllow()...), toolFlags("--deny-tool", p.CLIDeny...))
+}
+
+// permissionCLIArgs maps Bash and bare-tool rules to --allow-tool/--deny-tool; a Deny the CLI cannot confine is fatal.
+func permissionCLIArgs(p agent.Permissions) ([]string, error) {
+	if p.Mode == "plan" {
+		return nil, copilotFatal(errors.New("the copilot CLI cannot enforce --mode plan; use the SDK path"))
+	}
+	var argv []string
+	for _, set := range []struct {
+		flag  string
+		rules []agent.Rule
+		deny  bool
+	}{{"--deny-tool=", p.Deny, true}, {"--allow-tool=", p.Allow, false}} {
+		for _, r := range set.rules {
+			spec, ok := cliToolSpec(r)
+			switch {
+			case ok:
+				argv = append(argv, set.flag+spec)
+			case set.deny:
+				return nil, copilotFatal(fmt.Errorf("the copilot CLI cannot confine deny rule %s; use the SDK path", r))
+			}
+		}
+	}
+	return argv, nil
+}
+
+// cliToolSpec is r in the CLI's tool syntax: shell(prefix:*) for a command prefix, or a whole tool kind.
+func cliToolSpec(r agent.Rule) (string, bool) {
+	if r.Arg == "" {
+		kind, ok := map[string]string{"Bash": "shell", "Edit": "write", "Write": "write", "Read": "read", "WebFetch": "url"}[r.Tool]
+		return kind, ok
+	}
+	if r.Tool != "Bash" {
+		return "", false
+	}
+	prefix, ok := strings.CutSuffix(r.Arg, ":*")
+	if !ok {
+		prefix, ok = strings.CutSuffix(r.Arg, " *")
+	}
+	switch {
+	case ok && !strings.Contains(prefix, "*"):
+		return "shell(" + prefix + ":*)", true
+	case !strings.Contains(r.Arg, "*"):
+		return "shell(" + r.Arg + ")", true
+	}
+	return "", false
 }
 
 // toolFlags spells each shell command prefix as one flag=shell(prefix:*) argument.
