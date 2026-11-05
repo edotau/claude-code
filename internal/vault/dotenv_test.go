@@ -338,3 +338,10 @@ func TestWarnIfUntrackedDefaultOutsideRepo(t *testing.T) {
 		t.Fatalf("stderr = %q, want silence outside a git work tree", out)
 	}
 }
+
+func TestParseDotenvSkipsIndentedComment(t *testing.T) {
+	pairs, problems := vault.ParseDotenv(strings.NewReader("  # note\n\t# tab\nA=1\n"))
+	if len(problems) != 0 || !slices.Equal(pairs, []vault.Pair{{"A", "1"}}) {
+		t.Errorf("pairs = %v, problems = %v; want only A=1 and no problems", pairs, problems)
+	}
+}

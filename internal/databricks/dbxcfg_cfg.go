@@ -239,7 +239,6 @@ type Candidate struct {
 	Env         string // optional dev/qa/prod tag
 	Name        string
 	Host        string // scheme+host only; "" when the source host is unusable
-	AuthType    string // the source profile's auth_type, verbatim
 	ClientID    string // an identifier, not a secret
 	AccountID   string // account_id, an identifier
 	WorkspaceID string // workspace_id, an identifier
@@ -269,7 +268,7 @@ func Candidates(path string) ([]Candidate, error) {
 
 // classifyProfile maps a profile to a row authType; an explicit auth_type wins over inference from the keys present.
 func classifyProfile(p profile) Candidate {
-	c := Candidate{Pair: p.pair, PairSet: p.pairSet, Env: p.env, Name: p.name, AuthType: p.authType, ClientID: p.clientID,
+	c := Candidate{Pair: p.pair, PairSet: p.pairSet, Env: p.env, Name: p.name, ClientID: p.clientID,
 		AccountID: p.accountID, WorkspaceID: p.workspaceID,
 		HasSecret: p.clientSecret != "" || p.token != ""}
 	host, ok := normalizeHost(p.host)

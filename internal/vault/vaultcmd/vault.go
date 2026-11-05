@@ -192,7 +192,7 @@ func configRotateKey(args []string) int {
 	if *force {
 		opts = append(opts, vault.ForceRotate())
 	}
-	return configRun("rotate-secret", RotateKey(os.Stdout, opts...))
+	return configRun("rotate-secret", rotateKey(os.Stdout, opts...))
 }
 
 // configRun maps a subcommand's error to its exit code.

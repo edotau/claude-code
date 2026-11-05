@@ -81,6 +81,10 @@ func parseGitLogLine(line, commit, file string) (string, string, bool) {
 // to the last N commits (0 = full history); rev limits it to a revision range (e.g. @{u}..HEAD). Read-only: runs `git log -p`, nothing else.
 func ScanGit(out io.Writer, dir, rev string, since int) int {
 	fmt.Fprintln(out, "== git history credential scan ==")
+	if strings.HasPrefix(rev, "-") { // a leading '-' would be parsed by git log as an option
+		fmt.Fprintf(out, "  ⚠ invalid rev %q: must not start with '-'\n", rev)
+		return ExitFindings
+	}
 	inRepo, err := probeGitRepo(dir)
 	if err != nil {
 		fmt.Fprintf(out, "  ⚠ could not probe git repo: %v\n", err)
