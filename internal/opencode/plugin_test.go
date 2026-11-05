@@ -24,7 +24,7 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 	}
 	body, _ := os.ReadFile(file)
 	for _, want := range []string{`execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name]`,
-		`{"name":"permission-gate","matcher":"Bash|Write|Edit|Read|WebFetch","budgetMs":5000,"failClosed":true}`,
+		`{"name":"permission-gate","matcher":"Bash|Write|Edit|Read|WebFetch|Glob|Grep","budgetMs":5000,"failClosed":true}`,
 		`{"name":"docs-placement","matcher":"Write|Edit","budgetMs":5000,"failClosed":false}`, `"tool.execute.before"`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("plugin lacks %s", want)
@@ -32,5 +32,18 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 	}
 	if _, plugged, _ := opencodeApplyPlugin(nil, agent.RunOptions{Tools: true, SafeMode: true}); plugged {
 		t.Error("--safe-mode (opencode --pure) loads no plugin, so none may be injected")
+	}
+}
+
+// TestPluginToolMapCoversPatchAndSearch: apply_patch, glob, grep and list reach the gate under Claude's tool names.
+func TestPluginToolMapCoversPatchAndSearch(t *testing.T) {
+	body, err := renderPlugin("/bin/cc", pluginModules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`apply_patch: "Edit"`, `glob: "Glob"`, `grep: "Grep"`, `list: "Read"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("plugin tool map lacks %s", want)
+		}
 	}
 }

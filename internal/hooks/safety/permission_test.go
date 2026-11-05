@@ -34,3 +34,35 @@ func TestPermissionGate(t *testing.T) {
 		})
 	}
 }
+
+// TestPermissionGateApplyPatchJudgesEachFile: an opencode apply_patch is refused when any one of its files is denied.
+func TestPermissionGateApplyPatchJudgesEachFile(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"deny":[{"Tool":"Edit","Arg":"secret.txt"},{"Tool":"Grep","Arg":"vault"}]}`)
+	patch := func(files ...string) string {
+		body := "*** Begin Patch\\n"
+		for _, f := range files {
+			body += "*** Add File: " + f + "\\n+x\\n"
+		}
+		return `{"tool_name":"Edit","cwd":"/repo","tool_input":{"patchText":"` + body + `*** End Patch"}}`
+	}
+	cases := []struct {
+		name, payload string
+		block         bool
+		reason        string
+	}{
+		{"denied file alone", patch("/repo/secret.txt"), true, "Edit(secret.txt)"},
+		{"denied file second of two", patch("ok.txt", "secret.txt"), true, "Edit(secret.txt)"},
+		{"moved onto a denied path", `{"tool_name":"Edit","cwd":"/repo","tool_input":{"patchText":"*** Update File: a.txt\n*** Move to: secret.txt\n"}}`, true, "Edit(secret.txt)"},
+		{"allowed files", patch("a.txt", "b.txt"), false, ""},
+		{"grep on a denied dir", `{"tool_name":"Grep","cwd":"/repo","tool_input":{"path":"/repo/vault","pattern":"k"}}`, true, "Grep(vault)"},
+		{"glob unlisted passes", `{"tool_name":"Glob","cwd":"/repo","tool_input":{"path":"src"}}`, false, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := PermissionGate(core.ParseInput(strings.NewReader(c.payload)))
+			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) {
+				t.Errorf("decision %v reason %q, want block=%v naming %q", res.Decision, res.Reason, c.block, c.reason)
+			}
+		})
+	}
+}
