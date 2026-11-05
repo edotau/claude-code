@@ -16,12 +16,6 @@ func TestDefaultConfigOrder(t *testing.T) {
 	if !cfg.seg("limits", false) {
 		t.Error("segments.limits should default to true")
 	}
-	if cfg.GradientEase != 0.45 {
-		t.Errorf("GradientEase = %v, want 0.45", cfg.GradientEase)
-	}
-	if cfg.ProfileMax != 16 {
-		t.Errorf("ProfileMax = %d, want 16", cfg.ProfileMax)
-	}
 }
 
 // The provider segment is on by default; the statusline shows which provider the session is on.

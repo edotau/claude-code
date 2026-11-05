@@ -1,12 +1,18 @@
 package statusline
 
 import (
+	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // easeAt keeps the ends fixed, leaves exp 0/1 linear, and moves the middle toward the end colors when exp < 1.
@@ -104,5 +110,30 @@ func TestGradientWrapsBeforeContext(t *testing.T) {
 	lines := strings.Split(plain(Render([]byte(gradientPayload(dir)), "gradient")), "\n")
 	if len(lines) != 2 || lines[0] != row1 || !strings.HasPrefix(lines[1], "ctx ━━━─") {
 		t.Errorf("narrow terminal: %q, want %q then the bar", lines, row1)
+	}
+}
+
+// gradientEase is behavior, not a pinned value: for any ease, the cell a fraction f along the line wears the ramp's
+// color at f^ease (0.45 puts the ¼ cell at 54% of the ramp, 1.0 at 25%, 1.5 at 13%).
+func TestGradientEaseColorsAlongLine(t *testing.T) {
+	hermetic(t)
+	cfg := loadConfig()
+	cfg.Order, cfg.Segments = []string{"model"}, map[string]bool{"path": false, "velocity": false, "model": true}
+	pal := cfg.LiftPalette(theme.EmbeddedPalettes())
+	stops := cfg.Stops(pal)
+	v := values{model: strings.Repeat("m", 41)} // 41 cells: index 10, 20, 30 sit exactly ¼, ½, ¾ along
+	sgr := regexp.MustCompile(`\x1b\[1;38;2;(\d+);(\d+);(\d+)m`)
+	for _, ease := range []float64{0.45, 0.65, 1, 1.5} {
+		cfg.GradientEase = ease
+		cells := sgr.FindAllStringSubmatch(renderGradient(v, cfg, pal, stops, ansi.TrueColor), -1)
+		if len(cells) != 41 {
+			t.Fatalf("ease %v: %d painted cells, want 41", ease, len(cells))
+		}
+		for _, i := range []int{10, 20, 30} {
+			want := ansi.GradAt(stops, math.Pow(float64(i)/40, ease))
+			if got := fmt.Sprintf("%s;%s;%s", cells[i][1], cells[i][2], cells[i][3]); got != fmt.Sprintf("%d;%d;%d", want[0], want[1], want[2]) {
+				t.Errorf("ease %v, cell %d/40: rgb %s, want the ramp at %.0f%% (%v)", ease, i, got, 100*math.Pow(float64(i)/40, ease), want)
+			}
+		}
 	}
 }
