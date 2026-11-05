@@ -4,6 +4,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -66,6 +67,27 @@ func (m EnvMode) scrub(env, keep []string) (kept, dropped []string) {
 const DispatchPermissionsEnv = "HARNESS_DISPATCH_PERMISSIONS"
 
 type permissionsKey struct{}
+
+// inheritPermissions keeps an outer dispatch's Deny rules and plan mode in a nested dispatch, so an inner policy
+// can never drop them; with no inner policy the outer one applies whole.
+func inheritPermissions(p Permissions) (Permissions, error) {
+	raw := os.Getenv(DispatchPermissionsEnv)
+	if raw == "" {
+		return p, nil
+	}
+	var outer Permissions
+	if err := json.Unmarshal([]byte(raw), &outer); err != nil {
+		return p, fmt.Errorf("unreadable %s from the outer dispatch: %w", DispatchPermissionsEnv, err)
+	}
+	if p.IsZero() {
+		return outer, nil
+	}
+	p.Deny = append(slices.Clone(p.Deny), outer.Deny...)
+	if outer.Mode == "plan" {
+		p.Mode = "plan"
+	}
+	return p, nil
+}
 
 // withPermissionsEnv makes every child env built under ctx carry p as DispatchPermissionsEnv; a zero p changes nothing.
 func withPermissionsEnv(ctx context.Context, p Permissions) context.Context {
