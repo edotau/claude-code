@@ -400,7 +400,7 @@ func checkRenderedKeyOwners(t *testing.T, keys []string, owner map[string][]stri
 	t.Helper()
 	for _, k := range keys {
 		switch k {
-		case "hooks", "env", "permissions", "statusLine": // generated, or an object the page cannot edit
+		case "hooks", "env", "permissions", "statusLine", "attribution": // generated, or an object the page cannot edit
 			continue
 		case "$schema": // Sections() deliberately excludes it (schema metadata, not a setting)
 			continue
