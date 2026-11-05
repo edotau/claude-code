@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"encoding/json"
@@ -36,14 +36,14 @@ func TestWorktreeClaimRecordsEditsAndCommits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	useClaimOwner(t, liveOwner)
 	dir := core.CanonPath(t.TempDir())
-	worktreeClaim(claimInput(t, map[string]any{"session_id": "", "cwd": dir, "tool_name": "Edit",
+	Claim(claimInput(t, map[string]any{"session_id": "", "cwd": dir, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": "a.txt"}}))
 	if _, err := os.Stat(claimsDir()); !os.IsNotExist(err) {
 		t.Fatalf("no session must write no claims dir, stat err = %v", err)
 	}
-	worktreeClaim(claimInput(t, map[string]any{"session_id": "S1", "agent_id": "leaf1", "cwd": dir,
+	Claim(claimInput(t, map[string]any{"session_id": "S1", "agent_id": "leaf1", "cwd": dir,
 		"tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
-	worktreeClaim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Bash",
+	Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Bash",
 		"tool_input":    map[string]any{"command": "git commit -m x"},
 		"tool_response": map[string]any{"stdout": "[main 1a2b3c4] x\n 1 file changed\n"}}))
 	got := readClaims(t, claimsFile(liveOwner, "S1"))

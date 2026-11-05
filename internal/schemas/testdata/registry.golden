@@ -2,6 +2,7 @@
 # A change here is a change to the on-disk contract; regenerate with: go test ./internal/schemas -run Golden -update
 # legacy-layout: agentversion
 # legacy-layout: audit
+# legacy-layout: claims
 # legacy-layout: codex-catalog
 # legacy-layout: codex-routing
 # legacy-layout: desktop-meta
@@ -33,7 +34,7 @@
 agentversion | cache | 1 | state/harness/agentversion.json | internal/agent/tools | keep
 ask-envelope | wire | 1 | - | internal/agent | keep
 audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
-claims | log | 1 | state/harness/hooks/claims/*.jsonl | internal/hooks | keep
+claims | log | 1 | state/harness/hooks/claims/*.jsonl | internal/hooks/wthook | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/codex | keep
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
 coworker-overlay | wire | 1 | - | internal/agentconfig | keep

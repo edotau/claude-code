@@ -1,4 +1,4 @@
-package hooks
+package wthook
 
 import (
 	"os"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -17,7 +18,7 @@ import (
 func claimFixture(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := core.CanonPath(gitRepo(t))
+	repo := core.CanonPath(gittest.Repo(t))
 	writeRel(t, repo, "a.txt", "a\n")
 	writeRel(t, repo, "b.txt", "b\n")
 	gitIn(t, repo, "add", ".")
@@ -33,13 +34,13 @@ func claimEdit(t *testing.T, repo string, owner int, session, rel string) {
 	t.Helper()
 	useClaimOwner(t, owner)
 	writeRel(t, repo, rel, "edited by "+session+"\n")
-	worktreeClaim(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": "Edit",
+	Claim(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": rel}}))
 }
 
 func claimCheckOn(t *testing.T, repo, session, tool string, input map[string]any) core.Result {
 	t.Helper()
-	return worktreeClaimCheck(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": tool,
+	return ClaimCheck(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": tool,
 		"tool_input": input}))
 }
 
@@ -76,9 +77,9 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "S.jsonl")
 	writeRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", "{}\n")
 	writeRel(t, repo, "a.txt", "leaf one\n")
-	worktreeClaim(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leafone1", "cwd": repo,
+	Claim(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leafone1", "cwd": repo,
 		"transcript_path": tr, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
-	r := worktreeClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
+	r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
 		"transcript_path": tr, "tool_name": "Bash", "tool_input": map[string]any{"command": "git commit -am x"}}))
 	if r.Decision != core.Block || !strings.Contains(r.Reason, "leaf leafone1") {
 		t.Fatalf("sibling leaf commit -am: %v %q; want a block naming leaf leafone1", r.Decision, r.Reason)
@@ -104,7 +105,7 @@ func TestClaimCheckBashEditClaimedByAdd(t *testing.T) {
 	useClaimOwner(t, liveOwner)
 	writeRel(t, repo, "b.txt", "sed -i by A\n")
 	gitIn(t, repo, "add", "b.txt")
-	worktreeClaim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash",
+	Claim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "git add b.txt"}, "tool_response": map[string]any{"stdout": ""}}))
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git commit -m x"})
 	if r.Decision != core.Ask || !strings.Contains(r.Reason, "b.txt takes") {

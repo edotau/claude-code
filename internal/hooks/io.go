@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/hooks/quality"
+	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -43,13 +44,13 @@ var Native = map[string]core.Runner{
 	"docs-plan-save":            viaStderr(docs.Save),
 	"dispatch-stop":             subagentStopRunner,
 	"memory-compact":            memhook.Compact,
-	"worktree-create":           worktreeCreate,
-	"worktree-remove":           viaStderr(worktreeRemove),
-	"worktree-mode":             worktreeMode,
-	"nested-config-sweep":       nestedConfigSweep,
-	"worktree-busy":             worktreeBusy,
-	"worktree-claim":            worktreeClaim,
-	"worktree-claim-check":      worktreeClaimCheck,
+	"worktree-create":           wthook.Create,
+	"worktree-remove":           viaStderr(wthook.Remove),
+	"worktree-mode":             wthook.Mode,
+	"nested-config-sweep":       wthook.NestedConfigSweep,
+	"worktree-busy":             wthook.Busy,
+	"worktree-claim":            wthook.Claim,
+	"worktree-claim-check":      wthook.ClaimCheck,
 }
 
 // runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with
