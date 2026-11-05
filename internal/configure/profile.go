@@ -4,10 +4,9 @@ package configure
 import (
 	"fmt"
 
-	"github.com/edotau/claude-code/internal/vault"
-
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ApplyProfile sets profile as the Profile of each agent whose record differs, in one vault update that leaves every
@@ -92,4 +91,75 @@ func SwitchProfile(reg *providers.Registry, profile string) error {
 	}
 	providers.AuditSwitch(profile)
 	return agentpkg.ClearLastProfiles()
+}
+
+// ProfileStatus is the one-line `<agent> profile` readout: the record's profile, identity and on/off state.
+func ProfileStatus(agent string) string {
+	line := agent + ": no profile set (launches use today's selection)"
+	if v := vault.GetAgentRecord(agent).Profile; v != "" {
+		line = fmt.Sprintf("%s: profile %s", agent, v) + identityNote(v)
+	}
+	if !agentpkg.VaultAgentIsClaude(agent) {
+		state := agentpkg.AgentOn
+		if !agentpkg.AgentActive(agent) {
+			state = agentpkg.AgentOff
+		} else if why := agentpkg.AgentUnbillable(agent); why != "" {
+			state = agentpkg.AgentOff + ", " + why
+		}
+		line += " · " + state
+	}
+	return line
+}
+
+// identityNote is " · identity <mode>" for a profile paired with a service principal, else "".
+func identityNote(profile string) string {
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	p, ok := reg.Providers[profile]
+	if !ok || p == nil || p.Auth.SPClientID == "" {
+		return ""
+	}
+	mode, err := providers.ResolveIdentity(p.Identity, "")
+	if err != nil {
+		return ""
+	}
+	return " · identity " + mode
+}
+
+// agentmenu.go — one submenu per agent CLI, all one shape: the two billing modes (Subscription, API key), then the
+// actions that refresh or mint the credential (Login, then a token or key mint), then Back.
+
+// KeyVerified live-probes a keyed provider; false when absent or not accepted.
+func KeyVerified(p *providers.Provider) bool {
+	if p == nil || !providers.CredentialPresent(p) {
+		return false
+	}
+	status, _, _ := ProbeCached(KeyTarget{Provider: p})
+	return status == "verified"
+}
+
+// KeyPresent reports whether provider name has a stored key.
+func KeyPresent(reg *providers.Registry, provider string) (*providers.Provider, bool) {
+	p := ProfileBy(reg, provider, providers.AuthKey)
+	return p, p != nil && providers.CredentialPresent(p)
+}
+
+// ProfileBy is the first profile under provider signing in by method (key, cli, ...), or nil.
+func ProfileBy(reg *providers.Registry, provider, method string) *providers.Provider {
+	for _, n := range reg.ProfilesOf(provider) {
+		if p := reg.Providers[n]; p.Auth.Method() == method {
+			return p
+		}
+	}
+	return nil
+}
+
+// ProfileName is p's name, "" for nil.
+func ProfileName(p *providers.Provider) string {
+	if p == nil {
+		return ""
+	}
+	return p.Name
 }
