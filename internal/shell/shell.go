@@ -69,26 +69,34 @@ func Tokens(seg string) []string {
 	}
 	for i := 0; i < len(seg); i++ {
 		c := seg[i]
-		if quote != 0 {
-			i, quote = unquoteStep(&b, seg, i, quote)
-			continue
-		}
 		switch {
-		case c == '\'' || c == '"':
-			quote = c
-		case c == '\\' && i+1 < len(seg):
-			i++
-			b.WriteByte(seg[i])
+		case quote != 0:
+			i, quote = unquoteStep(&b, seg, i, quote)
 		case strings.IndexByte(" \t\r\n)}", c) >= 0:
 			flush() // whitespace, or an unquoted close of a subshell/group: a word boundary, never part of the word
 			continue
 		default:
-			b.WriteByte(c)
+			i, quote = plainStep(&b, seg, i)
 		}
 		started = true
 	}
 	flush()
 	return trimGroupOpen(out)
+}
+
+// plainStep handles an unquoted, non-boundary byte seg[i]: opens a quote, resolves a backslash escape or writes it.
+func plainStep(b *strings.Builder, seg string, i int) (int, byte) {
+	c := seg[i]
+	switch {
+	case c == '\'' || c == '"':
+		return i, c
+	case c == '\\' && i+1 < len(seg):
+		i++
+		b.WriteByte(seg[i])
+	default:
+		b.WriteByte(c)
+	}
+	return i, 0
 }
 
 // unquoteStep writes quoted byte seg[i] to b, resolving a double-quote escape and dropping the closing quote.
@@ -258,46 +266,93 @@ func skipEnvAssignments(toks []string) []string {
 	return toks[i:]
 }
 
-// wrapperValueFlags are the option flags of a prefix wrapper that consume the next token.
+// wrapperValueFlags are the option flags of a prefix wrapper that consume the next token (long forms also as --opt=val).
 var wrapperValueFlags = map[string]map[string]bool{
-	"sudo": {"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-D": true, "-R": true, "-T": true, "-U": true},
-	"env":  {"-u": true, "-C": true, "-S": true},
-	"nice": {"-n": true},
+	"sudo": {"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-D": true, "-R": true, "-T": true, "-U": true,
+		"-r": true, "-t": true, "--user": true, "--group": true, "--host": true, "--prompt": true, "--close-from": true,
+		"--chdir": true, "--role": true, "--type": true, "--other-user": true},
+	"env":     {"-u": true, "-C": true, "-S": true, "--unset": true, "--chdir": true, "--split-string": true},
+	"nice":    {"-n": true, "--adjustment": true},
+	"timeout": {"-s": true, "--signal": true, "-k": true, "--kill-after": true},
+	"exec":    {"-a": true},
 }
 
-// skipPrefixWrappers drops leading env/sudo/timeout/nohup/nice/command/exec/time wrappers and their options.
-func skipPrefixWrappers(toks []string) []string {
+// wrapperNames are the prefix wrappers Unwrap sees through.
+var wrapperNames = map[string]bool{"env": true, "sudo": true, "nice": true, "nohup": true, "command": true,
+	"exec": true, "time": true, "timeout": true}
+
+// Unwrap drops leading NAME=val words and env/sudo/timeout/nohup/nice/command/exec/time wrappers with their options.
+// dir is cwd moved by `env -C/--chdir` and `sudo -D/--chdir`; an `env -S STR` string is split into the command line.
+func Unwrap(toks []string, cwd string) (rest []string, dir string) {
+	dir = cwd
 	for {
 		toks = skipEnvAssignments(toks)
-		if len(toks) == 0 {
-			return toks
+		if len(toks) == 0 || !wrapperNames[filepath.Base(toks[0])] {
+			return toks, dir
 		}
 		name := filepath.Base(toks[0])
-		switch name {
-		case "env", "sudo", "nice", "nohup", "command", "exec", "time", "timeout":
-		default:
-			return toks
-		}
-		toks = toks[1:]
-		for len(toks) > 0 && strings.HasPrefix(toks[0], "-") && toks[0] != "-" {
-			opt := toks[0]
-			toks = toks[1:]
-			if opt == "--" {
-				break
-			}
-			if wrapperValueFlags[name][opt] && len(toks) > 0 {
-				toks = toks[1:]
-			}
-		}
+		toks, dir = skipWrapperOpts(name, toks[1:], dir)
 		if name == "timeout" && len(toks) > 0 { // the duration operand
 			toks = toks[1:]
 		}
 	}
 }
 
+// skipWrapperOpts consumes one wrapper's options, tracking a chdir option and env -S.
+func skipWrapperOpts(name string, toks []string, dir string) ([]string, string) {
+	for len(toks) > 0 && strings.HasPrefix(toks[0], "-") && toks[0] != "-" {
+		opt := toks[0]
+		toks = toks[1:]
+		if opt == "--" {
+			break
+		}
+		flag, val, hasVal := splitWrapperOpt(name, opt)
+		if !wrapperValueFlags[name][flag] {
+			continue
+		}
+		if !hasVal {
+			if len(toks) == 0 {
+				break
+			}
+			val, toks = toks[0], toks[1:]
+		}
+		toks, dir = applyWrapperValue(name, flag, val, toks, dir)
+	}
+	return toks, dir
+}
+
+// splitWrapperOpt splits `--opt=val` (and env's attached `-Sstr`) into flag and inline value.
+func splitWrapperOpt(name, opt string) (flag, val string, hasVal bool) {
+	switch {
+	case strings.HasPrefix(opt, "--"):
+		return strings.Cut(opt, "=")
+	case name == "env" && len(opt) > 2 && opt[1] == 'S':
+		return "-S", opt[2:], true
+	}
+	return opt, "", false
+}
+
+// applyWrapperValue acts on a value option: env -S splits its string into the command line, a chdir option moves dir.
+func applyWrapperValue(name, flag, val string, toks []string, dir string) ([]string, string) {
+	switch {
+	case name == "env" && (flag == "-S" || flag == "--split-string"):
+		toks = append(Tokens(val), toks...)
+	case flag == "--chdir" || (name == "env" && flag == "-C") || (name == "sudo" && flag == "-D"):
+		if p, ok := ResolvePath(val, dir); ok {
+			dir = p
+		}
+	}
+	return toks, dir
+}
+
 // NestedCommand reports the command text a `bash -c "…"`/`eval "…"` token sequence would run.
 func NestedCommand(toks []string) (string, bool) {
-	toks = skipPrefixWrappers(toks)
+	rest, _ := Unwrap(toks, "")
+	return nestedOf(rest)
+}
+
+// nestedOf is NestedCommand for tokens whose wrappers are already dropped.
+func nestedOf(toks []string) (string, bool) {
 	if len(toks) == 0 {
 		return "", false
 	}
@@ -313,6 +368,36 @@ func NestedCommand(toks []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// CdTarget reports the cwd a `cd`/`pushd` command leaves behind; a dynamic target keeps the cwd we had.
+func CdTarget(toks []string, cwd string) (string, bool) {
+	if len(toks) == 0 || toks[0] != "cd" && toks[0] != "pushd" {
+		return cwd, false
+	}
+	args := skipCdOptions(toks[1:])
+	if len(args) == 0 {
+		if home, err := os.UserHomeDir(); err == nil && toks[0] == "cd" {
+			return home, true
+		}
+		return cwd, true
+	}
+	if p, ok := ResolvePath(args[0], cwd); ok {
+		return p, true
+	}
+	return cwd, true
+}
+
+// skipCdOptions drops cd's leading options (-L -P -e -@) and a `--` terminator.
+func skipCdOptions(args []string) []string {
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") && args[0] != "-" {
+		opt := args[0]
+		args = args[1:]
+		if opt == "--" {
+			break
+		}
+	}
+	return args
 }
 
 // ResolvePath expands `~`/$HOME and anchors p to base; ok=false while the token stays dynamic.

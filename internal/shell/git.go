@@ -2,7 +2,6 @@ package shell
 
 import (
 	"path/filepath"
-	"slices"
 	"strings"
 )
 
@@ -74,27 +73,5 @@ func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
 
 // GitCommitInvocation reports whether cmd, or a nested/substituted command within it, invokes `git commit`.
 func GitCommitInvocation(cmd string) bool {
-	masked, subs := ExtractSubstitutions(cmd)
-	if slices.ContainsFunc(subs, GitCommitInvocation) {
-		return true
-	}
-	for _, seg := range Segments(masked) {
-		toks := Tokens(seg)
-		if len(toks) == 0 {
-			continue
-		}
-		if nested, ok := NestedCommand(toks); ok && GitCommitInvocation(nested) {
-			return true
-		}
-		for i, t := range toks {
-			if t != "git" {
-				continue
-			}
-			_, verb, _ := GitInvocation(toks[i+1:], "")
-			if verb == "commit" {
-				return true
-			}
-		}
-	}
-	return false
+	return EachGit(cmd, "", func(_, verb string, _ []string) bool { return verb == "commit" })
 }

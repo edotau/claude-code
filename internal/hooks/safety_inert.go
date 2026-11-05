@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/shell"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // heredocOp matches one `<<[-]DELIM` operator; groups: dash, single-quoted, double-quoted, bare delimiter.
