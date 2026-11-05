@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
@@ -125,7 +127,21 @@ func writePlugin() (string, error) {
 	if _, err := paths.WriteIfChanged(dest, body, 0o600); err != nil {
 		return "", fmt.Errorf("opencode plugin: %w", err)
 	}
+	prunePlugins(dest, time.Now().Add(-pluginGrace))
 	return "file://" + filepath.ToSlash(dest), nil
+}
+
+// pluginGrace keeps a superseded plugin file, so an opencode process launched from another build still finds its own.
+const pluginGrace = time.Hour
+
+// prunePlugins removes the harness-hooks-*.js files beside keep that were last written before cutoff; best effort.
+func prunePlugins(keep string, cutoff time.Time) {
+	old, _ := filepath.Glob(filepath.Join(filepath.Dir(keep), "harness-hooks-*.js"))
+	for _, f := range old {
+		if info, err := os.Stat(f); f != keep && err == nil && info.ModTime().Before(cutoff) {
+			os.Remove(f)
+		}
+	}
 }
 
 // opencodeApplyPlugin adds the harness plugin to a tools-on, non --pure run's config; plugged reports the injection.

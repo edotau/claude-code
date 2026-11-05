@@ -3,8 +3,10 @@ package opencode
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 )
@@ -44,6 +46,30 @@ func TestPluginToolMapCoversPatchAndSearch(t *testing.T) {
 	for _, want := range []string{`apply_patch: "Edit"`, `glob: "Glob"`, `grep: "Grep"`, `list: "Read"`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("plugin tool map lacks %s", want)
+		}
+	}
+}
+
+// TestPrunePluginsKeepsCurrentAndRecent: only an older-than-grace harness-hooks file other than the current one goes.
+func TestPrunePluginsKeepsCurrentAndRecent(t *testing.T) {
+	dir := t.TempDir()
+	touch := func(name string, age time.Duration) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mt := time.Now().Add(-age)
+		if err := os.Chtimes(f, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	cur, stale := touch("harness-hooks-cur.js", 3*time.Hour), touch("harness-hooks-old.js", 3*time.Hour)
+	recent, other := touch("harness-hooks-new.js", time.Minute), touch("notes.js", 3*time.Hour)
+	prunePlugins(cur, time.Now().Add(-pluginGrace))
+	for f, want := range map[string]bool{cur: true, stale: false, recent: true, other: true} {
+		if _, err := os.Stat(f); (err == nil) != want {
+			t.Errorf("%s exists=%v, want %v", filepath.Base(f), err == nil, want)
 		}
 	}
 }
