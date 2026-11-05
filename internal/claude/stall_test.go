@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 type fakeLauncher struct{ bin string }
@@ -64,7 +64,7 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(pidFile)
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if pid == 0 || syscall.Kill(pid, 0) == nil {
+	if pid == 0 || proc.Alive(pid) {
 		t.Errorf("child pid %d still alive after the stall", pid)
 	}
 }

@@ -221,7 +221,7 @@ func readNewEnvName(d *dialog) (name string, ok bool) {
 	if name == "" {
 		return "", false
 	}
-	if !configure.EnvName.MatchString(name) {
+	if !vault.EnvName.MatchString(name) {
 		d.printf("environment: %q is not a valid name (letters, digits, underscore; not starting with a digit)\n", name)
 		return "", false
 	}

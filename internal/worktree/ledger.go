@@ -110,10 +110,7 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 	if err != nil {
 		return nil, "", "", false, err
 	}
-	top, err = canonical(strings.TrimSpace(string(out)))
-	if err != nil {
-		return nil, "", "", false, err
-	}
+	top = paths.Canon(strings.TrimSpace(string(out)))
 	if !paths.SamePath(filepath.Dir(top), repo.Root) {
 		return nil, "", "", false, nil
 	}

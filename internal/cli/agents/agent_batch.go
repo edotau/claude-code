@@ -83,9 +83,3 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunO
 	}
 	return 0
 }
-
-// batchTask is batch.BuildTask over the cli client.
-func batchTask(l batch.ParsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
-	seen map[string]bool) (batch.BatchTask, error) {
-	return batch.BuildTask(l, batch.Opts{Agent: o.agent, Fallback: o.fallback, Native: o.native}, base, timeoutSet, cwd, seen, NewClient)
-}

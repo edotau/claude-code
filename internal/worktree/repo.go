@@ -28,7 +28,7 @@ type Repo struct {
 // disown every registered worktree).
 func WorktreeRoot() string {
 	home, _ := os.UserHomeDir()
-	home, _ = canonical(home)
+	home = paths.Canon(home)
 	return filepath.Join(home, "worktrees")
 }
 
@@ -56,10 +56,7 @@ func ResolveRepo(cwd string) (*Repo, error) {
 	if filepath.Base(commonDir) != ".git" {
 		return nil, fmt.Errorf("%s: bare or non-standard git layout is not supported", cwd)
 	}
-	main, err := canonical(filepath.Dir(commonDir))
-	if err != nil {
-		return nil, err
-	}
+	main := paths.Canon(filepath.Dir(commonDir))
 	return &Repo{Main: main, Root: Root(main), CommonDir: commonDir}, nil
 }
 
@@ -114,14 +111,11 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 // check ownsWorktree does for an EXISTING dest, run here unconditionally so a worktree root symlinked
 // into the live checkout is rejected even before `create` would otherwise materialize a brand-new
 // directory inside it. repo.Root (or its parent, WorktreeRoot()) is resolved via its longest EXISTING
-// prefix — plain canonical() would silently skip every symlink when repo.Root's own basename doesn't
+// prefix — plain paths.Canon() would silently skip every symlink when repo.Root's own basename doesn't
 // exist yet, which is exactly the case on a first `create` for this repo.
 func rejectLiveCheckoutRoot(repo *Repo) error {
 	rootCanon := paths.CanonDeep(repo.Root)
-	mainCanon, err := canonical(repo.Main)
-	if err != nil {
-		return err
-	}
+	mainCanon := paths.Canon(repo.Main)
 	if rootCanon == mainCanon || strings.HasPrefix(rootCanon+string(filepath.Separator), mainCanon+string(filepath.Separator)) {
 		return fmt.Errorf("worktree root %s is the live main checkout %s (or inside it), refusing to use it", repo.Root, repo.Main)
 	}
@@ -136,14 +130,8 @@ func rejectLiveCheckoutRoot(repo *Repo) error {
 // `--show-toplevel` must equal dest — so a subdirectory of some other checkout can't pass common-dir
 // equality alone and be mistaken for a worktree.
 func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
-	destCanon, err := canonical(dest)
-	if err != nil {
-		return false, err
-	}
-	mainCanon, err := canonical(repo.Main)
-	if err != nil {
-		return false, err
-	}
+	destCanon := paths.Canon(dest)
+	mainCanon := paths.Canon(repo.Main)
 	if destCanon == mainCanon || strings.HasPrefix(destCanon+string(filepath.Separator), mainCanon+string(filepath.Separator)) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
@@ -163,10 +151,7 @@ func isWorktreeRoot(ctx context.Context, dest, destCanon string) (bool, error) {
 		}
 		return false, nil // not a git repo at all is a collision, not a resolution error
 	}
-	top, err := canonical(strings.TrimSpace(string(topOut)))
-	if err != nil {
-		return false, err
-	}
+	top := paths.Canon(strings.TrimSpace(string(topOut)))
 	return top == destCanon, nil // otherwise dest is a subdirectory of some checkout's worktree root
 }
 
@@ -179,16 +164,7 @@ func sharesCommonDir(ctx context.Context, repo *Repo, dest string) (bool, error)
 		}
 		return false, nil
 	}
-	common, err := canonical(strings.TrimSpace(string(out)))
-	if err != nil {
-		return false, err
-	}
-	wantCommon, err := canonical(filepath.Join(repo.Main, ".git"))
-	if err != nil {
-		return false, err
-	}
+	common := paths.Canon(strings.TrimSpace(string(out)))
+	wantCommon := paths.Canon(filepath.Join(repo.Main, ".git"))
 	return common == wantCommon, nil
 }
-
-// canonical is paths.Canon with the error return its callers expect (always nil).
-func canonical(p string) (string, error) { return paths.Canon(p), nil }

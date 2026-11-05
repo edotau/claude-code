@@ -32,7 +32,7 @@ func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 
 	var lines []string
 	for _, e := range memrecall.RecallPointers(picks) {
-		lines = append(lines, "\n- "+recallCut(e.Pointer(), agentRecallPreviewRunes))
+		lines = append(lines, "\n- "+memrecall.Cut(e.Pointer(), agentRecallPreviewRunes))
 		ids = append(ids, e.ID)
 	}
 	block, n := capRecallLines(lines)

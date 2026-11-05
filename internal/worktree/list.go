@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // StaleAfter is the age threshold past which an entry's last-activity evidence marks it Stale.
@@ -70,9 +72,7 @@ func listPorcelain(repo *Repo) ([]Entry, error) {
 		if e.Path == "" {
 			continue
 		}
-		if p, err := canonical(e.Path); err == nil {
-			e.Path = p
-		}
+		e.Path = paths.Canon(e.Path)
 		if e.Path == repo.Main {
 			continue // the main checkout itself is not a lifecycle target
 		}
@@ -137,9 +137,7 @@ func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 			continue
 		}
 		path := filepath.Join(repo.Root, d.Name())
-		if canon, err := canonical(path); err == nil {
-			path = canon
-		}
+		path = paths.Canon(path)
 		if _, ok := byPath[path]; ok {
 			continue
 		}

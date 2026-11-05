@@ -89,7 +89,8 @@ func distinctCount(tokens []string, minLen int) int {
 	return len(seen)
 }
 
-func recallCut(s string, limit int) string {
+// Cut truncates s to limit runes, marking the cut with an ellipsis.
+func Cut(s string, limit int) string {
 	n := 0
 	for i := range s {
 		if n == limit {

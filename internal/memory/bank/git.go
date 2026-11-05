@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -93,19 +94,19 @@ func (r Repo) checkRoot(gitDir string) error {
 	if err != nil {
 		return err
 	}
-	want := memstore.ResolvePath(gitDir)
-	if memstore.ResolvePath(found) != want {
+	want := paths.CanonDeep(gitDir)
+	if paths.CanonDeep(found) != want {
 		return fmt.Errorf("memory repo: git in %s resolves to %q, not %q", r.Dir, found, gitDir)
 	}
 	common, err := memstore.GitOut(r.Dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return err
 	}
-	if memstore.ResolvePath(common) != want {
+	if paths.CanonDeep(common) != want {
 		return fmt.Errorf("memory repo: %s shares git metadata with %q (commondir)", gitDir, common)
 	}
 	outer, err := memstore.GitOut(filepath.Dir(r.Dir), "rev-parse", "--absolute-git-dir")
-	if err == nil && memstore.ResolvePath(outer) == want {
+	if err == nil && paths.CanonDeep(outer) == want {
 		return fmt.Errorf("memory repo: %s is the outer checkout's git dir", gitDir)
 	}
 	return nil

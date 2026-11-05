@@ -47,8 +47,8 @@ func AccessStateDir() string { return filepath.Join(StateDir(), "access") }
 
 // InsideStore reports whether p resolves under the store (and not under its .git); rel is slash-separated.
 func InsideStore(p string) (rel string, ok bool) {
-	store := ResolvePath(StoreDir())
-	r, err := filepath.Rel(store, ResolvePath(p))
+	store := paths.CanonDeep(StoreDir())
+	r, err := filepath.Rel(store, paths.CanonDeep(p))
 	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 		return "", false
 	}
@@ -58,9 +58,6 @@ func InsideStore(p string) (rel string, ok bool) {
 	}
 	return rel, true
 }
-
-// ResolvePath is paths.CanonDeep, kept for the memory package and tests that call it.
-func ResolvePath(p string) string { return paths.CanonDeep(p) }
 
 // StateDir holds update stamps, results, logs and the session chain.
 func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }

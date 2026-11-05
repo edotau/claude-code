@@ -8,9 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// EnvName is a valid secret name: an env var identifier.
-var EnvName = vault.EnvName
-
 // TrackedSecret is one row of the secrets dialog: a name the harness knows of and where it resolves today.
 type TrackedSecret struct {
 	Name     string
@@ -77,7 +74,7 @@ func locateSecret(name string, meta map[string]vault.SecretMeta, metaErr error) 
 func ParseAssignment(raw string) (name, value string) {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimSpace(strings.TrimPrefix(s, "export "))
-	if k, v, ok := strings.Cut(s, "="); ok && strings.Trim(v, "=") != "" && EnvName.MatchString(k) && strings.ToUpper(k) == k {
+	if k, v, ok := strings.Cut(s, "="); ok && strings.Trim(v, "=") != "" && vault.EnvName.MatchString(k) && strings.ToUpper(k) == k {
 		name, s = k, strings.TrimSpace(v)
 	}
 	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {

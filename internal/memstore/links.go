@@ -28,7 +28,7 @@ func LinkNativeFor(cwd string) (LinkResult, bool) {
 	}
 	root := filepath.Clean(cwd)
 	if top := paths.MainCheckout(root, GitOut); top != "" {
-		root = ResolvePath(top)
+		root = paths.CanonDeep(top)
 	}
 	target, err := RepoDir(cwd)
 	if err != nil {

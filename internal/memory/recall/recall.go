@@ -121,7 +121,7 @@ func RecallContext(picks []RecallPick) (string, []bank.SearchHit, []bank.SearchH
 	var bodies, hits []bank.SearchHit
 	for i, p := range picks {
 		if i < recallBodies {
-			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.Entry.Bank, p.Entry.File, recallCut(recallFlat(p.Entry), recallBodyCapRunes))
+			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.Entry.Bank, p.Entry.File, Cut(recallFlat(p.Entry), recallBodyCapRunes))
 			bodies = append(bodies, p.Hit)
 		} else {
 			fmt.Fprintf(&b, "\n- %s", p.Entry.Pointer())

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/agenttest"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -234,7 +235,7 @@ func scratch(t *testing.T) string {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HARNESS_PROVIDER", "")
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
-	agent.StubRouterForTest(t, "http://127.0.0.1:9999")
+	agenttest.StubRouter(t, "http://127.0.0.1:9999")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default": "openai"}`)
 	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
 		t.Fatal(err)

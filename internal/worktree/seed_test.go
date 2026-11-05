@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // originClone builds an origin repo and a clone carrying one commit that is not pushed yet, so
@@ -20,10 +22,7 @@ func originClone(t *testing.T) string {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("clone: %v: %s", err, out)
 	}
-	main, err := canonical(main)
-	if err != nil {
-		t.Fatal(err)
-	}
+	main = paths.Canon(main)
 	commitIn(t, main, "commit", "--allow-empty", "-q", "-m", "unpushed")
 	return main
 }
@@ -31,10 +30,7 @@ func originClone(t *testing.T) string {
 // rootFor gives main an isolated worktree root, like testRepo but for a caller-built main checkout.
 func rootFor(t *testing.T, main string) *Repo {
 	t.Helper()
-	root, err := canonical(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := paths.Canon(t.TempDir())
 	return &Repo{Main: main, Root: filepath.Join(root, "worktrees", filepath.Base(main))}
 }
 

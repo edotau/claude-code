@@ -77,7 +77,7 @@ func repoFocus(dir string) []string {
 func nativeLinked(root, dir string) bool {
 	r := filepath.Clean(root)
 	if top := paths.MainCheckout(r, memstore.GitOut); top != "" {
-		r = memstore.ResolvePath(top)
+		r = paths.CanonDeep(top)
 	}
 	cur, err := os.Readlink(memstore.ProjectsMemory(memstore.ProjectSlug(r)))
 	return err == nil && paths.SamePath(cur, dir)

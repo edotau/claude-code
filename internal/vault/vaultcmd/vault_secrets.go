@@ -20,18 +20,18 @@ import (
 func vaultSetSecret(name string, dryRun bool) int {
 	value, err := readSecretValue(name)
 	if err != nil {
-		return fail("vault set: %v", err)
+		return helptext.Fail("vault set: %v", err)
 	}
 	if value == "" {
-		return fail("vault set: empty value")
+		return helptext.Fail("vault set: empty value")
 	}
 	if err := signin.ValidateSecret(name, value); err != nil {
-		return fail("vault set: %v", err)
+		return helptext.Fail("vault set: %v", err)
 	}
 	if dryRun {
 		names, err := vault.NamesErr()
 		if err != nil {
-			return fail("vault set: %v", err)
+			return helptext.Fail("vault set: %v", err)
 		}
 		verb := "add"
 		if slices.Contains(names, name) {
@@ -41,7 +41,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 		return 0
 	}
 	if err := signin.SetSecret(name, value); err != nil {
-		return fail("vault set: %v", err)
+		return helptext.Fail("vault set: %v", err)
 	}
 	router.ClearSecretAuth(name)
 	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, vault.Redact(value), name)
@@ -90,10 +90,10 @@ func cmdVaultGet(args []string) int {
 	}
 	values, err := vault.LookupAll(lookup)
 	if err != nil {
-		return fail("vault get: %v", err)
+		return helptext.Fail("vault get: %v", err)
 	}
 	if masterKey {
-		return fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
+		return helptext.Fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
 	}
 	printVaultValues(names, values, *export)
 	return 0
@@ -142,7 +142,7 @@ func cmdVaultDelete(args []string) int {
 	}
 	name := names[0]
 	if err := vault.Remove(name); err != nil {
-		return fail("vault delete: %v", err)
+		return helptext.Fail("vault delete: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "deleted %s\n", name)
 	return 0
@@ -172,20 +172,20 @@ func cmdVaultImport(args []string) int {
 	defer r.Close()
 	pairs, problems := vault.ParseDotenv(r)
 	if len(problems) > 0 {
-		return fail("vault import: %s: nothing written\n  %s", name, strings.Join(problems, "\n  "))
+		return helptext.Fail("vault import: %s: nothing written\n  %s", name, strings.Join(problems, "\n  "))
 	}
 	if len(pairs) == 0 {
-		return fail("vault import: %s has no NAME=value lines", name)
+		return helptext.Fail("vault import: %s has no NAME=value lines", name)
 	}
 	if err := signin.ValidateImport(pairs); err != nil {
-		return fail("vault import: %s: %v", name, err)
+		return helptext.Fail("vault import: %s: %v", name, err)
 	}
 	if !confirmImport(pairs) {
 		return 1
 	}
 	err = signin.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
 	if err != nil {
-		return fail("vault import: %v", err)
+		return helptext.Fail("vault import: %v", err)
 	}
 	return 0
 }
@@ -195,15 +195,15 @@ func openImport(name string, yes bool) (io.ReadCloser, int) {
 	if name != "-" {
 		f, err := os.Open(name)
 		if err != nil {
-			return nil, fail("vault import: %v", err)
+			return nil, helptext.Fail("vault import: %v", err)
 		}
 		return f, 0
 	}
 	if tui.StdinIsTerminal() {
-		return nil, fail("vault import -: refusing, stdin is a terminal (pipe data in)")
+		return nil, helptext.Fail("vault import -: refusing, stdin is a terminal (pipe data in)")
 	}
 	if !yes {
-		return nil, fail("vault import -: needs --yes (no confirm prompt possible on piped stdin)")
+		return nil, helptext.Fail("vault import -: needs --yes (no confirm prompt possible on piped stdin)")
 	}
 	return io.NopCloser(os.Stdin), 0
 }
@@ -238,14 +238,14 @@ func cmdVaultExport(args []string) int {
 	}
 	pairs, err := vault.ExportPairs(names)
 	if err != nil {
-		return fail("vault %v", err)
+		return helptext.Fail("vault %v", err)
 	}
 	if len(pairs) == 0 {
-		return fail("vault export: no stored secrets to export")
+		return helptext.Fail("vault export: no stored secrets to export")
 	}
 	added, skipped, err := vault.AppendDotenv(*out, pairs)
 	if err != nil {
-		return fail("vault export: %v", err)
+		return helptext.Fail("vault export: %v", err)
 	}
 	if len(skipped) > 0 {
 		fmt.Fprintf(os.Stderr, "kept %s (already in %s)\n", strings.Join(skipped, ", "), *out)

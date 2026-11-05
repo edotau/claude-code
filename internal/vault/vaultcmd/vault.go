@@ -109,7 +109,7 @@ func vaultSetTailscaleInteractive(dryRun bool) int {
 	for i, name := range names {
 		v, err := readSecretValue(name)
 		if err != nil {
-			return fail("vault set: %v", err)
+			return helptext.Fail("vault set: %v", err)
 		}
 		pairs[i] = tailscale.Cred{Name: name, Value: v}
 	}
@@ -131,7 +131,7 @@ func vaultSetTailscalePiped(apiKeyOnly, dryRun bool) int {
 	for i, name := range names {
 		v, err := readLine()
 		if err != nil {
-			return fail("vault set: %v", err)
+			return helptext.Fail("vault set: %v", err)
 		}
 		pairs[i] = tailscale.Cred{Name: name, Value: v}
 	}
@@ -147,7 +147,7 @@ func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
 	for _, c := range creds {
 		verb, err := tailscale.StoreCred(c, dryRun)
 		if err != nil {
-			return fail("vault set: %v", err)
+			return helptext.Fail("vault set: %v", err)
 		}
 		if dryRun {
 			fmt.Printf("would %s %s (%d chars); nothing written\n", verb, c.Name, len(c.Value))
@@ -202,10 +202,4 @@ func configRun(sub string, err error) int {
 		return 1
 	}
 	return 0
-}
-
-// fail prints a "claude-code:" error to stderr and returns exit code 1 (copy of the cli helper).
-func fail(format string, a ...any) int {
-	fmt.Fprintf(os.Stderr, "claude-code: "+format+"\n", a...)
-	return 1
 }

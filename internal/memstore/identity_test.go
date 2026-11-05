@@ -54,7 +54,7 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	fixtureGit(t, repo, "worktree", "add", "-q", wt)
 	want := Resolve(repo)
-	if want.HomeBank || want.Harness || want.Base != "proj" || want.Origin != ResolvePath(repo) {
+	if want.HomeBank || want.Harness || want.Base != "proj" || want.Origin != paths.CanonDeep(repo) {
 		t.Fatalf("Resolve(repo) = %+v", want)
 	}
 	for _, root := range []string{sub, wt, filepath.Join(wt, "a")} {
@@ -115,7 +115,7 @@ func canonical(p string) string {
 	if p == "" {
 		return ""
 	}
-	return ResolvePath(p) // git reports the real path: macOS TempDir /var is /private/var
+	return paths.CanonDeep(p) // git reports the real path: macOS TempDir /var is /private/var
 }
 
 func TestMainCheckoutModes(t *testing.T) {
@@ -146,7 +146,7 @@ func TestResolveHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	o, err := ReadOrigin(dir)
-	if err != nil || o.Key != HarnessStoreKey() || o.Origin != ResolvePath(cfg) {
+	if err != nil || o.Key != HarnessStoreKey() || o.Origin != paths.CanonDeep(cfg) {
 		t.Errorf("harness .origin = %+v, %v", o, err)
 	}
 }
@@ -155,7 +155,7 @@ func TestResolveHarness(t *testing.T) {
 func assertHarnessRoot(t *testing.T, cfg, root string) {
 	t.Helper()
 	id := Resolve(root)
-	if !id.Harness || id.HomeBank || id.Origin != ResolvePath(cfg) {
+	if !id.Harness || id.HomeBank || id.Origin != paths.CanonDeep(cfg) {
 		t.Errorf("Resolve(%s) = %+v", root, id)
 	}
 	if dir, err := RepoDir(root); err != nil || dir != HarnessStoreDir() {
@@ -215,7 +215,7 @@ func TestEnsureRepoDirIdempotent(t *testing.T) {
 		t.Fatalf("EnsureRepoDir = %s, %v", got, err)
 	}
 	o, err := ReadOrigin(dir)
-	if err != nil || o.Origin != ResolvePath(repo) || o.Key != "my-repo.v2" {
+	if err != nil || o.Origin != paths.CanonDeep(repo) || o.Key != "my-repo.v2" {
 		t.Fatalf("origin = %+v, %v", o, err)
 	}
 	if again, err := EnsureRepoDir(repo); err != nil || again != dir {
@@ -263,7 +263,7 @@ func TestSameBasenameCollisionExtendsHash(t *testing.T) {
 	if mustRepoDir(t, a) != da || mustRepoDir(t, b) != db {
 		t.Error("RepoDir must find both stores by origin")
 	}
-	if oa, _ := ReadOrigin(da); oa.Origin != ResolvePath(a) {
+	if oa, _ := ReadOrigin(da); oa.Origin != paths.CanonDeep(a) {
 		t.Errorf("first store's origin was clobbered: %+v", oa)
 	}
 }
@@ -324,7 +324,7 @@ func TestAliasRoutesAndConflicts(t *testing.T) {
 	if got := mustRepoDir(t, c); got != da {
 		t.Errorf("RepoDir(aliased) = %s want %s", got, da)
 	}
-	if o, _ := ReadOrigin(da); len(o.Aliases) != 1 || o.Aliases[0] != ResolvePath(c) || o.Origin != ResolvePath(a) {
+	if o, _ := ReadOrigin(da); len(o.Aliases) != 1 || o.Aliases[0] != paths.CanonDeep(c) || o.Origin != paths.CanonDeep(a) {
 		t.Errorf("origin after alias = %+v", o)
 	}
 	if err := AddOriginAlias(db, c); !errors.Is(err, ErrOriginConflict) {
@@ -385,7 +385,7 @@ func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
 	decoy := gitRepo(t, t.TempDir(), "decoy")
 	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
 	t.Setenv("GIT_WORK_TREE", decoy)
-	if got := Resolve(a); got.Base != "proj" || got.Origin != ResolvePath(a) {
+	if got := Resolve(a); got.Base != "proj" || got.Origin != paths.CanonDeep(a) {
 		t.Errorf("Resolve under hostile GIT_DIR/GIT_WORK_TREE = %+v, want proj", got)
 	}
 }
@@ -400,7 +400,7 @@ func TestAliasToHarnessStore(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	o := Origin{Version: OriginVersion, Key: HarnessStoreKey(), Origin: ResolvePath(cfg), Aliases: []string{ResolvePath(ext)}}
+	o := Origin{Version: OriginVersion, Key: HarnessStoreKey(), Origin: paths.CanonDeep(cfg), Aliases: []string{paths.CanonDeep(ext)}}
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	if err := os.MkdirAll(raw, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	workspace := ResolvePath(raw)
+	workspace := paths.CanonDeep(raw)
 	dir := filepath.Join(cfg, "memory", "ws")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -626,7 +626,7 @@ func TestRepoKeyFallsBackToDirBasenameWithoutRemote(t *testing.T) {
 // assertCollisionKey checks db is the hash-suffixed store dir the collision logic derives from checkout.
 func assertCollisionKey(t *testing.T, db, checkout string) {
 	t.Helper()
-	sum := sha256.Sum256([]byte(ResolvePath(checkout)))
+	sum := sha256.Sum256([]byte(paths.CanonDeep(checkout)))
 	wantKey := "collide--" + hex.EncodeToString(sum[:])[:8]
 	if got := filepath.Base(db); got != wantKey {
 		t.Fatalf("second clone's key = %q, want %q (exact key the collision logic produced)", got, wantKey)
@@ -671,11 +671,11 @@ func assertBothStoresFindable(t *testing.T, a, b, da, db string) {
 		t.Error("RepoDir must find both stores by their own checkout path")
 	}
 	oa, err := ReadOrigin(da)
-	if err != nil || oa.Origin != ResolvePath(a) {
+	if err != nil || oa.Origin != paths.CanonDeep(a) {
 		t.Fatalf("first store's origin was clobbered: %+v, %v", oa, err)
 	}
 	ob, err := ReadOrigin(db)
-	if err != nil || ob.Origin != ResolvePath(b) {
-		t.Fatalf("second store's origin = %+v, %v, want %s", ob, err, ResolvePath(b))
+	if err != nil || ob.Origin != paths.CanonDeep(b) {
+		t.Fatalf("second store's origin = %+v, %v, want %s", ob, err, paths.CanonDeep(b))
 	}
 }
