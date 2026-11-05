@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
@@ -54,7 +55,7 @@ func RuleStrings(rules []Rule) []string {
 func ParseRule(s string) (Rule, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return Rule{}, fmt.Errorf("permission rule is empty")
+		return Rule{}, errors.New("permission rule is empty")
 	}
 	open := strings.IndexByte(s, '(')
 	if open < 0 {

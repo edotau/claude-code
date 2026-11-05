@@ -40,7 +40,7 @@ func codexGateInstalled() bool {
 func codexRender(p agent.Permissions, tools, gate bool) (codexPolicy, error) {
 	var pol codexPolicy
 	if p.Mode == "plan" && tools {
-		return pol, fmt.Errorf("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
+		return pol, errors.New("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
 	}
 	var b strings.Builder
 	sets := []struct {
@@ -208,7 +208,7 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	}
 	if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, CodexKeyEnv+"=") }) {
 		if _, serr := os.Stat(filepath.Join(codexHome(), "auth.json")); serr != nil {
-			return nil, nil, remove, fmt.Errorf("codex: Bash permission rules need a per-dispatch CODEX_HOME, which loses the keyring-backed ChatGPT sign-in; use a provider route")
+			return nil, nil, remove, errors.New("codex: Bash permission rules need a per-dispatch CODEX_HOME, which loses the keyring-backed ChatGPT sign-in; use a provider route")
 		}
 	}
 	home, remove, err := codexRulesHome(pol.rules)

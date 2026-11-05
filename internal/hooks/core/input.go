@@ -101,9 +101,9 @@ func ParseInput(r io.Reader) *Input {
 func (in *Input) normalizeAgy() {
 	call, _ := in.doc["toolCall"].(map[string]any)
 	args, _ := call["args"].(map[string]any)
-	input := map[string]any{}
-	for k, v := range args {
-		input[k] = v
+	input := maps.Clone(args)
+	if input == nil {
+		input = map[string]any{}
 	}
 	if cmd, _ := args["CommandLine"].(string); cmd != "" {
 		input["command"] = cmd

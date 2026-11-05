@@ -40,11 +40,12 @@ func TestPermissionGate(t *testing.T) {
 func TestPermissionGateApplyPatchJudgesEachFile(t *testing.T) {
 	t.Setenv(agent.DispatchPermissionsEnv, `{"deny":[{"Tool":"Edit","Arg":"secret.txt"},{"Tool":"Grep","Arg":"vault"}]}`)
 	patch := func(files ...string) string {
-		body := "*** Begin Patch\\n"
+		var body strings.Builder
+		body.WriteString("*** Begin Patch\\n")
 		for _, f := range files {
-			body += "*** Add File: " + f + "\\n+x\\n"
+			body.WriteString("*** Add File: " + f + "\\n+x\\n")
 		}
-		return `{"tool_name":"Edit","cwd":"/repo","tool_input":{"patchText":"` + body + `*** End Patch"}}`
+		return `{"tool_name":"Edit","cwd":"/repo","tool_input":{"patchText":"` + body.String() + `*** End Patch"}}`
 	}
 	cases := []struct {
 		name, payload string

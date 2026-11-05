@@ -159,7 +159,7 @@ func prunePlugins(keep string, cutoff time.Time) {
 	old, _ := filepath.Glob(filepath.Join(filepath.Dir(keep), "harness-hooks-*.js"))
 	for _, f := range old {
 		if info, err := os.Stat(f); f != keep && err == nil && info.ModTime().Before(cutoff) {
-			os.Remove(f)
+			_ = os.Remove(f) // a racing prune or a file opencode still holds is fine to leave
 		}
 	}
 }
