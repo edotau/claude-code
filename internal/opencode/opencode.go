@@ -114,13 +114,21 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 }
 
 // opencodeHarnessConfig is the per-launch config: every launch gets the portable core as instructions and the
-// projected commands; a headless one is also tools-off when asked.
+// projected commands; an interactive one also gets the guard plugin (a headless run's Exec adds it), a headless
+// one is tools-off when asked.
 func opencodeHarnessConfig(h *agent.Headless) func(map[string]any) {
 	return func(cfg map[string]any) {
 		opencodeRulesOn(cfg)
 		opencodeCommandsOn(cfg)
 		if h != nil && !h.Tools {
 			opencodeToolsOff(cfg)
+		}
+		if h == nil {
+			if url, err := writePlugin(); err != nil {
+				fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
+			} else {
+				addPlugin(cfg, url)
+			}
 		}
 	}
 }

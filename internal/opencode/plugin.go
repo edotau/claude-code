@@ -154,8 +154,13 @@ func opencodeApplyPlugin(env []string, req agent.RunOptions) (out []string, plug
 		return nil, false, err
 	}
 	out, err = mutateOpencodeConfigEnv(env, false, func(cfg map[string]any) {
-		list, _ := cfg["plugin"].([]any)
-		cfg["plugin"] = append(list, url)
+		addPlugin(cfg, url)
 	})
 	return out, err == nil, err
+}
+
+// addPlugin appends the plugin url to cfg's plugin list, keeping the user's own entries.
+func addPlugin(cfg map[string]any, url string) {
+	list, _ := cfg["plugin"].([]any)
+	cfg["plugin"] = append(list, url)
 }

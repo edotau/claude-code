@@ -73,3 +73,19 @@ func TestPrunePluginsKeepsCurrentAndRecent(t *testing.T) {
 		}
 	}
 }
+
+// TestInteractiveConfigCarriesPlugin: the TUI launch config appends the plugin to the user's own; a headless one leaves it to Exec.
+func TestInteractiveConfigCarriesPlugin(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfg := map[string]any{"plugin": []any{"mine"}}
+	opencodeHarnessConfig(nil)(cfg)
+	list, _ := cfg["plugin"].([]any)
+	if len(list) != 2 || list[0] != "mine" || !strings.Contains(list[1].(string), "harness-hooks-") {
+		t.Fatalf("interactive plugin list = %v, want the user's plugin kept and ours appended", list)
+	}
+	headless := map[string]any{}
+	opencodeHarnessConfig(&agent.Headless{Tools: true})(headless)
+	if _, ok := headless["plugin"]; ok {
+		t.Error("a headless config must not carry the plugin here: Exec injects it after the permissions")
+	}
+}
