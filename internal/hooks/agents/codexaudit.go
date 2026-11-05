@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"bytes"
@@ -31,13 +31,13 @@ type codexRouteRecord struct {
 	At             int64  `json:"at"`
 }
 
-// nativeCodexRoutingStart records that Codex trusted and executed the session's hook configuration.
-func nativeCodexRoutingStart(in *core.Input) core.Result {
+// CodexRoutingStart records that Codex trusted and executed the session's hook configuration.
+func CodexRoutingStart(in *core.Input) core.Result {
 	return codexRecorded(in, codexRouteRecord{Event: "session-start", Model: in.Nested("model")})
 }
 
-// nativeCodexRoutingResult links a spawn call to a child only when its result supplies the child's ID.
-func nativeCodexRoutingResult(in *core.Input) core.Result {
+// CodexRoutingResult links a spawn call to a child only when its result supplies the child's ID.
+func CodexRoutingResult(in *core.Input) core.Result {
 	if !codexSpawnTool(in.ToolName) {
 		return core.Result{}
 	}
@@ -45,8 +45,8 @@ func nativeCodexRoutingResult(in *core.Input) core.Result {
 		AgentID: codexResultAgentID(in.Field("tool_response"))})
 }
 
-// nativeCodexSubagentStart records the reported model; absence of a causal join remains unknown.
-func nativeCodexSubagentStart(in *core.Input) core.Result {
+// CodexSubagentStart records the reported model; absence of a causal join remains unknown.
+func CodexSubagentStart(in *core.Input) core.Result {
 	return codexRecorded(in, codexRouteRecord{Event: "child-start", AgentID: in.AgentID, Model: in.Nested("model")})
 }
 
@@ -170,7 +170,7 @@ func codexRouteMatches(records []codexRouteRecord) []codexRouteRecord {
 const codexRouteSchema = 1
 
 var codexRouteFormat = schemas.Register(schemas.Format{
-	Name: "codex-routing", Owner: "internal/hooks", Kind: schemas.Log,
+	Name: "codex-routing", Owner: "internal/hooks/agents", Kind: schemas.Log,
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "codex", "routing-*.jsonl") },
 	New:     func() any { return &codexRouteRecord{} },
 	Version: codexRouteSchema, Clean: "codex-audit", Migrate: schemas.SameShape,

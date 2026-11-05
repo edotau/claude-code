@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"bytes"
@@ -47,7 +47,7 @@ func runCodexRoute(t *testing.T, payload any) map[string]any {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer
-	if code := runDirect("codex-agent-route", bytes.NewReader(body), &out, &stderr); code != core.ExitProceed {
+	if code := runCodex("codex-agent-route", bytes.NewReader(body), &out, &stderr); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want proceed", code)
 	}
 	if stderr.Len() != 0 {
@@ -155,7 +155,7 @@ func TestCodexAgentRouteMalformedInputFailsOpen(t *testing.T) {
 	setupCodexRoute(t)
 	for _, body := range []string{"", "not-json", "{}", `{"tool_name":"spawn_agent","tool_input":null}`} {
 		var out, stderr bytes.Buffer
-		if code := runDirect("codex-agent-route", strings.NewReader(body), &out, &stderr); code != core.ExitProceed || out.Len() != 0 {
+		if code := runCodex("codex-agent-route", strings.NewReader(body), &out, &stderr); code != core.ExitProceed || out.Len() != 0 {
 			t.Errorf("input %q: exit %d, output %q", body, code, &out)
 		}
 	}
@@ -204,33 +204,5 @@ func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	}
 	if last["schema"] != float64(1) {
 		t.Errorf(`new line "schema" = %v, want 1 (line %s)`, last["schema"], lines[len(lines)-1])
-	}
-}
-
-// `claude-code hook PreToolUse --codex-agent-route` (RunArgs) must emit the same wire shape the native runner renders.
-func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
-	setupCodexRoute(t) // sets HARNESS_HOOK_AGENT=codex
-	args := map[string]any{"fork_turns": "none", "message": "add a --verbose flag", "task_name": "probe_child", "agent_type": "default"}
-	body := mustCodexJSON(t, codexRoutePayload(args))
-
-	var directOut, directErr bytes.Buffer
-	if code := runDirect("codex-agent-route", bytes.NewReader(body), &directOut, &directErr); code != core.ExitProceed {
-		t.Fatalf("direct exit = %d", code)
-	}
-	var runOut, runErr bytes.Buffer
-	if code := RunArgs("PreToolUse", []string{"--codex-agent-route"}, bytes.NewReader(body), &runOut, &runErr); code != core.ExitProceed {
-		t.Fatalf("Run exit = %d (stderr %s)", code, &runErr)
-	}
-	if runOut.String() != directOut.String() {
-		t.Fatalf("Run output %q != direct %q", &runOut, &directOut)
-	}
-	m := oneDoc(t, runOut.String())
-	h, _ := m["hookSpecificOutput"].(map[string]any)
-	if h["hookEventName"] != "PreToolUse" || h["permissionDecision"] != "allow" {
-		t.Fatalf("wire shape = %v", m)
-	}
-	updated, _ := h["updatedInput"].(map[string]any)
-	if updated["model"] != codexRouteWireModel || updated["reasoning_effort"] != "high" {
-		t.Fatalf("updatedInput = %v", updated)
 	}
 }

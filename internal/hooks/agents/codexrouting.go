@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"encoding/json"
@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// nativeCodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
-func nativeCodexAgentRoute(in *core.Input) core.Result {
+// CodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
+func CodexAgentRoute(in *core.Input) core.Result {
 	if in.Agent() != core.AgentCodex || !codexSpawnTool(in.ToolName) || !codexFreshSpawn(in) {
 		return core.Result{}
 	}

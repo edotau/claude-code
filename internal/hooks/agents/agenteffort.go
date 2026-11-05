@@ -1,7 +1,7 @@
 // `agent-effort` — PreToolUse on a subagent spawn (Claude Code's Agent/Task tool) or a Workflow: fills an UNSET
 // dispatch model from the local prompt classifier (low->haiku, medium/high->sonnet). Never overrides
 // an explicit model/pin; fails OPEN on any error.
-package hooks
+package agents
 
 import (
 	"fmt"

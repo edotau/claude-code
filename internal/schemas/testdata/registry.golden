@@ -36,7 +36,7 @@ ask-envelope | wire | 1 | - | internal/agent | keep
 audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
 claims | log | 1 | state/harness/hooks/claims/*.jsonl | internal/hooks/wthook | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/codex | keep
-codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
+codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks/agents | clean:codex-audit
 coworker-overlay | wire | 1 | - | internal/agentconfig | keep
 desktop-meta | derived | 0 | <fixed at init> | internal/desktop | keep
 desktop-profile | derived | 0 | <fixed at init> | internal/desktop | keep

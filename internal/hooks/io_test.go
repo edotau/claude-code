@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
@@ -422,8 +423,8 @@ func TestMain(m *testing.M) {
 	worktree.StubProcessScanForTest()
 	tb := &mainTB{}
 	memhook.StubSpawnForTest(tb, true)
-	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
-	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
+	agents.ClaudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
+	agents.RouteHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	for _, f := range tb.cleanups {

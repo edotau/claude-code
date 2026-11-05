@@ -1,5 +1,5 @@
 // The leaf-stop gate: a leaf may not stop while its background dispatch runs; a coworker needs a ran-on line from a tool result.
-package hooks
+package agents
 
 import (
 	"encoding/json"

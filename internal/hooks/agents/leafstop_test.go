@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"bytes"
@@ -163,14 +163,14 @@ func TestLeafStopBlockKeepsSlot(t *testing.T) {
 		t.Fatalf("spawn blocked: %s", r.Reason)
 	}
 	stop := `{"hook_event_name":"SubagentStop","agent_id":"a1","transcript_path":"` + tx + `","agent_transcript_path":"` + agentTx + `"}`
-	if r := subagentStopRunner(core.ParseInput(strings.NewReader(stop))); r.Decision != core.Block {
+	if r := Stop(core.ParseInput(strings.NewReader(stop))); r.Decision != core.Block {
 		t.Fatalf("running dispatch: got %+v, want Block", r)
 	}
 	if n := len(markerNames(t)); n != 1 {
 		t.Fatalf("blocked stop left %d markers, want 1 (slot kept)", n)
 	}
 	writeDispatch(t, leafJob, record(leafJob, "done", os.Getpid()))
-	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
+	Stop(core.ParseInput(strings.NewReader(stop)))
 	if n := len(markerNames(t)); n != 0 {
 		t.Fatalf("proceeding stop left %d markers, want 0", n)
 	}

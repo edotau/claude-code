@@ -1,7 +1,6 @@
-package hooks
+package agents
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,14 +31,6 @@ func stopPayload(agent, tx, agentTx string) string {
 	return `{"hook_event_name":"SubagentStop","agent_id":"` + agent + `","transcript_path":"` + tx + `","agent_transcript_path":"` + agentTx + `"}`
 }
 
-// runEvent drives the full dispatcher for one event payload.
-func runEvent(t *testing.T, event, payload string) string {
-	t.Helper()
-	var out, errb bytes.Buffer
-	RunEvent(event, false, strings.NewReader(payload), &out, &errb)
-	return out.String()
-}
-
 // seedForeign fills n slots of the session account with markers owned by a live foreign pid (this test process).
 func seedForeign(t *testing.T, n int) {
 	t.Helper()
@@ -66,19 +57,14 @@ func hasMarker(t *testing.T, id string) bool {
 	return false
 }
 
-// Leak 1 (2026-09-15): a background Agent's PostToolUse returns at once with a task id and must NOT retire the
-// claim; only the SubagentStop resolved through the agent_transcript_path dir's meta.json does.
-func TestDispatchBackgroundSpawnSurvivesPostToolUseUntilStop(t *testing.T) {
+// Leak 1 (2026-09-15): the claim of a background Agent is retired only by the SubagentStop resolved through the
+// agent_transcript_path dir's meta.json (its PostToolUse reaches no dispatch runner: hooks wiring test).
+func TestDispatchBackgroundSpawnRetiredByStop(t *testing.T) {
 	dispatchEnv(t)
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
 	runEvent(t, "PreToolUse", spawnPayload("toolu_bg"))
 	if !hasMarker(t, "toolu_bg") {
 		t.Fatalf("PreToolUse Agent claimed nothing: %v", markerNames(t))
-	}
-	runEvent(t, "PostToolUse", `{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_use_id":"toolu_bg","transcript_path":"`+tx+
-		`","tool_response":{"status":"async_launched","agentId":"abg"}}`)
-	if !hasMarker(t, "toolu_bg") {
-		t.Fatalf("a background Agent's PostToolUse retired the claim too early: %v", markerNames(t))
 	}
 	sub := writeMeta(t, tx, "abg", "toolu_bg")
 	runEvent(t, "SubagentStop", stopPayload("abg", "", filepath.Join(sub, "agent-abg.jsonl")))
@@ -96,12 +82,12 @@ func TestDispatchRepeatStopRetiresNothingElse(t *testing.T) {
 	pre(spawnPayload("u2"))
 	writeMeta(t, tx, "a1", "u1")
 	stop := stopPayload("a1", tx, "")
-	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
+	Stop(core.ParseInput(strings.NewReader(stop)))
 	if hasMarker(t, "u1") || !hasMarker(t, "u2") {
 		t.Fatalf("first stop must retire exactly u1: %v", markerNames(t))
 	}
-	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
-	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
+	Stop(core.ParseInput(strings.NewReader(stop)))
+	Stop(core.ParseInput(strings.NewReader(stop)))
 	if !hasMarker(t, "u2") || len(markerNames(t)) != 1 {
 		t.Fatalf("a repeat stop retired a sibling's marker: %v", markerNames(t))
 	}
@@ -155,7 +141,7 @@ func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 			t.Fatalf("missing leaf marker %s in %v", want, markerNames(t))
 		}
 	}
-	releaseSpawn(core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Workflow","tool_use_id":"wf"}`)))
+	Release(core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Workflow","tool_use_id":"wf"}`)))
 	if n := len(markerNames(t)); n != 0 {
 		t.Fatalf("workflow-inflight left %d markers", n)
 	}

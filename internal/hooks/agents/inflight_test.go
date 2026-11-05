@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"fmt"
@@ -44,7 +44,7 @@ func dispatchEnv(t *testing.T) int {
 	return min(lim.For(router.SessionAccount()), lim.Total)
 }
 
-func pre(payload string) core.Result { return dispatchPre(core.ParseInput(strings.NewReader(payload))) }
+func pre(payload string) core.Result { return Effort(core.ParseInput(strings.NewReader(payload))) }
 
 // Cap → claim → release spans the group: spawns fill the cap, the next blocks without a marker and names the
 // numbers, a failed spawn's release frees exactly one slot, and a SubagentStop resolved through meta.json frees another.
@@ -63,7 +63,7 @@ func TestDispatchCapBlockReleaseAndStop(t *testing.T) {
 	if n := len(markerNames(t)); n != capN {
 		t.Fatalf("a blocked dispatch must claim nothing: %d markers, want %d", n, capN)
 	}
-	releaseSpawn(core.ParseInput(strings.NewReader(postFailurePayload("u0"))))
+	Release(core.ParseInput(strings.NewReader(postFailurePayload("u0"))))
 	if n := len(markerNames(t)); n != capN-1 {
 		t.Fatalf("release of u0 left %d markers, want %d", n, capN-1)
 	}
@@ -82,12 +82,12 @@ func inflightStopFreesSlot(t *testing.T, capN int) {
 		t.Fatal(err)
 	}
 	stop := `{"hook_event_name":"SubagentStop","agent_id":"a1","transcript_path":"` + tx + `"}`
-	subagentStopRunner(core.ParseInput(strings.NewReader(stop)))
-	subagentStopRunner(core.ParseInput(strings.NewReader(stop))) // a second stop is a no-op
+	Stop(core.ParseInput(strings.NewReader(stop)))
+	Stop(core.ParseInput(strings.NewReader(stop))) // a second stop is a no-op
 	if n := len(markerNames(t)); n != capN-2 {
 		t.Fatalf("stop of a1 left %d markers, want %d", n, capN-2)
 	}
-	subagentStopRunner(core.ParseInput(strings.NewReader(`{"agent_id":"unknown","transcript_path":"` + tx + `"}`)))
+	Stop(core.ParseInput(strings.NewReader(`{"agent_id":"unknown","transcript_path":"` + tx + `"}`)))
 	if n := len(markerNames(t)); n != capN-2 {
 		t.Fatalf("a stop with no meta.json must retire nothing: %d markers", n)
 	}
@@ -105,7 +105,7 @@ func TestDispatchWorkflowClaimsOneSlotPerLeaf(t *testing.T) {
 	if n := len(markerNames(t)); n != want {
 		t.Fatalf("workflow claimed %d markers, want %d", n, want)
 	}
-	releaseSpawn(core.ParseInput(strings.NewReader(`{"tool_name":"Workflow","tool_use_id":"wf1"}`)))
+	Release(core.ParseInput(strings.NewReader(`{"tool_name":"Workflow","tool_use_id":"wf1"}`)))
 	if n := len(markerNames(t)); n != 0 {
 		t.Fatalf("release left %d markers", n)
 	}

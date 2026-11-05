@@ -1,6 +1,6 @@
 // The release side of the dispatch cap: PostToolUseFailure, PostToolUse(Workflow) and SubagentStop retire the
 // markers `agent-effort` claimed in internal/proc/inflight; back-pressure, not a mutex.
-package hooks
+package agents
 
 import (
 	"path/filepath"
@@ -10,8 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 )
 
-// releaseSpawn retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
-func releaseSpawn(in *core.Input) core.Result {
+// Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
+func Release(in *core.Input) core.Result {
 	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
 		docs.ClearPlanClaim(in.CWD, id) // a failed spawn never reaches SubagentStop
@@ -22,8 +22,8 @@ func releaseSpawn(in *core.Input) core.Result {
 // reapLeaf kills the stopping leaf's leftover background shells; set by leafreap.go where signals exist.
 var reapLeaf = func(*core.Input) {}
 
-// subagentStopRunner retires the stopping agent's claim by agent id (first stop retires; a second is a no-op).
-func subagentStopRunner(in *core.Input) core.Result {
+// Stop retires the stopping agent's claim by agent id (first stop retires; a second is a no-op).
+func Stop(in *core.Input) core.Result {
 	owner, id := inflight.SessionOwner(), in.SubagentID()
 	if owner == 0 || id == "" {
 		return core.Result{}

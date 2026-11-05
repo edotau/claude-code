@@ -1,4 +1,4 @@
-package hooks
+package agents
 
 import (
 	"strings"
@@ -11,9 +11,9 @@ import (
 // withPressure forces the Anthropic reading for one test, restoring TestMain's no-reading stub after.
 func withPressure(t *testing.T, pct float64) {
 	t.Helper()
-	old := claudePressure
-	claudePressure = func() (float64, string, bool) { return pct, "5h", true }
-	t.Cleanup(func() { claudePressure = old })
+	old := ClaudePressure
+	ClaudePressure = func() (float64, string, bool) { return pct, "5h", true }
+	t.Cleanup(func() { ClaudePressure = old })
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(providers.EnvSessionProfile, "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")

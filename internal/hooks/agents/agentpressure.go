@@ -1,6 +1,6 @@
 // Quota pressure on Claude subagents: near the Anthropic plan's limit the agent-effort hook downshifts an unset
 // dispatch model one model (≥90%) or hands a code-worker task to a coworker on the routed agent (≥97%).
-package hooks
+package agents
 
 import (
 	"cmp"
@@ -29,8 +29,8 @@ const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
 // offloadTypes are the write-capable agent types a coworker leaf can carry; read-only types (Explore) never escalate.
 var offloadTypes = map[string]bool{"code-worker": true}
 
-// claudePressure is the forced test reading, else the cached Anthropic window; ok is false when neither exists.
-var claudePressure = func() (float64, string, bool) {
+// ClaudePressure is the forced test reading, else the cached Anthropic window; ok is false when neither exists.
+var ClaudePressure = func() (float64, string, bool) {
 	if v := os.Getenv(envTestPct); v != "" {
 		pct, err := strconv.ParseFloat(v, 64)
 		return pct, "test", err == nil
@@ -38,8 +38,8 @@ var claudePressure = func() (float64, string, bool) {
 	return usage.ClaudePressure(time.Now())
 }
 
-// routeHint names the agent pick for model alias ("codex gpt-6.1-sol"); "" when no agent passes the gates.
-var routeHint = func(alias string) (agent, model string) {
+// RouteHint names the agent pick for model alias ("codex gpt-6.1-sol"); "" when no agent passes the gates.
+var RouteHint = func(alias string) (agent, model string) {
 	tb, err := router.Load()
 	if err != nil {
 		return "", ""
@@ -84,7 +84,7 @@ func applyPressure(in *core.Input, updated map[string]any, promptField, base str
 		return "", ""
 	}
 	alias := pressureAlias(base)
-	agent, model := routeHint(alias)
+	agent, model := RouteHint(alias)
 	hint := ""
 	if agent != "" {
 		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, alias)
@@ -134,7 +134,7 @@ func pressureActive() (pct float64, window string, ok bool) {
 	if os.Getenv(envTestPct) == "" && !billsSubscription() {
 		return 0, "", false
 	}
-	pct, window, ok = claudePressure()
+	pct, window, ok = ClaudePressure()
 	if !ok || pct < router.LowPct {
 		return 0, "", false
 	}
