@@ -38,8 +38,9 @@ type SDKOptions struct {
 	Context          string // ContextTier: "default" or "long_context"; empty leaves the model's own default
 	WorkingDirectory string
 	AllowAllTools    bool
-	ReadOnlyTools    bool // with AllowAllTools: approve only file reads and URL fetches
-	UseLoggedInUser  bool // always explicit: unset, the SDK silently falls back to the GitHub subscription
+	ReadOnlyTools    bool              // with AllowAllTools: approve only file reads and URL fetches
+	Permissions      agent.Permissions // with AllowAllTools: Deny rejects, Allow approves, Ask and unmatched fall to the tier
+	UseLoggedInUser  bool              // always explicit: unset, the SDK silently falls back to the GitHub subscription
 	GitHubToken      string
 	Autonomous       bool   // MessageOptions.AgentMode = AgentModeAutopilot
 	Fleet            bool   // experimental session.RPC.Fleet.Start instead of SendAndWait
@@ -153,16 +154,112 @@ func permissionHandler(o SDKOptions, approved *atomic.Bool) copilot.PermissionHa
 }
 
 func baseHandler(o SDKOptions) copilot.PermissionHandlerFunc {
-	if o.AllowAllTools && o.ReadOnlyTools {
-		return approveReadOnly
+	switch {
+	case !o.AllowAllTools:
+		return denyAllTools
+	case o.ReadOnlyTools:
+		return withPermissions(o, approveReadOnly, false)
+	case o.Autonomous:
+		return withPermissions(o, approveToolOnce, false)
 	}
-	if o.AllowAllTools && o.Autonomous {
-		return approveToolOnce
+	return withPermissions(o, approveScoped(o.WorkingDirectory), true)
+}
+
+// withPermissions lets o.Permissions reject (Deny) or, on the scoped tier, approve (Allow) a request before next sees it.
+func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc, allowWidens bool) copilot.PermissionHandlerFunc {
+	if o.Permissions.IsZero() {
+		return next
 	}
-	if o.AllowAllTools {
-		return approveScoped(o.WorkingDirectory)
+	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+		call, ok := ruleCall(req, o.WorkingDirectory)
+		if !ok {
+			return next(req, inv)
+		}
+		switch o.Permissions.Decide(call.Tool, call.Arg) {
+		case agent.Deny:
+			if planReadThrough(o.Permissions, req, call) {
+				return next(req, inv)
+			}
+			feedback := "Refused by permission rule for " + call.String() + ": report it instead."
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+		case agent.Allow:
+			if allowWidens && !protectedWrite(req, o.WorkingDirectory) && !protectedRm(req, o.WorkingDirectory) {
+				return approveToolOnce(req, inv)
+			}
+		}
+		return next(req, inv)
 	}
-	return denyAllTools
+}
+
+// ruleCall is the Claude-style Tool(arg) a request is judged as; ok is false for kinds no rule names.
+func ruleCall(req copilot.PermissionRequest, workDir string) (agent.Rule, bool) {
+	switch r := req.(type) {
+	case rpc.PermissionRequestShell:
+		return agent.Rule{Tool: "Bash", Arg: r.FullCommandText}, true
+	case *rpc.PermissionRequestShell:
+		return agent.Rule{Tool: "Bash", Arg: r.FullCommandText}, true
+	case rpc.PermissionRequestWrite:
+		return agent.Rule{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}, true
+	case *rpc.PermissionRequestWrite:
+		return agent.Rule{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}, true
+	case rpc.PermissionRequestRead:
+		return agent.Rule{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}, true
+	case *rpc.PermissionRequestRead:
+		return agent.Rule{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}, true
+	case rpc.PermissionRequestURL:
+		return agent.Rule{Tool: "WebFetch", Arg: r.URL}, true
+	case *rpc.PermissionRequestURL:
+		return agent.Rule{Tool: "WebFetch", Arg: r.URL}, true
+	}
+	return agent.Rule{}, false
+}
+
+// relToWorkDir is p relative to workDir when inside it, else p unchanged.
+func relToWorkDir(workDir, p string) string {
+	if rel, err := filepath.Rel(workDir, p); workDir != "" && err == nil && filepath.IsLocal(rel) {
+		return filepath.ToSlash(rel)
+	}
+	return p
+}
+
+// planReadThrough is a read or URL fetch that plan mode denied only by its fallback: no Deny rule names it.
+func planReadThrough(p agent.Permissions, req copilot.PermissionRequest, call agent.Rule) bool {
+	return p.Mode == "plan" && readOnlyKinds[req.Kind()] &&
+		agent.Permissions{Deny: p.Deny}.Decide(call.Tool, call.Arg) != agent.Deny
+}
+
+// protectedRm is a command running rm that the scoped tier refuses (protected targets, .git, keys): Allow never lifts it.
+func protectedRm(req copilot.PermissionRequest, workDir string) bool {
+	cmd, ok := shellCommand(req)
+	return ok && runsRm(cmd, 0) && !scopedAllowed(req, workDir)
+}
+
+// runsRm reports whether any segment, substitution or nested `bash -c` body of cmd runs rm.
+func runsRm(cmd string, depth int) bool {
+	if depth > 8 {
+		return true
+	}
+	outer, subs := shell.ExtractSubstitutions(cmd)
+	for _, sub := range subs {
+		if runsRm(sub, depth+1) {
+			return true
+		}
+	}
+	for _, seg := range shell.Segments(outer) {
+		toks, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(toks) > 0 && filepath.Base(toks[0]) == "rm" {
+			return true
+		}
+		if nested, ok := shell.NestedCommand(toks); ok && runsRm(nested, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
+// protectedWrite is a write the scoped tier refuses (outside the workdir, .git, .env*, state/, keys): Allow never lifts it.
+func protectedWrite(req copilot.PermissionRequest, workDir string) bool {
+	return req.Kind() == rpc.PermissionRequestKindWrite && !scopedAllowed(req, workDir)
 }
 
 // providerFromEnv lifts the BYOK block into the session: the server-mode runtime ignores COPILOT_PROVIDER_* env.
