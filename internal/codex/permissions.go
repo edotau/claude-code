@@ -96,7 +96,9 @@ func codexRulesHome(rules string) (home string, remove func(), err error) {
 	remove = func() {
 		auth := filepath.Join(home, "auth.json")
 		if fresh, err := os.ReadFile(auth); err == nil && !isLink(auth) {
-			_ = paths.AtomicWrite(filepath.Join(real, "auth.json"), fresh, 0o600) // codex refreshed the tokens in place
+			if err := paths.AtomicWrite(filepath.Join(real, "auth.json"), fresh, 0o600); err != nil { // codex refreshed the tokens in place
+				fmt.Fprintf(os.Stderr, "codex: refreshed auth.json not saved to %s: %v\n", real, err)
+			}
 		}
 		_ = os.RemoveAll(home)
 	}
