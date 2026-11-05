@@ -37,11 +37,12 @@ harness runs the module around a headless `opencode run`), `plugin` (opencode in
 | codex · native | `safety-scan`, `docs-*` gates, `paths-resolve`, `memory-recall`, `codex-*` | **block** (an ask blocks) |
 | copilot · native / sdk | the same five (no `codex-*`) | **block** (an ask blocks) |
 | opencode · hosted | `Hosted` specs (gates, docs, memory, format, review, worktree) | PreToolUse **detect-only** (logged, cannot stop the call); the rest **advisory** |
-| opencode · plugin | `safety-scan`, `docs-placement`, `docs-plan-gate`, `worktree-claim-check` | **block** (throws in `tool.execute.before`); pending merge, see `agent.md` |
+| opencode · plugin | `safety-scan`, `docs-placement`, `docs-plan-gate`, `worktree-claim-check` | **block** (throws in `tool.execute.before`, headless and TUI; the host then skips these) |
 
-The `permission-gate` module (judges a call with `Permissions.Decide`, covers `bash -c`) is on the
-`worktree-permission-gate` branch and not in `Registry` on main. Skills, instruction sources and the opencode
-Bash-deny path: `agent.md` → Skills and instructions parity.
+The `permission-gate` module (AgentOnly `permission` group) judges each call with `Permissions.Decide` against
+`HARNESS_DISPATCH_PERMISSIONS`, covering `bash -c`: opencode runs it from the plugin, codex and agy natively. Copilot
+`ask` runs through the SDK, whose session loads `~/.copilot/hooks/*.json`, so the native row covers it. Skills,
+instruction sources and the Bash-deny path: `agent.md` → Skills and instructions parity.
 
 ## Event → hook matrix
 

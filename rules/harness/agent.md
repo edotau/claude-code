@@ -81,14 +81,15 @@ paths:
 | opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | F0 `p2`, `p2b` |
 
 - **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs through the SDK:
-  per-call `Decide` on the dispatch's permissions, hooks via SDK callbacks (`SpecsFor("copilot", "sdk")`).
+  per-call `Decide` on the dispatch's permissions; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK
+  session loads too (live, 1.0.105), so no SDK callbacks are registered (they would run each guard twice).
 - **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge (opencode Ask = `--auto`). A Deny an
   agent cannot enforce refuses the dispatch with `agent.Error{Kind: KindFatal}` naming the rule. opencode
   `--read-only` stays tools-off.
-- **opencode Bash deny.** opencode's matcher is bypassed by `bash -c "..."`, so a native Bash deny is refused today
-  (`internal/opencode/permission.go`). The fix is the `permission-gate` PreToolUse module plus an opencode plugin
-  throwing in `tool.execute.before` (F0: blocks in `run`, subagent bash included, 1.19.3). Both are on the
-  `worktree-permission-gate` branch, **not merged to main yet**; hook modes: `hooks.md` → Applicability.
+- **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
+  rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
+  runs it from the harness plugin's `tool.execute.before` (headless and TUI; refused only under `--safe-mode`, which
+  loads no plugin), codex and agy as a native PreToolUse hook. Hook modes: `hooks.md` → Applicability.
 
 ## Codex child routing
 
