@@ -104,8 +104,9 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 	}
 	agg := transcript.NewUsageAggregate()
 	counts := map[string]*dayCount{}
+	turns := transcript.OpenSummaryCache(transcript.SummaryCachePath())
 	for _, f := range files {
-		resps, readErr := transcript.ReadResponses(f)
+		resps, readErr := turns.Responses(f)
 		if readErr != nil {
 			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, readErr)
 			continue
@@ -113,6 +114,7 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 		kept := foldResponses(f, resps, cutoff, counts)
 		agg.Add(transcript.SummarizeResponses(kept))
 	}
+	_ = turns.Save() // a cache write failure never fails the verb
 	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
 	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
 	return &transcriptScan{agg: agg, files: files, daily: dailyFromCounts(counts)}, nil

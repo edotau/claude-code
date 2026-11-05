@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -705,5 +706,30 @@ func TestScanUsageCountsOnlyTurnsInsideWindow(t *testing.T) {
 	}
 	if len(scan.daily) != 1 || scan.daily[0].Tokens != 110 || scan.daily[0].Turns != 1 {
 		t.Errorf("daily = %+v, want one bucket of 110 tokens, 1 turn (same set as the aggregate)", scan.daily)
+	}
+}
+
+// TestScanUsageServesSettledFilesFromCache: a second scan reads a settled transcript from the turn cache, with
+// the same totals, so `usage` does not re-parse every file on every run.
+func TestScanUsageServesSettledFilesFromCache(t *testing.T) {
+	claudeDir := t.TempDir()
+	p := writeUsageFixture(t, claudeDir, "-p", "s", time.Hour, usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
+	first, err := scanUsage(claudeDir, "", 1, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(transcript.SummaryCachePath()); err != nil {
+		t.Fatalf("scan wrote no turn cache: %v", err)
+	}
+	c := transcript.OpenSummaryCache(transcript.SummaryCachePath())
+	if _, err := c.Responses(p); err != nil {
+		t.Fatal(err)
+	}
+	if hits, misses := c.Stats(); hits != 1 || misses != 0 {
+		t.Fatalf("cache after one scan: %d hits, %d misses; want 1, 0", hits, misses)
+	}
+	again, err := scanUsage(claudeDir, "", 1, io.Discard)
+	if err != nil || !reflect.DeepEqual(again.agg, first.agg) {
+		t.Fatalf("cached scan = %+v, %v; want %+v", again.agg, err, first.agg)
 	}
 }
