@@ -438,7 +438,7 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error)
 	return rec, nil
 }
 
-// toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/cli/ask.go).
+// toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/cli/agents/ask.go).
 func toRow(r agent.Record) Row {
 	status := r.Status
 	if status == "running" && !r.Alive() {

@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"encoding/base64"
@@ -16,14 +16,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// runCLI runs `claude-code <argv>` in-process and returns exit code, stdout and stderr.
+// runCLI runs `claude-code ask <argv>` in-process (argv[0] must be "ask") and returns exit code, stdout and stderr.
 func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	t.Helper()
 	outR, outW, _ := os.Pipe()
 	errR, errW, _ := os.Pipe()
 	oldOut, oldErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = outW, errW
-	code := Run(append([]string{"claude-code"}, argv...))
+	code := CmdAsk(argv[1:])
 	os.Stdout, os.Stderr = oldOut, oldErr
 	outW.Close()
 	errW.Close()
@@ -471,7 +471,7 @@ func TestResumeNeverFallsBack(t *testing.T) {
 		"agy":      cliMarker(t, "agy", "exit 1"),
 		"opencode": cliMarker(t, "opencode", "exit 1"),
 	}
-	code, out, stderr := runCLI(t, "codex", "resume", "sess-1", "continue please")
+	code, out, stderr := runCLI(t, "ask", "--agent", "codex", "--session", "sess-1", "continue please")
 	if code == 0 {
 		t.Errorf("exit = 0, want non-zero: the resumed session's launch failed\nstdout: %s", out)
 	}
@@ -489,7 +489,7 @@ func TestResumeNeverFallsBack(t *testing.T) {
 func TestResumeForwardsProfile(t *testing.T) {
 	cliEnv(t)
 	cliMarker(t, "codex", "echo ok")
-	code, out, stderr := runCLI(t, "codex", "resume", "sess-1", "--profile", "no-such-profile", "continue")
+	code, out, stderr := runCLI(t, "ask", "--agent", "codex", "--session", "sess-1", "--profile", "no-such-profile", "continue")
 	if code == 0 {
 		t.Errorf("exit = 0, want non-zero for an unknown --profile\nstdout: %s", out)
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"io"
 	"os"
@@ -41,7 +42,7 @@ func runSplitReview(name string, args []string, parts []review.Part, scope revie
 		if err != nil {
 			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
 		}
-		ans, rc := captureAnswer(func() int { return cmdAsk(askArgs) })
+		ans, rc := captureAnswer(func() int { return agents.CmdAsk(askArgs) })
 		cleanup()
 		if rc != 0 {
 			fmt.Print(review.MergeReports(adversarial, parts[:len(answers)], answers))
@@ -58,7 +59,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	cwd, _ := os.Getwd()
 	req := agent.RunOptions{Agent: name, Prompt: fmt.Sprintf("%s review split into %d parts", name, n),
 		WorkDir: cwd, Background: true}
-	rec, err := newClient().Record(context.Background(), req, nil)
+	rec, err := agents.NewClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
@@ -75,7 +76,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
 		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)
 	}
-	reportBackgroundStart("text", rec)
+	agents.ReportBackgroundStart("text", rec)
 	return 0
 }
 

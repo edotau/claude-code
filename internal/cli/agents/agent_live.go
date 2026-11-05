@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func startLive(s *askState, name, format string) int {
 		Tools: *s.Tools, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
 		Autonomous: *s.Autonomous, Direct: *s.Direct, Agent: name, Background: true}
-	rec, err := newClient().Record(context.Background(), req, nil)
+	rec, err := NewClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return failAsk(format, name, err)
 	}
@@ -90,7 +90,7 @@ func printLiveEnvelope(env agent.Envelope, format string) {
 }
 
 // runLiveHolder is live.RunHolder over the cli client's launcher.
-func runLiveHolder(rec *agent.Record) int { return live.RunHolder(rec, newClient().Launcher) }
+func runLiveHolder(rec *agent.Record) int { return live.RunHolder(rec, NewClient().Launcher) }
 
 // agentsSendPage is `agents send -h`.
 var agentsSendPage = helptext.Page{

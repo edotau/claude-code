@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/claude"
+	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
@@ -83,7 +84,7 @@ func memorySynopsis(sub, args string) string {
 }
 
 // memoryAgent runs background memory jobs via agent.MemoryRunner.
-func memoryAgent() memory.AgentFunc { return agent.MemoryRunner(newClient) }
+func memoryAgent() memory.AgentFunc { return agent.MemoryRunner(agents.NewClient) }
 
 // memoryFlagSet builds the per-subcommand flag.FlagSet shared by every handler below.
 func memoryFlagSet(sub string) *flag.FlagSet {

@@ -1,4 +1,4 @@
-package cli
+package agents
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -89,7 +90,7 @@ func agentsStatus(rec agent.Record, format, cwd string) int {
 		return 0
 	}
 	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, statusDetail(r))
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, StatusDetail(r))
 	}
 	return 0
 }
@@ -106,7 +107,7 @@ func agentsTail(rec agent.Record, format string, follow bool, cwd string) int {
 	if err != nil {
 		return helptext.Fail("agents tail: %v", err)
 	}
-	return tailExit(rec, follow)
+	return TailExit(rec, follow)
 }
 
 func agentsResult(rec agent.Record, format, cwd string) int {
@@ -118,7 +119,7 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 		if err := helptext.WriteJSON(os.Stdout, agent.RecordEnvelope(rec, os.Stderr)); err != nil {
 			return helptext.Fail("agents result: %v", err)
 		}
-		return resultExit(rec)
+		return ResultExit(rec)
 	}
 	fmt.Print(log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
@@ -131,5 +132,35 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 		fmt.Printf("session: %s\n", rec.SessionID)
 		fmt.Printf("resume: claude-code ask --agent %s --session %s\n", rec.Agent, rec.SessionID)
 	}
-	return resultExit(rec)
+	return ResultExit(rec)
+}
+
+// TailExit is a tail's exit code: 1 for an errored job, or for a followed job that is still "running" (lost).
+func TailExit(rec agent.Record, follow bool) int {
+	if rec.Status == "running" && follow {
+		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
+		return 1
+	}
+	return ResultExit(rec)
+}
+
+// ResultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
+func ResultExit(rec agent.Record) int {
+	if rec.Status != "error" {
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "error: %s\n", shapes.Redact(rec.Error)) // the stderr tail in it may carry a key
+	return 1
+}
+
+// StatusDetail is a status row's tail: progress and preview, or the preview plus the one-line error text.
+func StatusDetail(r job.Row) string {
+	d := r.Preview
+	if r.Progress != "" {
+		d = "[" + r.Progress + "] " + d
+	}
+	if r.Error != "" {
+		d += " -- " + shapes.Preview(r.Error, 300)
+	}
+	return d
 }
