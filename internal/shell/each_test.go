@@ -57,8 +57,25 @@ func TestEachGitStopsAndBoundsNesting(t *testing.T) {
 	for range 8 {
 		deep = "eval " + deep
 	}
-	if got := collectGit(deep, "/w"); len(got) != 0 {
-		t.Errorf("nesting beyond maxNest must be cut off, got %v", got)
+	if got, want := collectGit(deep, "/w"), []gitCall{{"/w", Uninspectable}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("nesting beyond maxNest must report Uninspectable, got %v", got)
+	}
+	if got := collectGit("eval eval eval git stash", "/w"); !reflect.DeepEqual(got, []gitCall{{"/w", "stash"}}) {
+		t.Errorf("3-deep nesting stays inspectable, got %v", got)
+	}
+}
+
+func TestEachGitCdOnlyMovesShellForBuiltins(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"env cd /a; git x": "/w", "nohup cd /a; git x": "/w", "sudo cd /a; git x": "/w", "timeout 5 cd /a; git x": "/w",
+		"nice cd /a; git x": "/w", "exec cd /a; git x": "/w",
+		"command cd /a; git x": "/a", "time cd /a; git x": "/a", "builtin cd /a; git x": "/a",
+		"FOO=1 cd /a; git x": "/a", "cd /a && git x": "/a", "env -C /a git x; git y": "/a",
+	} {
+		got := collectGit(cmd, "/w")
+		if len(got) == 0 || got[0].target != want {
+			t.Errorf("EachGit(%q) = %v, want first target %s", cmd, got, want)
+		}
 	}
 }
 

@@ -46,7 +46,10 @@ func aggregate(t *testing.T, c *SummaryCache, files []string) *UsageAggregate {
 		if c == nil {
 			err = addFile(agg, f)
 		} else {
-			err = agg.AddFileCached(c, f)
+			var resps []Response
+			if resps, err = c.Responses(f); err == nil {
+				agg.Add(SummarizeResponses(resps))
+			}
 		}
 		if err != nil {
 			t.Fatalf("add %s: %v", f, err)

@@ -12,15 +12,20 @@ const maxNest = 4
 // shellKeywords lead a segment without being its command (`if cd x`, `! git`, `then git`).
 var shellKeywords = []string{"if", "then", "else", "elif", "do", "while", "until", "!", "{", "("}
 
+// Uninspectable is the verb EachGit reports, with the cwd as target, for nesting deeper than maxNest: the callee cannot
+// see what runs there, so a guard must fail closed on it.
+const Uninspectable = "<uninspectable>"
+
 // EachGit calls fn with each git invocation in cmd and the tree it targets, until fn returns true (reported back).
 // It follows substitutions, nested `bash -c`/`eval`, wrappers, `env -C`/`sudo -D`, and `cd`/`pushd` between segments.
+// Nesting past maxNest reports one Uninspectable call instead of being skipped.
 func EachGit(cmd, cwd string, fn func(target, verb string, args []string) bool) bool {
 	return eachGit(cmd, cwd, fn, 0)
 }
 
 func eachGit(cmd, cwd string, fn func(target, verb string, args []string) bool, depth int) bool {
 	if depth > maxNest {
-		return false
+		return fn(cwd, Uninspectable, nil)
 	}
 	masked, subs := ExtractSubstitutions(cmd)
 	for _, sub := range subs { // a substitution runs nested: its cd stays inside it
@@ -33,16 +38,28 @@ func eachGit(cmd, cwd string, fn func(target, verb string, args []string) bool, 
 		if len(toks) == 0 {
 			continue
 		}
-		rest, dir := Unwrap(toks, cwd)
-		if next, ok := CdTarget(rest, cwd); ok {
+		if next, ok := CdTarget(builtinPrefixDropped(toks), cwd); ok { // only a builtin cd moves this shell
 			cwd = next
 			continue
 		}
+		rest, dir := Unwrap(toks, cwd)
 		if segmentGit(rest, dir, fn, depth) {
 			return true
 		}
 	}
 	return false
+}
+
+// builtinPrefixDropped drops what still runs the next word in the current shell (NAME=val, `command`, `builtin`, `time`),
+// unlike env/sudo/nohup/nice/timeout/exec, which start another process: a `cd` behind those cannot move this shell.
+func builtinPrefixDropped(toks []string) []string {
+	for {
+		toks = skipEnvAssignments(toks)
+		if len(toks) == 0 || toks[0] != "command" && toks[0] != "builtin" && toks[0] != "time" {
+			return toks
+		}
+		toks, _ = skipWrapperOpts(toks[0], toks[1:], "")
+	}
 }
 
 // commandWords is the segment's words without leading shell keywords; nil for an ssh command (it runs remotely).

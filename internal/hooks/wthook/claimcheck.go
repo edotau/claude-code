@@ -277,9 +277,22 @@ func (v claimView) stageCheck() core.Result {
 	var res core.Result
 	shell.EachGit(v.in.ToolCommand(), v.in.CWD, func(target, verb string, args []string) bool {
 		res = v.stageVerdict(target, verb, args)
+		if verb == shell.Uninspectable {
+			res = v.uninspectableVerdict()
+		}
 		return res.Decision != core.Allow || res.Stderr != ""
 	})
 	return res
+}
+
+// uninspectableVerdict asks (a leaf: blocks) on a command nested too deep to see what it stages.
+func (v claimView) uninspectableVerdict() core.Result {
+	d := core.Ask
+	if v.in.AgentID != "" {
+		d = core.Block
+	}
+	return core.Result{Decision: d, Reason: core.SafetyMessage(v.in, d, "command nests too deep to check what it stages", "",
+		"unwrap the nested bash -c/eval and run the git add/commit directly")}
 }
 
 // stageVerdict checks one git invocation's staged set against the claims.

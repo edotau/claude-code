@@ -57,14 +57,24 @@ func segmentCommits(seg string, depth int) bool {
 	return isGitCommit(rest, depth)
 }
 
-// noExecShell reports whether toks is a bash/sh/zsh call with a `-n` (noexec) flag, so its script never runs.
+// noExecShell reports whether toks is a bash/sh/zsh call with a `-n` (noexec) flag before its `-c` string, so the
+// script never runs; words after the string are positional parameters and never change that.
 func noExecShell(toks []string) bool {
 	if len(toks) == 0 || !slices.Contains([]string{"bash", "sh", "zsh"}, filepath.Base(toks[0])) {
 		return false
 	}
-	return slices.ContainsFunc(toks[1:], func(t string) bool {
-		return len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t, 'n')
-	})
+	for _, t := range toks[1:] {
+		if len(t) < 2 || t[0] != '-' || t[1] == '-' {
+			continue
+		}
+		if strings.ContainsRune(t, 'n') {
+			return true
+		}
+		if strings.ContainsRune(t, 'c') {
+			return false
+		}
+	}
+	return false
 }
 
 // joinValueOpts spells `--super-prefix X`/`--config-env X` as `=` forms; internal/shell lacks them as value options.
