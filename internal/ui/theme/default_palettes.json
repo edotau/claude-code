@@ -3,6 +3,7 @@
 
   "gradients": {
     "gemini":           ["#4796E4", "#847ACE", "#C3677F", "#FF6B9D"],
+    "gemini-plum":      ["#7FA6E0", "#C89BD8", "#CE7A93", "#E06B93"],
     "tokyonight":       ["#7AA2F7", "#BB9AF7", "#FF6B9D"],
     "shades-of-purple": ["#4D21FC", "#847ACE", "#FF6B9D"],
     "dracula":          ["#8BE9FD", "#BD93F9", "#FF79C6", "#FF6B9D"],
