@@ -40,7 +40,7 @@ func Save(in *core.Input, stderr io.Writer) int {
 	draftPath := resolveCWDPath(cmp.Or(responsePath, inputPath), in.CWD)
 	dest, ok := "", false
 	if draftPath != "" {
-		dest, ok = readRecordedDest(filepath.Base(draftPath))
+		dest, ok = plans.ReadRecordedDest(filepath.Base(draftPath))
 	}
 	fresh := true
 	if !ok {
@@ -103,7 +103,7 @@ func retireDraft(draftPath string, approvedText []byte, stderr io.Writer) {
 	if draftPath == "" || !isUndatedDraft(draftPath) {
 		return
 	}
-	record := destRecordPath(filepath.Base(draftPath))
+	record := plans.DestRecordPath(filepath.Base(draftPath))
 	removeRecord := func() {
 		if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
 			fmt.Fprintf(stderr, "save-plan: %v\n", err)
@@ -346,41 +346,6 @@ func skeletonOrHeadings() string {
 	return b.String()
 }
 
-// plansScratchDir holds one <draft-basename>.dest record per mirrored draft, pointing at its dated file.
-func plansScratchDir() string { return filepath.Join(paths.StateDir(), "plans-scratch") }
-
-func destRecordPath(draftBase string) string {
-	return filepath.Join(plansScratchDir(), draftBase+".dest")
-}
-
-func readRecordedDest(draftBase string) (string, bool) {
-	data, err := os.ReadFile(destRecordPath(draftBase))
-	if err != nil {
-		return "", false
-	}
-	dest := strings.TrimSpace(string(data))
-	return dest, dest != ""
-}
-
-// MirrorDests lists every unapproved draft's dated mirror, so no tick ever lands on a plan still being drafted.
-func MirrorDests() []string {
-	recs, _ := filepath.Glob(filepath.Join(plansScratchDir(), "*.dest"))
-	var out []string
-	for _, r := range recs {
-		if dest, ok := readRecordedDest(strings.TrimSuffix(filepath.Base(r), ".dest")); ok {
-			out = append(out, dest)
-		}
-	}
-	return out
-}
-
-func recordDest(draftBase, dest string) error {
-	if err := os.MkdirAll(plansScratchDir(), 0o700); err != nil {
-		return err
-	}
-	return paths.AtomicWrite(destRecordPath(draftBase), []byte(dest), 0o600)
-}
-
 // Mirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
 // copied to its dated, repo-tagged file (Save's own slug/title/dest logic), so the draft is never the
 // file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
@@ -391,10 +356,10 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 		return core.ExitProceed
 	}
 	base := filepath.Base(path)
-	dest, ok := readRecordedDest(base)
+	dest, ok := plans.ReadRecordedDest(base)
 	if !ok {
 		dest, _ = planDestination(in.CWD, planTitle(content), content, false)
-		if err := recordDest(base, dest); err != nil {
+		if err := plans.RecordDest(base, dest); err != nil {
 			fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 		}
 	}
@@ -430,11 +395,11 @@ func mirrorSource(in *core.Input) (path string, content []byte, ok bool) {
 }
 
 func skeletonMarker(session string) string {
-	return filepath.Join(plansScratchDir(), paths.Slug(session, "", 80, "session")+".skeleton")
+	return filepath.Join(plans.ScratchDir(), paths.Slug(session, "", 80, "session")+".skeleton")
 }
 
 func partialFile(session string) string {
-	return filepath.Join(plansScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
+	return filepath.Join(plans.ScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
 }
 
 // Skeleton injects the plan template on EnterPlanMode and, once per plan, on a plan-mode prompt.
@@ -459,7 +424,7 @@ func Skeleton(in *core.Input) core.Result {
 	if err != nil {
 		return core.ExitResult(core.ExitProceed, stderr.String()) // no template: fail open
 	}
-	err = os.MkdirAll(plansScratchDir(), 0o700)
+	err = os.MkdirAll(plans.ScratchDir(), 0o700)
 	if err == nil {
 		err = os.WriteFile(marker, nil, 0o600)
 	}

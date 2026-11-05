@@ -297,11 +297,31 @@ func cmdMemoryDigest(args []string) int {
 }
 
 func cmdMemoryWatch(args []string) int {
-	return memhook.IdleUpdateWatch(args, os.Stderr) // spawned detached by the Stop gate; its own flag set
+	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
+		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
+	fs.SetOutput(os.Stderr)
+	session := fs.String("session", "", "session id (names the stamp)")
+	tr := fs.String("transcript", "", "the session's transcript path")
+	cwd := fs.String("cwd", "", "project root whose bank to update")
+	idle := fs.Duration("idle", memhook.UpdateIdleAfter, "quiet period before the final update")
+	owner := fs.Int("owner", 0, "session process pid; the watcher exits once it is gone (0 = unbounded)")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	return memhook.IdleUpdateWatch(memhook.WatchOptions{Session: *session, Transcript: *tr, CWD: *cwd,
+		Idle: *idle, Owner: *owner, Stderr: os.Stderr})
 }
 
 func cmdMemoryCatchup(args []string) int {
-	return memhook.CatchUpSweep(args, os.Stdout, os.Stderr) // spawned detached at session start; its own flag set
+	fs := helptext.NewFlagSet("memory catchup", helptext.Page{Usage: "claude-code memory catchup [flags]",
+		About: "Session-start sweep: saves finished sessions whose memory update was missed."})
+	fs.SetOutput(os.Stderr)
+	dry := fs.Bool("dry-run", false, "list the sessions it would save; write nothing")
+	skip := fs.String("skip", "", "session id to leave alone (the one that started the sweep)")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	return memhook.CatchUpSweep(memhook.SweepOptions{DryRun: *dry, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
 }
 
 func cmdMemoryFmt(args []string) int {

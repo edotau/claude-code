@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -175,8 +174,8 @@ func TestIdleUpdateWatchExitsWhenOwnerDies(t *testing.T) {
 	}
 	done := make(chan int, 1)
 	go func() {
-		done <- IdleUpdateWatch([]string{"--session", "own", "--transcript", tr, "--cwd", filepath.Dir(tr),
-			"--owner", strconv.Itoa(cmd.Process.Pid)}, io.Discard)
+		done <- IdleUpdateWatch(WatchOptions{Session: "own", Transcript: tr, CWD: filepath.Dir(tr),
+			Idle: UpdateIdleAfter, Owner: cmd.Process.Pid, Stderr: io.Discard})
 	}()
 	select {
 	case rc := <-done:
@@ -202,7 +201,7 @@ func TestIdleUpdateWatchUpdatesQuietTranscript(t *testing.T) {
 	var note bytes.Buffer
 	done := make(chan int, 1)
 	go func() {
-		done <- IdleUpdateWatch([]string{"--session", "quiet", "--transcript", tr, "--cwd", filepath.Dir(tr), "--idle", "1s"}, &note)
+		done <- IdleUpdateWatch(WatchOptions{Session: "quiet", Transcript: tr, CWD: filepath.Dir(tr), Idle: time.Second, Stderr: &note})
 	}()
 	for i := 0; i < 200 && calls.Load() == 0; i++ {
 		time.Sleep(5 * time.Millisecond)
@@ -237,8 +236,8 @@ func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	calls := &StubSpawnForTest(t, true).Update
 	done := make(chan int, 1)
 	go func() {
-		done <- IdleUpdateWatch([]string{"--session", "fresh", "--transcript", tr, "--cwd", filepath.Dir(tr),
-			"--idle", "200ms"}, io.Discard)
+		done <- IdleUpdateWatch(WatchOptions{Session: "fresh", Transcript: tr, CWD: filepath.Dir(tr),
+			Idle: 200 * time.Millisecond, Stderr: io.Discard})
 	}()
 	time.Sleep(60 * time.Millisecond) // several polls, well inside the 200ms idle window
 	if n := calls.Load(); n != 0 {
@@ -256,13 +255,13 @@ func TestIdleUpdateWatchRefusesBadFlags(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 6)
 	var errb bytes.Buffer
-	if rc := IdleUpdateWatch([]string{"--session", "x", "--transcript", tr, "--cwd", filepath.Join(t.TempDir(), "gone")}, &errb); rc != 2 {
+	if rc := IdleUpdateWatch(WatchOptions{Session: "x", Transcript: tr, CWD: filepath.Join(t.TempDir(), "gone"), Idle: time.Second, Stderr: &errb}); rc != 2 {
 		t.Errorf("watch with a missing cwd = %d, want 2", rc)
 	}
 	if !strings.Contains(errb.String(), "not a directory") {
 		t.Errorf("stderr = %q", errb.String())
 	}
-	if rc := IdleUpdateWatch([]string{"--transcript", tr, "--cwd", filepath.Dir(tr)}, io.Discard); rc != 2 {
+	if rc := IdleUpdateWatch(WatchOptions{Transcript: tr, CWD: filepath.Dir(tr), Idle: time.Second, Stderr: io.Discard}); rc != 2 {
 		t.Errorf("watch without --session = %d, want 2", rc)
 	}
 }
