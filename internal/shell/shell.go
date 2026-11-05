@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -88,6 +89,9 @@ func Tokens(seg string) []string {
 func plainStep(b *strings.Builder, seg string, i int) (int, byte) {
 	c := seg[i]
 	switch {
+	case c == '$' && i+1 < len(seg) && seg[i+1] == '\'':
+		end := decodeANSIC(b, seg, i+2)
+		return end, 0
 	case c == '\'' || c == '"':
 		return i, c
 	case c == '\\' && i+1 < len(seg):
@@ -143,7 +147,12 @@ func dqEscapable(c byte) bool {
 // double quotes, where the shell evaluates both — leaving a placeholder space so neighboring tokens don't
 // glue; single-quoted text is literal, so a substitution there is left untouched. Returns the bodies for
 // the caller to check separately: they run as their own nested command, not inline in the outer segment.
-func ExtractSubstitutions(s string) (string, []string) {
+func ExtractSubstitutions(s string) (string, []string) { return extractSubstitutions(s, " ") }
+
+// subMask replaces a substitution where a caller must tell "a word was here" from nothing (git's verb position).
+const subMask = "\x00"
+
+func extractSubstitutions(s, mask string) (string, []string) {
 	var out strings.Builder
 	var subs []string
 	var quote byte
@@ -166,7 +175,8 @@ func ExtractSubstitutions(s string) (string, []string) {
 			if body, end, ok := substitutionAt(s, i); ok {
 				subs = append(subs, body)
 				i = end
-				c = ' '
+				out.WriteString(mask)
+				continue
 			}
 		}
 		out.WriteByte(c)
@@ -275,11 +285,16 @@ var wrapperValueFlags = map[string]map[string]bool{
 	"nice":    {"-n": true, "--adjustment": true},
 	"timeout": {"-s": true, "--signal": true, "-k": true, "--kill-after": true},
 	"exec":    {"-a": true},
+	"stdbuf":  {"-i": true, "-o": true, "-e": true, "--input": true, "--output": true, "--error": true},
+	"ionice":  {"-c": true, "-n": true, "-p": true, "-P": true, "-u": true},
 }
+
+// wrapperOperands are the positional operands a wrapper takes before its command (timeout's duration, chrt's priority).
+var wrapperOperands = map[string]bool{"timeout": true, "chrt": true}
 
 // wrapperNames are the prefix wrappers Unwrap sees through.
 var wrapperNames = map[string]bool{"env": true, "sudo": true, "nice": true, "nohup": true, "command": true,
-	"exec": true, "time": true, "timeout": true}
+	"exec": true, "time": true, "timeout": true, "setsid": true, "stdbuf": true, "ionice": true, "chrt": true}
 
 // Unwrap drops leading NAME=val words and env/sudo/timeout/nohup/nice/command/exec/time wrappers with their options.
 // dir is cwd moved by `env -C/--chdir` and `sudo -D/--chdir`; an `env -S STR` string is split into the command line.
@@ -292,7 +307,7 @@ func Unwrap(toks []string, cwd string) (rest []string, dir string) {
 		}
 		name := filepath.Base(toks[0])
 		toks, dir = skipWrapperOpts(name, toks[1:], dir)
-		if name == "timeout" && len(toks) > 0 { // the duration operand
+		if wrapperOperands[name] && len(toks) > 0 { // the duration or priority operand
 			toks = toks[1:]
 		}
 	}
@@ -321,13 +336,13 @@ func skipWrapperOpts(name string, toks []string, dir string) ([]string, string) 
 	return toks, dir
 }
 
-// splitWrapperOpt splits `--opt=val` (and env's attached `-Sstr`) into flag and inline value.
+// splitWrapperOpt splits `--opt=val` and an attached short value (`-Sstr`, `-C/dir`, `-D/dir`) into flag and value.
 func splitWrapperOpt(name, opt string) (flag, val string, hasVal bool) {
 	switch {
 	case strings.HasPrefix(opt, "--"):
 		return strings.Cut(opt, "=")
-	case name == "env" && len(opt) > 2 && opt[1] == 'S':
-		return "-S", opt[2:], true
+	case len(opt) > 2 && wrapperValueFlags[name][opt[:2]]:
+		return opt[:2], opt[2:], true
 	}
 	return opt, "", false
 }
@@ -414,11 +429,66 @@ func ResolvePath(p, base string) (string, bool) {
 			}
 		}
 	}
-	if strings.ContainsAny(p, "$`*?") {
+	if strings.ContainsAny(p, "$`*?"+subMask) {
 		return base, false
 	}
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(base, p)
 	}
 	return p, true
+}
+
+// decodeANSIC writes the body of an ANSI-C `$'…'` string from seg[i] to b; returns the closing quote index.
+func decodeANSIC(b *strings.Builder, seg string, i int) int {
+	for ; i < len(seg) && seg[i] != '\''; i++ {
+		if seg[i] != '\\' || i+1 >= len(seg) {
+			b.WriteByte(seg[i])
+			continue
+		}
+		i++
+		if r, n, ok := ansiEscape(seg[i:]); ok {
+			b.WriteString(r)
+			i += n - 1
+		} else {
+			b.WriteByte('\\')
+			b.WriteByte(seg[i])
+		}
+	}
+	return i
+}
+
+var ansiSimple = map[byte]string{'n': "\n", 't': "\t", 'r': "\r", 'a': "\a", 'b': "\b", 'e': "\x1b", 'E': "\x1b",
+	'f': "\f", 'v': "\v", '\\': "\\", '\'': "'", '"': `"`, '?': "?"}
+
+// ansiEscape decodes one escape (text after the backslash: simple, \xHH, \u, \U, octal); n is bytes used.
+func ansiEscape(s string) (out string, n int, ok bool) {
+	if r, found := ansiSimple[s[0]]; found {
+		return r, 1, true
+	}
+	digits, base, bits := 0, 16, 8
+	switch c := s[0]; {
+	case c == 'x':
+		digits = 2
+	case c == 'u':
+		digits, bits = 4, 32
+	case c == 'U':
+		digits, bits = 8, 32
+	case c >= '0' && c <= '7':
+		digits, base = 3, 8
+	default:
+		return "", 0, false
+	}
+	start := 0
+	if base == 16 {
+		start = 1
+	}
+	end := min(start+digits, len(s))
+	v, err := strconv.ParseUint(s[start:end], base, 32)
+	if err != nil {
+		return "", 0, false
+	}
+	if bits == 8 {
+		return string([]byte{byte(v)}), end, true
+	}
+	return string(rune(v)), end, true
 }
