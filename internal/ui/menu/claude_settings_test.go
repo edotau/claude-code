@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -181,17 +182,26 @@ func TestChoosingTemplateValueDeletesOverlayKey(t *testing.T) {
 // the template value (not the explicit "reset to template" row) must have the same effect — no new override.
 func TestPickingValueEqualToTemplateAlsoDeletesOverlayKey(t *testing.T) {
 	d, _ := newClaudeSettingsDialog(t, "")
-	if err := settings.SaveOverlay(map[string]json.RawMessage{"prefersReducedMotion": json.RawMessage("false")}); err != nil {
+	def := templateValue(t, "theme")
+	other := "dark"
+	if def == other {
+		other = "light"
+	}
+	if err := settings.SaveOverlay(map[string]json.RawMessage{"theme": json.RawMessage(strconv.Quote(other))}); err != nil {
 		t.Fatal(err)
 	}
-	idx := fieldIndex(t, "prefersReducedMotion")
+	idx := fieldIndex(t, "theme")
 	stubSettingsPage(t, idx)
 	origConfirmed := saveConfirmed
 	t.Cleanup(func() { saveConfirmed = origConfirmed })
 	saveConfirmed = func(string) bool { return true }
 
-	// Row 1 is "true", the template's own default — not the trailing reset row.
-	d.br = bufio.NewReader(strings.NewReader("1\n"))
+	// theme's rows are its schema enum in order; pick the row holding the template's own value.
+	row := slices.Index([]string{"auto", "dark", "light", "dark-daltonized", "light-daltonized", "dark-ansi", "light-ansi"}, def) + 1
+	if row == 0 {
+		t.Skipf("template theme %q is not an enum row", def)
+	}
+	d.br = bufio.NewReader(strings.NewReader(strconv.Itoa(row) + "\n"))
 
 	runMenuDirect(t, d)
 
@@ -199,8 +209,8 @@ func TestPickingValueEqualToTemplateAlsoDeletesOverlayKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ov["prefersReducedMotion"]; ok {
-		t.Fatalf("overlay = %v, want prefersReducedMotion removed after picking the template's own value", ov)
+	if _, ok := ov["theme"]; ok {
+		t.Fatalf("overlay = %v, want theme removed after picking the template's own value", ov)
 	}
 }
 
@@ -335,8 +345,13 @@ func TestCheckExitsNonzeroOnLiveDiffers(t *testing.T) {
 	if err := json.Unmarshal(tmpl, &m); err != nil {
 		t.Fatal(err)
 	}
-	// prefersReducedMotion's template default is true; flip it live to force a mismatch.
-	m["prefersReducedMotion"] = json.RawMessage("false")
+	// flip theme away from the template's own value to force a mismatch.
+	def := templateValue(t, "theme")
+	other := "dark"
+	if def == other {
+		other = "light"
+	}
+	m["theme"] = json.RawMessage(strconv.Quote(other))
 	raw, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +364,7 @@ func TestCheckExitsNonzeroOnLiveDiffers(t *testing.T) {
 		t.Fatalf("rc = %d, want 1 with a live-differs key; output:\n%s", rc, out.String())
 	}
 
-	m["prefersReducedMotion"] = json.RawMessage("true")
+	m["theme"] = json.RawMessage(strconv.Quote(def))
 	raw, err = json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
@@ -689,4 +704,22 @@ func TestStageFieldRefusesNonObjectParent(t *testing.T) {
 	if err == nil || len(staged) != 0 {
 		t.Errorf("err=%v staged=%v; want an error and nothing staged", err, staged)
 	}
+}
+
+// templateValue is the rendered defaults' string value for key; the test fails when the defaults lack it.
+func templateValue(t *testing.T, key string) string {
+	t.Helper()
+	tmpl, err := settings.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(tmpl, &m); err != nil {
+		t.Fatal(err)
+	}
+	var v string
+	if err := json.Unmarshal(m[key], &v); err != nil {
+		t.Fatalf("defaults have no string %s: %v", key, err)
+	}
+	return v
 }
