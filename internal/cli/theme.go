@@ -52,8 +52,12 @@ func cmdTheme(args []string) int {
 		printPalettes(os.Stderr, ansi.Enabled(os.Stderr))
 	}
 	preview := fs.Bool("preview", false, "print every palette and change nothing")
+	reset := fs.Bool("reset", false, "delete state/statusline/config.json; the default design renders")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if *reset {
+		return resetThemeConfig()
 	}
 	if len(fs.Args()) == 0 && !*preview {
 		fs.Usage()
@@ -79,6 +83,19 @@ func setThemePalette(name string) int {
 		return fail("%v", err)
 	}
 	fmt.Printf("statusline palette set to %s\n", name)
+	return 0
+}
+
+func resetThemeConfig() int {
+	removed, err := theme.ResetConfig()
+	if err != nil {
+		return fail("theme --reset: %v", err)
+	}
+	if !removed {
+		fmt.Println("statusline already on the default design (no config.json)")
+		return 0
+	}
+	fmt.Println("statusline override removed; the default design renders")
 	return 0
 }
 

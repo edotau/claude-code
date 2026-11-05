@@ -54,3 +54,12 @@ func SetGradient(name string) error {
 	}
 	return paths.AtomicWrite(path, append(out, '\n'), 0o644)
 }
+
+// ResetConfig deletes state/statusline/config.json so the embedded default renders; false when there was none.
+func ResetConfig() (bool, error) {
+	err := os.Remove(filepath.Join(StatuslineDir(), "config.json"))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
