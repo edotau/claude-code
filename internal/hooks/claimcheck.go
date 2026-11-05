@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/shell"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
@@ -270,14 +271,14 @@ func (v claimView) stageCheck() core.Result {
 
 // eachGitCall calls fn with each git invocation in cmd, following cd, until fn returns false.
 func eachGitCall(cmd, cwd string, fn func(target, verb string, args []string) bool) {
-	for _, seg := range shellSegments(cmd) {
-		toks := shellTokens(seg)
+	for _, seg := range shell.Segments(cmd) {
+		toks := shell.Tokens(seg)
 		if next, ok := cdTarget(toks, cwd); ok {
 			cwd = next
 			continue
 		}
 		for i, t := range toks {
-			if t == "git" && !fn(gitInvocation(toks[i+1:], cwd)) {
+			if t == "git" && !fn(shell.GitInvocation(toks[i+1:], cwd)) {
 				return
 			}
 		}

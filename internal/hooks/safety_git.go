@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/shell"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -24,10 +25,6 @@ var rebaseResumeFlags = map[string]bool{"--continue": true, "--skip": true, "--a
 	"--edit-todo": true, "--show-current-patch": true}
 var rebaseValueFlags = map[string]bool{"--onto": true, "-x": true, "--exec": true, "-s": true, "--strategy": true,
 	"-X": true, "--strategy-option": true}
-
-// gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
-var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
-	"--namespace": true, "--exec-path": true}
 
 // rewriteRisk is one history rewrite: its verb, how many commits it rewrites, and why the tree is shared.
 type rewriteRisk struct {
@@ -52,14 +49,14 @@ func rewriteVerdict(in *core.Input) (d core.Decision, msg, detail, warn string) 
 
 // rewriteScan finds the first shared-tree rewrite in cmd, following `cd`, substitutions and nested `bash -c`/`eval`.
 func rewriteScan(in *core.Input, cmd, cwd string) (rewriteRisk, bool) {
-	masked, subs := extractSubstitutions(dropRemoteHeredocs(cmd))
+	masked, subs := shell.ExtractSubstitutions(dropRemoteHeredocs(cmd))
 	r, ok := firstRewrite(in, subs, cwd) // a substitution's cd only affects its own nested evaluation
 	if ok {
 		return r, true
 	}
 	warn := r.warn
-	for _, seg := range shellSegments(masked) {
-		toks := shellTokens(seg)
+	for _, seg := range shell.Segments(masked) {
+		toks := shell.Tokens(seg)
 		if len(toks) == 0 || toks[0] == "ssh" { // ssh runs its command on the remote host
 			continue
 		}
@@ -92,7 +89,7 @@ func firstRewrite(in *core.Input, cmds []string, cwd string) (rewriteRisk, bool)
 // segmentRewrite checks one segment's nested shell command and each of its git invocations.
 func segmentRewrite(in *core.Input, toks []string, cwd string) (rewriteRisk, bool) {
 	var warn string
-	if nested, ok := nestedShellCommand(toks); ok {
+	if nested, ok := shell.NestedCommand(toks); ok {
 		r, risky := rewriteScan(in, nested, cwd)
 		if risky {
 			return r, true
@@ -103,7 +100,7 @@ func segmentRewrite(in *core.Input, toks []string, cwd string) (rewriteRisk, boo
 		if t != "git" {
 			continue
 		}
-		target, verb, args := gitInvocation(toks[i+1:], cwd)
+		target, verb, args := shell.GitInvocation(toks[i+1:], cwd)
 		rng, ok := rewriteRange(verb, args)
 		if !ok {
 			continue
@@ -266,66 +263,4 @@ func gitOut(ctx context.Context, dir string, args ...string) ([]string, bool, er
 		return nil, false, err
 	}
 	return strings.Split(strings.TrimSpace(string(out)), "\n"), true, nil
-}
-
-// gitInvocation parses git's global options up to the verb: the target tree, the verb, the verb's words.
-func gitInvocation(toks []string, cwd string) (target, verb string, args []string) {
-	var cPaths []string
-	var gitDir, workTree string
-	i := 0
-	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
-		var name, val string
-		var ok bool
-		if name, val, i, ok = gitGlobalOpt(toks, i); !ok {
-			continue
-		}
-		switch name {
-		case "-C":
-			cPaths = append(cPaths, val)
-		case "--git-dir":
-			gitDir = val
-		case "--work-tree":
-			workTree = val
-		}
-	}
-	if i < len(toks) {
-		verb, args = toks[i], toks[i+1:]
-	}
-	return gitTarget(cwd, gitDir, workTree, cPaths), verb, args
-}
-
-// gitGlobalOpt splits the global option at toks[i] into name and value, returning the next index; false if valueless.
-func gitGlobalOpt(toks []string, i int) (name, val string, next int, ok bool) {
-	t := toks[i]
-	i++
-	if n, v, found := strings.Cut(t, "="); found {
-		return n, v, i, true
-	}
-	if gitValueOpts[t] {
-		if i < len(toks) {
-			return t, toks[i], i + 1, true
-		}
-		return t, "", i, true
-	}
-	if after, found := strings.CutPrefix(t, "-C"); found {
-		return "-C", after, i, true
-	}
-	return "", "", i, false // valueless global option: --no-pager, --bare…
-}
-
-// gitTarget is the tree git acts on: --work-tree, else a .git --git-dir's parent, else the -C chain from cwd.
-func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
-	if p, ok := resolveShellPath(workTree, cwd); workTree != "" && ok {
-		return p
-	}
-	if p, ok := resolveShellPath(gitDir, cwd); gitDir != "" && ok && filepath.Base(p) == ".git" {
-		return filepath.Dir(p)
-	}
-	target := cwd
-	for _, c := range cPaths { // successive -C paths apply relative to each other
-		if p, ok := resolveShellPath(c, target); ok {
-			target = p
-		}
-	}
-	return target
 }
