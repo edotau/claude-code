@@ -12,6 +12,65 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
+func CodexConfigPath(home string) (string, error) {
+	if home != "" {
+		return filepath.Abs(filepath.Join(home, ".codex", "config.toml"))
+	}
+	dir, err := CodexHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.toml"), nil
+}
+
+// CodexHome is $CODEX_HOME (made absolute) or ~/.codex, the directory holding codex's config.toml and auth.json.
+func CodexHome() (string, error) {
+	if dir := os.Getenv("CODEX_HOME"); dir != "" {
+		return filepath.Abs(dir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".codex"), nil
+}
+
+// CopilotHome is $COPILOT_HOME unchanged, or ~/.copilot when the override is empty.
+func CopilotHome() (string, error) {
+	if dir := os.Getenv("COPILOT_HOME"); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".copilot"), nil
+}
+
+// OpencodeDataDir is $XDG_DATA_HOME/opencode (default ~/.local/share/opencode).
+func OpencodeDataDir() string {
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "opencode")
+}
+
+// OpencodeDBPath is opencode's SQLite database (written since 1.x); "" for an in-memory DB; OPENCODE_DB overrides the stable channel default.
+func OpencodeDBPath() string {
+	db := os.Getenv("OPENCODE_DB")
+	switch {
+	case db == ":memory:":
+		return ""
+	case filepath.IsAbs(db):
+		return db
+	case db == "":
+		db = "opencode.db"
+	}
+	return filepath.Join(OpencodeDataDir(), db)
+}
+
 // pidOf parses "<pid>.json"; ok is false for any other name.
 func pidOf(path string) (int, bool) {
 	name, ok := strings.CutSuffix(filepath.Base(path), ".json")
