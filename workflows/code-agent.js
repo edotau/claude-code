@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-agent',
   description: 'One agent (claude, or external codex|gemini|opencode|copilot) as a workflow stage, optionally on a named profile: smoke ask, JSON envelope relay, sonnet fallback (off when a profile is named)',
   whenToUse:
-    'USE: one external-agent call (copilot, codex, gemini, opencode) as a stage of another script; the agent pool and model discovery live here. CALL: workflow("code-agent", {cwd, task}). OPTIONAL: agent (omit = router pick, copilot first), model (relay/fallback Claude model), vendorModel (ask --model: alias, wire id, kimi-k3, discovery), profile (bills it; turns the sonnet fallback off), tools, readOnly (ask --read-only), smoke, fallback, timeoutMin (max 8), agents. agent "claude" runs one in-workflow Claude leaf at model haiku|sonnet|opus (no router, smoke or relay). RETURNS {ok, agent, model, answer, status, fallback?}. Details: skills/subagent-workflows/references/saved-workflows.md.',
+    'USE: one external-agent call (copilot, codex, gemini, opencode) as a stage of another script; the agent pool and model discovery live here. CALL: workflow("code-agent", {cwd, task}). OPTIONAL: agent (omit = router pick, copilot first), model (relay/fallback Claude model), vendorModel (ask --model: alias, wire id, kimi-k3, discovery), profile (bills it; turns the sonnet fallback off), tools, readOnly (ask --read-only), smoke, fallback, timeoutMin (max 8), agents, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). agent "claude" runs one in-workflow Claude leaf at model haiku|sonnet|opus (no router, smoke or relay). RETURNS {ok, agent, model, answer, status, fallback?}. Details: skills/subagent-workflows/references/saved-workflows.md.',
   phases: [{ title: 'Agent', detail: 'haiku leaf runs claude-code ask --format json and relays the envelope; sonnet fallback on failure' }],
 }
 
@@ -74,10 +74,12 @@ if (a0.agents !== undefined && (typeof a0.agents !== 'string' || !a0.agents.trim
 const MODELS = ['opus', 'sonnet', 'haiku']
 if (a0.model && !MODELS.includes(a0.model)) return { error: 'code-agent: args.model must be ' + MODELS.join('|') }
 if (a0.vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(a0.vendorModel))) return { error: 'code-agent: args.vendorModel must be a model id or alias (e.g. discovery)' }
+// A caller-passed claudeState (any string) replaces both Claude pressure reads below; absent = read it here.
+const CLAUDE_GIVEN = typeof a0.claudeState === 'string'
 const ROUTE_PICK = {
   type: 'object',
   additionalProperties: false,
-  required: ['agent', 'claudeState'],
+  required: CLAUDE_GIVEN ? ['agent'] : ['agent', 'claudeState'],
   properties: { agent: { type: 'string' }, claudeState: { type: 'string' } },
 }
 const ROUTE_STATE = {
@@ -87,25 +89,27 @@ const ROUTE_STATE = {
   properties: { claudeState: { type: 'string' } },
 }
 // No agent: the router's first non-Claude candidate at the model (gated on availability, pinned profile and quota).
-// Same call also reads the Claude account's own pressure state, so the sonnet fallback below can step down.
+// Unless the caller passed claudeState, the same call also reads the Claude pressure state for the sonnet fallback.
 const routed = a0.agent
   ? null
   : await agent(
       `Run exactly: cd ${a0.cwd || '.'} && claude-code gateway router --format json --fallback agents --model ${a0.model || 'sonnet'}. ` +
         `It prints one JSON object; agent = candidates[0].agent, or agent = "" when candidates is empty. ` +
-        `Also run exactly: cd ${a0.cwd || '.'} && claude-code gateway router --format json --agent claude --fallback none --model sonnet. ` +
-        `claudeState = that result's candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
-        `is "claude" and its gate value, else "unknown". Never run anything else.`,
+        (CLAUDE_GIVEN
+          ? ''
+          : `Also run exactly: cd ${a0.cwd || '.'} && claude-code gateway router --format json --agent claude --fallback none --model sonnet. ` +
+            `claudeState = that result's candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
+            `is "claude" and its gate value, else "unknown". `) +
+        `Never run anything else.`,
       { label: 'route', phase: 'Agent', schema: ROUTE_PICK, model: 'haiku', effort: 'low' }
     )
 const a = routed ? { ...a0, agent: routed.agent } : a0
 const PROFILE = a.profile ? String(a.profile) : ''
 const VMODEL_FLAG = a0.vendorModel ? ' --model ' + a0.vendorModel : ''
 const FALLBACK_ENABLED = a.fallback !== false && !PROFILE
-// An explicit agent skips the agent-pick call above, but the sonnet fallback still needs the Claude pressure state
-// — read it alone, same haiku pattern as code-engineer.js's route-state agent. No read when fallback is off.
+// Explicit agent, no claudeState passed in: read Claude pressure for the sonnet fallback (none when fallback is off).
 const routeState =
-  !routed && a0.agent && a0.agent !== 'claude' && FALLBACK_ENABLED
+  !routed && !CLAUDE_GIVEN && a0.agent && a0.agent !== 'claude' && FALLBACK_ENABLED
     ? await agent(
         `Run exactly: cd ${a0.cwd || '.'} && claude-code gateway router --format json --agent claude --fallback none --model sonnet. ` +
           `It prints one JSON object; claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
@@ -115,11 +119,11 @@ const routeState =
     : null
 // Pressure: low/exhausted Claude account steps the sonnet fallback below down one model.
 const MODEL_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
-const claudeState = routed ? routed.claudeState : routeState ? routeState.claudeState : null
+const claudeState = CLAUDE_GIVEN ? a0.claudeState : routed ? routed.claudeState : routeState ? routeState.claudeState : null
 const PRESSURE = claudeState === 'low' || claudeState === 'exhausted'
 const routeModel = m => (PRESSURE && MODEL_DOWN[m]) ? MODEL_DOWN[m] : m
 if (PRESSURE) log(`pressure: claude account ${claudeState} — stepping the sonnet fallback down one model`)
-else if (!routed && !routeState) log(a0.agent && !FALLBACK_ENABLED ? 'pressure: no route read (fallback disabled)' : 'pressure: no route read — no downshift (fail open)')
+else if (!routed && !routeState && !CLAUDE_GIVEN) log(a0.agent && !FALLBACK_ENABLED ? 'pressure: no route read (fallback disabled)' : 'pressure: no route read — no downshift (fail open)')
 if (a.agent === 'claude') {
   if (a.task.length > 90 * 1024) return { error: 'code-agent: task over 90 KiB; pass excerpts, not whole diffs' }
   const CLAUDE_MODEL = a.model || 'sonnet'

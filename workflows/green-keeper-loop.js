@@ -2,7 +2,7 @@ export const meta = {
   name: 'green-keeper-loop',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
-    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration. RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix}: each {agent, model, effort, profile}; detect is claude only, fix may be external (codex|gemini|opencode|copilot, model = vendor id) at top level only.',
+    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix}: each {model, effort}, claude only (haiku|sonnet|opus); an external fixer is rejected.',
   phases: [
     { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
     { title: 'Gate', detail: 'one fixer per iteration: run the gate, fix root causes within scope, re-run' },
@@ -56,7 +56,7 @@ let ST
 try {
   ST = {
     detect: stepOf(a.steps, 'detect', { model: 'haiku', effort: 'low' }, { allowed: ['detect', 'fix'] }),
-    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, { allowed: ['detect', 'fix'], externalOK: true }),
+    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, { allowed: ['detect', 'fix'] }),
   }
 } catch (e) { return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['green-keeper-loop: ' + e.message], history: [] } }
 let GATE = a.gate || ''
@@ -70,8 +70,8 @@ const RULES = a.rules ||
   'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. ' +
   'Edit only inside scope; re-run only the gate.'
 
-// ── Pressure: Claude account state read once; low/exhausted steps every Claude stage down one model ──
-const routeState = await agent(
+// ── Pressure: Claude account state read once (by the caller, or here when absent); low/exhausted steps Claude down ──
+const routeState = typeof a.claudeState === 'string' ? { state: a.claudeState } : await agent(
   `Run exactly: ${a.cwd ? 'cd ' + a.cwd + ' && ' : ''}claude-code gateway router --format json --agent claude --fallback none --model sonnet. ` +
     `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
     `is "claude" and its gate value, else "unknown". Never run anything else.`,
@@ -129,14 +129,6 @@ if (!GATE) {
   if (!GATE) return { status: 'error', exit: 'error', gate: null, gateSource: GATE_SOURCE, iterations: 0, filesChanged: [], residual: ['no gate detected under ' + (a.cwd || 'cwd') + '; pass args.gate'], history: [] }
 }
 
-// External fixer: code-agent edits in place and replies text; the JSON line it ends with maps onto GATE_SCHEMA.
-const viaExternal = async (step, prompt) => {
-  const r = await workflow('code-agent', { agent: step.agent, vendorModel: step.vendorModel, profile: step.profile, cwd: a.cwd, tools: true, fallback: false,
-    task: prompt + '\nEnd your reply with ONE JSON line: {"status":"green|red|error","failuresBefore":n,"failuresAfter":n,"filesChanged":[],"residual":[],"summary":""}' })
-  const m = r && r.ok && typeof r.answer === 'string' ? r.answer.match(/\{[^{}]*"status"[^{}]*\}\s*$/) : null
-  try { const o = JSON.parse(m[0]); return GATE_SCHEMA.required.every(k => k in o) ? o : null } catch { return null }
-}
-
 // ── Loop (ADK LoopAgent: sub-agent per iteration, exit on the escalation signal or the cap) ────
 phase('Gate')
 const history = []
@@ -153,7 +145,7 @@ for (let i = 1; i <= MAX_ITER; i++) {
     `Protocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise fix the FIRST failure per the Method, re-run the gate; ` +
     `repeat for at most ${FIXES} distinct failures this iteration, then report (the rest go into residual verbatim). ` +
     `A failure outside scope goes into residual verbatim.`
-  last = ST.fix.kind === 'external' ? await viaExternal(ST.fix, prompt) : await agent(
+  last = await agent(
     prompt,
     { label: `gate:${i}`, phase: 'Gate', schema: GATE_SCHEMA, model: routeModel(ST.fix.model), effort: ST.fix.effort }
   )
