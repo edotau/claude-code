@@ -1,6 +1,6 @@
 ---
 description: "Default pool for external-agent work and model discovery: run tasks on copilot, codex, opencode, gemini or claude (single, compare, relay); copilot/opencode can rotate through discovered models (deepseek, kimi, glm…)."
-argument-hint: "[agents=a,b] [model=m|byok] [profile=p] [single|compare|relay|team] task|…"
+argument-hint: "[agents=a,b] [model=m|discovery] [profile=p] [single|compare|relay|team] task|…"
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
@@ -25,7 +25,7 @@ where the agents agreed and differed.
 A `profile=<name>` argument adds `Profile: <name>` to each brief: the leaf runs `ask --profile`,
 host and auth from the vault.
 A `model=<m>` argument puts `--model <m>` on each brief's `ask` request line (an alias, wire id, discovered
-model, or `byok`).
+model, or `discovery`).
 
 `team` mode (`/coworkers team <goal>`): a `coworker` leaf with `Agent: gemini` scans (read-only, cites file:line) →
 one with `Agent: codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's approval →
@@ -38,12 +38,12 @@ Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
 # Usage
 
 ```text
-/coworkers [agents=<a,b>] [model=<m>|byok] [profile=<p>] [single|compare|relay|team] <task> [| <task> …]
+/coworkers [agents=<a,b>] [model=<m>|discovery] [profile=<p>] [single|compare|relay|team] <task> [| <task> …]
 
   agents=   copilot (first when available) · codex · opencode · gemini · claude
             several names = relay unless a mode word is given
   model=    alias (opus|sonnet|haiku), wire id, or a discovered model (kimi-k3, deepseek-v4-pro, glm-5.3…);
-            byok = the router picks a rare model from the discovered pool (copilot/opencode only)
+            discovery = the router picks a rare model from the discovered pool (copilot/opencode only)
   profile=  vault profile that bills the run (dev, prod, …); omitted = the session profile
   mode      single (default) · compare (same task, side by side) · relay (each answer feeds the next) ·
             team (gemini scan → codex review → your approval → opencode edits)
@@ -57,7 +57,7 @@ Examples:
   /coworkers agents=copilot,codex compare is this diff safe to ship?   both answers side by side
   /coworkers agents=gemini,codex scan internal/memory for dead exports gemini scans, codex refutes
   /coworkers agents=opencode model=kimi-k3 summarize docs/             one discovered model
-  /coworkers agents=copilot,opencode model=byok compare refactor X     router-picked rare models
+  /coworkers agents=copilot,opencode model=discovery compare refactor X     router-picked rare models
   /coworkers profile=prod model=opus fix the flaky watchdog test        billed to prod
   /coworkers team tighten error handling in internal/usage               scan, review, approve, edit
 ```

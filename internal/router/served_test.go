@@ -162,7 +162,7 @@ func TestPinnedModelSwapsUnservedPin(t *testing.T) {
 	}
 }
 
-// the swap Skip names an explicit pin only: an alias-alias swap and a byok request add none.
+// the swap Skip names an explicit pin only: an alias-alias swap and a discovery request add none.
 func TestGateProfileSwapSkipOnlyForExplicitPin(t *testing.T) {
 	tb := testTable(t) // first: it resets CLAUDE_CONFIG_DIR, which would orphan the vault below
 	stubServed(t, []providers.OpencodeModel{respA}, listing("dev", map[string]string{"m-a": "READY"}))
@@ -180,8 +180,8 @@ func TestGateProfileSwapSkipOnlyForExplicitPin(t *testing.T) {
 	if !skips("m-pin") {
 		t.Error("an explicit unserved pin must surface a swap Skip")
 	}
-	if skips("") || skips(BYOKModel) {
-		t.Error("an empty or byok pin must not surface a swap Skip")
+	if skips("") || skips(DiscoveryModel) {
+		t.Error("an empty or discovery pin must not surface a swap Skip")
 	}
 }
 

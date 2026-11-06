@@ -69,7 +69,7 @@ func (t *RouteTable) gateProfile(
 // noteNotReady records a Skip when the pinned model is spelled but swapped for another because it is not READY.
 func noteNotReady(res *PickResult, agent, pin, model, used string, p *providers.Provider) {
 	sp := providers.SpellPin(p, model)
-	if model != "" && model != BYOKModel && sp != "" && used != sp {
+	if model != "" && model != DiscoveryModel && sp != "" && used != sp {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + used})
 	}
 }
@@ -84,7 +84,7 @@ func defaultBilling(p *providers.Provider) string {
 
 // pinnedModel resolves the pin's model, then swaps one a fresh served listing marks not READY for the first READY one.
 func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) string {
-	if modelPin == BYOKModel {
+	if modelPin == DiscoveryModel {
 		model, _ := PinnedModel(agent, alias, cell, p, modelPin)
 		return model
 	}
@@ -119,38 +119,38 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 	return m
 }
 
-// BYOKModel requests the least-recently-picked model in the shared Databricks pool.
-const BYOKModel = "byok"
+// DiscoveryModel requests the least-recently-picked model in the shared Databricks pool.
+const DiscoveryModel = "discovery"
 
-// IsPoolModel reports whether model is a member of the BYOK pool as p serves it.
+// IsPoolModel reports whether model is a member of the Discovery pool as p serves it.
 func IsPoolModel(p *providers.Provider, model string) bool {
 	if p == nil || p.Preset != providers.PresetDatabricks {
 		return false
 	}
 	wire := strings.TrimPrefix(model, p.Name+":")
-	return slices.ContainsFunc(BYOKPool(), func(entry string) bool {
+	return slices.ContainsFunc(DiscoveryPool(), func(entry string) bool {
 		return providers.SpellPin(p, entry) == wire
 	})
 }
 
-// PinnedModel resolves a pin and reports why a BYOK request fell back to the alias.
+// PinnedModel resolves a pin and reports why a Discovery request fell back to the alias.
 func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin string) (string, string) {
 	now := time.Now()
-	if pin != BYOKModel {
+	if pin != DiscoveryModel {
 		return pinnedModel(agent, alias, cell, p, pin, now), ""
 	}
 	if agent != "copilot" && agent != "opencode" {
-		return pinnedModel(agent, alias, cell, p, "", now), "byok requires copilot or opencode; using alias"
+		return pinnedModel(agent, alias, cell, p, "", now), "discovery requires copilot or opencode; using alias"
 	}
 	if p == nil || p.Preset != providers.PresetDatabricks {
-		return pinnedModel(agent, alias, cell, p, "", now), "byok requires Databricks; using alias"
+		return pinnedModel(agent, alias, cell, p, "", now), "discovery requires Databricks; using alias"
 	}
-	model, err := pickPool(agent, p, BYOKPool(), now)
+	model, err := pickPool(agent, p, DiscoveryPool(), now)
 	if err != nil {
-		return pinnedModel(agent, alias, cell, p, "", now), "byok state unavailable (" + stateErrClass(err) + "); using alias"
+		return pinnedModel(agent, alias, cell, p, "", now), "discovery state unavailable (" + stateErrClass(err) + "); using alias"
 	}
 	if model == "" {
-		return pinnedModel(agent, alias, cell, p, "", now), "byok pool has no served model; using alias"
+		return pinnedModel(agent, alias, cell, p, "", now), "discovery pool has no served model; using alias"
 	}
 	return model, ""
 }
@@ -177,18 +177,18 @@ func pickPool(agent string, p *providers.Provider, pool []string, now time.Time)
 		e := s[account]
 		for _, entry := range pool {
 			wire := providers.SpellPin(p, entry)
-			if wire != "" && !byokSkipped(e, agent, entry, now) && (selected == "" || e.BYOK[entry].Before(e.BYOK[selected])) {
+			if wire != "" && !discoverySkipped(e, agent, entry, now) && (selected == "" || e.Discovery[entry].Before(e.Discovery[selected])) {
 				selected, model = entry, wire
 			}
 		}
 		if selected == "" {
 			return
 		}
-		e.BYOK = maps.Clone(e.BYOK)
-		if e.BYOK == nil {
-			e.BYOK = make(map[string]time.Time)
+		e.Discovery = maps.Clone(e.Discovery)
+		if e.Discovery == nil {
+			e.Discovery = make(map[string]time.Time)
 		}
-		e.BYOK[selected] = now
+		e.Discovery[selected] = now
 		s[account] = e
 	})
 	return model, err
@@ -205,31 +205,31 @@ func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
 	})
 }
 
-// byokSkipTTL is how long a model that failed for an agent stays out of that agent's rotation.
-const byokSkipTTL = 7 * 24 * time.Hour
+// discoverySkipTTL is how long a model that failed for an agent stays out of that agent's rotation.
+const discoverySkipTTL = 7 * 24 * time.Hour
 
-func byokSkipKey(agent, entry string) string { return agent + "|" + entry }
+func discoverySkipKey(agent, entry string) string { return agent + "|" + entry }
 
-func byokSkipped(e Entry, agent, entry string, now time.Time) bool {
-	at, ok := e.BYOKSkip[byokSkipKey(agent, entry)]
-	return ok && now.Sub(at) < byokSkipTTL
+func discoverySkipped(e Entry, agent, entry string, now time.Time) bool {
+	at, ok := e.DiscoverySkip[discoverySkipKey(agent, entry)]
+	return ok && now.Sub(at) < discoverySkipTTL
 }
 
-// SkipBYOK marks the pool entry p serves as wire unusable for agent and returns it, "" when none matches.
-func SkipBYOK(agent string, p *providers.Provider, wire string) string {
+// SkipDiscovery marks the pool entry p serves as wire unusable for agent and returns it, "" when none matches.
+func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 	var hit string
 	err := Update(func(s State) {
-		for _, entry := range BYOKPool() {
+		for _, entry := range DiscoveryPool() {
 			if providers.SpellPin(p, entry) != wire {
 				continue
 			}
 			account := ProviderAccount(p.Name)
 			e := s[account]
-			e.BYOKSkip = maps.Clone(e.BYOKSkip)
-			if e.BYOKSkip == nil {
-				e.BYOKSkip = make(map[string]time.Time)
+			e.DiscoverySkip = maps.Clone(e.DiscoverySkip)
+			if e.DiscoverySkip == nil {
+				e.DiscoverySkip = make(map[string]time.Time)
 			}
-			e.BYOKSkip[byokSkipKey(agent, entry)] = time.Now()
+			e.DiscoverySkip[discoverySkipKey(agent, entry)] = time.Now()
 			s[account] = e
 			hit = entry
 			return
@@ -241,11 +241,8 @@ func SkipBYOK(agent string, p *providers.Provider, wire string) string {
 	return hit
 }
 
-// byokPoolKey is the vault Overlay entry holding the BYOK pool: a JSON array of Databricks wire ids.
-const byokPoolKey = "byok-models"
-
-// DatabricksBYOKPool is the seeded BYOK pool of Databricks wire ids, used when the vault overlay is unset or invalid.
-var DatabricksBYOKPool = []string{
+// DatabricksDiscoveryPool is the seeded Discovery pool of Databricks wire ids, used when the vault overlay is unset or invalid.
+var DatabricksDiscoveryPool = []string{
 	"databricks-grok-4-7",
 	"databricks-glm-5-3",
 	"databricks-gpt-oss-120b",
@@ -254,19 +251,19 @@ var DatabricksBYOKPool = []string{
 	"databricks-gpt-6-1-sol",
 }
 
-// BYOKPool is the BYOK model pool: the vault overlay if set and valid, else the DatabricksBYOKPool seed.
-func BYOKPool() []string {
-	if p, ok := vaultBYOKPool(); ok {
+// DiscoveryPool is the Discovery model pool: the vault overlay if set and valid, else the DatabricksDiscoveryPool seed.
+func DiscoveryPool() []string {
+	if p, ok := vaultDiscoveryPool(); ok {
 		return p
 	}
-	return slices.Clone(DatabricksBYOKPool)
+	return slices.Clone(DatabricksDiscoveryPool)
 }
 
-func vaultBYOKPool() ([]string, bool) {
+func vaultDiscoveryPool() ([]string, bool) {
 	var out []string
 	var found bool
 	err := vault.View(func(t *vault.Tx) error {
-		raw, ok := t.Get(vault.Overlay, byokPoolKey)
+		raw, ok := t.PoolOverlay()
 		if !ok || raw == "" {
 			return nil
 		}

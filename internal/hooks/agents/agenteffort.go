@@ -63,7 +63,7 @@ func agentEffortResult(in *core.Input) core.Result {
 	if !auto && applyLabel(updated, task) {
 		e.changed = true
 	}
-	e.byok(in, task, auto)
+	e.discovery(in, task, auto)
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
 }
@@ -127,9 +127,9 @@ func (e *effortPlan) pressure(in *core.Input, promptField, task string) {
 	e.systemMessage = strings.TrimPrefix(e.systemMessage, "; ")
 }
 
-// byok appends the bring-your-own-key hint; outside auto mode it counts as a change.
-func (e *effortPlan) byok(in *core.Input, task string, auto bool) {
-	if hint := byokHint(in.Nested("tool_input", "subagent_type"), task); hint != "" {
+// discovery appends the bring-your-own-key hint; outside auto mode it counts as a change.
+func (e *effortPlan) discovery(in *core.Input, task string, auto bool) {
+	if hint := discoveryHint(in.Nested("tool_input", "subagent_type"), task); hint != "" {
 		e.note, e.changed = strings.TrimSpace(e.note+"\n"+hint), e.changed || !auto
 	}
 }
@@ -380,12 +380,12 @@ func cellModelFor(agent, alias string) string {
 	return m
 }
 
-// byokPoolSize is the curated BYOK pool's model count (a var so tests can pin it).
-var byokPoolSize = func() int { return len(router.BYOKPool()) }
+// discoveryPoolSize is the curated Discovery pool's model count (a var so tests can pin it).
+var discoveryPoolSize = func() int { return len(router.DiscoveryPool()) }
 
-// byokHint is the one-line `--model byok` reminder for a coworker spawn or a brief whose Agent: line names copilot or
+// discoveryHint is the one-line `--model discovery` reminder for a coworker spawn or a brief whose Agent: line names copilot or
 // opencode; "" when neither applies or the brief already passes --model.
-func byokHint(st, task string) string {
+func discoveryHint(st, task string) string {
 	if strings.Contains(task, "--model") {
 		return ""
 	}
@@ -396,6 +396,6 @@ func byokHint(st, task string) string {
 	if !hit {
 		return ""
 	}
-	return fmt.Sprintf("byok: run copilot/opencode with --model byok — "+
-		"the router picks from the curated Databricks pool (%d models)", byokPoolSize())
+	return fmt.Sprintf("discovery: run copilot/opencode with --model discovery — "+
+		"the router picks from the curated Databricks pool (%d models)", discoveryPoolSize())
 }
