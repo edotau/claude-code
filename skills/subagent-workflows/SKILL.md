@@ -50,7 +50,7 @@ a file; run sequentially when one output feeds the next; batch deep-context leav
 
 **Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before
 review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged).
-Then `Ran on:` (quoted `ask: ran on …` line, or `self — <why>`), files, commands with exit codes, `Acceptance:` evidence.
+Then `Ran on:` (the `ask: ran on …` line, or `self — <why>`), files, commands with exit codes, `Acceptance:` evidence.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, and the manager makes the one integration edit. The manager owns decisions,
@@ -66,7 +66,7 @@ a leaf's long `ask` runs `--background`, then waits with `tail -f <id>` as a bac
 
 ## Rules
 
-- Decide the owner before gathering evidence, never repeating its searches. Simplify once per diff, before review, run by
+- Decide the owner before gathering evidence, never redoing its searches. Simplify once per diff, before review, run by
   the manager; detectors (`claude-code review *`) once per pipeline.
 - Leaves never auto-fallback: after one failed high-effort Sonnet attempt re-dispatch on `opus` (a read-only sweep may
   retry on `haiku`); lower `effort` before the model.

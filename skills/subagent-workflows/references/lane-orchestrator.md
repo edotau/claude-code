@@ -38,7 +38,7 @@ or a note to the manager.
 
 1. In the shared tree; with the user's yes, `worktree create <name>` (at HEAD: copy the leaf's owned files in first).
 2. `go build ./... && go vet <pkgs> && go test <pkgs>` (exit code, never `| tail`), then the leaf's live check.
-3. Read the diff: assertions intact (`testing-guidelines.md` → When a test fails), nothing outside `owns:`, no old names;
+3. Read the diff: assertions intact (`testing-guidelines.md` → When a test fails), none outside `owns:`, no old names;
    a changed seam: run every consumer's tests ([Fan-in](../SKILL.md#fan-in)).
 4. `git add <new files>; git commit -m "<msg>" -- <files>` (a pathspec commit, so other lanes' staged files never ride
    along); tick the box with the short id; `worktree clean <name>` if one was made; delete the leaf scratch.

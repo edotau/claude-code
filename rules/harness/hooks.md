@@ -12,7 +12,7 @@ both, then `make install`. See `settings-management.md`.
 
 ## Groups and the dispatcher
 
-`settings.Registry` lists groups in execution order: `safety`, `permission`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
+`settings.Registry` lists groups in run order: `safety`, `permission`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
 `format`, `review`, `worktree`, `codex`; `permission` and `codex` are agent-only, never in Claude settings.
 Settings carry **one dispatcher entry per event** (`hook <Event>`) matching the union of its groups' matchers; it
 reads the payload once, runs each enabled group within its budget, recovers panics and merges results. `--<module>`
