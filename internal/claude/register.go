@@ -13,6 +13,7 @@ func init() {
 
 // row is claude's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "claude", CLI: agent.CLI{
+	PromptVia: agent.PromptStdin,
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, DebugFile: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,

@@ -125,8 +125,8 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
 	ct := v.Before(req, t)
-	if s.CLI.PromptInArgv && len(p.Prompt) > MaxPromptBytes {
-		return p, &Error{Kind: KindFatal, Agent: name, Err: PromptTooLarge(len(p.Prompt))}
+	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && len(p.Prompt) > n {
+		return p, &Error{Kind: KindFatal, Agent: name, Err: PromptTooLarge(len(p.Prompt), n)}
 	}
 	h := cliHeadless(s, p.Prompt, req)
 	if own {

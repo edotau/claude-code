@@ -43,24 +43,46 @@ type CLI struct {
 	MinVersion, MinReason string
 	MaxVersion, MaxReason string
 	Caps                  Caps
-	Events                []string    // typed event kinds the stream can carry
-	Cost                  bool        // reports a cost
-	ResumeFormat          string      // "codex resume %s"; "" = none
-	ModelsArgv            []string    // args that list models; nil = no catalog verb
-	ModelsProvider        string      // list via models --live on this provider instead
-	ReadNeedsTools        bool        // file reads are denied without --tools
-	PromptInArgv          bool        // prompt rides argv, so MaxPromptBytes applies
-	DirFlag               bool        // Headless.WorkDir must be set; cmd.Dir alone is not enough
-	Hub                   bool        // ask routes it through the opencode hub unless --native is set
-	ConfigureHint         string      // the command to run when no credential resolved
-	DisplayName           string      // TUI label; "" = Name
-	LoginArgv             []string    // the CLI's own sign-in command
-	ExtraUsage            [][2]string // extra help rows
-	CatalogUsage          string      // override for the catalog help row
-	CatalogHint           string      // extra hint on the catalog page
-	RefusesReadOnly       bool        // no read-only mode and no tools-off substitute: --read-only is refused
-	OwnLoginProfile       string      // the pin naming the agent's own sign-in when no registry row does; "" = none
-	PinIDs                []string    // extra ids accepted as this agent's profile pin besides registry rows
+	Events                []string        // typed event kinds the stream can carry
+	Cost                  bool            // reports a cost
+	ResumeFormat          string          // "codex resume %s"; "" = none
+	ModelsArgv            []string        // args that list models; nil = no catalog verb
+	ModelsProvider        string          // list via models --live on this provider instead
+	ReadNeedsTools        bool            // file reads are denied without --tools
+	PromptVia             PromptTransport // how a headless prompt reaches the agent; only PromptArgv is size-capped
+	PromptMaxBytes        int             // a verified per-agent prompt ceiling below the transport's; 0 = none
+	DirFlag               bool            // Headless.WorkDir must be set; cmd.Dir alone is not enough
+	Hub                   bool            // ask routes it through the opencode hub unless --native is set
+	ConfigureHint         string          // the command to run when no credential resolved
+	DisplayName           string          // TUI label; "" = Name
+	LoginArgv             []string        // the CLI's own sign-in command
+	ExtraUsage            [][2]string     // extra help rows
+	CatalogUsage          string          // override for the catalog help row
+	CatalogHint           string          // extra hint on the catalog page
+	RefusesReadOnly       bool            // no read-only mode and no tools-off substitute: --read-only is refused
+	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
+	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
+}
+
+// PromptTransport is how a headless prompt reaches an agent; the zero value is the capped argv (fail closed).
+type PromptTransport uint8
+
+const (
+	PromptArgv    PromptTransport = iota // one argv element: MaxPromptBytes applies
+	PromptStdin                          // the child's stdin
+	PromptMessage                        // an SDK or API message body
+)
+
+func (t PromptTransport) String() string {
+	return [...]string{"argv", "stdin", "message"}[min(t, PromptMessage)]
+}
+
+// MaxBytes is the largest prompt t carries; 0 means no transport cap (the model window still applies).
+func (t PromptTransport) MaxBytes() int {
+	if t == PromptArgv {
+		return MaxPromptBytes
+	}
+	return 0
 }
 
 // Agent is everything one vendor package contributes at init: its roster row, driver and optional extras.

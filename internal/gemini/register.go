@@ -8,7 +8,10 @@ func init() {
 
 // row is gemini's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
-	Binary: "agy",
+	PromptVia: agent.PromptStdin,
+	// agy print mode drops a single message's text past ~100–200 KB (probe 2026-11-05: found at 100 KB, lost at 200 KB)
+	PromptMaxBytes: 100 * 1024,
+	Binary:         "agy",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, Autonomous: agent.Native, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated,
