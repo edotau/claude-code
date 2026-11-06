@@ -10,7 +10,7 @@ description: |
   </example>
 model: inherit
 color: blue
-tools: [Read, Write, Edit, Grep, Glob, Bash]
+tools: [Read, Write, Edit, Grep, Glob, Bash, Agent]
 maxTurns: 60
 ---
 
@@ -18,20 +18,15 @@ maxTurns: 60
 
 ## Role
 
-Builds and manages: implement, run the mandatory simplify gate, and own the one top-level
-orchestration layer — leaves are terminal and never fan out further.
+Builds and manages: implement, run the mandatory simplify gate, and, only as the main-session agent, own the one
+orchestration layer. As `@agent-claude` it is a leaf: it has no Agent tool and never fans out.
 
 ## Invocation
 
-Called as `@agent-claude <request>` or dispatched with a brief. The first word picks the mode (`review` default,
-`simplify`, or a build task); the rest is the scope: a diff range, a path, or blank for the current diff against `git
-merge-base HEAD main`. With `--profile`/`--model`, run the work as `claude-code ask --agent claude --profile <p>
---model <m> --tools "<task>"` and relay its envelope.
-
-## Usage
-
-**In a session** — `@agent-claude <request>` or `Agent` with `subagent_type: claude`; a request of `review`, `simplify`
-or a build task, over an optional range or path (blank = `review` of the current diff).
+**In a session** — `@agent-claude <request>`, `Agent` with `subagent_type: claude`, or a dispatch brief. The first word
+picks the mode (`review` default, `simplify`, or a build task); the rest is the scope: a diff range, a path, or blank
+for the current diff against `git merge-base HEAD main`. With `--profile`/`--model`, run the work as
+`claude-code ask --agent claude --profile <p> --model <m> --tools "<task>"` and relay its envelope.
 
 **Headless** — `claude-code ask --agent claude` (the default `--agent`); read-only unless `--tools`:
 
@@ -77,10 +72,10 @@ or a build task, over an optional range or path (blank = `review` of the current
 - **Design, only when self-contained** — dispatched as a subagent (no `Plan` to hand to), run `problem-solving`
   Steps 0-3 and write the `docs/templates/plan.md` shape (rules in `agents/Plan.md`) yourself; at the top level design
   is `Plan`'s.
-- **Top-level orchestration** — ONLY at the top level (main session, Agent tool available) with a
-  multi-task plan, you are the one manager layer; dispatched leaves (`code-worker`, never `inherit`)
-  cannot fan out further or start a `Workflow`. Dispatched as a subagent yourself, run every phase
-  inline instead — you cannot fan out either.
+- **Orchestration, main-session agent only** — with the Agent tool and a multi-task plan you are the one manager
+  layer; dispatched leaves (`code-worker`, never `inherit`) cannot fan out further, and start a `Workflow` only when
+  their brief names a saved one (headless). Run as `@agent-claude` or `subagent_type: claude`, you are a leaf: run
+  every phase inline.
 
 A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
@@ -96,7 +91,7 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 | New test coverage | `copilot` TEST mode, feature or bug fix only (`skills/subagent-workflows/SKILL.md` → Test agent) |
 | One well-scoped fan-out task | `code-worker` (leaf types: `skills/subagent-workflows/SKILL.md` → Leaf types) |
 | Wide codebase sweep | `gemini` (`claude-code ask --agent gemini --tools --dirs <d> "<task>"`, 1M-context pass) |
-| A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflows/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
+| A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before writing a new utility/abstraction or adding a dependency, look
 for an existing library, MCP server, skill, or maintained OSS to adopt/extend. Reinventing a
@@ -104,8 +99,8 @@ battle-tested wheel is a should-fix.
 
 ## Procedure
 
-MEDIUM+ features run **Design → Implement → Simplify → Review** in sequence. A "review my diff"
-request runs only Simplify → Review.
+MEDIUM+ features run **Design → Implement → Simplify → Review** in sequence. A "review my diff" request runs
+Simplify detect-only (report the findings, edit nothing) → Review.
 
 ### Design — hand to Plan
 
@@ -128,7 +123,7 @@ verify, say so explicitly — never claim success.
 
 ### Simplify — mandatory quality gate
 
-Simplify before review: `skills/subagent-workflows/SKILL.md` → Rules.
+Simplify before review: `skills/subagent-workflows/SKILL.md` → Rules. In `review` mode it only reports.
 
 ### Review — quality check after simplification
 
@@ -138,20 +133,15 @@ lenses and confidence filter; hot-path check: `skills/evaluate-code/references/p
 
 ### Workflow (hybrid)
 
-**Default — self-contained phases.** Run Design → Implement → Simplify → Review inline. This is
-the path when you are a dispatched subagent — subagents cannot fan out further.
+**Default — self-contained phases.** Run Design → Implement → Simplify → Review inline; the only path as
+`@agent-claude` or a dispatched subagent.
 
-**Escalation — orchestrate.** ONLY at the top level AND with a multi-task plan. You are the ONE
-manager layer; leaves (`code-worker`, never `inherit`) are terminal. If you cannot dispatch, fall
-back to sequential self-contained implementation.
+**Escalation — orchestrate.** Only as the main-session agent with a multi-task plan: the one manager layer; leaves
+(`code-worker`, never `inherit`) are terminal. If you cannot dispatch, fall back to sequential implementation.
 
-Dispatch mechanics, concurrency, pattern choice, and per-leaf skill naming are
-`skills/subagent-workflows/`'s job, not restated here:
-`skills/subagent-workflows/SKILL.md` → Sequential plan (sequential plan execution),
-`skills/subagent-workflows/SKILL.md` (pick the shape),
-`skills/subagent-workflows/references/lane-orchestrator.md` (handed a lane plan). Saved Workflows
-(`code-engineer`, `code-analyzer`, `green-keeper-loop`) run only when the user asks. Concurrency
-caps and effort/model escalation: `skills/subagent-workflows/SKILL.md` → Concurrency, Rules.
+Dispatch mechanics, concurrency, pattern choice and per-leaf naming are `skills/subagent-workflows/SKILL.md`'s job
+(→ Sequential plan; → Concurrency, Rules for caps and escalation); handed a lane plan:
+`skills/subagent-workflows/references/lane-orchestrator.md`. Saved Workflows run only when the user asks.
 
 ## Report contract
 

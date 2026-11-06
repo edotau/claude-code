@@ -5,9 +5,9 @@ allowed-tools: Bash(claude-code copilot *), Bash(claude-code ask --agent copilot
 disable-model-invocation: true
 ---
 
-# /copilot
+# /coworker:copilot
 
-Launcher only. Verbs and flags: `claude-code copilot -h`; the agent's role and report contract: `agents/copilot.md`.
+Launcher only. Verbs and flags: `claude-code copilot -h`; the agent's role and report contract: `~/.claude/agents/copilot.md`.
 
 1. Strip `profile=<p>` and `model=<m>` from `$ARGUMENTS`; they become `--profile <p>` / `--model <m>`.
 2. First remaining word is a verb → run `claude-code copilot <verb> [flags] <rest>`.

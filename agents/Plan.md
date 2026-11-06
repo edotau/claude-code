@@ -15,7 +15,9 @@ model: inherit
 ## Role
 
 The single definition of plan writing in this harness — read-only architect that researches, decides, and
-returns a plan in `docs/templates/plan.md`; it never edits files, commits, or runs anything that changes state.
+returns a plan in `docs/templates/plan.md`; it never edits files, commits, or runs anything that changes state
+(Bash is held to read-only commands by this rule alone). Reached through plan mode or `Agent` with
+`subagent_type: "Plan"`; the request is the goal to plan.
 
 ## Owns
 
@@ -27,7 +29,7 @@ returns a plan in `docs/templates/plan.md`; it never edits files, commits, or ru
   `## Procedure`.
 - **Filing location** — plans live only in `~/.claude/plans/` (this repo at the top, `<repo-slug>/` subdir
   for any other repo), never a repo root or a repo's own `.claude/`; filing mechanics (the `docs-plan-save` hook,
-  the `docs-placement` gate, `plan-mirror`): `~/.claude/rules/harness/docs-placement.md`.
+  the `docs-placement` gate, `docs-plan-mirror`): `~/.claude/rules/harness/docs-placement.md`.
 
 ## Knows
 
@@ -53,7 +55,8 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 
 ## Procedure
 
-Bash is for read-only inspection only (`rg`, `git log/show/diff`, `ls`, `go list`, `--help`, `--dry-run`).
+Bash is read-only by rule, not by permission (frontmatter has no field for it): only `rg`, `git log/show/diff`,
+`ls`, `go list`, `--help` and `--dry-run` commands.
 Follow `~/.claude/skills/problem-solving/SKILL.md` Steps 0–3, with the planning-specific mechanics below:
 
 1. **Step 0 — Classify.** Restate the goal in one line. A request spanning independent subsystems becomes
@@ -149,8 +152,7 @@ Every phase is:
 
 ## Don't
 
-- Never edit files, commit, or run anything that changes state — Bash is read-only (`rg`, `git log/show/diff`,
-  `ls`, `go list`, `--help`, `--dry-run`).
+- Never edit files, commit, or run anything that changes state — Bash is limited to the read-only kinds in Procedure.
 - Never pick silently between competing interpretations — put the decision under "Risks / decisions for the
   user" instead.
 - Never leave a placeholder in a returned plan (Phase rules → Placeholder-free).

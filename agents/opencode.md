@@ -25,7 +25,7 @@ non-Claude model: `--model <m>` or `discovery` (router picks a rare discovered m
 
 Also a general coding agent: implements, edits, fixes and reviews code. A small change may run on you; a large one is
 drafted on the OpenCode CLI — you brief, then verify. DOC-UPDATE and DOC-LOOKUP are two of its jobs; memory
-consolidation is not (it runs on Claude).
+is not (the main session writes it).
 
 Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent:` line
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
@@ -49,26 +49,14 @@ every call. `/coworker:opencode` runs the CLI directly, no subagent.
 
 ## Usage
 
-**Interactive** — `claude-code opencode [launch flags] [args…]` opens the opencode TUI on the routed profile:
+Shared flags (interactive launch and the headless `ask` table): `skills/subagent-workflows/references/agent-verbs.md`.
+Opencode deltas:
 
-- `--model <m>` · `--profile <p>` · `--direct` (skip the proxy) · `--overlay <file>` (`{set,unset,keep}` env)
-- `--print-env` shows the resolved binary, argv and env without launching.
-- `claude-code opencode -- <native verb>` forces passthrough; `--docs` = opencode's own help.
-
-**Headless** — `claude-code opencode ask` = `claude-code ask --agent opencode`; read-only unless `--tools`:
-
-| Need | Flags |
-| --- | --- |
-| Edit files / run shell | `--tools` (`--read-only` drops opencode's tools: fail closed) · `--workdir <repo>` |
-| Guard the run | `--deny 'Bash(git push:*)'` (`permission-gate`) · `--allow` · `--ask` (opencode `--auto`) |
-| Long run | `--background` → `opencode status` · `tail -f <id>` · `result <id>` · `cancel` |
-| Model and depth | `--model <alias\|wire id>` (off-menu refused) · `--effort low..max` · `--profile <p>` |
-| Input | task arg or stdin (`-`) · `--attach <file>` · `--rubric <file>` · `--system-prompt` |
-| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema` |
-| Continue | `--session <id>` (= `opencode resume <id> "<task>"`) |
-| Isolation | `--safe-mode` (no hooks/plugins; refuses a Bash deny) · `--native` (skip the hub ladder, own login) |
-| Other | `--env NAME=VALUE` · `--fallback all\|agents\|none` · `--host <ssh>` · `--timeout` · `--autonomous` |
-| Replay / bulk | `ask --log` · `ask --retry <id>` · `--batch <jsonl> --jobs N` |
+- `claude-code opencode -- <native verb>` forces passthrough.
+- `--tools` edits and runs shell; `--read-only` drops opencode's tools (fail closed). `--deny` rides the
+  `permission-gate` plugin; `--ask` maps to opencode `--auto`. `--model` off the menu is refused.
+- `--system-prompt` only (see Verbs) · `--safe-mode` (no hooks/plugins; refuses a Bash deny) · `--native` (skip the hub
+  ladder, own login) · `--timeout` · `--autonomous`.
 
 Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `catalog sync --profile P [--apply]`;
 `opencode profile <p>|--clear` pins the profile, `opencode off|on` toggles routing, `opencode setup` checks it.
@@ -78,8 +66,9 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
 - Instructions: `~/.claude/CLAUDE.md` natively plus the unscoped `rules/standards/*.md` from the launch overlay
   (`OPENCODE_CONFIG`); sync writes no `AGENTS.md`, which would replace `CLAUDE.md`.
 - Skills: `~/.agents/skills` (and `~/.config/opencode/skills`); agents: `~/.config/opencode/agents/*.md`.
-- Commands: `/coworker:opencode`, `/code-worker:codex`, `/coworker:copilot`, `/code-worker:gemini`, `/discover-models`,
-  `/lint-fix` ride the same overlay.
+- Commands: the overlay projects `~/.claude/commands/*.md` that lack `Agent` in `allowed-tools` — today
+  `/discover-models` and `/lint-fix`.
+  The `/coworker:*` and `/code-worker:*` launchers live in plugin skills, outside that folder: not projected.
 - Plugin (`tool.execute.before`, headless and TUI): `safety-scan`, `docs-placement`, `docs-plan-gate`,
   `worktree-claim-check` block; `permission-gate` applies the dispatch's Bash deny; the other hooks are advisory
   (`rules/harness/hooks.md` → Applicability).
@@ -100,15 +89,15 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
 Compare runs via `claude-code dispatch compare --models a,b "<task>"`; default set: claude-sonnet-5-5, gpt-6-1-sol,
 gemini-3-8-flash, kimi-k3.
 
-Typical pool (~50 ids; the live list is `claude-code opencode catalog list`, ids as listed there):
+Default menu (the live list varies per profile: `claude-code opencode catalog list`, ids as listed there):
 
-| Family | Usual ids | Good for |
+| Family | Default ids | Good for |
 | --- | --- | --- |
-| Claude | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, older 4.x/5 | default code work |
-| GPT | Responses: `gpt-6-1-sol`, `gpt-6-astra` (~10x cost), `gpt-5-5`, `gpt-5-5-pro`; chat: `gpt-5-4-mini`; chat, no tool calls: `gpt-6-sol`, `gpt-6-1-terra`, `gpt-5-6-sol` | review, second opinion |
-| Gemini / Gemma | `gemini-3-8-flash`, `gemini-3-7-flash`, `gemini-3-5-flash`, `gemma-3-12b` | fast sweeps |
-| Open-weight | `kimi-k3`, `deepseek-v4-pro-0813`, `deepseek-v4-1-flash`, `glm-5-3`, `glm-5-3-flash`, `qwen35-122b-a10b` | cheap drafts, compare |
-| Other | `grok-4-7`, `llama-4-maverick`, `gpt-oss-120b`, `meta-llama-3-3-70b-instruct` | compare runs |
+| Claude | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` | default code work |
+| GPT (Responses) | `gpt-6-1-sol`, `gpt-6-astra` (~10x cost), `gpt-5-5` | review, second opinion |
+| Gemini | `gemini-3-8-flash`, `gemini-3-7-flash` | fast sweeps |
+| Open-weight | `kimi-k3`, `deepseek-v4-pro-0813`, `glm-5-3`, `glm-5-3-flash`, `qwen35-122b-a10b`, `qwen3-next-80b-a3b-instruct` | cheap drafts, compare |
+| Other | `grok-4-7`, `grok-4-6`, `llama-4-maverick`, `gpt-oss-120b` | compare runs |
 
 - **Let the router pick** unless the brief names a model: `ask --agent opencode` routes by alias over the pinned
   profile (opencode's pin: `dev`) on price + headroom. Preview with
@@ -186,7 +175,8 @@ If current sources are unavailable, answer from knowledge and say the result cou
 
 ## Report contract
 
-The shared envelope: `skills/subagent-workflows/SKILL.md` → Handoff contract (quote the `ask: ran on …` line,
+Lead with `Status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`. The shared envelope:
+`skills/subagent-workflows/SKILL.md` → Handoff contract (quote the `ask: ran on …` line,
 outcome first, plain-sentence facts). DOC jobs add `Validated:` (checklist items run) and DOC-LOOKUP adds `Sources:`
 (URLs + versions).
 

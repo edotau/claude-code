@@ -45,8 +45,8 @@ leaf's cost is its `model:` frontmatter: an `inherit` agent runs at the parent's
 
 ## Concurrency
 
-At most 2 live leaves while other sessions share the checkout, else the account cap (`rules/harness/hooks.md` →
-dispatch cap; test agents count). Independent work goes out in one message; run sequentially when one output feeds the
+The account cap is the only limit (`rules/harness/hooks.md` → dispatch cap: 12 per account; test agents count);
+parallel leaves never share a file. Independent work goes out in one message; run sequentially when one output feeds the
 next, they share state, or a provider keeps erroring. Each leaf replays its context and tool schemas: a wide fan-out of
 deep-context leaves spends a provider's tokens-per-minute quota (Databricks `429`), so batch those.
 A repo-wide scan or audit runs as `claude-code dispatch fleet` (Copilot's own fan-out); split it into read-only
