@@ -21,7 +21,7 @@ func BenchmarkScan(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		countEdits(path)
-		EditedFiles(path, 50)
+		_, _ = EditedFiles(path, 50)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestLastUsageAndEdits(t *testing.T) {
 	if !ok || u.Tokens != 100 || u.Model != "claude-opus-5" {
 		t.Errorf("full-scan fallback: %+v %v", u, ok)
 	}
-	if got := EditedFiles(tr, 10); strings.Join(got, ",") != "/r/a.go,/r/b.go" {
+	if got, err := EditedFiles(tr, 10); err != nil || strings.Join(got, ",") != "/r/a.go,/r/b.go" {
 		t.Errorf("edits %v", got)
 	}
 	if n := countEdits(tr); n != 2 {
@@ -650,5 +650,15 @@ func TestGitCommitCommandTrailingWrapperFlag(t *testing.T) {
 		if gitCommitCommand(cmd) {
 			t.Errorf("gitCommitCommand(%q) = true, want false", cmd)
 		}
+	}
+}
+
+// A missing transcript is no edits and no error; an unreadable one (a directory) surfaces its read error.
+func TestEditedFilesErrors(t *testing.T) {
+	if got, err := EditedFiles(filepath.Join(t.TempDir(), "absent.jsonl"), 10); err != nil || len(got) != 0 {
+		t.Fatalf("missing transcript: %v, %v; want no edits and nil", got, err)
+	}
+	if _, err := EditedFiles(t.TempDir(), 10); err == nil {
+		t.Fatal("a directory as the transcript must return its read error")
 	}
 }

@@ -3,7 +3,9 @@ package transcript
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"sort"
 	"strings"
@@ -34,9 +36,9 @@ func hasEditToolName(line []byte) bool {
 const CommitEditWeight = 3
 
 // EditedFiles returns up to limit unique paths the transcript's Edit/Write tool calls touched, sorted.
-func EditedFiles(path string, limit int) []string {
+func EditedFiles(path string, limit int) ([]string, error) {
 	seen := map[string]bool{}
-	eachEdit(path, func(p string) {
+	err := eachEdit(path, func(p string) {
 		if p != "" {
 			seen[p] = true
 		}
@@ -49,7 +51,7 @@ func EditedFiles(path string, limit int) []string {
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out
+	return out, err
 }
 
 // CountEditsFrom counts complete lines from offset and returns the position after the last newline.
@@ -154,13 +156,19 @@ func countLineEdits(line []byte) (n int) {
 }
 
 // eachEdit calls fn with the target path of each editor tool_use in an assistant record.
-func eachEdit(path string, fn func(filePath string)) {
+func eachEdit(path string, fn func(filePath string)) error {
+	if path == "" {
+		return nil
+	}
 	f, err := os.Open(path)
-	if err != nil || path == "" {
-		return
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // no transcript yet: no edits
+	}
+	if err != nil {
+		return err
 	}
 	defer f.Close()
-	_ = EachLine(f, func(line []byte) {
+	return EachLine(f, func(line []byte) {
 		eachEditLine(line, fn)
 	})
 }
