@@ -647,10 +647,10 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 	return leafInput(tx)
 }
 
-// The ran-on gate covers every external-agent leaf type and spares the in-context Claude leaves.
+// The ran-on gate covers every leaf that can request an agent (bare code-worker included) and spares code-worker:claude.
 func TestRanOnGateNamespacedTypes(t *testing.T) {
 	for st, want := range map[string]bool{"coworker:copilot": true, "coworker:databricks": true, "code-worker:codex": true,
-		"code-worker:gemini": true, "code-worker:claude": false, "code-worker": false} {
+		"code-worker:gemini": true, "code-worker:claude": false, "code-worker": true} {
 		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nAgent: codex\n", "ls output"), "a1")
 		if blocked != want {
 			t.Errorf("%s: blocked = %v, want %v", st, blocked, want)
