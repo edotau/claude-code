@@ -36,11 +36,11 @@ type columnWidths struct {
 func computeColumnWidths(tree *agenttree.Tree) columnWidths {
 	c := columnWidths{subType: 4, subStatus: 6, sessStatus: 6} // "type"/"status"-ish floors
 	grow := func(sub agenttree.Subagent) {
-		c.subType = max(c.subType, len(sub.Type))
-		c.subStatus = max(c.subStatus, len(sub.Status))
+		c.subType = max(c.subType, textutil.RuneLen(sub.Type))
+		c.subStatus = max(c.subStatus, textutil.RuneLen(sub.Status))
 	}
 	for _, s := range tree.Sessions {
-		c.sessStatus = max(c.sessStatus, len(sessionStatusText(s)))
+		c.sessStatus = max(c.sessStatus, textutil.RuneLen(sessionStatusText(s)))
 		if s.Name != "" {
 			c.sessLabel = max(c.sessLabel, 8, min(textutil.RuneLen(s.Name), maxSessionLabel))
 		}
@@ -269,7 +269,7 @@ func fitRow(prefix, tail, tool string, width int) string {
 		tail = shrink(tail, textutil.RuneLen(line)-width)
 		line = joinNonEmpty(prefix, tail)
 	}
-	return clip(line, width)
+	return textutil.TruncateRunes(line, width)
 }
 
 // joinNonEmpty joins prefix and tail with two spaces, skipping the separator when tail is empty.
@@ -290,9 +290,6 @@ func shrink(s string, n int) string {
 	return string(r[:keep]) + "…"
 }
 
-// clip hard-cuts s to width runes, no ellipsis (used only on the already-shrunk fallback line).
-func clip(s string, width int) string { return textutil.TruncateRunes(s, width) }
-
 // tokenCompact renders in/out tokens as "in=12.3k out=4.1k".
 func tokenCompact(t agenttree.Tokens) string {
 	return fmt.Sprintf("in=%s out=%s", compactNumber(t.In), compactNumber(t.Out))
@@ -301,9 +298,7 @@ func tokenCompact(t agenttree.Tokens) string {
 // compactNumber renders n with a k/M suffix past 1000/1e6, one decimal.
 func compactNumber(n int64) string {
 	switch {
-	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
-	case n >= 999_950: // %.1fk would print 1000.0k
+	case n >= 999_950: // from 999_950 %.1fk would print 1000.0k
 		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
 	case n >= 1000:
 		return fmt.Sprintf("%.1fk", float64(n)/1000)

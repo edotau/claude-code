@@ -1,6 +1,11 @@
 package tui
 
-import "testing"
+import (
+	"bufio"
+	"io"
+	"strings"
+	"testing"
+)
 
 // TestConfirmKey: y answers yes; n, q, Esc and Ctrl-C cancel at once; Enter takes the default; other keys wait.
 func TestConfirmKey(t *testing.T) {
@@ -21,5 +26,51 @@ func TestConfirmKey(t *testing.T) {
 		if got, done := confirmKey(c.k, c.def); got != c.want || done != c.done {
 			t.Errorf("confirmKey(%+v, def=%v) = %v,%v want %v,%v", c.k, c.def, got, done, c.want, c.done)
 		}
+	}
+}
+
+func withStdin(t *testing.T, s string) {
+	t.Helper()
+	orig := stdinReader
+	stdinReader = bufio.NewReader(strings.NewReader(s))
+	t.Cleanup(func() { stdinReader = orig })
+}
+
+// TestSecretFallbackKeepsUnterminatedLine: piped "sk-abc" with no newline is a good secret, not an io.EOF error.
+func TestSecretFallbackKeepsUnterminatedLine(t *testing.T) {
+	withStdin(t, "sk-abc")
+	got, err := Secret("key: ", nil)
+	if err != nil || got != "sk-abc" {
+		t.Fatalf("Secret = %q, %v; want sk-abc, nil", got, err)
+	}
+}
+
+// TestSecretFallbackEmptyStdinStillErrors: EOF with no data remains an error.
+func TestSecretFallbackEmptyStdinStillErrors(t *testing.T) {
+	withStdin(t, "")
+	if _, err := Secret("key: ", nil); err != io.EOF {
+		t.Fatalf("err = %v; want io.EOF", err)
+	}
+}
+
+// TestConfirmEOFDeclines: a closed stdin declines even when the default is yes; a blank line takes the default.
+func TestConfirmEOFDeclines(t *testing.T) {
+	withStdin(t, "")
+	if Confirm("ok?", true) {
+		t.Error("Confirm at EOF returned true, want false")
+	}
+	withStdin(t, "\n")
+	if !Confirm("ok?", true) {
+		t.Error("Confirm on blank line returned false, want default true")
+	}
+	withStdin(t, "y")
+	if !Confirm("ok?", false) {
+		t.Error("Confirm on unterminated y returned false, want true")
+	}
+}
+
+func TestYesNoHint(t *testing.T) {
+	if yesNoHint(true) != "[Y/n]" || yesNoHint(false) != "[y/N]" {
+		t.Errorf("hints = %q, %q", yesNoHint(true), yesNoHint(false))
 	}
 }

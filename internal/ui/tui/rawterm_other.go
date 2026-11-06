@@ -9,8 +9,8 @@ type termState struct{}
 
 var errNoTTY = errors.New("tui: raw terminal mode is not supported on this platform")
 
-// ErrCanceled mirrors the unix sentinel; nothing returns it off unix.
-var ErrCanceled = errors.New("tui: input canceled")
+// errCanceled mirrors the unix sentinel; nothing returns it off unix.
+var errCanceled = errors.New("tui: input canceled")
 
 // Preserve is a no-op off unix: there is no termios state to put back.
 func Preserve() func() { return func() {} }

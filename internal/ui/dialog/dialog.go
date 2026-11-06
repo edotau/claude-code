@@ -92,11 +92,14 @@ func (s *Shell) Confirm(question string) bool {
 	return Yes(s.In)
 }
 
+// lineReader is tui's shared stdin reader, so Line and tui.Confirm/Secret never drop each other's look-ahead.
+var lineReader = tui.Stdin
+
 // Line reads one visible line: straight from the terminal like tui.Confirm, from In otherwise.
 func (s *Shell) Line(prompt string) string {
 	fmt.Fprint(s.Out, prompt)
 	if s.TTY {
-		return ReadLine(bufio.NewReader(os.Stdin))
+		return ReadLine(lineReader())
 	}
 	return ReadLine(s.In)
 }

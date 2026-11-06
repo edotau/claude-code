@@ -20,3 +20,22 @@ func TestRenderCapsColumnsWithEllipsis(t *testing.T) {
 		t.Errorf("short cell altered:\n%s", out)
 	}
 }
+
+func TestTruncateDelegatesAndKeepsNoCapForNonPositiveWidth(t *testing.T) {
+	cases := []struct {
+		s     string
+		width int
+		want  string
+	}{
+		{"abcdefgh", 0, "abcdefgh"},
+		{"abcdefgh", -3, "abcdefgh"},
+		{"abcdefgh", 5, "abcd…"},
+		{"héllo wörld", 6, "héllo…"},
+		{"abc", 5, "abc"},
+	}
+	for _, c := range cases {
+		if got := Truncate(c.s, c.width); got != c.want {
+			t.Errorf("Truncate(%q, %d) = %q, want %q", c.s, c.width, got, c.want)
+		}
+	}
+}
