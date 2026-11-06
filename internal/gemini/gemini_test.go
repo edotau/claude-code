@@ -2,8 +2,6 @@ package gemini
 
 import (
 	"bufio"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -130,16 +128,5 @@ func TestParseAgyRefusedToolStepIsNotPartial(t *testing.T) {
 	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
 	if err != nil || res.Answer != "blocked as asked" {
 		t.Fatalf("res.Answer = %q, err = %v; want the answer and no partial error", res.Answer, err)
-	}
-}
-
-// write creates path (and its parent dirs) with body, mode 0644.
-func write(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
 	}
 }
