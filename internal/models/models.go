@@ -115,6 +115,23 @@ func ContextWindow(id string) int {
 	return ContextWindowStd
 }
 
+// Window is id's input window: the catalog's context limit when set, else ContextWindow's 1M/200K rule.
+// Gemini rows carry 1,048,576 (agy TUI shows "Gemini 4 Argon (Medium) 0/1.0M tokens"; codex rejects input over 1,048,576).
+func Window(id string) int {
+	if l, ok := Limits(id); ok && l.Context > 0 {
+		return l.Context
+	}
+	return ContextWindow(id)
+}
+
+// PromptTokens is the prompt budget in a window: window - output - 10%, or 0 when output fills it.
+func PromptTokens(window, output int) int {
+	if window <= output {
+		return 0
+	}
+	return window - output - window/10
+}
+
 // ThinkingKnobs returns (MAX_THINKING_TOKENS, CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING); adaptive-only models reject a budget.
 func ThinkingKnobs(id string) (maxTokens, disableAdaptive string) {
 	f, maj, min, ok := ParseClaudeID(id)

@@ -171,3 +171,34 @@ func TestFamilyKindAndWireFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowPrefersCatalogLimit(t *testing.T) {
+	cases := []struct {
+		id   string
+		want int
+	}{
+		{"claude-opus-5-5", 1_000_000},
+		{"gemini-4-argon", 1_048_576},
+		{"not-a-model", 200_000},
+	}
+	for _, c := range cases {
+		if got := Window(c.id); got != c.want {
+			t.Errorf("Window(%q) = %d, want %d", c.id, got, c.want)
+		}
+	}
+}
+
+func TestPromptTokens(t *testing.T) {
+	cases := []struct{ window, output, want int }{
+		{200_000, 32_000, 148_000},
+		{1_000_000, 32_000, 868_000},
+		{1_048_576, 32_000, 911_719},
+		{32_000, 32_000, 0},
+		{0, 32_000, 0},
+	}
+	for _, c := range cases {
+		if got := PromptTokens(c.window, c.output); got != c.want {
+			t.Errorf("PromptTokens(%d, %d) = %d, want %d", c.window, c.output, got, c.want)
+		}
+	}
+}

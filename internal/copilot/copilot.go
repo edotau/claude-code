@@ -401,7 +401,7 @@ func copilotWire(
 		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
-	if n := copilotPromptTokens(window, output); n > 0 {
+	if n := models.PromptTokens(window, output); n > 0 {
 		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
 	}
 	return append(env, copilotCredEnv(p, cred)...), copilotArgv(h), nil
