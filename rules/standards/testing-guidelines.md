@@ -1,7 +1,7 @@
 # Testing Guidelines
 
 Order, always: **run it live → pin what you observed → prove the test bites.** Gate order: `quality.md` →
-Verification Order. Optional loops and tooling: `skills/subagent-workflows/references/test-and-fix.md`.
+Verification Order. Loop shapes and caps: `skills/subagent-workflows/SKILL.md` → Test agent.
 
 ## Live first, then tests — no core-contract exception
 

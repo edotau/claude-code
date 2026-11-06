@@ -1,58 +1,45 @@
 # Lane Orchestrator
 
-Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane
-fans out agent leaves through `claude-code ask` (not counted by the dispatch cap:
-[SKILL.md → Concurrency](../SKILL.md#concurrency)), verifies each leaf in the shared tree, and commits it.
-Leaf types and the `Agent:` request:
-[SKILL.md → Leaf types](../SKILL.md#leaf-types).
+Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane fans
+out leaves through `claude-code ask` (outside the Agent-tool cap; `ask`'s per-account cap still applies), verifies each
+in the shared tree, and commits it.
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Manager | main session | splits lanes by disjoint packages, dispatches one `code-worker` (or `claude`) per lane, merges, runs the suite once with user approval | edits a lane's files |
+| Manager | main session | splits lanes by disjoint packages, dispatches one `code-worker` per lane, merges, runs the suite once with approval | edits a lane's files |
 | Lane orchestrator | that subagent | writes the lane checklist, dispatches and verifies each leaf, commits named files, ticks the box | edits outside its lane |
-| Leaf | a `code-worker` that requests `Agent: <x>` via `claude-code ask` (`copilot`, `codex`, `gemini`, `opencode` or `claude`) | one checklist line, owned files only | commits or dispatches (subagents; the `Agent:` request is allowed) |
+| Leaf | a `code-worker` that requests `Agent: <x>` via `claude-code ask` | one checklist line, owned files only | commits or dispatches subagents |
 
 ## Lane plan
 
-`lanes/<lane>.md` beside the plan (plan home: `rules/harness/docs-placement.md`), holding only a checklist:
+`lanes/<lane>.md` beside the plan (`rules/harness/docs-placement.md`), holding only a checklist (line format and leaf
+size: `agents/Plan.md` → `## Tasks`; 25–40-item dispatches timed out, 5–10 finished):
 
 ```markdown
 - [ ] <verb> <object> — Agent: <copilot|codex|gemini|opencode|claude> — owns: <files>
 - [x] <verb> <object> — Agent: copilot — owns: internal/foo/bar.go — a1b2c3d
 ```
 
-Leaf size and the checklist line format: `agents/Plan.md` → `## Tasks` (25–40-item dispatches timed out, 5–10 finished).
-Agents per [cost-routing.md](cost-routing.md).
-
 ## Dispatch
 
-Bug fixes: reproduce on the real surface first (the live before/after run is the RED). Then run the lane's disjoint
-leaves as one batch — one JSONL line per leaf (`id`, `agent`, `model`, `prompt`, `workdir`, `tools`, `timeout`):
+Bug fixes start with the live before/after run (`testing-guidelines.md`). Run the lane's disjoint leaves as one batch,
+one JSONL line per leaf (`id`, `agent`, `model`, `prompt`, `workdir`, `tools`, `timeout`):
 
 ```bash
 claude-code ask --batch <lane>.jsonl --jobs 12 --fallback none --autonomous --attach <lane.md> --format json \
-  > /tmp/claude-1000/<lane>/batch.out    # one envelope per line; per-account caps and isolation apply
+  > $TMPDIR/<lane>/batch.out    # one envelope per line; per-account caps and isolation apply
 ```
 
-Overlapping leaves go in a later batch; test repair runs beside its implementer, new tests wait for "landed". Brief per
-line: [prompts.md#lane-leaf](prompts.md#lane-leaf); the attached lane plan carries the context. A finding outside the
-leaf's files becomes a new line in this lane (same package) or a note to the manager.
+Overlapping leaves go in a later batch; new tests wait for "landed". Brief per line:
+[prompts.md#lane-leaf](prompts.md#lane-leaf), lane plan attached. A finding outside the leaf's files is a new line here
+or a note to the manager.
 
 ## Verify each leaf
 
-1. Default: the shared tree, the leaf owning its new files. With the user's yes, `claude-code worktree create <name>`
-   (a worktree at HEAD: commit or copy the leaf's owned files into it first).
-2. In that tree: `go build ./... && go vet <pkgs> && go test <pkgs>`; gate on
-   the exit code, never a piped `| tail`.
-3. The leaf's live check on real input.
-4. A changed seam (signature, argv/env builder, flag, file format): read producer and every consumer and run each
-   consumer's tests — `go build ./...` alone has missed a broken consumer package.
-5. Read the diff: assertions intact (`testing-guidelines.md` → When a test fails), nothing outside `owns:`, no
-   leftover old names.
-6. `git add <new files>; git commit -m "<msg>" -- <files>` (a pathspec commit, so other lanes' staged files never ride
-   along); tick the box with the short id; `claude-code worktree clean <name>` if one was made; delete the leaf scratch.
-
-Red at any step: re-dispatch once with the failure output, or fix a small gap in-lane; still red → report it unticked.
-
-Failure buckets from a past run: recovery_policy, tool_execution, tool_selection, tool_arguments, state_orchestration
-(`memory/claude-code/archive/progress-2026-10.md`).
+1. In the shared tree; with the user's yes, `worktree create <name>` (at HEAD: copy the leaf's owned files in first).
+2. `go build ./... && go vet <pkgs> && go test <pkgs>` (exit code, never `| tail`), then the leaf's live check.
+3. Read the diff: assertions intact (`testing-guidelines.md` → When a test fails), nothing outside `owns:`, no old names;
+   a changed seam: run every consumer's tests ([Fan-in](../SKILL.md#fan-in)).
+4. `git add <new files>; git commit -m "<msg>" -- <files>` (a pathspec commit, so other lanes' staged files never ride
+   along); tick the box with the short id; `worktree clean <name>` if one was made; delete the leaf scratch.
+5. Red: retry once ([Fan-in](../SKILL.md#fan-in)) or fix a small gap in-lane; else leave it unticked.
