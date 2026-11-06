@@ -29,7 +29,7 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	if err != nil {
 		return nil, err
 	}
-	return changed, agentpkg.ClearLastProfilesFor(agents...)
+	return changed, providers.ClearLastProfilesFor(agents...)
 }
 
 // ValidProfile rejects a profile some agent cannot run on, before any record is written.
@@ -90,7 +90,7 @@ func SwitchProfile(reg *providers.Registry, profile string) error {
 		return err
 	}
 	providers.AuditSwitch(profile)
-	return agentpkg.ClearLastProfiles()
+	return providers.ClearLastProfiles()
 }
 
 // ProfileStatus is the one-line `<agent> profile` readout: the record's profile, identity and on/off state.

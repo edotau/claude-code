@@ -642,7 +642,7 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	agent.RecordLastProfile("codex", "chatgpt", nil)
+	providers.RecordLastProfile("codex", "chatgpt")
 	if !repoLastProfileCached() {
 		t.Fatal("fixture: no last-profile cache written")
 	}

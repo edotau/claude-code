@@ -35,8 +35,8 @@ func launchClaude(alias string, args []string) int {
 	}
 	opts.Alias = alias
 	plan, err := claude.Claude(providers.WithIdentity(context.Background(), as), opts, rest)
-	if err == nil && !opts.PrintEnv {
-		agent.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile], rest)
+	if err == nil && !opts.PrintEnv && !agent.IsHeadless(rest) {
+		providers.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile])
 	}
 	return runPlan("claude", plan, opts, err)
 }
@@ -62,8 +62,8 @@ func launchAgent(name string, args []string) int {
 	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
 	if err == nil {
 		warnVersion(name, plan.Binary, opts, rest)
-		if !opts.PrintEnv {
-			agent.RecordLastProfile(name, plan.Profile, rest)
+		if !opts.PrintEnv && !agent.IsHeadless(rest) {
+			providers.RecordLastProfile(name, plan.Profile)
 		}
 	}
 	return runPlan(name, plan, opts, err)

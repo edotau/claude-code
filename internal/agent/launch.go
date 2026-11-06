@@ -153,6 +153,30 @@ func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 	return withAgentPins(name, withLastProfile(name, o))
 }
 
+// lastProfile is the profile this workspace last launched agentName with, "" unless it is registered and the agent can use it.
+func lastProfile(reg *providers.Registry, agentName string) string {
+	name := providers.LastProfile(agentName)
+	p, err := reg.Get(name)
+	if name == "" || err != nil {
+		return ""
+	}
+	if agentName == "claude" && p.Auth.Login != "" || agentName != "claude" && !CanServe(agentName, p) {
+		return ""
+	}
+	return name
+}
+
+// withLastProfile fills an unset --profile of an agent CLI launch from this workspace's last-used profile (before its pin).
+func withLastProfile(name string, o LaunchOptions) LaunchOptions {
+	if o.Provider != "" || (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") || !AgentActive(name) {
+		return o
+	}
+	if reg, err := providers.Load(); err == nil {
+		o.Provider = lastProfile(reg, name)
+	}
+	return o
+}
+
 // withAgentPins fills the profile the flags left empty from the agent's vault pin: --profile > pin > default.
 // The model pin is applied after the target resolves (agentModelTarget).
 func withAgentPins(name string, o LaunchOptions) (LaunchOptions, error) {

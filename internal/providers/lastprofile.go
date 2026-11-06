@@ -1,4 +1,4 @@
-package agent
+package providers
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -32,7 +31,7 @@ type lastProfileAt struct {
 const lastProfileSchema = 2
 
 var lastProfileFormat = schemas.Register(schemas.Format{
-	Name: "last-profile", Owner: "internal/agent", Kind: schemas.Cache, Version: lastProfileSchema,
+	Name: "last-profile", Owner: "internal/providers", Kind: schemas.Cache, Version: lastProfileSchema,
 	Glob:    lastProfileFile,
 	New:     func() any { return new(lastProfiles) },
 	Keep:    "rebuildable cache: the per-workspace default falls back to the registry default",
@@ -126,30 +125,6 @@ func updateLastProfiles(fn func(map[string]map[string]lastProfileAt) map[string]
 	})
 }
 
-// lastProfile is the profile this workspace last launched agentName with, "" unless it is registered and the agent can use it.
-func lastProfile(reg *providers.Registry, agentName string) string {
-	name := readLastProfiles().Workspaces[workspaceKey()][agentName].Profile
-	p, err := reg.Get(name)
-	if name == "" || err != nil {
-		return ""
-	}
-	if agentName == "claude" && p.Auth.Login != "" || agentName != "claude" && !CanServe(agentName, p) {
-		return ""
-	}
-	return name
-}
-
-// withLastProfile fills an unset --profile of an agent CLI launch from this workspace's last-used profile (before its pin).
-func withLastProfile(name string, o LaunchOptions) LaunchOptions {
-	if o.Provider != "" || (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") || !AgentActive(name) {
-		return o
-	}
-	if reg, err := providers.Load(); err == nil {
-		o.Provider = lastProfile(reg, name)
-	}
-	return o
-}
-
 // ClearLastProfiles forgets every workspace's default, so a fresh `switch` pin applies everywhere.
 func ClearLastProfiles() error {
 	if err := os.Remove(lastProfileFile()); err != nil && !os.IsNotExist(err) {
@@ -186,10 +161,15 @@ func writeLastProfiles(ws map[string]map[string]lastProfileAt) error {
 	return paths.AtomicWrite(lastProfileFile(), data, 0o600)
 }
 
-// RecordLastProfile stores profile as this workspace's default for agentName; headless runs leave it alone.
-func RecordLastProfile(agentName, profile string, args []string) {
+// LastProfile is the profile this workspace last launched agentName with; "" when none is stored.
+func LastProfile(agentName string) string {
+	return readLastProfiles().Workspaces[workspaceKey()][agentName].Profile
+}
+
+// RecordLastProfile stores profile as this workspace's default for agentName; callers skip headless runs.
+func RecordLastProfile(agentName, profile string) {
 	ws := workspaceKey()
-	if profile == "" || ws == "" || IsHeadless(args) {
+	if profile == "" || ws == "" {
 		return
 	}
 	_ = updateLastProfiles(func(cur map[string]map[string]lastProfileAt) map[string]map[string]lastProfileAt {

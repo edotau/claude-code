@@ -13,6 +13,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Given codex already on qa and a stale last-used entry for both agents, ApplyProfile moves only claude, keeps the
@@ -26,8 +27,8 @@ func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Profile: "dev", Model: "pinned"}); err != nil {
 		t.Fatal(err)
 	}
-	agentpkg.RecordLastProfile("claude", "stale-claude", nil)
-	agentpkg.RecordLastProfile("codex", "stale-codex", nil)
+	providers.RecordLastProfile("claude", "stale-claude")
+	providers.RecordLastProfile("codex", "stale-codex")
 	_ = d
 	changed, err := configure.ApplyProfile([]string{"claude", "codex"}, "qa")
 	if err != nil {

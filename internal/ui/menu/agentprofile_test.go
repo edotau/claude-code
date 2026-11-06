@@ -186,7 +186,7 @@ func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
 	if len(profiles) == 0 {
 		t.Skip("registry serves copilot with no profile")
 	}
-	agentpkg.RecordLastProfile("copilot", "stale-profile", nil)
+	providers.RecordLastProfile("copilot", "stale-profile")
 	lastProfile := func() string {
 		raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json"))
 		return string(raw)
