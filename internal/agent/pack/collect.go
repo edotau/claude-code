@@ -1,6 +1,5 @@
-// context.go assembles workspace file context into one structured prompt for the gemini bridge.
-
-package gemini
+// Package pack inlines tracked workspace files into one prompt under a byte budget; never .env*, state/ or keys.
+package pack
 
 import (
 	"bytes"
@@ -17,17 +16,11 @@ import (
 	"strings"
 )
 
-// modelEnvKeys are process env names consulted in order when no explicit model is passed; the vault pin comes after.
-var modelEnvKeys = []string{"CLAUDE_CODE_GEMINI_MODEL", "GEMINI_MODEL"}
-
-// Collection defaults. The binding limit for a sweep is the total byte budget below, not the file
+// Collection defaults. The binding limit for a sweep is the total byte budget (Collect's budget), not the file
 // count: DefaultMaxFiles is now a generous safety cap (an explicit --max-files still overrides it).
 const (
 	DefaultMaxFiles     = 5000       // safety cap only; --max-files still hard-overrides this
 	DefaultMaxFileBytes = 128 * 1024 // 128 KiB per file (was 32 KiB)
-	// DefaultTotalBytes: dense code can run ~2.4 bytes/token worst case, so 2.5 MiB stays under the
-	// ~1,048,576-token input limit even then (a 4 bytes/token assumption would not).
-	DefaultTotalBytes = 2560 * 1024 // 2.5 MiB
 )
 
 // ignoredSegments: any path containing one of these segments is skipped.
@@ -56,19 +49,6 @@ var mediaTypes = map[string]string{
 
 // secretExtensions: files with these extensions are never inlined, regardless of git tracking.
 var secretExtensions = map[string]bool{".pem": true, ".key": true, ".p12": true, ".pfx": true}
-
-// ResolveModel picks a model: explicit arg → first set env in envKeys → def.
-func ResolveModel(arg string, envKeys []string, def string) string {
-	if arg != "" {
-		return arg
-	}
-	for _, key := range envKeys {
-		if v := os.Getenv(key); v != "" {
-			return v
-		}
-	}
-	return def
-}
 
 // IncludedFile is one inlined file's content + metadata for the prompt.
 type IncludedFile struct {
@@ -103,9 +83,9 @@ func isSymlink(path string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
-// CollectContext walks dirs and globs patterns, inlining up to maxFiles text files (0 = none, <0 = default),
-// each cut at maxFileBytes (<=0 = default); matches are deduped and sorted so output is deterministic.
-func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes int) (Context, error) {
+// Collect walks dirs and globs patterns, inlining up to maxFiles text files (0 = none, <0 = default),
+// each cut at maxFileBytes (<=0 = default), all together under budget bytes; matches are deduped and sorted so output is deterministic.
+func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes, budget int) (Context, error) {
 	if err := ctx.Err(); err != nil {
 		return Context{}, err
 	}
@@ -128,7 +108,7 @@ func CollectContext(ctx context.Context, cwd string, dirs, patterns []string, ma
 	matches, skipped := walkDirs(cwd, dirs, tracked, inRepo)
 	skipped = append(skipped, globPatterns(cwd, patterns, matches, tracked, inRepo)...)
 
-	c := collector{maxFiles: maxFiles, maxFileBytes: maxFileBytes, budget: DefaultTotalBytes}
+	c := collector{maxFiles: maxFiles, maxFileBytes: maxFileBytes, budget: budget}
 	c.out.Skipped = append(c.out.Skipped, skipped...)
 	for _, abs := range sortedMatches(cwd, matches) {
 		if err := c.add(abs, relSlash(cwd, abs)); err != nil {

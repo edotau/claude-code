@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/gemini"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -51,8 +52,8 @@ func geminiBridgeFlags() (*flag.FlagSet, *geminiBridgeOpts) {
 	fs.StringVar(&o.dirs, "dirs", "", "comma-separated dirs to ingest recursively")
 	fs.StringVar(&o.files, "files", "", "comma-separated file globs to ingest")
 	fs.StringVar(&o.format, "format", "text", "output format: text|json")
-	fs.IntVar(&o.MaxFiles, "max-files", gemini.DefaultMaxFiles, "max files to inline")
-	fs.IntVar(&o.MaxFileBytes, "max-file-bytes", gemini.DefaultMaxFileBytes, "max bytes per file")
+	fs.IntVar(&o.MaxFiles, "max-files", pack.DefaultMaxFiles, "max files to inline")
+	fs.IntVar(&o.MaxFileBytes, "max-file-bytes", pack.DefaultMaxFileBytes, "max bytes per file")
 	fs.DurationVar(&o.Timeout, "timeout", 10*time.Minute, "per-attempt deadline")
 	fs.BoolVar(&o.PrintCommand, "print-command", false, "print the resolved request and exit")
 	fs.StringVar(&o.Rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")

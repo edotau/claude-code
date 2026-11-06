@@ -1,6 +1,6 @@
 //go:build unix
 
-package gemini
+package pack
 
 import (
 	"path/filepath"
@@ -25,7 +25,7 @@ func TestWalkDirsSkipsFIFO(t *testing.T) {
 		err error
 	}, 1)
 	go func() {
-		ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
+		ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
 		done <- struct {
 			ctx Context
 			err error
@@ -35,11 +35,11 @@ func TestWalkDirsSkipsFIFO(t *testing.T) {
 	select {
 	case r := <-done:
 		if r.err != nil {
-			t.Fatalf("CollectContext err = %v", r.err)
+			t.Fatalf("Collect err = %v", r.err)
 		}
 		checkFIFOContext(t, r.ctx)
 	case <-time.After(5 * time.Second):
-		t.Fatal("CollectContext hung — the FIFO was opened for read instead of skipped by dir-entry type")
+		t.Fatal("Collect hung — the FIFO was opened for read instead of skipped by dir-entry type")
 	}
 }
 

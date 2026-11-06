@@ -1,6 +1,6 @@
 //go:build unix
 
-package gemini
+package pack
 
 import (
 	"context"
@@ -21,12 +21,12 @@ func fakeGit(t *testing.T, code, stderr string) {
 }
 
 // A git failure inside a real repo fails closed; only git's "not a git repository" means non-repo.
-func TestCollectContextGitFailureFailsClosed(t *testing.T) {
+func TestCollectGitFailureFailsClosed(t *testing.T) {
 	repo := t.TempDir()
 	write(t, filepath.Join(repo, ".git", "HEAD"), "ref: refs/heads/main\n")
 	write(t, filepath.Join(repo, "a.txt"), "hello")
 	fakeGit(t, "1", "boom: index corrupt")
-	got, err := CollectContext(context.Background(), repo, []string{"."}, nil, -1, 0)
+	got, err := Collect(context.Background(), repo, []string{"."}, nil, -1, 0, testBudget)
 	if err == nil || len(got.Included) != 0 {
 		t.Fatalf("want error and no files, got err=%v files=%v", err, got.Included)
 	}
@@ -34,7 +34,7 @@ func TestCollectContextGitFailureFailsClosed(t *testing.T) {
 	plain := t.TempDir()
 	write(t, filepath.Join(plain, "a.txt"), "hello")
 	fakeGit(t, "128", "fatal: not a git repository")
-	got, err = CollectContext(context.Background(), plain, []string{"."}, nil, -1, 0)
+	got, err = Collect(context.Background(), plain, []string{"."}, nil, -1, 0, testBudget)
 	if err != nil || len(got.Included) != 1 {
 		t.Fatalf("non-repo: want 1 file and no error, got err=%v files=%v", err, got.Included)
 	}
