@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -140,7 +141,7 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 		}
 	}
 	if p, ok := reg.KeyProfile("anthropic"); ok {
-		steps = append(steps, RouteStep{Label: "ANTHROPIC_API_KEY", When: "BYOK", OK: providers.CredentialPresent(p)})
+		steps = append(steps, RouteStep{Label: proc.EnvAnthropicAPIKey, When: "BYOK", OK: providers.CredentialPresent(p)})
 	}
 	return steps
 }
@@ -150,7 +151,7 @@ func copilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
 	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
 		model = ""
 	}
-	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE=", "COPILOT_PROVIDERS_CONFIG="}
+	env := []string{"COPILOT_MODEL=" + model, proc.EnvCopilotProviderBaseURL + "=", "COPILOT_OFFLINE=", proc.EnvCopilotProvidersConfig + "="}
 	tok, err := CopilotLaunchToken()
 	if err != nil {
 		return nil, nil, err
@@ -192,23 +193,23 @@ func copilotWire(
 	}
 	window, output := copilotCaps(window, model)
 	env := []string{
-		"COPILOT_PROVIDER_BASE_URL=" + base,
-		"COPILOT_PROVIDER_TYPE=" + typ,
+		proc.EnvCopilotProviderBaseURL + "=" + base,
+		proc.EnvCopilotProviderType + "=" + typ,
 		"COPILOT_MODEL=" + model,
-		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(output),
+		proc.EnvCopilotProviderMaxOutputTokens + "=" + strconv.Itoa(output),
 		"COPILOT_OFFLINE=true",
 		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
-		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
+		proc.EnvCopilotProviderAPIKey + "=", proc.EnvCopilotProviderBearerToken + "=", proc.EnvCopilotProviderAPIKeyCommand + "=",
 	}
 	if wire == providers.ProtocolResponses {
-		env = append(env, "COPILOT_PROVIDER_WIRE_API=responses")
+		env = append(env, proc.EnvCopilotProviderWireAPI+"=responses")
 	}
 	if modelID != "" {
-		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
+		env = append(env, proc.EnvCopilotProviderModelID+"="+modelID)
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
 	if n := models.PromptTokens(window, output); n > 0 {
-		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
+		env = append(env, proc.EnvCopilotProviderMaxPromptTokens+"="+strconv.Itoa(n))
 	}
 	return append(env, copilotCredEnv(p, cred)...), copilotArgv(h), nil
 }
@@ -243,9 +244,9 @@ func copilotCredEnv(p *providers.Provider, cred string) []string {
 	if cred != "" {
 		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.
 		if p.Auth.HeaderStyle() == providers.HeaderBearer {
-			env = append(env, "COPILOT_PROVIDER_BEARER_TOKEN="+cred)
+			env = append(env, proc.EnvCopilotProviderBearerToken+"="+cred)
 		} else {
-			env = append(env, "COPILOT_PROVIDER_API_KEY="+cred)
+			env = append(env, proc.EnvCopilotProviderAPIKey+"="+cred)
 		}
 	}
 	if len(p.Headers) > 0 {
@@ -253,7 +254,7 @@ func copilotCredEnv(p *providers.Provider, cred string) []string {
 		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
 			hs = append(hs, k+": "+p.Headers[k])
 		}
-		env = append(env, "COPILOT_PROVIDER_HEADERS="+strings.Join(hs, "\n"))
+		env = append(env, proc.EnvCopilotProviderHeaders+"="+strings.Join(hs, "\n"))
 	}
 	return env
 }

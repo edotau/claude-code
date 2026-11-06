@@ -9,19 +9,44 @@ import (
 	"strings"
 )
 
+// Shared launch environment names keep route wiring and inherited-env scrubbing aligned.
+const (
+	CopilotProviderPrefix             = "COPILOT_PROVIDER_"
+	EnvCopilotProvidersConfig         = "COPILOT_PROVIDERS_CONFIG"
+	EnvClaudeConfigDir                = "CLAUDE_CONFIG_DIR"
+	EnvAnthropicAPIKey                = "ANTHROPIC_API_KEY"
+	EnvAnthropicAuthToken             = "ANTHROPIC_AUTH_TOKEN"
+	EnvAnthropicBaseURL               = "ANTHROPIC_BASE_URL"
+	EnvAnthropicCustomHeaders         = "ANTHROPIC_CUSTOM_HEADERS"
+	EnvCopilotProviderBaseURL         = CopilotProviderPrefix + "BASE_URL"
+	EnvCopilotProviderType            = CopilotProviderPrefix + "TYPE"
+	EnvCopilotProviderAPIKey          = CopilotProviderPrefix + "API_KEY"
+	EnvCopilotProviderBearerToken     = CopilotProviderPrefix + "BEARER_TOKEN"
+	EnvCopilotProviderAPIKeyCommand   = CopilotProviderPrefix + "API_KEY_COMMAND"
+	EnvCopilotProviderWireAPI         = CopilotProviderPrefix + "WIRE_API"
+	EnvCopilotProviderModelID         = CopilotProviderPrefix + "MODEL_ID"
+	EnvCopilotProviderMaxPromptTokens = CopilotProviderPrefix + "MAX_PROMPT_TOKENS"
+	EnvCopilotProviderMaxOutputTokens = CopilotProviderPrefix + "MAX_OUTPUT_TOKENS"
+	EnvCopilotProviderHeaders         = CopilotProviderPrefix + "HEADERS"
+)
+
+// AnthropicStripEnv names inherited endpoint credentials shared by all launch scrubbers.
+var AnthropicStripEnv = []string{
+	EnvAnthropicAPIKey, EnvAnthropicAuthToken, EnvAnthropicBaseURL, EnvAnthropicCustomHeaders,
+}
+
 // ScrubDeny is every inherited credential/routing var a launch never passes through (it would override its own).
-var ScrubDeny = []string{
+var ScrubDeny = append(slices.Clone(AnthropicStripEnv), []string{
 	"DATABRICKS_*",
-	"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
 	"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "AZURE_OPENAI_*",
 	"GEMINI_API_KEY", "GOOGLE_API_KEY",
-	"COPILOT_GITHUB_TOKEN", "COPILOT_PROVIDER_*", "COPILOT_PROVIDERS_CONFIG",
+	"COPILOT_GITHUB_TOKEN", CopilotProviderPrefix + "*", EnvCopilotProvidersConfig,
 	"HARNESS_*_API_KEY",
 	// Vault-only pins and the session marker: never read from the inherited env; agent-read *_MODEL names stay.
 	"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
 	"COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE",
 	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
-}
+}...)
 
 // EnvKeepVar opts bare shims back into an inherited name; their argv belongs to the agent, not the harness.
 const EnvKeepVar = "HARNESS_KEEP_ENV"

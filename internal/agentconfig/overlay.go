@@ -362,14 +362,14 @@ var errConfigLocation = errors.New("an agent config, permission or routing setti
 // configLocationName reports a name that injects or relocates an agent's config or route; refused in set, keep and unset.
 func configLocationName(up string) bool {
 	switch up {
-	case "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_TUI_CONFIG", "COPILOT_PROVIDERS_CONFIG", "COPILOT_HOME",
+	case "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_TUI_CONFIG", proc.EnvCopilotProvidersConfig, "COPILOT_HOME",
 		"COPILOT_ALLOW_ALL", "COPILOT_ASSISTED_APPROVAL", "COPILOT_CUSTOM_INSTRUCTIONS_DIRS",
-		"COPILOT_API_URL", "COPILOT_GH_HOST", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "ANTHROPIC_CUSTOM_HEADERS",
+		"COPILOT_API_URL", "COPILOT_GH_HOST", "CODEX_HOME", proc.EnvClaudeConfigDir, proc.EnvAnthropicCustomHeaders,
 		"XDG_CONFIG_HOME", "GEMINI_CLI_HOME":
 		return true
 	}
 	return up == "OPENCODE_PERMISSION" || strings.HasPrefix(up, "OPENCODE_DISABLE_") ||
-		strings.HasSuffix(up, "_CONFIG_CONTENT") || strings.HasPrefix(up, "COPILOT_PROVIDER_")
+		strings.HasSuffix(up, "_CONFIG_CONTENT") || strings.HasPrefix(up, proc.CopilotProviderPrefix)
 }
 
 // routeRedirectName reports a name that can redirect a route credential or weaken TLS; refused in set and keep.
