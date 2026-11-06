@@ -2,6 +2,7 @@
 description: "Run GitHub Copilot: a verb (ask, review, status…) or a bare task as ask"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|status|…] <task>"
 allowed-tools: Bash(claude-code copilot *), Bash(claude-code ask --agent copilot *)
+disable-model-invocation: true
 ---
 
 # /copilot

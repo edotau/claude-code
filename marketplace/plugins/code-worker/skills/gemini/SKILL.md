@@ -2,6 +2,7 @@
 description: "Run Gemini (agy): a verb (ask, review…) or a bare task as ask"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|…] <task>"
 allowed-tools: Bash(claude-code gemini *), Bash(claude-code ask --agent gemini *)
+disable-model-invocation: true
 ---
 
 # /gemini

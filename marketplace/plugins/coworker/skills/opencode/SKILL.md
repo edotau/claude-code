@@ -2,6 +2,7 @@
 description: "Run OpenCode: a verb (ask, review, status…) or a bare task as ask"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|status|…] <task>"
 allowed-tools: Bash(claude-code opencode *), Bash(claude-code ask --agent opencode *)
+disable-model-invocation: true
 ---
 
 # /opencode

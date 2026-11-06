@@ -2,6 +2,7 @@
 description: "Full-lifecycle coding via the claude agent — architect, implement, review, or simplify the current change."
 argument-hint: "[review | simplify | <build task>] [diff range / path / blank for current diff]"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
+disable-model-invocation: true
 ---
 
 # Claude Command
