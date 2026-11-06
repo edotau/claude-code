@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -199,6 +200,7 @@ type AskTarget struct {
 	Host, RemoteBin, Fallback                                         *string
 	Timeout                                                           *time.Duration
 	Persona                                                           **Schema
+	Pack                                                              **pack.Spec
 	Attach, KeepEnv                                                   *[]string
 	PermMode                                                          *string
 	PermAllow, PermAsk, PermDeny                                      *[]string
@@ -215,6 +217,9 @@ func (t *AskTarget) Apply(rec Record, errw io.Writer) {
 	*t.Host, *t.RemoteBin = rec.Host, rec.RemoteBin
 	p := rec.Request.Permissions
 	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, RuleStrings(p.Allow), RuleStrings(p.Ask), RuleStrings(p.Deny)
+	if t.Pack != nil {
+		*t.Pack = rec.Request.Pack
+	}
 	if t.Persona != nil {
 		*t.Persona = rec.Request.Persona
 	}
