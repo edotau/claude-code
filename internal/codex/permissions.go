@@ -71,27 +71,26 @@ func codexRender(p agent.Permissions, tools, gate bool) (codexPolicy, error) {
 		return pol, errors.New("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
 	}
 	var b strings.Builder
-	sets := []struct {
-		rules    []agent.Rule
-		decision string
-	}{{p.Deny, "forbidden"}, {p.Ask, "prompt"}, {p.Allow, "allow"}}
-	if !tools {
-		sets = sets[:1] // no tools: an allow/prompt rule could auto-approve what the dispatch should not run
-	}
-	for _, set := range sets {
-		for _, r := range set.rules {
-			line, err := codexRule(r, set.decision, tools)
-			if errors.As(err, &notPrefixError{}) && set.decision == "forbidden" && gate {
-				continue
-			}
-			if err != nil && set.decision == "forbidden" {
-				return pol, err
-			}
-			if err != nil {
-				pol.unmapped = append(pol.unmapped, r.String())
-			}
-			b.WriteString(line)
+	var renderErr error
+	p.Each(func(decision agent.Decision, r agent.Rule) {
+		if renderErr != nil || (!tools && decision != agent.Deny) {
+			return // no tools: an allow/prompt rule could auto-approve what the dispatch should not run
 		}
+		line, err := codexRule(r, [...]string{"forbidden", "prompt", "allow"}[decision], tools)
+		if errors.As(err, &notPrefixError{}) && decision == agent.Deny && gate {
+			return
+		}
+		if err != nil && decision == agent.Deny {
+			renderErr = err
+			return
+		}
+		if err != nil {
+			pol.unmapped = append(pol.unmapped, r.String())
+		}
+		b.WriteString(line)
+	})
+	if renderErr != nil {
+		return pol, renderErr
 	}
 	pol.rules = b.String()
 	pol.approve = p.Mode == "auto" || len(p.Ask) > 0

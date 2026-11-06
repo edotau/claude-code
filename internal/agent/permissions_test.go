@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,33 @@ func TestPermissionParsePermissionsErrors(t *testing.T) {
 	if _, err := ParsePermissions("auto", []string{"Bash()"}, nil, nil); err == nil {
 		t.Error("bad rule must error")
 	}
+}
+
+func TestPermissionEach(t *testing.T) {
+	p := Permissions{
+		Allow: []Rule{{Tool: "Read", Arg: "allowed.txt"}},
+		Ask:   []Rule{{Tool: "Bash", Arg: "git push:*"}},
+		Deny:  []Rule{{Tool: "Edit", Arg: ".env"}},
+	}
+	type visit struct {
+		decision Decision
+		rule     Rule
+	}
+	var got []visit
+	p.Each(func(decision Decision, r Rule) {
+		got = append(got, visit{decision, r})
+	})
+	want := []visit{
+		{Deny, Rule{Tool: "Edit", Arg: ".env"}},
+		{Ask, Rule{Tool: "Bash", Arg: "git push:*"}},
+		{Allow, Rule{Tool: "Read", Arg: "allowed.txt"}},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Each visits = %+v, want %+v", got, want)
+	}
+	(Permissions{}).Each(func(decision Decision, r Rule) {
+		t.Errorf("empty Permissions visited decision %v, rule %+v", decision, r)
+	})
 }
 
 // Given the same call in Allow, Ask and Deny, Then Deny wins, then Ask, then Allow.
