@@ -211,8 +211,7 @@ func goPkgOf(dir, rel string) string {
 	return ""
 }
 
-// ChooseVerifyGate picks the post-integration gate: noVerify skips it, an explicit verify wins, else it is detected
-// from worktreePath like workflows/green-keeper-loop.js (Makefile test -> go.mod -> pyproject -> package.json -> Cargo.toml).
+// ChooseVerifyGate picks the post-integration gate: noVerify skips it, an explicit verify wins, else it is detected.
 func ChooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source string, err error) {
 	if noVerify {
 		return "", "", nil
@@ -227,7 +226,7 @@ func ChooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source 
 	return gate, source, nil
 }
 
-// detectVerifyGate mirrors workflows/green-keeper-loop.js's detection order over dir's own files.
+// detectVerifyGate finds a suite-wide gate: Makefile test, go.mod, pyproject/setup.cfg, package.json, Cargo.toml.
 func detectVerifyGate(dir string) (gate, source string) {
 	if hasMakeTarget(filepath.Join(dir, "Makefile"), "test") {
 		return "make test", "Makefile"
