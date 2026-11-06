@@ -74,12 +74,12 @@ install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0:
 # The harness marketplace (code-worker:*, coworker:* agents) loads in place from the live checkout, never a worktree.
 PLUGIN_MARKET := $(or $(CLAUDE_CONFIG_DIR),$(HOME)/.claude)/marketplace
 .PHONY: plugins
-plugins:  ## Register the harness marketplace and install its plugins (idempotent)
+plugins:  ## Register the edotau marketplace and install its plugins (idempotent)
 	@command -v claude >/dev/null || { echo -e "$(C_NOTE)claude not on PATH; skipping plugins"; exit 0; }
-	@claude plugin marketplace list 2>/dev/null | grep -q '❯ harness$$' || claude plugin marketplace add "$(PLUGIN_MARKET)"
+	@claude plugin marketplace list 2>/dev/null | grep -q '❯ edotau$$' || claude plugin marketplace add "$(PLUGIN_MARKET)"
 	@for p in code-worker coworker; do \
-		claude plugin list 2>/dev/null | grep -q "❯ $$p@harness$$" || claude plugin install "$$p@harness" || exit 1; done
-	@echo -e "$(C_OK)plugins code-worker, coworker (harness marketplace)"
+		claude plugin list 2>/dev/null | grep -q "❯ $$p@edotau$$" || claude plugin install "$$p@edotau" || exit 1; done
+	@echo -e "$(C_OK)plugins code-worker, coworker (edotau marketplace)"
 
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
 # fails typecheck with "export data version N is greater than maximum supported" — overwrite it in place.

@@ -1,5 +1,5 @@
 {
-  "name": "harness",
+  "name": "edotau",
   "owner": {
     "name": "Eric Au"
   },
@@ -15,5 +15,5 @@
       "description": "coworker leaves pinned to copilot, opencode or a Databricks profile"
     }
   ],
-  "description": "The claude-code harness's own plugins"
+  "description": "Eric Au's claude-code harness plugins"
 }

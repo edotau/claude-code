@@ -4,14 +4,14 @@ argument-hint: "[agents=copilot|opencode|databricks,…] [model=m|discovery] [pr
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
-Launcher only. The leaf's procedure and report live in `agents/coworker.md`; the dispatch shape and the
-Handoff contract in `skills/subagent-workflows/SKILL.md`.
+Launcher only. The leaf's procedure and report live in `~/.claude/agents/coworker.md`; the dispatch shape and the
+Handoff contract in `~/.claude/skills/subagent-workflows/SKILL.md`.
 
 Empty `$ARGUMENTS` or `help`: print the Usage block below verbatim and stop.
 
 From `$ARGUMENTS`, strip an optional leading mode word (`single`/`compare`/`relay`/`team`; default `single`) and
 an optional `agents=` list (default: copilot whenever available; task-class picks per
-`skills/subagent-workflows/references/cost-routing.md`); split the rest on `|` into the task list.
+`~/.claude/skills/subagent-workflows/references/cost-routing.md`); split the rest on `|` into the task list.
 
 Dispatch each task as one `coworker:<a>` leaf (`subagent_type: "coworker:copilot|opencode|databricks"`; compare or
 relay across several = the bare `coworker` leaf with an `Agent:` list), all in ONE message in the background (SKILL.md
@@ -36,7 +36,7 @@ approved items go to `coworker:opencode` leaves (shared tree; worktree only with
 `copilot` test agent (feature/bug fix only) when code changes. `agents=` overrides the three roles in order.
 Watch each dispatch with `claude-code <agent> tail -f`.
 
-Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
+Pick and fallback: `~/.claude/skills/subagent-workflows/references/cost-routing.md`.
 
 # Usage
 
