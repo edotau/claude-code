@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -53,7 +54,11 @@ func stopFormat(in *core.Input) int {
 		return core.ExitProceed
 	}
 	allow := map[string]bool{}
-	for _, f := range transcript.EditedFiles(in.TranscriptPath, stopFormatMaxFiles) {
+	edited, err := transcript.EditedFiles(in.TranscriptPath, stopFormatMaxFiles)
+	if err != nil { // a partial scan still formats what it found
+		fmt.Fprintf(os.Stderr, "format-stop: transcript scan: %v\n", err)
+	}
+	for _, f := range edited {
 		if !filepath.IsAbs(f) {
 			f = filepath.Join(cwd, f)
 		}
