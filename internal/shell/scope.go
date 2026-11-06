@@ -447,7 +447,7 @@ func absolutizeOperands(w []string, cwd string) []string {
 	}
 	out := slices.Clone(w)
 	for i := first; i < last; i++ {
-		if rmOperandPlain(out[i]) && !filepath.IsAbs(out[i]) && !(w[0] == "git" && strings.HasSuffix(out[i], "/")) {
+		if rmOperandPlain(out[i]) && !filepath.IsAbs(out[i]) && (w[0] != "git" || !strings.HasSuffix(out[i], "/")) {
 			out[i] = filepath.Join(cwd, out[i])
 		}
 	}
