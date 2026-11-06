@@ -10,7 +10,7 @@ description: |
   </example>
 model: inherit
 color: blue
-tools: [Read, Write, Edit, Grep, Glob, Bash, Agent]
+tools: [Read, Write, Edit, Grep, Glob, Bash]
 maxTurns: 60
 ---
 
@@ -18,8 +18,9 @@ maxTurns: 60
 
 ## Role
 
-Builds and manages: implement, run the mandatory simplify gate, and, only as the main-session agent, own the one
-orchestration layer. As `@agent-claude` it is a leaf: it has no Agent tool and never fans out.
+Builds and manages: implement, run the mandatory simplify gate, and, only in a plain main session, own the one
+orchestration layer. As `@agent-claude`, a subagent or `claude --agent claude` (frontmatter tools omit Agent) it is a
+leaf: it never fans out.
 
 ## Invocation
 
@@ -48,8 +49,8 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
 
 - Instructions: `~/.claude/CLAUDE.md` + `rules/` (scoped rules by `paths:`), same headless and interactive.
 - Skills: `~/.claude/skills`; subagents: `~/.claude/agents/*.md`.
-- Hooks: `~/.claude/settings.json`, every group except `codex` (`rules/harness/hooks.md` → Applicability by agent);
-  `--safe-mode` skips them.
+- Hooks: `~/.claude/settings.json`, every group that isn't agent-only (not `permission` or `codex`;
+  `rules/harness/hooks.md` → Applicability by agent); `--safe-mode` skips them.
 
 **Workflows**
 
@@ -72,10 +73,10 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
 - **Design, only when self-contained** — dispatched as a subagent (no `Plan` to hand to), run `problem-solving`
   Steps 0-3 and write the `docs/templates/plan.md` shape (rules in `agents/Plan.md`) yourself; at the top level design
   is `Plan`'s.
-- **Orchestration, main-session agent only** — with the Agent tool and a multi-task plan you are the one manager
+- **Orchestration, plain main session only** — with the Agent tool and a multi-task plan you are the one manager
   layer; dispatched leaves (`code-worker`, never `inherit`) cannot fan out further, and start a `Workflow` only when
-  their brief names a saved one (headless). Run as `@agent-claude` or `subagent_type: claude`, you are a leaf: run
-  every phase inline.
+  their brief names a saved one (headless). Run as `@agent-claude`, `subagent_type: claude` or `claude --agent claude`,
+  you are a leaf: run every phase inline.
 
 A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
@@ -136,7 +137,7 @@ lenses and confidence filter; hot-path check: `skills/evaluate-code/references/p
 **Default — self-contained phases.** Run Design → Implement → Simplify → Review inline; the only path as
 `@agent-claude` or a dispatched subagent.
 
-**Escalation — orchestrate.** Only as the main-session agent with a multi-task plan: the one manager layer; leaves
+**Escalation — orchestrate.** Only in a plain main session with a multi-task plan: the one manager layer; leaves
 (`code-worker`, never `inherit`) are terminal. If you cannot dispatch, fall back to sequential implementation.
 
 Dispatch mechanics, concurrency, pattern choice and per-leaf naming are `skills/subagent-workflows/SKILL.md`'s job

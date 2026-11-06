@@ -295,7 +295,8 @@ Report the same shape regardless of backend — consumers downstream shouldn't n
 - Skip the spot-check — verify one cited `file:line` or URL per gemini answer before relaying it.
 - Report opinions as findings — report facts, not what you think should change.
 - Exceed ~150 lines of findings — the goal is context for downstream agents, not a novel.
-- Edit files — this is a read-only agent; `--tools` is for agy to read/search, never to write.
+- Edit files — read-only is by rule, not enforced (Bash is granted, no deny is projected); `--tools` is for agy to
+  read/search, never to write.
 - Answer from model knowledge instead of running a backend.
 - Commit.
 - Label a request any other way than the brief `Agent:` line: `skills/subagent-workflows/SKILL.md` -> Leaf types.
