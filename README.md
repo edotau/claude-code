@@ -371,7 +371,7 @@ intent-dependent commands) keeps its own process and cannot be turned off; any o
 | `safety` | Bash safety gate (block / ask / warn tiers) |
 | `rtk` | Routes noisy command output through rtk |
 | `docs` | Markdown placement gate; plan template, dated plan copies, plan-task ticks |
-| `dispatch` | Concurrency cap (12 per account, ≤ 4 × CPUs), subagent model fill, memory pointers on spawn |
+| `dispatch` | Concurrency cap (24 per account, ≤ 4 × CPUs), subagent model fill, memory pointers on spawn |
 | `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
 | `memory` | Injects the catalog and recall at start/prompt; context checkpoint and memory update at Stop/SessionEnd/PreCompact |
 | `format` | Formats files edited this turn |
