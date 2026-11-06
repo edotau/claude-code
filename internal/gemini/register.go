@@ -21,5 +21,4 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 	Events: []string{agent.EventStart, agent.EventText, agent.EventProgress, agent.EventResult, agent.EventError}, Cost: true,
 	ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true, RefusesReadOnly: true,
 	ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},
-	ExtraUsage: [][2]string{{"bridge", "ingest files for a large-context task"}},
 }}

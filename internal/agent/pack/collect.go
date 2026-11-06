@@ -211,9 +211,8 @@ func walkDirs(cwd string, dirs []string, tracked map[string]bool, inRepo bool) (
 				return nil // unreadable entry: skip, don't abort the walk
 			}
 			if d.IsDir() {
-				// Prune here, not per-file: walking into .git/node_modules/etc. would report every file inside.
+				// Prune here, not per-file; a pruned directory is not a file, so it is not counted as skipped.
 				if p != root && ignoredSegments[d.Name()] {
-					skipped = append(skipped, SkippedFile{relSlash(cwd, p), "ignored-path"})
 					return fs.SkipDir
 				}
 				return nil
