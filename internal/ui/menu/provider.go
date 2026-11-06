@@ -34,8 +34,8 @@ const (
 	allError      = "error"
 )
 
-// AllRowStatus is one row's verdict; Detail is the expiry text or error, never a token.
-type AllRowStatus struct {
+// allRowStatus is one row's verdict; Detail is the expiry text or error, never a token.
+type allRowStatus struct {
 	Row    string `json:"row"`
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
@@ -67,8 +67,8 @@ func namedProvider(name string, p *providers.Provider) *providers.Provider {
 }
 
 // allCheckOne runs the sign-in check capped at allCheckTimeout; a timeout is transient, never "needs login".
-func allCheckOne(ctx context.Context, p *providers.Provider) AllRowStatus {
-	st := AllRowStatus{Row: p.Name}
+func allCheckOne(ctx context.Context, p *providers.Provider) allRowStatus {
+	st := allRowStatus{Row: p.Name}
 	type res struct {
 		v      providers.AuthVerdict
 		detail string
@@ -100,8 +100,8 @@ func allCheckOne(ctx context.Context, p *providers.Provider) AllRowStatus {
 }
 
 // allCheckAll checks the rows concurrently and returns the verdicts in row order.
-func allCheckAll(ctx context.Context, reg *providers.Registry, rows []string) []AllRowStatus {
-	out := make([]AllRowStatus, len(rows))
+func allCheckAll(ctx context.Context, reg *providers.Registry, rows []string) []allRowStatus {
+	out := make([]allRowStatus, len(rows))
 	var wg sync.WaitGroup
 	for i, n := range rows {
 		wg.Go(func() {
@@ -112,7 +112,7 @@ func allCheckAll(ctx context.Context, reg *providers.Registry, rows []string) []
 	return out
 }
 
-func allLine(s AllRowStatus) string {
+func allLine(s allRowStatus) string {
 	switch {
 	case s.Status == allError:
 		return fmt.Sprintf("%s: error: %s", s.Row, s.Detail)
@@ -141,7 +141,7 @@ func runProviderAll(d *dialog) bool {
 		b, _ := json.MarshalIndent(res, "", "  ")
 		fmt.Fprintln(d.out, string(b))
 	}
-	return slices.IndexFunc(res, func(s AllRowStatus) bool { return s.Status != allOK }) < 0
+	return slices.IndexFunc(res, func(s allRowStatus) bool { return s.Status != allOK }) < 0
 }
 
 // reportNoProviders says nothing is configured ("[]" in JSON mode); that is not a failure.
@@ -155,7 +155,7 @@ func reportNoProviders(d *dialog) bool {
 }
 
 // offerAllLogins offers login to each needs-login or rejected row in res, replacing it with the final verdict.
-func offerAllLogins(d *dialog, res []AllRowStatus) {
+func offerAllLogins(d *dialog, res []allRowStatus) {
 	for i, s := range res {
 		if s.Status != allNeedsLogin && s.Status != allRejected {
 			continue
@@ -167,7 +167,7 @@ func offerAllLogins(d *dialog, res []AllRowStatus) {
 }
 
 // allLoginRow prompts, logs in and re-checks one failing row; the returned status is the final verdict.
-func allLoginRow(d *dialog, s AllRowStatus) AllRowStatus {
+func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
 	fmt.Fprintf(os.Stderr, "%s: login required. Log in now? [Y/n] ", s.Row)
 	if !uidialog.Yes(d.br) {
 		return s
@@ -175,7 +175,7 @@ func allLoginRow(d *dialog, s AllRowStatus) AllRowStatus {
 	ctx := context.Background()
 	p := namedProvider(s.Row, d.reg.Providers[s.Row])
 	if err := allSigninFor(p).Login(ctx, d.o.In, os.Stderr); err != nil {
-		return AllRowStatus{Row: s.Row, Status: allError, Detail: "login: " + err.Error()}
+		return allRowStatus{Row: s.Row, Status: allError, Detail: "login: " + err.Error()}
 	}
 	d.changed = true
 	d.reload()

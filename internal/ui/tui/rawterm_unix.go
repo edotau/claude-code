@@ -80,8 +80,8 @@ func Size(fd int) (int, int, error) {
 	return int(ws.Col), int(ws.Row), nil
 }
 
-// ErrCanceled is what readPassword returns when Esc, Ctrl-C or Ctrl-D ends the read before Enter.
-var ErrCanceled = errors.New("tui: input canceled")
+// errCanceled is what readPassword returns when Esc, Ctrl-C or Ctrl-D ends the read before Enter.
+var errCanceled = errors.New("tui: input canceled")
 
 // readPassword reads one line from fd with echo off, calling onChange (if set) after every read so a paste shows
 // as it lands; Backspace and Ctrl-U edit, Esc/Ctrl-C/Ctrl-D cancel. The terminal is restored before returning.
@@ -109,7 +109,7 @@ func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 			return line, kerr
 		}
 		if esc == escSeen && !waitReadable(fd, pollTick) {
-			return nil, ErrCanceled // a lone Esc, not the start of a sequence split across reads
+			return nil, errCanceled // a lone Esc, not the start of a sequence split across reads
 		}
 		if onChange != nil && n > 0 {
 			onChange(line)
@@ -134,13 +134,13 @@ func feedPassword(line, in []byte, esc *escState) (_ []byte, done bool, err erro
 	return line, false, nil
 }
 
-// editLine applies one typed byte to line; done is true on Enter (err nil) or Ctrl-C/Ctrl-D (ErrCanceled).
+// editLine applies one typed byte to line; done is true on Enter (err nil) or Ctrl-C/Ctrl-D (errCanceled).
 func editLine(line []byte, c byte) (_ []byte, done bool, err error) {
 	switch {
 	case c == '\n' || c == '\r':
 		return line, true, nil
 	case c == 0x03 || c == 0x04:
-		return nil, true, ErrCanceled
+		return nil, true, errCanceled
 	case c == 0x7f || c == 0x08:
 		return line[:max(0, len(line)-1)], false, nil
 	case c == 0x15:
@@ -175,6 +175,7 @@ const (
 	escNone escState = iota
 	escSeen
 	escCSI
+	escSS3
 )
 
 // skip reports whether c belongs to an escape sequence and is to be ignored.
@@ -186,6 +187,13 @@ func (s *escState) skip(c byte) bool {
 			*s = escCSI
 			return true
 		}
+		if c == 'O' {
+			*s = escSS3
+			return true
+		}
+	case escSS3: // ESC O x: application-mode arrow or function key, one final byte
+		*s = escNone
+		return true
 	case escCSI:
 		if c >= 0x40 && c <= 0x7e {
 			*s = escNone

@@ -20,6 +20,7 @@ const (
 	KeyUp
 	KeyDown
 	KeyLeft
+	KeyRight
 	KeyCtrlC
 	KeyBackspace // DEL (0x7f) or Ctrl-H (0x08)
 	KeyCtrl      // Ctrl+letter other than C/H/J/M; Rune is the lowercase letter ('d' for Ctrl-D)
@@ -73,7 +74,7 @@ func decodeRune(buf []byte) (Key, int) {
 	return Key{Kind: KeyRune, Rune: r}, n
 }
 
-// decodeEscape handles a lone Esc and the CSI arrow sequences (ESC [ A/B); anything else drops, since
+// decodeEscape handles a lone Esc and the CSI arrow sequences (ESC [ A/B/C/D); anything else drops, since
 // Pick has no other escape-driven key.
 func decodeEscape(buf []byte) (Key, int) {
 	if len(buf) == 1 {
@@ -95,7 +96,7 @@ func decodeEscape(buf []byte) (Key, int) {
 }
 
 // csiArrows maps the final byte of ESC [ <byte> to the arrow key it names.
-var csiArrows = map[byte]KeyKind{'A': KeyUp, 'B': KeyDown, 'D': KeyLeft}
+var csiArrows = map[byte]KeyKind{'A': KeyUp, 'B': KeyDown, 'C': KeyRight, 'D': KeyLeft}
 
 // skipCSIParams drops a parameterized CSI sequence through its final byte; 0 when that byte hasn't arrived.
 func skipCSIParams(buf []byte) (Key, int) {
@@ -120,6 +121,8 @@ func (k Key) Name() string {
 		return "down"
 	case KeyLeft:
 		return "left"
+	case KeyRight:
+		return "right"
 	case KeyCtrlC:
 		return "ctrl+c"
 	case KeyBackspace:
