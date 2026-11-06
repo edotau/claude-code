@@ -1,10 +1,8 @@
-package gemini
+package pack
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,32 +24,8 @@ func write(t *testing.T, path, body string) {
 	}
 }
 
-// TestResolveModel: explicit arg wins; default when nothing set; GEMINI_MODEL fallback;
-// CLAUDE_CODE_GEMINI_MODEL beats GEMINI_MODEL.
-func TestResolveModel(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "")
-	t.Setenv("GEMINI_MODEL", "")
-
-	if got := ResolveModel("explicit-model", modelEnvKeys, "def-model"); got != "explicit-model" {
-		t.Errorf("explicit arg: got %q", got)
-	}
-	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "def-model" {
-		t.Errorf("default: got %q, want %q", got, "def-model")
-	}
-
-	t.Setenv("GEMINI_MODEL", "gemini-env-model")
-	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-env-model" {
-		t.Errorf("env fallback: got %q", got)
-	}
-
-	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "gemini-primary-model")
-	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-primary-model" {
-		t.Errorf("env precedence: got %q", got)
-	}
-}
-
-// TestCollectContext: globs + walks, skips ignored dirs, binary, and honors caps + truncation.
-func TestCollectContext(t *testing.T) {
+// TestCollect: globs + walks, skips ignored dirs, binary, and honors caps + truncation.
+func TestCollect(t *testing.T) {
 	dir := t.TempDir()
 	w := func(rel, content string) { write(t, filepath.Join(dir, rel), content) }
 	w("a.go", "package a")
@@ -60,7 +34,7 @@ func TestCollectContext(t *testing.T) {
 	w("bin.bin", "\x00\x01binary")
 	w("big.txt", strings.Repeat("x", 100))
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 10)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 10, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +58,7 @@ func TestCollectContext(t *testing.T) {
 	}
 }
 
-// checkCollectSkips requires the pruned-dir and binary skip reasons from TestCollectContext's tree.
+// checkCollectSkips requires the pruned-dir and binary skip reasons from TestCollect's tree.
 func checkCollectSkips(t *testing.T, ctx Context) {
 	t.Helper()
 	skipReasons := map[string]string{}
@@ -105,13 +79,13 @@ func checkCollectSkips(t *testing.T, ctx Context) {
 	}
 }
 
-// TestCollectContextMaxFiles: max-files cap marks the overflow skipped.
-func TestCollectContextMaxFiles(t *testing.T) {
+// TestCollectMaxFiles: max-files cap marks the overflow skipped.
+func TestCollectMaxFiles(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
 		write(t, filepath.Join(dir, n), "x")
 	}
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 2, 100)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 2, 100, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,13 +103,13 @@ func TestCollectContextMaxFiles(t *testing.T) {
 	}
 }
 
-// TestCollectContextGlobError: a malformed --pattern is recorded as Skipped, not silently dropped.
-func TestCollectContextGlobError(t *testing.T) {
+// TestCollectGlobError: a malformed --pattern is recorded as Skipped, not silently dropped.
+func TestCollectGlobError(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "a.txt"), "x")
 
 	// "[" is an unterminated character class: filepath.Glob returns ErrBadPattern for it.
-	ctx, err := CollectContext(t.Context(), dir, nil, []string{"["}, 40, 100)
+	ctx, err := Collect(t.Context(), dir, nil, []string{"["}, 40, 100, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,8 +124,8 @@ func TestCollectContextGlobError(t *testing.T) {
 	}
 }
 
-// TestCollectContextWalkError: an unreadable subdir is recorded as Skipped, not vanished silently.
-func TestCollectContextWalkError(t *testing.T) {
+// TestCollectWalkError: an unreadable subdir is recorded as Skipped, not vanished silently.
+func TestCollectWalkError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses directory permission bits")
 	}
@@ -162,7 +136,7 @@ func TestCollectContextWalkError(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(sub, 0o755) }) // let t.TempDir() clean up
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,8 +151,8 @@ func TestCollectContextWalkError(t *testing.T) {
 	}
 }
 
-// TestCollectContextSkipsSecretLike: secret-like paths are always skipped, even outside a git repo.
-func TestCollectContextSkipsSecretLike(t *testing.T) {
+// TestCollectSkipsSecretLike: secret-like paths are always skipped, even outside a git repo.
+func TestCollectSkipsSecretLike(t *testing.T) {
 	dir := t.TempDir()
 	w := func(rel, content string) { write(t, filepath.Join(dir, rel), content) }
 	w("a.go", "package a")
@@ -190,7 +164,7 @@ func TestCollectContextSkipsSecretLike(t *testing.T) {
 	w("env.d/x.env", "x")
 	w("state/y.txt", "y")
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,9 +186,9 @@ func TestCollectContextSkipsSecretLike(t *testing.T) {
 	}
 }
 
-// TestCollectContextHonoursGitIgnore: inside a git work tree, gitignored files are skipped, both
+// TestCollectHonoursGitIgnore: inside a git work tree, gitignored files are skipped, both
 // tracked and untracked files are included.
-func TestCollectContextHonoursGitIgnore(t *testing.T) {
+func TestCollectHonoursGitIgnore(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -237,7 +211,7 @@ func TestCollectContextHonoursGitIgnore(t *testing.T) {
 		}
 	}
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,8 +232,8 @@ func TestCollectContextHonoursGitIgnore(t *testing.T) {
 	}
 }
 
-// TestCollectContextFailsClosedOnLsFilesError: a corrupt index must error, not walk gitignored files.
-func TestCollectContextFailsClosedOnLsFilesError(t *testing.T) {
+// TestCollectFailsClosedOnLsFilesError: a corrupt index must error, not walk gitignored files.
+func TestCollectFailsClosedOnLsFilesError(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -272,7 +246,7 @@ func TestCollectContextFailsClosedOnLsFilesError(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, ".git", "index"), "not a valid index")
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
 	if err == nil {
 		t.Fatalf("err = nil, want ls-files error; Included = %v", ctx.Included)
 	}
@@ -281,13 +255,13 @@ func TestCollectContextFailsClosedOnLsFilesError(t *testing.T) {
 	}
 }
 
-// TestCollectContextAbsDir: an absolute --dirs entry resolves independent of cwd.
-func TestCollectContextAbsDir(t *testing.T) {
+// TestCollectAbsDir: an absolute --dirs entry resolves independent of cwd.
+func TestCollectAbsDir(t *testing.T) {
 	target := t.TempDir()
 	write(t, filepath.Join(target, "a.go"), "package a")
 
 	other := t.TempDir()
-	ctx, err := CollectContext(t.Context(), other, []string{target}, nil, 40, 100)
+	ctx, err := Collect(t.Context(), other, []string{target}, nil, 40, 100, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,12 +276,12 @@ func TestCollectContextAbsDir(t *testing.T) {
 	}
 }
 
-// TestCollectContextBoundedRead: a large file is bounded-read: original size preserved, content capped.
-func TestCollectContextBoundedRead(t *testing.T) {
+// TestCollectBoundedRead: a large file is bounded-read: original size preserved, content capped.
+func TestCollectBoundedRead(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "big.txt"), strings.Repeat("x", 1<<20))
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 1024)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 1024, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,18 +300,18 @@ func TestCollectContextBoundedRead(t *testing.T) {
 	}
 }
 
-// TestCollectContextByteBudget: many files whose combined size exceeds DefaultTotalBytes are capped at
+// TestCollectByteBudget: many files whose combined size exceeds testBudget are capped at
 // the budget (not the file-count cap, which is set generously high here), and the overflow is recorded
 // as "budget-exceeded" rather than silently dropped.
-func TestCollectContextByteBudget(t *testing.T) {
+func TestCollectByteBudget(t *testing.T) {
 	dir := t.TempDir()
 	const perFile = 100_000
-	const numFiles = 35 // 3.5 MB total, over DefaultTotalBytes (~3 MB)
+	const numFiles = 35 // 3.5 MB total, over testBudget
 	for i := range numFiles {
 		write(t, filepath.Join(dir, fmt.Sprintf("f%02d.txt", i)), strings.Repeat("x", perFile))
 	}
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 1000, 1<<20)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 1000, 1<<20, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,8 +319,8 @@ func TestCollectContextByteBudget(t *testing.T) {
 	for _, f := range ctx.Included {
 		total += len(f.Content)
 	}
-	if total > DefaultTotalBytes {
-		t.Errorf("inlined bytes = %d, want <= DefaultTotalBytes (%d)", total, DefaultTotalBytes)
+	if total > testBudget {
+		t.Errorf("inlined bytes = %d, want <= testBudget (%d)", total, testBudget)
 	}
 	if len(ctx.Included)+len(ctx.Skipped) != numFiles {
 		t.Fatalf("included+skipped = %d, want %d (every file accounted for)", len(ctx.Included)+len(ctx.Skipped), numFiles)
@@ -358,19 +332,19 @@ func TestCollectContextByteBudget(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("expected at least one budget-exceeded skip once the total exceeds DefaultTotalBytes")
+		t.Error("expected at least one budget-exceeded skip once the total exceeds testBudget")
 	}
 }
 
-// TestCollectContextByteBudgetUnderLimit: when the combined size is comfortably under the byte budget,
+// TestCollectByteBudgetUnderLimit: when the combined size is comfortably under the byte budget,
 // nothing is skipped for budget reasons — the cap must not trigger early.
-func TestCollectContextByteBudgetUnderLimit(t *testing.T) {
+func TestCollectByteBudgetUnderLimit(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
 		write(t, filepath.Join(dir, n), strings.Repeat("y", 100))
 	}
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 1024)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 1024, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,17 +358,17 @@ func TestCollectContextByteBudgetUnderLimit(t *testing.T) {
 	}
 }
 
-// TestCollectContextOrdersSourceBeforeTests: a tight byte budget that can only fit one of two same-size
+// TestCollectOrdersSourceBeforeTests: a tight byte budget that can only fit one of two same-size
 // files must keep the non-test source file over the _test.go file, even though the test file alphabetically
 // sorts first — ordering groups real source ahead of tests ahead of testdata/fixtures.
-func TestCollectContextOrdersSourceBeforeTests(t *testing.T) {
+func TestCollectOrdersSourceBeforeTests(t *testing.T) {
 	dir := t.TempDir()
 	body := strings.Repeat("x", 100)
 	write(t, filepath.Join(dir, "a_test.go"), body) // alphabetically first, but must rank after source
 	write(t, filepath.Join(dir, "z.go"), body)
 	write(t, filepath.Join(dir, "testdata", "fixture.txt"), body)
 
-	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 1000, 1024)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 1000, 1024, testBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +398,7 @@ func TestBuildPrompt(t *testing.T) {
 		},
 		Skipped: []SkippedFile{{Path: "x.png", Reason: "unsupported-extension"}},
 	}
-	got := BuildPrompt("do a thing", ctx)
+	got := Prompt("do a thing", ctx)
 	for _, want := range []string{
 		"<context_inventory>",
 		"- a.go | text/plain | 8 bytes | truncated=false",
@@ -444,7 +418,7 @@ func TestBuildPrompt(t *testing.T) {
 
 // TestBuildPromptEmpty: no files → "Included files: none" + no-payload sentinel.
 func TestBuildPromptEmpty(t *testing.T) {
-	got := BuildPrompt("task", Context{})
+	got := Prompt("task", Context{})
 	if !strings.Contains(got, "Included files: none") {
 		t.Error("expected 'Included files: none'")
 	}
@@ -457,7 +431,7 @@ func TestBuildPromptEmpty(t *testing.T) {
 // nested tree collapses shared prefixes, which is what lets a whole repo fit where inlining files
 // cannot — the gemini's "max-files-exceeded" failure was exactly this budget running out.
 func TestBuildIndexNests(t *testing.T) {
-	idx := BuildIndex(Context{
+	idx := Index(Context{
 		Included: []IncludedFile{{Path: "internal/router/dispatch.go", Bytes: 100}},
 		Skipped:  []SkippedFile{{Path: "internal/cli/run.go", Reason: "max-files-exceeded"}},
 	})
@@ -478,7 +452,7 @@ func TestBuildIndexNests(t *testing.T) {
 // Omitting it is what made the gemini answer "contents are not available" — it could not even see
 // that the file existed, so it could not ask for it by name.
 func TestIndexCoversSkippedFiles(t *testing.T) {
-	idx := BuildIndex(Context{Skipped: []SkippedFile{{Path: "internal/router/spillpool.go", Reason: "max-files-exceeded"}}})
+	idx := Index(Context{Skipped: []SkippedFile{{Path: "internal/router/spillpool.go", Reason: "max-files-exceeded"}}})
 	if !strings.Contains(idx, "spillpool.go") {
 		t.Errorf("skipped file absent from the index — it becomes invisible, not merely unread:\n%s", idx)
 	}
@@ -487,7 +461,7 @@ func TestIndexCoversSkippedFiles(t *testing.T) {
 // TestIndexCarriesMetadata: the index is a routing aid, so each leaf needs enough to decide whether
 // the file is worth pulling — size, and whether its contents were actually included.
 func TestIndexCarriesMetadata(t *testing.T) {
-	idx := BuildIndex(Context{Included: []IncludedFile{{Path: "a/b.go", Bytes: 4096}}})
+	idx := Index(Context{Included: []IncludedFile{{Path: "a/b.go", Bytes: 4096}}})
 	for _, want := range []string{"4096", "b.go"} {
 		if !strings.Contains(idx, want) {
 			t.Errorf("index leaf missing %q:\n%s", want, idx)
@@ -501,33 +475,15 @@ func TestFitPromptDropsWholeFiles(t *testing.T) {
 	for _, n := range []string{"a.go", "b.go", "c.go"} {
 		ctx.Included = append(ctx.Included, IncludedFile{Path: n, MediaType: "text/plain", Bytes: 1000, Content: strings.Repeat("x", 1000)})
 	}
-	prompt, got, dropped, _ := FitPrompt(constTask("question"), ctx, 3000)
+	prompt, got, dropped, _ := Fit(constTask("question"), ctx, 3000)
 	if len(prompt) > 3000 || strings.Join(dropped, ",") != "c.go" {
 		t.Fatalf("len=%d dropped=%v, want fit and only c.go dropped", len(prompt), dropped)
 	}
 	if !strings.Contains(prompt, "c.go (prompt-cap)") || strings.Contains(prompt, `path="c.go"`) || len(got.Included) != 2 {
 		t.Errorf("prompt must name c.go as skipped and inline none of it:\n%s", prompt[:300])
 	}
-	if p, _, d, _ := FitPrompt(constTask("question"), ctx, 1<<20); len(d) != 0 || len(p) == 0 {
+	if p, _, d, _ := Fit(constTask("question"), ctx, 1<<20); len(d) != 0 || len(p) == 0 {
 		t.Errorf("under the cap nothing may drop, got %v", d)
-	}
-}
-
-// TestBridgeRunAgyModelFilled: the agy bridge envelope carries the resolved model, not an empty field.
-func TestBridgeRunAgyModelFilled(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", loginHome(t, true))
-	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	res, err := RunGemini(context.Background(), GeminiOptions{Cwd: dir, Task: "t", Files: []string{"a.go"}}, io.Discard, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Model != AgyDefaultModel || res.Provider != "agy" {
-		t.Errorf("model/provider = %q/%q, want %q/agy", res.Model, res.Provider, AgyDefaultModel)
 	}
 }
 
@@ -536,7 +492,7 @@ func constTask(s string) func(Context) string { return func(Context) string { re
 // TestFitPromptOverCapWithoutFiles: a task that alone exceeds the cap errors instead of dispatching.
 func TestFitPromptOverCapWithoutFiles(t *testing.T) {
 	ctx := Context{Included: []IncludedFile{{Path: "a.go", MediaType: "text/plain", Bytes: 5, Content: "hello"}}}
-	if _, _, _, err := FitPrompt(constTask(strings.Repeat("q", 5000)), ctx, 3000); err == nil {
+	if _, _, _, err := Fit(constTask(strings.Repeat("q", 5000)), ctx, 3000); err == nil {
 		t.Fatal("want an error when even zero files exceed the cap")
 	}
 }
@@ -548,7 +504,7 @@ func TestFitPromptIndexTracksTrim(t *testing.T) {
 		ctx.Included = append(ctx.Included, IncludedFile{Path: n, MediaType: "text/plain", Bytes: 1000, Content: strings.Repeat("x", 1000)})
 	}
 	task := func(c Context) string { return "q" + IndexPrompt(c) }
-	prompt, _, dropped, err := FitPrompt(task, ctx, len(BuildPrompt(task(ctx), ctx))-500)
+	prompt, _, dropped, err := Fit(task, ctx, len(Prompt(task(ctx), ctx))-500)
 	if err != nil || len(dropped) != 1 {
 		t.Fatalf("dropped=%v err=%v, want one dropped file", dropped, err)
 	}

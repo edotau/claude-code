@@ -3,17 +3,15 @@ package gemini
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
-	"sort"
-	"strconv"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/pack"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/models"
@@ -24,6 +22,9 @@ import (
 // bridgeDispatchLabel marks a bridge run's dispatch Record so `ask --log` distinguishes it from an
 // `ask --agent gemini` run, even though both execute on the same "gemini" Engine.
 const bridgeDispatchLabel = "gemini-bridge"
+
+// bridgeBudget bounds the whole rendered prompt (2.5 MiB, ~2.4 bytes/token worst case under a 1M window); agy cuts the tail.
+const bridgeBudget = 2560 * 1024
 
 // GeminiOptions configures one bridge run: inline workspace files into one prompt, one chat call.
 type GeminiOptions struct {
@@ -43,52 +44,31 @@ func bridgeTask(o GeminiOptions) (string, error) {
 	return agent.RubricPrompt(o.Rubric, o.Task)
 }
 
-// bridgeMaxFiles is the inlined-file cap: 0 for an index-only run, else o.MaxFiles or the default.
-func bridgeMaxFiles(o GeminiOptions) int {
-	switch {
-	case o.IndexOnly:
-		return 0
-	case o.MaxFiles <= 0:
-		return DefaultMaxFiles
-	}
-	return o.MaxFiles
-}
-
-// warnPrompt writes the over-cap and agy-truncation warnings for the fitted prompt to stream.
-func warnPrompt(stream io.Writer, o GeminiOptions, prompt string, dropped []string) {
-	if len(dropped) > 0 {
-		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
-	}
+// warnPrompt writes the agy-truncation warning for the fitted prompt to stream.
+func warnPrompt(stream io.Writer, o GeminiOptions, prompt string) {
 	if o.Provider == "" && len(prompt) > agyTruncateWarnBytes {
 		fmt.Fprintf(stream, "bridge: warning: prompt is %d bytes; agy may silently truncate input past ~%d KB\n", len(prompt), agyTruncateWarnBytes/1024)
 	}
 }
 
-// bridgePrompt builds the task (rubric applied), inlines the workspace context under PromptCap, and warns on stream.
-func bridgePrompt(ctx context.Context, o GeminiOptions, files []string, stream, log io.Writer) (string, Context, error) {
+// bridgePrompt builds the task (rubric applied), inlines the workspace context under bridgeBudget, and warns on stream.
+func bridgePrompt(ctx context.Context, o GeminiOptions, stream, log io.Writer) (string, pack.Context, error) {
 	task, err := bridgeTask(o)
 	if err != nil {
-		return "", Context{}, err
+		return "", pack.Context{}, err
 	}
-	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, bridgeMaxFiles(o), o.MaxFileBytes)
+	spec := pack.Spec{Dirs: o.Dirs, Files: o.Files, Diff: o.Diff, Index: o.Index, MaxFiles: o.MaxFiles,
+		MaxFileBytes: o.MaxFileBytes, IndexOnly: o.IndexOnly}
+	packed, err := pack.Build(ctx, spec, task, o.Cwd, bridgeBudget)
 	if err != nil {
-		return "", Context{}, err
+		return "", pack.Context{}, err
 	}
-	prompt, ctxFiles, dropped, err := FitPrompt(func(c Context) string {
-		if o.Index {
-			return task + "\n\n" + IndexPrompt(c)
-		}
-		return task
-	}, ctxFiles, PromptCap)
-	if err != nil {
-		return "", Context{}, err
+	logContextStats(log, packed.Files)
+	for _, n := range packed.Notes {
+		fmt.Fprintln(stream, n)
 	}
-	logContextStats(log, ctxFiles)
-	if w := CoverageWarning(ctxFiles); w != "" {
-		fmt.Fprintln(stream, w)
-	}
-	warnPrompt(stream, o, prompt, dropped)
-	return prompt, ctxFiles, nil
+	warnPrompt(stream, o, packed.Prompt)
+	return packed.Prompt, packed.Files, nil
 }
 
 // requireAgy fails fast when the agy binary is missing or not signed in.
@@ -109,11 +89,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (age
 	if err != nil {
 		return agent.Result{}, err
 	}
-	files, err := diffFiles(ctx, o)
-	if err != nil {
-		return agent.Result{}, err
-	}
-	prompt, ctxFiles, err := bridgePrompt(ctx, o, files, stream, log)
+	prompt, ctxFiles, err := bridgePrompt(ctx, o, stream, log)
 	if err != nil {
 		return agent.Result{}, err
 	}
@@ -153,13 +129,13 @@ func runAPIBridge(ctx context.Context, o GeminiOptions, p *providers.Provider, m
 }
 
 // runAgyBridge runs the prompt on agy's own stdin-NDJSON path, recorded as a compact dispatch Record.
-func runAgyBridge(ctx context.Context, o GeminiOptions, model string, ctxFiles Context, prompt string,
+func runAgyBridge(ctx context.Context, o GeminiOptions, model string, ctxFiles pack.Context, prompt string,
 	stream, log io.Writer) (agent.Result, error) {
 	agyReq := agyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
 	// agy's own stdin-NDJSON path, not Run/cliEngine.Run: that agent's argv-prompt cap
 	// (MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
 	// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
-	// the context byte budget (DefaultTotalBytes), not a quota step-down, bounds this prompt's size.
+	// the context byte budget (bridgeBudget), not a quota step-down, bounds this prompt's size.
 	policy := agent.DefaultPolicy()
 	if o.Timeout > 0 {
 		policy.AttemptTimeout = o.Timeout
@@ -233,27 +209,10 @@ func resolveProvider(o GeminiOptions) (*providers.Registry, providers.Selection,
 	return reg, sel, p, model, nil
 }
 
-// diffFiles returns o.Files, plus files changed vs HEAD when o.Diff is set; a git failure or an empty
-// diff is a usage error, not a silent full-tree fallback.
-func diffFiles(ctx context.Context, o GeminiOptions) ([]string, error) {
-	files := append([]string{}, o.Files...)
-	if !o.Diff {
-		return files, nil
-	}
-	changed, err := ChangedFilesVsHEAD(ctx, o.Cwd)
-	if err != nil {
-		return nil, fmt.Errorf("--diff: %w", err)
-	}
-	if len(changed) == 0 {
-		return nil, errors.New("--diff: nothing changed vs HEAD")
-	}
-	return append(files, changed...), nil
-}
-
 // logContextStats writes the indexed/inlined summary line, followed by the inlined path list.
-func logContextStats(log io.Writer, ctxFiles Context) {
+func logContextStats(log io.Writer, ctxFiles pack.Context) {
 	fmt.Fprintf(log, "%d path(s) indexed, %d inlined; skipped: %s\n",
-		IndexPathCount(ctxFiles), len(ctxFiles.Included), strings.Join(SortedSkipReasons(ctxFiles), ", "))
+		pack.IndexPathCount(ctxFiles), len(ctxFiles.Included), strings.Join(pack.SortedSkipReasons(ctxFiles), ", "))
 	for _, f := range ctxFiles.Included {
 		fmt.Fprintf(log, "  %s\n", f.Path)
 	}
@@ -261,7 +220,7 @@ func logContextStats(log io.Writer, ctxFiles Context) {
 
 // printCommand logs the resolved request line for --print-command and returns the Result it would send.
 func printCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
-	ctxFiles Context, prompt string, log io.Writer) agent.Result {
+	ctxFiles pack.Context, prompt string, log io.Writer) agent.Result {
 	route, ok := p.Route(providers.ProtocolAnthropic)
 	suffix := "/v1/messages"
 	if !ok {
@@ -276,7 +235,7 @@ func printCommand(reg *providers.Registry, sel providers.Selection, p *providers
 
 // printAgyCommand logs the resolved agy argv for --print-command on the agy backend and returns its Result.
 func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
-	o GeminiOptions, ctxFiles Context, prompt string, log io.Writer) agent.Result {
+	o GeminiOptions, ctxFiles pack.Context, prompt string, log io.Writer) agent.Result {
 	shown := geminiAgyModel(reg, sel, p, o.Model)
 	argv := []string{"agy", "--model", shown}
 	if o.Effort != "" {
@@ -303,7 +262,7 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 
 // compactRecordPrompt is the dispatch Record's Prompt field: the task plus a short inlined-file summary,
 // never the full swept source (that would bloat state/dispatch to MiBs per bridge run).
-func compactRecordPrompt(task string, ctxFiles Context) string {
+func compactRecordPrompt(task string, ctxFiles pack.Context) string {
 	const recordCap = 4 << 10 // a few KB: task text plus a representative file list
 	var totalBytes int
 	paths := make([]string, len(ctxFiles.Included))
@@ -328,224 +287,21 @@ func geminiAgyModel(reg *providers.Registry, sel providers.Selection, p *provide
 	return t.Model
 }
 
-// ChangedFilesVsHEAD lists tracked files changed against HEAD (staged + unstaged + untracked), which is
-// what a review run is actually about — reviewing the whole tree buries the diff. An error from either
-// git command (not found, no HEAD, not a repo, …) is returned with its stderr instead of being masked.
-func ChangedFilesVsHEAD(ctx context.Context, root string) ([]string, error) {
-	var all []string
-	for _, args := range [][]string{
-		// --relative matches ls-files's cwd-relative output, so a subdirectory run doesn't mix bases.
-		{"-C", root, "diff", "--name-only", "--relative", "HEAD"},
-		{"-C", root, "ls-files", "--others", "--exclude-standard"},
-	} {
-		out, err := exec.CommandContext(ctx, "git", args...).Output()
-		if err != nil {
-			stderr := stderrOf(err)
-			if ctx.Err() != nil {
-				err = ctx.Err()
-			}
-			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr)
-		}
-		all = append(all, strings.Split(strings.TrimSpace(string(out)), "\n")...)
-	}
-	seen := map[string]bool{}
-	var uniq []string
-	for _, p := range all {
-		if p = strings.TrimSpace(p); p != "" && !seen[p] {
-			seen[p] = true
-			uniq = append(uniq, p)
-		}
-	}
-	return uniq, nil
-}
-
-// stderrOf extracts a *exec.ExitError's trimmed stderr, or empty for any other error type.
-func stderrOf(err error) string {
-	if ee, ok := err.(*exec.ExitError); ok {
-		return strings.TrimSpace(string(ee.Stderr))
-	}
-	return ""
-}
-
-// PromptCap bounds the whole rendered prompt (task, inventory, tags), not just file bodies; over it agy cuts the tail.
-const PromptCap = DefaultTotalBytes
-
 // agyTruncateWarnBytes is the stdin size past which agy has been observed to drop input silently (~130 KB, S5).
 const agyTruncateWarnBytes = 130 * 1024
 
-// FitPrompt renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.
-// task is rebuilt per trim so an index reflects what stays inlined; it errors if zero files still exceed limit.
-func FitPrompt(task func(Context) string, ctx Context, limit int) (string, Context, []string, error) {
-	var dropped []string
-	for {
-		prompt := BuildPrompt(task(ctx), ctx)
-		excess := len(prompt) - limit
-		if excess > 0 && len(ctx.Included) == 0 {
-			return prompt, ctx, dropped, fmt.Errorf("gemini bridge: task and file inventory alone are %d bytes, over the %d byte cap", len(prompt), limit)
-		}
-		if excess <= 0 {
-			return prompt, ctx, dropped, nil
-		}
-		inc := append([]IncludedFile(nil), ctx.Included...)
-		skipped := append([]SkippedFile(nil), ctx.Skipped...)
-		for freed := 0; freed < excess && len(inc) > 0; {
-			f := inc[len(inc)-1]
-			inc = inc[:len(inc)-1]
-			skipped = append(skipped, SkippedFile{f.Path, "prompt-cap"})
-			dropped = append(dropped, f.Path)
-			freed += len(promptBlock(f)) + 2 + len(inventoryLine(f)) // its block, separator and inventory line
-		}
-		ctx.Included, ctx.Skipped = inc, skipped
+// modelEnvKeys are process env names consulted in order when no explicit model is passed; the vault pin comes after.
+var modelEnvKeys = []string{"CLAUDE_CODE_GEMINI_MODEL", "GEMINI_MODEL"}
+
+// ResolveModel picks a model: explicit arg → first set env in envKeys → def.
+func ResolveModel(arg string, envKeys []string, def string) string {
+	if arg != "" {
+		return arg
 	}
-}
-
-func inventoryLine(f IncludedFile) string {
-	return fmt.Sprintf("- %s | %s | %d bytes | truncated=%t\n", f.Path, f.MediaType, f.Bytes, f.Truncated)
-}
-
-func promptBlock(f IncludedFile) string {
-	return fmt.Sprintf("<file path=%q media_type=%q truncated=%q>%s</file>",
-		f.Path, f.MediaType, strconv.FormatBool(f.Truncated), f.Content)
-}
-
-// BuildPrompt renders the context inventory + inline files + task into the bridge's prompt template.
-func BuildPrompt(task string, ctx Context) string {
-	var inv strings.Builder
-	if len(ctx.Included) > 0 {
-		inv.WriteString("Included files:\n")
-		for _, f := range ctx.Included {
-			inv.WriteString(inventoryLine(f))
-		}
-	} else {
-		inv.WriteString("Included files: none\n")
-	}
-	if len(ctx.Skipped) > 0 {
-		inv.WriteString("Skipped files:\n")
-		for _, s := range ctx.Skipped {
-			fmt.Fprintf(&inv, "- %s (%s)\n", s.Path, s.Reason)
+	for _, key := range envKeys {
+		if v := os.Getenv(key); v != "" {
+			return v
 		}
 	}
-
-	var blocks strings.Builder
-	if len(ctx.Included) == 0 {
-		blocks.WriteString("No inline file payloads were collected.")
-	} else {
-		for i, f := range ctx.Included {
-			if i > 0 {
-				blocks.WriteString("\n\n")
-			}
-			blocks.WriteString(promptBlock(f))
-		}
-	}
-
-	// Task and constraints lead: agy caps its input and cuts the tail, which must never be the question.
-	return fmt.Sprintf(`<task>
-%s
-</task>
-
-<constraints>
-- Use the provided workspace context when it is relevant.
-- Cite file paths when referring to evidence from inline context.
-- Call out when the context is partial, skipped, or truncated (name the last file you saw in full).
-- Do not invent files or data that are not present in the provided payloads.
-</constraints>
-
-<context_inventory>
-%s</context_inventory>
-
-<context_files>
-%s
-</context_files>`, task, inv.String(), blocks.String())
-}
-
-// Structured path index: a nested JSON tree names every matched path at a fraction of inlining's tokens.
-
-// indexLeaf is what the model needs to decide whether a file is worth pulling.
-type indexLeaf struct {
-	Bytes int    `json:"bytes,omitempty"`
-	Body  string `json:"body,omitempty"` // "inlined" | the skip reason — why the content is or isn't present
-}
-
-// BuildIndex renders ctx as a nested directory tree in JSON, including skipped files (with their reason).
-func BuildIndex(ctx Context) string {
-	root := map[string]any{}
-	for _, f := range ctx.Included {
-		insertPath(root, f.Path, indexLeaf{Bytes: f.Bytes, Body: "inlined"})
-	}
-	for _, f := range ctx.Skipped {
-		insertPath(root, f.Path, indexLeaf{Body: f.Reason})
-	}
-	data, err := json.MarshalIndent(root, "", " ")
-	if err != nil {
-		return "{}"
-	}
-	return string(data)
-}
-
-// insertPath nests leaf under its path segments; a segment colliding with an existing leaf is left alone.
-func insertPath(root map[string]any, path string, leaf indexLeaf) {
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	node := root
-	for i, p := range parts {
-		if i == len(parts)-1 {
-			if _, taken := node[p]; !taken {
-				node[p] = leaf
-			}
-			return
-		}
-		child, ok := node[p].(map[string]any)
-		if !ok {
-			if _, taken := node[p]; taken {
-				return // a file and a directory share a name — keep the first, skip the second
-			}
-			child = map[string]any{}
-			node[p] = child
-		}
-		node = child
-	}
-}
-
-// IndexPrompt renders the index as a prompt section, framing it as a routing map, not data to summarize.
-func IndexPrompt(ctx Context) string {
-	var b strings.Builder
-	b.WriteString("\n## Repository index (paths only)\n\n")
-	b.WriteString("A nested map of every matched path. `body` says whether that file's contents are in this\n")
-	b.WriteString("prompt (\"inlined\") or why they are not. Use it to name exact paths; if a file you need is\n")
-	b.WriteString("listed but not inlined, say which path you need rather than guessing its contents.\n\n```json\n")
-	b.WriteString(BuildIndex(ctx))
-	b.WriteString("\n```\n")
-	return b.String()
-}
-
-// IndexPathCount reports how many files the index covers, for the operator-facing summary line.
-func IndexPathCount(ctx Context) int { return len(ctx.Included) + len(ctx.Skipped) }
-
-// CoverageWarning is a one-line STDOUT summary for when anything was left out of a sweep (the
-// detailed per-reason breakdown stays on STDERR via SortedSkipReasons); "" when nothing was skipped.
-func CoverageWarning(ctx Context) string {
-	if len(ctx.Skipped) == 0 {
-		return ""
-	}
-	var kb int
-	for _, f := range ctx.Included {
-		kb += len(f.Content)
-	}
-	kb /= 1024
-	total := len(ctx.Included) + len(ctx.Skipped)
-	return fmt.Sprintf("bridge: inlined %d of %d files (%d KB); skipped %d: %s",
-		len(ctx.Included), total, kb, len(ctx.Skipped), strings.Join(SortedSkipReasons(ctx), ", "))
-}
-
-// SortedSkipReasons summarizes why files were left out, so an operator can widen the right knob.
-func SortedSkipReasons(ctx Context) []string {
-	counts := map[string]int{}
-	for _, f := range ctx.Skipped {
-		counts[f.Reason]++
-	}
-	out := make([]string, 0, len(counts))
-	for reason := range counts {
-		out = append(out, reason)
-	}
-	sort.Strings(out)
-	return out
+	return def
 }

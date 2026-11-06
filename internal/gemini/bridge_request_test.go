@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,55 +75,6 @@ func checkContractWire(t *testing.T, hit gotRequest) {
 	}
 }
 
-// TestBridgeIndexOnlyInlinesNoBodies: IndexOnly sends the index of every path and no <file> body.
-func TestBridgeIndexOnlyInlinesNoBodies(t *testing.T) {
-	dir := t.TempDir()
-	write(t, filepath.Join(dir, "a.go"), "package a")
-	write(t, filepath.Join(dir, "b.go"), "package b")
-	_, hits, _, err := runBridge(t, 0, GeminiOptions{Cwd: dir, Dirs: []string{"."}, Task: "t", Index: true, IndexOnly: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	prompt := promptContent(t, hits[0])
-	if strings.Contains(prompt, "<file path=") || !strings.Contains(prompt, "a.go") || !strings.Contains(prompt, "b.go") {
-		t.Errorf("want both paths in the index and no file body:\n%s", prompt)
-	}
-}
-
-// TestBridgeDiffInlinesOnlyChanged: --diff sends only files changed vs HEAD and refuses once nothing changed.
-func TestBridgeDiffInlinesOnlyChanged(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
-	repo := t.TempDir()
-	write(t, filepath.Join(repo, "base.txt"), "base content")
-	git := func(args ...string) {
-		t.Helper()
-		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	git("init")
-	git("config", "user.email", "t@example.com")
-	git("config", "user.name", "T")
-	git("add", ".")
-	git("commit", "-m", "base")
-	write(t, filepath.Join(repo, "new.txt"), "untracked content")
-
-	_, hits, _, err := runBridge(t, 0, GeminiOptions{Cwd: repo, Task: "t", Diff: true, MaxFiles: -1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p := promptContent(t, hits[0]); !strings.Contains(p, `<file path="new.txt"`) || strings.Contains(p, `<file path="base.txt"`) {
-		t.Errorf("want only new.txt inlined:\n%s", p)
-	}
-	git("add", ".")
-	git("commit", "-m", "new")
-	if _, _, _, err = runBridge(t, 0, GeminiOptions{Cwd: repo, Task: "t", Diff: true}); err == nil || !strings.Contains(err.Error(), "nothing changed") {
-		t.Errorf("err = %v, want 'nothing changed'", err)
-	}
-}
-
 // TestBridgeModelAliasPin: the default model ignores the vault sonnet pin; an explicit --model sonnet takes it.
 func TestBridgeModelAliasPin(t *testing.T) {
 	var hits []gotRequest
@@ -140,21 +90,6 @@ func TestBridgeModelAliasPin(t *testing.T) {
 		if got := decodeBody(t, hits[i]).Model; got != tc.want {
 			t.Errorf("--model %q sent model %q, want %q", tc.model, got, tc.want)
 		}
-	}
-}
-
-const bigFile = 200 << 10
-
-// TestBridgeLargeFileAccepted: a 200 KiB inlined file is sent whole, not capped by the argv prompt limit.
-func TestBridgeLargeFileAccepted(t *testing.T) {
-	dir := t.TempDir()
-	write(t, filepath.Join(dir, "big.txt"), strings.Repeat("x", bigFile))
-	res, hits, _, err := runBridge(t, 0, GeminiOptions{Cwd: dir, Dirs: []string{"."}, Task: "t", MaxFiles: -1, MaxFileBytes: 2 * bigFile})
-	if err != nil || res.Answer != "hello" {
-		t.Fatalf("Run = (%q, %v), want (hello, nil)", res.Answer, err)
-	}
-	if p := promptContent(t, hits[0]); !strings.Contains(p, `<file path="big.txt"`) || len(p) < bigFile {
-		t.Errorf("big.txt not inlined whole (prompt %d bytes)", len(p))
 	}
 }
 

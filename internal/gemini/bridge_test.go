@@ -126,22 +126,6 @@ func TestBridgeRunPrintCommand(t *testing.T) {
 	}
 }
 
-// TestChangedFilesVsHEADErrorsOutsideRepo: called outside a git work tree, the error mentions git rather
-// than masking the failure as an empty diff.
-func TestChangedFilesVsHEADErrorsOutsideRepo(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
-	dir := t.TempDir()
-	_, err := ChangedFilesVsHEAD(t.Context(), dir)
-	if err == nil {
-		t.Fatal("expected an error outside a git work tree")
-	}
-	if !strings.Contains(err.Error(), "git") {
-		t.Errorf("err = %v, want it to mention git", err)
-	}
-}
-
 // setupGeminiProviderOverride overlays the built-in google·antigravity profile itself (not a side name) onto srv,
 // so a bridge call with Provider=="" (the no-explicit-flag case) still resolves to a fake endpoint.
 func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {

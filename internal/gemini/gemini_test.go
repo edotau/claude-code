@@ -3,15 +3,12 @@ package gemini
 import (
 	"bufio"
 	"context"
-	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -98,172 +95,6 @@ func TestAgyArgvDebugFile(t *testing.T) {
 	argv := agyArgv(agyRequest{Model: "m", DebugFile: "/tmp/l"})
 	if i := slices.Index(argv, "--log-file"); i < 0 || argv[i+1] != "/tmp/l" {
 		t.Fatalf("argv = %v", argv)
-	}
-}
-
-func TestGeminiCanceledContext(t *testing.T) {
-	dir := t.TempDir()
-	write(t, filepath.Join(dir, "a.go"), "package a")
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	for _, dirs := range [][]string{nil, {"."}} {
-		got, err := CollectContext(ctx, dir, dirs, []string{"*.go"}, 40, 100)
-		if !errors.Is(err, context.Canceled) || len(got.Included) != 0 {
-			t.Errorf("CollectContext(%v) = %+v, %v, want cancellation without files", dirs, got, err)
-		}
-	}
-	if _, err := ChangedFilesVsHEAD(ctx, dir); !errors.Is(err, context.Canceled) {
-		t.Errorf("ChangedFilesVsHEAD error = %v, want cancellation", err)
-	}
-	if _, err := diffFiles(ctx, GeminiOptions{Cwd: dir, Diff: true}); !errors.Is(err, context.Canceled) {
-		t.Errorf("diffFiles error = %v, want cancellation", err)
-	}
-}
-
-type cancelCase struct {
-	name  string
-	stage string
-	run   func(context.Context, string) (Context, error)
-}
-
-func collectRun(ctx context.Context, dir string) (Context, error) {
-	return CollectContext(ctx, dir, []string{"."}, nil, 40, 100)
-}
-
-func changedRun(ctx context.Context, dir string) (Context, error) {
-	_, err := ChangedFilesVsHEAD(ctx, dir)
-	return Context{}, err
-}
-
-func bridgeDiffRun(ctx context.Context, dir string) (Context, error) {
-	_, err := diffFiles(ctx, GeminiOptions{Cwd: dir, Diff: true})
-	return Context{}, err
-}
-
-// fakeGitScript is a git stand-in that touches $GEMINI_TEST_GIT_MARKER and sleeps when run at stage.
-func fakeGitScript(sleep, stage string) string {
-	return "#!/bin/sh\n" +
-		"if [ \"$3\" = \"" + stage + "\" ]; then\n" +
-		"  : > \"$GEMINI_TEST_GIT_MARKER\"\n" +
-		"  exec \"" + sleep + "\" 3\n" +
-		"fi\n" +
-		"case \"$3\" in\n" +
-		"  rev-parse) printf 'true\\n' ;;\n" +
-		"  diff) printf 'changed.go\\n' ;;\n" +
-		"  ls-files) printf 'tracked.go\\000' ;;\n" +
-		"  *) exit 1 ;;\n" +
-		"esac\n"
-}
-
-type cancelResult struct {
-	context Context
-	err     error
-}
-
-// waitForMarker blocks until marker exists, failing if the run returns or 2s pass first.
-func waitForMarker(t *testing.T, marker string, done <-chan cancelResult) {
-	t.Helper()
-	deadline := time.NewTimer(2 * time.Second)
-	defer deadline.Stop()
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		if _, err := os.Stat(marker); err == nil {
-			return
-		}
-		select {
-		case <-tick.C:
-		case got := <-done:
-			t.Fatalf("git returned before synchronization: %+v, %v", got.context, got.err)
-		case <-deadline.C:
-			t.Fatal("git did not reach the cancellation synchronization marker")
-		}
-	}
-}
-
-func runCancellationCase(t *testing.T, sleep string, tc cancelCase) {
-	t.Helper()
-	dir, bin := t.TempDir(), t.TempDir()
-	marker := filepath.Join(dir, "git-started")
-	write(t, filepath.Join(dir, ".gitignore"), "ignored.txt\n")
-	write(t, filepath.Join(dir, "ignored.txt"), "must not be inlined")
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(fakeGitScript(sleep, tc.stage)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	t.Setenv("GEMINI_TEST_GIT_MARKER", marker)
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	done := make(chan cancelResult, 1)
-	go func() {
-		got, err := tc.run(ctx, dir)
-		done <- cancelResult{got, err}
-	}()
-	waitForMarker(t, marker, done)
-	canceledAt := time.Now()
-	cancel()
-	select {
-	case got := <-done:
-		if !errors.Is(got.err, context.Canceled) {
-			t.Errorf("error = %v, want cancellation", got.err)
-		}
-		if len(got.context.Included) != 0 {
-			t.Errorf("canceled scan included files: %+v", got.context.Included)
-		}
-		if elapsed := time.Since(canceledAt); elapsed > time.Second {
-			t.Errorf("git took %s to stop after cancellation", elapsed)
-		}
-	case <-time.After(4 * time.Second):
-		t.Fatal("git command did not stop after cancellation")
-	}
-}
-
-func TestGeminiGitCommandCancellation(t *testing.T) {
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Skip("sleep not on PATH")
-	}
-	for _, tc := range []cancelCase{
-		{"collect probe", "rev-parse", collectRun},
-		{"collect list", "ls-files", collectRun},
-		{"changed diff", "diff", changedRun},
-		{"changed list", "ls-files", changedRun},
-		{"bridge diff", "diff", bridgeDiffRun},
-	} {
-		t.Run(tc.name, func(t *testing.T) { runCancellationCase(t, sleep, tc) })
-	}
-}
-
-func TestCollectContextGitFailureFallback(t *testing.T) {
-	for _, stage := range []string{"rev-parse", "ls-files"} {
-		t.Run(stage, func(t *testing.T) {
-			dir, bin := t.TempDir(), t.TempDir()
-			write(t, filepath.Join(dir, "a.go"), "package a")
-			script := "#!/bin/sh\nif [ \"$3\" = \"" + stage + "\" ]; then exit 1; fi\nprintf 'true\\n'\n"
-			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", bin)
-			got, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
-			if stage == "ls-files" {
-				if err == nil || !strings.Contains(err.Error(), "git ls-files") {
-					t.Fatalf("CollectContext = %+v, %v, want fail-closed ls-files error", got, err)
-				}
-				return
-			}
-			if err != nil || len(got.Included) != 1 || got.Included[0].Path != "a.go" {
-				t.Fatalf("CollectContext = %+v, %v, want rev-parse failure fallback", got, err)
-			}
-		})
-	}
-}
-
-func TestChangedFilesCancellationMentionsGit(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	_, err := ChangedFilesVsHEAD(ctx, t.TempDir())
-	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "git") {
-		t.Fatalf("error = %v, want wrapped git cancellation", err)
 	}
 }
 
@@ -388,5 +219,58 @@ func TestParseAgyRefusedToolStepIsNotPartial(t *testing.T) {
 	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
 	if err != nil || res.Answer != "blocked as asked" {
 		t.Fatalf("res.Answer = %q, err = %v; want the answer and no partial error", res.Answer, err)
+	}
+}
+
+// TestResolveModel: explicit arg wins; default when nothing set; GEMINI_MODEL fallback;
+// CLAUDE_CODE_GEMINI_MODEL beats GEMINI_MODEL.
+func TestResolveModel(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "")
+	t.Setenv("GEMINI_MODEL", "")
+
+	if got := ResolveModel("explicit-model", modelEnvKeys, "def-model"); got != "explicit-model" {
+		t.Errorf("explicit arg: got %q", got)
+	}
+	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "def-model" {
+		t.Errorf("default: got %q, want %q", got, "def-model")
+	}
+
+	t.Setenv("GEMINI_MODEL", "gemini-env-model")
+	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-env-model" {
+		t.Errorf("env fallback: got %q", got)
+	}
+
+	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "gemini-primary-model")
+	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-primary-model" {
+		t.Errorf("env precedence: got %q", got)
+	}
+}
+
+// TestBridgeRunAgyModelFilled: the agy bridge envelope carries the resolved model, not an empty field.
+func TestBridgeRunAgyModelFilled(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunGemini(context.Background(), GeminiOptions{Cwd: dir, Task: "t", Files: []string{"a.go"}}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Model != AgyDefaultModel || res.Provider != "agy" {
+		t.Errorf("model/provider = %q/%q, want %q/agy", res.Model, res.Provider, AgyDefaultModel)
+	}
+}
+
+// write creates path (and its parent dirs) with body, mode 0644.
+func write(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
