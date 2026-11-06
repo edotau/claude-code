@@ -18,6 +18,7 @@ func TestGitCommitCommandTable(t *testing.T) {
 		{"echo $(git commit -m x)", true},
 		{"nohup git commit &", true},
 		{"cat <<EOF\ngit commit\nEOF", false},
+		{"echo \"see <<EOF here\"\ngit commit -m x", true},
 		{"echo git commit", false},
 		{`grep "git commit" f`, false},
 		{"git status", false},

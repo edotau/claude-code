@@ -225,9 +225,7 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 	return &MergeResult{Phase: "conflict", BeforeOID: before}, nil
 }
 
-// conflictMarkerPrefixes are the three literal marker lines a leftover, unresolved conflict always
-// carries — scanned directly in addition to `git diff --check`'s own leftover-marker detection, so a
-// corner case in one check is still caught by the other.
+// conflictMarkerPrefixes are the two prefixed marker lines; the bare "=======" is matched whole-line in isConflictMarker.
 var conflictMarkerPrefixes = []string{"<<<<<<< ", ">>>>>>> "}
 
 // isConflictMarker matches git's marker lines; the bare "=======" must be the whole line, so "=========" rules pass.
@@ -369,7 +367,9 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 		return failOperation(op, err)
 	}
 	op.Phase = "resolved"
-	_ = SaveOperation(op)
+	if err := SaveOperation(op); err != nil {
+		return op, nil, fmt.Errorf("resolve: save resolved checkpoint: %w", err)
+	}
 	return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
 }
 
@@ -395,7 +395,9 @@ func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) 
 				return failOperation(op, err)
 			}
 			op.Phase = "resolved"
-			_ = SaveOperation(op)
+			if err := SaveOperation(op); err != nil {
+				return op, nil, fmt.Errorf("resolve: save resolved checkpoint: %w", err)
+			}
 			return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
 		case resolutionInvalid:
 			return failOperation(op, fmt.Errorf("resolve: %s", reason))

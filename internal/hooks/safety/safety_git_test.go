@@ -132,6 +132,9 @@ func TestRewriteGuard(t *testing.T) {
 		{name: "timeout -s wrapper", cmd: "timeout -s KILL 5 bash -c 'git commit --amend'", cwd: "work", live: true,
 			want: core.Block, text: "live config tree"},
 		{name: "git missing", cmd: amend, cwd: "work", live: true, noGit: true, want: core.Allow, text: "could not check"},
+		// a `sudo` ask rule must not downgrade the rewrite block to an approvable ask
+		{name: "sudo clustered wrapper", cmd: "sudo -nu root git commit --amend --no-edit", cwd: "work", live: true,
+			want: core.Block, text: "live config tree"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

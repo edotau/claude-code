@@ -92,8 +92,13 @@ func TestBudgetQuotasMissingEndpointYieldsNoRows(t *testing.T) {
 		if rows := budgetQuotas(context.Background(), p, time.Now()); rows != nil {
 			t.Errorf("%d: rows = %+v, want none", code, rows)
 		}
-		if readBudgetCache(budgetCachePath()) != nil {
-			t.Errorf("%d: a failed fetch was cached", code)
+		c := readBudgetCache(budgetCachePath())
+		if c == nil || len(c.Rows) != 0 {
+			t.Fatalf("%d: cache = %+v, want an empty cached entry", code, c)
+		}
+		before := hits.Load()
+		if rows := budgetQuotas(context.Background(), p, time.Now()); rows != nil || hits.Load() != before {
+			t.Errorf("%d: absent endpoint refetched within TTL: rows=%+v hits %d->%d", code, rows, before, hits.Load())
 		}
 	}
 }

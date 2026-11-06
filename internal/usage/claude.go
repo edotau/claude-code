@@ -304,6 +304,9 @@ func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.
 func claudeHandleResponse(resp *http.Response, body []byte, cache *claudeUsageCache, creds claudeOAuthCreds, path string, now time.Time) []quota {
 	switch resp.StatusCode {
 	case http.StatusOK:
+		if !json.Valid(body) {
+			return claudeCachedOrNote(cache, "unreadable response", "usage unavailable: unreadable response")
+		}
 		writeClaudeUsageCache(path, claudeUsageCache{
 			FetchedAt: now, SubscriptionType: creds.ClaudeAiOauth.SubscriptionType, Body: body,
 		})

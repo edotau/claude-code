@@ -143,20 +143,22 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
 func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 	cmd := in.ToolCommand()
+	// The rewrite block runs first: an ask shape (`sudo git reset --hard`) must not turn a block into an ask.
+	d, msg, detail, warn := rewriteVerdict(in)
+	if d != core.Allow {
+		return d, warn + msg, detail
+	}
 	// Each pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
 	for _, seg := range shell.Segments(cmd) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
 				if re.MatchString(seg) {
-					return core.Ask, core.SafetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
+					return core.Ask, warn + core.SafetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
 		}
 	}
-	d, msg, detail, warn := rewriteVerdict(in)
-	if d == core.Allow {
-		d, msg, detail = askPatternVerdict(in, cmd)
-	}
+	d, msg, detail = askPatternVerdict(in, cmd)
 	return d, warn + msg, detail
 }
 
