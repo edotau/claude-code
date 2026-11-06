@@ -133,3 +133,22 @@ func TestPackPromptRefusesReadOnlyOnFileRoute(t *testing.T) {
 		t.Fatalf("packPrompt() = %v, want a --read-only refusal", err)
 	}
 }
+
+// Given a relative --workdir, the file-route pack path in the prompt is absolute (the child starts inside the workdir).
+func TestPackPromptFilePathAbsoluteForRelativeWorkdir(t *testing.T) {
+	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
+	t.Chdir(dir)
+	if err := os.Mkdir("sub", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Prepared{Opts: RunOptions{Prompt: "p", WorkDir: "sub", Pack: &pack.Spec{Dirs: []string{"."}}},
+		chain: Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "gemini"}}}}}
+	p.Record.ID = "id1"
+	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs("sub")
+	if want := filepath.Join(abs, pack.FilePrefix+"id1.md"); p.pack.path != want || !strings.Contains(p.Opts.Prompt, want) {
+		t.Fatalf("pack path = %q, prompt = %q, want absolute %q", p.pack.path, p.Opts.Prompt, want)
+	}
+}
