@@ -485,8 +485,8 @@ func childErr(ctx context.Context, name string, err error, tail *TailBuffer) err
 // ErrPromptTooLarge is the sentinel behind PromptTooLarge, so callers can exclude it with errors.Is.
 var ErrPromptTooLarge = errors.New("prompt too large")
 
-func PromptTooLarge(n int) error {
-	return fmt.Errorf("%w: %d bytes, over the %d limit for one argv element", ErrPromptTooLarge, n, MaxPromptBytes)
+func PromptTooLarge(n, limit int) error {
+	return fmt.Errorf("%w: %d bytes, over the %d limit", ErrPromptTooLarge, n, limit)
 }
 
 var contentPolicyRE = regexp.MustCompile(`(?i)content[ _-]?(?:policy|filter)|safety (?:system|filter|polic)|` +

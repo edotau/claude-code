@@ -124,7 +124,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: fmt.Errorf("%s: no model resolved", l.provider.Name)}
 	}
 	if len(req.Prompt) > agent.MaxPromptBytes {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.PromptTooLarge(len(req.Prompt))}
+		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.PromptTooLarge(len(req.Prompt), agent.MaxPromptBytes)}
 	}
 	bin, env, argv, err := l.prepareLaunch(req, model)
 	if err != nil {
