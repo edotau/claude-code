@@ -52,7 +52,8 @@ paths:
   credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only while the copilot record's
   GitHub profile's verified credits are < 95%, else it falls back to the Databricks profile (never the other GitHub
   account).
-  Usage rows read `databricks/<model>` vs `github·copilot/<model>`. Prompt cap = window − 32k − 10% (`models.PromptTokens`).
+  Usage rows read `databricks/<model>` vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%
+  (`models.PromptTokens`).
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free
   `COPILOT_HOME` (`state/copilot/registry-home`); the proxy takes a session token, so no secret sits on disk. An
   unregistered model fails closed; `--direct` keeps the single-model route; macOS is refused until the Keychain check
@@ -60,8 +61,8 @@ paths:
 - **copilot** and **opencode** interactive launches reuse the repo's last-used profile before the agent record's
   profile and treat it like the record (copilot's credit gate applies); `<agent> profile` or `configure` record
   changes clear it.
-- **gemini** runs only on `agy` and its Google sign-in; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`,
-  `state/` or keys.
+- **gemini** runs only on `agy` and its Google sign-in; `ask --dirs/--files/--diff` inline tracked files only, never
+  `.env*`, `state/` or keys.
 
 ## Skills and instructions parity
 

@@ -34,8 +34,8 @@ The contract each agent shares (`agents/<agent>.md` → Verbs): `claude-code <ag
 [--tools] [--workdir <dir>] [--background]` for a task, `review [--adversarial]` for a diff, `gemini
 explore` for a code + web brief, `status|result|tail [-f]|cancel <job>` for a background dispatch. Prefer
 `--format json` (the envelope carries `answer`, `status`, `model`, `fallback`).
-`copilot` and `opencode` dispatches pass `--model discovery` (the router picks a rare Databricks model; edit the pool with
-`claude-code vault edit`, key `discovery-models`) unless the brief names a model.
+`copilot` and `opencode` dispatches pass `--model discovery` (the router picks a rare Databricks model; edit the pool
+with `claude-code vault edit`, key `discovery-models`) unless the brief names a model.
 A `Profile: <p>` line adds `--profile <p>` to every `ask` (the hook prepends the exact `Run:` line);
 never set host or provider.
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
@@ -59,7 +59,8 @@ a leaf).
    confirm with `git diff --stat` where the diff landed). A read-only scan uses `--read-only`, never `--tools`: copilot
    approves only file reads and URL fetches; agents that can't enforce it run with no tools, so a gemini
    sweep runs `ask --agent gemini --tools --dirs <d>` (it needs tools; `--read-only` is refused). Any ask that may
-   pass 150s runs with `--background` (`references/agent-verbs.md` step 3); follow with `claude-code <agent> tail -f <job>`.
+   pass 150s runs with `--background` (`references/agent-verbs.md` step 3); follow with
+   `claude-code <agent> tail -f <job>`.
    Gemini dispatches are for read-heavy sweeps and
    research, and their brief must say "open the files and cite file:line" (a gemini dispatch once answered from
    memory); such a dispatch needs `--tools`, or agy refuses rather than read files.
