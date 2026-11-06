@@ -1,15 +1,12 @@
 ---
 name: copilot
 description: |
-  Agent on the GitHub Copilot CLI, via `claude-code copilot <verb>` or headless `claude-code ask --agent copilot`. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior; use on a rename, module move, signature change or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Also: delegated edits (`ask --tools [--background]`, `--read-only`, `--fleet`), diff review (`review [--adversarial]`), `explore`, `resume <id>`, `transfer`. Loads the harness instructions, skills and guard hooks. Not the release gate nor memory (the main session writes it).
+  Agent on the GitHub Copilot CLI (`claude-code copilot <verb>` or headless `claude-code ask --agent copilot`). TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer (rename, module move, signature change, newly failing suite), and writes NEW coverage once the live check confirms the behavior. LAST-MILE: merges verified worktree branches and writes the conventional commit AFTER gates are green. Not the release gate nor memory.
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.
   user: "Rename ResolveEnv to CanonicalizeEnv everywhere."
   assistant: "Dispatching an implementer and copilot (TEST mode) in the same message — copilot repairs every existing test the rename breaks, concurrently."
-  <commentary>
-  Rename = mechanical test breakage; launched WITH the implementer, not behind it.
-  </commentary>
   </example>
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 hooks:

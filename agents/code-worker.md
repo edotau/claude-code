@@ -1,7 +1,7 @@
 ---
 name: code-worker
 description: |
-  A dispatched leaf worker for parallel fan-out, the default fan-out leaf — Sonnet model, one well-scoped task; the manager tunes effort per dispatch and escalates to Opus only on proven capability failure. NOT ambiently triggered: a manager (main session or Workflow script) dispatches N concurrently via subagent_type/agentType. Works in-context or through the `claude-code ask` agent its handoff names; it is a leaf and cannot fan out.
+  A dispatched leaf worker for parallel fan-out, the default fan-out leaf: Sonnet, one well-scoped task. NOT ambiently triggered: a manager (main session or Workflow script) dispatches N concurrently via subagent_type/agentType. A leaf; it cannot fan out.
 
   <example>
   Context: The main session has 5 independent per-module review passes to run at once.

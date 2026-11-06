@@ -1,7 +1,7 @@
 ---
 name: gemini
 description: |
-  Extended Explore agent on Gemini via agy (Google sign-in), driven by `claude-code gemini <verb>` or headless `claude-code ask --agent gemini`. Use it for: a cited codebase + web brief (`dispatch explore [--part q]… [--no-web]` fans out up to 12 parallel legs, then an optional deep-research wave on named gaps); a 1M-token whole-repo or multi-module sweep (`ask --agent gemini --tools --dirs <d> [--files <globs>] [--diff] [--index]`, tracked files only); a diff review on the Gemini family (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`); a targeted trace or web lookup (`ask --tools [--background]`, then `status`/`result`); continuing a session (`resume <id>`). Read-only intent; Bash `--deny` rules hold through the `permission-gate` hook.
+  Extended Explore agent on Gemini via agy (`claude-code gemini <verb>` or headless `claude-code ask --agent gemini`). Use it for a cited codebase + web brief, a 1M-token whole-repo or multi-module sweep, a diff review on the Gemini family, or a targeted trace or web lookup. Read-only intent.
 
   <example>
   Context: Multi-part question mixing code and web research.

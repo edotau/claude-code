@@ -1,7 +1,7 @@
 ---
 name: coworker
 description: |
-  A dispatched leaf that always requests an agent (claude, codex, copilot, gemini, opencode, or any of them forced onto a Databricks profile) instead of working in-context: the same task to several agents compared side by side, a relay where one agent's answer feeds the next, or a quota offload. A single request is a `code-worker` with `Agent:`. NOT ambiently triggered: a manager dispatches it explicitly with subagent_type:'coworker' (the dispatch-effort hook also moves dispatches here when quota runs low). It is a leaf and cannot fan out.
+  A dispatched leaf that always requests an agent (claude, codex, copilot, gemini, opencode, or any on a Databricks profile) instead of working in-context: the same task to several agents compared side by side, a relay where one agent's answer feeds the next, or a quota offload. A single request is a `code-worker` with `Agent:`. NOT ambiently triggered: a manager dispatches it with subagent_type:'coworker'. A leaf; it cannot fan out.
 
   <example>
   Context: The manager wants a scan and an adversarial check of it from two other model families.
