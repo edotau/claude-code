@@ -224,3 +224,26 @@ func TestGitCommitAllowedPathspecInsideWorkDir(t *testing.T) {
 		}
 	}
 }
+
+// TestCommandInGitDirOperand pins that git add/commit refuse a directory operand even when a second root lacks that dir.
+func TestCommandInGitDirOperand(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root, wt := filepath.Join(home, ".claude"), filepath.Join(home, "worktrees")
+	touch(t, filepath.Join(root, "agents", "a.md"))
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"git add agents", false}, {"git commit -m x agents", false}, {"git add agents/", false}, {"git add .", false},
+		{"git add agents/a.md", true}, {"git commit -m x agents/a.md", true},
+	}
+	for _, c := range cases {
+		if got := CommandIn(c.cmd, root, []string{root, wt}, nil); got != c.want {
+			t.Errorf("CommandIn(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
