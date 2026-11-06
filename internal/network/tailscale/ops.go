@@ -50,7 +50,7 @@ func Connected(ctx context.Context) (Local, bool) {
 
 // ApproveSelfExitNode approves this box's exit-node routes and returns its DNS name.
 func ApproveSelfExitNode(ctx context.Context) (string, error) {
-	client, st, id, err := SelfDevice(ctx)
+	client, st, id, err := selfDevice(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -62,7 +62,7 @@ func ApproveSelfExitNode(ctx context.Context) (string, error) {
 
 // ApproveSelfSubnets enables every subnet route this box advertises, keeping routes already enabled.
 func ApproveSelfSubnets(ctx context.Context) (dns string, want, enabled []string, err error) {
-	client, st, id, err := SelfDevice(ctx)
+	client, st, id, err := selfDevice(ctx)
 	if err != nil {
 		return "", nil, nil, err
 	}

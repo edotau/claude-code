@@ -35,12 +35,12 @@ func TestClientSecretCreatesReusesAndIsPrivate(t *testing.T) {
 	setup(t)
 	secretPath := filepath.Join(paths.StateDir(), "vscode-serve.secret")
 
-	s1, err := ClientSecret()
+	s1, err := clientSecret()
 	if err != nil {
-		t.Fatalf("ClientSecret: %v", err)
+		t.Fatalf("clientSecret: %v", err)
 	}
 	if s1 == "" {
-		t.Fatal("ClientSecret: empty secret")
+		t.Fatal("clientSecret: empty secret")
 	}
 	fi, err := os.Stat(secretPath)
 	if err != nil {
@@ -50,12 +50,12 @@ func TestClientSecretCreatesReusesAndIsPrivate(t *testing.T) {
 		t.Fatalf("vscode-serve.secret mode = %o, want 0600", fi.Mode().Perm())
 	}
 
-	s2, err := ClientSecret()
+	s2, err := clientSecret()
 	if err != nil {
-		t.Fatalf("ClientSecret (second call): %v", err)
+		t.Fatalf("clientSecret (second call): %v", err)
 	}
 	if s1 != s2 {
-		t.Fatalf("ClientSecret not reused: %q != %q", s1, s2)
+		t.Fatalf("clientSecret not reused: %q != %q", s1, s2)
 	}
 }
 
@@ -64,15 +64,15 @@ func TestStateFileAndLogFilePaths(t *testing.T) {
 	if got, want := stateFile(), filepath.Join(paths.StateDir(), "vscode-serve.json"); got != want {
 		t.Fatalf("stateFile() = %q, want %q", got, want)
 	}
-	if got, want := LogFile(), filepath.Join(paths.StateDir(), "vscode-serve.log"); got != want {
-		t.Fatalf("LogFile() = %q, want %q", got, want)
+	if got, want := logFile(), filepath.Join(paths.StateDir(), "vscode-serve.log"); got != want {
+		t.Fatalf("logFile() = %q, want %q", got, want)
 	}
 }
 
 // --- serve-web argv ----------------------------------------------------------------------------
 
 func TestServeWebArgv(t *testing.T) {
-	got := ServeWebArgv("code", "/tmp/secret", 7780, "/tmp/data", "")
+	got := serveWebArgv("code", "/tmp/secret", 7780, "/tmp/data", "")
 	want := []string{
 		"code", "serve-web",
 		"--host", "127.0.0.1",
@@ -82,11 +82,11 @@ func TestServeWebArgv(t *testing.T) {
 		"--server-data-dir", "/tmp/data",
 	}
 	if len(got) != len(want) {
-		t.Fatalf("ServeWebArgv() = %v, want %v", got, want)
+		t.Fatalf("serveWebArgv() = %v, want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("ServeWebArgv()[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+			t.Fatalf("serveWebArgv()[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
 		}
 	}
 }
@@ -112,28 +112,28 @@ func TestPublicURLFallsBackToIPWithoutDNSName(t *testing.T) {
 // --- tailscale argv -------------------------------------------------------------------------
 
 func TestTailscaleServeArgv(t *testing.T) {
-	got := TailscaleServeArgv(7780, false)
+	got := tailscaleServeArgv(7780, false)
 	want := []string{"serve", "--bg", "--https=443", "http://127.0.0.1:7780"}
 	if len(got) != len(want) {
-		t.Fatalf("TailscaleServeArgv(funnel=false) = %v, want %v", got, want)
+		t.Fatalf("tailscaleServeArgv(funnel=false) = %v, want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("TailscaleServeArgv(funnel=false)[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+			t.Fatalf("tailscaleServeArgv(funnel=false)[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
 		}
 	}
 }
 
 func TestTailscaleServeArgvFunnelDiffersFromBase(t *testing.T) {
-	base := TailscaleServeArgv(7780, false)
-	funnel := TailscaleServeArgv(7780, true)
+	base := tailscaleServeArgv(7780, false)
+	funnel := tailscaleServeArgv(7780, true)
 	if equalStrings(base, funnel) {
 		t.Fatalf("funnel variant must differ from the base serve argv, got identical: %v", base)
 	}
 	// Exact flag the implementation uses for the funnel variant is not pinned by the contract;
 	// this just guards that --https=443 (the fixed port) survives into that variant too.
 	if !containsString(funnel, "--https=443") {
-		t.Fatalf("TailscaleServeArgv(funnel=true) = %v, want it to retain --https=443", funnel)
+		t.Fatalf("tailscaleServeArgv(funnel=true) = %v, want it to retain --https=443", funnel)
 	}
 }
 
@@ -236,12 +236,12 @@ func TestFreePortSkipsOccupied(t *testing.T) {
 	}
 	defer ln.Close()
 
-	port, err := FreePort(7780)
+	port, err := freePort(7780)
 	if err != nil {
-		t.Fatalf("FreePort: %v", err)
+		t.Fatalf("freePort: %v", err)
 	}
 	if port != 7781 {
-		t.Fatalf("FreePort() = %d, want 7781 (7780 held by the test)", port)
+		t.Fatalf("freePort() = %d, want 7781 (7780 held by the test)", port)
 	}
 }
 
@@ -253,12 +253,12 @@ func TestResolveCodeBinaryMissing(t *testing.T) {
 	macFallback = filepath.Join(t.TempDir(), "missing")
 	t.Cleanup(func() { macFallback = prevFallback })
 
-	_, err := ResolveCodeBinary()
+	_, err := resolveCodeBinary()
 	if err == nil {
-		t.Fatal("ResolveCodeBinary: want error when `code` is absent from PATH and the macOS app bundle")
+		t.Fatal("resolveCodeBinary: want error when `code` is absent from PATH and the macOS app bundle")
 	}
 	if !containsSubstring(err.Error(), "code") {
-		t.Fatalf("ResolveCodeBinary error %q does not mention the `code` CLI", err.Error())
+		t.Fatalf("resolveCodeBinary error %q does not mention the `code` CLI", err.Error())
 	}
 }
 
@@ -325,7 +325,7 @@ func writeStateFixture(t *testing.T, st State) {
 
 func TestPrepareDataDirReportsUnreadableSettingsDir(t *testing.T) {
 	setup(t)
-	dir := filepath.Dir(MachineSettingsPath())
+	dir := filepath.Dir(machineSettingsPath())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestPrepareDataDirReportsUnreadableSettingsDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-	if _, err := os.Stat(MachineSettingsPath()); err == nil || os.IsNotExist(err) {
+	if _, err := os.Stat(machineSettingsPath()); err == nil || os.IsNotExist(err) {
 		t.Skip("directory permissions not enforced (running as root?)")
 	}
 
@@ -342,7 +342,7 @@ func TestPrepareDataDirReportsUnreadableSettingsDir(t *testing.T) {
 		t.Fatalf("prepareDataDir notes = %q, want a settings note for the permission error", notes)
 	}
 	_ = os.Chmod(dir, 0o700)
-	if _, err := os.Stat(MachineSettingsPath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(machineSettingsPath()); !os.IsNotExist(err) {
 		t.Fatalf("settings.json exists after an unreadable-dir start (err=%v); seed/merge must be skipped", err)
 	}
 }

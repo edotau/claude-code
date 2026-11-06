@@ -82,7 +82,7 @@ func TestFindConflicts(t *testing.T) {
 		{"github", "user", serverDef{Command: "${HOME}/mcp/launch.sh"}},
 		{"github", "project:/x/.mcp.json", serverDef{Command: "/home/u/mcp/launch.sh"}},
 	}
-	conflicts := FindConflicts(benign, home)
+	conflicts := findConflicts(benign, home)
 	if len(conflicts) != 1 || conflicts[0].Real {
 		t.Fatalf("benign layering flagged real: %+v", conflicts)
 	}
@@ -91,13 +91,13 @@ func TestFindConflicts(t *testing.T) {
 		{"github", "user", serverDef{Command: "npx", Args: []string{"gh-mcp"}}},
 		{"github", "project:/x/.mcp.json", serverDef{Command: "docker", Args: []string{"run", "gh"}}},
 	}
-	conflicts = FindConflicts(real, home)
+	conflicts = findConflicts(real, home)
 	if len(conflicts) != 1 || !conflicts[0].Real {
 		t.Fatalf("real conflict not flagged: %+v", conflicts)
 	}
 
 	single := []Def{{"solo", "user", serverDef{Command: "npx"}}}
-	if c := FindConflicts(single, home); len(c) != 0 {
+	if c := findConflicts(single, home); len(c) != 0 {
 		t.Fatalf("single-scope server flagged: %+v", c)
 	}
 }
@@ -116,7 +116,7 @@ func TestFindSecrets(t *testing.T) {
 		}},
 		{"placeholder", "user", serverDef{Env: map[string]string{"KEY": "YOUR_API_KEY_HERE"}}},
 	}
-	findings := FindSecrets(defs)
+	findings := findSecrets(defs)
 	if len(findings) != 5 {
 		t.Fatalf("findings = %d, want 5 (dapi, sk-, xoxb-, url token=, header Bearer): %+v", len(findings), findings)
 	}
@@ -132,7 +132,7 @@ func TestFindSecrets(t *testing.T) {
 // TestFindSecretsClean: a definition with no env/headers/url produces no findings.
 func TestFindSecretsClean(t *testing.T) {
 	defs := []Def{{"plain", "user", serverDef{Command: "npx", Args: []string{"server"}}}}
-	if n := FindSecrets(defs); len(n) != 0 {
+	if n := findSecrets(defs); len(n) != 0 {
 		t.Fatalf("findings = %+v, want none", n)
 	}
 }
@@ -140,9 +140,9 @@ func TestFindSecretsClean(t *testing.T) {
 // TestRunHealthSkipsOpenWithNoClaudeBinary: a missing `claude` binary fails OPEN — it is reported,
 // not scored as a Failed server, and must not block the exit code on its own.
 func TestRunHealthSkipsOpenWithNoClaudeBinary(t *testing.T) {
-	res := RunHealth("")
+	res := runHealth("")
 	if res.Skipped == "" || res.Failed != 0 || res.Connected != 0 {
-		t.Fatalf("RunHealth(\"\") = %+v, want a Skipped reason and zero counts", res)
+		t.Fatalf("runHealth(\"\") = %+v, want a Skipped reason and zero counts", res)
 	}
 	rep := Report{Health: res}
 	if rep.ExitCode() != 0 {
@@ -154,9 +154,9 @@ func TestRunHealthSkipsOpenWithNoClaudeBinary(t *testing.T) {
 func TestRunHealthCountsServers(t *testing.T) {
 	dir := t.TempDir()
 	claude := fakeBin(t, dir, "claude", "echo 'ctx7: ✔ connected'\necho 'bad: ✘ failed to connect'")
-	res := RunHealth(claude)
+	res := runHealth(claude)
 	if res.Connected != 1 || res.Failed != 1 {
-		t.Fatalf("RunHealth = %+v, want 1 connected 1 failed", res)
+		t.Fatalf("runHealth = %+v, want 1 connected 1 failed", res)
 	}
 	rep := Report{Health: res}
 	if rep.ExitCode() != 1 {
@@ -169,9 +169,9 @@ func TestRunHealthCountsServers(t *testing.T) {
 func TestRunHealthReportsListErrorEvenWithParsedLines(t *testing.T) {
 	dir := t.TempDir()
 	claude := fakeBin(t, dir, "claude", "echo 'ctx7: ✔ connected'\nexit 1")
-	res := RunHealth(claude)
+	res := runHealth(claude)
 	if res.Error == "" {
-		t.Errorf("RunHealth = %+v, want a non-empty Error (list command exited non-zero)", res)
+		t.Errorf("runHealth = %+v, want a non-empty Error (list command exited non-zero)", res)
 	}
 }
 
@@ -185,16 +185,16 @@ func TestRunHealthKillsHungListOnTimeout(t *testing.T) {
 	dir := t.TempDir()
 	claude := fakeBin(t, dir, "claude", "sleep 5")
 
-	done := make(chan HealthResult, 1)
-	go func() { done <- RunHealth(claude) }()
+	done := make(chan healthResult, 1)
+	go func() { done <- runHealth(claude) }()
 
 	select {
 	case res := <-done:
 		if res.Error == "" {
-			t.Errorf("RunHealth = %+v, want a timeout Error", res)
+			t.Errorf("runHealth = %+v, want a timeout Error", res)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("RunHealth did not return within 2s — the hung `claude mcp list` was not killed")
+		t.Fatal("runHealth did not return within 2s — the hung `claude mcp list` was not killed")
 	}
 }
 
@@ -208,9 +208,9 @@ else
   echo 'ctx7: ✔ connected'
   echo 'bad: ✘ failed to connect'
 fi`)
-	res := RunHealth(claude)
+	res := runHealth(claude)
 	if res.Failed != 1 {
-		t.Errorf("RunHealth = %+v, want 1 failed — a piped capture lost the failure line", res)
+		t.Errorf("runHealth = %+v, want 1 failed — a piped capture lost the failure line", res)
 	}
 }
 
@@ -295,11 +295,11 @@ func TestServerDefMarshalRedactsAtTheType(t *testing.T) {
 
 // TestExitCodeFailsOnListErrorWithNoFailedServers: a crashed or timed-out `claude mcp list` is not a clean run.
 func TestExitCodeFailsOnListErrorWithNoFailedServers(t *testing.T) {
-	rep := Report{Health: HealthResult{Error: "timed out after 30s"}}
+	rep := Report{Health: healthResult{Error: "timed out after 30s"}}
 	if got := rep.ExitCode(); got != 1 {
 		t.Errorf("ExitCode = %d, want 1 (health Error with Failed=0)", got)
 	}
-	if got := (Report{Health: HealthResult{Skipped: "claude not on PATH"}}).ExitCode(); got != 0 {
+	if got := (Report{Health: healthResult{Skipped: "claude not on PATH"}}).ExitCode(); got != 0 {
 		t.Errorf("ExitCode = %d, want 0 (fail-open skip)", got)
 	}
 }
@@ -320,7 +320,7 @@ func TestDoctorFlagsUnparseableConfig(t *testing.T) {
 func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 	for _, q := range []string{"api_key", "access_token", "apikey", "api-key"} {
 		defs := []Def{{"s", "user", serverDef{URL: "https://h/x?" + q + "=SECRET123"}}}
-		if len(FindSecrets(defs)) == 0 {
+		if len(findSecrets(defs)) == 0 {
 			t.Errorf("%s=: no finding", q)
 		}
 		if got := redact(defs)[0].D.URL; strings.Contains(got, "SECRET123") {

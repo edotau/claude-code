@@ -26,20 +26,20 @@ func TestNormalize_StripsANSIAndSpinnerNoise(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got, want := NormalizePane(c.a), NormalizePane(c.b); got != want {
-				t.Errorf("NormalizePane(%q) = %q, NormalizePane(%q) = %q; want equal", c.a, got, c.b, want)
+			if got, want := normalizePane(c.a), normalizePane(c.b); got != want {
+				t.Errorf("normalizePane(%q) = %q, normalizePane(%q) = %q; want equal", c.a, got, c.b, want)
 			}
 		})
 	}
 }
 
 func TestFingerprint_StableAndSensitive(t *testing.T) {
-	a := FingerprintPane(NormalizePane("hello world"))
-	b := FingerprintPane(NormalizePane("hello world"))
+	a := fingerprintPane(normalizePane("hello world"))
+	b := fingerprintPane(normalizePane("hello world"))
 	if a != b {
 		t.Errorf("Fingerprint not stable across identical normalized input: %q vs %q", a, b)
 	}
-	c := FingerprintPane(NormalizePane("hello WORLD"))
+	c := fingerprintPane(normalizePane("hello WORLD"))
 	if a == c {
 		t.Errorf("Fingerprint did not change for different content")
 	}
@@ -49,7 +49,7 @@ func TestFingerprint_StableAndSensitive(t *testing.T) {
 }
 
 func TestClassify_WorkingIndicator(t *testing.T) {
-	state, reason, _ := ClassifyPane("", paneCap("doing stuff\nesc to interrupt"))
+	state, reason, _ := classifyPane("", paneCap("doing stuff\nesc to interrupt"))
 	if state != StateWorking {
 		t.Errorf("state = %q, want %q (reason=%q)", state, StateWorking, reason)
 	}
@@ -62,23 +62,23 @@ func TestClassify_InputNeeded(t *testing.T) {
 		"╭───╮\n│ >  │\n╰───╯",
 	}
 	for _, text := range cases {
-		state, _, _ := ClassifyPane("", paneCap(text))
+		state, _, _ := classifyPane("", paneCap(text))
 		if state != StateInputNeeded {
-			t.Errorf("ClassifyPane(%q) state = %q, want %q", text, state, StateInputNeeded)
+			t.Errorf("classifyPane(%q) state = %q, want %q", text, state, StateInputNeeded)
 		}
 	}
 }
 
 func TestClassify_ReadySettledPrompt(t *testing.T) {
-	prevFP := FingerprintPane(NormalizePane("$ "))
-	state, _, _ := ClassifyPane(prevFP, paneCap("$ "))
+	prevFP := fingerprintPane(normalizePane("$ "))
+	state, _, _ := classifyPane(prevFP, paneCap("$ "))
 	if state != StateReady {
 		t.Errorf("state = %q, want %q", state, StateReady)
 	}
 }
 
 func TestClassify_FirstObservationIsUnknownNotIdle(t *testing.T) {
-	state, reason, _ := ClassifyPane("", paneCap("some static text with no prompt"))
+	state, reason, _ := classifyPane("", paneCap("some static text with no prompt"))
 	if state != StateUnknown {
 		t.Errorf("state = %q, want %q (first observation has no baseline): %s", state, StateUnknown, reason)
 	}
@@ -86,16 +86,16 @@ func TestClassify_FirstObservationIsUnknownNotIdle(t *testing.T) {
 
 func TestClassify_StaticAmbiguousOutputIsUnknownNotIdle(t *testing.T) {
 	text := "some static ambiguous text"
-	prevFP := FingerprintPane(NormalizePane(text))
-	state, _, _ := ClassifyPane(prevFP, paneCap(text))
+	prevFP := fingerprintPane(normalizePane(text))
+	state, _, _ := classifyPane(prevFP, paneCap(text))
 	if state != StateUnknown {
 		t.Errorf("state = %q, want %q: static unchanged non-prompt text must never be reported idle", state, StateUnknown)
 	}
 }
 
 func TestClassify_OutputChangedIsWorking(t *testing.T) {
-	prevFP := FingerprintPane(NormalizePane("old static text"))
-	state, _, _ := ClassifyPane(prevFP, paneCap("new static text, still no prompt"))
+	prevFP := fingerprintPane(normalizePane("old static text"))
+	state, _, _ := classifyPane(prevFP, paneCap("new static text, still no prompt"))
 	if state != StateWorking {
 		t.Errorf("state = %q, want %q (changed output => working)", state, StateWorking)
 	}
@@ -103,7 +103,7 @@ func TestClassify_OutputChangedIsWorking(t *testing.T) {
 
 func TestClassify_ShellAfterAgentExit(t *testing.T) {
 	c := PaneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "-bash", Text: "$ "}
-	state, reason, _ := ClassifyPane("", c)
+	state, reason, _ := classifyPane("", c)
 	if state != StateReady {
 		t.Errorf("state = %q, want %q (shell after agent exit): %s", state, StateReady, reason)
 	}
@@ -111,7 +111,7 @@ func TestClassify_ShellAfterAgentExit(t *testing.T) {
 
 func TestClassify_InjectionShapedOutputNeverPanics(t *testing.T) {
 	// Terminal text an agent might legitimately print (e.g. echoing a shell command or JSON blob)
-	// shaped like shell/HTML/ANSI injection; ClassifyPane must only classify, never execute or crash.
+	// shaped like shell/HTML/ANSI injection; classifyPane must only classify, never execute or crash.
 	payloads := []string{
 		"$(rm -rf ~)\nesc to interrupt",
 		"<script>alert(1)</script>",
@@ -123,10 +123,10 @@ func TestClassify_InjectionShapedOutputNeverPanics(t *testing.T) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					t.Errorf("ClassifyPane panicked on %q: %v", p, r)
+					t.Errorf("classifyPane panicked on %q: %v", p, r)
 				}
 			}()
-			ClassifyPane("", paneCap(p))
+			classifyPane("", paneCap(p))
 		}()
 	}
 }

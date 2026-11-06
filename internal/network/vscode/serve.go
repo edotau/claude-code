@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// DefaultPort is the first port tried; FreePort walks 10 more if it is busy.
+// DefaultPort is the first port tried; freePort walks 10 more if it is busy.
 const DefaultPort = 7780
 
 // maxLogBytes truncates vscode-serve.log past this size, mirroring router's own log cap.
@@ -58,14 +58,14 @@ func stateFile() string  { return filepath.Join(paths.StateDir(), "vscode-serve.
 func secretFile() string { return filepath.Join(paths.StateDir(), "vscode-serve.secret") }
 func dataDir() string    { return filepath.Join(paths.StateDir(), "vscode-serve") }
 
-// LogFile receives the spawned `code serve-web` daemon's stdio.
-func LogFile() string { return filepath.Join(paths.StateDir(), "vscode-serve.log") }
+// logFile receives the spawned `code serve-web` daemon's stdio.
+func logFile() string { return filepath.Join(paths.StateDir(), "vscode-serve.log") }
 
 // macFallback is the app bundle's CLI; a var so tests can point it at a missing path.
 var macFallback = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
 
-// ResolveCodeBinary resolves the `code` CLI: PATH first, then the macOS app bundle's bin/code.
-func ResolveCodeBinary() (string, error) {
+// resolveCodeBinary resolves the `code` CLI: PATH first, then the macOS app bundle's bin/code.
+func resolveCodeBinary() (string, error) {
 	if bin, err := paths.LookPathReal("code"); err == nil {
 		return bin, nil
 	}
@@ -75,8 +75,8 @@ func ResolveCodeBinary() (string, error) {
 	return "", errors.New("VS Code CLI not found (install 'code' in PATH: Shell Command: Install 'code' command)")
 }
 
-// ClientSecret returns the per-install token `code serve-web` requires (created 0600 on first use).
-func ClientSecret() (string, error) { return paths.ClientSecret(secretFile()) }
+// clientSecret returns the per-install token `code serve-web` requires (created 0600 on first use).
+func clientSecret() (string, error) { return paths.ClientSecret(secretFile()) }
 
 // readState reads vscode-serve.json.
 func readState() (State, error) {
@@ -125,8 +125,8 @@ func healthy(ctx context.Context, port int) bool {
 	return true
 }
 
-// FreePort returns the first of want..want+10 that currently has nothing bound to it.
-func FreePort(want int) (int, error) {
+// freePort returns the first of want..want+10 that currently has nothing bound to it.
+func freePort(want int) (int, error) {
 	for p := want; p < want+11; p++ {
 		if portFree(p) {
 			return p, nil
@@ -145,8 +145,8 @@ func portFree(port int) bool {
 	return true
 }
 
-// ServeWebArgv builds the full `code serve-web` argv (argv[0] is bin itself, for easy comparison in tests).
-func ServeWebArgv(bin, secretPath string, port int, dataDir, folder string) []string {
+// serveWebArgv builds the full `code serve-web` argv (argv[0] is bin itself, for easy comparison in tests).
+func serveWebArgv(bin, secretPath string, port int, dataDir, folder string) []string {
 	argv := []string{
 		bin, "serve-web", "--host", "127.0.0.1", "--port", strconv.Itoa(port),
 		"--accept-server-license-terms", "--connection-token-file", secretPath,
@@ -191,14 +191,14 @@ func shareExtensions(dataDir string) (bool, error) {
 	return true, symlinkOrSame(src, dst)
 }
 
-// MachineSettingsPath is the web server's Machine settings.json, where the harness template is merged.
-func MachineSettingsPath() string {
+// machineSettingsPath is the web server's Machine settings.json, where the harness template is merged.
+func machineSettingsPath() string {
 	return filepath.Join(dataDir(), "data", "Machine", "settings.json")
 }
 
-// TailscaleServeArgv builds the argv (without the `tailscale` binary) that maps port onto the
+// tailscaleServeArgv builds the argv (without the `tailscale` binary) that maps port onto the
 // tailnet (funnel=false) or the public internet via Funnel (funnel=true).
-func TailscaleServeArgv(port int, funnel bool) []string {
+func tailscaleServeArgv(port int, funnel bool) []string {
 	sub := "serve"
 	if funnel {
 		sub = "funnel"
@@ -261,18 +261,18 @@ func Start(ctx context.Context, opts Options) (res ServeResult, err error) {
 func start(ctx context.Context, opts Options) (ServeResult, error) {
 	st, ok := Running()
 	if !ok {
-		bin, err := ResolveCodeBinary()
+		bin, err := resolveCodeBinary()
 		if err != nil {
 			return ServeResult{}, err
 		}
-		if _, err := ClientSecret(); err != nil { // ensures the secret file spawn's --connection-token-file reads
+		if _, err := clientSecret(); err != nil { // ensures the secret file spawn's --connection-token-file reads
 			return ServeResult{}, err
 		}
 		want := opts.Port
 		if want == 0 {
 			want = DefaultPort
 		}
-		port, err := FreePort(want)
+		port, err := freePort(want)
 		if err != nil {
 			return ServeResult{}, err
 		}
@@ -319,19 +319,19 @@ func prepareDataDir() []string {
 	} else if !shared {
 		notes = append(notes, "extensions: server-owned dir kept (desktop extensions not shared)")
 	}
-	if err := os.MkdirAll(filepath.Dir(MachineSettingsPath()), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(machineSettingsPath()), 0o700); err != nil {
 		return append(notes, "settings: "+err.Error())
 	}
-	if _, err := os.Stat(MachineSettingsPath()); err != nil && !os.IsNotExist(err) {
+	if _, err := os.Stat(machineSettingsPath()); err != nil && !os.IsNotExist(err) {
 		return append(notes, "settings: "+err.Error())
 	} else if err != nil {
 		// First start: the web server only shows this machine's own repos, so skip the trust banner.
 		seed := []byte("{\n  \"security.workspace.trust.enabled\": false\n}\n")
-		if err := paths.AtomicWrite(MachineSettingsPath(), seed, 0o600); err != nil {
+		if err := paths.AtomicWrite(machineSettingsPath(), seed, 0o600); err != nil {
 			notes = append(notes, "settings: "+err.Error())
 		}
 	}
-	if _, err := Sync("", MachineSettingsPath(), paths.ConfigDir(), paths.BinDir(), false); err != nil {
+	if _, err := Sync("", machineSettingsPath(), paths.ConfigDir(), paths.BinDir(), false); err != nil {
 		notes = append(notes, "settings: "+err.Error())
 	}
 	return notes
@@ -349,7 +349,7 @@ func waitHealthy(ctx context.Context, port int) error {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("code serve-web did not become healthy within 10s (see %s)", LogFile())
+	return fmt.Errorf("code serve-web did not become healthy within 10s (see %s)", logFile())
 }
 
 func spawn(bin string, port int, folder string) (int, error) {
@@ -358,7 +358,7 @@ func spawn(bin string, port int, folder string) (int, error) {
 		return 0, err
 	}
 	defer lf.Close()
-	argv := ServeWebArgv(bin, secretFile(), port, dataDir(), folder)
+	argv := serveWebArgv(bin, secretFile(), port, dataDir(), folder)
 	cmd := exec.Command(argv[0], argv[1:]...) //nolint:noctx // The detached daemon must outlive its caller.
 	cmd.Dir = paths.StateDir()
 	cmd.Stdout, cmd.Stderr = lf, lf
@@ -375,10 +375,10 @@ func spawn(bin string, port int, folder string) (int, error) {
 
 func openLogFile() (*os.File, error) {
 	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
-	if fi, err := os.Stat(LogFile()); err == nil && fi.Size() > maxLogBytes {
+	if fi, err := os.Stat(logFile()); err == nil && fi.Size() > maxLogBytes {
 		flags |= os.O_TRUNC
 	}
-	return os.OpenFile(LogFile(), flags, 0o600)
+	return os.OpenFile(logFile(), flags, 0o600)
 }
 
 // Stop tears down any tailscale mapping this package set, then SIGTERMs the daemon whether or not it answers,
@@ -470,7 +470,7 @@ func queryTailscaleServeStatus(ctx context.Context, bin string, port int) (strin
 // applyTailscale sets (or skips) the tailscale/funnel mapping, builds st.URL, persists state, and
 // returns any fallback notes (missing CLI, mapping failure) instead of failing Start outright.
 func applyTailscale(ctx context.Context, st State, opts Options) (ServeResult, error) {
-	token, err := ClientSecret()
+	token, err := clientSecret()
 	if err != nil {
 		return ServeResult{}, err
 	}
@@ -485,7 +485,7 @@ func applyTailscale(ctx context.Context, st State, opts Options) (ServeResult, e
 		st.URL = PublicURL("", lanHost(ctx), st.Port, token)
 		return finish(st, []string{"tailscale CLI not found on PATH; serving on the LAN only"})
 	}
-	args := TailscaleServeArgv(st.Port, opts.Funnel)
+	args := tailscaleServeArgv(st.Port, opts.Funnel)
 	cmd, cancel := tailscaleCmd(ctx, 5*time.Second, bin, args...)
 	out, runErr := cmd.CombinedOutput()
 	cancel()
