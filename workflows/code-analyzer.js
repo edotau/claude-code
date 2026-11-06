@@ -101,7 +101,7 @@ try {
     refute: [].concat(stepOf(a.steps, 'refute', { model: 'sonnet', effort: 'medium' }, EXT)),
     fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, EXT),
     test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, EXT),
-    // gate is green-keeper-loop's fixer; nested workflow() can't nest again, so claude only.
+    // gate = green-keeper-loop's fixer: claude only (green-keeper-loop has no external fixer).
     gate: stepOf(a.steps, 'gate', {}, CLAUDE_ONLY),
   }
 } catch (e) { return { exit: 'error', error: 'code-analyzer: ' + e.message, rounds: [] } }
@@ -130,6 +130,8 @@ const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.stat
 const routeModel = m => (PRESSURE && MODEL_DOWN[m]) ? MODEL_DOWN[m] : m
 if (PRESSURE) log(`pressure: claude account ${routeState.state} — stepping Claude stages down one model`)
 else if (!routeState) log('pressure: route read failed — no downshift (fail open)')
+// Passed to every child so none re-reads it; a failed read passes 'unknown' (no downshift anywhere).
+const CLAUDE_STATE = routeState && typeof routeState.state === 'string' ? routeState.state : 'unknown'
 
 const DEFAULT_DIMENSIONS = [
   { key: 'seams', prompt: 'dangling seams: callers of deleted or renamed symbols in comments, help text, docs, registration/config tables; flags parsed but never read; fields declared but never set' },
@@ -241,7 +243,7 @@ const REFUTE_BATCH = a.refuteBatch || 6
 const agentStatus = []
 const REFUTERS_OK = []
 // An unregistered or crashing agent is a dropped agent, never a dead audit (workflow() throws on an unknown name).
-const askAgent = opts => workflow('code-agent', opts).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
+const askAgent = opts => workflow('code-agent', { claudeState: CLAUDE_STATE, ...opts }).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
 // One code-agent call for an external step: no fallback, so a dead agent is "no result", never a silent Claude run.
 const askStep = (st, task, tools) => askAgent({
   agent: st.agent, vendorModel: st.vendorModel, profile: st.profile, cwd: CWD || undefined, smoke: false, fallback: false, task,
@@ -441,7 +443,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   // ── Gate (ADK LoopAgent via the saved green-keeper-loop workflow; a.gate passes through — green-keeper-loop auto-detects) ──
   phase('Gate')
   const pkgs = [...byPkg.keys()]
-  const gate = await workflow('green-keeper-loop', { gate: a.gate, cwd: CWD || undefined, scope: pkgs, maxIterations: MAX_ITER, ...(RAW.gate ? { steps: { fix: RAW.gate } } : {}) })
+  const gate = await workflow('green-keeper-loop', { claudeState: CLAUDE_STATE, gate: a.gate, cwd: CWD || undefined, scope: pkgs, maxIterations: MAX_ITER, ...(RAW.gate ? { steps: { fix: RAW.gate } } : {}) })
 
   const metricsOut = { ...metrics, fixPairs: byPkg.size, gateIterations: gate ? gate.iterations : 0 }
   const out = { ...base, fixed, gate, metrics: metricsOut }

@@ -90,6 +90,8 @@ const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.stat
 const routeModel = m => (PRESSURE && MODEL_DOWN[m]) ? MODEL_DOWN[m] : m
 if (PRESSURE) log(`pressure: claude account ${routeState.state} — stepping Claude stages down one model`)
 else if (!routeState) log('pressure: route read failed — no downshift (fail open)')
+// Passed to every child so none re-reads it; a failed read passes 'unknown' (no downshift anywhere).
+const CLAUDE_STATE = routeState && typeof routeState.state === 'string' ? routeState.state : 'unknown'
 
 const BRIEF_SCHEMA = {
   type: 'object',
@@ -145,7 +147,7 @@ const IMPL_PROMPT =
   `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; put Ran on: <agent (model) · fallback none|who>, files changed, verification output and the TASK/ISSUE facts as plain sentences in the summary; list anything left undone.`
 // An external stage returns text, not the schema: map the code-agent envelope onto the RESULT shape.
 const viaExternal = async (step, task) => {
-  const r = await workflow('code-agent', { agent: step.agent, vendorModel: step.vendorModel, profile: step.profile, cwd: CWD || undefined, task, tools: true, fallback: false })
+  const r = await workflow('code-agent', { agent: step.agent, vendorModel: step.vendorModel, profile: step.profile, cwd: CWD || undefined, task, tools: true, fallback: false, claudeState: CLAUDE_STATE })
   const ok = !!(r && r.ok)
   const text = r && typeof r.answer === 'string' ? r.answer : ''
   return { status: ok ? 'DONE' : 'BLOCKED', filesChanged: [], summary: ok ? text : `external ${step.agent} failed: ${(r && (r.error || r.status)) || 'no result'}`, leftUndone: [] }
@@ -171,6 +173,6 @@ log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : '
 // ── Phase 3: Gate (ADK LoopAgent via the saved green-keeper-loop workflow) ─────────────────────────
 phase('Gate')
 if (implBlocked) return { brief, impl, tests, gate: null, status: 'blocked' }
-const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : [...new Set(brief.files.map(f => f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '.'))], maxIterations: MAX_ITER, steps: a.steps && a.steps.gate ? { fix: { model: ST.gate.model, effort: ST.gate.effort } } : undefined })
+const gate = await workflow('green-keeper-loop', { claudeState: CLAUDE_STATE, gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : [...new Set(brief.files.map(f => f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '.'))], maxIterations: MAX_ITER, steps: a.steps && a.steps.gate ? { fix: { model: ST.gate.model, effort: ST.gate.effort } } : undefined })
 
 return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }
