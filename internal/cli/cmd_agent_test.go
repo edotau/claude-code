@@ -12,8 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 )
 
-// TestVendorUsageFits80: every rendered line stays within an 80-column terminal, and gemini's block
-// names its extra bridge verb (contract.md's help-text target).
+// TestVendorUsageFits80: every rendered line stays within an 80-column terminal.
 func TestVendorUsageFits80(t *testing.T) {
 	for _, vendor := range cliAgentNames() {
 		usage := renderHelpPage(agentPage(vendor))
@@ -21,9 +20,6 @@ func TestVendorUsageFits80(t *testing.T) {
 			if n := utf8.RuneCountInString(line); n > 80 {
 				t.Errorf("vendorUsage(%q) line %q is %d runes, want <= 80", vendor, line, n)
 			}
-		}
-		if vendor == "gemini" && !strings.Contains(usage, "bridge") {
-			t.Errorf("vendorUsage(gemini) missing the bridge row:\n%s", usage)
 		}
 	}
 }
@@ -44,15 +40,6 @@ func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
 		if !agentSubverbs[w] {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}
-	}
-}
-
-func TestVendorUsageBridgeRowOnlyForGemini(t *testing.T) {
-	if u := renderHelpPage(agentPage("codex")); strings.Contains(u, "bridge") {
-		t.Errorf("vendorUsage(codex) must not carry the bridge row:\n%s", u)
-	}
-	if u := renderHelpPage(agentPage("gemini")); !strings.Contains(u, "  bridge") {
-		t.Errorf("vendorUsage(gemini) missing the bridge row:\n%s", u)
 	}
 }
 

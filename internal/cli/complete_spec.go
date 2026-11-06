@@ -229,7 +229,7 @@ func memorySpecNodes() map[string]*compNode {
 }
 
 func addLauncherSpecNodes(tree map[string]*compNode, askFlags []flagInfo) {
-	flag, boolFlag, valuedFlag := specFlag, specBoolFlag, specValuedFlag
+	flag, boolFlag := specFlag, specBoolFlag
 	// Launchers that only ever get a bare node (no flags of their own — see noComplete).
 	for _, v := range []string{"opus", "sonnet", "haiku", "fable", "science"} {
 		tree[v] = &compNode{}
@@ -240,11 +240,7 @@ func addLauncherSpecNodes(tree map[string]*compNode, askFlags []flagInfo) {
 	for _, v := range []string{"codex", "copilot", "opencode"} {
 		tree[v] = &compNode{sub: agentSubNodes(askFlags)}
 	}
-	geminiSub := agentSubNodes(askFlags)
-	geminiSub["bridge"] = &compNode{flags: []flagInfo{flag("task"), flag("model"), valuedFlag("profile", providerNames), flag("effort"),
-		flag("dirs"), flag("files"), flag("format"), flag("max-files"), flag("max-file-bytes"),
-		flag("timeout"), boolFlag("print-command"), flag("rubric"), boolFlag("index"), boolFlag("diff")}}
-	tree["gemini"] = &compNode{sub: geminiSub}
+	tree["gemini"] = &compNode{sub: agentSubNodes(askFlags)}
 	// Every remaining verb (hook/statusline/version/completion/__complete and anything future) at
 	// least gets an empty node so it's never silently unrepresented.
 	for _, c := range commands() {

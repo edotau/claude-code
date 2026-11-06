@@ -31,7 +31,7 @@
 <text x="173.2" y="293" fill="#d7d4dc">Codex on your ChatGPT login; reviews</text>
 <text x="22.0" y="312" fill="#d7d4dc">  </text>
 <text x="38.8" y="312" fill="#847ace" font-weight="bold">gemini          </text>
-<text x="173.2" y="312" fill="#d7d4dc">Gemini CLI; 1M-context sweeps (bridge)</text>
+<text x="173.2" y="312" fill="#d7d4dc">Gemini CLI; 1M-context sweeps (ask --dirs)</text>
 <text x="22.0" y="331" fill="#d7d4dc">  </text>
 <text x="38.8" y="331" fill="#857acc" font-weight="bold">opencode        </text>
 <text x="173.2" y="331" fill="#d7d4dc">OpenCode on its own login, or your Databricks profile; docs</text>

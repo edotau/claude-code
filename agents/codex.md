@@ -115,7 +115,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 | New tests (feature/bug fix only) | `copilot` |
 | Docs refresh or memory persistence | `opencode` |
-| Wide 1M-context sweep across many files | `gemini` (`claude-code gemini bridge`) |
+| Wide 1M-context sweep across many files | `gemini` (`claude-code ask --agent gemini --tools --dirs <d>`) |
 | Judging a claimed-done task | `skills/evaluate-code/references/judge.md` (borrow its stance; manager runs it) |
 | Harness configuration tuning (settings, hooks, routing) | the owner, by hand in `~/.claude/settings.json` — not you |
 

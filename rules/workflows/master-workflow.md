@@ -51,7 +51,7 @@ Three parallel `Explore` agents — Structure (layout, entry points), Convention
 Dependencies (deps, env vars, CLIs) — produce one brief passed to every downstream agent. **Scope the fan-out to the
 directories the task touches**: a repo-wide sweep is the biggest avoidable token cost. Skip if a brief exists this
 session and nothing changed. `@agent-gemini` gives the same brief off Claude's budget: it fans out up to 12
-`gemini explore` jobs (code + web) and merges them; `bridge` for whole-repo context.
+`gemini explore` jobs (code + web) and merges them; `ask --agent gemini --tools --dirs <d>` for whole-repo context.
 
 ## Phase 3: Research (new implementation, not pure refactor)
 

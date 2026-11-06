@@ -57,9 +57,9 @@ a leaf).
 3. **Run each dispatch** with the handoff verbatim plus `never git stash/checkout/reset/restore`; edits only
    with `--tools --workdir <worktree, only with the user's yes>` (opencode has ignored `--workdir` before —
    confirm with `git diff --stat` where the diff landed). A read-only scan uses `--read-only`, never `--tools`: copilot
-   approves only file reads and URL fetches; agents that can't enforce it run with no tools, so a gemini read-only
-   sweep goes through `gemini bridge`. Any ask that may pass 150s runs with
-   `--background` (`references/agent-verbs.md` step 3); follow with `claude-code <agent> tail -f <job>`.
+   approves only file reads and URL fetches; agents that can't enforce it run with no tools, so a gemini
+   sweep runs `ask --agent gemini --tools --dirs <d>` (it needs tools; `--read-only` is refused). Any ask that may
+   pass 150s runs with `--background` (`references/agent-verbs.md` step 3); follow with `claude-code <agent> tail -f <job>`.
    Gemini dispatches are for read-heavy sweeps and
    research, and their brief must say "open the files and cite file:line" (a gemini dispatch once answered from
    memory); such a dispatch needs `--tools`, or agy refuses rather than read files.

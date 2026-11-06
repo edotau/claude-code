@@ -41,9 +41,8 @@ func TestRosterMatchesSpecs(t *testing.T) {
 
 func TestRosterFacts(t *testing.T) {
 	catalogs := map[string]CLI{
-		"codex": {ResumeFormat: "codex resume session", ModelsProvider: "openai"},
-		"gemini": {ResumeFormat: "agy --conversation session", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
-			ExtraUsage: [][2]string{{"bridge", "ingest files for a large-context task"}}},
+		"codex":    {ResumeFormat: "codex resume session", ModelsProvider: "openai"},
+		"gemini":   {ResumeFormat: "agy --conversation session", ModelsArgv: []string{"models"}, ReadNeedsTools: true},
 		"opencode": {ResumeFormat: "opencode run --session session", ModelsArgv: []string{"models"}, ReadNeedsTools: true},
 		"copilot":  {ResumeFormat: "copilot --resume session", ModelsProvider: "github", ReadNeedsTools: true},
 	}
