@@ -58,7 +58,7 @@ var methodPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
 })
 
 var cyclomaticKeywords = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)\bif\b|\belif\b|\belse\b|\bfor\b|\bwhile\b|\bcase\b|\bcatch\b|\bexcept\b|\band\b|\bor\b|\|\||&&`)
+	return regexp.MustCompile(`(?i)\bif\b|\belif\b|\bfor\b|\bwhile\b|\bcase\b|\bcatch\b|\bexcept\b|\band\b|\bor\b|\|\||&&`)
 })
 var solidTypeCheck = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`isinstance\(|type\(.*\)\s*==|typeof\s+\w+\s*===`)
@@ -70,7 +70,7 @@ var solidImports = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^(?:import|from)\s+`)
 })
 var commentedCodePattern = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)^\s*[#/]+\s*(if|for|while|def|function|class|const|let|var)\s`)
+	return regexp.MustCompile(`(?i)^\s*[#/]+\s*(if|for|while|def|function|class|const|let|var)\s.*[{:;(]\s*$`)
 })
 var magicNumberDigits = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\d{3,}`)

@@ -150,13 +150,16 @@ func markGone(p PaneStatus, now time.Time) PaneStatus {
 // degradeToError reports every previously known pane as unobservable rather than discarding it, so
 // one transient ssh/tmux failure during repeated sampling doesn't blank out the caller's view.
 func degradeToError(prev []PaneStatus, err error, now time.Time) []PaneStatus {
-	out := make([]PaneStatus, len(prev))
-	for i, p := range prev {
+	out := make([]PaneStatus, 0, len(prev))
+	for _, p := range prev {
+		if p.State == StateGone { // already reported gone: dropped, never revived as an error entry
+			continue
+		}
 		if p.State != StateError {
 			p.ChangedAt = now
 		}
 		p.State, p.Reason, p.ObservedAt = StateError, err.Error(), now
-		out[i] = p
+		out = append(out, p)
 	}
 	return out
 }

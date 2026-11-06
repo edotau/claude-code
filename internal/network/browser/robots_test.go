@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func robotsServer(t *testing.T, status int, body string, hits *int) *httptest.Server {
@@ -132,5 +133,26 @@ func TestParseRobotsEmptyDisallowIsAllowAllGroup(t *testing.T) {
 				t.Errorf("blocked = %v, want %v", blocked, c.blocked)
 			}
 		})
+	}
+}
+
+func TestRobotsMatchMultiWildcardIsBounded(t *testing.T) {
+	pat := "/" + strings.Repeat("*a", 10) + "*b"
+	path := "/" + strings.Repeat("a", 60)
+	done := make(chan bool, 1)
+	go func() { done <- robotsMatch(pat, path) }()
+	select {
+	case got := <-done:
+		if got {
+			t.Errorf("robotsMatch(%q) matched a path without b", pat)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("robotsMatch did not finish: exponential backtracking")
+	}
+	if !robotsMatch(pat, path+"b") {
+		t.Errorf("robotsMatch(%q) must match a path ending in b", pat)
+	}
+	if robotsMatch("/a*b$", "/aXbY") || !robotsMatch("/a*b$", "/aXb") {
+		t.Errorf("trailing $ must anchor the last segment")
 	}
 }

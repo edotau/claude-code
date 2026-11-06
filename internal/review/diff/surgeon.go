@@ -199,12 +199,16 @@ func detectQuoteSwaps(changes []string) []diffFinding {
 
 func analyzeDiffFile(fd *diffFileEntry) []diffFinding {
 	var findings []diffFinding
+	var unclassified []string
 	for _, line := range fd.changes {
 		if cat := classifyLine(line, fd.file); cat != "" {
 			findings = append(findings, diffFinding{Category: cat, Line: textutil.TruncateRunes(line, 120)})
+		} else {
+			unclassified = append(unclassified, line)
 		}
 	}
-	findings = append(findings, detectQuoteSwaps(fd.changes)...)
+	// Lines already counted as noise stay out of the quote-swap scan so no line is counted twice.
+	findings = append(findings, detectQuoteSwaps(unclassified)...)
 	return findings
 }
 
@@ -303,17 +307,15 @@ func runDiffIn(repo string, args []string, stdout, stderr io.Writer) int {
 	if strings.TrimSpace(diffText) == "" {
 		result := noChangesResult{Status: "ok", Files: 0, Noise: 0, Verdict: "CLEAN", Message: "No diff to analyze"}
 		if *jsonOut {
-			fmt.Fprintln(stdout, mustIndentJSON(result))
-		} else {
-			fmt.Fprintln(stdout, "No diff to analyze. Stage changes (git add) or pass --diff.")
+			return printJSON(stdout, stderr, result)
 		}
+		fmt.Fprintln(stdout, "No diff to analyze. Stage changes (git add) or pass --diff.")
 		return 0
 	}
 
 	result := buildDiffResult(parseDiffFiles(diffText))
 	if *jsonOut {
-		fmt.Fprintln(stdout, mustIndentJSON(result))
-		return 0
+		return printJSON(stdout, stderr, result)
 	}
 	printDiffReport(stdout, result)
 	return 0
@@ -339,4 +341,15 @@ func splitPositional(args []string, boolFlags map[string]bool) (positional, rest
 		positional = append(positional, a)
 	}
 	return positional, rest
+}
+
+// printJSON writes v as indented JSON; an encode failure goes to stderr with exit 1.
+func printJSON(stdout, stderr io.Writer, v any) int {
+	js, err := indentJSON(v)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, js)
+	return 0
 }

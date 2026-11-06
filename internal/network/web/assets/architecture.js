@@ -180,8 +180,8 @@
     if (n.hash && location.hash !== n.hash) location.hash = n.hash;
     if (window.matchMedia('(max-width: 700px)').matches) v.detail.scrollIntoView({ block: 'start' });
   }
-  function makeView(sub) {
-    const v = { sub: sub, model: dirModel(), open: new Set(), sel: '', missing: '', q: '' };
+  function makeView() {
+    const v = { model: dirModel(), open: new Set(), sel: '', missing: '', q: '' };
     v.model.roots.forEach(function (n) { v.open.add(n.key); });
     const input = el('input');
     input.placeholder = 'Filter by path or comment';
@@ -200,7 +200,7 @@
     return v;
   }
   function view(sub) {
-    if (!st.views[sub]) st.views[sub] = makeView(sub);
+    if (!st.views[sub]) st.views[sub] = makeView();
     return st.views[sub];
   }
 

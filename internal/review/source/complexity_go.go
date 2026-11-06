@@ -57,8 +57,13 @@ func goNesting(root ast.Node, depth int) int {
 		if n == nil || n == root {
 			return n == root
 		}
-		switch n.(type) {
-		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		switch v := n.(type) {
+		case *ast.IfStmt:
+			if d := goIfChainNesting(v, depth+1); d > deepest {
+				deepest = d
+			}
+			return false
+		case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
 			if d := goNesting(n, depth+1); d > deepest {
 				deepest = d
 			}
@@ -66,5 +71,26 @@ func goNesting(root ast.Node, depth int) int {
 		}
 		return true
 	})
+	return deepest
+}
+
+// goIfChainNesting scores an if/else-if chain flat: each else-if shares the first if's depth.
+func goIfChainNesting(v *ast.IfStmt, depth int) int {
+	deepest := depth
+	for cur := v; cur != nil; {
+		if d := goNesting(cur.Body, depth); d > deepest {
+			deepest = d
+		}
+		switch e := cur.Else.(type) {
+		case *ast.IfStmt:
+			cur = e
+			continue
+		case *ast.BlockStmt:
+			if d := goNesting(e, depth); d > deepest {
+				deepest = d
+			}
+		}
+		cur = nil
+	}
 	return deepest
 }

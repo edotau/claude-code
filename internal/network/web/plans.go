@@ -92,13 +92,9 @@ func (s *Server) plansJSON() ([]byte, error) {
 		if info, err := os.Stat(sum.Path); err == nil {
 			mtime = info.ModTime().Unix()
 		}
-		claims := sum.Claims
-		if claims == nil {
-			claims = []string{}
-		}
 		out = append(out, planEntry{
 			Repo: repo, Path: filepath.ToSlash(rel), Ticked: sum.Ticked, Total: sum.Total,
-			Partial: sum.Partial, Claims: claims, Mtime: mtime,
+			Partial: sum.Partial, Claims: nonNil(sum.Claims), Mtime: mtime,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -137,7 +133,8 @@ func (s *Server) plansFingerprint() uint64 {
 func (s *Server) handlePlans(w http.ResponseWriter, r *http.Request) {
 	b, err := s.plansJSON()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.logger.Printf("plans: %v", err)
+		http.Error(w, "plans unavailable", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -187,7 +184,8 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, maxPlanBytes+1))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.logger.Printf("plan read: %v", err)
+		http.Error(w, "plan read failed", http.StatusInternalServerError)
 		return
 	}
 	if len(b) > maxPlanBytes {

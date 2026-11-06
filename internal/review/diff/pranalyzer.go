@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -206,8 +207,8 @@ func categorizeFile(filepath string) (string, int) {
 func analyzeDiffForRisks(diffContent, filepath string) []PRRisk {
 	risks := []PRRisk{}
 	var added []string
-	for line := range strings.SplitSeq(diffContent, "\n") {
-		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+	for _, line := range diffBodyLines(diffContent) {
+		if strings.HasPrefix(line, "+") {
 			added = append(added, line[1:])
 		}
 	}
@@ -222,14 +223,41 @@ func analyzeDiffForRisks(diffContent, filepath string) []PRRisk {
 }
 
 func countChanges(diffContent string) (additions, deletions int) {
-	for line := range strings.SplitSeq(diffContent, "\n") {
-		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+	for _, line := range diffBodyLines(diffContent) {
+		if strings.HasPrefix(line, "+") {
 			additions++
-		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+		} else if strings.HasPrefix(line, "-") {
 			deletions++
 		}
 	}
 	return
+}
+
+// diffBodyLines returns the lines inside hunks, so `+++i;` and `--- x` bodies are not mistaken for file headers.
+func diffBodyLines(diffContent string) []string {
+	var body []string
+	inHunk := false
+	for line := range strings.SplitSeq(diffContent, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			inHunk = false
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case inHunk:
+			body = append(body, line)
+		}
+	}
+	return body
+}
+
+// checkRefs rejects refs that git would parse as options (e.g. --output=FILE).
+func checkRefs(refs ...string) error {
+	for _, r := range refs {
+		if strings.HasPrefix(r, "-") {
+			return fmt.Errorf("invalid ref %q: must not start with '-'", r)
+		}
+	}
+	return nil
 }
 
 func calculateComplexityScore(files []PRFileAnalysis, allRisks []PRRisk) int {
@@ -304,6 +332,9 @@ func complexityLabel(score int) string {
 
 // AnalyzePR ports pr_analyzer.py's analyze_pr: full complexity/risk analysis for base...head.
 func AnalyzePR(repo, base, head string) (PRReport, error) {
+	if err := checkRefs(base, head); err != nil {
+		return PRReport{}, err
+	}
 	files, err := changedFiles(repo, base, head)
 	if err != nil {
 		return PRReport{}, fmt.Errorf("git diff %s...%s: %w", base, head, err)
@@ -484,7 +515,12 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 
 	var buf strings.Builder
 	if *jsonOut {
-		buf.WriteString(mustIndentJSON(report) + "\n")
+		js, jsErr := indentJSON(report)
+		if jsErr != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", jsErr)
+			return 1
+		}
+		buf.WriteString(js + "\n")
 	} else {
 		printPRReport(&buf, report)
 	}
@@ -515,7 +551,7 @@ func writeOutput(text, output string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, text)
 		return 0
 	}
-	if err := os.WriteFile(output, []byte(text), 0o644); err != nil {
+	if err := paths.AtomicWrite(output, []byte(text), 0o644); err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
