@@ -98,15 +98,15 @@ func (l Look) Stops(pal Palettes) []ansi.RGB {
 	if len(hexes) == 0 {
 		hexes = embeddedPalettes().Gradients["gemini"]
 	}
-	out := HexStops(hexes)
+	out := hexStops(hexes)
 	for i, rgb := range out {
 		out[i] = l.Lifted(rgb)
 	}
 	return out
 }
 
-// HexStops converts a palette's hex ramp to RGB stops.
-func HexStops(hexes []string) []ansi.RGB {
+// hexStops converts a palette's hex ramp to RGB stops.
+func hexStops(hexes []string) []ansi.RGB {
 	out := make([]ansi.RGB, len(hexes))
 	for i, h := range hexes {
 		out[i] = ansi.Hex(h)
@@ -169,7 +169,7 @@ func GradientNames() []string {
 // EmbeddedTheme returns name's stops and the dim tone from the built-in palettes, ignoring local overrides.
 func EmbeddedTheme(name string) (stops []ansi.RGB, dim ansi.RGB) {
 	pal := embeddedPalettes()
-	return HexStops(pal.Gradients[name]), ansi.Hex(pal.Sem("dim"))
+	return hexStops(pal.Gradients[name]), ansi.Hex(pal.Sem("dim"))
 }
 
 // GradientStops returns name's RGB stops from the resolved palette, or nil if name is unknown.
@@ -178,7 +178,7 @@ func GradientStops(name string) []ansi.RGB {
 	if !ok {
 		return nil
 	}
-	return HexStops(hexes)
+	return hexStops(hexes)
 }
 
 // Theme exposes the status line's color mode, gradient stops and dim tone so other output can match it.
@@ -186,7 +186,10 @@ func Theme() (mode string, stops []ansi.RGB, dim ansi.RGB) {
 	var l Look
 	_ = json.Unmarshal(embeddedConfigJSON, &l)
 	if data, err := os.ReadFile(filepath.Join(StatuslineDir(), "config.json")); err == nil {
-		_ = json.Unmarshal(data, &l)
+		user := l
+		if json.Unmarshal(data, &user) == nil { // a malformed file keeps the default look whole, never half-applied
+			l = user
+		}
 	}
 	pal := l.LiftPalette(LoadPalettes())
 	return l.Mode(), l.Stops(pal), ansi.Hex(pal.Sem("dim"))
@@ -218,6 +221,8 @@ func SetGradient(name string) error {
 			return err
 		}
 		raw = DefaultConfigJSON()
+	} else if _, err := paths.Backup(path, raw); err != nil {
+		return err
 	}
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {

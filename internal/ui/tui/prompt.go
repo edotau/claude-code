@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -12,17 +13,19 @@ import (
 // then discards that look-ahead on the next call, losing bytes the user already typed.
 var stdinReader = bufio.NewReader(os.Stdin)
 
+// Stdin is that shared reader, for line reads outside tui (dialog.Shell.Line) that must not drop its look-ahead.
+func Stdin() *bufio.Reader { return stdinReader }
+
 // Confirm prints "question [Y/n] " (or "[y/N]" when def is false) and reads one line from stdin;
 // blank keeps def, a leading y/Y is true, a leading n/N is false, anything else keeps def. Reads
 // directly from the controlling terminal — call only once the caller has confirmed stdin is a real
 // TTY (configure's Options.Interactive is already that gate); never against a substituted reader.
 func Confirm(question string, def bool) bool {
-	hint := "[Y/n]"
-	if !def {
-		hint = "[y/N]"
+	fmt.Fprintf(os.Stdout, "%s %s ", question, yesNoHint(def))
+	line, err := stdinReader.ReadString('\n')
+	if err != nil && strings.TrimSpace(line) == "" {
+		return false // EOF or a dead stdin is a decline, as in dialog.Yes
 	}
-	fmt.Fprintf(os.Stdout, "%s %s ", question, hint)
-	line, _ := stdinReader.ReadString('\n')
 	line = strings.ToLower(strings.TrimSpace(line))
 	switch {
 	case line == "":
@@ -36,6 +39,14 @@ func Confirm(question string, def bool) bool {
 	}
 }
 
+// yesNoHint is the "[Y/n]" or "[y/N]" suffix that marks def.
+func yesNoHint(def bool) string {
+	if def {
+		return "[Y/n]"
+	}
+	return "[y/N]"
+}
+
 // Secret prints prompt and reads one line with local echo off, so a pasted key never lands in the scrollback or
 // shell history. A non-nil preview redraws a masked line under the prompt as input arrives, so a paste shows on paste.
 // Falls back to a plain read when stdin is not a terminal.
@@ -44,6 +55,9 @@ func Secret(prompt string, preview func(string) string) (string, error) {
 	if !isTerminal(fd) {
 		fmt.Fprint(os.Stdout, prompt)
 		line, err := stdinReader.ReadString('\n')
+		if err == io.EOF && line != "" {
+			err = nil // a final line without a trailing newline is still a good secret
+		}
 		return strings.TrimRight(line, "\r\n"), err
 	}
 	var onChange func([]byte)
@@ -89,11 +103,7 @@ func ConfirmKey(question string, def bool) bool {
 		return Confirm(question, def)
 	}
 	defer t.Close()
-	hint := "[Y/n]"
-	if !def {
-		hint = "[y/N]"
-	}
-	fmt.Fprintf(os.Stdout, "%s %s · Esc cancel ", question, hint)
+	fmt.Fprintf(os.Stdout, "%s %s · Esc cancel ", question, yesNoHint(def))
 	for k := range t.Keys() {
 		if answer, done := confirmKey(k, def); done {
 			fmt.Fprintln(os.Stdout, map[bool]string{true: "yes", false: "no"}[answer])

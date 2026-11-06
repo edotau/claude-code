@@ -42,3 +42,15 @@ func TestPaintAndMark(t *testing.T) {
 		t.Fatalf("%q", out.String())
 	}
 }
+
+// Given two lines typed ahead on the terminal, When Line runs twice, Then the second call sees the first call's look-ahead.
+func TestLineTTYKeepsLookAhead(t *testing.T) {
+	orig, r := lineReader, bufio.NewReader(strings.NewReader("one\ntwo\n"))
+	lineReader = func() *bufio.Reader { return r }
+	t.Cleanup(func() { lineReader = orig })
+	var out bytes.Buffer
+	s := &Shell{Out: &out, TTY: true}
+	if a, b := s.Line("> "), s.Line("> "); a != "one" || b != "two" {
+		t.Fatalf("got %q then %q", a, b)
+	}
+}
