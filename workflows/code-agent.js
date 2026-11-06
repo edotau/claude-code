@@ -157,9 +157,11 @@ const ACCESS_FLAG = a.readOnly === true ? ' --read-only' : TOOLS ? ' --tools' : 
 const ENVELOPE = {
   type: 'object',
   additionalProperties: false,
-  required: ['ok', 'answer', 'error'],
+  required: ['ok', 'answer', 'error', 'jobId', 'agent'],
   properties: {
     ok: { type: 'boolean' },
+    jobId: { type: 'string', description: 'the id from the --background JSON line; "" if the ask never started' },
+    agent: { type: 'string', description: 'the result envelope agent field, verbatim; "" if no envelope' },
     answer: { type: 'string' },
     error: { type: 'string' },
     provider: { type: 'string' },
@@ -177,18 +179,21 @@ const run = async (task, label) =>
       `${AGENTS_STEP}Then run exactly: cd ${CWD} && claude-code agents ask --agent ${a.agent} --format json${PROFILE ? ' --profile ' + PROFILE : ''}${VMODEL_FLAG} --workdir ${CWD} --timeout ${MIN}m${ACCESS_FLAG}${AGENTS_FLAG} --background - < <that file>. ` +
       `It prints ONE JSON line {"id":…,"log":…}; id = the job id. Loop claude-code ${a.agent} status <id> with sleep 5 until done, then claude-code agents result <id> --format json. ` +
       `The result is ONE indented JSON object {agent, status, provider, model, answer, error:{kind,message}|null, transport, …}. ok = exit 0 AND error null AND answer non-empty. ` +
-      `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error's message, or the stderr tail on a non-JSON exit. Never retry.\n` +
-      `Your reply MUST contain ok, answer and error every time, even on failure or timeout. On a failed or timed-out ask reply ` +
-      `{"ok":false,"answer":"","error":"<the failure message>"}: the message goes in error, never in answer, and answer stays "". ` +
+      `Copy jobId (the id) and the envelope's agent, status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error's message, or the stderr tail on a non-JSON exit. Never retry.\n` +
+      `Your reply MUST contain ok, answer, error, jobId and agent every time, even on failure or timeout. On a failed or timed-out ask reply ` +
+      `{"ok":false,"answer":"","error":"<the failure message>","jobId":"<id or empty>","agent":""}: the message goes in error, never in answer, and answer stays "". ` +
       `On success error is "".\n\nTASK:\n${task}${AGENTS_TAIL}`,
-    { label, phase: 'Agent', schema: ENVELOPE, agentType: 'code-worker:claude', model: 'haiku', effort: 'low' }
+    { label, phase: 'Agent', schema: ENVELOPE, model: 'haiku', effort: 'low' }
   ).catch(() => null)) || { ok: false, answer: '', error: 'relay leaf failed' }
+// A relay that answered itself has no job id or names another agent: never count it as the external agent's answer.
+const relayed = r => r.ok && r.jobId && r.agent === a.agent ? r
+  : r.ok ? { ...r, ok: false, error: `relay unverified: jobId=${r.jobId || 'none'} agent=${r.agent || 'none'} (asked ${a.agent})` } : r
 
 phase('Agent')
-const smoke = !SMOKE ? { ok: true, answer: 'READY', error: '' } : await run('Reply READY only.', 'smoke:' + a.agent)
+const smoke = !SMOKE ? { ok: true, answer: 'READY', error: '' } : relayed(await run('Reply READY only.', 'smoke:' + a.agent))
 const res =
   smoke.ok && /READY/i.test(smoke.answer || '')
-    ? await run(a.task, 'ask:' + a.agent)
+    ? relayed(await run(a.task, 'ask:' + a.agent))
     : { ok: false, answer: '', error: smoke.error || 'smoke ask failed' }
 const withProfile = o => (PROFILE ? { ...o, profile: PROFILE } : o)
 if (res.ok) return withProfile({ ...res, agent: a.agent })
