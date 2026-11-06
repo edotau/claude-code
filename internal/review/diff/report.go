@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -276,6 +277,10 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
+	if err := checkRefs(*base, *head); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
 	repoPath, ok := resolveExistingPath(positional, stderr)
 	if !ok {
 		return 1
@@ -295,7 +300,11 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 		outputFormat = "json"
 	}
 
-	out := renderReport(report, outputFormat)
+	out, err := renderReport(report, outputFormat)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
 
 	return writeReport(out, *output, stdout, stderr)
 }
@@ -323,7 +332,7 @@ func writeReport(out, output string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, out)
 		return 0
 	}
-	if err := os.WriteFile(output, []byte(out), 0o644); err != nil {
+	if err := paths.AtomicWrite(output, []byte(out), 0o644); err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
@@ -344,12 +353,12 @@ func loadAnalysisOverride(path, label string, stderr io.Writer) map[string]any {
 	return m
 }
 
-func renderReport(report Report, format string) string {
+func renderReport(report Report, format string) (string, error) {
 	switch format {
 	case "json":
-		return mustIndentJSON(report)
+		return indentJSON(report)
 	case "markdown":
-		return formatMarkdownReport(report)
+		return formatMarkdownReport(report), nil
 	}
-	return formatTextReport(report)
+	return formatTextReport(report), nil
 }

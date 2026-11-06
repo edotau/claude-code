@@ -459,3 +459,13 @@ func TestCapturePanes_PassesBatchAndHostThroughExecArgs(t *testing.T) {
 		t.Errorf("batch=true should select BatchMode=yes ssh args: %v", gotArgv)
 	}
 }
+
+func TestObserve_SSHFailureDoesNotReviveGonePane(t *testing.T) {
+	t0 := time.Now()
+	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
+	gone := ObservePanes(prev, nil, nil, t0.Add(time.Second))
+	out := ObservePanes(gone, nil, errFakeSSH, t0.Add(2*time.Second))
+	if len(out) != 0 {
+		t.Fatalf("gone pane revived as error entry: %+v", out)
+	}
+}

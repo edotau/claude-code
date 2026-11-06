@@ -270,9 +270,9 @@ type SecretFinding struct {
 	Key    string `json:"key,omitempty"`
 }
 
-// queryParamSecret matches a plaintext token=/key= query parameter in a URL; group 1 keeps the
+// queryParamSecret matches a plaintext *token=/*key= query parameter in a URL; group 1 keeps the
 // separator and param name so redact() can replace just the value.
-var queryParamSecret = regexp.MustCompile(`(?i)([?&](?:token|key)=)[^&\s]+`)
+var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key)=)[^&\s]+`)
 
 // FindSecrets scans every server's env, headers, and url for inline plaintext credentials.
 func FindSecrets(defs []Def) []SecretFinding {
@@ -293,8 +293,8 @@ func FindSecrets(defs []Def) []SecretFinding {
 func redact(defs []Def) []Def {
 	out := make([]Def, len(defs))
 	for i, d := range defs {
-		d.D.Env = redactMap(d.D.Env)
-		d.D.Headers = redactMap(d.D.Headers)
+		d.D.Env = shapes.RedactMap(d.D.Env)
+		d.D.Headers = shapes.RedactMap(d.D.Headers)
 		if d.D.URL != "" {
 			d.D.URL = queryParamSecret.ReplaceAllString(d.D.URL, "${1}REDACTED")
 		}
@@ -302,8 +302,6 @@ func redact(defs []Def) []Def {
 	}
 	return out
 }
-
-func redactMap(m map[string]string) map[string]string { return shapes.RedactMap(m) }
 
 func scanMap(d Def, field string, m map[string]string) []SecretFinding {
 	var keys []string
@@ -329,7 +327,7 @@ type Report struct {
 	Unscanned []string        `json:"unscanned,omitempty"` // config files that exist but could not be read or parsed
 }
 
-// ExitCode is 1 when a server failed, `claude mcp list` errored, or a secret was found, else 0. A fail-open
+// ExitCode is 1 when a server failed, `claude mcp list` errored, a secret was found, or a config file was unscanned, else 0. A fail-open
 // health skip (claude not on PATH) never contributes to the exit code on its own.
 func (r Report) ExitCode() int {
 	if r.Health.Failed > 0 || r.Health.Error != "" || len(r.Secrets) > 0 || len(r.Unscanned) > 0 {

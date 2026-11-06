@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -230,4 +231,22 @@ func TestEventsStreamsPlansChange(t *testing.T) {
 	body := strings.Replace(plansFixtureBody, "- [ ] 1.2 Open", "- [x] 1.2 Open", 1)
 	writePlansFile(t, p, body, time.Now().Add(time.Minute))
 	ps.awaitTicked(t, 2, sawTree)
+}
+
+// A plans scan failure returns a fixed body and keeps the filesystem path in the log only.
+func TestPlansAPIErrorHidesPath(t *testing.T) {
+	withEmptyDispatchDir(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plans"), []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logBuf := &bytes.Buffer{}
+	s := newTestServer(t, Options{ClaudeDir: dir, Days: 36500}, logBuf)
+	w := do(s, newReq(t, "GET", "/api/plans", "127.0.0.1:7777"))
+	if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), dir) {
+		t.Fatalf("/api/plans = %d %q, want 500 without %q", w.Code, w.Body, dir)
+	}
+	if !strings.Contains(logBuf.String(), dir) {
+		t.Fatalf("log = %q, want the underlying error with the path", logBuf)
+	}
 }

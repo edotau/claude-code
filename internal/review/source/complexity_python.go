@@ -10,12 +10,13 @@ import (
 // top-to-bottom source order (ast.walk is BFS), and boolean-operator scoring follows the SonarSource
 // "operator-sequence-change" rule rather than CPython's `len(BoolOp.values)-1`.
 func analyzePython(text string, lineCount int, th ComplexityThresholds) []Finding {
-	lines := pythonLines(maskPythonSource(text))
+	masked := maskPythonSource(text)
+	lines := pythonLines(masked)
 	var findings []Finding
 	for _, f := range findPyFunctions(lines) {
 		findings = append(findings, pyFunctionFindings(f, th)...)
 	}
-	findings = append(findings, pyModuleFindings(lines, text, th, lineCount)...)
+	findings = append(findings, pyModuleFindings(lines, masked, th, lineCount)...)
 	return findings
 }
 
@@ -210,7 +211,7 @@ func pyFunctionFindings(f pyFuncSpan, th ComplexityThresholds) []Finding {
 }
 
 // pyModuleFindings is check_file_shape's estimate: import count, class density, premature abstraction.
-func pyModuleFindings(lines []pyLine, rawText string, th ComplexityThresholds, lineCount int) []Finding {
+func pyModuleFindings(lines []pyLine, maskedText string, th ComplexityThresholds, lineCount int) []Finding {
 	imports, classes := 0, 0
 	for _, l := range lines {
 		if skipLine(l) {
@@ -226,7 +227,7 @@ func pyModuleFindings(lines []pyLine, rawText string, th ComplexityThresholds, l
 	}
 	out := importCountFinding(imports, th)
 	out = append(out, classDensityFinding(classes, lineCount, th)...)
-	if classes > 0 && lineCount < 200 && pyHasABCMarker(rawText) {
+	if classes > 0 && lineCount < 200 && pyHasABCMarker(maskedText) {
 		out = append(out, Finding{Rule: "premature-abstraction", Severity: "info",
 			Message: "Abstract base / Protocol in a file under 200 lines. Needed yet?"})
 	}

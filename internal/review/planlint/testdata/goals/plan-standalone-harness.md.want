@@ -1,5 +1,5 @@
 Goal Verifier — plan-standalone-harness.md
-Steps: 6   Score: 3/18 (16.7%)
+Steps: 6   Score: 0/18 (0.0%)
 Verdict: MISSING
 
   [!] 1. authenticates the client secret (`x-api-key` or bearer), validates Host is loopback;  (none, 0/3)
@@ -7,7 +7,7 @@ Verdict: MISSING
   [!] 3. strips `[1m]`, rewrites `model` to the wire id;  (none, 0/3)
   [!] 4. anthropic route → byte passthrough with `providers.Authorize`; else openai route → `translate`;  (none, 0/3)
   [!] 5. on 401/403 → `providers.Refresh` + replay once; on 429/5xx/connect error **before any byte is wri  (none, 0/3)
-  [+] 6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered locally for translated le  (concrete, 3/3)
+  [!] 6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered locally for translated le  (none, 0/3)
 
-  -> 5 step(s) have no verification. Add 'verify: [check]' to each.
+  -> 6 step(s) have no verification. Add 'verify: [check]' to each.
   -> No final / end-to-end verification step. Add one at the end.

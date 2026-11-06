@@ -7,14 +7,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -32,19 +36,19 @@ const (
 	defaultMaxResults = 5
 )
 
-// KeyName is the secret name Tavily's API key resolves under (the vault, or env).
-const KeyName = "TAVILY_API_KEY"
+// keyName is the secret name Tavily's API key resolves under (the vault, or env).
+const keyName = "TAVILY_API_KEY"
 
 // mintHint points at where a fresh key comes from; keyHint names the fix when none is set.
 const mintHint = "mint one at app.tavily.com → API keys"
 
 func keyHint() string {
-	return fmt.Sprintf("run `claude-code vault set %s` (%s)", KeyName, mintHint)
+	return fmt.Sprintf("run `claude-code vault set %s` (%s)", keyName, mintHint)
 }
 
 // resolveKey returns the Tavily API key through the managed ladder (vault -> env). "" when unset.
 func resolveKey() string {
-	v, _, ok := vault.Get(KeyName)
+	v, _, ok := vault.Get(keyName)
 	if !ok {
 		return ""
 	}
@@ -245,7 +249,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 // Run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
 func Run(ctx context.Context) int {
 	if resolveKey() == "" {
-		fmt.Fprintf(os.Stderr, "websearch-mcp: no %s; web_search returns an error until set — %s\n", KeyName, keyHint())
+		fmt.Fprintf(os.Stderr, "websearch-mcp: no %s; web_search returns an error until set — %s\n", keyName, keyHint())
 	}
 	srv := &Server{}
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
@@ -282,7 +286,7 @@ func OneShot(ctx context.Context, query string, maxResults int, search Searcher,
 func tavilySearch(ctx context.Context, query string, maxResults int) (string, error) {
 	apiKey := resolveKey()
 	if apiKey == "" {
-		return "", fmt.Errorf("%s is not set — %s", KeyName, keyHint())
+		return "", fmt.Errorf("%s is not set — %s", keyName, keyHint())
 	}
 	body, _ := json.Marshal(map[string]any{
 		"api_key":      apiKey,
@@ -290,9 +294,9 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 		"max_results":  maxResults,
 		"search_depth": "basic",
 	})
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tavilyURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, tavilyURL, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("could not build Tavily request (%v)", err)
 	}
@@ -317,6 +321,7 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return "", fmt.Errorf("search with Tavily returned non-JSON payload (%v)", err)
 	}
+	cancel() // the Tavily deadline is spent; enrichment runs on the caller's ctx with its own per-fetch bound
 	enrichResults(ctx, payload.Results)
 	return formatResults(payload.Answer, payload.Results), nil
 }
@@ -352,6 +357,71 @@ func enrichResults(ctx context.Context, results []tavilyResult) {
 	wg.Wait()
 }
 
+// pageClient fetches result pages: loopback/private/link-local targets are refused at dial time (so redirects
+// and DNS answers are covered too) and redirects are capped at 5 hops.
+var pageClient = &http.Client{
+	Transport: &http.Transport{DialContext: (&net.Dialer{Control: rejectInternal}).DialContext},
+	CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("too many redirects")
+		}
+		return nil
+	},
+}
+
+func rejectInternal(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return fmt.Errorf("refusing to fetch internal address %s", host)
+	}
+	return nil
+}
+
+// robotsAllowed reports whether the origin's robots.txt permits u for "claude-code" or "*"; a missing or
+// unreadable robots.txt allows. Only Disallow prefixes are honored (no Allow/wildcard handling).
+func robotsAllowed(ctx context.Context, u *url.URL) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.Scheme+"://"+u.Host+"/robots.txt", nil)
+	if err != nil {
+		return true
+	}
+	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
+	resp, err := pageClient.Do(req)
+	if err != nil {
+		return true
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return true
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	if err != nil {
+		return true
+	}
+	applies := false
+	for ln := range strings.SplitSeq(string(raw), "\n") {
+		ln, _, _ = strings.Cut(ln, "#")
+		k, v, ok := strings.Cut(ln, ":")
+		if !ok {
+			continue
+		}
+		k, v = strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)
+		switch k {
+		case "user-agent":
+			v = strings.ToLower(v)
+			applies = v == "*" || strings.HasPrefix(v, "claude-code")
+		case "disallow":
+			if applies && v != "" && strings.HasPrefix(u.RequestURI(), v) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // fetchPageText GETs one result URL and reduces it to plain text; "" means "keep the snippet".
 // Only http/https schemes are fetched — a search backend must not be able to point the enricher at
 // file:, ftp:, or any other local scheme.
@@ -367,7 +437,10 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5")
 	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
-	resp, err := http.DefaultClient.Do(req)
+	if !robotsAllowed(ctx, req.URL) {
+		return ""
+	}
+	resp, err := pageClient.Do(req)
 	if err != nil {
 		return ""
 	}
@@ -379,7 +452,10 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 		!strings.Contains(ct, "html") && !strings.Contains(ct, "text") {
 		return "" // a PDF/image/binary hit keeps its snippet — no text to extract
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))
+	if err != nil {
+		return "" // a body cut off mid-read keeps the snippet rather than appending a fragment
+	}
 	text := htmlToText(string(raw))
 	if runes := []rune(text); len(runes) > enrichMaxChars {
 		text = string(runes[:enrichMaxChars]) + "…"

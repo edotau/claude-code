@@ -38,7 +38,7 @@ func fakeSSHOnPATH(t *testing.T, listOutput string) {
 	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
-		"case \"$2\" in *tmux\\ list-sessions*) printf '%s' " + textutil.ShellQuote(listOutput) + " ;; esac\n"
+		"case \"$*\" in *tmux\\ list-sessions*) printf '%s' " + textutil.ShellQuote(listOutput) + " ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func fakeSSHStatusOnPATH(t *testing.T, panes string) {
 	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
-		"case \"$2\" in *tmux\\ list-panes*) printf '%s' " + textutil.ShellQuote(panes) + " ;; esac\n"
+		"case \"$*\" in *tmux\\ list-panes*) printf '%s' " + textutil.ShellQuote(panes) + " ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -124,10 +124,10 @@ func TestDispatchDryRunSpawnsNoSSH(t *testing.T) {
 	if !strings.Contains(out, "argv[0]: ssh") {
 		t.Errorf("dry-run output missing argv[0] line:\n%s", out)
 	}
-	if !strings.Contains(out, "argv[1]: myhost") {
-		t.Errorf("dry-run output missing resolved host in argv[1]:\n%s", out)
+	if !strings.Contains(out, "argv[2]: myhost") {
+		t.Errorf("dry-run output missing resolved host in argv[2]:\n%s", out)
 	}
-	if !strings.Contains(out, "attach: ssh -t myhost tmux attach -t cc-claude-abcd") {
+	if !strings.Contains(out, "attach: ssh -t -- myhost tmux attach -t cc-claude-abcd") {
 		t.Errorf("dry-run output missing attach hint:\n%s", out)
 	}
 	// The task given as multiple positional words must be joined and passed as one shell-quoted unit.
@@ -368,5 +368,17 @@ func TestDispatchStartReportsStdoutFailure(t *testing.T) {
 	closedStdout(t)
 	if got := dispatchStart(context.Background(), "stdout-test.invalid", "", "claude", "cc-stdout-test", "hello", false); got == 0 {
 		t.Fatal("dispatch start exit = 0 on closed stdout, want nonzero")
+	}
+}
+
+// An option-shaped --host (ssh would run its ProxyCommand) is refused before any ssh argv is built.
+func TestNetworkRemoteRefusesOptionShapedHost(t *testing.T) {
+	hermeticDispatch(t)
+	emptyPATH(t)
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdNetworkRemote([]string{"--host", "-oProxyCommand=touch /tmp/pwned", "--dry-run", "x"})
+	})
+	if code == 0 || !strings.Contains(stderr, "invalid ssh host") || strings.Contains(out, "ProxyCommand") {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want a refusal naming the invalid host", code, out, stderr)
 	}
 }

@@ -303,7 +303,7 @@ func TestSSHArgs_IsArgvNotShellString(t *testing.T) {
 	// SSHArgs always wraps the remote command as `sh -c <quoted>` so it runs under POSIX sh
 	// regardless of the remote login shell (e.g. fish).
 	args := SSHArgs("myhost", "echo hi")
-	want := []string{"ssh", "myhost", "sh -c 'echo hi'"}
+	want := []string{"ssh", "--", "myhost", "sh -c 'echo hi'"}
 	if len(args) != len(want) {
 		t.Fatalf("SSHArgs = %v, want %v", args, want)
 	}
@@ -315,21 +315,21 @@ func TestSSHArgs_IsArgvNotShellString(t *testing.T) {
 	// The host is its own argv element: a crafted host containing shell metacharacters must not
 	// merge with the command when exec.Command passes args without a shell.
 	args2 := SSHArgs("host; rm -rf /", "echo hi")
-	if args2[1] != "host; rm -rf /" {
+	if args2[2] != "host; rm -rf /" {
 		t.Errorf("host argv element was mangled: %q", args2[1])
 	}
-	if len(args2) != 3 {
-		t.Errorf("SSHArgs produced %d argv elements, want 3 (host stayed one element)", len(args2))
+	if len(args2) != 4 {
+		t.Errorf("SSHArgs produced %d argv elements, want 4 (host stayed one element)", len(args2))
 	}
 	// The wrapped remote command must still be valid, injection-safe sh.
-	if out, err := exec.Command("sh", "-n", "-c", args2[2]).CombinedOutput(); err != nil {
+	if out, err := exec.Command("sh", "-n", "-c", args2[3]).CombinedOutput(); err != nil {
 		t.Fatalf("sh -n rejected the wrapped remote command: %v\n%s", err, out)
 	}
 }
 
 func TestAttachArgs(t *testing.T) {
 	args := AttachArgs("myhost", "cc-claude-abcd")
-	want := []string{"ssh", "-t", "myhost", "tmux", "attach", "-t", "cc-claude-abcd"}
+	want := []string{"ssh", "-t", "--", "myhost", "tmux", "attach", "-t", "cc-claude-abcd"}
 	if len(args) != len(want) {
 		t.Fatalf("AttachArgs = %v, want %v", args, want)
 	}
@@ -544,6 +544,14 @@ func TestIsLocalHost_SlowLookupDoesNotBlock(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			<-result
 			t.Fatalf("IsLocalHost(%q) blocked behind slow lookup", host)
+		}
+	}
+}
+
+func TestResolveHost_RejectsOptionShapedHost(t *testing.T) {
+	for _, h := range []string{"-oProxyCommand=touch /tmp/x", "-v", "", "a b"} {
+		if got, err := ResolveHost(context.Background(), h); err == nil {
+			t.Errorf("ResolveHost(%q) = %q, want error", h, got)
 		}
 	}
 }

@@ -2,8 +2,8 @@
   "status": "ok",
   "files_in_diff": 1,
   "total_change_lines": 8,
-  "noise_lines": 6,
-  "noise_ratio": 0.75,
+  "noise_lines": 7,
+  "noise_ratio": 0.88,
   "verdict": "VERY_NOISY",
   "file_results": [
     {
@@ -32,6 +32,10 @@
         {
           "category": "comment-only",
           "line": "+    # TODO new"
+        },
+        {
+          "category": "quote-style-swap",
+          "line": "-    return \"hi \" + name -> +    return 'hi ' + name"
         }
       ]
     }
