@@ -51,4 +51,4 @@ Drive-by edits inflate the diff, bury the real change and make review and `git b
 ## How the lens fits the review
 
 Run the detectors first, then apply judgment: they point at hot spots and you decide severity. A clean run means
-only the mechanical violations are absent; spend the attention on correctness, architecture and the Security lens.
+only the mechanical violations are absent; spend the attention on correctness and architecture.

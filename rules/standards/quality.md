@@ -56,6 +56,6 @@ Live first, test scope, what makes a test a guard, and the test agent: `testing-
 
 ## Completion
 
-Review done (`/code-review`; security lens for auth/input/API/crypto), tests green, manual check for user-facing
+Review done (`/code-review`), tests green, manual check for user-facing
 changes, docs and links current; approve when no CRITICAL/HIGH remains. Severity scale:
 `skills/evaluate-code/references/completion-criteria.md`.

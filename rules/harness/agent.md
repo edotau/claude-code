@@ -32,8 +32,8 @@ paths:
   allowlisted shell from `internal/agentconfig/agents.json`, indexed in `internal/agentconfig/permissions.go`);
   refused calls return feedback and the run continues. `--tools --autonomous` approves every request.
 - `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
-  `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies on every
-  agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
+  `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
+  on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
   retired per-line key is an error. `--host` with `--agents` exits 2. Go API: `agent.Client`, `Client.Stream`.
 - `ask --overlay <file>` / `COWORKER_OVERLAY`: per-launch `{set,unset,keep}` over the child's env (`files` reserved,
   refused); `set` values may be `@secret:<NAME>` (harness-internal secrets refused); a `set` name the launch already

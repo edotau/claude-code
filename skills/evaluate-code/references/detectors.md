@@ -61,7 +61,7 @@ The gate is opt-in by design and not in the seeded `settings.json`; higher level
 | Level | Mechanism | Setup |
 |---|---|---|
 | 1 Passive | the skill loads as context | none |
-| 2 Active | `/code-review` before commit: diff scope, detectors, quality + security lenses, verdict | a command (default) |
+| 2 Active | `/code-review` before commit: diff scope, detectors, quality lenses, verdict | a command (default) |
 | 3 Gate | `claude-code review gate` on staged files; awareness only, never blocks | git pre-commit or a PreToolUse hook |
 | 4 CI | detectors as PR checks; fail the job yourself, since the verbs exit 0 | CI config |
 

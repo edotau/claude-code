@@ -140,7 +140,6 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | The release gate chain | the manager, via `problem-solving/references/verify.md`; the full suite is the main thread's |
 | Product-code changes | the implementer — report it, never edit it yourself |
 | Memory | the main session — you only propose |
-| Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 
 ## Procedure
 
