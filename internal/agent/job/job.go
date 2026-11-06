@@ -48,7 +48,7 @@ func SpawnArgv(rec *agent.Record, argv, env []string) error {
 	defer logFile.Close()
 	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = (agent.EnvSpec{Mode: agent.EnvClaude, Extra: env}).Environ(context.Background())
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
