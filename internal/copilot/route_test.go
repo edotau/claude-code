@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -141,5 +143,11 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 	_, err := ValidateCopilotPins("", []string{"opus=dbx-down:chat-a", "sonnet=dbx-up:bogus-id"})
 	if err == nil || !strings.Contains(err.Error(), "bogus-id") {
 		t.Fatalf("err = %v, want the bogus-id pin rejected after the unreachable one", err)
+	}
+}
+
+func TestHeadlessAutonomousFlags(t *testing.T) {
+	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !slices.Contains(auto, "--allow-all-tools") {
+		t.Errorf("autonomous argv = %v", auto)
 	}
 }

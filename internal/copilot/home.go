@@ -5,24 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
-)
-
-// Seams for tests: model discovery and the router's session tokens.
-var (
-	discoverModels = discoverCopilotEndpoints
-	mintSession    = proxy.MintSessionToken
-	revokeSession  = proxy.RevokeSessionToken
-	runningRouter  = proxy.Running
+	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // copilotGOOS is the OS the registry guard checks; a seam for tests.
@@ -40,9 +35,6 @@ func checkCopilotRegistryOS() error {
 	}
 	return nil
 }
-
-// CopilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
-const CopilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
 
 // copilotStripEnv is the inherited GitHub login/routing env a registry child must not see (plus CopilotStripPrefix).
 var copilotStripEnv = []string{
@@ -87,133 +79,6 @@ func PrepareCopilotHome(dry bool) (copilotPrivateHome, error) {
 		return copilotPrivateHome{}, err
 	}
 	return out, nil
-}
-
-// copilotRegistry is one registry launch: the env to set, names to unset, argv prefix, and the minted token.
-type copilotRegistry struct {
-	Env      []string
-	Unset    []string
-	Argv     []string
-	Args     []string // the caller's args minus any --model (selection already applied)
-	Warnings []string
-	Files    []agent.LaunchFile // the registry file, written by Exec right before the child starts
-	Token    string
-}
-
-// Revoke drops the launch's session token; a launch that never minted one is a no-op.
-func (c copilotRegistry) Revoke() {
-	if c.Token != "" {
-		_ = revokeSession(context.Background(), c.Token)
-	}
-}
-
-// copilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
-// not auth none/cli — the router cannot authenticate those rows).
-func copilotRegistryEligible(direct bool, t providers.Target) bool {
-	p := t.Provider
-	return p != nil && !direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
-		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
-}
-
-// UsesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
-func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {
-	return copilotRegistryEligible(agent.IsDirect(ctx), t)
-}
-
-// ConfigureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
-func ConfigureCopilotRegistry(
-	ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool,
-) (copilotRegistry, error) {
-	var out copilotRegistry
-	if err := checkCopilotRegistryOS(); err != nil { // before discovery or minting
-		return out, err
-	}
-	p := t.Provider
-	requested, rest := splitModelFlags(args)
-	eps, err := discoverModels(ctx, reg, p)
-	if err != nil {
-		return out, fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
-	}
-	rb, err := copilotRouterBase(ctx, dry)
-	if err != nil {
-		return out, fmt.Errorf("copilot: router: %w", err)
-	}
-	rp := *p
-	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
-	r, ref, err := copilotSelect(ctx, reg, p, &rp, eps, rb, copilotChoice(requested))
-	if err != nil {
-		return out, fmt.Errorf("copilot: %w", err)
-	}
-	pid := os.Getpid()
-	file, files, token, err := registryFile(ctx, r, p.Name, pid, dry)
-	out.Token, out.Files = token, files
-	if err != nil {
-		out.Revoke()
-		out.Token = ""
-		return out, err
-	}
-	ph, err := PrepareCopilotHome(dry)
-	if err != nil {
-		out.Revoke()
-		out.Token = ""
-		return out, err
-	}
-	// OFFLINE removes /login but needs the registry file at startup; the SDK path has none, so it stays here.
-	out.Env = append([]string{"COPILOT_PROVIDERS_CONFIG=" + file, "COPILOT_OFFLINE=true"}, ph.Env...)
-	out.Unset, out.Warnings = ph.Unset, ph.Warnings
-	if r.Note != "" {
-		out.Warnings = append(out.Warnings, r.Note)
-	}
-	out.Argv = append([]string{"--model", ref}, copilotPinArgv()...)
-	out.Args = rest
-	return out, nil
-}
-
-// copilotRouterBase is the router URL; dry (--print-env) only reads a running router and never starts one.
-func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
-	if !dry {
-		return agent.EnsureRouter(ctx)
-	}
-	if st, ok := runningRouter(ctx); ok {
-		return proxy.Base(st.Port), nil
-	}
-	return proxy.Base(proxy.DefaultPort), nil
-}
-
-// prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir; Exec writes it.
-func prepareRegistry(ctx context.Context, r CopilotRegistry, profile string, pid int,
-) (agent.LaunchFile, string, error) {
-	token, err := mintSession(ctx, profile, pid)
-	if err != nil {
-		return agent.LaunchFile{}, "", fmt.Errorf("copilot: session token for profile %s: %w", profile, err)
-	}
-	data, err := renderCopilotRegistry(r, token)
-	if err != nil {
-		return agent.LaunchFile{}, token, fmt.Errorf("copilot: render registry: %w", err)
-	}
-	dir, err := CopilotRuntimeDir()
-	if err != nil {
-		return agent.LaunchFile{}, token, fmt.Errorf("copilot: %w", err)
-	}
-	return agent.LaunchFile{Path: CopilotRegistryFile(dir, pid), Data: data}, token, nil
-}
-
-// registryFile is the registry file path and its launch file; dry only computes the path (--print-env creates nothing).
-func registryFile(
-	ctx context.Context, r CopilotRegistry, profile string, pid int, dry bool,
-) (file string, files []agent.LaunchFile, token string, err error) {
-	if !dry {
-		f, tok, err := prepareRegistry(ctx, r, profile, pid)
-		if err != nil {
-			return "", nil, tok, err
-		}
-		return f.Path, []agent.LaunchFile{f}, tok, nil
-	}
-	glob := paths.CopilotRegistryGlob()
-	if glob == "" {
-		return "", nil, "", errors.New("copilot: no registry runtime directory")
-	}
-	return CopilotRegistryFile(filepath.Dir(glob), pid), nil, "", nil
 }
 
 func copilotRegistryHome() string {
@@ -321,7 +186,7 @@ func checkNoGitHubLogin(file string) error {
 		return fmt.Errorf("copilot: read %s: %w", file, err)
 	}
 	var cfg map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(dropLineComments(string(raw))), &cfg); err != nil {
+	if err := json.Unmarshal(commentRE.ReplaceAll(raw, nil), &cfg); err != nil {
 		return fmt.Errorf("copilot: %s is unreadable (%v); delete it to launch in registry mode", file, err)
 	}
 	for _, k := range []string{"loggedInUsers", "lastLoggedInUser", "copilotTokens", "authTokens"} {
@@ -333,36 +198,147 @@ func checkNoGitHubLogin(file string) error {
 	return nil
 }
 
-// dropLineComments removes whole-line // comments; config.json opens with them.
-func dropLineComments(text string) string {
-	var lines []string
-	for l := range strings.SplitSeq(text, "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(l), "//") {
-			lines = append(lines, l)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 // jsonValuePresent reports whether v is set to something other than null, [] or {}.
 func jsonValuePresent(v json.RawMessage) bool {
 	s := strings.TrimSpace(string(v))
 	return s != "" && s != "null" && s != "[]" && s != "{}"
 }
 
-// splitModelFlags removes every --model <v> / --model=<v> from args and returns the values in order.
-func splitModelFlags(args []string) (models, rest []string) {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--model" && i+1 < len(args):
-			models = append(models, args[i+1])
-			i++
-		case strings.HasPrefix(a, "--model="):
-			models = append(models, strings.TrimPrefix(a, "--model="))
-		default:
-			rest = append(rest, a)
+// Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
+func renderCopilot(reg *providers.Registry, sel providers.Selection, home string, o render.RenderOptions, out io.Writer) (bool, error) {
+	body, err := CopilotJSON()
+	if err != nil {
+		return false, err
+	}
+	path := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
+	drift, err := render.RenderHooksFile(path, body, mergeCopilotHooks, o, out, "copilot-hooks")
+	if err != nil {
+		return drift, err
+	}
+	sd, err := renderCopilotSettings(home, o, out)
+	if err != nil {
+		return drift, err
+	}
+	drift = drift || sd
+	ctx := context.Background()
+	target, note, err := copilotSchema().ResolveTarget(reg, sel, false)
+	if err != nil {
+		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
+		return drift, nil
+	}
+	if note != "" {
+		fmt.Fprintln(out, note)
+	}
+	if _, _, err := copilotSchema().Configure(ctx, target, ""); err != nil {
+		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
+		return drift, nil
+	}
+	fmt.Fprintf(out, "copilot: launch-time env only; route = %s (%s)\n", target.Provider.Name, target.Model)
+	return drift, nil
+}
+
+// renderCopilotSettings merges defaultPermissionMode from the agent spec into ~/.copilot/settings.json,
+// keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
+func renderCopilotSettings(home string, o render.RenderOptions, out io.Writer) (bool, error) {
+	cfg, err := agentconfig.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(out, "copilot-settings: skipped: %v\n", err)
+		return false, nil
+	}
+	mode := cfg.Agent("copilot").Permission.DefaultPermissionMode
+	if mode == "" {
+		return false, nil
+	}
+	path := filepath.Join(home, ".copilot", "settings.json")
+	return render.CommitJSONObject(path, o, out, "copilot-settings", func(obj map[string]any, _ bool) bool {
+		obj["defaultPermissionMode"] = mode
+		return true
+	})
+}
+
+var agentEvents = map[string]string{
+	settings.EventPreToolUse:       "preToolUse",
+	settings.EventPostToolUse:      "postToolUse",
+	settings.EventUserPromptSubmit: "userPromptSubmitted",
+	settings.EventStop:             "agentStop",
+	settings.EventSessionEnd:       "sessionEnd",
+}
+
+// CopilotJSON renders user-level hooks; advisory failures must never deny a tool.
+func CopilotJSON() ([]byte, error) {
+	type entry struct {
+		Type       string `json:"type"`
+		Matcher    string `json:"matcher"`
+		Bash       string `json:"bash"`
+		TimeoutSec int    `json:"timeoutSec"`
+	}
+	events := map[string][]entry{}
+	for _, s := range settings.SpecsFor("copilot", "native") {
+		event := agentEvents[s.Event]
+		if event == "" {
+			continue
+		}
+		command := s.Command()
+		if !s.Blocks {
+			command += " || true"
+		}
+		matcher := s.Matcher
+		if matcher == "*" {
+			matcher = ""
+		} else if matcher != "" {
+			matcher = strings.NewReplacer("Write", "Write|create", "Read", "Read|view").Replace(matcher)
+			matcher = copilotMatcher(matcher)
+		}
+		events[event] = append(events[event], entry{Type: "command", Matcher: matcher, Bash: command, TimeoutSec: s.Seconds()})
+	}
+	return json.MarshalIndent(map[string]any{"version": 1, "hooks": events}, "", "  ")
+}
+
+// copilotMatcher lists each tool name as given and lowercased: Copilot rejects inline flags like (?i) and anchors.
+func copilotMatcher(m string) string {
+	var out []string
+	seen := map[string]bool{}
+	for n := range strings.SplitSeq(m, "|") {
+		for _, v := range []string{n, strings.ToLower(n)} {
+			if !seen[v] {
+				seen[v] = true
+				out = append(out, v)
+			}
 		}
 	}
-	return models, rest
+	return strings.Join(out, "|")
+}
+
+// mergeCopilotHooks is mergeCodexHooks for Copilot's flat (non-grouped) hook entries and its top-level
+// {"version", "hooks"} shape: each entry is either kept whole, byte-identical (foreign) or dropped whole
+// (harness-owned, by its "bash" command prefix); every other top-level key survives untouched.
+func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
+	next, renderedTop, err := render.MergeHooksTop(existingRaw, body, classifyCopilotEntry)
+	if err != nil {
+		return nil, err
+	}
+	var version int
+	_ = json.Unmarshal(renderedTop["version"], &version) // absent/malformed rendered version: fall through to 1
+	if version == 0 {
+		version = 1
+	}
+	versionRaw, err := textutil.MarshalNoEscape(version)
+	if err != nil {
+		return nil, err
+	}
+	next["version"] = versionRaw
+	return textutil.MarshalIndentNoEscape(next)
+}
+
+// classifyCopilotEntry reports an entry's foreign remainder (nil when harness-owned, by its "bash"
+// command prefix via IsHarness) and whether it was harness-owned; a foreign entry is returned
+// byte-identical so powershell/cwd/env and any other field survive untouched.
+func classifyCopilotEntry(e json.RawMessage) (*json.RawMessage, bool) {
+	var id struct {
+		Bash string `json:"bash"`
+	}
+	if err := json.Unmarshal(e, &id); err == nil && settings.IsHarness(id.Bash) {
+		return nil, true
+	}
+	return &e, false
 }

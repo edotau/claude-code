@@ -7,29 +7,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 )
 
-// Seams for the registry route: tests stub the router, the session mint and endpoint discovery.
+// Seams for tests: model discovery, the running router and the router's session tokens.
 var (
-	copilotEnsureRouter = proxy.Ensure
-	copilotMintToken    = proxy.MintSessionToken
-	copilotRevokeToken  = proxy.RevokeSessionToken
-	copilotDiscover     = discoverCopilotEndpoints
+	discoverModels = discoverCopilotEndpoints
+	mintSession    = proxy.MintSessionToken
+	revokeSession  = proxy.RevokeSessionToken
+	runningRouter  = proxy.Running
 )
 
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
 type copilotRegistryRoute struct {
-	providers []NamedProvider
-	models    []RegistryModel
+	providers []CopilotRegistryProvider
+	models    []CopilotRegistryModel
 	ref       string // the selected provider/id
 	token     string
 	home      copilotPrivateHome
@@ -41,17 +43,15 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, err
 	}
-	eps, err := copilotDiscover(ctx, reg, t.Provider)
+	eps, err := discoverModels(ctx, reg, t.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("copilot: discover %s models: %w", t.Provider.Name, err)
 	}
-	base, err := copilotEnsureRouter(ctx)
+	base, err := agent.EnsureRouter(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rp := *t.Provider
-	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
-	cr, ref, err := copilotSelect(ctx, reg, t.Provider, &rp, eps, base, copilotChoice([]string{models.Strip1M(t.Model)}))
+	cr, ref, err := copilotSelect(ctx, reg, t.Provider, eps, base, copilotChoice([]string{models.Strip1M(t.Model)}))
 	if cr.Note != "" {
 		agent.EventLogFor(ctx).Emit("note", cr.Note)
 	}
@@ -62,20 +62,11 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, err
 	}
-	tok, err := copilotMintToken(ctx, t.Provider.Name, os.Getpid())
+	tok, err := mintSession(ctx, t.Provider.Name, os.Getpid())
 	if err != nil {
 		return nil, fmt.Errorf("copilot: mint session token: %w", err)
 	}
-	rt := &copilotRegistryRoute{ref: ref, token: tok, home: home}
-	for _, p := range cr.Providers {
-		rt.providers = append(rt.providers, NamedProvider{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI,
-			BaseURL: p.BaseURL, Headers: p.Headers})
-	}
-	for _, m := range cr.Models {
-		rt.models = append(rt.models, RegistryModel{ID: m.ID, Provider: m.Provider, WireModel: m.WireModel,
-			ModelID: m.ModelID, Name: m.Name, MaxPromptTokens: m.MaxPromptTokens,
-			MaxContextWindowTokens: m.MaxContextWindowTokens, MaxOutputTokens: m.MaxOutputTokens})
-	}
+	rt := &copilotRegistryRoute{providers: cr.Providers, models: cr.Models, ref: ref, token: tok, home: home}
 	return rt, nil
 }
 
@@ -91,7 +82,7 @@ func (rt *copilotRegistryRoute) apply(o *SDKOptions) {
 func (rt *copilotRegistryRoute) close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_ = copilotRevokeToken(ctx, rt.token)
+	_ = revokeSession(ctx, rt.token)
 }
 
 // CopilotRegistryProvider is one named upstream: Type anthropic|openai, WireAPI "" (anthropic), completions or responses.
@@ -306,52 +297,6 @@ func (r CopilotRegistry) find(s string, miss error) (string, error) {
 	return "", fmt.Errorf("%w: %q (profile %s)", miss, s, r.Profile)
 }
 
-// CopilotEndpoint is one serving endpoint copilot can reach; Tested marks endpoints on the curated menu.
-type CopilotEndpoint struct {
-	providers.ModelInfo
-	Tested   bool
-	Snapshot bool // read from a sealed snapshot, so it can lag the workspace
-}
-
-// discoverCopilotEndpoints reads the resolved Databricks profile p's READY chat endpoints for a launch.
-func discoverCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]CopilotEndpoint, error) {
-	return copilotEndpointRows(copilotModelInfos(ctx, reg, p))
-}
-
-// checkedCopilotEndpoints is discoverCopilotEndpoints with the identity validated on every read, for explicit commands.
-func checkedCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]CopilotEndpoint, error) {
-	return copilotEndpointRows(copilotCheckedModelInfos(ctx, reg, p))
-}
-
-// copilotEndpointRows keeps the READY chat endpoints of a model read, marking the curated-menu ones.
-func copilotEndpointRows(infos []providers.ModelInfo, snapshot bool, err error) ([]CopilotEndpoint, error) {
-	if err != nil {
-		return nil, err
-	}
-	rows := copilotServingChatRows(infos, providers.OpencodeMenu())
-	for i := range rows {
-		rows[i].Snapshot = snapshot
-	}
-	return rows, nil
-}
-
-// copilotServingChatRows keeps READY llm/v1/chat endpoints in order, marking those on menu (with or without "databricks-").
-func copilotServingChatRows(infos []providers.ModelInfo, menu []providers.OpencodeModel) []CopilotEndpoint {
-	onMenu := make(map[string]bool, len(menu))
-	for _, m := range menu {
-		onMenu[m.ID] = true
-	}
-	var out []CopilotEndpoint
-	for _, info := range infos {
-		if info.Task != "llm/v1/chat" || info.Ready != "READY" {
-			continue
-		}
-		tested := onMenu[info.ID] || onMenu[strings.TrimPrefix(info.ID, models.DatabricksPrefix)]
-		out = append(out, CopilotEndpoint{ModelInfo: info, Tested: tested})
-	}
-	return out
-}
-
 // copilotEndpointWire is the passthrough wire for model on the Databricks row p (providers.WireFor) and its canonical id; a
 // Claude model, or any model on another row, rides anthropic. ok is false, with why, when p has no route serving it.
 func copilotEndpointWire(p *providers.Provider, model string) (wire, canonical string, ok bool, why string) {
@@ -427,4 +372,154 @@ func checkDir(dir string) error {
 // copilotChoice is the copilot registry's model choice: the requested models, else the agent's model pin.
 func copilotChoice(requested []string) CopilotChoice {
 	return CopilotChoice{Requested: requested, Pin: agent.AgentModelPin("copilot")}
+}
+
+// CopilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
+const CopilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
+
+// copilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
+// not auth none/cli — the router cannot authenticate those rows).
+func copilotRegistryEligible(direct bool, t providers.Target) bool {
+	p := t.Provider
+	return p != nil && !direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
+		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
+}
+
+// UsesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
+func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {
+	return copilotRegistryEligible(agent.IsDirect(ctx), t)
+}
+
+// ConfigureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
+func ConfigureCopilotRegistry(
+	ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool,
+) (agent.RegistryLaunch, error) {
+	if err := checkCopilotRegistryOS(); err != nil { // before discovery or minting
+		return agent.RegistryLaunch{}, err
+	}
+	p := t.Provider
+	requested, rest := splitModelFlags(args)
+	eps, err := discoverModels(ctx, reg, p)
+	if err != nil {
+		return agent.RegistryLaunch{}, fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
+	}
+	rb, err := copilotRouterBase(ctx, dry)
+	if err != nil {
+		return agent.RegistryLaunch{}, fmt.Errorf("copilot: router: %w", err)
+	}
+	r, ref, err := copilotSelect(ctx, reg, p, eps, rb, copilotChoice(requested))
+	if err != nil {
+		return agent.RegistryLaunch{}, fmt.Errorf("copilot: %w", err)
+	}
+	file, files, token, err := registryFile(ctx, r, p.Name, os.Getpid(), dry)
+	revoke := func() { // a launch that never minted a token is a no-op
+		if token != "" {
+			_ = revokeSession(context.Background(), token)
+		}
+	}
+	if err != nil {
+		revoke()
+		return agent.RegistryLaunch{}, err
+	}
+	ph, err := PrepareCopilotHome(dry)
+	if err != nil {
+		revoke()
+		return agent.RegistryLaunch{}, err
+	}
+	warnings := ph.Warnings
+	if r.Note != "" {
+		warnings = append(warnings, r.Note)
+	}
+	// OFFLINE removes /login but needs the registry file at startup; the SDK path has none, so it stays here.
+	return agent.RegistryLaunch{
+		Env:   append([]string{"COPILOT_PROVIDERS_CONFIG=" + file, "COPILOT_OFFLINE=true"}, ph.Env...),
+		Unset: ph.Unset, Argv: append([]string{"--model", ref}, copilotPinArgv()...), Args: rest,
+		Warnings: warnings, Files: files, Revoke: revoke, Banner: CopilotRegistryBanner,
+	}, nil
+}
+
+// copilotRouterBase is the router URL; dry (--print-env) only reads a running router and never starts one.
+func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
+	if !dry {
+		return agent.EnsureRouter(ctx)
+	}
+	if st, ok := runningRouter(ctx); ok {
+		return proxy.Base(st.Port), nil
+	}
+	return proxy.Base(proxy.DefaultPort), nil
+}
+
+// prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir; Exec writes it.
+func prepareRegistry(ctx context.Context, r CopilotRegistry, profile string, pid int,
+) (agent.LaunchFile, string, error) {
+	token, err := mintSession(ctx, profile, pid)
+	if err != nil {
+		return agent.LaunchFile{}, "", fmt.Errorf("copilot: session token for profile %s: %w", profile, err)
+	}
+	data, err := renderCopilotRegistry(r, token)
+	if err != nil {
+		return agent.LaunchFile{}, token, fmt.Errorf("copilot: render registry: %w", err)
+	}
+	dir, err := CopilotRuntimeDir()
+	if err != nil {
+		return agent.LaunchFile{}, token, fmt.Errorf("copilot: %w", err)
+	}
+	return agent.LaunchFile{Path: CopilotRegistryFile(dir, pid), Data: data}, token, nil
+}
+
+// registryFile is the registry file path and its launch file; dry only computes the path (--print-env creates nothing).
+func registryFile(
+	ctx context.Context, r CopilotRegistry, profile string, pid int, dry bool,
+) (file string, files []agent.LaunchFile, token string, err error) {
+	if !dry {
+		f, tok, err := prepareRegistry(ctx, r, profile, pid)
+		if err != nil {
+			return "", nil, tok, err
+		}
+		return f.Path, []agent.LaunchFile{f}, tok, nil
+	}
+	glob := paths.CopilotRegistryGlob()
+	if glob == "" {
+		return "", nil, "", errors.New("copilot: no registry runtime directory")
+	}
+	return CopilotRegistryFile(filepath.Dir(glob), pid), nil, "", nil
+}
+
+// splitModelFlags removes every --model <v> / --model=<v> from args and returns the values in order.
+func splitModelFlags(args []string) (models, rest []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--model" && i+1 < len(args):
+			models = append(models, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--model="):
+			models = append(models, strings.TrimPrefix(a, "--model="))
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return models, rest
+}
+
+// copilotSelect builds the registry for p behind the router and selects c; a model miss on a snapshot list relists once.
+func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Provider, eps []CopilotEndpoint,
+	base string, c CopilotChoice,
+) (CopilotRegistry, string, error) {
+	routed := *p
+	routed.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
+	r := copilotBuildRegistry(p.Name, &routed, eps, base)
+	ref, err := r.Select(c)
+	fromSnapshot := slices.ContainsFunc(eps, func(ep CopilotEndpoint) bool { return ep.Snapshot })
+	if (!errors.Is(err, ErrUnknownModel) && !errors.Is(err, ErrSavedModelGone)) || !fromSnapshot {
+		return r, ref, err
+	}
+	fresh, listErr := copilotRelist(ctx, reg, p)
+	if listErr != nil {
+		fmt.Fprintf(os.Stderr, "copilot: %s relist failed: %s\n", p.Name, serving.TruncateMsg([]byte(listErr.Error())))
+		return r, "", err
+	}
+	r = copilotBuildRegistry(p.Name, &routed, fresh, base)
+	ref, err = r.Select(c)
+	return r, ref, err
 }

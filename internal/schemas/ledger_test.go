@@ -43,7 +43,7 @@ var writers = map[string]string{
 	"internal/agent/dispatchlog.go:openLocked":                        unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/event.go:NewEventLog":                             "dispatch-events",
 	"internal/agent/live/live.go:AcquireLiveSlot":                     unversioned("lock: live-session slot file, flock only, no content"),
-	"internal/copilot/handoff.go:createExclusive":                     unversioned("foreign: handoff markdown in the repo"),
+	"internal/copilot/copilot.go:createExclusive":                     unversioned("foreign: handoff markdown in the repo"),
 	"internal/audit/audit.go:Log":                                     "audit",
 	"internal/network/tailscale/machines_cache.go:WriteMachinesCache": "tailscale-machines",
 	"internal/cli/helpsvg.go:cmdMenuSVG":                              unversioned("foreign: -o output"),

@@ -50,7 +50,7 @@ func validateRegistryOptions(o SDKOptions) error {
 		}
 	}
 	for _, m := range o.Models {
-		if m.Provider+"/"+m.ID == o.Model {
+		if m.Ref() == o.Model {
 			return nil
 		}
 	}
@@ -58,18 +58,6 @@ func validateRegistryOptions(o SDKOptions) error {
 }
 
 func (o SDKOptions) multiProvider() bool { return len(o.Providers) > 0 || len(o.Models) > 0 }
-
-// NamedProvider is one credential-free upstream of the multi-provider route.
-type NamedProvider struct {
-	Name, Type, WireAPI, BaseURL string
-	Headers                      map[string]string
-}
-
-// RegistryModel is one model served by a NamedProvider.
-type RegistryModel struct {
-	ID, Provider, WireModel, ModelID, Name                   string
-	MaxPromptTokens, MaxContextWindowTokens, MaxOutputTokens int
-}
 
 // namedProviders builds the SDK providers with credentials cleared; every one's auth goes through the token callback.
 func namedProviders(o SDKOptions) ([]copilot.NamedProviderConfig, []copilot.ProviderModelConfig) {

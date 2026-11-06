@@ -5,6 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
@@ -42,14 +47,19 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
-	pin := cmp.Or(providers.SessionProfile(), vault.GetAgentRecord("claude").Profile)
-	for _, name := range append([]string{pin}, providers.DatabricksProfiles(reg)...) {
+	for _, name := range fallbackProfiles(reg) {
 		if p := reg.Providers[name]; agent.DatabricksUsable(p) {
 			return pick(p)
 		}
 	}
 	return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone,
 		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
+}
+
+// fallbackProfiles is the Databricks fallback's try order: this session's (else claude's pinned) profile, then every
+// Databricks row.
+func fallbackProfiles(reg *providers.Registry) []string {
+	return append([]string{cmp.Or(providers.SessionProfile(), vault.GetAgentRecord("claude").Profile)}, providers.DatabricksProfiles(reg)...)
 }
 
 // describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
@@ -123,8 +133,7 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 		gh += " " + a.Account
 	}
 	steps = append(steps, RouteStep{Label: gh, When: fmt.Sprintf("under %.0f%% of credits", copilotWorkablePct), OK: ok})
-	for _, name := range append([]string{cmp.Or(providers.SessionProfile(), vault.GetAgentRecord("claude").Profile)},
-		providers.DatabricksProfiles(reg)...) {
+	for _, name := range fallbackProfiles(reg) {
 		if p := reg.Providers[name]; name != pin && agent.DatabricksUsable(p) {
 			steps = append(steps, RouteStep{Label: "databricks-" + name, When: "fallback", OK: true})
 			break
@@ -134,4 +143,285 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 		steps = append(steps, RouteStep{Label: "ANTHROPIC_API_KEY", When: "BYOK", OK: providers.CredentialPresent(p)})
 	}
 	return steps
+}
+
+// copilotLogin runs copilot on its GitHub sign-in (`copilot login`, GH_TOKEN); blanked BYOK vars cannot redirect it.
+func copilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
+	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
+		model = ""
+	}
+	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE=", "COPILOT_PROVIDERS_CONFIG="}
+	tok, err := CopilotLaunchToken()
+	if err != nil {
+		return nil, nil, err
+	}
+	if tok != "" { // the harness's chosen account beats any inherited token
+		env = append(env, providers.CopilotTokenEnv+"="+tok)
+	}
+	return env, copilotArgv(h), nil
+}
+
+// copilotArgv is the headless argv for h, else the configure page's pins on an interactive launch.
+func copilotArgv(h *agent.Headless) []string {
+	if h == nil {
+		return copilotPinArgv()
+	}
+	return copilotHeadless(h)
+}
+
+// copilotPinArgv is --reasoning-effort/--context from the configure page's pins, on every interactive launch.
+func copilotPinArgv() []string {
+	var argv []string
+	rec := vault.GetAgentRecord("copilot")
+	if e := rec.Effort; e != "" {
+		argv = append(argv, "--reasoning-effort", e)
+	}
+	if c := rec.Context; c != "" {
+		argv = append(argv, "--context", c)
+	}
+	return argv
+}
+
+// copilotWire wires BYOK; window is the model's context window (providers.ContextWindow), which sizes the prompt cap.
+func copilotWire(
+	p *providers.Provider, dialect, base, model string, window int, cred string, routed bool, h *agent.Headless,
+) ([]string, []string, error) {
+	typ, base, wire, modelID, err := copilotEndpoint(p, dialect, base, model, routed)
+	if err != nil {
+		return nil, nil, err
+	}
+	window, output := copilotCaps(window, model)
+	env := []string{
+		"COPILOT_PROVIDER_BASE_URL=" + base,
+		"COPILOT_PROVIDER_TYPE=" + typ,
+		"COPILOT_MODEL=" + model,
+		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(output),
+		"COPILOT_OFFLINE=true",
+		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
+		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
+	}
+	if wire == providers.ProtocolResponses {
+		env = append(env, "COPILOT_PROVIDER_WIRE_API=responses")
+	}
+	if modelID != "" {
+		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
+	}
+	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
+	if n := models.PromptTokens(window, output); n > 0 {
+		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
+	}
+	return append(env, copilotCredEnv(p, cred)...), copilotArgv(h), nil
+}
+
+// copilotEndpoint picks the BYOK type and base; a non-Claude model on an anthropic dialect takes its openai|responses wire.
+func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed bool) (typ, b, wire, modelID string, err error) {
+	if dialect != providers.ProtocolAnthropic {
+		return "openai", base, "", "", nil
+	}
+	if models.FamilyKind(model) == models.FamilyClaude {
+		return "anthropic", base, "", "", nil
+	}
+	w, canonical, ok, why := copilotEndpointWire(p, model)
+	if !ok {
+		return "", "", "", "", fmt.Errorf("copilot: %s", why)
+	}
+	switch {
+	case w == providers.ProtocolAnthropic:
+		return "anthropic", base, "", "", nil
+	case routed: // the router's openai|responses passthrough
+		return "openai", base + "/" + w, w, canonical, nil
+	}
+	if b, ok = p.Route(w); !ok { // --direct: the profile's own endpoint for that wire
+		return "", "", "", "", fmt.Errorf("copilot: profile %s has no %s route for %s", p.Name, w, model)
+	}
+	return "openai", b, w, "", nil
+}
+
+// copilotCredEnv is the BYOK credential and the provider's extra headers.
+func copilotCredEnv(p *providers.Provider, cred string) []string {
+	var env []string
+	if cred != "" {
+		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.
+		if p.Auth.HeaderStyle() == providers.HeaderBearer {
+			env = append(env, "COPILOT_PROVIDER_BEARER_TOKEN="+cred)
+		} else {
+			env = append(env, "COPILOT_PROVIDER_API_KEY="+cred)
+		}
+	}
+	if len(p.Headers) > 0 {
+		var hs []string
+		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
+			hs = append(hs, k+": "+p.Headers[k])
+		}
+		env = append(env, "COPILOT_PROVIDER_HEADERS="+strings.Join(hs, "\n"))
+	}
+	return env
+}
+
+func copilotHeadless(h *agent.Headless) []string {
+	argv := []string{"--prompt", h.Prompt}
+	switch {
+	case h.Tools && h.Autonomous:
+		argv = append(argv, "--allow-all-tools")
+	}
+	return argv
+}
+
+// ValidateCopilotPins checks each pin whose effective provider is github-copilot against its live catalog.
+// Returns a warning when the catalog itself is unreachable (pin still written by the caller); an unknown
+// id is a hard error naming near matches, which the caller must surface before writing anything.
+func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err error) {
+	fallback := providerFlag
+	if fallback == "" {
+		fallback = cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+	}
+	reg, rerr := providers.Load()
+	if rerr != nil {
+		return fmt.Sprintf("could not verify pins: provider registry unreadable (pin written anyway): %v", rerr), nil
+	}
+	v := &pinValidator{reg: reg, fallback: fallback, served: map[string][]string{}}
+	for _, p := range pins {
+		if err := v.check(p); err != nil {
+			return "", err
+		}
+	}
+	return v.firstWarn, nil
+}
+
+// pinValidator carries ValidateCopilotPins' per-run state: the github catalog is fetched at most once.
+type pinValidator struct {
+	reg                  *providers.Registry
+	fallback             string
+	ids                  []string
+	fetched, catalogDown bool
+	firstWarn            string // the first unverifiable-pin warning; later pins are still checked
+	served               map[string][]string
+}
+
+// check validates one "<agent>=<spec>" pin; a non-nil error is a hard refusal.
+func (v *pinValidator) check(p string) error {
+	_, spec, ok := strings.Cut(p, "=")
+	if !ok {
+		return nil
+	}
+	name, model := pinTarget(spec, v.fallback)
+	if dp := v.reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
+		w, err := validateDatabricksCopilotPin(v.reg, name, model, v.served)
+		if err != nil {
+			return err
+		}
+		v.firstWarn = cmp.Or(v.firstWarn, w)
+		return nil
+	}
+	gh, err := v.reg.Get(name)
+	if err != nil || gh.Provider != "github" {
+		return nil
+	}
+	v.fetchCatalog()
+	if v.catalogDown || slices.Contains(v.ids, model) {
+		return nil
+	}
+	return unknownGithubModel(model, gh.Name, v.ids)
+}
+
+// fetchCatalog loads the live github-copilot catalog once, remembering a failure as a warning.
+func (v *pinValidator) fetchCatalog() {
+	if v.fetched {
+		return
+	}
+	v.fetched = true
+	var err error
+	if v.ids, err = copilotModelIDs(); err != nil {
+		v.catalogDown = true
+		v.firstWarn = cmp.Or(v.firstWarn, fmt.Sprintf("could not verify against the live github-copilot catalog (pin written anyway): %v", err))
+	}
+}
+
+// pinTarget splits a pin spec into provider and model; a bare model takes fallback as its provider.
+func pinTarget(spec, fallback string) (name, model string) {
+	name, model, hasProvider := strings.Cut(spec, ":")
+	if !hasProvider || model == "" {
+		return fallback, spec
+	}
+	return name, model
+}
+
+// unknownGithubModel is the refusal for a model missing from profile's live catalog, naming near matches.
+func unknownGithubModel(model, profile string, ids []string) error {
+	if near := nearMatches(model, ids); len(near) > 0 {
+		return fmt.Errorf("%q is not a github-copilot model; did you mean: %s?", model, strings.Join(near, ", "))
+	}
+	return fmt.Errorf("%q is not a github-copilot model (run `claude-code models --live --profile %s` to see the catalog)", model, profile)
+}
+
+// validateDatabricksCopilotPin checks model against name's serving endpoints; served caches each profile's ids.
+func validateDatabricksCopilotPin(
+	reg *providers.Registry, name, model string, served map[string][]string,
+) (string, error) {
+	ids, warn, ok := servedIDs(reg, name, served)
+	if !ok {
+		return warn, nil
+	}
+	want := []string{model, models.DatabricksPrefix + model}
+	if c, _, ok := models.Resolve(model); ok {
+		want = append(want, c)
+	}
+	for _, id := range ids {
+		c, _, _ := models.Resolve(id)
+		if slices.Contains(want, id) || (c != "" && slices.Contains(want, c)) {
+			return "", nil
+		}
+	}
+	hint := fmt.Sprintf("run `claude-code models --live --profile %s` to see the endpoints", name)
+	if near := nearMatches(model, ids); len(near) > 0 {
+		return "", fmt.Errorf("%q is not a %s serving endpoint; did you mean: %s? (%s)",
+			model, name, strings.Join(near, ", "), hint)
+	}
+	return "", fmt.Errorf("%q is not a %s serving endpoint (%s)", model, name, hint)
+}
+
+// servedIDs lists name's serving endpoint ids once per validation; a failed listing is ok=false, warned once.
+func servedIDs(reg *providers.Registry, name string, served map[string][]string) (ids []string, warn string, ok bool) {
+	if ids, seen := served[name]; seen {
+		return ids, "", ids != nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	cat, err := CopilotModelSource(ctx, reg, name)
+	cancel()
+	if err != nil {
+		served[name] = nil // a nil entry marks a failed listing, so later pins don't wait on it again
+		return nil, fmt.Sprintf("could not verify against %s serving endpoints (pin written anyway): %v", name, err), false
+	}
+	ids = make([]string, 0, len(cat.Rows))
+	for _, r := range cat.Rows {
+		ids = append(ids, r.ID)
+	}
+	served[name] = ids
+	return ids, "", true
+}
+
+// nearMatches is a cheap substring match, not full edit distance: enough to catch a typo'd suffix/prefix.
+func nearMatches(want string, ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		if strings.Contains(id, want) || strings.Contains(want, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// copilotModelIDs lists the copilot catalog's model ids (sealed snapshot first).
+func copilotModelIDs() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	list, err := Catalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(list))
+	for i, m := range list {
+		ids[i] = m.ID
+	}
+	return ids, nil
 }
