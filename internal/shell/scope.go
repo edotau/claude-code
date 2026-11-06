@@ -434,18 +434,20 @@ func argsInside(args []string, workDir string) bool {
 	return true
 }
 
-// absolutizeOperands joins rm's plain relative operands and git -C's dir onto cwd, so no root can rebase them.
+// absolutizeOperands joins rm's, git add/commit's plain relative operands and git -C's dir onto cwd, so no root can rebase them.
 func absolutizeOperands(w []string, cwd string) []string {
 	first, last := 1, len(w)
 	switch {
 	case w[0] == "git" && len(w) >= 3 && w[1] == "-C":
 		first, last = 2, 3
+	case w[0] == "git" && len(w) >= 3 && (w[1] == "add" || w[1] == "commit"):
+		first = 2
 	case w[0] != "rm":
 		return w
 	}
 	out := slices.Clone(w)
 	for i := first; i < last; i++ {
-		if rmOperandPlain(out[i]) && !filepath.IsAbs(out[i]) {
+		if rmOperandPlain(out[i]) && !filepath.IsAbs(out[i]) && !(w[0] == "git" && strings.HasSuffix(out[i], "/")) {
 			out[i] = filepath.Join(cwd, out[i])
 		}
 	}
