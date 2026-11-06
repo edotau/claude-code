@@ -56,6 +56,26 @@ type Entry struct {
 	Unserved       map[string]time.Time `json:"unserved,omitempty"`       // wire model -> when its endpoint was found gone
 }
 
+// UnmarshalJSON also reads the pre-rename byok/byok_skip keys; the discovery keys win when both exist.
+func (e *Entry) UnmarshalJSON(b []byte) error {
+	type plain Entry
+	legacy := struct {
+		*plain
+		Byok     map[string]time.Time `json:"byok"`
+		ByokSkip map[string]time.Time `json:"byok_skip"`
+	}{plain: (*plain)(e)}
+	if err := json.Unmarshal(b, &legacy); err != nil {
+		return err
+	}
+	if len(e.Discovery) == 0 {
+		e.Discovery = legacy.Byok
+	}
+	if len(e.DiscoverySkip) == 0 {
+		e.DiscoverySkip = legacy.ByokSkip
+	}
+	return nil
+}
+
 // State is every account's entry, keyed by account key.
 type State map[string]Entry
 
