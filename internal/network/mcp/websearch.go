@@ -361,13 +361,15 @@ func enrichResults(ctx context.Context, results []tavilyResult) {
 // pageClient fetches result pages: loopback/private/link-local targets are refused at dial time (so redirects
 // and DNS answers are covered too) and redirects are capped at 5 hops.
 var pageClient = &http.Client{
-	Transport: &http.Transport{DialContext: (&net.Dialer{Control: rejectInternal}).DialContext},
-	CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return errors.New("too many redirects")
-		}
-		return nil
-	},
+	Transport:     &http.Transport{DialContext: (&net.Dialer{Control: rejectInternal}).DialContext},
+	CheckRedirect: capRedirects,
+}
+
+func capRedirects(_ *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("too many redirects")
+	}
+	return nil
 }
 
 func rejectInternal(_, address string, _ syscall.RawConn) error {
@@ -384,25 +386,36 @@ func rejectInternal(_, address string, _ syscall.RawConn) error {
 
 // robotsAllowed reports whether the origin's robots.txt permits u for "claude-code" or "*"; a missing or
 // unreadable robots.txt allows. Parsing is the browser package's.
-func robotsAllowed(ctx context.Context, u *url.URL) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.Scheme+"://"+u.Host+"/robots.txt", nil)
+func robotsAllowed(ctx context.Context, u *url.URL, cache map[string]string) bool {
+	origin := u.Scheme + "://" + u.Host
+	body, ok := cache[origin]
+	if !ok {
+		body = fetchRobots(ctx, origin)
+		cache[origin] = body
+	}
+	return !browser.RobotsBlocks(body, u.RequestURI())
+}
+
+// fetchRobots returns the origin's robots.txt body, or "" when it is missing or unreadable.
+func fetchRobots(ctx context.Context, origin string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin+"/robots.txt", nil)
 	if err != nil {
-		return true
+		return ""
 	}
 	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
 	resp, err := pageClient.Do(req)
 	if err != nil {
-		return true
+		return ""
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return true
+		return ""
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
 	if err != nil {
-		return true
+		return ""
 	}
-	return !browser.RobotsBlocks(string(raw), u.RequestURI())
+	return string(raw)
 }
 
 // fetchPageText GETs one result URL and reduces it to plain text; "" means "keep the snippet".
@@ -420,10 +433,21 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5")
 	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
-	if !robotsAllowed(ctx, req.URL) {
+	cache := map[string]string{}
+	if !robotsAllowed(ctx, req.URL, cache) {
 		return ""
 	}
-	resp, err := pageClient.Do(req)
+	client := *pageClient
+	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if err := capRedirects(next, via); err != nil {
+			return err
+		}
+		if !robotsAllowed(next.Context(), next.URL, cache) {
+			return fmt.Errorf("robots.txt disallows redirect to %s", next.URL)
+		}
+		return nil
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}

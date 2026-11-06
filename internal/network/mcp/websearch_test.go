@@ -464,7 +464,54 @@ func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
 	}))
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL + "/page")
-	if robotsAllowed(context.Background(), u) {
+	if robotsAllowed(context.Background(), u, map[string]string{}) {
 		t.Error("robotsAllowed = true, want false: Disallow / applies to the * group")
+	}
+}
+
+// TestFetchPageTextRechecksRobotsOnRedirect: an allowed URL redirecting to a Disallowed path, or to another origin
+// that disallows everything, is refused before the target page is requested.
+func TestFetchPageTextRechecksRobotsOnRedirect(t *testing.T) {
+	allowLoopbackFetch(t)
+	var bHits, blockedHits atomic.Int32
+	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
+			return
+		}
+		bHits.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<p>b</p>")
+	}))
+	defer b.Close()
+	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			fmt.Fprint(w, "User-agent: *\nDisallow: /blocked\n")
+		case "/start":
+			http.Redirect(w, r, "/blocked", http.StatusFound)
+		case "/cross":
+			http.Redirect(w, r, b.URL+"/page", http.StatusFound)
+		case "/hop":
+			http.Redirect(w, r, "/ok", http.StatusFound)
+		default:
+			if r.URL.Path == "/blocked" {
+				blockedHits.Add(1)
+			}
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, "<p>a</p>")
+		}
+	}))
+	defer a.Close()
+	for _, p := range []string{"/start", "/cross"} {
+		if got := fetchPageText(context.Background(), a.URL+p); got != "" {
+			t.Errorf("fetchPageText(%s) = %q, want refusal", p, got)
+		}
+	}
+	if bHits.Load() != 0 || blockedHits.Load() != 0 {
+		t.Errorf("disallowed targets requested: b=%d blocked=%d, want 0", bHits.Load(), blockedHits.Load())
+	}
+	if got := fetchPageText(context.Background(), a.URL+"/hop"); got != "a" {
+		t.Errorf("allowed redirect = %q, want a", got)
 	}
 }
