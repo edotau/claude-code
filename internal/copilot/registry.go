@@ -160,7 +160,7 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 		window, output := copilotCaps(providers.ContextWindow(p, ep.ID), ep.ID)
 		r.Models = append(r.Models, CopilotRegistryModel{
 			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: WellKnownModel(canonical), Name: ep.Name,
-			Tested: ep.Tested, MaxPromptTokens: copilotPromptTokens(window, output), MaxContextWindowTokens: window,
+			Tested: ep.Tested, MaxPromptTokens: models.PromptTokens(window, output), MaxContextWindowTokens: window,
 			MaxOutputTokens: output,
 		})
 	}
@@ -365,15 +365,6 @@ func copilotEndpointWire(p *providers.Provider, model string) (wire, canonical s
 
 // copilotMaxOutputTokens is the output cap current Claude/GPT tiers accept; a catalog-less id needs one.
 const copilotMaxOutputTokens = 32_000
-
-// copilotPromptTokens is the window minus the output cap and a 10% margin, so copilot compacts before the endpoint
-// refuses; 0 (unset) when the window is too small for that.
-func copilotPromptTokens(window, output int) int {
-	if window <= output {
-		return 0
-	}
-	return window - output - window/10
-}
 
 // copilotCaps returns id's context window and output cap: window and copilotMaxOutputTokens, lowered by any documented catalog limit.
 func copilotCaps(window int, id string) (ctx, output int) {
