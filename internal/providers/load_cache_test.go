@@ -59,9 +59,9 @@ func TestRegistryCloneReferenceFields(t *testing.T) {
 func populateCloneReferences(v reflect.Value) {
 	switch v.Kind() {
 	case reflect.Struct:
-		for i := 0; i < v.NumField(); i++ {
-			if v.Field(i).CanSet() {
-				populateCloneReferences(v.Field(i))
+		for _, fv := range v.Fields() {
+			if fv.CanSet() {
+				populateCloneReferences(fv)
 			}
 		}
 	case reflect.Pointer:
