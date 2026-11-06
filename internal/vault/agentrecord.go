@@ -17,6 +17,17 @@ const agentRecordSchema = 4
 // aliasRecordSchema is the layout that renamed a record's "slots" key to "aliases".
 const aliasRecordSchema = 5
 
+// discoveryRecordSchema is the layout that renamed the "byok-models" overlay key and the "byok" model pin to "discovery".
+const discoveryRecordSchema = 6
+
+// Pre-schema-6 literals of the router's curated model pool; the one migration below is their only reader.
+const (
+	oldPoolKey   = "byok-models"
+	oldPoolModel = "byok"
+	// PoolKey is the Overlay entry holding the discovery pool: a JSON array of Databricks wire ids.
+	PoolKey = "discovery-models"
+)
+
 // AgentRecord is one agent's vault record; every field is optional and a zero record is not stored.
 type AgentRecord struct {
 	Profile string `json:"profile,omitempty"` // "" = off (claude: "" = automatic pick, always on)
@@ -98,6 +109,12 @@ func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 		}
 	}
 	foldAgentPins(out, t.All(Pins)) // a read before the schema-4 migration sees the old pins, not "every agent off"
+	for n, r := range out {         // a read before the schema-6 migration sees "byok" as "discovery"
+		if r.Model == oldPoolModel {
+			r.Model = "discovery"
+			out[n] = r
+		}
+	}
 	return out, nil
 }
 
@@ -150,6 +167,30 @@ func migrateSlotsToAliases(t *Tx) error {
 		return err
 	}
 	return t.PutAgentRecords(recs)
+}
+
+// migrateByokToDiscovery moves the "byok-models" overlay value to "discovery-models" and the "byok" model pins to
+// "discovery"; a value already under the new key wins, and a vault with neither is untouched.
+func migrateByokToDiscovery(t *Tx) error {
+	if old, ok := t.Get(Overlay, oldPoolKey); ok {
+		if cur, has := t.Get(Overlay, PoolKey); !has || cur == "" {
+			if err := t.Put(Overlay, PoolKey, old); err != nil {
+				return err
+			}
+		}
+		if err := t.Put(Overlay, oldPoolKey, ""); err != nil {
+			return err
+		}
+	}
+	return nil // the "byok" model pins are stored by migrateSlotsToAliases, whose AgentRecords read maps them
+}
+
+// PoolOverlay is the stored discovery pool JSON, reading a pre-schema-6 "byok-models" entry until the migration moves it.
+func (t *Tx) PoolOverlay() (string, bool) {
+	if raw, ok := t.Get(Overlay, PoolKey); ok && raw != "" {
+		return raw, true
+	}
+	return t.Get(Overlay, oldPoolKey)
 }
 
 // foldAgentPins applies every legacy pin in pins to recs (ACTIVE last, so off clears the profile) and lists the keys.

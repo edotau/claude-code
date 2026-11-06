@@ -11,7 +11,7 @@ Claude.
 | --- | --- | --- |
 | explore — code scan + web/deep research | `gemini` | `claude-code dispatch explore [--part q]… "<task>"` (≤12 parallel legs, one cited report) |
 | wide edits, scans, audits | `copilot` fleet | `claude-code dispatch fleet "<task>"` or `ask --agent copilot --fleet`; check `git diff --stat` after |
-| compare or find a model | `opencode` | `claude-code dispatch compare --models a,b "<task>"`; pool: `opencode catalog list`; `--model byok` = router picks a rare Databricks model |
+| compare or find a model | `opencode` | `claude-code dispatch compare --models a,b "<task>"`; pool: `opencode catalog list`; `--model discovery` = router picks a rare Databricks model |
 | adversarial review | `codex` | `claude-code codex review --adversarial [--base <b>]` |
 | standard / mechanical edits | router pick | `claude-code ask --agent <a> --tools --fallback none --format json "<brief>"` |
 | hard reasoning, integration | Claude | stays in session |

@@ -34,8 +34,8 @@ The contract each agent shares (`agents/<agent>.md` → Verbs): `claude-code <ag
 [--tools] [--workdir <dir>] [--background]` for a task, `review [--adversarial]` for a diff, `gemini
 explore` for a code + web brief, `status|result|tail [-f]|cancel <job>` for a background dispatch. Prefer
 `--format json` (the envelope carries `answer`, `status`, `model`, `fallback`).
-`copilot` and `opencode` dispatches pass `--model byok` (the router picks a rare Databricks model; edit the pool with
-`claude-code vault edit`, key `byok-models`) unless the brief names a model.
+`copilot` and `opencode` dispatches pass `--model discovery` (the router picks a rare Databricks model; edit the pool with
+`claude-code vault edit`, key `discovery-models`) unless the brief names a model.
 A `Profile: <p>` line adds `--profile <p>` to every `ask` (the hook prepends the exact `Run:` line);
 never set host or provider.
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
