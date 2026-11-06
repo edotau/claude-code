@@ -363,18 +363,19 @@ clipboard — copy one there first (or its bridge is down)`.
 Declared as **groups** in `internal/settings/hookspec.go`, implemented in `internal/hooks/`; add one by
 registering it in a group and running `make install`. Settings carry one dispatcher entry per event
 (`claude-code hook <Event>`). The `safety` group (`safety-scan`: blocks destructive Bash, asks on
-intent-dependent commands) keeps its own process and cannot be turned off; any other group is switched off with
+intent-dependent commands) keeps its own process and cannot be turned off; only a non-gate group is switched off with
 `"<group>": false` under `harnessHooks` in the vault.
 
 | Group | Does |
 | --- | --- |
 | `safety` | Bash safety gate (block / ask / warn tiers) |
+| `permission` | Agent-only gate (codex, gemini, opencode): judges each call against the dispatch's permissions |
 | `rtk` | Routes noisy command output through rtk |
 | `docs` | Markdown placement gate; plan template, dated plan copies, plan-task ticks |
 | `dispatch` | Concurrency cap (24 per account, ≤ 4 × CPUs), subagent model fill, memory pointers on spawn |
 | `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
 | `memory` | Injects the catalog and recall at start/prompt; context checkpoint and memory update at Stop/SessionEnd/PreCompact |
-| `format` | Formats files edited this turn |
+| `format` | Formats files this session edited that are still dirty |
 | `worktree` | Creates/removes under `~/worktrees/<repo>/`, keeps the ledger |
 | `codex` | Codex only: child-agent routing and its log |
 
@@ -424,7 +425,7 @@ every embedded (`//go:embed`) template.
 | Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Housekeeping | `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `network mcp` |
-| Theme, VS Code | `claude-code theme [--palettes|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |
+| Theme, VS Code | `claude-code theme [--palettes\|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |
 
 ## Development
 

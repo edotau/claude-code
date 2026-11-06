@@ -22,7 +22,8 @@ color: cyan
 
 # Copilot — Test Surface · Last Mile
 
-Bash is limited by a hook to the copilot shell allowlist plus `2>&1`; paths must stay in the cwd or `~/worktrees`,
+In the Claude-hosted wrapper, Bash is limited by a hook to the copilot shell allowlist plus `2>&1` (the Copilot
+projection drops per-agent `hooks:`); paths must stay in the cwd or `~/worktrees`,
 and anything else is refused: `git diff|log|show` must start with `--no-ext-diff --no-textconv`, `git commit` takes
 no `--`/`--amend`/`--no-verify`, and `sleep` is out (follow jobs with `tail -f`). The list:
 `internal/agentconfig/agents.json` (`agents.copilot.permission.shell`); the policy index:
@@ -95,7 +96,8 @@ Copilot deltas:
 - Instructions: interactive reads `~/.copilot/copilot-instructions.md` (rendered `CLAUDE.md` + unscoped
   `rules/standards/*.md`, not `~/.claude/CLAUDE.md`); `ask` (SDK) appends the same text plus the skill and agent dirs.
 - Skills: `~/.copilot/skills` (a link per `skills/<name>`); agents: `~/.copilot/agents/*.md`.
-- Hooks (`~/.copilot/hooks/claude-code-harness.json`, an ask blocks): preToolUse `safety-scan`, `docs-placement`,
+- Hooks (`~/.copilot/hooks/claude-code-harness.json`, an ask blocks; no per-agent Bash hook):
+  preToolUse `safety-scan`, `docs-placement`,
   `docs-plan-gate`; userPromptSubmitted `paths-resolve`, `memory-recall`; agentStop `memory-update`, `format-stop`;
   sessionEnd `memory-end`. The SDK session loads the same file, so `ask` runs them too (`rules/harness/hooks.md`).
 
