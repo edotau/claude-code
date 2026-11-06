@@ -63,8 +63,10 @@ func (r Record) EventsPath() string {
 	return filepath.Join(paths.DispatchDir(), r.ID+paths.DispatchEventsSuffix)
 }
 
-// dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
+// dispatchKeep bounds the log after pruning once the margin is exceeded.
 var dispatchKeep = 200
+
+const dispatchPruneMargin = 20
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(agent string, req RunOptions, now time.Time) Record {
@@ -178,6 +180,9 @@ func (r *Record) Finish(res Result, err error, took time.Duration) {
 
 func pruneDispatches(dir string) {
 	names := recordNames(dir)
+	if len(names) <= dispatchKeep+dispatchPruneMargin {
+		return
+	}
 	excess := len(names) - dispatchKeep
 	for _, name := range names {
 		if excess <= 0 {

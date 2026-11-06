@@ -50,8 +50,10 @@ func assertDispatchRecordPruning(t *testing.T, base time.Time) {
 	old := dispatchKeep
 	dispatchKeep = 2
 	defer func() { dispatchKeep = old }()
-	for i := 1; i <= 3; i++ {
-		_ = NewRecord("gemini", RunOptions{Prompt: "q"}, base.Add(time.Duration(i)*time.Minute)).Save()
+	for i := 1; i <= dispatchKeep+dispatchPruneMargin; i++ {
+		if err := NewRecord("gemini", RunOptions{Prompt: "q"}, base.Add(time.Duration(i)*time.Minute)).Save(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if recs := RecentRecords(10); len(recs) != 2 || recs[0].Time.Before(recs[1].Time) {
 		t.Fatalf("after prune: %d records, newest first = %v", len(recs), recs)
@@ -114,10 +116,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 		t.Fatalf("log must exist before prune: %v", err)
 	}
 
-	// second record pushes the first past dispatchKeep=1, triggering prune
-	if err := NewRecord("codex", RunOptions{Prompt: "q"}, base.Add(time.Minute)).Save(); err != nil {
-		t.Fatal(err)
-	}
+	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin)
 
 	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
 		t.Fatalf("pruned record's log must be removed, stat err = %v", err)
@@ -162,9 +161,9 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 4th record with dispatchKeep=2 sets excess=2: without the guard, the walk would consume that
-	// excess on `finished` then `active` and leave `trigger1` alone; proving teeth: it does not.
-	trigger2 := NewRecord("codex", RunOptions{Prompt: "newest"}, base.Add(3*time.Minute))
+	savePruneRecords(t, base.Add(3*time.Minute), dispatchPruneMargin-1)
+	// Cross the margin so trigger1 must be pruned in active's place.
+	trigger2 := NewRecord("codex", RunOptions{Prompt: "newest"}, base.Add(time.Duration(dispatchPruneMargin+2)*time.Minute))
 	trigger2.Status = "ok"
 	if err := trigger2.Save(); err != nil {
 		t.Fatal(err)
@@ -209,9 +208,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := NewRecord("codex", RunOptions{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
-		t.Fatal(err)
-	}
+	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin)
 
 	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), dead.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("background record with a dead PID must be pruned, stat err = %v", err)
@@ -232,9 +229,7 @@ func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := NewRecord("codex", RunOptions{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
-		t.Fatal(err)
-	}
+	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin)
 
 	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), fg.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("foreground running record (no Log) must be pruned, stat err = %v", err)
@@ -301,7 +296,8 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 	if err := trigger1.Save(); err != nil {
 		t.Fatal(err)
 	}
-	trigger2 := NewRecord("codex", RunOptions{Prompt: "trigger2"}, base.Add(2*time.Minute))
+	savePruneRecords(t, base.Add(2*time.Minute), dispatchPruneMargin-1)
+	trigger2 := NewRecord("codex", RunOptions{Prompt: "trigger2"}, base.Add(time.Duration(dispatchPruneMargin+1)*time.Minute))
 	trigger2.Status = "ok"
 	if err := trigger2.Save(); err != nil {
 		t.Fatal(err)
@@ -318,6 +314,54 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), trigger2.ID+".json")); err != nil {
 		t.Fatalf("newest record must survive the prune: %v", err)
+	}
+}
+
+func savePruneRecords(t *testing.T, base time.Time, count int) {
+	t.Helper()
+	for i := range count {
+		rec := NewRecord("codex", RunOptions{Prompt: "filler"}, base.Add(time.Duration(i)*time.Minute))
+		rec.Status = "ok"
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := dispatchKeep
+	dispatchKeep = 2
+	t.Cleanup(func() { dispatchKeep = old })
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	active := NewRecord("codex", RunOptions{Prompt: "oldest active"}, base)
+	active.PID = os.Getpid()
+	if err := active.Save(); err != nil {
+		t.Fatal(err)
+	}
+	dir := paths.DispatchDir()
+	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin-1)
+	before := recordNames(dir)
+	if len(before) != dispatchKeep+dispatchPruneMargin {
+		t.Fatalf("at boundary: got %d records, want %d", len(before), dispatchKeep+dispatchPruneMargin)
+	}
+	if before[0] != active.ID+".json" {
+		t.Fatalf("oldest record = %q, want active %q", before[0], active.ID)
+	}
+	pruneDispatches(dir)
+	if after := recordNames(dir); strings.Join(after, "\n") != strings.Join(before, "\n") {
+		t.Fatalf("pruning at boundary changed records: before %v, after %v", before, after)
+	}
+	savePruneRecords(t, base.Add(time.Duration(dispatchKeep+dispatchPruneMargin)*time.Minute), 1)
+	if after := recordNames(dir); len(after) != dispatchKeep {
+		t.Fatalf("above boundary: got %d records, want %d: %v", len(after), dispatchKeep, after)
+	}
+	got, err := LoadRecord(active.ID)
+	if err != nil {
+		t.Fatalf("oldest active record must survive pruning: %v", err)
+	}
+	if !got.Alive() || got.PID != active.PID {
+		t.Fatalf("oldest record no longer active: %+v", got)
 	}
 }
 
