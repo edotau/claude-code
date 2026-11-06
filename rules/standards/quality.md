@@ -21,9 +21,9 @@ leftover debug prints. Over the cap, trim first: cut stacked comment blocks to o
 Exempt: provenance/audit blocks, file-header runbooks, gotcha notes. Prose over the cap is cut, not rewrapped: a
 paragraph belongs in the repo's own docs (`docs/`, `ARCHITECTURE.md`, `README.md`), never in source.
 
-## Simplify — extends the built-in `/simplify`
+## Simplify — the gate behind `skills/simplify`
 
-The built-in runs four angles (reuse, simplification, efficiency, altitude) and applies the fixes; on top of it:
+`skills/simplify` (overrides the built-in `/simplify`) applies these rules as its apply-gate:
 
 1. **Name the assumption before each cut** ("unreachable because ___"); can't finish the sentence → flag, don't cut.
 2. **Never cut** semantic or gotcha comments, distinct test scenarios, error context (`%w`, messages), or a guard whose

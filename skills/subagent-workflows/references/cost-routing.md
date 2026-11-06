@@ -1,6 +1,7 @@
 # Cost Routing and Cross-Model Dispatches
 
-`ask`/`dispatch` bill the agent's profile: delegate when cheaper or wider; integration and final checks stay Claude's.
+Serves `../SKILL.md` Phase 0 (shape) and Phase 2 (dispatch). `ask`/`dispatch` bill the agent's profile: delegate when
+cheaper or wider; integration and final checks stay Claude's.
 
 ## Pick by role
 

@@ -26,19 +26,7 @@
       "Bash(go version)",
       "Bash(go env *)",
       "Bash(gofmt -l *)",
-      "Bash(claude-code memory recall *)",
-      "Bash(claude-code memory search *)",
-      "Bash(claude-code memory show *)",
-      "Bash(claude-code memory path)",
-      "Bash(claude-code memory review *)",
-      "Bash(claude-code worktree list *)",
-      "Bash(claude-code vault list *)",
-      "Bash(claude-code doctor *)",
-      "Bash(claude-code gateway router *)",
-      "Bash(claude-code ask --log *)",
-      "Bash(claude-code agents tree *)",
-      "Bash(claude-code * -h)",
-      "Bash(claude-code * --help)",
+      "Bash(claude-code *)",
       "Bash(systemctl --user is-active *)",
       "Bash(make *)",
       "Bash(/home/edotau/.claude/bin/rtk ls *)",
@@ -60,9 +48,7 @@
       "Edit(**/.credentials.json)",
       "Edit(~/.claude/settings.json)",
       "Edit(~/.claude/settings.local.json)",
-      "Edit(~/.claude/internal/agentconfig/agents.json)",
-      "Write(~/.claude/internal/agentconfig/agents.json)",
-      "Write(~/.claude/settings.json)"
+      "Edit(~/.claude/internal/agentconfig/agents.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
@@ -220,6 +206,23 @@
     "command": "$HOME/.claude/bin/claude-code theme statusline",
     "padding": 0
   },
+  "enabledPlugins": {
+    "cowork-plugin-management@knowledge-work-plugins": false,
+    "cowork-plugin-management@synced": false,
+    "code-worker@edotau": true,
+    "coworker@edotau": true,
+    "agent-design@anthropic-plugin-directory": true,
+    "build-harness@anthropic-plugin-directory": true,
+    "claude-context-optimizer@anthropic-plugin-directory": true
+  },
+  "extraKnownMarketplaces": {
+    "edotau": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/edotau/.claude/marketplace"
+      }
+    }
+  },
   "outputStyle": "Concise",
   "feedbackSurveyRate": 0,
   "feedbackDrafts": "off",
@@ -238,8 +241,8 @@
   "preferredNotifChannel": "auto",
   "switchModelsOnFlag": true,
   "remoteControlAtStartup": true,
-  "useAutoModeDuringPlan": true,
-  "autoConnectIde": false,
+  "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
-  "inputNeededNotifEnabled": true
+  "useAutoModeDuringPlan": true,
+  "autoConnectIde": false
 }

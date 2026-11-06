@@ -1,20 +1,15 @@
 ---
 name: subagent-workflows
-description: Choose and run multi-agent work by task complexity — parallel fan-out on disjoint files, sequential plans with spec → simplify → quality gates, lane orchestrators, tournaments, saved Workflows, cheaper dispatches via `claude-code ask` — and the one handoff contract (brief in, report out). Use for "fan this out", "dispatch agents", "write a brief", "which agent", "fix failing tests", "regression tests", "does this test have teeth". Not for reviewing one diff (`/code-review`) or planning (`Plan`).
+description: Run multi-agent work end to end, from picking the shape (fan-out on disjoint files, sequential plan, lane orchestrator, tournament, saved Workflow), write briefs, dispatch, fan in, commit. Use for "fan this out", "dispatch agents", "write a brief", "which agent", "run the plan", "compare agents", "fix failing tests", "regression tests", "does this test have teeth", and follow-ups like "re-run the failed leaf", "only the X task again", "continue the plan", "redo with codex". Not one diff review (`/code-review`) or planning (`Plan`).
 ---
 
 # Subagent Workflows
 
-Agent files say who a leaf is, the brief's `Method:` skill how, this skill when and in what order (weak output: fix
-the skill; wrong role: the agent file). The Phase 0 tier in `rules/workflows/master-workflow.md` picks the shape;
-anything bigger than a one-line edit is dispatched, templates in [prompts.md](references/prompts.md):
+## Execution mode: subagent
 
-| Shape | Do |
-|---|---|
-| Same question, many angles | `claude-code dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
-| Parallel leaves, disjoint files | `Agent` calls in one message ([Ownership](#handoff-contract)); many leaf-sized tasks: [lane orchestrator](references/lane-orchestrator.md) |
-| Dependent tasks · measurable goal with diverging approaches | [Sequential plan](#sequential-plan) · [Tournament](#tournament) |
-| Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) |
+Leaves run through the Agent tool or `claude-code ask`; they are terminal and never fan out, so the manager (the main
+session) is the one orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how, this skill
+when and in what order: weak output means fix the skill, a wrong role the agent file, a wrong order this skill.
 
 ## Leaf types
 
@@ -22,22 +17,44 @@ A leaf works itself on your pin (`code-worker`) or requests another agent via `c
 (`coworker`, **experimental**); bare `code-worker`/`coworker` take the brief's `Agent:`. Trust a request only on the
 `ran on` line its `ask` prints (`dispatch-stop` blocks a stop with none, once); keep a `code-worker` fallback.
 
-| Type | Use when |
-| --- | --- |
-| `code-worker:claude` | Default leaf: in-context Sonnet work, reasoning, integration |
-| `code-worker:codex` · `code-worker:gemini` | Review or second opinion on a diff or plan · read-heavy sweeps, cite file:line |
-| `coworker:copilot` · `coworker:opencode` | Mechanical edits and test repair (Copilot); edits on discovered models (opencode) |
-| `coworker:databricks` | Any agent forced onto a Databricks profile (`agent=` in the brief, default claude) |
+| Leaf | subagent_type | Role | Method skill | Output |
+| --- | --- | --- | --- | --- |
+| Claude worker | `code-worker:claude` | Default: in-context Sonnet work, reasoning, integration | per brief | Status report |
+| Codex · Gemini | `code-worker:codex` · `code-worker:gemini` | Diff or plan review · read-heavy sweeps | `evaluate-code` | Verdict · file:line findings |
+| Copilot · opencode | `coworker:copilot` · `coworker:opencode` | Mechanical edits, test repair · edits on discovered models | per brief | Status report |
+| Databricks | `coworker:databricks` | Any agent forced onto a Databricks profile (`agent=`, default claude) | per brief | Status report |
+| Bare worker | `code-worker` · `coworker` | Run the agent the brief's `Agent:` names (`Profile:` for coworker) | per brief | Status report |
+| Explore | `Explore` | Read-only scan before any non-trivial work | none | Codebase Context Brief |
+| Plan | `Plan` | Design the checklist the leaves execute | `plans/` template | Plan file |
+| Test agent | `copilot` (TEST mode) | Repair and write tests beside the implementer | `testing-guidelines.md` | Test report |
 
 The `dispatch-effort` hook prefixes the `description` with the planned model (`coworker gpt-6.1-sol: <task>`); an
 `inherit` agent runs at the parent's model: fan out as `code-worker`.
 
-## Concurrency
+## Workflow
 
-The cap is 24 per account, test agents included (`rules/harness/hooks.md` → dispatch cap). Parallel leaves never share
-a file; run sequentially when one output feeds the next; batch deep-context leaves (Databricks `429`).
+### Phase 0: intake and triage
 
-## Handoff contract
+The Phase 0 tier in `rules/workflows/master-workflow.md` picks the shape; trivial work (a one-line edit) runs inline.
+Then check context: a fresh run, a follow-up (re-run one leaf with its prior report and `git diff`), or a continued
+plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
+
+| Shape | Do |
+|---|---|
+| Single leaf | One `Agent` call with a brief ([prompts.md](references/prompts.md)) |
+| Parallel fan-out | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract)) |
+| Same question, many angles | `claude-code dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
+| Sequential plan · tournament | [Sequential plan](#sequential-plan) · [Tournament](#tournament) |
+| Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
+| Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) |
+| Fleet scan | `claude-code dispatch fleet "<task>"`; check `git diff --stat` after |
+
+### Phase 1: prepare
+
+Give each leaf named files it owns and never share one between parallel leaves, so no write is lost. Split or merge
+leaves by expertise, independence, context load and reuse; prefer a few focused ones.
+
+#### Handoff contract
 
 **Brief (in)** — a fresh agent can act from it alone:
 
@@ -54,30 +71,18 @@ Then `Ran on:` (the `ask: ran on …` line, or `self — <why>`), files, command
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, and the manager makes the one integration edit. The manager owns decisions,
-integration and commits; leaves never dispatch subagents, commit or run the suite (an `ask` is allowed). Split or
-merge leaves by expertise, independence, context load and reuse; prefer a few focused ones.
+integration and commits; leaves never dispatch subagents, commit or run the suite (an `ask` is allowed).
 
-## Return to owner
+### Phase 2: dispatch
 
-A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or `sleep`:
-a leaf's long `ask` runs `--background`, then waits with `tail -f <id>` as a background Bash call
-([agent-verbs.md](references/agent-verbs.md) step 3). Re-dispatch only when the owner is gone; after a restart read
-`git status`; never relaunch a leaf the user stopped.
+Send independent leaves in one message with `run_in_background`; run sequentially when one output feeds the next.
 
-## Rules
+#### Concurrency
 
-- Decide the owner before gathering evidence, never redoing its searches. Simplify once per diff, before review, run by
-  the manager; detectors (`claude-code review *`) once per pipeline.
-- Leaves never auto-fallback: after one failed high-effort Sonnet attempt re-dispatch on `opus` (a read-only sweep may
-  retry on `haiku`); lower `effort` before the model.
+The cap is 24 per account via the dispatch hook, test agents included (`rules/harness/hooks.md` → dispatch cap).
+Parallel leaves never share a file; batch deep-context leaves (Databricks `429`) and fleet scans.
 
-## Sequential plan
-
-Per task: implementer → spec review until `SPEC_COMPLIANT` → `Skill(simplify)` → quality review until `SHIP` → run its
-verification yourself ([prompts.md](references/prompts.md)). Stop and ask when an assumption breaks, scope grows, or a
-decision falls outside the plan.
-
-## Test agent
+#### Test agent
 
 A feature or bug fix gets a test agent (`copilot`, or `code-worker` for a scoped suite) in the SAME message as the
 implementer (refactors get none). The main thread owns the live check; the test agent repairs broken tests at once, ends
@@ -92,6 +97,35 @@ its cap (3 cycles per test, 5 per task) reports and stops.
 | A change being implemented | `code-worker` ‖ `copilot` in one message; copilot repairs now, writes new tests after "landed" |
 | A fixed bug | after your live before/after, one leaf writes the regression test + `test mutate` proof |
 | Suite must go green, bounded | `Workflow green-keeper-loop` — only when the user asks |
+
+### Phase 3: integrate
+
+#### Fan-in
+
+Treat every report as a claim: read the diff and gate output, check deleted blocks (callers, `git log -S`) and edits
+outside the leaf's files, confirm a new test can fail, re-run scoped checks yourself, rebuild before trusting a binary.
+
+- When parallel leaves built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔ brief
+  writer), read producer and consumer together; `go build ./...` misses a broken consumer.
+- Disagreeing reviewers: keep both findings with their sources. Simplify once over the merged diff, then review.
+
+### Phase 4: finish
+
+Run the verification order in `rules/standards/quality.md`, then commit named files only (`git commit -- <paths>`, so a
+staged deletion from elsewhere is never swept in) and report to the owner.
+
+#### Return to owner
+
+A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or `sleep`:
+a long `ask` runs `--background`, then waits with `tail -f <id>` as a background Bash call
+([agent-verbs.md](references/agent-verbs.md) step 3). Re-dispatch only when the owner is gone; after a restart read
+`git status`; never relaunch a leaf the user stopped. Reports go to `$(claude-code memory path)/reports/`.
+
+## Sequential plan
+
+Per task: implementer → spec review until `SPEC_COMPLIANT` → `Skill(simplify)` → quality review until `SHIP` → run its
+verification yourself ([prompts.md](references/prompts.md)). Stop and ask when an assumption breaks, scope grows, or a
+decision falls outside the plan.
 
 ## Shared tree
 
@@ -108,13 +142,38 @@ For a measurable goal (latency, size, pass rate) or truly diverging approaches w
   quality) · Hybrid (metric, then judge leaves within ~10%). `claude-code worktree merge` the winner, re-run the gates,
   `git tag compete/<slug>/<n>` the losers. All red → merge nothing; none beats baseline (a tie is not a win) → keep it.
 
-## Fan-in
+## Rules
 
-Treat every report as a claim: read the diff and gate output, check deleted blocks (callers, `git log -S`) and edits
-outside the leaf's files, confirm a new test can fail, re-run scoped checks yourself, rebuild before trusting a binary.
+- Decide the owner before gathering evidence, never redoing its searches. Simplify once per diff, before review, run by
+  the manager; detectors (`claude-code review *`) once per pipeline.
+- Leaves never auto-fallback: after one failed high-effort Sonnet attempt re-dispatch on `opus` (a read-only sweep may
+  retry on `haiku`); lower `effort` before the model.
 
-- Retry a red leaf once: one re-dispatch carrying the failure output and a changed brief. A second failure: land the
-  rest and name the gap, never drop it silently; a timeout keeps partial results. Disagreeing reviewers: keep both
-  findings with their sources.
-- When parallel leaves built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔ brief
-  writer), read producer and consumer together; `go build ./...` misses a broken consumer.
+## Error handling
+
+| Situation | Strategy |
+| --- | --- |
+| One leaf fails | Retry once with its failure output and a changed brief; a second failure: land the rest, name the gap |
+| Most leaves fail | Stop and tell the owner; the brief or plan is wrong |
+| Timeout | Keep partial results, cancel the rest |
+| Reviewers disagree | Keep both findings with their sources |
+| A leaf touched a file it didn't own | Revert that hunk, re-dispatch with the `Owns:` line sharpened |
+| External agent unavailable (credential or route missing, e.g. a Databricks profile without its M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
+| Quota pressure | `dispatch-effort` moves work to `coworker` ([cost-routing.md](references/cost-routing.md)) |
+
+## Test scenarios
+
+- **Normal**: two `code-worker` leaves on disjoint packages plus a `copilot` test agent go out in one message. Fan-in
+  reads each diff and the seam between them, the test agent runs on "landed", simplify runs once, then one commit names
+  the files.
+- **Error**: a leaf fails its `Verify:` twice (second time with the failure output and a changed brief). The other
+  leaves land, the report names the missing task as a gap, and nothing is silently redone in-context.
+
+## Authoring rules
+
+- Name `Agent:`, `Mode:`, `Owns:` and `Verify:` in every brief; the hooks and fan-in read them.
+- One task per leaf; state inter-task dependencies so the manager orders the dispatch.
+- Paste every fact the leaf needs: the CLI starts cold and cannot see this session.
+- Specify realistic error handling: what to report on a missing credential, a red gate or a file it doesn't own.
+- Choose models in the `ask` call (`--model`), not a brief field; `Model:` is planned, not implemented.
+- Prefer a few focused leaves over many thin ones; each extra leaf costs a brief and a fan-in read.
