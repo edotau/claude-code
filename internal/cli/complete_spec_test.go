@@ -36,9 +36,8 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"worktree": {"list", "create", "merge", "clean", "clean-all"},
 	}
 	// gemini's subwords are "ask" (handled by vendorVerb's own if, not vendorSubverbs) plus every
-	// vendor subverb plus its one extra, bridge — derived from vendorSubverbs, not hand-copied, so a
-	// future subverb (e.g. explore) never drifts this test silently.
-	geminiWant := []string{"ask", "bridge"}
+	// vendor subverb — derived from vendorSubverbs, not hand-copied, so a future subverb never drifts.
+	geminiWant := []string{"ask"}
 	for sub := range agentSubverbs {
 		geminiWant = append(geminiWant, sub)
 	}

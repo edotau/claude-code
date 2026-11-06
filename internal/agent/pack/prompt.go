@@ -139,7 +139,7 @@ func Fit(task func(Context) string, ctx Context, limit int) (string, Context, []
 		prompt := Prompt(task(ctx), ctx)
 		excess := len(prompt) - limit
 		if excess > 0 && len(ctx.Included) == 0 {
-			return prompt, ctx, dropped, fmt.Errorf("gemini bridge: task and file inventory alone are %d bytes, over the %d byte cap", len(prompt), limit)
+			return prompt, ctx, dropped, fmt.Errorf("pack: task and file inventory alone are %d bytes, over the %d byte cap", len(prompt), limit)
 		}
 		if excess <= 0 {
 			return prompt, ctx, dropped, nil
@@ -166,7 +166,7 @@ func promptBlock(f IncludedFile) string {
 		f.Path, f.MediaType, strconv.FormatBool(f.Truncated), f.Content)
 }
 
-// Prompt renders the context inventory + inline files + task into the bridge's prompt template.
+// Prompt renders the context inventory + inline files + task into the prompt template.
 func Prompt(task string, ctx Context) string {
 	var inv strings.Builder
 	if len(ctx.Included) > 0 {
@@ -275,9 +275,6 @@ func IndexPrompt(ctx Context) string {
 	return b.String()
 }
 
-// IndexPathCount reports how many files the index covers, for the operator-facing summary line.
-func IndexPathCount(ctx Context) int { return len(ctx.Included) + len(ctx.Skipped) }
-
 // CoverageWarning is a one-line STDOUT summary for when anything was left out of a sweep (the
 // detailed per-reason breakdown stays on STDERR via SortedSkipReasons); "" when nothing was skipped.
 func CoverageWarning(ctx Context) string {
@@ -290,7 +287,7 @@ func CoverageWarning(ctx Context) string {
 	}
 	kb /= 1024
 	total := len(ctx.Included) + len(ctx.Skipped)
-	return fmt.Sprintf("bridge: inlined %d of %d files (%d KB); skipped %d: %s",
+	return fmt.Sprintf("pack: inlined %d of %d files (%d KB); skipped %d: %s",
 		len(ctx.Included), total, kb, len(ctx.Skipped), strings.Join(SortedSkipReasons(ctx), ", "))
 }
 

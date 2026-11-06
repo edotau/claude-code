@@ -132,7 +132,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | --- | --- |
 | Tests (feature/bug fix only) | `copilot` |
 | Adversarial review on another model family | `codex` |
-| Wide 1M-context sweep across many files | `gemini` (`claude-code gemini bridge`) |
+| Wide 1M-context sweep across many files | `gemini` (`claude-code ask --agent gemini --tools --dirs <d>`) |
 | Memory update, consolidation or promotion | the main session — you only propose |
 
 ## Procedure

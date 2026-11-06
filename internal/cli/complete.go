@@ -35,7 +35,7 @@ type compNode struct {
 
 // noComplete names the verbs that forward argv to a launched agent CLI (or, for science, exec a
 // child with argv): a bare "<verb> --<TAB>" must offer nothing, since their flags belong to a
-// process this binary never inspects. A chosen subword (gemini ask, gemini bridge) is unaffected —
+// process this binary never inspects. A chosen subword (gemini ask) is unaffected —
 // noComplete only gates flag lookups at depth 1 (see flagLookup/remainingFlags).
 var noComplete = map[string]bool{
 	"opus": true, "sonnet": true, "haiku": true, "fable": true, "codex": true, "copilot": true, "opencode": true, "gemini": true,

@@ -37,7 +37,7 @@ var agentAbout = map[string]string{
 	"codex": "OpenAI's Codex CLI on your ChatGPT login, the second-opinion reviewer. Bare " +
 		"launches it with args forwarded; the commands below run it headless.",
 	"gemini": "Gemini through agy (the Antigravity CLI) on your Google sign-in. Bare launches it " +
-		"with args forwarded; bridge inlines whole directories into one 1M-context call.",
+		"with args forwarded; the commands below run it headless (ask --dirs packs files).",
 	"opencode": "The OpenCode CLI, a general code agent with the widest model pool (catalog), on its " +
 		"own login or the selected Databricks profile. Bare launches it with args forwarded; the " +
 		"commands below run it headless.",

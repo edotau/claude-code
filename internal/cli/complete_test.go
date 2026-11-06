@@ -63,14 +63,10 @@ func TestCompletionSubcommands(t *testing.T) {
 }
 
 // TestGeminiSubverbsCompleteDespiteBareLauncherGuard: gemini is a bare launcher (noComplete), but its
-// hand-dispatched ask/bridge subwords are safe (in-process) and must still complete normally.
+// hand-dispatched ask subword are safe (in-process) and must still complete normally.
 func TestGeminiSubverbsCompleteDespiteBareLauncherGuard(t *testing.T) {
 	if got := completionCandidates([]string{"gemini", "a"}); !slices.Equal(got, []string{"ask"}) {
 		t.Errorf("gemini a* = %v, want [ask]", got)
-	}
-	got := completionCandidates([]string{"gemini", "bridge", "--"})
-	if !slices.Contains(got, "--task") || !slices.Contains(got, "--rubric") {
-		t.Errorf("gemini bridge flags = %v, missing --task/--rubric", got)
 	}
 	if got := completionCandidates([]string{"gemini", "ask", "--"}); !slices.Contains(got, "--agent") {
 		t.Errorf("gemini ask flags = %v, missing --agent (shared with `ask`)", got)
@@ -509,9 +505,6 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	for _, vendor := range cliAgentNames() {
 		got := completionCandidates([]string{vendor, ""})
 		slices.Sort(got)
-		if vendor == "gemini" {
-			got = slices.DeleteFunc(slices.Clone(got), func(s string) bool { return s == "bridge" })
-		}
 		if !slices.Equal(got, want) {
 			t.Errorf("completionCandidates([%q \"\"]) = %v, want %v", vendor, got, want)
 		}

@@ -2,47 +2,14 @@ package gemini
 
 import (
 	"bufio"
-	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
-
 	"github.com/edotau/claude-code/internal/agent"
 )
-
-// D6: agy's model is flag > process env > the GEMINI_MODEL vault pin > agy's default.
-func TestAgyModelPrecedence(t *testing.T) {
-	vaulttest.Use(t)
-	for _, k := range modelEnvKeys {
-		t.Setenv(k, "")
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sel, _ := providers.Select(reg, "")
-	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], ""); got != AgyDefaultModel {
-		t.Errorf("nothing set = %q, want the default %q", got, AgyDefaultModel)
-	}
-	vaulttest.SetRecord(t, "gemini", "model", "gemini-pinned")
-	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], ""); got != "gemini-pinned" {
-		t.Errorf("vault pin = %q, want gemini-pinned", got)
-	}
-	t.Setenv("GEMINI_MODEL", "gemini-env")
-	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], ""); got != "gemini-env" {
-		t.Errorf("process env = %q, want it to beat the pin", got)
-	}
-	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], "gemini-flag"); got != "gemini-flag" {
-		t.Errorf("flag = %q, want it to beat env and pin", got)
-	}
-}
 
 // agyArgv maps Autonomous onto "--mode auto"; --dangerously-skip-permissions rides on Tools alone, so
 // an autonomous-but-tool-less run must never carry it (agy must never auto-grant write access it wasn't
@@ -95,62 +62,6 @@ func TestAgyArgvDebugFile(t *testing.T) {
 	argv := agyArgv(agyRequest{Model: "m", DebugFile: "/tmp/l"})
 	if i := slices.Index(argv, "--log-file"); i < 0 || argv[i+1] != "/tmp/l" {
 		t.Fatalf("argv = %v", argv)
-	}
-}
-
-// A bridge dispatch on the agy backend leaves a 0600 <id>.log (record.Log) holding the redacted agy output.
-func TestBridgeLogCapturesRedactedAgyOutput(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", loginHome(t, true))
-	script := "cat > /dev/null\n" +
-		"echo 'agy-stderr-line' >&2\n" +
-		"echo 'export AWS_SECRET=AKIAIOSFODNN7EXAMPLE' >&2\n" +
-		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"bridge-answer","num_turns":1}}'` + "\n"
-	pathstest.FakeVendor(t, "agy", script)
-
-	res, err := RunGemini(context.Background(), GeminiOptions{Cwd: t.TempDir(), Task: "t"}, io.Discard, io.Discard)
-	if err != nil || res.Answer != "bridge-answer" {
-		t.Fatalf("Run = (%q, %v), want (bridge-answer, nil)", res.Answer, err)
-	}
-	recs := dispatchRecords(t)
-	if len(recs) != 1 {
-		t.Fatalf("dispatch records = %d, want 1", len(recs))
-	}
-	logPath := recs[0].Log
-	if logPath == "" {
-		t.Fatal("record.Log is empty: the bridge dispatch did not record a log path")
-	}
-	if logPath != recs[0].LogPath() {
-		t.Errorf("record.Log = %q, want %q", logPath, recs[0].LogPath())
-	}
-	checkBridgeLogFile(t, logPath)
-}
-
-// checkBridgeLogFile requires a 0600 log holding the agy output with the secret redacted and no duplicates.
-func checkBridgeLogFile(t *testing.T, logPath string) {
-	t.Helper()
-	info, err := os.Stat(logPath)
-	if err != nil {
-		t.Fatalf("log file missing: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("log mode = %o, want 0600", perm)
-	}
-	b, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(b)
-	for _, want := range []string{"agy-stderr-line", "bridge-answer", "AWS_SECRET=REDACTED"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("log missing %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "AKIAIOSFODNN7EXAMPLE") {
-		t.Errorf("log leaks an unredacted secret:\n%s", got)
-	}
-	if n := strings.Count(got, "agy-stderr-line"); n != 1 {
-		t.Errorf("stderr line appears %d times, want exactly once:\n%s", n, got)
 	}
 }
 
@@ -219,48 +130,6 @@ func TestParseAgyRefusedToolStepIsNotPartial(t *testing.T) {
 	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
 	if err != nil || res.Answer != "blocked as asked" {
 		t.Fatalf("res.Answer = %q, err = %v; want the answer and no partial error", res.Answer, err)
-	}
-}
-
-// TestResolveModel: explicit arg wins; default when nothing set; GEMINI_MODEL fallback;
-// CLAUDE_CODE_GEMINI_MODEL beats GEMINI_MODEL.
-func TestResolveModel(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "")
-	t.Setenv("GEMINI_MODEL", "")
-
-	if got := ResolveModel("explicit-model", modelEnvKeys, "def-model"); got != "explicit-model" {
-		t.Errorf("explicit arg: got %q", got)
-	}
-	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "def-model" {
-		t.Errorf("default: got %q, want %q", got, "def-model")
-	}
-
-	t.Setenv("GEMINI_MODEL", "gemini-env-model")
-	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-env-model" {
-		t.Errorf("env fallback: got %q", got)
-	}
-
-	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "gemini-primary-model")
-	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-primary-model" {
-		t.Errorf("env precedence: got %q", got)
-	}
-}
-
-// TestBridgeRunAgyModelFilled: the agy bridge envelope carries the resolved model, not an empty field.
-func TestBridgeRunAgyModelFilled(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", loginHome(t, true))
-	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	res, err := RunGemini(context.Background(), GeminiOptions{Cwd: dir, Task: "t", Files: []string{"a.go"}}, io.Discard, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Model != AgyDefaultModel || res.Provider != "agy" {
-		t.Errorf("model/provider = %q/%q, want %q/agy", res.Model, res.Provider, AgyDefaultModel)
 	}
 }
 

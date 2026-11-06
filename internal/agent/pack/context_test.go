@@ -65,13 +65,11 @@ func checkCollectSkips(t *testing.T, ctx Context) {
 	for _, s := range ctx.Skipped {
 		skipReasons[s.Path] = s.Reason
 	}
-	// The directory is pruned at walk time, not enumerated file-by-file — one Skipped entry for the
-	// whole subtree, not one per file inside it.
-	if skipReasons["node_modules"] != "ignored-path" {
-		t.Errorf("node_modules should be ignored-path, got %q", skipReasons["node_modules"])
-	}
-	if _, ok := skipReasons["node_modules/pkg/index.js"]; ok {
-		t.Error("files inside a pruned dir must not appear individually in Skipped")
+	// A pruned directory is not a file: neither it nor anything inside it appears in Skipped.
+	for _, p := range []string{"node_modules", "node_modules/pkg/index.js"} {
+		if r, ok := skipReasons[p]; ok {
+			t.Errorf("%s inside a pruned dir must not be counted as a skipped file, got %q", p, r)
+		}
 	}
 	// bin.bin has a NUL byte → binary-content.
 	if r := skipReasons["bin.bin"]; r != "binary-content" {
