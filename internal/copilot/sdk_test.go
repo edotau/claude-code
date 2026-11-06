@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
@@ -272,55 +274,6 @@ func TestSDKListModelsEmptyCatalog(t *testing.T) {
 	}
 }
 
-// A read-only run approves reads and URL fetches through BuildSessionConfig's handler and rejects writes and shell.
-func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
-	for _, tc := range []struct {
-		req  copilot.PermissionRequest
-		want bool
-	}{
-		{rpc.PermissionRequestRead{}, true}, {rpc.PermissionRequestURL{}, true},
-		{rpc.PermissionRequestWrite{}, false}, {rpc.PermissionRequestShell{}, false},
-	} {
-		d, err := h(tc.req, copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != tc.want {
-			t.Errorf("%s: approved = %v, want %v", tc.req.Kind(), approved, tc.want)
-		}
-	}
-}
-
-// A read-only run approves allowlisted read-only git and rejects every chained, redirected, config or write form.
-func TestReadOnlyGitShell(t *testing.T) {
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
-	for cmd, want := range map[string]bool{
-		"git status": true, "git log --no-ext-diff --no-textconv -3 --oneline": true,
-		"git diff --no-ext-diff --no-textconv HEAD~1 -- internal/x.go": true,
-		"git show --no-ext-diff --no-textconv --stat HEAD":             true, "git blame --no-textconv -L 1,5 f.go": true,
-		"git rev-parse HEAD": true, "git branch --list": true, "git log --no-ext-diff --no-textconv --format=%h": true,
-		"git log -3 --oneline": false, "git diff HEAD~1": false, "git blame f.go": false, "git status -v": false,
-		"git status; rm -rf x": false, "git diff ~root": false, "git log > f": false, "git -c core.pager=sh log": false,
-		"git log --output=x": false, "git log --out=x": false, "git commit": false, "git branch -D x": false,
-		"git branch new": false, "git log && rm x": false, "git log | sh": false, "git log `id`": false,
-		"git log $(id)": false, "GIT_PAGER=sh git log": false, "git diff --ext-diff": false,
-		"git log --exec=x": false, "git log -c": false, "git push": false, "sh status": false, "ls": false, "": false,
-	} {
-		d, err := h(rpc.PermissionRequestShell{FullCommandText: cmd}, copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != want {
-			t.Errorf("%q: approved = %v, want %v", cmd, approved, want)
-		}
-	}
-	d, _ := h(rpc.PermissionRequestShell{FullCommandText: "git log", HasWriteFileRedirection: true}, copilot.PermissionInvocation{})
-	if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved {
-		t.Error("a write redirection must be rejected")
-	}
-}
-
 func TestFileAttachments(t *testing.T) {
 	if got := fileAttachments(nil); len(got) != 0 {
 		t.Errorf("no images must give no attachments, got %v", got)
@@ -373,102 +326,6 @@ func TestAssistantCollectorSumsUsage(t *testing.T) {
 	}
 }
 
-func TestPermissionsDecideInHandler(t *testing.T) {
-	wd := t.TempDir()
-	perms := agent.Permissions{
-		Deny:  []agent.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Edit", Arg: "secret/**"}},
-		Allow: []agent.Rule{{Tool: "Bash", Arg: "curl:*"}, {Tool: "Edit", Arg: "**"}},
-	}
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
-	for _, tc := range []struct {
-		name string
-		req  copilot.PermissionRequest
-		want bool
-	}{
-		{"deny beats scoped allow", scopedShell(wd, "rm victim"), false},
-		{"deny in a chain", scopedShell(wd, "make lint && rm victim"), false},
-		{"allow lifts the scoped allowlist", scopedShell(wd, "curl example.com"), true},
-		{"unmatched falls to scoped", scopedShell(wd, "make lint"), true},
-		{"unmatched refused by scoped", scopedShell(wd, "git push"), false},
-		{"path deny", scopedWrite(wd + "/secret/k.txt"), false},
-		{"path allow", scopedWrite(wd + "/ok.txt"), true},
-		{"allow never lifts a guarded write", scopedWrite(wd + "/.env"), false},
-	} {
-		d, err := h(tc.req, copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
-			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
-		}
-	}
-}
-
-func TestEmptyPermissionsKeepHandlers(t *testing.T) {
-	for _, o := range []SDKOptions{{}, {AllowAllTools: true}, {AllowAllTools: true, Autonomous: true}, {AllowAllTools: true, ReadOnlyTools: true}} {
-		with := o
-		with.Permissions = agent.Permissions{}
-		if funcName(baseHandler(o)) != funcName(baseHandler(with)) {
-			t.Errorf("%+v: handler changed", o)
-		}
-	}
-	if got := funcName(baseHandler(SDKOptions{AllowAllTools: true, Autonomous: true})); got != funcName(approveToolOnce) {
-		t.Errorf("autonomous handler = %s, want approveToolOnce", got)
-	}
-}
-
-func TestAllowNeverLiftsProtectedRm(t *testing.T) {
-	wd := t.TempDir()
-	if err := os.WriteFile(filepath.Join(wd, "victim"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	perms := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash", Arg: "rm:*"}}}
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
-	for _, tc := range []struct {
-		name string
-		cmd  string
-		want bool
-	}{
-		{"protected settings", "rm " + filepath.Join(wd, "settings.json"), false},
-		{"protected in a chain", "make lint && rm " + filepath.Join(wd, "settings.local.json"), false},
-		{"protected in bash -c", "bash -c 'rm " + filepath.Join(wd, ".git", "HEAD") + "'", false},
-		{"plain rm in workdir", "rm " + filepath.Join(wd, "victim"), true},
-	} {
-		d, err := h(scopedShell(wd, tc.cmd), copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
-			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
-		}
-	}
-}
-
-func TestPlanModeLetsReadsThrough(t *testing.T) {
-	wd := t.TempDir()
-	perms := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Read", Arg: "secret/**"}}}
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
-	for _, tc := range []struct {
-		name string
-		req  copilot.PermissionRequest
-		want bool
-	}{
-		{"read", rpc.PermissionRequestRead{Path: filepath.Join(wd, "a.go")}, true},
-		{"url", rpc.PermissionRequestURL{URL: "https://example.com"}, true},
-		{"denied read", rpc.PermissionRequestRead{Path: filepath.Join(wd, "secret", "k")}, false},
-		{"write", scopedWrite(filepath.Join(wd, "a.go")), false},
-		{"shell", scopedShell(wd, "make lint"), false},
-	} {
-		d, err := h(tc.req, copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
-			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
-		}
-	}
-}
-
 // Create and resume send the same append-mode system message and discovery roots; replace mode is never used.
 func TestCreateAndResumeCarryInstructions(t *testing.T) {
 	dir := t.TempDir()
@@ -516,5 +373,145 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 	}
 	if cfg := BuildSessionConfig(o); cfg.SystemMessage == nil || cfg.SystemMessage.Mode != "append" {
 		t.Errorf("SystemMessage = %+v, want append mode", cfg.SystemMessage)
+	}
+}
+
+// buildFakeCLI compiles the hermetic fake copilot CLI once per test into a temp dir.
+func buildFakeCLI(t *testing.T) string {
+	t.Helper()
+	exe := filepath.Join(t.TempDir(), "fake")
+	if out, err := exec.Command("go", "build", "-o", exe, "./testdata/fakecli").CombinedOutput(); err != nil {
+		t.Fatalf("build fakecli: %v\n%s", err, out)
+	}
+	return exe
+}
+
+const registryPick = "dbx-openai/gpt-5-5"
+
+// registryOpts is a valid registry-route SDKOptions aimed at the fake CLI.
+func registryOpts(t *testing.T, version, log string, known ...string) SDKOptions {
+	t.Helper()
+	return SDKOptions{
+		CLIPath: buildFakeCLI(t), Model: registryPick,
+		Providers: []CopilotRegistryProvider{{Name: "dbx-openai", Type: "openai"}},
+		Models:    []CopilotRegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
+		Token:     func() (string, error) { return "tok", nil },
+		ChildEnv: []string{"FAKECLI_VERSION=" + version, "FAKECLI_RECORD=" + log,
+			"FAKECLI_MODELS=" + strings.Join(known, ",")},
+	}
+}
+
+func openSession(t *testing.T, o SDKOptions) (*copilot.Session, error) {
+	t.Helper()
+	co, err := BuildClientOptions(context.Background(), o)
+	if err != nil {
+		return nil, err
+	}
+	client := copilot.NewClient(co)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	t.Cleanup(cancel)
+	if err := client.Start(ctx); err != nil {
+		t.Fatalf("fake CLI did not start: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Stop() })
+	return newOrResumedSession(ctx, client, o, nil)
+}
+
+func calls(t *testing.T, log string) []string {
+	t.Helper()
+	b, _ := os.ReadFile(log)
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+// A pick outside the registry is refused with ErrUnregisteredPick, before any process starts (SDKOptions check) and
+// when the CLI itself rejects the switch (so the pick can never silently stay on a GitHub model).
+func TestRegistryUnregisteredPick(t *testing.T) {
+	o := registryOpts(t, "1.0.104", t.TempDir()+"/log")
+	o.Model = "dbx-openai/not-registered"
+	if _, err := BuildClientOptions(context.Background(), o); !errors.Is(err, ErrUnregisteredPick) {
+		t.Fatalf("BuildClientOptions err = %v, want ErrUnregisteredPick", err)
+	}
+
+	log := t.TempDir() + "/log"
+	_, err := openSession(t, registryOpts(t, "1.0.104", log /* the CLI knows no model */))
+	if !errors.Is(err, ErrUnregisteredPick) {
+		t.Fatalf("session err = %v, want ErrUnregisteredPick from the CLI's rejection", err)
+	}
+}
+
+// A resumed session is re-pinned through SetModel before any turn (it may carry another wire's saved model).
+func TestRegistryResumeRepins(t *testing.T) {
+	log := t.TempDir() + "/log"
+	o := registryOpts(t, "1.0.104", log, registryPick)
+	o.SessionID = "sess-1"
+	s, err := openSession(t, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s
+	got := calls(t, log)
+	var resume, switched = -1, -1
+	for i, c := range got {
+		switch {
+		case strings.HasPrefix(c, "session.resume "):
+			resume = i
+		case strings.HasPrefix(c, "session.model.switchTo ") && strings.Contains(c, `"modelId":"`+registryPick+`"`):
+			switched = i
+		}
+	}
+	if resume < 0 || switched < resume {
+		t.Errorf("calls = %q; want session.resume followed by switchTo %s", got, registryPick)
+	}
+}
+
+// A CLI older than MinMultiProviderCLI is refused with an explicit error before any session is made.
+func TestRegistryProbeBelowMinimum(t *testing.T) {
+	log := t.TempDir() + "/log"
+	_, err := openSession(t, registryOpts(t, "1.0.103", log, registryPick))
+	if !errors.Is(err, ErrNoMultiProvider) || !strings.Contains(err.Error(), MinMultiProviderCLI) {
+		t.Fatalf("err = %v, want ErrNoMultiProvider naming %s", err, MinMultiProviderCLI)
+	}
+	for _, c := range calls(t, log) {
+		if strings.HasPrefix(c, "session.create") || strings.HasPrefix(c, "session.resume") {
+			t.Errorf("a session was made on an unsupported CLI: %q", c)
+		}
+	}
+	if _, err := openSession(t, registryOpts(t, "1.0.104", t.TempDir()+"/log", registryPick)); err != nil {
+		t.Errorf("exactly the minimum was refused: %v", err)
+	}
+}
+
+// The fake CLI answers a send with an assistant message and records the session config it was created with.
+func TestFakeCLISendEmitsReply(t *testing.T) {
+	log := t.TempDir() + "/log"
+	s, err := openSession(t, registryOpts(t, "1.0.104", log, registryPick))
+	if err != nil {
+		t.Fatal(err)
+	}
+	idle := make(chan struct{})
+	var reply string
+	s.On(func(ev copilot.SessionEvent) {
+		switch d := ev.Data.(type) {
+		case *copilot.AssistantMessageData:
+			reply = d.Content
+		case *copilot.SessionIdleData:
+			close(idle)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := s.Send(ctx, copilot.MessageOptions{Prompt: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-idle:
+	case <-ctx.Done():
+		t.Fatal("no idle event")
+	}
+	if reply != "fake reply" {
+		t.Errorf("reply = %q, want %q", reply, "fake reply")
+	}
+	if got := strings.Join(calls(t, log), "\n"); !strings.Contains(got, "session.create ") {
+		t.Errorf("record = %q, want session.create params", got)
 	}
 }

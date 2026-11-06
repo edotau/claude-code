@@ -155,3 +155,148 @@ func TestScopedShellNilCwdFallsBackToWorkdir(t *testing.T) {
 		}
 	}
 }
+
+// A read-only run approves reads and URL fetches through BuildSessionConfig's handler and rejects writes and shell.
+func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	for _, tc := range []struct {
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{rpc.PermissionRequestRead{}, true}, {rpc.PermissionRequestURL{}, true},
+		{rpc.PermissionRequestWrite{}, false}, {rpc.PermissionRequestShell{}, false},
+	} {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.req.Kind(), approved, tc.want)
+		}
+	}
+}
+
+// A read-only run approves allowlisted read-only git and rejects every chained, redirected, config or write form.
+func TestReadOnlyGitShell(t *testing.T) {
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	for cmd, want := range map[string]bool{
+		"git status": true, "git log --no-ext-diff --no-textconv -3 --oneline": true,
+		"git diff --no-ext-diff --no-textconv HEAD~1 -- internal/x.go": true,
+		"git show --no-ext-diff --no-textconv --stat HEAD":             true, "git blame --no-textconv -L 1,5 f.go": true,
+		"git rev-parse HEAD": true, "git branch --list": true, "git log --no-ext-diff --no-textconv --format=%h": true,
+		"git log -3 --oneline": false, "git diff HEAD~1": false, "git blame f.go": false, "git status -v": false,
+		"git status; rm -rf x": false, "git diff ~root": false, "git log > f": false, "git -c core.pager=sh log": false,
+		"git log --output=x": false, "git log --out=x": false, "git commit": false, "git branch -D x": false,
+		"git branch new": false, "git log && rm x": false, "git log | sh": false, "git log `id`": false,
+		"git log $(id)": false, "GIT_PAGER=sh git log": false, "git diff --ext-diff": false,
+		"git log --exec=x": false, "git log -c": false, "git push": false, "sh status": false, "ls": false, "": false,
+	} {
+		d, err := h(rpc.PermissionRequestShell{FullCommandText: cmd}, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != want {
+			t.Errorf("%q: approved = %v, want %v", cmd, approved, want)
+		}
+	}
+	d, _ := h(rpc.PermissionRequestShell{FullCommandText: "git log", HasWriteFileRedirection: true}, copilot.PermissionInvocation{})
+	if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved {
+		t.Error("a write redirection must be rejected")
+	}
+}
+
+func TestPermissionsDecideInHandler(t *testing.T) {
+	wd := t.TempDir()
+	perms := agent.Permissions{
+		Deny:  []agent.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Edit", Arg: "secret/**"}},
+		Allow: []agent.Rule{{Tool: "Bash", Arg: "curl:*"}, {Tool: "Edit", Arg: "**"}},
+	}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	for _, tc := range []struct {
+		name string
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{"deny beats scoped allow", scopedShell(wd, "rm victim"), false},
+		{"deny in a chain", scopedShell(wd, "make lint && rm victim"), false},
+		{"allow lifts the scoped allowlist", scopedShell(wd, "curl example.com"), true},
+		{"unmatched falls to scoped", scopedShell(wd, "make lint"), true},
+		{"unmatched refused by scoped", scopedShell(wd, "git push"), false},
+		{"path deny", scopedWrite(wd + "/secret/k.txt"), false},
+		{"path allow", scopedWrite(wd + "/ok.txt"), true},
+		{"allow never lifts a guarded write", scopedWrite(wd + "/.env"), false},
+	} {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
+		}
+	}
+}
+
+func TestEmptyPermissionsKeepHandlers(t *testing.T) {
+	for _, o := range []SDKOptions{{}, {AllowAllTools: true}, {AllowAllTools: true, Autonomous: true}, {AllowAllTools: true, ReadOnlyTools: true}} {
+		with := o
+		with.Permissions = agent.Permissions{}
+		if funcName(baseHandler(o)) != funcName(baseHandler(with)) {
+			t.Errorf("%+v: handler changed", o)
+		}
+	}
+	if got := funcName(baseHandler(SDKOptions{AllowAllTools: true, Autonomous: true})); got != funcName(approveToolOnce) {
+		t.Errorf("autonomous handler = %s, want approveToolOnce", got)
+	}
+}
+
+func TestAllowNeverLiftsProtectedRm(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, "victim"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	perms := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash", Arg: "rm:*"}}}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		{"protected settings", "rm " + filepath.Join(wd, "settings.json"), false},
+		{"protected in a chain", "make lint && rm " + filepath.Join(wd, "settings.local.json"), false},
+		{"protected in bash -c", "bash -c 'rm " + filepath.Join(wd, ".git", "HEAD") + "'", false},
+		{"plain rm in workdir", "rm " + filepath.Join(wd, "victim"), true},
+	} {
+		d, err := h(scopedShell(wd, tc.cmd), copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
+		}
+	}
+}
+
+func TestPlanModeLetsReadsThrough(t *testing.T) {
+	wd := t.TempDir()
+	perms := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Read", Arg: "secret/**"}}}
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	for _, tc := range []struct {
+		name string
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{"read", rpc.PermissionRequestRead{Path: filepath.Join(wd, "a.go")}, true},
+		{"url", rpc.PermissionRequestURL{URL: "https://example.com"}, true},
+		{"denied read", rpc.PermissionRequestRead{Path: filepath.Join(wd, "secret", "k")}, false},
+		{"write", scopedWrite(filepath.Join(wd, "a.go")), false},
+		{"shell", scopedShell(wd, "make lint"), false},
+	} {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.name, ok, tc.want)
+		}
+	}
+}
