@@ -1,6 +1,7 @@
 # Dispatch Prompts
 
-Templates for `../SKILL.md` → Handoff contract (same fields); paste each role's context, never make it rebuild the plan.
+Templates for `../SKILL.md` → Phase 1 → Handoff contract (same fields); paste each role's context, never make it
+rebuild the plan. `Agent: in-context` = the leaf does it itself.
 
 ## Every brief adds
 
