@@ -15,9 +15,9 @@ an optional `agents=` list (default: copilot whenever available; task-class pick
 `~/.claude/skills/subagent-workflows/references/cost-routing.md`); split the rest on `|` into the task list.
 
 Dispatch each task as one `coworker:<a>` leaf (`subagent_type: "coworker:copilot|opencode|databricks"`; compare or
-relay across several = the bare `coworker` leaf with an `Agent:` list), all in ONE message in the background (SKILL.md
-→ Concurrency: ≤2 while another session shares the checkout),
-with a brief per the Handoff contract that names `Agent:` (one line), `Mode:` (`single|compare|relay`;
+relay across several = the bare `coworker` leaf with an `Agent:` list), all in ONE message in the background
+(parallel only on disjoint files; SKILL.md → Concurrency), with a brief per the Handoff contract that names
+`Agent:` (one line), `Mode:` (`single|compare|relay`;
 absent with several names = relay), `Owns:` and `Verify:`. A feature or
 bug-fix task also gets a `copilot` test agent in the SAME message. Edits follow
 `rules/standards/worktree-git.md` (shared tree; a worktree only with the user's yes). Relay one consolidated report: per
@@ -29,7 +29,8 @@ host and auth from the vault.
 A `model=<m>` argument puts `--model <m>` on each brief's `ask` request line (an alias, wire id, discovered
 model, or `discovery`).
 
-`databricks` forces the brief's agent onto a Databricks profile: an `agent=<a>` sub-token sets it (default claude).
+`databricks` forces the brief's agent onto a Databricks profile: an `agent=<a>` sub-token sets it (default claude), and
+every brief carries `Profile:` (the `profile=` value, else the vault's Databricks profile) so the leaf passes `--profile`.
 
 `team` mode (`/coworker team <goal>`): a `code-worker:gemini` leaf scans (read-only, cites file:line) →
 `code-worker:codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's approval →
@@ -52,9 +53,9 @@ Pick and fallback: `~/.claude/skills/subagent-workflows/references/cost-routing.
   mode      single (default) · compare (same task, side by side) · relay (each answer feeds the next) ·
             team (gemini scan → codex review → your approval → opencode edits)
 
-Model discovery: copilot and opencode take flexible endpoints. On a Databricks profile they serve its
-endpoints; without one, route through the discovered catalogs (claude-code opencode catalog,
-claude-code copilot catalog; refresh with /discover-models).
+Model discovery: copilot and opencode take flexible endpoints. model=discovery needs a Databricks
+profile; without one it falls back to the alias (Claude Sonnet on copilot), so give copilot
+model=gpt-6.1-sol (its default is Claude Sonnet); opencode defaults to opencode-go (claude-code <agent> catalog).
 
 Examples:
   /coworker review internal/proxy for races                           copilot, single

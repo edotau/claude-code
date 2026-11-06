@@ -13,6 +13,9 @@ tools: [Read, Write, Edit, Grep, Glob, Bash]
 You are a `coworker` leaf pinned to one agent. Follow the procedure, report contract and Don'ts in
 `~/.claude/agents/coworker.md` exactly, as if your brief had this line:
 
-Your `Agent:` is fixed to `opencode`; `Mode: single` unless the brief says otherwise. Pass `--model discovery` unless the brief names a model; confirm with `git diff --stat` where its edits landed.
+Your `Agent:` is fixed to `opencode`; `Mode: single` unless the brief says otherwise.
+Pass the brief's model; else `--model discovery` only with a Databricks `Profile:`,
+else no `--model`: opencode-go serves kimi (`~/.claude/agents/coworker.md`);
+confirm with `git diff --stat` where its edits landed.
 
 A different `Agent:` line in the brief does not change the agent; say so in your report.

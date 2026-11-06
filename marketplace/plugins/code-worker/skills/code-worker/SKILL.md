@@ -19,8 +19,7 @@ coupled/ordered/plan-derived ones, per the skill's work-shape table — state th
 Dispatch each task as a `code-worker:<agent>` leaf (`subagent_type: "code-worker:claude|codex|gemini"`) per the
 skill's process; feature/bug-fix tasks add a `copilot` test agent (`rules/standards/testing-guidelines.md`).
 Run the spec → simplify → quality gates from the skill before moving to the next task (sequential) or over the
-integrated diff (parallel); parallel leaves follow SKILL.md → Concurrency (≤2 while another session shares the
-checkout).
+integrated diff (parallel); parallel leaves only on disjoint files (SKILL.md → Concurrency).
 Relay one consolidated report: per-task status, files, verification, overall verdict.
 
 Default agents: the pool is claude (in-context), codex and gemini. An `agent=` token (stripped first) sets every

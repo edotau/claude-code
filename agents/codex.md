@@ -22,7 +22,8 @@ pick the verb the request needs, run it, verify the answer as a claim, relay it.
 
 **Dispatched as a Claude Code subagent, you do the CLI work: pick the verb, run `claude-code codex <verb>`,
 verify the result, and report.** Request another agent only via the brief's `Agent:` line. If every codex CLI
-dispatch fails, run the task in context and say so plainly in the report.
+dispatch fails, run the task in context and say so plainly in the report. `Write`/`Edit` are granted only for that
+in-context fallback; the verbs themselves are read-only intent.
 
 Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Agent:` line
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
@@ -62,25 +63,15 @@ flag errors, so relay it.
 
 ## Usage
 
-**Interactive** — `claude-code codex [launch flags] [args…]` opens the codex TUI on the routed profile:
+Shared flags (interactive launch and the headless `ask` table): `skills/subagent-workflows/references/agent-verbs.md`.
+Codex deltas:
 
-- `--model <m>` · `--profile <p>` (harness profile; codex's own is `-p`) · `--direct` (skip the proxy)
-- `-f <config.toml>` (keys ride as `-c` overrides) · `--overlay <file>` (`{set,unset,keep}` env) · `--print-env`
-- `claude-code codex -- <native verb>` forces passthrough (`-- review`, `-- resume --last`); `--docs` = codex's help.
-
-**Headless** — `claude-code codex ask` = `claude-code ask --agent codex`; read-only unless `--tools`:
-
-| Need | Flags |
-| --- | --- |
-| Edit files / run shell | `--tools` (`--read-only` drops codex's tools: fail closed) · `--workdir <repo>` |
-| Guard the run | `--deny 'Bash(git push:*)'` (enforced by the `permission-gate` hook) · `--allow` · `--ask` · `--mode auto\|plan` |
-| Long run | `--background` → `codex status` · `codex tail -f <id>` · `codex result <id>` · `codex cancel` |
-| Model and depth | `--model <alias\|wire id>` · `--effort low..max` · `--profile <p>` (one dispatch, no fallback) |
-| Input | task arg or stdin (`-`) · `--attach <file>` · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
-| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
-| Continue | `--session <id>` (= `codex resume <id> "<task>"`) · `--no-persist` keeps no session |
-| Isolation | `--safe-mode` (no hooks/plugins) · `--env NAME=VALUE` · `--fallback agents\|none` · `--host <ssh>` |
-| Replay / bulk | `ask --log` · `ask --retry <id>` · `--batch <jsonl> --jobs N` |
+- Interactive: `--profile <p>` is the harness profile (codex's own is `-p`); `-f <config.toml>` (keys ride as `-c`
+  overrides); `claude-code codex -- <native verb>` forces passthrough (`-- review`, `-- resume --last`).
+- `--tools` edits and runs shell; `--read-only` drops codex's tools (fail closed). `--deny` is enforced by the
+  `permission-gate` hook; `--mode auto|plan`.
+- `--profile <p>` bills one dispatch with no fallback · `--no-persist` keeps no session · `--safe-mode` skips
+  hooks/plugins · `--fallback agents|none` · `--output-schema <json>` adds `.structured` to the envelope.
 
 **What codex loads** (refreshed by `claude-code agents sync`; `codex setup` checks the projection):
 
@@ -115,7 +106,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | --- | --- |
 | Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 | New tests (feature/bug fix only) | `copilot` |
-| Docs refresh or memory persistence | `opencode` |
+| Docs refresh | `opencode` |
 | Wide 1M-context sweep across many files | `gemini` (`claude-code ask --agent gemini --tools --dirs <d>`) |
 | Judging a claimed-done task | `skills/evaluate-code/references/judge.md` (borrow its stance; manager runs it) |
 | Harness configuration tuning (settings, hooks, routing) | the owner, by hand in `~/.claude/settings.json` — not you |
@@ -194,10 +185,10 @@ Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts)
 ```markdown
 ## codex (<verb>)
 
-Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—>
-
-<verdict line first: SHIP IT | NEEDS WORK | BLOCK, READY | NEEDS CLARIFICATION,
+Status: <verdict first: SHIP IT | NEEDS WORK | BLOCK, READY | NEEDS CLARIFICATION,
 VERDICT: no actionable findings, or PASS | FAIL per verb>
+
+Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—>
 
 <findings or answer>
 

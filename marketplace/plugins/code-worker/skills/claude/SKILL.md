@@ -5,9 +5,9 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 disable-model-invocation: true
 ---
 
-# Claude Command
+# /code-worker:claude
 
-Launcher only. Modes, the phase sequence, and the output format live in `agents/claude.md`.
+Launcher only. Modes, the phase sequence, and the output format live in `~/.claude/agents/claude.md`.
 
 Read the mode from `$ARGUMENTS`'s first token (`review`, `simplify`, or a build task; blank defaults
 to `review`). The remaining args are the scope: an explicit diff range, a path, or blank for the

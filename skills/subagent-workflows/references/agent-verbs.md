@@ -30,14 +30,36 @@ only its own deltas (agent-specific rows, flags, and sections).
 - A shadowed native name needs the `--` passthrough: `claude-code <agent> -- <native-verb>`.
 - Resume the underlying CLI session directly with the agent's own resume mechanism.
 
+## Headless `ask` flags
+
+`claude-code <agent> ask` = `claude-code ask --agent <agent>`; read-only unless `--tools`. Each agent file lists only
+what differs (which flags it refuses, emulates or adds); the full list is `claude-code ask -h`.
+
+| Need | Flags |
+| --- | --- |
+| Edit files / run shell | `--tools` · `--workdir <repo>` |
+| Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode default\|auto\|plan` (hook-enforced per agent) |
+| Long run | `--background` → `<agent> status [--all]` · `<agent> tail -f <id>` · `<agent> result <id>` · `<agent> cancel` |
+| Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` |
+| Input | task arg or stdin (`-`) · `--attach <file>` · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
+| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
+| Continue | `--session <id>` (= `<agent> resume <id> "<task>"`) |
+| Isolation | `--env NAME=VALUE` · `--fallback all\|agents\|none` · `--host <ssh>` · `--direct` · `--overlay <file>` |
+| Replay / bulk | `ask --log` · `ask --retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` |
+
+Interactive launch (`claude-code <agent> [flags] [args…]`) takes `--model` · `--profile <p>` · `--direct` (skip the
+proxy) · `--overlay <file>` (`{set,unset,keep}` env) · `--print-env` (resolved binary, argv, env; no launch); `--docs`
+prints the CLI's own help.
+
 ## Procedure skeleton
 
 1. **`claude-code <agent> setup`** first. A non-zero exit (binary missing or not logged in) stops you
    — report it, never fall through to doing the work yourself silently.
 2. **Pick the verb** the request needs (each agent file's own selection rules).
 3. **Run it.** Any `ask` that may pass 150s uses `--background` (a foreground Bash call is moved
-   to the background at 180s and the leaf idles). Then loop `status <id>` with `sleep 5` until
-   done, and read `result <id>`; `cancel` on a stall.
+   to the background at 180s and the leaf idles). Then run `tail -f <id>` as a background Bash call
+   (`run_in_background`; you are re-invoked when the job ends) — never a foreground wait or `sleep` (copilot's shell
+   hook refuses it) — and read `result <id>`; `cancel` on a stall.
 4. **Verify the result as a claim** — re-run what it claims where you can, spot-check at least one
    cited `file:line` per answer.
 5. **Report** per `../SKILL.md` → Handoff contract.

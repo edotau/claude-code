@@ -54,8 +54,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    `coworker:copilot|opencode|databricks` (experimental; other agents or accounts); bare `code-worker`/`coworker`
    run the agent the brief's `Agent:` names (`Profile:`). Dispatch external agents yourself, by leaf: a plan phase is
    never a command handed to the owner to run. Non-trivial work starts with `Explore` legs; an unrelated mid-task
-   request goes to a background leaf. Run leaves in parallel only on disjoint files, at most 2 at once while other
-   sessions share the checkout, and check every leaf's claims (diff, gate, deletions) before committing. Pipeline:
+   request goes to a background leaf. Run leaves in parallel only on disjoint files (cap: the dispatch hook's 12 per
+   account), and check every leaf's claims (diff, gate, deletions) before committing. Pipeline:
    `rules/workflows/master-workflow.md`; shapes, briefs, test agent and recovery:
    `skills/subagent-workflows/SKILL.md`.
 4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·

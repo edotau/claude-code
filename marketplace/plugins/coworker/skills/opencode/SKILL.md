@@ -5,9 +5,9 @@ allowed-tools: Bash(claude-code opencode *), Bash(claude-code ask --agent openco
 disable-model-invocation: true
 ---
 
-# /opencode
+# /coworker:opencode
 
-Launcher only. Verbs and flags: `claude-code opencode -h`; the agent's role and report contract: `agents/opencode.md`.
+Launcher only. Verbs and flags: `claude-code opencode -h`; the agent's role and report contract: `~/.claude/agents/opencode.md`.
 
 1. Strip `profile=<p>` and `model=<m>` from `$ARGUMENTS`; they become `--profile <p>` / `--model <m>`.
 2. First remaining word is a verb → run `claude-code opencode <verb> [flags] <rest>`.

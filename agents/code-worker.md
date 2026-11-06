@@ -20,6 +20,12 @@ tools: [Read, Write, Edit, Grep, Glob, Bash]
 
 One dispatched leaf, terminal — executes a single well-scoped task in-context and reports back.
 
+## Invocation
+
+`/code-worker` (plugin skill, typed-only via `disable-model-invocation: true`) or a manager's `subagent_type:
+'code-worker'`; `code-worker:claude|codex|gemini` pin the agent. The `/code-worker:<agent>` skills are launchers
+into the matching CLI, not this leaf.
+
 ## Owns
 
 The entire task in the handoff — implement, review, investigate, or run a check — to completion,
@@ -64,8 +70,9 @@ before starting — progressive disclosure here is a file read.
 
 ### Agent: cost routing
 
-The handoff names an `Agent:` (`claude`, `copilot`, `codex`, `gemini` or `opencode`); the manager spreads
-leaves evenly across them per `skills/subagent-workflows/references/cost-routing.md`. Omitted, `in-context` or
+The handoff names an `Agent:` (`claude`, `copilot`, `codex`, `gemini` or `opencode`; `Profile:` forces it onto a
+Databricks profile, as in `coworker.md`); the manager spreads leaves evenly across them per
+`skills/subagent-workflows/references/cost-routing.md`. Omitted, `in-context` or
 your own type means do the task in-context; any named agent, `claude` included, is a request and binding:
 always run the agent your brief names through `claude-code ask` first —
 size and "mechanical" are the manager's call, never yours. Gemini dispatches are for
@@ -73,8 +80,8 @@ read-heavy sweeps and research, and their brief must say "open the files and cit
 once answered from memory). Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`. E.g.:
 
 ```bash
-claude-code ask --agent copilot --tools --workdir <repo> --model sonnet \
-  --fallback none --format json "<the handoff, verbatim, plus: never git stash/checkout/reset/restore>"
+claude-code ask --agent <agent> --tools --workdir <repo> \
+  [--profile <p>] --fallback none --format json "<the handoff, verbatim, plus: never git stash/checkout/reset/restore>"
 ```
 
 An ask that may pass 150s adds `--background`, then `status`/`result`

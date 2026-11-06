@@ -5,9 +5,9 @@ allowed-tools: Bash(claude-code gemini *), Bash(claude-code ask --agent gemini *
 disable-model-invocation: true
 ---
 
-# /gemini
+# /code-worker:gemini
 
-Launcher only. Verbs and flags: `claude-code gemini -h`; the agent's role and report contract: `agents/gemini.md`.
+Launcher only. Verbs and flags: `claude-code gemini -h`; the agent's role and report contract: `~/.claude/agents/gemini.md`.
 
 1. Strip `profile=<p>` and `model=<m>` from `$ARGUMENTS`; they become `--profile <p>` / `--model <m>`.
 2. First remaining word is a verb → run `claude-code gemini <verb> [flags] <rest>`.
