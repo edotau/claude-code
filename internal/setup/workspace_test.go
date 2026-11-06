@@ -224,3 +224,21 @@ func TestWorkspaceStatusLinkedFileKeepsSiblings(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkspaceInitDryRunFailsOnErrorAction: an unreadable .gitignore fails the preview like the real run.
+func TestWorkspaceInitDryRunFailsOnErrorAction(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads unreadable files")
+	}
+	wsGlobal(t)
+	root := wsRepo(t)
+	gi := filepath.Join(root, ".gitignore")
+	wsWrite(t, gi, "x\n")
+	if err := os.Chmod(gi, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(gi, 0o644) })
+	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, DryRun: true, Out: io.Discard}); err == nil {
+		t.Error("dry-run returned nil for an unreadable .gitignore")
+	}
+}

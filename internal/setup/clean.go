@@ -212,7 +212,7 @@ func Clean(args []string, out, errw io.Writer) int {
 			"settings and memory are never touched; --target sessions asks first.",
 	})
 	fs.SetOutput(errw)
-	want := fs.String("target", "", "comma-separated targets (default: every target); --list names them")
+	want := fs.String("target", "", "comma-separated targets (default: every target except opt-in ones); --list names them")
 	olderThan := fs.String("older-than", "30d", "sweep only entries untouched this long (e.g. 30d, 12h)")
 	dryRun := fs.Bool("dry-run", false, "preview only — print what would be removed, delete nothing")
 	yesFlag := fs.Bool("yes", false, "skip the --target sessions confirmation prompt (required without a TTY)")
@@ -242,7 +242,7 @@ func Clean(args []string, out, errw io.Writer) int {
 	cutoff := time.Now().Add(-age)
 	if apply && !confirmSessions(selected, cutoff, *olderThan, *yesFlag, errw) {
 		fmt.Fprintln(errw, "clean: sessions not confirmed — nothing deleted")
-		return 0
+		return 2
 	}
 	// The nested config dir is wrong at any age, so it is checked on every run, outside --target/--older-than.
 	tot := sweepTotals{}
@@ -251,13 +251,17 @@ func Clean(args []string, out, errw io.Writer) int {
 		sweepTarget(errw, t, cutoff, apply, &tot)
 	}
 	printSummary(errw, tot, *olderThan, len(selected), apply)
+	if tot.failed > 0 {
+		return 1
+	}
 	return 0
 }
 
 // sweepTotals accumulates what a run removed (or would remove) across the nested dir and every target.
 type sweepTotals struct {
-	files int
-	bytes int64
+	files  int
+	bytes  int64
+	failed int
 }
 
 // removeVerb is the report verb for an applied or a dry run.
@@ -279,7 +283,9 @@ func reportNested(errw io.Writer, apply bool, tot *sweepTotals) {
 			"nested-config", n.Dir, strings.Join(n.Keep, ", "))
 		return
 	}
-	if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), apply, nil); len(hits) > 0 {
+	hits, size, failed := pruneAgedTo(errw, []string{n.Dir}, time.Now().Add(time.Hour), apply, nil)
+	tot.failed += failed
+	if len(hits) > 0 {
 		tot.files, tot.bytes = len(hits), size
 		fmt.Fprintf(errw, "%-16s %s %s\n", "nested-config", removeVerb(apply), n.Dir)
 	}
@@ -291,7 +297,8 @@ func sweepTarget(errw io.Writer, t target, cutoff time.Time, apply bool, tot *sw
 	if t.ageless {
 		tcut = time.Now().Add(time.Hour)
 	}
-	hits, size := pruneAged(t.globs(), tcut, apply, t.keep)
+	hits, size, failed := pruneAgedTo(errw, t.globs(), tcut, apply, t.keep)
+	tot.failed += failed
 	if len(hits) == 0 {
 		return
 	}
@@ -328,7 +335,7 @@ func confirmSessions(selected []target, cutoff time.Time, olderThan string, auto
 	if !found {
 		return true
 	}
-	hits, size := pruneAged(sess.globs(), cutoff, false, sess.keep)
+	hits, size, _ := pruneAgedTo(io.Discard, sess.globs(), cutoff, false, sess.keep)
 	if len(hits) == 0 {
 		return true
 	}
@@ -376,42 +383,42 @@ func keepLiveSession(p string) bool {
 	return pidAlive(pid)
 }
 
-// pruneAged removes every glob match older than cutoff (a directory whole, by its newest mtime).
-// Size is measured BEFORE removal — dirSize on an already-deleted path always reads 0. keep, when
-// non-nil, is consulted per match before removal; a kept entry is never counted or removed.
-func pruneAged(patterns []string, cutoff time.Time, apply bool, keep func(string) bool) ([]string, int64) {
-	var hit []string
-	var size int64
+// pruneAgedTo removes every glob match older than cutoff (a directory whole, by its newest mtime).
+// Size is measured BEFORE removal; keep, when non-nil, vetoes a match. Failures go to errw and are counted.
+func pruneAgedTo(errw io.Writer, patterns []string, cutoff time.Time, apply bool, keep func(string) bool) (hit []string, size int64, failed int) {
 	for _, pattern := range patterns {
 		matches, _ := filepath.Glob(pattern)
 		for _, m := range matches {
-			if sz, ok := pruneMatch(m, cutoff, apply, keep); ok {
+			sz, ok, err := pruneMatch(m, cutoff, apply, keep)
+			if err != nil {
+				fmt.Fprintf(errw, "clean: could not remove %s: %v\n", m, err)
+				failed++
+			} else if ok {
 				size += sz
 				hit = append(hit, m)
 			}
 		}
 	}
 	sort.Strings(hit)
-	return hit, size
+	return hit, size, failed
 }
 
 // pruneMatch removes (when apply) one glob match that is old enough and not protected; ok is false when it was skipped.
-func pruneMatch(m string, cutoff time.Time, apply bool, keep func(string) bool) (size int64, ok bool) {
+func pruneMatch(m string, cutoff time.Time, apply bool, keep func(string) bool) (size int64, ok bool, err error) {
 	mt, found := newestMTime(m)
 	if !found || !mt.Before(cutoff) {
-		return 0, false
+		return 0, false, nil
 	}
 	if strings.HasSuffix(m, ".lock") || protected(m) || (keep != nil && keep(m)) {
-		return 0, false // live bookkeeping, memory stores/migration state, live sessions: never debris
+		return 0, false, nil // live bookkeeping, memory stores/migration state, live sessions: never debris
 	}
 	sz := paths.DirSize(m)
 	if apply {
 		if err := os.RemoveAll(m); err != nil {
-			fmt.Fprintf(os.Stderr, "clean: could not remove %s: %v\n", m, err)
-			return 0, false
+			return 0, false, err
 		}
 	}
-	return sz, true
+	return sz, true, nil
 }
 
 // protected guards the vault and memory store behind the sweep globs.
@@ -547,8 +554,8 @@ type Nested struct {
 	Keep  []string // why it cannot be removed safely: uncovered settings keys or non-settings entries
 }
 
-// NestedLocal is the "always allow" file Claude Code writes into the nested dir; disposable, swept every session.
-const NestedLocal = "settings.local.json"
+// nestedLocal is the "always allow" file Claude Code writes into the nested dir; disposable, swept every session.
+const nestedLocal = "settings.local.json"
 
 // KeepWorktrees is the Keep reason for Claude Code's own worktree dir: legitimate, never a settings leak.
 const KeepWorktrees = "worktrees (linked git worktrees — never swept)"
@@ -582,7 +589,7 @@ func nestedKeepReasons(dir string, e os.DirEntry, user map[string]any) []string 
 	if e.IsDir() && e.Name() == "worktrees" {
 		return []string{KeepWorktrees}
 	}
-	if e.Name() == NestedLocal {
+	if e.Name() == nestedLocal {
 		return nil
 	}
 	if e.IsDir() || !strings.HasPrefix(e.Name(), "settings") || filepath.Ext(e.Name()) != ".json" {

@@ -26,7 +26,7 @@ import (
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
 type command struct {
 	name    string
-	summary string // aim for ≤ summaryMax chars; longer wraps with a hanging indent
+	summary string // longer than a line wraps with a hanging indent
 	group   string
 	hidden  bool
 	run     func(args []string) int
@@ -45,11 +45,10 @@ const (
 // alphabetical groups list their verbs A→Z; ANTHROPIC (alias order) and AGENTS keep declaration order.
 var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDiagnostics: true, groupSettings: true}
 
-// summaryMax is a soft target: longer summaries wrap with a hanging indent (helptext.WrapRow); one line is preferred.
+// Menu layout widths.
 const (
-	menuWidth  = 80
-	summaryMax = 60
-	nameWidth  = 16
+	menuWidth = 80
+	nameWidth = 16
 )
 
 func commands() []command {
@@ -61,10 +60,10 @@ func commands() []command {
 		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: aliasVerb(models.Fable)},
 		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
-		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return AgentVerb("copilot", a) }},
-		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return AgentVerb("codex", a) }},
+		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return agentVerb("copilot", a) }},
+		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return agentVerb("codex", a) }},
 		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
-		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return AgentVerb("opencode", a) }},
+		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return agentVerb("opencode", a) }},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		{name: "dispatch", group: groupAgents, hidden: true, summary: "run a task by role: explore, fleet, compare", run: agents.CmdDispatch},
 		// AUTH
@@ -74,7 +73,7 @@ func commands() []command {
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }},
-		{name: "history", group: groupSession, summary: "shadow git history of config + memory", run: cmdHistory},
+		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
@@ -112,9 +111,9 @@ func hiddenCommands() []command {
 	}
 }
 
-// AgentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
+// agentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
 // `ask` = `ask --agent <v>`, a word in agentSubverbs = agentSub, else launch with args forwarded.
-func AgentVerb(name string, args []string) int {
+func agentVerb(name string, args []string) int {
 	if len(args) == 0 {
 		return launchAgent(name, args)
 	}

@@ -44,6 +44,10 @@ func Tree(args []string) int {
 		fmt.Fprintln(os.Stderr, "agents tree: --watch has no JSON form; drop --format json")
 		return 2
 	}
+	if *watch && *interval <= 0 {
+		fmt.Fprintln(os.Stderr, "agents tree: --interval must be positive")
+		return 2
+	}
 	// A named session shows whole.
 	opts := tree.Options{Days: *days, Session: *session, Running: !background && *session == ""}
 	all := background || *session != ""

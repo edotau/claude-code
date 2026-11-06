@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -84,9 +85,11 @@ func cmdSetupNuke(args []string) int {
 	confirm := ""
 	if *apply {
 		fmt.Print("type the directory path to confirm: ")
-		if _, err := fmt.Scanln(&confirm); err != nil {
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil && line == "" {
 			return setupExit(fmt.Errorf("%w: %v", setup.ErrConfirmMismatch, err), "setup nuke")
 		}
+		confirm = strings.TrimRight(line, "\r\n")
 	}
 	err := setup.Nuke(setup.NukeOpts{Dir: *dir, Apply: *apply, Confirm: confirm, KeepMemory: *keepMemory, Out: os.Stdout})
 	return setupExit(err, "setup nuke")
@@ -138,8 +141,11 @@ func cmdSetupWorkspace(args []string) int {
 		return 2
 	}
 	fs := helptext.NewFlagSet("setup workspace "+args[0], op)
-	with := fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
-	dryRun := fs.Bool("dry-run", false, "print the plan, write nothing")
+	with, dryRun := new(string), new(bool)
+	if args[0] == "init" { // link and status write or report only what they are told; the flags are init's
+		with = fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
+		dryRun = fs.Bool("dry-run", false, "print the plan, write nothing")
+	}
 	pos, err := helptext.ParseArgs(fs, args[1:])
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -160,6 +166,10 @@ func runSetupWorkspace(op string, pos []string, with string, dryRun bool) int {
 
 func setupWorkspaceReadOrLink(op string, pos []string) int {
 	if op == "status" {
+		if len(pos) > 1 {
+			setupWorkspacePage.Fprint(os.Stderr)
+			return 2
+		}
 		return setupExit(setup.WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout), "setup workspace")
 	}
 	if len(pos) < 2 || len(pos) > 3 {
