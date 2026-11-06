@@ -3,7 +3,7 @@ package inflight
 import "cmp"
 
 // Base is the per-account cap on concurrent agents unless a profile's `concurrency` overrides it.
-const Base = 12
+const Base = 24
 
 // Limits are the caps: Base per account, Total across the machine, Override per account key.
 type Limits struct {

@@ -10,9 +10,9 @@ func TestComputeLimits(t *testing.T) {
 		cpus      int
 		want      int
 	}{
-		{"accounts bind before cpus", 7, 16, 64},
+		{"accounts bind before cpus", 2, 64, 2 * Base},
 		{"cpus bind", 1, 2, 8},
-		{"no accounts still allows one base", 0, 16, 12},
+		{"no accounts still allows one base", 0, 64, Base},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

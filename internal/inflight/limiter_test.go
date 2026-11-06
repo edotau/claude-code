@@ -74,18 +74,18 @@ func probeClaim(t *testing.T, owner int, transcript string) {
 	}
 }
 
-// Claim burst: of 30 racers on one account with For=12, exactly 12 win, 12 markers hold the
+// Claim burst: of 2×Base racers on one account, exactly Base win, Base markers hold the
 // account key, a second account still admits, and Total binds across accounts.
 func TestTryClaimBurst(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
 	lim := Limits{Base: Base, Total: 10000}
-	if got := raceClaims(owner, lim, 30); got != 12 {
-		t.Fatalf("winners = %d, want exactly 12", got)
+	if got := raceClaims(owner, lim, 2*Base); got != Base {
+		t.Fatalf("winners = %d, want exactly %d", got, Base)
 	}
 	files := markers(t)
-	if len(files) != 12 {
-		t.Fatalf("marker files = %d, want 12: %v", len(files), files)
+	if len(files) != Base {
+		t.Fatalf("marker files = %d, want %d: %v", len(files), Base, files)
 	}
 	for _, f := range files {
 		b, err := os.ReadFile(filepath.Join(Dir(), f))
@@ -93,8 +93,8 @@ func TestTryClaimBurst(t *testing.T) {
 			t.Errorf("marker %s content = %q, want the account key acct-a", f, b)
 		}
 	}
-	if got := Count().Per["acct-a"]; got != 12 {
-		t.Fatalf("Count().Per[acct-a] = %d, want 12", got)
+	if got := Count().Per["acct-a"]; got != Base {
+		t.Fatalf("Count().Per[acct-a] = %d, want %d", got, Base)
 	}
 
 	t.Run("per-account isolation", func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestTryClaimBurst(t *testing.T) {
 		}
 	})
 	t.Run("total binds across accounts", func(t *testing.T) {
-		tight := Limits{Base: Base, Total: 13} // 12 + 1 live leaves no room
+		tight := Limits{Base: Base, Total: Base + 1} // Base + 1 live leaves no room
 		if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b2", Account: "acct-b"}, tight); ok {
 			t.Fatal("claim admitted past Total even though the per-account cap had room")
 		}
