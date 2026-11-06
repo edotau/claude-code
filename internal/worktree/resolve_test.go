@@ -47,7 +47,7 @@ func resolveFixtureFakeClock(t *testing.T, maxWait time.Duration) {
 }
 
 // resolveFixtureFakeAgent installs fn as the one seam ResolveWithAgent calls instead of a real
-// `claude-code ask`, restoring the real var on cleanup.
+// `claude-code agents ask`, restoring the real var on cleanup.
 func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error)) {
 	t.Helper()
 	orig := runResolveAgent

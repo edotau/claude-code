@@ -341,7 +341,7 @@ func TestDispatchCapBlockReleaseAndStop(t *testing.T) {
 		}
 	}
 	r := pre(spawnPayload("over"))
-	if r.Decision != core.Block || !strings.Contains(r.Reason, fmt.Sprintf("cap %d", capN)) ||
+	if r.Decision != core.Block || !strings.Contains(r.Reason, fmt.Sprintf("%d agents already in flight", capN)) ||
 		!strings.Contains(r.Reason, "run this task sequentially") {
 		t.Fatalf("spawn at the cap = %+v, want a Block naming the cap and the fix", r)
 	}

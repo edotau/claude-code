@@ -1,4 +1,4 @@
-package agents
+package ask
 
 import (
 	"context"
@@ -56,7 +56,7 @@ func askRetryCases() []askRetryCase {
 	}
 }
 
-// askRetryArgs builds the CmdAsk argv for a case, saving the recorded run first when it is a retry.
+// askRetryArgs builds the Cmd argv for a case, saving the recorded run first when it is a retry.
 func askRetryArgs(t *testing.T, dir string, tt askRetryCase) ([]string, int) {
 	t.Helper()
 	args := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
@@ -120,7 +120,7 @@ func TestCmdAskBadPermissionRuleNeverLaunches(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("PATH", dir)
 	code, _, stderr := captureOutput(t, func() int {
-		return CmdAsk([]string{"--agent", "claude", "--fallback", "none", "--deny", "Bash(", "say ok"})
+		return Cmd([]string{"--agent", "claude", "--fallback", "none", "--deny", "Bash(", "say ok"})
 	})
 	if code != 2 || !strings.Contains(stderr, `permission rule "Bash("`) {
 		t.Fatalf("exit = %d, stderr = %q; want 2 naming the rule", code, stderr)
@@ -141,7 +141,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 				writeFixtureFile(t, filepath.Join(dir, name), name)
 			}
 			args, wantRecords := askRetryArgs(t, dir, tt)
-			code, _, stderr := captureOutput(t, func() int { return CmdAsk(args) })
+			code, _, stderr := captureOutput(t, func() int { return Cmd(args) })
 			if code != 1 {
 				t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 			}
@@ -150,7 +150,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
 			}
 			wantDispatch := "ask: dispatch " + records[0].ID +
-				" (agents result <id> reprints it; ask --retry <id> replays it)"
+				" (agents result <id> reprints it; agents ask --retry <id> replays it)"
 			if lineCount(stderr, wantDispatch) != 1 {
 				t.Errorf("stderr = %q, want one line %q", stderr, wantDispatch)
 			}
@@ -159,11 +159,11 @@ func TestCmdAskRetryFlags(t *testing.T) {
 	}
 }
 
-// --background and --job are mutually exclusive: CmdAsk must fail before doing any work.
+// --background and --job are mutually exclusive: Cmd must fail before doing any work.
 func TestCmdAskBackgroundAndJobMutuallyExclusive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code, _, stderr := captureOutput(t, func() int {
-		return CmdAsk([]string{"--background", "--job", "some-id", "say ok"})
+		return Cmd([]string{"--background", "--job", "some-id", "say ok"})
 	})
 	if code == 0 {
 		t.Fatalf("exit = %d, want non-zero for --background with --job; stderr=%s", code, stderr)
@@ -181,7 +181,7 @@ func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	code, _, stderr := captureOutput(t, func() int { return CmdAsk([]string{"--job", rec.ID}) })
+	code, _, stderr := captureOutput(t, func() int { return Cmd([]string{"--job", rec.ID}) })
 	if code != 2 || !strings.Contains(stderr, "not a fresh background job") {
 		t.Fatalf("exit %d stderr %q, want 2 and the not-a-fresh-job message", code, stderr)
 	}
@@ -236,7 +236,7 @@ func runAskJobIntoLog(t *testing.T) string {
 	}
 	oldOut, oldErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = lf, lf
-	code := CmdAsk([]string{"--job", rec.ID, "--native", "--fallback", "none"})
+	code := Cmd([]string{"--job", rec.ID, "--native", "--fallback", "none"})
 	os.Stdout, os.Stderr = oldOut, oldErr
 	lf.Close()
 	b, err := os.ReadFile(rec.LogPath())
@@ -529,7 +529,7 @@ func TestAskHostForwardsFallback(t *testing.T) {
 // A rejected --env must never echo its value: the flag parser prints the value of a failing Set.
 func TestAskEnvRejectionNeverEchoesValue(t *testing.T) {
 	for _, arg := range []string{"ANTHROPIC_API_KEY=supersecret", "HARNESS_VAULT_KEY=supersecret", "supersecret"} {
-		code, stdout, stderr := captureOutput(t, func() int { return RunAsk([]string{"--env", arg, "hi"}, false) })
+		code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"--env", arg, "hi"}, false) })
 		if code == 0 || strings.Contains(stdout+stderr, "supersecret") {
 			t.Errorf("--env %s: code=%d, value leaked or accepted:\nstdout=%q\nstderr=%q", arg, code, stdout, stderr)
 		}
@@ -582,7 +582,7 @@ func TestAskFailureEnvelopeCarriesResolvedRunner(t *testing.T) {
 	t.Setenv("HOME", dir)
 	defs := `{"sec":{"prompt":"Be strict.","agent":"codex"}}`
 	args := []string{"--agents", defs, "--agent", "sec", "--format", "json", "--background", "--env", "A=b", "x"}
-	code, stdout, stderr := captureOutput(t, func() int { return CmdAsk(args) })
+	code, stdout, stderr := captureOutput(t, func() int { return Cmd(args) })
 	var env struct{ Agent string }
 	if err := json.Unmarshal([]byte(stdout), &env); err != nil || code != 2 {
 		t.Fatalf("exit %d, stdout %q, err %v, stderr %q; want a usage envelope", code, stdout, err, stderr)
@@ -592,10 +592,10 @@ func TestAskFailureEnvelopeCarriesResolvedRunner(t *testing.T) {
 	}
 }
 
-// captureAskStdout runs CmdAsk and returns its exit code and stdout.
+// captureAskStdout runs Cmd and returns its exit code and stdout.
 func captureAskStdout(t *testing.T, args ...string) (int, string) {
 	t.Helper()
-	code, stdout, _ := captureOutput(t, func() int { return CmdAsk(args) })
+	code, stdout, _ := captureOutput(t, func() int { return Cmd(args) })
 	return code, stdout
 }
 
@@ -807,7 +807,7 @@ func TestCmdAskPackFlagExitsTwo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
 	t.Setenv("PATH", dir)
-	if code, _, _ := captureOutput(t, func() int { return CmdAsk([]string{"--index", "x"}) }); code != 2 {
+	if code, _, _ := captureOutput(t, func() int { return Cmd([]string{"--index", "x"}) }); code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
 }

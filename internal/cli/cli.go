@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/cli/agents"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -65,7 +65,6 @@ func commands() []command {
 		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: cmdGemini},
 		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return agentVerb("opencode", a) }},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
-		{name: "dispatch", group: groupAgents, hidden: true, summary: "run a task by role: explore, fleet, compare", run: agents.CmdDispatch},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run},
@@ -95,8 +94,7 @@ func hiddenCommands() []command {
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
-		{name: "ask", hidden: true, summary: "one-shot task on an agent; --format json = envelope", run: agents.CmdAsk},
-		{name: "agents", hidden: true, summary: "list agents; sync roster + instructions into agent homes", run: agents.CmdAgents},
+		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: CmdAgents},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: cmdPreflight},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview},
@@ -121,7 +119,7 @@ func agentVerb(name string, args []string) int {
 		return launchAgent(name, args[1:])
 	}
 	if args[0] == "ask" {
-		return agents.CmdAsk(append([]string{"--agent", name}, args[1:]...))
+		return ask.Cmd(append([]string{"--agent", name}, args[1:]...))
 	}
 	if agentSubverbs[args[0]] {
 		return agentSub(name, args)

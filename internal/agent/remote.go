@@ -43,7 +43,7 @@ func RemoteBin(flagValue string) string {
 	return cmp.Or(flagValue, os.Getenv(RemoteBinEnv), "claude-code")
 }
 
-// remoteEngine runs the named agent through `claude-code ask` on another host over ssh; the remote applies the caps.
+// remoteEngine runs the named agent through `claude-code agents ask` on another host over ssh; the remote applies the caps.
 type remoteEngine struct{ agent, host, bin, fallback string }
 
 // NewRemoteEngine wraps agentName for host; bin is the remote claude-code path (see RemoteBin), fallback the remote's policy.
@@ -103,7 +103,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	if err := validateRemoteScript(bin, agentName, req); err != nil {
 		return "", err
 	}
-	w := []string{remotePath, "exec", textutil.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
+	w := []string{remotePath, "exec", textutil.QuotePath(remoteHomePath(bin)), "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
 		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {
@@ -356,12 +356,12 @@ func (t touchWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// ListRemote runs `<bin> agents --format <format>` on host and copies its stdout to out; a failure carries ssh's stderr.
+// ListRemote runs `<bin> agents list --format <format>` on host and copies its stdout to out; a failure carries ssh's stderr.
 func ListRemote(host, bin, format string, out io.Writer) error {
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
 		return fmt.Errorf("agents: invalid remote binary %q", bin)
 	}
-	argv, err := remote.StreamArgs(host, "exec "+textutil.QuotePath(bin)+" agents --format "+textutil.ShellQuote(format))
+	argv, err := remote.StreamArgs(host, "exec "+textutil.QuotePath(bin)+" agents list --format "+textutil.ShellQuote(format))
 	if err != nil {
 		return fmt.Errorf("agents: %v", err)
 	}

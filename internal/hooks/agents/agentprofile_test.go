@@ -39,7 +39,7 @@ func TestProfileBriefReroutesToCoworkerIdempotently(t *testing.T) {
 			t.Errorf("%s: subagent_type = %v, want coworker", kind, got)
 		}
 		p, _ := res.UpdatedInput["prompt"].(string)
-		if !strings.HasPrefix(p, "Run: claude-code ask --agent codex --profile dbx") || !strings.HasSuffix(p, brief) {
+		if !strings.HasPrefix(p, "Run: claude-code agents ask --agent codex --profile dbx") || !strings.HasSuffix(p, brief) {
 			t.Errorf("%s: prompt = %q, want the Run: line then the brief", kind, p)
 		}
 		again := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "coworker", p))))
@@ -53,7 +53,7 @@ func TestProfileBriefDefaultsToClaudeAsk(t *testing.T) {
 	updated := map[string]any{"subagent_type": "general-purpose", "prompt": "Profile: dbx\ndo it"}
 	stubProfiles(t, []string{"dbx"}, true)
 	note, deny := applyProfile(updated, "prompt", "Profile: dbx\ndo it")
-	if deny != nil || !strings.Contains(note, "moved to coworker") || !strings.HasPrefix(updated["prompt"].(string), "Run: claude-code ask --agent claude --profile dbx") {
+	if deny != nil || !strings.Contains(note, "moved to coworker") || !strings.HasPrefix(updated["prompt"].(string), "Run: claude-code agents ask --agent claude --profile dbx") {
 		t.Fatalf("note=%q deny=%v updated=%v", note, deny, updated)
 	}
 }

@@ -6,7 +6,7 @@ rebuild the plan. `Agent: in-context` = the leaf does it itself.
 ## Every brief adds
 
 ```text
-Agent: <in-context | the agent this leaf requests via `claude-code ask --agent <x>`>
+Agent: <in-context | the agent this leaf requests via `claude-code agents ask --agent <x>`>
 Shared tree: never git stash/checkout/reset/restore; confirm each write with `git diff --stat -- <file>`. Terminal
 leaf: never dispatch subagents (an `Agent:` request is allowed) or commit.
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).

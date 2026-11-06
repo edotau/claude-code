@@ -1,7 +1,7 @@
 ---
 name: claude
 description: |
-  Full-lifecycle in-context coding agent (`subagent_type: claude`, headless `claude-code ask --agent claude`); does its own work, not the fan-out leaf (that is code-worker). Use it to explore, design, implement, simplify and self-review before handoff: "how should we build this" through "ready to verify", or "review my diff".
+  Full-lifecycle in-context coding agent (`subagent_type: claude`, headless `claude-code agents ask --agent claude`); does its own work, not the fan-out leaf (that is code-worker). Use it to explore, design, implement, simplify and self-review before handoff: "how should we build this" through "ready to verify", or "review my diff".
 
   <example>
   Context: Cross-module change with real design choices to make.
@@ -27,9 +27,9 @@ leaf: it never fans out.
 **In a session** — `@agent-claude <request>`, `Agent` with `subagent_type: claude`, or a dispatch brief. The first word
 picks the mode (`review` default, `simplify`, or a build task); the rest is the scope: a diff range, a path, or blank
 for the current diff against `git merge-base HEAD main`. With `--profile`/`--model`, run the work as
-`claude-code ask --agent claude --profile <p> --model <m> --tools "<task>"` and relay its envelope.
+`claude-code agents ask --agent claude --profile <p> --model <m> --tools "<task>"` and relay its envelope.
 
-**Headless** — `claude-code ask --agent claude` (the default `--agent`); read-only unless `--tools`:
+**Headless** — `claude-code agents ask --agent claude` (the default `--agent`); read-only unless `--tools`:
 
 | Need | Flags |
 | --- | --- |
@@ -91,7 +91,7 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, run once with the owner's approval (`rules/standards/quality.md`) |
 | New test coverage | `copilot` TEST mode, feature or bug fix only (`skills/subagent-workflows/SKILL.md` → Test agent) |
 | One well-scoped fan-out task | `code-worker` (leaf types: `skills/subagent-workflows/SKILL.md` → Leaf types) |
-| Wide codebase sweep | `gemini` (`claude-code ask --agent gemini --tools --dirs <d> "<task>"`, 1M-context pass) |
+| Wide codebase sweep | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d> "<task>"`, 1M-context pass) |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before writing a new utility/abstraction or adding a dependency, look

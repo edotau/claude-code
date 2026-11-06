@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/review"
-	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -42,7 +42,7 @@ func runSplitReview(name string, args []string, parts []review.Part, scope revie
 		if err != nil {
 			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
 		}
-		ans, rc := captureAnswer(func() int { return agents.CmdAsk(askArgs) })
+		ans, rc := captureAnswer(func() int { return ask.Cmd(askArgs) })
 		cleanup()
 		if rc != 0 {
 			fmt.Print(review.MergeReports(adversarial, parts[:len(answers)], answers))
@@ -59,7 +59,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	cwd, _ := os.Getwd()
 	req := agent.RunOptions{Agent: name, Prompt: fmt.Sprintf("%s review split into %d parts", name, n),
 		WorkDir: cwd, Background: true}
-	rec, err := agents.NewClient().Record(context.Background(), req, nil)
+	rec, err := ask.NewClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
@@ -76,7 +76,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
 		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)
 	}
-	agents.ReportBackgroundStart("text", rec)
+	ask.ReportBackgroundStart("text", rec)
 	return 0
 }
 
