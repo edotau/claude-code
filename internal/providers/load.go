@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -57,8 +58,17 @@ func RoutingOverlay() (Routing, error) {
 	return r, nil
 }
 
+// loadCache holds the merged registry per vault.db stamp; Load hands out clones so callers may mutate freely.
+var loadCache paths.StampCache[*Registry]
+
 // Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
+	reg, err := loadCache.Get(vault.Path(), loadRegistry)
+	return reg.Clone(), err
+}
+
+// loadRegistry is Load's uncached merge of the vault overlay over the embedded defaults.
+func loadRegistry() (*Registry, error) {
 	doc, err := OverlayDoc()
 	if errors.Is(err, fs.ErrNotExist) {
 		doc = nil
@@ -66,6 +76,95 @@ func Load() (*Registry, error) {
 		return nil, err
 	}
 	return Parse(defaultsJSON, doc)
+}
+
+// Clone returns a deep copy of r; nil clones to nil.
+func (r *Registry) Clone() *Registry {
+	if r == nil {
+		return nil
+	}
+	out := *r
+	out.Fallback = slices.Clone(r.Fallback)
+	out.OpencodePlugins = slices.Clone(r.OpencodePlugins)
+	out.order = slices.Clone(r.order)
+	out.AgentPlans = cloneMap(r.AgentPlans, slices.Clone[[]Plan])
+	out.Providers = cloneMap(r.Providers, (*Provider).clone)
+	out.Routing = r.Routing.clone()
+	return &out
+}
+
+// clone returns a deep copy of p; nil clones to nil.
+func (p *Provider) clone() *Provider {
+	if p == nil {
+		return nil
+	}
+	out := *p
+	out.Routes = maps.Clone(p.Routes)
+	out.Models = maps.Clone(p.Models)
+	out.Headers = maps.Clone(p.Headers)
+	out.Env = maps.Clone(p.Env)
+	return &out
+}
+
+// clone returns a deep copy of o: every map, slice and pointer it holds is fresh.
+func (o Routing) clone() Routing {
+	out := o
+	out.Weights = maps.Clone(o.Weights)
+	out.Cells = cloneMap(o.Cells, maps.Clone[map[string]RouteCell])
+	out.Subagents = clonePtr(o.Subagents)
+	out.ServedAware = clonePtr(o.ServedAware)
+	out.ClaudeAnywhere = clonePtr(o.ClaudeAnywhere)
+	out.Ladders = cloneMap(o.Ladders, cloneRungs)
+	out.Opencode = o.Opencode.clone()
+	return out
+}
+
+// cloneRungs copies a ladder's rungs, including each rung's model list.
+func cloneRungs(rungs []Rung) []Rung {
+	out := slices.Clone(rungs)
+	for i := range out {
+		out[i].Models = slices.Clone(out[i].Models)
+	}
+	return out
+}
+
+// clone returns a deep copy of o's pointer-to-slice knobs.
+func (o OpencodeRouting) clone() OpencodeRouting {
+	out := o
+	out.Ladder = clonePtrSlice(o.Ladder)
+	out.WorkRepoMarkers = clonePtrSlice(o.WorkRepoMarkers)
+	out.FreeTiers = clonePtrSlice(o.FreeTiers)
+	return out
+}
+
+// clonePtrSlice returns a pointer to a copy of *p; nil stays nil, an explicit empty stays explicit.
+func clonePtrSlice(p *[]string) *[]string {
+	if p == nil {
+		return nil
+	}
+	s := slices.Clone(*p)
+	return &s
+}
+
+// cloneMap returns a copy of m with each value replaced by f(value); nil stays nil.
+func cloneMap[K comparable, V any](m map[K]V, f func(V) V) map[K]V {
+	if m == nil {
+		return nil
+	}
+	out := make(map[K]V, len(m))
+	for k, v := range m {
+		out[k] = f(v)
+	}
+	return out
+}
+
+// clonePtr returns a pointer to a copy of *p; nil stays nil.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // Validate checks an overlay merged with the embedded defaults.

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -259,19 +260,29 @@ func DiscoveryPool() []string {
 	return slices.Clone(DatabricksDiscoveryPool)
 }
 
+// poolCache holds the vault's Discovery pool overlay per vault.db stamp.
+var poolCache paths.StampCache[[]string]
+
 func vaultDiscoveryPool() ([]string, bool) {
+	pool, err := poolCache.Get(vault.Path(), readPoolOverlay)
+	if err != nil || len(pool) == 0 {
+		return nil, false
+	}
+	return slices.Clone(pool), true
+}
+
+// readPoolOverlay decodes the vault's Discovery pool overlay; nil when unset or invalid, error when the vault read fails.
+func readPoolOverlay() ([]string, error) {
 	var out []string
-	var found bool
 	err := vault.View(func(t *vault.Tx) error {
 		raw, ok := t.PoolOverlay()
 		if !ok || raw == "" {
 			return nil
 		}
-		found = json.Unmarshal([]byte(raw), &out) == nil && len(out) > 0
+		if json.Unmarshal([]byte(raw), &out) != nil {
+			out = nil
+		}
 		return nil
 	})
-	if err != nil || !found {
-		return nil, false
-	}
-	return out, true
+	return out, err
 }

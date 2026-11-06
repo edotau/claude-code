@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -82,10 +83,25 @@ type State map[string]Entry
 // StatePath is quota.json under the harness state dir (CLAUDE_CONFIG_DIR-scoped, so tests point it at a temp dir).
 func StatePath() string { return filepath.Join(paths.StateDir(), "quota.json") }
 
+// stateCache holds quota.json's decoded state per file stamp; LoadState hands out clones.
+var stateCache paths.StampCache[State]
+
 // LoadState reads quota.json; missing, corrupt or newer-schema reads as empty, never an error a pick must handle.
 func LoadState() State {
-	s, _ := loadState()
-	return s
+	s, _ := stateCache.Get(StatePath(), loadState)
+	return s.clone()
+}
+
+// clone returns a deep copy of s: each entry's discovery maps are fresh.
+func (s State) clone() State {
+	out := make(State, len(s))
+	for k, e := range s {
+		e.Discovery = maps.Clone(e.Discovery)
+		e.DiscoverySkip = maps.Clone(e.DiscoverySkip)
+		e.Unserved = maps.Clone(e.Unserved)
+		out[k] = e
+	}
+	return out
 }
 
 // loadState is LoadState plus the read or decode error; only a missing file is empty with no error.
