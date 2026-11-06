@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -452,5 +453,18 @@ func TestFetchPageTextTruncatedBodyKeepsSnippet(t *testing.T) {
 	defer srv.Close()
 	if got := fetchPageText(context.Background(), srv.URL+"/p"); got != "" {
 		t.Errorf("truncated body gave %q, want empty", got)
+	}
+}
+
+// TestRobotsAllowedSeveralUserAgentsShareGroup: consecutive User-agent lines form one group, so the Disallow binds "*".
+func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
+	allowLoopbackFetch(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "User-agent: *\nUser-agent: Googlebot\nDisallow: /\n")
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL + "/page")
+	if robotsAllowed(context.Background(), u) {
+		t.Error("robotsAllowed = true, want false: Disallow / applies to the * group")
 	}
 }

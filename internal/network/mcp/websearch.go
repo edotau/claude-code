@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -382,7 +383,7 @@ func rejectInternal(_, address string, _ syscall.RawConn) error {
 }
 
 // robotsAllowed reports whether the origin's robots.txt permits u for "claude-code" or "*"; a missing or
-// unreadable robots.txt allows. Only Disallow prefixes are honored (no Allow/wildcard handling).
+// unreadable robots.txt allows. Parsing is the browser package's.
 func robotsAllowed(ctx context.Context, u *url.URL) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.Scheme+"://"+u.Host+"/robots.txt", nil)
 	if err != nil {
@@ -401,25 +402,7 @@ func robotsAllowed(ctx context.Context, u *url.URL) bool {
 	if err != nil {
 		return true
 	}
-	applies := false
-	for ln := range strings.SplitSeq(string(raw), "\n") {
-		ln, _, _ = strings.Cut(ln, "#")
-		k, v, ok := strings.Cut(ln, ":")
-		if !ok {
-			continue
-		}
-		k, v = strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)
-		switch k {
-		case "user-agent":
-			v = strings.ToLower(v)
-			applies = v == "*" || strings.HasPrefix(v, "claude-code")
-		case "disallow":
-			if applies && v != "" && strings.HasPrefix(u.RequestURI(), v) {
-				return false
-			}
-		}
-	}
-	return true
+	return !browser.RobotsBlocks(string(raw), u.RequestURI())
 }
 
 // fetchPageText GETs one result URL and reduces it to plain text; "" means "keep the snippet".
