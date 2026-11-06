@@ -86,19 +86,6 @@ other jobs read: run **blast-radius** and **breaking-change** detection (adding 
 renaming, retyping or tightening usually isn't). Commands, the safe-vs-breaking table and the two-phase migration
 rule: `references/pr-and-api-review.md`.
 
-### Security
-
-Read-only: propose fixes as findings, **never patch auth/crypto code directly**. Auth, input, database,
-file-system, external-API, crypto and payment code makes this lens mandatory (`rules/standards/security.md`). A
-security HIGH is **FIX REQUIRED**, never a warn; MEDIUM is INFO, LOW is NOTE.
-
-- **Code** — OWASP Top 10 audit of the full changed files, not just the hunks; mechanical scan of added lines first
-  (`references/security/owasp-checklist.md`: grep, checklist, response protocol, false positives).
-- **Config** — Claude Code settings/hooks/MCP/agents touched → `claude-code doctor --scan`, plus a read of the
-  defaults' `permissions` block and every new hook command for injection or an unsafe path.
-- **Dependencies** — manifests touched, or CVEs/licences asked for → live-feed scanners; one not installed reports
-  **UNKNOWN**, never "clean" (`references/security/dependency-audit.md`).
-
 ## Detectors
 
 `claude-code review <sub>` verbs: advisory, never a hard gate. Verb index, flags and enforcement levels (the opt-in
