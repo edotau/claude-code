@@ -48,7 +48,7 @@ func TestCommitAttachedMessageEndingInM(t *testing.T) {
 		{[]string{"--reu=HEAD"}, false},
 		{[]string{"--reedit-message", "HEAD"}, false},
 	} {
-		if got := gitCommitAllowed(c.args); got != c.want {
+		if got := gitCommitAllowed(c.args, "."); got != c.want {
 			t.Errorf("gitCommitAllowed(%q) = %v, want %v", c.args, got, c.want)
 		}
 	}

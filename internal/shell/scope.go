@@ -511,7 +511,7 @@ func scopedGit(w []string, workDir string) bool {
 	case "add":
 		return gitAddAllowed(w[2:], workDir)
 	case "commit":
-		return gitCommitAllowed(w[2:])
+		return gitCommitAllowed(w[2:], workDir)
 	}
 	return false
 }
@@ -543,7 +543,8 @@ func gitAddPathAllowed(p, workDir string) bool {
 	return true
 }
 
-func gitCommitAllowed(args []string) bool {
+// gitCommitAllowed admits flag-safe commits whose pathspecs pass gitAddPathAllowed (files inside workDir).
+func gitCommitAllowed(args []string, workDir string) bool {
 	skip := false
 	for _, a := range args {
 		ok := true
@@ -554,6 +555,8 @@ func gitCommitAllowed(args []string) bool {
 			ok, skip = commitLongFlag(a)
 		case strings.HasPrefix(a, "-") && len(a) > 1:
 			ok, skip = commitShortFlags(a)
+		default:
+			ok = gitAddPathAllowed(a, workDir)
 		}
 		if !ok {
 			return false
