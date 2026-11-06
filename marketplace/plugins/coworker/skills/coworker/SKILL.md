@@ -2,6 +2,7 @@
 description: "Default pool for external-agent work and model discovery: run tasks on copilot, opencode or Databricks (single, compare, relay); copilot/opencode can rotate through discovered models (deepseek, kimi, glm…)."
 argument-hint: "[agents=copilot|opencode|databricks,…] [model=m|discovery] [profile=p] [single|compare|relay|team] task|…"
 allowed-tools: Bash, Read, Grep, Glob, Agent
+disable-model-invocation: true
 ---
 
 Launcher only. The leaf's procedure and report live in `~/.claude/agents/coworker.md`; the dispatch shape and the

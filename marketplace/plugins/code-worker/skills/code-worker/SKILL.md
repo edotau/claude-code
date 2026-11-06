@@ -2,6 +2,7 @@
 description: "Workhorse fan-out: claude, codex and gemini code-worker leaves finish a series of tasks — parallel, sequential (review gate per task) or auto. Copilot, opencode, Databricks and model discovery: /coworker."
 argument-hint: "[agent=claude|codex|gemini] [profile=p] [parallel|sequential|auto] task|…"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
+disable-model-invocation: true
 ---
 
 Launcher only. The dispatch shape, gates, and report format live in
