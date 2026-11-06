@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-func TestByokHintPredicate(t *testing.T) {
-	old := byokPoolSize
-	byokPoolSize = func() int { return 6 }
-	t.Cleanup(func() { byokPoolSize = old })
+func TestDiscoveryHintPredicate(t *testing.T) {
+	old := discoveryPoolSize
+	discoveryPoolSize = func() int { return 6 }
+	t.Cleanup(func() { discoveryPoolSize = old })
 	cases := []struct {
 		name, st, task string
 		want           bool
@@ -21,7 +21,7 @@ func TestByokHintPredicate(t *testing.T) {
 		{"no agent line", "Explore", "look around", false},
 	}
 	for _, c := range cases {
-		got := byokHint(c.st, c.task)
+		got := discoveryHint(c.st, c.task)
 		if (got != "") != c.want {
 			t.Errorf("%s: hint = %q, want hint=%v", c.name, got, c.want)
 		}

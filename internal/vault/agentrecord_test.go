@@ -124,7 +124,7 @@ func TestAgentRecordsFoldsUnmigratedPinsOnRead(t *testing.T) {
 	}
 }
 
-// Given a schema-4 vault whose record stores "slots", the next Update rewrites it as "aliases" at schema 5.
+// Given a schema-4 vault whose record stores "slots", the next Update rewrites it as "aliases" at schema 6.
 func TestMigrationRenamesSlotsToAliases(t *testing.T) {
 	useZeroRootVault(t)
 	if err := Update(func(tx *Tx) error {
@@ -145,7 +145,71 @@ func TestMigrationRenamesSlotsToAliases(t *testing.T) {
 		schema, _ = tx.Get(Meta, "schema")
 		return nil
 	})
-	if raw != `{"claude":{"aliases":{"opus":"x"}}}` || schema != "5" {
-		t.Errorf("stored = %s schema %s, want aliases key at schema 5", raw, schema)
+	if raw != `{"claude":{"aliases":{"opus":"x"}}}` || schema != "6" {
+		t.Errorf("stored = %s schema %s, want aliases key at schema 6", raw, schema)
+	}
+}
+
+// Given a schema-5 vault with a "byok-models" overlay and a record pinned to model "byok", one Update moves the pool
+// to "discovery-models" and the pin to "discovery"; a second Update changes nothing.
+func TestMigrationRenamesByokToDiscovery(t *testing.T) {
+	useZeroRootVault(t)
+	if err := Update(func(tx *Tx) error {
+		if err := tx.Put(Overlay, "byok-models", `["m-a","m-b"]`); err != nil {
+			return err
+		}
+		if err := tx.Put(Overlay, AgentRecordsKey, `{"opencode":{"profile":"p","model":"byok"},"codex":{"model":"gpt-x"}}`); err != nil {
+			return err
+		}
+		return tx.SetSchema(5)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	read := func() (pool, old, recs, schema string) {
+		_ = View(func(tx *Tx) error {
+			pool, _ = tx.Get(Overlay, PoolKey)
+			old, _ = tx.Get(Overlay, "byok-models")
+			recs, _ = tx.Get(Overlay, AgentRecordsKey)
+			schema, _ = tx.Get(Meta, "schema")
+			return nil
+		})
+		return
+	}
+	migrate(t)
+	pool, old, recs, schema := read()
+	if pool != `["m-a","m-b"]` || old != "" || schema != "6" ||
+		recs != `{"codex":{"model":"gpt-x"},"opencode":{"profile":"p","model":"discovery"}}` {
+		t.Fatalf("after migration: pool=%s old=%q recs=%s schema=%s", pool, old, recs, schema)
+	}
+	migrate(t)
+	if p2, o2, r2, s2 := read(); p2 != pool || o2 != old || r2 != recs || s2 != schema {
+		t.Errorf("second run changed the vault: %s %q %s %s", p2, o2, r2, s2)
+	}
+}
+
+// Given a schema-5 vault, reads before any Update already see the "byok-models" pool and the "byok" pin as discovery.
+func TestPreMigrationReadsMapByokToDiscovery(t *testing.T) {
+	useZeroRootVault(t)
+	if err := Update(func(tx *Tx) error {
+		_ = tx.Put(Overlay, "byok-models", `["m-a"]`)
+		_ = tx.Put(Overlay, AgentRecordsKey, `{"opencode":{"model":"byok"}}`)
+		return tx.SetSchema(5)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Update just migrated; put the old layout back raw to model an unmigrated vault.
+	if err := Update(func(tx *Tx) error {
+		_ = tx.Put(Overlay, PoolKey, "")
+		_ = tx.Put(Overlay, "byok-models", `["m-a"]`)
+		_ = tx.Put(Overlay, AgentRecordsKey, `{"opencode":{"model":"byok"}}`)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var pool string
+	var recs map[string]AgentRecord
+	_ = View(func(tx *Tx) (err error) { pool, _ = tx.PoolOverlay(); recs, err = tx.AgentRecords(); return err })
+	if pool != `["m-a"]` || recs["opencode"].Model != "discovery" {
+		t.Fatalf("pool=%s model=%q, want the old data read as discovery", pool, recs["opencode"].Model)
 	}
 }

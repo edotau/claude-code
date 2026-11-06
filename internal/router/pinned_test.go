@@ -20,7 +20,7 @@ func poolProvider() *providers.Provider {
 func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	p, pool := poolProvider(), []string{"m-a", "m-b", "m-c"}
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "byok-models", `["m-a","m-b","m-c"]`) }); err != nil {
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, vault.PoolKey, `["m-a","m-b","m-c"]`) }); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -35,8 +35,8 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	if !slices.Equal(got, pool) {
 		t.Fatalf("3 picks = %v, want pool order %v (ties by pool order, then least recent)", got, pool)
 	}
-	if m := SkipBYOK("opencode", p, "m-a"); m != "m-a" {
-		t.Fatalf("SkipBYOK = %q, want m-a", m)
+	if m := SkipDiscovery("opencode", p, "m-a"); m != "m-a" {
+		t.Fatalf("SkipDiscovery = %q, want m-a", m)
 	}
 	if m, _ := pickPool("copilot", p, pool, now.Add(9*time.Second)); m != "m-a" {
 		t.Errorf("skip is per agent: copilot pick = %q, want m-a", m)
@@ -48,44 +48,44 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	if m, _ := pickPool("opencode", p, only, now.Add(time.Hour)); m != "" {
 		t.Errorf("live skip: pick = %q, want none", m)
 	}
-	if m, _ := pickPool("opencode", p, only, now.Add(byokSkipTTL+time.Hour)); m != "m-a" {
+	if m, _ := pickPool("opencode", p, only, now.Add(discoverySkipTTL+time.Hour)); m != "m-a" {
 		t.Errorf("after the 7-day TTL pick = %q, want m-a back in rotation", m)
 	}
 }
 
-func TestBYOKPoolOverlayOverridesSeedAndSeedIsCloned(t *testing.T) {
+func TestDiscoveryPoolOverlayOverridesSeedAndSeedIsCloned(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	got := BYOKPool()
-	if !slices.Equal(got, DatabricksBYOKPool) {
-		t.Fatalf("unset overlay: pool = %v, want the seed %v", got, DatabricksBYOKPool)
+	got := DiscoveryPool()
+	if !slices.Equal(got, DatabricksDiscoveryPool) {
+		t.Fatalf("unset overlay: pool = %v, want the seed %v", got, DatabricksDiscoveryPool)
 	}
 	got[0] = "mutated"
-	if DatabricksBYOKPool[0] == "mutated" {
-		t.Fatal("BYOKPool aliases the seed slice")
+	if DatabricksDiscoveryPool[0] == "mutated" {
+		t.Fatal("DiscoveryPool aliases the seed slice")
 	}
 	put := func(raw string) {
 		t.Helper()
-		if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, byokPoolKey, raw) }); err != nil {
+		if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, vault.PoolKey, raw) }); err != nil {
 			t.Fatal(err)
 		}
 	}
 	put(`["databricks-a","databricks-b"]`)
-	if got := BYOKPool(); !slices.Equal(got, []string{"databricks-a", "databricks-b"}) {
+	if got := DiscoveryPool(); !slices.Equal(got, []string{"databricks-a", "databricks-b"}) {
 		t.Errorf("overlay pool = %v", got)
 	}
 	for _, bad := range []string{`not json`, `[]`} {
 		put(bad)
-		if got := BYOKPool(); !slices.Equal(got, DatabricksBYOKPool) {
+		if got := DiscoveryPool(); !slices.Equal(got, DatabricksDiscoveryPool) {
 			t.Errorf("overlay %q: pool = %v, want the seed", bad, got)
 		}
 	}
 }
 
-func TestSkipBYOKReportsNothingWhenSkipNotPersisted(t *testing.T) {
+func TestSkipDiscoveryReportsNothingWhenSkipNotPersisted(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	vaulttest.UseKeyring(t)
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, byokPoolKey, `["m-a"]`) }); err != nil {
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, vault.PoolKey, `["m-a"]`) }); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(StatePath()), 0o755); err != nil {
@@ -101,7 +101,7 @@ func TestSkipBYOKReportsNothingWhenSkipNotPersisted(t *testing.T) {
 	if os.WriteFile(filepath.Join(filepath.Dir(StatePath()), "probe"), nil, 0o600) == nil {
 		t.Skip("state dir stays writable (running as root)")
 	}
-	if m := SkipBYOK("opencode", poolProvider(), "m-a"); m != "" {
-		t.Fatalf("SkipBYOK with an unwritable quota.json = %q, want empty", m)
+	if m := SkipDiscovery("opencode", poolProvider(), "m-a"); m != "" {
+		t.Fatalf("SkipDiscovery with an unwritable quota.json = %q, want empty", m)
 	}
 }

@@ -35,9 +35,9 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion is the on-disk layout (4 = agent pins folded into records, 5 = record "slots" renamed "aliases"); hkdfSchema is the oldest this build reads (2).
+// schemaVersion is the on-disk layout (4 = agent pins folded into records, 5 = record "slots" renamed "aliases", 6 = "byok" pool renamed "discovery"); hkdfSchema is the oldest this build reads (2).
 const (
-	schemaVersion = aliasRecordSchema
+	schemaVersion = discoveryRecordSchema
 	hkdfSchema    = 2
 )
 
@@ -216,6 +216,9 @@ func prepareTx(t *Tx) (from int, off []string, restamped bool, err error) {
 		}
 	}
 	if err := migrateSlotsToAliases(t); err != nil {
+		return 0, nil, false, err
+	}
+	if err := migrateByokToDiscovery(t); err != nil {
 		return 0, nil, false, err
 	}
 	if err := t.SetSchema(schemaVersion); err != nil {
