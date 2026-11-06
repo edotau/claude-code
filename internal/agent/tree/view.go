@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -268,15 +269,16 @@ func Follow(ctx context.Context, opts ViewOptions, emit func(Event)) error {
 	if err != nil {
 		return err
 	}
-	seen := len(events(loc.TranscriptPath, loc.Cwd, 0))
+	offset := followOffset(loc.TranscriptPath)
+	var journal followJournal
 	ticker := time.NewTicker(followPollInterval)
 	defer ticker.Stop()
 	drain := func() {
-		seen = drainEvents(loc, seen, emit)
+		offset = drainEvents(loc, offset, emit)
 	}
 	for {
 		drain()
-		if done, result := followDone(loc); done {
+		if done, result := followDone(loc, &journal); done {
 			drain() // events written between the read and the terminal check
 			if result != nil {
 				emit(*result)
@@ -291,29 +293,80 @@ func Follow(ctx context.Context, opts ViewOptions, emit func(Event)) error {
 	}
 }
 
-func drainEvents(loc agentLocation, seen int, emit func(Event)) int {
-	all := events(loc.TranscriptPath, loc.Cwd, 0)
-	if len(all) == 0 && seen > 0 {
-		return seen // an empty read after events is a failed open, not a rewrite: keep seen and retry
+// followOffset skips existing complete lines without parsing transcript history.
+func followOffset(path string) int64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
 	}
-	if len(all) < seen {
-		seen = 0 // the transcript was truncated or rewritten
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return 0
 	}
-	for _, e := range all[seen:] {
-		emit(e)
+	var buf [4096]byte
+	for end := info.Size(); end > 0; {
+		start := max(int64(0), end-int64(len(buf)))
+		n, err := f.ReadAt(buf[:end-start], start)
+		if err != nil {
+			return 0
+		}
+		if i := bytes.LastIndexByte(buf[:n], '\n'); i >= 0 {
+			return start + int64(i) + 1
+		}
+		end = start
 	}
-	return len(all)
+	return 0
+}
+
+func drainEvents(loc agentLocation, offset int64, emit func(Event)) int64 {
+	f, err := os.Open(loc.TranscriptPath)
+	if err != nil {
+		return offset
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return offset
+	}
+	if info.Size() < offset {
+		offset = 0 // the transcript was truncated or rewritten
+	}
+	if info.Size() == offset {
+		return offset // idle tick: nothing appended
+	}
+	home, _ := os.UserHomeDir()
+	reader := bufio.NewReader(io.NewSectionReader(f, offset, info.Size()-offset))
+	for {
+		raw, err := reader.ReadBytes('\n')
+		if err != nil {
+			return offset // retry a trailing partial line when its newline arrives
+		}
+		offset += int64(len(raw))
+		for _, e := range eventsFromLine(raw, home, loc.Cwd) {
+			emit(e)
+		}
+	}
+}
+
+type followJournal struct {
+	info  os.FileInfo
+	entry journalEntry
 }
 
 // followDone reports a terminal state: a journal result line (workflow agent) or a finished meta (plain subagent).
-func followDone(loc agentLocation) (bool, *Event) {
+func followDone(loc agentLocation, cache *followJournal) (bool, *Event) {
 	if loc.RunDir != "" {
-		id := subagentIDFromPath(loc.TranscriptPath)
-		j, ok := readJournal(loc.RunDir)[id]
-		if !ok || !j.Resulted {
+		info, err := os.Stat(filepath.Join(loc.RunDir, "journal.jsonl"))
+		if err == nil && (cache.info == nil || info.Size() != cache.info.Size() ||
+			!info.ModTime().Equal(cache.info.ModTime())) {
+			cache.entry = readJournal(loc.RunDir)[subagentIDFromPath(loc.TranscriptPath)]
+			cache.info = info
+		}
+		if !cache.entry.Resulted {
 			return false, nil
 		}
-		return true, &Event{At: time.Now(), Kind: "result", Size: j.ResultBytes}
+		return true, &Event{At: time.Now(), Kind: "result", Size: cache.entry.ResultBytes}
 	}
 	return readSubagentMeta(loc.TranscriptPath).Finished, nil
 }
