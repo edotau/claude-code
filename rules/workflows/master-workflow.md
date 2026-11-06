@@ -68,13 +68,13 @@ before asking for approval: in-context for MEDIUM, `claude-code codex ask` (or a
 
 ## Phase 5: Refine (opt-in, `--refine`)
 
-For sub-tasks going to fresh agents. Each brief: Objective, Context (paths + lines), Constraints, Steps, Acceptance
-Criteria, Do NOTs, Verification Command. Test: a fresh agent can act from the brief alone
-(`skills/subagent-workflows/SKILL.md` → Handoff contract).
+For sub-tasks going to fresh agents: one brief each, with the fields in `skills/subagent-workflows/SKILL.md` →
+Handoff contract. Test: a fresh agent can act from the brief alone.
 
 ## Phase 6: Dispatch (2+ parallel-safe sub-tasks)
 
-Shape, leaf types, test agent and concurrency: `skills/subagent-workflows/SKILL.md`.
+Shape, leaf types, test agent and concurrency: `skills/subagent-workflows/SKILL.md`; pattern → shape:
+`skills/subagent-workflows/references/patterns.md`.
 
 ## Phase 7: Merge
 

@@ -9,8 +9,8 @@ description: Run multi-agent work end to end, from picking the shape (fan-out on
 
 Leaves run through the Agent tool or `claude-code agents ask`; they are terminal and never fan out, so the manager
 (the main session) is the one orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how,
-this skill when and in what order: weak output means fix the skill, a wrong role the agent file, a wrong order this
-skill.
+this skill when and in what order, [patterns.md](references/patterns.md) which shape: weak output means fix the
+skill, a wrong role the agent file, a wrong order this skill. Writing an agent file: `rules/workflows/agents.md`.
 
 ## Leaf types
 
@@ -45,7 +45,7 @@ plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
 | Single leaf | One `Agent` call with a brief ([prompts.md](references/prompts.md)) |
 | Parallel fan-out | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract)) |
 | Same question, many angles | `claude-code agents dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
-| Sequential plan · tournament | [Sequential plan](#sequential-plan) · [Tournament](#tournament) |
+| Sequential plan · tournament | [patterns.md](references/patterns.md) (every shape, its pattern and what enforces it) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
 | Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) |
 | Fleet scan | `claude-code agents dispatch fleet "<task>"`; check `git diff --stat` after |
@@ -53,7 +53,8 @@ plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
 ### Phase 1: prepare
 
 Give each leaf named files it owns and never share one between parallel leaves, so no write is lost. Split or merge
-leaves by expertise, independence, context load and reuse; prefer a few focused ones.
+leaves by expertise, independence, context load and reuse; prefer a few focused ones: each extra leaf costs a brief
+and a fan-in read.
 
 #### Handoff contract
 
@@ -122,26 +123,10 @@ a long `ask` runs `--background`, then waits with `tail -f <id>` as a background
 ([agent-verbs.md](references/agent-verbs.md) step 3). Re-dispatch only when the owner is gone; after a restart read
 `git status`; never relaunch a leaf the user stopped. Reports go to `$(claude-code memory path)/reports/`.
 
-## Sequential plan
-
-Per task: implementer → spec review until `SPEC_COMPLIANT` → `Skill(simplify)` → quality review until `SHIP` → run its
-verification yourself ([prompts.md](references/prompts.md)). Stop and ask when an assumption breaks, scope grows, or a
-decision falls outside the plan.
-
 ## Shared tree
 
 Every brief says: never `git stash` / `checkout` / `reset` / `restore`; gate on a scoped target (a repo-wide red is
 a sibling's half-finished edit); check writes with `git diff --stat`; stage named files only.
-
-## Tournament
-
-For a measurable goal (latency, size, pass rate) or truly diverging approaches worth N× the cost, within the cap:
-
-- Baseline the eval; send one brief verbatim to N `code-worker`s (`isolation: "worktree"`, branch `compete/<slug>/<n>`,
-  one named constraint varied). Answers only: `dispatch compare --models a,b`.
-- Re-measure yourself, discard red, rank on the diff: Metric (eval vs baseline) · Judge (correctness → simplicity →
-  quality) · Hybrid (metric, then judge leaves within ~10%). `claude-code worktree merge` the winner, re-run the gates,
-  `git tag compete/<slug>/<n>` the losers. All red → merge nothing; none beats baseline (a tie is not a win) → keep it.
 
 ## Rules
 
@@ -177,4 +162,3 @@ For a measurable goal (latency, size, pass rate) or truly diverging approaches w
 - Paste every fact the leaf needs: the CLI starts cold and cannot see this session.
 - Specify realistic error handling: what to report on a missing credential, a red gate or a file it doesn't own.
 - Choose models in the `ask` call (`--model`), not a brief field; `Model:` is planned, not implemented.
-- Prefer a few focused leaves over many thin ones; each extra leaf costs a brief and a fan-in read.

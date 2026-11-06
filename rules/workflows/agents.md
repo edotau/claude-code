@@ -3,6 +3,7 @@ paths:
   - "agents/**"
   - "workflows/**"
   - "commands/**"
+  - "marketplace/plugins/*/agents/*.md"
 ---
 # Agent Authoring and Commands
 
@@ -30,6 +31,21 @@ paths:
   agent file. Skill shell logic lives in `skills/<name>/scripts/`; anything else in a Go verb or Makefile target.
 - Agents hold no memory scope; they PROPOSE memory in their report and the main session writes it.
 - `claude-code agents list` lists the CLI agents, not this roster.
+
+## Authoring: file, skill or brief
+
+- **Agent file** = who (a role reused across sessions); **skill** = how (a procedure any role follows, named in a
+  brief's `Method:`); **brief** = this task. A one-off role is a brief to `code-worker`, never a new file.
+- **Split** a role into its own file only when its expertise, tool grant or authority differs (read-only `Explore`
+  vs editing `code-worker`), or several shapes reuse it; **merge** when two files differ only in task wording. A role
+  that only picks a different agent is a plugin leaf (`code-worker:<agent>`, `coworker:<agent>`), not a new file.
+- **Model:** `inherit` for in-context roles that judge (`claude`, `Plan`), an alias (`sonnet`) for leaves; never a
+  dated id — `internal/router/table.json` maps aliases to models. **Tools:** list them; a read-only role gets none
+  that write.
+- **Prose instructs, hooks guarantee.** A new type that requests external agents must join the hook tables that gate
+  it, or nothing checks it ran: `ranOnGated` (`internal/hooks/agents/leaves.go`) for the ran-on stop gate,
+  `labelTypes`/`labelPools` (`internal/hooks/agents/agenteffort.go`) for labels and routing. Shapes and what enforces
+  each: `skills/subagent-workflows/references/patterns.md`.
 
 Dispatch, concurrency, escalation and the test agent: `skills/subagent-workflows/SKILL.md`.
 
