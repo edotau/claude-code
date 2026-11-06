@@ -97,7 +97,15 @@ func WorkspaceInit(o WorkspaceInitOpts) error {
 	actions := workspacePlan(root, with)
 	for _, a := range actions {
 		fmt.Fprintf(o.Out, "%-7s %s\n", a.verb, a.path)
-		if o.DryRun || a.apply == nil {
+		if a.apply == nil {
+			continue
+		}
+		if o.DryRun {
+			if a.verb == "error" {
+				if err := a.apply(); err != nil {
+					return fmt.Errorf("%s %s: %w", a.verb, a.path, err)
+				}
+			}
 			continue
 		}
 		if err := a.apply(); err != nil {

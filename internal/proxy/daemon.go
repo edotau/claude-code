@@ -134,16 +134,23 @@ func Health(ctx context.Context, port int) error {
 	return nil
 }
 
-// probeHealth GETs /healthz with a 1s timeout and returns the response with its body already closed.
-func probeHealth(ctx context.Context, port int) (*http.Response, error) {
+// healthReply is what a /healthz probe keeps: the status and headers, never an open body.
+type healthReply struct {
+	StatusCode int
+	Status     string
+	Header     http.Header
+}
+
+// probeHealth GETs /healthz with a 1s timeout and closes the body before returning.
+func probeHealth(ctx context.Context, port int) (healthReply, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	resp, err := healthGet(ctx, port)
 	if err != nil {
-		return nil, err
+		return healthReply{}, err
 	}
 	_ = resp.Body.Close()
-	return resp, nil
+	return healthReply{resp.StatusCode, resp.Status, resp.Header}, nil
 }
 
 // Ensure starts the router daemon if it is not already healthy and returns its base URL (http://127.0.0.1:<port>).

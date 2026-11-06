@@ -62,9 +62,11 @@ func startLive(s *askState, name, format string) int {
 		return failAsk(format, name, err)
 	}
 	if err := job.Spawn(&rec, nil); err != nil {
+		abandonLive(&rec, err)
 		return failAsk(format, name, err)
 	}
 	if err := live.WaitLiveReady(rec.ID, rec.PID); err != nil {
+		abandonLive(&rec, err)
 		return failAsk(format, name, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
 	}
 	if format == helptext.JSON {
@@ -78,6 +80,17 @@ func startLive(s *askState, name, format string) int {
 	}
 	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, live.IdleOf(req))
 	return 0
+}
+
+// abandonLive stops a holder that never became ready and marks its saved record failed.
+func abandonLive(rec *agent.Record, cause error) {
+	if rec.PID > 0 {
+		_ = job.Cancel(rec)
+	}
+	if rec.Status == "running" || rec.Status == "" {
+		rec.Status, rec.Error = "error", cause.Error()
+		_ = rec.Save()
+	}
 }
 
 func printLiveEnvelope(env agent.Envelope, format string) {

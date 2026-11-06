@@ -32,9 +32,9 @@ var windowsOnlyTopKeys = []string{"hooks", "statusLine"}
 // linuxPathMarkers flag a string value as WSL-only.
 var linuxPathMarkers = []string{"/home/", "/usr/", "$HOME", "~/.claude/bin"}
 
-// WindowsProfileDir is the WSL path of the Windows user profile (%USERPROFILE%), or "" when it can't
+// windowsProfileDir is the WSL path of the Windows user profile (%USERPROFILE%), or "" when it can't
 // be resolved (off WSL, cmd.exe unavailable, or the profile does not exist).
-func WindowsProfileDir() string {
+func windowsProfileDir() string {
 	if v := strings.TrimSpace(os.Getenv(windowsProfileEnv)); v != "" {
 		return v
 	}
@@ -58,10 +58,10 @@ func WindowsProfileDir() string {
 	return dir
 }
 
-// WindowsSettingsFile is the Windows Claude Code settings.json under the profile, or "" when the
+// windowsSettingsFile is the Windows Claude Code settings.json under the profile, or "" when the
 // profile can't be resolved.
-func WindowsSettingsFile() string {
-	dir := WindowsProfileDir()
+func windowsSettingsFile() string {
+	dir := windowsProfileDir()
 	if dir == "" {
 		return ""
 	}
@@ -74,7 +74,7 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if !proc.OnWSL() && os.Getenv(windowsProfileEnv) == "" {
 		return nil
 	}
-	file := WindowsSettingsFile()
+	file := windowsSettingsFile()
 	if file == "" {
 		fmt.Fprintf(w, "settings (windows) skip  %s not resolved (cmd.exe unavailable?)\n", "%USERPROFILE%")
 		return nil

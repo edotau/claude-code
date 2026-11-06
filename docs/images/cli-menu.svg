@@ -51,7 +51,7 @@
 <text x="173.2" y="483" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
 <text x="38.8" y="502" fill="#bb6989" font-weight="bold">history         </text>
-<text x="173.2" y="502" fill="#d7d4dc">shadow git history of config + memory</text>
+<text x="173.2" y="502" fill="#d7d4dc">shadow git history of the config files</text>
 <text x="22.0" y="521" fill="#d7d4dc">  </text>
 <text x="38.8" y="521" fill="#c26781" font-weight="bold">memory          </text>
 <text x="173.2" y="521" fill="#d7d4dc">session memory bank: recall, save, promote</text>

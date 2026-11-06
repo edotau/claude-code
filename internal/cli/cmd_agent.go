@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// agentSubverbs are the words AgentVerb routes to agentSub: the keys of agentSubPages.
+// agentSubverbs are the words agentVerb routes to agentSub: the keys of agentSubPages.
 var agentSubverbs = func() map[string]bool {
 	m := make(map[string]bool, len(agentSubPages))
 	for verb := range agentSubPages {

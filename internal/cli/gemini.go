@@ -22,12 +22,12 @@ import (
 )
 
 // cmdGemini is the gemini agent verb: bridge reaches the harness's own 1M-context sweep; everything
-// else (launch, ask, resume, status, result, cancel, setup, models, help) is AgentVerb's job.
+// else (launch, ask, resume, status, result, cancel, setup, models, help) is agentVerb's job.
 func cmdGemini(args []string) int {
 	if len(args) > 0 && args[0] == "bridge" {
 		return cmdGeminiBridge(args[1:])
 	}
-	return AgentVerb("gemini", args)
+	return agentVerb("gemini", args)
 }
 
 // geminiBridgePage is `gemini bridge -h`: the harness's own large-context sweep, not agy's launcher.
