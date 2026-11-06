@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-agent',
   description: 'One agent (claude, or external codex|gemini|opencode|copilot) as a workflow stage, optionally on a named profile: smoke ask, JSON envelope relay, sonnet fallback (off when a profile is named)',
   whenToUse:
-    'USE: one external-agent call (copilot, codex, gemini, opencode) as a stage of another script; the agent pool and model discovery live here. CALL: workflow("code-agent", {cwd, task}). OPTIONAL: agent (omit = router pick, copilot first), model (relay/fallback Claude model), vendorModel (ask --model: alias, wire id, kimi-k3, byok), profile (bills it; turns the sonnet fallback off), tools, readOnly (ask --read-only), smoke, fallback, timeoutMin (max 8), agents. agent "claude" runs one in-workflow Claude leaf at model haiku|sonnet|opus (no router, smoke or relay). RETURNS {ok, agent, model, answer, status, fallback?}. Details: skills/subagent-workflows/references/saved-workflows.md.',
+    'USE: one external-agent call (copilot, codex, gemini, opencode) as a stage of another script; the agent pool and model discovery live here. CALL: workflow("code-agent", {cwd, task}). OPTIONAL: agent (omit = router pick, copilot first), model (relay/fallback Claude model), vendorModel (ask --model: alias, wire id, kimi-k3, discovery), profile (bills it; turns the sonnet fallback off), tools, readOnly (ask --read-only), smoke, fallback, timeoutMin (max 8), agents. agent "claude" runs one in-workflow Claude leaf at model haiku|sonnet|opus (no router, smoke or relay). RETURNS {ok, agent, model, answer, status, fallback?}. Details: skills/subagent-workflows/references/saved-workflows.md.',
   phases: [{ title: 'Agent', detail: 'haiku leaf runs claude-code ask --format json and relays the envelope; sonnet fallback on failure' }],
 }
 
@@ -73,7 +73,7 @@ if (a0.profile !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a0.profile))) r
 if (a0.agents !== undefined && (typeof a0.agents !== 'string' || !a0.agents.trim() || a0.agents.length > 90 * 1024)) return { error: 'code-agent: args.agents must be a non-empty string under 90 KiB' }
 const MODELS = ['opus', 'sonnet', 'haiku']
 if (a0.model && !MODELS.includes(a0.model)) return { error: 'code-agent: args.model must be ' + MODELS.join('|') }
-if (a0.vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(a0.vendorModel))) return { error: 'code-agent: args.vendorModel must be a model id or alias (e.g. byok)' }
+if (a0.vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(a0.vendorModel))) return { error: 'code-agent: args.vendorModel must be a model id or alias (e.g. discovery)' }
 const ROUTE_PICK = {
   type: 'object',
   additionalProperties: false,

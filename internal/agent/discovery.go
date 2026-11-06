@@ -11,43 +11,43 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-func (rc routeCtx) byokCandidate(disp Dispatch, cand router.Candidate, alias string) Dispatch {
+func (rc routeCtx) discoveryCandidate(disp Dispatch, cand router.Candidate, alias string) Dispatch {
 	if cand.Agent != rc.want {
 		return disp
 	}
 	pin := rc.pins[rc.want]
-	if rc.callerModel != "" && rc.callerModel != router.BYOKModel {
+	if rc.callerModel != "" && rc.callerModel != router.DiscoveryModel {
 		return disp
 	}
-	if rc.callerModel == "" && pin.Model != router.BYOKModel {
+	if rc.callerModel == "" && pin.Model != router.DiscoveryModel {
 		return disp
 	}
-	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == router.BYOKModel
-	return byokDispatch(disp, alias, rc.reg, cand.Profile, picked)
+	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == router.DiscoveryModel
+	return discoveryDispatch(disp, alias, rc.reg, cand.Profile, picked)
 }
 
-// byokDispatch freezes a pool choice before an agent or agent resolver sees the request.
-func byokDispatch(disp Dispatch, alias string, reg *providers.Registry, profile string, picked bool) Dispatch {
+// discoveryDispatch freezes a pool choice before an agent or agent resolver sees the request.
+func discoveryDispatch(disp Dispatch, alias string, reg *providers.Registry, profile string, picked bool) Dispatch {
 	tb, err := router.Load()
 	if err != nil {
 		disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
-		disp.note = "byok routing table unavailable; using alias"
+		disp.note = "discovery routing table unavailable; using alias"
 		return disp
 	}
 	cell, _ := tb.Cell(disp.Agent.Name(), alias)
-	p, prefix := byokProvider(disp, reg, profile)
+	p, prefix := discoveryProvider(disp, reg, profile)
 	if p != nil && p.Preset == providers.PresetDatabricks {
-		disp.repick = byokRepick(disp.Agent.Name(), alias, cell, p, prefix)
+		disp.repick = discoveryRepick(disp.Agent.Name(), alias, cell, p, prefix)
 	}
 	if picked && router.IsPoolModel(p, disp.Model) {
 		return disp
 	}
-	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.BYOKModel)
+	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.DiscoveryModel)
 	disp.Model, disp.note, disp.keepCaller, disp.unroutedDispatch = prefix+model, note, false, false
 	return disp
 }
 
-func byokProvider(disp Dispatch, reg *providers.Registry, profile string) (*providers.Provider, string) {
+func discoveryProvider(disp Dispatch, reg *providers.Registry, profile string) (*providers.Provider, string) {
 	if h, ok := disp.Agent.(HubEngine); ok {
 		return h.HubProvider(), ""
 	}
@@ -61,18 +61,18 @@ func byokProvider(disp Dispatch, reg *providers.Registry, profile string) (*prov
 	return p, p.Name + ":"
 }
 
-// byokRepick skips the failed model for this agent, then returns the next pool pick ("" if unchanged).
-func byokRepick(agent, alias string, cell router.Cell, p *providers.Provider, prefix string) func(string) string {
+// discoveryRepick skips the failed model for this agent, then returns the next pool pick ("" if unchanged).
+func discoveryRepick(agent, alias string, cell router.Cell, p *providers.Provider, prefix string) func(string) string {
 	return func(failed string) string {
 		wire := strings.TrimPrefix(failed, prefix)
-		if router.SkipBYOK(agent, p, wire) == "" {
+		if router.SkipDiscovery(agent, p, wire) == "" {
 			return ""
 		}
-		next, _ := router.PinnedModel(agent, alias, cell, p, router.BYOKModel)
+		next, _ := router.PinnedModel(agent, alias, cell, p, router.DiscoveryModel)
 		if next == "" || next == wire {
 			return ""
 		}
-		fmt.Fprintf(os.Stderr, "byok: %s skipped for %s (model capability)\n", wire, agent)
+		fmt.Fprintf(os.Stderr, "discovery: %s skipped for %s (model capability)\n", wire, agent)
 		return prefix + next
 	}
 }
@@ -118,7 +118,7 @@ func servedRepick(p *providers.Provider, failed string) string {
 	return prefix + next
 }
 
-// retryModel is the next model after a model-capability (byok) or endpoint-gone (served) failure, else "".
+// retryModel is the next model after a model-capability (discovery) or endpoint-gone (served) failure, else "".
 func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 	if err == nil {
 		return ""
@@ -135,7 +135,7 @@ func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 	return ""
 }
 
-func (disp Dispatch) byokNote() {
+func (disp Dispatch) discoveryNote() {
 	if disp.note == "" {
 		return
 	}

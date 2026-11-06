@@ -10,18 +10,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-func TestByokRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
+func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "byok-models", `["m-a","m-b"]`) }); err != nil {
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "discovery-models", `["m-a","m-b"]`) }); err != nil {
 		t.Fatal(err)
 	}
 	p := &providers.Provider{Name: "dbx", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks,
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "X"}}
-	first, note := router.PinnedModel("opencode", router.Aliases[1], router.Cell{}, p, router.BYOKModel)
+	first, note := router.PinnedModel("opencode", router.Aliases[1], router.Cell{}, p, router.DiscoveryModel)
 	if first != "m-a" || note != "" {
 		t.Fatalf("first pick = %q (%q), want m-a", first, note)
 	}
-	disp := Dispatch{repick: byokRepick("opencode", router.Aliases[1], router.Cell{}, p, "dbx:")}
+	disp := Dispatch{repick: discoveryRepick("opencode", router.Aliases[1], router.Cell{}, p, "dbx:")}
 	capErr := errors.New("400: max_new_tokens exceeds the model limit")
 	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, errors.New("connection reset")); got != "" {
 		t.Errorf("non-capability error retried on %q", got)
@@ -33,18 +33,18 @@ func TestByokRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	if got := retryModel(disp, RunOptions{Model: "dbx:m-b"}, schemaErr); got != "" {
 		t.Errorf("tool-schema retry with the pool exhausted = %q, want none", got)
 	}
-	assertByokSkippedModels(t, p.Name)
+	assertDiscoverySkippedModels(t, p.Name)
 	if got := retryModel(Dispatch{}, RunOptions{Model: "x"}, capErr); got != "" {
-		t.Errorf("dispatch without a byok repick retried on %q", got)
+		t.Errorf("dispatch without a discovery repick retried on %q", got)
 	}
 }
 
-func assertByokSkippedModels(t *testing.T, provider string) {
+func assertDiscoverySkippedModels(t *testing.T, provider string) {
 	t.Helper()
-	if router.LoadState()[router.ProviderAccount(provider)].BYOKSkip["opencode|m-b"].IsZero() {
+	if router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|m-b"].IsZero() {
 		t.Error("tool-schema rejection did not mark m-b skipped for opencode")
 	}
-	at := router.LoadState()[router.ProviderAccount(provider)].BYOKSkip["opencode|m-a"]
+	at := router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|m-a"]
 	if time.Since(at) > time.Minute || at.IsZero() {
 		t.Errorf("m-a not marked skipped for opencode: %v", at)
 	}
@@ -99,14 +99,14 @@ func TestServedRepickNotOfferedWhereItWouldMislead(t *testing.T) {
 	}
 }
 
-// with both repicks set, a capability error still takes the byok pool path.
-func TestByokRetryModelKeepsCapabilityPathWithServedRepick(t *testing.T) {
+// with both repicks set, a capability error still takes the discovery pool path.
+func TestDiscoveryRetryModelKeepsCapabilityPathWithServedRepick(t *testing.T) {
 	disp := Dispatch{
 		repick:       func(string) string { return "dev:pool-next" },
 		servedRepick: func(string) string { return "dev:served-next" },
 	}
 	if got := retryModel(disp, RunOptions{Model: "dev:m"}, errors.New("400: max_new_tokens too large")); got != "dev:pool-next" {
-		t.Errorf("capability error = %q, want the byok pick", got)
+		t.Errorf("capability error = %q, want the discovery pick", got)
 	}
 }
 

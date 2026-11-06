@@ -21,7 +21,7 @@ type Dispatch struct {
 	Model, Effort                string
 	Account, Billing             string
 	note                         string
-	repick                       func(failed string) string // byok: skip the failed model, return the next pool model or ""
+	repick                       func(failed string) string // discovery: skip the failed model, return the next pool model or ""
 	servedRepick                 func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
 	keepCaller, unroutedDispatch bool                       // keepCaller: the wanted dispatch keeps the caller's own --model
 	otherRoute                   bool                       // not the wanted agent's own login or pinned profile
@@ -49,7 +49,7 @@ var (
 // modelRow resolves a --model (or alias) value to the route-table row it names: the alias the pick runs at and the
 // canonical Claude id of the row. exact is the canonical id of a non-Claude model, which only agents serving it may run.
 func modelRow(model string) (alias, row, exact string) {
-	if model == router.BYOKModel {
+	if model == router.DiscoveryModel {
 		return "", "", ""
 	}
 	canonical, _, ok := models.Resolve(model)
@@ -151,7 +151,7 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
-		disp = rc.byokCandidate(disp, cand, alias)
+		disp = rc.discoveryCandidate(disp, cand, alias)
 		disp.servedRepick = rc.servedRepickFor(cand)
 		disp.otherRoute = rc.otherRoute(cand)
 		if !slices.ContainsFunc(c.Dispatches, disp.same) { // ladder rung models can collapse onto one cell
@@ -204,7 +204,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 // pinnedCaller reports the wanted agent on its pinned profile running the caller's own non-row model.
 func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
-	return pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.BYOKModel &&
+	return pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.DiscoveryModel &&
 		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != ""
 }
 
@@ -283,7 +283,7 @@ func (rc routeCtx) claudeTierCell(cell *router.Cell) {
 // buildDispatch turns cand's cell into a dispatch; skip is non-empty when the dispatch cannot run, err when its agent is unknown.
 func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp Dispatch, skip string, err error) {
 	disp = Dispatch{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
-	disp.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.BYOKModel
+	disp.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.DiscoveryModel
 	if disp.keepCaller && rc.exact != "" {
 		disp.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}
@@ -500,9 +500,9 @@ func ExplicitChain(r Engine, req RunOptions) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
-	if req.Model == router.BYOKModel {
+	if req.Model == router.DiscoveryModel {
 		reg, _ := providers.Load()
-		c.Dispatches[0] = byokDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
+		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
 	}
 	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return c
@@ -592,7 +592,7 @@ func hubDispatchFor(reg *providers.Registry, cell string) (Engine, string, error
 // dispatchRequest is req for dispatch: the wanted dispatch keeps an explicit caller model; every other dispatch drops the original
 // provider and session (they belong to the dispatch that minted them) and runs its cell, the caller's --effort winning.
 func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
-	disp.byokNote()
+	disp.discoveryNote()
 	out := req
 	if disp.unroutedDispatch {
 		return out
@@ -750,7 +750,7 @@ func PreviewRoute(model, task, want, fallback string, refresh func(context.Conte
 
 func previewHint(tb *router.RouteTable, model, task string) (string, error) {
 	id, _, ok := models.Resolve(model)
-	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.AliasOf(model) == "" {
+	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.DiscoveryModel && !exact && tb.AliasOf(model) == "" {
 		return "", fmt.Errorf("--model %q names no alias or version the table routes", model)
 	}
 	hint := tb.AliasOf(model)
