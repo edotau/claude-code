@@ -299,6 +299,26 @@ func (r *Registry) ProfilesOf(provider string) []string {
 	return append(out, rest...)
 }
 
+// LoginProfile is the first profile under provider whose Auth.Login is login.
+func (r *Registry) LoginProfile(provider, login string) (*Provider, bool) {
+	for _, n := range r.ProfilesOf(provider) {
+		if p := r.Providers[n]; p.Auth.Login == login {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
+// KeyProfile is the first profile under provider that bills on a harness-held key.
+func (r *Registry) KeyProfile(provider string) (*Provider, bool) {
+	for _, n := range r.ProfilesOf(provider) {
+		if p := r.Providers[n]; p.APIKeyAuth() {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
 // Names lists profile names, sorted.
 func (r *Registry) Names() []string {
 	return slices.Sorted(maps.Keys(r.Providers))

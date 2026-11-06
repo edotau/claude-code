@@ -17,7 +17,7 @@ func describeOpenCodeRoute(reg *providers.Registry) agent.RouteInfo {
 			Reason: "opencode's own opencode login (Go plan; OPENCODE_API_KEY from the vault when no stored login)", OK: true}
 	}
 	if OpencodeCopilotLoginPresent() {
-		if p, ok := agent.LoginProvider(reg, "github", "copilot"); ok {
+		if p, ok := reg.LoginProfile("github", "copilot"); ok {
 			if main, small, mok := OpencodeCopilotModelIDs(reg); mok {
 				return agent.RouteInfo{Agent: "opencode", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: main, SmallModel: small,
 					Reason: "opencode's own GitHub Copilot login (opencode auth login)", OK: true}

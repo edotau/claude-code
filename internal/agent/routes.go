@@ -114,23 +114,3 @@ func DatabricksUsable(p *providers.Provider) bool {
 
 // ErrOwnLogin means the agent should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("agent runs on its own login")
-
-// KeyProvider is the first profile under provider that bills on a harness-held key.
-func KeyProvider(reg *providers.Registry, provider string) (*providers.Provider, bool) {
-	for _, n := range reg.ProfilesOf(provider) {
-		if p := reg.Providers[n]; p.APIKeyAuth() {
-			return p, true
-		}
-	}
-	return nil, false
-}
-
-// LoginProvider is the first profile under provider whose login serves agent.
-func LoginProvider(reg *providers.Registry, provider, name string) (*providers.Provider, bool) {
-	for _, n := range reg.ProfilesOf(provider) {
-		if p := reg.Providers[n]; p.Auth.Login == name {
-			return p, true
-		}
-	}
-	return nil, false
-}

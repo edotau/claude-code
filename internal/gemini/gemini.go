@@ -76,7 +76,7 @@ func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headle
 }
 
 func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	if p, ok := agent.LoginProvider(reg, "google", e.Name()); ok && GeminiLoginPresent() {
+	if p, ok := reg.LoginProfile("google", e.Name()); ok && GeminiLoginPresent() {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
 		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return t, "gemini (Google login via agy)", true
