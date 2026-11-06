@@ -75,15 +75,27 @@ type slowRunner struct {
 	name  string
 	sleep time.Duration
 	boom  bool
+	wait  <-chan struct{} // when set, Run blocks until it closes (or ctx ends)
+	done  chan struct{}   // when set, Run closes it on entry
 }
 
 func (s slowRunner) Name() string     { return s.name }
 func (s slowRunner) Caps() agent.Caps { return agent.Caps{} }
 
 func (s slowRunner) Available() error { return nil }
-func (s slowRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
+func (s slowRunner) Run(ctx context.Context, _ agent.RunOptions, _ agent.Sink) (agent.Result, error) {
 	if s.boom {
 		panic("boom")
+	}
+	if s.done != nil {
+		close(s.done)
+	}
+	if s.wait != nil {
+		select {
+		case <-s.wait:
+		case <-ctx.Done():
+			return agent.Result{}, ctx.Err()
+		}
 	}
 	time.Sleep(s.sleep)
 	return agent.Result{Answer: "a"}, nil
@@ -121,22 +133,22 @@ func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	}
 }
 
-// Tasks parked on a full account hold no pool slot: a task on an idle account finishes while they still wait.
+// Tasks parked on a full account hold no pool slot: account-A tasks block until task b (idle account B) runs.
 func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	bRan := make(chan struct{})
 	var tasks []batch.Task
 	n := agent.DefaultPerKey + 2
 	for i := range n {
 		name := fmt.Sprintf("a%d", i)
-		tasks = append(tasks, acctTask(t, name, "A·acct", slowRunner{name: name, sleep: 150 * time.Millisecond}))
+		tasks = append(tasks, acctTask(t, name, "A·acct", slowRunner{name: name, wait: bRan}))
 	}
-	tasks = append(tasks, acctTask(t, "b", "B·acct", slowRunner{name: "b"}))
+	tasks = append(tasks, acctTask(t, "b", "B·acct", slowRunner{name: "b", done: bRan}))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	var out strings.Builder
-	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: n, Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
-	}
-	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"b"`) {
-		t.Errorf("first envelope = %s, want task b: it queued behind parked account-A tasks", first)
+	if !batch.RunTasks(ctx, tasks, batch.PoolOptions{Jobs: n, Out: &out}) {
+		t.Fatalf("batch failed: task b never got a pool slot while account-A tasks were parked\n%s", out.String())
 	}
 }
 
