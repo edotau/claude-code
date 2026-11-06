@@ -80,8 +80,9 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	if dryRun {
 		verb = "would reap"
 	}
-	records, code := reapRecords(dryRun, verb, out, errw)
-	socks := reapSockets(dryRun, verb, out)
+	snapshot := agent.RecentRecords(scanAllRecords)
+	records, code := reapRecords(snapshot, dryRun, verb, out, errw)
+	socks := reapSockets(snapshot, dryRun, verb, out)
 	markers, err := reapMarkers(dryRun, verb, out)
 	if err != nil {
 		fmt.Fprintln(errw, "agents reap:", err)
@@ -95,9 +96,9 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	return code
 }
 
-func reapRecords(dryRun bool, verb string, out, errw io.Writer) (int, int) {
+func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	code, records := 0, 0
-	for _, rec := range agent.RecentRecords(scanAllRecords) {
+	for _, rec := range snapshot {
 		if rec.Status != "running" || rec.Alive() {
 			continue
 		}
@@ -119,12 +120,16 @@ func reapRecords(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 }
 
 // reapSockets removes live-session sockets whose holder is gone (no record, or not alive); a live holder keeps its own.
-func reapSockets(dryRun bool, verb string, out io.Writer) int {
+func reapSockets(snapshot []agent.Record, dryRun bool, verb string, out io.Writer) int {
+	records := make(map[string]agent.Record, len(snapshot))
+	for _, rec := range snapshot {
+		records[rec.ID] = rec
+	}
 	socks, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*"+agent.LiveSockSuffix))
 	n := 0
 	for _, sock := range socks {
 		id := strings.TrimSuffix(filepath.Base(sock), agent.LiveSockSuffix)
-		if rec, err := agent.LoadRecord(id); err == nil && rec.Alive() {
+		if rec, ok := records[id]; ok && rec.Alive() {
 			continue
 		}
 		if !dryRun && os.Remove(sock) != nil {
