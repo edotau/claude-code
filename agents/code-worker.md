@@ -38,15 +38,15 @@ You **cannot spawn subagents** (no Agent tool, no `Workflow` tool) and may reque
 `Agent:` line. So do the **entire** task in-context unless the brief names an agent: read what you need, make
 the change, run the verification, report back. If the task is too big to do in-context, say so in your report
 rather than attempting a dispatch you can't make.
-The exceptions are CLI calls, not subagents: a request to another agent through `claude-code ask` (below), and a saved
-Workflow your brief names (`Workflow:`), run headless per
+The exceptions are CLI calls, not subagents: a request to another agent through `claude-code agents ask` (below), and a
+saved Workflow your brief names (`Workflow:`), run headless per
 `skills/subagent-workflows/references/saved-workflows.md` → Run from a leaf.
 Handed a whole lane (a lane plan, not one task): follow `skills/subagent-workflows/references/lane-orchestrator.md`.
 
 ## Hands off to
 
 Nothing — you cannot spawn subagents. The one exception is requesting the agent its brief names (`Agent:`)
-through `claude-code ask`, per Agent below; that is a subprocess call.
+through `claude-code agents ask`, per Agent below; that is a subprocess call.
 
 ## Procedure
 
@@ -74,13 +74,13 @@ The handoff names an `Agent:` (`claude`, `copilot`, `codex`, `gemini` or `openco
 Databricks profile, as in `coworker.md`); the manager spreads leaves evenly across them per
 `skills/subagent-workflows/references/cost-routing.md`. Omitted, `in-context` or
 your own type means do the task in-context; any named agent, `claude` included, is a request and binding:
-always run the agent your brief names through `claude-code ask` first —
+always run the agent your brief names through `claude-code agents ask` first —
 size and "mechanical" are the manager's call, never yours. Gemini dispatches are for
 read-heavy sweeps and research, and their brief must say "open the files and cite file:line" (a gemini dispatch
 once answered from memory). Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`. E.g.:
 
 ```bash
-claude-code ask --agent <agent> --tools --workdir <repo> \
+claude-code agents ask --agent <agent> --tools --workdir <repo> \
   [--profile <p>] --fallback none --format json "<the handoff, verbatim, plus: never git stash/checkout/reset/restore>"
 ```
 

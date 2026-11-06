@@ -1,4 +1,4 @@
-package agents
+package dispatch
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
@@ -19,7 +20,7 @@ import (
 
 // dispatchPage is `dispatch -h`.
 var dispatchPage = helptext.Page{
-	Usage: "claude-code dispatch <role> [flags] <task>",
+	Usage: "claude-code agents dispatch <role> [flags] <task>",
 	About: "Run a task by role: explore (gemini, one leg per --part), fleet (copilot fleet mode) " +
 		"or compare (opencode, one leg per model). Legs run concurrently; the report lists each leg's answer.",
 	Hint: "Roles come from the vault overlay dispatch-roles, else the built-in table.",
@@ -39,7 +40,7 @@ func (p *partFlag) Set(s string) error {
 	return nil
 }
 
-func CmdDispatch(args []string) int {
+func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("dispatch", dispatchPage)
 	var parts partFlag
 	fs.Var(&parts, "part", "explore: one sub-question per leg (repeatable, max 12)")
@@ -81,7 +82,7 @@ func CmdDispatch(args []string) int {
 
 // dispatchRun builds the legs (splitting explore when no --part) and runs or detaches them.
 func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int, format string, background bool) int {
-	client := NewClient()
+	client := ask.NewClient()
 	if role.Name == "explore" && len(q.Parts) == 0 && !background {
 		q.Parts = explore.Split(ctx, client, q.Task)
 	}
@@ -139,7 +140,7 @@ func dispatchDetach(ctx context.Context, client *agent.Client, legs []roles.Leg,
 			continue
 		}
 		fmt.Printf("%s\t", leg.Label)
-		ReportBackgroundStart(helptext.Text, prepared.Record)
+		ask.ReportBackgroundStart(helptext.Text, prepared.Record)
 	}
 	return code
 }

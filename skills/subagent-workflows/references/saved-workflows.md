@@ -36,7 +36,8 @@ decision; agents work in the shared tree.
 A leaf has no `Workflow` tool, so it runs one through a headless Claude session, only when its brief names it:
 
 ```bash
-claude-code ask --agent claude --tools --timeout 20m "Run Workflow({name: \"<name>\", args: {…}}) and print the result"
+claude-code agents ask --agent claude --tools --timeout 20m \
+  "Run Workflow({name: \"<name>\", args: {…}}) and print the result"
 ```
 
 `--background` past ~3 minutes; from a scratch cwd pass the script inline (`Workflow({script: <contents>})`). Put the

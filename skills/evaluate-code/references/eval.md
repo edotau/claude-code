@@ -55,9 +55,9 @@ Known confound (2026-10-24), procedural: the Workflow tool prepends the triggeri
 agent prompt (`[Workflow harness — user request] … this request wins`), so executors and judges see whatever the
 manager typed that turn — in the round-1 run 10/16 judges docked report_quality for executors mentioning it. Trigger
 the eval from a turn whose only text is the eval request, or headless from a scratch cwd:
-`claude-code ask --agent claude --tools --timeout 20m "Run Workflow({scriptPath: …, args: {…}}) and print the result
-JSON verbatim."` — the relayed request is then the eval itself. Run it from a cwd OUTSIDE this repo: with cwd under
-`~/.claude` the executors load the harness's CLAUDE.md and rules, so the "control" cell is no control at all.
+`claude-code agents ask --agent claude --tools --timeout 20m "Run Workflow({scriptPath: …, args: {…}}) and print
+the result JSON verbatim."` — the relayed request is then the eval itself. Run it from a cwd OUTSIDE this repo: with
+cwd under `~/.claude` the executors load the harness's CLAUDE.md and rules, so the "control" cell is no control at all.
 
 Measured 2026-10-24 (Step 0 gained "a question is for a decision, never for a reversible edit"; Haiku, n=2, headless,
 scratch cwd): control → method correct_action s2 0,0 → 1,1; s9 1,1 → 1,2; s13 0,0 → null,2 (one judge returned no

@@ -7,11 +7,11 @@ cheaper or wider; integration and final checks stay Claude's.
 
 | Role | Agent | Call |
 | --- | --- | --- |
-| explore — code scan + web/deep research | `gemini` | `claude-code dispatch explore [--part q]… "<task>"` (≤12 parallel legs, one cited report) |
-| wide edits, scans, audits | `copilot` fleet | `claude-code dispatch fleet "<task>"` or `ask --agent copilot --fleet`; check `git diff --stat` after |
-| compare or find a model | `opencode` | `claude-code dispatch compare --models a,b "<task>"`; pool: `opencode catalog list`; `--model discovery` = router picks a rare Databricks model |
+| explore — code scan + web/deep research | `gemini` | `claude-code agents dispatch explore [--part q]… "<task>"` (≤12 parallel legs, one cited report) |
+| wide edits, scans, audits | `copilot` fleet | `claude-code agents dispatch fleet "<task>"` or `ask --agent copilot --fleet`; check `git diff --stat` after |
+| compare or find a model | `opencode` | `claude-code agents dispatch compare --models a,b "<task>"`; pool: `opencode catalog list`; `--model discovery` = router picks a rare Databricks model |
 | diff review | `codex` · `gemini` | `claude-code codex review --adversarial [--base <b>]` · `claude-code gemini review --model gemini-4-argon-high` |
-| standard / mechanical edits | router pick | `claude-code ask --agent <a> --tools --fallback none --format json "<brief>"` |
+| standard / mechanical edits | router pick | `claude-code agents ask --agent <a> --tools --fallback none --format json "<brief>"` |
 | hard reasoning, integration | Claude | stays in session |
 
 Gemini needs `--tools` for repo or web work (else agy answers from memory); `dispatch explore` sets it. Copilot off
@@ -19,12 +19,12 @@ Databricks uses `--model gpt-6.1-sol`; `--model discovery` needs a Databricks `P
 
 ## Run the dispatch
 
-Smoke each agent once: `claude-code ask --agent <a> "Reply READY only."` (`agents` ✓ = binary + credential). Name
+Smoke each agent once: `claude-code agents ask --agent <a> "Reply READY only."` (`agents` ✓ = binary + credential). Name
 it in the brief (`Agent: <name>`), or `Agent: claude` when the brief costs more than the work, the step needs this
 session's context, or the smoke failed. Model alias (`opus`/`sonnet`/`haiku`): `internal/router/table.json` maps agent ×
 alias → model, effort, account and price. The CLI starts cold: paste every fact plus the shared-tree line; opencode has
-ignored `--workdir` and written the live tree, so check `git diff --stat`. In a batch (`ask --batch`, `dispatch`,
-workflows) each account runs up to its cap (`inflight.Base`; a profile's `concurrency` overrides), the machine up to
+ignored `--workdir` and written the live tree, so check `git diff --stat`. In a batch
+(`agents ask --batch`, `agents dispatch`, workflows) each account runs up to its cap (`inflight.Base`; a profile's `concurrency` overrides), the machine up to
 min(cap × accounts, 4 × CPUs); outside one nothing caps. Back off on `429`s.
 
 ## Ask flags and lifecycle
@@ -53,4 +53,4 @@ NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>`
 ## Verify and compare
 
 Treat every answer as a claim: check `git diff --stat`, run the verification yourself. A leaf told to use an agent
-that did the work itself skipped the dispatch. Tally per agent: `ask --log`.
+that did the work itself skipped the dispatch. Tally per agent: `agents ask --log`.

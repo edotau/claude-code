@@ -1,6 +1,7 @@
-package cli
+package opencode
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -38,7 +38,7 @@ func fakeDbxProfile(t *testing.T, name, host string) {
 
 func ocMenu(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
-	return captureOutput(t, func() int { return agentVerb("opencode", append([]string{"catalog"}, args...)) })
+	return captureOutput(t, func() int { return RunMenu(args) })
 }
 
 func menuIDs() []string {
@@ -281,7 +281,7 @@ func TestOpencodeMenuListDefaultSource(t *testing.T) {
 
 func TestOpencodeMenuHelpWithin80Cols(t *testing.T) {
 	ocCheckEnv(t)
-	for _, verb := range opencodeMenuVerbs {
+	for _, verb := range menuVerbs {
 		_, stdout, stderr := ocMenu(t, verb, "-h")
 		out := stdout + stderr
 		if !strings.Contains(out, "usage: claude-code opencode catalog "+verb) {
@@ -351,7 +351,7 @@ func assertProbeJSONShape(t *testing.T, stdout string) {
 
 func assertProbeCache(t *testing.T, dir string) {
 	t.Helper()
-	cache := opencode.CheckCachePath()
+	cache := CheckCachePath()
 	if !strings.HasPrefix(cache, dir) {
 		t.Fatalf("cache %s escaped temp dir %s", cache, dir)
 	}
@@ -363,10 +363,10 @@ func assertProbeCache(t *testing.T, dir string) {
 	if strings.Contains(string(raw), ocCheckToken) {
 		t.Error("token in cache")
 	}
-	if m, ok := opencode.LoadCheckCache("ocfake"); !ok || len(m) != 5 {
+	if m, ok := LoadCheckCache("ocfake"); !ok || len(m) != 5 {
 		t.Errorf("cache load = %v %v", m, ok)
 	}
-	if _, ok := opencode.LoadCheckCache("other"); ok {
+	if _, ok := LoadCheckCache("other"); ok {
 		t.Error("cache must be scoped to its provider")
 	}
 }
@@ -524,11 +524,43 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 		}
 	}
 	// a cache for another provider must not show
-	if err := opencode.SaveCheckCache(opencode.CheckCache{Provider: "other",
+	if err := SaveCheckCache(CheckCache{Provider: "other",
 		Results: []serving.CheckResult{{ID: "glm-5-2", Status: "ok", Tools: "yes"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if c := liveCheckColumns(t)["glm-5-2"]; c != "-" {
 		t.Errorf("foreign cache shown: %q", c)
 	}
+}
+
+// captureOutput redirects os.Stdout/os.Stderr around fn and returns fn's exit code plus both streams.
+func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
+	t.Helper()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	ro, wo, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	re, we, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bo, be bytes.Buffer
+	var drained sync.WaitGroup
+	drained.Go(func() { io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
+	drained.Go(func() { io.Copy(&be, re) })
+	os.Stdout, os.Stderr = wo, we
+	code = fn()
+	wo.Close()
+	we.Close()
+	os.Stdout, os.Stderr = oldOut, oldErr
+	drained.Wait()
+	return code, bo.String(), be.String()
+}
+
+func useTLSTransport(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = srv.Client().Transport
+	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 }

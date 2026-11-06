@@ -1,4 +1,4 @@
-package agents
+package lifecycle
 
 import (
 	"encoding/json"
@@ -10,6 +10,20 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 )
+
+func checkJobTailEvents(t *testing.T, code int, out string) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if code != 0 || len(lines) != 3 {
+		t.Fatalf("tail = %d, %d lines %q, want 3 events then exit", code, len(lines), out)
+	}
+	for i, want := range []string{agent.EventStart, agent.EventText, agent.EventResult} {
+		var ev agent.Event
+		if err := json.Unmarshal([]byte(lines[i]), &ev); err != nil || ev.Type != want {
+			t.Errorf("line %d = %q, want type %s", i, lines[i], want)
+		}
+	}
+}
 
 // seedClaudeJob saves a finished claude record with a log and, when events is non-nil, an events file.
 func seedClaudeJob(t *testing.T, at time.Time, events []agent.Event) agent.Record {
@@ -37,6 +51,15 @@ func seedClaudeJob(t *testing.T, at time.Time, events []agent.Event) agent.Recor
 	return rec
 }
 
+// TestAgentsCancelNotRunning: cancel on a finished record exits non-zero.
+func TestAgentsCancelNotRunning(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
+	if code := Job("cancel", []string{rec.ID}); code == 0 {
+		t.Error("cancel of a finished job exited 0, want an error")
+	}
+}
+
 // TestAgentsJobLifecycleClaude: status/result/tail resolve a claude dispatch by id and read its events.
 func TestAgentsJobLifecycleClaude(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -59,12 +82,12 @@ func TestAgentsJobLifecycleClaude(t *testing.T) {
 	}
 
 	var code int
-	out := captureStdout(t, func() { code = cmdAgentsJob("status", []string{rec.ID}) })
+	out := captureStdout(t, func() { code = Job("status", []string{rec.ID}) })
 	if code != 0 || !strings.Contains(out, rec.ID) || !strings.Contains(out, "ok") {
 		t.Errorf("status = %d %q, want 0 with id and ok", code, out)
 	}
 
-	out = captureStdout(t, func() { code = cmdAgentsJob("result", []string{rec.ID, "--format", "json"}) })
+	out = captureStdout(t, func() { code = Job("result", []string{rec.ID, "--format", "json"}) })
 	var got agent.Envelope
 	if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, out, err)
@@ -73,22 +96,8 @@ func TestAgentsJobLifecycleClaude(t *testing.T) {
 		t.Errorf("envelope = %+v, want the result event's", got)
 	}
 
-	out = captureStdout(t, func() { code = cmdAgentsJob("tail", []string{rec.ID, "--format", "json", "-f"}) })
+	out = captureStdout(t, func() { code = Job("tail", []string{rec.ID, "--format", "json", "-f"}) })
 	checkJobTailEvents(t, code, out)
-}
-
-func checkJobTailEvents(t *testing.T, code int, out string) {
-	t.Helper()
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if code != 0 || len(lines) != 3 {
-		t.Fatalf("tail = %d, %d lines %q, want 3 events then exit", code, len(lines), out)
-	}
-	for i, want := range []string{agent.EventStart, agent.EventText, agent.EventResult} {
-		var ev agent.Event
-		if err := json.Unmarshal([]byte(lines[i]), &ev); err != nil || ev.Type != want {
-			t.Errorf("line %d = %q, want type %s", i, lines[i], want)
-		}
-	}
 }
 
 // TestAgentsResultJSONWithoutEvents: an old record with no events file rebuilds its envelope from record + log.
@@ -97,7 +106,7 @@ func TestAgentsResultJSONWithoutEvents(t *testing.T) {
 	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
 
 	var code int
-	out := captureStdout(t, func() { code = cmdAgentsJob("result", []string{rec.ID, "--format", "json"}) })
+	out := captureStdout(t, func() { code = Job("result", []string{rec.ID, "--format", "json"}) })
 	var got agent.Envelope
 	if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, out, err)
@@ -115,7 +124,7 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, stdout, stderr := captureOutput(t, func() int { return cmdAgentsJob("result", []string{rec.ID, "--format", "json"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return Job("result", []string{rec.ID, "--format", "json"}) })
 	var got agent.Envelope
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, stdout, err)
@@ -125,15 +134,6 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 	}
 	if !strings.Contains(stderr, rec.ID) || !strings.Contains(stderr, "token too long") {
 		t.Errorf("stderr = %q, want a warning naming the dispatch and the scan error", stderr)
-	}
-}
-
-// TestAgentsCancelNotRunning: cancel on a finished record exits non-zero.
-func TestAgentsCancelNotRunning(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
-	if code := cmdAgentsJob("cancel", []string{rec.ID}); code == 0 {
-		t.Error("cancel of a finished job exited 0, want an error")
 	}
 }
 

@@ -40,7 +40,7 @@ type Record struct {
 	FallbackReason string     `json:"fallback_reason,omitempty"`
 	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
-	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code ask --job` child
+	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
 	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
 	Progress       string     `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
 	Owner          int        `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
@@ -235,7 +235,7 @@ func LoadRecord(id string) (Record, error) {
 		}
 	}
 	if len(match) != 1 {
-		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code ask --log)", id, len(match))
+		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents ask --log)", id, len(match))
 	}
 	return readRecord(filepath.Join(paths.DispatchDir(), match[0]))
 }

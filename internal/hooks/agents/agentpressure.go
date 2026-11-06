@@ -87,7 +87,7 @@ func applyPressure(in *core.Input, updated map[string]any, promptField, base str
 	agent, model := RouteHint(alias)
 	hint := ""
 	if agent != "" {
-		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, alias)
+		hint = fmt.Sprintf("`claude-code agents ask --agent %s --model %s --tools`", agent, alias)
 	}
 	kind := in.Nested("tool_input", "subagent_type")
 	if pct >= offloadPct && offloadTypes[kind] && agent != "" {

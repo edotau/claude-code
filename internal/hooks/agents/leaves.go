@@ -274,7 +274,7 @@ func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 		return core.Result{SystemMessage: fmt.Sprintf("coworker %s: finished with no ran-on line", agentID)}, false
 	}
 	return core.Result{Decision: core.Block, Reason: coworkerGateMark + " (or a `ran_on` field), so the external agent was never " +
-		"called. Run the `claude-code ask` the brief requests, or report BLOCKED with the reason; do not do the work in-context."}, true
+		"called. Run the `claude-code agents ask` the brief requests, or report BLOCKED with the reason; do not do the work in-context."}, true
 }
 
 // Handback runs the stop gates on SubagentHandback, which ends a background leaf before SubagentStop can block it.

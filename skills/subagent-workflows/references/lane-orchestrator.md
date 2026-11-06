@@ -1,14 +1,14 @@
 # Lane Orchestrator
 
 Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane fans
-out leaves through `claude-code ask` (outside the Agent-tool cap; `ask`'s per-account cap still applies), verifies each
-in the shared tree, and commits it.
+out leaves through `claude-code agents ask` (outside the Agent-tool cap; `ask`'s per-account cap still applies),
+verifies each in the shared tree, and commits it.
 
 | Role | Who | Does | Never |
 |---|---|---|---|
 | Manager | main session | splits lanes by disjoint packages, dispatches one `code-worker` per lane, merges, runs the suite once with approval | edits a lane's files |
 | Lane orchestrator | that subagent | writes the lane checklist, dispatches and verifies each leaf, commits named files, ticks the box | edits outside its lane |
-| Leaf | a `code-worker` that requests `Agent: <x>` via `claude-code ask` | one checklist line, owned files only | commits or dispatches subagents |
+| Leaf | a `code-worker` that requests `Agent: <x>` via `claude-code agents ask` | one checklist line, owned files only | commits or dispatches subagents |
 
 ## Lane plan
 
@@ -26,7 +26,7 @@ Bug fixes start with the live before/after run (`testing-guidelines.md`). Run th
 one JSONL line per leaf (`id`, `agent`, `model`, `prompt`, `workdir`, `tools`, `timeout`):
 
 ```bash
-claude-code ask --batch <lane>.jsonl --jobs 12 --fallback none --autonomous --attach <lane.md> --format json \
+claude-code agents ask --batch <lane>.jsonl --jobs 12 --fallback none --autonomous --attach <lane.md> --format json \
   > $TMPDIR/<lane>/batch.out    # one envelope per line; per-account caps and isolation apply
 ```
 

@@ -1,4 +1,4 @@
-package agents
+package ask
 
 import (
 	"encoding/base64"
@@ -16,14 +16,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// runCLI runs `claude-code ask <argv>` in-process (argv[0] must be "ask") and returns exit code, stdout and stderr.
+// runCLI runs `claude-code agents ask <argv>` in-process (argv[0] must be "ask") and returns exit code, stdout and stderr.
 func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	t.Helper()
 	outR, outW, _ := os.Pipe()
 	errR, errW, _ := os.Pipe()
 	oldOut, oldErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = outW, errW
-	code := CmdAsk(argv[1:])
+	code := Cmd(argv[1:])
 	os.Stdout, os.Stderr = oldOut, oldErr
 	outW.Close()
 	errW.Close()

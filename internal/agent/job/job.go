@@ -1,4 +1,4 @@
-// job.go is background-job control on top of the dispatch log (claude-code ask --job).
+// job.go is background-job control on top of the dispatch log (claude-code agents ask --job).
 
 package job
 
@@ -23,12 +23,12 @@ import (
 // executable is swapped by tests.
 var executable = os.Executable
 
-// Spawn re-execs claude-code detached to run the saved record: argv ["ask","--job",rec.ID] + extra;
+// Spawn re-execs claude-code detached to run the saved record: argv ["agents","ask","--job",rec.ID] + extra;
 // stdout+stderr -> rec.Log (0600); sets rec.PID in memory for the caller's print, but never saves —
 // the caller already saved rec as "running" before calling Spawn, and the --job child saves its own
 // PID once it starts, so a post-Start save here could overwrite a fast child's finished status.
 func Spawn(rec *agent.Record, extra []string) error {
-	return SpawnArgv(rec, append([]string{"ask", "--job", rec.ID}, extra...), nil)
+	return SpawnArgv(rec, append([]string{"agents", "ask", "--job", rec.ID}, extra...), nil)
 }
 
 // SpawnArgv is Spawn for an arbitrary claude-code argv, with env appended to the child's environment.
@@ -438,7 +438,7 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error)
 	return rec, nil
 }
 
-// toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/cli/agents/ask.go).
+// toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/agent/ask.go).
 func toRow(r agent.Record) Row {
 	status := r.Status
 	if status == "running" && !r.Alive() {

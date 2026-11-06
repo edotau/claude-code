@@ -58,7 +58,7 @@ type resolveAgentResult struct {
 	FallbackReason string
 }
 
-// askEnvelope mirrors the JSON `claude-code ask --format json` prints: agent.Result's fields plus the
+// askEnvelope mirrors the JSON `claude-code agents ask --format json` prints: agent.Result's fields plus the
 // top-level "error". Decoded here rather than importing internal/agent, which would cycle back through
 // internal/launch -> internal/hooks -> internal/worktree.
 type askEnvelope struct {
@@ -82,7 +82,7 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout+30*time.Second) // belt-and-suspenders over ask's own --timeout
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, bin, "ask", "--agent", agentName, "--workdir", workDir,
+	cmd := exec.CommandContext(runCtx, bin, "agents", "ask", "--agent", agentName, "--workdir", workDir,
 		"--tools", "--fallback", "none", "--timeout", timeout.String(), "--format", "json", "-")
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr bytes.Buffer
@@ -92,16 +92,16 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	var env askEnvelope
 	if jsonErr := json.Unmarshal(stdout, &env); jsonErr != nil {
 		if runErr != nil {
-			return resolveAgentResult{}, fmt.Errorf("claude-code ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
+			return resolveAgentResult{}, fmt.Errorf("claude-code agents ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
 		}
-		return resolveAgentResult{}, fmt.Errorf("claude-code ask: unparseable output: %w", jsonErr)
+		return resolveAgentResult{}, fmt.Errorf("claude-code agents ask: unparseable output: %w", jsonErr)
 	}
 	res := resolveAgentResult{Fallback: env.Fallback, FallbackReason: env.FallbackReason}
 	if env.Error != nil {
-		return res, fmt.Errorf("claude-code ask: %s", env.Error.Message)
+		return res, fmt.Errorf("claude-code agents ask: %s", env.Error.Message)
 	}
 	if runErr != nil {
-		return res, fmt.Errorf("claude-code ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
+		return res, fmt.Errorf("claude-code agents ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
 	}
 	return res, nil
 }

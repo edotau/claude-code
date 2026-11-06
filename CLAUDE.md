@@ -14,7 +14,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 | Path | Holds |
 | --- | --- |
-| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. `internal/cli` holds verb handlers only; engines live in `internal/agent` and the other packages; a package more than one area imports stays top-level (`router`, `ledger`), one area's helper nests under it (`agent/tools`), and a provider's own code stays under that provider (`databricks/oauth`) |
+| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. `internal/cli` holds verb handlers, except agent workflow verbs, which live under `internal/agent` (`ask`, `dispatch`, job verbs in `lifecycle`); engines live in `internal/agent` and the other packages; a package more than one area imports stays top-level (`router`, `ledger`), one area's helper nests under it (`agent/tools`), and a provider's own code stays under that provider (`databricks/oauth`) |
 | `internal/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault list\|edit`), sealed secrets (`vault set\|get`) |
@@ -72,7 +72,7 @@ auto-loads while you work in that code). Anything unlisted: `claude-code describ
 | --- | --- | --- |
 | Install, settings, hooks | `make install` (`claude-code install --dry-run` previews) | `rules/harness/settings-management.md` · `rules/harness/hooks.md` |
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
-| Agents and dispatch | `claude-code ask --agent <agent> "<task>"` · `/code-worker` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
+| Agents and dispatch | `claude-code agents ask --agent <agent> "<task>"` · `/code-worker` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code network mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |

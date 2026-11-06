@@ -10,11 +10,13 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/lifecycle"
 	"github.com/edotau/claude-code/internal/agent/review"
-	"github.com/edotau/claude-code/internal/cli/agents"
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -83,7 +85,7 @@ func agentPage(name string) helptext.Page {
 // agentSubPages maps each sub-verb to its synopsis tail and blurb; %s is the agent name.
 var agentSubPages = map[string][2]string{
 	"resume": {"resume <id> [ask flags] <task>",
-		"Continue session <id> on %s (= ask --agent %[1]s --session <id>); ask's flags apply, see claude-code ask -h."},
+		"Continue session <id> on %s (= ask --agent %[1]s --session <id>); ask's flags apply, see claude-code agents ask -h."},
 	"status":   {"status [id] [flags]", "Background %s jobs in this repo, newest first; an id narrows to one job."},
 	"tail":     {"tail [id] [flags]", "A job's output (default: the newest). Exits 1 when the job failed or was lost."},
 	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
@@ -151,8 +153,8 @@ func agentSub(name string, args []string) int {
 }
 
 func agentCatalog(name string, args []string) int {
-	if isOpencodeMenuVerb(name, args) {
-		return cmdOpencodeMenu(args)
+	if opencode.IsMenuVerb(name, args) {
+		return opencode.RunMenu(args)
 	}
 	if agentSubHelp(name, "catalog", args) {
 		return 0
@@ -169,9 +171,9 @@ func agentResume(name string, args []string) int {
 		return helptext.Fail("%s resume: usage: claude-code %s resume <id> <task>", name, name)
 	}
 	if strings.HasPrefix(args[0], "-") { // flags first: ask's own parser, the session id is its first positional
-		return agents.RunAsk(append([]string{"--agent", name}, args...), true)
+		return ask.Run(append([]string{"--agent", name}, args...), true)
 	}
-	return agents.CmdAsk(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
+	return ask.Cmd(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
 }
 
 // agentStatus is `claude-code <v> status [id] [--all] [--format text|json]`.
@@ -200,7 +202,7 @@ func agentStatus(name string, args []string) int {
 		return 0
 	}
 	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, agents.StatusDetail(r))
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, lifecycle.StatusDetail(r))
 	}
 	return 0
 }
@@ -221,7 +223,7 @@ func agentTail(name string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%s tail: %v", name, err)
 	}
-	return agents.TailExit(rec, *follow)
+	return lifecycle.TailExit(rec, *follow)
 }
 
 // agentResult is `claude-code <v> result [id] [--format text|json]`.
@@ -251,7 +253,7 @@ func agentResult(name string, args []string) int {
 		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
 			return helptext.Fail("%s result: %v", name, err)
 		}
-		return agents.ResultExit(rec)
+		return lifecycle.ResultExit(rec)
 	}
 	fmt.Print(log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
@@ -261,7 +263,7 @@ func agentResult(name string, args []string) int {
 		fmt.Printf("session: %s\n", rec.SessionID)
 		printResumeHint(s, rec.SessionID)
 	}
-	return agents.ResultExit(rec)
+	return lifecycle.ResultExit(rec)
 }
 
 // printResumeHint prints the agent's resume command for a session; nothing when it has none (ResumeHint("") is "").
@@ -349,7 +351,7 @@ func agentReview(name string, args []string) int {
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	defer cleanup()
-	return agents.CmdAsk(askArgs)
+	return ask.Cmd(askArgs)
 }
 
 // agentExplore is `claude-code <v> explore [--no-web] [--background] [--format f] <question>`.
@@ -371,7 +373,7 @@ func agentExplore(name string, args []string) int {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)
 	}
-	return agents.CmdAsk(askArgs)
+	return ask.Cmd(askArgs)
 }
 
 // agentTransfer is `claude-code <v> transfer [--source f] [--wait] [note…]`.
@@ -393,7 +395,7 @@ func agentTransfer(name string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%s transfer: %v", name, err)
 	}
-	code := agents.CmdAsk(transcript.TransferArgs(name, cwd, prompt, *wait))
+	code := ask.Cmd(transcript.TransferArgs(name, cwd, prompt, *wait))
 	if code == 0 && *wait {
 		if rec, _, err := job.JobResult(context.Background(), name, cwd, ""); err == nil {
 			s, _ := agent.LookupSchema(name)
