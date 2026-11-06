@@ -228,7 +228,7 @@ func saveSeed(d *dialog, choice map[string]string) bool {
 		}
 	})
 	if err == nil {
-		err = agentpkg.ClearLastProfilesFor(agents...)
+		err = providers.ClearLastProfilesFor(agents...)
 	}
 	if err != nil {
 		d.printf("seed: %v\n", err)
