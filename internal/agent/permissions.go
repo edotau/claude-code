@@ -133,8 +133,8 @@ func (p Permissions) decideBash(cmd string, depth int) Decision {
 		}
 		worst = min(worst, d)
 	}
-	if !seen {
-		return p.decideOne("Bash", strings.TrimSpace(cmd))
+	if !seen { // a bare `$(x)` or backtick command: its substitutions' verdict still counts
+		return min(worst, p.decideOne("Bash", strings.TrimSpace(cmd)))
 	}
 	return worst
 }

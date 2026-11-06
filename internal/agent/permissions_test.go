@@ -159,3 +159,13 @@ func TestPermissionBashWildcard(t *testing.T) {
 		}
 	}
 }
+
+// A command that is only a substitution keeps its Deny under a blanket Bash allow (a Deny is never widened).
+func TestDecideBareSubstitutionKeepsDeny(t *testing.T) {
+	p := Permissions{Allow: []Rule{{Tool: "Bash"}}, Deny: []Rule{{Tool: "Bash", Arg: "curl:*"}}}
+	for _, cmd := range []string{"$(curl x)", "`curl x`", "echo $(curl x)", "curl x"} {
+		if got := p.Decide("Bash", cmd); got != Deny {
+			t.Errorf("Decide(Bash, %q) = %v, want Deny", cmd, got)
+		}
+	}
+}
