@@ -1,6 +1,6 @@
 ---
 name: evaluate-code
-description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a skill or plugin; discipline, security (OWASP, secrets, injection, auth, Claude Code config, dependency CVEs and licences), performance, cross-boundary and contract lenses plus `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt", "security review", "is this safe", "check for secrets", "OWASP", "audit dependencies", "any CVEs in our deps", "license compliance".'
+description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors. Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt".'
 
 metadata:
   version: 4.0.0
@@ -14,7 +14,6 @@ that catches how LLM-written code characteristically fails. Read-only: findings 
 ## Pick your path
 
 - **Review a diff/PR** → [Review a diff](#review-a-diff).
-- **Security review (code, Claude Code config, dependencies)** → [Security](#security) lens.
 - **Audit a transcript** → [Audit a transcript](#audit-a-transcript).
 - **Judge a claimed-done** → `references/judge.md` (is the claim true, not whether the code is good).
 - **Scan tech debt** → [Tech debt](#tech-debt).
@@ -105,7 +104,6 @@ BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
    the code.
 4. Pre-approval checklist: `rules/standards/quality.md` → Code Quality Checklist; severity:
    `references/completion-criteria.md`; the call: [Verdicts](#verdicts).
-5. Security-sensitive code (see [Security](#security)) gets that lens as well.
 
 ## Verdicts
 

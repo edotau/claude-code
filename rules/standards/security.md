@@ -13,6 +13,3 @@ Language specifics: `rules/software/<lang>/security.md`. Harness credentials: CL
 5. **Browser automation on authorized sites only** — ours, internal, or with explicit permission; honor robots.txt
    (`network browser --extract` checks it); no detection evasion (fingerprint spoofing, webdriver masking, anti-bot
    proxy rotation) — a block means ask for an API or permission.
-
-Auth, input, database, file-system, external-API, crypto and payment code gets the **evaluate-code** Security lens
-before merge; a found issue follows `skills/evaluate-code/references/security/owasp-checklist.md` → Response Protocol.

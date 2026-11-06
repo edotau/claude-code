@@ -104,7 +104,6 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 | Need | Hand off to |
 | --- | --- |
-| Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 | New tests (feature/bug fix only) | `copilot` |
 | Docs refresh | `opencode` |
 | Wide 1M-context sweep across many files | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d>`) |

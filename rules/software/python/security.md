@@ -35,7 +35,3 @@ subprocess.run(["git", "clone", url], check=True)  # CORRECT — list args, no s
   ```bash
   bandit -r src/
   ```
-
-## Reference
-
-The `evaluate-code` skill's Security lens carries the OWASP checklist and dependency-audit procedure.

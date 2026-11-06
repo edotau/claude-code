@@ -87,7 +87,6 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 |---|---|
 | Design/plan | `Plan` agent (`agents/Plan.md`) — `problem-solving` Steps 0-3 (classify, define done, gather evidence, decide) feed its template; trivial/single-file work skips the plan, say so and implement directly |
 | Review | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK` |
-| Security deep-dive | `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection yourself |
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, run once with the owner's approval (`rules/standards/quality.md`) |
 | New test coverage | `copilot` TEST mode, feature or bug fix only (`skills/subagent-workflows/SKILL.md` → Test agent) |
 | One well-scoped fan-out task | `code-worker` (leaf types: `skills/subagent-workflows/SKILL.md` → Leaf types) |
@@ -156,7 +155,6 @@ Verdict discipline — closed vocabulary first, evidence after, never soften or 
 
 ## Don't
 
-- **Security deep-dive** → `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection.
 - **Full verification gate loop** (format → lint → test → security) → `skills/problem-solving/references/verify.md`;
   `Workflow green-keeper-loop` only when the user asks for it.
 - **New test coverage** → `copilot` (TEST mode), feature or bug fix only: `skills/subagent-workflows/SKILL.md` →

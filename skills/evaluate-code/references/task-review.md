@@ -14,7 +14,7 @@ Input: the request and CLAUDE.md, with `git status --short` and `git diff --stat
 3. **Constraint awareness** — read CLAUDE.md's hard rules + behavioral guidelines; flag any
    violations.
 4. **Security surface** — auth/tokens, user input, filesystem, external APIs? If yes,
-   flag for the Security lens (`../SKILL.md` → Security) post-implementation.
+   say so in the brief.
 5. **Testing expectations** — what runnable surface proves it live? Which spanning test and regression tests
    (logic, not a coverage number: `rules/standards/testing-guidelines.md`)? Existing fixtures?
 6. **Missing context** — what does the implementer need that isn't in the request? Prior
