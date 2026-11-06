@@ -35,8 +35,7 @@ MCP tool call (interactive sessions / agents granted the tool):
 
 - **Use** for current events, recent releases, live facts, anything past the training cutoff, or
   when the user explicitly asks to search online.
-- **Don't** use for fetching a *known* URL — that's `WebFetch`. Web search discovers pages;
-  `WebFetch` reads one you already have.
+- **Don't** use for reading a *known* URL — that's `WebFetch`, or `skills/web-fetch/SKILL.md` when it fails.
 - **Don't** use for internal/GitHub lookups — use `gh` or the repo tools.
 
 ## Setup dependency

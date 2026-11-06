@@ -100,13 +100,22 @@ func cmdNetworkMCP(args []string) int {
 
 // cmdNetworkWebsearch runs the stdio MCP server when bare, or a one-shot Tavily print for a query or --query.
 func cmdNetworkWebsearch(args []string) int {
-	fs := helptext.NewFlagSet("network websearch", helptext.Page{Usage: "claude-code network websearch [flags] [<query>]",
+	fs := helptext.NewFlagSet("network websearch", helptext.Page{Usage: "claude-code network websearch [flags] [<query> | --extract <url>...]",
 		About: "Bare: the stdio MCP web-search server Claude Code runs. A query (or --query)\n" +
 			"prints one Tavily search and exits."})
 	query := fs.String("query", "", "run one search and exit (skip the MCP server loop)")
 	maxResults := fs.Int("max-results", 5, "max results in one-shot mode")
+	var extract urlList
+	fs.Var(&extract, "extract", "print the page at URL as markdown (repeatable)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if len(extract) > 0 {
+		if *query != "" || fs.NArg() > 0 {
+			fmt.Fprintln(os.Stderr, "network websearch: --extract cannot be combined with a query")
+			return 2
+		}
+		return mcp.Extract(context.Background(), extract)
 	}
 	if fs.NArg() > 0 {
 		if *query != "" {
@@ -119,6 +128,15 @@ func cmdNetworkWebsearch(args []string) int {
 		return mcp.OneShot(context.Background(), *query, *maxResults, nil, os.Stdout)
 	}
 	return mcp.Run(context.Background())
+}
+
+// urlList collects repeatable --extract values.
+type urlList []string
+
+func (l *urlList) String() string { return strings.Join(*l, ",") }
+func (l *urlList) Set(s string) error {
+	*l = append(*l, s)
+	return nil
 }
 
 var restartPage = helptext.Page{
