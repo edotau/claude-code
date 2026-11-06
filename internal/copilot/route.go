@@ -73,7 +73,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 	}
 	detail, workable := copilotHeadroom(context.Background(), copilotPinLogin())
 	if a, ok := copilotAuthSource(); ok && workable {
-		if p, ok := agent.LoginProvider(reg, "github", "copilot"); ok {
+		if p, ok := reg.LoginProfile("github", "copilot"); ok {
 			model, _ := providers.CopilotModel(reg)
 			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: model,
 				Reason: "github-copilot (" + providers.AuthState{Account: a.Account, Source: a.Source}.Label() + ")", OK: true}
@@ -82,7 +82,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 	if ri := copilotDatabricksFallback(reg, detail); ri.OK {
 		return ri
 	}
-	if p, ok := agent.KeyProvider(reg, "anthropic"); ok && providers.CredentialPresent(p) {
+	if p, ok := reg.KeyProfile("anthropic"); ok && providers.CredentialPresent(p) {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "BYOK via ANTHROPIC_API_KEY", OK: true}
 	}
@@ -139,7 +139,7 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 			break
 		}
 	}
-	if p, ok := agent.KeyProvider(reg, "anthropic"); ok {
+	if p, ok := reg.KeyProfile("anthropic"); ok {
 		steps = append(steps, RouteStep{Label: "ANTHROPIC_API_KEY", When: "BYOK", OK: providers.CredentialPresent(p)})
 	}
 	return steps

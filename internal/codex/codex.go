@@ -104,7 +104,7 @@ func (codexEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headles
 }
 
 func (e codexEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	if p, ok := agent.LoginProvider(reg, "openai", "codex"); ok && codexChatGPTLogin() == nil {
+	if p, ok := reg.LoginProfile("openai", "codex"); ok && codexChatGPTLogin() == nil {
 		// Codex's own config.toml model beats the catalog; the model pin beats both.
 		model := p.Models[models.Opus]
 		if own := codexOwnModel(); own != "" {

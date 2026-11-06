@@ -265,7 +265,7 @@ func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, b
 	if !OpencodeCopilotLoginPresent() {
 		return providers.Target{}, "", false
 	}
-	p, ok := agent.LoginProvider(reg, "github", "copilot")
+	p, ok := reg.LoginProfile("github", "copilot")
 	if !ok {
 		return providers.Target{}, "", false
 	}
@@ -296,7 +296,7 @@ func opencodeCopilotLogin(model string, h *agent.Headless) ([]string, []string, 
 // session alias, rooted at the github-copilot provider instead of the session's. ok is false without a
 // registered github-copilot provider or either alias.
 func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
-	p, found := agent.LoginProvider(reg, "github", "copilot")
+	p, found := reg.LoginProfile("github", "copilot")
 	if !found {
 		return "", "", false
 	}

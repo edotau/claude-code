@@ -225,10 +225,8 @@ func errUnknownAgent(name string) error { return fmt.Errorf("unknown agent %q", 
 
 // ModelsProfile is the agent's profile on its ModelsProvider that carries the agent's own login.
 func (s Schema) ModelsProfile(reg *providers.Registry) (string, error) {
-	for _, n := range reg.ProfilesOf(s.CLI.ModelsProvider) {
-		if reg.Providers[n].Auth.Login == s.Name {
-			return n, nil
-		}
+	if p, ok := reg.LoginProfile(s.CLI.ModelsProvider, s.Name); ok {
+		return p.Name, nil
 	}
 	return "", fmt.Errorf("%s: no %s profile with a %s login", s.Name, s.CLI.ModelsProvider, s.Name)
 }
