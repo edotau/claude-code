@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -306,5 +307,26 @@ func TestResolveRepoDetachedHEAD(t *testing.T) {
 	}
 	if repo.Main != main {
 		t.Fatalf("Main = %q, want %q", repo.Main, main)
+	}
+}
+
+func TestGitTimeoutCtxHasDeadline(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	dl, ok := ctx.Deadline()
+	if !ok || time.Until(dl) > probeTimeout {
+		t.Fatalf("deadline = %v, %v; want one within %v", dl, ok, probeTimeout)
+	}
+}
+
+func TestCleanAtWarnsWhenBranchNotDetected(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	dest := t.TempDir() // not a git worktree, so `git branch --show-current` fails
+	var log strings.Builder
+	_, _ = cleanAt(repo, "nobranch", dest, true, &log)
+	if !strings.Contains(log.String(), "branch not detected") {
+		t.Fatalf("log = %q, want a branch-not-detected warning", log.String())
 	}
 }

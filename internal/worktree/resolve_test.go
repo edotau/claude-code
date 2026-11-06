@@ -624,3 +624,29 @@ func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T)
 	requireMergeHead(t, wt, true, "MERGE_HEAD was cleaned up on a fallback mismatch — no automatic cleanup is permitted")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
+
+// A failed save of the "resolved" checkpoint must surface, not report success with the phase only in memory.
+func TestFinalizeAgentResolutionSurfacesCheckpointSaveFailure(t *testing.T) {
+	repo, _, wt, plan := resolveFixtureConflictSetup(t)
+	ctx := context.Background()
+	if _, err := materializeConflict(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	conflictPaths, err := unmergedPaths(ctx, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	op := &Operation{Repo: repo.Main, Worktree: filepath.Base(wt), TargetRef: plan.TargetRef, TargetOID: plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID, ConflictPaths: conflictPaths, Phase: "resolving", AgentExitOK: true}
+	if err := os.MkdirAll(operationPath(repo.Main, op.Worktree), 0o755); err != nil { // AtomicWrite cannot rename over a directory
+		t.Fatal(err)
+	}
+
+	_, _, err = finalizeAgentResolution(ctx, op, wt)
+	if err == nil || !strings.Contains(err.Error(), "save resolved checkpoint") {
+		t.Fatalf("finalizeAgentResolution err = %v, want a save resolved checkpoint error", err)
+	}
+}

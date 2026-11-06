@@ -1,4 +1,4 @@
-// budget.go — the session Databricks workspace's AI Gateway budget/spend statuses, cached for the status line.
+// budget.go — the session Databricks workspace's AI Gateway budget/spend statuses, cached between `usage` runs.
 
 package usage
 
@@ -31,7 +31,7 @@ const (
 // budgetCacheTTL is how long a fetched budget stays fresh before `usage` hits the network again.
 const budgetCacheTTL = 5 * time.Minute
 
-// budgetCache is state/harness/usage/gateway-budget.json: the rows `usage` fetched, read by the status line without I/O to the network.
+// budgetCache is state/harness/usage/gateway-budget.json: the rows `usage` fetched (empty when the endpoint is absent).
 type budgetCache struct {
 	Schema    int       `json:"schema"`
 	FetchedAt time.Time `json:"fetched_at"`
@@ -111,6 +111,7 @@ func budgetQuotas(ctx context.Context, p *providers.Provider, now time.Time) []q
 	}
 	rows, err := fetchBudgetRows(ctx, p)
 	if errors.Is(err, errBudgetAbsent) {
+		writeBudgetCache(path, budgetCache{FetchedAt: now, Profile: p.Name})
 		return nil
 	}
 	if err != nil {

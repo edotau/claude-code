@@ -69,7 +69,7 @@ func expandVerb(verb string, args []string, aliases map[string]string) (string, 
 		if strings.ContainsAny(verb, "$`{"+subMask) {
 			return Uninspectable, nil
 		}
-		val, ok := aliases[verb]
+		val, ok := aliases[strings.ToLower(verb)] // git matches alias names case-insensitively
 		if !ok || gitBuiltins[verb] {
 			return verb, args
 		}
@@ -103,15 +103,15 @@ func gitGlobalOpt(toks []string, i int) (name, val string, next int, ok bool) {
 
 // gitTarget is the tree git acts on: --work-tree, else a .git --git-dir's parent, else the -C chain from cwd.
 func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
-	if p, ok := ResolvePath(workTree, cwd); workTree != "" && ok {
+	if p, ok := resolvePath(workTree, cwd); workTree != "" && ok {
 		return p
 	}
-	if p, ok := ResolvePath(gitDir, cwd); gitDir != "" && ok && filepath.Base(p) == ".git" {
+	if p, ok := resolvePath(gitDir, cwd); gitDir != "" && ok && filepath.Base(p) == ".git" {
 		return filepath.Dir(p)
 	}
 	target := cwd
 	for _, c := range cPaths { // successive -C paths apply relative to each other
-		if p, ok := ResolvePath(c, target); ok {
+		if p, ok := resolvePath(c, target); ok {
 			target = p
 		}
 	}

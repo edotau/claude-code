@@ -45,8 +45,10 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 		return "", err
 	}
 	args, baseRef := worktreeAddArgs(repo.Main, dest, branch, log)
-	base, baseErr := gitCmd(context.Background(), "-C", repo.Main, "rev-parse", "--verify", baseRef+"^{commit}").Output()
-	if out, err := gitCmd(context.Background(), args...).CombinedOutput(); err != nil {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	base, baseErr := gitCmd(ctx, "-C", repo.Main, "rev-parse", "--verify", baseRef+"^{commit}").Output()
+	if out, err := gitCmd(ctx, args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	seedWorktree(repo.Main, dest, log)
@@ -66,7 +68,9 @@ func createBranchName(name, want string) (string, error) {
 	if branch == "" {
 		branch = "worktree-" + name
 	}
-	if gitCmd(context.Background(), "check-ref-format", "--branch", branch).Run() != nil {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	if gitCmd(ctx, "check-ref-format", "--branch", branch).Run() != nil {
 		return "", fmt.Errorf("%q is not a valid branch name; pass --branch <name>", branch)
 	}
 	return branch, nil
@@ -127,9 +131,11 @@ func createBase(main string, log io.Writer) string {
 		}
 	}
 	if baseRef == "fresh" {
-		out, err := gitCmd(context.Background(), "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+		ctx, cancel := gitTimeoutCtx()
+		defer cancel()
+		out, err := gitCmd(ctx, "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
 		ref := strings.TrimSpace(string(out))
-		if err == nil && gitCmd(context.Background(), "-C", main, "rev-parse", "--verify", ref+"^{commit}").Run() == nil {
+		if err == nil && gitCmd(ctx, "-C", main, "rev-parse", "--verify", ref+"^{commit}").Run() == nil {
 			return ref
 		}
 	}
@@ -137,7 +143,9 @@ func createBase(main string, log io.Writer) string {
 }
 
 func branchExists(main, branch string) bool {
-	return gitCmd(context.Background(), "-C", main, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	return gitCmd(ctx, "-C", main, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
 }
 
 // CleanResult reports what Clean did, or would do under dryRun, to one worktree.
@@ -162,17 +170,15 @@ func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 func CleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
 	var result CleanResult
 	err := WithWorktreeLease(repo, name, func() error {
-		r, cleanErr := CleanInLease(repo, name, dryRun, log)
+		r, cleanErr := cleanInLease(repo, name, dryRun, log)
 		result = r
 		return cleanErr
 	})
 	return result, err
 }
 
-// CleanInLease is Clean's recheck-and-remove body, exported for a caller that already holds
-// WithWorktreeLease for repo+name (the CLI's merge lifecycle, which must not re-acquire the same
-// non-reentrant lease after a resolve or promote already took it). Standalone callers use Clean.
-func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
+// cleanInLease is Clean's recheck-and-remove body, run with the per-worktree lease already held.
+func cleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
 	dest, err := ResolveWorktree(repo, name)
 	if err != nil {
 		return CleanResult{}, err
@@ -180,7 +186,7 @@ func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 	return cleanAt(repo, name, dest, dryRun, log)
 }
 
-// cleanAt is CleanInLease's body for a dest the caller already validated under the same lease.
+// cleanAt is cleanInLease's body for a dest the caller already validated under the same lease.
 func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanResult, error) {
 	if log == nil {
 		log = io.Discard
@@ -191,8 +197,11 @@ func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanRe
 	if info, err := os.Lstat(dest); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return CleanResult{}, fmt.Errorf("%s is a symlink, refusing to treat it as a worktree", dest)
 	}
-	branch, _ := currentWorktreeBranch(dest)
+	branch, branchErr := currentWorktreeBranch(dest)
 	result := CleanResult{Path: dest, Branch: branch}
+	if branchErr != nil {
+		fmt.Fprintf(log, "worktree-clean: warning: branch not detected, it will not be deleted: %v\n", branchErr)
+	}
 
 	gitDir, reason := cleanBusyReason(dest)
 	if reason != "" {
@@ -237,7 +246,9 @@ func cleanBusyReason(dest string) (gitDir, reason string) {
 	if reason := inUseReason(dest); reason != "" {
 		return "", reason
 	}
-	gitDir, err := gitDirOf(context.Background(), dest)
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	gitDir, err := gitDirOf(ctx, dest)
 	if err != nil {
 		return "", "lock check failed: " + err.Error()
 	}
@@ -245,7 +256,7 @@ func cleanBusyReason(dest string) (gitDir, reason string) {
 	if reason := lockReason(locked, err); reason != "" {
 		return "", reason
 	}
-	if op, found, err := inProgressOp(context.Background(), dest, gitDir); err != nil {
+	if op, found, err := inProgressOp(ctx, dest, gitDir); err != nil {
 		return "", "operation check failed: " + err.Error()
 	} else if found {
 		return "", op + " in progress"
@@ -271,12 +282,14 @@ func cleanInspectReason(repo *Repo, dest, gitDir string) (entry Entry, reason st
 
 // removeMerged removes a worktree that passed every recheck, deletes its merged branch and closes the ledger.
 func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult, log io.Writer) CleanResult {
-	if out, err := gitCmd(context.Background(), "-C", repo.Main, "worktree", "remove", dest).CombinedOutput(); err != nil {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	if out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "remove", dest).CombinedOutput(); err != nil {
 		result.Reason = fmt.Sprintf("git worktree remove: %v: %s", err, strings.TrimSpace(string(out)))
 		return result
 	}
 	result.Removed = true
-	if result.Branch != "" && gitCmd(context.Background(), "-C", repo.Main, "branch", "-d", result.Branch).Run() == nil {
+	if result.Branch != "" && gitCmd(ctx, "-C", repo.Main, "branch", "-d", result.Branch).Run() == nil {
 		result.BranchDeleted = true // -d refuses an unmerged branch; failure there just keeps it
 	}
 	if err := CloseLedger(repo.Main, name, LedgerClose{
@@ -309,13 +322,22 @@ func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 	return results, nil
 }
 
+// gitTimeoutCtx bounds one lifecycle git call so a hung git cannot hold the worktree lease forever.
+func gitTimeoutCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), probeTimeout)
+}
+
 func currentWorktreeBranch(dest string) (string, error) {
-	out, err := gitCmd(context.Background(), "-C", dest, "branch", "--show-current").Output()
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", dest, "branch", "--show-current").Output()
 	return strings.TrimSpace(string(out)), err
 }
 
 func headOf(dest string) string {
-	head, _ := headOfContext(context.Background(), dest) // error -> "": same contract as the old standalone impl
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	head, _ := headOfContext(ctx, dest) // error -> "": same contract as the old standalone impl
 	return head
 }
 
@@ -334,7 +356,9 @@ func headOfContext(ctx context.Context, dest string) (string, error) {
 // `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
 // counts as unlocked; any other stat error is an unknown state and must propagate.
 func isLocked(dest string) (bool, error) {
-	gitDir, err := gitDirOf(context.Background(), dest)
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	gitDir, err := gitDirOf(ctx, dest)
 	if err != nil {
 		return false, err
 	}
@@ -365,11 +389,11 @@ type DiscardSummary struct {
 // DiscardSummary before removing anything; dryRun reports the summary and removes nothing. Runs
 // under the per-worktree lease (WithWorktreeLease), like Clean.
 func CleanForce(repo *Repo, name string, dryRun bool, report func(DiscardSummary)) (CleanResult, error) {
-	return CleanForceWithLog(repo, name, dryRun, report, os.Stderr)
+	return cleanForceWithLog(repo, name, dryRun, report, os.Stderr)
 }
 
-// CleanForceWithLog is CleanForce with ledger warnings written to log (nil discards them).
-func CleanForceWithLog(repo *Repo, name string, dryRun bool, report func(DiscardSummary), log io.Writer) (CleanResult, error) {
+// cleanForceWithLog is CleanForce with ledger warnings written to log (nil discards them).
+func cleanForceWithLog(repo *Repo, name string, dryRun bool, report func(DiscardSummary), log io.Writer) (CleanResult, error) {
 	if log == nil {
 		log = io.Discard
 	}
@@ -390,8 +414,11 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 	if _, err := os.Stat(dest); err != nil {
 		return CleanResult{}, fmt.Errorf("worktree %q not found at %s", name, dest)
 	}
-	branch, _ := currentWorktreeBranch(dest)
+	branch, branchErr := currentWorktreeBranch(dest)
 	result := CleanResult{Path: dest, Branch: branch}
+	if branchErr != nil {
+		fmt.Fprintf(log, "worktree-clean: warning: branch not detected, it will not be deleted: %v\n", branchErr)
+	}
 
 	if reason := forceBusyReason(repo, dest); reason != "" {
 		result.Reason = reason
@@ -427,7 +454,8 @@ func forceBusyReason(repo *Repo, dest string) string {
 
 // discardSummary counts what a forced clean would throw away; a non-empty reason refuses it.
 func discardSummary(repo *Repo, dest, branch string) (DiscardSummary, string) {
-	ctx := context.Background()
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
 	out, err := gitCmd(ctx, "-C", repo.Main, "symbolic-ref", "--short", "-q", "HEAD").Output()
 	target := strings.TrimSpace(string(out))
 	if err != nil || target == "" {
@@ -454,7 +482,8 @@ func discardSummary(repo *Repo, dest, branch string) (DiscardSummary, string) {
 
 // removeForced force-removes the worktree, force-deletes its branch and closes the ledger.
 func removeForced(repo *Repo, name, dest string, result CleanResult, log io.Writer) CleanResult {
-	ctx := context.Background()
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
 	head := headOf(dest)
 	if out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "remove", "--force", dest).CombinedOutput(); err != nil {
 		result.Reason = fmt.Sprintf("git worktree remove --force: %v: %s", err, strings.TrimSpace(string(out)))

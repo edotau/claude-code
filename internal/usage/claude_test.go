@@ -411,6 +411,28 @@ func TestClaudeQuotasCacheAfterTTLRefetchesAndRewrites(t *testing.T) {
 	}
 }
 
+// TestClaudeQuotasCacheInvalidBodyKeepsLastGood: a 200 with a non-JSON body is not cached; the last good body is kept.
+func TestClaudeQuotasCacheInvalidBodyKeepsLastGood(t *testing.T) {
+	validClaudeCreds(t)
+	dir := setClaudeCacheDir(t)
+	old := time.Now().Add(-1 * time.Hour)
+	writeClaudeCache(t, dir, old, nil, "max", readClaudeFixture(t))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html>gateway</html>"))
+	}))
+	defer srv.Close()
+	stubClaudeOAuthURL(t, srv.URL)
+
+	got := claudeQuotas(context.Background())
+	if len(got) != 3 {
+		t.Fatalf("rows = %d, want 3 served from the last good body: %+v", len(got), got)
+	}
+	fetchedAt, err := time.Parse(time.RFC3339, readClaudeCache(t, dir)["fetched_at"].(string))
+	if err != nil || fetchedAt.After(old.Add(2*time.Second)) {
+		t.Errorf("cache fetched_at = %v (err %v), want unchanged %v", fetchedAt, err, old)
+	}
+}
+
 // stale429Setup caches a stale fixture body and serves 429 Retry-After: 141; hits counts the network requests.
 func stale429Setup(t *testing.T) (dir string, hits *int) {
 	t.Helper()

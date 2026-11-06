@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -116,13 +117,24 @@ func unquoteStep(b *strings.Builder, seg string, i int, quote byte) (int, byte) 
 	return i, quote
 }
 
-// trimGroupOpen drops a leading `(`/`{` from the first word, and the word itself when nothing else is left.
+// groupLeaders are control words after which a `(`/`{` still opens a group rather than starting the command word.
+var groupLeaders = map[string]bool{"!": true, "if": true, "then": true, "do": true, "else": true, "elif": true,
+	"while": true, "until": true}
+
+// trimGroupOpen drops `(`/`{` openers from the leading words (also after control words), and words left empty.
 func trimGroupOpen(out []string) []string {
-	if len(out) > 0 {
-		out[0] = strings.TrimLeft(out[0], "({")
-		if out[0] == "" {
-			out = out[1:]
+	for i := 0; i < len(out); {
+		if trimmed := strings.TrimLeft(out[i], "({"); trimmed != out[i] {
+			out[i] = trimmed
+			if trimmed == "" {
+				out = slices.Delete(out, i, i+1)
+				continue
+			}
 		}
+		if !groupLeaders[out[i]] {
+			break
+		}
+		i++
 	}
 	return out
 }
@@ -336,13 +348,15 @@ func skipWrapperOpts(name string, toks []string, dir string) ([]string, string) 
 	return toks, dir
 }
 
-// splitWrapperOpt splits `--opt=val` and an attached short value (`-Sstr`, `-C/dir`, `-D/dir`) into flag and value.
+// splitWrapperOpt splits `--opt=val`, an attached short value (`-Sstr`, `-C/dir`) and a cluster ending in one (`-nu`).
 func splitWrapperOpt(name, opt string) (flag, val string, hasVal bool) {
-	switch {
-	case strings.HasPrefix(opt, "--"):
+	if strings.HasPrefix(opt, "--") {
 		return strings.Cut(opt, "=")
-	case len(opt) > 2 && wrapperValueFlags[name][opt[:2]]:
-		return opt[:2], opt[2:], true
+	}
+	for i := 1; i < len(opt); i++ {
+		if f := "-" + opt[i:i+1]; wrapperValueFlags[name][f] {
+			return f, opt[i+1:], i+1 < len(opt)
+		}
 	}
 	return opt, "", false
 }
@@ -353,7 +367,7 @@ func applyWrapperValue(name, flag, val string, toks []string, dir string) ([]str
 	case name == "env" && (flag == "-S" || flag == "--split-string"):
 		toks = append(Tokens(val), toks...)
 	case flag == "--chdir" || (name == "env" && flag == "-C") || (name == "sudo" && flag == "-D"):
-		if p, ok := ResolvePath(val, dir); ok {
+		if p, ok := resolvePath(val, dir); ok {
 			dir = p
 		}
 	}
@@ -397,7 +411,7 @@ func CdTarget(toks []string, cwd string) (string, bool) {
 		}
 		return cwd, true
 	}
-	if p, ok := ResolvePath(args[0], cwd); ok {
+	if p, ok := resolvePath(args[0], cwd); ok {
 		return p, true
 	}
 	return cwd, true
@@ -415,8 +429,8 @@ func skipCdOptions(args []string) []string {
 	return args
 }
 
-// ResolvePath expands `~`/$HOME and anchors p to base; ok=false while the token stays dynamic.
-func ResolvePath(p, base string) (string, bool) {
+// resolvePath expands `~`/$HOME and anchors p to base; ok=false while the token stays dynamic.
+func resolvePath(p, base string) (string, bool) {
 	p = strings.Trim(p, `'"`)
 	if p == "" || p == "-" {
 		return base, false

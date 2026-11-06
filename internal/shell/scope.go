@@ -19,6 +19,7 @@ var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "sh
 var gitBannedFlags = []string{
 	"--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager",
 	"--textconv", "--remerge-diff", "--diff-merges", "--submodule", // each still reaches a textconv or merge driver
+	"--no-index", // diffs and greps paths outside the repository
 }
 
 // gitLeadingFlags must open the verb's args: later, a value option or -- swallows them (git diff -- --no-textconv).
@@ -153,8 +154,8 @@ func bannedGitFlag(arg string) bool {
 	return false
 }
 
-// ResolveReal makes p absolute under base and resolves symlinks through its deepest existing ancestor.
-func ResolveReal(p, base string) string {
+// resolveReal makes p absolute under base and resolves symlinks through its deepest existing ancestor.
+func resolveReal(p, base string) string {
 	if p == "~" || strings.HasPrefix(p, "~/") {
 		return "~escape" // never inside a workdir
 	}
@@ -174,10 +175,10 @@ func ResolveReal(p, base string) string {
 	}
 }
 
-// RelInside returns p's path relative to the resolved workDir, false when it escapes.
-func RelInside(p, workDir string) (string, bool) {
-	root := ResolveReal(workDir, ".")
-	rel, err := filepath.Rel(root, ResolveReal(p, root))
+// relInside returns p's path relative to the resolved workDir, false when it escapes.
+func relInside(p, workDir string) (string, bool) {
+	root := resolveReal(workDir, ".")
+	rel, err := filepath.Rel(root, resolveReal(p, root))
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", false
 	}
@@ -186,7 +187,7 @@ func RelInside(p, workDir string) (string, bool) {
 
 // WriteAllowed reports whether a write to file stays inside workDir and clear of secrets, .git and state.
 func WriteAllowed(file, workDir string) bool {
-	rel, ok := RelInside(file, workDir)
+	rel, ok := relInside(file, workDir)
 	if !ok || file == "" {
 		return false
 	}
@@ -317,7 +318,7 @@ func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
 // CommandIn reports whether every segment of cmd, run in cwd, passes the policy's commands or extra (which may be nil)
 // in a root; cwd must be absolute and inside a root, and relative operands resolve against it, never another root.
 func CommandIn(cmd, cwd string, roots []string, extra agentconfig.ShellRules) bool {
-	if !filepath.IsAbs(cwd) || !slices.ContainsFunc(roots, func(root string) bool { _, ok := RelInside(cwd, root); return ok }) {
+	if !filepath.IsAbs(cwd) || !slices.ContainsFunc(roots, func(root string) bool { _, ok := relInside(cwd, root); return ok }) {
 		return false
 	}
 	segs, ok := splitShell(cmd)
@@ -425,7 +426,7 @@ func argsInside(args []string, workDir string) bool {
 			if !pathLooking(v) {
 				continue
 			}
-			if _, ok := RelInside(v, workDir); !ok {
+			if _, ok := relInside(v, workDir); !ok {
 				return false
 			}
 		}
@@ -472,7 +473,7 @@ func rmAllowed(args []string, workDir string) bool {
 		if st, err := os.Lstat(abs); err != nil || !st.Mode().IsRegular() {
 			return false
 		}
-		if _, ok := RelInside(abs, workDir); !ok || rmProtected(abs, state) || rmProtected(ResolveReal(abs, workDir), ResolveReal(state, "/")) {
+		if _, ok := relInside(abs, workDir); !ok || rmProtected(abs, state) || rmProtected(resolveReal(abs, workDir), resolveReal(state, "/")) {
 			return false
 		}
 	}
@@ -494,8 +495,8 @@ func rmProtected(path, state string) bool {
 
 func scopedGit(w []string, workDir string) bool {
 	if len(w) >= 3 && w[1] == "-C" { // git -C <dir> is the same command run from dir, which must stay inside workDir
-		dir := ResolveReal(w[2], workDir)
-		if _, ok := RelInside(dir, workDir); !ok {
+		dir := resolveReal(w[2], workDir)
+		if _, ok := relInside(dir, workDir); !ok {
 			return false
 		}
 		return scopedGit(append([]string{"git"}, w[3:]...), dir)
@@ -532,11 +533,11 @@ func gitAddPathAllowed(p, workDir string) bool {
 	if strings.HasPrefix(p, "-") || p == "." || p == ".." || strings.HasSuffix(p, "/") {
 		return false
 	}
-	rel, ok := RelInside(p, workDir)
+	rel, ok := relInside(p, workDir)
 	if !ok {
 		return false
 	}
-	if st, err := os.Stat(ResolveReal(p, ResolveReal(workDir, "."))); err == nil && st.IsDir() || rel == "." {
+	if st, err := os.Stat(resolveReal(p, resolveReal(workDir, "."))); err == nil && st.IsDir() || rel == "." {
 		return false
 	}
 	return true
@@ -561,10 +562,14 @@ func gitCommitAllowed(args []string) bool {
 	return !skip
 }
 
-// commitLongFlag bans --amend/--no-verify (and abbreviations) and a bare --; skip means --message takes the next arg.
+// commitBannedLong are the long commit flags that rewrite history, skip hooks or reuse another commit's message.
+var commitBannedLong = []string{"--amend", "--no-verify", "--reuse-message", "--reedit-message"}
+
+// commitLongFlag bans commitBannedLong (and abbreviations) and a bare --; skip means --message takes the next arg.
 func commitLongFlag(a string) (ok, skip bool) {
 	name, _, _ := strings.Cut(a, "=")
-	if len(name) < 3 || strings.HasPrefix("--amend", name) || strings.HasPrefix("--no-verify", name) || a == "--" {
+	banned := slices.ContainsFunc(commitBannedLong, func(b string) bool { return strings.HasPrefix(b, name) })
+	if len(name) < 3 || a == "--" || banned {
 		return false, false
 	}
 	return true, name == "--message" && !strings.Contains(a, "=")
@@ -575,5 +580,6 @@ func commitShortFlags(a string) (ok, skip bool) {
 	if strings.ContainsAny(a, "ncC") { // -n skips hooks; -c/-C reuse another commit
 		return false, false
 	}
-	return true, strings.HasSuffix(a, "m")
+	m := strings.IndexByte(a, 'm')
+	return true, m == len(a)-1 // text after the first m is the attached message; only a trailing m takes the next arg
 }

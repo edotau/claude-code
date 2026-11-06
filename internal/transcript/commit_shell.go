@@ -185,7 +185,7 @@ var bareHeredocWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 // heredocWord reports the terminator word of a `<<[-]WORD` (quoted or bare) on line, false for a
 // here-string (`<<<`) or a line with no heredoc redirect at all.
 func heredocWord(line string) (string, bool) {
-	idx := strings.Index(line, "<<")
+	idx := unquotedHeredocOp(line)
 	if idx < 0 || (idx+2 < len(line) && line[idx+2] == '<') {
 		return "", false
 	}
@@ -207,4 +207,25 @@ func heredocWord(line string) (string, bool) {
 	}
 	word := rest[:end]
 	return word, bareHeredocWord.MatchString(word) // rejects `$((1<<4))` and `"a <<b"`
+}
+
+// unquotedHeredocOp returns the index of the first `<<` on line outside quotes and backslash escapes, or -1.
+func unquotedHeredocOp(line string) int {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == '\\' && quote != '\'':
+			i++
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '<' && strings.HasPrefix(line[i:], "<<"):
+			return i
+		}
+	}
+	return -1
 }
