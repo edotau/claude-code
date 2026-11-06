@@ -31,6 +31,15 @@ type Permissions struct {
 	Deny  []Rule `json:"deny,omitempty"`
 }
 
+// Each visits rules in strictness order: Deny, Ask, then Allow.
+func (p Permissions) Each(fn func(decision Decision, r Rule)) {
+	for decision, rules := range [][]Rule{p.Deny, p.Ask, p.Allow} {
+		for _, r := range rules {
+			fn(Decision(decision), r)
+		}
+	}
+}
+
 // IsZero reports a request with no policy: no mode and no rules.
 func (p Permissions) IsZero() bool { return p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 }
 

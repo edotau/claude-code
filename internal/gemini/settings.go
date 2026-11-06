@@ -112,12 +112,12 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 	}
 	if len(bashDeny) > 0 && !agyGateInstalled(cwd) {
 		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook is not in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
-			joinRules(bashDeny), agyHooksPath())
+			strings.Join(agent.RuleStrings(bashDeny), ", "), agyHooksPath())
 	}
 	deny, _ = appendAgyRules(deny, bashDeny, cwd) // an inexact rule is the hook's alone; the exact ones also ride natively
 	deny, unDeny := appendAgyRules(deny, pathDeny, cwd)
 	if len(unDeny) > 0 {
-		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: dispatch refused", joinRules(unDeny))
+		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: dispatch refused", strings.Join(agent.RuleStrings(unDeny), ", "))
 	}
 	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
 	for _, r := range p.Ask {
@@ -131,7 +131,7 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 	if err != nil {
 		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
 	}
-	return string(b), ruleStrings(unAllow), nil
+	return string(b), append([]string{}, agent.RuleStrings(unAllow)...), nil
 }
 
 // appendAgyRules appends each rule agy can express natively to dst and names the rest.
@@ -184,13 +184,3 @@ func agyGateInstalled(cwd string) bool {
 	}
 	return false
 }
-
-func ruleStrings(rules []agent.Rule) []string {
-	out := make([]string, len(rules))
-	for i, r := range rules {
-		out[i] = r.String()
-	}
-	return out
-}
-
-func joinRules(rules []agent.Rule) string { return strings.Join(ruleStrings(rules), ", ") }
