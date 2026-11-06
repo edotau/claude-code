@@ -264,6 +264,7 @@ func ParseMenuImport(data []byte) ([]providers.OpencodeModel, error) {
 	}
 	var out []providers.OpencodeModel
 	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for n := 1; sc.Scan(); n++ {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {

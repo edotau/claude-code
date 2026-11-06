@@ -104,9 +104,12 @@ func ResolveAskPrompt(prompt string) (string, error) {
 	if prompt != "" && prompt != "-" {
 		return prompt, nil
 	}
-	raw, err := io.ReadAll(os.Stdin)
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, MaxPromptBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read stdin: %w", err)
+	}
+	if len(raw) > MaxPromptBytes {
+		return "", PromptTooLarge(len(raw), MaxPromptBytes)
 	}
 	return string(raw), nil
 }

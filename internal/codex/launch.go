@@ -67,6 +67,7 @@ func codexFileOverrides(path string) ([]string, error) {
 	var out []string
 	table := ""
 	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for n := 1; sc.Scan(); n++ {
 		line := strings.TrimSpace(sc.Text())
 		switch {
