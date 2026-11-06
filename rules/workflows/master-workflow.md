@@ -1,7 +1,7 @@
 ---
 paths:
   - "skills/subagent-workflows/**"
-  - "commands/code-workers.md"
+  - "marketplace/plugins/code-worker/commands/code-workers.md"
   - "agents/*.md"
   - "workflows/*.js"
 ---
