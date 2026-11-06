@@ -178,12 +178,14 @@ func getChangedSourceFiles(repo, base, head string) []string {
 		}
 	}
 	tryArgs := [][]string{{base + "..." + head}, {base, head}}
+	var lastErr error
 	for _, extra := range tryArgs {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		full := append([]string{"diff", "--name-only", "--relative"}, extra...)
 		out, err := proc.RunGitInherit(ctx, repo, full...)
 		cancel()
 		if err != nil {
+			lastErr = err
 			continue
 		}
 		var files []string
@@ -203,6 +205,7 @@ func getChangedSourceFiles(repo, base, head string) []string {
 		}
 		return files
 	}
+	fmt.Fprintf(os.Stderr, "Warning: git diff %s...%s failed, no files reviewed: %v\n", base, head, lastErr)
 	return nil
 }
 

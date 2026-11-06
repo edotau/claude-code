@@ -221,7 +221,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if pcur, ok = initialPayload(w, pcur, s.plansJSON); !ok {
 		return
 	}
-	if !writeTreeFrame(rc, w, cur) || !writeEventFrame(rc, w, "plans", pcur) {
+	if !writeEventFrame(rc, w, "tree", cur) || !writeEventFrame(rc, w, "plans", pcur) {
 		return
 	}
 	streamEvents(r, rc, w, h, ph, ch, pch, cur, pcur)
@@ -258,7 +258,7 @@ func streamEvents(r *http.Request, rc *http.ResponseController, w http.ResponseW
 		case <-pch:
 			ok = pushIfChanged(ph, &psent, func(b []byte) bool { return writeEventFrame(rc, w, "plans", b) })
 		case <-ch:
-			ok = pushIfChanged(h, &sent, func(b []byte) bool { return writeTreeFrame(rc, w, b) })
+			ok = pushIfChanged(h, &sent, func(b []byte) bool { return writeEventFrame(rc, w, "tree", b) })
 		}
 		if !ok {
 			return
@@ -287,12 +287,7 @@ func writeFlush(rc *http.ResponseController, w http.ResponseWriter, b []byte) bo
 	return rc.Flush() == nil
 }
 
-// writeTreeFrame writes one `event: tree` frame (JSON is single-line, so one data: line) and flushes.
-func writeTreeFrame(rc *http.ResponseController, w http.ResponseWriter, payload []byte) bool {
-	return writeEventFrame(rc, w, "tree", payload)
-}
-
-// writeEventFrame writes one named SSE frame and flushes.
+// writeEventFrame writes one named SSE frame (JSON is single-line, so one data: line) and flushes.
 func writeEventFrame(rc *http.ResponseController, w http.ResponseWriter, name string, payload []byte) bool {
 	frame := append(append([]byte("event: "+name+"\ndata: "), bytes.TrimRight(payload, "\n")...), '\n', '\n')
 	return writeFlush(rc, w, frame)

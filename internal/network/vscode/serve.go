@@ -287,8 +287,12 @@ func start(ctx context.Context, opts Options) (ServeResult, error) {
 		}
 		st = State{PID: pid, Port: port, Started: time.Now().UTC()}
 		res, err := applyTailscale(ctx, st, opts)
+		if err != nil {
+			_ = terminate(pid) // no state file was written, so Stop could never reach this daemon
+			return ServeResult{}, err
+		}
 		res.Notes = append(notes, res.Notes...)
-		return res, err
+		return res, nil
 	}
 	if opts.Folder != "" {
 		return applyTailscaleNoting(ctx, st, opts, "already running; --folder applies on the next start (use --stop first)")
@@ -318,7 +322,9 @@ func prepareDataDir() []string {
 	if err := os.MkdirAll(filepath.Dir(MachineSettingsPath()), 0o700); err != nil {
 		return append(notes, "settings: "+err.Error())
 	}
-	if _, err := os.Stat(MachineSettingsPath()); os.IsNotExist(err) {
+	if _, err := os.Stat(MachineSettingsPath()); err != nil && !os.IsNotExist(err) {
+		return append(notes, "settings: "+err.Error())
+	} else if err != nil {
 		// First start: the web server only shows this machine's own repos, so skip the trust banner.
 		seed := []byte("{\n  \"security.workspace.trust.enabled\": false\n}\n")
 		if err := paths.AtomicWrite(MachineSettingsPath(), seed, 0o600); err != nil {

@@ -136,21 +136,28 @@ func robotsDisallows(rules []robotsRule, path string) (robotsRule, bool) {
 	return best, found && !best.allow
 }
 
-// robotsMatch matches a prefix pattern with * wildcards and an optional trailing $ anchor.
+// robotsMatch matches a prefix pattern with * wildcards and an optional trailing $ anchor, in linear time.
 func robotsMatch(pattern, path string) bool {
-	if pattern == "" {
-		return true
-	}
-	if pattern == "$" {
-		return path == ""
-	}
-	if pattern[0] == '*' {
-		for i := 0; i <= len(path); i++ {
-			if robotsMatch(pattern[1:], path[i:]) {
-				return true
-			}
-		}
+	anchored := strings.HasSuffix(pattern, "$")
+	pattern = strings.TrimSuffix(pattern, "$")
+	segs := strings.Split(pattern, "*")
+	if !strings.HasPrefix(path, segs[0]) {
 		return false
 	}
-	return path != "" && path[0] == pattern[0] && robotsMatch(pattern[1:], path[1:])
+	if len(segs) == 1 {
+		return !anchored || path == segs[0]
+	}
+	path = path[len(segs[0]):]
+	last := segs[len(segs)-1]
+	for _, seg := range segs[1 : len(segs)-1] {
+		i := strings.Index(path, seg)
+		if i < 0 {
+			return false
+		}
+		path = path[i+len(seg):]
+	}
+	if anchored {
+		return strings.HasSuffix(path, last)
+	}
+	return strings.Contains(path, last)
 }

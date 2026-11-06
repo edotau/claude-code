@@ -1,13 +1,23 @@
 package vscode
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -309,4 +319,86 @@ func writeStateFixture(t *testing.T, st State) {
 	if err := os.WriteFile(stateFile(), data, 0o600); err != nil {
 		t.Fatalf("write state fixture: %v", err)
 	}
+}
+
+// --- failed-start regressions ----------------------------------------------------------------
+
+func TestPrepareDataDirReportsUnreadableSettingsDir(t *testing.T) {
+	setup(t)
+	dir := filepath.Dir(MachineSettingsPath())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if _, err := os.Stat(MachineSettingsPath()); err == nil || os.IsNotExist(err) {
+		t.Skip("directory permissions not enforced (running as root?)")
+	}
+
+	notes := prepareDataDir()
+	if !slices.ContainsFunc(notes, func(n string) bool { return strings.HasPrefix(n, "settings: ") }) {
+		t.Fatalf("prepareDataDir notes = %q, want a settings note for the permission error", notes)
+	}
+	_ = os.Chmod(dir, 0o700)
+	if _, err := os.Stat(MachineSettingsPath()); !os.IsNotExist(err) {
+		t.Fatalf("settings.json exists after an unreadable-dir start (err=%v); seed/merge must be skipped", err)
+	}
+}
+
+func TestStartTerminatesDaemonWhenStateWriteFails(t *testing.T) {
+	setup(t)
+	bin := t.TempDir()
+	pidFile := filepath.Join(bin, "pid")
+	script := "#!/bin/sh\necho $$ > " + pidFile + "\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(bin, "code"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", t.TempDir())
+	// A directory at the state path makes the post-health writeState fail while Running() still reads "not running".
+	if err := os.MkdirAll(filepath.Join(stateFile(), "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	port := unusedPort(t)
+	// Answer on the port only once the fake daemon has spawned (after Start picked the port), standing in for serve-web.
+	srv := &http.Server{ReadHeaderTimeout: time.Second}
+	go func() {
+		for {
+			if _, err := os.Stat(pidFile); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port)); err == nil {
+			_ = srv.Serve(ln)
+		}
+	}()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	if _, err := Start(context.Background(), Options{Port: port}); err == nil {
+		t.Fatal("Start: want the state-write error")
+	}
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("fake daemon never ran: %v", err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	for i := 0; i < 50 && liveProcess(pid); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if liveProcess(pid) {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		t.Fatalf("daemon pid %d still alive after a failed Start: unrecorded orphan", pid)
+	}
+}
+
+// liveProcess is proc.Alive minus zombies (the test never reaps the daemon it spawned); uses ps so macOS works too.
+func liveProcess(pid int) bool {
+	if !proc.Alive(pid) {
+		return false
+	}
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	return err != nil || !strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
 }

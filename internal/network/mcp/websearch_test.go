@@ -331,6 +331,7 @@ func enrichTestPage(slow chan struct{}) http.HandlerFunc {
 // hit's snippet — the snippet is Tavily's query-relevance extract and must survive — fetches run
 // concurrently, and any failing fetch keeps the snippet alone.
 func TestEnrichResults(t *testing.T) {
+	allowLoopbackFetch(t)
 	slow := make(chan struct{})
 	page := httptest.NewServer(enrichTestPage(slow))
 	defer page.Close()
@@ -380,5 +381,76 @@ func TestPingReturnsEmptyResult(t *testing.T) {
 	resps := drive(t, srv, `{"jsonrpc":"2.0","id":7,"method":"ping"}`)
 	if len(resps) != 1 || resps[0]["error"] != nil || resps[0]["result"] == nil {
 		t.Errorf("ping = %v, want an empty result and no error", resps)
+	}
+}
+
+// allowLoopbackFetch swaps the SSRF-guarded pageClient for a plain one so httptest servers on 127.0.0.1 can be fetched.
+func allowLoopbackFetch(t *testing.T) {
+	t.Helper()
+	orig := pageClient
+	pageClient = &http.Client{}
+	t.Cleanup(func() { pageClient = orig })
+}
+
+// TestFetchPageTextRefusesInternalAddresses: a loopback target and a public-looking redirect to one both keep the snippet.
+func TestFetchPageTextRefusesInternalAddresses(t *testing.T) {
+	var hits atomic.Int32
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, "secret metadata")
+	}))
+	defer internal.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, internal.URL+"/x", http.StatusFound)
+	}))
+	defer redir.Close()
+	for _, u := range []string{internal.URL + "/x", redir.URL + "/r"} {
+		if got := fetchPageText(context.Background(), u); got != "" {
+			t.Errorf("fetchPageText(%s) = %q, want refusal", u, got)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("internal server was reached %d times, want 0", n)
+	}
+}
+
+// TestFetchPageTextHonorsRobots: a Disallow for * keeps the snippet and the page is never requested.
+func TestFetchPageTextHonorsRobots(t *testing.T) {
+	allowLoopbackFetch(t)
+	var pageHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			fmt.Fprint(w, "User-agent: *\nDisallow: /private\n")
+			return
+		}
+		pageHits.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<p>body</p>")
+	}))
+	defer srv.Close()
+	if got := fetchPageText(context.Background(), srv.URL+"/private/a"); got != "" || pageHits.Load() != 0 {
+		t.Errorf("disallowed page: got %q, hits %d, want empty and 0", got, pageHits.Load())
+	}
+	if got := fetchPageText(context.Background(), srv.URL+"/open"); got != "body" {
+		t.Errorf("allowed page = %q, want body", got)
+	}
+}
+
+// TestFetchPageTextTruncatedBodyKeepsSnippet: a body cut off mid-read yields "" rather than a fragment.
+func TestFetchPageTextTruncatedBodyKeepsSnippet(t *testing.T) {
+	allowLoopbackFetch(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Length", "1000")
+		fmt.Fprint(w, "<p>partial")
+	}))
+	defer srv.Close()
+	if got := fetchPageText(context.Background(), srv.URL+"/p"); got != "" {
+		t.Errorf("truncated body gave %q, want empty", got)
 	}
 }

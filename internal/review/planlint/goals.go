@@ -12,8 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// StepResult mirrors the Python step-result dict field order.
-type StepResult struct {
+// stepResult mirrors the Python step-result dict field order.
+type stepResult struct {
 	Title string `json:"title"`
 	Score int    `json:"score"`
 	Level string `json:"level"`
@@ -35,9 +35,9 @@ type noStepsResult struct {
 	Verdict         string          `json:"verdict"`
 	Score           int             `json:"score"`
 	MaxScore        int             `json:"max_score"`
-	StepResults     []StepResult    `json:"step_results"`
+	StepResults     []stepResult    `json:"step_results"`
 	Recommendations []string        `json:"recommendations"`
-	OversizedTasks  []OversizedTask `json:"oversized_tasks,omitempty"`
+	OversizedTasks  []oversizedTask `json:"oversized_tasks,omitempty"`
 }
 
 type stepsResult struct {
@@ -49,14 +49,14 @@ type stepsResult struct {
 	Percentage           pyFloat         `json:"percentage"`
 	HasFinalVerification bool            `json:"has_final_verification"`
 	Verdict              string          `json:"verdict"`
-	StepResults          []StepResult    `json:"step_results"`
+	StepResults          []stepResult    `json:"step_results"`
 	Recommendations      []string        `json:"recommendations"`
-	OversizedTasks       []OversizedTask `json:"oversized_tasks,omitempty"`
+	OversizedTasks       []oversizedTask `json:"oversized_tasks,omitempty"`
 }
 
-// OversizedTask is a `## Tasks` (or phase task) line that isn't leaf-sized: too many packages, too many
+// oversizedTask is a `## Tasks` (or phase task) line that isn't leaf-sized: too many packages, too many
 // findings/items, or a code task with no `owns:` segment (agents/Plan.md's leaf-sized task rule).
-type OversizedTask struct {
+type oversizedTask struct {
 	Title  string `json:"title"`
 	Reason string `json:"reason"`
 }
@@ -128,8 +128,8 @@ func maxFindingsCount(line string) (int, bool) {
 
 // findOversizedTasks flags `## Tasks` (or phase task) checklist lines that aren't leaf-sized per
 // agents/Plan.md: >3 packages, >10 findings/items, or a code task with no (or an empty) `owns:`; fences skip.
-func findOversizedTasks(text string) []OversizedTask {
-	var out []OversizedTask
+func findOversizedTasks(text string) []oversizedTask {
+	var out []oversizedTask
 	fence := ""
 	for _, raw := range splitLines(text) {
 		if f := fenceRe().FindStringSubmatch(raw); f != nil {
@@ -150,7 +150,7 @@ func findOversizedTasks(text string) []OversizedTask {
 		if len(reasons) == 0 {
 			continue
 		}
-		out = append(out, OversizedTask{Title: textutil.TruncateRunes(line, 120), Reason: strings.Join(reasons, "; ")})
+		out = append(out, oversizedTask{Title: textutil.TruncateRunes(line, 120), Reason: strings.Join(reasons, "; ")})
 	}
 	return out
 }
@@ -182,9 +182,14 @@ func extractPhaseSteps(text string) []string {
 	var steps []string
 	var current []string
 	level := 0
+	var fence fenceState
 	for _, line := range splitLines(text) {
-		heading := headingRe().FindStringSubmatch(line)
-		phase := phaseRe().MatchString(line)
+		var heading []string
+		phase := false
+		if !fence.skip(line) {
+			heading = headingRe().FindStringSubmatch(line)
+			phase = phaseRe().MatchString(line)
+		}
 		if level > 0 && heading != nil && (len(heading[1]) <= level || phase) {
 			steps = append(steps, strings.Join(current, "\n"))
 			current = nil
@@ -204,13 +209,38 @@ func extractPhaseSteps(text string) []string {
 	return steps
 }
 
+// fenceState tracks whether the line being read is a code fence or inside one.
+type fenceState string
+
+// skip reports whether line is a fence delimiter or inside a fenced block, updating the state.
+func (f *fenceState) skip(line string) bool {
+	m := fenceRe().FindStringSubmatch(line)
+	switch {
+	case m == nil:
+		return *f != ""
+	case *f == "":
+		*f = fenceState(m[1])
+	case string(*f) == m[1]:
+		*f = ""
+	}
+	return true
+}
+
 func extractListSteps(text string) []string {
 	var steps []string
 	var current []string
 	building := false
+	var fence fenceState
 	for _, line := range splitLines(text) {
 		stripped := strings.TrimSpace(line)
-		if stepRe().MatchString(stripped) {
+		if fence.skip(line) {
+			if building {
+				current = append(current, line)
+			}
+		} else if building && headingRe().MatchString(line) && !stepRe().MatchString(stripped) {
+			steps = append(steps, strings.Join(current, "\n")) // a heading ends the last step's body
+			current, building = nil, false
+		} else if stepRe().MatchString(stripped) {
 			if building {
 				steps = append(steps, strings.Join(current, "\n"))
 			}
@@ -248,19 +278,19 @@ type analysis struct {
 	percentage           float64
 	hasFinalVerification bool
 	verdict              string
-	stepResults          []StepResult
+	stepResults          []stepResult
 	recommendations      []string
 	noPlan               bool
-	oversizedTasks       []OversizedTask
+	oversizedTasks       []oversizedTask
 }
 
-func scoreSteps(steps []string) ([]StepResult, int) {
-	results := make([]StepResult, 0, len(steps))
+func scoreSteps(steps []string) ([]stepResult, int) {
+	results := make([]stepResult, 0, len(steps))
 	total := 0
 	for _, step := range steps {
 		pts, level := scoreStep(step)
 		total += pts
-		results = append(results, StepResult{Title: textutil.TruncateRunes(textutil.FirstLine(step), 120), Score: pts, Level: level})
+		results = append(results, stepResult{Title: textutil.TruncateRunes(textutil.FirstLine(step), 120), Score: pts, Level: level})
 	}
 	return results, total
 }
@@ -275,7 +305,7 @@ func goalsVerdict(pct float64) string {
 	return "MISSING"
 }
 
-func goalRecommendations(results []StepResult, hasFinal bool) []string {
+func goalRecommendations(results []stepResult, hasFinal bool) []string {
 	noneN, vagueN := 0, 0
 	for _, r := range results {
 		switch r.Level {
@@ -309,7 +339,7 @@ func analyze(text, source string) analysis {
 			source:          source,
 			noPlan:          true,
 			verdict:         "NO_PLAN",
-			stepResults:     []StepResult{},
+			stepResults:     []stepResult{},
 			recommendations: []string{"No numbered/bulleted steps found. Is this a plan?"},
 			oversizedTasks:  oversized,
 		}

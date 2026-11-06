@@ -1,5 +1,5 @@
 Diff Surgeon — 1 files, 8 changed lines
-Noise ratio: 75% (6 noise lines)
+Noise ratio: 88% (7 noise lines)
 Verdict: VERY_NOISY
 
   example.py:
@@ -12,5 +12,7 @@ Verdict: VERY_NOISY
       +    # TODO new
     [docstring-addition] 1 instance(s)
       +"""a new docstring"""
+    [quote-style-swap] 1 instance(s)
+      -    return "hi " + name -> +    return 'hi ' + name
 
 Recommendation: review flagged lines. Remove changes that don't trace to your task.

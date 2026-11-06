@@ -15,9 +15,9 @@ func ValidHost(host string) error {
 	return nil
 }
 
-// EncodeScript wraps a POSIX sh script as a `sh -c` command: the script rides base64 (A-Za-z0-9+/=), so sh, bash
+// encodeScript wraps a POSIX sh script as a `sh -c` command: the script rides base64 (A-Za-z0-9+/=), so sh, bash
 // and fish parse the wrapper identically whatever bytes the script holds.
-func EncodeScript(script string) string {
+func encodeScript(script string) string {
 	return `sh -c 'eval "$(printf %s ` + base64.StdEncoding.EncodeToString([]byte(script)) + ` | base64 -d)"'`
 }
 
@@ -27,5 +27,5 @@ func StreamArgs(host, script string) ([]string, error) {
 	if err := ValidHost(host); err != nil {
 		return nil, err
 	}
-	return []string{"ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "--", host, EncodeScript(script)}, nil
+	return []string{"ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "--", host, encodeScript(script)}, nil
 }
