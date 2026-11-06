@@ -1,6 +1,6 @@
 # Saved Workflows (`workflows/*.js`)
 
-Run one only when the user asks; the default dispatch is `/code-workers` ‖ `copilot`
+Run one only when the user asks; the default dispatch is `/code-worker` ‖ `copilot`
 (`rules/workflows/master-workflow.md` → Phase 6). Each is a deterministic template of master-workflow phases, run by
 name (`Workflow({name, args})`) or nested via `workflow(name, args)` (one level). Control flow is code, never a model
 decision; agents work in the shared tree.

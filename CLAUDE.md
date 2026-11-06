@@ -72,7 +72,7 @@ auto-loads while you work in that code). Anything unlisted: `claude-code describ
 | --- | --- | --- |
 | Install, settings, hooks | `make install` (`claude-code install --dry-run` previews) | `rules/harness/settings-management.md` · `rules/harness/hooks.md` |
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
-| Agents and dispatch | `claude-code ask --agent <agent> "<task>"` · `/code-workers` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
+| Agents and dispatch | `claude-code ask --agent <agent> "<task>"` · `/code-worker` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code network mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |

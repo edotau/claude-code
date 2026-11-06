@@ -1,5 +1,5 @@
 ---
-description: "Workhorse fan-out: claude, codex and gemini code-worker leaves finish a series of tasks — parallel, sequential (review gate per task) or auto. Copilot, opencode, Databricks and model discovery: /coworkers."
+description: "Workhorse fan-out: claude, codex and gemini code-worker leaves finish a series of tasks — parallel, sequential (review gate per task) or auto. Copilot, opencode, Databricks and model discovery: /coworker."
 argument-hint: "[agent=claude|codex|gemini] [profile=p] [parallel|sequential|auto] task|…"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
@@ -24,29 +24,29 @@ Relay one consolidated report: per-task status, files, verification, overall ver
 
 Default agents: the pool is claude (in-context), codex and gemini. An `agent=` token (stripped first) sets every
 leaf's type; without it, per task: codex for review or a second opinion, gemini for read-heavy sweeps and research,
-claude for the rest. Tasks for copilot, opencode, Databricks or a discovered model go through `/coworkers`.
+claude for the rest. Tasks for copilot, opencode, Databricks or a discovered model go through `/coworker`.
 
-A `profile=<p>` token (stripped first) adds `Profile: <p>` to every leaf brief, as in `/coworkers`.
+A `profile=<p>` token (stripped first) adds `Profile: <p>` to every leaf brief, as in `/coworker`.
 
-The scan → review → edit pipeline across gemini, codex and opencode is `/coworkers team`.
+The scan → review → edit pipeline across gemini, codex and opencode is `/coworker team`.
 
 # Usage
 
 ```text
-/code-workers [agent=claude|codex|gemini] [profile=<p>] [parallel|sequential|auto] <task> [| <task> …]
+/code-worker [agent=claude|codex|gemini] [profile=<p>] [parallel|sequential|auto] <task> [| <task> …]
 
   agent=    claude (in-context; reasoning, integration) · codex (review, second opinion) ·
             gemini (read-heavy sweeps, research); omitted = per task, claude for the rest
   profile=  vault profile that bills the codex/gemini leaves (dev, prod, …); omitted = the session profile
   mode      auto (default: parallel if independent, sequential if coupled or from a plan) · parallel ·
-            sequential (spec → simplify → quality gate per task); team mode moved to /coworkers team
+            sequential (spec → simplify → quality gate per task); team mode moved to /coworker team
   no task   runs the newest plan's task list (~/.claude/plans/…)
 
 Feature and bug-fix tasks also get a copilot test agent in the same message.
 
 Examples:
-  /code-workers fix the watchdog flake | rename ResolveEnv to CanonicalizeEnv   auto, two leaves
-  /code-workers sequential                                                     newest plan, gated per task
-  /code-workers agent=codex review the diff on this branch                       codex leaf
-  /code-workers profile=prod agent=gemini scan internal/memory for dead exports  gemini billed to prod
+  /code-worker fix the watchdog flake | rename ResolveEnv to CanonicalizeEnv   auto, two leaves
+  /code-worker sequential                                                     newest plan, gated per task
+  /code-worker agent=codex review the diff on this branch                       codex leaf
+  /code-worker profile=prod agent=gemini scan internal/memory for dead exports  gemini billed to prod
 ```

@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Model-discovery coding agent on the OpenCode CLI, driven through `claude-code opencode <verb>` or headless `claude-code ask --agent opencode`: it reaches the widest model pool (its own catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model (`--model <m>`, `catalog list|sync`, `/coworkers model=discovery`). It also implements and fixes code (`ask --tools [--background]`, then `status`/`tail -f`/`result`), reviews a diff (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`), continues a session (`resume <id>`), scans code + web (`explore`), refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP). It loads the harness rules, skills and guard plugin: `--deny` holds.
+  Model-discovery coding agent on the OpenCode CLI, driven through `claude-code opencode <verb>` or headless `claude-code ask --agent opencode`: it reaches the widest model pool (its own catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model (`--model <m>`, `catalog list|sync`, `/coworker model=discovery`). It also implements and fixes code (`ask --tools [--background]`, then `status`/`tail -f`/`result`), reviews a diff (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`), continues a session (`resume <id>`), scans code + web (`explore`), refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP). It loads the harness rules, skills and guard plugin: `--deny` holds.
 
   <example>
   Context: User wants a small feature in a named package.
@@ -21,7 +21,7 @@ color: yellow
 Superpower: model discovery. Reaches the widest model pool — the CLI's own catalog (`claude-code opencode catalog`),
 Databricks profiles (`opencode catalog sync --profile P`), and discovered models (deepseek, kimi, glm…; refresh with
 `claude-code models discover [--profile P] [--apply]` or `/discover-models`). Use it to run on, compare, or find a
-non-Claude model: `--model <m>` or `discovery` (router picks a rare discovered model) via `/coworkers`.
+non-Claude model: `--model <m>` or `discovery` (router picks a rare discovered model) via `/coworker`.
 
 Also a general coding agent: implements, edits, fixes and reviews code. A small change may run on you; a large one is
 drafted on the OpenCode CLI — you brief, then verify. DOC-UPDATE and DOC-LOOKUP are two of its jobs; memory
@@ -114,7 +114,7 @@ Typical pool (~50 ids; the live list is `claude-code opencode catalog list`, ids
   profile (opencode's pin: `dev`) on price + headroom. Preview with
   `claude-code gateway router --agent opencode --model <alias> [--task "<t>"]`.
 - **Name one** with `--model <id>` (an id off the profile's menu is refused); `--profile <p>` bills another profile.
-- **Compare or rotate** across models through `/coworkers` (`model=<m>`, `discovery`); report which model answered
+- **Compare or rotate** across models through `/coworker` (`model=<m>`, `discovery`); report which model answered
   (the `ask: ran on …` line).
 
 ## Verbs
