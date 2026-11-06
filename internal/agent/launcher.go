@@ -46,9 +46,6 @@ type Launcher interface {
 
 var defaultLauncher Launcher
 
-// DefaultLauncher is the registered default Launcher.
-func DefaultLauncher() Launcher { return defaultLauncher }
-
 // LaunchOptions are the harness flags consumed before passthrough.
 type LaunchOptions struct {
 	Provider string // the profile name from --profile (field name kept until the agent lane moves off it)
