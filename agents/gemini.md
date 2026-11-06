@@ -46,7 +46,8 @@ fan-out explore (Procedure below), and `ask --agent gemini --tools --dirs …` o
   structured data across many files.
 - **Whole-module second-opinion review (`sweep-review`)** —
   `claude-code ask --agent gemini --tools --model opus --dirs <d>` (Sweep-review below).
-- **Diff review on the Gemini family** — `claude-code gemini review [--adversarial]`.
+- **Diff review on the Gemini family** — `claude-code gemini review --model gemini-4-argon-high [--adversarial]`;
+  reviews run on argon-high because flash over-calls severity, scans keep the default.
 - **Continuing an agy conversation** — `claude-code gemini resume <id> <task>`.
 
 ## Account and model
@@ -74,7 +75,8 @@ Gemini deltas:
 - `ask --agent gemini --tools [--dirs d] [--files globs] [--diff] [--index] [--max-files N] [--max-file-bytes N]
   [--rubric f] "<task>"` — 1M-context sweep, tracked files only; a large single file needs `--max-file-bytes`. Gemini
   packs the context into a file it reads with tools, so `--tools` is required and `--read-only` is refused.
-- `gemini review [--adversarial] [--uncommitted|--base <b>|--commit <sha>|--pr] [--rubric f] [--background] [focus…]`.
+- `gemini review [--model <m>] [--adversarial] [--uncommitted|--base <b>|--commit <sha>|--pr] [--rubric f]
+  [--background] [focus…]`.
 - `gemini explore [--no-web] [--background] [--format json] "<question>"` — one leg; `transfer [--source]` hands this
   Claude session over; `setup` checks the binary, login, route and projection.
 
@@ -93,7 +95,8 @@ Gemini deltas:
 2. Deep research: wave 1 → name the gaps → one more `dispatch explore` wave (max 12 legs, never a third).
 3. Whole-repo sweep: `ask --agent gemini --tools --dirs <d> --index "<task>"`; on overflow narrow
    `--dirs`/`--files` or `--diff`.
-4. Diff review: `gemini review --adversarial --base main` → fix → `gemini review --base main`.
+4. Diff review: `gemini review --model gemini-4-argon-high --adversarial --base main` → fix →
+   `gemini review --model gemini-4-argon-high --base main`.
 5. Targeted trace: `gemini ask --tools --workdir <repo> --background "<question>"` → `gemini result <id>`.
 6. Scripted leg: `ask --agent gemini --fallback none --format json "<task>"` → read `.answer` and `.ran_on`.
 

@@ -193,7 +193,7 @@ func TestReviewPromptFocusAppended(t *testing.T) {
 func TestReviewArgsCleanupLifecycle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, background := range []bool{false, true} {
-		args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("diff content"), true, background, "", "")
+		args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("diff content"), true, background, "", "", "")
 		if err != nil {
 			t.Fatalf("ReviewArgs(background=%v): %v", background, err)
 		}
@@ -233,7 +233,7 @@ func reviewAttachPath(t *testing.T, args []string) string {
 
 func TestReviewArgsShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "")
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func assertReviewArgsPrefix(t *testing.T, args []string) {
 
 func TestReviewArgsBackgroundFlag(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, true, "", "")
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, true, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestReviewArgsBackgroundFlag(t *testing.T) {
 func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// Given a rubric file; When args are built; Then "--rubric <f>" sits right before the trailing prompt
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "/tmp/rubric.md")
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "/tmp/rubric.md", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
 
 func TestReviewArgsEmptyRubricEmitsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "")
+	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,5 +457,27 @@ func TestDiffPRPassesEndOfOptions(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "feature-line") {
 		t.Errorf("pr diff missing the feature commit:\n%s", out)
+	}
+}
+
+func TestReviewArgsModelPrecedesPrompt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// Given a model; When args are built; Then "--model <m>" sits right before the trailing prompt, and "" emits none
+	args, cleanup, err := ReviewArgs("gemini", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "gemini-4-argon-high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	n := len(args)
+	if n < 3 || args[n-3] != "--model" || args[n-2] != "gemini-4-argon-high" || args[n-1] != ReviewPrompt(false, "") {
+		t.Errorf("args tail = %v, want [--model gemini-4-argon-high <prompt>]", args[max(0, n-3):])
+	}
+	none, cleanup2, err := ReviewArgs("gemini", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup2()
+	if slices.Contains(none, "--model") {
+		t.Errorf("args = %v, want no --model", none)
 	}
 }
