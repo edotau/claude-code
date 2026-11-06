@@ -271,7 +271,7 @@ them and potentially hanging.
 
 Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts):
 `skills/subagent-workflows/SKILL.md` → Handoff contract. One template per mode; each starts with `Status:`, then
-`Ran on:` (the quoted `ask: ran on …` line, or `ask --dirs`, or `sonnet in-process — why`) · job <id|—> · session <id|—>.
+`Ran on:` (the quoted `ask: ran on …` line, `ask --dirs`, or `sonnet in-process — why`) · job <id|—> · session <id|—>.
 
 **Explore** (Codebase Context Brief, master-workflow Phase 2) — `Status: DONE | DONE_WITH_CONCERNS | BLOCKED —
 <one-line outcome>`, then the sections `### Structure`, `### Conventions`, `### Dependencies`, `### Prior art`,
