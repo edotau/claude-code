@@ -218,7 +218,7 @@ func TestNewClientErrNoCredential(t *testing.T) {
 }
 
 // NewClient's OAuth-vs-API-key preference is not exercised here: calling the returned token func
-// for the OAuth branch would POST to the real DefaultBaseURL, which tests must never do.
+// for the OAuth branch would POST to the real defaultBaseURL, which tests must never do.
 
 func TestNewClientFallsBackToAPIKey(t *testing.T) {
 	hermeticSecrets(t)
@@ -248,8 +248,8 @@ func TestParseKeyExpiry(t *testing.T) {
 
 func TestSelfDeviceNoCredential(t *testing.T) {
 	hermeticSecrets(t)
-	if _, _, _, err := SelfDevice(context.Background()); !errors.Is(err, ErrNoCredential) {
-		t.Errorf("SelfDevice err = %v, want ErrNoCredential", err)
+	if _, _, _, err := selfDevice(context.Background()); !errors.Is(err, ErrNoCredential) {
+		t.Errorf("selfDevice err = %v, want ErrNoCredential", err)
 	}
 }
 
@@ -270,7 +270,7 @@ func TestEnableRoutesDoesNotMutateCaller(t *testing.T) {
 	defer ts.Close()
 	backing := make([]string, 1, 4)
 	backing[0] = "::/0"
-	cur := DeviceRoutes{Enabled: backing}
+	cur := deviceRoutes{Enabled: backing}
 	if _, err := staticClient(ts, "tok").EnableRoutes(context.Background(), "d", cur, []string{"10.0.0.0/8"}); err != nil {
 		t.Fatal(err)
 	}

@@ -182,8 +182,8 @@ func mcpList(claude string) ([]byte, error) {
 	return out, runErr
 }
 
-// HealthResult is the outcome of a live `claude mcp list` connect check.
-type HealthResult struct {
+// healthResult is the outcome of a live `claude mcp list` connect check.
+type healthResult struct {
 	Lines     []string `json:"lines,omitempty"`
 	Connected int      `json:"connected"`
 	Failed    int      `json:"failed"`
@@ -191,14 +191,14 @@ type HealthResult struct {
 	Skipped   string   `json:"skipped,omitempty"` // fail-open reason: live health was not run
 }
 
-// RunHealth runs `claude mcp list` and counts connected vs failed servers. claude=="" fails OPEN
+// runHealth runs `claude mcp list` and counts connected vs failed servers. claude=="" fails OPEN
 // (reported, not treated as a Failed server) since there is nothing to connect with.
-func RunHealth(claude string) HealthResult {
+func runHealth(claude string) healthResult {
 	if claude == "" {
-		return HealthResult{Skipped: "claude not on PATH"}
+		return healthResult{Skipped: "claude not on PATH"}
 	}
 	out, listErr := mcpList(claude)
-	var res HealthResult
+	var res healthResult
 	for ln := range strings.SplitSeq(string(out), "\n") {
 		switch {
 		case strings.Contains(ln, "✔"):
@@ -224,9 +224,9 @@ type Conflict struct {
 	Real   bool   `json:"real"`
 }
 
-// FindConflicts groups defs by server name and flags the ones with disagreeing resolved commands.
+// findConflicts groups defs by server name and flags the ones with disagreeing resolved commands.
 // home expands ${HOME}; a leading ~/ expands to the real home, so equivalent targets compare equal.
-func FindConflicts(defs []Def, home string) []Conflict {
+func findConflicts(defs []Def, home string) []Conflict {
 	byName := map[string][]Def{}
 	var names []string
 	for _, d := range defs {
@@ -274,8 +274,8 @@ type SecretFinding struct {
 // separator and param name so redact() can replace just the value.
 var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key)=)[^&\s]+`)
 
-// FindSecrets scans every server's env, headers, and url for inline plaintext credentials.
-func FindSecrets(defs []Def) []SecretFinding {
+// findSecrets scans every server's env, headers, and url for inline plaintext credentials.
+func findSecrets(defs []Def) []SecretFinding {
 	var out []SecretFinding
 	for _, d := range defs {
 		out = append(out, scanMap(d, "env", d.D.Env)...)
@@ -288,7 +288,7 @@ func FindSecrets(defs []Def) []SecretFinding {
 }
 
 // redact returns a copy of defs with every secret-shaped value replaced, so a Report (JSON or text)
-// never carries a credential. Run FindSecrets on the ORIGINAL defs first — a redacted value no
+// never carries a credential. Run findSecrets on the ORIGINAL defs first — a redacted value no
 // longer looks like a secret, so scanning would find nothing.
 func redact(defs []Def) []Def {
 	out := make([]Def, len(defs))
@@ -321,7 +321,7 @@ func scanMap(d Def, field string, m map[string]string) []SecretFinding {
 // Report is the full doctor result: every definition plus the three findings sections.
 type Report struct {
 	Defs      []Def           `json:"defs"`
-	Health    HealthResult    `json:"health"`
+	Health    healthResult    `json:"health"`
 	Conflicts []Conflict      `json:"conflicts"`
 	Secrets   []SecretFinding `json:"secrets"`
 	Unscanned []string        `json:"unscanned,omitempty"` // config files that exist but could not be read or parsed
@@ -349,12 +349,12 @@ type Options struct {
 // Doctor runs the full scan and writes either the human report or (Options.JSON) the Report as JSON.
 func Doctor(w io.Writer, o Options) int {
 	defs, unscanned := collectDefs(o.UserPath, o.ProjectFiles, o.SettingsFiles)
-	secrets := FindSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
+	secrets := findSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
 	safe := redact(defs)
 	rep := Report{
 		Defs:      safe,
-		Health:    RunHealth(o.Claude),
-		Conflicts: FindConflicts(safe, o.Home),
+		Health:    runHealth(o.Claude),
+		Conflicts: findConflicts(safe, o.Home),
 		Secrets:   secrets,
 		Unscanned: unscanned,
 	}
@@ -395,7 +395,7 @@ func printDefsSection(w io.Writer, rep Report) {
 	}
 }
 
-func printHealthSection(w io.Writer, h HealthResult) {
+func printHealthSection(w io.Writer, h healthResult) {
 	fmt.Fprintln(w, "== MCP server health ==")
 	if h.Skipped != "" {
 		fmt.Fprintln(w, "  live health:", h.Skipped)

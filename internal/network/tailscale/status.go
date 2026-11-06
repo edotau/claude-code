@@ -82,9 +82,9 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
-// NormalizePane strips ANSI escapes and known animation noise so two samples of unchanged substantive
+// normalizePane strips ANSI escapes and known animation noise so two samples of unchanged substantive
 // content fingerprint identically even if a spinner or elapsed-time counter ticked between them.
-func NormalizePane(raw string) string {
+func normalizePane(raw string) string {
 	s := ansiRE().ReplaceAllString(raw, "")
 	s = spinnerRE().ReplaceAllString(s, "·")
 	lines := strings.Split(s, "\n")
@@ -94,17 +94,17 @@ func NormalizePane(raw string) string {
 	return strings.Join(lines, "\n")
 }
 
-// FingerprintPane returns a bounded (16 hex char) hash of normalized pane text — never the text itself.
-func FingerprintPane(normalized string) string {
+// fingerprintPane returns a bounded (16 hex char) hash of normalized pane text — never the text itself.
+func fingerprintPane(normalized string) string {
 	sum := sha256.Sum256([]byte(normalized))
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// ClassifyPane maps one pane capture against its previous fingerprint to a state, a human-readable
+// classifyPane maps one pane capture against its previous fingerprint to a state, a human-readable
 // reason, and the capture's own bounded fingerprint (fed back into the next ObservePanes call).
-func ClassifyPane(prevFingerprint string, c PaneCapture) (state, reason, fingerprint string) {
-	norm := NormalizePane(c.Text)
-	fingerprint = FingerprintPane(norm)
+func classifyPane(prevFingerprint string, c PaneCapture) (state, reason, fingerprint string) {
+	norm := normalizePane(c.Text)
+	fingerprint = fingerprintPane(norm)
 	switch {
 	case isShellAfterExit(c):
 		return StateReady, "agent exited; login shell idle at prompt", fingerprint
@@ -126,7 +126,7 @@ func ClassifyPane(prevFingerprint string, c PaneCapture) (state, reason, fingerp
 // observeOne classifies one fresh capture against its previous status (zero value if new), carrying
 // ChangedAt forward only while the classified state stays the same across samples.
 func observeOne(old PaneStatus, c PaneCapture, now time.Time) PaneStatus {
-	state, reason, fp := ClassifyPane(old.fingerprint, c)
+	state, reason, fp := classifyPane(old.fingerprint, c)
 	changedAt := now
 	if old.PaneID == c.PaneID && old.State == state && !old.ChangedAt.IsZero() {
 		changedAt = old.ChangedAt

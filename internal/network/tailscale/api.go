@@ -18,18 +18,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// DefaultBaseURL is the Tailscale admin API.
-const DefaultBaseURL = "https://api.tailscale.com/api/v2"
+// defaultBaseURL is the Tailscale admin API.
+const defaultBaseURL = "https://api.tailscale.com/api/v2"
 
 // apiBaseURL is the base URL NewClient and Doctor's credential check mint tokens against;
 // package-private so tests can point it at an httptest server.
-var apiBaseURL = DefaultBaseURL
+var apiBaseURL = defaultBaseURL
 
 // ErrNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
 var ErrNoCredential = errors.New("tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
 
-// ErrNoDevice: no admin-API device carries any of this node's tailnet addresses.
-var ErrNoDevice = errors.New("could not match this node's address to a device (is it connected?)")
+// errNoDevice: no admin-API device carries any of this node's tailnet addresses.
+var errNoDevice = errors.New("could not match this node's address to a device (is it connected?)")
 
 // SetNames is what `vault set --tailscale` writes: the API key alone, or the OAuth id then secret.
 func SetNames(apiKey bool) []string {
@@ -51,8 +51,8 @@ func ParseKeyExpiry(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
-// SelfDevice resolves this box to its admin-API device; ErrNoCredential means no client could be built.
-func SelfDevice(ctx context.Context) (*Client, Local, string, error) {
+// selfDevice resolves this box to its admin-API device; ErrNoCredential means no client could be built.
+func selfDevice(ctx context.Context) (*Client, Local, string, error) {
 	client, err := NewClient()
 	if err != nil {
 		return nil, Local{}, "", err
@@ -70,7 +70,7 @@ func SelfDevice(ctx context.Context) (*Client, Local, string, error) {
 			return client, st, d.ID, nil
 		}
 	}
-	return nil, Local{}, "", ErrNoDevice
+	return nil, Local{}, "", errNoDevice
 }
 
 // Client talks to the admin API; token mints (and caches) the bearer, re-minted once on a 401.
@@ -229,21 +229,21 @@ func (c *Client) Devices(ctx context.Context) ([]Device, error) {
 	return out.Devices, nil
 }
 
-// DeviceRoutes is GET /device/{id}/routes: what the device advertises and what the tailnet has enabled.
-type DeviceRoutes struct {
+// deviceRoutes is GET /device/{id}/routes: what the device advertises and what the tailnet has enabled.
+type deviceRoutes struct {
 	Advertised []string `json:"advertisedRoutes"`
 	Enabled    []string `json:"enabledRoutes"`
 }
 
 // Routes reads device id's advertised and enabled routes.
-func (c *Client) Routes(ctx context.Context, deviceID string) (DeviceRoutes, error) {
-	var out DeviceRoutes
+func (c *Client) Routes(ctx context.Context, deviceID string) (deviceRoutes, error) {
+	var out deviceRoutes
 	err := c.request(ctx, http.MethodGet, "/device/"+deviceID+"/routes", nil, &out)
 	return out, err
 }
 
 // EnableRoutes adds routes to cur.Enabled and POSTs the union (the endpoint replaces the set); returns the new enabled set.
-func (c *Client) EnableRoutes(ctx context.Context, deviceID string, cur DeviceRoutes, routes []string) ([]string, error) {
+func (c *Client) EnableRoutes(ctx context.Context, deviceID string, cur deviceRoutes, routes []string) ([]string, error) {
 	want := slices.Clone(cur.Enabled)
 	for _, r := range routes {
 		if !slices.Contains(want, r) {
@@ -253,7 +253,7 @@ func (c *Client) EnableRoutes(ctx context.Context, deviceID string, cur DeviceRo
 	body := struct {
 		Routes []string `json:"routes"`
 	}{Routes: want}
-	var out DeviceRoutes
+	var out deviceRoutes
 	if err := c.request(ctx, http.MethodPost, "/device/"+deviceID+"/routes", body, &out); err != nil {
 		return nil, err
 	}

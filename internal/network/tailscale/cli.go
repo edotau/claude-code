@@ -14,8 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// ErrNoCLI: the `tailscale` binary is not on PATH.
-var ErrNoCLI = errors.New("tailscale: `tailscale` CLI not found on PATH")
+// errNoCLI: the `tailscale` binary is not on PATH.
+var errNoCLI = errors.New("tailscale: `tailscale` CLI not found on PATH")
 
 // ErrNotRunning: the CLI is on PATH but its backend is not Running (Local is still returned).
 var ErrNotRunning = errors.New("tailscale: backend not Running (see `tailscale status`)")
@@ -126,16 +126,16 @@ func set(ctx context.Context, flags ...string) error {
 	return cmd.Run()
 }
 
-// tailscaleBin resolves the installed CLI; ErrNoCLI when it is not on PATH.
+// tailscaleBin resolves the installed CLI; errNoCLI when it is not on PATH.
 func tailscaleBin() (string, error) {
 	bin, err := lookPathReal("tailscale")
 	if err != nil {
-		return "", ErrNoCLI
+		return "", errNoCLI
 	}
 	return bin, nil
 }
 
-// Status parses `tailscale status --json`. ErrNoCLI when not on PATH; ErrNotRunning when the
+// Status parses `tailscale status --json`. errNoCLI when not on PATH; ErrNotRunning when the
 // backend is not Running (the parsed Local is still returned in that case).
 func Status(ctx context.Context) (Local, error) {
 	bin, err := tailscaleBin()

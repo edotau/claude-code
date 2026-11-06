@@ -58,8 +58,8 @@ func catScript(t *testing.T, fixture string) string {
 
 func TestStatusNoCLI(t *testing.T) {
 	noCLI(t)
-	if _, err := Status(context.Background()); !errors.Is(err, ErrNoCLI) {
-		t.Errorf("Status() err = %v, want ErrNoCLI", err)
+	if _, err := Status(context.Background()); !errors.Is(err, errNoCLI) {
+		t.Errorf("Status() err = %v, want errNoCLI", err)
 	}
 }
 

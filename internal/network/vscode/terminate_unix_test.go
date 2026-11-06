@@ -15,7 +15,7 @@ import (
 func fakeServeWebArgv(t *testing.T, pid, port int) {
 	t.Helper()
 	orig := procCmdline
-	line := strings.Join(ServeWebArgv("code", "/tmp/secret", port, "/tmp/data", ""), " ")
+	line := strings.Join(serveWebArgv("code", "/tmp/secret", port, "/tmp/data", ""), " ")
 	procCmdline = func(p int) (string, error) {
 		if p == pid {
 			return line, nil
