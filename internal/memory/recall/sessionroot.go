@@ -1,17 +1,19 @@
 package recall
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+// sessionRootLockWait bounds how long a hook waits for a racing repair to finish.
+const sessionRootLockWait = 5 * time.Second
 
 func sessionRootPath(sessionID string) string {
 	return filepath.Join(memstore.StateDir(), "root-"+filepath.Base(sessionID))
@@ -51,18 +53,16 @@ func RecordSessionRoot(sessionID, cwd string) {
 	if root == "" {
 		return
 	}
-	// Temp file + hard link: the write is atomic, and a racing hook's first root always wins (no lock file).
+	// Check and write under a per-session lock, rechecking inside it, so racing hooks keep one first root.
 	path := sessionRootPath(sessionID)
-	tmp := fmt.Sprintf("%s.tmp%d", path, os.Getpid())
-	err := paths.AtomicWrite(tmp, []byte(root+"\n"), 0o600)
+	err := os.MkdirAll(filepath.Dir(path), 0o700)
 	if err == nil {
-		if err = os.Link(tmp, path); errors.Is(err, fs.ErrExist) {
-			err = nil
-			if SessionRoot(sessionID, "") == "" { // existing file is corrupt or relative: replace it
-				err = os.Rename(tmp, path)
+		_, err = paths.TryFileLock(path+".lock", sessionRootLockWait, func() error {
+			if SessionRoot(sessionID, "") != "" {
+				return nil
 			}
-		}
-		_ = os.Remove(tmp)
+			return paths.AtomicWrite(path, []byte(root+"\n"), 0o600)
+		})
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "memory-start: record session root: %v\n", err)

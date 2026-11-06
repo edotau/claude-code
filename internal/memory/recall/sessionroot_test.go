@@ -3,6 +3,7 @@ package recall
 import (
 	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -34,5 +35,36 @@ func TestRecordSessionRootKeepsValidFile(t *testing.T) {
 	RecordSessionRoot(id, canonTemp(t, t.TempDir()))
 	if got := SessionRoot(id, ""); got != keep {
 		t.Errorf("first root replaced: got %q, want %q", got, keep)
+	}
+}
+
+// Racing repairs of one corrupt root leave one root, and every caller sees that same root once it returns.
+func TestRecordSessionRootRacingRepairsAgree(t *testing.T) {
+	isolatedConfig(t)
+	const id = "11111111-2222-3333-4444-555555555555"
+	cwds := make([]string, 6)
+	for i := range cwds {
+		cwds[i] = canonTemp(t, t.TempDir())
+	}
+	for round := range 40 {
+		write(t, sessionRootPath(id), "relative/path\n")
+		seen := make([]string, len(cwds))
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i, cwd := range cwds {
+			wg.Go(func() {
+				<-start
+				RecordSessionRoot(id, cwd)
+				seen[i] = SessionRoot(id, "")
+			})
+		}
+		close(start)
+		wg.Wait()
+		final := SessionRoot(id, "")
+		for i, got := range seen {
+			if got == "" || got != final {
+				t.Fatalf("round %d: caller %d saw %q, final root %q", round, i, got, final)
+			}
+		}
 	}
 }
