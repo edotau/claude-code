@@ -1,4 +1,4 @@
-package agents
+package dispatch
 
 import (
 	"strings"
@@ -24,7 +24,7 @@ func TestDispatchUsageErrorsExit2(t *testing.T) {
 		"unknown role": {"nonesuch", "task"},
 		"13 --part":    partArgs(13, "explore", "task"),
 	} {
-		if code, _, _ := captureOutput(t, func() int { return CmdDispatch(args) }); code != 2 {
+		if code, _, _ := captureOutput(t, func() int { return Cmd(args) }); code != 2 {
 			t.Errorf("%s: exit %d, want 2", name, code)
 		}
 	}
@@ -32,11 +32,11 @@ func TestDispatchUsageErrorsExit2(t *testing.T) {
 
 func TestDispatchErrorMessagesNameTheCause(t *testing.T) {
 	vaulttest.Use(t)
-	_, _, errOut := captureOutput(t, func() int { return CmdDispatch(partArgs(13, "explore", "task")) })
+	_, _, errOut := captureOutput(t, func() int { return Cmd(partArgs(13, "explore", "task")) })
 	if !strings.Contains(errOut, "13 --part") || !strings.Contains(errOut, "cap is 12") {
 		t.Errorf("part cap stderr: %q", errOut)
 	}
-	_, _, errOut = captureOutput(t, func() int { return CmdDispatch([]string{"nonesuch", "task"}) })
+	_, _, errOut = captureOutput(t, func() int { return Cmd([]string{"nonesuch", "task"}) })
 	if !strings.Contains(errOut, `unknown role "nonesuch"`) {
 		t.Errorf("unknown role stderr: %q", errOut)
 	}

@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Model-discovery coding agent on the OpenCode CLI (`claude-code opencode <verb>` or headless `claude-code ask --agent opencode`): reaches the widest model pool (its catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model. Also implements and fixes code, reviews a diff, scans code + web, refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP).
+  Model-discovery coding agent on the OpenCode CLI (`claude-code opencode <verb>` or headless `claude-code agents ask --agent opencode`): reaches the widest model pool (its catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model. Also implements and fixes code, reviews a diff, scans code + web, refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP).
 
   <example>
   Context: User wants a small feature in a named package.
@@ -33,8 +33,8 @@ Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent
 ## Invocation
 
 `@agent-opencode <request>` or a brief. A leading verb (`claude-code opencode -h`) runs `claude-code opencode <verb>
-<rest>`, relayed; anything else runs `claude-code ask --agent opencode --tools "<task>"`. `--profile`/`--model` ride on
-every call. `/coworker:opencode` runs the CLI directly, no subagent.
+<rest>`, relayed; anything else runs `claude-code agents ask --agent opencode --tools "<task>"`.
+`--profile`/`--model` ride on every call. `/coworker:opencode` runs the CLI directly, no subagent.
 
 ## Owns
 
@@ -77,7 +77,7 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
 
 1. Delegated edit: `opencode ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` →
    `opencode tail -f <id>` → `opencode result <id>` → `git diff --stat`.
-2. Compare models: `claude-code dispatch compare --models a,b "<task>"`, or `opencode ask --model <id>` per id.
+2. Compare models: `claude-code agents dispatch compare --models a,b "<task>"`, or `opencode ask --model <id>` per id.
 3. Find a model: `claude-code models discover [--profile P] [--apply]` → `opencode catalog sync --profile P --apply`.
 4. Diff review: `opencode review --adversarial --base main`, or `opencode review --pr`.
 5. Follow-up: `opencode result` prints the session → `opencode resume <session> "<next step>"`.
@@ -86,8 +86,8 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
 
 ## Models and routing
 
-Compare runs via `claude-code dispatch compare --models a,b "<task>"`; default set: claude-sonnet-5-5, gpt-6-1-sol,
-gemini-3-8-flash, kimi-k3.
+Compare runs via `claude-code agents dispatch compare --models a,b "<task>"`; default set: claude-sonnet-5-5,
+gpt-6-1-sol, gemini-3-8-flash, kimi-k3.
 
 Default menu (the live list varies per profile: `claude-code opencode catalog list`, ids as listed there):
 
@@ -122,7 +122,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | --- | --- |
 | Tests (feature/bug fix only) | `copilot` |
 | Adversarial review on another model family | `codex` |
-| Wide 1M-context sweep across many files | `gemini` (`claude-code ask --agent gemini --tools --dirs <d>`) |
+| Wide 1M-context sweep across many files | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d>`) |
 | Memory update, consolidation or promotion | the main session — you only propose |
 
 ## Procedure

@@ -16,7 +16,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | Phase | Agent / command | Output | Gate |
 |-------|----------------|--------|------|
 | 0. Classify | inline | Scope tier | Picks the phases below |
-| 1. Review | `Plan`, or another model family via `claude-code ask --agent <a>` | Refined Task Brief | READY / NEEDS CLARIFICATION |
+| 1. Review | `Plan`, or another model family via `claude-code agents ask --agent <a>` | Refined Task Brief | READY / NEEDS CLARIFICATION |
 | 2. Codebase intel | 3 parallel `Explore`, or `@agent-gemini` (fans out `gemini explore` jobs) | Codebase Context Brief | Structure, conventions, deps covered |
 | 3. Research | `gh search`, WebFetch, WebSearch (Tavily `mcp__web_search__web_search` where it fails), `gemini explore` | Prior art + library refs | ≥1 reference, or "nothing found" stated |
 | 4. Plan | plan mode or `Plan` (plan-only) | Plan with task breakdown | User approval |

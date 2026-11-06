@@ -20,7 +20,7 @@ func QuotaFailure(err error) bool {
 	return strings.Contains(s, "quota") || strings.Contains(s, "rate_limit")
 }
 
-// VerifyAgent asks the agent for "pong" through `claude-code ask`, the same request preflight sends.
+// VerifyAgent asks the agent for "pong" through `claude-code agents ask`, the same request preflight sends.
 func VerifyAgent(ctx context.Context, agent string) error {
 	bin, err := agentpkg.SelfBinary()
 	if err != nil {

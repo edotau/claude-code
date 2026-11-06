@@ -56,7 +56,7 @@ type Activity struct {
 	Text string    `json:"text,omitempty"`
 }
 
-// Dispatch is one `claude-code ask` a relay subagent launched, read from state/harness/dispatch/<id>.json.
+// Dispatch is one `claude-code agents ask` a relay subagent launched, read from state/harness/dispatch/<id>.json.
 type Dispatch struct {
 	ID             string `json:"id"`
 	Agent          string `json:"agent"`

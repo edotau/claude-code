@@ -177,7 +177,7 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	}
 	recordPath := filepath.Join(paths.DispatchDir(), rec.ID+".json")
 
-	// the fast child stands in for `claude-code ask --job <id>`: it saves its own finished record
+	// the fast child stands in for `claude-code agents ask --job <id>`: it saves its own finished record
 	// (by writing the record file directly) and exits almost immediately.
 	script := filepath.Join(t.TempDir(), "fast.sh")
 	body := "#!/bin/sh\ncat > \"" + recordPath + "\" <<'EOF'\n" +
@@ -405,7 +405,8 @@ func TestIsJobArgvRequiresWholeArgs(t *testing.T) {
 		argv []string
 		want bool
 	}{
-		{"exact", []string{"/bin/claude-code", "ask", "--job", id}, true},
+		{"exact", []string{"/bin/claude-code", "agents", "ask", "--job", id}, true},
+		{"pre-nesting argv", []string{"/bin/claude-code", "ask", "--job", id}, true},
 		{"id substring only", []string{"claude-code", "ask", "--job", id + "-x"}, false},
 		{"joined arg", []string{"claude-code", "ask --job " + id}, false},
 		{"missing job flag", []string{"claude-code", "ask", id}, false},

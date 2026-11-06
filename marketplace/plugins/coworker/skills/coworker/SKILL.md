@@ -24,7 +24,7 @@ bug-fix task also gets a `copilot` test agent in the SAME message. Edits follow
 task, the agent rows (agent · model · job · fallback · verified), the verified answer or change, and for `compare`
 where the agents agreed and differed.
 
-A `profile=<name>` argument adds `Profile: <name>` to each brief: the leaf runs `ask --profile`,
+A `profile=<name>` argument adds `Profile: <name>` to each brief: the leaf runs `agents ask --profile`,
 host and auth from the vault.
 A `model=<m>` argument puts `--model <m>` on each brief's `ask` request line (an alias, wire id, discovered
 model, or `discovery`).

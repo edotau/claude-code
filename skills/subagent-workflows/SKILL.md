@@ -7,13 +7,14 @@ description: Run multi-agent work end to end, from picking the shape (fan-out on
 
 ## Execution mode: subagent
 
-Leaves run through the Agent tool or `claude-code ask`; they are terminal and never fan out, so the manager (the main
-session) is the one orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how, this skill
-when and in what order: weak output means fix the skill, a wrong role the agent file, a wrong order this skill.
+Leaves run through the Agent tool or `claude-code agents ask`; they are terminal and never fan out, so the manager
+(the main session) is the one orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how,
+this skill when and in what order: weak output means fix the skill, a wrong role the agent file, a wrong order this
+skill.
 
 ## Leaf types
 
-A leaf works itself on your pin (`code-worker`) or requests another agent via `claude-code ask --agent <x>`
+A leaf works itself on your pin (`code-worker`) or requests another agent via `claude-code agents ask --agent <x>`
 (`coworker`, **experimental**); bare `code-worker`/`coworker` take the brief's `Agent:`. Trust a request only on the
 `ran on` line its `ask` prints (`dispatch-stop` blocks a stop with none, once); keep a `code-worker` fallback.
 
@@ -43,11 +44,11 @@ plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
 |---|---|
 | Single leaf | One `Agent` call with a brief ([prompts.md](references/prompts.md)) |
 | Parallel fan-out | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract)) |
-| Same question, many angles | `claude-code dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
+| Same question, many angles | `claude-code agents dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
 | Sequential plan · tournament | [Sequential plan](#sequential-plan) · [Tournament](#tournament) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
 | Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) |
-| Fleet scan | `claude-code dispatch fleet "<task>"`; check `git diff --stat` after |
+| Fleet scan | `claude-code agents dispatch fleet "<task>"`; check `git diff --stat` after |
 
 ### Phase 1: prepare
 

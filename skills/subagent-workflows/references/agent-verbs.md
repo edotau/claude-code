@@ -15,17 +15,17 @@ keeps only its own deltas.
 | `claude-code <agent> status [id] [--all]` · `result [id]` · `cancel [id]` | background jobs in this repo · a finished answer · interrupt | rows (id, status, elapsed) · answer + session id + resume cmd · `cancelled <id>` |
 | `claude-code <agent> tail [job] [-f]` | follow a job's live log; `-f` follows with a stall heartbeat | log lines |
 | `claude-code <agent> setup [--format json]` · `catalog` | binary, login, route, projection checks · the agent's model catalog | 4 rows, exit on failure · list |
-| `claude-code dispatch explore\|fleet\|compare [flags] <task>` | one task as parallel legs by role (gemini, copilot, opencode) | `### label (agent/model) [status]` blocks |
+| `claude-code agents dispatch explore\|fleet\|compare [flags] <task>` | one task as parallel legs by role (gemini, copilot, opencode) | `### label (agent/model) [status]` blocks |
 
 - `<id>` = an exact dispatch id or a unique prefix; omitted = the newest job for the agent in this repo. `--background`
   on `ask`/`review`/`transfer` prints `job <id> started`.
-- `claude-code ask --agent <agent>` is the one-shot form saved Workflows use; inline definitions: `--agents <json|file>`
-  (`rules/harness/agent.md` → Dispatch behavior).
+- `claude-code agents ask --agent <agent>` is the one-shot form saved Workflows use; inline definitions:
+  `--agents <json|file>` (`rules/harness/agent.md` → Dispatch behavior).
 
 ## Headless `ask` flags
 
-`claude-code <agent> ask` = `claude-code ask --agent <agent>`; read-only unless `--tools`. Agent files list only what
-differs; the full list is `claude-code ask -h`.
+`claude-code <agent> ask` = `claude-code agents ask --agent <agent>`; read-only unless `--tools`. Agent files list only
+what differs; the full list is `claude-code agents ask -h`.
 
 | Need | Flags |
 | --- | --- |
@@ -35,7 +35,7 @@ differs; the full list is `claude-code ask -h`.
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` |
 | Input | task arg or stdin (`-`) · `--attach <file>` · `--diff` / `--dirs <d,…>` / `--files <glob,…>` (inline context) · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
 | Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
-| Also | `--session <id>` (= `resume`) · `--env` · `--fallback all\|agents\|none` · `--host <ssh>` · `--direct` · `--overlay <file>` · `ask --log\|--retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` |
+| Also | `--session <id>` (= `resume`) · `--env` · `--fallback all\|agents\|none` · `--host <ssh>` · `--direct` · `--overlay <file>` · `agents ask --log\|--retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` |
 
 Interactive launch takes `--model` · `--profile <p>` · `--direct` (skip the proxy) · `--overlay <file>`
 (`{set,unset,keep}` env) · `--print-env` (resolved binary, argv, env; no launch); `--docs` prints the CLI's help.

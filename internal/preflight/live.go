@@ -77,7 +77,7 @@ func (p Pong) Line() string {
 var runAsk = defaultRunAsk
 
 func defaultRunAsk(ctx context.Context, bin, agentName string) (agent.Envelope, error) {
-	cmd := exec.CommandContext(ctx, bin, "ask", "--agent", agentName, "--fallback", "none", "--format", "json",
+	cmd := exec.CommandContext(ctx, bin, "agents", "ask", "--agent", agentName, "--fallback", "none", "--format", "json",
 		"Reply with the single word: pong")
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 2 * time.Second

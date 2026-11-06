@@ -1,4 +1,4 @@
-package agents
+package ask
 
 import (
 	"bufio"
@@ -27,13 +27,13 @@ import (
 
 // askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".
 var askPage = helptext.Page{
-	Usage: "claude-code ask [flags] <task | ->",
+	Usage: "claude-code agents ask [flags] <task | ->",
 	About: "Run one task headlessly on an agent and stream its answer; an agent that " +
 		"fails falls back per --fallback. With no task, or \"-\", the task is read from stdin.",
 	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
 }
 
-func CmdAsk(args []string) int { return RunAsk(args, false) }
+func Cmd(args []string) int { return Run(args, false) }
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
@@ -133,8 +133,8 @@ type askRun struct {
 	perms   agent.Permissions
 }
 
-// RunAsk is CmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
-func RunAsk(args []string, resume bool) int {
+// Run is Cmd; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
+func Run(args []string, resume bool) int {
 	fs, f := askFlagSet()
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -340,17 +340,17 @@ func askRefreshSchema(raw, schema string) (string, error) {
 func askEnableOverlays(debugPath, overlayPath string) int {
 	if debugPath != "" {
 		if strings.HasPrefix(debugPath, "-") {
-			fmt.Fprintf(os.Stderr, "claude-code ask: --overlay-debug: %q looks like a flag; give a file path\n", debugPath)
+			fmt.Fprintf(os.Stderr, "claude-code agents ask: --overlay-debug: %q looks like a flag; give a file path\n", debugPath)
 			return 2
 		}
 		if err := agent.EnableOverlayDebug(debugPath); err != nil {
-			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay-debug:", err)
+			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay-debug:", err)
 			return 2
 		}
 	}
 	if overlayPath != "" {
 		if err := agent.EnableOverlay(overlayPath); err != nil {
-			fmt.Fprintln(os.Stderr, "claude-code ask: --overlay:", err)
+			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay:", err)
 			return 2
 		}
 	}
@@ -507,14 +507,14 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	if job && format == helptext.Text {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
-	res, err := client.Exec(ctx, p, askStdoutSink(format, p.Record.ID), opts)
+	res, err := client.Exec(ctx, p, StdoutSink(format, p.Record.ID), opts)
 	reportAskResult(format, res, err, res.DispatchID)
 	for _, line := range []string{agent.RanOn(res), agent.DidNotRun(res)} {
 		if line != "" {
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}
 	}
-	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; ask --retry <id> replays it)")
+	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; agents ask --retry <id> replays it)")
 	if err != nil {
 		return helptext.Fail("ask: %v", err)
 	}
@@ -524,8 +524,8 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 // The ask --format values.
 const formatStreamJSON = agent.FormatStreamJSON
 
-// askStdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
-func askStdoutSink(format, dispatchID string) agent.Sink {
+// StdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
+func StdoutSink(format, dispatchID string) agent.Sink {
 	switch format {
 	case helptext.JSON:
 		return agent.Discard

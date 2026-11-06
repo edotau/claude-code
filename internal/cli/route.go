@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/cli/agents"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
@@ -38,7 +38,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := agents.ApplyRoute(*route); err != nil {
+	if err := ask.ApplyRoute(*route); err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
@@ -50,7 +50,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if *want != "" && !slices.Contains(router.TableAgents, *want) {
 		return helptext.Fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableAgents, "|"))
 	}
-	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, agents.RouteRefresh)
+	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, ask.RouteRefresh)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}

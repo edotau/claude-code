@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/cli/agents"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -20,9 +20,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// Stale copilot accounts refresh through agents.RouteRefresh, so these tests stay offline.
+// Stale copilot accounts refresh through ask.RouteRefresh, so these tests stay offline.
 func init() {
-	copilot.RefreshAccount = func(ctx context.Context, key string) bool { return agents.RouteRefresh(ctx, key) }
+	copilot.RefreshAccount = func(ctx context.Context, key string) bool { return ask.RouteRefresh(ctx, key) }
 }
 
 // captureStdout runs fn with os.Stdout redirected and returns what it printed.
@@ -56,9 +56,9 @@ func routeJSONFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	agents.RouteRefresh = func(context.Context, string) bool { return false }
+	ask.RouteRefresh = func(context.Context, string) bool { return false }
 	ghHosts(t, "work-user")
-	t.Cleanup(func() { agents.RouteRefresh = nil })
+	t.Cleanup(func() { ask.RouteRefresh = nil })
 	if err := router.MarkExhausted("github·work", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
@@ -180,15 +180,15 @@ func ghHosts(t *testing.T, user string) {
 func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv(router.EnvRoute, router.RouteDefault) // claude on a Databricks account means a Databricks session's ladder
-	oldAcct, oldRefresh := agent.ResolveAccount, agents.RouteRefresh
+	oldAcct, oldRefresh := agent.ResolveAccount, ask.RouteRefresh
 	agent.ResolveAccount = func(ag string, _ router.Cell) (string, string) {
 		if ag == "claude" {
 			return "databricks·prod", ""
 		}
 		return "", ""
 	}
-	agents.RouteRefresh = func(context.Context, string) bool { return false }
-	t.Cleanup(func() { agent.ResolveAccount, agents.RouteRefresh = oldAcct, oldRefresh })
+	ask.RouteRefresh = func(context.Context, string) bool { return false }
+	t.Cleanup(func() { agent.ResolveAccount, ask.RouteRefresh = oldAcct, oldRefresh })
 
 	out, code := captureRouteStdout(t, func() int { return gatewayRoute([]string{"--model", "sonnet", "--format", "json"}, false) })
 	if code != 0 {
@@ -258,9 +258,9 @@ func parityEnv(t *testing.T, profile string, responses bool) (marker string) {
 	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt"}); err != nil { // own login = on
 		t.Fatal(err)
 	}
-	old := agents.RouteRefresh
-	agents.RouteRefresh = func(context.Context, string) bool { return false }
-	t.Cleanup(func() { agents.RouteRefresh = old })
+	old := ask.RouteRefresh
+	ask.RouteRefresh = func(context.Context, string) bool { return false }
+	t.Cleanup(func() { ask.RouteRefresh = old })
 	return marker
 }
 
@@ -312,7 +312,7 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 				t.Fatalf("not JSON: %v\n%s", err, out)
 			}
 			chain, _, err := agent.RouteChainFor(context.Background(), "codex", tc.model, "sonnet", router.FallbackAgents, false,
-				router.PickOpts{Refresh: agents.RouteRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+				router.PickOpts{Refresh: ask.RouteRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -327,13 +327,13 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 	}
 }
 
-// stubRefresh swaps agents.RouteRefresh for fn (restoring the prior value) and returns a call counter.
+// stubRefresh swaps ask.RouteRefresh for fn (restoring the prior value) and returns a call counter.
 func stubRefresh(t *testing.T, fn func(key string) bool) *int {
 	t.Helper()
-	prev := agents.RouteRefresh
+	prev := ask.RouteRefresh
 	calls := 0
-	agents.RouteRefresh = func(_ context.Context, key string) bool { calls++; return fn(key) }
-	t.Cleanup(func() { agents.RouteRefresh = prev })
+	ask.RouteRefresh = func(_ context.Context, key string) bool { calls++; return fn(key) }
+	t.Cleanup(func() { ask.RouteRefresh = prev })
 	return &calls
 }
 

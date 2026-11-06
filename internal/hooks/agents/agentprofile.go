@@ -85,7 +85,7 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 func routeProfile(updated map[string]any, promptField, task, p, st string) (note string) {
 	var cmds []string
 	for _, a := range cmpSlice(briefAgents(task), []string{"claude"}) {
-		cmds = append(cmds, fmt.Sprintf("claude-code ask --agent %s --profile %s", a, p))
+		cmds = append(cmds, fmt.Sprintf("claude-code agents ask --agent %s --profile %s", a, p))
 	}
 	prompt, _ := updated[promptField].(string)
 	if !strings.Contains(prompt, "--profile "+p) {

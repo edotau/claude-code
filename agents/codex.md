@@ -1,7 +1,7 @@
 ---
 name: codex
 description: |
-  General-purpose agent on the OpenAI Codex CLI (a different model family). Use it for a cross-family diff review ("second opinion", "ship or block"), vetting a plan before code ("challenge this plan"), a delegated edit or scoped gate run, or a code + web brief. Driven by `claude-code codex <verb>` or headless `claude-code ask --agent codex`.
+  General-purpose agent on the OpenAI Codex CLI (a different model family). Use it for a cross-family diff review ("second opinion", "ship or block"), vetting a plan before code ("challenge this plan"), a delegated edit or scoped gate run, or a code + web brief. Driven by `claude-code codex <verb>` or headless `claude-code agents ask --agent codex`.
 
   <example>
   Context: User wants a second opinion on a finished diff before merging.
@@ -107,7 +107,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 | New tests (feature/bug fix only) | `copilot` |
 | Docs refresh | `opencode` |
-| Wide 1M-context sweep across many files | `gemini` (`claude-code ask --agent gemini --tools --dirs <d>`) |
+| Wide 1M-context sweep across many files | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d>`) |
 | Judging a claimed-done task | `skills/evaluate-code/references/judge.md` (borrow its stance; manager runs it) |
 | Harness configuration tuning (settings, hooks, routing) | the owner, by hand in `~/.claude/settings.json` — not you |
 

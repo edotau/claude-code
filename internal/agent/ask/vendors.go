@@ -1,4 +1,4 @@
-package agents
+package ask
 
 import (
 	// Each vendor CLI registers its roster row and driver from its package init; the program links them all through the agents package.
