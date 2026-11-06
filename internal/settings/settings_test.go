@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -77,5 +78,66 @@ func TestKeyValidateRefusesUncompiledPattern(t *testing.T) {
 	k := Key{Name: "x", Kind: kindString, patternErr: errors.New("bad")}
 	if err := k.Validate(json.RawMessage(`"a"`)); err == nil {
 		t.Error("a key whose pattern failed to compile validated a value")
+	}
+}
+
+func TestSchemaNumbersBoundsAndUnions(t *testing.T) {
+	ok := func(key, val string, want bool) {
+		t.Helper()
+		k, found := schemaKey(key)
+		if !found {
+			t.Fatalf("no schema key %s", key)
+		}
+		if err := k.Validate(json.RawMessage(val)); (err == nil) != want {
+			t.Errorf("%s=%s: err = %v, want accepted=%v", key, val, err, want)
+		}
+	}
+	ok("feedbackSurveyRate", "0.5", true)
+	ok("feedbackSurveyRate", "1.5", false)     // maximum
+	ok("skillListingMaxDescChars", "0", false) // exclusiveMinimum
+	ok("skillListingMaxDescChars", "5", true)
+	ok("skillListingBudgetFraction", "0", false)
+	ok("skillListingBudgetFraction", "2", false)
+	ok("strictPluginOnlyCustomization", "true", true) // union: boolean branch
+	ok("strictPluginOnlyCustomization", `["skills"]`, true)
+	ok("strictPluginOnlyCustomization", `"x"`, false)
+	ok("forceLoginOrgUUID", `["a","b"]`, true) // oneOf: array branch
+	ok("forceLoginOrgUUID", "3", false)
+	ok("forceLoginOrgUUID", `[3]`, false) // array items
+	ok("strictPluginOnlyCustomization", `["bogus"]`, false)
+	ok("strictPluginOnlyCustomization", `["hooks"]`, true)
+	ok("env", `{"MAX_THINKING_TOKENS":5}`, false) // nested property
+	ok("theme", `"custom:mine"`, true)
+	ok("theme", `"custom:"`, false)
+
+}
+
+func TestObjectConstraintsEnforced(t *testing.T) {
+	k, _ := schemaKey("subagentStatusLine")
+	for val, want := range map[string]bool{
+		`{"type":"command","command":"c"}`:           true,
+		`{"command":"c"}`:                            false, // required
+		`{"type":"other","command":"c"}`:             false, // const
+		`{"type":"command","command":"c","extra":1}`: false, // additionalProperties
+	} {
+		if err := k.Validate(json.RawMessage(val)); (err == nil) != want {
+			t.Errorf("subagentStatusLine=%s: err = %v, want accepted=%v", val, err, want)
+		}
+	}
+}
+
+// TestCheckReportsSyntaxLocationAndSchemaErrors: valid passes, unknown keys pass, a bad value or bad JSON is named.
+func TestCheckReportsSyntaxLocationAndSchemaErrors(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"model": "opus", "zzMine": [1]}`:  "",
+		`{"cleanupPeriodDays": "7"}`:        "cleanupPeriodDays: want a number",
+		"{\n  \"model\": \"x\",\n  oops\n}": "line 3 col 4",
+		`[]`:                                "cannot unmarshal array",
+		`null`:                              "not a JSON object",
+	} {
+		err := Check([]byte(in))
+		if (want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
+			t.Errorf("Check(%q) = %v, want %q", in, err, want)
+		}
 	}
 }
