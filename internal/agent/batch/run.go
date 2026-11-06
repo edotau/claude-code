@@ -21,8 +21,8 @@ type Opts struct {
 
 // BuildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
 func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd string, seen map[string]bool,
-	newClient func() *agent.Client) (BatchTask, error) {
-	t, err := ParseBatchTask(l, o.Agent, base, timeoutSet, cwd, seen)
+	newClient func() *agent.Client) (Task, error) {
+	t, err := ParseTask(l, o.Agent, base, timeoutSet, cwd, seen)
 	if err != nil {
 		return t, err
 	}
@@ -47,7 +47,7 @@ func Run(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions,
 	}
 	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	seen := map[string]bool{}
-	tasks := make([]BatchTask, 0, len(lines))
+	tasks := make([]Task, 0, len(lines))
 	for _, l := range lines {
 		t, err := BuildTask(l, o, base, timeoutSet, cwd, seen, newClient)
 		if err != nil {
@@ -56,6 +56,6 @@ func Run(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions,
 		}
 		tasks = append(tasks, t)
 	}
-	id = NewBatchID()
-	return id, RunBatch(ctx, tasks, BatchOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr})
+	id = NewID()
+	return id, RunTasks(ctx, tasks, PoolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr})
 }

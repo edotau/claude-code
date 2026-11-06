@@ -53,17 +53,17 @@ func (g gaugeRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent.R
 func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var cur, peak atomic.Int32
-	var tasks []batch.BatchTask
+	var tasks []batch.Task
 	for i := range agent.DefaultPerKey + 3 {
 		name := fmt.Sprintf("agent%d", i)
 		r := gaugeRunner{name: name, cur: &cur, max: &peak}
-		tasks = append(tasks, batch.BatchTask{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
+		tasks = append(tasks, batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*agent.Prepared, error) {
 				return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: "shared·acct"})}}), nil
 			}})
 	}
 	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: len(tasks), Out: &out}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: len(tasks), Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if got := int(peak.Load()); got > agent.DefaultPerKey || got < 2 {
@@ -90,8 +90,8 @@ func (s slowRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Re
 }
 
 // acctTask is a batch task whose single dispatch bills account.
-func acctTask(t *testing.T, name, account string, r agent.Engine) batch.BatchTask {
-	return batch.BatchTask{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
+func acctTask(t *testing.T, name, account string, r agent.Engine) batch.Task {
+	return batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*agent.Prepared, error) {
 			rec := agent.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
 			return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: account})}}), nil
@@ -101,7 +101,7 @@ func acctTask(t *testing.T, name, account string, r agent.Engine) batch.BatchTas
 // A panicking agent (recovered by the batch) must give its dispatch permit back: later tasks on the account still run.
 func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var tasks []batch.BatchTask
+	var tasks []batch.Task
 	for i := range agent.DefaultPerKey + 2 {
 		name := fmt.Sprintf("p%d", i)
 		tasks = append(tasks, acctTask(t, name, "panic·acct", slowRunner{name: name, boom: true}))
@@ -109,7 +109,7 @@ func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var out strings.Builder
-	if batch.RunBatch(ctx, tasks, batch.BatchOptions{Jobs: 2, Out: &out}) {
+	if batch.RunTasks(ctx, tasks, batch.PoolOptions{Jobs: 2, Out: &out}) {
 		t.Fatal("batch reported ok although every agent panicked")
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -124,7 +124,7 @@ func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 // Tasks parked on a full account hold no pool slot: a task on an idle account finishes while they still wait.
 func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var tasks []batch.BatchTask
+	var tasks []batch.Task
 	n := agent.DefaultPerKey + 2
 	for i := range n {
 		name := fmt.Sprintf("a%d", i)
@@ -132,7 +132,7 @@ func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 	}
 	tasks = append(tasks, acctTask(t, "b", "B·acct", slowRunner{name: "b"}))
 	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: n, Out: &out}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: n, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"b"`) {
@@ -168,11 +168,11 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const jobs = 5
 	var cur, peak atomic.Int32
-	var tasks []batch.BatchTask
+	var tasks []batch.Task
 	for i := range 12 {
 		name := fmt.Sprintf("f%d", i)
 		first, second := dispatchGauge{name: "codex", fail: true, cur: &cur, max: &peak}, dispatchGauge{name: "gemini", cur: &cur, max: &peak}
-		tasks = append(tasks, batch.BatchTask{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
+		tasks = append(tasks, batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
 			Prepare: func(context.Context) (*agent.Prepared, error) {
 				rec := agent.Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
 				return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "codex", Dispatches: []agent.Dispatch{
@@ -180,7 +180,7 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 			}})
 	}
 	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: jobs, Out: &out}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: jobs, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if got := int(peak.Load()); got > jobs || got < 2 {
@@ -207,7 +207,7 @@ func (f flagRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Re
 }
 
 // failFastPair runs first then a second task on Jobs=1 with FailFast; the second must neither prepare nor run.
-func failFastPair(t *testing.T, first batch.BatchTask) {
+func failFastPair(t *testing.T, first batch.Task) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var prepared, runs atomic.Int32
@@ -217,7 +217,7 @@ func failFastPair(t *testing.T, first batch.BatchTask) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out strings.Builder
-	if batch.RunBatch(ctx, []batch.BatchTask{first, second}, batch.BatchOptions{Jobs: 1, FailFast: true, Out: &out}) {
+	if batch.RunTasks(ctx, []batch.Task{first, second}, batch.PoolOptions{Jobs: 1, FailFast: true, Out: &out}) {
 		t.Fatal("batch reported ok after a failed task")
 	}
 	if prepared.Load() != 0 || runs.Load() != 0 {
@@ -230,7 +230,7 @@ func failFastPair(t *testing.T, first batch.BatchTask) {
 
 // --fail-fast with a Prepare failure: the next task never spawns.
 func TestBatchFailFastPrepareFailureStopsQueuedTask(t *testing.T) {
-	failFastPair(t, batch.BatchTask{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
+	failFastPair(t, batch.Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*agent.Prepared, error) { return nil, errors.New("route failed") }})
 }
 
@@ -243,12 +243,12 @@ func TestBatchFailFastPanickingDispatchStopsQueuedTask(t *testing.T) {
 func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	agent.CoolDown("cool·A", 250*time.Millisecond)
-	tasks := []batch.BatchTask{
+	tasks := []batch.Task{
 		acctTask(t, "cooling", "cool·A", slowRunner{name: "cooling"}),
 		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
 	}
 	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: 2, Out: &out}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 2, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
@@ -260,13 +260,13 @@ func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
 func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
-	first := batch.BatchTask{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
+	first := batch.Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*agent.Prepared, error) { return nil, errors.New("route failed") }}
 	second := acctTask(t, "second", "pf·acct", flagRunner{name: "second", runs: &runs})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var out strings.Builder
-	batch.RunBatch(ctx, []batch.BatchTask{first, second}, batch.BatchOptions{Jobs: 1, Out: &out})
+	batch.RunTasks(ctx, []batch.Task{first, second}, batch.PoolOptions{Jobs: 1, Out: &out})
 	if runs.Load() != 1 {
 		t.Fatalf("second task ran %d times after the first task's Prepare failed, want 1:\n%s", runs.Load(), out.String())
 	}
@@ -276,7 +276,7 @@ func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
 func TestBatchPanickingDispatchDoesNotFallBack(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
-	task := batch.BatchTask{ID: "t", Agent: "boom", Req: agent.RunOptions{Prompt: "p"},
+	task := batch.Task{ID: "t", Agent: "boom", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*agent.Prepared, error) {
 			rec := agent.Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
 			return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "boom", Dispatches: []agent.Dispatch{
@@ -287,7 +287,7 @@ func TestBatchPanickingDispatchDoesNotFallBack(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var out strings.Builder
-	if batch.RunBatch(ctx, []batch.BatchTask{task}, batch.BatchOptions{Jobs: 2, Out: &out}) {
+	if batch.RunTasks(ctx, []batch.Task{task}, batch.PoolOptions{Jobs: 2, Out: &out}) {
 		t.Fatal("batch reported ok after a panicking dispatch")
 	}
 	if runs.Load() != 0 || !strings.Contains(out.String(), "panic: boom") {
@@ -299,7 +299,7 @@ func TestBatchPanickingDispatchDoesNotFallBack(t *testing.T) {
 func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 	agent.AuthEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := agent.NewFailingRunner("claude", fmt.Errorf("agauth: %w", providers.ErrNeedsLogin))
-	task := batch.BatchTask{ID: "t", Agent: "claude", Req: agent.RunOptions{Prompt: "p"},
+	task := batch.Task{ID: "t", Agent: "claude", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*agent.Prepared, error) {
 			rec := agent.Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
 			return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "claude", Dispatches: []agent.Dispatch{
@@ -308,7 +308,7 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 			}}), nil
 		}}
 	var out strings.Builder
-	batch.RunBatch(context.Background(), []batch.BatchTask{task}, batch.BatchOptions{Jobs: 2, Out: &out})
+	batch.RunTasks(context.Background(), []batch.Task{task}, batch.PoolOptions{Jobs: 2, Out: &out})
 	var env agent.Envelope
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &env); err != nil {
 		t.Fatalf("decode %q: %v", out.String(), err)
@@ -320,7 +320,7 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 
 // --fail-fast: a task that fails outside any dispatch (an empty chain) still cancels before the next task is prepared.
 func TestBatchFailFastEmptyChainStopsQueuedTask(t *testing.T) {
-	failFastPair(t, batch.BatchTask{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
+	failFastPair(t, batch.Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*agent.Prepared, error) {
 			return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "first"}), nil
 		}})
@@ -346,12 +346,12 @@ func (r rateOnce) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Resu
 func TestBatchBackoffReleasesDispatchPermit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var n atomic.Int32
-	tasks := []batch.BatchTask{
+	tasks := []batch.Task{
 		acctTask(t, "limited", "rate·A", rateOnce{name: "limited", n: &n}),
 		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
 	}
 	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: 1, Out: &out}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 1, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
@@ -369,12 +369,12 @@ func TestBatchFirstAttemptCooldownReleasesDispatchPermit(t *testing.T) {
 			return prev()
 		}
 	}))
-	tasks := []batch.BatchTask{
+	tasks := []batch.Task{
 		acctTask(t, "late", "late·A", slowRunner{name: "late"}),
 		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
 	}
 	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: 1, Out: &out}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 1, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
@@ -387,12 +387,12 @@ func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
 	first := markingRunner{name: "first", mark: func() { _ = router.MarkAuth("auth·A", "login expired") }}
-	tasks := []batch.BatchTask{
+	tasks := []batch.Task{
 		acctTask(t, "first", "auth·A", first),
 		acctTask(t, "second", "auth·A", flagRunner{name: "second", runs: &runs}),
 	}
 	var out strings.Builder
-	batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: 1, Out: &out})
+	batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 1, Out: &out})
 	if runs.Load() != 0 {
 		t.Errorf("the queued dispatch ran %d times on an auth-dead account", runs.Load())
 	}
@@ -422,12 +422,12 @@ func (m markingRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent
 func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var n atomic.Int32
-	tasks := []batch.BatchTask{
+	tasks := []batch.Task{
 		acctTask(t, "limited", "rate·A", rateOnce{name: "limited", n: &n}),
 		acctTask(t, "marker", "free·B", markingRunner{name: "marker", mark: func() { _ = router.MarkAuth("rate·A", "login expired") }}),
 	}
 	var out strings.Builder
-	batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: 1, Out: &out})
+	batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 1, Out: &out})
 	if n.Load() != 1 {
 		t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
 	}
@@ -464,12 +464,12 @@ func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 		}
 	}))
 	var runs atomic.Int32
-	tasks := []batch.BatchTask{
+	tasks := []batch.Task{
 		acctTask(t, "late", "late·A", flagRunner{name: "late", runs: &runs}),
 		acctTask(t, "marker", "free·B", markingRunner{name: "marker", mark: func() { _ = router.MarkAuth("late·A", "login expired") }}),
 	}
 	var out strings.Builder
-	batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: 1, Out: &out})
+	batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 1, Out: &out})
 	if runs.Load() != 0 {
 		t.Errorf("the first attempt ran %d times on an account marked auth-dead during its cooldown wait", runs.Load())
 	}
@@ -480,16 +480,16 @@ func TestBatchCapsOwnLoginDispatchesPerAgent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var cur, peak atomic.Int32
 	r := gaugeRunner{name: "opencode", cur: &cur, max: &peak}
-	var tasks []batch.BatchTask
+	var tasks []batch.Task
 	for i := range agent.DefaultPerKey + 3 {
 		id := fmt.Sprintf("own%d", i)
-		tasks = append(tasks, batch.BatchTask{ID: id, Agent: "opencode", Req: agent.RunOptions{Prompt: "p"},
+		tasks = append(tasks, batch.Task{ID: id, Agent: "opencode", Req: agent.RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*agent.Prepared, error) {
 				return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "opencode", Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r})}}), nil
 			}})
 	}
 	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: len(tasks), Out: &out}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: len(tasks), Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if got := int(peak.Load()); got > agent.DefaultPerKey || got < 2 {
@@ -497,15 +497,15 @@ func TestBatchCapsOwnLoginDispatchesPerAgent(t *testing.T) {
 	}
 }
 
-// batch.RunBatch writes one shared marker per running dispatch and removes every marker when the batch is done.
+// batch.RunTasks writes one shared marker per running dispatch and removes every marker when the batch is done.
 func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"
 	var cur, runPeak atomic.Int32
-	var tasks []batch.BatchTask
+	var tasks []batch.Task
 	for _, name := range []string{"a", "b", "c"} {
 		r := gaugeRunner{name: name, cur: &cur, max: &runPeak}
-		tasks = append(tasks, batch.BatchTask{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
+		tasks = append(tasks, batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*agent.Prepared, error) {
 				return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: account})}}), nil
 			}})
@@ -514,7 +514,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	var peak atomic.Int32
 	go agent.SamplePeak(inflight.Dir(), account, 2*time.Millisecond, stop, &peak)
 
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: 3}) {
+	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 3}) {
 		t.Fatal("batch failed")
 	}
 	close(stop)
@@ -522,7 +522,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 		t.Error("no inflight markers observed while the batch ran")
 	}
 	if n := agent.CountAccountMarkers(inflight.Dir(), account); n != 0 {
-		t.Errorf("%d markers remain after batch.RunBatch returned, want 0", n)
+		t.Errorf("%d markers remain after batch.RunTasks returned, want 0", n)
 	}
 }
 

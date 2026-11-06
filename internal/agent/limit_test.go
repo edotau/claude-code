@@ -50,7 +50,7 @@ func samplePeak(dir, account string, interval time.Duration, stop <-chan struct{
 
 // Verify-2: 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12, every dispatch and
 // spawn finishes, and the marker dir is empty at the end. The limiter's caps lift the in-process DefaultPerKey=4
-// that RunBatch uses, so the file-backed shared limiter is the binding gate.
+// that RunTasks uses, so the file-backed shared limiter is the binding gate.
 func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"

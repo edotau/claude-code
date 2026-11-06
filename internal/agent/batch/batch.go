@@ -73,8 +73,8 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 	}
 }
 
-// BatchTask is one scheduled task; Prepare routes it when it is about to start, and Err fails it before any run.
-type BatchTask struct {
+// Task is one scheduled task; Prepare routes it when it is about to start, and Err fails it before any run.
+type Task struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
 	Req     agent.RunOptions
@@ -82,8 +82,8 @@ type BatchTask struct {
 	Err     error
 }
 
-// BatchOptions configures RunBatch; Out is read when RunBatch is called, so a swapped os.Stdout is honored.
-type BatchOptions struct {
+// PoolOptions configures RunTasks; Out is read when RunTasks is called, so a swapped os.Stdout is honored.
+type PoolOptions struct {
 	ID       string    // stamped on every envelope as batch_id
 	Jobs     int       // dispatches run at once; <= 0 means DefaultJobs
 	FailFast bool      // the first failed task cancels every queued and running one
@@ -91,14 +91,14 @@ type BatchOptions struct {
 	Log      io.Writer // per-task progress lines tagged with the task id; nil discards
 }
 
-// NewBatchID names one batch run.
-func NewBatchID() string {
+// NewID names one batch run.
+func NewID() string {
 	var b [3]byte
 	_, _ = rand.Read(b[:]) // a failed read leaves zeros: the stamp alone still names the batch
 	return "batch-" + batchNow().UTC().Format("20060102T150405.000") + "-" + hex.EncodeToString(b[:])
 }
 
-// batchNow is the clock NewBatchID reads; a var so tests can force two batches onto one millisecond.
+// batchNow is the clock NewID reads; a var so tests can force two batches onto one millisecond.
 var batchNow = time.Now
 
 type batchDone struct {
@@ -109,14 +109,14 @@ type batchDone struct {
 
 // batchRun is the state shared by a batch's workers: the serialized log writer, the limiter.
 type batchRun struct {
-	o    BatchOptions
+	o    PoolOptions
 	logM sync.Mutex
 	lim  *agent.Limiter
 	stop func() // cancels the batch
 }
 
-// RunBatch streams one envelope per task to o.Out as each finishes; true only if every task was ok.
-func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
+// RunTasks streams one envelope per task to o.Out as each finishes; true only if every task was ok.
+func RunTasks(ctx context.Context, tasks []Task, o PoolOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -153,7 +153,7 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 }
 
 // feed prepares queued tasks in input order, each once a slot is free; a cancelled batch starts nothing more.
-func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, done chan<- batchDone) {
+func (b *batchRun) feed(ctx context.Context, tasks []Task, queue []int, done chan<- batchDone) {
 	for _, i := range queue {
 		t := tasks[i]
 		sl, err := b.lim.Reserve(ctx)
@@ -190,7 +190,7 @@ func writeEnvelope(w io.Writer, env agent.Envelope) bool {
 }
 
 // taskFailure is the error envelope of a task that never ran.
-func taskFailure(t BatchTask, err error) agent.Envelope {
+func taskFailure(t Task, err error) agent.Envelope {
 	env := agent.FailureEnvelope(t.Agent, err)
 	env.TaskID = t.ID
 	return env
@@ -210,7 +210,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 }
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
-func (b *batchRun) run(ctx context.Context, t BatchTask, p *agent.Prepared) (env agent.Envelope, ok bool) {
+func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agent.Envelope, ok bool) {
 	rec := &p.Record
 	ctx = agent.WithBatchRun(ctx, b.lim)
 	if b.o.FailFast {
@@ -249,10 +249,10 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, p *agent.Prepared) (env
 
 var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
-// ParseBatchTask validates one line like the ask flags; on error the task keeps its id and agent.
-func ParseBatchTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
-	seen map[string]bool) (BatchTask, error) {
-	t := BatchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
+// ParseTask validates one line like the ask flags; on error the task keeps its id and agent.
+func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
+	seen map[string]bool) (Task, error) {
+	t := Task{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
 	if l.Err != nil {
 		return t, l.Err
 	}
