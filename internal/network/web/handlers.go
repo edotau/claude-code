@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -41,7 +42,7 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	if payload == nil {
 		var err error
 		if payload, err = s.treeJSON(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 	}
@@ -381,4 +382,10 @@ func (c *browserCache) get(env browser.Env, now time.Time) browser.Report {
 // system default, and each one's control-path state), read-only.
 func (s *Server) handleBrowsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.browsers.get(s.browserEnv, s.now()))
+}
+
+// internalError logs err and sends a generic 500: error text can name local paths and the hub may serve tailnet peers.
+func internalError(w http.ResponseWriter, err error) {
+	log.Printf("web: %v", err)
+	http.Error(w, "internal error (details in the hub log)", http.StatusInternalServerError)
 }

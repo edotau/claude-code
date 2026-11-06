@@ -349,3 +349,12 @@ func TestHubRebuildFailureKeepsFingerprintUnrecorded(t *testing.T) {
 		t.Fatal("fingerprint not recorded after a successful build")
 	}
 }
+
+// A failed first build answers 500 without the error text, which can name local paths, reaching a tailnet client.
+func TestInitialPayloadHidesErrorText(t *testing.T) {
+	rec := httptest.NewRecorder()
+	_, ok := initialPayload(rec, nil, func() ([]byte, error) { return nil, errors.New("open /home/u/.claude/secret: denied") })
+	if ok || rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "/home/u") {
+		t.Fatalf("ok=%v code=%d body=%q; want a 500 with no error text", ok, rec.Code, rec.Body.String())
+	}
+}
