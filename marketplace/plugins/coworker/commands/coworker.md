@@ -30,7 +30,7 @@ model, or `discovery`).
 
 `databricks` forces the brief's agent onto a Databricks profile: an `agent=<a>` sub-token sets it (default claude).
 
-`team` mode (`/coworkers team <goal>`): a `code-worker:gemini` leaf scans (read-only, cites file:line) →
+`team` mode (`/coworker team <goal>`): a `code-worker:gemini` leaf scans (read-only, cites file:line) →
 `code-worker:codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's approval →
 approved items go to `coworker:opencode` leaves (shared tree; worktree only with the user's yes) ‖ a
 `copilot` test agent (feature/bug fix only) when code changes. `agents=` overrides the three roles in order.
@@ -41,7 +41,7 @@ Pick and fallback: `~/.claude/skills/subagent-workflows/references/cost-routing.
 # Usage
 
 ```text
-/coworkers [agents=<a,b>] [model=<m>|discovery] [profile=<p>] [single|compare|relay|team] <task> [| <task> …]
+/coworker [agents=<a,b>] [model=<m>|discovery] [profile=<p>] [single|compare|relay|team] <task> [| <task> …]
 
   agents=   copilot (first when available) · opencode · databricks (agent=<a> picks its agent, default claude)
             several names = relay unless a mode word is given (bare coworker leaf)
@@ -56,11 +56,11 @@ endpoints; without one, route through the discovered catalogs (claude-code openc
 claude-code copilot catalog; refresh with /discover-models).
 
 Examples:
-  /coworkers review internal/proxy for races                           copilot, single
-  /coworkers agents=copilot,opencode compare is this diff safe to ship? both answers side by side
-  /coworkers agents=databricks agent=codex review internal/proxy         codex on a Databricks profile
-  /coworkers agents=opencode model=kimi-k3 summarize docs/             one discovered model
-  /coworkers agents=copilot,opencode model=discovery compare refactor X     router-picked rare models
-  /coworkers profile=prod model=opus fix the flaky watchdog test        billed to prod
-  /coworkers team tighten error handling in internal/usage               scan, review, approve, edit
+  /coworker review internal/proxy for races                           copilot, single
+  /coworker agents=copilot,opencode compare is this diff safe to ship? both answers side by side
+  /coworker agents=databricks agent=codex review internal/proxy         codex on a Databricks profile
+  /coworker agents=opencode model=kimi-k3 summarize docs/             one discovered model
+  /coworker agents=copilot,opencode model=discovery compare refactor X     router-picked rare models
+  /coworker profile=prod model=opus fix the flaky watchdog test        billed to prod
+  /coworker team tighten error handling in internal/usage               scan, review, approve, edit
 ```
