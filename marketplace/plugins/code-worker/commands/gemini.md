@@ -1,7 +1,6 @@
 ---
 description: "Run Gemini (agy): a verb (ask, review…) or a bare task as ask"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|…] <task>"
-disable-model-invocation: true
 allowed-tools: Bash(claude-code gemini *), Bash(claude-code ask --agent gemini *)
 ---
 
@@ -15,5 +14,5 @@ Launcher only. Verbs and flags: `claude-code gemini -h`; the agent's role and re
 3. Anything else is a task → run `claude-code ask --agent gemini [flags] "<task>"`.
 
 Pass arguments as literal CLI arguments, never shell-evaluated. Long tasks: add `--background` and relay the job id
-(`/gemini status`, `/gemini result <id>`). Relay the output as-is;
+(`/code-worker:gemini status`, `/code-worker:gemini result <id>`). Relay the output as-is;
 a verb that rejects a flag errors — relay that, don't retry.

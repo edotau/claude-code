@@ -34,7 +34,7 @@ Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent
 
 `@agent-opencode <request>` or a brief. A leading verb (`claude-code opencode -h`) runs `claude-code opencode <verb>
 <rest>`, relayed; anything else runs `claude-code ask --agent opencode --tools "<task>"`. `--profile`/`--model` ride on
-every call. `/opencode` runs the CLI directly, no subagent.
+every call. `/coworker:opencode` runs the CLI directly, no subagent.
 
 ## Owns
 
@@ -78,7 +78,8 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
 - Instructions: `~/.claude/CLAUDE.md` natively plus the unscoped `rules/standards/*.md` from the launch overlay
   (`OPENCODE_CONFIG`); sync writes no `AGENTS.md`, which would replace `CLAUDE.md`.
 - Skills: `~/.agents/skills` (and `~/.config/opencode/skills`); agents: `~/.config/opencode/agents/*.md`.
-- Commands: `/opencode`, `/codex`, `/copilot`, `/gemini`, `/discover-models`, `/lint-fix` ride the same overlay.
+- Commands: `/coworker:opencode`, `/code-worker:codex`, `/coworker:copilot`, `/code-worker:gemini`, `/discover-models`,
+  `/lint-fix` ride the same overlay.
 - Plugin (`tool.execute.before`, headless and TUI): `safety-scan`, `docs-placement`, `docs-plan-gate`,
   `worktree-claim-check` block; `permission-gate` applies the dispatch's Bash deny; the other hooks are advisory
   (`rules/harness/hooks.md` → Applicability).

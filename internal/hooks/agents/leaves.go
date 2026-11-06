@@ -256,9 +256,14 @@ func requestsAgent(brief string) bool {
 	return agentLineRe.MatchString(brief) || briefProfile(brief) != ""
 }
 
+// ranOnGated is true for the leaves that call an external agent: coworker, coworker:*, code-worker:codex|gemini.
+func ranOnGated(t string) bool {
+	return t == "coworker" || strings.HasPrefix(t, "coworker:") || t == "code-worker:codex" || t == "code-worker:gemini"
+}
+
 // coworkerRanOnVerdict blocks a coworker's stop or hand-back once when no ran-on line was seen; a repeat passes.
 func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
-	if leafAgentType(in) != "coworker" {
+	if !ranOnGated(leafAgentType(in)) {
 		return core.Result{}, false
 	}
 	s, err := leafBrief(in.AgentTranscriptPath)

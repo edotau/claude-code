@@ -69,6 +69,17 @@ install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0:
 		$(MAKE) --no-print-directory tools-sync; fi
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@$(BIN) network restart || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
+	@$(MAKE) --no-print-directory plugins || echo -e "$(C_NOTE)harness plugins not installed (install itself succeeded)"
+
+# The harness marketplace (code-worker:*, coworker:* agents) loads in place from the live checkout, never a worktree.
+PLUGIN_MARKET := $(or $(CLAUDE_CONFIG_DIR),$(HOME)/.claude)/marketplace
+.PHONY: plugins
+plugins:  ## Register the harness marketplace and install its plugins (idempotent)
+	@command -v claude >/dev/null || { echo -e "$(C_NOTE)claude not on PATH; skipping plugins"; exit 0; }
+	@claude plugin marketplace list 2>/dev/null | grep -q '❯ harness$$' || claude plugin marketplace add "$(PLUGIN_MARKET)"
+	@for p in code-worker coworker; do \
+		claude plugin list 2>/dev/null | grep -q "❯ $$p@harness$$" || claude plugin install "$$p@harness" || exit 1; done
+	@echo -e "$(C_OK)plugins code-worker, coworker (harness marketplace)"
 
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
 # fails typecheck with "export data version N is greater than maximum supported" — overwrite it in place.

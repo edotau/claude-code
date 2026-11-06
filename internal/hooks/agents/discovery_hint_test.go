@@ -14,6 +14,9 @@ func TestDiscoveryHintPredicate(t *testing.T) {
 		want           bool
 	}{
 		{"coworker", "coworker", "do a thing", true},
+		{"coworker:copilot", "coworker:copilot", "do a thing", true},
+		{"coworker:opencode", "coworker:opencode", "do a thing", true},
+		{"coworker:databricks", "coworker:databricks", "do a thing", false},
 		{"agent opencode", "general-purpose", "Agent: opencode\nedit x", true},
 		{"agent copilot", "general-purpose", "Agent: copilot\nrun tests", true},
 		{"explicit model", "coworker", "run with --model gpt-6 now", false},

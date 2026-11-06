@@ -51,7 +51,8 @@ func briefAgents(task string) []string {
 }
 
 // readOnlyTypes are subagent types without write tools; a Profile: line must not move them to a coworker.
-var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true, "claude-code-guide": true}
+var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true,
+	"code-worker:gemini": true, "claude-code-guide": true}
 
 // inContextBrief is true when the brief's Agent: line says in-context.
 func inContextBrief(task string) bool {
@@ -91,12 +92,23 @@ func routeProfile(updated map[string]any, promptField, task, p, st string) (note
 		updated[promptField] = "Run: " + strings.Join(cmds, " ; ") + " (profile " + p + "; ask resolves host and auth)\n\n" + prompt
 		note = "agent-effort: Profile: " + p + " — leaf must run `" + strings.Join(cmds, "`, `") + "`."
 	}
-	if st != "coworker" {
-		updated["subagent_type"] = "coworker"
-		note = strings.TrimSpace(fmt.Sprintf("agent-effort: Profile: %s — %s dispatch moved to coworker (the session route cannot change profile). %s",
-			p, cmp.Or(st, "general-purpose"), note))
+	if pool, _ := splitType(st); pool != "coworker" {
+		to := profileTarget(task)
+		updated["subagent_type"] = to
+		note = strings.TrimSpace(fmt.Sprintf("agent-effort: Profile: %s — %s dispatch moved to %s (the session route cannot change profile). %s",
+			p, cmp.Or(st, "general-purpose"), to, note))
 	}
 	return note
+}
+
+// profileTarget is the coworker type a Profile: dispatch moves to: the brief's copilot/opencode, else bare coworker.
+func profileTarget(task string) string {
+	for _, a := range briefAgents(task) {
+		if t := poolType(a); strings.HasPrefix(t, "coworker:") {
+			return t
+		}
+	}
+	return "coworker"
 }
 
 // profileSuffix appends `·<profile>` to a label unless it already ends with that name.

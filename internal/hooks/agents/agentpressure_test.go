@@ -39,8 +39,8 @@ func TestPressureDownshiftsUnsetModel(t *testing.T) {
 func TestPressureOffloadsCodeWorker(t *testing.T) {
 	withPressure(t, 98)
 	got, _ := runAgentEffort(t, spawn("code-worker", ""))
-	if got["subagent_type"] != "coworker" || got["model"] != "haiku" {
-		t.Fatalf("98%% code-worker = %+v, want coworker at haiku", got)
+	if got["subagent_type"] != "code-worker:codex" || got["model"] != "haiku" {
+		t.Fatalf("98%% code-worker = %+v, want code-worker:codex (the routed agent's leaf) at haiku", got)
 	}
 	if p, _ := got["prompt"].(string); !strings.HasPrefix(p, "Routed by agent-effort") || !strings.Contains(p, "--agent codex") ||
 		!strings.Contains(p, "refactor the parser") {
@@ -88,6 +88,15 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/openai")
 	if billsSubscription() {
 		t.Error("routed openai session must not count as the subscription")
+	}
+}
+
+// The plugin's in-context Claude leaf offloads to the routed agent's leaf like the bare code-worker.
+func TestPressureOffloadsNamespacedCodeWorker(t *testing.T) {
+	withPressure(t, 98)
+	got, _ := runAgentEffort(t, spawn("code-worker:claude", ""))
+	if got["subagent_type"] != "code-worker:codex" || got["model"] != "haiku" {
+		t.Fatalf("98%% code-worker:claude = %+v, want code-worker:codex (the routed agent's leaf) at haiku", got)
 	}
 }
 

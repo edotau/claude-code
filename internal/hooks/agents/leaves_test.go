@@ -621,6 +621,12 @@ func TestLeafJobIDsEnvelopeAndExitLine(t *testing.T) {
 // coworkerTx writes a coworker leaf transcript (the brief, then the given tool results) with its meta.json beside it.
 func coworkerTx(t *testing.T, brief string, toolResults ...string) *core.Input {
 	t.Helper()
+	return leafTx(t, "coworker", brief, toolResults...)
+}
+
+// leafTx is coworkerTx for any subagent type.
+func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.Input {
+	t.Helper()
 	dir := t.TempDir()
 	first, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": brief}})
 	body := string(first) + "\n"
@@ -635,10 +641,21 @@ func coworkerTx(t *testing.T, brief string, toolResults ...string) *core.Input {
 	if err := os.WriteFile(tx, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"coworker"}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"`+agentType+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return leafInput(tx)
+}
+
+// The ran-on gate covers every external-agent leaf type and spares the in-context Claude leaves.
+func TestRanOnGateNamespacedTypes(t *testing.T) {
+	for st, want := range map[string]bool{"coworker:copilot": true, "coworker:databricks": true, "code-worker:codex": true,
+		"code-worker:gemini": true, "code-worker:claude": false, "code-worker": false} {
+		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nAgent: codex\n", "ls output"), "a1")
+		if blocked != want {
+			t.Errorf("%s: blocked = %v, want %v", st, blocked, want)
+		}
+	}
 }
 
 // A coworker whose brief requests an agent but whose tool results show no ran-on line is blocked, naming the line; prose does not count.

@@ -426,14 +426,14 @@ for (let round = 1; round <= ROUNDS; round++) {
         `Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)\n` +
         `Put the TASK/ISSUE facts as plain sentences in your summary.`
       const impl = S.fix.kind === 'external' ? extResult(await askStep(S.fix, implTask, true)) : await agent(implTask,
-        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(FIX_MODEL || (hot ? 'opus' : 'sonnet')), effort: FIX_EFFORT || (hot ? 'high' : 'medium') })
+        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(FIX_MODEL || (hot ? 'opus' : 'sonnet')), effort: FIX_EFFORT || (hot ? 'high' : 'medium') })
       const implBlocked = !impl || impl.status === 'blocked'
       const testTask = () => `${ctx}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\nYou are the TEST agent (the implementer has finished): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
         `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg}, and report. Budget ~20 tool calls.`
       const tests = !testsNeeded || implBlocked ? null : S.test.kind === 'external' ? extResult(await askStep(S.test, testTask(), true)) : await agent(testTask(),
-        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(S.test.model), effort: S.test.effort })
+        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(S.test.model), effort: S.test.effort })
       return { package: pkg, impl, tests, blocked: implBlocked }
     })()
   })).then(rs => rs.map((r, i) => r || { package: [...byPkg.keys()][i], blocked: true, error: 'fix stage failed' }))
