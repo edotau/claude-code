@@ -166,7 +166,8 @@ iteration; the full suite is never run here (`rules/standards/quality.md`). Neve
 ### Skill or plugin audit
 
 Procedure and output formats:
-[codex-skill-plugin-review.md](../skills/evaluate-code/references/codex-skill-plugin-review.md) (see the skill-mode and plugin-mode sections).
+[codex-skill-plugin-review.md](../skills/evaluate-code/references/codex-skill-plugin-review.md)
+(see the skill-mode and plugin-mode sections).
 
 ### Delegated work
 

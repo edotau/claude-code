@@ -7,11 +7,15 @@ Reconstructed notes on the stock built-in /simplify skill; reference only, not i
 >
 > **Invocation**: `/simplify` or `/simplify focus on [area]`
 >
-> The `/simplify` command is a built-in skill that performs an automated, multi-agent code review and cleanup pass on recently changed files. It is designed to be run after implementing a feature or fixing a bug, before opening a pull request.
+> The `/simplify` command is a built-in skill that performs an automated, multi-agent code review and cleanup pass on
+> recently changed files. It is designed to be run after implementing a feature or fixing a bug, before opening a pull
+> request.
 
 ## Availability
 
-This is a **bundled skill**, meaning it ships inside the Claude Code binary and does not require installation. Unlike custom skills placed in `.claude/skills/`, this skill is maintained by Anthropic and updated with Claude Code releases. The exact `SKILL.md` source is compiled into the binary and not publicly accessible.
+This is a **bundled skill**, meaning it ships inside the Claude Code binary and does not require installation. Unlike
+custom skills placed in `.claude/skills/`, this skill is maintained by Anthropic and updated with Claude Code releases.
+The exact `SKILL.md` source is compiled into the binary and not publicly accessible.
 
 The following documentation is reconstructed from public documentation, community sources, and behavioral analysis.
 
@@ -69,7 +73,7 @@ Once all three agents complete their reviews:
 
 ## Usage
 
-```
+```text
 /simplify                              # Review all recent changes
 /simplify focus on memory efficiency   # Focus on specific concern
 /simplify focus on performance         # Target performance issues
@@ -77,7 +81,9 @@ Once all three agents complete their reviews:
 
 ## Integration with CLAUDE.md
 
-The effectiveness of `/simplify` depends heavily on the project's `CLAUDE.md` file. The quality agent uses coding standards and preferences defined there to align its suggestions with the team's conventions. Projects with well-defined `CLAUDE.md` files get significantly better results.
+The effectiveness of `/simplify` depends heavily on the project's `CLAUDE.md` file. The quality agent uses coding
+standards and preferences defined there to align its suggestions with the team's conventions. Projects with well-defined
+`CLAUDE.md` files get significantly better results.
 
 ## Design Characteristics
 
@@ -95,11 +101,12 @@ The effectiveness of `/simplify` depends heavily on the project's `CLAUDE.md` fi
 
 The recommended workflow is:
 
-```
+```text
 Build feature → Run tests → /simplify → Review diffs → Commit
 ```
 
-This positions `/simplify` as a post-implementation cleanup pass that tightens AI-generated code, which tends toward verbosity. It is not a replacement for human code review but automates the mechanical cleanup portion.
+This positions `/simplify` as a post-implementation cleanup pass that tightens AI-generated code, which tends toward
+verbosity. It is not a replacement for human code review but automates the mechanical cleanup portion.
 
 ## Related Commands
 
