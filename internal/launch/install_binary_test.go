@@ -2,6 +2,7 @@ package launch
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,5 +226,28 @@ func assertInstalledClipboardProxy(t *testing.T, proxyPath, output string) {
 	}
 	if !strings.Contains(output, "wl-paste") {
 		t.Errorf("install output missing a wl-paste row:\n%s", output)
+	}
+}
+
+func TestInstallBinaryTargetCopiesOnceAndHonorsDryRun(t *testing.T) {
+	hermetic(t, "")
+	installTestBinary(t)
+	target := filepath.Join(paths.BinDir(), "claude-code")
+	var out bytes.Buffer
+	if got, err := installBinaryTarget(&out, true); err != nil || got != target {
+		t.Fatalf("dry-run = %q, %v", got, err)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) || !strings.Contains(out.String(), "copy     ") {
+		t.Fatalf("dry-run: stat err %v, output %q", err, out.String())
+	}
+	out.Reset()
+	if _, err := installBinaryTarget(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(target); string(data) != "binary" {
+		t.Fatalf("installed binary = %q", data)
+	}
+	if _, err := installBinaryTarget(&out, false); err != nil || out.Len() != 0 {
+		t.Fatalf("identical binary recopied: err %v, output %q", err, out.String())
 	}
 }

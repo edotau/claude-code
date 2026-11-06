@@ -28,8 +28,8 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// Install copies the binary into BinDir, links the agent CLIs, and merges the harness settings
-// (backing up first). A real (non-dry-run) run prints one compact line per step, naming only
+// Install copies the binary into BinDir, links the agent CLIs, and seeds a missing settings.json
+// (an existing one is never written). A real (non-dry-run) run prints one compact line per step, naming only
 // non-ok items in full; --dry-run and --verbose keep the full step-by-step detail.
 func Install(w io.Writer, dryRun bool, verbose bool) error {
 	if dryRun || verbose {
@@ -63,7 +63,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	}
 	installGitHooks(w, dryRun)
 	if !dryRun {
-		PreflightStep(w, target)
+		preflightStep(w, target)
 	}
 	if settingsErr != nil {
 		fmt.Fprintf(w, "settings skip  %v (agent sync and installGitHooks still ran)\n", settingsErr)
@@ -76,7 +76,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 // Steps run in installVerbose's order; the extras line prints last. Warnings always print in full.
 func installCompact(w io.Writer) error {
 	commit := snapshotPreInstall(w, false, true)
-	target, err := installBinaryTarget()
+	target, err := installBinaryTarget(io.Discard, false)
 	if err != nil {
 		return err
 	}
@@ -91,22 +91,22 @@ func installCompact(w io.Writer) error {
 	if err := linkOnPathCompact(w, target); err != nil {
 		return err
 	}
-	settingsLine, settingsErr := settingsCompactLine()
+	settingsLine, settingsErr := settingsStatus(false)
 	if settingsLine != "" {
 		fmt.Fprintln(w, settingsLine)
 	}
 	windowsSettingsCompact(w)
 	agentsSyncCompact(w)
 	installGitHooks(w, false)
-	PreflightStep(w, target)
+	preflightStep(w, target)
 	if settingsErr != nil {
 		fmt.Fprintf(w, "settings skip  %v (agent sync and installGitHooks still ran)\n", settingsErr)
 	}
 	return settingsErr
 }
 
-// PreflightStep refreshes stale workspace listings and prints one live pong row per pinned agent; never fails install.
-func PreflightStep(w io.Writer, bin string) {
+// preflightStep refreshes stale workspace listings and prints one live pong row per pinned agent; never fails install.
+func preflightStep(w io.Writer, bin string) {
 	reg, err := providers.Load()
 	if err != nil {
 		return // no registry: nothing to check
@@ -131,7 +131,7 @@ func snapshotPreInstall(w io.Writer, dryRun, quiet bool) string {
 	}
 	r, err := history.SnapshotConfig("pre-install")
 	if err != nil {
-		fmt.Fprintf(w, "history  snapshot failed: %v\n", err)
+		fmt.Fprintf(w, "warning  history snapshot failed: %v · continuing; the binary has no rollback point\n", err)
 		return ""
 	}
 	if !quiet && r.Commit != "" {
@@ -142,6 +142,17 @@ func snapshotPreInstall(w io.Writer, dryRun, quiet bool) string {
 
 // installBinaryAndLinks copies claude-code into BinDir and links each agent CLI there, returning the target path.
 func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
+	target, err := installBinaryTarget(w, dryRun)
+	if err != nil {
+		return "", err
+	}
+	tools.Link(w, nil, dryRun)
+	return target, nil
+}
+
+// installBinaryTarget copies claude-code into BinDir (printing a "copy" line to w) without linking agents;
+// installCompact passes io.Discard and links agents separately via agentsCompactLine.
+func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 	self, err := selfBinary()
 	if err != nil {
 		return "", err
@@ -153,23 +164,6 @@ func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 			if err := copyBinary(self, target); err != nil {
 				return "", err
 			}
-		}
-	}
-	tools.Link(w, nil, dryRun)
-	return target, nil
-}
-
-// installBinaryTarget is installBinaryAndLinks without the "copy" progress line or agent linking —
-// installCompact links agents separately via agentsCompactLine.
-func installBinaryTarget() (target string, err error) {
-	self, err := selfBinary()
-	if err != nil {
-		return "", err
-	}
-	target = filepath.Join(paths.BinDir(), "claude-code")
-	if !sameFile(self, target) {
-		if err := copyBinary(self, target); err != nil {
-			return "", err
 		}
 	}
 	return target, nil
@@ -225,9 +219,6 @@ func installSettings(w io.Writer, dryRun bool) error {
 	fmt.Fprintln(w, line)
 	return nil
 }
-
-// settingsCompactLine is installSettings' one line for the compact install.
-func settingsCompactLine() (string, error) { return settingsStatus(false) }
 
 // settingsStatus seeds settings.json when it is missing (unless dryRun) and returns the one status line.
 func settingsStatus(dryRun bool) (string, error) {

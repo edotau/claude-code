@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -240,9 +241,9 @@ func TestPruneAgedSkipsFailedRemoval(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 
-	hit, size := pruneAged([]string{filepath.Join(dir, "blocked-*")}, time.Now(), true, nil)
+	hit, size, _ := pruneAgedTo(io.Discard, []string{filepath.Join(dir, "blocked-*")}, time.Now(), true, nil)
 	if len(hit) != 0 || size != 0 {
-		t.Errorf("pruneAged counted a failed removal: hit=%v size=%d", hit, size)
+		t.Errorf("pruneAgedTo counted a failed removal: hit=%v size=%d", hit, size)
 	}
 	if !exists(t, blocked) {
 		t.Error("blocked dir was actually removed despite the read-only parent")
@@ -320,9 +321,9 @@ func TestPruneAgedNeverSweepsVault(t *testing.T) {
 			if protected(debris) {
 				t.Fatal("prefix-sharing sibling must remain sweepable")
 			}
-			hits, size := pruneAged([]string{filepath.Join(dir, "state", "vault.db*")}, time.Now(), apply, nil)
+			hits, size, _ := pruneAgedTo(io.Discard, []string{filepath.Join(dir, "state", "vault.db*")}, time.Now(), apply, nil)
 			if len(hits) != 1 || hits[0] != debris || size != int64(len("debris")) {
-				t.Errorf("pruneAged = %v, %d bytes; want only debris", hits, size)
+				t.Errorf("pruneAgedTo = %v, %d bytes; want only debris", hits, size)
 			}
 			for _, path := range keep {
 				if !exists(t, path) {
@@ -564,15 +565,15 @@ func seedAgedSession(t *testing.T, dir string) (transcript, sessDir string) {
 }
 
 // TestCleanSessionsRefusesWithoutTTYOrYes: --target sessions with no TTY and no --yes deletes nothing
-// and reports the refusal, rather than silently reading as "nothing to clean".
+// and exits 2 with the refusal, rather than silently reading as "nothing to clean".
 func TestCleanSessionsRefusesWithoutTTYOrYes(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	transcript, sessDir := seedAgedSession(t, dir)
 
 	var out, errw bytes.Buffer
-	if code := Clean([]string{"--target", "sessions"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target sessions = %d, want 0 (refusal is not an error exit)", code)
+	if code := Clean([]string{"--target", "sessions"}, &out, &errw); code != 2 {
+		t.Fatalf("Run --target sessions = %d, want 2 (refusal is a precondition failure)", code)
 	}
 	if !exists(t, transcript) || !exists(t, sessDir) {
 		t.Error("sessions were deleted without confirmation")
@@ -662,10 +663,10 @@ func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 			t.Errorf("protected(%s) = true: ordinary debris must stay sweepable", rel)
 		}
 	}
-	hits, _ := pruneAged([]string{filepath.Join(dir, "memory", "*"), filepath.Join(dir, "memory", ".git", "*"),
+	hits, _, _ := pruneAgedTo(io.Discard, []string{filepath.Join(dir, "memory", "*"), filepath.Join(dir, "memory", ".git", "*"),
 		filepath.Join(dir, "state", "harness", "memory", "*"), filepath.Join(dir, "state", "harness", "memory", "*", "*")}, time.Now(), true, nil)
 	if len(hits) != 0 {
-		t.Errorf("pruneAged removed protected paths: %v", hits)
+		t.Errorf("pruneAgedTo removed protected paths: %v", hits)
 	}
 	for _, rel := range keep {
 		if !exists(t, filepath.Join(dir, rel)) {
@@ -679,5 +680,43 @@ func TestSelectTargetsDedupesRepeatedNames(t *testing.T) {
 	got, err := selectTargets(all, "hook-state,hook-state")
 	if err != nil || len(got) != 1 {
 		t.Fatalf("selectTargets = %v, %v; want one target", got, err)
+	}
+}
+
+// TestPruneAgedToReportsFailureToErrw: a failed removal is counted and named on the injected writer, not os.Stderr.
+func TestPruneAgedToReportsFailureToErrw(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory modes; the failure premise does not hold")
+	}
+	dir := t.TempDir()
+	blocked := filepath.Join(dir, "blocked-old")
+	write(t, filepath.Join(blocked, "x"), "data")
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	for _, p := range []string{filepath.Join(blocked, "x"), blocked} {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+
+	var errw bytes.Buffer
+	hit, _, failed := pruneAgedTo(&errw, []string{filepath.Join(dir, "blocked-*")}, time.Now(), true, nil)
+	if failed != 1 || len(hit) != 0 {
+		t.Errorf("failed=%d hit=%v, want 1 failure and no hits", failed, hit)
+	}
+	if !strings.Contains(errw.String(), "could not remove "+blocked) {
+		t.Errorf("errw does not name the failed removal:\n%s", errw.String())
+	}
+}
+
+// TestCleanHelpDefaultExcludesOptIn: the --target help must not claim a bare sweep runs every target.
+func TestCleanHelpDefaultExcludesOptIn(t *testing.T) {
+	var out, errw bytes.Buffer
+	Clean([]string{"-h"}, &out, &errw)
+	if !strings.Contains(out.String()+errw.String(), "opt-in ones") {
+		t.Errorf("help does not say opt-in targets are skipped:\n%s%s", out.String(), errw.String())
 	}
 }

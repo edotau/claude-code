@@ -38,7 +38,7 @@ func fakeDbxProfile(t *testing.T, name, host string) {
 
 func ocMenu(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
-	return captureOutput(t, func() int { return AgentVerb("opencode", append([]string{"catalog"}, args...)) })
+	return captureOutput(t, func() int { return agentVerb("opencode", append([]string{"catalog"}, args...)) })
 }
 
 func menuIDs() []string {

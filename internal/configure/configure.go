@@ -224,7 +224,7 @@ func ProbeCached(kt KeyTarget) (status, detail string, age time.Duration) {
 		return status, detail, 0
 	}
 	env := kt.Provider.Auth.Env
-	meta, src := ProbeSource(env)
+	meta, src := probeSource(env)
 	if src != "vault" {
 		status, detail = Probe(kt)
 		return status, detail, 0
@@ -240,8 +240,8 @@ func ProbeCached(kt KeyTarget) (status, detail string, age time.Duration) {
 	return status, detail, 0
 }
 
-// ProbeSource resolves env's launch source; unreadable vault metadata yields nil, forcing a live probe.
-func ProbeSource(env string) (meta map[string]vault.SecretMeta, src string) {
+// probeSource resolves env's launch source; unreadable vault metadata yields nil, forcing a live probe.
+func probeSource(env string) (meta map[string]vault.SecretMeta, src string) {
 	meta, err := vault.LoadMeta()
 	if err != nil {
 		_, src, _, _ = vault.Effective(env) // meta unreadable: fall back to the live-lookup ladder
@@ -279,7 +279,7 @@ func RunMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := ctxErr(ctx, "mint token"); err != nil {
 		return "", err
 	}
-	argv, err := CliArgv(argv)
+	argv, err := cliArgv(argv)
 	if err != nil {
 		return "", err
 	}
@@ -323,7 +323,8 @@ func RunLogin(argv []string) error {
 	return RunLoginContext(ctx, argv)
 }
 
-func CliArgv(argv []string) ([]string, error) {
+// cliArgv resolves a known agent CLI in argv[0] to its installed binary path; other commands pass through.
+func cliArgv(argv []string) ([]string, error) {
 	name, ok := paths.AgentName(argv[0])
 	if !ok {
 		return argv, nil
@@ -338,7 +339,7 @@ func CliArgv(argv []string) ([]string, error) {
 }
 
 func RunLoginContext(ctx context.Context, argv []string) error {
-	argv, err := CliArgv(argv)
+	argv, err := cliArgv(argv)
 	if err != nil {
 		return err
 	}

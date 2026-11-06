@@ -53,14 +53,13 @@ func historySnapshot(args []string) int {
 		return code
 	}
 	store := &history.Store{Dir: history.Dir()}
-	rc := 0
 	cfg, err := store.Snapshot(history.ConfigFiles(), "config", *note)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history: config:", err)
-		rc = 1
+		return 1
 	}
 	printSnapshot("config", cfg)
-	return rc
+	return 0
 }
 
 // printSnapshot reports one plane's outcome: what was committed, what is absent, and what was HELD
@@ -92,25 +91,19 @@ func historyLog(args []string) int {
 		return helptext.BadFormat("history", err)
 	}
 	store := &history.Store{Dir: history.Dir()}
+	lines, err := store.Log(*n, "config")
 	rc := 0
-	planes := map[string][]history.LogEntry{}
-	for _, plane := range []string{"config"} {
-		lines, err := store.Log(*n, plane)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "history: %s: %v\n", plane, err)
-			rc = 1
-		}
-		if *format == helptext.JSON {
-			planes[plane] = history.ParseLog(lines)
-			continue
-		}
-		printLog(plane, lines)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "history: config: %v\n", err)
+		rc = 1
 	}
 	if *format == helptext.JSON {
-		if jrc := helptext.WriteJSONOrFail("history log", planes); jrc != 0 {
+		if jrc := helptext.WriteJSONOrFail("history log", map[string][]history.LogEntry{"config": history.ParseLog(lines)}); jrc != 0 {
 			return jrc
 		}
+		return rc
 	}
+	printLog("config", lines)
 	return rc
 }
 
