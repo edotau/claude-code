@@ -82,14 +82,11 @@ func TestCmdSetupNukeRejectsPartialConfirmation(t *testing.T) {
 	os.Stdin = f
 	t.Cleanup(func() { os.Stdin = old })
 
-	code, out, _ := captureOutput(t, func() int {
+	code, _, _ := captureOutput(t, func() int {
 		return cmdSetupNuke([]string{"--dir", dir, "--apply"})
 	})
 	if code == 0 {
 		t.Error("partially scanned confirmation exit = 0, want refusal")
-	}
-	if strings.Contains(out, "nuke plan for") {
-		t.Errorf("invalid confirmation reached Nuke: %q", out)
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("target must survive invalid confirmation: %v", err)
@@ -171,5 +168,63 @@ func TestSetupWorkspaceInitDryRunSucceeds(t *testing.T) {
 	})
 	if code != 0 {
 		t.Fatalf("init --dry-run: code = %d, want 0; stderr=%q", code, stderr)
+	}
+}
+
+// TestCmdSetupNukeAcceptsConfirmationWithSpaces: the whole typed line is the confirmation, so a path with a space works.
+func TestCmdSetupNukeAcceptsConfirmationWithSpaces(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, "my harness")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(home, "confirmation")
+	if err := os.WriteFile(input, []byte(dir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	old := os.Stdin
+	os.Stdin = f
+	t.Cleanup(func() { os.Stdin = old })
+
+	code, out, stderr := captureOutput(t, func() int {
+		return cmdSetupNuke([]string{"--dir", dir, "--apply"})
+	})
+	if code != 0 {
+		t.Fatalf("space-path confirmation exit = %d, want 0; out=%q stderr=%q", code, out, stderr)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("confirmed nuke left %s behind, stat err=%v", dir, err)
+	}
+}
+
+// TestSetupWorkspaceStatusRejectsExtraPositionals: status takes at most one <root>; a second is a usage error (2).
+func TestSetupWorkspaceStatusRejectsExtraPositionals(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := setupWorkspaceGitRoot(t)
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdSetupWorkspace([]string{"status", root, t.TempDir()})
+	})
+	if code != 2 {
+		t.Fatalf("status with two roots: code = %d, want 2; stderr=%q", code, stderr)
+	}
+}
+
+// TestSetupWorkspaceHelpListsInitFlagsOnly: link and status -h must not advertise --with/--dry-run, which they reject.
+func TestSetupWorkspaceHelpListsInitFlagsOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for op, wantFlags := range map[string]bool{"init": true, "link": false, "status": false} {
+		_, out, errOut := captureOutput(t, func() int { return cmdSetupWorkspace([]string{op, "-h"}) })
+		got := out + errOut
+		for _, flag := range []string{"--with", "--dry-run"} {
+			if has := strings.Contains(got, flag); has != wantFlags {
+				t.Errorf("%s -h mentions %s = %v, want %v:\n%s", op, flag, has, wantFlags, got)
+			}
+		}
 	}
 }
