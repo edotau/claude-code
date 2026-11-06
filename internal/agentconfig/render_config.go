@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -57,8 +59,17 @@ func ConfigOverlay() ([]byte, error) {
 	return doc, nil
 }
 
+// configCache holds the merged config per vault.db stamp; LoadConfig hands out clones.
+var configCache paths.StampCache[*Config]
+
 // LoadConfig merges the embedded defaults with ConfigOverlay and returns defaults alone when it's absent.
 func LoadConfig() (*Config, error) {
+	cfg, err := configCache.Get(vault.Path(), loadConfig)
+	return cfg.Clone(), err
+}
+
+// loadConfig is LoadConfig's uncached merge of the vault overlay over the embedded defaults.
+func loadConfig() (*Config, error) {
 	user, err := ConfigOverlay()
 	if errors.Is(err, fs.ErrNotExist) {
 		user = nil
@@ -66,6 +77,53 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	return ParseConfig(defaultsJSON, user)
+}
+
+// Clone returns a deep copy of c; nil clones to nil.
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+	out := &Config{GuardRules: c.GuardRules.clone()}
+	if c.Agents != nil {
+		out.Agents = make(map[string]AgentConfig, len(c.Agents))
+		for name, a := range c.Agents {
+			out.Agents[name] = a.clone()
+		}
+	}
+	return out
+}
+
+// clone returns a deep copy of g's prompt lists.
+func (g GuardRules) clone() GuardRules {
+	return GuardRules{Ask: slices.Clone(g.Ask), Deny: slices.Clone(g.Deny)}
+}
+
+// cloneShellRules deep-copies each rule's string lists; the scalar fields copy by value.
+func cloneShellRules(rs ShellRules) ShellRules {
+	out := slices.Clone(rs)
+	for i, r := range out {
+		r.Commands = slices.Clone(r.Commands)
+		r.Subcommands = slices.Clone(r.Subcommands)
+		r.Exact = slices.Clone(r.Exact)
+		r.Targets = slices.Clone(r.Targets)
+		r.BannedFlags = slices.Clone(r.BannedFlags)
+		out[i] = r
+	}
+	return out
+}
+
+// clone returns a deep copy of a: permission shell scope, MCP allowlist and launch env/args.
+func (a AgentConfig) clone() AgentConfig {
+	out := a
+	if a.Permission.Shell != nil {
+		shell := ShellScope{Commands: cloneShellRules(a.Permission.Shell.Commands), HookExtras: cloneShellRules(a.Permission.Shell.HookExtras)}
+		out.Permission.Shell = &shell
+	}
+	out.MCP.Allow = slices.Clone(a.MCP.Allow)
+	out.Launch.Env = slices.Clone(a.Launch.Env)
+	out.Launch.Args = slices.Clone(a.Launch.Args)
+	return out
 }
 
 // ParseConfig merges base with an optional overlay document. A nil base uses the embedded defaults.

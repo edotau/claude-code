@@ -2,9 +2,12 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -138,18 +141,43 @@ func servedPath(profile string) string {
 	return filepath.Join(paths.StateDir(), "preflight", "served-"+profile+".json")
 }
 
+// servedCache holds each profile's listing per file stamp; LoadServed hands out a copy of its model slice.
+var servedCache paths.StampCache[servedRead]
+
+// servedRead is one cached read: ok is false for an absent, mismatched or other-schema file.
+type servedRead struct {
+	s  Served
+	ok bool
+}
+
 // LoadServed returns profile's cached listing; false when absent, unreadable or another schema.
 func LoadServed(profile string) (Served, bool) {
 	path := servedPath(profile)
 	if path == "" {
 		return Served{}, false
 	}
-	b, err := os.ReadFile(path)
-	var s Served
-	if err != nil || !schemas.DecodeOK(servedFormat, b, &s) || s.Profile != profile {
+	r, err := servedCache.Get(path, func() (servedRead, error) { return readServed(path, profile) })
+	if err != nil || !r.ok {
 		return Served{}, false
 	}
-	return s, true
+	r.s.Models = slices.Clone(r.s.Models)
+	return r.s, true
+}
+
+// readServed decodes profile's listing at path; an absent or invalid file is a miss, a read error is returned.
+func readServed(path, profile string) (servedRead, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return servedRead{}, nil
+	}
+	if err != nil {
+		return servedRead{}, err
+	}
+	var s Served
+	if !schemas.DecodeOK(servedFormat, b, &s) || s.Profile != profile {
+		return servedRead{}, nil
+	}
+	return servedRead{s: s, ok: true}, nil
 }
 
 // SaveServed writes s with mode 0600.
