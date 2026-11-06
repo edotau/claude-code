@@ -3,26 +3,27 @@ package copilot
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"maps"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/vault"
-
+	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // copilotEngine is copilot's engine and its Engine: it drives the CLI through the SDK; tools are denied unless asked.
@@ -323,12 +324,7 @@ func (copilotEngine) NativeRegistry(ctx context.Context, t providers.Target) boo
 func (copilotEngine) RegistryLaunch(
 	ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool,
 ) (agent.RegistryLaunch, error) {
-	cr, err := ConfigureCopilotRegistry(ctx, reg, t, args, dry)
-	if err != nil {
-		return agent.RegistryLaunch{}, err
-	}
-	return agent.RegistryLaunch{Env: cr.Env, Unset: cr.Unset, Argv: cr.Argv, Args: cr.Args, Warnings: cr.Warnings,
-		Files: cr.Files, Revoke: cr.Revoke, Banner: CopilotRegistryBanner}, nil
+	return ConfigureCopilotRegistry(ctx, reg, t, args, dry)
 }
 
 func (copilotEngine) RouteDetail() (string, bool) {
@@ -339,176 +335,151 @@ func (copilotEngine) RouteDetail() (string, bool) {
 	return copilotRouteDetail(reg, selErr), true
 }
 
-// copilotLogin runs copilot on its GitHub sign-in (`copilot login`, GH_TOKEN); blanked BYOK vars cannot redirect it.
-func copilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
-	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
-		model = ""
-	}
-	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE=", "COPILOT_PROVIDERS_CONFIG="}
-	tok, err := CopilotLaunchToken()
-	if err != nil {
-		return nil, nil, err
-	}
-	if tok != "" { // the harness's chosen account beats any inherited token
-		env = append(env, providers.CopilotTokenEnv+"="+tok)
-	}
-	return env, copilotArgv(h), nil
-}
-
-// copilotArgv is the headless argv for h, else the configure page's pins on an interactive launch.
-func copilotArgv(h *agent.Headless) []string {
-	if h == nil {
-		return copilotPinArgv()
-	}
-	return copilotHeadless(h)
-}
-
-// copilotPinArgv is --reasoning-effort/--context from the configure page's pins, on every interactive launch.
-func copilotPinArgv() []string {
-	var argv []string
-	rec := vault.GetAgentRecord("copilot")
-	if e := rec.Effort; e != "" {
-		argv = append(argv, "--reasoning-effort", e)
-	}
-	if c := rec.Context; c != "" {
-		argv = append(argv, "--context", c)
-	}
-	return argv
-}
-
-// copilotWire wires BYOK; window is the model's context window (providers.ContextWindow), which sizes the prompt cap.
-func copilotWire(
-	p *providers.Provider, dialect, base, model string, window int, cred string, routed bool, h *agent.Headless,
-) ([]string, []string, error) {
-	typ, base, wire, modelID, err := copilotEndpoint(p, dialect, base, model, routed)
-	if err != nil {
-		return nil, nil, err
-	}
-	window, output := copilotCaps(window, model)
-	env := []string{
-		"COPILOT_PROVIDER_BASE_URL=" + base,
-		"COPILOT_PROVIDER_TYPE=" + typ,
-		"COPILOT_MODEL=" + model,
-		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(output),
-		"COPILOT_OFFLINE=true",
-		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
-		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
-	}
-	if wire == providers.ProtocolResponses {
-		env = append(env, "COPILOT_PROVIDER_WIRE_API=responses")
-	}
-	if modelID != "" {
-		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
-	}
-	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
-	if n := models.PromptTokens(window, output); n > 0 {
-		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
-	}
-	return append(env, copilotCredEnv(p, cred)...), copilotArgv(h), nil
-}
-
-// copilotEndpoint picks the BYOK type and base; a non-Claude model on an anthropic dialect takes its openai|responses wire.
-func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed bool) (typ, b, wire, modelID string, err error) {
-	if dialect != providers.ProtocolAnthropic {
-		return "openai", base, "", "", nil
-	}
-	if models.FamilyKind(model) == models.FamilyClaude {
-		return "anthropic", base, "", "", nil
-	}
-	w, canonical, ok, why := copilotEndpointWire(p, model)
-	if !ok {
-		return "", "", "", "", fmt.Errorf("copilot: %s", why)
-	}
-	switch {
-	case w == providers.ProtocolAnthropic:
-		return "anthropic", base, "", "", nil
-	case routed: // the router's openai|responses passthrough
-		return "openai", base + "/" + w, w, canonical, nil
-	}
-	if b, ok = p.Route(w); !ok { // --direct: the profile's own endpoint for that wire
-		return "", "", "", "", fmt.Errorf("copilot: profile %s has no %s route for %s", p.Name, w, model)
-	}
-	return "openai", b, w, "", nil
-}
-
-// copilotCredEnv is the BYOK credential and the provider's extra headers.
-func copilotCredEnv(p *providers.Provider, cred string) []string {
-	var env []string
-	if cred != "" {
-		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.
-		if p.Auth.HeaderStyle() == providers.HeaderBearer {
-			env = append(env, "COPILOT_PROVIDER_BEARER_TOKEN="+cred)
-		} else {
-			env = append(env, "COPILOT_PROVIDER_API_KEY="+cred)
-		}
-	}
-	if len(p.Headers) > 0 {
-		var hs []string
-		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			hs = append(hs, k+": "+p.Headers[k])
-		}
-		env = append(env, "COPILOT_PROVIDER_HEADERS="+strings.Join(hs, "\n"))
-	}
-	return env
-}
-
-func copilotHeadless(h *agent.Headless) []string {
-	argv := []string{"--prompt", h.Prompt}
-	switch {
-	case h.Tools && h.Autonomous:
-		argv = append(argv, "--allow-all-tools")
-	}
-	return argv
-}
-
-// CopilotCatalog is where `copilot models` lists from: a Databricks row's endpoints, or GitHub's own catalog.
-type CopilotCatalog struct {
-	Source     string
-	Profile    string
-	Databricks bool
-	Rows       []CopilotEndpoint
-}
-
-// Write renders a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
-func (c CopilotCatalog) Write(w io.Writer, format string) error {
-	if format == helptext.JSON {
-		return helptext.WriteJSON(w, c)
-	}
-	fmt.Fprintln(w, c.Source)
-	nameW := len("NAME")
-	for _, r := range c.Rows {
-		nameW = max(nameW, len(r.ID))
-	}
-	fmt.Fprintf(w, "%-*s  %s\n", nameW, "NAME", "TESTED")
-	for _, r := range c.Rows {
-		mark := ""
-		if r.Tested {
-			mark = "tested"
-		}
-		fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%-*s  %s", nameW, r.ID, mark), " "))
-	}
-	return nil
-}
-
-// CopilotModelSource resolves profile (default: the session profile) and lists its chat endpoints if Databricks.
-func CopilotModelSource(ctx context.Context, reg *providers.Registry, profile string) (CopilotCatalog, error) {
-	name := profile
-	if name == "" {
-		name = providers.SessionProfile()
-	}
-	p, ok := reg.Providers[name]
-	if !ok || p == nil || p.Preset != providers.PresetDatabricks {
-		return CopilotCatalog{Source: "GitHub Copilot catalog"}, nil
-	}
-	rows, err := checkedCopilotEndpoints(ctx, reg, p)
-	if err != nil {
-		return CopilotCatalog{}, err
-	}
-	return CopilotCatalog{Source: name + " serving endpoints", Profile: name, Databricks: true, Rows: rows}, nil
-}
-
 // copilotSchema is the registered copilot roster row.
 func copilotSchema() agent.Schema {
 	s, _ := agent.LookupSchema("copilot")
 	return s
+}
+
+func init() {
+	agent.Register(agent.Agent{Row: row, Driver: copilotAgent})
+}
+
+// row is copilot's roster entry: binary, dialects, capabilities, events and launch hints.
+var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
+	PromptVia: agent.PromptMessage,
+	Binary:    "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
+	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
+		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
+	MinVersion: MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
+	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
+		Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, Fleet: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native, Permissions: agent.Native,
+		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Emulated, Persona: agent.Emulated},
+	Events:       []string{agent.EventStart, agent.EventText, agent.EventProgress, agent.EventResult, agent.EventError},
+	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
+	LoginArgv:     []string{"copilot", "login"},
+	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key",
+}}
+
+// Seams for the mid-dispatch quota hand-off; tests replace them.
+var handoffDir = func(root string) string { return memstore.HandoffsDir(memstore.Dir(root)) }
+
+// CopilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback dispatch;
+// partialSession and partialText are what the failed run got out.
+func CopilotQuotaHandoff(
+	req agent.RunOptions, res agent.Result, partialSession, partialText string, cause error, creds []string,
+) (agent.Result, error) {
+	acct := agent.NoteCopilotQuota(cause)
+	res.SessionID = cmp.Or(partialSession, res.SessionID)
+	path, _, werr := writeCopilotHandoff(req, res, partialText, acct, cause, creds)
+	if werr != nil {
+		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; handoff not written: %v\n", werr)
+		return res, cause
+	}
+	res.Handoff = path
+	return res, cause
+}
+
+// ResumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (its opus).
+func ResumeAlias(model string) string {
+	if _, alias, ok := strings.Cut(model, ":"); ok {
+		model = alias
+	}
+	if slices.Contains(models.AliasNames, model) {
+		return model
+	}
+	canon, _ := models.Canonical(model)
+	return models.FamilyOf(canon)
+}
+
+// writeCopilotHandoff writes memory/<repo>/handoffs/<date>-copilot-<shortid>[-N].md, redacted, and returns path + body.
+func writeCopilotHandoff(
+	req agent.RunOptions, res agent.Result, partial, acct string, cause error, creds []string,
+) (string, string, error) {
+	root := req.WorkDir
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	session := "none exposed"
+	if res.SessionID != "" {
+		session = fmt.Sprintf("%s (`copilot --resume %s`)", res.SessionID, res.SessionID)
+	}
+	doc := fmt.Sprintf("# Copilot hand-off — quota exhausted mid-task\n\n"+
+		"- date: %s\n- account: %s\n- provider: %s\n- model: %s\n- workdir: %s\n- session: %s\n- reason: %s\n\n"+
+		"## Task\n\n%s\n\n## Partial answer\n\n%s\n",
+		time.Now().UTC().Format(time.RFC3339), cmp.Or(acct, "unpinned"), cmp.Or(res.Provider, "?"),
+		cmp.Or(res.Model, "?"), root, session, agent.FallbackReason(cause),
+		strings.TrimSpace(req.Prompt), cmp.Or(strings.TrimSpace(partial), "(none)"))
+	doc = shapes.Redact(redactValues(doc, creds))
+	dir := handoffDir(root)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", "", err
+	}
+	path, err := createExclusive(dir, time.Now().Format("2006-01-02")+"-copilot-"+shortID(res.SessionID), []byte(doc))
+	if err != nil {
+		return "", "", err
+	}
+	return path, doc, nil
+}
+
+// redactValues masks every resolved credential value (8+ chars) in s, whatever its shape.
+func redactValues(s string, creds []string) string {
+	for _, v := range creds {
+		if len(v) >= 8 {
+			s = strings.ReplaceAll(s, v, "REDACTED")
+		}
+	}
+	return s
+}
+
+// CredentialValues are the dispatch's resolved secrets: the SDK token plus every *_TOKEN/*_KEY/*_SECRET env value.
+func CredentialValues(env []string, token string) []string {
+	vals := []string{token}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		if v != "" && (strings.HasSuffix(k, "_TOKEN") || strings.HasSuffix(k, "_KEY") || strings.HasSuffix(k, "_SECRET")) {
+			vals = append(vals, v)
+		}
+	}
+	return vals
+}
+
+// createExclusive writes body to a temp file, then hard-links it to <base>.md, or <base>-2.md, … — never overwriting.
+func createExclusive(dir, base string, body []byte) (string, error) {
+	tmp, err := os.CreateTemp(dir, ".handoff-*")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	for n := 1; n <= 100; n++ {
+		path := filepath.Join(dir, base+".md")
+		if n > 1 {
+			path = filepath.Join(dir, fmt.Sprintf("%s-%d.md", base, n))
+		}
+		err := os.Link(tmp.Name(), path)
+		if err == nil {
+			return path, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("handoff: 100 files named %s already exist", base)
+}
+
+// shortID is the session id's first 8 characters, else 8 random hex digits.
+func shortID(session string) string {
+	if s := strings.ReplaceAll(session, "-", ""); len(s) >= 8 {
+		return s[:8]
+	}
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

@@ -121,12 +121,6 @@ func TestScopedShellUsesRequestCwd(t *testing.T) {
 	}
 }
 
-func TestHeadlessAutonomousFlags(t *testing.T) {
-	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !slices.Contains(auto, "--allow-all-tools") {
-		t.Errorf("autonomous argv = %v", auto)
-	}
-}
-
 // With no --workdir the SDK root is the process cwd, so a scoped write inside it is approved.
 func TestScopedWriteWithoutWorkdirUsesCwd(t *testing.T) {
 	dir := t.TempDir()

@@ -30,8 +30,8 @@ func registryOpts(t *testing.T, version, log string, known ...string) SDKOptions
 	t.Helper()
 	return SDKOptions{
 		CLIPath: buildFakeCLI(t), Model: registryPick,
-		Providers: []NamedProvider{{Name: "dbx-openai", Type: "openai"}},
-		Models:    []RegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
+		Providers: []CopilotRegistryProvider{{Name: "dbx-openai", Type: "openai"}},
+		Models:    []CopilotRegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
 		Token:     func() (string, error) { return "tok", nil },
 		ChildEnv: []string{"FAKECLI_VERSION=" + version, "FAKECLI_RECORD=" + log,
 			"FAKECLI_MODELS=" + strings.Join(known, ",")},
