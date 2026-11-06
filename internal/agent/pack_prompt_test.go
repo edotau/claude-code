@@ -122,3 +122,14 @@ func TestPackPromptFileTransport(t *testing.T) {
 		t.Errorf("pack file still present after remove: %v", err)
 	}
 }
+
+// Given a gemini lead (pack read from a file with tools), --read-only is refused before any launch.
+func TestPackPromptRefusesReadOnlyOnFileRoute(t *testing.T) {
+	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
+	o := RunOptions{Prompt: "p", WorkDir: dir, ReadOnly: true, Pack: &pack.Spec{Dirs: []string{"."}}}
+	p := &Prepared{Opts: o, chain: Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "gemini"}}}}}
+	err := NewClient(router.RuleClassifier{}.Alias, nil, nil).packPrompt(context.Background(), p)
+	if err == nil || !strings.Contains(err.Error(), "--read-only") {
+		t.Fatalf("packPrompt() = %v, want a --read-only refusal", err)
+	}
+}

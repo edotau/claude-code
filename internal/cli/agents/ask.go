@@ -17,9 +17,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -38,7 +40,10 @@ type askFlags struct {
 	name, fallback, route, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, overlayPath, overlayDebug string
 	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast                                                                  bool
 	timeout                                                                                                                                                                                                           time.Duration
-	jobs                                                                                                                                                                                                              int
+	jobs, maxFiles, maxFileBytes                                                                                                                                                                                      int
+	dirs, files                                                                                                                                                                                                       string
+	diff, index                                                                                                                                                                                                       bool
+	pack                                                                                                                                                                                                              *pack.Spec
 	agents                                                                                                                                                                                                            agentsFlag
 	attach                                                                                                                                                                                                            attachFlag
 	keepEnv                                                                                                                                                                                                           keepEnvFlag
@@ -91,6 +96,12 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
 	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
+	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined")
+	fs.StringVar(&f.files, "files", "", "comma-separated file globs to inline")
+	fs.BoolVar(&f.diff, "diff", false, "inline the files changed vs HEAD")
+	fs.BoolVar(&f.index, "index", false, "prepend an index of every matched path")
+	fs.IntVar(&f.maxFiles, "max-files", pack.DefaultMaxFiles, "max files to inline (0 = index only)")
+	fs.IntVar(&f.maxFileBytes, "max-file-bytes", pack.DefaultMaxFileBytes, "max bytes per inlined file")
 	fs.StringVar(&f.rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
 	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
 	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
@@ -152,6 +163,9 @@ func (r *askRun) prelude() (int, bool) {
 	}
 	var err error
 	if r.fileOv, err = agentconfig.LoadOverlay(""); err != nil {
+		return r.fail(err, 2)
+	}
+	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
 	f.tools = f.tools || f.readOnly // read-only tools are still tools
@@ -253,7 +267,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 
 func (r *askRun) askState() *askState {
 	f := r.f
-	return &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
+	st := &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
 		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: (*[]string)(&f.keepEnv), Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
@@ -261,6 +275,8 @@ func (r *askRun) askState() *askState {
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback,
 		PermMode: &f.permMode, PermAllow: (*[]string)(&f.permAllow), PermAsk: (*[]string)(&f.permAsk), PermDeny: (*[]string)(&f.permDeny),
 		rubric: &f.rubric, env: &f.env}
+	st.Pack = &f.pack
+	return st
 }
 
 // execute starts a live session or runs the one task.
@@ -299,7 +315,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 		Attach: []string(f.attach), KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, DebugFile: f.debugFile, SystemPrompt: f.systemPrompt,
 		AppendSystemPrompt: f.appendSystemPrompt, Env: []string(f.env), OutputSchema: r.schema, Persona: r.persona,
-		Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background, Permissions: r.perms}
+		Pack: f.pack, Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background, Permissions: r.perms}
 }
 
 // askBatch layers the overlay over base and runs the --batch tasks.
@@ -380,6 +396,26 @@ func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback, as, name 
 		return 2, err
 	}
 	return 1, agent.AskExclusive(background, job, tools, noTools)
+}
+
+// askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
+func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
+	if f.dirs == "" && f.files == "" && !f.diff {
+		for _, n := range []string{"index", "max-files", "max-file-bytes"} {
+			if helptext.Explicit(fs, n) {
+				return nil, fmt.Errorf("--%s needs --dirs, --files or --diff", n)
+			}
+		}
+		return nil, nil
+	}
+	if f.maxFiles < 0 || f.maxFileBytes < 0 {
+		return nil, errors.New("--max-files and --max-file-bytes cannot be negative")
+	}
+	if f.batchSrc != "" || f.live || f.host != "" {
+		return nil, errors.New("--dirs/--files/--diff cannot be combined with --batch, --live or --host")
+	}
+	return &pack.Spec{Dirs: textutil.SplitCSV(f.dirs), Files: textutil.SplitCSV(f.files), Diff: f.diff, Index: f.index,
+		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, IndexOnly: f.maxFiles == 0}, nil
 }
 
 // askCheckCombos rejects the flag combinations that need the resolved agent.
