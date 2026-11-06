@@ -57,12 +57,9 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 	if len(p.chain.Dispatches) == 0 {
 		return nil // routing already recorded why nothing can run
 	}
-	cwd := o.WorkDir
-	if cwd == "" {
-		var err error
-		if cwd, err = os.Getwd(); err != nil {
-			return err
-		}
+	cwd, err := filepath.Abs(o.WorkDir) // "" is the process cwd; the child starts inside it, so the prompt path must be absolute
+	if err != nil {
+		return clientUsageError{err}
 	}
 	lead := p.chain.Dispatches[0]
 	viaFile := schemaFor(lead.Agent.Name()).CLI.PackVia == PackFile
