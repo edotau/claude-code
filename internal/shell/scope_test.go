@@ -18,7 +18,7 @@ func TestGitCommitAllowedRefusesReuse(t *testing.T) {
 		{[]string{"-m", "x"}, true},
 	}
 	for _, c := range cases {
-		if got := gitCommitAllowed(c.args); got != c.want {
+		if got := gitCommitAllowed(c.args, "."); got != c.want {
 			t.Errorf("gitCommitAllowed(%q) = %v, want %v", c.args, got, c.want)
 		}
 	}
@@ -200,5 +200,27 @@ func TestReadOnlyGitLeadingNoPager(t *testing.T) {
 	}
 	if !scopedGit([]string{"git", "-C", ".", "--no-pager", "status"}, t.TempDir()) {
 		t.Error("scopedGit -C . --no-pager status refused")
+	}
+}
+
+// TestGitCommitAllowedPathspecInsideWorkDir pins that commit pathspecs obey git add's containment.
+func TestGitCommitAllowedPathspecInsideWorkDir(t *testing.T) {
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "agents", "a.md"))
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"-m", "x", "/etc/passwd"}, false},
+		{[]string{"-m", "x", "../other/file"}, false},
+		{[]string{"-m", "x", "agents/a.md"}, true},
+		{[]string{"-m", "x", filepath.Join(root, "agents", "a.md")}, true},
+		{[]string{"-m", "x", "agents"}, false},
+		{[]string{"-m", "x"}, true},
+	}
+	for _, c := range cases {
+		if got := gitCommitAllowed(c.args, root); got != c.want {
+			t.Errorf("gitCommitAllowed(%q) = %v, want %v", c.args, got, c.want)
+		}
 	}
 }
