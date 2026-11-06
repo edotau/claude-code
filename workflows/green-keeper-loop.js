@@ -13,43 +13,24 @@ export const meta = {
 // Every field has a default so the workflow runs bare; scope is the ONLY place the fixer may edit.
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 // ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
-// stepOf(steps, name, defaults, {allowed, externalOK, lists}) -> {kind:'claude',model,effort} | {kind:'external',agent,vendorModel,profile}
-// An array value (only for stages named in `lists`) returns an array of those; any bad input throws Error naming stage/field.
+// stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
-  const S_AGENTS = ['claude', 'copilot', 'codex', 'gemini', 'opencode']
   const S_CLAUDE = ['haiku', 'sonnet', 'opus']
   const S_EFFORT = ['low', 'medium', 'high', 'xhigh']
-  const S_FIELDS = ['agent', 'model', 'effort', 'profile']
+  const S_FIELDS = ['model', 'effort']
   const allowed = (opt && opt.allowed) || []
-  const lists = (opt && opt.lists) || []
   const d = defaults || {}
   if (steps !== undefined && (!steps || typeof steps !== 'object' || Array.isArray(steps))) throw new Error('steps must be an object')
   for (const k of Object.keys(steps || {})) if (!allowed.includes(k)) throw new Error(`steps.${k}: unknown stage (allowed: ${allowed.join('|')})`)
-  const one = (v, where) => {
-    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
-    for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
-    const agentName = v.agent !== undefined ? v.agent : d.agent || 'claude'
-    if (!S_AGENTS.includes(agentName)) throw new Error(`${where}.agent must be ${S_AGENTS.join('|')}`)
-    if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
-    if (v.profile !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(v.profile))) throw new Error(`${where}.profile must be a profile name`)
-    const effort = v.effort !== undefined ? v.effort : d.effort || 'medium'
-    if (agentName === 'claude') {
-      const model = v.model !== undefined ? v.model : d.agent && d.agent !== 'claude' ? 'sonnet' : d.model || 'sonnet'
-      if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')} for agent claude`)
-      return { kind: 'claude', model, effort }
-    }
-    if (!(opt && opt.externalOK)) throw new Error(`${where}.agent: ${agentName} not allowed here (claude only)`)
-    const vendorModel = v.model !== undefined ? v.model : v.agent === undefined ? d.model : undefined
-    if (vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(vendorModel))) throw new Error(`${where}.model must be a model id or alias`)
-    return { kind: 'external', agent: agentName, vendorModel, profile: v.profile !== undefined ? v.profile : d.profile }
-  }
-  const v = (steps || {})[name]
-  if (Array.isArray(v)) {
-    if (!lists.includes(name)) throw new Error(`steps.${name}: a list is not allowed for this stage`)
-    if (!v.length) throw new Error(`steps.${name}: list is empty`)
-    return v.map((x, i) => one(x, `steps.${name}[${i}]`))
-  }
-  return one(v === undefined ? {} : v, `steps.${name}`)
+  const where = `steps.${name}`
+  const v = (steps || {})[name] === undefined ? {} : steps[name]
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
+  for (const k of ['agent', 'profile']) if (k in v) throw new Error(`${where}.${k}: external agents were removed from workflows (claude only; use /code-worker:codex etc. outside the workflow)`)
+  for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
+  if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
+  const model = v.model !== undefined ? v.model : d.model || 'sonnet'
+  if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')}`)
+  return { model, effort: v.effort !== undefined ? v.effort : d.effort || 'medium' }
 }
 // ── end stepOf ──
 let ST

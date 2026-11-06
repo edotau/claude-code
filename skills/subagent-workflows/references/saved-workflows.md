@@ -5,25 +5,21 @@ Run one only when the user asks; the default dispatch is `/code-worker` ‖ `cop
 name (`Workflow({name, args})`) or nested via `workflow(name, args)` (one level). Control flow is code, never a model
 decision; agents work in the shared tree.
 
-| Workflow | Shape | Key args (`steps` = per-stage `{agent?, model?, effort?, profile?}`) |
+| Workflow | Shape | Key args (`steps` = per-stage `{model?, effort?}`) |
 | --- | --- | --- |
 | `green-keeper-loop` | gate → fix in scope → re-run, ≤3 per call (whole task ≤5); exits `green\|stalled\|capped\|error` | `{scope, gate?, maxIterations?, claudeState?, steps: {detect, fix}}` |
-| `code-engineer` | parallel intel → implementer → copilot repairs existing tests → green-keeper-loop | `{task, scope, packages?, tests?, steps: {intel, impl, test, gate}}` |
+| `code-engineer` | parallel intel → implementer → test-repair agent fixes existing tests → green-keeper-loop | `{task, scope, packages?, tests?, steps: {intel, impl, test, gate}}` |
 | `code-analyzer` | scoped auditors → refute → fix + test per package → gate → re-audit (≤rounds) | `{range\|paths\|findings, fix?, minFix?, rounds?, steps: {scope, audit, refute, fix, test, gate}}` |
-| `code-agent` | one external agent as a stage: smoke → JSON envelope → sonnet fallback | `{task, cwd, agent?, model?, vendorModel?, profile?, tools?, claudeState?}` |
 | `code-evaluator` | trap scenarios with vs without a skill, then judges score each run | `{base, skill, scenarios?, seeds?, steps: {run, judge}}` |
 
-- A Claude stage runs at `model` = `haiku|sonnet|opus`; an external stage (`copilot`, `codex`, `gemini`, `opencode`)
-  goes through `code-agent` with a vendor model id (`gpt-6.1-sol`, `kimi-k3`, `discovery`). Unknown stages error before
-  any agent runs. Parser: `stepOf`, copied verbatim into `code-agent`, `code-engineer`, `code-analyzer`,
-  `green-keeper-loop` and `code-evaluator`.
-- `green-keeper-loop`'s `steps.fix` is claude only (haiku|sonnet|opus): an external agent there throws. Its external
-  fixer path was removed because nesting is one level, so it could only run when the script was top-level. The
-  `gate` stage of `code-engineer` and `code-analyzer` is claude only for the same reason.
+- Workflows are Claude only: a stage runs at `model` = `haiku|sonnet|opus`, and an `agent`/`profile` field or an
+  unknown stage errors before any agent runs. Parser: `stepOf`, copied verbatim into `code-engineer`, `code-analyzer`,
+  `green-keeper-loop` and `code-evaluator`. External agents run outside workflows (`/code-worker:codex`,
+  `/coworker:copilot`, `claude-code agents ask`).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. The top-level script reads it once and passes
   it down as `claudeState` (`ok|low|exhausted|unknown`); a failed read passes `unknown`. Nested `green-keeper-loop`
-  and `code-agent` calls skip their own read when it is present. Run directly, they read it themselves.
+  calls skip their own read when it is present. Run directly, they read it themselves.
 
 ## Authoring
 
