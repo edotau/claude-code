@@ -1,7 +1,7 @@
 ---
 description: "Run Codex: bare = adversarial diff review saved as a report; a verb (ask, review, status…) passes through"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|status|…] [args…]"
-allowed-tools: Bash(claude-code codex *), Bash(claude-code ask --agent codex *), Bash(claude-code memory path), Bash(date +%F), Bash(mkdir -p *), Bash(tee *)
+allowed-tools: Bash(claude-code codex *), Bash(claude-code agents ask --agent codex *), Bash(claude-code memory path), Bash(date +%F), Bash(mkdir -p *), Bash(tee *)
 disable-model-invocation: true
 ---
 

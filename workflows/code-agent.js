@@ -3,7 +3,7 @@ export const meta = {
   description: 'One agent (claude, or external codex|gemini|opencode|copilot) as a workflow stage, optionally on a named profile: smoke ask, JSON envelope relay, sonnet fallback (off when a profile is named)',
   whenToUse:
     'USE: one external-agent call (copilot, codex, gemini, opencode) as a stage of another script; the agent pool and model discovery live here. CALL: workflow("code-agent", {cwd, task}). OPTIONAL: agent (omit = router pick, copilot first), model (relay/fallback Claude model), vendorModel (ask --model: alias, wire id, kimi-k3, discovery), profile (bills it; turns the sonnet fallback off), tools, readOnly (ask --read-only), smoke, fallback, timeoutMin (max 8), agents. agent "claude" runs one in-workflow Claude leaf at model haiku|sonnet|opus (no router, smoke or relay). RETURNS {ok, agent, model, answer, status, fallback?}. Details: skills/subagent-workflows/references/saved-workflows.md.',
-  phases: [{ title: 'Agent', detail: 'haiku leaf runs claude-code ask --format json and relays the envelope; sonnet fallback on failure' }],
+  phases: [{ title: 'Agent', detail: 'haiku leaf runs claude-code agents ask --format json and relays the envelope; sonnet fallback on failure' }],
 }
 
 // ── Args ────────────────────────────────────────────────────────────────────
@@ -164,13 +164,13 @@ const ENVELOPE = {
     transport: { type: 'object' },
   },
 }
-// One `claude-code ask` relay per call; the heredoc-to-file hop keeps shell quoting away from the task text.
+// One `claude-code agents ask` relay per call; the heredoc-to-file hop keeps shell quoting away from the task text.
 // A thrown or null relay (schema death included) maps to {ok:false}, never a throw.
 const run = async (task, label) =>
   (await agent(
     `Agent: ${a.agent}\n` +
       `Relay one external-model call; do NOT answer the task yourself. Write the TASK below verbatim to a scratch file with a quoted heredoc (<<'EOF'), ` +
-      `${AGENTS_STEP}Then run exactly: cd ${CWD} && claude-code ask --agent ${a.agent} --format json${PROFILE ? ' --profile ' + PROFILE : ''}${VMODEL_FLAG} --workdir ${CWD} --timeout ${MIN}m${ACCESS_FLAG}${AGENTS_FLAG} --background - < <that file>. ` +
+      `${AGENTS_STEP}Then run exactly: cd ${CWD} && claude-code agents ask --agent ${a.agent} --format json${PROFILE ? ' --profile ' + PROFILE : ''}${VMODEL_FLAG} --workdir ${CWD} --timeout ${MIN}m${ACCESS_FLAG}${AGENTS_FLAG} --background - < <that file>. ` +
       `It prints ONE JSON line {"id":…,"log":…}; id = the job id. Loop claude-code ${a.agent} status <id> with sleep 5 until done, then claude-code agents result <id> --format json. ` +
       `The result is ONE indented JSON object {agent, status, provider, model, answer, error:{kind,message}|null, transport, …}. ok = exit 0 AND error null AND answer non-empty. ` +
       `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error's message, or the stderr tail on a non-JSON exit. Never retry.\n` +

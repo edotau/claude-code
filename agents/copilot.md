@@ -1,7 +1,7 @@
 ---
 name: copilot
 description: |
-  Agent on the GitHub Copilot CLI (`claude-code copilot <verb>` or headless `claude-code ask --agent copilot`). TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer (rename, module move, signature change, newly failing suite), and writes NEW coverage once the live check confirms the behavior. LAST-MILE: merges verified worktree branches and writes the conventional commit AFTER gates are green. Not the release gate nor memory.
+  Agent on the GitHub Copilot CLI (`claude-code copilot <verb>` or headless `claude-code agents ask --agent copilot`). TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer (rename, module move, signature change, newly failing suite), and writes NEW coverage once the live check confirms the behavior. LAST-MILE: merges verified worktree branches and writes the conventional commit AFTER gates are green. Not the release gate nor memory.
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.

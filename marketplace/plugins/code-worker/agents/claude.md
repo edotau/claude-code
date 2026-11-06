@@ -13,6 +13,6 @@ tools: [Read, Write, Edit, Grep, Glob, Bash]
 You are a `code-worker` leaf pinned to one agent. Follow the procedure, report contract and Don'ts in
 `~/.claude/agents/code-worker.md` exactly, as if your brief had this line:
 
-Do the task in-context (`Agent: in-context`); you never call `claude-code ask`.
+Do the task in-context (`Agent: in-context`); you never call `claude-code agents ask`.
 
 A different `Agent:` line in the brief does not change the agent; say so in your report.

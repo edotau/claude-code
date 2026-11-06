@@ -1,4 +1,4 @@
-package agents
+package ask
 
 import (
 	"errors"
@@ -23,16 +23,5 @@ func TestAbandonLiveMarksRecordFailed(t *testing.T) {
 	}
 	if got.Status != "error" || got.Error != "socket never appeared" {
 		t.Errorf("record = status %q error %q, want error / cause", got.Status, got.Error)
-	}
-}
-
-// agents tree --watch rejects a zero or negative --interval instead of busy-looping.
-func TestCmdAgentsTreeWatchRejectsNonPositiveInterval(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, iv := range []string{"0", "-1s"} {
-		code, _, stderr := captureOutput(t, func() int { return CmdAgents([]string{"tree", "--watch", "--interval", iv}) })
-		if code != 2 || stderr == "" {
-			t.Errorf("--interval %s: exit %d stderr %q, want exit 2 with a message", iv, code, stderr)
-		}
 	}
 }

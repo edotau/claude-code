@@ -1,4 +1,4 @@
-package agents
+package ask
 
 import (
 	"context"
@@ -6,11 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
-	"os/signal"
-	"slices"
-	"strings"
-	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
@@ -93,54 +88,5 @@ func abandonLive(rec *agent.Record, cause error) {
 	}
 }
 
-func printLiveEnvelope(env agent.Envelope, format string) {
-	if format == helptext.JSON {
-		body, _ := json.Marshal(env)
-		fmt.Println(string(body))
-	} else if format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
-		fmt.Println()
-	}
-}
-
 // runLiveHolder is live.RunHolder over the cli client's launcher.
 func runLiveHolder(rec *agent.Record) int { return live.RunHolder(rec, NewClient().Launcher) }
-
-// agentsSendPage is `agents send -h`.
-var agentsSendPage = helptext.Page{
-	Usage: "claude-code agents send <id> <task | -> [flags]",
-	About: "Send one user turn to a live claude or gemini session (ask --agent <a> --live) and stream " +
-		"that turn's events; exits on its result. One turn at a time per session.",
-}
-
-// cmdAgentsSend is `claude-code agents send <id> <task>`.
-func cmdAgentsSend(args []string) int {
-	fs := helptext.NewFlagSet("agents send", agentsSendPage)
-	format := fs.String("format", helptext.Text, "stream text, print the JSON envelope, or stream-json NDJSON events")
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if len(pos) < 2 || !slices.Contains([]string{helptext.Text, helptext.JSON, formatStreamJSON}, *format) {
-		fs.Usage()
-		return 2
-	}
-	prompt, err := agent.ResolveAskPrompt(strings.Join(pos[1:], " "))
-	if err != nil {
-		return helptext.Fail("agents send: %v", err)
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
-	id := pos[0]
-	if rec, ferr := job.Find(id); ferr == nil {
-		id = rec.ID
-	}
-	env, err := live.SendLive(ctx, id, prompt, askStdoutSink(*format, id))
-	if err != nil {
-		return helptext.Fail("agents send: %v", err)
-	}
-	printLiveEnvelope(env, *format)
-	if env.Status != agent.StatusOK {
-		return 1
-	}
-	return 0
-}

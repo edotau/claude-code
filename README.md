@@ -32,7 +32,7 @@ claude-code doctor            # check binaries, providers, credentials, proxy
   `claude-code doctor` (`TOOLS=copilot,codex` picks; `DRY_RUN=1` previews); `claude-code install --tools=<name>` is
   the same without the check. Each vendor installer runs with credentials scrubbed and puts its binary in
   `~/.local/bin` (on `PATH`); install links it as `bin/<agent>`. Confirm with `<agent> --version`, the doctor
-  `<agent> route:` line, or `claude-code ask --agent <agent> "Reply with exactly: ok"`.
+  `<agent> route:` line, or `claude-code agents ask --agent <agent> "Reply with exactly: ok"`.
 - `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
 
 ![claude-code help menu](docs/images/cli-menu.svg)
@@ -256,15 +256,15 @@ claude-code gateway router [--model M] [--task "<text>"]   # agent + model pick
 
 ```bash
 claude-code agents                                     # agents and availability
-claude-code ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
-claude-code ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
-claude-code dispatch explore|fleet|compare [--part q]… [--models a,b] "<task>"   # parallel legs, one report
-claude-code ask --log | --retry <id>                   # recent dispatches; replay one
-claude-code ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
+claude-code agents ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
+claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
+claude-code agents dispatch explore|fleet|compare [--part q]… [--models a,b] "<task>"   # parallel legs, one report
+claude-code agents ask --log | --retry <id>                   # recent dispatches; replay one
+claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
-claude-code ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
+claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
 claude-code usage --days 7                             # subagent token usage
 ```
 
@@ -413,10 +413,10 @@ every embedded (`//go:embed`) template.
 | --- | --- |
 | Adopt, wipe or scope a `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` |
 | Bash tab completion | `claude-code completion --install` |
-| OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code ask --effort high` |
+| OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high` |
 | Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` · `network view <id> [--follow]` |
-| Run an agent on another tailnet box | `claude-code ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
+| Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Watch agents from a phone | `claude-code network page [--addr ip:port]` |
 | See packages, dependencies, the CLI map and the open audit | `claude-code network page` → Architecture tab |
 | Browsers, scraping, web search | `claude-code network browser [--setup --browser <b>]` · `--extract <url> …` · `network websearch --query q` |
