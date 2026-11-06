@@ -110,7 +110,7 @@ func networkSpecNodes() map[string]*compNode {
 			"browser": {flags: []flagInfo{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames), boolFlag("dry-run"),
 				flag("extract"), flag("container"), flag("field"), flag("next"), flag("pages"), boolFlag("scroll"),
 				flag("load-more"), flag("max-pages"), flag("key"), flag("o"), boolFlag("ignore-robots")}},
-			"websearch": {flags: []flagInfo{flag("query"), flag("max-results")}},
+			"websearch": {flags: []flagInfo{flag("query"), flag("max-results"), flag("extract")}},
 			"mcp":       {flags: []flagInfo{formatFlag()}},
 			"page":      {flags: []flagInfo{flag("addr"), flag("hosts"), flag("days"), boolFlag("dry-run-dispatch")}},
 			"view": {args: []func() []string{webViewAgentIDs}, flags: []flagInfo{flag("session"), flag("days"),

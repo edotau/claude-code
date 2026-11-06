@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -513,5 +515,88 @@ func TestFetchPageTextRechecksRobotsOnRedirect(t *testing.T) {
 	}
 	if got := fetchPageText(context.Background(), a.URL+"/hop"); got != "a" {
 		t.Errorf("allowed redirect = %q, want a", got)
+	}
+}
+
+// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	fn()
+	os.Stdout = orig
+	w.Close()
+	b, _ := io.ReadAll(r)
+	return string(b)
+}
+
+type notFoundRT struct{}
+
+func (notFoundRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: 404, Body: http.NoBody, Request: r}, nil
+}
+
+func TestExtractPrintsPagesAndFailures(t *testing.T) {
+	t.Setenv(keyName, "test-key")
+	origClient := pageClient
+	pageClient = &http.Client{Transport: notFoundRT{}} // robots.txt 404 -> allowed, no network
+	t.Cleanup(func() { pageClient = origClient })
+	orig := tavilyExtract
+	t.Cleanup(func() { tavilyExtract = orig })
+	var calls []string
+	tavilyExtract = func(_ context.Context, _ string, urls []string, depth string) (extractResponse, error) {
+		calls = append(calls, depth+":"+strings.Join(urls, ","))
+		var r extractResponse
+		for _, u := range urls {
+			if u == "https://example.com/a" || (u == "https://example.org/b" && depth == "advanced") {
+				r.Results = append(r.Results, struct {
+					URL        string `json:"url"`
+					RawContent string `json:"raw_content"`
+				}{u, "# Hello\nbody " + depth})
+				continue
+			}
+			r.Failed = append(r.Failed, struct {
+				URL   string `json:"url"`
+				Error string `json:"error"`
+			}{u, "Failed to fetch url"})
+		}
+		return r, nil
+	}
+	urls := []string{"https://example.com/a", "https://example.org/b", "https://example.net/c"}
+	var code int
+	out := captureStdout(t, func() { code = Extract(context.Background(), urls) })
+	wantCalls := "basic:https://example.com/a,https://example.org/b,https://example.net/c|advanced:https://example.org/b,https://example.net/c"
+	if code != 0 || strings.Join(calls, "|") != wantCalls {
+		t.Fatalf("code=%d calls=%v, want 0 and only basic failures retried at advanced depth", code, calls)
+	}
+	for _, want := range []string{
+		"# https://example.com/a\n# Hello\nbody basic",
+		"# https://example.org/b\n# Hello\nbody advanced",
+		"# https://example.net/c\nfailed: Failed to fetch url",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestExtractRefusesInternalAddresses(t *testing.T) {
+	t.Setenv(keyName, "test-key")
+	orig := tavilyExtract
+	t.Cleanup(func() { tavilyExtract = orig })
+	tavilyExtract = func(context.Context, string, []string, string) (extractResponse, error) {
+		t.Error("seam called for an internal URL")
+		return extractResponse{}, nil
+	}
+	var code int
+	out := captureStdout(t, func() {
+		code = Extract(context.Background(), []string{"http://127.0.0.1/", "http://192.168.1.1/", "file:///etc/passwd"})
+	})
+	if code != 1 || strings.Count(out, "failed:") != 3 || !strings.Contains(out, "refusing to fetch internal address 192.168.1.1") {
+		t.Errorf("code=%d out=%q, want exit 1 with 3 refusals", code, out)
 	}
 }

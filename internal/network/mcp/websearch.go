@@ -33,6 +33,7 @@ const (
 	toolDescription        = "Search the web via Tavily for up-to-date public information, current events, " +
 		"and recent data. Use when the question needs information beyond your training data."
 	tavilyURL         = "https://api.tavily.com/search"
+	tavilyExtractURL  = "https://api.tavily.com/extract"
 	requestTimeout    = 20 * time.Second
 	defaultMaxResults = 5
 )
@@ -325,6 +326,130 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 	cancel() // the Tavily deadline is spent; enrichment runs on the caller's ctx with its own per-fetch bound
 	enrichResults(ctx, payload.Results)
 	return formatResults(payload.Answer, payload.Results), nil
+}
+
+// extractResponse is the slice of Tavily's /extract reply the renderer uses.
+type extractResponse struct {
+	Results []struct {
+		URL        string `json:"url"`
+		RawContent string `json:"raw_content"`
+	} `json:"results"`
+	Failed []struct {
+		URL   string `json:"url"`
+		Error string `json:"error"`
+	} `json:"failed_results"`
+}
+
+// tavilyExtract is the HTTP seam for Extract; tests swap it to avoid the network.
+var tavilyExtract = func(ctx context.Context, apiKey string, urls []string, depth string) (extractResponse, error) {
+	var payload extractResponse
+	body, _ := json.Marshal(map[string]any{"urls": urls, "format": "markdown", "extract_depth": depth})
+	reqCtx, cancel := context.WithTimeout(ctx, 2*requestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, tavilyExtractURL, bytes.NewReader(body))
+	if err != nil {
+		return payload, fmt.Errorf("could not build Tavily request (%v)", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return payload, fmt.Errorf("could not reach Tavily (%v)", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return payload, fmt.Errorf("extract with Tavily failed (HTTP %d)", resp.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&payload); err != nil {
+		return payload, fmt.Errorf("extract with Tavily returned non-JSON payload (%v)", err)
+	}
+	return payload, nil
+}
+
+// checkExtractURL refuses non-http(s) URLs and literal internal hosts before anything is sent to Tavily.
+func checkExtractURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return nil, errors.New("only http(s) URLs are supported")
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return nil, fmt.Errorf("refusing to fetch internal address %s", host)
+	}
+	if net.ParseIP(host) != nil {
+		if err := rejectInternal("", net.JoinHostPort(host, "80"), nil); err != nil {
+			return nil, err
+		}
+	}
+	return u, nil
+}
+
+// fetchPages extracts at basic depth, then retries Tavily's failures once at advanced depth (bot-protected pages).
+func fetchPages(ctx context.Context, apiKey string, urls []string, content, failed map[string]string) error {
+	for _, depth := range []string{"basic", "advanced"} {
+		res, err := tavilyExtract(ctx, apiKey, urls, depth)
+		if err != nil {
+			return err
+		}
+		urls = nil
+		for _, r := range res.Results {
+			content[r.URL] = r.RawContent
+			delete(failed, r.URL)
+		}
+		for _, f := range res.Failed {
+			failed[f.URL] = f.Error
+			urls = append(urls, f.URL)
+		}
+		if len(urls) == 0 {
+			return nil
+		}
+	}
+	return nil
+}
+
+// Extract reads each URL's page as markdown through Tavily and prints `# <url>` blocks to stdout.
+// Exit 1 when every URL failed, else 0.
+func Extract(ctx context.Context, urls []string) int {
+	failed := map[string]string{}
+	var send []string
+	cache := map[string]string{}
+	for _, raw := range urls {
+		u, err := checkExtractURL(raw)
+		switch {
+		case err != nil:
+			failed[raw] = err.Error()
+		case !robotsAllowed(ctx, u, cache):
+			failed[raw] = "robots.txt disallows"
+		default:
+			send = append(send, raw)
+		}
+	}
+	content := map[string]string{}
+	if len(send) > 0 {
+		apiKey := resolveKey()
+		if apiKey == "" {
+			fmt.Fprintf(os.Stderr, "%s is not set — %s\n", keyName, keyHint())
+			return 1
+		}
+		if err := fetchPages(ctx, apiKey, send, content, failed); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 1
+		}
+	}
+	ok := 0
+	for _, raw := range urls {
+		if msg, bad := failed[raw]; bad {
+			fmt.Printf("# %s\nfailed: %s\n\n", raw, msg)
+			continue
+		}
+		ok++
+		fmt.Printf("# %s\n%s\n\n", raw, content[raw])
+	}
+	if ok == 0 {
+		return 1
+	}
+	return 0
 }
 
 // Enrichment bounds: each hit's page fetch gets its own timeout, a byte cap on the read (a page
