@@ -62,7 +62,7 @@ func commands() []command {
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
 		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return agentVerb("copilot", a) }},
 		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return agentVerb("codex", a) }},
-		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
+		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: cmdGemini},
 		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return agentVerb("opencode", a) }},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		{name: "dispatch", group: groupAgents, hidden: true, summary: "run a task by role: explore, fleet, compare", run: agents.CmdDispatch},

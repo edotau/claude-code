@@ -264,7 +264,7 @@ claude-code ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
-claude-code gemini bridge --dirs internal "<task>"     # one 1M-context sweep via agy
+claude-code ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
 claude-code usage --days 7                             # subagent token usage
 ```
 
