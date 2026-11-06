@@ -234,7 +234,7 @@ func initialPayload(w http.ResponseWriter, cur []byte, build func() ([]byte, err
 	}
 	cur, err := build()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, err)
 		return nil, false
 	}
 	return cur, true
