@@ -315,3 +315,16 @@ func TestDoctorFlagsUnparseableConfig(t *testing.T) {
 		t.Fatalf("exit %d, report:\n%s", code, out.String())
 	}
 }
+
+// TestQueryParamSecretCoversKeyAndTokenSuffixes: api_key=, access_token= and apikey= URL secrets are found and redacted.
+func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
+	for _, q := range []string{"api_key", "access_token", "apikey", "api-key"} {
+		defs := []Def{{"s", "user", serverDef{URL: "https://h/x?" + q + "=SECRET123"}}}
+		if len(FindSecrets(defs)) == 0 {
+			t.Errorf("%s=: no finding", q)
+		}
+		if got := redact(defs)[0].D.URL; strings.Contains(got, "SECRET123") {
+			t.Errorf("%s=: redact left the value in %q", q, got)
+		}
+	}
+}

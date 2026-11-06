@@ -2,9 +2,9 @@
   "status": "ok",
   "source": "plan-standalone-harness.md",
   "steps_found": 6,
-  "score": 3,
+  "score": 0,
   "max_score": 18,
-  "percentage": 16.7,
+  "percentage": 0.0,
   "has_final_verification": false,
   "verdict": "MISSING",
   "step_results": [
@@ -35,12 +35,12 @@
     },
     {
       "title": "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered locally for translated legs.",
-      "score": 3,
-      "level": "concrete"
+      "score": 0,
+      "level": "none"
     }
   ],
   "recommendations": [
-    "5 step(s) have no verification. Add 'verify: [check]' to each.",
+    "6 step(s) have no verification. Add 'verify: [check]' to each.",
     "No final / end-to-end verification step. Add one at the end."
   ]
 }

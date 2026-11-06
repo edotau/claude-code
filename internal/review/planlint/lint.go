@@ -38,8 +38,17 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		root = args[0]
 	}
 	pattern := filepath.Join(root, "workflows", "*.js")
-	files, _ := filepath.Glob(pattern)
-	files = append(files, skillScripts(root)...)
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		fmt.Fprintf(stderr, "workflow lint: glob %s: %v\n", pattern, err)
+		return 1
+	}
+	skills, err := skillScripts(root)
+	if err != nil {
+		fmt.Fprintf(stderr, "workflow lint: glob skills scripts under %s: %v\n", root, err)
+		return 1
+	}
+	files = append(files, skills...)
 	if len(files) == 0 { // a wrong root (e.g. the workflows dir itself) must not pass as "0 clean"
 		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", pattern)
 		return 1
@@ -75,22 +84,26 @@ func lintScript(f string, stderr io.Writer) int {
 
 // skillScripts returns every skills/*/scripts/*.js under root that opens with `export const meta` (a
 // Workflow script moved out of workflows/) — other scripts under scripts/ are plain helpers, not linted.
-func skillScripts(root string) []string {
-	files, _ := filepath.Glob(filepath.Join(root, "skills", "*", "scripts", "*.js"))
+func skillScripts(root string) ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(root, "skills", "*", "scripts", "*.js"))
+	if err != nil {
+		return nil, err
+	}
 	var out []string
 	for _, f := range files {
 		if isWorkflowScript(f) {
 			out = append(out, f)
 		}
 	}
-	return out
+	return out, nil
 }
 
-// isWorkflowScript reports whether f's first non-blank, non-comment line opens `export const meta`.
+// isWorkflowScript reports whether f's first non-blank, non-comment line opens `export const meta`;
+// an unreadable file counts as one so lintScript reports it instead of skipping it.
 func isWorkflowScript(f string) bool {
 	data, err := os.ReadFile(f)
 	if err != nil {
-		return false
+		return true
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
 		t := strings.TrimSpace(line)
@@ -121,14 +134,14 @@ func LintPins(name string, src []byte) []string {
 // unpinnedAgentCalls returns "name:line" for each agent( call missing a model: pin. agentType alone is not
 // one (a built-in type such as Explore carries its own tier); the opus-ok marker never exempts this check.
 func unpinnedAgentCalls(name, src string) []string {
-	return agentCallsMissingSrc(name, src, func(window string) bool { return strings.Contains(window, "model:") }, false)
+	return agentCallsMissingSrc(name, src, func(window string) bool { return hasTopLevelKey(window, "model") }, false)
 }
 
 // effortlessAgentCalls returns "name:line" for each agent( call with no effort: pin — effort is the
 // second routing axis (skills/subagent-workflows/SKILL.md → Rules); unpinned runs at session effort, over-costing.
 func effortlessAgentCalls(name, src string) []string {
 	return agentCallsMissingSrc(name, src, func(window string) bool {
-		return strings.Contains(window, "effort:")
+		return hasTopLevelKey(window, "effort")
 	}, true)
 }
 
@@ -176,19 +189,33 @@ func badPinValues(name, src string) []string {
 	return out
 }
 
+// topLevelKeyAt returns the offsets of `key:` in masked that sit directly in the call's options object:
+// brace depth 1 and not the tail of a longer identifier (submodel:, a.model:).
+func topLevelKeyAt(masked, key string) []int {
+	needle := key + ":"
+	var out []int
+	depth := 0
+	for i := 0; i < len(masked); i++ {
+		switch masked[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+		}
+		if depth == 1 && strings.HasPrefix(masked[i:], needle) && (i == 0 || !isIdentByte(masked[i-1])) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// hasTopLevelKey reports whether the string-masked call window pins key in its options object.
+func hasTopLevelKey(masked, key string) bool { return len(topLevelKeyAt(masked, key)) > 0 }
+
 func badPinValuesForKey(name string, line int, window, masked, key string) []string {
 	var out []string
 	needle := key + ":"
-	for idx := 0; ; {
-		j := strings.Index(masked[idx:], needle)
-		if j < 0 {
-			break
-		}
-		pos := idx + j
-		idx = pos + len(needle)
-		if pos > 0 && isIdentByte(masked[pos-1]) {
-			continue
-		}
+	for _, pos := range topLevelKeyAt(masked, key) {
 		valStart := pos + len(needle)
 		valEnd := len(masked)
 		if k := strings.IndexAny(masked[valStart:], ",}\n"); k >= 0 {
@@ -453,7 +480,7 @@ const (
 
 // planFill decides how the agent() call at i (with its call window) gets a model pin.
 func planFill(src, model string, i int, window string) (fillEdit, int) {
-	if strings.Contains(stripStrings(window), "model:") {
+	if hasTopLevelKey(stripStrings(window), "model") {
 		return fillEdit{}, fillSkip // agentType alone is not a pin — Explore runs opus
 	}
 	if len(window) < 6 || window[len(window)-1] != ')' {
@@ -490,7 +517,7 @@ func fillOptions(src, model string, argsStart, argsEnd int, span argSpan) (fillE
 	return fillEdit{braceAt + 1, fmt.Sprintf(" model: '%s',", model)}, fillEditing
 }
 
-// FillModel rewrites every agent() call in src missing a model:/agentType: pin (opus-ok does NOT
+// FillModel rewrites every agent() call in src missing a model: pin (agentType alone is not one; opus-ok does NOT
 // exempt this) to carry model: '<model>', inserted into an existing options-object 2nd argument, or
 // appended as a new one. Edits apply back-to-front so offsets stay valid; a call whose options
 // argument isn't a plain object literal (identifier, spread, ternary, call, or an unbalanced window)

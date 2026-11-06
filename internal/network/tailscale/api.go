@@ -118,7 +118,7 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return fmt.Errorf("tailscale: %s %s: HTTP %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	if out == nil {

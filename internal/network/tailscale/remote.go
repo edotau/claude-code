@@ -14,6 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // RemoteAgents lists the allowed --agent values, in the order they're tried/offered.
@@ -30,10 +33,8 @@ var nameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^
 // ValidName reports whether name matches ^[A-Za-z0-9._-]{1,64}$.
 func ValidName(name string) bool { return nameRe().MatchString(name) }
 
-// QuoteSH single-quotes s for POSIX sh, closing/reopening the quote around each embedded quote.
-func QuoteSH(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+// QuoteSH always single-quotes s for POSIX sh; see textutil.ShellQuote.
+func QuoteSH(s string) string { return textutil.ShellQuote(s) }
 
 // DefaultName returns "cc-<agent>-<id>" with a short random hex id.
 func DefaultName(agent string) string {
@@ -90,24 +91,12 @@ func agentCommand(agent, task string) string {
 	return "if command -v claude-code >/dev/null 2>&1; then " + shimmed + "; else " + bare + "; fi"
 }
 
-// QuotePath single-quotes a remote path for POSIX sh; a leading ~ becomes the "$HOME" expansion, which quotes would block.
-func QuotePath(p string) string {
-	switch {
-	case p == "~":
-		return `"$HOME"`
-	case strings.HasPrefix(p, "~/"):
-		return `"$HOME"/` + QuoteSH(strings.TrimPrefix(p, "~/"))
-	default:
-		return QuoteSH(p)
-	}
-}
-
 // dirFlag is tmux's `-c <dir>` flag text, or "" to omit it (ssh already lands in $HOME).
 func dirFlag(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	return "-c " + QuotePath(dir)
+	return "-c " + textutil.QuotePath(dir)
 }
 
 // BuildRemoteCommand returns the POSIX sh script to run over ssh: it checks tmux exists, then starts
@@ -198,7 +187,7 @@ func ParseSessions(output string) []RemoteSession {
 // remote command is always run as `sh -c <remoteCmd>` so it executes under POSIX sh regardless of
 // the login shell ssh would otherwise hand it to (e.g. fish, which does not speak this syntax).
 func SSHArgs(host, remoteCmd string) []string {
-	return []string{"ssh", host, "sh -c " + QuoteSH(remoteCmd)}
+	return []string{"ssh", "--", host, "sh -c " + QuoteSH(remoteCmd)}
 }
 
 // ExecArgs runs remoteCmd under sh locally when host is this machine, else over ssh; batch forbids ssh prompts.
@@ -207,7 +196,7 @@ func ExecArgs(ctx context.Context, host, remoteCmd string, batch bool) []string 
 	case IsLocalHost(ctx, host):
 		return []string{"sh", "-c", remoteCmd}
 	case batch: // a server-side caller has no TTY: a missing key must fail, never wait on a password prompt
-		return []string{"ssh", "-o", "BatchMode=yes", host, "sh -c " + QuoteSH(remoteCmd)}
+		return []string{"ssh", "-o", "BatchMode=yes", "--", host, "sh -c " + QuoteSH(remoteCmd)}
 	}
 	return SSHArgs(host, remoteCmd)
 }
@@ -277,7 +266,7 @@ func AttachArgs(host, session string) []string {
 	if IsLocalHost(context.Background(), host) {
 		return []string{"tmux", "attach", "-t", session}
 	}
-	return []string{"ssh", "-t", host, "tmux", "attach", "-t", session}
+	return []string{"ssh", "-t", "--", host, "tmux", "attach", "-t", session}
 }
 
 // AttachCommand prints the hint shown after a successful dispatch.
@@ -291,6 +280,9 @@ func AttachCommand(host, session string) string {
 // host when the tailnet can't be listed at all — passes through unchanged; ssh reports an unknown
 // host itself, and rejecting here would wrongly block a valid ssh alias that isn't a tailnet peer.
 func ResolveHost(ctx context.Context, host string) (string, error) {
+	if err := remote.ValidHost(host); err != nil {
+		return "", err
+	}
 	if host == "localhost" {
 		return host, nil
 	}

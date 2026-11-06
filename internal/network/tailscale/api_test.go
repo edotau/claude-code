@@ -278,3 +278,15 @@ func TestEnableRoutesDoesNotMutateCaller(t *testing.T) {
 		t.Errorf("caller's backing array overwritten with %q", got)
 	}
 }
+
+func TestRequestErrorBodyIsCapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(make([]byte, 1<<20))
+	}))
+	defer ts.Close()
+	err := staticClient(ts, "tok").request(context.Background(), http.MethodGet, "/x", nil, nil)
+	if err == nil || len(err.Error()) > 8<<10 {
+		t.Fatalf("want error with body capped near 4KiB, got %v", err != nil)
+	}
+}
