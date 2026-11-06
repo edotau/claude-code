@@ -95,3 +95,11 @@ func TestOpenFailsCleanlyWithoutATTY(t *testing.T) {
 		t.Fatal("Open() succeeded without a TTY on stdin")
 	}
 }
+
+// TestDecodeRightArrow: ESC [ C is Right, not dropped.
+func TestDecodeRightArrow(t *testing.T) {
+	k, n := Decode([]byte{0x1b, '[', 'C'})
+	if k.Kind != KeyRight || n != 3 || k.Name() != "right" {
+		t.Fatalf("Decode(ESC [ C) = %+v,%d", k, n)
+	}
+}

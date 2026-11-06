@@ -60,3 +60,14 @@ func TestFormatDispatchFlagsFallback(t *testing.T) {
 		t.Errorf("formatDispatch(fallback) = %q, want it to flag the fallback", formatDispatch(fb))
 	}
 }
+
+func TestComputeColumnWidthsCountsRunes(t *testing.T) {
+	tr := &agenttree.Tree{Sessions: []agenttree.Session{{
+		Status:    "ééééééé",                                                    // 7 runes, 14 bytes
+		Subagents: []agenttree.Subagent{{Type: "日本語日本語日本", Status: "完了完了完了完了"}}, // 8 runes each
+	}}}
+	got := computeColumnWidths(tr)
+	if got.subType != 8 || got.subStatus != 8 || got.sessStatus != 7 {
+		t.Errorf("widths = type %d status %d sess %d, want 8 8 7", got.subType, got.subStatus, got.sessStatus)
+	}
+}

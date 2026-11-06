@@ -189,7 +189,7 @@ func TestAllAllJSON(t *testing.T) {
 	allSeams(t, mixed(), false, 50*time.Millisecond)
 	d.o.All, d.o.JSON, d.o.Check = true, true, true
 	runProviderAll(d)
-	var got []AllRowStatus
+	var got []allRowStatus
 	if err := json.Unmarshal([]byte(dbxOut(d)), &got); err != nil {
 		t.Fatalf("output is not pure JSON: %v\n%s", err, dbxOut(d))
 	}
@@ -206,13 +206,13 @@ func TestAllAllJSON(t *testing.T) {
 
 func TestAllLine(t *testing.T) {
 	for _, c := range []struct {
-		s    AllRowStatus
+		s    allRowStatus
 		want string
 	}{
-		{AllRowStatus{"dev", allOK, "expires in 5m"}, "dev: ok (expires in 5m)"},
-		{AllRowStatus{"dev", allOK, ""}, "dev: ok"},
-		{AllRowStatus{"qa", allNeedsLogin, ""}, "qa: needs login"},
-		{AllRowStatus{"qa", allError, "boom"}, "qa: error: boom"},
+		{allRowStatus{"dev", allOK, "expires in 5m"}, "dev: ok (expires in 5m)"},
+		{allRowStatus{"dev", allOK, ""}, "dev: ok"},
+		{allRowStatus{"qa", allNeedsLogin, ""}, "qa: needs login"},
+		{allRowStatus{"qa", allError, "boom"}, "qa: error: boom"},
 	} {
 		if got := allLine(c.s); got != c.want {
 			t.Errorf("got %q want %q", got, c.want)
@@ -278,7 +278,7 @@ func TestAllJSONSkipsLoginAndStdoutIsPureJSON(t *testing.T) {
 	if strings.Contains(stderr, "Log in now") {
 		t.Errorf("JSON mode prompted: %q", stderr)
 	}
-	var rows []AllRowStatus
+	var rows []allRowStatus
 	if err := json.Unmarshal([]byte(dbxOut(d)), &rows); err != nil || len(rows) != 1 || rows[0].Status != allNeedsLogin {
 		t.Fatalf("stdout not the pure JSON array: %v\n%s", err, dbxOut(d))
 	}

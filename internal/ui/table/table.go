@@ -6,19 +6,16 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Truncate clips a plain (unpainted) line to width runes, ending in "…"; width <= 0 means no cap.
 func Truncate(s string, width int) string {
-	r := []rune(s)
-	if width <= 0 || len(r) <= width {
+	if width <= 0 {
 		return s
 	}
-	if width <= 1 {
-		return string(r[:width])
-	}
-	return string(r[:width-1]) + "…"
+	return textutil.Truncate(s, width)
 }
 
 // TruncateMiddle clips s to width runes keeping both ends, so names that share a long prefix stay distinct.
