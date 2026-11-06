@@ -2,11 +2,11 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), minFix, rounds, dimensions (replaces the lenses), tests, steps {scope, audit, refute, fix, test, gate} = {agent, model, effort, profile} per stage (refute may be a list of second opinions; scope and gate claude only). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, confirmed, refuted, rounds}. Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), minFix, rounds, dimensions (replaces the lenses), tests, steps {scope, audit, refute, fix, test, gate} = {model, effort} per stage (claude only). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, confirmed, refuted, rounds}. Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
-    { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings) plus any healthy code-agent refuters; re-anchors wrong citations, defaults to refuted when the evidence is thin' },
+    { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings); re-anchors wrong citations, defaults to refuted when the evidence is thin' },
     { title: 'Fix', detail: 'per package: implementer (opus only for highs), then test agent with its result' },
     { title: 'Gate', detail: 'green-keeper-loop workflow over the touched packages, then re-audits what it touched for up to rounds rounds' },
   ],
@@ -48,71 +48,42 @@ const SHARED_TREE =
   (CWD ? 'Prefix every shell command with `cd ' + CWD + ' &&`. ' : '') + 'Comments 1 line ≤120 chars.'
 
 // ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
-// stepOf(steps, name, defaults, {allowed, externalOK, lists}) -> {kind:'claude',model,effort} | {kind:'external',agent,vendorModel,profile}
-// An array value (only for stages named in `lists`) returns an array of those; any bad input throws Error naming stage/field.
+// stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
-  const S_AGENTS = ['claude', 'copilot', 'codex', 'gemini', 'opencode']
   const S_CLAUDE = ['haiku', 'sonnet', 'opus']
   const S_EFFORT = ['low', 'medium', 'high', 'xhigh']
-  const S_FIELDS = ['agent', 'model', 'effort', 'profile']
+  const S_FIELDS = ['model', 'effort']
   const allowed = (opt && opt.allowed) || []
-  const lists = (opt && opt.lists) || []
   const d = defaults || {}
   if (steps !== undefined && (!steps || typeof steps !== 'object' || Array.isArray(steps))) throw new Error('steps must be an object')
   for (const k of Object.keys(steps || {})) if (!allowed.includes(k)) throw new Error(`steps.${k}: unknown stage (allowed: ${allowed.join('|')})`)
-  const one = (v, where) => {
-    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
-    for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
-    const agentName = v.agent !== undefined ? v.agent : d.agent || 'claude'
-    if (!S_AGENTS.includes(agentName)) throw new Error(`${where}.agent must be ${S_AGENTS.join('|')}`)
-    if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
-    if (v.profile !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(v.profile))) throw new Error(`${where}.profile must be a profile name`)
-    const effort = v.effort !== undefined ? v.effort : d.effort || 'medium'
-    if (agentName === 'claude') {
-      const model = v.model !== undefined ? v.model : d.agent && d.agent !== 'claude' ? 'sonnet' : d.model || 'sonnet'
-      if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')} for agent claude`)
-      return { kind: 'claude', model, effort }
-    }
-    if (!(opt && opt.externalOK)) throw new Error(`${where}.agent: ${agentName} not allowed here (claude only)`)
-    const vendorModel = v.model !== undefined ? v.model : v.agent === undefined ? d.model : undefined
-    if (vendorModel !== undefined && !/^[A-Za-z0-9._:-]+$/.test(String(vendorModel))) throw new Error(`${where}.model must be a model id or alias`)
-    return { kind: 'external', agent: agentName, vendorModel, profile: v.profile !== undefined ? v.profile : d.profile }
-  }
-  const v = (steps || {})[name]
-  if (Array.isArray(v)) {
-    if (!lists.includes(name)) throw new Error(`steps.${name}: a list is not allowed for this stage`)
-    if (!v.length) throw new Error(`steps.${name}: list is empty`)
-    return v.map((x, i) => one(x, `steps.${name}[${i}]`))
-  }
-  return one(v === undefined ? {} : v, `steps.${name}`)
+  const where = `steps.${name}`
+  const v = (steps || {})[name] === undefined ? {} : steps[name]
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
+  for (const k of ['agent', 'profile']) if (k in v) throw new Error(`${where}.${k}: external agents were removed from workflows (claude only; use /code-worker:codex etc. outside the workflow)`)
+  for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
+  if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
+  const model = v.model !== undefined ? v.model : d.model || 'sonnet'
+  if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')}`)
+  return { model, effort: v.effort !== undefined ? v.effort : d.effort || 'medium' }
 }
 // ── end stepOf ──
 
 // ── Steps: who runs each stage; defaults reproduce the pre-steps models and efforts ──
 const STAGES = ['scope', 'audit', 'refute', 'fix', 'test', 'gate']
-const EXT = { allowed: STAGES, externalOK: true, lists: ['refute'] }
-const CLAUDE_ONLY = { allowed: STAGES, externalOK: false }
+const OPT = { allowed: STAGES }
 const RAW = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
 let S
 try {
   S = {
-    scope: stepOf(a.steps, 'scope', { model: 'haiku', effort: 'low' }, CLAUDE_ONLY),
-    audit: stepOf(a.steps, 'audit', { model: 'sonnet', effort: 'low' }, EXT),
-    refute: [].concat(stepOf(a.steps, 'refute', { model: 'sonnet', effort: 'medium' }, EXT)),
-    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, EXT),
-    test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, EXT),
-    // gate = green-keeper-loop's fixer: claude only (green-keeper-loop has no external fixer).
-    gate: stepOf(a.steps, 'gate', {}, CLAUDE_ONLY),
+    scope: stepOf(a.steps, 'scope', { model: 'haiku', effort: 'low' }, OPT),
+    audit: stepOf(a.steps, 'audit', { model: 'sonnet', effort: 'low' }, OPT),
+    refute: stepOf(a.steps, 'refute', { model: 'sonnet', effort: 'medium' }, OPT),
+    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, OPT),
+    test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, OPT),
+    gate: stepOf(a.steps, 'gate', {}, OPT),
   }
 } catch (e) { return { exit: 'error', error: 'code-analyzer: ' + e.message, rounds: [] } }
-// Audit and refute must read files: opencode's read-only mode drops every tool, so its answers are invented tool calls.
-if ([S.audit, ...S.refute].some(s => s.kind === 'external' && s.agent === 'opencode'))
-  return { exit: 'error', error: 'code-analyzer: opencode cannot audit or refute (its read-only mode has no file access); use it for fix or test', rounds: [] }
-const REFUTE_CLAUDE = S.refute.filter(s => s.kind === 'claude')
-if (REFUTE_CLAUDE.length > 1) return { exit: 'error', error: 'code-analyzer: steps.refute takes at most one claude entry', rounds: [] }
-// The Claude refuter always runs; external entries are second opinions.
-const REFUTE = REFUTE_CLAUDE[0] || { kind: 'claude', model: 'sonnet', effort: 'medium' }
-const REFUTERS = S.refute.filter(s => s.kind === 'external')
 // Audit effort stays per lens unless steps.audit.effort is set; fix keeps opus+high for highs unless set.
 const AUDIT_EFFORT = RAW.audit && RAW.audit.effort
 const FIX_MODEL = RAW.fix && RAW.fix.model
@@ -239,38 +210,6 @@ const norm = f => ({
 const key = f => relPath(f.file) + ':' + f.title
 const REFUTE_BATCH = a.refuteBatch || 6
 
-// ── Agent smoke: each external refuter (agent/profile/model) proves it is alive ONCE for the whole run, not per round ──
-const agentStatus = []
-const REFUTERS_OK = []
-// An unregistered or crashing agent is a dropped agent, never a dead audit (workflow() throws on an unknown name).
-const askAgent = opts => workflow('code-agent', { claudeState: CLAUDE_STATE, ...opts }).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
-// One code-agent call for an external step: no fallback, so a dead agent is "no result", never a silent Claude run.
-const askStep = (st, task, tools) => askAgent({
-  agent: st.agent, vendorModel: st.vendorModel, profile: st.profile, cwd: CWD || undefined, smoke: false, fallback: false, task,
-  // a read stage on copilot needs --read-only: without it copilot has no file reads at all
-  ...(tools ? { tools: true } : st.agent === 'copilot' ? { readOnly: true } : {}),
-})
-const smoked = new Set()
-for (const st of REFUTERS) {
-  const id = [st.agent, st.profile || '', st.vendorModel || ''].join('|')
-  if (smoked.has(id)) continue
-  smoked.add(id)
-  const s = await askAgent({ agent: st.agent, vendorModel: st.vendorModel, profile: st.profile, cwd: CWD || undefined, task: 'Reply READY only.', smoke: false, fallback: false, timeoutMin: 2 })
-  const ok = !!(s && s.ok && /READY/i.test(s.answer || ''))
-  agentStatus.push({ agent: st.agent, ...(st.profile ? { profile: st.profile } : {}), ...(st.vendorModel ? { model: st.vendorModel } : {}), ok, reason: ok ? '' : (s && (s.error || s.reason)) || 'no result' })
-  if (ok) REFUTERS_OK.push(st)
-}
-if (REFUTERS.length) log(`agents: ${JSON.stringify(agentStatus)}`)
-// An external answer is one JSON object; a parse failure is "no result" (null), never a throw.
-const parseAnswer = (r, k) => {
-  try {
-    const j = JSON.parse(String((r && r.answer) || '').replace(/^```(json)?\s*|\s*```$/g, ''))
-    return j && Array.isArray(j[k]) ? j[k] : null
-  } catch (e) { return null }
-}
-// An external fix/test step's answer mapped onto RESULT_SCHEMA; files it changed come back through the gate.
-const extResult = r => ({ status: r && r.ok ? 'done' : 'blocked', filesChanged: [], summary: (r && (r.answer || r.error)) || 'no result' })
-
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
 const rounds = []
 for (let round = 1; round <= ROUNDS; round++) {
@@ -302,7 +241,7 @@ for (let round = 1; round <= ROUNDS; round++) {
     log(`scope ${gi}: ${files.length} files, ~${files.reduce((n, f) => n + (f.bytes || 0), 0)} bytes`)
   })
   if (!PRE && FILES_MODE && !chunks.length) {
-    rounds.push({ error: 'code-analyzer: no source files under ' + PATHS.join(', '), exit: 'error', round, agents: agentStatus })
+    rounds.push({ error: 'code-analyzer: no source files under ' + PATHS.join(', '), exit: 'error', round })
     break
   }
   log(`${chunks.length} chunk(s) of ≤${CHUNK_CHARS} chars → ${DIMENSIONS.filter(d => !d.hitsOnly).length * chunks.length} first-pass auditors`)
@@ -318,7 +257,6 @@ for (let round = 1; round <= ROUNDS; round++) {
   const refuted = []
   const unverified = []
   let refuteCalls = 0
-  let refutedByAgent = 0
   let auditorCount = 0
   const findStage = u => {
     auditorCount++
@@ -332,17 +270,6 @@ for (let round = 1; round <= ROUNDS; round++) {
       (u.chunk.files.length
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`)
-    if (S.audit.kind === 'external') {
-      return askStep(S.audit, prompt + '\nAnswer with ONLY one JSON object {"findings":[{"file":"<repo-relative path>","line":0,"package":"<package dir>",' +
-        '"title":"<one-sentence defect>","scenario":"<input/state → wrong result>","evidence":"<grep/diff/test output>","severity":"critical|high|medium|low"}]} and nothing else.')
-        .then(r => {
-          const fs = parseAnswer(r, 'findings')
-          if (fs) return { findings: fs.filter(f => f && f.file && f.title) }
-          // an unparsable answer is no coverage, never "no findings": the chunk is re-audited by Claude
-          log(`find:${round}:${u.key}: ${S.audit.agent} returned no parsable findings (${(r && r.error) || 'bad JSON'}); re-auditing on claude`)
-          return agent(prompt, { label: `find:${round}:${u.key}:claude`, phase: 'Find', schema: FINDINGS_SCHEMA, model: 'sonnet', effort: u.dim.effort || 'low' })
-        })
-    }
     return agent(prompt,
       { label: `find:${round}:${u.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, model: routeModel(S.audit.model), effort: AUDIT_EFFORT || u.dim.effort || 'low' }
     )
@@ -370,17 +297,10 @@ for (let round = 1; round <= ROUNDS; round++) {
         `Default to refuted=true when the evidence does not hold up. A TRUE claim with a WRONG file or line is NOT refuted: set refuted=false and give the correct file and line. ` +
         // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
         `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
-      return Promise.all([
-        agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: routeModel(REFUTE.model), effort: REFUTE.effort }),
-        ...REFUTERS_OK.map(st => askStep(st,
-          brief + '\nAnswer with ONLY one JSON object {"verdicts":[{"index":0,"refuted":true,"reason":"<quoted line>"}]} and nothing else.',
-        ).then(r => ({ agent: st.agent, verdicts: parseAnswer(r, 'verdicts') || [] }))),
-      ]).then(([v, ...others]) => {
+      return agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: routeModel(S.refute.model), effort: S.refute.effort }).then(v => {
         const verdicts = v && Array.isArray(v.verdicts) ? v.verdicts : []
         return fs.map((f, i) => {
           if (!v) { unverified.push({ ...f, reason: 'refuter returned no result' }); return null }
-          const lv = others.map(l => ({ agent: l.agent, v: l.verdicts.find(x => x.index === i && x.refuted && x.reason) })).find(x => x.v)
-          if (lv) { refutedByAgent++; refuted.push({ ...f, reason: lv.agent + ': ' + lv.v.reason }); return null }
           const vd = verdicts.find(x => x.index === i)
           if (!vd || vd.refuted) { refuted.push({ ...f, reason: vd ? vd.reason : 'no verdict' }); return null }
           return norm({ ...f, file: vd.file || f.file, line: vd.line || f.line, lens: u.dim.key })
@@ -399,10 +319,10 @@ for (let round = 1; round <= ROUNDS; round++) {
   confirmed.sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
   const toFix = confirmed.filter(f => ORDER[f.severity] <= MIN_FIX)
   const deferred = confirmed.filter(f => ORDER[f.severity] > MIN_FIX)
-  const metrics = { scopers: PRE ? 0 : GROUPS.length, chunks: chunks.length, auditors: auditorCount, refuters: refuteCalls, refutedByAgent, confirmed: confirmed.length, refuted: refuted.length, deferred: deferred.length }
-  log(`round ${round}/${ROUNDS}: confirmed ${confirmed.length}, refuted ${refuted.length} (${refutedByAgent} by agent), below the fix floor ${deferred.length}, unverified ${unverified.length}`)
+  const metrics = { scopers: PRE ? 0 : GROUPS.length, chunks: chunks.length, auditors: auditorCount, refuters: refuteCalls, confirmed: confirmed.length, refuted: refuted.length, deferred: deferred.length }
+  log(`round ${round}/${ROUNDS}: confirmed ${confirmed.length}, refuted ${refuted.length}, below the fix floor ${deferred.length}, unverified ${unverified.length}`)
 
-  const base = { confirmed, refuted, unverified, deferred, agents: agentStatus, round }
+  const base = { confirmed, refuted, unverified, deferred, round }
   if (!FIX || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
   if (PRIOR.size && toFix.every(f => PRIOR.has(key(f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
@@ -427,14 +347,14 @@ for (let round = 1; round <= ROUNDS; round++) {
         `After a defect fix write ISSUE: searched P, found N.\n` +
         `Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)\n` +
         `Put the TASK/ISSUE facts as plain sentences in your summary.`
-      const impl = S.fix.kind === 'external' ? extResult(await askStep(S.fix, implTask, true)) : await agent(implTask,
+      const impl = await agent(implTask,
         { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(FIX_MODEL || (hot ? 'opus' : 'sonnet')), effort: FIX_EFFORT || (hot ? 'high' : 'medium') })
       const implBlocked = !impl || impl.status === 'blocked'
       const testTask = () => `${ctx}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\nYou are the TEST agent (the implementer has finished): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
         `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg}, and report. Budget ~20 tool calls.`
-      const tests = !testsNeeded || implBlocked ? null : S.test.kind === 'external' ? extResult(await askStep(S.test, testTask(), true)) : await agent(testTask(),
+      const tests = !testsNeeded || implBlocked ? null : await agent(testTask(),
         { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(S.test.model), effort: S.test.effort })
       return { package: pkg, impl, tests, blocked: implBlocked }
     })()
@@ -469,4 +389,4 @@ for (let round = 1; round <= ROUNDS; round++) {
 }
 
 const lastRound = rounds[rounds.length - 1] || { exit: 'error', round: 0 }
-return { ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds, agents: agentStatus, unverified: rounds.flatMap(r => r.unverified || []) }
+return { ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds, unverified: rounds.flatMap(r => r.unverified || []) }
