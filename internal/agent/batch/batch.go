@@ -152,19 +152,32 @@ func RunTasks(ctx context.Context, tasks []Task, o PoolOptions) bool {
 	return allOK
 }
 
-// feed prepares queued tasks in input order, each once a slot is free; a cancelled batch starts nothing more.
+// feed reserves slots in input order; each worker prepares and runs its task once a slot is free.
 func (b *batchRun) feed(ctx context.Context, tasks []Task, queue []int, done chan<- batchDone) {
 	for _, i := range queue {
 		t := tasks[i]
 		sl, err := b.lim.Reserve(ctx)
 		sctx := agent.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
-		var prepared *agent.Prepared
-		if err == nil {
-			prepared, err = t.Prepare(ctx)
-		}
 		switch err {
 		case nil:
-			go func() { defer agent.Settle(sctx); env, ok := b.run(sctx, t, prepared); done <- batchDone{i, env, ok} }()
+			go func() {
+				prepared, err := t.Prepare(ctx)
+				if err != nil {
+					cancelled := ctx.Err() != nil
+					if cancelled {
+						err = fmt.Errorf("cancelled before start: %w", context.Canceled)
+					}
+					if b.o.FailFast && !cancelled {
+						b.stop() // before Settle frees the slot, so the next task never reserves it
+					}
+					agent.Settle(sctx)
+					done <- batchDone{i, taskFailure(t, err), false}
+					return
+				}
+				defer agent.Settle(sctx)
+				env, ok := b.run(sctx, t, prepared)
+				done <- batchDone{i, env, ok}
+			}()
 		default:
 			cancelled := ctx.Err() != nil
 			if cancelled {
