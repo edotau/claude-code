@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Model-discovery coding agent on the OpenCode CLI, driven through `claude-code opencode <verb>` or headless `claude-code ask --agent opencode`: it reaches the widest model pool (its own catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model (`--model <m>`, `catalog list|sync`, `/coworker model=discovery`). It also implements and fixes code (`ask --tools [--background]`, then `status`/`tail -f`/`result`), reviews a diff (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`), continues a session (`resume <id>`), scans code + web (`explore`), refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP). It loads the harness rules, skills and guard plugin: `--deny` holds.
+  Model-discovery coding agent on the OpenCode CLI (`claude-code opencode <verb>` or headless `claude-code ask --agent opencode`): reaches the widest model pool (its catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model. Also implements and fixes code, reviews a diff, scans code + web, refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP).
 
   <example>
   Context: User wants a small feature in a named package.

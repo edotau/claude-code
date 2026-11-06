@@ -1,7 +1,7 @@
 ---
 name: codex
 description: |
-  General-purpose agent on the OpenAI Codex CLI (a different model family), driven through `claude-code codex <verb>` or headless `claude-code ask --agent codex`. Use it for: a cross-family diff review (`review [--adversarial] [--base <b>|--commit <sha>|--pr]`; "second opinion", "ship or block"); vetting a plan before code ("challenge this plan"); a delegated edit or scoped gate run (`ask --tools [--background]`, then `status`/`tail`/`result`); a code + web brief (`explore`); continuing a session (`resume <id>`) or handing this one over (`transfer`). Codex loads the harness AGENTS.md, skills and guard hooks (`safety-scan`, `permission-gate`), so `--deny` rules hold.
+  General-purpose agent on the OpenAI Codex CLI (a different model family). Use it for a cross-family diff review ("second opinion", "ship or block"), vetting a plan before code ("challenge this plan"), a delegated edit or scoped gate run, or a code + web brief. Driven by `claude-code codex <verb>` or headless `claude-code ask --agent codex`.
 
   <example>
   Context: User wants a second opinion on a finished diff before merging.

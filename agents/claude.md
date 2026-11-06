@@ -1,7 +1,7 @@
 ---
 name: claude
 description: |
-  Full-lifecycle in-context coding agent (@agent-claude, `subagent_type: claude`, headless `claude-code ask --agent claude`); does its own work, not the fan-out leaf (that is code-worker). Use it to explore, design, implement, simplify and self-review before handoff: "how should we build this" through "ready to verify", or "review my diff". Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution). Headless: `--tools`/`--read-only`/`--no-tools`, `--live` + `agents send`, `--background`, `--session`, `--output-schema`, `--system-prompt`, `--as user|sp`; loads your hooks, CLAUDE.md, rules and skills.
+  Full-lifecycle in-context coding agent (`subagent_type: claude`, headless `claude-code ask --agent claude`); does its own work, not the fan-out leaf (that is code-worker). Use it to explore, design, implement, simplify and self-review before handoff: "how should we build this" through "ready to verify", or "review my diff".
 
   <example>
   Context: Cross-module change with real design choices to make.
