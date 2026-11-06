@@ -14,9 +14,6 @@ const AgentRecordsKey = "agent-records"
 // agentRecordSchema is the vault layout that folded the <AGENT>_<FIELD> pins into records.
 const agentRecordSchema = 4
 
-// aliasRecordSchema is the layout that renamed a record's "slots" key to "aliases".
-const aliasRecordSchema = 5
-
 // discoveryRecordSchema is the layout that renamed the "byok-models" overlay key and the "byok" model pin to "discovery".
 const discoveryRecordSchema = 6
 
