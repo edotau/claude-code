@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/lifecycle"
 	"github.com/edotau/claude-code/internal/agent/review"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/opencode"
@@ -201,7 +202,7 @@ func agentStatus(name string, args []string) int {
 		return 0
 	}
 	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, StatusDetail(r))
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, lifecycle.StatusDetail(r))
 	}
 	return 0
 }
@@ -222,7 +223,7 @@ func agentTail(name string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%s tail: %v", name, err)
 	}
-	return TailExit(rec, *follow)
+	return lifecycle.TailExit(rec, *follow)
 }
 
 // agentResult is `claude-code <v> result [id] [--format text|json]`.
@@ -252,7 +253,7 @@ func agentResult(name string, args []string) int {
 		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
 			return helptext.Fail("%s result: %v", name, err)
 		}
-		return ResultExit(rec)
+		return lifecycle.ResultExit(rec)
 	}
 	fmt.Print(log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
@@ -262,7 +263,7 @@ func agentResult(name string, args []string) int {
 		fmt.Printf("session: %s\n", rec.SessionID)
 		printResumeHint(s, rec.SessionID)
 	}
-	return ResultExit(rec)
+	return lifecycle.ResultExit(rec)
 }
 
 // printResumeHint prints the agent's resume command for a session; nothing when it has none (ResumeHint("") is "").
