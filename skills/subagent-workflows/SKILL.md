@@ -29,6 +29,16 @@ through `claude-code ask --agent <x> [--profile <p>]` (`coworker`, which always 
 trust it only on the `ran on` line its `ask` prints (`dispatch-stop` blocks a stop with none, once)
 and keep a `code-worker` fallback for work that must land.
 
+| Type | Use when |
+| --- | --- |
+| `code-worker:claude` | Default leaf: in-context Sonnet work, reasoning, integration |
+| `code-worker:codex` | Review or a second opinion on a diff or plan (pinned to codex) |
+| `code-worker:gemini` | Read-heavy sweeps and research; cite file:line (pinned to gemini) |
+| `coworker:copilot` | Mechanical edits and test repair on a Copilot account |
+| `coworker:opencode` | Edits through opencode, incl. discovered models (kimi, deepseek, glm) |
+| `coworker:databricks` | Any agent forced onto a Databricks profile (`agent=` in the brief, default claude) |
+| `code-worker` / `coworker` | Generic: the agent is named by the brief's `Agent:` (several names = compare/relay) |
+
 Pass the task alone as `description`; the `dispatch-effort` hook prefixes the model id the leaf is planned to run
 (`code-worker sonnet: <task>`, `coworker gpt-6.1-sol: <task>`) and appends memory-recall pointers to every brief. A
 leaf's cost is its `model:` frontmatter: an `inherit` agent runs at the parent's model, so fan out as `code-worker`.

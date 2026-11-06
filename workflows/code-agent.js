@@ -129,7 +129,7 @@ if (a.agent === 'claude') {
   const out = await agent(`${a.task}\n\n(Work in ${CWD_C}; prefix every shell command with cd ${CWD_C} &&.${scope})`, {
     label: 'ask:claude',
     phase: 'Agent',
-    agentType: 'code-worker',
+    agentType: 'code-worker:claude',
     model: routeModel(CLAUDE_MODEL),
     effort: 'medium',
   }).catch(e => ({ failed: String((e && e.message) || e) }))
@@ -177,7 +177,7 @@ const run = async (task, label) =>
       `Your reply MUST contain ok, answer and error every time, even on failure or timeout. On a failed or timed-out ask reply ` +
       `{"ok":false,"answer":"","error":"<the failure message>"}: the message goes in error, never in answer, and answer stays "". ` +
       `On success error is "".\n\nTASK:\n${task}${AGENTS_TAIL}`,
-    { label, phase: 'Agent', schema: ENVELOPE, agentType: 'code-worker', model: 'haiku', effort: 'low' }
+    { label, phase: 'Agent', schema: ENVELOPE, agentType: 'code-worker:claude', model: 'haiku', effort: 'low' }
   ).catch(() => null)) || { ok: false, answer: '', error: 'relay leaf failed' }
 
 phase('Agent')
@@ -193,7 +193,7 @@ if (!FALLBACK_ENABLED || TOOLS) return withProfile({ ...res, agent: a.agent, ski
 const fb = await agent(`${a.task}\n\n(Work in ${CWD}; prefix every shell command with cd ${CWD} &&. Read-only unless the task says otherwise.)`, {
   label: 'fallback:' + a.agent,
   phase: 'Agent',
-  agentType: 'code-worker',
+  agentType: 'code-worker:claude',
   model: routeModel(a.model || 'sonnet'),
   effort: 'medium',
 })

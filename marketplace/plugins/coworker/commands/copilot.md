@@ -1,7 +1,6 @@
 ---
 description: "Run GitHub Copilot: a verb (ask, review, status…) or a bare task as ask"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|status|…] <task>"
-disable-model-invocation: true
 allowed-tools: Bash(claude-code copilot *), Bash(claude-code ask --agent copilot *)
 ---
 
@@ -15,5 +14,5 @@ Launcher only. Verbs and flags: `claude-code copilot -h`; the agent's role and r
 3. Anything else is a task → run `claude-code ask --agent copilot [flags] "<task>"`.
 
 Pass arguments as literal CLI arguments, never shell-evaluated. Long tasks: add `--background` and relay the job id
-(`/copilot status`, `/copilot result <id>`). Relay the output as-is;
+(`/coworker:copilot status`, `/coworker:copilot result <id>`). Relay the output as-is;
 a verb that rejects a flag errors — relay that, don't retry.

@@ -152,7 +152,7 @@ const viaExternal = async (step, task) => {
 }
 const impl = ST.impl.kind === 'external' ? await viaExternal(ST.impl, IMPL_PROMPT) : await agent(
   IMPL_PROMPT,
-  { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(ST.impl.model), effort: ST.impl.effort }
+  { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(ST.impl.model), effort: ST.impl.effort }
 )
 const implBlocked = !impl || impl.status === 'BLOCKED' || impl.status === 'NEEDS_CONTEXT'
 const TEST_PROMPT = () =>
@@ -162,7 +162,7 @@ const TEST_PROMPT = () =>
   `Run only the scoped tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `; never the full suite.`
 const tests = (implBlocked || !RUN_TESTS) ? null : ST.test.kind === 'external' ? await viaExternal(ST.test, TEST_PROMPT()) : await agent(
   TEST_PROMPT(),
-  { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(ST.test.model), effort: ST.test.effort }
+  { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(ST.test.model), effort: ST.test.effort }
 )
 if (implBlocked) log('build: impl blocked or empty — test agent skipped')
 else if (!RUN_TESTS) log('build: args.tests=false — test agent skipped')

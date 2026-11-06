@@ -1,7 +1,6 @@
 ---
 description: "Run OpenCode: a verb (ask, review, status…) or a bare task as ask"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|status|…] <task>"
-disable-model-invocation: true
 allowed-tools: Bash(claude-code opencode *), Bash(claude-code ask --agent opencode *)
 ---
 
@@ -15,5 +14,5 @@ Launcher only. Verbs and flags: `claude-code opencode -h`; the agent's role and 
 3. Anything else is a task → run `claude-code ask --agent opencode [flags] "<task>"`.
 
 Pass arguments as literal CLI arguments, never shell-evaluated. Long tasks: add `--background` and relay the job id
-(`/opencode status`, `/opencode result <id>`). Relay the output as-is;
+(`/coworker:opencode status`, `/coworker:opencode result <id>`). Relay the output as-is;
 a verb that rejects a flag errors — relay that, don't retry.

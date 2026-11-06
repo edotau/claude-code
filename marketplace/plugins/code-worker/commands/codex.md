@@ -1,7 +1,6 @@
 ---
 description: "Run Codex: bare = adversarial diff review saved as a report; a verb (ask, review, status…) passes through"
 argument-hint: "[profile=<p>] [model=<m>] [ask|resume|review|explore|transfer|status|…] [args…]"
-disable-model-invocation: true
 allowed-tools: Bash(claude-code codex *), Bash(claude-code ask --agent codex *), Bash(claude-code memory path), Bash(date +%F), Bash(mkdir -p *), Bash(tee *)
 ---
 
@@ -24,5 +23,5 @@ Launcher only. Verbs and flags: `claude-code codex -h`; usage, workflows and rep
    `nothing in scope` (exit 1) → say so and stop.
 
 Pass arguments as literal CLI arguments, never shell-evaluated. Long tasks: add `--background` and relay the job id
-(`/codex status`, `/codex tail <id>`, `/codex result <id>`). Relay the output and any report path as-is;
+(`/code-worker:codex status`, `/code-worker:codex tail <id>`, `/code-worker:codex result <id>`). Relay the output and any report path as-is;
 a verb that rejects a flag errors — relay that, don't retry.

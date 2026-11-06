@@ -1,0 +1,19 @@
+{
+  "name": "harness",
+  "owner": {
+    "name": "Eric Au"
+  },
+  "plugins": [
+    {
+      "name": "code-worker",
+      "source": "./plugins/code-worker",
+      "description": "code-worker leaves pinned to claude, codex or gemini"
+    },
+    {
+      "name": "coworker",
+      "source": "./plugins/coworker",
+      "description": "coworker leaves pinned to copilot, opencode or a Databricks profile"
+    }
+  ],
+  "description": "The claude-code harness's own plugins"
+}

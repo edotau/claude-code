@@ -27,7 +27,7 @@ const offloadPct = 97.0
 const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
 
 // offloadTypes are the write-capable agent types a coworker leaf can carry; read-only types (Explore) never escalate.
-var offloadTypes = map[string]bool{"code-worker": true}
+var offloadTypes = map[string]bool{"code-worker": true, "code-worker:claude": true}
 
 // ClaudePressure is the forced test reading, else the cached Anthropic window; ok is false when neither exists.
 var ClaudePressure = func() (float64, string, bool) {
@@ -91,10 +91,11 @@ func applyPressure(in *core.Input, updated map[string]any, promptField, base str
 	}
 	kind := in.Nested("tool_input", "subagent_type")
 	if pct >= offloadPct && offloadTypes[kind] && agent != "" {
-		offloadToCoworker(updated, promptField, window, hint, pct)
-		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",
-				window, pct, kind, hint),
-			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s (%s)", pct, window, agent, model, alias)
+		to := poolType(agent)
+		offloadToCoworker(updated, promptField, window, hint, to, pct)
+		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to %s (haiku) via %s.",
+				window, pct, kind, to, hint),
+			fmt.Sprintf("agent-effort: %.0f%% %s → %s via %s %s (%s)", pct, window, to, agent, model, alias)
 	}
 	down := downshiftModel(updated, base)
 	offload := ""
@@ -141,9 +142,20 @@ func pressureActive() (pct float64, window string, ok bool) {
 	return pct, window, true
 }
 
-// offloadToCoworker retargets the dispatch at a haiku coworker and prefixes its prompt with the routing note.
-func offloadToCoworker(updated map[string]any, promptField, window, hint string, pct float64) {
-	updated["subagent_type"], updated["model"] = "coworker", "haiku"
+// poolType is the plugin leaf pinned to agent (code-worker:codex, coworker:opencode, …), else the bare coworker.
+func poolType(agent string) string {
+	switch agent {
+	case "codex", "gemini":
+		return "code-worker:" + agent
+	case "copilot", "opencode":
+		return "coworker:" + agent
+	}
+	return "coworker"
+}
+
+// offloadToCoworker retargets the dispatch at a haiku leaf of type to and prefixes its prompt with the routing note.
+func offloadToCoworker(updated map[string]any, promptField, window, hint, to string, pct float64) {
+	updated["subagent_type"], updated["model"] = to, "haiku"
 	prompt, _ := updated[promptField].(string)
 	updated[promptField] = fmt.Sprintf("Routed by agent-effort (Claude %s window at %.0f%%): do this task through %s, "+
 		"then verify and report.\n\n%s", window, pct, hint, prompt)
