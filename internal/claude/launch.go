@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/signin"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -28,17 +29,17 @@ var (
 )
 
 // wipeKeys are inherited Anthropic knobs that would override the launch's own resolution.
-var wipeKeys = []string{
-	"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
+var wipeKeys = append(slices.Clone(proc.AnthropicStripEnv), []string{
+	"ANTHROPIC_MODEL",
 	"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
 	"ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
-	"MAX_THINKING_TOKENS", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "ANTHROPIC_CUSTOM_HEADERS",
+	"MAX_THINKING_TOKENS", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING",
 	"CLAUDE_CODE_DISABLE_1M_CONTEXT", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
 	"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_ANTHROPIC_MODEL", "OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
 	providers.EnvSessionProfile, "CLAUDE_MODEL",
 	"CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
-}
+}...)
 
 const defaultAnthropicBase = "https://api.anthropic.com"
 
@@ -65,7 +66,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 		plan.Unset = append(plan.Unset, oauthKey)
 	}
 	if configDirEnvIsDefault() {
-		plan.Unset = append(plan.Unset, "CLAUDE_CONFIG_DIR")
+		plan.Unset = append(plan.Unset, proc.EnvClaudeConfigDir)
 	}
 	setModelAliasEnv(&plan, sel)
 	if err := setMainModel(&plan, sel, p, agent.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
@@ -90,15 +91,15 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 // keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution;
 // credentials stay scrubbed.
 func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
-	keep := []string{"ANTHROPIC_BASE_URL"}
+	keep := []string{proc.EnvAnthropicBaseURL}
 	if o.Model == "" {
 		keep = append(keep, "ANTHROPIC_MODEL")
 	}
-	own := plan.Set["ANTHROPIC_BASE_URL"]
+	own := plan.Set[proc.EnvAnthropicBaseURL]
 	if own == "" {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
-	base := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
+	base := strings.TrimSpace(os.Getenv(proc.EnvAnthropicBaseURL))
 	inherited := isProxySessionBase(base) && isProxySessionBase(own) && sameHostPort(base, own) // the live proxy's own base
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
@@ -109,7 +110,7 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 
 func keepShellKeys(plan *agent.Plan, keys []string, inherited bool) {
 	for _, k := range keys {
-		if strings.TrimSpace(os.Getenv(k)) == "" || (k == "ANTHROPIC_BASE_URL" && inherited) {
+		if strings.TrimSpace(os.Getenv(k)) == "" || (k == proc.EnvAnthropicBaseURL && inherited) {
 			continue
 		}
 		delete(plan.Set, k)
@@ -152,7 +153,7 @@ func dropHarnessCredential(plan *agent.Plan) {
 		plan.Argv = slices.Clone(plan.Argv[2:])
 	}
 	plan.Files = nil
-	for _, k := range []string{"ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", oauthKey} {
+	for _, k := range []string{proc.EnvAnthropicCustomHeaders, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", oauthKey} {
 		delete(plan.Set, k)
 	}
 	plan.Warnings = append(plan.Warnings, "shell ANTHROPIC_BASE_URL kept: the profile credential is withheld; export HARNESS_KEEP_ENV=<name> to pass your own")
@@ -160,7 +161,7 @@ func dropHarnessCredential(plan *agent.Plan) {
 
 // configDirEnvIsDefault: an explicit CLAUDE_CONFIG_DIR=~/.claude makes claude write a stray ~/.claude/.claude.json.
 func configDirEnvIsDefault() bool {
-	return strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" && paths.ConfigDirIsDefault()
+	return strings.TrimSpace(os.Getenv(proc.EnvClaudeConfigDir)) != "" && paths.ConfigDirIsDefault()
 }
 
 // setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every alias the selection resolved.
@@ -226,10 +227,10 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
 	}
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
-		plan.Set["ANTHROPIC_BASE_URL"] = route
+		plan.Set[proc.EnvAnthropicBaseURL] = route
 	}
 	if h := customHeaders(p.Headers); h != "" {
-		plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = h
+		plan.Set[proc.EnvAnthropicCustomHeaders] = h
 	}
 	if !providers.CredentialPresent(p) {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
@@ -247,7 +248,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if err != nil {
 		return "", "", fmt.Errorf("proxy: %w", err)
 	}
-	plan.Set["ANTHROPIC_BASE_URL"] = proxy.SessionBase(base, p.Name)
+	plan.Set[proc.EnvAnthropicBaseURL] = proxy.SessionBase(base, p.Name)
 	hdrs := []string{proxy.AgentHeader + ": claude"} // Claude Code adds the session id itself.
 	if passthrough {
 		// The login stays in Authorization, so the router secret rides in its own header.
@@ -257,7 +258,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 		}
 		hdrs = append(hdrs, proxy.ClientHeader+": "+secret)
 	}
-	plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(hdrs, "\n")
+	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
 	return shellQuote(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
 }
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
@@ -163,26 +164,26 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 		}
 		return ""
 	}
-	base := get("COPILOT_PROVIDER_BASE_URL")
+	base := get(proc.EnvCopilotProviderBaseURL)
 	if base == "" {
 		return nil
 	}
 	atoi := func(key string) int { n, _ := strconv.Atoi(get(key)); return n }
 	model := get("COPILOT_MODEL")
 	modelID := WellKnownModel(model)
-	if id := get("COPILOT_PROVIDER_MODEL_ID"); id != "" {
+	if id := get(proc.EnvCopilotProviderModelID); id != "" {
 		modelID = id
 	}
 	return &copilot.ProviderConfig{
-		Type:            get("COPILOT_PROVIDER_TYPE"),
-		WireAPI:         get("COPILOT_PROVIDER_WIRE_API"),
+		Type:            get(proc.EnvCopilotProviderType),
+		WireAPI:         get(proc.EnvCopilotProviderWireAPI),
 		BaseURL:         base,
-		APIKey:          get("COPILOT_PROVIDER_API_KEY"),
-		BearerToken:     get("COPILOT_PROVIDER_BEARER_TOKEN"),
+		APIKey:          get(proc.EnvCopilotProviderAPIKey),
+		BearerToken:     get(proc.EnvCopilotProviderBearerToken),
 		ModelID:         modelID,
 		WireModel:       model,
-		MaxPromptTokens: atoi("COPILOT_PROVIDER_MAX_PROMPT_TOKENS"),
-		MaxOutputTokens: atoi("COPILOT_PROVIDER_MAX_OUTPUT_TOKENS"),
+		MaxPromptTokens: atoi(proc.EnvCopilotProviderMaxPromptTokens),
+		MaxOutputTokens: atoi(proc.EnvCopilotProviderMaxOutputTokens),
 	}
 }
 
@@ -465,7 +466,7 @@ func validateRegistryOptions(o SDKOptions) error {
 		return errors.New("copilot registry route must not carry a GitHub login")
 	}
 	for _, kv := range o.Env {
-		if strings.HasPrefix(kv, "COPILOT_PROVIDER_") || strings.HasPrefix(kv, "COPILOT_PROVIDERS_CONFIG=") {
+		if strings.HasPrefix(kv, proc.CopilotProviderPrefix) || strings.HasPrefix(kv, proc.EnvCopilotProvidersConfig+"=") {
 			return errors.New("copilot registry route cannot mix with a singular provider env block")
 		}
 	}
