@@ -13,16 +13,14 @@
       "Edit(~/.ssh/**)",
       "Edit(**/state/vault.db)",
       "Edit(**/.credentials.json)",
-      "Edit(~/.claude/settings.json)",
-      "Write(~/.claude/settings.json)"
+      "Edit(~/.claude/settings.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
       "Read(~/.ssh/**)",
-      "Edit(~/.claude/internal/agentconfig/agents.json)",
-      "Write(~/.claude/internal/agentconfig/agents.json)"
+      "Edit(~/.claude/internal/agentconfig/agents.json)"
     ],
     "defaultMode": "auto"
   },

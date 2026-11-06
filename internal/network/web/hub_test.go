@@ -225,6 +225,9 @@ func TestTreeServesHubCache(t *testing.T) {
 		body.WriteString(sc.Text())
 		body.WriteString("\n")
 	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
 	if body.String() != string(h.latest()) {
 		t.Fatalf("/api/tree body differs from hub cache:\n%.300s\nvs\n%.300s", body.String(), h.latest())
 	}
