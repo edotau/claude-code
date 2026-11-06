@@ -35,7 +35,8 @@ the vault overlay map each alias per provider.
 - **`opus`** — architectural decisions, maximum-reasoning research and analysis.
 - **`sonnet`** — planning, review, orchestration, exploration; the default `code-worker` leaf.
 - **`haiku`** — high-frequency, cost-sensitive leaves and quick lookups.
-- **Gemini** (`claude-code ask --agent gemini --tools --dirs <d>`) — sweeps whose context exceeds a session window (1M tokens).
+- **Gemini** (`claude-code ask --agent gemini --tools --dirs <d>`) — sweeps whose context exceeds a session window
+  (1M tokens).
 
 ## Served-aware Databricks routing
 

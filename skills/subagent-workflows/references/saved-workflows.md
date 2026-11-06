@@ -14,8 +14,8 @@ decision; agents work in the shared tree.
 | `code-evaluator` | trap scenarios with vs without a skill, then judges score each run | `{base, skill, scenarios?, seeds?, steps: {run, judge}}` |
 
 - A Claude stage runs at `model` = `haiku|sonnet|opus`; an external stage (`copilot`, `codex`, `gemini`, `opencode`)
-  goes through `code-agent` with a vendor model id (`gpt-6.1-sol`, `kimi-k3`, `discovery`). Unknown stages error before any
-  agent runs. Parser: `stepOf` in `workflows/code-agent.js`.
+  goes through `code-agent` with a vendor model id (`gpt-6.1-sol`, `kimi-k3`, `discovery`). Unknown stages error before
+  any agent runs. Parser: `stepOf` in `workflows/code-agent.js`.
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open.
 
