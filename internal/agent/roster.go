@@ -51,6 +51,7 @@ type CLI struct {
 	ReadNeedsTools        bool            // file reads are denied without --tools
 	PromptVia             PromptTransport // how a headless prompt reaches the agent; only PromptArgv is size-capped
 	PromptMaxBytes        int             // a verified per-agent prompt ceiling below the transport's; 0 = none
+	PackVia               PackTransport   // how packed workspace context reaches the agent; zero = inline in the prompt
 	DirFlag               bool            // Headless.WorkDir must be set; cmd.Dir alone is not enough
 	Hub                   bool            // ask routes it through the opencode hub unless --native is set
 	ConfigureHint         string          // the command to run when no credential resolved
@@ -76,6 +77,14 @@ const (
 func (t PromptTransport) String() string {
 	return [...]string{"argv", "stdin", "message"}[min(t, PromptMessage)]
 }
+
+// PackTransport is how packed workspace context reaches an agent; the zero value inlines it in the prompt.
+type PackTransport uint8
+
+const (
+	PackInline PackTransport = iota // the packed text is the prompt
+	PackFile                        // the pack is a file in the workdir the agent reads with its tools
+)
 
 // MaxBytes is the largest prompt t carries; 0 means no transport cap (the model window still applies).
 func (t PromptTransport) MaxBytes() int {

@@ -11,7 +11,9 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 	PromptVia: agent.PromptStdin,
 	// agy print mode drops a single message's text past ~100–200 KB (probe 2026-11-05: found at 100 KB, lost at 200 KB)
 	PromptMaxBytes: 100 * 1024,
-	Binary:         "agy",
+	// agy print mode cannot carry a large message but reads a 300 KB file with tools (probe 2026-11-05, ZEBRA-290)
+	PackVia: agent.PackFile,
+	Binary:  "agy",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, Autonomous: agent.Native, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated,

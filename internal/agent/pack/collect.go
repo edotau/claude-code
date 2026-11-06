@@ -353,10 +353,13 @@ func relSlash(cwd, target string) string {
 	return filepath.ToSlash(rel)
 }
 
-// isIgnored reports whether any path segment is in ignoredSegments.
+// FilePrefix names the pack files a run stages in its workdir for an agent that reads them; Collect never inlines one.
+const FilePrefix = ".claude-code-pack-"
+
+// isIgnored reports whether any path segment is in ignoredSegments or is a staged pack file.
 func isIgnored(rel string) bool {
 	for seg := range strings.SplitSeq(rel, "/") {
-		if ignoredSegments[seg] {
+		if ignoredSegments[seg] || strings.HasPrefix(seg, FilePrefix) {
 			return true
 		}
 	}

@@ -32,6 +32,7 @@ type Prepared struct {
 	Record Record
 	chain  Chain
 	remote Engine
+	pack   *packFile // the pack an agent reads from the workdir; written by Exec, removed after the run
 }
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
@@ -64,6 +65,14 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 	}
 	p.Opts = o
 	p.Record = c.record(ctx, o, job)
+	if o.Pack != nil {
+		if p.remote != nil {
+			return nil, clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
+		}
+		if err := c.packPrompt(ctx, p); err != nil {
+			return nil, err
+		}
+	}
 	return p, nil
 }
 
@@ -197,6 +206,12 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d RunRecordedO
 		d.Notify = c.Notify
 	}
 	ctx = withUnsetEnv(ctx, p.Opts.Unset)
+	if p.pack != nil {
+		if err := p.pack.write(); err != nil {
+			return Result{Agent: p.chain.Want, Status: StatusError, DispatchID: p.Record.ID}, err
+		}
+		defer p.pack.remove()
+	}
 	res, err := RunRecorded(ctx, &p.Record, p.chain.Want, out, d, func(ctx context.Context, sink Sink) (Result, error) {
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)

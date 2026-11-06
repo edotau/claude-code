@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/answer"
+	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -47,6 +48,7 @@ type RunOptions struct {
 	OutputSchema                                        string      // JSON Schema text the answer must satisfy
 	Permissions                                         Permissions `json:"permissions,omitzero"` // allow/ask/deny rules and mode; zero value = no policy
 	Persona                                             *Schema     `json:"persona,omitempty"`    // claude: native agent definition; others: emulated
+	Pack                                                *pack.Spec  `json:"pack,omitempty"`       // inline workspace files into Prompt at Prepare; the record keeps the spec, not the bytes
 	Timeout                                             time.Duration
 	Launcher                                            Launcher           `json:"-"` // claude only: resolves the launch plan
 	Agent                                               string             `json:"-"`
