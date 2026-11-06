@@ -194,7 +194,7 @@ const reviewPromptNeutral = `Review the attached diff for correctness, regressio
 Findings as one per line: [SEVERITY] file:line — issue — fix, ordered CRITICAL to LOW.
 The first line of your answer is the verdict alone: SHIP IT, NEEDS WORK or BLOCK.`
 
-// reviewPromptAdversarial is agents/codex.md's "Adversarial diff review (`@agent-codex`)" prompt, verbatim.
+// reviewPromptAdversarial asks for severity-ordered findings only, with a fixed clean-diff verdict.
 const reviewPromptAdversarial = `You are an adversarial reviewer: find what the author missed, not what is correct. Review the attached diff in
 priority order — CRITICAL security, data loss, races, leaks; HIGH bugs, broken error handling, API misuse;
 MEDIUM missing tests for new behavior, brittle assumptions, unhandled edge cases; LOW maintainability.
@@ -214,7 +214,7 @@ func ReviewPrompt(adversarial bool, focus string) string {
 }
 
 // ReviewArgs builds the `ask` argv for a review, attaching the diff as a temp file; cleanup removes it in foreground.
-func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
+func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background bool, focus, rubric, model string) ([]string, func(), error) {
 	dir, err := paths.EnsureDispatchDir()
 	if err != nil {
 		return nil, nil, err
@@ -238,6 +238,9 @@ func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background 
 	}
 	if rubric != "" {
 		args = append(args, "--rubric", rubric)
+	}
+	if model != "" {
+		args = append(args, "--model", model)
 	}
 	args = append(args, ReviewPrompt(adversarial, focus))
 	cleanup := func() {}

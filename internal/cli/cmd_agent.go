@@ -327,6 +327,7 @@ func agentReview(name string, args []string) int {
 	adversarial := fs.Bool("adversarial", false, "adversarial findings instead of a neutral verdict")
 	background := fs.Bool("background", false, "detach; claude-code "+name+" status|result to follow up")
 	rubric := fs.String("rubric", "", "grade the review against this rubric file")
+	model := fs.String("model", "", "model for the review (default: the agent's pin)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -341,9 +342,9 @@ func agentReview(name string, args []string) int {
 	}
 	focus := strings.Join(fs.Args(), " ")
 	if parts := review.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
-		return runSplitReview(name, args, parts, scope, *adversarial, *background, focus, *rubric)
+		return runSplitReview(name, args, parts, scope, *adversarial, *background, focus, *rubric, *model)
 	}
-	askArgs, cleanup, err := review.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric)
+	askArgs, cleanup, err := review.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric, *model)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}

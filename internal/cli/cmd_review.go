@@ -21,7 +21,7 @@ const reviewJobEnv = "CLAUDE_REVIEW_JOB"
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
 func runSplitReview(name string, args []string, parts []review.Part, scope review.Scope,
-	adversarial, background bool, focus, rubric string) int {
+	adversarial, background bool, focus, rubric, model string) int {
 	if background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
 	}
@@ -38,7 +38,7 @@ func runSplitReview(name string, args []string, parts []review.Part, scope revie
 	for i, p := range parts {
 		review.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
 		askArgs, cleanup, err := review.ReviewArgs(name, scope, p.Diff, adversarial, false,
-			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric)
+			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric, model)
 		if err != nil {
 			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
 		}
