@@ -212,3 +212,12 @@ func TestConcreteReMatchesOperatorBeforeSpace(t *testing.T) {
 		}
 	}
 }
+
+// A phase-looking heading inside a code fence must not hide the plan's real list steps.
+func TestExtractStepsFencedPhaseFallsBackToList(t *testing.T) {
+	text := "```\n## Phase 1: example\n```\n1. Parse input\n2. Render output\n"
+	steps := extractSteps(text)
+	if len(steps) != 2 {
+		t.Fatalf("steps = %d, want 2: %q", len(steps), steps)
+	}
+}

@@ -171,8 +171,9 @@ func oversizeReasons(line string) []string {
 }
 
 func extractSteps(text string) []string {
-	if phaseRe().MatchString(text) {
-		return extractPhaseSteps(text)
+	// A phase-looking line inside a code fence yields no phase steps, so fall back to the list.
+	if steps := extractPhaseSteps(text); len(steps) > 0 {
+		return steps
 	}
 	return extractListSteps(text)
 }
