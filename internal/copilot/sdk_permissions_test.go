@@ -30,6 +30,8 @@ func scopedKindCases() []scopedCase {
 	return []scopedCase{
 		{"read", rpc.PermissionRequestRead{}, true}, {"url", rpc.PermissionRequestURL{}, true},
 		{"mcp", rpc.PermissionRequestMCP{}, false}, {"memory", rpc.PermissionRequestMemory{}, false},
+		{"mcp harness web_search", rpc.PermissionRequestMCP{ServerName: "web_search", ToolName: "web_search"}, true},
+		{"mcp other server", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "web_search"}, false},
 		{"hook", rpc.PermissionRequestHook{}, false},
 	}
 }
