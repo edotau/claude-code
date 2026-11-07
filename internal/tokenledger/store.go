@@ -38,7 +38,7 @@ func Append(e Entry) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return
 	}
@@ -49,7 +49,24 @@ func Append(e Entry) {
 		return
 	}
 	b = append(b, '\n')
+	if endsMidLine(f) {
+		// A prior torn write left no newline; start this entry on its own line.
+		b = append([]byte{'\n'}, b...)
+	}
 	_, _ = f.Write(b)
+}
+
+// endsMidLine reports whether the file is non-empty and its last byte is not a newline.
+func endsMidLine(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil || fi.Size() == 0 {
+		return false
+	}
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, fi.Size()-1); err != nil {
+		return false
+	}
+	return last[0] != '\n'
 }
 
 // Read reads every entry, oldest first; a missing ledger file is empty, not an error.

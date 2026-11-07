@@ -190,3 +190,22 @@ func TestUsageLedgerSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// TestAppendAfterTornLine: a fragment with no trailing newline must not swallow the next entry.
+func TestAppendAfterTornLine(t *testing.T) {
+	withLedgerDir(t)
+	if err := os.MkdirAll(filepath.Dir(Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(), []byte(`{"ts":"2026-10-20T00:01`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	Append(Entry{Ts: time.Date(2026, 10, 20, 1, 0, 0, 0, time.UTC), Provider: "openai", Model: "gpt-5", Input: 7})
+	got, err := Read()
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(got) != 1 || got[0].Input != 7 {
+		t.Fatalf("Read = %+v, want only the new entry", got)
+	}
+}
