@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -257,5 +258,29 @@ func TestUsageCacheBuildsOutsideLockAndCoalesces(t *testing.T) {
 	<-done
 	if n := builds.Load(); n != 1 {
 		t.Fatalf("days=30 built %d times for two concurrent callers, want 1", n)
+	}
+}
+
+// A build that panics must release its flight, or every later request for the key hangs forever.
+func TestUsageCachePanickingBuildReleasesFlight(t *testing.T) {
+	var c usageCache
+	now := func() time.Time { return time.Now() }
+	key := usageKey{days: 7}
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = c.get(key, false, now, func() ([]byte, error) { panic("boom") })
+	}()
+	got := make(chan string, 1)
+	go func() {
+		body, err := c.get(key, false, now, func() ([]byte, error) { return []byte("ok"), nil })
+		got <- string(body) + fmt.Sprint(err)
+	}()
+	select {
+	case v := <-got:
+		if v != "ok<nil>" {
+			t.Fatalf("second get = %q, want ok<nil>", v)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second get hung: the panicked build left its flight registered")
 	}
 }

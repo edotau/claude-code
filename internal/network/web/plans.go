@@ -189,7 +189,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(b) > maxPlanBytes {
-		http.Error(w, errors.New("plan exceeds 1 MiB").Error(), http.StatusRequestEntityTooLarge)
+		http.Error(w, "plan exceeds 1 MiB", http.StatusRequestEntityTooLarge)
 		return
 	}
 	tasks := make([]planTask, 0)
