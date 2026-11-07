@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -167,9 +168,9 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 
 // blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
-	slug := paths.RepoSlug(root)
-	plans := filepath.Join(paths.ConfigDir(), "plans")
+	plansDir := filepath.Join(paths.ConfigDir(), "plans")
 	store := memstore.Dir(root)
+	plansHome := plans.Home(planRepoRoot(root))
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"Harness-authored markdown belongs under %s (plans) or the memory store (session artifacts):\n"+
 		"  plan             -> %s/YYYY-MM-DD-<slug>.md\n"+
@@ -180,8 +181,8 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		"`git add -N <file>` first — tracked files pass, even inside an ignored dir. Or disable the gate\n"+
 		"by setting %s=0.\n"+
 		"-> rules/harness/docs-placement.md\n",
-		base, where, plans,
-		filepath.Join(plans, slug),
+		base, where, plansDir,
+		plansHome,
 		memstore.ReportsDir(store), base,
 		memstore.HandoffsDir(store),
 		store,

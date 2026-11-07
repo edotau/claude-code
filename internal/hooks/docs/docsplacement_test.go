@@ -461,3 +461,25 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 		})
 	}
 }
+
+// TestDocsPlacementPlanHomeUnderMemoryRepo: a root .md in memory/<repo> (its own git repo) names the untagged harness plans dir.
+func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
+	cfg, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := filepath.Join(cfg, "memory", "claude-code")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+
+	var stderr bytes.Buffer
+	in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))))
+	if code := Placement(in, &stderr); code != core.ExitBlock {
+		t.Fatalf("code = %d, want block", code)
+	}
+	if want := "  plan             -> " + filepath.Join(cfg, "plans") + "/YYYY"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("plan line missing %q:\n%s", want, stderr.String())
+	}
+}
