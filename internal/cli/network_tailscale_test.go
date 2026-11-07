@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -263,6 +264,42 @@ func checkTailscaleSavedKey(t *testing.T, save bool, key, stderr string) {
 	}
 	if stderr != "" {
 		t.Errorf("key without --save stderr = %q, want empty", stderr)
+	}
+}
+
+// TestTailscaleKeyTrimsTags: --tags "tag:a, tag:b" must reach the admin API as ["tag:a","tag:b"], not " tag:b".
+func TestTailscaleKeyTrimsTags(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	t.Setenv("TAILSCALE_API_KEY", "test-api-key")
+	var got []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Capabilities struct {
+				Devices struct{ Create struct{ Tags []string } }
+			}
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		got = body.Capabilities.Devices.Create.Tags
+		_ = json.NewEncoder(w).Encode(tailscale.AuthKey{ID: "k1", Key: "tskey-auth-xyz"})
+	}))
+	defer ts.Close()
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	http.DefaultClient = &http.Client{Transport: tailscaleTestTransport(func(r *http.Request) (*http.Response, error) {
+		req := r.Clone(r.Context())
+		req.URL.Scheme, req.URL.Host = "http", strings.TrimPrefix(ts.URL, "http://")
+		return ts.Client().Do(req)
+	})}
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdNetworkTailscale([]string{"--key", "--tags", "tag:a, tag:b,"})
+	})
+	if code != 0 {
+		t.Fatalf("key exit %d, want 0; stderr=%q", code, stderr)
+	}
+	if want := []string{"tag:a", "tag:b"}; !slices.Equal(got, want) {
+		t.Errorf("tags sent = %q, want %q", got, want)
 	}
 }
 
