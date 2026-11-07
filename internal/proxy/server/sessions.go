@@ -190,6 +190,18 @@ func (s *sessionStore) accept(tok, profile string) bool {
 		return false
 	}
 	recheck := now.Sub(ses.checked) >= sessionVerify
+	if !s.liveLocked(hash, ses, now, recheck) || ses.profile != profile {
+		return false
+	}
+	if recheck { // only a passed liveness check refreshes the trust window
+		ses.checked = now
+	}
+	s.slideLocked(ses, now)
+	return true
+}
+
+// liveLocked reports whether ses is unexpired and, on recheck, still bound; an expired ses is dropped.
+func (s *sessionStore) liveLocked(hash string, ses *session, now time.Time, recheck bool) bool {
 	if recheck && now.Before(ses.expires) && !s.probeUnlocked(hash, ses) {
 		return false
 	}
@@ -198,13 +210,6 @@ func (s *sessionStore) accept(tok, profile string) bool {
 		_ = s.saveLocked()
 		return false
 	}
-	if ses.profile != profile {
-		return false
-	}
-	if recheck { // only a passed liveness check refreshes the trust window
-		ses.checked = now
-	}
-	s.slideLocked(ses, now)
 	return true
 }
 

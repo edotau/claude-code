@@ -183,3 +183,11 @@ func checkUpstreamUserAgent(t *testing.T, ua []string, agent string) {
 		t.Errorf("User-Agent %q has an agent part without the header", ua[0])
 	}
 }
+
+func TestWithModelRejectsNonObject(t *testing.T) {
+	for _, body := range []string{"null", "[]", "3"} {
+		if _, err := withModel([]byte(body), "m"); err == nil {
+			t.Errorf("withModel(%s) = nil error, want one", body)
+		}
+	}
+}
