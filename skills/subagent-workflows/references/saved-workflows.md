@@ -11,10 +11,11 @@ decision; agents work in the shared tree.
 | `code-engineer` | parallel intel → implementer → test-repair agent fixes existing tests → green-keeper-loop | `{task, scope, packages?, tests?, steps: {intel, impl, test, gate}}` |
 | `code-analyzer` | scoped auditors → refute → fix + test per package → gate → re-audit (≤rounds) | `{range\|paths\|findings, fix?, minFix?, rounds?, steps: {scope, audit, refute, fix, test, gate}}` |
 | `code-evaluator` | trap scenarios with vs without a skill, then judges score each run | `{base, skill, scenarios?, seeds?, steps: {run, judge}}` |
+| `relay3` | streaming per-package relay: find → rederive → fix → guard test → gate, no barrier between packages; exits `green\|red\|review\|error` | `{cwd, packages\|paths, fix?, minFix?, focus?, steps: {find, rederive, fix, test, gate}}` |
 
 - Workflows are Claude only: a stage runs at `model` = `haiku|sonnet|opus`, and an `agent`/`profile` field or an
   unknown stage errors before any agent runs. Parser: `stepOf`, copied verbatim into `code-engineer`, `code-analyzer`,
-  `green-keeper-loop` and `code-evaluator`. External agents run outside workflows (`/code-worker:codex`,
+  `green-keeper-loop`, `code-evaluator` and `relay3`. External agents run outside workflows (`/code-worker:codex`,
   `/coworker:copilot`, `claude-code agents ask`).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. The top-level script reads it once and passes
