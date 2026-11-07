@@ -9,6 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/vault/vaultcmd"
+	"github.com/edotau/claude-code/internal/worktree/worktreecmd"
 )
 
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
@@ -56,7 +57,7 @@ func commands() []command {
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }},
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory},
-		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
+		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: worktreecmd.Run, spec: worktreecmd.Spec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory, spec: memorySpecNodes},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: cmdPlan},

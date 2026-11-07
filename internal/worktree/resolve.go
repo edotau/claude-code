@@ -538,3 +538,6 @@ func newOperationID() string {
 	}
 	return "op-" + hex.EncodeToString(b)
 }
+
+// ValidResolveAgent reports whether a is a --resolve-agent value merge accepts ("" means none).
+func ValidResolveAgent(a string) bool { return a == "" || a == "claude" || a == "codex" }

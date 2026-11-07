@@ -1,4 +1,4 @@
-package cli
+package worktreecmd
 
 import (
 	"context"
@@ -19,7 +19,7 @@ func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
 
 	// --no-verify isolates agent dispatch from verification in a fixture without a detectable gate.
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--no-verify", "--resolve-agent", "claude", "feature"})
+		return Run([]string{"merge", "--no-verify", "--resolve-agent", "claude", "feature"})
 	})
 	if code != 0 {
 		t.Fatalf("merge --resolve-agent on a clean plan: code=%d stderr=%q", code, errb)
@@ -37,7 +37,7 @@ func TestCmdWorktreeMergeResumeWithNoSavedOperationFails(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	mainBefore := cliHeadOf(t, repo)
 	code, _, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
+		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for --resume with no saved operation, stderr=%q", errb)
@@ -73,7 +73,7 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 	}
 
 	code, _, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
+		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a wrong-repo operation, stderr=%q", errb)
@@ -100,7 +100,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 	}
 
 	code, _, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
+		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit when the target moved during resolution, stderr=%q", errb)
@@ -126,7 +126,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T)
 	}
 
 	code, _, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
+		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit when the target branch changed at the same OID, stderr=%q", errb)
@@ -199,7 +199,7 @@ func TestCmdWorktreeMergeResumeMissingWorktreeFails(t *testing.T) {
 	}
 
 	code, _, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "ghost"})
+		return Run([]string{"merge", "--resume", "ghost"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a missing worktree, stderr=%q", errb)
