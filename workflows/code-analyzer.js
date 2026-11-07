@@ -49,7 +49,7 @@ const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|test|audit, never edit settings.json. ' +
   (CWD ? 'Prefix every shell command with `cd ' + CWD + ' &&`. ' : '') + 'Comments 1 line ≤120 chars.'
 
-// ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
+// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, relay3, orchestrate ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']

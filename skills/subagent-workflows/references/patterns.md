@@ -83,7 +83,8 @@ finder claim -> blind re-derivation from file:line + symptom -> reproduced | dro
 ```
 
 - A re-deriver never sees the finder's reasoning; a null result is `unverified`, never refuted (`222ae2b9`).
-- Guard test: `rules/standards/testing-guidelines.md`; `code-engineer` lacked this stage (green gate, zero new tests).
+- Guard test: `rules/standards/testing-guidelines.md`; retired `code-engineer` lacked this stage;
+  `orchestrate` replaces it (A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - Out-of-package fixes and owner mid-turn messages reaching workflow agents are open defects (scorecard).
 
 ### Supervisor

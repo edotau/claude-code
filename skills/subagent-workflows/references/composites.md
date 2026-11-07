@@ -66,9 +66,8 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 
 - **Call**: `Workflow({scriptPath: ".../orchestrate.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
 - **Cost**: 2 + relay3 on 1 to 3 packages, about 8 to 20 agents (about 0.6M to 1.6M tokens, extrapolated).
-- **Failure modes**: relay3 only fixes bugs, so a build is the implementer's job; `code-engineer` is the older form
-  (parallel Explore intel, implementer, test repair, `green-keeper-loop`) and writes no new tests; it is slated to
-  adopt relay3's core or retire (scorecard rank 6).
+- **Failure modes**: relay3 only fixes bugs, so a build is the implementer's job; `code-engineer` is retired
+  (`orchestrate` replaces it; A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - **Resume**: re-run with `paths` set to the files the implementer touched and no feature verb, which skips it.
 
 ## D. EPIC: plan draft, owner approval, rounds over package groups
