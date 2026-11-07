@@ -1,4 +1,4 @@
-package batch
+package ask
 
 import (
 	"bytes"
@@ -7,21 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/hosttest"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // vendorHost isolates the config dir, seeds a provider and installs a fake opencode that fails on a FAILME prompt.
 func vendorHost(t *testing.T) {
@@ -281,7 +277,7 @@ func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
 	}
 }
 
-// runOpts runs the JSONL initial lines through Run against the fake opencode vendor and returns envelopes by task id.
+// runOpts runs the JSONL initial lines through RunBatch against the fake opencode vendor and returns envelopes by task id.
 func runOpts(t *testing.T, initial string, o Opts) map[string][]agent.Envelope {
 	t.Helper()
 	lines, err := ReadTaskLines(strings.NewReader(initial))
@@ -291,7 +287,7 @@ func runOpts(t *testing.T, initial string, o Opts) map[string][]agent.Envelope {
 	o.Jobs, o.Agent, o.Fallback = 1, "opencode", router.FallbackAgents
 	base := agent.RunOptions{Provider: "acme", Model: "acme-large", WorkDir: t.TempDir()}
 	var buf bytes.Buffer
-	id, _ := Run(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
+	id, _ := RunBatch(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
 	byID := map[string][]agent.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		if env.BatchID != id {
@@ -357,7 +353,7 @@ func TestRunDecorateSetsRetry(t *testing.T) {
 	}
 }
 
-// With neither hook set Run is the plain pool: one task, one envelope, no retry.
+// With neither hook set RunBatch is the plain pool: one task, one envelope, no retry.
 func TestRunWithoutHooks(t *testing.T) {
 	vendorHost(t)
 	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n"+`{"id":"b","prompt":"ok"}`+"\n", Opts{})

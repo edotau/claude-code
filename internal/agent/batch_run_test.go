@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/batch"
+	batch "github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -271,8 +270,8 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 // A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
 func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	profileFixture(t, "")
-	line := batch.ParsedLine{N: 1, Task: batch.TaskLine{Prompt: "p", Profile: "acme"}}
-	bt, err := batch.BuildTask(line, batch.Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
+	line := ParsedLine{N: 1, Task: TaskLine{Prompt: "p", Profile: "acme"}}
+	bt, err := BuildTask(line, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,8 +288,8 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	if err == nil || len(res.Hops) != 1 {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
-	bad := batch.ParsedLine{N: 2, Task: batch.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
-	bt, err = batch.BuildTask(bad, batch.Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
+	bad := ParsedLine{N: 2, Task: TaskLine{Prompt: "p", Profile: "no-such-profile"}}
+	bt, err = BuildTask(bad, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
 	if err != nil {
 		t.Fatal(err)
 	}
