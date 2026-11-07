@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/batch"
 )
 
 // startFollower writes initial to a file, opens a follower with idle and returns it with the file path.
@@ -39,10 +38,10 @@ func appendFile(t *testing.T, p, s string) {
 }
 
 // ids builds a task whose ID is the line's task id.
-func ids(l batch.ParsedLine) batch.Task { return batch.Task{ID: l.Task.ID} }
+func ids(l ParsedLine) Task { return Task{ID: l.Task.ID} }
 
 // drain collects task ids until the channel closes; false when it stays open past limit.
-func drain(ch <-chan batch.Task, limit time.Duration) (got []string, closed bool, took time.Duration) {
+func drain(ch <-chan Task, limit time.Duration) (got []string, closed bool, took time.Duration) {
 	start := time.Now()
 	timer := time.NewTimer(limit)
 	defer timer.Stop()
@@ -171,8 +170,8 @@ func TestFollowerLineNumbersCountBlankLines(t *testing.T) {
 }
 
 func TestRetryForPicksFirstOtherAgent(t *testing.T) {
-	bo := batch.Opts{Fallback: "none"}
-	task := batch.Task{Agent: "codex"}
+	bo := Opts{Fallback: "none"}
+	task := Task{Agent: "codex"}
 	if retryFor(task, bo, nil) != nil || retryFor(task, bo, []string{"codex"}) != nil {
 		t.Error("retryFor returned a Retry for an empty list or only the task's own agent")
 	}

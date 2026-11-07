@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -109,7 +108,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
 	fs.StringVar(&f.job, "job", "", "internal: run saved dispatch <id> in place")
 	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
-	fs.IntVar(&f.jobs, "jobs", batch.DefaultJobs(), "batch: tasks run at once")
+	fs.IntVar(&f.jobs, "jobs", DefaultJobs(), "batch: tasks run at once")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
 	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
 	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
@@ -224,8 +223,8 @@ func (r *askRun) dispatchMode() (int, bool) {
 		if err != nil {
 			return r.fail(err, 2)
 		}
-		o := batchOpts{jobs: f.jobs, failFast: f.failFast, agent: r.ref, fallback: f.fallback, native: f.native,
-			follow: f.follow, followIdle: f.followIdle, retryAgents: retryAgents}
+		o := Opts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
+			FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents}
 		return askBatch(r.fs, r.resume, f.batchSrc, o,
 			r.batchBase(), r.fileOv, f.env, f.keepEnv, f.format, f.name), true
 	}
@@ -349,7 +348,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 }
 
 // askBatch layers the overlay over base and runs the --batch tasks.
-func askBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions, fileOv agentconfig.Overlay,
+func askBatch(fs *flag.FlagSet, resume bool, src string, o Opts, base agent.RunOptions, fileOv agentconfig.Overlay,
 	env envFlag, keepEnv keepEnvFlag, format, name string) int {
 	ov, err := agent.ResolveOverlay(fileOv, env, keepEnv, false)
 	if err != nil {

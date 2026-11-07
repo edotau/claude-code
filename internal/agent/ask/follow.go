@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/batch"
 )
 
 // followPoll is how often the follower re-reads the batch file.
@@ -46,10 +45,10 @@ func isEndLine(line []byte) bool {
 }
 
 // next returns the complete lines appended since the last call, numbered from the file's first line.
-func (w *follower) next() ([]batch.ParsedLine, [][]byte, error) {
+func (w *follower) next() ([]ParsedLine, [][]byte, error) {
 	b, err := io.ReadAll(w.f)
 	w.pending = append(w.pending, b...)
-	var parsed []batch.ParsedLine
+	var parsed []ParsedLine
 	var raw [][]byte
 	for {
 		i := bytes.IndexByte(w.pending, '\n')
@@ -59,7 +58,7 @@ func (w *follower) next() ([]batch.ParsedLine, [][]byte, error) {
 		line := w.pending[:i+1]
 		w.pending = w.pending[i+1:]
 		w.n++
-		pl, _ := batch.ReadTaskLines(bytes.NewReader(line))
+		pl, _ := ReadTaskLines(bytes.NewReader(line))
 		for _, p := range pl {
 			p.N = w.n
 			parsed = append(parsed, p)
@@ -69,8 +68,8 @@ func (w *follower) next() ([]batch.ParsedLine, [][]byte, error) {
 }
 
 // run sends tasks built from appended lines to the returned channel until {"end":true}, idle or cancel.
-func (w *follower) run(ctx context.Context, build func(batch.ParsedLine) batch.Task) <-chan batch.Task {
-	out := make(chan batch.Task)
+func (w *follower) run(ctx context.Context, build func(ParsedLine) Task) <-chan Task {
+	out := make(chan Task)
 	go func() {
 		defer close(out)
 		defer w.f.Close()
@@ -96,7 +95,7 @@ func (w *follower) run(ctx context.Context, build func(batch.ParsedLine) batch.T
 }
 
 // poll sends the newly appended lines; more is false on {"end":true}, a read error or cancel.
-func (w *follower) poll(ctx context.Context, build func(batch.ParsedLine) batch.Task, out chan<- batch.Task) (sent, more bool) {
+func (w *follower) poll(ctx context.Context, build func(ParsedLine) Task, out chan<- Task) (sent, more bool) {
 	lines, raw, err := w.next()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code: ask: --follow: %v\n", err)
@@ -117,7 +116,7 @@ func (w *follower) poll(ctx context.Context, build func(batch.ParsedLine) batch.
 }
 
 // retryFor reroutes t once to the first --retry-agent other than the agent it ran on; nil when there is none.
-func retryFor(t batch.Task, bo batch.Opts, agents []string) func(context.Context) (*agent.Prepared, error) {
+func retryFor(t Task, bo Opts, agents []string) func(context.Context) (*agent.Prepared, error) {
 	for _, name := range agents {
 		if name == t.Agent {
 			continue
