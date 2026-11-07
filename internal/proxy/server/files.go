@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -49,6 +50,18 @@ type fileRewriter struct {
 	failed  bool
 }
 
+// fileScope names the account a file id belongs to: the provider plus a hash of the credential sent upstream.
+func fileScope(in *http.Request, p *providers.Provider) (string, bool) {
+	cred, err := providers.Credential(in.Context(), p)
+	if errors.Is(err, providers.ErrPassthrough) { // cli auth forwards the client's own login
+		cred, err = in.Header.Get("Authorization")+"\x00"+in.Header.Get("X-Api-Key"), nil
+	}
+	if err != nil {
+		return "", false
+	}
+	return p.Name + "|" + hashHex([]byte(cred)), true
+}
+
 // rewriteFiles returns body with large base64 image/document blocks swapped for file sources; body is never mutated.
 func (r *Router) rewriteFiles(in *http.Request, p *providers.Provider, route string, body []byte, count bool) []byte {
 	if count || !anthropicOrigin(route) {
@@ -58,7 +71,11 @@ func (r *Router) rewriteFiles(in *http.Request, p *providers.Provider, route str
 	if json.Unmarshal(body, &m) != nil {
 		return body
 	}
-	fr := &fileRewriter{r: r, in: in, p: p, route: route, scope: p.Name + "|" + hashHex([]byte(in.Header.Get("Authorization")))}
+	scope, ok := fileScope(in, p)
+	if !ok {
+		return body
+	}
+	fr := &fileRewriter{r: r, in: in, p: p, route: route, scope: scope}
 	msgs, changed := fr.messages(m["messages"])
 	if !changed {
 		return body

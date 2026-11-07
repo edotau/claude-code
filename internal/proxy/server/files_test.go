@@ -177,3 +177,19 @@ func TestStoreFileBoundsCache(t *testing.T) {
 		t.Fatalf("files cache holds %d entries, cap %d", len(r.files), fileCacheMax)
 	}
 }
+
+// TestFilesCacheScopedToUpstreamCredential: a new vault/env credential is another account, so its file id is new.
+func TestFilesCacheScopedToUpstreamCredential(t *testing.T) {
+	u := newFilesUp(t)
+	srv := setupRouter(t, `{"default":"sub","providers":{"anthropic":{"sub":{"protocol":"anthropic","base_url":"`+u.URL+
+		`","auth":{"type":"key","header":"x-api-key","env":"FILES_SCOPE_KEY"},"models":{"opus":"m"}}}}}`,
+		func(r *Router) { r.client = u.Client() })
+	data := bigB64(300 << 10)
+	for _, key := range []string{"sk-account-a", "sk-account-b"} {
+		t.Setenv("FILES_SCOPE_KEY", key)
+		post(t, srv.URL+"/p/sub/v1/messages", filesBody(data), map[string]string{proxy.ClientHeader: secret})
+	}
+	if u.uploads != 2 {
+		t.Fatalf("uploads = %d, want 2: account b must not reuse account a's file id", u.uploads)
+	}
+}
