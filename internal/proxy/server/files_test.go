@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/proxy"
 )
@@ -151,4 +153,27 @@ func TestFilesFallbackOffOriginSeesBase64(t *testing.T) {
 func rawBody(u *upstream) string {
 	b, _ := json.Marshal(*u.body.Load())
 	return string(b)
+}
+
+func TestFilesCacheKeyedByMediaType(t *testing.T) {
+	u := newFilesUp(t)
+	srv := filesRouter(t, u, "")
+	data := bigB64(300 << 10)
+	for _, mt := range []string{"text/plain", "application/pdf"} {
+		body := `{"model":"m","messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"` + mt + `","data":"` + data + `"}}]}]}`
+		post(t, srv.URL+"/p/sub/v1/messages", body, clientLogin)
+	}
+	if u.uploads != 2 {
+		t.Fatalf("uploads = %d, want 2: identical bytes under another media type need their own file", u.uploads)
+	}
+}
+
+func TestStoreFileBoundsCache(t *testing.T) {
+	r := &Router{now: time.Now}
+	for i := 0; i < fileCacheMax+10; i++ {
+		r.storeFile(strconv.Itoa(i), "f")
+	}
+	if len(r.files) > fileCacheMax {
+		t.Fatalf("files cache holds %d entries, cap %d", len(r.files), fileCacheMax)
+	}
 }

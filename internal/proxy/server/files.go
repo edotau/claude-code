@@ -23,6 +23,7 @@ const (
 	fileMaxUploads = 8              // per request, so a huge history cannot stall one turn
 	fileExpiry     = 24 * time.Hour // expires_in_seconds sent with each upload
 	fileCacheTTL   = 20 * time.Hour // shorter than fileExpiry so a cached id never outlives its file
+	fileCacheMax   = 4096           // cached ids kept; expired ones go first, then the lot
 	filesVersion   = "2026-10-21"   // anthropic-version of the GA Files API
 )
 
@@ -166,7 +167,7 @@ func (fr *fileRewriter) source(typ string, raw json.RawMessage) (json.RawMessage
 }
 
 func (fr *fileRewriter) fileID(data []byte, mediaType string) (string, bool) {
-	key := fr.scope + "|" + hashHex(data)
+	key := fr.scope + "|" + mediaType + "|" + hashHex(data)
 	if id, ok := fr.r.cachedFile(key); ok {
 		return id, true
 	}
@@ -201,7 +202,18 @@ func (r *Router) storeFile(key, id string) {
 	if r.files == nil {
 		r.files = map[string]fileEntry{}
 	}
-	r.files[key] = fileEntry{id: id, exp: r.now().Add(fileCacheTTL)}
+	now := r.now()
+	if len(r.files) >= fileCacheMax {
+		for k, e := range r.files {
+			if !now.Before(e.exp) {
+				delete(r.files, k)
+			}
+		}
+		if len(r.files) >= fileCacheMax { // a dropped id only costs a re-upload
+			clear(r.files)
+		}
+	}
+	r.files[key] = fileEntry{id: id, exp: now.Add(fileCacheTTL)}
 }
 
 // uploadFile POSTs data to <route>/v1/files and returns the new file id.

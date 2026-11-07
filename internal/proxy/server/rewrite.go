@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -85,6 +86,9 @@ func withModel(body []byte, model string) ([]byte, error) {
 	if err := json.Unmarshal(body, &m); err != nil {
 		return nil, err
 	}
+	if m == nil { // a literal null body unmarshals without error
+		return nil, errors.New("request body is not a JSON object")
+	}
 	var cur string
 	if json.Unmarshal(m["model"], &cur) == nil && cur == model {
 		return body, nil
@@ -110,7 +114,7 @@ func copyRequestHeaders(dst, src http.Header) {
 }
 
 var hopHeaders = map[string]bool{
-	"Connection": true, "Keep-Alive": true, "Proxy-Authenticate": true, "Proxy-Authorization": true,
+	"Connection": true, "Proxy-Connection": true, "Keep-Alive": true, "Proxy-Authenticate": true, "Proxy-Authorization": true,
 	"Te": true, "Trailer": true, "Transfer-Encoding": true, "Upgrade": true, "Content-Length": true,
 }
 
