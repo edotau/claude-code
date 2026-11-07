@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/review"
+	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -20,7 +20,7 @@ import (
 const reviewJobEnv = "CLAUDE_REVIEW_JOB"
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
-func runSplitReview(name string, args []string, parts []review.Part, scope review.Scope,
+func runSplitReview(name string, args []string, parts []roles.Part, scope roles.Scope,
 	adversarial, background bool, focus, rubric, model string) int {
 	if background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
@@ -36,8 +36,8 @@ func runSplitReview(name string, args []string, parts []review.Part, scope revie
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
-		review.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
-		askArgs, cleanup, err := review.ReviewArgs(name, scope, p.Diff, adversarial, false,
+		roles.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
+		askArgs, cleanup, err := roles.ReviewArgs(name, scope, p.Diff, adversarial, false,
 			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric, model)
 		if err != nil {
 			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
@@ -45,12 +45,12 @@ func runSplitReview(name string, args []string, parts []review.Part, scope revie
 		ans, rc := captureAnswer(func() int { return ask.Cmd(askArgs) })
 		cleanup()
 		if rc != 0 {
-			fmt.Print(review.MergeReports(adversarial, parts[:len(answers)], answers))
-			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), review.LastDispatchError(name)))
+			fmt.Print(roles.MergeReports(adversarial, parts[:len(answers)], answers))
+			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), roles.LastDispatchError(name)))
 		}
 		answers = append(answers, ans)
 	}
-	fmt.Print(review.MergeReports(adversarial, parts, answers))
+	fmt.Print(roles.MergeReports(adversarial, parts, answers))
 	return finishSplitReview(job, nil)
 }
 

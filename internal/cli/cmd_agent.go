@@ -11,10 +11,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/lifecycle"
-	"github.com/edotau/claude-code/internal/agent/review"
+	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
@@ -338,20 +337,20 @@ func agentReview(name string, args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	scope, err := review.ParseScope(*uncommitted, *base, *commit, *pr)
+	scope, err := roles.ParseScope(*uncommitted, *base, *commit, *pr)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	cwd, _ := os.Getwd()
-	diff, err := review.Diff(context.Background(), cwd, scope)
+	diff, err := roles.Diff(context.Background(), cwd, scope)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	focus := strings.Join(fs.Args(), " ")
-	if parts := review.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
+	if parts := roles.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
 		return runSplitReview(name, args, parts, scope, *adversarial, *background, focus, *rubric, *model)
 	}
-	askArgs, cleanup, err := review.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric, *model)
+	askArgs, cleanup, err := roles.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric, *model)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
@@ -373,7 +372,7 @@ func agentExplore(name string, args []string) int {
 		return helptext.Fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
 	}
 	cwd, _ := os.Getwd()
-	askArgs := explore.Args(name, cwd, question, !*noWeb, *background)
+	askArgs := roles.Args(name, cwd, question, !*noWeb, *background)
 	if *format != "text" {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)

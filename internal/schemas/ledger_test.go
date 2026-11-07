@@ -171,7 +171,7 @@ var writers = map[string]string{
 	"internal/tokenledger/store.go:Append":                            "usage-ledger",
 	"internal/vault/vault.go:create":                                  "vault",
 	"internal/agent/job/job.go:SpawnArgv":                             unversioned("log: vendor job log, humans only"),
-	"internal/agent/review/review.go:ReviewArgs":                      unversioned("foreign: temp diff handed to a vendor CLI"),
+	"internal/agent/roles/review.go:ReviewArgs":                       unversioned("foreign: temp diff handed to a vendor CLI"),
 	"internal/codex/catalog.go:validateCodexCatalog":                  "codex-catalog",
 	"internal/codex/catalog.go:storeCodexCatalog":                     "codex-catalog",
 	"internal/codex/hooks.go:writeCodexHooks":                         unversioned("foreign: codex hooks.json in the vendor home"),
