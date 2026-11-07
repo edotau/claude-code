@@ -67,11 +67,18 @@ func TestInitializeAndToolsList(t *testing.T) {
 	}
 	list, _ := resps[1]["result"].(map[string]any)
 	tools, _ := list["tools"].([]any)
-	if len(tools) != 1 {
-		t.Fatalf("tools = %v, want 1", tools)
+	if len(tools) != 2 {
+		t.Fatalf("tools = %v, want 2", tools)
 	}
-	if tool, _ := tools[0].(map[string]any); tool["name"] != toolName {
-		t.Errorf("tool name = %v, want %s", tool["name"], toolName)
+	for i, want := range []string{toolName, extractToolName} {
+		if tool, _ := tools[i].(map[string]any); tool["name"] != want {
+			t.Errorf("tool %d name = %v, want %s", i, tool["name"], want)
+		}
+	}
+	ext, _ := tools[1].(map[string]any)
+	schema, _ := json.Marshal(ext["inputSchema"])
+	if !strings.Contains(string(schema), `"maxItems":20`) || !strings.Contains(string(schema), `"required":["urls"]`) {
+		t.Errorf("web_extract schema = %s, want urls array max 20, required", schema)
 	}
 }
 
@@ -676,5 +683,96 @@ func TestTavilySearchReportsUnreadableVault(t *testing.T) {
 	_, err := tavilySearch(context.Background(), "q", 1)
 	if err == nil || strings.Contains(err.Error(), "is not set") || !strings.Contains(err.Error(), "vault") {
 		t.Fatalf("err = %v, want a vault read error, not %q", err, "is not set")
+	}
+}
+
+// extractCall drives one web_extract tools/call and returns its text and isError flag.
+func extractCall(t *testing.T, args string) (string, bool) {
+	t.Helper()
+	resps := drive(t, &Server{}, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_extract","arguments":`+args+`}}`)
+	res, _ := resps[0]["result"].(map[string]any)
+	content, _ := res["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("result = %v, want one content item", res)
+	}
+	text, _ := content[0].(map[string]any)["text"].(string)
+	isErr, _ := res["isError"].(bool)
+	return text, isErr
+}
+
+func stubExtract(t *testing.T, fn func(urls []string) extractResponse) {
+	t.Helper()
+	origClient, orig := pageClient, tavilyExtract
+	pageClient = &http.Client{Transport: notFoundRT{}}
+	tavilyExtract = func(_ context.Context, _ string, urls []string, _ string) (extractResponse, error) {
+		return fn(urls), nil
+	}
+	t.Cleanup(func() { pageClient, tavilyExtract = origClient, orig })
+}
+
+func TestWebExtractToolReturnsMarkdownAndFailures(t *testing.T) {
+	t.Setenv(keyName, "test-key")
+	stubExtract(t, func(urls []string) extractResponse {
+		var r extractResponse
+		for _, u := range urls {
+			if u == "https://example.com/a" {
+				r.Results = append(r.Results, struct {
+					URL        string `json:"url"`
+					RawContent string `json:"raw_content"`
+				}{u, "# Hello\nbody"})
+				continue
+			}
+			r.Failed = append(r.Failed, struct {
+				URL   string `json:"url"`
+				Error string `json:"error"`
+			}{u, "nope"})
+		}
+		return r
+	})
+	text, isErr := extractCall(t, `{"urls":["https://example.com/a","https://example.org/b"]}`)
+	if isErr || !strings.Contains(text, "# https://example.com/a\n# Hello\nbody") || !strings.Contains(text, "# https://example.org/b\nfailed: nope") {
+		t.Errorf("isError=%v text=%q, want markdown page plus failed: line", isErr, text)
+	}
+}
+
+func TestWebExtractToolRejectsBadInput(t *testing.T) {
+	t.Setenv(keyName, "test-key")
+	stubExtract(t, func([]string) extractResponse { t.Error("seam called for rejected input"); return extractResponse{} })
+	many := `["` + strings.Repeat(`https://example.com/x","`, 20) + `https://example.com/y"]`
+	for name, c := range map[string]struct{ args, want string }{
+		"too many": {`{"urls":` + many + `}`, "1-20 URLs (got 21)"},
+		"empty":    {`{"urls":[]}`, "1-20 URLs (got 0)"},
+		"internal": {`{"urls":["http://192.168.1.1/","file:///etc/passwd"]}`, "refusing to fetch internal address 192.168.1.1"},
+	} {
+		text, isErr := extractCall(t, c.args)
+		if !isErr || !strings.Contains(text, c.want) {
+			t.Errorf("%s: isError=%v text=%q, want tool error containing %q", name, isErr, text, c.want)
+		}
+	}
+}
+
+func TestWebExtractToolMissingKeyIsToolError(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(keyName, "")
+	stubExtract(t, func([]string) extractResponse { t.Error("seam called without a key"); return extractResponse{} })
+	text, isErr := extractCall(t, `{"urls":["https://example.com/a"]}`)
+	if !isErr || !strings.Contains(text, "TAVILY_API_KEY") {
+		t.Errorf("isError=%v text=%q, want tool error naming TAVILY_API_KEY", isErr, text)
+	}
+}
+
+func TestExtractCLIOutputBytes(t *testing.T) {
+	t.Setenv(keyName, "test-key")
+	stubExtract(t, func(urls []string) extractResponse {
+		return extractResponse{Results: []struct {
+			URL        string `json:"url"`
+			RawContent string `json:"raw_content"`
+		}{{urls[0], "BODY"}}}
+	})
+	var code int
+	out := captureStdout(t, func() { code = Extract(context.Background(), []string{"https://example.com/a", "http://127.0.0.1/"}) })
+	want := "# https://example.com/a\nBODY\n\n# http://127.0.0.1/\nfailed: refusing to fetch internal address 127.0.0.1\n\n"
+	if code != 0 || out != want {
+		t.Errorf("code=%d out=%q, want %q", code, out, want)
 	}
 }

@@ -1,6 +1,6 @@
 package mcp
 
-// Stdlib-only stdio MCP server exposing `web_search` via Tavily; stdout carries only MCP JSON-RPC, logs go to stderr.
+// Stdlib-only stdio MCP server exposing `web_search` and `web_extract` via Tavily; stdout carries only MCP JSON-RPC, logs go to stderr.
 
 import (
 	"bufio"
@@ -30,6 +30,9 @@ const (
 	serverName             = "websearch"
 	serverVersion          = "1.0.0"
 	toolName               = "web_search"
+	extractToolName        = "web_extract"
+	extractToolDescription = "Read public web pages as markdown via Tavily; up to 20 URLs; honors robots.txt"
+	maxExtractURLs         = 20
 	toolDescription        = "Search the web via Tavily for up-to-date public information, current events, " +
 		"and recent data. Use when the question needs information beyond your training data."
 	tavilyURL         = "https://api.tavily.com/search"
@@ -116,6 +119,21 @@ func toolDescriptor() map[string]any {
 	}
 }
 
+func extractDescriptor() map[string]any {
+	return map[string]any{
+		"name":        extractToolName,
+		"description": extractToolDescription,
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"urls": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+					"minItems": 1, "maxItems": maxExtractURLs, "description": "Public http(s) page URLs to read."},
+			},
+			"required": []string{"urls"},
+		},
+	}
+}
+
 // Searcher runs one web search. The default is Tavily; tests inject a fake to avoid network calls.
 type Searcher func(ctx context.Context, query string, maxResults int) (string, error)
 
@@ -160,7 +178,7 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
 		}
 		return result(req.ID, map[string]any{})
 	case "tools/list":
-		return result(req.ID, map[string]any{"tools": []map[string]any{toolDescriptor()}})
+		return result(req.ID, map[string]any{"tools": []map[string]any{toolDescriptor(), extractDescriptor()}})
 	case "tools/call":
 		return s.handleToolsCall(ctx, req)
 	}
@@ -174,11 +192,15 @@ func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 	var p struct {
 		Name      string `json:"name"`
 		Arguments struct {
-			Query      string `json:"query"`
-			MaxResults int    `json:"max_results"`
+			Query      string   `json:"query"`
+			MaxResults int      `json:"max_results"`
+			URLs       []string `json:"urls"`
 		} `json:"arguments"`
 	}
 	_ = json.Unmarshal(req.Params, &p)
+	if p.Name == extractToolName {
+		return result(req.ID, extractToolResult(ctx, p.Arguments.URLs))
+	}
 	if p.Name != toolName {
 		return rpcError(req.ID, -32602, fmt.Sprintf("Unknown tool: %q", p.Name))
 	}
@@ -462,22 +484,36 @@ func vetExtractURLs(ctx context.Context, urls []string) ([]string, map[string]st
 	return send, failed
 }
 
-// Extract reads each URL's page as markdown through Tavily and prints `# <url>` blocks to stdout.
-// Exit 1 when every URL failed, else 0.
-func Extract(ctx context.Context, urls []string) int {
+// extractToolResult validates urls like the CLI, then renders pages; a key/fetch error or all-failed is a tool error.
+func extractToolResult(ctx context.Context, urls []string) map[string]any {
+	if len(urls) == 0 || len(urls) > maxExtractURLs {
+		return toolError(fmt.Sprintf("`urls` must hold 1-%d URLs (got %d).", maxExtractURLs, len(urls)))
+	}
+	text, ok, err := renderExtract(ctx, urls)
+	if err != nil {
+		return toolError(err.Error())
+	}
+	if ok == 0 {
+		return toolError(text)
+	}
+	return toolText(text)
+}
+
+// renderExtract reads each URL's page as markdown through Tavily and returns `# <url>` blocks plus how many succeeded.
+// An error (key, vault, Tavily) means nothing was rendered.
+func renderExtract(ctx context.Context, urls []string) (string, int, error) {
 	send, failed := vetExtractURLs(ctx, urls)
 	content := map[string]string{}
 	if len(send) > 0 {
 		apiKey, err := resolveKey()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
+			return "", 0, err
 		}
 		if err := fetchPages(ctx, apiKey, send, content, failed); err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			return 1
+			return "", 0, err
 		}
 	}
+	var sb strings.Builder
 	ok := 0
 	for _, raw := range urls {
 		msg, bad := failed[raw]
@@ -488,12 +524,23 @@ func Extract(ctx context.Context, urls []string) int {
 			msg, bad = "no content returned", true
 		}
 		if bad {
-			fmt.Printf("# %s\nfailed: %s\n\n", raw, msg)
+			fmt.Fprintf(&sb, "# %s\nfailed: %s\n\n", raw, msg)
 			continue
 		}
 		ok++
-		fmt.Printf("# %s\n%s\n\n", raw, content[normURL(raw)])
+		fmt.Fprintf(&sb, "# %s\n%s\n\n", raw, content[normURL(raw)])
 	}
+	return sb.String(), ok, nil
+}
+
+// Extract prints renderExtract's `# <url>` blocks to stdout. Exit 1 when every URL failed, else 0.
+func Extract(ctx context.Context, urls []string) int {
+	text, ok, err := renderExtract(ctx, urls)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Print(text)
 	if ok == 0 {
 		return 1
 	}
