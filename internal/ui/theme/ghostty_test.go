@@ -242,3 +242,14 @@ func TestMergeGhosttyIntegration(t *testing.T) {
 		})
 	}
 }
+
+// TestMergeGhosttyPaletteKeepsUnmentionedIndexes pins that an indexed palette overlay replaces only its own index.
+func TestMergeGhosttyPaletteKeepsUnmentionedIndexes(t *testing.T) {
+	dest := "palette = 0=#111111\npalette = 1=#222222\npalette = 2=#333333\n"
+	overlay := "palette = 0=#aaaaaa\npalette = 5=#555555\n"
+	want := "palette = 0=#aaaaaa\npalette = 1=#222222\npalette = 2=#333333\npalette = 5=#555555\n"
+	got := mergeGhostty([]byte(dest), []byte(overlay))
+	if string(got) != want {
+		t.Errorf("mergeGhostty palette merge:\ngot:\n%q\nwant:\n%q", got, want)
+	}
+}

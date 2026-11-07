@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
 // golden commands (captured against a repo built by testdata/pr/build_repo.sh, python3 on PATH):
@@ -98,5 +100,81 @@ func TestWriteOutputAtomic(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(bad); len(ents) != 1 {
 		t.Fatalf("failed write left debris: %v", ents)
+	}
+}
+
+func commitFile(t *testing.T, repo, name, body, msg string) {
+	t.Helper()
+	gittest.WriteRel(t, repo, name, body)
+	gittest.In(t, repo, "add", "--", name)
+	gittest.In(t, repo, "commit", "-m", msg)
+}
+
+// Commits only on base must not count as PR commits or draw commit-message findings.
+func TestAnalyzePRCommitsExcludeBaseOnly(t *testing.T) {
+	repo := gittest.Repo(t)
+	gittest.In(t, repo, "checkout", "-b", "feature")
+	commitFile(t, repo, "a.go", "package a\n", "feat: add a")
+	gittest.In(t, repo, "checkout", "main")
+	commitFile(t, repo, "b.go", "package b\n", "bad base only")
+	rep, err := AnalyzePR(repo, "main", "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Summary.Commits != 1 || len(rep.CommitIssues) != 0 {
+		t.Fatalf("commits=%d issues=%v, want 1 and none", rep.Summary.Commits, rep.CommitIssues)
+	}
+}
+
+// A branch with nothing ahead of base is no_changes even when the index holds staged edits.
+func TestAnalyzePRIgnoresStagedIndex(t *testing.T) {
+	repo := gittest.Repo(t)
+	gittest.In(t, repo, "branch", "feature")
+	gittest.WriteRel(t, repo, "staged.go", "package s\n")
+	gittest.In(t, repo, "add", "--", "staged.go")
+	rep, err := AnalyzePR(repo, "main", "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Status != "no_changes" {
+		t.Fatalf("status %q files %v, want no_changes", rep.Status, rep.Files)
+	}
+}
+
+// A misspelled head surfaces the ref error instead of analyzing the staged index.
+func TestAnalyzePRBadRefNotMaskedByStaged(t *testing.T) {
+	repo := gittest.Repo(t)
+	gittest.WriteRel(t, repo, "staged.go", "package s\n")
+	gittest.In(t, repo, "add", "--", "staged.go")
+	if _, err := AnalyzePR(repo, "main", "nosuchbranch"); err == nil {
+		t.Fatal("want an error for an unknown head")
+	}
+}
+
+// With no merge base, the file list and per-file diff must both come from the two-dot fallback.
+func TestFileDiffSharesTwoDotFallback(t *testing.T) {
+	repo := gittest.Repo(t)
+	gittest.In(t, repo, "checkout", "--orphan", "orphan")
+	commitFile(t, repo, "o.go", "package o\n", "feat: orphan")
+	files, err := changedFiles(repo, "main", "orphan")
+	if err != nil || len(files) != 1 || files[0].Path != "o.go" {
+		t.Fatalf("files %v err %v, want [o.go]", files, err)
+	}
+	if d := fileDiff(repo, "o.go", "main", "orphan"); d == "" {
+		t.Fatal("fileDiff empty for a file changedFiles listed")
+	}
+}
+
+// Non-ASCII names must arrive unquoted, so they match as pathspecs.
+func TestChangedFilesNonASCIIPath(t *testing.T) {
+	repo := gittest.Repo(t)
+	gittest.In(t, repo, "checkout", "-b", "feature")
+	commitFile(t, repo, "caf\u00e9.go", "package c\n", "feat: cafe")
+	files, err := changedFiles(repo, "main", "feature")
+	if err != nil || len(files) != 1 || files[0].Path != "caf\u00e9.go" {
+		t.Fatalf("files %v err %v, want [café.go]", files, err)
+	}
+	if d := fileDiff(repo, files[0].Path, "main", "feature"); d == "" {
+		t.Fatal("fileDiff empty for non-ASCII path")
 	}
 }

@@ -176,3 +176,20 @@ var testdataDir = func() string {
 
 // expandGolden swaps the @TESTDATA@ placeholder in a golden for this checkout's testdata path.
 func expandGolden(s string) string { return strings.ReplaceAll(s, "@TESTDATA@", testdataDir) }
+
+// One action item per category must list every affected file and carry the worst severity, in any finding order.
+func TestGenerateActionItemsMergesCategory(t *testing.T) {
+	fs := []Finding{
+		{Category: "x", Severity: "medium", File: "a.go"},
+		{Category: "x", Severity: "critical", File: "b.go"},
+		{Category: "x", Severity: "high", File: "c.go"},
+	}
+	items := generateActionItems(fs)
+	if len(items) != 1 {
+		t.Fatalf("items %v, want 1", items)
+	}
+	it := items[0]
+	if it.Priority != "P0" || it.Severity != "critical" || strings.Join(it.FilesAffected, ",") != "a.go,b.go,c.go" {
+		t.Fatalf("got %+v, want P0 critical with all three files", it)
+	}
+}

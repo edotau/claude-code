@@ -226,3 +226,22 @@ func quiet(t *testing.T) {
 	os.Stdout, os.Stderr = null, null
 	t.Cleanup(func() { os.Stdout, os.Stderr = so, se; null.Close() })
 }
+
+// A package that already fails without the mutation must not be reported as Teeth.
+func TestCheckRedBaseline(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":    "module example.com/red\n\ngo 1.21\n",
+		"m.go":      "package m\n\nfunc One() int { return 1 }\n",
+		"m_test.go": "package m\n\nimport \"testing\"\n\nfunc TestRed(t *testing.T) { t.Fatal(\"already red\") }\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := Check(Options{File: filepath.Join(dir, "m.go"), Old: "return 1", New: "return 2", Dir: dir, Pkgs: []string{"./..."}})
+	if err == nil || r.Verdict != Invalid {
+		t.Fatalf("red baseline: verdict %v, err %v, want Invalid and an error", r.Verdict, err)
+	}
+}

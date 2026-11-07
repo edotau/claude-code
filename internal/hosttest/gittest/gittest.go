@@ -52,10 +52,8 @@ func RepoAt(t *testing.T, dir string) string {
 	return dir
 }
 
-func buildTemplate() {
-	if tmpl, tmplErr = os.MkdirTemp("", "gittest-"); tmplErr != nil {
-		return
-	}
+// cleanEnv returns os.Environ() without the git variables that override repository discovery.
+func cleanEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -65,7 +63,15 @@ func buildTemplate() {
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
+	return env
+}
+
+func buildTemplate() {
+	if tmpl, tmplErr = os.MkdirTemp("", "gittest-"); tmplErr != nil {
+		return
+	}
+	env := append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "--allow-empty", "-q", "-m", "init"}} {
 		cmd := exec.CommandContext(context.Background(), "git", args...)
 		cmd.Dir = tmpl
@@ -81,7 +87,7 @@ func buildTemplate() {
 func In(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
+	cmd.Env = append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
 		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -128,9 +128,12 @@ func writeOverlay(tmp string, src source, mutated string) (string, error) {
 	return ovPath, nil
 }
 
-// goTest runs go test over o.Pkgs with the overlay and returns its combined output and run error.
+// goTest runs go test over o.Pkgs (with the overlay unless ovPath is "") and returns its combined output and run error.
 func goTest(o Options, ovPath string) (string, error) {
-	args := []string{"test", "-overlay", ovPath, "-count=1"}
+	args := []string{"test", "-count=1"}
+	if ovPath != "" {
+		args = append(args, "-overlay", ovPath)
+	}
 	if o.Run != "" {
 		args = append(args, "-run", o.Run)
 	}
@@ -151,6 +154,10 @@ func Check(o Options) (Result, error) {
 	mutated, err := Apply(string(src.data), o.Old, o.New)
 	if err != nil {
 		return Result{Verdict: Invalid}, err
+	}
+	// A red baseline would make any mutation look like teeth.
+	if base, baseErr := goTest(o, ""); baseErr != nil {
+		return Result{Verdict: Invalid, Output: base}, fmt.Errorf("baseline tests already fail without the mutation:\n%s", tail(base, 15))
 	}
 	tmp, err := os.MkdirTemp("", "cc-mutate-")
 	if err != nil {

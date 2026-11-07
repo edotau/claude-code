@@ -74,8 +74,8 @@ func TestRunGoalsStdin(t *testing.T) {
 func TestRunGoalsMissingFile(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunGoals([]string{"nosuch.md"}, strings.NewReader(""), &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (matches Python's sys.exit(0) on a missing file)", code)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 (a gate must not pass on a missing plan file)", code)
 	}
 	if stderr.String() != "[error] nosuch.md not found\n" {
 		t.Errorf("stderr = %q", stderr.String())

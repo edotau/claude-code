@@ -23,8 +23,7 @@ func splitLines(text string) []string {
 	return lineSplitRe().Split(text, -1)
 }
 
-// readInput mirrors the shared "-" (stdin) or path.exists() gate in both scripts: a missing path exits 0, any
-// other read failure exits 1 so a gate never passes on unreadable input.
+// readInput reads "-" (stdin) or a path; a missing path or any read failure exits 1 so a gate never passes unlinted.
 func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source string, exit int, ok bool) {
 	if input == "-" {
 		b, err := io.ReadAll(stdin)
@@ -37,7 +36,7 @@ func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source st
 	b, err := os.ReadFile(input)
 	if errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintf(stderr, "[error] %s not found\n", input)
-		return "", "", 0, false
+		return "", "", 1, false
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "[error] reading %s: %v\n", input, err)
