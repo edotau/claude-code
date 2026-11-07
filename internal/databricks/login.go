@@ -94,7 +94,8 @@ func loginProfile(fs *flag.FlagSet, profileName string) (*providers.Provider, er
 	explicit := false
 	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" || f.Name == "t" })
 	if t := p.Auth.Method(); t != "" && t != providers.AuthOAuth && !explicit {
-		return nil, fmt.Errorf("%s has auth type %q; pass --auth-type oauth to switch it to a browser login", p.Name, t)
+		return nil, fmt.Errorf("%s has auth type %q and signs in without a browser; use `login -p <oauth profile>`, "+
+			"or pass --auth-type oauth to switch this row to a browser login", p.Name, t)
 	}
 	return p, nil
 }
@@ -104,9 +105,11 @@ func checkLoginFlags(as, authType string) (code int, bad bool) {
 	switch as {
 	case "", providers.IdentityUser:
 	case providers.IdentitySP:
-		return fail("login: --as sp needs no browser login; the paired service principal mints on its own"), true
+		fail("login: --as sp needs no browser login; the paired service principal mints on its own")
+		return 2, true
 	default:
-		return fail("login: --as must be user or sp"), true
+		fail("login: --as must be user or sp")
+		return 2, true
 	}
 	switch authType {
 	case "", providers.AuthOAuth:
@@ -165,7 +168,9 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 		return err
 	}
 	switched = false
-	_ = router.ClearProviderAuth(p.Name) // best-effort: the TTL backstops a missed clear
+	if err := router.ClearProviderAuth(p.Name); err != nil { // the TTL backstops a missed clear
+		fmt.Fprintf(os.Stderr, "warning: clear the router's re-auth mark for %s: %v\n", p.Name, err)
+	}
 	fmt.Fprintf(out, "logged in · token expires in %dm\n", int(ttl.Minutes()))
 	return nil
 }

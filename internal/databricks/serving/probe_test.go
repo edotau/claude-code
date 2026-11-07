@@ -3,11 +3,14 @@ package serving
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -161,5 +164,64 @@ func TestProbeTransientWithToolsSkipsNoToolsRetry(t *testing.T) {
 	got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client(), ClientRoutes: true})
 	if err != nil || len(got) != 1 || got[0].Status != StatusTransient || got[0].Tools != "" || got[0].HTTP != 429 || calls.Load() != 1 {
 		t.Fatalf("429 on the tools request must stay transient with no retry: results=%+v err=%v calls=%d", got, err, calls.Load())
+	}
+}
+
+// A body read cut short mid-reply is a transport error, not a clean status.
+func TestProbeRequestReportsTruncatedBody(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("CUT_TOKEN", "tok")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte("partial"))
+	}))
+	defer srv.Close()
+	p := &providers.Provider{Name: "cut", Auth: providers.Auth{Type: providers.AuthKey, Env: "CUT_TOKEN"}}
+	status, _, _, err := probeRequest(context.Background(), p, CheckOptions{Client: srv.Client(), Timeout: 5 * time.Second}, srv.URL, map[string]any{}, false)
+	if err == nil || status != 200 {
+		t.Errorf("status %d err %v, want 200 with a read error", status, err)
+	}
+}
+
+// A non-2xx status stands even when its body is cut short, so the caller still sees the HTTP failure.
+func TestProbeRequestKeepsNon2xxStatusOnTruncatedBody(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("CUT_TOKEN", "tok")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("partial"))
+	}))
+	defer srv.Close()
+	p := &providers.Provider{Name: "cut", Auth: providers.Auth{Type: providers.AuthKey, Env: "CUT_TOKEN"}}
+	status, _, _, err := probeRequest(context.Background(), p, CheckOptions{Client: srv.Client(), Timeout: 5 * time.Second}, srv.URL, map[string]any{}, false)
+	if err != nil || status != 400 {
+		t.Errorf("status %d err %v, want 400 with no error", status, err)
+	}
+}
+
+type errBody struct{ err error }
+
+func (b errBody) Read([]byte) (int, error) { return 0, b.err }
+func (b errBody) Close() error             { return nil }
+
+// A 2xx body read error must not echo the endpoint address from the net error text.
+func TestReadBodyErrorDoesNotLeakAddress(t *testing.T) {
+	resp := &http.Response{StatusCode: 200, Body: errBody{errors.New("read tcp 10.1.2.3:5->10.9.9.9:443: connection reset by peer")}}
+	_, err := readBody(context.Background(), resp, time.Second)
+	if err == nil || strings.Contains(err.Error(), "10.9.9.9") {
+		t.Errorf("err = %v, want a non-nil error without the address", err)
+	}
+}
+
+// A deadline firing during the 2xx body read reports the same timeout text as the Do-error path.
+func TestReadBodyDeadlineReportsTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+	resp := &http.Response{StatusCode: 200, Body: errBody{context.DeadlineExceeded}}
+	_, err := readBody(ctx, resp, 5*time.Second)
+	if err == nil || err.Error() != "timeout after 5s" {
+		t.Errorf("err = %v, want timeout after 5s", err)
 	}
 }

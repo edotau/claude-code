@@ -606,3 +606,22 @@ func TestClientTokenSharedAcrossProcesses(t *testing.T) {
 		})
 	}
 }
+
+// A minted token that fails the issuer check is refused before it is sealed into the shared vault.
+func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
+	p, secretName := clientRow(t, false)
+	p.Preset, p.Host = PresetDatabricks, "https://h.example.com"
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: jwtExpIn(time.Hour, "https://other.example.org/oidc")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	_, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true)
+	var hm *HostMismatchError
+	if !errors.As(err, &hm) {
+		t.Fatalf("m2mToken err = %v; want HostMismatchError", err)
+	}
+	if raw, found, _ := vault.ReadSecret(secretName + "_ACCESS"); found {
+		t.Fatalf("wrong-issuer token was sealed in the vault: %q", raw)
+	}
+}

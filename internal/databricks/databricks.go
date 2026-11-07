@@ -3,7 +3,6 @@ package databricks
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -176,16 +175,24 @@ func defaultModel(reg *providers.Registry, profile string) string {
 // errNoProfile is what a verb reports when resolveProfile finds no Databricks profile to default to.
 var errNoProfile = errors.New("no Databricks profile; import ~/.databrickscfg with `claude-code databricks import --apply`, or pass --profile")
 
-// resolveProfile is name, else the session profile, else the claude record profile, each only when it is
-// a Databricks profile, else the first Databricks profile; "" when there is none.
+// resolveProfile is name, else the session profile, else this workspace's last claude profile, else the claude
+// record profile, each only when it is a Databricks profile, else the first Databricks profile; "" when there is none.
 func resolveProfile(reg *providers.Registry, name string) string {
 	if name != "" || reg == nil {
 		return name
 	}
 	profs := providers.DatabricksProfiles(reg)
 	// The session profile shadows the vault pin, even when it is not a Databricks profile.
-	if c := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile); slices.Contains(profs, c) {
-		return c
+	if s := providers.SessionProfile(); s != "" {
+		if slices.Contains(profs, s) {
+			return s
+		}
+	} else {
+		for _, c := range []string{providers.LastProfile("claude"), providers.AgentRecord("claude").Profile} {
+			if slices.Contains(profs, c) {
+				return c
+			}
+		}
 	}
 	if len(profs) > 0 {
 		return profs[0]

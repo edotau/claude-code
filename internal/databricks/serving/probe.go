@@ -223,8 +223,20 @@ func probeRequest(ctx context.Context, p *providers.Provider, o CheckOptions, ur
 		return 0, time.Since(start).Milliseconds(), "", errors.New("request failed") // url.Error text could echo the URL
 	}
 	defer resp.Body.Close()
-	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return resp.StatusCode, time.Since(start).Milliseconds(), TruncateMsg(msg), nil
+	msg, err := readBody(ctx, resp, o.Timeout)
+	return resp.StatusCode, time.Since(start).Milliseconds(), TruncateMsg(msg), err
+}
+
+// readBody reads up to 1MiB; only a 2xx body failure is an error, with text that cannot echo the address.
+func readBody(ctx context.Context, resp *http.Response, timeout time.Duration) ([]byte, error) {
+	msg, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err == nil || resp.StatusCode/100 != 2 { // a non-2xx status stands even when its body is cut short
+		return msg, nil
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return msg, fmt.Errorf("timeout after %s", timeout)
+	}
+	return msg, errors.New("read response body failed")
 }
 
 // TruncateMsg collapses whitespace and cuts b to 160 runes for one-line diagnostics.

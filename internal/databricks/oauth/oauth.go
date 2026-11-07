@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -49,6 +50,7 @@ type Token struct {
 // oauthError is a token-endpoint rejection (RFC 6749 §5.2): the HTTP status plus the error code and description.
 type oauthError struct {
 	Host, Op, Code, Desc string
+	Body                 string // a clipped non-JSON reply, for diagnostics
 	Status               int
 }
 
@@ -59,6 +61,8 @@ func (e *oauthError) Error() string {
 		if e.Desc != "" {
 			s += ": " + e.Desc
 		}
+	} else if e.Body != "" {
+		s += ": " + e.Body
 	}
 	return s
 }
@@ -85,6 +89,9 @@ func normHost(host string) (string, error) {
 	host = strings.TrimRight(strings.TrimSpace(host), "/")
 	u, err := url.Parse(host)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", errors.New(hostHint)
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(host, "?#") {
 		return "", errors.New(hostHint)
 	}
 	if u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
@@ -143,14 +150,16 @@ func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 	}
 }
 
-// postOnce is one attempt; status is 0 when no HTTP response arrived and written is true once the request went out.
+// postOnce is one attempt; status is 0 with no HTTP response, written is true once the request was sent.
 func postOnce(ctx context.Context, r tokenRequest) (reply tokenReply, status int, written bool, err error) {
-	var wrote atomic.Bool // set by the transport's write goroutine, possibly after Do has returned
+	var conn, writeFailed atomic.Bool // set by transport goroutines, possibly after Do has returned
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		WroteRequest: func(info httptrace.WroteRequestInfo) { wrote.Store(info.Err == nil) },
+		GotConn:      func(httptrace.GotConnInfo) { conn.Store(true) },
+		WroteRequest: func(info httptrace.WroteRequestInfo) { writeFailed.Store(info.Err != nil) },
 	})
 	reply, status, err = doPost(ctx, r)
-	return reply, status, wrote.Load(), err
+	// A connection was obtained and no write failure was reported: assume sent, since the hook may fire late.
+	return reply, status, conn.Load() && !writeFailed.Load(), err
 }
 
 // doPost sends the token request on ctx and decodes the reply.
@@ -178,13 +187,33 @@ func doPost(ctx context.Context, r tokenRequest) (reply tokenReply, status int, 
 			Error       string `json:"error"`
 			Description string `json:"error_description"`
 		}
-		_ = json.Unmarshal(raw, &e)
-		return reply, resp.StatusCode, &oauthError{Host: r.host, Op: r.op, Code: e.Error, Desc: e.Description, Status: resp.StatusCode}
+		oe := &oauthError{Host: r.host, Op: r.op, Status: resp.StatusCode}
+		if json.Unmarshal(raw, &e) == nil {
+			oe.Code, oe.Desc = e.Error, e.Description
+		} else {
+			oe.Body = clipBody(raw)
+		}
+		return reply, resp.StatusCode, oe
 	}
 	if json.Unmarshal(raw, &reply) != nil || reply.AccessToken == "" {
 		return reply, resp.StatusCode, fmt.Errorf("oauth: %s at %s: response had no access_token", r.op, r.host)
 	}
 	return reply, resp.StatusCode, nil
+}
+
+// clipBody is the first 120 runes of a non-JSON error body on one line, control bytes replaced by spaces.
+func clipBody(raw []byte) string {
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(string(raw), "?"))
+	s := []rune(strings.Join(strings.Fields(clean), " "))
+	if len(s) > 120 {
+		s = append(s[:120], '…')
+	}
+	return string(s)
 }
 
 // token converts a reply into a Token whose Expiry is zero when the server sent no lifetime.
@@ -281,9 +310,13 @@ func (l *loopback) Addr() net.Addr { return l.ls[0].Addr() }
 // listenLoopback binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to first+portSpan.
 func listenLoopback(first int) (*loopback, int, error) {
 	var lc net.ListenConfig
+	var other error // the last listen error that was not EADDRINUSE
 	for port := first; port <= first+portSpan; port++ {
 		v4, err := lc.Listen(context.Background(), "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
+			if !errors.Is(err, syscall.EADDRINUSE) {
+				other = err
+			}
 			continue
 		}
 		lb := &loopback{ls: []net.Listener{v4}}
@@ -297,7 +330,10 @@ func listenLoopback(first int) (*loopback, int, error) {
 		}
 		return lb, port, nil
 	}
-	return nil, 0, fmt.Errorf("oauth: login callback port %d on localhost is busy (another login running?)", first)
+	if other != nil {
+		return nil, 0, fmt.Errorf("oauth: login callback ports %d-%d on localhost: %w", first, first+portSpan, other)
+	}
+	return nil, 0, fmt.Errorf("oauth: login callback ports %d-%d on localhost are busy (another login running?)", first, first+portSpan)
 }
 
 // randomB64 returns n random bytes, base64url without padding.

@@ -341,3 +341,30 @@ func TestPairingExportUnpairedStaysUnpaired(t *testing.T) {
 		t.Fatalf("export paired unpaired rows: %+v", plan)
 	}
 }
+
+// A row whose auth.spClientId is not a string is unreadable: --replace skips it instead of treating it as unpaired.
+func TestImportReplaceSkipsRowWithMalformedPairing(t *testing.T) {
+	cs, _ := Candidates(writeFixtureCfg(t))
+	existing := map[string]json.RawMessage{"alpha": json.RawMessage(`{"auth":{"type":"oauth","spClientId":5}}`)}
+	for _, r := range ImportPlan(cs, existing, ImportOptions{Replace: true}) {
+		if r.Name == "alpha" && (r.Action != "skip" || !strings.Contains(r.Reason, "no readable sealed auth.type")) {
+			t.Errorf("alpha = %s %q, want a skip naming the unreadable row", r.Action, r.Reason)
+		}
+	}
+}
+
+// A row with an unrelated unreadable field still keeps its sealed-secret name in the collision map.
+func TestSealedNamesKeepsRowWithUnrelatedBadField(t *testing.T) {
+	existing := map[string]json.RawMessage{"a": json.RawMessage(`{"protocol":5,"auth":{"type":"oauth","spClientId":"c"}}`)}
+	if got := sealedNames(existing)[secretName("a", providers.AuthM2M)]; got != "a" {
+		t.Errorf("sealedNames owner of a's m2m secret = %q, want a", got)
+	}
+}
+
+// Apply refuses a providers value that is not an object instead of overwriting it.
+func TestApplyRejectsNonObjectProviders(t *testing.T) {
+	top := map[string]json.RawMessage{"providers": json.RawMessage(`["x"]`)}
+	if err := Apply(top, nil); err == nil {
+		t.Error("Apply accepted a non-object providers value")
+	}
+}

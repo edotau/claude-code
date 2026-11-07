@@ -45,11 +45,21 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 	if err != nil {
 		return MintResult{}, "", err
 	}
-	res := MintResult{Provider: p.Name, AuthType: authLabel(p), Len: len(tok)}
-	if exp, ok := providers.TokenExpiry(p.Name); ok {
+	res := MintResult{Provider: p.Name, AuthType: mintedAuthType(p), Len: len(tok)}
+	if e, ok := providers.JWTExp(tok); ok { // the minted token's own exp, not the stored record
+		res.Expiry = time.Unix(e, 0)
+	} else if exp, ok := providers.TokenExpiry(p.Name); ok { // opaque token: the stored record's expiry
 		res.Expiry = exp
 	}
 	return res, tok, nil
+}
+
+// mintedAuthType is the credential kind minted: m2m when the profile's identity is the service principal.
+func mintedAuthType(p *providers.Provider) string {
+	if p.Identity == providers.IdentitySP {
+		return providers.AuthM2M
+	}
+	return authLabel(p)
 }
 
 // SetPAT seals value as the row's PAT (switching authType to pat) and probes it; a rejected PAT is rolled back.
