@@ -42,6 +42,9 @@ var terminateHolder = terminate
 // holderComm names the process behind a holder's pid; tests stub it (the /healthz pid header is unauthenticated).
 var holderComm = proc.Comm
 
+// StubHolderCommForTest makes every holder pid read as a claude-code process, for other packages' in-process servers.
+func StubHolderCommForTest() { holderComm = func(int) string { return "claude-code" } }
+
 // State is proxy.json: written by a serving daemon, removed when it exits.
 type State struct {
 	Schema  int       `json:"schema"`
@@ -102,12 +105,11 @@ func Running(ctx context.Context) (State, bool) {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return st, false
 	}
-	// A different pid means the recorded one was recycled; a pid-less reply (older build) must still be claude-code.
-	got, _ := strconv.Atoi(resp.Header.Get(PIDHeader))
-	if got == 0 {
-		return st, holderComm(st.PID) == "claude-code"
+	// A different pid means the recorded one was recycled; /healthz is unauthenticated, so only the OS names the process.
+	if got, _ := strconv.Atoi(resp.Header.Get(PIDHeader)); got != 0 && got != st.PID {
+		return st, false
 	}
-	return st, got == st.PID
+	return st, holderComm(st.PID) == "claude-code"
 }
 
 // healthGet issues GET /healthz on port; the caller closes the body.
