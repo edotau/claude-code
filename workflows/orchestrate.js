@@ -170,7 +170,9 @@ if (tier === 'EPIC') {
   decisions.push('epic: no code changed, plan drafted for the owner')
   return await record({ exit: 'plan', tier, route, packages: 0, merged: 0, confirmed: [], dropped: [], unverified: [], fixed: [], red: [], decisions, report: head + '\n' + p.plan })
 }
-const target = tier === 'HIGH' ? { packages: PKGS.length ? PKGS : [...new Set(PATHS)] } : { paths: PATHS }
+// HIGH with only files: relay3 packages are their directories, never the file paths (finders roam otherwise).
+const dirsOf = (ps) => [...new Set(ps.map((p) => /\.[A-Za-z0-9]+$/.test(p) ? p.split('/').slice(0, -1).join('/') : p))]
+const target = tier === 'HIGH' ? { packages: PKGS.length ? PKGS : dirsOf(PATHS) } : { paths: PATHS }
 if (tier === 'MEDIUM' && TASK) {
   const intel = await agent(
     RULES + ' Read-only: edit nothing. Codebase intel for this task: structure, conventions, and the exact files to change with their callers. ' +
