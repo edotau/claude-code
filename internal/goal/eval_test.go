@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// A run manifest that is not "completed" fails the goal with the status named; no manifest is still pending.
+// A run manifest that ended not-completed fails the goal; a missing, running or half-written one is pending.
 func TestEvaluateRunManifest(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "workflows"), 0o755); err != nil {
@@ -22,6 +22,8 @@ func TestEvaluateRunManifest(t *testing.T) {
 		{"wf_failed", `{"status":"failed"}`, "run wf_failed ended failed", false, false},
 		{"wf_blank", `{}`, "run wf_blank ended without a status", false, false},
 		{"wf_none", "", "no manifest yet", false, true},
+		{"wf_running", `{"status":"running"}`, "still running", false, true},
+		{"wf_trunc", `{"status":"runn`, "not readable yet", false, true},
 	}
 	for _, c := range cases {
 		if c.body != "" {
