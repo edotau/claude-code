@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/live"
+	"github.com/edotau/claude-code/internal/agent/job"
 )
 
 // A running claude dispatch hides the session it spawned, by its session id or by cwd + start + opening prompt;
@@ -45,7 +45,7 @@ func TestReapDeadLiveHolder(t *testing.T) {
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)
 		}
-		ln, err := net.Listen("unix", live.LiveSocket(rec.ID))
+		ln, err := net.Listen("unix", job.LiveSocket(rec.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,10 +57,10 @@ func TestReapDeadLiveHolder(t *testing.T) {
 	if code := Reap(false, &out, &out); code != 0 {
 		t.Fatalf("Reap = %d: %s", code, out.String())
 	}
-	if _, err := os.Stat(live.LiveSocket(dead.ID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(job.LiveSocket(dead.ID)); !os.IsNotExist(err) {
 		t.Errorf("dead holder's socket must be removed: %v", err)
 	}
-	if _, err := os.Stat(live.LiveSocket(alive.ID)); err != nil {
+	if _, err := os.Stat(job.LiveSocket(alive.ID)); err != nil {
 		t.Errorf("live holder's socket must stay: %v", err)
 	}
 	if got, _ := agent.LoadRecord(dead.ID); got.Status != "error" {
