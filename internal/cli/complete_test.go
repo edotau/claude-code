@@ -127,9 +127,6 @@ func TestCompletionPositionals(t *testing.T) {
 	if got := completionCandidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, workflowPatterns()) {
 		t.Errorf("workflow skeleton values = %v, want %v", got, workflowPatterns())
 	}
-	if got := completionCandidates([]string{"configure", ""}); !slices.Equal(got, configureSections()) {
-		t.Errorf("configure values = %v, want %v", got, configureSections())
-	}
 }
 
 // TestCompletionAfterBoolFlagOffersNextFlag: the word after a boolean flag (no value slot) falls back
@@ -678,12 +675,12 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 }
 
 // TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets pins four more verbs' completable flags
-// against the literal helptext.NewFlagSet calls in their own handlers (internal/cli/configure.go, doctor.go,
+// against the literal helptext.NewFlagSet calls in their own handlers (internal/configure/configurecmd/configure.go, internal/cli/doctor.go,
 // providers.go) — every flag the handler defines must have a specTree candidate, or
 // tab-completion silently falls behind the handler the way askFlags once did.
 func TestConfigureDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 	cases := map[string][]string{
-		"configure": {"restore", "revert", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // cmdConfigure
+		"configure": {"restore", "revert", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // configurecmd.Run
 		"doctor":    {"audit", "days", "format"},                                                                      // cmdDoctor
 		"models":    {"profile", "unpin", "live", "dry-run", "format", "pin"},                                         // cmdModels
 	}

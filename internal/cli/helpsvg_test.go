@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -16,17 +15,6 @@ func TestMenuSVGIsCurrent(t *testing.T) {
 	}
 	if !bytes.Equal(got, menuSVG()) {
 		t.Fatalf("%s is stale: run `make help-svg` and commit it", menuSVGPath)
-	}
-}
-
-func TestConfigureHelpShowsDoubleDashFlags(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
-	_, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"-h"}) })
-	if !strings.Contains(stderr, "--restore") {
-		t.Errorf("help lacks --restore:\n%s", stderr)
-	}
-	if strings.Contains(stderr, "\n  -restore") {
-		t.Errorf("help prints single-dash -restore:\n%s", stderr)
 	}
 }
 
