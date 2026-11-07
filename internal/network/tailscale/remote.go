@@ -107,12 +107,9 @@ func BuildRemoteCommand(opts RemoteOpts) (string, string, error) {
 	if !ValidAgent(opts.Agent) {
 		return "", "", fmt.Errorf("dispatch: --agent %q must be one of %s", opts.Agent, strings.Join(RemoteAgents, "|"))
 	}
-	name := opts.Name
-	if name == "" {
-		name = DefaultName(opts.Agent)
-	}
-	if !ValidName(name) {
-		return "", "", fmt.Errorf("dispatch: --name %q must match %s", name, nameRe().String())
+	name, err := sessionName(opts)
+	if err != nil {
+		return "", "", err
 	}
 	agentCmd := agentCommand(opts.Agent, opts.Task) + `; exec "${SHELL:-/bin/sh}" -l`
 	var b strings.Builder
@@ -130,6 +127,18 @@ func BuildRemoteCommand(opts RemoteOpts) (string, string, error) {
 	// shell dispatch apart from a shell left behind after the agent process exited.
 	fmt.Fprintf(&b, "tmux set-option -t %s @cc_agent %s\n", QuoteSH(name), QuoteSH(opts.Agent))
 	return b.String(), name, nil
+}
+
+// sessionName returns opts.Name or a generated one, rejecting names outside the tmux allowlist.
+func sessionName(opts RemoteOpts) (string, error) {
+	name := opts.Name
+	if name == "" {
+		name = DefaultName(opts.Agent)
+	}
+	if !ValidName(name) {
+		return "", fmt.Errorf("dispatch: --name %q must match %s", name, nameRe().String())
+	}
+	return name, nil
 }
 
 // fieldSep separates columns in tmux -F format output. It cannot be a tab: tmux's format engine
