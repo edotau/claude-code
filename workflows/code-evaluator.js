@@ -25,8 +25,8 @@ const CONDITIONS = Array.isArray(a.conditions) && a.conditions.length ? a.condit
 // ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
-  const S_CLAUDE = ['haiku', 'sonnet', 'opus']
-  const S_EFFORT = ['low', 'medium', 'high', 'xhigh']
+  const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
+  const S_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max']
   const S_FIELDS = ['model', 'effort']
   const allowed = (opt && opt.allowed) || []
   const d = defaults || {}

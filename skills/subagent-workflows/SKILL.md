@@ -12,6 +12,17 @@ Leaves run through the Agent tool or `claude-code agents ask`; they are terminal
 this skill when and in what order, [patterns.md](references/patterns.md) which shape: weak output means fix the
 skill, a wrong role the agent file, a wrong order this skill. Writing an agent file: `rules/workflows/agents.md`.
 
+## Who holds the plan
+
+| Shape | The plan lives in | Use when |
+| --- | --- | --- |
+| Subagent / skill | Claude, turn by turn | the next step depends on what the last one found |
+| Agent team (experimental) | a lead over peers | peers must talk to each other; not used here |
+| Workflow | the script | the steps are known up front and must run the same every time |
+
+Source: [when to use a workflow](https://code.claude.com/docs/en/workflows#when-to-use-a-workflow). When the owner asks
+for a workflow and no specific one fits, run `orchestrate` (`/home/edotau/.claude/workflows/orchestrate.js`).
+
 ## Leaf types
 
 A leaf works itself on your pin (`code-worker`) or requests another agent via `claude-code agents ask --agent <x>`

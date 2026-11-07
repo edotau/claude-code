@@ -2,7 +2,7 @@ export const meta = {
   name: 'orchestrate',
   description: 'One size-routed entry point: size the job, then route it through relay3 (or draft a plan for an epic)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?}}) with at least one of task/packages/paths. OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, steps {size, intel, impl, plan, child} = {model, effort} per stage (claude only; child is relay3\'s steps). RETURNS {exit, tier, route, packages, merged, confirmed, dropped, fixed, red, decisions, report}. Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?}}) with at least one of task/packages/paths. OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, steps {size, intel, impl, plan, child} = {model, effort} per stage (claude only; child is relay3\'s steps). RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
@@ -14,8 +14,8 @@ export const meta = {
 // ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
-  const S_CLAUDE = ['haiku', 'sonnet', 'opus']
-  const S_EFFORT = ['low', 'medium', 'high', 'xhigh']
+  const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
+  const S_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max']
   const S_FIELDS = ['model', 'effort']
   const allowed = (opt && opt.allowed) || []
   const d = defaults || {}
@@ -107,7 +107,7 @@ if (tier === 'EPIC') {
   ).catch(() => null)
   if (!p) return ERR('plan agent returned nothing', tier, route, decisions)
   decisions.push('epic: no code changed, plan drafted for the owner')
-  return await record({ exit: 'plan', tier, route, packages: 0, merged: 0, confirmed: [], dropped: [], fixed: [], red: [], decisions, report: head + '\n' + p.plan })
+  return await record({ exit: 'plan', tier, route, packages: 0, merged: 0, confirmed: [], dropped: [], unverified: [], fixed: [], red: [], decisions, report: head + '\n' + p.plan })
 }
 const target = tier === 'HIGH' ? { packages: PKGS.length ? PKGS : [...new Set(PATHS)] } : { paths: PATHS }
 if (tier === 'MEDIUM' && TASK) {
@@ -138,7 +138,7 @@ try {
 } catch (e) { return ERR('relay3 threw: ' + e.message, tier, route, decisions) }
 if (!r || r.exit === 'error') return ERR((r && r.error) || 'relay3 returned nothing', tier, route, decisions)
 return await record({
-  exit: r.exit, tier, route, packages: r.packages, merged: r.merged, confirmed: r.confirmed, dropped: r.dropped, fixed: r.fixed, red: r.red,
+  exit: r.exit, tier, route, packages: r.packages, merged: r.merged, confirmed: r.confirmed, dropped: r.dropped, unverified: r.unverified || [], fixed: r.fixed, red: r.red,
   decisions: [...decisions, ...(r.decisions || [])], report: head + '\n' + (r.report || ''),
 })
 

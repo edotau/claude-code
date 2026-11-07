@@ -2,7 +2,7 @@ export const meta = {
   name: 'relay3',
   description: 'Streaming relay: each package flows find → rederive → fix → guard test → gate on its own, no barrier between packages',
   whenToUse:
-    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/relay3.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: fix (default true), minFix (default medium), focus, steps {find, rederive, fix, test, gate} = {model, effort} per stage (claude only). RETURNS {exit, route, packages, merged, confirmed, dropped, fixed, red, decisions, report}. Details: saved-workflows.md.',
+    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/relay3.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default medium), focus, steps {find, rederive, fix, test, gate} = {model, effort} per stage (claude only). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Find', detail: 'two lenses per package; claims merged by file ±10 lines or same symbol within the package' },
     { title: 'Rederive', detail: 'each claim re-derived blind from file:line + symptom' },
@@ -15,8 +15,8 @@ export const meta = {
 // ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
-  const S_CLAUDE = ['haiku', 'sonnet', 'opus']
-  const S_EFFORT = ['low', 'medium', 'high', 'xhigh']
+  const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
+  const S_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max']
   const S_FIELDS = ['model', 'effort']
   const allowed = (opt && opt.allowed) || []
   const d = defaults || {}
@@ -42,7 +42,7 @@ const RAWP = Array.isArray(a.paths) ? a.paths.filter(Boolean).map((p) => String(
 const dirOf = (p) => (/\.go$/.test(p) ? p.split('/').slice(0, -1).join('/') || '.' : p)
 const FILES = {}
 for (const p of RAWP) if (/\.go$/.test(p)) (FILES[dirOf(p)] = FILES[dirOf(p)] || []).push(p)
-const PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages.filter(Boolean) : [...new Set(RAWP.map(dirOf))]
+let PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages.filter(Boolean) : [...new Set(RAWP.map(dirOf))]
 if (!CWD || !PKGS.length) return ERR('args.cwd and one of args.packages or args.paths are required')
 // ── Steps: who runs each stage ──
 const STAGES = ['find', 'rederive', 'fix', 'test', 'gate']
@@ -112,10 +112,12 @@ async function review(p) {
         '. You have not seen their reasoning. Derive your own failing scenario from the code and rate its severity; reproduced=false if you cannot.',
       { phase: 'Rederive', label: 'rederive:' + p + ':' + i, schema: REDERIVE, model: S.rederive.model, effort: S.rederive.effort },
     ).then((r) => ({ f, r }))))
-  const ok = judged.filter(Boolean)
+  // A null rederive (rate or API error) is unverified, never refuted.
+  const ok = merged.map((f, i) => judged[i] || { f, r: null })
+  const unverified = ok.filter((x) => !x.r).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
   const confirmed = ok.filter((x) => x.r && x.r.reproduced).map((x) => ({ ...x.f, severity: x.r.severity, rederived: x.r.scenario }))
-  const dropped = ok.filter((x) => !x.r || !x.r.reproduced).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
-  return { pkg: p, merged: merged.length, confirmed, dropped }
+  const dropped = ok.filter((x) => x.r && !x.r.reproduced).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
+  return { pkg: p, merged: merged.length, confirmed, dropped, unverified }
 }
 
 // inPkg: a finder may cite a file outside its package; that finding is fixed by the file's own package, never by p.
@@ -151,25 +153,35 @@ async function repair(rev) {
   return { ...rev, fixed: cs.length, impl, test, gate, decisions }
 }
 
+// Estimate: 2 finders + ~4 rederivers per package, plus 3 per package that gets fixed.
+const SLICE = Number.isInteger(a.slice) && a.slice > 0 ? a.slice : 0
+const ALL = PKGS
+if (SLICE) PKGS = ALL.slice(0, SLICE)
+log('relay3: ' + PKGS.length + ' package(s), est. ' + (PKGS.length * 6) + ' agents' + (FIX ? ' (+3 per fixed package, up to ' + (PKGS.length * 3) + ')' : '') +
+  (SLICE && ALL.length > SLICE ? '; slice=' + SLICE + ' skipped ' + (ALL.length - SLICE) + ': ' + ALL.slice(SLICE).join(', ') : ''))
 const results = (await pipeline(PKGS, review, repair)).filter(Boolean)
 // Findings cited outside their finder's package: fix them per owning directory after the stream, one at a time.
 const foreign = {}
 for (const r of results) for (const c of r.confirmed) if (!inPkg(c.file, r.pkg) && ORDER[c.severity] <= MIN_FIX) (foreign[dirOf(norm(c.file))] = foreign[dirOf(norm(c.file))] || []).push(c)
 for (const dir of Object.keys(foreign)) {
   if (!FIX) break
-  const fr = await repair({ pkg: dir, merged: 0, confirmed: foreign[dir], dropped: [] })
+  const fr = await repair({ pkg: dir, merged: 0, confirmed: foreign[dir], dropped: [], unverified: [] })
   fr.confirmed = []
   fr.decisions = ['re-routed ' + foreign[dir].length + ' finding(s) cited outside their finder\'s package to ' + dir, ...(fr.decisions || [])]
   results.push(fr)
 }
 const confirmed = results.flatMap((r) => r.confirmed).sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
+const unverified = results.flatMap((r) => r.unverified || [])
 const red = results.filter((r) => r.fixed && !(r.gate && r.gate.green)).map((r) => r.pkg)
 const fixed = results.filter((r) => r.fixed).map((r) => ({ pkg: r.pkg, findings: r.fixed, impl: r.impl, test: r.test, gate: r.gate }))
 const decisions = results.flatMap((r) => r.decisions || [])
 if (!FIX) decisions.push('review only: fix=false')
+if (unverified.length) decisions.push(unverified.length + ' finding(s) unverified: rederive agent returned nothing')
+if (SLICE && ALL.length > SLICE) decisions.push('slice=' + SLICE + ': skipped ' + (ALL.length - SLICE) + ' package(s)')
 const bullets = confirmed.map((c) => '- **' + c.severity + '** `' + c.file + ':' + c.line + '` (' + c.symbol + ') — ' + c.symptom)
 const report = ['# relay3: ' + confirmed.length + ' confirmed finding(s) in ' + PKGS.length + ' package(s)', ...bullets,
-  '', 'Fixed: ' + fixed.map((f) => f.pkg + ' (' + f.findings + ')').join(', ') + (fixed.length ? '' : 'none') + '. Red: ' + (red.join(', ') || 'none') + '.'].join('\n')
+  '', 'Fixed: ' + fixed.map((f) => f.pkg + ' (' + f.findings + ')').join(', ') + (fixed.length ? '' : 'none') + '. Red: ' + (red.join(', ') || 'none') + '.',
+  ...(unverified.length ? ['Unverified (rederive failed): ' + unverified.map((u) => u.file + ':' + u.line).join(', ') + '.'] : [])].join('\n')
 return {
   exit: red.length ? 'red' : FIX ? 'green' : 'review',
   route: 'relay3',
@@ -177,6 +189,7 @@ return {
   merged: results.reduce((n, r) => n + r.merged, 0),
   confirmed,
   dropped: results.flatMap((r) => r.dropped),
+  unverified,
   fixed,
   red,
   decisions,
