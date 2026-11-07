@@ -65,7 +65,7 @@ func seedFile(p, body string) error {
 		return err
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }() // the temp name is spare once linked, garbage if the write failed
 	werr := writeBody(f, body)
 	if err := errors.Join(werr, f.Chmod(0o600), f.Close()); err != nil {
 		return err
