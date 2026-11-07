@@ -408,12 +408,18 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	if len(page) == 0 && len(deletes) == 0 {
 		return
 	}
-	if !confirmLeave(len(page)+len(deletes), "change(s) to the secrets manager") {
+	n := len(page) + len(deletes)
+	for _, name := range deletes {
+		if slices.Contains(page, name) {
+			n-- // a key both staged and staged-for-delete is one change
+		}
+	}
+	if !confirmLeave(n, "change(s) to the secrets manager") {
 		for _, name := range page {
 			restoreStaged(d, name, before)
 		}
 		d.pendingDeletes = nil
-		d.printf("secrets: %d change(s) discarded\n", len(page)+len(deletes))
+		d.printf("secrets: %d change(s) discarded\n", n)
 		return
 	}
 	for _, name := range deletes {

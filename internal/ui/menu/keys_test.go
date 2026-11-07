@@ -724,3 +724,29 @@ func TestStagedDeleteCancelKeepsPrePageStagedEdit(t *testing.T) {
 		t.Error("cancel must clear the staged delete")
 	}
 }
+
+// A key both staged on the page and staged for delete is one logical change, not two, in the discard message.
+func TestConfirmPageKeysCountsStagedAndDeletedKeyOnce(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	const name = "CONFIGURE_COUNT_ONCE"
+	t.Setenv(name, "")
+	vaulttest.Secret(t, name, "stored-value")
+	orig := saveConfirmed
+	saveConfirmed = func(string) bool { return false }
+	t.Cleanup(func() { saveConfirmed = orig })
+
+	d, out := newDialog("y\n")
+	d.pending = map[string]stagedKey{}
+	before := maps.Clone(d.pending)
+	if !d.stage(name, "page-value") {
+		t.Fatal("stage failed")
+	}
+	if !deleteSecret(d, name) {
+		t.Fatal("deleteSecret = false")
+	}
+	confirmPageKeys(d, before)
+
+	if !strings.Contains(out.String(), "secrets: 1 change(s) discarded") {
+		t.Errorf("output = %q, want 1 change(s) discarded", out.String())
+	}
+}
