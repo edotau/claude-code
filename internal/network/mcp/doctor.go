@@ -253,6 +253,15 @@ func findConflicts(defs []Def, home string) []Conflict {
 	return out
 }
 
+// doctorConflicts compares the original defs, so a secret-only difference counts, then redacts every row for output.
+func doctorConflicts(defs []Def, home string) []Conflict {
+	out := findConflicts(defs, home)
+	for i := range out {
+		out[i].Rows = redact(out[i].Rows)
+	}
+	return out
+}
+
 // expandArgsHome expands a leading ~ or ~/ in each whitespace-separated argument of cmd.
 func expandArgsHome(cmd string) string {
 	args := strings.Fields(cmd)
@@ -372,7 +381,7 @@ func Doctor(w io.Writer, o Options) int {
 	rep := Report{
 		Defs:      safe,
 		Health:    runHealth(o.Claude),
-		Conflicts: findConflicts(safe, o.Home),
+		Conflicts: doctorConflicts(defs, o.Home),
 		Secrets:   secrets,
 		Unscanned: unscanned,
 	}
