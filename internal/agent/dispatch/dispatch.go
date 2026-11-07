@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -46,7 +45,7 @@ func Cmd(args []string) int {
 	fs.Var(&parts, "part", "explore: one sub-question per leg (repeatable, max 12)")
 	noWeb := fs.Bool("no-web", false, "explore: code scan only, skip web research")
 	models := fs.String("models", "", "compare: model ids, comma-separated (default: the role's set)")
-	jobs := fs.Int("jobs", explore.MaxParts, "legs running at once (max 12)")
+	jobs := fs.Int("jobs", roles.MaxParts, "legs running at once (max 12)")
 	timeout := fs.Duration("timeout", 0, "per-leg time limit (0 = the agent's default)")
 	format := helptext.FormatFlag(fs)
 	background := fs.Bool("background", false, "detach each leg and print its id; no merged report")
@@ -76,8 +75,8 @@ func Cmd(args []string) int {
 
 // resolveInputs checks the part cap, looks up the role and loads the --output-schema, before any leg runs.
 func resolveInputs(roleName string, nparts int, schemaArg string) (roles.Role, string, error) {
-	if nparts > explore.MaxParts {
-		return roles.Role{}, "", fmt.Errorf("%d --part values; the fan-out cap is %d", nparts, explore.MaxParts)
+	if nparts > roles.MaxParts {
+		return roles.Role{}, "", fmt.Errorf("%d --part values; the fan-out cap is %d", nparts, roles.MaxParts)
 	}
 	role, err := roles.Lookup(roleName)
 	if err != nil {
@@ -102,7 +101,7 @@ func splitModels(s string) []string {
 func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int, format string, background bool) int {
 	client := ask.NewClient()
 	if role.Name == "explore" && len(q.Parts) == 0 && !background {
-		q.Parts = explore.Split(ctx, client, q.Task)
+		q.Parts = roles.Split(ctx, client, q.Task)
 	}
 	legs := roles.Legs(role, q)
 	if len(legs) == 0 {

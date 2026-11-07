@@ -1,5 +1,4 @@
-// Package explore builds read-only Explore runs: the brief prompt, the ask argv, per-leg options and the split.
-package explore
+package roles
 
 import "github.com/edotau/claude-code/internal/agent"
 
