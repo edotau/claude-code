@@ -2,11 +2,13 @@ export const meta = {
   name: 'orchestrate',
   description: 'One size-routed entry point: size the job, then route it through relay3 (or draft a plan for an epic)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, steps {size, intel, impl, plan, child} = {model, effort} per stage (claude only; child is relay3\'s steps). RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report}. Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, steps {size, intel, impl, plan, child} = {model, effort} per stage (claude only; child is relay3\'s steps). polish (default true; false skips Simplify and Review) runs once after relay3 when it fixed something; steps also take simplify, review. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, simplify, review, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
     { title: 'Run', detail: 'relay3 over the paths (TRIVIAL/LOW/MEDIUM) or the packages (HIGH)' },
+    { title: 'Simplify', detail: 'one agent runs review simplify over the files relay3 fixed and applies the simplify gate (polish:false skips)' },
+    { title: 'Review', detail: 'one read-only agent reviews that diff; critical/high/medium findings earn one more relay3 pass' },
     { title: 'Record', detail: 'one cheap agent appends the report and decisions to the memory store (record:false skips)' },
   ],
 }
@@ -47,7 +49,7 @@ if (!CWD || !(TASK || PATHS.length || PKGS.length || RANGE)) return ERR('args.cw
 if (a.tier !== undefined && !TIERS.includes(a.tier)) return ERR('args.tier must be ' + TIERS.join('|'))
 // steps.child is relay3's own steps; the rest are ours.
 const { child: CHILD_STEPS, ...OWN } = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
-const OPT = { allowed: ['size', 'intel', 'impl', 'plan', 'record'] }
+const OPT = { allowed: ['size', 'intel', 'impl', 'plan', 'simplify', 'review', 'record'] }
 let S
 try {
   S = {
@@ -55,6 +57,8 @@ try {
     intel: stepOf(OWN, 'intel', { model: 'sonnet', effort: 'medium' }, OPT),
     impl: stepOf(OWN, 'impl', { model: 'sonnet', effort: 'medium' }, OPT),
     plan: stepOf(OWN, 'plan', { model: 'sonnet', effort: 'medium' }, OPT),
+    simplify: stepOf(OWN, 'simplify', { model: 'sonnet', effort: 'medium' }, OPT),
+    review: stepOf(OWN, 'review', { model: 'sonnet', effort: 'high' }, OPT),
     record: stepOf(OWN, 'record', { model: 'haiku', effort: 'low' }, OPT),
   }
 } catch (e) { return ERR(e.message) }
@@ -83,6 +87,16 @@ const tierOf = (kind, paths, pkgs) => {
 const INTEL = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } }, focus: { type: 'string' } }, required: ['paths', 'focus'] }
 const WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, summary: { type: 'string' } }, required: ['status', 'summary'] }
 const PLAN = { type: 'object', properties: { plan: { type: 'string' } }, required: ['plan'] }
+const SIMP = {
+  type: 'object',
+  properties: { applied: { type: 'array', items: { type: 'string' } }, flagged: { type: 'array', items: { type: 'string' } }, deltaLines: { type: 'integer' }, status: { type: 'string', enum: ['done', 'clean', 'partial', 'blocked'] } },
+  required: ['applied', 'flagged', 'deltaLines', 'status'],
+}
+const REVF = {
+  type: 'object',
+  properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } },
+  required: ['findings'],
+}
 const RECORDED = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } } }, required: ['paths'] }
 
 // ── Size ──
@@ -174,10 +188,66 @@ try {
   r = await workflow({ scriptPath: CWD + '/workflows/relay3.js' }, { cwd: CWD, ...target, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS })
 } catch (e) { return ERR('relay3 threw: ' + e.message, tier, route, decisions) }
 if (!r || r.exit === 'error') return ERR((r && r.error) || 'relay3 returned nothing', tier, route, decisions)
-return await record({
+let res = {
   exit: r.exit, tier, route, packages: r.packages, merged: r.merged, confirmed: r.confirmed, dropped: r.dropped, unverified: r.unverified || [], fixed: r.fixed, red: r.red,
   decisions: [...decisions, ...(r.decisions || [])], report: head + '\n' + (r.report || ''),
-})
+}
+if (a.polish !== false && a.fix !== false && (r.fixed || []).length) res = await polish(res, target, focus)
+return await record(res)
+
+// changedFiles lists the files relay3's fixers and test writers reported, repo-relative; a package dir stands in when none were named.
+function changedFiles(fixed) {
+  const norm = (f) => String(f).replace(CWD + '/', '')
+  const files = fixed.flatMap((f) => [...strs(f.impl && f.impl.files), ...strs(f.test && f.test.files)].map(norm))
+  return [...new Set(files.length ? files : fixed.map((f) => norm(f.pkg)))]
+}
+
+// polish runs Simplify once over the merged diff, then Review; a critical/high/medium finding earns one more relay3 pass.
+async function polish(res, tgt, foc) {
+  const files = changedFiles(res.fixed)
+  const scope = 'Only these files (the tree is shared and has other dirty files; never touch or diff others): ' + files.join(' ') + '. Diff: `git diff -- ' + files.join(' ') + '`.'
+  phase('Simplify')
+  const sp = await agent(
+    RULES + ' Simplify gate (' + CWD + '/skills/simplify/SKILL.md, quality.md -> Simplify), run ONCE over the merged diff. ' + scope +
+      ' Run `claude-code review simplify ' + files.join(' ') + '`, then one in-context pass (reuse, simplification, efficiency, altitude). Name the assumption before every cut; ' +
+      'flag instead of cutting when it has no covering test; never cut semantic comments, error context or distinct tests; never fix bugs (flag them). Edit only the listed non-test files. ' +
+      'After edits run gofmt, go vet and go test for the touched packages; if a test regresses, revert your own edit by hand (never git checkout/restore/stash) and flag it. ' +
+      'Return applied[] and flagged[] as `file:line · what · assumption`, deltaLines (net changed lines, negative = removed) and status (clean = nothing to do).',
+    { phase: 'Simplify', label: 'simplify', schema: SIMP, model: S.simplify.model, effort: S.simplify.effort },
+  ).catch(() => null)
+  const simplify = sp || { applied: [], flagged: [], deltaLines: 0, status: 'blocked' }
+  const d = ['simplify: ' + (sp ? simplify.applied.length + ' applied, ' + simplify.flagged.length + ' flagged, Δ ' + simplify.deltaLines + ' lines (' + simplify.status + ')' : 'agent returned nothing')]
+  phase('Review')
+  const rv = await agent(
+    RULES + ' Read-only: edit nothing, never run go test. Review the final diff with the ' + CWD + '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, ' +
+      'changed behavior callers rely on, errors dropped). ' + scope + ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.',
+    { phase: 'Review', label: 'review', schema: REVF, model: S.review.model, effort: S.review.effort },
+  ).catch(() => null)
+  const findings = rv ? rv.findings : []
+  const sev = ['critical', 'high', 'medium', 'low'].map((k) => [k, findings.filter((f) => f.severity === k).length]).filter((x) => x[1])
+  const review = { findings, ran: !!rv }
+  d.push('review: ' + (rv ? findings.length + ' findings (' + (sev.map((x) => x[1] + ' ' + x[0]).join(', ') || 'none') + ')' : 'agent returned nothing'))
+  const hot = findings.filter((f) => f.severity !== 'low')
+  const out = { ...res, simplify, review }
+  if (hot.length) {
+    const hotPaths = [...new Set(hot.map((f) => String(f.file).replace(CWD + '/', '')).filter((f) => /\.go$/.test(f) && !/_test\.go$/.test(f)))]
+    const text = hot.map((f) => f.file + ':' + f.line + ' (' + f.symbol + ', ' + f.severity + '): ' + f.symptom).join('; ')
+    let r2 = null
+    if (hotPaths.length) r2 = await workflow({ scriptPath: CWD + '/workflows/relay3.js' }, { cwd: CWD, paths: hotPaths, fix: true, minFix: a.minFix, focus: 'Review findings to verify and fix: ' + text, steps: CHILD_STEPS }).catch(() => null)
+    d.push('review loop: ' + (r2 && r2.exit !== 'error' ? 'ran once over ' + hotPaths.join(', ') + ' (capped at one loop)' : 'skipped, no usable Go paths or relay3 failed'))
+    if (r2 && r2.exit !== 'error') {
+      out.exit = r2.exit === 'red' || res.red.length ? 'red' : res.exit
+      out.fixed = [...res.fixed, ...(r2.fixed || [])]
+      out.red = [...res.red, ...(r2.red || [])]
+      d.push(...(r2.decisions || []))
+    }
+  } else d.push('review loop: skipped, no critical/high/medium finding')
+  const lows = findings.filter((f) => f.severity === 'low')
+  const sec = ['', '## Simplify', simplify.status + ', Δ ' + simplify.deltaLines + ' lines', ...simplify.applied.map((x) => '- applied: ' + x), ...simplify.flagged.map((x) => '- flagged: ' + x),
+    '', '## Review', findings.length ? findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom).join('\n') : 'no findings']
+  if (lows.length) sec.push('Lows are report-only.')
+  return { ...out, decisions: [...res.decisions, ...d], report: res.report + '\n' + sec.join('\n') }
+}
 
 // record appends the run's report and decisions to the repo's memory reports so continuity needs no hand-written notes.
 async function record(res) {

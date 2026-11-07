@@ -8,10 +8,10 @@ decision; agents work in the shared tree.
 | Workflow | Shape | Key args (`steps` = per-stage `{model?, effort?}`) |
 | --- | --- | --- |
 | `green-keeper-loop` | gate → fix in scope → re-run, ≤3 per call (whole task ≤5); exits `green\|stalled\|capped\|error` | `{scope, gate?, maxIterations?, claudeState?, steps: {detect, fix}}` |
-| `code-analyzer` | scoped auditors → proximity merge (±10 lines or same symbol) → refute → fix + test per package → gate → re-audit (≤rounds); returns the shared relay3 shape plus refuted, rounds | `{range\|paths\|findings, fix?, minFix?, rounds?, steps: {scope, audit, refute, fix, test, gate}}` |
+| `code-analyzer` | scoped auditors → proximity merge (±10 lines or same symbol) → refute → dependency scan + wave plan → fix + test per package, wave by wave (hotspot files last) → gate → re-audit (≤rounds); returns the shared relay3 shape plus refuted, rounds | `{range\|paths\|findings, fix?, partition?, cap?, hotspots?, minFix?, rounds?, steps: {scope, audit, refute, fix, test, gate, depscan}}` |
 | `code-evaluator` | trap scenarios with vs without a skill, then judges score each run | `{base, skill, scenarios?, seeds?, steps: {run, judge}}` |
 | `relay3` | streaming per-package relay: find → rederive → fix → guard test → gate, no barrier between packages; exits `green\|red\|review\|error` | `{cwd, packages\|paths, fix?, minFix?, focus?, steps: {find, rederive, fix, test, gate}}` |
-| `orchestrate` | size the job (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) then route: relay3 on paths (MEDIUM adds intel, a feature adds an implementer), relay3 on packages (HIGH), plan draft (EPIC); exits `green\|red\|review\|plan\|error` | `{cwd, task\|packages\|paths, tier?, fix?, minFix?, focus?, steps: {size, intel, impl, plan, child}}` |
+| `orchestrate` | size the job (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) then route: relay3 on paths (MEDIUM adds intel, a feature adds an implementer), relay3 on packages (HIGH), plan draft (EPIC); when relay3 fixed something, one Simplify and one Review pass (`polish:false` skips; a critical/high/medium finding earns one more relay3, capped at one loop); exits `green\|red\|review\|plan\|error` | `{cwd, task\|packages\|paths, tier?, fix?, minFix?, focus?, polish?, steps: {size, intel, impl, plan, simplify, review, child}}` |
 
 - Workflows are Claude only: a stage runs at `model` = `haiku|sonnet|opus|fable` (`effort` up to `max`), and an
   `agent`/`profile` field or an unknown stage errors before any agent runs. Parser: `stepOf`, copied verbatim into
