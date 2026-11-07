@@ -11,7 +11,7 @@ export const meta = {
   ],
 }
 
-// ── stepOf: copied verbatim into code-analyzer, code-engineer, green-keeper-loop, code-evaluator ──
+// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, relay3, orchestrate ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
