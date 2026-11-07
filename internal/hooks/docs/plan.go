@@ -189,7 +189,7 @@ func resolveCWDPath(path, cwd string) string {
 // planDestination picks <date>-<title>.md, then -2.md, … under the repo's plans dir; adopt reuses a
 // candidate already holding content (fresh=false) — save-plan adopts, a mirror never takes a file it did not create.
 func planDestination(cwd, title string, content []byte, adopt bool) (dest string, fresh bool) {
-	dir := plans.Home(cmp.Or(memstore.GitToplevel(cwd), cwd))
+	dir := plans.Home(planRepoRoot(cwd))
 	base := time.Now().Format("2006-01-02") + "-" + title
 	for n := 1; ; n++ {
 		name := base + ".md"
@@ -208,6 +208,14 @@ func planDestination(cwd, title string, content []byte, adopt bool) (dest string
 			return p, false
 		}
 	}
+}
+
+// planRepoRoot is cwd's git root; anything under the config dir (memory/<repo> is its own git repo) is the harness.
+func planRepoRoot(cwd string) string {
+	if cfg := paths.ConfigDir(); core.UnderDir(paths.Canon(cfg), paths.CanonDeep(cwd)) {
+		return cfg
+	}
+	return cmp.Or(memstore.GitToplevel(cwd), cwd)
 }
 
 // claimPlanFile reserves p with an O_EXCL create; false means a peer claimed it first.

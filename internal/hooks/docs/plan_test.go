@@ -624,3 +624,22 @@ func TestWriteVerifiedPlanDropsEmptyClaimOnFailure(t *testing.T) {
 		t.Fatalf("empty claim left behind after failed write: stat err = %v", err)
 	}
 }
+
+// TestSavePlanFromNestedConfigRepoFilesUntagged: a cwd in a git repo nested in the config dir (memory/<repo>) is
+// the harness itself, so the plan lands untagged under plans/, not under plans/memory/.
+func TestSavePlanFromNestedConfigRepoFilesUntagged(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	nested := gittest.RepoAt(t, filepath.Join(cfg, "memory"))
+	cwd := filepath.Join(nested, "claude-code")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code := Save(core.ParseInput(strings.NewReader(planPayload(t, cwd, "# Plan: Nested\n\nsteps\n", ""))), &bytes.Buffer{}); code != core.ExitProceed {
+		t.Fatalf("Save must never block, got %d", code)
+	}
+	want := []string{time.Now().Format("2006-01-02") + "-nested.md"}
+	if got := savedPlans(t, cfg); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("saved = %v, want %v", got, want)
+	}
+}
