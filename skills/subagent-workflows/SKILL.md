@@ -58,7 +58,7 @@ plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
 | Same question, many angles | `claude-code agents dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
 | Sequential plan · tournament | [patterns.md](references/patterns.md) (every shape, its pattern and what enforces it) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
-| Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) |
+| Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · composite templates: [composites.md](references/composites.md) |
 | Fleet scan | `claude-code agents dispatch fleet "<task>"`; check `git diff --stat` after |
 
 ### Phase 1: prepare
