@@ -2,7 +2,7 @@ export const meta = {
   name: 'orchestrate',
   description: 'One size-routed entry point: size the job, then route it through relay3 (or draft a plan for an epic)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?}}) with at least one of task/packages/paths. OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, steps {size, intel, impl, plan, child} = {model, effort} per stage (claude only; child is relay3\'s steps). RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report}. Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, steps {size, intel, impl, plan, child} = {model, effort} per stage (claude only; child is relay3\'s steps). RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
@@ -41,7 +41,9 @@ const strs = (v) => (Array.isArray(v) ? v.filter(Boolean).map(String) : [])
 let PATHS = strs(a.paths)
 let PKGS = strs(a.packages)
 const TIERS = ['TRIVIAL', 'LOW', 'MEDIUM', 'HIGH', 'EPIC']
-if (!CWD || !(TASK || PATHS.length || PKGS.length)) return ERR('args.cwd and one of args.task, args.packages or args.paths are required')
+const RANGE = a.range ? String(a.range) : ''
+if (RANGE && !/^[A-Za-z0-9._\/~^@{}-]+(\.\.\.?[A-Za-z0-9._\/~^@{}-]+)?$/.test(RANGE)) return ERR('args.range must be a git range like main..HEAD')
+if (!CWD || !(TASK || PATHS.length || PKGS.length || RANGE)) return ERR('args.cwd and one of args.task, args.packages, args.paths or args.range are required')
 if (a.tier !== undefined && !TIERS.includes(a.tier)) return ERR('args.tier must be ' + TIERS.join('|'))
 // steps.child is relay3's own steps; the rest are ours.
 const { child: CHILD_STEPS, ...OWN } = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
@@ -75,6 +77,24 @@ phase('Size')
 const decisions = []
 let tier = a.tier
 let focus = a.focus || TASK
+// A git range becomes the changed Go files (non-test), so a diff audit needs no separate workflow.
+if (RANGE) {
+  const ch = await agent(
+    RULES + ' Read-only. Run `git diff --name-only ' + RANGE + " -- '*.go'` and return the files that still exist and are not *_test.go, " +
+      'repo-relative. Return {paths: []} when there are none.',
+    { phase: 'Size', label: 'range', schema: RECORDED, model: S.size.model, effort: S.size.effort },
+  ).catch(() => null)
+  const got = ch ? strs(ch.paths) : []
+  PATHS = [...new Set([...PATHS, ...got])]
+  decisions.push('range ' + RANGE + ': ' + got.length + ' changed Go file(s)')
+  if (!PATHS.length && !PKGS.length && !TASK) return await record({ exit: 'green', tier: 'TRIVIAL', route: 'none', packages: 0, merged: 0, confirmed: [], dropped: [], unverified: [], fixed: [], red: [], decisions, report: '# orchestrate: range ' + RANGE + ' has no Go changes' })
+  if (!tier && !TASK) {
+    const dirs = new Set(PATHS.map((p) => p.split('/').slice(0, -1).join('/')))
+    tier = dirs.size > 1 || PATHS.length > 5 ? 'HIGH' : 'LOW'
+    if (tier === 'HIGH' && !PKGS.length) PKGS = [...dirs]
+    decisions.push('sized as ' + tier + ': range spans ' + dirs.size + ' package(s), ' + PATHS.length + ' file(s)')
+  }
+}
 if (!tier && !TASK) {
   tier = PKGS.length ? 'HIGH' : 'LOW'
   decisions.push('sized as ' + tier + ': no task, ' + (PKGS.length ? 'a package list is an audit' : 'only named paths'))
