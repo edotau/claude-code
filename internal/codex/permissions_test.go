@@ -154,3 +154,26 @@ func TestLinkHomeRetargetsHookTrust(t *testing.T) {
 		t.Fatalf("config.toml = %q (%v), want trust keys under %s", got, err, home)
 	}
 }
+
+func TestCodexRulesHomeKeepsAuthWhenSaveFails(t *testing.T) {
+	cfg, real := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CODEX_HOME", real)
+	if err := os.Mkdir(filepath.Join(real, "auth.json"), 0o700); err != nil { // a directory: the write-back rename fails
+		t.Fatal(err)
+	}
+	home, remove, err := codexRulesHome("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, "auth.json")); err != nil { // drop the symlink to the directory
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte("fresh"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	remove()
+	if b, err := os.ReadFile(filepath.Join(home, "auth.json")); err != nil || string(b) != "fresh" {
+		t.Fatalf("refreshed auth.json lost after a failed save: %q, %v", b, err)
+	}
+}
