@@ -341,23 +341,23 @@ func projectLinksTo(dir string) []string {
 	return out
 }
 
-// apply runs under the bank lock: journaled commit, move the origin row, remove the source dir, repoint links, settle.
+// apply runs under the bank lock: reversible steps first (undone on error), then the journaled commit, then cleanup.
 func (p *aliasPlan) apply(now time.Time) error {
+	undo, err := p.repoint()
+	if err != nil {
+		return err
+	}
 	if len(p.changes) > 0 {
-		if _, err := bank.CommitChangesLocked("memory: fold "+filepath.Base(p.source)+" into "+filepath.Base(p.target), p.changes); err != nil {
+		rec, err := bank.CommitChangesLocked("memory: fold "+filepath.Base(p.source)+" into "+filepath.Base(p.target), p.changes)
+		if err != nil && rec.ID != "" { // a journal exists: it rolls forward to the repointed target, so undo would split them
 			return err
 		}
-	}
-	if err := memstore.FoldOrigin(p.target, p.origin, filepath.Base(p.source)); err != nil {
-		return err
+		if err != nil {
+			return errors.Join(err, undo())
+		}
 	}
 	if err := removeEmptyTree(p.source); err != nil {
 		return err
-	}
-	for _, l := range p.links {
-		if err := paths.SwapSymlink(p.target, l); err != nil {
-			return err
-		}
 	}
 	var s bank.BankSettlement
 	if err := bank.SettleDir(p.target, now, &s); err != nil {
@@ -367,6 +367,43 @@ func (p *aliasPlan) apply(now time.Time) error {
 		return err
 	}
 	return bank.CommitStore("settle: alias " + filepath.Base(p.target))
+}
+
+// repoint folds the origin row and swaps the links; on error it rolls back, else returns an undo for a later failure.
+func (p *aliasPlan) repoint() (func() error, error) {
+	var undos []func() error
+	undo := func() error {
+		var errs []error
+		for _, u := range slices.Backward(undos) {
+			errs = append(errs, u())
+		}
+		return errors.Join(errs...)
+	}
+	tPrev, tErr := memstore.ReadOrigin(p.target)
+	if tErr == nil {
+		undos = append(undos, func() error { return memstore.FoldOrigin(p.target, tPrev, "") })
+	}
+	if sPrev, err := memstore.ReadOrigin(p.source); err == nil {
+		drop := "" // a target that had no row loses the folded one in the same transaction
+		if errors.Is(tErr, fs.ErrNotExist) {
+			drop = filepath.Base(p.target)
+		}
+		undos = append(undos, func() error { return memstore.FoldOrigin(p.source, sPrev, drop) })
+	}
+	if err := memstore.FoldOrigin(p.target, p.origin, filepath.Base(p.source)); err != nil {
+		return nil, err
+	}
+	for _, l := range p.links {
+		old, err := os.Readlink(l)
+		if err != nil {
+			return nil, errors.Join(err, undo())
+		}
+		if err := paths.SwapSymlink(p.target, l); err != nil {
+			return nil, errors.Join(err, undo())
+		}
+		undos = append(undos, func() error { return paths.SwapSymlink(old, l) })
+	}
+	return undo, nil
 }
 
 // removeEmptyTree deletes dir only when no file remains in it; a survivor means a delete diverged.
