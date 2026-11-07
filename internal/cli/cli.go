@@ -9,106 +9,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/testtool/mutate"
 	"github.com/edotau/claude-code/internal/testtool/ramdisk"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/theme"
-	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 )
-
-// command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
-type command struct {
-	name    string
-	summary string // longer than a line wraps with a hanging indent
-	group   string
-	hidden  bool
-	run     func(args []string) int
-}
-
-// Menu groups; declaration order in commands() is the display order.
-const (
-	groupAnthropic   = "ANTHROPIC"
-	groupAgents      = "AGENTS"
-	groupAuth        = "AUTH"
-	groupSession     = "SESSION"
-	groupDiagnostics = "DIAGNOSTICS"
-	groupSettings    = "SETTINGS"
-)
-
-// alphabetical groups list their verbs A→Z; ANTHROPIC (alias order) and AGENTS keep declaration order.
-var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDiagnostics: true, groupSettings: true}
-
-// Menu layout widths.
-const (
-	menuWidth = 80
-	nameWidth = 16
-)
-
-func commands() []command {
-	return append([]command{
-		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: aliasVerb(models.Opus)},
-		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: aliasVerb(models.Sonnet)},
-		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: aliasVerb(models.Haiku)},
-		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: aliasVerb(models.Fable)},
-		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
-		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
-		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return agentVerb("copilot", a) }},
-		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return agentVerb("codex", a) }},
-		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: cmdGemini},
-		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return agentVerb("opencode", a) }},
-		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
-		// AUTH
-		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
-		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run},
-		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: func(a []string) int { return network.Run(a, func() any { return verbTree() }) }},
-		// SESSION
-		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},
-		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }},
-		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory},
-		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
-		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
-		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
-		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: cmdPlan},
-		// DIAGNOSTICS
-		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
-		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway},
-		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: cmdUsage},
-		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
-		// SETTINGS
-		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: cmdInstall},
-		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: cmdConfigure},
-		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme},
-	}, hiddenCommands()...)
-}
-
-func hiddenCommands() []command {
-	return []command{
-		// Hidden: dispatchable, named in the trailing note, off the menu.
-		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
-		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
-		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: CmdAgents},
-		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: cmdPreflight},
-		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels},
-		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview},
-		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow},
-		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},
-		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: cmdClip},
-		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: cmdClipClear},
-		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: cmdWLPaste},
-		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
-		{name: "completion", hidden: true, summary: "bash tab-completion script (--install to write it)", run: cmdCompletion},
-		{name: "__complete", hidden: true, summary: "machine: compute tab-completion candidates", run: cmdComplete},
-	}
-}
 
 // agentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
 // `ask` = `ask --agent <v>`, a word in agentSubverbs = agentSub, else launch with args forwarded.
@@ -174,98 +81,6 @@ func Run(argv []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
-}
-
-// menuHeader is the menu's fixed opening; it opens on `usage:` — no banner.
-var menuHeader = []string{
-	"usage: claude-code [<command>] [subcommand] [flags]",
-	"       claude-code <command> -h    per-command help",
-	"       claude-code anthropic       login, --oauth token or --x-api-key",
-}
-
-// menuRow is one line after the header: blank, a group head, or a verb (name + summary at gradient position frac).
-type menuRow struct {
-	head, name, summary string
-	frac                float64
-}
-
-// visibleGroups returns the visible verbs' group names in declaration order and the visible verb count.
-func visibleGroups(cmds []command) ([]string, int) {
-	var groups []string
-	seen := map[string]bool{}
-	total := 0
-	for _, c := range cmds {
-		if c.hidden {
-			continue
-		}
-		total++
-		if !seen[c.group] {
-			seen[c.group] = true
-			groups = append(groups, c.group)
-		}
-	}
-	return groups, total
-}
-
-// menuRows lays out the visible verbs: UPPERCASE groups in declaration order, each preceded by a blank line.
-func menuRows() []menuRow {
-	cmds := commands()
-	groups, total := visibleGroups(cmds)
-	var rows []menuRow
-	n := 0
-	for _, g := range groups {
-		rows = append(rows, menuRow{}, menuRow{head: g})
-		var group []command
-		for _, c := range cmds {
-			if !c.hidden && c.group == g {
-				group = append(group, c)
-			}
-		}
-		if alphabetical[g] {
-			slices.SortStableFunc(group, func(a, b command) int { return strings.Compare(a.name, b.name) })
-		}
-		for _, c := range group {
-			rows = append(rows, menuRow{name: fmt.Sprintf("%-*s", nameWidth, c.name), summary: c.summary,
-				frac: float64(n) / float64(max(total-1, 1))})
-			n++
-		}
-	}
-	return rows
-}
-
-// usage renders the grouped menu, painting heads dim and the name column along the status line's gradient.
-func usage(w *os.File) {
-	for _, l := range menuHeader {
-		fmt.Fprintln(w, l)
-	}
-	paintHead := func(s string) string { return s }
-	paintName := func(s string, frac float64) string { return s }
-	if ansi.Enabled(w) {
-		mode, stops, dim := theme.Theme()
-		// ANTHROPIC is first-party, so its head opens the gradient; the other heads stay dim.
-		paintHead = func(s string) string {
-			if s == groupAnthropic {
-				return ansi.Paint(mode, ansi.GradAt(stops, 0), s, true)
-			}
-			return ansi.Paint(mode, dim, s, true)
-		}
-		paintName = func(s string, frac float64) string { return ansi.Paint(mode, ansi.GradAt(stops, frac), s, true) }
-	}
-	for _, r := range menuRows() {
-		switch {
-		case r.head != "":
-			fmt.Fprintln(w, paintHead(r.head))
-		case r.name != "":
-			lines := helptext.Row("  "+r.name, r.summary, 2+nameWidth, helptext.TermWidth(w))
-			fmt.Fprintf(w, "  %s%s\n", paintName(r.name, r.frac), lines[0][min(2+nameWidth, len(lines[0])):])
-			for _, l := range lines[1:] {
-				fmt.Fprintln(w, l)
-			}
-		default:
-			fmt.Fprintln(w)
-		}
-	}
-	fmt.Fprintln(w) // Why: a blank line between the menu and the next shell prompt
 }
 
 func cmdVersion([]string) int {
