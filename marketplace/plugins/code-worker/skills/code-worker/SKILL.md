@@ -6,7 +6,8 @@ disable-model-invocation: true
 ---
 
 Launcher only. The dispatch shape, gates, and report format live in
-`~/.claude/skills/subagent-workflows/SKILL.md` (Ownership for parallel, Sequential plan for sequential).
+`~/.claude/skills/subagent-workflows/SKILL.md` (Handoff contract → Ownership for parallel;
+`references/patterns.md` → Sequential plan and tournament).
 
 `$ARGUMENTS` = `help`: print the Usage block below verbatim and stop.
 
@@ -14,12 +15,13 @@ Strip an optional leading mode word (`parallel`/`sequential`/`auto`) from `$ARGU
 rest on `|` into the task list. Blank task list: read the most recent
 `~/.claude/plans/<repo>/*.md` (or `~/.claude/plans/*.md` for this repo) and use its task
 breakdown. `auto` or no mode: infer parallel for independent tasks, sequential for
-coupled/ordered/plan-derived ones, per the skill's work-shape table — state the choice and why.
+coupled/ordered/plan-derived ones, per `references/patterns.md` in the skill — state the choice and why.
 
 Dispatch each task as a `code-worker:<agent>` leaf (`subagent_type: "code-worker:claude|codex|gemini"`) per the
 skill's process; feature/bug-fix tasks add a `copilot` test agent (`rules/standards/testing-guidelines.md`).
-Run the spec → simplify → quality gates from the skill before moving to the next task (sequential) or over the
-integrated diff (parallel); parallel leaves only on disjoint files (SKILL.md → Concurrency).
+Run the Spec Reviewer, Simplifier and Code Quality Reviewer gates (`references/prompts.md`)
+before moving to the next task (sequential) or over the integrated diff (parallel);
+parallel leaves only on disjoint files (SKILL.md → Concurrency).
 Relay one consolidated report: per-task status, files, verification, overall verdict.
 
 Default agents: the pool is claude (in-context), codex and gemini. An `agent=` token (stripped first) sets every

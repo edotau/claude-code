@@ -43,7 +43,7 @@ leaf claiming each overlapping file.
 ## Registry files: the orchestrator owns them
 
 Files every lane appends to (`internal/schemas/ledger_test.go`, `internal/schemas/testdata/registry.golden`,
-`internal/settings/hookspec.go`, `internal/hooks/io.go`'s handler map, `rules/harness/hooks.md`) are never in a
+`internal/settings/hookspec.go`, `internal/hooks/dispatch.go`'s handler map, `rules/harness/hooks.md`) are never in a
 leaf's `owns:`. The leaf's report carries its entry as a fenced block (file, anchor line, exact text); main applies
 every lane's entries in one commit after the leaves land. Leaves share the tree by default; one that must compile
 against a new entry before main applies it gets its own linked worktree (`claude-code worktree create <slug>`).
@@ -70,6 +70,7 @@ stayed intact, local `main` diverged, and any commit by either session would hav
 
 ## Incident (2026-10-30)
 
-A cleanup lane and the agent refactor both edited `internal/schemas/writers_test.go`. A commit by path swept the
+A cleanup lane and the agent refactor both edited `internal/schemas/writers_test.go`
+(now `internal/schemas/ledger_test.go`). A commit by path swept the
 refactor's three unpushed registry keys into `a32139a6`, and `origin/main` went red on `TestWriters` until the
 refactor's commit landed. A clean-archive check without `-count=1` had passed; the same check with it failed.

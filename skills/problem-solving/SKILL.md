@@ -108,7 +108,8 @@ question first. Claim discipline: `references/verify.md`.
    is reachable. Locate the section, read that section; never re-fetch what's already in context.
 3. **Parallelize the independent and expensive.** Web fetches, doc lookups, and multi-area
    explorations go out in **one** batch. Chain small local reads only
-   when each shapes the next. Cap concurrency by context weight (CLAUDE.md §Behavioral 8).
+   when each shapes the next. Cap concurrency by context weight (CLAUDE.md §Behavioral 3;
+   subagent-workflows → Concurrency).
 4. **Time-box.** One round plus one follow-up covers most tasks; a third needs a stated reason.
    Two consecutive lookups that taught you nothing = stop.
 5. **Establish intent before changing behavior.** A failing check has two possible culprits: the
@@ -148,7 +149,8 @@ list mid-work is a surprise (Step 2 rule 6): say it, never silently expand.
    endpoint, config key, price, figure, regulation). Open its source now, or write it and label
    it *memory, unverified* in the report. Discovering ignorance re-opens Step 2.
 3. **Smallest correct change, precise edits over rewrites.** Match existing style even where
-   you'd differ (CLAUDE.md §Behavioral 3). Rewrite a whole file only if you authored it this
+   you'd differ (CLAUDE.md §Behavioral 1;
+   rules/standards/principles.md). Rewrite a whole file only if you authored it this
    session or have fully read it. Before deleting or overwriting, look at what's there — if it
    contradicts how it was described, stop and surface that.
 4. **Track multi-part work.** ≥3 heterogeneous steps or >~5 similar items gets a written

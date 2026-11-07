@@ -8,7 +8,7 @@ argument-hint: "[focus on <area>] [paths…|--base <ref>]"
 
 Review what changed, then apply only the fixes you can prove safe. This skill intentionally replaces the built-in
 `/simplify` (notes on the stock behavior: [builtin-behavior.md](references/builtin-behavior.md)) and adds the
-harness gate from `/Users/edotau/.claude/rules/standards/quality.md` → Simplify, which is the source of truth.
+harness gate from `rules/standards/quality.md` → Simplify, which is the source of truth.
 Never commit; the caller decides.
 
 ## Phase 1 - Scope

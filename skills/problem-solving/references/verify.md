@@ -13,7 +13,7 @@ IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 
 ## Gate Sequence
 
-Run in order. A failure blocks subsequent gates until fixed. Per task only Gates 1-2 run; Gate 3-5 (the full
+Run in order. A failure blocks subsequent gates until fixed. Per task only Gates 1-2 run; Gate 3-6 (the full
 chain) run once per change set at wrap-up, with the user's approval, never in a subagent.
 
 ```text
@@ -21,7 +21,8 @@ Gate 1: FORMAT/LINT   — formatters + linters clean                         —
 Gate 2: SCOPED TESTS  — the tests for the packages/modules touched, named  — every iteration
 Gate 3: FINAL PASS    — full build + full test suite + security scan      — run ONCE per change set, with user approval
 Gate 4: AUTH/SEC      — auth verification (auth changes only); no hardcoded secrets — part of the final pass
-Gate 5: DIFF REVIEW   — diff matches intent, no unrelated changes?        — part of the final pass
+Gate 5: SIMPLIFY      — Skill(simplify) over the merged diff; re-run Gate 2 if it changed code — part of the final pass
+Gate 6: DIFF REVIEW   — diff matches intent, no unrelated changes?        — part of the final pass
 ```
 
 This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `make test` only in Gate 3.
@@ -32,11 +33,11 @@ Scripted form: `Workflow green-keeper-loop` (only when the user asks for one; it
 `../../subagent-workflows/references/saved-workflows.md`).
 
 Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change touched — fixing
-failures minimally. Once an iteration is clean, run Gates 3-5 (the full build + full test suite +
+failures minimally. Once an iteration is clean, run Gates 3-6 (the full build + full test suite +
 security scan + diff review) exactly ONCE as the final pass. Only a failing final pass sends the
 loop back to Gate 1; after 5 iterations total, stop and escalate to the user with the remaining
 failures. This matches `rules/standards/quality.md`'s Verification Order — the expensive run happens once, never per
-iteration, and never in a subagent: Gates 3-5 belong to the main thread with the user's approval (a Workflow the user
+iteration, and never in a subagent: Gates 3-6 belong to the main thread with the user's approval (a Workflow the user
 asked for is that opt-in); a subagent stops after Gate 2.
 
 Per-gate fix strategy:
