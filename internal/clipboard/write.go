@@ -20,6 +20,9 @@ import (
 // clearTimeout bounds ClearIfMatch so a hung clipboard tool cannot leave the secret uncleared forever.
 const clearTimeout = 30 * time.Second
 
+// pipeGrace is how long run waits for stdout to close after the tool exits.
+const pipeGrace = 2 * time.Second
+
 // DefaultClearAfter is how long a copied secret stays on the clipboard before the timed clear.
 const DefaultClearAfter = 30 * time.Second
 
@@ -34,7 +37,8 @@ var run = func(ctx context.Context, stdin []byte, name string, args ...string) (
 	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	cmd.WaitDelay = pipeGrace // xclip -i forks a selection owner that holds the stdout pipe open
+	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		// Command name and status only: never stderr or stdin, which may echo the value.
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			return nil, fmt.Errorf("%s: exit status %d", name, ee.ExitCode())

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -598,5 +599,44 @@ func TestExtractRefusesInternalAddresses(t *testing.T) {
 	})
 	if code != 1 || strings.Count(out, "failed:") != 3 || !strings.Contains(out, "refusing to fetch internal address 192.168.1.1") {
 		t.Errorf("code=%d out=%q, want exit 1 with 3 refusals", code, out)
+	}
+}
+
+func TestPublicIPRefusesCGNATAndZeroNet(t *testing.T) {
+	for _, s := range []string{"100.100.100.100", "100.64.0.1", "0.1.2.3", "ff02::1", "ff0e::1"} {
+		if publicIP(net.ParseIP(s)) {
+			t.Errorf("publicIP(%s) = true, want false", s)
+		}
+	}
+	if !publicIP(net.ParseIP("100.128.0.1")) || !publicIP(net.ParseIP("8.8.8.8")) {
+		t.Error("public addresses outside CGNAT must stay allowed")
+	}
+}
+
+func TestExtractMatchesTavilyNormalisedURL(t *testing.T) {
+	t.Setenv(keyName, "test-key")
+	origClient := pageClient
+	pageClient = &http.Client{Transport: notFoundRT{}}
+	t.Cleanup(func() { pageClient = origClient })
+	orig := tavilyExtract
+	t.Cleanup(func() { tavilyExtract = orig })
+	tavilyExtract = func(_ context.Context, _ string, _ []string, _ string) (extractResponse, error) {
+		var r extractResponse
+		r.Results = append(r.Results, struct {
+			URL        string `json:"url"`
+			RawContent string `json:"raw_content"`
+		}{"https://example.com/", "BODY"})
+		r.Failed = append(r.Failed, struct {
+			URL   string `json:"url"`
+			Error string `json:"error"`
+		}{"https://EXAMPLE.org", "boom"})
+		return r, nil
+	}
+	var code int
+	out := captureStdout(t, func() {
+		code = Extract(context.Background(), []string{"https://example.com", "https://example.org"})
+	})
+	if code != 0 || !strings.Contains(out, "# https://example.com\nBODY") || !strings.Contains(out, "failed: boom") {
+		t.Errorf("code=%d out=%q, want body for normalised echo and failure surfaced", code, out)
 	}
 }

@@ -88,7 +88,7 @@ func parseRobots(txt string) []robotsRule {
 	groups := map[string][]robotsRule{}
 	var agents []string
 	inRules := false
-	for line := range strings.SplitSeq(txt, "\n") {
+	for line := range strings.SplitSeq(strings.TrimPrefix(txt, "\ufeff"), "\n") {
 		if i := strings.IndexByte(line, '#'); i >= 0 {
 			line = line[:i]
 		}
