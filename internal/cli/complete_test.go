@@ -83,8 +83,18 @@ func TestCompletionFlags(t *testing.T) {
 	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--palettes", "--reset"}) {
 		t.Errorf("theme -- = %v, want [--palettes --reset]", got)
 	}
-	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format", "--git", "--range", "--scan", "--secrets", "--since"}) {
-		t.Errorf("doctor -- = %v, want [--audit --days --format --git --range --scan --secrets --since]", got)
+	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format", "--git", "--range", "--refresh", "--scan", "--secrets", "--since"}) {
+		t.Errorf("doctor -- = %v, want [--audit --days --format --git --range --refresh --scan --secrets --since]", got)
+	}
+}
+
+// TestCompletionOffersHelpOnlyFlags: flags each verb's -h lists but the spec tree once omitted still complete.
+func TestCompletionOffersHelpOnlyFlags(t *testing.T) {
+	for verb, want := range map[string]string{"completion": "--install", "usage": "--show", "preflight": "--live",
+		"configure": "--no-agents", "databricks": "--profile", "clip": "--serve"} {
+		if got := completionCandidates([]string{verb, "--"}); !slices.Contains(got, want) {
+			t.Errorf("%s -- = %v, want it to offer %s", verb, got, want)
+		}
 	}
 }
 
