@@ -41,3 +41,14 @@ func TestBuildTemplateIgnoresGlobalGitConfig(t *testing.T) {
 		t.Fatalf("template build read the user's global git config: %v", tmplErr)
 	}
 }
+
+func TestInReturnsStdoutOnly(t *testing.T) {
+	repo := Repo(t)
+
+	if got := In(t, repo, "checkout", "-b", "stderr-probe"); got != "" {
+		t.Fatalf("stderr leaked into the returned output: %q", got)
+	}
+	if got := strings.TrimSpace(In(t, repo, "branch", "--show-current")); got != "stderr-probe" {
+		t.Fatalf("branch = %q, want stderr-probe", got)
+	}
+}
