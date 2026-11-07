@@ -112,11 +112,7 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 	if req.URL.Path == proxy.SessionPath || req.URL.Path == proxy.SessionRevokePath {
-		if !r.secretOK(req) { // a session token never mints or revokes
-			writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret")
-			return true
-		}
-		r.serveSession(w, req)
+		r.sessionRoute(w, req)
 		return true
 	}
 	if !r.authorized(req) {
@@ -124,6 +120,15 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+// sessionRoute serves the mint/revoke paths to the real client secret only.
+func (r *Router) sessionRoute(w http.ResponseWriter, req *http.Request) {
+	if !r.secretOK(req) { // a session token never mints or revokes
+		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret")
+		return
+	}
+	r.serveSession(w, req)
 }
 
 // stripClientAuth drops the proxy secret headers; Authorization survives only as the client's own credential.
@@ -198,28 +203,34 @@ func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body []byte, la
 		if in.Context().Err() != nil {
 			return t.Provider.Name, t.Model, i + 1
 		}
-		var failure *fallbackError
-		isFailure := errors.As(err, &failure)
-		if isFailure && failure.hard {
-			if d, ok := r.demotion(t); ok {
-				ladder = slices.Insert(ladder, i+1, d)
-				fmt.Fprintf(r.log, "proxy: %s %s is quota-dead for this key, demoting to %s\n", t.Provider.Name, t.Model, d.Model)
-				audit.Log(audit.RouterFallback, t.Provider.Name, "status=429 quota; demoted to "+d.Model)
-				continue
-			}
-		}
-		if i < len(ladder)-1 {
-			fmt.Fprintf(r.log, "proxy: %s %s failed, failing over: %v\n", t.Provider.Name, t.Model, err)
-			if isFailure {
-				detail := "connect error"
-				if failure.status != 0 {
-					detail = fmt.Sprintf("status=%d", failure.status)
-				}
-				audit.Log(audit.RouterFallback, t.Provider.Name, detail)
-			}
-		}
+		ladder = r.noteFailure(ladder, i, err)
 	}
 	return exhausted(w, ladder, lastErr)
+}
+
+// noteFailure logs attempt i's failure; a hard-quota one returns the ladder with a demoted model inserted after i.
+func (r *Router) noteFailure(ladder []providers.Target, i int, err error) []providers.Target {
+	t := ladder[i]
+	var failure *fallbackError
+	isFailure := errors.As(err, &failure)
+	if isFailure && failure.hard {
+		if d, ok := r.demotion(t); ok {
+			fmt.Fprintf(r.log, "proxy: %s %s is quota-dead for this key, demoting to %s\n", t.Provider.Name, t.Model, d.Model)
+			audit.Log(audit.RouterFallback, t.Provider.Name, "status=429 quota; demoted to "+d.Model)
+			return slices.Insert(ladder, i+1, d)
+		}
+	}
+	if i < len(ladder)-1 {
+		fmt.Fprintf(r.log, "proxy: %s %s failed, failing over: %v\n", t.Provider.Name, t.Model, err)
+		if isFailure {
+			detail := "connect error"
+			if failure.status != 0 {
+				detail = fmt.Sprintf("status=%d", failure.status)
+			}
+			audit.Log(audit.RouterFallback, t.Provider.Name, detail)
+		}
+	}
+	return ladder
 }
 
 // attempts is the target then each usable fallback provider; cooling-down providers sink to the end.
