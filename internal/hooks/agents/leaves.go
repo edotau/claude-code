@@ -256,6 +256,11 @@ func requestsAgent(brief string) bool {
 	return agentLineRe.MatchString(brief) || briefProfile(brief) != ""
 }
 
+// pinnedAgentType is true for a leaf type fixed to one external agent; its type is the request, whatever the brief says.
+func pinnedAgentType(t string) bool {
+	return t == "code-worker:codex" || t == "code-worker:gemini" || t == "coworker:copilot" || t == "coworker:opencode"
+}
+
 // ranOnGated is true for the leaves that can call an external agent: coworker, coworker:*, code-worker, code-worker:codex|gemini.
 func ranOnGated(t string) bool {
 	return t == "coworker" || strings.HasPrefix(t, "coworker:") || t == "code-worker" || t == "code-worker:codex" || t == "code-worker:gemini"
@@ -267,7 +272,7 @@ func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 		return core.Result{}, false
 	}
 	s, err := leafBrief(in.AgentTranscriptPath)
-	if err != nil || s.ranOn || !requestsAgent(s.brief) {
+	if err != nil || s.ranOn || !(requestsAgent(s.brief) || pinnedAgentType(leafAgentType(in))) {
 		return core.Result{}, false
 	}
 	if in.StopHookActive || s.gated || s.handedBack {
