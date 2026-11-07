@@ -141,10 +141,29 @@ async function review(p) {
   // A null rederive (rate or API error) is unverified, never refuted.
   const ok = merged.map((f, i) => judged[i] || { f, r: null })
   const unverified = ok.filter((x) => !x.r).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
-  const confirmed = ok.filter((x) => x.r && x.r.reproduced).map((x) => ({ ...x.f, severity: x.r.severity, rederived: x.r.scenario }))
+  const repro = ok.filter((x) => x.r && x.r.reproduced)
+  const confirmed = (await parallel(repro.map((x, i) => () => settleSeverity(p, x, i))))
+    .map((c, i) => c || { ...repro[i].f, severity: repro[i].r.severity, rederived: repro[i].r.scenario })
   const dropped = ok.filter((x) => x.r && !x.r.reproduced).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
   log(p + ': merged ' + merged.length + ', confirmed ' + confirmed.length + ', dropped ' + dropped.length + ', unverified ' + unverified.length)
   return { pkg: p, merged: merged.length, confirmed, dropped, unverified }
+}
+
+// Severity drift: finder and rederiver split across the fix line → one blind tie-breaker; the median of three wins.
+async function settleSeverity(p, x, i) {
+  const out = { ...x.f, severity: x.r.severity, rederived: x.r.scenario }
+  const fixes = (s) => ORDER[s] <= MIN_FIX
+  if (fixes(x.f.severity) === fixes(x.r.severity)) return out
+  const t = await agent(
+    READONLY + ' Rate the severity of a possible bug at ' + x.f.file + ':' + x.f.line + ' (' + x.f.symbol + '): ' + x.f.symptom +
+      '. Derive your own failing scenario from the code; reproduced=false if you cannot.',
+    { phase: 'Rederive', label: 'tiebreak:' + p + ':' + i, schema: REDERIVE, model: S.rederive.model, effort: S.rederive.effort },
+  ).catch(() => null)
+  const votes = [x.f.severity, x.r.severity, t ? (t.reproduced ? t.severity : 'low') : null].filter(Boolean).sort((a, b) => ORDER[a] - ORDER[b])
+  out.severity = votes.length === 3 ? votes[1] : votes[0] // no tie-breaker: the higher rating stands
+  out.severityVotes = votes
+  log(p + ': severity split ' + x.f.severity + '/' + x.r.severity + ' at ' + x.f.file + ':' + x.f.line + ' → ' + out.severity)
+  return out
 }
 
 // inPkg: a finder may cite a file outside its package; that finding is fixed by the file's own package, never by p.
