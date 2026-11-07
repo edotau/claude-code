@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // noForward are inbound credentials and transport headers; egress auth is re-added by send.
@@ -163,10 +164,16 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 
 // copyClientHeaders returns a header hook that copies the client's non-hop, non-blocked headers onto the upstream request.
 func copyClientHeaders(in *http.Request) func(http.Header) {
+	listed := map[string]bool{} // headers the client's Connection value marks hop-by-hop
+	for _, v := range in.Header.Values("Connection") {
+		for _, name := range textutil.SplitCSV(v) {
+			listed[http.CanonicalHeaderKey(name)] = true
+		}
+	}
 	return func(h http.Header) {
 		for k, vs := range in.Header {
 			ck := http.CanonicalHeaderKey(k)
-			if !hopHeaders[ck] && !noForward[ck] {
+			if !hopHeaders[ck] && !noForward[ck] && !listed[ck] {
 				h[ck] = append([]string(nil), vs...)
 			}
 		}
@@ -280,15 +287,7 @@ func clampOutputTokens(body []byte, model string) []byte {
 	if json.Unmarshal(body, &top) != nil {
 		return body
 	}
-	changed := false
-	for _, key := range outputTokenKeys {
-		var asked float64
-		if json.Unmarshal(top[key], &asked) != nil || asked <= float64(limits.Output) {
-			continue
-		}
-		top[key], changed = json.RawMessage(strconv.Itoa(limits.Output)), true
-	}
-	if !changed {
+	if !clampCaps(top, limits.Output) {
 		return body
 	}
 	out, err := json.Marshal(top)
@@ -296,6 +295,19 @@ func clampOutputTokens(body []byte, model string) []byte {
 		return body
 	}
 	return out
+}
+
+// clampCaps lowers every output cap in top above max to max; false when none changed.
+func clampCaps(top map[string]json.RawMessage, max int) bool {
+	changed := false
+	for _, key := range outputTokenKeys {
+		var asked float64
+		if json.Unmarshal(top[key], &asked) != nil || asked <= float64(max) {
+			continue
+		}
+		top[key], changed = json.RawMessage(strconv.Itoa(max)), true
+	}
+	return changed
 }
 
 // tailBuffer keeps the last tailCap bytes written, so a stream's closing usage chunk survives without buffering it all.
@@ -467,32 +479,36 @@ func dropOffThoughts(body []byte) []byte {
 
 func geminiSignatures(top map[string]json.RawMessage, changed bool) bool {
 	var msgs []map[string]json.RawMessage
-	if json.Unmarshal(top["messages"], &msgs) == nil {
-		for _, m := range msgs {
-			var calls []map[string]json.RawMessage
-			if json.Unmarshal(m["tool_calls"], &calls) != nil {
-				continue
-			}
-			touched := false
-			for _, c := range calls {
-				if c == nil { // a null entry: nothing to sign, and writing to it would panic
-					continue
-				}
-				_, sig := c["thoughtSignature"]
-				_, extra := c["extra_content"]
-				if !sig && !extra {
-					c["thoughtSignature"] = json.RawMessage(`"` + translate.SkipThoughtSignature + `"`)
-					touched = true
-				}
-			}
-			if touched {
-				m["tool_calls"], _ = json.Marshal(calls)
-				changed = true
-			}
+	if json.Unmarshal(top["messages"], &msgs) != nil {
+		return changed
+	}
+	for _, m := range msgs {
+		var calls []map[string]json.RawMessage
+		if json.Unmarshal(m["tool_calls"], &calls) != nil || !signCalls(calls) {
+			continue
 		}
-		if changed {
-			top["messages"], _ = json.Marshal(msgs)
-		}
+		m["tool_calls"], _ = json.Marshal(calls)
+		changed = true
+	}
+	if changed {
+		top["messages"], _ = json.Marshal(msgs)
 	}
 	return changed
+}
+
+// signCalls adds the skip thought signature to each call lacking one; true when any changed.
+func signCalls(calls []map[string]json.RawMessage) bool {
+	touched := false
+	for _, c := range calls {
+		if c == nil { // a null entry: nothing to sign, and writing to it would panic
+			continue
+		}
+		_, sig := c["thoughtSignature"]
+		_, extra := c["extra_content"]
+		if !sig && !extra {
+			c["thoughtSignature"] = json.RawMessage(`"` + translate.SkipThoughtSignature + `"`)
+			touched = true
+		}
+	}
+	return touched
 }

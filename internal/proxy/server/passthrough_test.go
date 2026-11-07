@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proxy"
 )
 
@@ -390,3 +391,50 @@ func TestPassthroughLogsDiagnostics(t *testing.T) {
 
 // ParsePassthrough exposes parsePassthrough to the external tests.
 var ParsePassthrough = parsePassthrough
+
+func TestClampOutputTokensLowersOnlyOversizedCaps(t *testing.T) {
+	limit, ok := models.Limits("claude-sonnet-5-5")
+	if !ok || limit.Output <= 0 {
+		t.Skip("catalog has no output limit for the model")
+	}
+	over := limit.Output + 1000
+	in := fmt.Sprintf(`{"max_tokens":%d,"max_output_tokens":5}`, over)
+	var got map[string]float64
+	if err := json.Unmarshal(clampOutputTokens([]byte(in), "claude-sonnet-5-5"), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["max_tokens"] != float64(limit.Output) || got["max_output_tokens"] != 5 {
+		t.Fatalf("caps = %v, want max_tokens %d and max_output_tokens 5", got, limit.Output)
+	}
+}
+
+func TestGeminiSignaturesSignsOnlyUnsignedCalls(t *testing.T) {
+	top := map[string]json.RawMessage{"messages": json.RawMessage(
+		`[{"tool_calls":[null,{"id":"a"},{"id":"b","thoughtSignature":"s"},{"id":"c","extra_content":{}}]},{"role":"user"}]`)}
+	if !geminiSignatures(top, false) {
+		t.Fatal("geminiSignatures = false, want true")
+	}
+	got := string(top["messages"])
+	if strings.Count(got, `"thoughtSignature"`) != 2 || !strings.Contains(got, `"id":"b","thoughtSignature":"s"`) || !strings.Contains(got, "null") {
+		t.Fatalf("messages = %s, want only call a newly signed", got)
+	}
+}
+
+// TestCopyClientHeadersDropsHopByHop: Proxy-Connection and every header the Connection value names stay hop-local.
+func TestCopyClientHeadersDropsHopByHop(t *testing.T) {
+	in := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	in.Header.Set("Connection", "keep-alive, X-Hop-Secret")
+	in.Header.Set("Proxy-Connection", "keep-alive")
+	in.Header.Set("X-Hop-Secret", "s")
+	in.Header.Set("Anthropic-Version", "2023-06-01")
+	out := http.Header{}
+	copyClientHeaders(in)(out)
+	for _, k := range []string{"Connection", "Proxy-Connection", "X-Hop-Secret"} {
+		if out.Get(k) != "" {
+			t.Errorf("%s forwarded upstream: %q", k, out.Get(k))
+		}
+	}
+	if out.Get("Anthropic-Version") != "2023-06-01" {
+		t.Errorf("end-to-end header dropped: %v", out)
+	}
+}
