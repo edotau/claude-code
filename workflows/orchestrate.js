@@ -64,8 +64,21 @@ const RULES =
   'Prefix every shell command with `cd ' + CWD + ' &&`.'
 const SIZED = {
   type: 'object',
-  properties: { tier: { type: 'string', enum: TIERS }, packages: { type: 'array', items: { type: 'string' } }, paths: { type: 'array', items: { type: 'string' } }, focus: { type: 'string' }, reason: { type: 'string' } },
-  required: ['tier', 'packages', 'paths', 'focus', 'reason'],
+  properties: {
+    kind: { type: 'string', enum: ['fix', 'feature', 'audit', 'architecture'] },
+    packages: { type: 'array', items: { type: 'string' } }, paths: { type: 'array', items: { type: 'string' } },
+    focus: { type: 'string' }, reason: { type: 'string' },
+  },
+  required: ['kind', 'packages', 'paths', 'focus', 'reason'],
+}
+// tierOf is the deterministic size rule: the agent only finds files and the job kind, the script picks the tier.
+const tierOf = (kind, paths, pkgs) => {
+  if (kind === 'architecture') return 'EPIC'
+  if (kind === 'audit') return 'HIGH'
+  const files = paths.filter((p) => /\.[A-Za-z0-9]+$/.test(p))
+  const dirs = new Set([...pkgs, ...files.map((p) => p.split('/').slice(0, -1).join('/'))])
+  if (dirs.size > 1 || files.length > 5) return 'HIGH'
+  return files.length >= 2 ? 'MEDIUM' : 'LOW'
 }
 const INTEL = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } }, focus: { type: 'string' } }, required: ['paths', 'focus'] }
 const WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, summary: { type: 'string' } }, required: ['status', 'summary'] }
@@ -77,6 +90,7 @@ phase('Size')
 const decisions = []
 let tier = a.tier
 let focus = a.focus || TASK
+let KIND = ''
 // A git range becomes the changed Go files (non-test), so a diff audit needs no separate workflow.
 if (RANGE) {
   const ch = await agent(
@@ -100,17 +114,19 @@ if (!tier && !TASK) {
   decisions.push('sized as ' + tier + ': no task, ' + (PKGS.length ? 'a package list is an audit' : 'only named paths'))
 } else if (!tier) {
   const sz = await agent(
-    RULES + ' Read-only: edit nothing. Size this job by the tiers TRIVIAL (one-line fix), LOW (one function or file), MEDIUM (2-5 files or needs tests, one module), ' +
-      'HIGH (cross-module, 5+ files, or an audit of packages), EPIC (multi-session, architectural). Audit requests are HIGH. Use `git status --short`, ' +
-      '`git diff --stat` and `go list ./...` only as needed. Return the Go package dirs (repo-relative, e.g. internal/notices) and the files the task names ' +
-      '(repo-relative; directories ok), plus a one-line focus and the reason for the tier.\nTask: ' + TASK + (PKGS.length ? '\nGiven packages: ' + PKGS.join(', ') : '') + (PATHS.length ? '\nGiven paths: ' + PATHS.join(', ') : ''),
+    RULES + ' Read-only: edit nothing. Do NOT pick a size; find facts. Read the code the task points at and return: kind (fix = repair ' +
+      'existing behavior, feature = add behavior, audit = review packages for bugs, architecture = a multi-session design change); the ' +
+      'non-test source FILES that must change (repo-relative, one entry per file, never a directory, tests excluded); the Go package dirs ' +
+      'only for an audit; a one-line focus; and a one-line reason. Use `git status --short` and `go list ./...` only as needed.\nTask: ' + TASK +
+      (PKGS.length ? '\nGiven packages: ' + PKGS.join(', ') : '') + (PATHS.length ? '\nGiven paths: ' + PATHS.join(', ') : ''),
     { phase: 'Size', label: 'size', schema: SIZED, model: S.size.model, effort: S.size.effort },
   ).catch(() => null)
   if (!sz) return ERR('sizing agent returned nothing; pass args.tier to skip it')
-  tier = sz.tier
-  decisions.push('sized as ' + tier + ': ' + sz.reason)
+  KIND = sz.kind
   if (!PKGS.length) PKGS = strs(sz.packages)
-  if (!PATHS.length) PATHS = strs(sz.paths)
+  if (!PATHS.length) PATHS = strs(sz.paths).filter((p) => !/_test\.go$/.test(p))
+  tier = tierOf(sz.kind, PATHS, sz.kind === 'audit' ? PKGS : [])
+  decisions.push('sized as ' + tier + ' (rule: ' + sz.kind + ', ' + PATHS.length + ' file(s)): ' + sz.reason)
   if (!a.focus && sz.focus) focus = sz.focus
 } else if (a.tier) decisions.push('sized as ' + tier + ': args.tier given')
 
@@ -140,7 +156,8 @@ if (tier === 'MEDIUM' && TASK) {
   if (intel && strs(intel.paths).length) { target.paths = strs(intel.paths); focus = TASK + '. Intel: ' + intel.focus } else decisions.push('intel returned nothing; kept the sized paths')
 }
 // relay3 only fixes bugs: a feature task gets an implementer first, then relay3 audits and hardens the new code.
-if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && /\b(build|add|implement|create|introduce|support|write)\b/i.test(TASK) && !/\b(audit|review)\b/i.test(TASK)) {
+const feature = KIND ? KIND === 'feature' : /\b(build|add|implement|create|introduce|support|write)\b/i.test(TASK) && !/\b(audit|review)\b/i.test(TASK)
+if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feature) {
   const impl = await agent(
     RULES + ' Make this change in these files (new files in the same package ok) and nothing else; smallest correct change, functions < 50 lines, 1-line comments. ' +
       'Run gofmt and go vet on the package. Do not write tests; relay3 follows with find, fix, guard test and gate.\nFiles: ' + target.paths.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus,
