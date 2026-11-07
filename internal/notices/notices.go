@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// Notice is one inbox line: when, who sent it, its kind (conflict, diverged) and the text the reader sees.
+// Notice is one inbox line: when, who sent it, its kind (only "conflict" today) and the text the reader sees.
 type Notice struct {
 	Schema int    `json:"schema"`
 	TS     int64  `json:"ts"`
