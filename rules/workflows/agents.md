@@ -40,8 +40,11 @@ paths:
   vs editing `code-worker`), or several shapes reuse it; **merge** when two files differ only in task wording. A role
   that only picks a different agent is a plugin leaf (`code-worker:<agent>`, `coworker:<agent>`), not a new file.
 - **Model:** `inherit` for in-context roles that judge (`claude`, `Plan`), an alias (`sonnet`) for leaves; never a
-  dated id — `internal/router/table.json` maps aliases to models. **Tools:** list them; a read-only role gets none
+  dated id — `internal/router/table.json` maps aliases to models. Docs accept aliases (incl. `fable`), full ids or
+  `inherit`; pinning is for third-party providers. **Tools:** list them; a read-only role gets none
   that write.
+- **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields
+  are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A new type that requests external agents must join the hook tables that gate
   it, or nothing checks it ran: `ranOnGated` (`internal/hooks/agents/leaves.go`) for the ran-on stop gate,
   `labelTypes`/`labelPools` (`internal/hooks/agents/agenteffort.go`) for labels and routing. Shapes and what enforces

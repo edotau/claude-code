@@ -5,7 +5,12 @@ and an agent ([cost-routing.md](cost-routing.md)). Shape and agent are separate 
 (Claude does it) or a requested agent.
 
 The harness runs subagent mode only: leaves are terminal, the main session is the one orchestration layer, a saved
-Workflow nests one level, and peer teams (`TeamCreate`) are not used. Each pattern below is mapped onto that.
+Workflow nests one level (the Workflow runtime's rule for `workflow()`), and peer teams (`TeamCreate`) are not used:
+agent teams are experimental, one per session, with no nesting. Subagents may themselves spawn subagents to depth 3
+(`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`); the harness keeps leaves terminal. Each pattern below is mapped onto that.
+
+Start simple: use the simplest shape that works and add structure only when it measurably helps
+([Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)).
 
 | Pattern | Harness shape | Fits | Branches decided by | Enforced by |
 | --- | --- | --- | --- | --- |
@@ -19,7 +24,8 @@ Workflow nests one level, and peer teams (`TeamCreate`) are not used. Each patte
 **Combine** by stage, not by mixing: Pipeline + fan-out = a plan whose one task fans out; fan-out + producer–reviewer =
 parallel implementers, each followed by its own review. Never add a third level: a lane leaf does not orchestrate.
 
-**Prefer the narrower shape.** One leaf beats a fan-out when the parts share files; a fixed pipeline beats a lane when
+**Prefer the narrower shape.** A multi-agent run costs about 15x the tokens of a chat, and coding has fewer truly
+parallel tasks than research ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)). One leaf beats a fan-out when the parts share files; a fixed pipeline beats a lane when
 the task list is known up front; a router pick beats a compare when one answer is enough.
 
 **Who tracks what** — one owner per kind of state, no side files: task state = the plan checklist (`plan status`), run
