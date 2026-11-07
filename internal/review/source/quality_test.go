@@ -2,6 +2,7 @@ package source
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -233,5 +234,22 @@ func TestRunQualityAnalysisErrorExitsNonZero(t *testing.T) {
 		if !strings.Contains(stdout.String(), `"error"`) {
 			t.Errorf("%s: stdout lacks error report: %q", name, stdout.String())
 		}
+	}
+}
+
+func TestFindClassesGoCountsReceiversNotProximity(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("type Small struct{}\n\nfunc (s Small) One() {}\n\ntype Big struct{}\n\n")
+	for i := range 21 {
+		fmt.Fprintf(&b, "func (b *Big) M%d() {}\n", i)
+	}
+	b.WriteString("func (s *Set[T]) Add() {}\n")
+	got := findClasses(b.String(), "go")
+	if len(got) != 2 || got[0].Methods != 1 || got[1].Methods != 21 {
+		t.Fatalf("methods = %+v, want Small=1 Big=21", got)
+	}
+	smells := checkCodeSmells(b.String(), "go", nil, got)
+	if len(smells) != 1 || !strings.Contains(smells[0].Message, "Big") {
+		t.Fatalf("smells = %+v, want only Big flagged", smells)
 	}
 }

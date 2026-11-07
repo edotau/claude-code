@@ -189,6 +189,12 @@ func functionBody(content string, matchEnd int, pattern *regexp.Regexp) string {
 	return remaining
 }
 
+// goMethodCount counts `func (r *?Name[...]) ` receivers anywhere in content, since Go methods live outside the type.
+func goMethodCount(content, name string) int {
+	re := regexp.MustCompile(`(?m)^func\s+\(\s*(?:\w+\s+)?\*?` + regexp.QuoteMeta(name) + `(?:\[[^\]]*\])?\s*\)`)
+	return len(re.FindAllStringIndex(content, -1))
+}
+
 // findClasses ports quality_core.find_classes.
 func findClasses(content, language string) []ClassInfo {
 	pattern, ok := classPatterns()[language]
@@ -207,9 +213,13 @@ func findClasses(content, language string) []ClassInfo {
 		if loc := pattern.FindStringIndex(remaining); loc != nil {
 			body = remaining[:loc[0]]
 		}
+		methods := len(methodPattern.FindAllString(body, -1))
+		if language == "go" {
+			methods = goMethodCount(content, name)
+		}
 		out = append(out, ClassInfo{
 			Name:    name,
-			Methods: len(methodPattern.FindAllString(body, -1)),
+			Methods: methods,
 			Lines:   len(strings.Split(body, "\n")),
 		})
 	}
