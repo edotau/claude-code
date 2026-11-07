@@ -16,8 +16,8 @@ decision; agents work in the shared tree.
 | `orchestrate` | size the job (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) then route: relay3 on paths (MEDIUM adds intel, a feature adds an implementer), relay3 on packages (HIGH), plan draft (EPIC); exits `green\|red\|review\|plan\|error` | `{cwd, task\|packages\|paths, tier?, fix?, minFix?, focus?, steps: {size, intel, impl, plan, child}}` |
 
 - Workflows are Claude only: a stage runs at `model` = `haiku|sonnet|opus|fable` (`effort` up to `max`), and an
-  `agent`/`profile` field or an unknown stage errors before any agent runs. Parser: `stepOf`, copied verbatim into `code-engineer`, `code-analyzer`,
-  `green-keeper-loop`, `code-evaluator` and `relay3`. External agents run outside workflows (`/code-worker:codex`,
+  `agent`/`profile` field or an unknown stage errors before any agent runs. Parser: `stepOf`, copied verbatim into
+  `code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `relay3` and `orchestrate`. External agents run outside workflows (`/code-worker:codex`,
   `/coworker:copilot`, `claude-code agents ask`).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. The top-level script reads it once and passes
