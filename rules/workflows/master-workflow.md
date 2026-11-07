@@ -18,7 +18,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 0. Classify | inline | Scope tier | Picks the phases below |
 | 1. Review | `Plan`, or another model family via `claude-code agents ask --agent <a>` | Refined Task Brief | READY / NEEDS CLARIFICATION |
 | 2. Codebase intel | 3 parallel `Explore`, or `@agent-gemini` (fans out `gemini explore` jobs) | Codebase Context Brief | Structure, conventions, deps covered |
-| 3. Research | `gh search`, `skills/web-explore/SKILL.md` (Tavily), `gemini explore` | Prior art + library refs | ≥1 reference, or "nothing found" stated |
+| 3. Research | `gh search`, `skills/web-explorer/SKILL.md` (Tavily), `gemini explore` | Prior art + library refs | ≥1 reference, or "nothing found" stated |
 | 4. Plan | plan mode or `Plan` (plan-only) | Plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test; only with `--refine` |
 | 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
@@ -57,7 +57,7 @@ session and nothing changed. `@agent-gemini` gives the same brief off Claude's b
 
 ## Phase 3: Research (new implementation, not pure refactor)
 
-`gh search code|repos` → library docs and web search through `skills/web-explore/SKILL.md` (Tavily, every agent) →
+`gh search code|repos` → library docs and web search through `skills/web-explorer/SKILL.md` (Tavily, every agent) →
 package registries (prefer battle-tested libraries) → `@agent-gemini` for cited web and deep research.
 
 ## Phase 4: Plan (MEDIUM+)
