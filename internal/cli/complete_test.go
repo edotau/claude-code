@@ -659,7 +659,7 @@ func TestHookDomainMatchesRegistry(t *testing.T) {
 }
 
 // TestWorktreeMergeFlagsMatchItsOwnFlagSet pins worktree merge's completable flags against the
-// literal flag.NewFlagSet calls in cmdWorktreeMerge (internal/cli/worktree.go) — catching exactly
+// literal flag sets in the merge verb (internal/worktree/worktreecmd/worktree.go) — catching exactly
 // the kind of drift Part 3 replaced three hand tables to prevent.
 func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 	node := specTree()["worktree"].Sub["merge"]

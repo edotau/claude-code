@@ -113,27 +113,6 @@ func useTLSTransport(t *testing.T, srv *httptest.Server) {
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 }
 
-func scrubGitEnv(t *testing.T) {
-	t.Helper()
-	for _, key := range []string{
-		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-		"GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
-	} {
-		value, ok := os.LookupEnv(key)
-		if !ok {
-			continue
-		}
-		if err := os.Unsetenv(key); err != nil {
-			t.Fatalf("unset %s: %v", key, err)
-		}
-		t.Cleanup(func() {
-			if err := os.Setenv(key, value); err != nil {
-				t.Errorf("restore %s: %v", key, err)
-			}
-		})
-	}
-}
-
 // gitRun runs git in dir with an author/committer identity set and fails the test on error.
 func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
@@ -152,13 +131,6 @@ func gitRunErr(dir string, args ...string) error {
 		return fmt.Errorf("git %v: %v: %s", args, err, out)
 	}
 	return nil
-}
-
-// gitRepoCLI makes a fresh git repo with one commit, env wired so every git invocation has an identity.
-func gitRepoCLI(t *testing.T) string {
-	t.Helper()
-	scrubGitEnv(t)
-	return gittest.Repo(t)
 }
 
 func renderHelpPage(page helptext.Page) string {
