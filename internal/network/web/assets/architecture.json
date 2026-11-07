@@ -125,7 +125,7 @@
     "internal/hosttest/gittest": {"kind": "package", "purpose": "Fresh one-commit git repo per test, copied from a once-built template.", "notHere": "Production imports."},
     "agents": {"kind": "content", "purpose": "Subagent definitions, flat; name: must equal the file stem. Projected into other agents' homes.", "addHere": "A new subagent (change protocol: manifest first).", "notHere": "Long how-to; link a skill."},
     "commands": {"kind": "content", "purpose": "Slash commands, flat; thin launchers into an agent or skill.", "notHere": "Procedures; those are skills."},
-    "workflows": {"kind": "content", "purpose": "Saved Workflow tool scripts: code-analyzer, green-keeper-loop, orchestrate.", "addHere": "A reusable orchestration."},
+    "workflows": {"kind": "content", "purpose": "Saved Workflow tool scripts: code-analyzer, green-keeper-loop, relay3, code-engineer, code-evaluator.", "addHere": "A reusable orchestration."},
     "rules": {"kind": "content", "purpose": "Rule files loaded by scope; contract in rules/README.md.", "addHere": "A corrected behaviour or gotcha."},
     "rules/standards": {"kind": "content", "purpose": "Always-on rules. Every line costs every session.", "notHere": "Anything scoped to an area."},
     "rules/workflows": {"kind": "content", "purpose": "Agent and memory workflow rules; needs paths: scoping."},

@@ -31,10 +31,10 @@ script (`internal/hooks/agents/leaves.go` `Effort`).
 | --- | --- | --- | --- |
 | Pipeline | `relay3.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
 | Fan-out / fan-in | `relay3.js` `pipeline(PKGS, review, repair)` · parallel leaves | `code-worker` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
-| Expert pool | `orchestrate.js` sizing router | `haiku` sizer picks the route | tier table, `dispatch-effort` |
+| Expert pool | `code-engineer.js` sizing router | `haiku` sizer picks the route | tier table, `dispatch-effort` |
 | Producer-reviewer | fix, guard test (`test mutate`), gate · rederive | implementer vs blind re-deriver | `test mutate` exit 0, gate exit codes |
 | Supervisor | main session + leaves | `code-worker`, `coworker:*`, `Explore` | dispatch cap, `dispatch-stop` ran-on |
-| Hierarchical | `orchestrate.js` calling `workflow()` on `relay3.js` | one workflow level | runtime rule: one nesting level |
+| Hierarchical | `code-engineer.js` calling `workflow()` on `relay3.js` | one workflow level | runtime rule: one nesting level |
 
 ### Pipeline
 
@@ -69,7 +69,7 @@ packages -> [ relay3 stream p1 | p2 | ... | pN ]  (no barrier)  -> merged report
 task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> relay3:paths | relay3:packages | plan draft
 ```
 
-- Code: `orchestrate.js` (Size, Route, then Simplify and Review once over relay3's fixes, Record).
+- Code: `code-engineer.js` (Size, Route, then Simplify and Review once over relay3's fixes, Record).
   Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
   `steps` pin. Under Claude quota pressure the hook downshifts one alias (`dispatch-effort`).
@@ -83,8 +83,9 @@ finder claim -> blind re-derivation from file:line + symptom -> reproduced | dro
 ```
 
 - A re-deriver never sees the finder's reasoning; a null result is `unverified`, never refuted (`222ae2b9`).
-- Guard test: `rules/standards/testing-guidelines.md`; retired `code-engineer` lacked this stage;
-  `orchestrate` replaces it (A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
+- Guard test: `rules/standards/testing-guidelines.md`; the old `code-engineer` lacked this stage;
+  the size-routed rewrite (renamed from `orchestrate`) has it
+  (A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - Out-of-package fixes and owner mid-turn messages reaching workflow agents are open defects (scorecard).
 
 ### Supervisor
@@ -100,11 +101,11 @@ main session -> Explore x3 -> Plan -> code-worker || copilot (test agent) -> fan
 ### Hierarchical
 
 ```text
-main -> Workflow orchestrate -> workflow(relay3) -> agent() leaves      (workflow nests one level)
+main -> Workflow code-engineer -> workflow(relay3) -> agent() leaves      (workflow nests one level)
 main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> workflow(green-keeper-loop)
 ```
 
-- `orchestrate` returns relay3's result plus tier, route, simplify, review and `recorded` paths.
+- `code-engineer` returns relay3's result plus tier, route, simplify, review and `recorded` paths.
   PostToolUse(Workflow) fires at launch,
   so recording happens in-run by a final Haiku agent (`2e9a90ff`, #23).
 

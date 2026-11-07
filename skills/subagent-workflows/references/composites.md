@@ -5,13 +5,13 @@ exits: [saved-workflows.md](saved-workflows.md). Run one only when the owner ask
 Evidence: `memory/claude-code/reports/2026-11-07-workflow-scorecard.md`.
 
 Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 114 / 8.8M). relay3 estimate is
-`6 x packages + 3 x fixed packages` (the script logs it at launch) plus 2 for orchestrate (size, record). Dispatch cap:
+`6 x packages + 3 x fixed packages` (the script logs it at launch) plus 2 (size, record). Dispatch cap:
 24 per account, one slot per `agent()` site, so a 15-package run is claimed at the cap, not its real count.
 
-## A. orchestrate: size, route, stream, record
+## A. code-engineer: size, route, stream, record
 
 - **Use when**: any code job when no specific workflow fits; TRIVIAL to HIGH (EPIC stops at a plan).
-- **Script**: `/home/edotau/.claude/workflows/orchestrate.js` calling `/home/edotau/.claude/workflows/relay3.js`.
+- **Script**: `/home/edotau/.claude/workflows/code-engineer.js` calling `/home/edotau/.claude/workflows/relay3.js`.
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
@@ -65,7 +65,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 ## C. MEDIUM feature: intel, implementer, relay3 harden
 
 - **Use when**: a 2 to 5 file task with a feature verb (`build|add|implement|create|introduce|support|write`, not
-  `audit|review`); this is orchestrate's MEDIUM route.
+  `audit|review`); this is code-engineer's MEDIUM route.
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
@@ -73,10 +73,11 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Implementer | `sonnet` medium | files, task, focus | `{status, summary}` | gofmt, go vet; writes no tests | status line |
 | Harden | relay3 on the files | paths | composite B result | guard test, gate | child decisions |
 
-- **Call**: `Workflow({scriptPath: ".../orchestrate.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
+- **Call**: `Workflow({scriptPath: ".../code-engineer.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
 - **Cost**: 2 + relay3 on 1 to 3 packages, about 8 to 20 agents (about 0.6M to 1.6M tokens, extrapolated).
-- **Failure modes**: relay3 only fixes bugs, so a build is the implementer's job; `code-engineer` is retired
-  (`orchestrate` replaces it; A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
+- **Failure modes**: relay3 only fixes bugs, so a build is the implementer's job; the old `code-engineer`
+    (one fixed chain) was rewritten as the size-routed script, renamed from `orchestrate`
+    (A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - **Resume**: re-run with `paths` set to the files the implementer touched and no feature verb, which skips it.
 
 ## D. EPIC: plan draft, owner approval, rounds over package groups
@@ -85,7 +86,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
-| Draft | `Plan` or orchestrate EPIC route | task, `docs/templates/plan.md` | plan markdown | **owner approval** | `plans/DATE-<slug>.md` |
+| Draft | `Plan` or code-engineer EPIC route | task, `docs/templates/plan.md` | plan markdown | **owner approval** | `plans/DATE-<slug>.md` |
 | Group | main session | plan | package groups G1..Gn | group fits one run (6 to 15 packages) | group list |
 | Round | composite A or B per group | group packages | confirmed, fixed, red | full suite before push | report + decisions |
 | Fix leftovers | `code-worker` leaf | red or foreign findings | commit | per-package gate | decision row |
