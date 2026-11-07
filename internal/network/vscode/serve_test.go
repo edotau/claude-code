@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -400,4 +401,82 @@ func liveProcess(pid int) bool {
 	}
 	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
 	return err != nil || !strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
+}
+
+// --- daemon-lifecycle regressions ------------------------------------------------------------
+
+func TestRunningRejectsRecycledPID(t *testing.T) {
+	setup(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	port := srv.Listener.Addr().(*net.TCPAddr).Port
+	// The test process is alive and something answers on the port, but it is not a `code serve-web`.
+	writeStateFixture(t, State{PID: os.Getpid(), Port: port})
+
+	if st, ok := Running(); ok {
+		t.Fatalf("Running() = %+v, true; want false for a live pid that is not our serve-web daemon", st)
+	}
+}
+
+func TestStartFailsFastWhenSpawnedPIDDiesAndForeignServerAnswers(t *testing.T) {
+	setup(t)
+	bin := t.TempDir()
+	pidFile := filepath.Join(bin, "pid")
+	script := "#!/bin/sh\necho $$ > " + pidFile + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "code"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", t.TempDir())
+	port := unusedPort(t)
+	// A foreign server grabs the port after Start chose it and the spawned daemon already exited.
+	srv := &http.Server{ReadHeaderTimeout: time.Second}
+	go func() {
+		for {
+			if _, err := os.Stat(pidFile); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port)); err == nil {
+			_ = srv.Serve(ln)
+		}
+	}()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	start := time.Now()
+	_, err := Start(context.Background(), Options{Port: port, NoTailscale: true})
+	if err == nil {
+		t.Fatal("Start: want an error when the spawned daemon exited, got success (state records a dead pid)")
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("Start took %v; want a fast failure once the spawned pid is gone", time.Since(start))
+	}
+	if _, statErr := os.Stat(stateFile()); !os.IsNotExist(statErr) {
+		t.Fatalf("state file written for a dead daemon (err=%v)", statErr)
+	}
+}
+
+func TestNoTailscaleRerunTearsDownEarlierMapping(t *testing.T) {
+	setup(t)
+	bin := t.TempDir()
+	logPath := filepath.Join(bin, "calls")
+	script := "#!/bin/sh\necho \"$@\" >> " + logPath + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "tailscale"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	prev := State{PID: os.Getpid(), Port: 7780, Tailscale: true}
+	res, err := applyTailscale(context.Background(), prev, Options{NoTailscale: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.State.Tailscale {
+		t.Fatal("state still claims a tailscale mapping after --no-tailscale")
+	}
+	calls, _ := os.ReadFile(logPath)
+	if got := strings.TrimSpace(string(calls)); got != strings.Join(TailscaleOffArgv(), " ") {
+		t.Fatalf("tailscale calls = %q, want the serve off teardown (the earlier mapping is otherwise orphaned)", got)
+	}
 }
