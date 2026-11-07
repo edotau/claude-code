@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -32,8 +33,7 @@ func newFollower(src string, idle time.Duration) (*follower, io.Reader, error) {
 	}
 	data, err := io.ReadAll(f)
 	if err != nil {
-		f.Close()
-		return nil, nil, err
+		return nil, nil, errors.Join(err, f.Close())
 	}
 	cut := bytes.LastIndexByte(data, '\n') + 1
 	return &follower{f: f, idle: idle, n: bytes.Count(data[:cut], []byte{'\n'}), pending: data[cut:]}, bytes.NewReader(data[:cut]), nil
