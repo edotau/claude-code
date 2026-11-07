@@ -658,6 +658,17 @@ func TestRanOnGateNamespacedTypes(t *testing.T) {
 	}
 }
 
+// A pinned leaf type is the agent request: with no Agent: line it is still blocked, while bare code-worker is not.
+func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
+	for st, want := range map[string]bool{"code-worker:codex": true, "code-worker:gemini": true, "coworker:copilot": true,
+		"coworker:opencode": true, "code-worker": false, "coworker:databricks": false} {
+		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nOwns: /tmp/x\n", "ls output"), "a1")
+		if blocked != want {
+			t.Errorf("%s with no Agent: line: blocked = %v, want %v", st, blocked, want)
+		}
+	}
+}
+
 // A coworker whose brief requests an agent but whose tool results show no ran-on line is blocked, naming the line; prose does not count.
 func TestCoworkerNoRanOnBlocks(t *testing.T) {
 	in := coworkerTx(t, "Objective: x\nAgent: codex\n", "ls output")
