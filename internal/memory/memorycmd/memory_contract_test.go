@@ -1,4 +1,4 @@
-package cli
+package memorycmd
 
 import (
 	"os"
@@ -28,7 +28,7 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 			continue
 		}
 		seen[verb] = true
-		if _, ok := memorySubcommands[verb]; !ok {
+		if _, ok := memorySubcommands(nil)[verb]; !ok {
 			t.Errorf("SKILL.md names unknown verb %q (not in memorySubcommands)", verb)
 			continue
 		}
@@ -61,12 +61,12 @@ func reflectionVerbTable(t *testing.T) string {
 	return body[tableStart : tableStart+tableEnd]
 }
 
-// reflectionRepoRoot resolves this repo's toplevel from internal/cli's own working directory.
+// reflectionRepoRoot resolves this repo's toplevel from the memorycmd package's working directory.
 func reflectionRepoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(wd, "..", "..")
+	return filepath.Join(wd, "..", "..", "..")
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/databricks"
+	"github.com/edotau/claude-code/internal/memory/memorycmd"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/setup"
@@ -59,7 +60,7 @@ func commands() []command {
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: worktreecmd.Run, spec: worktreecmd.Spec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
-		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory, spec: memorySpecNodes},
+		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return memorycmd.Run(a, func(verb string) bool { return lookup(verb) != nil }) }, spec: memorycmd.Spec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: cmdPlan},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
