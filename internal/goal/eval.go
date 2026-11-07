@@ -37,8 +37,12 @@ func Evaluate(ctx context.Context, g Goal) Verdict {
 	var m struct {
 		Status string `json:"status"`
 	}
-	_ = json.Unmarshal(data, &m)
+	if err := json.Unmarshal(data, &m); err != nil {
+		return Verdict{Pending: true, Out: "run " + g.Run + " manifest not readable yet: " + err.Error()}
+	}
 	switch m.Status {
+	case "running":
+		return Verdict{Pending: true, Out: "run " + g.Run + " is still running"}
 	case "completed":
 		return Verdict{Pass: true, Out: "run " + g.Run + " completed"}
 	case "":

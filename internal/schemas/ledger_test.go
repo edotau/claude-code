@@ -73,7 +73,7 @@ var writers = map[string]string{
 	"internal/hosttest/gittest/gittest.go:WriteRel":                   unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:contextCheckpoint":          unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/agents/codex.go:appendCodexRoute":                 "codex-routing",
-	"internal/goal/goal.go:Save":                                      unversioned("state: one goal JSON per id, rewritten whole"),
+	"internal/goal/goal.go:writeTicket":                               unversioned("state: one goal JSON per id, rewritten whole"),
 	"internal/goal/goal.go:LinkPlan":                                  unversioned("foreign: adds a task line to the user's plan markdown"),
 	"internal/goal/goal.go:SyncPlan":                                  unversioned("foreign: ticks a task line in the user's plan markdown"),
 	"internal/hooks/wthook/claims.go:appendClaims":                    "claims",

@@ -91,7 +91,9 @@ func (g Goal) Line() string {
 	return fmt.Sprintf("- [%s] %s (task: %s)", box, g.Text, g.ID)
 }
 
-// Save writes the ticket atomically.
+func ticketPath(id string) string { return filepath.Join(Dir(), id+".json") }
+
+// Save writes the ticket atomically under its file lock.
 func Save(g Goal) error {
 	if !IDPattern.MatchString(g.ID) {
 		return fmt.Errorf("goal: bad id %q", g.ID)
@@ -99,11 +101,16 @@ func Save(g Goal) error {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return err
 	}
+	return paths.WithFileLock(ticketPath(g.ID), func() error { return writeTicket(g) })
+}
+
+// writeTicket writes the ticket without locking; callers hold the ticket lock.
+func writeTicket(g Goal) error {
 	data, err := json.MarshalIndent(g, "", "  ")
 	if err != nil {
 		return err
 	}
-	return paths.AtomicWrite(filepath.Join(Dir(), g.ID+".json"), data, 0o600)
+	return paths.AtomicWrite(ticketPath(g.ID), data, 0o600)
 }
 
 // Load reads one ticket.
@@ -130,29 +137,56 @@ func All() []Goal {
 }
 
 // Add registers an open goal, assigning an id unless g.ID is set (adopting an existing plan line's id).
+// The ticket is saved before the plan line is linked; a link failure removes the new ticket again.
 func Add(g Goal) (Goal, error) {
 	if g.ID == "" {
 		g.ID = NewID()
 	}
-	g.Status, g.Created, g.Updated = Open, now(), now()
-	if g.Plan != "" {
-		if err := LinkPlan(g); err != nil {
-			return g, err
-		}
+	if !IDPattern.MatchString(g.ID) {
+		return g, fmt.Errorf("goal: bad id %q", g.ID)
 	}
-	return g, Save(g)
+	g.Status, g.Created, g.Updated = Open, now(), now()
+	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+		return g, err
+	}
+	err := paths.WithFileLock(ticketPath(g.ID), func() error {
+		if _, err := os.Stat(ticketPath(g.ID)); err == nil {
+			return fmt.Errorf("goal %s already exists", g.ID)
+		}
+		if err := writeTicket(g); err != nil {
+			return err
+		}
+		if g.Plan == "" {
+			return nil
+		}
+		if err := LinkPlan(g); err != nil {
+			_ = os.Remove(ticketPath(g.ID))
+			return fmt.Errorf("goal %s: linking plan: %w", g.ID, err)
+		}
+		return nil
+	})
+	return g, err
 }
 
-// Tick moves the ticket to status with the check output tail, then mirrors it onto the linked plan line.
+// Tick moves the ticket to status with the check output tail, mirroring a done goal onto the linked plan line first.
+// A plan sync failure leaves the ticket unchanged so ticket and plan never disagree.
 func Tick(g Goal, status, reason, out string) (Goal, error) {
 	g.Status, g.Reason, g.Updated, g.LastOut = status, reason, now(), Tail(out)
 	if status != Open {
 		g.LastHash = ""
 	}
-	if err := Save(g); err != nil {
+	if !IDPattern.MatchString(g.ID) {
+		return g, fmt.Errorf("goal: bad id %q", g.ID)
+	}
+	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return g, err
 	}
-	return g, SyncPlan(g)
+	return g, paths.WithFileLock(ticketPath(g.ID), func() error {
+		if err := SyncPlan(g); err != nil {
+			return err
+		}
+		return writeTicket(g)
+	})
 }
 
 func taskLine(id string) *regexp.Regexp {
@@ -203,13 +237,19 @@ func LinkPlan(g Goal) error {
 
 // insertTask appends line at the end of the `## Tasks` section, creating the section when the plan has none.
 func insertTask(doc, line string) string {
-	start := strings.Index(doc, "\n## Tasks")
+	start, end, off := -1, len(doc), 0
+	for _, l := range strings.SplitAfter(doc, "\n") {
+		h := strings.TrimRight(l, " \t\r\n")
+		if start < 0 && h == "## Tasks" {
+			start = off
+		} else if start >= 0 && strings.HasPrefix(l, "## ") {
+			end = off
+			break
+		}
+		off += len(l)
+	}
 	if start < 0 {
 		return strings.TrimRight(doc, "\n") + "\n\n## Tasks\n\n" + line + "\n"
-	}
-	end := len(doc)
-	if i := strings.Index(doc[start+1:], "\n## "); i >= 0 {
-		end = start + 1 + i
 	}
 	return strings.TrimRight(doc[:end], "\n") + "\n" + line + "\n" + doc[end:]
 }
