@@ -51,8 +51,16 @@ func yesNoHint(def bool) string {
 // shell history. A non-nil preview redraws a masked line under the prompt as input arrives, so a paste shows on paste.
 // Falls back to a plain read when stdin is not a terminal.
 func Secret(prompt string, preview func(string) string) (string, error) {
+	return SecretHint("", prompt, preview)
+}
+
+// SecretHint is Secret with a hint line above the input that is erased on the first input byte (terminals only).
+func SecretHint(hint, prompt string, preview func(string) string) (string, error) {
 	fd := int(os.Stdin.Fd())
 	if !isTerminal(fd) {
+		if hint != "" {
+			fmt.Fprintln(os.Stdout, hint)
+		}
 		fmt.Fprint(os.Stdout, prompt)
 		line, err := stdinReader.ReadString('\n')
 		if err == io.EOF && line != "" {
@@ -61,11 +69,24 @@ func Secret(prompt string, preview func(string) string) (string, error) {
 		return strings.TrimRight(line, "\r\n"), err
 	}
 	var onChange func([]byte)
-	if preview == nil {
+	hintShown := hint != "" && StdoutIsTerminal()
+	if preview == nil { // inline prompt: the hint goes above it; with a preview the hint sits under the prompt line
+		if hintShown {
+			fmt.Fprintln(os.Stdout, hint)
+		}
 		fmt.Fprint(os.Stdout, prompt)
 	} else {
 		fmt.Fprintln(os.Stdout, strings.TrimRight(prompt, " "))
-		onChange = func(b []byte) {
+		if hintShown {
+			fmt.Fprintln(os.Stdout, hint)
+		}
+	}
+	onChange = func(b []byte) {
+		if hintShown && len(b) > 0 {
+			fmt.Fprint(os.Stdout, "\x1b[1A\x1b[M") // up onto the hint line, delete it: the input line moves up
+			hintShown = false
+		}
+		if preview != nil {
 			if fmt.Fprint(os.Stdout, "\r\x1b[K"); len(b) > 0 {
 				fmt.Fprintf(os.Stdout, "  pasted  %s", preview(string(b)))
 			}

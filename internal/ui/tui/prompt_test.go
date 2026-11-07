@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -72,5 +73,20 @@ func TestConfirmEOFDeclines(t *testing.T) {
 func TestYesNoHint(t *testing.T) {
 	if yesNoHint(true) != "[Y/n]" || yesNoHint(false) != "[y/N]" {
 		t.Errorf("hints = %q, %q", yesNoHint(true), yesNoHint(false))
+	}
+}
+
+// TestSecretHintPipedPrintsPlainHint: with stdin not a terminal the hint is a plain line above the prompt, no ANSI.
+func TestSecretHintPipedPrintsPlainHint(t *testing.T) {
+	withStdin(t, "abc\n")
+	r, w, _ := os.Pipe()
+	orig := os.Stdout
+	os.Stdout = w
+	got, err := SecretHint("empty keeps x", "id: ", nil)
+	os.Stdout = orig
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if err != nil || got != "abc" || string(out) != "empty keeps x\nid: " {
+		t.Fatalf("got %q, %v, out %q", got, err, out)
 	}
 }
