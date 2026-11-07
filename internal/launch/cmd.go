@@ -1,4 +1,4 @@
-package cli
+package launch
 
 import (
 	"context"
@@ -6,21 +6,20 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/tools"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cmdRestore is `configure --restore`; the work lives in launch.Restore.
-func cmdRestore(agents, out string, forceHomes, noAgents bool) int {
-	if err := launch.Restore(os.Stdout, agents, out, forceHomes, noAgents); err != nil {
+// CmdRestore is `configure --restore`; the work lives in Restore.
+func CmdRestore(agents, out string, forceHomes, noAgents bool) int {
+	if err := Restore(os.Stdout, agents, out, forceHomes, noAgents); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	return 0
 }
 
-// cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
-func cmdRevert(agents string, dryRun bool) int {
-	if err := launch.Revert(os.Stdout, agents, dryRun); err != nil {
+// CmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
+func CmdRevert(agents string, dryRun bool) int {
+	if err := Revert(os.Stdout, agents, dryRun); err != nil {
 		return helptext.Fail("configure --revert: %v", err)
 	}
 	return 0
@@ -60,9 +59,10 @@ func isSetupArg(args []string) bool {
 	return len(args) > 0 && (args[0] == "--setup" || args[0] == "-setup")
 }
 
-func cmdInstall(args []string) int {
+// RunInstall handles install flags and delegates --setup to setup.
+func RunInstall(args []string, setup func([]string) int) int {
 	if isSetupArg(args) {
-		return cmdSetup(args[1:])
+		return setup(args[1:])
 	}
 	fs := helptext.NewFlagSet("install", helptext.Page{
 		Usage: "claude-code install [flags]\nclaude-code install --setup <mode> [flags]",
@@ -74,17 +74,17 @@ func cmdInstall(args []string) int {
 	verbose := fs.Bool("verbose", false, "print every step in full, instead of one line each")
 	var tf toolsFlag
 	fs.Var(&tf, "tools", "install CLIs only: bare = all; --tools=name,... selects tools")
-	setup := fs.String("setup", "", "adopt|nuke|workspace: migrate, wipe, or scope .claude/ (first arg)")
+	setupMode := fs.String("setup", "", "adopt|nuke|workspace: migrate, wipe, or scope .claude/ (first arg)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *setup != "" {
+	if *setupMode != "" {
 		return helptext.Fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
 	}
 	if tf.set {
 		return installTools(tf.names, *dry)
 	}
-	if err := launch.Install(os.Stdout, *dry, *verbose); err != nil {
+	if err := Install(os.Stdout, *dry, *verbose); err != nil {
 		return helptext.Fail("install: %v", err)
 	}
 	return 0
