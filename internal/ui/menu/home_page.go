@@ -252,19 +252,13 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(edits)) {
 		e := edits[name]
-		if e.secret != "" {
-			if err := vault.Store(name, e.secret); err != nil {
-				d.printf("environment: %s: %v\n", name, err)
-				continue
-			}
-		}
-		if err := providers.SetCustomEnv(name, e.raw); err != nil {
+		if err := configure.SaveEnvEdit(name, e.raw, e.secret); err != nil {
 			d.printf("environment: %s: %v\n", name, err)
 			continue
 		}
 		d.printf("environment: %s %s\n", name, map[bool]string{true: "removed", false: "saved"}[e.raw == ""])
 		if e.deleteSecret {
-			if err := vault.Delete(name); err != nil {
+			if err := configure.DeleteSecret(name); err != nil {
 				d.printf("environment: %s: sealed secret not deleted: %v\n", name, err)
 				continue
 			}
