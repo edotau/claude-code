@@ -14,8 +14,6 @@ import (
 func coreSpecNodes() map[string]*completion.Node {
 	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
 	return map[string]*completion.Node{
-		"resolve":  {Flags: []completion.Flag{valuedFlag("profile", providerNames), boolFlag("proxy")}},
-		"switch":   {Args: []func() []string{providerNames}, Flags: []completion.Flag{boolFlag("dry-run")}},
 		"clean":    {Flags: []completion.Flag{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
 		"usage":    {Flags: []completion.Flag{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}},
 		"describe": {Flags: []completion.Flag{formatFlag()}},
