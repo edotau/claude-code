@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ var ErrNotRunning = errors.New("tailscale: backend not Running (see `tailscale s
 var (
 	lookPathReal       = paths.LookPathReal
 	execCommandContext = exec.CommandContext
+	goos               = runtime.GOOS
+	macAppCLI          = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 )
 
 // defaultExecTimeout bounds every quick exec of the installed CLI; connectTimeout bounds `tailscale up`.
@@ -126,13 +129,15 @@ func set(ctx context.Context, flags ...string) error {
 	return cmd.Run()
 }
 
-// tailscaleBin resolves the installed CLI; errNoCLI when it is not on PATH.
+// tailscaleBin resolves the installed CLI: PATH, then on macOS the GUI app's bundled binary; errNoCLI otherwise.
 func tailscaleBin() (string, error) {
-	bin, err := lookPathReal("tailscale")
-	if err != nil {
-		return "", errNoCLI
+	if bin, err := lookPathReal("tailscale"); err == nil {
+		return bin, nil
 	}
-	return bin, nil
+	if fi, err := os.Stat(macAppCLI); goos == "darwin" && err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
+		return macAppCLI, nil
+	}
+	return "", errNoCLI
 }
 
 // Status parses `tailscale status --json`. errNoCLI when not on PATH; ErrNotRunning when the
@@ -144,7 +149,7 @@ func Status(ctx context.Context) (Local, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
 	defer cancel()
-	out, err := execCommandContext(ctx, bin, "status", "--json").Output()
+	out, err := outputCapped(execCommandContext(ctx, bin, "status", "--json"))
 	if err != nil {
 		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
 	}

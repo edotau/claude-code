@@ -337,3 +337,41 @@ func TestPeersByAddrIndexesPeersAndSelf(t *testing.T) {
 		t.Errorf("stopped self = %+v, want offline", got)
 	}
 }
+
+// A CLI that prints past the cap is cut off with an error, not buffered whole.
+func TestStatusAndExecRunnerCapOutput(t *testing.T) {
+	stubCLI(t, `/usr/bin/head -c 3145728 /dev/zero`)
+	if _, err := Status(context.Background()); err == nil || !strings.Contains(err.Error(), "over") {
+		t.Errorf("Status over cap: err = %v, want an over-cap error", err)
+	}
+	bin := fakeBin(t, t.TempDir(), "big", `/usr/bin/head -c 3145728 /dev/zero`)
+	out, err := ExecRunner(context.Background(), []string{bin})
+	if err == nil || len(out) > maxCaptureBytes {
+		t.Errorf("ExecRunner over cap: err = %v, len(out) = %d, want an error and <= %d bytes", err, len(out), maxCaptureBytes)
+	}
+}
+
+// On darwin without a PATH tailscale, the GUI app's bundled CLI is used when executable; elsewhere errNoCLI.
+func TestTailscaleBinMacAppFallback(t *testing.T) {
+	noCLI(t)
+	dir := t.TempDir()
+	app := fakeBin(t, dir, "Tailscale", "exit 0")
+	noExec := filepath.Join(dir, "plain")
+	if err := os.WriteFile(noExec, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prevOS, prevApp := goos, macAppCLI
+	t.Cleanup(func() { goos, macAppCLI = prevOS, prevApp })
+	for _, c := range []struct{ os, path, want string }{
+		{"darwin", app, app},
+		{"linux", app, ""},
+		{"darwin", noExec, ""},
+		{"darwin", filepath.Join(dir, "missing"), ""},
+	} {
+		goos, macAppCLI = c.os, c.path
+		got, err := tailscaleBin()
+		if got != c.want || (c.want == "") != (err != nil) {
+			t.Errorf("goos=%s path=%s: got (%q, %v), want %q", c.os, filepath.Base(c.path), got, err, c.want)
+		}
+	}
+}
