@@ -95,11 +95,14 @@ func RegisterClaudeMCPContext(ctx context.Context, bin string) error {
 	if err != nil {
 		return err
 	}
-	_ = exec.CommandContext(ctx, claude, "mcp", "remove", "-s", "user", "web_search").Run()
-	if err := ctxErr(ctx, "claude mcp remove"); err != nil {
-		return err
+	out, err := mcpAddWebSearch(ctx, claude, bin)
+	if err != nil && strings.Contains(string(out), "already exists") {
+		// Replace only after add proved the CLI works and the entry exists; remove errors are reported.
+		if rerr := exec.CommandContext(ctx, claude, "mcp", "remove", "-s", "user", "web_search").Run(); rerr != nil {
+			return fmt.Errorf("claude mcp remove: %w", rerr)
+		}
+		out, err = mcpAddWebSearch(ctx, claude, bin)
 	}
-	out, err := exec.CommandContext(ctx, claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "network", "websearch").CombinedOutput()
 	if cerr := ctxErr(ctx, "claude mcp add"); cerr != nil {
 		return cerr
 	}
@@ -107,6 +110,10 @@ func RegisterClaudeMCPContext(ctx context.Context, bin string) error {
 		return fmt.Errorf("claude mcp add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func mcpAddWebSearch(ctx context.Context, claude, bin string) ([]byte, error) {
+	return exec.CommandContext(ctx, claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "network", "websearch").CombinedOutput()
 }
 
 // RegisterCodexMCP replaces (or appends) the web_search table, sealing the previous file in the vault backups.

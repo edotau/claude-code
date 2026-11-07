@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -144,7 +145,7 @@ func cachedReader() func(string) string {
 // listPackages runs `go list -e -json ./...` in dir and decodes its package stream.
 func listPackages(ctx context.Context, dir string) ([]goPkg, error) {
 	c := exec.CommandContext(ctx, "go", "list", "-e", "-json", "./...")
-	c.Dir = dir
+	c.Dir, c.Env = dir, gateEnv()
 	raw, err := c.Output()
 	if err != nil {
 		return nil, fmt.Errorf("go list ./...: %w (%s)", err, gitErrorDetail(err))
@@ -202,14 +203,19 @@ func propagateImports(list []goPkg, rel map[string]string, changed map[string]bo
 
 // goPkgOf returns the nearest existing directory at or above rel under dir that holds .go files, or "".
 func goPkgOf(dir, rel string) string {
-	for rel != "." && rel != "/" && rel != "" {
-		if m, _ := filepath.Glob(filepath.Join(dir, rel, "*.go")); len(m) > 0 {
+	for rel != "" && rel != "/" {
+		if ents, err := os.ReadDir(filepath.Join(dir, rel)); err == nil && slices.ContainsFunc(ents, isGoFile) {
 			return filepath.ToSlash(rel)
+		}
+		if rel == "." {
+			break
 		}
 		rel = filepath.Dir(rel)
 	}
 	return ""
 }
+
+func isGoFile(e os.DirEntry) bool { return !e.IsDir() && strings.HasSuffix(e.Name(), ".go") }
 
 // ChooseVerifyGate picks the post-integration gate: noVerify skips it, an explicit verify wins, else it is detected.
 func ChooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source string, err error) {
@@ -281,8 +287,15 @@ func hasNPMTestScript(pkgJSON string) bool {
 // ctx cancellation kills it, and a nonzero exit is the one signal that stops promotion.
 func RunVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+cmdStr)
-	cmd.Dir = workDir
+	cmd.Dir, cmd.Env = workDir, gateEnv()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = 5 * time.Second // orphans holding the output pipes must not block Wait after cancel
 	return cmd.Run()
+}
+
+// gateEnv is the parent environment minus the vault master key, which no gate needs.
+func gateEnv() []string {
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") })
 }

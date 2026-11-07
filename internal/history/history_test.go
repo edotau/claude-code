@@ -307,3 +307,43 @@ func TestLogAndDiffOnUnbornBranch(t *testing.T) {
 		t.Fatalf("Diff err = %v, want \"no config commits yet\"", err)
 	}
 }
+
+func TestSnapshotDropsStaleCopyWhenFileTurnsCredentialShaped(t *testing.T) {
+	root := t.TempDir()
+	live := filepath.Join(root, "live.json")
+	write(t, live, `{"model":"opus"}`)
+	s := &Store{Dir: filepath.Join(root, "history")}
+	files := []HistoryFile{{Label: "live.json", Path: live}}
+	if _, err := s.Snapshot(files, "config", "clean"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, live, `{"token":"`+"dapi"+strings.Repeat("0123456789abcdef", 2)+`"}`)
+
+	res, err := s.Snapshot(files, "config", "leaky")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Dir, "config", "live.json")); !os.IsNotExist(err) {
+		t.Error("the held-back file's stale copy stayed in the store")
+	}
+	if res.Commit == "" {
+		t.Errorf("dropping the stale copy must be committed: %+v", res)
+	}
+}
+
+func TestSecretREMatchesCommonProviderKeys(t *testing.T) {
+	rep := func(c string, n int) string { return strings.Repeat(c, n) }
+	cases := map[string]string{
+		"github fine-grained": "github_pat_" + rep("a1", 15),
+		"google":              "AIza" + rep("Ab1", 12) + "x",
+		"tavily":              "tvly-" + rep("ab", 10),
+		"groq":                "gsk_" + rep("aB", 14),
+		"aws":                 "AKIA" + rep("A1", 8),
+		"slack":               "xoxb-" + rep("1", 12),
+	}
+	for name, tok := range cases {
+		if !secretRE.MatchString(`{"k":"` + tok + `"}`) {
+			t.Errorf("%s key shape not caught: %q", name, tok)
+		}
+	}
+}

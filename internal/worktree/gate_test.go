@@ -191,3 +191,65 @@ func TestScopedGoGateNoPackagesOmitsGoTest(t *testing.T) {
 		t.Errorf("cmd=%q, want build and vet only", cmd)
 	}
 }
+
+// A change in the module-root package must select it, even when the worktree path holds glob characters.
+func TestScopedGoGateRootPackageAndGlobPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "fix[1]")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "-q")
+	for name, body := range map[string]string{"go.mod": "module example.com/m\n\ngo 1.22\n", "main.go": "package main\n\nfunc main() {}\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "base")
+	base := run("rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() { _ = 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "change")
+
+	cmd, pkgs, _, err := ScopedGoGate(context.Background(), dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(pkgs, []string{"."}) || !strings.HasSuffix(cmd, "go test ./.") {
+		t.Errorf("pkgs=%v cmd=%s; want the root package tested", pkgs, cmd)
+	}
+}
+
+// Cancelling must kill the gate's grandchildren, so a non-file writer's pipe closes and Wait returns.
+func TestRunVerifyCancelKillsProcessTree(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	var out strings.Builder
+	start := time.Now()
+	_ = RunVerify(ctx, t.TempDir(), "sleep 30 & wait", &out, &out)
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("RunVerify took %s after cancellation; the orphaned grandchild held the pipe", elapsed)
+	}
+}
+
+// The vault master key must not reach the gate process.
+func TestRunVerifyDropsVaultKey(t *testing.T) {
+	t.Setenv("HARNESS_VAULT_KEY", "sekrit")
+	var out strings.Builder
+	if err := RunVerify(context.Background(), t.TempDir(), `echo "key=[${HARNESS_VAULT_KEY}]"`, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "key=[]" {
+		t.Errorf("gate saw %q, want the vault key stripped", got)
+	}
+}
