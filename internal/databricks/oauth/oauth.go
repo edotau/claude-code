@@ -246,7 +246,7 @@ func RefreshU2M(ctx context.Context, host, refreshToken string) (Token, error) {
 	return reply.token(refreshToken), nil
 }
 
-var m2mLocks sync.Map // host -> chan struct{} (a 1-slot semaphore, so the wait can honor ctx)
+var m2mLocks sync.Map // host+clientID -> chan struct{} (a 1-slot semaphore, so the wait can honor ctx)
 
 // MintM2M runs the service-principal client-credentials grant (scope all-apis); Refresh is always empty.
 func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, error) {
@@ -257,7 +257,7 @@ func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, e
 	if clientID == "" || clientSecret == "" {
 		return Token{}, fmt.Errorf("oauth: m2m at %s: client id and secret are required", h)
 	}
-	sem, _ := m2mLocks.LoadOrStore(h, make(chan struct{}, 1))
+	sem, _ := m2mLocks.LoadOrStore(h+"\x00"+clientID, make(chan struct{}, 1))
 	select {
 	case sem.(chan struct{}) <- struct{}{}:
 		defer func() { <-sem.(chan struct{}) }()
@@ -284,9 +284,9 @@ const (
 
 // LoginOptions tunes LoginU2M; the zero value is the interactive default.
 type LoginOptions struct {
-	// Open launches the browser; nil or an error prints the URL to Out instead (headless).
+	// Open launches the browser; its error is ignored because LoginU2M always prints the URL to Out.
 	Open func(authURL string) error
-	// Out receives the headless URL prompt (default os.Stderr).
+	// Out receives the sign-in URL and the SSH hint (default os.Stderr).
 	Out io.Writer
 	// Timeout bounds the whole login (default 5 minutes).
 	Timeout time.Duration
@@ -447,8 +447,12 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 
 	redirect := "http://localhost:" + strconv.Itoa(port)
 	authURL := authorizeURL(h, redirect, state, verifier)
-	if opts.Open == nil || opts.Open(authURL) != nil {
-		fmt.Fprintf(opts.Out, "Open this URL in a browser to sign in to %s:\n%s\n", h, authURL)
+	if opts.Open != nil {
+		_ = opts.Open(authURL)
+	}
+	fmt.Fprintf(opts.Out, "Open this URL in a browser to sign in to %s:\n%s\n", h, authURL)
+	if os.Getenv("SSH_CONNECTION") != "" {
+		fmt.Fprintf(opts.Out, "Over SSH, forward the callback first: ssh -L %d:localhost:%d <this-host>\n", port, port)
 	}
 	code, err := await(ctx, h, cb)
 	if err != nil {

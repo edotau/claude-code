@@ -340,6 +340,39 @@ func TestMintM2MSerializedPerHost(t *testing.T) {
 	}
 }
 
+func TestMintM2MDifferentClientsDoNotBlockEachOther(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u, _, _ := r.BasicAuth(); u == "slow" {
+			<-release
+		}
+		tokenJSON(w, "a", "")
+	}))
+	defer srv.Close()
+	defer close(release)
+	go func() { _, _ = MintM2M(context.Background(), srv.URL, "slow", "s") }()
+	time.Sleep(100 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := MintM2M(ctx, srv.URL, "fast", "s"); err != nil {
+		t.Fatalf("second SP blocked behind the first: %v", err)
+	}
+}
+
+func TestLoginU2MPrintsURLAndSSHHintEvenWhenOpenSucceeds(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "1.2.3.4 5 6.7.8.9 22")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { tokenJSON(w, "a", "r") }))
+	defer srv.Close()
+	var out strings.Builder
+	errc := make(chan error, 1)
+	if _, err := LoginU2M(context.Background(), srv.URL, LoginOptions{Open: drive(t, "c", same, errc), Out: &out, Port: freePort(t), Timeout: 10 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "/oidc/v1/authorize?") || !strings.Contains(out.String(), "ssh -L") {
+		t.Errorf("Out = %q", out.String())
+	}
+}
+
 func TestPostTokenRetriesOn503ThenSucceeds(t *testing.T) {
 	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
