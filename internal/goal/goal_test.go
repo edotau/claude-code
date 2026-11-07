@@ -116,7 +116,7 @@ func TestAddAdoptsPresetID(t *testing.T) {
 }
 
 // A Done tick whose plan sync fails errors and leaves the ticket Open; Closed/Open ticks never touch the plan.
-func TestTickSyncsPlanBeforeWritingTicket(t *testing.T) {
+func TestTickWritesTicketWhenPlanSyncFails(t *testing.T) {
 	plan := goalEnv(t)
 	g, err := Add(Goal{ID: "g-b00004", Text: "x", Plan: plan})
 	if err != nil {
@@ -127,15 +127,15 @@ func TestTickSyncsPlanBeforeWritingTicket(t *testing.T) {
 			t.Fatalf("%s tick: err=%v, plan touched", st, err)
 		}
 	}
-	// Done goal whose plan lost its task line: Tick fails.
+	// Done goal whose plan lost its task line: Tick reports the sync error but still persists Done.
 	if err := os.WriteFile(plan, []byte("# P\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Tick(g, Done, "ok", ""); err == nil {
 		t.Fatal("Done tick with no plan line succeeded")
 	}
-	if got, _ := Load(g.ID); got.Status != Open {
-		t.Errorf("ticket status = %q after failed sync, want open", got.Status)
+	if got, _ := Load(g.ID); got.Status != Done {
+		t.Errorf("ticket status = %q after failed sync, want done", got.Status)
 	}
 }
 

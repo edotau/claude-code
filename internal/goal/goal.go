@@ -182,10 +182,11 @@ func Tick(g Goal, status, reason, out string) (Goal, error) {
 		return g, err
 	}
 	return g, paths.WithFileLock(ticketPath(g.ID), func() error {
-		if err := SyncPlan(g); err != nil {
+		syncErr := SyncPlan(g)
+		if err := writeTicket(g); err != nil {
 			return err
 		}
-		return writeTicket(g)
+		return syncErr
 	})
 }
 
