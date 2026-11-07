@@ -1,8 +1,8 @@
 export const meta = {
-  name: 'orchestrate',
+  name: 'code-engineer',
   description: 'One size-routed entry point: size the job, then route it through relay3 (or draft a plan for an epic)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, label (report file name, default orchestrate), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {model, effort} per stage (claude only; child is relay3\'s steps, where Simplify, Review and Fix-all also run per package). polish (default true; false skips both levels: relay3\'s per-package chain and orchestrate\'s final pass) runs after relay3 when it fixed something: Dedupe (only when 2+ packages were fixed), then Simplify and Review over the merged diff; any finding, lows included, earns one more relay3 pass (capped at one loop). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to relay3 as known, skipping Find and Rederive. A low token budget (under 150k left) skips the final pass, the review loop and relay3\'s per-package polish. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, dedupe, simplify, review, decisions, report}. Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {model, effort} per stage (claude only; child is relay3\'s steps, where Simplify, Review and Fix-all also run per package). polish (default true; false skips both levels: relay3\'s per-package chain and code-engineer\'s final pass) runs after relay3 when it fixed something: Dedupe (only when 2+ packages were fixed), then Simplify and Review over the merged diff; any finding, lows included, earns one more relay3 pass (capped at one loop). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to relay3 as known, skipping Find and Rederive. A low token budget (under 150k left) skips the final pass, the review loop and relay3\'s per-package polish. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, dedupe, simplify, review, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
@@ -14,7 +14,7 @@ export const meta = {
   ],
 }
 
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, relay3, orchestrate ──
+// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, relay3, code-engineer ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
@@ -39,7 +39,7 @@ const stepOf = (steps, name, defaults, opt) => {
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 const CWD = a.cwd || ''
 const TASK = a.task ? String(a.task) : ''
-const ERR = (m, tier, route, decisions) => ({ exit: 'error', error: 'orchestrate: ' + m, tier: tier || '', route: route || '', decisions: decisions || [], report: '' })
+const ERR = (m, tier, route, decisions) => ({ exit: 'error', error: 'code-engineer: ' + m, tier: tier || '', route: route || '', decisions: decisions || [], report: '' })
 const strs = (v) => (Array.isArray(v) ? v.filter(Boolean).map(String) : [])
 let PATHS = strs(a.paths)
 let PKGS = strs(a.packages)
@@ -124,7 +124,7 @@ if (RANGE) {
   const got = ch ? strs(ch.paths) : []
   PATHS = [...new Set([...PATHS, ...got])]
   decisions.push('range ' + RANGE + ': ' + got.length + ' changed Go file(s)')
-  if (!PATHS.length && !PKGS.length && !TASK) return await record({ exit: 'green', tier: 'TRIVIAL', route: 'none', packages: 0, merged: 0, confirmed: [], dropped: [], unverified: [], fixed: [], red: [], decisions, report: '# orchestrate: range ' + RANGE + ' has no Go changes' })
+  if (!PATHS.length && !PKGS.length && !TASK) return await record({ exit: 'green', tier: 'TRIVIAL', route: 'none', packages: 0, merged: 0, confirmed: [], dropped: [], unverified: [], fixed: [], red: [], decisions, report: '# code-engineer: range ' + RANGE + ' has no Go changes' })
   if (!tier && !TASK) {
     const dirs = new Set(PATHS.map((p) => p.split('/').slice(0, -1).join('/')))
     tier = dirs.size > 1 || PATHS.length > 5 ? 'HIGH' : 'LOW'
@@ -158,7 +158,7 @@ if (!tier && !TASK) {
 const route = tier === 'EPIC' ? 'plan' : tier === 'HIGH' ? 'relay3:packages' : 'relay3:paths'
 decisions.push('route: ' + route)
 log('route: ' + route + ' (tier ' + tier + ', kind ' + (KIND || 'n/a') + ')')
-const head = '# orchestrate: ' + tier + ' → ' + route
+const head = '# code-engineer: ' + tier + ' → ' + route
 phase('Route')
 if (tier === 'EPIC') {
   const p = await agent(
@@ -304,7 +304,7 @@ async function dedupe(res, files) {
 // record appends the run's report and decisions to the repo's memory reports so continuity needs no hand-written notes.
 async function record(res) {
   if (a.record === false) return res
-  const label = String(a.label || 'orchestrate').replace(/[^A-Za-z0-9._-]+/g, '-')
+  const label = String(a.label || 'code-engineer').replace(/[^A-Za-z0-9._-]+/g, '-')
   const w = await agent(
     RULES + ' Write two files and nothing else. Run `cd ' + CWD + ' && claude-code memory path` for the store dir D and `date +%F` for DATE. ' +
       '(1) Append (create if missing) the markdown REPORT below, followed by one blank line, to D/reports/DATE-' + label + '.md. ' +

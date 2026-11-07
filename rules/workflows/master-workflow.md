@@ -36,7 +36,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | HIGH | Cross-module, 5+ files | Full pipeline, parallel dispatch |
 | EPIC | Multi-session, architectural | Full pipeline, phased across sessions |
 
-`orchestrate`'s tiers size a job it was already asked to run; TRIVIAL with no workflow request still goes inline.
+`code-engineer`'s tiers size a job it was already asked to run; TRIVIAL with no workflow request still goes inline.
 
 Skip the pipeline for typos, single-line changes, git operations, docs-only edits, or "just do it".
 
@@ -101,7 +101,7 @@ Then push the current branch (CLAUDE.md hard rule 5) — `commit` does not push.
 |----------|------|
 | Bug fix (LOW) | fix → live re-run → regression test → `@agent-copilot commit` |
 | One-module feature (MEDIUM) | review → plan → implement → verify (simplify is its step 5) → commit |
-| Cross-module feature (HIGH) | review → plan → dispatch (`orchestrate` if the user asks for a workflow) → verify → commit |
+| Cross-module feature (HIGH) | review → plan → dispatch (`code-engineer` if the user asks for a workflow) → verify → commit |
 | Tech debt | `skills/evaluate-code/SKILL.md` → Tech debt |
 | Review current changes | `/code-review` (security: built-in `/security-review`, `rules/standards/security.md`) |
 | Second opinion | `@agent-codex` |

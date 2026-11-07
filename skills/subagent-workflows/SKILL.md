@@ -21,7 +21,7 @@ skill, a wrong role the agent file, a wrong order this skill. Writing an agent f
 | Workflow | the script | the steps are known up front and must run the same every time |
 
 Source: [when to use a workflow](https://code.claude.com/docs/en/workflows#when-to-use-a-workflow). When the owner asks
-for a workflow and no specific one fits, run `orchestrate` (`/home/edotau/.claude/workflows/orchestrate.js`).
+for a workflow and no specific one fits, run `code-engineer` (`/home/edotau/.claude/workflows/code-engineer.js`).
 
 ## Leaf types
 
