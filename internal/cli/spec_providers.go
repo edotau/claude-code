@@ -4,16 +4,7 @@ import (
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
-
-// gateway router's flags, which bare `gateway` also takes.
-func gatewayRouteFlags() []completion.Flag {
-	flag, valuedFlag, formatFlag := specFlag, specValuedFlag, specFormatFlag
-	return []completion.Flag{valuedFlag("model", func() []string { return router.Aliases }),
-		valuedFlag("agent", func() []string { return router.TableAgents }),
-		flag("task"), valuedFlag("fallback", func() []string { return router.FallbackModes }), formatFlag()}
-}
 
 func vaultSections() []string {
 	return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
@@ -24,12 +15,6 @@ func integrationSpecNodes() map[string]*completion.Node {
 	return map[string]*completion.Node{
 		"models": {Flags: []completion.Flag{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinAliases), boolFlag("dry-run"), formatFlag()}},
-		"gateway": {Flags: gatewayRouteFlags(), Sub: map[string]*completion.Node{
-			"token":  {},
-			"router": {Flags: gatewayRouteFlags()},
-			"proxy": {Flags: []completion.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("status"), boolFlag("serve"),
-				flag("port"), formatFlag()}},
-		}},
 		"workflow": {Sub: map[string]*completion.Node{
 			"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []completion.Flag{flag("name")}},
 			"lint":     {},
