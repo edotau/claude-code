@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -144,7 +145,7 @@ func saveKeys(d *dialog) bool {
 	stored := make([]string, 0, len(d.pending))
 	for _, name := range slices.Sorted(maps.Keys(d.pending)) {
 		k := d.pending[name]
-		if err := vault.Store(name, k.val); err != nil {
+		if err := configure.StoreSecret(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			ok = false
 			continue

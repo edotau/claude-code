@@ -12,8 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/shapes"
-	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -342,7 +340,7 @@ func deleteSecret(d *dialog, name string) bool {
 		d.printf("staged delete of %s · Submit removes it from the vault\n", name)
 		return true
 	}
-	if err := vault.Delete(name); err != nil {
+	if err := configure.DeleteSecret(name); err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
@@ -375,11 +373,7 @@ func addCustom(d *dialog) {
 
 // storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string) bool {
-	if name == providers.CopilotTokenEnv && !signin.ValidCopilotToken(val) {
-		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
-		return false
-	}
-	if err := shapes.ValidCredential(name, val); err != nil {
+	if err := configure.ValidateSecret(name, val); err != nil {
 		d.printf("%v\n", err)
 		return false
 	}
@@ -391,7 +385,7 @@ func storeValue(d *dialog, name, val string) bool {
 		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, vault.Redact(val))
 		return true
 	}
-	if err := vault.Store(name, val); err != nil {
+	if err := configure.StoreSecret(name, val); err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
@@ -432,7 +426,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		if !ok {
 			continue
 		}
-		if err := vault.Store(name, k.val); err != nil {
+		if err := configure.StoreSecret(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue
 		}
@@ -440,7 +434,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
 	}
 	for _, name := range deletes {
-		if err := vault.Delete(name); err != nil {
+		if err := configure.DeleteSecret(name); err != nil {
 			d.printf("%s: not deleted: %v\n", name, err)
 			continue
 		}
