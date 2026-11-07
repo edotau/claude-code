@@ -127,10 +127,12 @@ func updateLastProfiles(fn func(map[string]map[string]lastProfileAt) map[string]
 
 // ClearLastProfiles forgets every workspace's default, so a fresh `switch` pin applies everywhere.
 func ClearLastProfiles() error {
-	if err := os.Remove(lastProfileFile()); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+	return paths.WithFileLock(lastProfileFile(), func() error {
+		if err := os.Remove(lastProfileFile()); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	})
 }
 
 // ClearLastProfilesFor forgets the defaults of the named agents, in all workspaces.

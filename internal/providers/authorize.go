@@ -155,7 +155,7 @@ type catalogStatusError struct {
 }
 
 func (e *catalogStatusError) Error() string {
-	return fmt.Sprintf("GET %s: %s: %s", e.url, e.status, e.body)
+	return fmt.Sprintf("GET %s: %s: %s", e.url, e.status, redactDetail(e.body))
 }
 
 // rejectMarkers are the 403 body fragments that mean the credential itself was refused, not a policy or WAF block.

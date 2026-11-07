@@ -234,3 +234,15 @@ func TestDisplayName(t *testing.T) {
 		}
 	}
 }
+
+// Given an upstream body that echoes a bearer token, the error text redacts it while 403 classification still sees it.
+func TestCatalogStatusErrorRedactsBody(t *testing.T) {
+	e := &catalogStatusError{url: "http://x/models", status: "403 Forbidden", code: 403,
+		body: `invalid_token: bearer sk-secret-123456789012345`}
+	if strings.Contains(e.Error(), "sk-secret-123456789012345") {
+		t.Errorf("Error() leaks the token: %q", e.Error())
+	}
+	if !e.rejected() {
+		t.Error("rejected() must still read the raw body")
+	}
+}

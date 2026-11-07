@@ -247,3 +247,44 @@ func TestCommandInGitDirOperand(t *testing.T) {
 		}
 	}
 }
+
+// TestCanonicalSelfInstalledSymlink pins that .local/bin/claude-code is rewritten only when it resolves to the harness binary.
+func TestCanonicalSelfInstalledSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	self := filepath.Join(home, ".claude", "bin", "claude-code")
+	other := filepath.Join(home, "other")
+	for _, p := range []string{self, other} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(home, ".local", "bin", "claude-code")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := link + " doctor"
+	if got := CanonicalSelf(cmd); got != cmd {
+		t.Errorf("missing link rewritten: %q", got)
+	}
+	if err := os.Symlink(other, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := CanonicalSelf(cmd); got != cmd {
+		t.Errorf("lookalike link rewritten: %q", got)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(self, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []string{link + " doctor", "~/.local/bin/claude-code doctor", "$HOME/.local/bin/claude-code doctor"} {
+		if got := CanonicalSelf(in); got != "claude-code doctor" {
+			t.Errorf("CanonicalSelf(%q) = %q", in, got)
+		}
+	}
+}

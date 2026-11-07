@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,5 +31,16 @@ func TestHTTPClientHasTimeout(t *testing.T) {
 	}
 	if c.Transport != http.DefaultClient.Transport {
 		t.Fatal("httpClient must keep http.DefaultClient's Transport")
+	}
+}
+
+// Given no codex cache, the returned error wraps the live-fetch error so errors.Is still matches.
+func TestFallbackModelsCodexWrapsLiveErr(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	live := errors.New("live boom")
+	p := &Provider{Name: "chatgpt", Provider: "openai", Auth: Auth{Login: "codex"}}
+	_, _, err := FallbackModels(p, live)
+	if !errors.Is(err, live) {
+		t.Errorf("err = %v; want it to wrap the live error", err)
 	}
 }

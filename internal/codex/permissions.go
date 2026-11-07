@@ -75,31 +75,37 @@ func codexRender(p agent.Permissions, tools, gate bool) (codexPolicy, error) {
 	if p.Mode == "plan" && tools {
 		return pol, errors.New("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
 	}
+	rules, unmapped, err := codexRenderRules(p, tools, gate)
+	if err != nil {
+		return pol, err
+	}
+	pol.unmapped = unmapped
+	pol.rules = rules
+	pol.approve = p.Mode == "auto" || len(p.Ask) > 0
+	return pol, nil
+}
+
+// codexRenderRules renders each rule of p to its codex line, collecting the rules codex cannot express.
+func codexRenderRules(p agent.Permissions, tools, gate bool) (rules string, unmapped []string, err error) {
 	var b strings.Builder
-	var renderErr error
 	p.Each(func(decision agent.Decision, r agent.Rule) {
-		if renderErr != nil || (!tools && decision != agent.Deny) {
+		if err != nil || (!tools && decision != agent.Deny) {
 			return // no tools: an allow/prompt rule could auto-approve what the dispatch should not run
 		}
-		line, err := codexRule(r, [...]string{"forbidden", "prompt", "allow"}[decision], tools)
-		if errors.As(err, &notPrefixError{}) && decision == agent.Deny && gate {
+		line, lerr := codexRule(r, [...]string{"forbidden", "prompt", "allow"}[decision], tools)
+		if errors.As(lerr, &notPrefixError{}) && decision == agent.Deny && gate {
 			return
 		}
-		if err != nil && decision == agent.Deny {
-			renderErr = err
+		if lerr != nil && decision == agent.Deny {
+			err = lerr
 			return
 		}
-		if err != nil {
-			pol.unmapped = append(pol.unmapped, r.String())
+		if lerr != nil {
+			unmapped = append(unmapped, r.String())
 		}
 		b.WriteString(line)
 	})
-	if renderErr != nil {
-		return pol, renderErr
-	}
-	pol.rules = b.String()
-	pol.approve = p.Mode == "auto" || len(p.Ask) > 0
-	return pol, nil
+	return b.String(), unmapped, err
 }
 
 // codexRule is one rules line; "" with nil error means the read-only sandbox already covers a write-tool deny.
@@ -192,22 +198,30 @@ func saveRefreshedAuth(real, home string) bool {
 
 // linkHome links every entry of real into home except rules/, then writes home/rules/ with the user's files and rules.
 func linkHome(real, home, rules string) error {
-	entries, _ := os.ReadDir(real)
-	user, _ := filepath.Glob(filepath.Join(real, "rules", "*.rules"))
-	links := make([]string, 0, len(entries)+len(user))
-	for _, e := range entries {
-		if !slices.Contains([]string{"rules", ".tmp", "tmp", "config.toml"}, e.Name()) {
-			links = append(links, e.Name())
-		}
+	entries, err := os.ReadDir(real)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	for _, name := range links {
-		if err := os.Symlink(filepath.Join(real, name), filepath.Join(home, name)); err != nil {
+	user, err := filepath.Glob(filepath.Join(real, "rules", "*.rules"))
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if slices.Contains([]string{"rules", ".tmp", "tmp", "config.toml"}, e.Name()) {
+			continue
+		}
+		if err := os.Symlink(filepath.Join(real, e.Name()), filepath.Join(home, e.Name())); err != nil {
 			return err
 		}
 	}
 	if err := writeRetargetedConfig(real, home); err != nil {
 		return err
 	}
+	return writeRulesDir(home, user, rules)
+}
+
+// writeRulesDir creates home/rules/ holding links to the user's rule files plus dispatch.rules.
+func writeRulesDir(home string, user []string, rules string) error {
 	if err := os.Mkdir(filepath.Join(home, "rules"), 0o700); err != nil {
 		return err
 	}
@@ -258,6 +272,17 @@ func requireFileAuth(env []string) error {
 	return nil
 }
 
+// codexCheckSafeMode rejects Deny rules under --safe-mode and logs the rules codex cannot enforce.
+func codexCheckSafeMode(req agent.RunOptions, pol codexPolicy) error {
+	if req.SafeMode && len(req.Permissions.Deny) > 0 && pol.rules != "" {
+		return errors.New("codex: --safe-mode disables permission rules and hooks; remove --safe-mode to enforce --deny")
+	}
+	for _, r := range pol.unmapped {
+		fmt.Fprintf(os.Stderr, "ask: codex cannot enforce permission rule %s\n", r)
+	}
+	return nil
+}
+
 // codexApplyPermissions renders req.Permissions onto the exec argv/env. The zero Permissions returns both untouched.
 func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, outEnv []string, remove func(), err error) {
 	remove = func() {}
@@ -269,11 +294,8 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	if err != nil {
 		return nil, nil, remove, err
 	}
-	if req.SafeMode && len(p.Deny) > 0 && pol.rules != "" {
-		return nil, nil, remove, errors.New("codex: --safe-mode disables permission rules and hooks; remove --safe-mode to enforce --deny")
-	}
-	for _, r := range pol.unmapped {
-		fmt.Fprintf(os.Stderr, "ask: codex cannot enforce permission rule %s\n", r)
+	if err := codexCheckSafeMode(req, pol); err != nil {
+		return nil, nil, remove, err
 	}
 	if pol.approve {
 		argv = codexSwapSandbox(argv)

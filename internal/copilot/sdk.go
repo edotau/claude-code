@@ -221,19 +221,11 @@ func CatalogOptions(cliPath, token string) SDKOptions {
 
 // listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
 var listModelsFn = func(ctx context.Context, o SDKOptions) (models []copilot.ModelInfo, err error) {
-	clientOpts, err := BuildClientOptions(ctx, o)
+	client, stopClient, err := startClient(ctx, o, &err)
 	if err != nil {
 		return nil, err
 	}
-	client := copilot.NewClient(clientOpts)
-	if err := client.Start(ctx); err != nil {
-		return nil, fmt.Errorf("start copilot runtime: %w", err)
-	}
-	defer func() {
-		if stopErr := client.Stop(); stopErr != nil {
-			err = errors.Join(err, fmt.Errorf("stop copilot runtime: %w", stopErr))
-		}
-	}()
+	defer stopClient()
 	return client.ListModels(ctx)
 }
 

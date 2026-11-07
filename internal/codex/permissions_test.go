@@ -1,10 +1,14 @@
 package codex
 
 import (
+	"time"
+
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 
 	"github.com/edotau/claude-code/internal/agent"
 )
@@ -175,5 +179,49 @@ func TestCodexRulesHomeKeepsAuthWhenSaveFails(t *testing.T) {
 	remove()
 	if b, err := os.ReadFile(filepath.Join(home, "auth.json")); err != nil || string(b) != "fresh" {
 		t.Fatalf("refreshed auth.json lost after a failed save: %q, %v", b, err)
+	}
+}
+
+func TestLinkHomeSurfacesReadDirError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any directory")
+	}
+	real := t.TempDir()
+	if err := os.Chmod(real, 0o300); err != nil { // searchable but not listable: only ReadDir fails
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(real, 0o700) })
+	if err := linkHome(real, t.TempDir(), ""); err == nil {
+		t.Fatal("linkHome with an unlistable real home returned nil, want the ReadDir error")
+	}
+	if err := linkHome(filepath.Join(t.TempDir(), "missing"), t.TempDir(), ""); err != nil {
+		t.Fatalf("missing real home must stay tolerated: %v", err)
+	}
+}
+
+func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
+	origTimeout := agent.ProbeTimeout
+	agent.ProbeTimeout = 300 * time.Millisecond
+	t.Cleanup(func() {
+		agent.ProbeTimeout = origTimeout
+		codexJSONMu.Lock()
+		codexJSONKnown = false
+		codexJSONMu.Unlock()
+	})
+	codexJSONMu.Lock()
+	codexJSONKnown = false
+	codexJSONMu.Unlock()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	pathstest.FakeVendor(t, "codex", "sleep 5")
+	if codexHasJSON() {
+		t.Fatal("timed-out probe reported --json")
+	}
+	pathstest.FakeVendor(t, "codex", "echo '  --json  print events'")
+	if !codexHasJSON() {
+		t.Fatal("slow first probe stuck codexHasJSON at false; want a re-probe")
+	}
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	if !codexHasJSON() {
+		t.Fatal("definitive answer was not cached")
 	}
 }

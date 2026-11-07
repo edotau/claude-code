@@ -67,13 +67,6 @@ func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string
 	return code, bo.String(), be.String()
 }
 
-// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	_, stdout, _ := captureOutput(t, func() int { fn(); return 0 })
-	return stdout
-}
-
 // closedStdout points os.Stdout at a closed file so every write fails, until the test ends.
 func closedStdout(t *testing.T) {
 	t.Helper()
