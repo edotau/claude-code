@@ -25,14 +25,16 @@ type doctorOpts struct {
 	rev                                    string
 }
 
+var doctorPage = helptext.Page{
+	Usage: "claude-code doctor [flags] [--scan [path...]]",
+	About: "Check binaries, providers, credentials and the proxy without changing anything; " +
+		"exits 1 when a check fails. --audit prints switches, pins, secret sets, safety blocks " +
+		"and proxy failovers instead. --scan, --git and --secrets audit for plaintext " +
+		"credentials instead and exit 1 on any finding.",
+}
+
 func doctorFlags() (*flag.FlagSet, *doctorOpts) {
-	fs := helptext.NewFlagSet("doctor", helptext.Page{
-		Usage: "claude-code doctor [flags] [--scan [path...]]",
-		About: "Check binaries, providers, credentials and the proxy without changing anything; " +
-			"exits 1 when a check fails. --audit prints switches, pins, secret sets, safety blocks " +
-			"and proxy failovers instead. --scan, --git and --secrets audit for plaintext " +
-			"credentials instead and exit 1 on any finding.",
-	})
+	fs := helptext.NewFlagSet("doctor", doctorPage)
 	o := &doctorOpts{format: helptext.FormatFlag(fs)}
 	fs.BoolVar(&o.auditMode, "audit", false, "print the typed action log instead of health checks")
 	fs.IntVar(&o.days, "days", 7, "with --audit: events from the last N days")
@@ -111,6 +113,16 @@ func preflightRefresh(reg *providers.Registry) {
 	preflight.RefreshStale(ctx, reg, preflight.Check(reg, now), now, false)
 }
 
+// preflightDiscover re-seals one profile's model snapshot within the preflight budget.
+func preflightDiscover(profile string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
+	defer cancel()
+	if err := copilot.RefreshProfile(ctx, profile); err != nil {
+		return helptext.Fail("preflight: %v", err)
+	}
+	return 0
+}
+
 // preflightLive runs the post-install pong round against the running binary.
 func preflightLive(reg *providers.Registry) int {
 	bin, err := os.Executable()
@@ -136,22 +148,22 @@ func cmdPreflight(args []string) int {
 		return code
 	}
 	if *discover != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
-		defer cancel()
-		if err := copilot.RefreshProfile(ctx, *discover); err != nil {
-			return helptext.Fail("preflight: %v", err)
-		}
-		return 0
+		return preflightDiscover(*discover)
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("preflight: %v", err)
 	}
-	if *refresh {
+	return preflightReport(reg, *refresh, *live)
+}
+
+// preflightReport runs the refresh or live step when asked, else prints each agent's pin check.
+func preflightReport(reg *providers.Registry, refresh, live bool) int {
+	if refresh {
 		preflightRefresh(reg)
 		return 0
 	}
-	if *live {
+	if live {
 		return preflightLive(reg)
 	}
 	for _, p := range preflight.Check(reg, time.Now()) {
@@ -160,8 +172,7 @@ func cmdPreflight(args []string) int {
 	return 0
 }
 
-// printAudit prints the typed action log: switches, pins, secret sets, safety blocks, proxy
-// failovers. Shared by `doctor --audit`.
+// printAudit prints the typed action log (switches, pins, secret sets, safety blocks, failovers) for `doctor --audit`.
 func printAudit(days int, format string) int {
 	if days <= 0 {
 		helptext.Fprint(os.Stderr, "usage: claude-code doctor --audit [--days 7] [--format text|json]\n")

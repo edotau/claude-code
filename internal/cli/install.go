@@ -49,8 +49,19 @@ func (t *toolsFlag) Set(s string) error {
 
 func (t *toolsFlag) IsBoolFlag() bool { return true } // allows the bare "--tools" form
 
+func installTools(names []string, dry bool) int {
+	if err := tools.Install(context.Background(), os.Stdout, names, dry); err != nil {
+		return helptext.Fail("install --tools: %v", err)
+	}
+	return 0
+}
+
+func isSetupArg(args []string) bool {
+	return len(args) > 0 && (args[0] == "--setup" || args[0] == "-setup")
+}
+
 func cmdInstall(args []string) int {
-	if len(args) > 0 && (args[0] == "--setup" || args[0] == "-setup") {
+	if isSetupArg(args) {
 		return cmdSetup(args[1:])
 	}
 	fs := helptext.NewFlagSet("install", helptext.Page{
@@ -71,10 +82,7 @@ func cmdInstall(args []string) int {
 		return helptext.Fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
 	}
 	if tf.set {
-		if err := tools.Install(context.Background(), os.Stdout, tf.names, *dry); err != nil {
-			return helptext.Fail("install --tools: %v", err)
-		}
-		return 0
+		return installTools(tf.names, *dry)
 	}
 	if err := launch.Install(os.Stdout, *dry, *verbose); err != nil {
 		return helptext.Fail("install: %v", err)
