@@ -1,8 +1,8 @@
-package cli
+// Package gateway owns the gateway command tree.
+package gateway
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -28,7 +28,8 @@ var gatewayPage = helptext.Page{
 	Hint: "claude-code gateway <command> -h lists that command's flags.",
 }
 
-func cmdGateway(args []string) int {
+// Run dispatches the gateway verb tree.
+func Run(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case "-h", "--help", "help":
@@ -137,9 +138,9 @@ func cmdGatewayProxy(args []string) int {
 	case o.start:
 		return proxyStart(ctx)
 	case o.restart:
-		return proxyRestart(ctx)
+		return proxy.Restart(ctx)
 	case o.stop:
-		return proxyStop(ctx)
+		return proxy.StopWithHold(ctx)
 	}
 	return proxyStatus(ctx, *o.format)
 }
@@ -152,38 +153,6 @@ func proxyStart(ctx context.Context) int {
 		return helptext.Fail("proxy: %v", err)
 	}
 	fmt.Println(base)
-	return 0
-}
-
-func proxyRestart(ctx context.Context) int {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	if st, err := proxy.Stop(ctx); err == nil {
-		fmt.Printf("proxy: stopped pid %d\n", st.PID)
-	} else if !errors.Is(err, proxy.ErrNotRunning) {
-		return helptext.Fail("proxy: %v", err)
-	}
-	base, err := proxy.Ensure(ctx)
-	if err != nil {
-		return helptext.Fail("proxy: %v", err)
-	}
-	fmt.Println(base)
-	return 0
-}
-
-func proxyStop(ctx context.Context) int {
-	if err := proxy.Hold(); err != nil {
-		return helptext.Fail("proxy: hold: %v", err)
-	}
-	st, err := proxy.Stop(ctx)
-	if errors.Is(err, proxy.ErrNotRunning) {
-		fmt.Println("proxy: not running")
-		return 0
-	}
-	if err != nil {
-		return helptext.Fail("proxy: %v", err)
-	}
-	fmt.Printf("proxy: stopped pid %d\n", st.PID)
 	return 0
 }
 
@@ -213,61 +182,4 @@ func proxyStatus(ctx context.Context, format string) int {
 		return 1
 	}
 	return 0
-}
-
-var (
-	tokenEnsure = proxy.Ensure
-	tokenState  = proxy.Running
-	tokenMint   = proxy.MintSessionToken
-)
-
-func cmdGatewayToken(args []string) int {
-	fs := helptext.NewFlagSet("gateway token", helptext.Page{
-		Usage: "claude-code gateway token --profile p",
-		About: "Print a proxy session token for a credential helper (stdout only).\n" +
-			"The token is bound to the proxy daemon and scoped to one profile.",
-	})
-	profile := fs.String("profile", "", "profile the token is scoped to (required)")
-	cfg := fs.String("config-dir", "", "CLAUDE_CONFIG_DIR to use (native Windows helper)")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() != 0 || *profile == "" {
-		return helptext.Fail("gateway token: want --profile <name> and no other arguments")
-	}
-	token, code := mintProxyToken(*profile, *cfg)
-	if code != 0 {
-		return code
-	}
-	return printToken(token)
-}
-
-func printToken(token string) int {
-	if _, err := fmt.Fprintln(os.Stdout, token); err != nil {
-		return 1
-	}
-	return 0
-}
-
-// mintProxyToken ensures the proxy is up and mints a token for profile; a nonzero code is the exit status.
-func mintProxyToken(profile, cfgDir string) (string, int) {
-	if cfgDir != "" {
-		if err := os.Setenv("CLAUDE_CONFIG_DIR", cfgDir); err != nil {
-			return "", helptext.Fail("gateway token: %v", err)
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	if _, err := tokenEnsure(ctx); err != nil {
-		return "", helptext.Fail("gateway token: proxy unavailable; run gateway proxy --start")
-	}
-	st, ok := tokenState(ctx)
-	if !ok {
-		return "", helptext.Fail("gateway token: proxy not running")
-	}
-	token, err := tokenMint(ctx, profile, st.PID)
-	if err != nil {
-		return "", helptext.Fail("gateway token: %v", err)
-	}
-	return token, 0
 }

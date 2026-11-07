@@ -5,6 +5,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/databricks"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/setup"
@@ -62,7 +63,7 @@ func commands() []command {
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: cmdPlan},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
-		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway},
+		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: gateway.Run, spec: gateway.Spec},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: cmdUsage},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
 		// SETTINGS
