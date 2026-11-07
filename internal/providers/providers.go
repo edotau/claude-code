@@ -299,6 +299,47 @@ func (r *Registry) ProfilesOf(provider string) []string {
 	return append(out, rest...)
 }
 
+// KeyPresent reports whether provider name has a stored key.
+func (r *Registry) KeyPresent(provider string) (*Provider, bool) {
+	p := r.ProfileBy(provider, AuthKey)
+	return p, p != nil && CredentialPresent(p)
+}
+
+// ProfileBy is the first profile under provider signing in by method (key, cli, ...), or nil.
+func (r *Registry) ProfileBy(provider, method string) *Provider {
+	for _, n := range r.ProfilesOf(provider) {
+		if p := r.Providers[n]; p.Auth.Method() == method {
+			return p
+		}
+	}
+	return nil
+}
+
+// ProfileName is p's name, "" for nil.
+func ProfileName(p *Provider) string {
+	if p == nil {
+		return ""
+	}
+	return p.Name
+}
+
+// IdentityNote is " · identity <mode>" for a profile paired with a service principal, else "".
+func IdentityNote(profile string) string {
+	reg, err := Load()
+	if err != nil {
+		return ""
+	}
+	p, ok := reg.Providers[profile]
+	if !ok || p == nil || p.Auth.SPClientID == "" {
+		return ""
+	}
+	mode, err := ResolveIdentity(p.Identity, "")
+	if err != nil {
+		return ""
+	}
+	return " · identity " + mode
+}
+
 // LoginProfile is the first profile under provider whose Auth.Login is login.
 func (r *Registry) LoginProfile(provider, login string) (*Provider, bool) {
 	for _, n := range r.ProfilesOf(provider) {

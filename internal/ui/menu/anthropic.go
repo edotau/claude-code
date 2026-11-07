@@ -37,7 +37,7 @@ func (f *firstParty) login() (loggedIn bool) {
 
 func (f *firstParty) key() bool {
 	if !f.keyDone {
-		if p := configure.ProfileBy(f.reg, anthropicProvider, providers.AuthKey); p != nil {
+		if p := f.reg.ProfileBy(anthropicProvider, providers.AuthKey); p != nil {
 			f.keyOK = providers.CredentialPresent(p)
 		}
 		f.keyDone = true
@@ -64,16 +64,16 @@ func claudeMenu(d *dialog) agentMenu {
 					return false
 				}
 			}
-			return keepOrPin(d, cur, configure.ProfileName(configure.ProfileBy(d.reg, anthropicProvider, providers.AuthCLI)))
+			return keepOrPin(d, cur, providers.ProfileName(d.reg.ProfileBy(anthropicProvider, providers.AuthCLI)))
 		}},
 		{"API key", "pay per token · no Remote Control " + Bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
 			kt := configure.KeyTarget{Label: anthropicRow, EnvVar: anthropicKeyEnv, FixCmd: "claude-code vault set " + anthropicKeyEnv,
-				Provider: configure.ProfileBy(fp.reg, anthropicProvider, providers.AuthKey)}
+				Provider: fp.reg.ProfileBy(anthropicProvider, providers.AuthKey)}
 			if !ensureKey(d, kt, keyOK) {
 				d.printf("anthropic: no usable API key; left on %s\n", billingLabel(d.reg, cur))
 				return false
 			}
-			return keepOrPin(d, cur, configure.ProfileName(configure.ProfileBy(d.reg, anthropicProvider, providers.AuthKey)))
+			return keepOrPin(d, cur, providers.ProfileName(d.reg.ProfileBy(anthropicProvider, providers.AuthKey)))
 		}},
 		{"Login", "browser sign-in (claude auth login)", "", func() bool {
 			return regenerate(d, configure.KeyTarget{Label: anthropicRow}, []string{"claude", "auth", "login"}, false)
