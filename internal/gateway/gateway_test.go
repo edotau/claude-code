@@ -1,15 +1,11 @@
-package cli
+package gateway
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestGatewayProxyFlagValidation: lifecycle flags are mutually exclusive and --port belongs to --serve.
@@ -29,7 +25,7 @@ func TestGatewayProxyFlagValidation(t *testing.T) {
 		{[]string{"--stop", "--format", "json"}, "applies to --status only"},
 	}
 	for _, c := range cases {
-		code, stdout, stderr := captureOutput(t, func() int { return cmdGateway(append([]string{"proxy"}, c.args...)) })
+		code, stdout, stderr := captureOutput(t, func() int { return Run(append([]string{"proxy"}, c.args...)) })
 		if code == 0 || !strings.Contains(stderr, c.want) || stdout != "" {
 			t.Errorf("proxy %v: want error %q, got exit %d stdout %q stderr %q", c.args, c.want, code, stdout, stderr)
 		}
@@ -39,11 +35,11 @@ func TestGatewayProxyFlagValidation(t *testing.T) {
 // TestGatewayProxyNoFlagIsStatus: no flag reports status and exits 1 while the router is down.
 func TestGatewayProxyNoFlagIsStatus(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, _ := captureOutput(t, func() int { return cmdGateway([]string{"proxy"}) })
+	code, stdout, _ := captureOutput(t, func() int { return Run([]string{"proxy"}) })
 	if code != 1 || !strings.Contains(stdout, "not running") {
 		t.Fatalf("want exit 1 + 'not running', got %d %q", code, stdout)
 	}
-	code, stdout, _ = captureOutput(t, func() int { return cmdGateway([]string{"proxy", "--status", "--format", "json"}) })
+	code, stdout, _ = captureOutput(t, func() int { return Run([]string{"proxy", "--status", "--format", "json"}) })
 	var ps map[string]any
 	if err := json.Unmarshal([]byte(stdout), &ps); err != nil || code != 1 || ps["running"] != false {
 		t.Fatalf("status json: exit %d err %v out %q", code, err, stdout)
@@ -53,7 +49,7 @@ func TestGatewayProxyNoFlagIsStatus(t *testing.T) {
 // TestGatewayBareShowsRouteAndProxyFooter: bare gateway exits 0 even with the router down, ending in the proxy lines.
 func TestGatewayBareShowsRouteAndProxyFooter(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, stderr := captureOutput(t, func() int { return cmdGateway(nil) })
+	code, stdout, stderr := captureOutput(t, func() int { return Run(nil) })
 	if code != 0 {
 		t.Fatalf("exit %d stderr %q", code, stderr)
 	}
@@ -68,7 +64,7 @@ func TestGatewayBareShowsRouteAndProxyFooter(t *testing.T) {
 // TestGatewayBareJSONShape: bare --format json nests the unchanged route payload beside the proxy state.
 func TestGatewayBareJSONShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, _ := captureOutput(t, func() int { return cmdGateway([]string{"--format", "json"}) })
+	code, stdout, _ := captureOutput(t, func() int { return Run([]string{"--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -90,7 +86,7 @@ func TestGatewayBareJSONShape(t *testing.T) {
 		}
 	}
 	// gateway router alone stays the bare route payload (no wrapper).
-	_, rout, _ := captureOutput(t, func() int { return cmdGateway([]string{"router", "--format", "json"}) })
+	_, rout, _ := captureOutput(t, func() int { return Run([]string{"router", "--format", "json"}) })
 	var plain map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(rout), &plain); err != nil {
 		t.Fatal(err)
@@ -105,7 +101,7 @@ func TestGatewayBareJSONShape(t *testing.T) {
 
 // TestGatewayUnknownWord: a stray word is an error, not a silent route pick.
 func TestGatewayUnknownWord(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return cmdGateway([]string{"bogus"}) })
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"bogus"}) })
 	if code == 0 || !strings.Contains(stderr, "unknown command") {
 		t.Fatalf("exit %d stderr %q", code, stderr)
 	}
@@ -155,54 +151,5 @@ func TestPrintRouteSkipHeader(t *testing.T) {
 	})
 	if strings.Contains(none, "SKIP") {
 		t.Errorf("no skips must print no header:\n%s", none)
-	}
-}
-
-func stubToken(t *testing.T, mint func(context.Context, string, int) (string, error)) {
-	t.Helper()
-	oe, os_, om := tokenEnsure, tokenState, tokenMint
-	t.Cleanup(func() { tokenEnsure, tokenState, tokenMint = oe, os_, om })
-	tokenEnsure = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
-	tokenState = func(context.Context) (proxy.State, bool) { return proxy.State{PID: 4242}, true }
-	tokenMint = mint
-}
-
-func TestGatewayTokenPrintsOnlyDaemonBoundSessionToken(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Secret(t, "CLAUDE_CODE_ROUTER_SECRET", "long-lived-router-secret")
-	var gotProfile string
-	var gotPID int
-	stubToken(t, func(_ context.Context, p string, pid int) (string, error) {
-		gotProfile, gotPID = p, pid
-		return "cct_abc", nil
-	})
-	code, stdout, stderr := captureOutput(t, func() int { return cmdGateway([]string{"token", "--profile", "dev"}) })
-	if code != 0 || stdout != "cct_abc\n" || stderr != "" || gotProfile != "dev" || gotPID != 4242 {
-		t.Fatalf("exit %d stdout %q stderr %q profile %q pid %d", code, stdout, stderr, gotProfile, gotPID)
-	}
-}
-
-func TestGatewayTokenRejectsBadArgsAndMintFailure(t *testing.T) {
-	vaulttest.Use(t)
-	stubToken(t, func(context.Context, string, int) (string, error) { return "", errors.New("boom") })
-	for _, args := range [][]string{{"token"}, {"token", "extra"}, {"token", "--profile", "dev"}} {
-		code, stdout, _ := captureOutput(t, func() int { return cmdGateway(args) })
-		if code == 0 || stdout != "" {
-			t.Fatalf("%v: exit %d stdout %q", args, code, stdout)
-		}
-	}
-}
-
-func TestDesktopAndTokenHelpFitsEightyColumns(t *testing.T) {
-	for _, args := range [][]string{{"configure", "desktop", "--help"}, {"gateway", "token", "--help"}} {
-		code, stdout, stderr := captureOutput(t, func() int { return Run(append([]string{"claude-code"}, args...)) })
-		if code != 0 || stdout != "" {
-			t.Fatalf("%v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
-		}
-		for line := range strings.SplitSeq(stderr, "\n") {
-			if termWidth(line) > 80 {
-				t.Errorf("%v: line exceeds 80 columns: %s", args, line)
-			}
-		}
 	}
 }
