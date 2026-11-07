@@ -95,3 +95,25 @@ func TestPermissionGateAgentPayloads(t *testing.T) {
 		t.Errorf("an allowed agy command was blocked: %q", res.Reason)
 	}
 }
+
+// TestPermissionGateUnknownTargetFailsClosed: a path tool with no discoverable target is refused when a scoped Deny covers it.
+func TestPermissionGateUnknownTargetFailsClosed(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"deny":[{"Tool":"Edit","Arg":"secret.txt"},{"Tool":"Grep","Arg":"vault/**"}]}`)
+	cases := []struct {
+		name, payload string
+		block         bool
+		reason        string
+	}{
+		{"patch text with no header", `{"tool_name":"Edit","cwd":"/repo","tool_input":{"patchText":"  *** add file: secret.txt"}}`, true, "Edit("},
+		{"grep without a path defaults to cwd and passes", `{"tool_name":"Grep","cwd":"/repo","tool_input":{"pattern":"k"}}`, false, ""},
+		{"glob without a path has no Glob deny", `{"tool_name":"Glob","cwd":"/repo","tool_input":{"pattern":"*"}}`, false, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := PermissionGate(core.ParseInput(strings.NewReader(c.payload)))
+			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) {
+				t.Errorf("decision %v reason %q, want block=%v naming %q", res.Decision, res.Reason, c.block, c.reason)
+			}
+		})
+	}
+}

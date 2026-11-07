@@ -40,6 +40,9 @@ func PermissionGate(in *core.Input) core.Result {
 		judge = agent.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
 	}
 	for _, arg := range gateArgs(in, tool) {
+		if r, blind := blindDeny(p, tool, arg); blind {
+			return blindResult(p, tool, r)
+		}
 		d := judge.Decide(tool, arg)
 		if tool == "Edit" {
 			d = min(d, judge.Decide("Write", arg)) // opencode's edit permission covers both, so either rule refuses
@@ -49,6 +52,27 @@ func PermissionGate(in *core.Input) core.Result {
 		}
 	}
 	return core.Result{}
+}
+
+// blindDeny refuses a Read/Edit whose target is unknown (no path key, no patch header) when a scoped Deny covers it.
+func blindDeny(p agent.Permissions, tool, arg string) (agent.Rule, bool) {
+	if arg != "" || tool == "Bash" || tool == "WebFetch" || tool == "Grep" || tool == "Glob" { // Grep/Glob default to cwd
+		return agent.Rule{}, false
+	}
+	for _, r := range p.Deny {
+		if r.Arg != "" && (r.Tool == tool || tool == "Edit" && r.Tool == "Write") {
+			return r, true
+		}
+	}
+	return agent.Rule{}, false
+}
+
+// blindResult refuses a pathless call, naming the tool and the scoped deny that made its unknown target unsafe.
+func blindResult(p agent.Permissions, tool string, rule agent.Rule) core.Result {
+	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — " + tool + " call has no path, so its " +
+		"target is unknown and may fall under the scoped deny " + rule.String() + "\n  deny: " +
+		strings.Join(agent.RuleStrings(p.Deny), ", ") + modeNote(p) +
+		"\nPass an explicit path outside the denied scope, or report it."}
 }
 
 func denyResult(p agent.Permissions, call agent.Rule) core.Result {
@@ -78,7 +102,9 @@ func gateArgs(in *core.Input, tool string) []string {
 		for _, f := range patchFiles(patch) {
 			out = append(out, relToCWD(in.CWD, f))
 		}
-		return out
+		if len(out) > 0 {
+			return out
+		}
 	}
 	return []string{gatePath(in)}
 }
