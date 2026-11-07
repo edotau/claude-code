@@ -156,3 +156,10 @@ func TestRobotsMatchMultiWildcardIsBounded(t *testing.T) {
 		t.Errorf("trailing $ must anchor the last segment")
 	}
 }
+
+func TestParseRobotsStripsLeadingBOM(t *testing.T) {
+	_, blocked := robotsDisallows(parseRobots("\ufeffUser-agent: *\nDisallow: /\n"), "/x/page")
+	if !blocked {
+		t.Error("BOM-prefixed first group was ignored; want Disallow / to apply")
+	}
+}

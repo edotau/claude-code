@@ -397,6 +397,10 @@ func checkExtractURL(raw string) (*url.URL, error) {
 
 // fetchPages extracts at basic depth, then retries Tavily's failures once at advanced depth (bot-protected pages).
 func fetchPages(ctx context.Context, apiKey string, urls []string, content, failed map[string]string) error {
+	sent := map[string]string{}
+	for _, u := range urls {
+		sent[normURL(u)] = u
+	}
 	for _, depth := range []string{"basic", "advanced"} {
 		res, err := tavilyExtract(ctx, apiKey, urls, depth)
 		if err != nil {
@@ -404,18 +408,36 @@ func fetchPages(ctx context.Context, apiKey string, urls []string, content, fail
 		}
 		urls = nil
 		for _, r := range res.Results {
-			content[r.URL] = r.RawContent
-			delete(failed, r.URL)
+			content[normURL(r.URL)] = r.RawContent
+			delete(failed, normURL(r.URL))
 		}
 		for _, f := range res.Failed {
-			failed[f.URL] = f.Error
-			urls = append(urls, f.URL)
+			k := normURL(f.URL)
+			failed[k] = f.Error
+			if orig, ok := sent[k]; ok {
+				urls = append(urls, orig)
+			} else {
+				urls = append(urls, f.URL)
+			}
 		}
 		if len(urls) == 0 {
 			return nil
 		}
 	}
 	return nil
+}
+
+// normURL canonicalises a URL (lowercase scheme/host, no fragment, "/" path) so Tavily's echoed URL matches the sent one.
+func normURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.Scheme, u.Host, u.Fragment = strings.ToLower(u.Scheme), strings.ToLower(u.Host), ""
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	return u.String()
 }
 
 // vetExtractURLs splits urls into those safe to send to Tavily and a failure reason per refused URL.
@@ -455,12 +477,19 @@ func Extract(ctx context.Context, urls []string) int {
 	}
 	ok := 0
 	for _, raw := range urls {
-		if msg, bad := failed[raw]; bad {
+		msg, bad := failed[raw]
+		if !bad {
+			msg, bad = failed[normURL(raw)]
+		}
+		if !bad && content[normURL(raw)] == "" {
+			msg, bad = "no content returned", true
+		}
+		if bad {
 			fmt.Printf("# %s\nfailed: %s\n\n", raw, msg)
 			continue
 		}
 		ok++
-		fmt.Printf("# %s\n%s\n\n", raw, content[raw])
+		fmt.Printf("# %s\n%s\n\n", raw, content[normURL(raw)])
 	}
 	if ok == 0 {
 		return 1
@@ -524,10 +553,15 @@ func rejectInternal(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// publicIP is false for nil and for loopback, private, link-local and unspecified addresses.
+// publicIP is false for nil and for loopback, private, CGNAT (100.64/10), 0.0.0.0/8, link-local, multicast and unspecified.
 func publicIP(ip net.IP) bool {
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified()
+	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil && (v4[0] == 0 || (v4[0] == 100 && v4[1]&0xC0 == 64)) {
+		return false
+	}
+	return true
 }
 
 // robotsAllowed reports whether the origin's robots.txt permits u for "claude-code" or "*"; a missing or

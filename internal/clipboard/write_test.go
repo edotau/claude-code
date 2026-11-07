@@ -276,3 +276,15 @@ func TestClearIfMatchBoundsContext(t *testing.T) {
 		}
 	}
 }
+
+// A tool that forks a daemon holding stdout (xclip -i) must not block run past the pipe grace.
+func TestRunReturnsWhenForkedChildHoldsStdout(t *testing.T) {
+	start := time.Now()
+	_, err := run(context.Background(), nil, "sh", "-c", "sleep 30 & exit 0")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("run blocked %v on a forked child holding stdout", d)
+	}
+}
