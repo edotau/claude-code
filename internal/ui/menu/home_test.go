@@ -24,33 +24,60 @@ func TestWebSearchClaudeWiredHonoursConfigDir(t *testing.T) {
 	}
 }
 
-func TestRegisterClaudeMCPContext(t *testing.T) {
-	remove := []string{"mcp", "remove", "-s", "user", "web_search"}
-	add := []string{"mcp", "add", "-s", "user", "web_search", "--", "/custom path/claude-code", "network", "websearch"}
-	for _, mode := range []string{"normal", "remove-fail", "add-fail", "cancel-remove", "cancel-add"} {
-		t.Run(mode, func(t *testing.T) {
-			_, log, ready := configureCommandEnv(t, mode)
-			run := func(ctx context.Context) error {
-				return configure.RegisterClaudeMCPContext(ctx, "/custom path/claude-code")
-			}
-			if strings.HasPrefix(mode, "cancel-") {
-				assertConfigureCancellation(t, ready, run)
-			} else {
-				err := run(context.Background())
-				if mode == "add-fail" {
-					if err == nil || !strings.Contains(err.Error(), "claude mcp add") ||
-						!strings.Contains(err.Error(), "command failed") {
-						t.Errorf("add failure = %v, want command and output detail", err)
-					}
-				} else if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if mode == "cancel-remove" {
-				assertConfigureArgv(t, log, remove)
-			} else {
-				assertConfigureArgv(t, log, remove, add)
-			}
-		})
+const mcpBin = "/custom path/claude-code"
+
+var (
+	mcpRemoveArgv = []string{"mcp", "remove", "-s", "user", "web_search"}
+	mcpAddArgv    = []string{"mcp", "add", "-s", "user", "web_search", "--", mcpBin, "network", "websearch"}
+)
+
+func registerMCPMode(t *testing.T, mode string) (string, error) {
+	t.Helper()
+	_, log, _ := configureCommandEnv(t, mode)
+	return log, configure.RegisterClaudeMCPContext(context.Background(), mcpBin)
+}
+
+// TestRegisterClaudeMCPContextFresh: a first registration runs add only, never remove.
+func TestRegisterClaudeMCPContextFresh(t *testing.T) {
+	log, err := registerMCPMode(t, "normal")
+	if err != nil {
+		t.Fatal(err)
 	}
+	assertConfigureArgv(t, log, mcpAddArgv)
+}
+
+// TestRegisterClaudeMCPContextReplacesExisting: "already exists" from add triggers remove, then add again.
+func TestRegisterClaudeMCPContextReplacesExisting(t *testing.T) {
+	log, err := registerMCPMode(t, "exists")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertConfigureArgv(t, log, mcpAddArgv, mcpRemoveArgv, mcpAddArgv)
+}
+
+// TestRegisterClaudeMCPContextRemoveFails: a failed remove is reported and add is not retried.
+func TestRegisterClaudeMCPContextRemoveFails(t *testing.T) {
+	log, err := registerMCPMode(t, "exists-remove-fail")
+	if err == nil || !strings.Contains(err.Error(), "claude mcp remove") {
+		t.Errorf("remove failure = %v, want claude mcp remove error", err)
+	}
+	assertConfigureArgv(t, log, mcpAddArgv, mcpRemoveArgv)
+}
+
+// TestRegisterClaudeMCPContextAddFails: any other add failure carries the output and never removes.
+func TestRegisterClaudeMCPContextAddFails(t *testing.T) {
+	log, err := registerMCPMode(t, "add-fail")
+	if err == nil || !strings.Contains(err.Error(), "claude mcp add") || !strings.Contains(err.Error(), "command failed") {
+		t.Errorf("add failure = %v, want command and output detail", err)
+	}
+	assertConfigureArgv(t, log, mcpAddArgv)
+}
+
+// TestRegisterClaudeMCPContextCancelAdd: cancelling during add returns the context error promptly.
+func TestRegisterClaudeMCPContextCancelAdd(t *testing.T) {
+	_, log, ready := configureCommandEnv(t, "cancel-add")
+	assertConfigureCancellation(t, ready, func(ctx context.Context) error {
+		return configure.RegisterClaudeMCPContext(ctx, mcpBin)
+	})
+	assertConfigureArgv(t, log, mcpAddArgv)
 }
