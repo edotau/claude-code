@@ -173,12 +173,14 @@ func validateRouting(r Routing) []string {
 // validateRouteCells checks each cell's agent, alias and account names.
 func validateRouteCells(cells map[string]map[string]RouteCell) []string {
 	var errs []string
-	for agent, aliases := range cells {
+	for _, agent := range slices.Sorted(maps.Keys(cells)) {
+		aliases := cells[agent]
 		if !slices.Contains(RouteAgents, agent) {
 			errs = append(errs, fmt.Sprintf("routing.cells names unknown agent %q", agent))
 			continue
 		}
-		for alias, cell := range aliases {
+		for _, alias := range slices.Sorted(maps.Keys(aliases)) {
+			cell := aliases[alias]
 			if !validRouteRow(alias) {
 				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown alias or Claude id", agent, alias))
 			}

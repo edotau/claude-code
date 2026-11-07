@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -207,5 +208,18 @@ func TestRouteSubagentsOnPrecedence(t *testing.T) {
 	on, source = RouteSubagentsOn()
 	if on || source != "env" {
 		t.Errorf("env=0: on=%v source=%q, want false/env", on, source)
+	}
+}
+
+func TestValidateRouteCellsOrderIsDeterministic(t *testing.T) {
+	cells := map[string]map[string]RouteCell{"zz": nil, "aa": nil, "mm": nil, "bb": nil, "cc": nil}
+	want := validateRouteCells(cells)
+	for range 30 {
+		if got := validateRouteCells(cells); !slices.Equal(got, want) {
+			t.Fatalf("error order varies: %v vs %v", got, want)
+		}
+	}
+	if !slices.IsSorted(want) {
+		t.Fatalf("errors not sorted by agent: %v", want)
 	}
 }
