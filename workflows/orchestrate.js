@@ -173,6 +173,7 @@ if (tier === 'EPIC') {
 // HIGH with only files: relay3 packages are their directories, never the file paths (finders roam otherwise).
 const dirsOf = (ps) => [...new Set(ps.map((p) => /\.[A-Za-z0-9]+$/.test(p) ? p.split('/').slice(0, -1).join('/') : p))]
 const target = tier === 'HIGH' ? { packages: PKGS.length ? PKGS : dirsOf(PATHS) } : { paths: PATHS }
+const sized = [...(target.paths || [])] // the files the task names; intel may add context, never new packages to a fix
 if (tier === 'MEDIUM' && TASK) {
   const intel = await agent(
     RULES + ' Read-only: edit nothing. Codebase intel for this task: structure, conventions, and the exact files to change with their callers. ' +
@@ -180,7 +181,14 @@ if (tier === 'MEDIUM' && TASK) {
       (PATHS.length ? '\nStart from: ' + PATHS.join(', ') : ''),
     { phase: 'Route', label: 'intel', schema: INTEL, model: S.intel.model, effort: S.intel.effort },
   ).catch(() => null)
-  if (intel && strs(intel.paths).length) { target.paths = strs(intel.paths); focus = TASK + '. Intel: ' + intel.focus } else decisions.push('intel returned nothing; kept the sized paths')
+  if (intel && strs(intel.paths).length) {
+    const own = new Set(dirsOf(sized))
+    const got = KIND === 'fix' && sized.length ? strs(intel.paths).filter((p) => own.has(dirsOf([p])[0])) : strs(intel.paths)
+    const dropped = strs(intel.paths).length - got.length
+    if (dropped) decisions.push('intel: kept ' + got.length + ' path(s) in the named package(s), dropped ' + dropped + ' outside them (context only)')
+    target.paths = [...new Set([...sized, ...got])]
+    focus = TASK + '. Intel: ' + intel.focus
+  } else decisions.push('intel returned nothing; kept the sized paths')
 }
 // relay3 only fixes bugs: a feature task gets an implementer first, then relay3 audits and hardens the new code.
 const feature = KIND ? KIND === 'feature' : /\b(build|add|implement|create|introduce|support|write)\b/i.test(TASK) && !/\b(audit|review)\b/i.test(TASK)
@@ -198,7 +206,7 @@ if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feat
 phase('Run')
 let r
 // Fast path: a LOW/MEDIUM fix task names the bug, so relay3 skips Find and Rederive for those files (audits and features never).
-const fastFiles = (tier === 'LOW' || tier === 'MEDIUM') && KIND === 'fix' && TASK && a.fix !== false && a.fast !== false ? (target.paths || []).filter((p) => /\.go$/.test(p) && !/_test\.go$/.test(p)) : []
+const fastFiles = (tier === 'LOW' || tier === 'MEDIUM') && KIND === 'fix' && TASK && a.fix !== false && a.fast !== false ? (sized.length ? sized : target.paths || []).filter((p) => /\.go$/.test(p) && !/_test\.go$/.test(p)) : []
 const known = fastFiles.map((file) => ({ file, symptom: TASK }))
 if (known.length) { decisions.push('fast path: ' + known.length + ' file(s) passed to relay3 as known'); log('fast path: known ' + known.length + ' file(s)') }
 try {
