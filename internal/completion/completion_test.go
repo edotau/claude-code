@@ -57,3 +57,28 @@ func TestInstallWritesScriptOnlyForBinary(t *testing.T) {
 		t.Errorf("completion directory entries = %v, want only claude-code", entries)
 	}
 }
+
+func TestInstallReplacesScriptAtomically(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("BASH_COMPLETION_USER_DIR", dir)
+	path := filepath.Join(dir, "completions", "claude-code")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("old script"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	held := filepath.Join(dir, "held")
+	if err := os.Link(path, held); err != nil {
+		t.Skipf("hard links unsupported: %v", err)
+	}
+	if _, err := Install("claude-code"); err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := os.ReadFile(held); string(body) != "old script" {
+		t.Errorf("old inode was rewritten in place: %q, want it untouched (temp file + rename)", body)
+	}
+	if body, _ := os.ReadFile(path); string(body) != Script("claude-code") {
+		t.Errorf("installed script = %q, want Script(claude-code)", body)
+	}
+}

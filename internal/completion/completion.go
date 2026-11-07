@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // funcName turns a hyphenated binary name into a valid-looking bash identifier for readability.
@@ -53,7 +55,7 @@ func Install(bin string) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, bin)
-	if err := os.WriteFile(path, []byte(Script(bin)), 0o644); err != nil {
+	if err := paths.AtomicWrite(path, []byte(Script(bin)), 0o644); err != nil {
 		return "", err
 	}
 	return path, nil
