@@ -243,7 +243,7 @@ func (r *askRun) dispatchMode() (int, bool) {
 // retryAgents resolves --retry-agent names like --agent does; a bad name is a flag error.
 func (r *askRun) retryAgents() ([]string, error) {
 	var out []string
-	for _, n := range strings.Split(r.f.retryAgent, ",") {
+	for n := range strings.SplitSeq(r.f.retryAgent, ",") {
 		if n = strings.TrimSpace(n); n == "" {
 			continue
 		}
