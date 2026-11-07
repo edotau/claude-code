@@ -27,10 +27,6 @@ func coreSpecNodes() map[string]*completion.Node {
 				"vscode": {Flags: []completion.Flag{flag("template"), flag("dest"), flag("extensions-dir"),
 					flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}},
 			}},
-		"configure": {Args: []func() []string{configureSections, providerNames}, Flags: []completion.Flag{
-			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
-			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), boolFlag("all"),
-			boolFlag("no-agents"), formatFlag()}},
 		"clip":       {Flags: []completion.Flag{boolFlag("serve")}},
 		"completion": {Flags: []completion.Flag{boolFlag("install")}},
 	}
