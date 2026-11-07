@@ -18,13 +18,15 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Size | sizer, `haiku` low | task, `git status`, `go list` | `{tier, packages, paths, focus}` | tier enum | decision line |
 | Route | none (code) | tier | `relay3:paths` · `relay3:packages` · `plan` | EPIC returns early | route line |
 | Run | relay3 (composite B) | paths or packages | relay3 result | exit `green\|red\|review` | child decisions |
-| Simplify | simplifier, `sonnet` medium | files relay3 fixed | simplify result | simplify gate; `polish:false` skips | decision |
-| Review | reviewer, `sonnet` high, read-only | that diff | findings | critical/high/medium earn one more relay3 | decision |
+| Dedupe | deduper, `sonnet` medium | combined diff of 2+ fixed packages | applied, flagged, Δ lines | only cross-package duplicated helpers; `polish:false` skips | decision |
+| Simplify | simplifier, `sonnet` medium | merged diff of all fixed files | simplify result | simplify gate | decision |
+| Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one more relay3, capped at one loop | decision |
 | Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
 
 - **Args**: `cwd` and one of `task`, `packages`, `paths`, `range` (git range; changed files become paths); optional
-  `tier`, `fix` (true), `minFix` (medium), `focus`, `polish` (true; false skips Simplify and Review), `label`,
-  `record:false`, `steps {size, intel, impl, plan, simplify, review, record, child}`.
+  `tier`, `fix` (true), `minFix` (medium), `focus`,
+  `polish` (true; false skips relay3's per-package chain and the final pass), `label`,
+  `record:false`, `steps {size, intel, impl, plan, dedupe, simplify, review, record, child}`.
   Exits `green|red|review|plan|error`.
 - **Cost**: HIGH over N packages is relay3's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
 - **Failure modes and guards**: sizer returns nothing, so pass `tier`; untested routes (LOW/MEDIUM/impl/EPIC) went
@@ -34,7 +36,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
   `agent()` calls replay from cache (R7's fix round re-ran only 12 new agents; R8's resumed the same way). Results land
   in `$(claude-code memory path)/reports/DATE-<label>.md` and `DATE-decisions.md`.
 
-## B. relay3: find, rederive, fix, guard test, gate
+## B. relay3: find, rederive, fix, guard test, gate, simplify, review, fix-all
 
 - **Use when**: audit and repair named packages or files; `fix:false` for review only (R7, R8 shape).
 
@@ -45,16 +47,20 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Fix | `sonnet` medium | confirmed >= `minFix` | `{status, files, callers}` | status `done` or red | fixed count |
 | Guard test | `sonnet` medium | the diff | one test per fix | `claude-code test mutate` exit 0 | test report |
 | Gate | `haiku` low | package | `{green, output}` | build, vet, test; plus `internal/schemas` for a writer | green or red |
+| Simplify | `sonnet` medium | the package's changed files | applied, flagged, Δ lines | simplify gate; reverts its own regressing edit; skipped if `polish:false`, budget < 150k, or fix not done/green | "simplify: N applied" |
+| Review | `sonnet` high, read-only | the package diff | findings (file, line, symbol, symptom, severity) | correctness + contract lenses | "review: N findings (sev counts)" |
+| Fix-all, Test, re-Gate | `steps.fix`, `test`, `gate` | every review finding, lows included | fixed count; guard tests; `{green}` | one cycle per package; red re-gate or unfinished fix-all = red | "fix-all: N fixed" |
 
 - **Foreign re-route**: a finding citing a file outside its finder's package is fixed after the stream by the owning
   directory (`d51420fb`); a live re-route run is still owed (scorecard rank 2).
 - **Args**: `cwd`, `packages` or `paths`, `slice` (first N packages, a small first run), `fix`, `minFix`, `focus`,
-  `steps {find, rederive, fix, test, gate}`.
-- **Cost**: `6 x P + 3 x fixed`; yield 7.0 to 7.5 confirmed findings per 1M tokens.
+  `polish` (true), `steps {find, rederive, fix, test, gate, simplify, review}`.
+- **Cost**: `6 x P + 3 x fixed` (+4 per fixed package with polish: simplify, review,
+  and when findings exist fix-all, test, re-gate); yield 7.0 to 7.5 confirmed findings per 1M tokens.
 - **Failure modes**: scoped gate misses cross-package breakage (`16d36662`): full suite before push; fixer blocked
   but gate green is red (`07f86477`); an out-of-scope hunk in a fix is reverted by the supervisor (decision #20).
-- **Results**: returns `{exit, confirmed, dropped, unverified, fixed, red, decisions, report}`; direct runs record
-  nothing, so go through (A) when the run should be filed.
+- **Results**: returns `{exit, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red,
+  decisions, report}`; direct runs record nothing, so go through (A) when the run should be filed.
 
 ## C. MEDIUM feature: intel, implementer, relay3 harden
 
