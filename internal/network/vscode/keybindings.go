@@ -134,15 +134,27 @@ func keybindingMatch(a, b map[string]any) bool {
 // leadingComment captures a header comment (VS Code's "Place your key bindings…") preceding the
 // array's opening bracket, so a merge does not drop it.
 func leadingComment(raw []byte) string {
-	idx := bytes.IndexByte(raw, '[')
-	if idx <= 0 {
-		return ""
+	rest := bytes.TrimLeft(raw, " \t\r\n")
+	end := 0
+	for {
+		var n int
+		switch {
+		case bytes.HasPrefix(rest[end:], []byte("//")):
+			n = bytes.IndexByte(rest[end:], '\n') + 1
+			if n == 0 {
+				n = len(rest) - end
+			}
+		case bytes.HasPrefix(rest[end:], []byte("/*")):
+			n = bytes.Index(rest[end:], []byte("*/")) + 2
+			if n == 1 {
+				return ""
+			}
+		default:
+			return strings.TrimSpace(string(rest[:end]))
+		}
+		end += n
+		end += len(rest[end:]) - len(bytes.TrimLeft(rest[end:], " \t\r\n"))
 	}
-	head := strings.TrimSpace(string(raw[:idx]))
-	if head == "" || (!strings.HasPrefix(head, "//") && !strings.HasPrefix(head, "/*")) {
-		return ""
-	}
-	return head
 }
 
 func marshalKeybindings(entries []map[string]any, leading string) ([]byte, error) {

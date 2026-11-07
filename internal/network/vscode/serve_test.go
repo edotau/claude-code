@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -389,7 +388,7 @@ func TestStartTerminatesDaemonWhenStateWriteFails(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if liveProcess(pid) {
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		_ = terminate(pid)
 		t.Fatalf("daemon pid %d still alive after a failed Start: unrecorded orphan", pid)
 	}
 }

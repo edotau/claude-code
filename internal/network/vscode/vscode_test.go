@@ -210,6 +210,19 @@ func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *t
 	}
 }
 
+// A '[' inside the header comment must not split it: the rewritten file has to stay parseable JSONC.
+func TestSyncKeybindingsBracketInHeaderCommentStaysValid(t *testing.T) {
+	user := "/* keep [these] bindings\n   as is */\n[\n  {\"key\": \"ctrl+k\", \"command\": \"myExtension.doThing\"}\n]\n"
+	tmpl, dest := keybindingsFixture(t, user)
+	if _, err := SyncKeybindings(tmpl, dest, false); err != nil {
+		t.Fatal(err)
+	}
+	entries, body := readKeybindingEntries(t, dest)
+	if len(entries) != 2 || !strings.HasPrefix(string(body), "/* keep [these] bindings\n   as is */\n[") {
+		t.Errorf("header comment mangled (%d entries):\n%s", len(entries), body)
+	}
+}
+
 // A second run against the already-merged file has nothing left to change — no rewrite, no new backup.
 func TestSyncKeybindingsIsIdempotent(t *testing.T) {
 	tmpl, dest := keybindingsFixture(t, `[]`)
