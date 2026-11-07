@@ -418,6 +418,7 @@ func TestMirroredIn(t *testing.T) {
 		{"other section", "[experimental]\nnetworkingMode=mirrored\n", false},
 		{"commented", "[wsl2]\n#networkingMode=mirrored\n", false},
 		{"nat", "[wsl2]\nnetworkingMode=nat\n", false},
+		{"utf8 bom", "\ufeff[wsl2]\r\nnetworkingMode=mirrored\r\n", true},
 	} {
 		if got := mirroredIn(tc.text); got != tc.want {
 			t.Errorf("%s: got %v", tc.name, got)

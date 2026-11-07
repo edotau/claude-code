@@ -46,15 +46,20 @@ func detectOne(env Env, s spec) Browser {
 	if !b.Installed {
 		return stubNotInstalled(b)
 	}
+	detectFamily(env, s, &b)
+	return b
+}
+
+// detectFamily fills the host and control paths for an installed browser by its family.
+func detectFamily(env Env, s spec, b *Browser) {
 	switch s.family {
 	case familyChromium:
-		detectChromium(env, s, &b)
+		detectChromium(env, s, b)
 	case familySafari:
-		detectSafari(env, &b)
+		detectSafari(env, b)
 	case familyFirefox:
-		detectFirefox(env, &b)
+		detectFirefox(env, b)
 	}
-	return b
 }
 
 func stubUnsupported(b Browser) Browser {

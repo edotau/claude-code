@@ -36,7 +36,7 @@ func nextPages(ctx context.Context, env Env, c *cdpConn, gate *robotsGate, o Ext
 		if page == 1 && len(rows) == 0 {
 			return nil, fmt.Errorf("container %q matched nothing within 10s", o.Container)
 		}
-		if prev != nil && reflect.DeepEqual(prev, rows) {
+		if reflect.DeepEqual(prev, rows) { // page 1 is non-empty here, so a nil prev never equals rows
 			return all, nil
 		}
 		prev = rows
@@ -90,18 +90,9 @@ func templatePages(ctx context.Context, env Env, c *cdpConn, gate *robotsGate, o
 
 // goNext follows the next control; false when it is absent or disabled.
 func goNext(ctx context.Context, env Env, c *cdpConn, gate *robotsGate, o ExtractOptions) (bool, error) {
-	var st struct {
-		State, Href, Sig string
-	}
-	probe := `(()=>{const e=document.querySelector(` + jsString(o.Next) + `);
-if(!e)return{state:'gone'};
-if(e.disabled||e.getAttribute('aria-disabled')==='true'||/\bdisabled\b/.test(e.className))return{state:'disabled'};
-return{state:'ok',href:(e.tagName==='A'&&e.href&&e.href.split('#')[0]!==location.href.split('#')[0]&&e.href)||'',sig:` + sigJS(o.Container) + `};})()`
-	if err := c.Eval(ctx, probe, &st); err != nil {
+	st, err := probeNext(ctx, c, o)
+	if err != nil || st.State != "ok" {
 		return false, err
-	}
-	if st.State != "ok" {
-		return false, nil
 	}
 	if st.Href != "" && !strings.HasPrefix(st.Href, "javascript:") {
 		if err := gate.check(ctx, st.Href); err != nil {
@@ -113,6 +104,19 @@ return{state:'ok',href:(e.tagName==='A'&&e.href&&e.href.split('#')[0]!==location
 		return false, err
 	}
 	return waitChange(ctx, env, c, `(`+sigJS(o.Container)+`)`, st.Sig)
+}
+
+// nextProbe is the next control's state: gone|disabled|ok, its same-site href, and the page signature.
+type nextProbe struct{ State, Href, Sig string }
+
+// probeNext inspects the next control in the page.
+func probeNext(ctx context.Context, c *cdpConn, o ExtractOptions) (nextProbe, error) {
+	var st nextProbe
+	probe := `(()=>{const e=document.querySelector(` + jsString(o.Next) + `);
+if(!e)return{state:'gone'};
+if(e.disabled||e.getAttribute('aria-disabled')==='true'||/\bdisabled\b/.test(e.className))return{state:'disabled'};
+return{state:'ok',href:(e.tagName==='A'&&e.href&&e.href.split('#')[0]!==location.href.split('#')[0]&&e.href)||'',sig:` + sigJS(o.Container) + `};})()`
+	return st, c.Eval(ctx, probe, &st)
 }
 
 // sigJS fingerprints the page: URL, container count and the first container's text.
@@ -157,16 +161,20 @@ while(!`+count+`&&Date.now()<end)await new Promise(r=>setTimeout(r,200));return 
 		if step.stop {
 			break
 		}
-		if step.clicked {
-			stalls = 2 // one no-growth round after a click ends the loop
-		}
-		if step.grew {
-			stalls = 0
-		} else {
-			stalls++
-		}
+		stalls = nextStalls(stalls, step)
 	}
 	return grab(ctx, c, js)
+}
+
+// nextStalls counts no-growth rounds; a load-more click leaves one round before the loop ends.
+func nextStalls(stalls int, step growResult) int {
+	if step.clicked {
+		stalls = 2
+	}
+	if step.grew {
+		return 0
+	}
+	return stalls + 1
 }
 
 // growResult reports one grow round: stop when load-more is gone, grew when the count rose, clicked after a click.

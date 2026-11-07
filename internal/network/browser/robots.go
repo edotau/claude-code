@@ -43,6 +43,15 @@ func (g *robotsGate) check(ctx context.Context, raw string) error {
 		rules = g.fetch(ctx, origin)
 		g.rules[origin] = rules
 	}
+	path := robotsPath(u)
+	if r, blocked := robotsDisallows(rules, path); blocked {
+		return fmt.Errorf("robots.txt at %s disallows %s (rule \"Disallow: %s\"); --ignore-robots overrides", origin, path, r.pattern)
+	}
+	return nil
+}
+
+// robotsPath is the escaped path plus query that robots rules match against.
+func robotsPath(u *url.URL) string {
 	path := u.EscapedPath()
 	if path == "" {
 		path = "/"
@@ -50,10 +59,7 @@ func (g *robotsGate) check(ctx context.Context, raw string) error {
 	if u.RawQuery != "" {
 		path += "?" + u.RawQuery
 	}
-	if r, blocked := robotsDisallows(rules, path); blocked {
-		return fmt.Errorf("robots.txt at %s disallows %s (rule \"Disallow: %s\"); --ignore-robots overrides", origin, path, r.pattern)
-	}
-	return nil
+	return path
 }
 
 func (g *robotsGate) fetch(ctx context.Context, origin string) []robotsRule {

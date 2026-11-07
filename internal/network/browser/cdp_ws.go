@@ -33,6 +33,9 @@ const (
 // wsWriteTimeout bounds one frame write so a peer that stops reading cannot hold wmu and hang Close.
 const wsWriteTimeout = 10 * time.Second
 
+// wsHandshakeTimeout bounds the upgrade exchange so a peer that accepts but never answers cannot hang wsDial.
+var wsHandshakeTimeout = 10 * time.Second
+
 // wsConn is a client websocket: masked frames out, unmasked frames in.
 type wsConn struct {
 	c   net.Conn
@@ -53,6 +56,7 @@ func wsDial(ctx context.Context, raw string) (*wsConn, error) {
 	}
 	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
 	defer stop()
+	_ = c.SetDeadline(time.Now().Add(wsHandshakeTimeout))
 	keyRaw := make([]byte, 16)
 	if _, err := rand.Read(keyRaw); err != nil {
 		_ = c.Close()
@@ -77,6 +81,7 @@ func wsDial(ctx context.Context, raw string) (*wsConn, error) {
 		_ = c.Close()
 		return nil, fmt.Errorf("cdp: websocket handshake refused (%s)", resp.Status)
 	}
+	_ = c.SetDeadline(time.Time{})
 	return &wsConn{c: c, br: br}, nil
 }
 

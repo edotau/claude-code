@@ -214,7 +214,7 @@ func wslMirrored(env Env) bool {
 // mirroredIn scans .wslconfig text for networkingMode=mirrored inside [wsl2], case-insensitively.
 func mirroredIn(text string) bool {
 	inWSL2 := false
-	for line := range strings.SplitSeq(text, "\n") {
+	for line := range strings.SplitSeq(strings.TrimPrefix(text, "\ufeff"), "\n") { // Windows editors write a UTF-8 BOM
 		line = strings.ToLower(strings.TrimSpace(line))
 		if strings.HasPrefix(line, "[") {
 			inWSL2 = line == "[wsl2]"
