@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +34,10 @@ func TestNewerSchemaRouterJSONStaysRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(proxy.PIDHeader, strconv.Itoa(os.Getpid())) // a live router names its pid; Running rejects a pid-less non-claude-code holder
+		w.WriteHeader(http.StatusOK)
+	})}
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 	port := ln.Addr().(*net.TCPAddr).Port
