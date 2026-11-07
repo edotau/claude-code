@@ -116,13 +116,16 @@ func mcpAddWebSearch(ctx context.Context, claude, bin string) ([]byte, error) {
 	return exec.CommandContext(ctx, claude, "mcp", "add", "-s", "user", "web_search", "--", bin, "network", "websearch").CombinedOutput()
 }
 
+// codexMCPExtras pre-approves web_search (approval "never") and passes the keyring address so it opens the vault.
+const codexMCPExtras = "default_tools_approval_mode = \"approve\"\nenv_vars = [\"DBUS_SESSION_BUS_ADDRESS\", \"XDG_RUNTIME_DIR\"]\n"
+
 // RegisterCodexMCP replaces (or appends) the web_search table, sealing the previous file in the vault backups.
 func RegisterCodexMCP(path, bin string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	block := fmt.Sprintf("[mcp_servers.web_search]\ncommand = %q\nargs = [\"network\", \"websearch\"]\n\n", bin)
+	block := fmt.Sprintf("[mcp_servers.web_search]\ncommand = %q\nargs = [\"network\", \"websearch\"]\n%s\n", bin, codexMCPExtras)
 	start, end := codexMCPRange(raw)
 	var next []byte
 	if start < 0 {
