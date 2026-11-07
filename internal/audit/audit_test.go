@@ -128,3 +128,28 @@ func TestRotateTwiceKeepsRotatedHistory(t *testing.T) {
 		t.Errorf(".1 = %q, %v; want the original full log", got, err)
 	}
 }
+
+// TestRotateKeepsPreviousGeneration pins: a second rotation moves the old .1 to .2 instead of overwriting it.
+func TestRotateKeepsPreviousGeneration(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := maxBytes
+	maxBytes = 50
+	defer func() { maxBytes = old }()
+	file := File()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first, second := strings.Repeat("a", 100), strings.Repeat("b", 100)
+	for _, gen := range []string{first, second} {
+		if err := os.WriteFile(file, []byte(gen), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rotate(file)
+	}
+	if got, _ := os.ReadFile(file + ".1"); string(got) != second {
+		t.Errorf(".1 = %q, want the newest generation", got)
+	}
+	if got, _ := os.ReadFile(file + ".2"); string(got) != first {
+		t.Errorf(".2 = %q, want the first generation preserved", got)
+	}
+}

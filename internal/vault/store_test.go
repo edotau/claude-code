@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -244,6 +245,25 @@ func TestDeleteRemovesVaultRecordWithoutKey(t *testing.T) {
 	if value, source, err := vault.Lookup("C_KEY"); err != nil || value != "env-value" || source != "env" {
 		t.Fatalf("Lookup after vault.Delete = (%q, %q, %v), want (env-value, env, nil)", value, source, err)
 	}
+}
+
+// Delete called directly (UI env dialog, PAT rollback) must leave a secret_delete audit event.
+func TestDeleteAuditsSecretDelete(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "AUDITED_KEY", "v")
+	if err := vault.Delete("AUDITED_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	events, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Action == audit.SecretDelete && e.Resource == "AUDITED_KEY" {
+			return
+		}
+	}
+	t.Fatalf("no secret_delete event for AUDITED_KEY in %d events", len(events))
 }
 
 // Delete on a name stored nowhere must be a no-op, not an error.

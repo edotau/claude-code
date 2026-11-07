@@ -25,11 +25,15 @@ func Looks(val string) bool {
 	return HasGitHubPrefix(val) || matchSlack(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-") || bearerToken.MatchString(val)
 }
 
+// placeholderWindow is how far into a value a placeholder marker counts; later hits are random token bytes.
+const placeholderWindow = 16
+
 // notCredentialShaped reports an env reference, file path or obvious placeholder.
 func notCredentialShaped(val string) bool {
+	head := val[:min(len(val), placeholderWindow)]
 	return strings.HasPrefix(val, "$") || // ${ENV} reference
 		strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/") || // file path
-		strings.Contains(val, "PLACEHOLDER") || strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx")
+		strings.Contains(head, "PLACEHOLDER") || strings.Contains(head, "YOUR_") || strings.Contains(head, "xxx")
 }
 
 // hasAnyPrefix reports whether v starts with any of prefixes (AWS, Databricks PAT, OpenAI-style).

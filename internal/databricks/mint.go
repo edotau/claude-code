@@ -2,6 +2,7 @@ package databricks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -69,23 +70,23 @@ func SetPAT(ctx context.Context, name, value string) (status string, err error) 
 
 // setPATLocked is SetPAT's read, store, probe and rollback, run while the per-row lock is held.
 func setPATLocked(ctx context.Context, name, value string) (string, error) {
-	p, prevType, err := patRow(name)
+	p, undo, err := patRow(name)
 	if err != nil {
 		return "", err
 	}
 	secret := providers.AuthSecretName(p)
 	old, had, err := vault.ReadSecret(secret)
 	if err != nil {
-		return "", fmt.Errorf("%s: read the previous personal access token: %w", p.Name, err)
+		return "", errors.Join(fmt.Errorf("%s: read the previous personal access token: %w", p.Name, err), undo())
 	}
 	if err := vault.Store(secret, value); err != nil {
-		return "", err
+		return "", errors.Join(err, undo())
 	}
 	status, detail := probePAT(ctx, p)
 	if status != "rejected" {
 		return status, nil
 	}
-	if rbErr := rollbackPAT(p, secret, old, had, prevType); rbErr != nil {
+	if rbErr := rollbackPAT(secret, old, had, undo); rbErr != nil {
 		return status, fmt.Errorf("%s: personal access token rejected (%s); rollback failed, the rejected value may remain: %w",
 			p.Name, detail, rbErr)
 	}
@@ -93,28 +94,74 @@ func setPATLocked(ctx context.Context, name, value string) (string, error) {
 }
 
 // patRow loads the named row, switches it to pat auth when it is not already, and returns the reloaded row
-// with its previous auth type.
-func patRow(name string) (*providers.Provider, string, error) {
+// with an undo that restores its previous overlay auth block.
+func patRow(name string) (*providers.Provider, func() error, error) {
+	noop := func() error { return nil }
 	reg, err := providers.Load()
 	if err != nil {
-		return nil, "", err
+		return nil, noop, err
 	}
 	p, err := reg.Get(name)
 	if err != nil {
-		return nil, "", err
+		return nil, noop, err
 	}
-	prevType := p.Auth.Method()
-	if prevType == providers.AuthPAT {
-		return p, prevType, nil
+	if p.Auth.Method() == providers.AuthPAT {
+		return p, noop, nil
 	}
+	prevAuth, err := overlayAuth(name)
+	if err != nil {
+		return nil, noop, err
+	}
+	undo := func() error { return restoreOverlayAuth(name, prevAuth) }
 	if err := switchAuthType(p, providers.AuthPAT, false); err != nil {
-		return nil, "", err
+		return nil, noop, err
 	}
 	if reg, err = providers.Load(); err != nil {
-		return nil, "", err
+		return nil, noop, errors.Join(err, undo())
 	}
-	p, err = reg.Get(name)
-	return p, prevType, err
+	if p, err = reg.Get(name); err != nil {
+		return nil, noop, errors.Join(err, undo())
+	}
+	return p, undo, nil
+}
+
+// overlayAuth returns the raw auth block of name's overlay row (nil when it has none).
+func overlayAuth(name string) (json.RawMessage, error) {
+	var raw json.RawMessage
+	_, _, err := providers.UpdateOverlayDocForce(false, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		provs := map[string]map[string]json.RawMessage{}
+		if b, ok := top["providers"]; ok {
+			if err := json.Unmarshal(b, &provs); err != nil {
+				return err
+			}
+		}
+		raw = provs[name]["auth"]
+		return nil
+	})
+	return raw, err
+}
+
+// restoreOverlayAuth writes raw back as name's overlay auth block, or removes the block when raw is nil.
+func restoreOverlayAuth(name string, raw json.RawMessage) error {
+	_, _, err := providers.UpdateOverlayDocForce(true, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		provs := map[string]map[string]json.RawMessage{}
+		if err := json.Unmarshal(top["providers"], &provs); err != nil {
+			return err
+		}
+		entry := provs[name]
+		if entry == nil {
+			return fmt.Errorf("%s is not an overlay row", name)
+		}
+		if raw == nil {
+			delete(entry, "auth")
+		} else {
+			entry["auth"] = raw
+		}
+		b, err := json.Marshal(provs)
+		top["providers"] = b
+		return err
+	})
+	return err
 }
 
 // probePAT refreshes p's credential and probes it; a refresh failure reports "unverified" with its message.
@@ -125,17 +172,15 @@ func probePAT(ctx context.Context, p *providers.Provider) (status, detail string
 	return providers.ProbeCredential(ctx, p)
 }
 
-// rollbackPAT restores the previous secret and, when it was oauth or m2m, the previous authType.
-func rollbackPAT(p *providers.Provider, secret, old string, had bool, prevType string) error {
+// rollbackPAT restores the previous secret and the row's previous auth block.
+func rollbackPAT(secret, old string, had bool, undo func() error) error {
 	var errs []error
 	if had {
 		errs = append(errs, vault.Store(secret, old))
 	} else {
 		errs = append(errs, vault.Delete(secret))
 	}
-	if prevType == providers.AuthOAuth || prevType == providers.AuthM2M {
-		errs = append(errs, switchAuthType(p, prevType, false))
-	}
+	errs = append(errs, undo())
 	return errors.Join(errs...)
 }
 
