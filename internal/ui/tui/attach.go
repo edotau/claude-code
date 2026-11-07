@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // RunAttached runs argv on this process's stdin/stdout/stderr. While it runs, the attached signals (SIGINT, and
@@ -19,7 +21,7 @@ func RunAttached(argv []string) (bool, error) {
 	if len(argv) == 0 {
 		return false, errors.New("tui: RunAttached: empty command")
 	}
-	defer Preserve()()
+	defer proc.Preserve()()
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...) // attached for its whole life: nothing to cancel
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	swallow := make(chan os.Signal, 1) // never read: a full buffer simply drops later signals
