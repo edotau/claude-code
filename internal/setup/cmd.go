@@ -1,6 +1,6 @@
 // setup is one verb for the three setup modes: adopt an existing ~/.claude, nuke it for a fresh
 // start, or scope a project's own .claude/; workspace is cmdSetupWorkspace below.
-package cli
+package setup
 
 import (
 	"bufio"
@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -25,7 +24,8 @@ var setupPage = helptext.Page{
 	Hint: "claude-code install --setup <mode> -h lists that mode's flags.",
 }
 
-func cmdSetup(args []string) int {
+// Run is the `install --setup` verb.
+func Run(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		setupPage.Fprint(os.Stderr)
 		return 0
@@ -57,7 +57,7 @@ func cmdSetupAdopt(args []string) int {
 		fmt.Fprintln(os.Stderr, "claude-code: setup adopt: --from is required")
 		return 2
 	}
-	err := setup.Adopt(setup.AdoptOpts{From: *from, Into: *into, Label: *label, DryRun: *dryRun, Out: os.Stdout})
+	err := Adopt(AdoptOpts{From: *from, Into: *into, Label: *label, DryRun: *dryRun, Out: os.Stdout})
 	return setupExit(err, "setup adopt")
 }
 
@@ -87,11 +87,11 @@ func cmdSetupNuke(args []string) int {
 		fmt.Print("type the directory path to confirm: ")
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil && line == "" {
-			return setupExit(fmt.Errorf("%w: %v", setup.ErrConfirmMismatch, err), "setup nuke")
+			return setupExit(fmt.Errorf("%w: %v", ErrConfirmMismatch, err), "setup nuke")
 		}
 		confirm = strings.TrimRight(line, "\r\n")
 	}
-	err := setup.Nuke(setup.NukeOpts{Dir: *dir, Apply: *apply, Confirm: confirm, KeepMemory: *keepMemory, Out: os.Stdout})
+	err := Nuke(NukeOpts{Dir: *dir, Apply: *apply, Confirm: confirm, KeepMemory: *keepMemory, Out: os.Stdout})
 	return setupExit(err, "setup nuke")
 }
 
@@ -100,7 +100,7 @@ func setupExit(err error, verb string) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, setup.ErrAlreadyCheckout), errors.Is(err, setup.ErrNotAClone), errors.Is(err, setup.ErrConfirmMismatch), errors.Is(err, setup.ErrNotConfigDir), errors.Is(err, setup.ErrWorkspaceUsage):
+	case errors.Is(err, ErrAlreadyCheckout), errors.Is(err, ErrNotAClone), errors.Is(err, ErrConfirmMismatch), errors.Is(err, ErrNotConfigDir), errors.Is(err, ErrWorkspaceUsage):
 		fmt.Fprintf(os.Stderr, "claude-code: %s: %v\n", verb, err)
 		return 2
 	default:
@@ -170,13 +170,13 @@ func setupWorkspaceReadOrLink(op string, pos []string) int {
 			setupWorkspacePage.Fprint(os.Stderr)
 			return 2
 		}
-		return setupExit(setup.WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout), "setup workspace")
+		return setupExit(WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout), "setup workspace")
 	}
 	if len(pos) < 2 || len(pos) > 3 {
 		setupWorkspacePage.Fprint(os.Stderr)
 		return 2
 	}
-	return setupExit(setup.WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
+	return setupExit(WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
 }
 
 // setupWorkspaceInit runs init on the optional positional root.
@@ -189,7 +189,7 @@ func setupWorkspaceInit(pos []string, with string, dryRun bool) int {
 	if with != "" {
 		parts = strings.Split(with, ",")
 	}
-	return setupExit(setup.WorkspaceInit(setup.WorkspaceInitOpts{
+	return setupExit(WorkspaceInit(WorkspaceInitOpts{
 		Root: setupWorkspaceRoot(pos), With: parts, DryRun: dryRun, Out: os.Stdout,
 	}), "setup workspace")
 }
@@ -201,3 +201,9 @@ func setupWorkspaceRoot(pos []string) string {
 	}
 	return "."
 }
+
+// Modes lists the install --setup modes.
+func Modes() []string { return []string{"adopt", "nuke", "workspace"} }
+
+// WorkspaceOps lists the setup workspace operations.
+func WorkspaceOps() []string { return []string{"init", "link", "status"} }
