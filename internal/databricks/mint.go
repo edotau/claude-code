@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -45,7 +46,7 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 	if err != nil {
 		return MintResult{}, "", err
 	}
-	res := MintResult{Provider: p.Name, AuthType: mintedAuthType(p), Len: len(tok)}
+	res := MintResult{Provider: p.Name, AuthType: mintedAuthType(p, tok), Len: len(tok)}
 	if e, ok := providers.JWTExp(tok); ok { // the minted token's own exp, not the stored record
 		res.Expiry = time.Unix(e, 0)
 	} else if exp, ok := providers.TokenExpiry(p.Name); ok { // opaque token: the stored record's expiry
@@ -54,9 +55,13 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 	return res, tok, nil
 }
 
-// mintedAuthType is the credential kind minted: m2m when the profile's identity is the service principal.
-func mintedAuthType(p *providers.Provider) string {
-	if p.Identity == providers.IdentitySP {
+// mintedAuthType reads the kind from the token itself: a service principal's JWT has sub == client_id.
+func mintedAuthType(p *providers.Provider, tok string) string {
+	var c struct {
+		Sub      string `json:"sub"`
+		ClientID string `json:"client_id"`
+	}
+	if textutil.JWTClaims(tok, &c) && c.Sub != "" && c.Sub == c.ClientID {
 		return providers.AuthM2M
 	}
 	return authLabel(p)
