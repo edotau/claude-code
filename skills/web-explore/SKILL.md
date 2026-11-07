@@ -16,7 +16,7 @@ Start at the top; move down only when a rung fails or cannot do the job.
 
 | # | Need | Use |
 | --- | --- | --- |
-| 1 | Find sources for a question | `claude-code network websearch --query "<q>" [--max-results N]`, or MCP `mcp__web_search__web_search {query, max_results}` where configured |
+| 1 | Find sources for a question | MCP `web_search` tool `{query, max_results}` when your agent has it (it runs outside the shell sandbox); else `claude-code network websearch --query "<q>" [--max-results N]` |
 | 2 | Read a page you can name (up to 20) | `claude-code network websearch --extract <url> [--extract <url2>]` |
 | 3 | One fact from a long page | `tvly extract <url> --query '<fact>' --chunks-per-source 2` |
 | 4 | Site known, page unknown | `tvly map <site> --instructions '<topic>' --limit 20`, then extract the match |
