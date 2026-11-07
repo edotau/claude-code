@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -613,7 +612,7 @@ func TestDbxIdentitySavesRowAndSealedSecret(t *testing.T) {
 	if strings.Contains(dbxOut(d), "sp-secret-VALUE") {
 		t.Errorf("secret printed: %q", dbxOut(d))
 	}
-	if err := configure.SaveDbxIdentity(d.reg, "dev", providers.IdentitySP, "", ""); err == nil {
+	if err := databricks.SaveIdentity(d.reg, "dev", providers.IdentitySP, "", ""); err == nil {
 		t.Error("sp without a client id was accepted")
 	}
 }
@@ -631,11 +630,11 @@ func TestDbxSaveIdentityRollsBackSecretOnRowFailure(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			orig := configure.DbxSetRow
-			configure.DbxSetRow = func(string, map[string]any) error { return errors.New("overlay write failed") }
-			t.Cleanup(func() { configure.DbxSetRow = orig })
+			orig := databricks.SetRow
+			databricks.SetRow = func(string, map[string]any) error { return errors.New("overlay write failed") }
+			t.Cleanup(func() { databricks.SetRow = orig })
 
-			err := configure.SaveDbxIdentity(d.reg, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW")
+			err := databricks.SaveIdentity(d.reg, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW")
 			if err == nil || !strings.Contains(err.Error(), "overlay write failed") {
 				t.Fatalf("err = %v, want the row-write error", err)
 			}
@@ -666,16 +665,16 @@ func assertStoredSecret(t *testing.T, name, want string) {
 func TestDbxSaveIdentityKeepsConcurrentRotationOnRowFailure(t *testing.T) {
 	name := providers.SecretName(providers.GroupDatabricks, "dev", providers.AuthM2M)
 	d := dbxEnv(t)
-	orig := configure.DbxSetRow
-	configure.DbxSetRow = func(string, map[string]any) error {
+	orig := databricks.SetRow
+	databricks.SetRow = func(string, map[string]any) error {
 		if err := vault.Store(name, "sp-secret-ROTATED"); err != nil {
 			t.Fatal(err)
 		}
 		return errors.New("overlay write failed")
 	}
-	t.Cleanup(func() { configure.DbxSetRow = orig })
+	t.Cleanup(func() { databricks.SetRow = orig })
 
-	if err := configure.SaveDbxIdentity(d.reg, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW"); err == nil {
+	if err := databricks.SaveIdentity(d.reg, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW"); err == nil {
 		t.Fatal("want the row-write error")
 	}
 	if got, _, _ := vault.ReadSecret(name); got != "sp-secret-ROTATED" {
