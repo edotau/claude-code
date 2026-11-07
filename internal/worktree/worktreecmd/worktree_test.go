@@ -1,4 +1,4 @@
-package cli
+package worktreecmd
 
 import (
 	"encoding/json"
@@ -15,10 +15,10 @@ func TestCmdWorktreeNoArgsAndUnknownSub(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	if got := cmdWorktree(nil); got != 0 {
+	if got := Run(nil); got != 0 {
 		t.Fatalf("no args: got %d, want 0", got)
 	}
-	if got := cmdWorktree([]string{"bogus"}); got != 2 {
+	if got := Run([]string{"bogus"}); got != 2 {
 		t.Fatalf("unknown sub: got %d, want 2", got)
 	}
 }
@@ -27,7 +27,7 @@ func TestCmdWorktreeNonRepoCWD(t *testing.T) {
 	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(t.TempDir()) // not a git repository
-	code, _, errb := captureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
+	code, _, errb := captureOutput(t, func() int { return Run([]string{"list"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit outside a git repo, stderr=%q", errb)
 	}
@@ -38,12 +38,12 @@ func TestCmdWorktreeListEmptyTextAndJSON(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 
-	code, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
+	code, out, _ := captureOutput(t, func() int { return Run([]string{"list"}) })
 	if code != 0 || !strings.Contains(out, "no worktrees under") {
 		t.Fatalf("text list empty: code=%d out=%q", code, out)
 	}
 
-	code, out, _ = captureOutput(t, func() int { return cmdWorktree([]string{"list", "--format", "json"}) })
+	code, out, _ = captureOutput(t, func() int { return Run([]string{"list", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("json list empty: code=%d", code)
 	}
@@ -64,7 +64,7 @@ func TestCmdWorktreeCreateThenListShowsIt(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"create", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"create", "feature"}) })
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
 	}
@@ -73,7 +73,7 @@ func TestCmdWorktreeCreateThenListShowsIt(t *testing.T) {
 		t.Fatalf("created worktree missing at %s: %v", dest, err)
 	}
 
-	code, out, _ = captureOutput(t, func() int { return cmdWorktree([]string{"list", "--format", "json"}) })
+	code, out, _ = captureOutput(t, func() int { return Run([]string{"list", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("list: code=%d", code)
 	}
@@ -91,7 +91,7 @@ func TestCmdWorktreeCreateWithCustomBranch(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"create", "--branch", "wt/custom", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"create", "--branch", "wt/custom", "feature"}) })
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
 	}
@@ -107,7 +107,7 @@ func TestCmdWorktreeCreateWrongArity(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 	for _, args := range [][]string{{"create"}, {"create", "a", "b"}} {
-		code, _, errb := captureOutput(t, func() int { return cmdWorktree(append([]string{}, args...)) })
+		code, _, errb := captureOutput(t, func() int { return Run(append([]string{}, args...)) })
 		if code == 0 {
 			t.Errorf("args %v: want non-zero exit, stderr=%q", args, errb)
 		}
@@ -118,7 +118,7 @@ func TestCmdWorktreeCleanMissingName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	code, _, errb := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "does-not-exist"}) })
+	code, _, errb := captureOutput(t, func() int { return Run([]string{"clean", "does-not-exist"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a missing worktree, stderr=%q", errb)
 	}
@@ -128,10 +128,10 @@ func TestCmdWorktreeCleanDryRunDoesNotRemove(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
+	_, out, _ := captureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
-	code, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "--dry-run", "mergeable"}) })
+	code, out, _ := captureOutput(t, func() int { return Run([]string{"clean", "--dry-run", "mergeable"}) })
 	if code != 0 || !strings.Contains(out, "eligible:") {
 		t.Fatalf("dry-run clean: code=%d out=%q", code, out)
 	}
@@ -144,10 +144,10 @@ func TestCmdWorktreeCleanRealRemovesEligible(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
+	_, out, _ := captureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
-	code, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "mergeable"}) })
+	code, out, _ := captureOutput(t, func() int { return Run([]string{"clean", "mergeable"}) })
 	if code != 0 || !strings.Contains(out, "removed:") {
 		t.Fatalf("real clean: code=%d out=%q", code, out)
 	}
@@ -160,12 +160,12 @@ func TestCmdWorktreeCleanDirtyRefusedExitsNonZero(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"create", "dirty"}) })
+	_, out, _ := captureOutput(t, func() int { return Run([]string{"create", "dirty"}) })
 	dest := strings.TrimSpace(out)
 	if err := os.WriteFile(filepath.Join(dest, "scratch.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "dirty"}) })
+	code, out, _ := captureOutput(t, func() int { return Run([]string{"clean", "dirty"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a refused dirty clean, out=%q", out)
 	}
@@ -180,11 +180,11 @@ func TestCmdWorktreeCleanAllOverlappingFlagsPreviewWins(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
+	_, out, _ := captureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
 	code, out, _ := captureOutput(t, func() int {
-		return cmdWorktree([]string{"clean-all", "--dry-run", "--yes"})
+		return Run([]string{"clean-all", "--dry-run", "--yes"})
 	})
 	if code != 0 {
 		t.Fatalf("clean-all --dry-run --yes: code=%d out=%q", code, out)
@@ -201,10 +201,10 @@ func TestCmdWorktreeCleanAllRequiresYesToApply(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
+	_, out, _ := captureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
-	code, out, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean-all"}) })
+	code, out, _ := captureOutput(t, func() int { return Run([]string{"clean-all"}) })
 	if code != 0 {
 		t.Fatalf("clean-all (no flags): code=%d out=%q", code, out)
 	}
@@ -228,7 +228,7 @@ func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 	marker := "pwned-marker"
 	name := "x$(touch${IFS}" + marker + ")y"
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"create", "--branch", "wt/safe-branch", name})
+		return Run([]string{"create", "--branch", "wt/safe-branch", name})
 	})
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
@@ -238,7 +238,7 @@ func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 		t.Fatalf("worktree missing at %s: %v", dest, err)
 	}
 
-	code, listOut, errb := captureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
+	code, listOut, errb := captureOutput(t, func() int { return Run([]string{"list"}) })
 	if code != 0 {
 		t.Fatalf("list: code=%d stderr=%q", code, errb)
 	}
@@ -265,7 +265,7 @@ func TestCmdWorktreeCreateUnusualName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"create", "dots.and-dashes_123"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"create", "dots.and-dashes_123"}) })
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
 	}
@@ -297,7 +297,7 @@ func forceBranchList(t *testing.T, repo, branch string) string {
 
 func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
 	repo, wt := forceFixtureDirty(t)
-	code, _, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
+	code, _, _ := captureOutput(t, func() int { return Run([]string{"clean", "feature"}) })
 	if code == 0 {
 		t.Fatal("plain clean of a dirty+unmerged worktree must fail")
 	}
@@ -311,7 +311,7 @@ func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
 
 func TestCmdWorktreeCleanForceDiscardsDirtyUnmerged(t *testing.T) {
 	repo, wt := forceFixtureDirty(t)
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "--force", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"clean", "--force", "feature"}) })
 	if code != 0 {
 		t.Fatalf("clean --force: code=%d stdout=%q stderr=%q", code, out, errb)
 	}
@@ -332,7 +332,7 @@ func TestCmdWorktreeCleanForceDiscardsDirtyUnmerged(t *testing.T) {
 func TestCmdWorktreeCleanForceNeverTouchesMainCheckout(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	for _, name := range []string{"..", "../" + filepath.Base(repo), repo, "."} {
-		code, _, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "--force", name}) })
+		code, _, _ := captureOutput(t, func() int { return Run([]string{"clean", "--force", name}) })
 		if code == 0 {
 			t.Errorf("clean --force %q must fail", name)
 		}
@@ -378,7 +378,7 @@ func mergeFixtureCLISetup(t *testing.T) (repo string) {
 	mergeFixtureCLIRun(t, repo, "config", "user.email", "t@t.com")
 	mergeFixtureCLIRun(t, repo, "config", "user.name", "t")
 	t.Chdir(repo)
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"create", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"create", "feature"}) })
 	if code != 0 {
 		t.Fatalf("create feature: code=%d stderr=%q", code, errb)
 	}
@@ -411,7 +411,7 @@ func TestCmdWorktreeMergeDryRunCleanShowsPlanWithoutMutating(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--dry-run", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "--dry-run", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge --dry-run: code=%d stderr=%q", code, errb)
 	}
@@ -434,7 +434,7 @@ func TestCmdWorktreeMergeApplyPromotesAndAutoCleans(t *testing.T) {
 
 	// The fixture repo has no detectable gate (no Makefile/go.mod/etc) — --no-verify isolates this
 	// test's intent (promote + auto-clean) from the separate verify-by-default behavior.
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "--no-verify", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge apply: code=%d stderr=%q", code, errb)
 	}
@@ -454,7 +454,7 @@ func TestCmdWorktreeMergeApplyNoCleanLeavesWorktree(t *testing.T) {
 	wt := mergeFixtureCLIWorktreePath(t, repo)
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "--no-clean", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "--no-verify", "--no-clean", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge --no-clean: code=%d stderr=%q", code, errb)
 	}
@@ -477,7 +477,7 @@ func TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion(t *test
 	mainBefore := cliHeadOf(t, repo)
 
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", "exit 1", "feature"})
+		return Run([]string{"merge", "--verify", "exit 1", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit when --verify fails, stdout=%q stderr=%q", out, errb)
@@ -503,7 +503,7 @@ func TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes(t *testing.
 
 	verifyCmd := `test -f g.txt && [ "$(pwd -P)" = "` + wt + `" ]`
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", verifyCmd, "feature"})
+		return Run([]string{"merge", "--verify", verifyCmd, "feature"})
 	})
 	if code != 0 {
 		t.Fatalf("merge --verify (passing): code=%d stdout=%q stderr=%q", code, out, errb)
@@ -526,7 +526,7 @@ func TestCmdWorktreeMergeConflictBlocksAndLeavesMainUntouched(t *testing.T) {
 	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
 	if code == 0 {
 		t.Fatalf("merge on predicted conflict: want non-zero exit, stdout=%q stderr=%q", out, errb)
 	}
@@ -543,7 +543,7 @@ func TestCmdWorktreeMergeConflictBlocksAndLeavesMainUntouched(t *testing.T) {
 
 func TestCmdWorktreeMergeUnknownNameFails(t *testing.T) {
 	mergeFixtureCLISetup(t)
-	code, _, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "does-not-exist"}) })
+	code, _, errb := captureOutput(t, func() int { return Run([]string{"merge", "does-not-exist"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit for an unknown worktree name, stderr=%q", errb)
 	}
@@ -552,7 +552,7 @@ func TestCmdWorktreeMergeUnknownNameFails(t *testing.T) {
 func TestCmdWorktreeMergeTargetMismatchFails(t *testing.T) {
 	mergeFixtureCLISetup(t)
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--target", "some-other-branch", "feature"})
+		return Run([]string{"merge", "--target", "some-other-branch", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit on target mismatch, stdout=%q stderr=%q", out, errb)
@@ -564,7 +564,7 @@ func TestCmdWorktreeMergeTargetMismatchFails(t *testing.T) {
 
 func TestCmdWorktreeMergeNoArgsFails(t *testing.T) {
 	mergeFixtureCLISetup(t)
-	code, _, _ := captureOutput(t, func() int { return cmdWorktree([]string{"merge"}) })
+	code, _, _ := captureOutput(t, func() int { return Run([]string{"merge"}) })
 	if code == 0 {
 		t.Fatal("want non-zero exit for merge with no name")
 	}
@@ -576,7 +576,7 @@ func TestCmdWorktreeMergeResolveAgentUnknownValueRejected(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	mainBefore := cliHeadOf(t, repo)
 	code, _, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resolve-agent", "gpt5", "feature"})
+		return Run([]string{"merge", "--resolve-agent", "gpt5", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for an unknown --resolve-agent value, stderr=%q", errb)
@@ -599,7 +599,7 @@ func TestCmdWorktreeMergeNoDetectableGateRefusesWithoutNoVerify(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit with no detectable gate and no --verify/--no-verify, stdout=%q", out)
 	}
@@ -626,7 +626,7 @@ func TestCmdWorktreeMergeNoVerifyPromotesWithoutRunningAnythingAndMarksUnverifie
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	sourceOID := cliHeadOf(t, wt)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "--no-verify", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge --no-verify: code=%d stderr=%q", code, errb)
 	}
@@ -650,7 +650,7 @@ func TestCmdWorktreeMergeAutoDetectedFailingGateRefusesAndPreservesWorktree(t *t
 	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\texit 1\n", "add failing gate")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit when the auto-detected gate fails, stdout=%q", out)
 	}
@@ -676,7 +676,7 @@ func TestCmdWorktreeMergeAutoDetectedPassingGatePromotes(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\ttrue\n", "add passing gate")
 	sourceOID := cliHeadOf(t, wt)
 
-	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	code, out, errb := captureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge with a passing auto-detected gate: code=%d stderr=%q", code, errb)
 	}
@@ -700,7 +700,7 @@ func TestCmdWorktreeMergeExplicitVerifyOverridesDetection(t *testing.T) {
 	sourceOID := cliHeadOf(t, wt)
 
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", "true", "feature"})
+		return Run([]string{"merge", "--verify", "true", "feature"})
 	})
 	if code != 0 {
 		t.Fatalf("merge --verify overriding detection: code=%d stderr=%q", code, errb)
@@ -726,7 +726,7 @@ func TestCmdWorktreeMergeVerifyPipelineFailureFailsGate(t *testing.T) {
 	mainBefore := cliHeadOf(t, repo)
 
 	code, out, errb := captureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", "false | cat", "feature"})
+		return Run([]string{"merge", "--verify", "false | cat", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a failing pipeline stage under pipefail, stdout=%q", out)
@@ -751,14 +751,14 @@ func TestWorktreeListJSONWriteError(t *testing.T) {
 	t.Chdir(gitRepoCLI(t))
 
 	code, _, _ := captureOutput(t, func() int {
-		return cmdWorktree([]string{"create", "test-wt"})
+		return Run([]string{"create", "test-wt"})
 	})
 	if code != 0 {
 		t.Fatalf("create worktree failed: code=%d", code)
 	}
 
 	closedStdout(t)
-	code = cmdWorktree([]string{"list", "--format", "json"})
+	code = Run([]string{"list", "--format", "json"})
 	if code == 0 {
 		t.Errorf("worktree list --format json on closed stdout: exit %d, want non-zero", code)
 	}
@@ -770,7 +770,7 @@ func TestWorktreeListEmptyJSONIsArray(t *testing.T) {
 	t.Chdir(gitRepoCLI(t))
 
 	code, out, _ := captureOutput(t, func() int {
-		return cmdWorktree([]string{"list", "--format", "json"})
+		return Run([]string{"list", "--format", "json"})
 	})
 	if code != 0 {
 		t.Fatalf("list empty: code=%d", code)

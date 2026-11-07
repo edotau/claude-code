@@ -1,4 +1,4 @@
-package cli
+package worktreecmd
 
 import (
 	"context"
@@ -36,7 +36,7 @@ package.json, or Cargo.toml. Without a gate, promotion is refused.
 Makefile + go.mod: build+vet all, test changed and registry packages;
 --full-verify runs the full Makefile gate. Only --no-verify skips the gate.`
 
-func cmdWorktree(args []string) int {
+func Run(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		worktreePage.Fprint(os.Stderr)
 		return 0
@@ -105,29 +105,7 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 // printEntry renders one text-mode row plus a quoted reopen command and, when eligible, a cleanup one.
 func printEntry(e worktree.Entry) {
 	name := filepath.Base(e.Path)
-	var status []string
-	if e.Dirty {
-		status = append(status, "dirty")
-	}
-	if e.Merged {
-		status = append(status, "merged")
-	}
-	if e.Stale {
-		status = append(status, fmt.Sprintf("stale(%s)", e.ActivitySource))
-	}
-	if e.Orphaned {
-		status = append(status, "orphaned")
-	}
-	if e.Prunable {
-		status = append(status, "prunable")
-	}
-	if e.Locked {
-		status = append(status, "locked")
-	}
-	if len(status) == 0 {
-		status = append(status, "clean")
-	}
-	fmt.Printf("%-24s branch=%-20s %s\n", name, e.Branch, strings.Join(status, ","))
+	fmt.Printf("%-24s branch=%-20s %s\n", name, e.Branch, strings.Join(e.StatusFlags(), ","))
 	for _, p := range e.Problems {
 		fmt.Printf("  ! %s\n", p)
 	}
@@ -169,7 +147,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if !validResolveAgent(*resolveAgent) {
+	if !worktree.ValidResolveAgent(*resolveAgent) {
 		return helptext.Fail("worktree merge: --resolve-agent %q unknown (claude|codex)", *resolveAgent)
 	}
 	rest := fs.Args()
@@ -202,8 +180,6 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	}
 	return code
 }
-
-func validResolveAgent(a string) bool { return a == "" || a == "claude" || a == "codex" }
 
 // mergeDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.
 func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
