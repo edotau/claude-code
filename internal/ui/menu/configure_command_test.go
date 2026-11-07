@@ -17,7 +17,7 @@ import (
 
 const configureTestToken = "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
 
-// configureFakeClaude logs argv, then acts on CONFIGURE_COMMAND_MODE; `exec sleep` leaves SIGINT nothing to defer.
+// configureFakeClaude logs argv, then acts on CONFIGURE_COMMAND_MODE (exists: the first add reports a duplicate until remove runs); `exec sleep` leaves SIGINT nothing to defer.
 const configureFakeClaude = `printf '%s\n' "$@" '' >>"$CONFIGURE_COMMAND_LOG"
 action=$1
 if [ "$1" = mcp ] && [ $# -gt 1 ]; then action=$2; fi
@@ -29,6 +29,16 @@ fi
 case $action in
 login) echo 'login complete' ;;
 mint) printf 'minting token\n` + configureTestToken + `\nfinished\n' ;;
+esac
+case $mode in exists|exists-remove-fail)
+	if [ "$action" = remove ]; then
+		: >"$CONFIGURE_COMMAND_LOG.removed"
+		if [ "$mode" = exists-remove-fail ]; then echo 'remove failed'; exit 7; fi
+	fi
+	if [ "$action" = add ] && [ ! -e "$CONFIGURE_COMMAND_LOG.removed" ]; then
+		echo 'MCP server web_search already exists'
+		exit 1
+	fi ;;
 esac
 if [ "$mode" = fail ] || [ "$mode" = "$action-fail" ]; then
 	echo 'command failed'
