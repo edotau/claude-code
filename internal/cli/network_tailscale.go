@@ -127,19 +127,27 @@ func tailscaleMode(ctx context.Context, mode string, t *tsFlags) int {
 	case "key":
 		return tailscaleKey(ctx, t.o)
 	case "exit-node":
-		if !slices.Contains([]string{"on", "off", "approve"}, t.exitNode) {
-			return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", t.exitNode)
-		}
-		return tailscaleExitNode(ctx, t.exitNode)
+		return tailscaleExitNodeChecked(ctx, t.exitNode)
 	case "subnet":
 		return tailscaleSubnet(ctx, t.subnet)
 	case "route":
-		if t.route == "" || strings.HasPrefix(t.route, "-") {
-			return helptext.FailUsage("network tailscale: --route requires a peer name or 'off'")
-		}
-		return tailscaleRoute(ctx, t.route)
+		return tailscaleRouteChecked(ctx, t.route)
 	}
 	return tailscaleStatus(ctx, *t.format)
+}
+
+func tailscaleExitNodeChecked(ctx context.Context, action string) int {
+	if !slices.Contains([]string{"on", "off", "approve"}, action) {
+		return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", action)
+	}
+	return tailscaleExitNode(ctx, action)
+}
+
+func tailscaleRouteChecked(ctx context.Context, peer string) int {
+	if peer == "" || strings.HasPrefix(peer, "-") {
+		return helptext.FailUsage("network tailscale: --route requires a peer name or 'off'")
+	}
+	return tailscaleRoute(ctx, peer)
 }
 
 // tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.
@@ -229,24 +237,34 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 		return helptext.Fail("network tailscale connect: reading --auth-key from stdin: %v", err)
 	}
 	if key == "" {
-		if st, ok := tailscale.Connected(ctx); ok {
-			fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
-			return 0
-		}
-		fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `network tailscale --key --save`")
-		return 2
+		return tailscaleConnectKeyless(ctx)
 	}
 	if err := tailscale.Connect(ctx, key, o.advertise); err != nil {
 		return helptext.Fail("network tailscale connect: %v", err)
 	}
+	auditConnect(ctx)
+	fmt.Println("tailscale: connected")
+	return 0
+}
+
+// auditConnect logs the connect with the node name, or notes that status was unavailable.
+func auditConnect(ctx context.Context) {
 	st, err := tailscale.Status(ctx)
 	if err != nil {
 		audit.Log(audit.TailscaleConnect, "", "connect (status unavailable: "+err.Error()+")")
-	} else {
-		audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
+		return
 	}
-	fmt.Println("tailscale: connected")
-	return 0
+	audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
+}
+
+// tailscaleConnectKeyless succeeds only when the node is already connected; otherwise it asks for a key.
+func tailscaleConnectKeyless(ctx context.Context) int {
+	if st, ok := tailscale.Connected(ctx); ok {
+		fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `network tailscale --key --save`")
+	return 2
 }
 
 func tailscaleKey(ctx context.Context, o tsOpts) int {
@@ -325,7 +343,7 @@ func failSelfDevice(mode string, err error) int {
 	return helptext.Fail("network tailscale %s: %v", mode, err)
 }
 
-// tailscaleSubnet dispatches --subnet: "off" withdraws, "approve" approves in the tailnet, anything else is a CIDR list.
+// tailscaleSubnet dispatches --subnet: "off" withdraws, "approve" approves, anything else is a CIDR list.
 func tailscaleSubnet(ctx context.Context, value string) int {
 	switch value {
 	case "off":

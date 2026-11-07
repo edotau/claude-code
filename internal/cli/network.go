@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -117,17 +119,26 @@ func cmdNetworkWebsearch(args []string) int {
 		}
 		return mcp.Extract(context.Background(), extract)
 	}
-	if fs.NArg() > 0 {
-		if *query != "" {
-			fmt.Fprintln(os.Stderr, "network websearch: give the query either positionally or via --query, not both")
-			return 2
-		}
-		*query = strings.Join(fs.Args(), " ")
+	if err := joinPositionalQuery(fs, query); err != nil {
+		fmt.Fprintln(os.Stderr, "network websearch:", err)
+		return 2
 	}
 	if *query != "" {
 		return mcp.OneShot(context.Background(), *query, *maxResults, nil, os.Stdout)
 	}
 	return mcp.Run(context.Background())
+}
+
+// joinPositionalQuery folds positional args into *query; giving both forms is an error.
+func joinPositionalQuery(fs *flag.FlagSet, query *string) error {
+	if fs.NArg() == 0 {
+		return nil
+	}
+	if *query != "" {
+		return errors.New("give the query either positionally or via --query, not both")
+	}
+	*query = strings.Join(fs.Args(), " ")
+	return nil
 }
 
 // urlList collects repeatable --extract values.
