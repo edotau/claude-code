@@ -2,7 +2,7 @@ export const meta = {
   name: 'orchestrate',
   description: 'One size-routed entry point: size the job, then route it through relay3 (or draft a plan for an epic)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, label (report file name, default orchestrate), record (default true; false skips the Record step), steps {size, intel, impl, plan, simplify, review, record, child} = {model, effort} per stage (claude only; child is relay3\'s steps). polish (default true; false skips Simplify and Review) runs once after relay3 when it fixed something. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, simplify, review, decisions, report}. Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/orchestrate.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default medium), focus, label (report file name, default orchestrate), record (default true; false skips the Record step), steps {size, intel, impl, plan, simplify, review, record, child} = {model, effort} per stage (claude only; child is relay3\'s steps). polish (default true; false skips Simplify and Review) runs once after relay3 when it fixed something. fast (default true; false disables): a LOW/MEDIUM fix task passes its files to relay3 as known, skipping Find and Rederive. A low token budget (under 150k left) skips polish and the review loop. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, simplify, review, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
@@ -97,6 +97,8 @@ const REVF = {
   properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } },
   required: ['findings'],
 }
+// lowBudget: an optional extra pass is skipped when a budget is set and under 150k tokens remain.
+const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() < 150000
 const RECORDED = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } } }, required: ['paths'] }
 
 // ── Size ──
@@ -140,6 +142,7 @@ if (!tier && !TASK) {
   if (!PKGS.length) PKGS = strs(sz.packages)
   if (!PATHS.length) PATHS = strs(sz.paths).filter((p) => !/_test\.go$/.test(p))
   tier = tierOf(sz.kind, PATHS, sz.kind === 'audit' ? PKGS : [])
+  log('size: kind ' + sz.kind + ', ' + PATHS.length + ' file(s), ' + PKGS.length + ' package(s) -> ' + tier)
   decisions.push('sized as ' + tier + ' (rule: ' + sz.kind + ', ' + PATHS.length + ' file(s)): ' + sz.reason)
   if (!a.focus && sz.focus) focus = sz.focus
 } else if (a.tier) decisions.push('sized as ' + tier + ': args.tier given')
@@ -147,6 +150,7 @@ if (!tier && !TASK) {
 // ── Route ──
 const route = tier === 'EPIC' ? 'plan' : tier === 'HIGH' ? 'relay3:packages' : 'relay3:paths'
 decisions.push('route: ' + route)
+log('route: ' + route + ' (tier ' + tier + ', kind ' + (KIND || 'n/a') + ')')
 const head = '# orchestrate: ' + tier + ' → ' + route
 phase('Route')
 if (tier === 'EPIC') {
@@ -184,15 +188,23 @@ if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feat
 // ── Run ──
 phase('Run')
 let r
+// Fast path: a LOW/MEDIUM fix task names the bug, so relay3 skips Find and Rederive for those files (audits and features never).
+const fastFiles = (tier === 'LOW' || tier === 'MEDIUM') && KIND === 'fix' && TASK && a.fix !== false && a.fast !== false ? (target.paths || []).filter((p) => /\.go$/.test(p) && !/_test\.go$/.test(p)) : []
+const known = fastFiles.map((file) => ({ file, symptom: TASK }))
+if (known.length) { decisions.push('fast path: ' + known.length + ' file(s) passed to relay3 as known'); log('fast path: known ' + known.length + ' file(s)') }
 try {
-  r = await workflow({ scriptPath: CWD + '/workflows/relay3.js' }, { cwd: CWD, ...target, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS })
+  r = await workflow({ scriptPath: CWD + '/workflows/relay3.js' }, { cwd: CWD, ...target, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS, ...(known.length ? { known } : {}) })
 } catch (e) { return ERR('relay3 threw: ' + e.message, tier, route, decisions) }
 if (!r || r.exit === 'error') return ERR((r && r.error) || 'relay3 returned nothing', tier, route, decisions)
 let res = {
   exit: r.exit, tier, route, packages: r.packages, merged: r.merged, confirmed: r.confirmed, dropped: r.dropped, unverified: r.unverified || [], fixed: r.fixed, red: r.red,
   decisions: [...decisions, ...(r.decisions || [])], report: head + '\n' + (r.report || ''),
 }
-if (a.polish !== false && a.fix !== false && (r.fixed || []).length) res = await polish(res, target, focus)
+const wantPolish = a.polish !== false && a.fix !== false && (r.fixed || []).length
+if (wantPolish && lowBudget()) {
+  res.decisions.push('polish skipped: budget under 150k tokens remaining')
+  log('polish skipped: low budget')
+} else if (wantPolish) res = await polish(res, target, focus)
 return await record(res)
 
 // changedFiles lists the files relay3's fixers and test writers reported, repo-relative; a package dir stands in when none were named.
@@ -228,8 +240,12 @@ async function polish(res, tgt, foc) {
   const review = { findings, ran: !!rv }
   d.push('review: ' + (rv ? findings.length + ' findings (' + (sev.map((x) => x[1] + ' ' + x[0]).join(', ') || 'none') + ')' : 'agent returned nothing'))
   const hot = findings.filter((f) => f.severity !== 'low')
+  log('polish: simplify ' + simplify.applied.length + ' applied/' + simplify.flagged.length + ' flagged, review ' + findings.length + ' finding(s), ' + hot.length + ' above low')
   const out = { ...res, simplify, review }
-  if (hot.length) {
+  if (hot.length && lowBudget()) {
+    d.push('review loop skipped: budget under 150k tokens remaining')
+    log('review loop skipped: low budget')
+  } else if (hot.length) {
     const hotPaths = [...new Set(hot.map((f) => String(f.file).replace(CWD + '/', '')).filter((f) => /\.go$/.test(f) && !/_test\.go$/.test(f)))]
     const text = hot.map((f) => f.file + ':' + f.line + ' (' + f.symbol + ', ' + f.severity + '): ' + f.symptom).join('; ')
     let r2 = null
