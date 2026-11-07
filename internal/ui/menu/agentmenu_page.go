@@ -199,7 +199,7 @@ func signIn(d *dialog, label string, argv []string) bool {
 
 // keyRow is the API key row shared by every agent: ensure (paste, probe, store) the provider's key.
 func keyRow(d *dialog, label, provider, desc string) billingRow {
-	p, ok := configure.KeyPresent(d.reg, provider)
+	p, ok := d.reg.KeyPresent(provider)
 	return billingRow{modeAPIKey, desc + " " + Bracket(ok, "key set", "no key"), modeAPIKey, func() bool {
 		if p == nil {
 			d.printf("%s: no %s provider registered\n", label, provider)
@@ -225,7 +225,7 @@ func loginOrKey(d *dialog, loggedIn bool, tier providers.Subscription) agentStat
 		return agentState{modeSubscription, tier, true}
 	}
 	// BYOK fallback (agent.DescribeRoute order): the anthropic key, handed over as generated config, never `auth login`.
-	if p, ok := configure.KeyPresent(d.reg, anthropicProvider); ok {
+	if p, ok := d.reg.KeyPresent(anthropicProvider); ok {
 		return agentState{mode: modeAPIKey, verified: configure.KeyVerified(p)}
 	}
 	return agentState{mode: modeNone}

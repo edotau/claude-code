@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
@@ -307,7 +306,7 @@ func copilotCanonicalID(id string) string {
 
 // pickCopilotModelFallback is the pre-SDK list: opencode's github-copilot catalog.
 func pickCopilotModelFallback(d *dialog, cur string) {
-	p := configure.ProfileBy(d.reg, "github", providers.AuthCLI)
+	p := d.reg.ProfileBy("github", providers.AuthCLI)
 	if p == nil {
 		d.printf("copilot: no github provider registered\n")
 		return
