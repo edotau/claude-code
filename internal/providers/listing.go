@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -66,7 +65,7 @@ func providerRows(reg *Registry, groups, modes map[string][]string) (rows [][3]s
 		if len(groups[g]) == 0 {
 			continue
 		}
-		names := sortProfiles(g, groups[g])
+		names := sortProfiles(groups[g])
 		rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
 		for _, n := range names {
 			live = append(live, reg.Providers[n])
@@ -141,11 +140,9 @@ func familyProfiles(reg *Registry, names []string) string {
 	return strings.Join(out, ", ")
 }
 
-// sortProfiles keeps Databricks rows in env order (dev, qa, prod); other groups stay alphabetical.
-func sortProfiles(group string, names []string) []string {
-	if group == GroupDatabricks {
-		slices.SortStableFunc(names, func(a, b string) int { return cmp.Compare(envSortKey(a), envSortKey(b)) })
-	}
+// sortProfiles orders a group's profiles by name; no profile label gets a hardcoded rank.
+func sortProfiles(names []string) []string {
+	slices.Sort(names)
 	return names
 }
 
@@ -154,19 +151,6 @@ func appendUnique(xs []string, x string) []string {
 		return xs
 	}
 	return append(xs, x)
-}
-
-// envSortKey orders Databricks rows bare env first (dev, qa, prod), then each prefix's -dev, -qa, -prod.
-func envSortKey(name string) string {
-	for i, env := range []string{"dev", "qa", "prod"} {
-		if name == env {
-			return fmt.Sprintf("0 %d", i)
-		}
-		if base, ok := strings.CutSuffix(name, "-"+env); ok {
-			return fmt.Sprintf("1 %s %d", base, i)
-		}
-	}
-	return "2 " + name
 }
 
 // SpecsByAlias maps each model alias the selection resolves to its target spec.

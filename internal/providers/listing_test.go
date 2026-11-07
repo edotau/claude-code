@@ -1,19 +1,9 @@
 package providers
 
 import (
-	"slices"
 	"strings"
 	"testing"
 )
-
-func TestEnvSortKeyKeepsDevQaProdTogether(t *testing.T) {
-	names := []string{"prod", "x-user-prod", "qa", "x-user-dev", "dev", "x-user-qa", "zeta"}
-	slices.SortStableFunc(names, func(a, b string) int { return strings.Compare(envSortKey(a), envSortKey(b)) })
-	want := []string{"dev", "qa", "prod", "x-user-dev", "x-user-qa", "x-user-prod", "zeta"}
-	if !slices.Equal(names, want) {
-		t.Fatalf("sorted = %v, want %v", names, want)
-	}
-}
 
 func TestProviderModeLabels(t *testing.T) {
 	cases := []struct {
