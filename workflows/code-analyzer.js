@@ -23,7 +23,10 @@ const CD = CWD ? 'cd ' + CWD + ' && ' : ''
 let PATHS = Array.isArray(a.paths) ? a.paths.filter(Boolean) : []
 let PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : PATHS
 // A pre-verified findings list (same shape as FINDINGS_SCHEMA items) skips Scope/Find/Refute and goes straight to Fix.
-let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings : null
+// Accept relay3-shaped findings ({symbol, symptom, rederived}) as well as this script's {title, scenario, evidence}.
+const asFinding = f => ({ ...f, title: f.title || f.symptom || f.symbol || '(untitled)', scenario: f.scenario || f.rederived || f.symptom || 'not given',
+  evidence: f.evidence || (f.symbol ? `${f.symbol} at ${f.file}:${f.line} (caller-supplied)` : 'caller-supplied, not re-verified') })
+let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings.map(asFinding) : null
 // No range, paths or findings → audit the uncommitted working tree (git diff HEAD).
 const RANGE = a.range || (PATHS.length || PRE ? '' : 'HEAD')
 const FIX = a.fix !== false
