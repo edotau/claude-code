@@ -5,7 +5,6 @@ package tui
 import (
 	"errors"
 	"io"
-	"os"
 	"syscall"
 	"unsafe"
 )
@@ -51,24 +50,6 @@ func restore(fd int, st *termState) error {
 		return nil
 	}
 	return ioctlTermios(fd, ioctlSet, &st.t)
-}
-
-// Preserve snapshots stdin's termios; the returned func restores it and re-shows the cursor (no-op off a tty).
-func Preserve() (restore func()) {
-	if !isTerminal(0) {
-		return func() {}
-	}
-	var saved syscall.Termios
-	if err := ioctlTermios(0, ioctlGet, &saved); err != nil {
-		return func() {}
-	}
-	showCursor := isTerminal(1)
-	return func() {
-		_ = ioctlTermios(0, ioctlSet, &saved)
-		if showCursor {
-			_, _ = os.Stdout.WriteString("\x1b[?25h")
-		}
-	}
 }
 
 // Size is the terminal's (columns, rows) from TIOCGWINSZ.

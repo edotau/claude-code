@@ -12,9 +12,6 @@ var errNoTTY = errors.New("tui: raw terminal mode is not supported on this platf
 // errCanceled mirrors the unix sentinel; nothing returns it off unix.
 var errCanceled = errors.New("tui: input canceled")
 
-// Preserve is a no-op off unix: there is no termios state to put back.
-func Preserve() func() { return func() {} }
-
 func isTerminal(int) bool                            { return false }
 func makeRaw(int) (*termState, error)                { return nil, errNoTTY }
 func restore(int, *termState) error                  { return nil }

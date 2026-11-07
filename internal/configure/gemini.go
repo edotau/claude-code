@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // AgyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.
@@ -38,7 +37,7 @@ var AgyStopGrace = 3 * time.Second
 // (SIGINT, SIGTERM, SIGKILL, each after AgyStopGrace) once the marker appears, on AgySignInTimeout, or when
 // agy exits on its own. The caller never has to return to a menu with agy's own TUI still on screen.
 func AgySignIn() (ok bool, msg string) {
-	defer tui.Preserve()()
+	defer proc.Preserve()()
 	home, _ := os.UserHomeDir()
 	marker := gemini.AgyLoginMarker(home)
 	before, _ := os.ReadFile(marker)
