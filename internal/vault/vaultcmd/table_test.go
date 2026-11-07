@@ -117,3 +117,31 @@ func TestRecordLabelsReportsUnreadableVault(t *testing.T) {
 		t.Fatalf("labels=%v stderr=%q, want empty map and a reading-labels warning", labels, stderr)
 	}
 }
+
+// TestPresetEnvsSortsByName: env rows sort by name; no label gets a hardcoded rank.
+func TestPresetEnvsSortsByName(t *testing.T) {
+	old := credOK
+	credOK = func(string) bool { return true }
+	t.Cleanup(func() { credOK = old })
+	if got, want := presetEnvs([]string{"uat", "staging", "qa"}), "✓qa ✓staging ✓uat"; got != want {
+		t.Errorf("presetEnvs = %q, want %q", got, want)
+	}
+}
+
+// TestVaultProviderRowsKeepsSamePresetPerProvider: one preset used under two providers yields one row per provider.
+func TestVaultProviderRowsKeepsSamePresetPerProvider(t *testing.T) {
+	old := credOK
+	credOK = func(string) bool { return true }
+	t.Cleanup(func() { credOK = old })
+	nested := map[string]json.RawMessage{
+		"anthropic":  json.RawMessage(`{"a":{"preset":"x"}}`),
+		"databricks": json.RawMessage(`{"b":{"preset":"x"}}`),
+	}
+	got := map[string]string{}
+	for _, r := range vaultProviderRows(nested) {
+		got[r[1]] = r[0] + " " + r[2]
+	}
+	if got["anthropic"] != "x ✓a" || got["databricks"] != "x ✓b" || len(got) != 2 {
+		t.Errorf("rows by provider = %v, want anthropic and databricks each with preset x and its own env", got)
+	}
+}

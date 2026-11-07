@@ -305,17 +305,13 @@ func markDeclinedPairings(rows []Row, choices map[string]string) {
 	}
 }
 
-// pairingEnv sorts ambiguous choices by environment without using a name to override host safety.
-func pairingEnv(c Candidate) string {
+// pairingTags are a candidate's Env plus its name tokens; they only order choices, never override host safety.
+func pairingTags(c Candidate) []string {
+	tags := strings.FieldsFunc(strings.ToLower(c.Name), func(r rune) bool { return r == '-' || r == '_' || r == '.' })
 	if c.Env != "" {
-		return strings.ToLower(c.Env)
+		tags = append(tags, strings.ToLower(c.Env))
 	}
-	for _, tag := range strings.FieldsFunc(strings.ToLower(c.Name), func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
-		if slices.Contains([]string{"dev", "qa", "prod"}, tag) {
-			return tag
-		}
-	}
-	return ""
+	return tags
 }
 
 // existingHost reads a row without expanding or redacting it.

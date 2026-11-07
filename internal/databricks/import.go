@@ -329,10 +329,18 @@ func openUser(r Row, host string) bool {
 	return r.Auth == providers.AuthOAuth && r.Action != "skip" && !r.PairingSet && r.Host == host
 }
 
-// pickHostPair asks about one host's pairs, matching environments first, and records the answer in choices.
+// pickHostPair asks about one host's pairs, closest name match first, and records the answer in choices.
 func pickHostPair(pairs [][2]Candidate, host string, choices map[string]string) error {
-	match := func(p [2]Candidate) bool { return pairingEnv(p[0]) != "" && pairingEnv(p[0]) == pairingEnv(p[1]) }
-	sort.SliceStable(pairs, func(i, j int) bool { return match(pairs[i]) && !match(pairs[j]) })
+	shared := func(p [2]Candidate) int { // name tokens the SP and user share; more first
+		n, user := 0, pairingTags(p[1])
+		for _, t := range pairingTags(p[0]) {
+			if slices.Contains(user, t) {
+				n++
+			}
+		}
+		return n
+	}
+	sort.SliceStable(pairs, func(i, j int) bool { return shared(pairs[i]) > shared(pairs[j]) })
 	labels := [][2]string{{"none", "leave these service principals unpaired"}}
 	for _, p := range pairs {
 		labels = append(labels, [2]string{p[1].Name + " <= SP " + p[0].Name, host})

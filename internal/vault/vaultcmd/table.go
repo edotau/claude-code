@@ -225,8 +225,8 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 // vaultProviderRows is the overlay's provider table rows: profiles, then presets as one row each, shown rows only.
 func vaultProviderRows(nested map[string]json.RawMessage) [][]string {
 	var rows [][]string
-	presets := map[string][]string{} // preset → its env rows, shown as one row
-	presetOwner := map[string]string{}
+	type presetKey struct{ prov, preset string }
+	presets := map[presetKey][]string{} // provider+preset → its env rows, shown as one row
 	for _, prov := range slices.Sorted(maps.Keys(nested)) {
 		if providers.IsNull(nested[prov]) { // "provider": null removes its built-ins
 			rows = append(rows, []string{prov, prov, "(removed)", "", "", "", "", ""})
@@ -243,16 +243,19 @@ func vaultProviderRows(nested map[string]json.RawMessage) [][]string {
 			case p == nil: // "name": null removes a built-in
 				rows = append(rows, []string{name, prov, "(removed)", "", "", "", "", ""})
 			case p.Preset != "":
-				presets[p.Preset] = append(presets[p.Preset], name)
-				presetOwner[p.Preset] = prov
+				k := presetKey{prov, p.Preset}
+				presets[k] = append(presets[k], name)
 			default:
 				rows = append(rows, []string{name, prov, p.Auth.Method(), p.Models["opus"], p.Models["sonnet"],
 					p.Models["haiku"], p.OpencodeID, p.OpencodeFallback})
 			}
 		}
 	}
-	for _, preset := range slices.Sorted(maps.Keys(presets)) {
-		rows = append(rows, []string{preset, presetOwner[preset], presetEnvs(presets[preset]), "", "", "", "", ""})
+	keys := slices.SortedFunc(maps.Keys(presets), func(a, b presetKey) int {
+		return cmp.Or(cmp.Compare(a.preset, b.preset), cmp.Compare(a.prov, b.prov))
+	})
+	for _, k := range keys {
+		rows = append(rows, []string{k.preset, k.prov, presetEnvs(presets[k]), "", "", "", "", ""})
 	}
 	return vaultShownRows(rows)
 }
@@ -302,20 +305,17 @@ var credOK = func(name string) bool {
 	return ok && providers.CredentialPresent(p)
 }
 
-// dbxEnvOrder is the workspace order of a preset's env rows.
-var dbxEnvOrder = []string{"dev", "qa", "prod"}
-
-// presetEnvs lists a preset's env rows in dbxEnvOrder, each marked ✓ (credential resolves) or ✗.
+// presetEnvs lists a preset's env rows by name, each marked ✓ (credential resolves) or ✗.
 func presetEnvs(names []string) string {
 	ok := map[string]bool{}
 	for _, n := range names {
 		ok[n] = credOK(n)
 	}
-	slices.SortFunc(names, func(a, b string) int { // failures first so a clipped cell still shows them
+	slices.SortStableFunc(names, func(a, b string) int { // failures first so a clipped cell still shows them
 		if ok[a] != ok[b] {
 			return cmp.Compare(boolRank(ok[a]), boolRank(ok[b]))
 		}
-		return cmp.Compare(envRank(a), envRank(b))
+		return cmp.Compare(a, b)
 	})
 	parts := make([]string, len(names))
 	for i, n := range names {
@@ -332,14 +332,6 @@ func boolRank(b bool) int {
 		return 1
 	}
 	return 0
-}
-
-// envRank orders dev/qa/prod first, in that order; other names after.
-func envRank(name string) int {
-	if i := slices.Index(dbxEnvOrder, name); i >= 0 {
-		return i
-	}
-	return len(dbxEnvOrder)
 }
 
 // vaultRoutingText renders the providers overlay's nested routing object (weights, cells, subagents,
