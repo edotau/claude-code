@@ -100,7 +100,8 @@ if (!GATE) {
     `(1) go.mod → "go build ./... && go vet ./<dir>/... && go test ./<dir>/..." over the scope dirs (./... when the scope is the root); ` +
     `(2) pyproject.toml/setup.cfg → "ruff check <dir> && pytest -q <dir-or-tests>" (ruff only if configured; prefix each with .venv/bin/python -m when .venv exists); ` +
     `(3) package.json → "npm run lint && npm test -- <scope paths>" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test -p <crate of each scope dir>". ` +
-    `If a Makefile has a lint (or fmt/vet) target, return "make lint && " + that command and source "Makefile"; never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
+    `If a Makefile has a lint (or fmt/vet) target with a report-only form (e.g. its help says CHECK=1 reports), return "make lint CHECK=1 && " + that command and source "Makefile"; ` +
+    `skip a lint target that only auto-fixes — it edits files outside the scope, and other sessions share this checkout. Never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
     `(5) Makefile only, no toolchain file, or no scoped command derivable → gate "" and source "none" (the caller must pass args.gate).`,
     { label: 'detect', phase: 'Detect', schema: DETECT_SCHEMA, model: routeModel(ST.detect.model), effort: ST.detect.effort }
   )
