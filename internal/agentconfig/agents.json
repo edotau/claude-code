@@ -49,7 +49,7 @@
               "bannedFlags": ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"],
               "argsInside": true
             },
-            {"commands": ["claude-code"], "subcommands": ["test mutate"]},
+            {"commands": ["claude-code"], "subcommands": ["test mutate", "network websearch"]},
             {
               "commands": ["claude-code"],
               "subcommands": ["review"],
