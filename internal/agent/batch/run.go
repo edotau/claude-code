@@ -17,6 +17,9 @@ type Opts struct {
 	Agent, Fallback string
 	Native          bool
 	Identity        string
+	Decorate        func(*Task) // optional: called on every successfully built task
+	// Follow optionally feeds more tasks after the initial lines; ctx is cancelled when Run returns.
+	Follow func(ctx context.Context, build func(ParsedLine) Task) <-chan Task
 }
 
 // BuildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
@@ -47,15 +50,26 @@ func Run(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions,
 	}
 	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	seen := map[string]bool{}
-	tasks := make([]Task, 0, len(lines))
-	for _, l := range lines {
+	build := func(l ParsedLine) Task {
 		t, err := BuildTask(l, o, base, timeoutSet, cwd, seen, newClient)
 		if err != nil {
 			t.Err = err
 			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
+		} else if o.Decorate != nil {
+			o.Decorate(&t)
 		}
-		tasks = append(tasks, t)
+		return t
+	}
+	tasks := make([]Task, 0, len(lines))
+	for _, l := range lines {
+		tasks = append(tasks, build(l))
 	}
 	id = NewID()
-	return id, RunTasks(ctx, tasks, PoolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr})
+	po := PoolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr}
+	if o.Follow != nil {
+		fctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		po.More = o.Follow(fctx, build)
+	}
+	return id, RunTasks(ctx, tasks, po)
 }

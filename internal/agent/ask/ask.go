@@ -37,19 +37,19 @@ func Cmd(args []string) int { return Run(args, false) }
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
-	name, fallback, route, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, overlayPath, overlayDebug string
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast                                                                  bool
-	timeout                                                                                                                                                                                                           time.Duration
-	jobs, maxFiles, maxFileBytes                                                                                                                                                                                      int
-	dirs, files                                                                                                                                                                                                       string
-	diff, index                                                                                                                                                                                                       bool
-	pack                                                                                                                                                                                                              *pack.Spec
-	agents                                                                                                                                                                                                            agentsFlag
-	attach                                                                                                                                                                                                            attachFlag
-	keepEnv                                                                                                                                                                                                           keepEnvFlag
-	permAllow, permAsk, permDeny                                                                                                                                                                                      ruleFlag
-	permMode                                                                                                                                                                                                          string
-	env                                                                                                                                                                                                               envFlag
+	name, fallback, route, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, retryAgent, overlayPath, overlayDebug string
+	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast, follow                                                                      bool
+	timeout, followIdle                                                                                                                                                                                                           time.Duration
+	jobs, maxFiles, maxFileBytes                                                                                                                                                                                                  int
+	dirs, files                                                                                                                                                                                                                   string
+	diff, index                                                                                                                                                                                                                   bool
+	pack                                                                                                                                                                                                                          *pack.Spec
+	agents                                                                                                                                                                                                                        agentsFlag
+	attach                                                                                                                                                                                                                        attachFlag
+	keepEnv                                                                                                                                                                                                                       keepEnvFlag
+	permAllow, permAsk, permDeny                                                                                                                                                                                                  ruleFlag
+	permMode                                                                                                                                                                                                                      string
+	env                                                                                                                                                                                                                           envFlag
 }
 
 func askFlagSet() (*flag.FlagSet, *askFlags) {
@@ -111,6 +111,9 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
 	fs.IntVar(&f.jobs, "jobs", batch.DefaultJobs(), "batch: tasks run at once")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
+	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
+	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
+	fs.StringVar(&f.retryAgent, "retry-agent", "", "batch: retry a failure once on these agents")
 	fs.StringVar(&f.overlayPath, "overlay", "", "layer a JSON {set,unset,keep} file over the agent's env")
 	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
 }
@@ -217,16 +220,40 @@ func (r *askRun) parsePerms() (int, bool) {
 func (r *askRun) dispatchMode() (int, bool) {
 	f := r.f
 	if f.batchSrc != "" {
-		return askBatch(r.fs, r.resume, f.batchSrc, batchOpts{jobs: f.jobs, failFast: f.failFast, agent: r.ref, fallback: f.fallback, native: f.native},
+		retryAgents, err := r.retryAgents()
+		if err != nil {
+			return r.fail(err, 2)
+		}
+		o := batchOpts{jobs: f.jobs, failFast: f.failFast, agent: r.ref, fallback: f.fallback, native: f.native,
+			follow: f.follow, followIdle: f.followIdle, retryAgents: retryAgents}
+		return askBatch(r.fs, r.resume, f.batchSrc, o,
 			r.batchBase(), r.fileOv, f.env, f.keepEnv, f.format, f.name), true
 	}
-	if helptext.Explicit(r.fs, "jobs") || helptext.Explicit(r.fs, "fail-fast") {
-		return r.fail(errors.New("--jobs and --fail-fast need --batch"), 2)
+	for _, name := range []string{"jobs", "fail-fast", "follow", "follow-idle", "retry-agent"} {
+		if helptext.Explicit(r.fs, name) {
+			return r.fail(fmt.Errorf("--%s needs --batch", name), 2)
+		}
 	}
 	if f.showLog {
 		return printDispatchLog(f.format), true
 	}
 	return 0, false
+}
+
+// retryAgents resolves --retry-agent names like --agent does; a bad name is a flag error.
+func (r *askRun) retryAgents() ([]string, error) {
+	var out []string
+	for _, n := range strings.Split(r.f.retryAgent, ",") {
+		if n = strings.TrimSpace(n); n == "" {
+			continue
+		}
+		name, _, err := agent.SelectAgent(n, r.defs)
+		if err != nil {
+			return nil, fmt.Errorf("--retry-agent: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, nil
 }
 
 func (r *askRun) batchBase() agent.RunOptions {

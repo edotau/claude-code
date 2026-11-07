@@ -280,3 +280,89 @@ func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
 		}
 	}
 }
+
+// runOpts runs the JSONL initial lines through Run against the fake opencode vendor and returns envelopes by task id.
+func runOpts(t *testing.T, initial string, o Opts) map[string][]agent.Envelope {
+	t.Helper()
+	lines, err := ReadTaskLines(strings.NewReader(initial))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Jobs, o.Agent, o.Fallback = 1, "opencode", router.FallbackAgents
+	base := agent.RunOptions{Provider: "acme", Model: "acme-large", WorkDir: t.TempDir()}
+	var buf bytes.Buffer
+	id, _ := Run(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
+	byID := map[string][]agent.Envelope{}
+	for _, env := range decodePoolEnvelopes(t, &buf) {
+		if env.BatchID != id {
+			t.Errorf("envelope %s batch_id %q, want the run's %q", env.TaskID, env.BatchID, id)
+		}
+		byID[env.TaskID] = append(byID[env.TaskID], env)
+	}
+	return byID
+}
+
+// followLines feeds the given raw JSONL lines through build, as a follower would, then closes.
+func followLines(raw string, firstN int) func(context.Context, func(ParsedLine) Task) <-chan Task {
+	return func(_ context.Context, build func(ParsedLine) Task) <-chan Task {
+		out := make(chan Task, 16)
+		lines, _ := ReadTaskLines(strings.NewReader(raw))
+		for i, l := range lines {
+			l.N = firstN + i
+			out <- build(l)
+		}
+		close(out)
+		return out
+	}
+}
+
+// A followed task is claimed under the run's batch id; a duplicate id and bad lines fail alone.
+func TestRunFollowClaimsTasksAndBadLinesFailAlone(t *testing.T) {
+	vendorHost(t)
+	follow := followLines(strings.Join([]string{
+		`{"id":"f","prompt":"ok"}`, `{"id":"a","prompt":"ok"}`, `{"id":"j"`, `{"id":"u","prompt":"ok","bogus":1}`, `{"id":"np"}`,
+		`{"id":"g","prompt":"ok"}`}, "\n")+"\n", 2)
+	got := runOpts(t, `{"id":"a","prompt":"ok"}`+"\n", Opts{Follow: follow})
+	for _, id := range []string{"f", "g"} {
+		if len(got[id]) != 1 || got[id][0].Status != agent.StatusOK {
+			t.Errorf("task %s = %+v, want one ok envelope", id, got[id])
+		}
+	}
+	for _, id := range []string{"u", "np", "t4"} { // the malformed line has no id: it is named after its line number
+		if len(got[id]) != 1 || got[id][0].Status != agent.StatusError {
+			t.Errorf("bad line %s = %+v, want one error envelope", id, got[id])
+		}
+	}
+	var ok, failed int // the initial a runs; the followed duplicate a is a failure envelope under the same id
+	for _, env := range got["a"] {
+		if env.Status == agent.StatusOK {
+			ok++
+		} else {
+			failed++
+		}
+	}
+	if ok != 1 || failed != 1 {
+		t.Errorf("task a: %d ok and %d failed envelopes, want the initial run ok and the duplicate failed", ok, failed)
+	}
+}
+
+// Decorate runs on every built task; a Retry it sets reroutes a failure once under the same id.
+func TestRunDecorateSetsRetry(t *testing.T) {
+	vendorHost(t)
+	var again atomic.Int32
+	decorate := func(task *Task) { task.Retry = vendorPrepare(t, "ok", &again) }
+	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n", Opts{Decorate: decorate})
+	if len(got["a"]) != 1 || got["a"][0].Status != agent.StatusOK || len(got["a"][0].Hops) < 2 || again.Load() != 1 {
+		t.Errorf("a = %+v retries %d, want one ok envelope with >= 2 hops after one retry", got["a"], again.Load())
+	}
+}
+
+// With neither hook set Run is the plain pool: one task, one envelope, no retry.
+func TestRunWithoutHooks(t *testing.T) {
+	vendorHost(t)
+	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n"+`{"id":"b","prompt":"ok"}`+"\n", Opts{})
+	if len(got["a"]) != 1 || got["a"][0].Status != agent.StatusError || len(got["a"][0].Hops) != 1 ||
+		len(got["b"]) != 1 || got["b"][0].Status != agent.StatusOK {
+		t.Errorf("envelopes = %+v, want a failed once without retry and b ok", got)
+	}
+}
