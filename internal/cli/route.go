@@ -15,20 +15,25 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cmdGatewayRouter is `claude-code gateway router`: the pick for a model and every skipped agent with its gate; it
-// reads quota state (refreshing a stale account) and never dispatches.
+// cmdGatewayRouter is `claude-code gateway router`: the pick and each skipped agent's gate; never dispatches.
 func cmdGatewayRouter(args []string) int { return gatewayRoute(args, false) }
 
-// gatewayRoute runs the router pick; withProxy (bare `gateway`) adds the proxy status footer or the "proxy" JSON key.
-func gatewayRoute(args []string, withProxy bool) int {
-	name, usage := "gateway router", "claude-code gateway router [--model M] [--agent a] [--task T] [flags]"
+// routePage is the verb's name and help page; withProxy is bare `gateway`.
+func routePage(withProxy bool) (string, helptext.Page) {
 	about := "Show which agent and model a task routes to: gated on availability, the pinned\n" +
 		"profile and quota, then ranked by a weighted price + headroom score."
 	if withProxy {
-		name, usage = "gateway", "claude-code gateway [router|proxy] [--model M] [flags]"
-		about += "\nThen the loopback proxy's status; `gateway proxy` runs its lifecycle."
+		return "gateway", helptext.Page{Usage: "claude-code gateway [router|proxy] [--model M] [flags]",
+			About: about + "\nThen the loopback proxy's status; `gateway proxy` runs its lifecycle."}
 	}
-	fs := helptext.NewFlagSet(name, helptext.Page{Usage: usage, About: about})
+	return "gateway router", helptext.Page{
+		Usage: "claude-code gateway router [--model M] [--agent a] [--task T] [flags]", About: about}
+}
+
+// gatewayRoute runs the router pick; withProxy (bare `gateway`) adds the proxy status footer or the "proxy" JSON key.
+func gatewayRoute(args []string, withProxy bool) int {
+	name, page := routePage(withProxy)
+	fs := helptext.NewFlagSet(name, page)
 	model := fs.String("model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
@@ -38,23 +43,31 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := ask.ApplyRoute(*route); err != nil {
-		return helptext.Fail(name+": %v", err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name, err)
-	}
-	if !slices.Contains(router.FallbackModes, *fallback) {
-		return helptext.Fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(router.FallbackModes, "|"))
-	}
-	if *want != "" && !slices.Contains(router.TableAgents, *want) {
-		return helptext.Fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableAgents, "|"))
+	if code := checkRouteFlags(name, *route, *format, *fallback, *want); code != 0 {
+		return code
 	}
 	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, ask.RouteRefresh)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
 	return renderGatewayRoute(name, res, *format, withProxy)
+}
+
+// checkRouteFlags applies --route and validates the flags; a nonzero code is the exit status (format errors are 2).
+func checkRouteFlags(name, route, format, fallback, want string) int {
+	if err := ask.ApplyRoute(route); err != nil {
+		return helptext.Fail(name+": %v", err)
+	}
+	if err := helptext.CheckFormat(format); err != nil {
+		return helptext.BadFormat(name, err)
+	}
+	if !slices.Contains(router.FallbackModes, fallback) {
+		return helptext.Fail(name+": --fallback %q unknown (%s)", fallback, strings.Join(router.FallbackModes, "|"))
+	}
+	if want != "" && !slices.Contains(router.TableAgents, want) {
+		return helptext.Fail(name+": --agent %q unknown (%s)", want, strings.Join(router.TableAgents, "|"))
+	}
+	return 0
 }
 
 func renderGatewayRoute(name string, res router.PickResult, format string, withProxy bool) int {
@@ -72,20 +85,24 @@ func renderGatewayRoute(name string, res router.PickResult, format string, withP
 		}
 	}
 	if format == helptext.JSON {
-		var payload any = rj
-		if withProxy {
-			payload = struct {
-				Route routeJSON    `json:"route"`
-				Proxy proxy.Status `json:"proxy"`
-			}{rj, ps}
-		}
-		return helptext.WriteJSONOrFail("gateway router", payload)
+		return helptext.WriteJSONOrFail("gateway router", routePayload(rj, ps, withProxy))
 	}
 	printRoute(res, src, pins)
 	if withProxy {
 		printProxyState(ps)
 	}
 	return 0
+}
+
+// routePayload is the JSON document: the route alone, or {route, proxy} for bare `gateway`.
+func routePayload(rj routeJSON, ps proxy.Status, withProxy bool) any {
+	if !withProxy {
+		return rj
+	}
+	return struct {
+		Route routeJSON    `json:"route"`
+		Proxy proxy.Status `json:"proxy"`
+	}{rj, ps}
 }
 
 // routeSources names where each routing knob printed by `gateway router` came from.
@@ -145,8 +162,7 @@ func newRouteJSON(res router.PickResult, src routeSources, pins map[string]pinJS
 	return out
 }
 
-// printRoute renders the pick: weights (and their source), one scored row per candidate, then each
-// skip's gate and reason, then the subagents switch and its source.
+// printRoute renders weights, subagents switch, pins, scored candidates, the claude end and skipped gates.
 func printRoute(res router.PickResult, src routeSources, pins map[string]pinJSON) {
 	var ws []string
 	for _, d := range router.Dimensions {
@@ -156,31 +172,40 @@ func printRoute(res router.PickResult, src routeSources, pins map[string]pinJSON
 	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
 	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
 	printPins(pins)
-	if len(res.Candidates) == 0 {
+	printCandidates(res.Candidates)
+	printEnds(res)
+	printSkipped(res.Skipped)
+}
+
+// printCandidates prints the scored candidate table.
+func printCandidates(cands []router.Candidate) {
+	if len(cands) == 0 {
 		fmt.Println("no agent passes the gates")
+		return
 	}
 	wRun, wModel, wAcct := len("AGENT"), len("MODEL"), len("ACCOUNT")
-	for _, c := range res.Candidates {
+	for _, c := range cands {
 		wRun, wModel, wAcct = max(wRun, len(c.Agent)), max(wModel, len(c.Model)), max(wAcct, len(c.Account))
 	}
-	if len(res.Candidates) > 0 {
-		fmt.Printf("%-3s %-*s %-*s %-6s %-*s %-8s %6s %8s %6s\n", "#", wRun, "AGENT", wModel, "MODEL", "EFFORT",
-			wAcct, "ACCOUNT", "STATE", "PRICE", "HEADROOM", "TOTAL")
-	}
-	for i, c := range res.Candidates {
+	fmt.Printf("%-3s %-*s %-*s %-6s %-*s %-8s %6s %8s %6s\n", "#", wRun, "AGENT", wModel, "MODEL", "EFFORT",
+		wAcct, "ACCOUNT", "STATE", "PRICE", "HEADROOM", "TOTAL")
+	for i, c := range cands {
 		fmt.Printf("%-3d %-*s %-*s %-6s %-*s %-8s %6.2f %8.2f %6.2f\n", i+1, wRun, c.Agent, wModel, c.Model,
 			cmp.Or(c.Effort, "-"), wAcct, c.Account, c.State, c.Scores["price"], c.Scores["headroom"], c.Total)
 	}
-	printEnds(res)
-	if len(res.Skipped) == 0 {
+}
+
+// printSkipped prints each skipped agent with its gate and reason.
+func printSkipped(skipped []router.Skip) {
+	if len(skipped) == 0 {
 		return
 	}
 	wSkip, wGate := len("SKIP"), len("GATE")
-	for _, s := range res.Skipped {
+	for _, s := range skipped {
 		wSkip, wGate = max(wSkip, len(s.Agent)), max(wGate, len(s.Gate))
 	}
 	fmt.Printf("%-*s %-*s %s\n", wSkip, "SKIP", wGate, "GATE", "REASON")
-	for _, s := range res.Skipped {
+	for _, s := range skipped {
 		fmt.Printf("%-*s %-*s %s\n", wSkip, s.Agent, wGate, s.Gate, s.Reason)
 	}
 }

@@ -31,17 +31,10 @@ var themePage = helptext.Page{
 	Hint: "claude-code theme <command> -h lists that command's flags.",
 }
 
-// cmdTheme picks the statusline's gradient palette persistently. --palettes lists every palette, painted in its
-// own gradient on a terminal; a name sets it; an unknown name exits 2; no argument prints help.
+// cmdTheme sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
 func cmdTheme(args []string) int {
-	if len(args) > 0 {
-		switch args[0] {
-		case "statusline":
-			fs := helptext.NewFlagSet("theme statusline", themeStatuslinePage)
-			return statusline.Run(fs, args[1:], os.Stdin, os.Stdout)
-		case "vscode":
-			return cmdVSCode(args[1:])
-		}
+	if code, ok := themeSubcommand(args); ok {
+		return code
 	}
 	fs := helptext.NewFlagSet("theme", themePage)
 	palettes := fs.Bool("palettes", false, "list every palette (● current) and change nothing")
@@ -64,6 +57,21 @@ func cmdTheme(args []string) int {
 		return themeApply(fs.Args()[1:])
 	}
 	return setThemePalette(fs.Args()[0])
+}
+
+// themeSubcommand runs the statusline or vscode subcommand; ok is false when args name neither.
+func themeSubcommand(args []string) (code int, ok bool) {
+	if len(args) == 0 {
+		return 0, false
+	}
+	switch args[0] {
+	case "statusline":
+		fs := helptext.NewFlagSet("theme statusline", themeStatuslinePage)
+		return statusline.Run(fs, args[1:], os.Stdin, os.Stdout), true
+	case "vscode":
+		return cmdVSCode(args[1:]), true
+	}
+	return 0, false
 }
 
 func setThemePalette(name string) int {
