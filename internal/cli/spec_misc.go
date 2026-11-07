@@ -8,7 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
-	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 func coreSpecNodes() map[string]*completion.Node {
@@ -20,18 +19,10 @@ func coreSpecNodes() map[string]*completion.Node {
 		"usage":    {Flags: []completion.Flag{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}},
 		"describe": {Flags: []completion.Flag{formatFlag()}},
 		"help-svg": {Flags: []completion.Flag{flag("out"), flag("check")}},
-		"theme": {Args: []func() []string{theme.GradientNames}, Flags: []completion.Flag{boolFlag("palettes"), boolFlag("reset")},
-			Sub: map[string]*completion.Node{
-				"apply":      {Flags: []completion.Flag{boolFlag("dry-run")}},
-				"statusline": {Flags: []completion.Flag{valuedFlag("style", statuslineStyles)}},
-				"vscode": {Flags: []completion.Flag{flag("template"), flag("dest"), flag("extensions-dir"),
-					flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}},
-			}},
 		"configure": {Args: []func() []string{configureSections, providerNames}, Flags: []completion.Flag{
 			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
 			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), boolFlag("all"),
 			boolFlag("no-agents"), formatFlag()}},
-		"clip":       {Flags: []completion.Flag{boolFlag("serve")}},
 		"completion": {Flags: []completion.Flag{boolFlag("install")}},
 	}
 }
@@ -79,7 +70,6 @@ func workspaceSpecNodes() map[string]*completion.Node {
 			"nuke":      {Flags: []completion.Flag{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
 			"workspace": {Args: []func() []string{setupWorkspaceSubwords}, Flags: []completion.Flag{flag("with"), boolFlag("dry-run")}},
 		}}}},
-		"test": {Sub: map[string]*completion.Node{"mutate": {Flags: []completion.Flag{flag("run")}}, "ramdisk": {}}},
 		"plan": {Sub: map[string]*completion.Node{
 			"status": {Flags: []completion.Flag{boolFlag("all"), formatFlag()}},
 			"tick":   {Flags: []completion.Flag{flag("range"), flag("plan"), boolFlag("dry-run")}},
@@ -96,21 +86,12 @@ func subnetActions() []string { return []string{"approve", "off"} }
 // routeTargets are the `network tailscale --route` values: dispatch hosts or "off" to clear.
 func routeTargets() []string { return append(tailscale.CachedMachineNames(), "off") }
 
-// statuslineStyles are the `theme statusline --style` values.
-func statuslineStyles() []string {
-	return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"}
-}
-
 func setupWorkspaceSubwords() []string { return []string{"init", "link", "status"} }
 
 func setupModes() []string { return []string{"adopt", "nuke", "workspace"} }
 
 // toolNames derives from agent.Tools, the install --tools roster.
 func toolNames() []string { return tools.Names() }
-
-func workflowPatterns() []string {
-	return []string{"pipeline", "parallel", "evaluator", "orchestrator"}
-}
 
 // browserNames mirrors `network browser --setup --browser`'s accepted values.
 func browserNames() []string {

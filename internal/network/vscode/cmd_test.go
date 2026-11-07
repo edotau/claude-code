@@ -1,0 +1,235 @@
+package vscode
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// captureOutput redirects os.Stdout/os.Stderr around fn and returns fn's exit code plus both streams.
+func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
+	t.Helper()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	ro, wo, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	re, we, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bo, be bytes.Buffer
+	var drained sync.WaitGroup
+	drained.Go(func() { io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
+	drained.Go(func() { io.Copy(&be, re) })
+	os.Stdout, os.Stderr = wo, we
+	code = fn()
+	wo.Close()
+	we.Close()
+	os.Stdout, os.Stderr = oldOut, oldErr
+	drained.Wait()
+	return code, bo.String(), be.String()
+}
+
+func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"serve"}) })
+	if code != 1 {
+		t.Errorf("theme vscode serve: exit %d, want 1", code)
+	}
+	if !strings.Contains(stderr, `unexpected argument "serve"`) || !strings.Contains(stderr, "network vscode") {
+		t.Errorf("stderr = %q", stderr)
+	}
+}
+
+// kbDestFlag isolates every Run call below from the real machine's keybindings.json: without
+// it, a call that omits --keybindings-dest falls back to the platform default and writes there.
+func kbDestFlag(t *testing.T) []string {
+	t.Helper()
+	return []string{"--keybindings-dest", filepath.Join(t.TempDir(), "keybindings.json")}
+}
+
+// extDirFlag isolates every Run call below from the real machine's VS Code extensions dir:
+// without it, a call falls back to the platform default and symlinks the extension there for real.
+func extDirFlag(t *testing.T) []string {
+	t.Helper()
+	return []string{"--extensions-dir", filepath.Join(t.TempDir(), "extensions")}
+}
+
+// isolationFlags combines kbDestFlag and extDirFlag, the pair every merge-path test below needs.
+func isolationFlags(t *testing.T) []string {
+	t.Helper()
+	return append(kbDestFlag(t), extDirFlag(t)...)
+}
+
+func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
+	t.Helper()
+	dir := t.TempDir()
+	tmpl = filepath.Join(dir, "template.json")
+	dest = filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(tmpl, []byte(`{"chatgpt.cliExecutable": "__CLAUDE_BIN__/codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte(`{"local.only": true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return tmpl, dest
+}
+
+// An explicit --dest with no --keybindings-dest must default next to that dest, never to the
+// platform's real keybindings.json — the bug this guards shipped keybindings into the live machine.
+func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
+	tmpl, dest := writeVSCodeFixture(t)
+	code, out, _ := captureOutput(t, func() int {
+		return Run(append([]string{"--template", tmpl, "--dest", dest}, extDirFlag(t)...))
+	})
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	wantKbDest := filepath.Join(filepath.Dir(dest), "keybindings.json")
+	if !strings.Contains(out, wantKbDest) {
+		t.Errorf("keybindings dest not defaulted beside %s:\n%s", dest, out)
+	}
+	if _, err := os.Stat(wantKbDest); err != nil {
+		t.Errorf("keybindings.json not written beside the explicit --dest: %v", err)
+	}
+}
+
+func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
+	tmpl, dest := writeVSCodeFixture(t)
+	code, out, _ := captureOutput(t, func() int {
+		return Run(append([]string{"--template", tmpl, "--dest", dest}, isolationFlags(t)...))
+	})
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out, "merged template") || !strings.Contains(out, "backup") {
+		t.Errorf("missing merge/backup message: %q", out)
+	}
+	body, _ := os.ReadFile(dest)
+	if !strings.Contains(string(body), `"local.only": true`) {
+		t.Errorf("merge dropped the foreign key:\n%s", body)
+	}
+}
+
+func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
+	tmpl, dest := writeVSCodeFixture(t)
+	original, _ := os.ReadFile(dest)
+	code, out, _ := captureOutput(t, func() int {
+		return Run(append([]string{"--template", tmpl, "--dest", dest, "--dry-run"}, isolationFlags(t)...))
+	})
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out, "would merge") {
+		t.Errorf("missing dry-run message: %q", out)
+	}
+	after, _ := os.ReadFile(dest)
+	if string(original) != string(after) {
+		t.Error("--dry-run rewrote the destination")
+	}
+	if _, err := os.Stat(dest + ".bak-"); err == nil {
+		t.Error("--dry-run left a backup file")
+	}
+}
+
+func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
+	tmpl, dest := writeVSCodeFixture(t)
+	code, _, errOut := captureOutput(t, func() int {
+		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check"}, isolationFlags(t)...))
+	})
+	if code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if !strings.Contains(errOut, "DRIFT") {
+		t.Errorf("missing DRIFT message: %q", errOut)
+	}
+	if body, _ := os.ReadFile(dest); !strings.Contains(string(body), `"local.only": true`) {
+		t.Error("--check must not write")
+	}
+}
+
+func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
+	tmpl, dest := writeVSCodeFixture(t)
+	kbFlag := isolationFlags(t)
+	if code, _, _ := captureOutput(t, func() int {
+		return Run(append([]string{"--template", tmpl, "--dest", dest}, kbFlag...))
+	}); code != 0 {
+		t.Fatal("initial merge failed")
+	}
+	code, out, _ := captureOutput(t, func() int {
+		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check"}, kbFlag...))
+	})
+	if code != 0 {
+		t.Fatalf("exit %d, want 0 once merged", code)
+	}
+	if !strings.Contains(out, "in sync") {
+		t.Errorf("missing in-sync message: %q", out)
+	}
+}
+
+func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
+	tmpl, dest := writeVSCodeFixture(t)
+	code, _, errOut := captureOutput(t, func() int {
+		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check", "--dry-run"}, isolationFlags(t)...))
+	})
+	if code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+	if !strings.Contains(errOut, "mutually exclusive") {
+		t.Errorf("missing explanation: %q", errOut)
+	}
+}
+
+func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
+	tmpl, dest := writeVSCodeFixture(t)
+	original, _ := os.ReadFile(dest)
+	for _, flagArg := range []string{"-h", "--help"} {
+		code, _, errOut := captureOutput(t, func() int {
+			return Run(append([]string{flagArg, "--template", tmpl, "--dest", dest}, isolationFlags(t)...))
+		})
+		if code != 0 {
+			t.Errorf("vscode %s exit %d, want 0", flagArg, code)
+		}
+		if !strings.Contains(errOut, "Machine") || !strings.Contains(errOut, "excluded from Settings Sync") {
+			t.Errorf("vscode %s help missing Machine-scope note: %q", flagArg, errOut)
+		}
+	}
+	if after, _ := os.ReadFile(dest); string(original) != string(after) {
+		t.Error("-h/--help must not write the destination")
+	}
+}
+
+// The real tracked template drives any fresh box's VS Code Machine settings, so its shape matters.
+func TestTemplateIsFirstPartyOnly(t *testing.T) {
+	tmpl, err := os.ReadFile("machine-settings.template.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(tmpl)
+	for _, want := range []string{
+		`"chatgpt.cliExecutable": "__CLAUDE_BIN__/codex"`,
+		`"chat.useClaudeHooks"`,
+		`"github.copilot.`,
+		`"terminal.integrated.`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("template missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{`"claudeCode.claudeProcessWrapper"`, `"python.`, `"[python]"`, "databricks", "Databricks"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("template retained unwanted key %q", unwanted)
+		}
+	}
+}

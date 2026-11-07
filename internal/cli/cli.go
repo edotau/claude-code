@@ -11,8 +11,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/testtool/mutate"
-	"github.com/edotau/claude-code/internal/testtool/ramdisk"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -86,30 +84,4 @@ func Run(argv []string) int {
 func cmdVersion([]string) int {
 	fmt.Println("claude-code", textutil.BuildVersion())
 	return 0
-}
-
-// cmdTest dispatches `test <sub>`.
-func cmdTest(args []string) int {
-	if len(args) > 0 && args[0] == "mutate" {
-		return mutate.Run(args[1:])
-	}
-	if len(args) > 0 && args[0] == "ramdisk" {
-		return ramdisk.Run(args[1:])
-	}
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
-		testPage.Fprint(os.Stderr)
-		return 0
-	}
-	helptext.Fail("test: unknown subcommand %q", args[0])
-	testPage.Fprint(os.Stderr)
-	return 2
-}
-
-var testPage = helptext.Page{
-	Usage: "claude-code test <command> [flags]",
-	Commands: [][2]string{
-		{"mutate", "swap one snippet via -overlay; do the tests notice?"},
-		{"ramdisk", "run a command with TMPDIR on a throwaway RAM disk"},
-	},
-	Hint: "claude-code test mutate -h lists that command's flags.",
 }

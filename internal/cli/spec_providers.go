@@ -15,11 +15,6 @@ func integrationSpecNodes() map[string]*completion.Node {
 	return map[string]*completion.Node{
 		"models": {Flags: []completion.Flag{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinAliases), boolFlag("dry-run"), formatFlag()}},
-		"workflow": {Sub: map[string]*completion.Node{
-			"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []completion.Flag{flag("name")}},
-			"lint":     {},
-		}},
-		"review": {Sub: reviewSubNodes()},
 		"vault": {Sub: map[string]*completion.Node{
 			"list": {Args: []func() []string{vaultSections}, Flags: []completion.Flag{boolFlag("tailscale"), formatFlag()}},
 			"set": {Args: []func() []string{secretNames}, Flags: []completion.Flag{boolFlag("tailscale"), boolFlag("api-key"),
