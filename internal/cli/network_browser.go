@@ -29,10 +29,7 @@ func cmdNetworkBrowser(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if *ex.url != "" {
-		if *setup {
-			return helptext.FailUsage("network browser: --extract and --setup are mutually exclusive")
-		}
-		return networkBrowserExtract(ex, explicitBrowserFormat(fs, *format))
+		return networkBrowserExtractMode(fs, ex, *setup, *format)
 	}
 	if bad := extractFlagsSet(fs); bad != "" {
 		return helptext.FailUsage("network browser: --%s belongs to --extract", bad)
@@ -40,19 +37,35 @@ func cmdNetworkBrowser(args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("network browser", err)
 	}
-	if !*setup {
-		bad := ""
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "browser" || f.Name == "dry-run" {
-				bad = f.Name
-			}
-		})
-		if bad != "" {
-			return helptext.FailUsage("network browser: --%s belongs to --setup", bad)
-		}
-		return networkBrowserList(*format)
+	return networkBrowserListOrSetup(fs, *setup, *name, *dryRun, *format)
+}
+
+func networkBrowserListOrSetup(fs *flag.FlagSet, setup bool, name string, dryRun bool, format string) int {
+	if setup {
+		return networkBrowserSetup(name, dryRun, format)
 	}
-	return networkBrowserSetup(*name, *dryRun, *format)
+	if bad := setupFlagsSet(fs); bad != "" {
+		return helptext.FailUsage("network browser: --%s belongs to --setup", bad)
+	}
+	return networkBrowserList(format)
+}
+
+// setupFlagsSet names the last setup-only flag given, "" when none.
+func setupFlagsSet(fs *flag.FlagSet) string {
+	bad := ""
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "browser" || f.Name == "dry-run" {
+			bad = f.Name
+		}
+	})
+	return bad
+}
+
+func networkBrowserExtractMode(fs *flag.FlagSet, ex *extractArgs, setup bool, format string) int {
+	if setup {
+		return helptext.FailUsage("network browser: --extract and --setup are mutually exclusive")
+	}
+	return networkBrowserExtract(ex, explicitBrowserFormat(fs, format))
 }
 
 func explicitBrowserFormat(fs *flag.FlagSet, format string) string {

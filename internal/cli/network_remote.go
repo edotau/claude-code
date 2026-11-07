@@ -61,15 +61,9 @@ func cmdNetworkRemote(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if f.host == "" {
-		return helptext.Fail("network remote: --host is required")
-	}
-	if f.list && f.attach {
-		return helptext.FailUsage("network remote: --list and --attach are mutually exclusive")
-	}
 	mode := f.mode()
-	if wrong := remoteModeFlags(fs, mode); wrong != nil {
-		return helptext.Fail("network remote: %v", wrong)
+	if code := checkRemoteFlags(fs, f, mode); code != 0 {
+		return code
 	}
 	ctx := context.Background()
 	resolved, err := tailscale.ResolveHost(ctx, f.host)
@@ -77,6 +71,20 @@ func cmdNetworkRemote(args []string) int {
 		return helptext.Fail("%v", err)
 	}
 	return dispatchRemoteMode(ctx, resolved, mode, f, rest)
+}
+
+// checkRemoteFlags returns a non-zero exit code when --host is missing or the flags disagree with the mode.
+func checkRemoteFlags(fs *flag.FlagSet, f *remoteFlags, mode string) int {
+	if f.host == "" {
+		return helptext.Fail("network remote: --host is required")
+	}
+	if f.list && f.attach {
+		return helptext.FailUsage("network remote: --list and --attach are mutually exclusive")
+	}
+	if wrong := remoteModeFlags(fs, mode); wrong != nil {
+		return helptext.Fail("network remote: %v", wrong)
+	}
+	return 0
 }
 
 func (f remoteFlags) mode() string {
