@@ -153,3 +153,26 @@ func TestRotateKeepsPreviousGeneration(t *testing.T) {
 		t.Errorf(".2 = %q, want the first generation preserved", got)
 	}
 }
+
+// A pre-existing loose state dir and audit file are tightened, not left at their old modes.
+func TestLogTightensExistingModes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	file := File()
+	dir := filepath.Dir(file)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Log(ProviderSwitch, "gemini", "")
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode = %v, want 0700", fi.Mode().Perm())
+	}
+	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o600 {
+		t.Errorf("file mode = %v, want 0600", fi.Mode().Perm())
+	}
+}
