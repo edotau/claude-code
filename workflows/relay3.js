@@ -177,10 +177,11 @@ async function repair(rev) {
   )
   // A green gate over unchanged code proves nothing: a fixer that did not finish counts as red.
   const done = !!(impl && impl.status === 'done')
-  let green = done && !!(gate && gate.green)
+  const testOk = !!(test && test.status !== 'blocked')
+  let green = done && testOk && !!(gate && gate.green)
   log(p + ': fixed ' + (done ? cs.length : 0) + '/' + cs.length + ', gate ' + (green ? 'green' : 'red'))
   const decisions = [...(rev.fast ? ['fast path: skipped find+rederive, task names the bug'] : []), (done ? 'fixed ' : 'fix NOT done (' + (impl ? impl.status : 'no result') + ') for ') + cs.length + ' finding(s) in ' + p,
-    green ? 'gate green in ' + p : 'gate red in ' + p]
+    green ? 'gate green in ' + p : 'gate red in ' + p, ...(testOk ? [] : ['test blocked in ' + p])]
   let extra = {}
   if (done && green && POLISH) {
     const files = [...new Set([...(impl.files || []), ...(test && test.files ? test.files : [])].map(norm))]
@@ -230,7 +231,7 @@ async function polish(p, files) {
   const fixedAll = !!(fx && fx.status === 'done')
   d.push('fix-all: ' + (fixedAll ? findings.length : 0) + ' fixed of ' + findings.length + ' in ' + p + (fixedAll ? '' : ' (NOT done: ' + (fx ? fx.status : 'no result') + ')'))
   if (!fixedAll) return { green: false, simplify, review, fixall: { fixed: 0, status: fx ? fx.status : 'none' }, decisions: d }
-  await agent(
+  const ft = await agent(
     RULES + ' Fix-all just landed in ' + p + ' (`git diff -- ' + p + '`). Write a guard test for each behavior change in the package _test.go files that calls the real code ' +
       'and fails without the change; prove each with `claude-code test mutate <file> <old> <new> --run <RE> ./' + norm(p) + ' </dev/null` (exit 0 = caught). Skip pure style edits. ' +
       'Edit only *_test.go files under ' + p + '; each test under complexity 10. Put "n/a" in callers.\n' + text,
@@ -241,8 +242,10 @@ async function polish(p, files) {
       '/...`; if `git diff -- ' + p + '` changes a function that writes a file, also `go test -count=1 ./internal/schemas/`. green=true only if every command exited 0. Edit nothing.',
     { phase: 'Gate', label: 'regate:' + p, schema: GATE, model: S.gate.model, effort: S.gate.effort },
   ).catch(() => null)
-  const ok = !!(g2 && g2.green)
-  d.push('re-gate ' + (ok ? 'green' : 'red') + ' in ' + p)
+  const ftOk = !!(ft && ft.status !== 'blocked')
+  const ok = ftOk && !!(g2 && g2.green)
+  d.push('re-gate ' + (g2 && g2.green ? 'green' : 'red') + ' in ' + p)
+  if (!ftOk) d.push('test blocked in ' + p)
   return { green: ok, simplify, review, fixall: { fixed: findings.length, status: 'done' }, decisions: d }
 }
 
