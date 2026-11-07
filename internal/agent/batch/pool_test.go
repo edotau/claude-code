@@ -3,16 +3,58 @@ package batch
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hosttest"
+	_ "github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// vendorHost isolates the config dir, seeds a provider and installs a fake opencode that fails on a FAILME prompt.
+func vendorHost(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	doc := `{"providers":{"openai":{"acme":{"protocol":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}}}`
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", doc) }); err != nil {
+		t.Fatal(err)
+	}
+	pathstest.FakeVendor(t, "opencode", "p=$(cat); case \"$p $*\" in *FAILME*) echo boom >&2; exit 1;; esac\n"+
+		`printf '%s\n' '{"type":"text","sessionID":"s","part":{"text":"hi"}}'`+"\n")
+}
+
+// vendorPrepare routes a real opencode dispatch for prompt and counts how often it is called.
+func vendorPrepare(t *testing.T, prompt string, n *atomic.Int32) func(context.Context) (*agent.Prepared, error) {
+	dir := t.TempDir()
+	return func(ctx context.Context) (*agent.Prepared, error) {
+		n.Add(1)
+		return agent.NewClient(nil, nil, nil).Prepare(ctx, agent.RunOptions{Agent: "opencode", Provider: "acme",
+			Model: "acme-large", Prompt: prompt, WorkDir: dir, Fallback: router.FallbackAgents}, nil)
+	}
+}
+
+// vendorTask is a task whose first attempt runs the first prompt and whose retry, when given, runs the second.
+func vendorTask(t *testing.T, id, plan, first, retry string, prep, again *atomic.Int32) Task {
+	task := Task{ID: id, Agent: "opencode", Plan: plan, Prepare: vendorPrepare(t, first, prep)}
+	if retry != "" {
+		task.Retry = vendorPrepare(t, retry, again)
+	}
+	return task
+}
 
 func TestRunTasksPreparesOverlap(t *testing.T) {
 	entered, release := make(chan struct{}, 2), make(chan struct{})
@@ -168,5 +210,73 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	}
 	if b := got["b"]; b.BatchID != "batch-x" || b.PlanTask != "" {
 		t.Errorf("record b = batch %q plan %q, want batch-x and no plan", b.BatchID, b.PlanTask)
+	}
+}
+
+// Tasks sent on More run while the batch is open; RunTasks returns only after More closes and every task ends.
+func TestRunTasksMoreClaimsTasks(t *testing.T) {
+	vendorHost(t)
+	var n atomic.Int32
+	more := make(chan Task)
+	var buf bytes.Buffer
+	done := make(chan bool, 1)
+	go func() {
+		done <- RunTasks(t.Context(), []Task{vendorTask(t, "a", "", "ok", "", &n, &n)}, PoolOptions{ID: "batch-m", Jobs: 1, Out: &buf, More: more})
+	}()
+	more <- vendorTask(t, "b", "", "ok", "", &n, &n)
+	more <- vendorTask(t, "c", "", "ok", "", &n, &n)
+	select {
+	case <-done:
+		t.Fatal("RunTasks returned before More was closed")
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(more)
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Error("RunTasks = false, want every task ok")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunTasks did not return after More closed")
+	}
+	var ids []string
+	for _, env := range decodePoolEnvelopes(t, &buf) {
+		if env.BatchID != "batch-m" || env.Status != agent.StatusOK {
+			t.Errorf("envelope %+v: want ok and batch-m", env)
+		}
+		ids = append(ids, env.TaskID)
+	}
+	if got := strings.Join(ids, ","); got != "a,b,c" {
+		t.Errorf("task ids in completion order = %q, want a,b,c (Jobs=1 runs serially)", got)
+	}
+}
+
+// Under FailFast a failing initial task ends the batch: a task waiting on an open More never runs.
+func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
+	vendorHost(t)
+	var prepA, prepB, unused atomic.Int32
+	more := make(chan Task, 1) // never closed: RunTasks must end on the cancellation alone
+	more <- vendorTask(t, "m", "", "ok", "", &prepB, &unused)
+	var buf bytes.Buffer
+	done := make(chan bool, 1)
+	go func() {
+		done <- RunTasks(t.Context(), []Task{vendorTask(t, "a", "", "FAILME", "", &prepA, &unused)},
+			PoolOptions{ID: "batch-f", Jobs: 1, FailFast: true, Out: &buf, More: more})
+	}()
+	select {
+	case ok := <-done:
+		if ok {
+			t.Error("RunTasks = true, want false after the failure")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunTasks hung with More open under FailFast")
+	}
+	if prepB.Load() != 0 {
+		t.Errorf("pending More task was prepared %d times, want 0", prepB.Load())
+	}
+	for _, env := range decodePoolEnvelopes(t, &buf) {
+		if env.TaskID == "m" && (env.Error == nil || env.Error.Kind != "canceled") {
+			t.Errorf("m envelope = %+v, want it never emitted or canceled", env)
+		}
 	}
 }

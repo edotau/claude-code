@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,16 +83,18 @@ type Task struct {
 	Plan    string // plan_task of the line, stamped on the dispatch record
 	Req     agent.RunOptions
 	Prepare func(ctx context.Context) (*agent.Prepared, error)
+	Retry   func(ctx context.Context) (*agent.Prepared, error) // optional: reroutes a failed task once, same id
 	Err     error
 }
 
 // PoolOptions configures RunTasks; Out is read when RunTasks is called, so a swapped os.Stdout is honored.
 type PoolOptions struct {
-	ID       string    // stamped on every envelope as batch_id
-	Jobs     int       // dispatches run at once; <= 0 means DefaultJobs
-	FailFast bool      // the first failed task cancels every queued and running one
-	Out      io.Writer // one envelope JSON per line, in completion order
-	Log      io.Writer // per-task progress lines tagged with the task id; nil discards
+	ID       string      // stamped on every envelope as batch_id
+	Jobs     int         // dispatches run at once; <= 0 means DefaultJobs
+	FailFast bool        // the first failed task cancels every queued and running one
+	Out      io.Writer   // one envelope JSON per line, in completion order
+	Log      io.Writer   // per-task progress lines tagged with the task id; nil discards
+	More     <-chan Task // optional: tasks claimed as they arrive until it closes
 }
 
 // NewID names one batch run.
@@ -148,51 +151,97 @@ func RunTasks(ctx context.Context, tasks []Task, o PoolOptions) bool {
 		queue = append(queue, i)
 	}
 	go b.feed(bctx, tasks, queue, done)
-	for range queue {
-		d := <-done
+	for d := range done {
 		emit(d.env, d.ok)
 	}
 	return allOK
 }
 
-// feed reserves slots in input order; each worker prepares and runs its task once a slot is free.
+// feed claims the initial queue in input order, then o.More; it closes done once every claimed task has finished.
 func (b *batchRun) feed(ctx context.Context, tasks []Task, queue []int, done chan<- batchDone) {
+	var wg sync.WaitGroup
+	defer func() { wg.Wait(); close(done) }()
 	for _, i := range queue {
-		t := tasks[i]
-		sl, err := b.lim.Reserve(ctx)
-		sctx := agent.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
-		switch err {
-		case nil:
-			go func() {
-				prepared, err := t.Prepare(ctx)
-				if err != nil {
-					cancelled := ctx.Err() != nil
-					if cancelled {
-						err = fmt.Errorf("cancelled before start: %w", context.Canceled)
-					}
-					if b.o.FailFast && !cancelled {
-						b.stop() // before Settle frees the slot, so the next task never reserves it
-					}
-					agent.Settle(sctx)
-					done <- batchDone{i, taskFailure(t, err), false}
-					return
-				}
-				defer agent.Settle(sctx)
-				env, ok := b.run(sctx, t, prepared)
-				done <- batchDone{i, env, ok}
-			}()
-		default:
-			cancelled := ctx.Err() != nil
-			if cancelled {
-				err = fmt.Errorf("cancelled before start: %w", context.Canceled)
+		b.claim(ctx, &wg, tasks[i], i, done)
+	}
+	for b.o.More != nil {
+		select {
+		case t, ok := <-b.o.More:
+			if !ok {
+				return
 			}
-			agent.Settle(sctx)
-			if b.o.FailFast && !cancelled {
-				b.stop() // before the next task is considered, so it never starts
+			if t.Err != nil {
+				done <- batchDone{-1, taskFailure(t, t.Err), false}
+				continue
 			}
-			done <- batchDone{i, taskFailure(t, err), false}
+			b.claim(ctx, &wg, t, -1, done)
+		case <-ctx.Done():
+			return
 		}
 	}
+}
+
+// claim reserves a slot for t, then prepares and runs it in its own goroutine.
+func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t Task, i int, done chan<- batchDone) {
+	sl, err := b.lim.Reserve(ctx)
+	sctx := agent.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
+	if err != nil {
+		cancelled := ctx.Err() != nil
+		if cancelled {
+			err = fmt.Errorf("cancelled before start: %w", context.Canceled)
+		}
+		agent.Settle(sctx)
+		if b.o.FailFast && !cancelled {
+			b.stop() // before the next task is considered, so it never starts
+		}
+		done <- batchDone{i, taskFailure(t, err), false}
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		b.execute(ctx, sctx, t, i, done)
+	}()
+}
+
+// execute prepares and runs t on its reserved slot, retrying a real failure once, and reports to done.
+func (b *batchRun) execute(ctx, sctx context.Context, t Task, i int, done chan<- batchDone) {
+	prepared, err := t.Prepare(ctx)
+	if err != nil {
+		cancelled := ctx.Err() != nil
+		if cancelled {
+			err = fmt.Errorf("cancelled before start: %w", context.Canceled)
+		}
+		if b.o.FailFast && !cancelled {
+			b.stop() // before Settle frees the slot, so the next task never reserves it
+		}
+		agent.Settle(sctx)
+		done <- batchDone{i, taskFailure(t, err), false}
+		return
+	}
+	defer agent.Settle(sctx)
+	env, ok := b.run(sctx, t, prepared)
+	if !ok {
+		env = b.retry(sctx, t, env)
+		ok = env.Status == agent.StatusOK && env.Error == nil
+	}
+	done <- batchDone{i, env, ok}
+}
+
+// retry runs t.Retry once after a real failure and returns the retry's envelope with both attempts in Hops.
+func (b *batchRun) retry(ctx context.Context, t Task, first agent.Envelope) agent.Envelope {
+	if t.Retry == nil || ctx.Err() != nil || len(first.Hops) == 0 || !cancelsBatch(first) {
+		return first
+	}
+	p, err := t.Retry(ctx)
+	if err != nil {
+		b.logf(t.ID, "retry not started: %v", err)
+		return first
+	}
+	b.logf(t.ID, "retrying after %s", first.DispatchID)
+	env, _ := b.run(ctx, t, p)
+	env.Hops = append(slices.Clone(first.Hops), env.Hops...)
+	return env
 }
 
 // writeEnvelope writes env as one JSON line; false only when the write itself failed.
