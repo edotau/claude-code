@@ -47,22 +47,7 @@ var agentAbout = map[string]string{
 
 // agentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
 func agentPage(name string) helptext.Page {
-	rows := [][2]string{
-		{"ask", "one-shot run (= ask --agent " + name + ")"},
-		{"resume", "continue a session"},
-		{"review", "diff review; --adversarial"},
-		{"explore", "scan code + web research → brief"},
-		{"transfer", "hand this Claude session to " + name + "; --source"},
-		{"status", "background jobs in this repo; --all"},
-		{"tail", "a job's output; -f follows live"},
-		{"result", "a finished job's answer + session"},
-		{"cancel", "interrupt a running job"},
-		{"setup", "binary, login, route, projection; --format json"},
-		{"catalog", "the agent's own model catalog"},
-		{"profile", "show or set " + name + "'s harness profile pin"},
-		{"on", "route to " + name + " again"},
-		{"off", "stop routing to " + name},
-	}
+	rows := agentCommandRows(name)
 	s, _ := agent.LookupSchema(name)
 	if s.CLI.CatalogUsage != "" {
 		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] = s.CLI.CatalogUsage
@@ -79,6 +64,26 @@ func agentPage(name string) helptext.Page {
 		Flags:    launchFlags(name),
 		Hint: "claude-code " + name + " <command> -h lists that command's flags.\n" +
 			"claude-code " + name + " " + helptext.DocsFlag + " prints " + binary + "'s own help.",
+	}
+}
+
+// agentCommandRows is the command roster every agent page starts from.
+func agentCommandRows(name string) [][2]string {
+	return [][2]string{
+		{"ask", "one-shot run (= ask --agent " + name + ")"},
+		{"resume", "continue a session"},
+		{"review", "diff review; --adversarial"},
+		{"explore", "scan code + web research → brief"},
+		{"transfer", "hand this Claude session to " + name + "; --source"},
+		{"status", "background jobs in this repo; --all"},
+		{"tail", "a job's output; -f follows live"},
+		{"result", "a finished job's answer + session"},
+		{"cancel", "interrupt a running job"},
+		{"setup", "binary, login, route, projection; --format json"},
+		{"catalog", "the agent's own model catalog"},
+		{"profile", "show or set " + name + "'s harness profile pin"},
+		{"on", "route to " + name + " again"},
+		{"off", "stop routing to " + name},
 	}
 }
 

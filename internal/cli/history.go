@@ -62,8 +62,7 @@ func historySnapshot(args []string) int {
 	return 0
 }
 
-// printSnapshot reports one plane's outcome: what was committed, what is absent, and what was HELD
-// BACK (a credential-shaped file) — the last one is the line a reader must act on.
+// printSnapshot reports a plane's outcome; the HELD BACK line (a credential-shaped file) is the one to act on.
 func printSnapshot(plane string, r history.Result) {
 	switch {
 	case r.Commit != "":
@@ -89,6 +88,9 @@ func historyLog(args []string) int {
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("history", err)
+	}
+	if *n < 0 {
+		return helptext.FailUsage("history log: -n must be >= 0, got %d", *n)
 	}
 	store := &history.Store{Dir: history.Dir()}
 	lines, err := store.Log(*n, "config")
