@@ -286,7 +286,10 @@ func cmdMemoryDigest(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	claudeBin, _ := claude.ClaudeBinary()
+	claudeBin, binErr := claude.ClaudeBinary()
+	if binErr != nil {
+		return helptext.Fail("memory digest: %v", binErr)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	path, err := memory.DigestRepo(ctx, *repo, claudeBin)
@@ -452,15 +455,19 @@ func cmdMemoryAlias(args []string) int {
 	if err != nil {
 		return helptext.Fail("memory alias: %v", err)
 	}
+	printAliasPlan(*dryRun, res.Lines)
+	return 0
+}
+
+func printAliasPlan(dryRun bool, lines []string) {
 	verb := "applied"
-	if *dryRun {
+	if dryRun {
 		verb = "plan (dry run, nothing written)"
 	}
 	fmt.Println(verb + ":")
-	for _, l := range res.Lines {
+	for _, l := range lines {
 		fmt.Println("  " + l)
 	}
-	return 0
 }
 
 // `memory archive` governs Claude Code's native MEMORY.md/SEARCHABLE.md pair: the cap/settle
@@ -495,6 +502,15 @@ func cmdMemoryArchive(args []string) int {
 	return 0
 }
 
+// memoryRecallExplain prints the hook's recall selection; --explain refuses the flags that need real hits.
+func memoryRecallExplain(repo, query string, conflict bool) int {
+	if conflict {
+		return helptext.Fail("memory recall: --explain does not support --all, --format json, or --load")
+	}
+	memory.RecallExplain(os.Stdout, repo, query)
+	return 0
+}
+
 func cmdMemoryRecall(args []string) int {
 	fs, repo := memoryRepoFlagSet("recall")
 	k := fs.Int("k", 3, "maximum hits")
@@ -513,19 +529,20 @@ func cmdMemoryRecall(args []string) int {
 		return helptext.Fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
 	}
 	if *explain {
-		if *all || *format == helptext.JSON || *load != 0 {
-			return helptext.Fail("memory recall: --explain does not support --all, --format json, or --load")
-		}
-		memory.RecallExplain(os.Stdout, *repo, strings.Join(terms, " "))
-		return 0
+		return memoryRecallExplain(*repo, strings.Join(terms, " "), *all || *format == helptext.JSON || *load != 0)
 	}
 	hits, _ := recall.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
-	if *format == helptext.JSON {
+	return memoryRecallEmit(hits, *format, *load)
+}
+
+// memoryRecallEmit writes hits as JSON, or as the text report with the top load bodies appended.
+func memoryRecallEmit(hits []bank.SearchHit, format string, load int) int {
+	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
 			return helptext.Fail("memory recall: %v", err)
 		}
 		return 0
 	}
-	memory.RecallReport(os.Stdout, os.Stderr, hits, *load)
+	memory.RecallReport(os.Stdout, os.Stderr, hits, load)
 	return 0
 }
