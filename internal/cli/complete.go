@@ -265,25 +265,37 @@ var completionPage = helptext.Page{
 		"'autoload -U bashcompinit && bashcompinit', then source it.",
 }
 
-// cmdCompletion prints the bash completion script (default) or, with --install, writes it to the
-// bash-completion user dir (internal/completion.Install).
-func cmdCompletion(args []string) int {
-	install := false
+// parseCompletionArgs reports --install, or done with the exit code for -h and for an unknown word.
+func parseCompletionArgs(args []string) (install bool, code int, done bool) {
 	for _, a := range args {
 		switch a {
 		case "bash": // the only shell; accepted for the conventional `completion bash` spelling
 		case "--install":
 			install = true
 		case "-h", "--help", "help":
-			fs := helptext.NewFlagSet("completion", completionPage)
-			fs.SetOutput(os.Stdout)
-			fs.Bool("install", false, "install bash completion for new shells")
-			fs.Usage()
-			return 0
+			completionHelp()
+			return false, 0, true
 		default:
 			fmt.Fprintf(os.Stderr, "completion: unknown argument %q (try -h)\n", a)
-			return 2
+			return false, 2, true
 		}
+	}
+	return install, 0, false
+}
+
+func completionHelp() {
+	fs := helptext.NewFlagSet("completion", completionPage)
+	fs.SetOutput(os.Stdout)
+	fs.Bool("install", false, "install bash completion for new shells")
+	fs.Usage()
+}
+
+// cmdCompletion prints the bash completion script (default) or, with --install, writes it to the
+// bash-completion user dir (internal/completion.Install).
+func cmdCompletion(args []string) int {
+	install, code, done := parseCompletionArgs(args)
+	if done {
+		return code
 	}
 	if !install {
 		fmt.Print(completion.Script(completionBin))
@@ -366,9 +378,9 @@ func coreSpecNodes() map[string]*compNode {
 		"resolve":  {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("proxy")}},
 		"switch":   {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("dry-run")}},
 		"clean":    {flags: []flagInfo{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
-		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers")}},
+		"usage":    {flags: []flagInfo{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}},
 		"describe": {flags: []flagInfo{formatFlag()}},
-		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"), flag("range"), boolFlag("secrets"), formatFlag()}},
+		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"), flag("range"), boolFlag("secrets"), boolFlag("refresh"), formatFlag()}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
 		"theme": {args: []func() []string{theme.GradientNames}, flags: []flagInfo{boolFlag("palettes"), boolFlag("reset")},
 			sub: map[string]*compNode{
@@ -379,7 +391,11 @@ func coreSpecNodes() map[string]*compNode {
 			}},
 		"configure": {args: []func() []string{configureSections, providerNames}, flags: []flagInfo{
 			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
-			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), formatFlag()}},
+			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), boolFlag("all"),
+			boolFlag("no-agents"), formatFlag()}},
+		"preflight":  {flags: []flagInfo{flag("discover"), boolFlag("live"), boolFlag("refresh")}},
+		"clip":       {flags: []flagInfo{boolFlag("serve")}},
+		"completion": {flags: []flagInfo{boolFlag("install")}},
 	}
 }
 
@@ -447,7 +463,7 @@ func integrationSpecNodes() map[string]*compNode {
 			"edit":          {},
 			"rotate-secret": {flags: []flagInfo{boolFlag("force")}},
 		}},
-		"databricks": {sub: map[string]*compNode{
+		"databricks": {flags: []flagInfo{valuedFlag("profile", providerNames)}, sub: map[string]*compNode{
 			"check": {flags: []flagInfo{boolFlag("all"), valuedFlag("profile", providerNames), boolFlag("1m"), flag("model")}},
 			"login": {args: []func() []string{providerNames}, flags: []flagInfo{flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", func() []string { return []string{"user", "sp"} })}},
 			"mint":  {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("dry-run"), boolFlag("copy"), valuedFlag("as", func() []string { return []string{"user", "sp"} })}},

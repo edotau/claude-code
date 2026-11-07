@@ -167,20 +167,25 @@ func cmdVSCode(args []string) int {
 	if fs.NArg() > 0 { // a stray word (the retired `serve`) must not fall through to a merge
 		return helptext.Fail("theme vscode: unexpected argument %q (serving moved to `network vscode`)", fs.Arg(0))
 	}
-	if *check && *dryRun {
+	return vscodeSync(o, *check, *dryRun)
+}
+
+// vscodeSync runs the merge and reports it: drift check (exit 1 on drift), dry-run preview, or apply.
+func vscodeSync(o vscode.SyncOptions, check, dryRun bool) int {
+	if check && dryRun {
 		fmt.Fprintln(os.Stderr, "claude-code: theme vscode --check and --dry-run are mutually exclusive")
 		return 2
 	}
-	o.Check = *check || *dryRun
+	o.Check = check || dryRun
 	out, err := vscode.SyncAll(o)
 	if err != nil {
 		return helptext.Fail("vscode: %v", err)
 	}
 	r := vscodeReport{out}
 	switch {
-	case *check:
+	case check:
 		return r.check()
-	case *dryRun:
+	case dryRun:
 		r.dryRun()
 	default:
 		r.apply()
