@@ -346,3 +346,75 @@ func TestAliasFoldDeletesSourceVaultRow(t *testing.T) {
 		t.Errorf("target row missing the folded alias: %+v, %v", got, err)
 	}
 }
+
+func TestAliasApplyRollsBackWhenLaterLinkSwapFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	e := newAliasEnv(t)
+	first := filepath.Join(e.cfg, "projects", "-a-proj", "memory")
+	second := filepath.Join(e.cfg, "projects", "-b-proj", "memory")
+	for _, l := range []string{first, second} {
+		if err := os.MkdirAll(filepath.Dir(l), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(e.db, l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Dir(second), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(second), 0o755) })
+
+	if _, err := alias(t, e, false); err == nil {
+		t.Fatal("alias succeeded despite an unswappable link")
+	}
+	if tg, _ := os.Readlink(first); tg != e.db {
+		t.Errorf("first link -> %q after failed fold, want rollback to %q", tg, e.db)
+	}
+	if _, ok := vaultGet(t, e.kb); !ok {
+		t.Errorf("source row %q deleted despite the failed fold", e.kb)
+	}
+	if got, err := memstore.ReadOrigin(e.da); err != nil || got.Accepts(e.b) {
+		t.Errorf("target origin kept the folded alias after rollback: %+v, %v", got, err)
+	}
+}
+
+// TestRepointRollbackDropsFoldedRowWhenTargetHadNone: a target with no origin row must not keep the folded one after a failed link swap.
+func TestRepointRollbackDropsFoldedRowWhenTargetHadNone(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	e := newAliasEnv(t)
+	target := filepath.Join(memstore.StoreDir(), "gamma")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(e.cfg, "projects", "-b-proj", "memory")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(e.db, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(link), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(link), 0o755) })
+	src, err := memstore.ReadOrigin(e.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &aliasPlan{target: target, source: e.db, origin: src, links: []string{link}}
+
+	if _, err := p.repoint(); err == nil {
+		t.Fatal("repoint succeeded despite an unswappable link")
+	}
+	if _, ok := vaultGet(t, "gamma"); ok {
+		t.Error("target gamma kept the folded origin row after rollback")
+	}
+	if _, ok := vaultGet(t, e.kb); !ok {
+		t.Errorf("source row %q lost after rollback", e.kb)
+	}
+}

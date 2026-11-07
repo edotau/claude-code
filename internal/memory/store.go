@@ -48,19 +48,46 @@ func Init(root string) (string, error) {
 		if _, err := os.Stat(p); err == nil {
 			continue
 		}
-		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // exclusive: never replace a racing writer's file
-		if errors.Is(err, fs.ErrExist) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		_, werr := f.WriteString(body)
-		if err := errors.Join(werr, f.Close()); err != nil {
+		if err := seedFile(p, body); err != nil {
 			return "", err
 		}
 	}
 	return dir, nil
+}
+
+// writeBody writes a seed file's body; tests swap it to fail mid-write.
+var writeBody = func(f *os.File, body string) error { _, err := f.WriteString(body); return err }
+
+// seedFile writes body to a temp file and links it into place, so p is never partial and never replaces a racer's file.
+func seedFile(p, body string) error {
+	f, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	werr := writeBody(f, body)
+	if err := errors.Join(werr, f.Chmod(0o600), f.Close()); err != nil {
+		return err
+	}
+	err = os.Link(tmp, p)
+	if err == nil || errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	return createExcl(p, body) // no hard links here (FUSE, network mounts)
+}
+
+// createExcl writes body to a new p, never replacing a racing writer's file.
+func createExcl(p, body string) error {
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, werr := f.WriteString(body)
+	return errors.Join(werr, f.Close())
 }
 
 // IsProjectContextTemplate reports whether root's projectContext.md still equals the scaffold
