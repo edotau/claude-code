@@ -98,7 +98,16 @@ func Running(ctx context.Context) (State, bool) {
 	if err != nil || !alive(st.PID) {
 		return st, false
 	}
-	return st, Health(ctx, st.Port) == nil
+	resp, err := probeHealth(ctx, st.Port)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return st, false
+	}
+	// A different pid means the recorded one was recycled; a pid-less reply (older build) must still be claude-code.
+	got, _ := strconv.Atoi(resp.Header.Get(PIDHeader))
+	if got == 0 {
+		return st, holderComm(st.PID) == "claude-code"
+	}
+	return st, got == st.PID
 }
 
 // healthGet issues GET /healthz on port; the caller closes the body.

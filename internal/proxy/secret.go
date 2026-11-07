@@ -17,15 +17,11 @@ const secretName = providers.RouterSecretName
 
 // ClientSecret reads the vault secret, importing router.secret if needed; remove migration after 2026-11-13.
 func ClientSecret() (string, error) {
-	s, found, err := vault.ReadSecret(secretName)
-	if err != nil {
-		return "", secretErr(err)
-	}
-	if found && s != "" {
-		return s, nil
+	if s, ok, err := vaultSecret(); err != nil || ok {
+		return s, err
 	}
 	var out string
-	err = paths.WithFileLock(secretFile(), func() error {
+	err := paths.WithFileLock(secretFile(), func() error {
 		var err error
 		out, err = initSecret()
 		return err
@@ -35,10 +31,8 @@ func ClientSecret() (string, error) {
 
 // initSecret runs under the file lock: re-check the vault, import or mint, verify, then drop the file.
 func initSecret() (string, error) {
-	if s, found, err := vault.ReadSecret(secretName); err != nil {
-		return "", secretErr(err)
-	} else if found && s != "" {
-		return s, nil
+	if s, ok, err := vaultSecret(); err != nil || ok {
+		return s, err
 	}
 	val, fromFile, err := legacyOrNewSecret()
 	if err != nil {
@@ -53,6 +47,15 @@ func initSecret() (string, error) {
 		}
 	}
 	return val, nil
+}
+
+// vaultSecret reads the vault record; ok is false when it is absent or empty.
+func vaultSecret() (s string, ok bool, err error) {
+	s, found, err := vault.ReadSecret(secretName)
+	if err != nil {
+		return "", false, secretErr(err)
+	}
+	return s, found && s != "", nil
 }
 
 // legacyOrNewSecret returns the legacy router.secret file's value, or a fresh random one when it is absent or empty.

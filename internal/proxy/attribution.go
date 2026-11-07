@@ -91,12 +91,16 @@ func validHeaderName(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", c) {
-			continue
+		if !isTokenChar(c) {
+			return false
 		}
-		return false
 	}
 	return true
+}
+
+// isTokenChar reports whether c is an RFC 7230 tchar.
+func isTokenChar(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", c)
 }
 
 // validHeaderValue rejects CR, LF, NUL and other control characters (tab allowed).

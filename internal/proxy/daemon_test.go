@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -247,5 +248,42 @@ func TestAwaitPortFreeCancelledCtxIsNotFree(t *testing.T) {
 	_ = ln.Close()
 	if err := awaitPortFree(context.Background(), port); err != nil {
 		t.Fatalf("awaitPortFree on closed port = %v, want nil", err)
+	}
+}
+
+// TestRunningRejectsPortAnsweredByAnotherPID: a recycled pid in proxy.json must not pass for a proxy another pid serves.
+// TestRunningRejectsPidlessReplyFromNonClaudeCodePID: no pid header and a recorded pid that is not claude-code.
+func TestRunningRejectsPidlessReplyFromNonClaudeCodePID(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	prevComm := holderComm
+	t.Cleanup(func() { holderComm = prevComm })
+	port := occupy(t, func(http.ResponseWriter, *http.Request) {})
+	cleanup, err := WriteState(State{PID: os.Getpid(), Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	holderComm = func(int) string { return "sshd" }
+	if st, ok := Running(context.Background()); ok {
+		t.Fatalf("Running = %+v, true; want false for a pid-less reply when pid %d is sshd", st, st.PID)
+	}
+	holderComm = func(int) string { return "claude-code" }
+	if _, ok := Running(context.Background()); !ok {
+		t.Fatal("Running = false; want true for a pid-less reply from an older claude-code proxy")
+	}
+}
+
+func TestRunningRejectsPortAnsweredByAnotherPID(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	port := occupy(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(PIDHeader, strconv.Itoa(os.Getpid()+1))
+	})
+	cleanup, err := WriteState(State{PID: os.Getpid(), Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	if st, ok := Running(context.Background()); ok {
+		t.Fatalf("Running = %+v, true; want false: port %d is served by pid %d, not the recorded %d", st, port, os.Getpid()+1, os.Getpid())
 	}
 }
