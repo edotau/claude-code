@@ -296,25 +296,9 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 		"max_results":  maxResults,
 		"search_depth": "basic",
 	})
-	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, tavilyURL, bytes.NewReader(body))
+	raw, err := postTavilySearch(ctx, body)
 	if err != nil {
-		return "", fmt.Errorf("could not build Tavily request (%v)", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("could not reach Tavily (%v)", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("search with Tavily failed (HTTP %d)", resp.StatusCode)
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))
-	if err != nil {
-		return "", fmt.Errorf("could not read Tavily response (%v)", err)
+		return "", err
 	}
 	var payload struct {
 		Answer  string         `json:"answer"`
@@ -323,9 +307,33 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return "", fmt.Errorf("search with Tavily returned non-JSON payload (%v)", err)
 	}
-	cancel() // the Tavily deadline is spent; enrichment runs on the caller's ctx with its own per-fetch bound
-	enrichResults(ctx, payload.Results)
+	enrichResults(ctx, payload.Results) // the Tavily deadline is spent; each fetch has its own bound
 	return formatResults(payload.Answer, payload.Results), nil
+}
+
+// postTavilySearch POSTs body to the search endpoint under requestTimeout and returns the size-capped reply.
+func postTavilySearch(ctx context.Context, body []byte) ([]byte, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, tavilyURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("could not build Tavily request (%v)", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("could not reach Tavily (%v)", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("search with Tavily failed (HTTP %d)", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))
+	if err != nil {
+		return nil, fmt.Errorf("could not read Tavily response (%v)", err)
+	}
+	return raw, nil
 }
 
 // extractResponse is the slice of Tavily's /extract reply the renderer uses.
@@ -341,7 +349,9 @@ type extractResponse struct {
 }
 
 // tavilyExtract is the HTTP seam for Extract; tests swap it to avoid the network.
-var tavilyExtract = func(ctx context.Context, apiKey string, urls []string, depth string) (extractResponse, error) {
+var tavilyExtract = postTavilyExtract
+
+func postTavilyExtract(ctx context.Context, apiKey string, urls []string, depth string) (extractResponse, error) {
 	var payload extractResponse
 	body, _ := json.Marshal(map[string]any{"urls": urls, "format": "markdown", "extract_depth": depth})
 	reqCtx, cancel := context.WithTimeout(ctx, 2*requestTimeout)
@@ -408,9 +418,8 @@ func fetchPages(ctx context.Context, apiKey string, urls []string, content, fail
 	return nil
 }
 
-// Extract reads each URL's page as markdown through Tavily and prints `# <url>` blocks to stdout.
-// Exit 1 when every URL failed, else 0.
-func Extract(ctx context.Context, urls []string) int {
+// vetExtractURLs splits urls into those safe to send to Tavily and a failure reason per refused URL.
+func vetExtractURLs(ctx context.Context, urls []string) ([]string, map[string]string) {
 	failed := map[string]string{}
 	var send []string
 	cache := map[string]string{}
@@ -425,6 +434,13 @@ func Extract(ctx context.Context, urls []string) int {
 			send = append(send, raw)
 		}
 	}
+	return send, failed
+}
+
+// Extract reads each URL's page as markdown through Tavily and prints `# <url>` blocks to stdout.
+// Exit 1 when every URL failed, else 0.
+func Extract(ctx context.Context, urls []string) int {
+	send, failed := vetExtractURLs(ctx, urls)
 	content := map[string]string{}
 	if len(send) > 0 {
 		apiKey := resolveKey()
@@ -502,11 +518,16 @@ func rejectInternal(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return err
 	}
-	ip := net.ParseIP(host)
-	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+	if !publicIP(net.ParseIP(host)) {
 		return fmt.Errorf("refusing to fetch internal address %s", host)
 	}
 	return nil
+}
+
+// publicIP is false for nil and for loopback, private, link-local and unspecified addresses.
+func publicIP(ip net.IP) bool {
+	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
+		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified()
 }
 
 // robotsAllowed reports whether the origin's robots.txt permits u for "claude-code" or "*"; a missing or
@@ -563,7 +584,18 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 		return ""
 	}
 	client := *pageClient
-	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+	client.CheckRedirect = robotsRedirectCheck(cache)
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	return pageBodyText(resp)
+}
+
+// robotsRedirectCheck caps redirects and re-applies robots.txt at every hop.
+func robotsRedirectCheck(cache map[string]string) func(*http.Request, []*http.Request) error {
+	return func(next *http.Request, via []*http.Request) error {
 		if err := capRedirects(next, via); err != nil {
 			return err
 		}
@@ -572,16 +604,19 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 		}
 		return nil
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
+}
+
+// textual reports whether a Content-Type is absent or names html/text.
+func textual(ct string) bool {
+	return ct == "" || strings.Contains(ct, "html") || strings.Contains(ct, "text")
+}
+
+// pageBodyText reduces a 200 text/HTML response to capped plain text; "" keeps the snippet.
+func pageBodyText(resp *http.Response) string {
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" &&
-		!strings.Contains(ct, "html") && !strings.Contains(ct, "text") {
+	if !textual(resp.Header.Get("Content-Type")) {
 		return "" // a PDF/image/binary hit keeps its snippet — no text to extract
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))

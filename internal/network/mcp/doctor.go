@@ -40,7 +40,7 @@ type serverDef struct {
 func (d serverDef) MarshalJSON() ([]byte, error) {
 	type plain serverDef // no MarshalJSON, so the alias cannot recurse
 	v := plain(d)
-	v.Env, v.Headers = shapes.RedactMap(d.Env), shapes.RedactMap(d.Headers)
+	v.Env, v.Headers, v.Args = shapes.RedactMap(d.Env), shapes.RedactMap(d.Headers), redactArgs(d.Args)
 	if v.URL != "" {
 		v.URL = queryParamSecret.ReplaceAllString(v.URL, "${1}REDACTED")
 	}
@@ -208,10 +208,10 @@ func runHealth(claude string) healthResult {
 		default:
 			continue
 		}
-		res.Lines = append(res.Lines, strings.TrimSpace(ln))
+		res.Lines = append(res.Lines, scrub(strings.TrimSpace(ln)))
 	}
 	if listErr != nil {
-		res.Error = listErr.Error()
+		res.Error = scrub(listErr.Error())
 	}
 	return res
 }
@@ -295,10 +295,28 @@ func redact(defs []Def) []Def {
 	for i, d := range defs {
 		d.D.Env = shapes.RedactMap(d.D.Env)
 		d.D.Headers = shapes.RedactMap(d.D.Headers)
+		d.D.Args = redactArgs(d.D.Args)
 		if d.D.URL != "" {
 			d.D.URL = queryParamSecret.ReplaceAllString(d.D.URL, "${1}REDACTED")
 		}
 		out[i] = d
+	}
+	return out
+}
+
+// scrub masks credential-shaped words and token/key query values in free text.
+func scrub(s string) string {
+	return queryParamSecret.ReplaceAllString(shapes.Redact(s), "${1}REDACTED")
+}
+
+// redactArgs returns a copy of args with credential-shaped words masked.
+func redactArgs(args []string) []string {
+	if args == nil {
+		return nil
+	}
+	out := make([]string, len(args))
+	for i, a := range args {
+		out[i] = scrub(a)
 	}
 	return out
 }
