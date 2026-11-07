@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -326,5 +327,33 @@ func TestCallAfterConnectionClosedDoesNotHang(t *testing.T) {
 	defer c.mu.Unlock()
 	if len(c.pending) != 0 {
 		t.Fatalf("pending = %d, want 0", len(c.pending))
+	}
+}
+
+func TestWSDialSilentPeerTimesOut(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			defer func() { _ = c.Close() }()
+			_, _ = io.Copy(io.Discard, c)
+		}
+	}()
+	orig := wsHandshakeTimeout
+	wsHandshakeTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { wsHandshakeTimeout = orig })
+	res := make(chan error, 1)
+	go func() { _, err := wsDial(context.Background(), "ws://"+ln.Addr().String()+"/x"); res <- err }()
+	select {
+	case err := <-res:
+		if err == nil {
+			t.Fatal("wsDial against a silent peer succeeded")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("wsDial hung on a peer that never answers the upgrade")
 	}
 }
