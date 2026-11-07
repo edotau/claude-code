@@ -273,6 +273,25 @@ func TestRunningRejectsPidlessReplyFromNonClaudeCodePID(t *testing.T) {
 	}
 }
 
+// TestRunningRejectsForeignServerEchoingRecordedPID: /healthz is unauthenticated, so an echoed pid proves nothing.
+func TestRunningRejectsForeignServerEchoingRecordedPID(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	prevComm := holderComm
+	t.Cleanup(func() { holderComm = prevComm })
+	holderComm = func(int) string { return "sshd" }
+	port := occupy(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set(PIDHeader, strconv.Itoa(os.Getpid()))
+	})
+	cleanup, err := WriteState(State{PID: os.Getpid(), Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	if st, ok := Running(context.Background()); ok {
+		t.Fatalf("Running = %+v, true; want false: the echoed pid %d is sshd, not claude-code", st, st.PID)
+	}
+}
+
 func TestRunningRejectsPortAnsweredByAnotherPID(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	port := occupy(t, func(w http.ResponseWriter, _ *http.Request) {
