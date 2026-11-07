@@ -5,13 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // EnvMode picks the deny scrub a child's inherited env goes through.
@@ -161,4 +165,52 @@ func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string 
 	}
 	keep := proc.EnvKeepSet(keepEnv)
 	return proc.Drop(env, keep, slices.Collect(maps.Keys(foreign)))
+}
+
+// envNames are the names of KEY=VALUE entries.
+func envNames(env []string) []string {
+	out := make([]string, len(env))
+	for i, kv := range env {
+		out[i], _, _ = strings.Cut(kv, "=")
+	}
+	return out
+}
+
+// ChildCmd builds an exec.Cmd in its own process group with inherited credentials scrubbed; agent also scrubs the vault key.
+func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *TailBuffer) {
+	cmd := exec.CommandContext(ctx, bin, argv...)
+	proc.OwnGroup(cmd)
+	cmd.WaitDelay = 5 * time.Second
+	mode := EnvClaude
+	if cli {
+		mode = EnvAgent
+	}
+	cmd.Env = EnvSpec{Mode: mode, Keep: keepEnv, Set: env, PWD: dir}.Environ(ctx) // launch values after the scrub
+	cmd.Dir = dir
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	tail := &TailBuffer{}
+	cmd.Stderr = io.Writer(tail) // the dispatch log, when ctx carries one, sees stderr as it arrives
+	if sk := stderrLogFrom(ctx); sk != nil {
+		cmd.Stderr = io.MultiWriter(tail, sk.Stream())
+	}
+	return cmd, tail
+}
+
+// childErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err for classification.
+func childErr(ctx context.Context, name string, err error, tail *TailBuffer) error {
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s: %w", name, ctx.Err())
+	}
+	if t := strings.TrimSpace(tail.String()); t != "" {
+		if len(t) > 600 {
+			t = "…" + strings.ToValidUTF8(t[len(t)-600:], "")
+		}
+		return fmt.Errorf("%s: %w: %s", name, err, shapes.Redact(t))
+	}
+	return fmt.Errorf("%s: %w", name, err)
 }
