@@ -48,13 +48,16 @@ func keyHint() string {
 	return fmt.Sprintf("run `claude-code vault set %s` (%s)", keyName, mintHint)
 }
 
-// resolveKey returns the Tavily API key through the managed ladder (vault -> env). "" when unset.
-func resolveKey() string {
-	v, _, ok := vault.Get(keyName)
-	if !ok {
-		return ""
+// resolveKey returns the Tavily API key (vault, then env); an unreadable vault is its own error, never "unset".
+func resolveKey() (string, error) {
+	v, _, err := vault.Lookup(keyName)
+	if err != nil {
+		return "", fmt.Errorf("%s: the vault could not be read (%w); export %s or fix vault access", keyName, err, keyName)
 	}
-	return v
+	if v == "" {
+		return "", fmt.Errorf("%s is not set — %s", keyName, keyHint())
+	}
+	return v, nil
 }
 
 // tavilyResult is one Tavily hit — the three fields the text render uses.
@@ -250,8 +253,8 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 
 // Run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
 func Run(ctx context.Context) int {
-	if resolveKey() == "" {
-		fmt.Fprintf(os.Stderr, "websearch-mcp: no %s; web_search returns an error until set — %s\n", keyName, keyHint())
+	if _, err := resolveKey(); err != nil {
+		fmt.Fprintf(os.Stderr, "websearch-mcp: %v; web_search returns an error until fixed\n", err)
 	}
 	srv := &Server{}
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
@@ -286,9 +289,9 @@ func OneShot(ctx context.Context, query string, maxResults int, search Searcher,
 // tavilySearch is the default backend: POST the query and render the response as text. requestTimeout
 // is this call's own bound, layered on the caller's ctx rather than replacing it.
 func tavilySearch(ctx context.Context, query string, maxResults int) (string, error) {
-	apiKey := resolveKey()
-	if apiKey == "" {
-		return "", fmt.Errorf("%s is not set — %s", keyName, keyHint())
+	apiKey, err := resolveKey()
+	if err != nil {
+		return "", err
 	}
 	body, _ := json.Marshal(map[string]any{
 		"api_key":      apiKey,
@@ -465,9 +468,9 @@ func Extract(ctx context.Context, urls []string) int {
 	send, failed := vetExtractURLs(ctx, urls)
 	content := map[string]string{}
 	if len(send) > 0 {
-		apiKey := resolveKey()
-		if apiKey == "" {
-			fmt.Fprintf(os.Stderr, "%s is not set — %s\n", keyName, keyHint())
+		apiKey, err := resolveKey()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
 		if err := fetchPages(ctx, apiKey, send, content, failed); err != nil {
