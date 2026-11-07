@@ -55,6 +55,7 @@ type Router struct {
 	authAt    time.Time                                          // when authState was loaded
 	authGen   int                                                // bumped by condemn: a load begun before its mark is not cached
 	marked    map[string]bool                                    // provider names this process marked auth-dead: cleared on their next success
+	files     map[string]fileEntry                               // scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
 	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
 	oauthAt   time.Time                                          // oauthTok is valid until oauthAt+credTTL
 	oauth     func() string                                      // reads the sealed subscription token; a seam for tests
@@ -438,7 +439,7 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []by
 	if in.URL.RawQuery != "" {
 		url += "?" + in.URL.RawQuery
 	}
-	out, err := withModel(body, t.Model)
+	out, err := withModel(r.rewriteFiles(in, p, route, body, count), t.Model)
 	if err != nil {
 		return false, err
 	}
