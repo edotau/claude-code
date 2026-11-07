@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/configure/configurecmd"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/gateway"
@@ -72,7 +73,7 @@ func commands() []command {
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, cmdSetup) }},
-		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: cmdConfigure},
+		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int { return configurecmd.Run(a, configureProviderList) }, spec: configurecmd.Spec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme},
 	}, hiddenCommands()...)
 }
