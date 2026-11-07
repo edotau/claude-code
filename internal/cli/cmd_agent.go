@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/providers/providerscmd"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -472,7 +473,7 @@ func launchAgentCatalog(name string, s agent.Schema, format string) int {
 		if err != nil {
 			return helptext.Fail("%v", err)
 		}
-		return cmdModels([]string{"--live", "--profile", n, "--format", format})
+		return providerscmd.Models([]string{"--live", "--profile", n, "--format", format})
 	case len(s.CLI.ModelsArgv) > 0:
 		return launchAgent(name, s.CLI.ModelsArgv)
 	default:

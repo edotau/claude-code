@@ -1,4 +1,4 @@
-package cli
+package providerscmd
 
 import (
 	"github.com/edotau/claude-code/internal/databricks"
