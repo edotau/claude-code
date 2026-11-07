@@ -9,8 +9,8 @@ paths:
 # Harness Change Protocol
 
 **A change to `internal/hooks/`, `internal/settings/`, `internal/agentconfig/render_*.go`, `agents/`, `commands/`,
-`rules/` or `skills/` is not done until every applicable box below is acted on.** The failure it prevents: a hook,
-rule or agent change that never reaches the sessions and agents that load it.
+`rules/`, `skills/` or `workflows/` is not done until every applicable box below is acted on.** The failure it
+prevents: a hook, rule or agent change that never reaches the sessions and agents that load it.
 
 ## Impact Checklist
 
@@ -28,6 +28,8 @@ rule or agent change that never reaches the sessions and agents that load it.
 6. **Record it** — the commit message says what was rebuilt and what was left for later.
 7. **New or changed component (agent/skill/hook/plugin)** — write the manifest first (exact files, action on each)
    and get approval before writing.
+8. **Saved workflow added/changed** — `claude-code workflow lint` (table row in
+   `skills/subagent-workflows/references/saved-workflows.md`, `stepOf` verbatim).
 
 Files generated from a template: no placeholder leaked through —
 

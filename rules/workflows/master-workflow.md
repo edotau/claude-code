@@ -36,6 +36,8 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | HIGH | Cross-module, 5+ files | Full pipeline, parallel dispatch |
 | EPIC | Multi-session, architectural | Full pipeline, phased across sessions |
 
+`orchestrate`'s tiers size a job it was already asked to run; TRIVIAL with no workflow request still goes inline.
+
 Skip the pipeline for typos, single-line changes, git operations, docs-only edits, or "just do it".
 
 ## Phase 1: Adversarial review (MEDIUM+)
@@ -101,9 +103,9 @@ Then push the current branch (CLAUDE.md hard rule 5) — `commit` does not push.
 |----------|------|
 | Bug fix (LOW) | fix → live re-run → regression test → `@agent-copilot commit` |
 | One-module feature (MEDIUM) | review → plan → implement → verify (simplify is its step 5) → commit |
-| Cross-module feature (HIGH) | review → orchestrate `[--refine]` → verify → commit |
+| Cross-module feature (HIGH) | review → plan → dispatch (`orchestrate` if the user asks for a workflow) → verify → commit |
 | Tech debt | `skills/evaluate-code/SKILL.md` → Tech debt |
-| Review current changes | `/code-review` (security is an `evaluate-code` lens, not an agent) |
+| Review current changes | `/code-review` (security: built-in `/security-review`, `rules/standards/security.md`) |
 | Second opinion | `@agent-codex` |
 
 Saved workflows (`workflows/*.js`) run only when the user asks:

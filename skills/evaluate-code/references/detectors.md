@@ -72,4 +72,4 @@ The gate is opt-in by design and not in the seeded `settings.json`; higher level
 - **Level 4:** parse the JSON verdict, for example
   `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`,
   and `claude-code review diff --diff origin/main...HEAD --json`. Choose `FAIL` only or `WARN` too per team
-  tolerance; for a regulated repo also fail on CRITICAL/HIGH from the security pass.
+  tolerance; for a regulated repo also fail on CRITICAL/HIGH from `/security-review`.
