@@ -3,6 +3,7 @@
 package inflight
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -142,4 +143,39 @@ func SessionOwner() int {
 			return pid
 		}
 	}
+}
+
+// LiveDispatches counts owner's dispatch records whose job is alive; an unknown owner (0) counts none.
+func LiveDispatches(owner int) int {
+	if owner == 0 { // unknown owner: other unowned records aren't ours
+		return 0
+	}
+	dir := filepath.Join(paths.StateDir(), "dispatch")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var r struct {
+			Status string    `json:"status"`
+			PID    int       `json:"pid"`
+			Time   time.Time `json:"time"`
+			Owner  int       `json:"owner"`
+		}
+		if json.Unmarshal(b, &r) != nil || r.Owner != owner {
+			continue
+		}
+		if DispatchAlive(r.Status, r.PID, r.Time) {
+			n++
+		}
+	}
+	return n
 }

@@ -76,6 +76,7 @@ func Compact(in *core.Input) core.Result {
 	if !updatable(in) {
 		return core.Result{}
 	}
+	writeCompactRecord(in, time.Now())
 	updateIfNew(in, triggerPreCompact, time.Now())
 	return core.Result{}
 }

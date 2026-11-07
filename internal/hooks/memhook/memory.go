@@ -37,6 +37,12 @@ func Start(in *core.Input) core.Result {
 	if !bank.IsUpdateChild() {
 		res.SystemMessage = consumeCatchupNote()
 	}
+	if in.Source == "compact" || in.Source == "clear" {
+		if note := resumeNote(in, cwd, time.Now()); note != "" {
+			res.SystemMessage = joinMessages(res.SystemMessage, note)
+			res.Context = core.JoinContext(res.Context, note)
+		}
+	}
 	return res
 }
 
