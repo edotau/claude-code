@@ -99,22 +99,9 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	resolved, ok := s.allowedHost(r.Context(), req.Host)
-	if !ok {
-		http.Error(w, "web: unknown host", http.StatusBadRequest)
-		return
-	}
-	if !tailscale.ValidAgent(req.Agent) {
-		http.Error(w, "web: --agent must be one of "+strings.Join(tailscale.RemoteAgents, "|"), http.StatusBadRequest)
-		return
-	}
-	if len(req.Task) > maxTaskBytes {
-		http.Error(w, "web: task exceeds 8KiB", http.StatusBadRequest)
-		return
-	}
-	remoteCmd, session, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{Dir: req.Dir, Agent: req.Agent, Task: req.Task})
+	resolved, remoteCmd, session, err := s.prepareDispatch(r.Context(), req)
 	if err != nil {
-		http.Error(w, "web: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	argv := tailscale.ExecArgs(r.Context(), resolved, remoteCmd, true)
@@ -130,6 +117,25 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, dispatchResponse{Session: session, Attach: tailscale.AttachCommand(resolved, session)})
+}
+
+// prepareDispatch validates req and returns the resolved host, remote command and session name; errors are client-facing.
+func (s *Server) prepareDispatch(ctx context.Context, req dispatchRequest) (resolved, remoteCmd, session string, err error) {
+	resolved, ok := s.allowedHost(ctx, req.Host)
+	if !ok {
+		return "", "", "", errors.New("web: unknown host")
+	}
+	if !tailscale.ValidAgent(req.Agent) {
+		return "", "", "", errors.New("web: --agent must be one of " + strings.Join(tailscale.RemoteAgents, "|"))
+	}
+	if len(req.Task) > maxTaskBytes {
+		return "", "", "", errors.New("web: task exceeds 8KiB")
+	}
+	remoteCmd, session, err = tailscale.BuildRemoteCommand(tailscale.RemoteOpts{Dir: req.Dir, Agent: req.Agent, Task: req.Task})
+	if err != nil {
+		return "", "", "", errors.New("web: " + err.Error())
+	}
+	return resolved, remoteCmd, session, nil
 }
 
 // parseDispatchRequest reads either an application/json body or an application/x-www-form-urlencoded

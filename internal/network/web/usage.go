@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"path"
@@ -24,6 +25,8 @@ const (
 	usageFreshMin = 5 * time.Second  // ?fresh=1 skips the cache only when the entry is older than this
 	maxUsageDays  = 365
 )
+
+var errUsageBuildAborted = errors.New("usage: build aborted")
 
 // usageReport is the build seam; production is the exact function behind `claude-code usage --format json`.
 var usageReport = usage.Report
@@ -90,21 +93,23 @@ func (c *usageCache) acquire(key usageKey, fresh bool, now func() time.Time) (bo
 	return nil, false, nil, f
 }
 
-// runBuild runs build outside the lock, caches a successful body and releases the flight's waiters.
-func (c *usageCache) runBuild(key usageKey, f *usageFlight, now func() time.Time, build func() ([]byte, error)) ([]byte, error) {
-	body, err := build()
-
-	c.mu.Lock()
-	delete(c.flights, key)
-	if err == nil {
-		if c.entries == nil {
-			c.entries = map[usageKey]usageEntry{}
+// runBuild runs build outside the lock, caches a successful body and releases the flight's waiters, even on panic.
+func (c *usageCache) runBuild(key usageKey, f *usageFlight, now func() time.Time, build func() ([]byte, error)) (body []byte, err error) {
+	err = errUsageBuildAborted
+	defer func() {
+		c.mu.Lock()
+		delete(c.flights, key)
+		if err == nil {
+			if c.entries == nil {
+				c.entries = map[usageKey]usageEntry{}
+			}
+			c.entries[key] = usageEntry{body: body, at: now()}
 		}
-		c.entries[key] = usageEntry{body: body, at: now()}
-	}
-	f.err = err
-	c.mu.Unlock()
-	close(f.done)
+		f.err = err
+		c.mu.Unlock()
+		close(f.done)
+	}()
+	body, err = build()
 	return body, err
 }
 
@@ -137,7 +142,7 @@ func maskUsageValue(v any) any {
 	return v
 }
 
-// maskedUsageJSON is the served body: the document's JSON with emails and token-shaped strings masked (CLI output is unmasked).
+// maskedUsageJSON is the served body: the document's JSON with emails and token-shaped strings masked.
 func maskedUsageJSON(doc *usage.Document) ([]byte, error) {
 	raw, err := json.Marshal(doc)
 	if err != nil {
@@ -154,7 +159,7 @@ func maskedUsageJSON(doc *usage.Document) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// handleUsage serves /api/usage?days=N[&fresh=1][&quotas=0]: `claude-code usage --days N --format json` with emails and token-shaped strings masked.
+// handleUsage serves /api/usage?days=N[&fresh=1][&quotas=0]: the `usage --format json` report, masked.
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	days := 1
 	if v := r.URL.Query().Get("days"); v != "" {

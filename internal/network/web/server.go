@@ -218,11 +218,17 @@ func tailscaleIPv4(ctx context.Context) (string, error) {
 		return "", err
 	}
 	for _, s := range st.IPs {
-		if ip := net.ParseIP(s); ip != nil && ip.To4() != nil && isCGNAT(ip) {
+		if isTailnetIPv4(s) {
 			return s, nil
 		}
 	}
 	return "", errors.New("tailscale has no IPv4 address for this node")
+}
+
+// isTailnetIPv4 reports whether s is an IPv4 literal inside 100.64.0.0/10.
+func isTailnetIPv4(s string) bool {
+	ip := net.ParseIP(s)
+	return ip != nil && ip.To4() != nil && isCGNAT(ip)
 }
 
 // validateBindAddr parses addr as host:port and refuses anything but a loopback or tailnet
