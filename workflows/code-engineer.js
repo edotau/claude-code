@@ -1,12 +1,12 @@
 export const meta = {
   name: 'code-engineer',
-  description: 'The house dispatch: parallel Explore intel → implementer → test repair (after impl lands) → scoped gate loop',
+  description: 'The house dispatch: parallel Explore intel → implementer → test repair → new regression tests proven by mutation → gate loop + cross-package check',
   whenToUse:
-    'USE: a MEDIUM+ code change end to end in one package set: Explore intel, claude implementer, a claude test-repair agent fixes the existing tests, gate loop. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {task, cwd, scope: ["internal/x"]}}). OPTIONAL: packages, gate (auto-detected), maxIterations, tests:false, steps {intel, impl, test, gate}: each {model, effort}; e.g. steps:{impl:{model:"opus"}}. RETURNS {status: blocked | error | green | stalled | capped}. Details: saved-workflows.md.',
+    'USE: a MEDIUM+ code change end to end in one package set: Explore intel, claude implementer, a claude test-repair agent fixes the existing tests, a new-test agent writes mutation-proven regression/feature tests, gate loop (plus internal/schemas when a writer changed) and a cross-package build/vet/test of importers. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {task, cwd, scope: ["internal/x"]}}). OPTIONAL: packages, gate (auto-detected), maxIterations, tests:false, steps {intel, impl, test, newtest, gate}: each {model, effort}; e.g. steps:{impl:{model:"opus"}}. RETURNS {status: blocked | error | green | red | stalled | capped, route, decisions, report, fixed, red, brief, impl, tests, newtests, gate, cross}. Details: saved-workflows.md.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
-    { title: 'Build', detail: 'implementer (non-test files), then test repair (existing test files only) with the impl result' },
-    { title: 'Gate', detail: 'green-keeper-loop workflow over the touched packages' },
+    { title: 'Build', detail: 'implementer (non-test files), test repair (existing tests), then new tests proven with claude-code test mutate' },
+    { title: 'Gate', detail: 'green-keeper-loop over the touched packages, then schemas and importer-package checks' },
   ],
 }
 
@@ -38,11 +38,12 @@ const stepOf = (steps, name, defaults, opt) => {
 if (a.implModel !== undefined) return { status: 'error', error: 'code-engineer: implModel was replaced by steps.impl.model' }
 let ST
 try {
-  const opt = { allowed: ['intel', 'impl', 'test', 'gate'] }
+  const opt = { allowed: ['intel', 'impl', 'test', 'newtest', 'gate'] }
   ST = {
     intel: stepOf(a.steps, 'intel', { model: 'sonnet', effort: 'low' }, opt),
     impl: stepOf(a.steps, 'impl', { model: 'sonnet', effort: 'high' }, opt),
     test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, opt),
+    newtest: stepOf(a.steps, 'newtest', { model: 'sonnet', effort: 'medium' }, opt),
     gate: stepOf(a.steps, 'gate', { model: 'sonnet', effort: 'medium' }, opt),
   }
 } catch (e) { return { status: 'error', error: 'code-engineer: ' + e.message } }
@@ -140,13 +141,46 @@ const tests = (implBlocked || !RUN_TESTS) ? null : await agent(
   TEST_PROMPT(),
   { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(ST.test.model), effort: ST.test.effort }
 )
-if (implBlocked) log('build: impl blocked or empty — test agent skipped')
-else if (!RUN_TESTS) log('build: args.tests=false — test agent skipped')
-log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : 'none'}`)
+const NEWTEST_PROMPT = () =>
+  `${context}\nImplementer result (landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\n` +
+  `You are the NEW-TEST agent. Existing tests are already repaired. For this bug fix or feature (see \`git diff\` of the changed files) write ONE regression/feature test per behavior change in *_test.go files that calls the real code and fails without the change; ` +
+  `prove each with \`claude-code test mutate <file> <old> <new> --run <RE> ./<pkg> </dev/null\` (exit 0 = caught). Each test under complexity 10; edit only test files. ` +
+  `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; the summary lists each new test and its mutate exit code, plus Ran on:. Pure refactors needing no test: say so, status DONE.`
+const newtests = (implBlocked || !RUN_TESTS) ? null : await agent(
+  NEWTEST_PROMPT(),
+  { label: 'build:newtests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(ST.newtest.model), effort: ST.newtest.effort }
+)
+if (implBlocked) log('build: impl blocked or empty — test agents skipped')
+else if (!RUN_TESTS) log('build: args.tests=false — test agents skipped')
+log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : 'none'} newtests=${newtests ? newtests.status : 'none'}`)
+
+// Shared result shape (route/decisions/report/fixed/red) on top of the legacy status field.
+const finish = (status, gate, cross) => {
+  const decisions = [
+    impl ? `impl ${impl.status}: ${(impl.filesChanged || []).length} file(s) changed` : 'impl returned nothing',
+    !RUN_TESTS ? 'tests:false — no test repair, no new tests' : implBlocked ? 'tests skipped: impl blocked' :
+      `test repair ${tests ? tests.status : 'none'}; new tests ${newtests ? newtests.status : 'none'} (mutation-proven only if its summary lists mutate exit 0)`,
+    gate ? `gate ${gate.exit}` : 'gate not run',
+    cross ? `cross-package check ${cross.green ? 'green' : 'RED'}: ${cross.output}` : 'cross-package check not run',
+  ]
+  const ok = status === 'green'
+  const files = (impl && impl.filesChanged) || []
+  const report = [`# code-engineer: ${status}`, `Task: ${TASK}`, '', ...decisions.map(d => '- ' + d), '', `Files: ${files.join(', ') || 'none'}`].join('\n')
+  return { route: 'code-engineer', status, decisions, report, fixed: ok ? files : [], red: ok ? [] : (files.length ? files : [TASK]), brief, impl, tests, newtests, gate, cross }
+}
 
 // ── Phase 3: Gate (ADK LoopAgent via the saved green-keeper-loop workflow) ─────────────────────────
 phase('Gate')
-if (implBlocked) return { brief, impl, tests, gate: null, status: 'blocked' }
+if (implBlocked) return finish('blocked', null, null)
 const gate = await workflow('green-keeper-loop', { claudeState: CLAUDE_STATE, gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : [...new Set(brief.files.map(f => f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '.'))], maxIterations: MAX_ITER, steps: a.steps && a.steps.gate ? { fix: { model: ST.gate.model, effort: ST.gate.effort } } : undefined })
-
-return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }
+// Cross-package check: a scoped gate misses schemas and importer breakage; bounded to the direct importers of the changed packages.
+const cross = await agent(
+  `${SHARED_TREE}\nEdit nothing. Run \`set -o pipefail; go build ./... && go vet ./...\`. Then for the packages of the files changed (${(impl.filesChanged || []).join(', ')}) ` +
+  `list direct importers with \`go list -f '{{.ImportPath}} {{join .Imports " "}}' ./...\` (match each changed package's import path), at most 15, and run \`go test -count=1\` on the changed packages plus those importers. ` +
+  `If \`git diff\` changes a function that writes a file, also run \`go test -count=1 ./internal/schemas/\`. green=true only if every command exited 0; output = failing commands' last lines or "ok".`,
+  { label: 'gate:cross', phase: 'Gate', schema: { type: 'object', additionalProperties: false, required: ['green', 'output'], properties: { green: { type: 'boolean' }, output: { type: 'string' } } }, model: routeModel(ST.gate.model), effort: ST.gate.effort }
+).catch(() => null)
+// A green gate over a not-finished implementer proves nothing.
+const implDone = impl.status === 'DONE' || impl.status === 'DONE_WITH_CONCERNS'
+const status = !gate ? 'error' : gate.exit !== 'green' ? gate.exit : (!implDone || !cross || !cross.green) ? 'red' : 'green'
+return finish(status, gate, cross)
