@@ -1,8 +1,10 @@
 package clipboard
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -102,12 +105,190 @@ func grabSSH() (path, dim string, err error) {
 	return savePNG(b)
 }
 
-// ServePNG writes the macOS clipboard PNG to w for one bridge connection; no image writes nothing.
+// serveReqWait is how long the server waits for a request line before treating the client as an old PNG-only one.
+const serveReqWait = 300 * time.Millisecond
+
+// pngMagic opens every PNG; a fetch reply starting with it came from an old PNG-only Mac side.
+var pngMagic = []byte("\x89PNG\r\n\x1a\n")
+
+// bridgeReq is the v1 request line a client sends; no line at all means "send the clipboard PNG".
+type bridgeReq struct {
+	V    int    `json:"v"`
+	Op   string `json:"op"`
+	Path string `json:"path"`
+}
+
+// ServePNG serves one bridge connection (inetd hands it over as stdin): a file request, else the clipboard PNG.
 func ServePNG(w io.Writer) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("clip --serve runs on macOS only (the SSH client side)")
+	var in net.Conn
+	if c, err := net.FileConn(os.Stdin); err == nil {
+		defer func() { _ = c.Close() }()
+		in = c
 	}
-	return servePNG(w)
+	home, _ := os.UserHomeDir()
+	return serveConn(w, in, home, func(w io.Writer) error {
+		if runtime.GOOS != "darwin" {
+			return errors.New("clip --serve runs on macOS only (the SSH client side)")
+		}
+		return servePNG(w)
+	})
+}
+
+// serveConn reads one optional request line from in; a file op is answered, anything else falls back to png.
+func serveConn(w io.Writer, in net.Conn, home string, png func(io.Writer) error) error {
+	if in == nil {
+		return png(w)
+	}
+	_ = in.SetReadDeadline(time.Now().Add(serveReqWait))
+	line, err := bufio.NewReaderSize(in, 4096).ReadSlice('\n')
+	if err != nil || len(bytes.TrimSpace(line)) == 0 {
+		return png(w)
+	}
+	var req bridgeReq
+	if json.Unmarshal(line, &req) != nil || req.Op != "file" {
+		return replyErr(w, "bad request")
+	}
+	return serveFile(w, home, req.Path)
+}
+
+// replyErr writes the one-line failure header.
+func replyErr(w io.Writer, msg string) error {
+	b, _ := json.Marshal(map[string]any{"ok": false, "err": msg})
+	_, err := w.Write(append(b, '\n'))
+	return err
+}
+
+// serveFile answers a file request: a header line, then the bytes of one allowed regular file.
+func serveFile(w io.Writer, home, path string) error {
+	real, size, err := allowedServePath(home, path)
+	if err != nil {
+		return replyErr(w, err.Error())
+	}
+	f, err := os.Open(real)
+	if err != nil {
+		return replyErr(w, "cannot open file")
+	}
+	defer func() { _ = f.Close() }()
+	hdr, _ := json.Marshal(map[string]any{"ok": true, "size": size, "name": filepath.Base(real)})
+	if _, err := w.Write(append(hdr, '\n')); err != nil {
+		return err
+	}
+	logServed(home, real)
+	_, err = io.Copy(w, io.LimitReader(f, size))
+	return err
+}
+
+// allowedServePath resolves path and accepts only a regular file within the size cap outside secret directories.
+func allowedServePath(home, path string) (real string, size int64, err error) {
+	if !filepath.IsAbs(path) {
+		return "", 0, errors.New("path must be absolute")
+	}
+	if real, err = filepath.EvalSymlinks(path); err != nil {
+		return "", 0, errors.New("no such file")
+	}
+	fi, err := os.Stat(real)
+	switch {
+	case err != nil:
+		return "", 0, errors.New("no such file")
+	case !fi.Mode().IsRegular():
+		return "", 0, errors.New("not a regular file")
+	case fi.Size() > sshMaxPNG:
+		return "", 0, fmt.Errorf("file over %d MiB", sshMaxPNG>>20)
+	}
+	if home != "" {
+		if h, err := filepath.EvalSymlinks(home); err == nil {
+			home = h
+		}
+		for _, d := range []string{".ssh", ".gnupg", "Library/Keychains", ".claude/state"} {
+			deny := filepath.Join(home, filepath.FromSlash(d))
+			if real == deny || strings.HasPrefix(real, deny+string(filepath.Separator)) {
+				return "", 0, errors.New("path is not shareable")
+			}
+		}
+	}
+	return real, fi.Size(), nil
+}
+
+// logServed appends the served path (never its bytes) to the clip-serve log, best effort.
+func logServed(home, path string) {
+	if home == "" {
+		return
+	}
+	log := filepath.Join(home, ".claude", "state", "harness", "clip-serve.log")
+	if os.MkdirAll(filepath.Dir(log), 0o700) != nil {
+		return
+	}
+	f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), path)
+}
+
+// BridgeReady reports an SSH session whose forwarded clipboard socket is present and ours.
+func BridgeReady() bool { return inSSH() && checkSocket(sshSocket()) == nil }
+
+// FetchClient fetches a Mac-side file over the bridge into /tmp/claude-drop and returns the local path.
+func FetchClient(path string) (local string, err error) {
+	return fetchFrom(sshSocket(), path, "/tmp/claude-drop")
+}
+
+// fetchFrom is FetchClient with the socket and drop directory injected.
+func fetchFrom(sock, path, dropDir string) (string, error) {
+	if err := checkSocket(sock); err != nil {
+		return "", err
+	}
+	d := net.Dialer{Timeout: sshTimeout}
+	conn, err := d.DialContext(context.Background(), "unix", sock)
+	if err != nil {
+		return "", fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(sshTimeout))
+	req, _ := json.Marshal(bridgeReq{V: 1, Op: "file", Path: path})
+	if _, err := conn.Write(append(req, '\n')); err != nil {
+		return "", fmt.Errorf("clipboard bridge write: %w", err)
+	}
+	br := bufio.NewReaderSize(conn, 4096)
+	if head, _ := br.Peek(len(pngMagic)); bytes.Equal(head, pngMagic) {
+		return "", errors.New("the Mac side is an old PNG-only bridge: run make install on the Mac")
+	}
+	line, err := br.ReadSlice('\n')
+	if err != nil {
+		return "", fmt.Errorf("clipboard bridge sent no file header: %w", err)
+	}
+	var hdr struct {
+		OK   bool   `json:"ok"`
+		Size int64  `json:"size"`
+		Err  string `json:"err"`
+	}
+	if err := json.Unmarshal(line, &hdr); err != nil {
+		return "", fmt.Errorf("clipboard bridge sent a bad header: %w", err)
+	}
+	if !hdr.OK {
+		return "", fmt.Errorf("clipboard bridge refused %s: %s", path, hdr.Err)
+	}
+	if hdr.Size < 0 || hdr.Size > sshMaxPNG {
+		return "", fmt.Errorf("clipboard bridge announced %d bytes (cap %d MiB)", hdr.Size, sshMaxPNG>>20)
+	}
+	data := make([]byte, hdr.Size)
+	if _, err := io.ReadFull(br, data); err != nil {
+		return "", fmt.Errorf("clipboard bridge file read: %w", err)
+	}
+	// the Mac path's basename, not the reply's name, so the remote cannot steer the write
+	name := filepath.Base(strings.ReplaceAll(path, "\\", "/"))
+	if name == "." || name == "/" || name == ".." {
+		return "", fmt.Errorf("no file name in %q", path)
+	}
+	if err := os.MkdirAll(dropDir, 0o700); err != nil {
+		return "", err
+	}
+	local := filepath.Join(dropDir, name)
+	if err := paths.AtomicWrite(local, data, 0o600); err != nil {
+		return "", err
+	}
+	return local, nil
 }
 
 // servePNG is ServePNG without the darwin gate, for tests with a faked osascript.
@@ -198,7 +379,19 @@ func InstallLaunchAgent(w io.Writer, bin string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	return installLaunchAgentAt(w, home, bin, os.Getuid(), dryRun)
+	if err := installLaunchAgentAt(w, home, bin, os.Getuid(), dryRun); err != nil {
+		return err
+	}
+	if !dryRun {
+		printSSHHint(w, home)
+	}
+	return nil
+}
+
+// printSSHHint tells the owner the remote host's ~/.ssh/config lines the bridge needs; it never writes that file.
+func printSSHHint(w io.Writer, home string) {
+	fmt.Fprintf(w, "  %-17s add to the remote host's ~/.ssh/config (replace <remote-user> with your login there):\n", "clip bridge")
+	fmt.Fprintf(w, "      RemoteForward /tmp/claude-clip-<remote-user>.sock %s\n      StreamLocalBindUnlink yes\n", launchSocket(home))
 }
 
 // installLaunchAgentAt is InstallLaunchAgent without the darwin gate; an unchanged plist skips the reload.

@@ -231,3 +231,63 @@ func TestCollectReportsPunctuatedFilenames(t *testing.T) {
 		})
 	}
 }
+
+func stubBridge(t *testing.T, ready bool, fetch func(string) (string, error)) {
+	t.Helper()
+	oReady, oFetch := bridgeReady, fetchClient
+	bridgeReady = func() bool { return ready }
+	fetchClient = fetch
+	t.Cleanup(func() { bridgeReady, fetchClient = oReady, oFetch })
+}
+
+// A /Users path that exists only on the SSH client is fetched over the bridge in every form a Mac Terminal drops it.
+func TestCollectReportsFetchesClientOnlyPath(t *testing.T) {
+	const mac = "/Users/me/Downloads/My File.zip"
+	local := filepath.Join(t.TempDir(), "My File.zip")
+	if err := os.WriteFile(local, []byte("zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	forms := map[string]string{
+		"double quoted": `see "` + mac + `" now`,
+		"single quoted": `see '` + mac + `' now`,
+		"escaped space": `see /Users/me/Downloads/My\ File.zip now`,
+	}
+	for name, prompt := range forms {
+		t.Run(name, func(t *testing.T) {
+			var asked []string
+			stubBridge(t, true, func(p string) (string, error) { asked = append(asked, p); return local, nil })
+			reps := collectReports(prompt, &paths.Resolver{})
+			if len(reps) != 1 || reps[0].win != mac || reps[0].path != local || reps[0].err != "" {
+				t.Fatalf("reps = %+v, want one %s -> %s", reps, mac, local)
+			}
+			if len(asked) != 1 || asked[0] != mac {
+				t.Errorf("fetched %v, want [%s]", asked, mac)
+			}
+			if got := modelContext(reps); !strings.Contains(got, mac) || !strings.Contains(got, local) {
+				t.Errorf("modelContext = %q, want both paths", got)
+			}
+		})
+	}
+}
+
+func TestCollectReportsClientFetchFailureAndGates(t *testing.T) {
+	failing := func(string) (string, error) { return "", os.ErrPermission }
+	stubBridge(t, true, failing)
+	reps := collectReports(`open /Users/me/a.png`, &paths.Resolver{})
+	if len(reps) != 1 || !strings.Contains(reps[0].err, "permission") {
+		t.Fatalf("reps = %+v, want one error report", reps)
+	}
+	if msg := feedbackMessage(reps); !strings.Contains(msg, "not fetched") || !strings.Contains(msg, "permission") {
+		t.Errorf("feedback = %q, want a not-fetched line naming the error", msg)
+	}
+	calls := 0
+	counting := func(string) (string, error) { calls++; return "", os.ErrPermission }
+	stubBridge(t, false, counting)
+	if reps := collectReports(`open /Users/me/a.png`, &paths.Resolver{}); len(reps) != 0 || calls != 0 {
+		t.Errorf("bridge down: reps=%+v calls=%d, want none", reps, calls)
+	}
+	stubBridge(t, true, counting)
+	if reps := collectReports(`open /home/nobody/a.png`, &paths.Resolver{}); len(reps) != 0 || calls != 0 {
+		t.Errorf("non-Mac prefix: reps=%+v calls=%d, want none", reps, calls)
+	}
+}

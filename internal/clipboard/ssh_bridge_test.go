@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"image/png"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // serveOnce answers one connection on sock with payload, then closes (the bridge protocol).
@@ -199,5 +201,141 @@ func TestLaunchAgentDryRunWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(launchPlistPath(home)); err == nil {
 		t.Fatal("dry run wrote the plist")
+	}
+}
+
+// bridgeServer runs serveConn (home as given) on a fresh socket for each connection; png is the old-client fallback.
+func bridgeServer(t *testing.T, home string, png []byte) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "cb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				_ = serveConn(c, c, home, func(w io.Writer) error { _, err := w.Write(png); return err })
+			}()
+		}
+	}()
+	return sock
+}
+
+// A file dragged from the Mac is fetched through the bridge into the drop dir, byte for byte, mode 0600.
+func TestFetchFromServesFile(t *testing.T) {
+	home := t.TempDir()
+	src := filepath.Join(home, "My File.zip")
+	want := []byte("zip bytes \x00\x01")
+	if err := os.WriteFile(src, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	drop := filepath.Join(t.TempDir(), "drop")
+	got, err := fetchFrom(bridgeServer(t, home, nil), src, drop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(got)
+	fi, _ := os.Stat(got)
+	if got != filepath.Join(drop, "My File.zip") || !bytes.Equal(b, want) || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("got %s %q %v", got, b, fi.Mode())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude/state/harness/clip-serve.log")); err != nil {
+		t.Fatalf("served path not logged: %v", err)
+	}
+}
+
+// Secret directories, relative paths and symlinks into them are refused, and no file lands.
+func TestFetchFromRefusals(t *testing.T) {
+	home := t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, ".ssh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	key := filepath.Join(home, ".ssh", "id")
+	_ = os.WriteFile(key, []byte("secret"), 0o600)
+	link := filepath.Join(home, "innocent")
+	_ = os.Symlink(key, link)
+	sock := bridgeServer(t, home, nil)
+	for _, p := range []string{key, link, "rel/path", home, filepath.Join(home, "missing")} {
+		drop := t.TempDir()
+		if _, err := fetchFrom(sock, p, drop); err == nil {
+			t.Errorf("%s: want refusal", p)
+		}
+		if ents, _ := os.ReadDir(drop); len(ents) != 0 {
+			t.Errorf("%s: left %v in drop dir", p, ents)
+		}
+	}
+}
+
+// An old client sends nothing: the server still answers with the clipboard PNG after the request wait.
+func TestServeConnOldClientGetsPNG(t *testing.T) {
+	png := append(append([]byte{}, pngMagic...), "rest"...)
+	c, err := net.Dial("unix", bridgeServer(t, t.TempDir(), png))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	got, _ := io.ReadAll(c)
+	if !bytes.Equal(got, png) {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A new client talking to an old PNG-only server is told to run make install on the Mac.
+func TestFetchFromOldServer(t *testing.T) {
+	dir, _ := os.MkdirTemp("", "cb")
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond) // an old server grabs the clipboard before it replies
+		_, _ = c.Write(append(append([]byte{}, pngMagic...), "rest"...))
+		_ = c.Close()
+	}()
+	_, err = fetchFrom(sock, "/x", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "make install") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// No forwarded socket: errNoBridge with the RemoteForward hint.
+func TestFetchFromNoBridge(t *testing.T) {
+	_, err := fetchFrom(filepath.Join(t.TempDir(), "none"), "/x", t.TempDir())
+	if !errors.Is(err, errNoBridge) || !strings.Contains(err.Error(), "RemoteForward") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// The install hint names the exact ssh_config lines and never writes ~/.ssh/config.
+func TestPrintSSHHint(t *testing.T) {
+	home := t.TempDir()
+	var out bytes.Buffer
+	printSSHHint(&out, home)
+	for _, s := range []string{"RemoteForward /tmp/claude-clip-<remote-user>.sock " + launchSocket(home), "StreamLocalBindUnlink yes"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("missing %q in %q", s, out.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".ssh")); err == nil {
+		t.Error("hint wrote under ~/.ssh")
 	}
 }
