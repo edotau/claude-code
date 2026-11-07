@@ -112,7 +112,7 @@ UNVERIFIABLE, never assumed. Never soften a failing verdict or inflate a caveat.
 
 | Mode | Vocabulary |
 |---|---|
-| review (this file) | **SHIP** (no CRITICAL/HIGH) \| **FIX REQUIRED** (HIGH, no CRITICAL) \| **BLOCK** (any CRITICAL) |
+| review (this file) | **SHIP** (no CRITICAL/HIGH; MEDIUM fixed first) \| **FIX REQUIRED** (HIGH, no CRITICAL) \| **BLOCK** (any CRITICAL) |
 | judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
 | task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
 | agent diff review (`claude-code <agent> review`) | `SHIP IT \| NEEDS WORK \| BLOCK` |

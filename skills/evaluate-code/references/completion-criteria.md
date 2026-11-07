@@ -8,8 +8,9 @@ Completion. This is this skill's severity scale.
 | Level | Meaning | Action | Review-finding label |
 |-------|---------|--------|----------------------|
 | CRITICAL | Security vulnerability or data-loss risk | **BLOCK** — must fix | must-fix |
-| HIGH | Bug or significant quality issue | **WARN** — should fix (a security HIGH is **FIX REQUIRED**: `../SKILL.md` → Security) | should-fix |
-| MEDIUM | Maintainability concern | **INFO** — consider | should-fix / nit |
-| LOW | Style, minor | **NOTE** — optional | nit |
+| HIGH | Bug or significant quality issue | **FIX REQUIRED** — fix now (security: built-in `/security-review`, `rules/standards/security.md`) | should-fix |
+| MEDIUM | Maintainability concern | **FIX NOW** — fixed in the same round, no ask | should-fix |
+| LOW | Style, minor | **TECH-DEBT** — logged to `memory/<repo>/reports/`, not fixed in this round | nit |
 
-Approve when no CRITICAL/HIGH. Block on CRITICAL/HIGH.
+CRITICAL/HIGH/MEDIUM are fixed immediately; approve (SHIP) when no CRITICAL/HIGH is open and MEDIUM is fixed. Policy:
+`rules/standards/quality.md` → Completion.

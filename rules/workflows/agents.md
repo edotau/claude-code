@@ -27,8 +27,9 @@ paths:
   drives a CLI) · Hands off to · Procedure · Report contract · Don't` (`##` sections); `description:`
   says when to use it. `Knows` lists the references the agent reads and when: make knowledge available, not
   mandatory; nothing loads upfront. Memory needs no entry: the dispatch hook appends recall pointers to every brief.
-- `commands/<name>.md` is a ~10-line launcher: read `$ARGUMENTS`, run the agent/script, relay the report, point at the
-  agent file. Skill shell logic lives in `skills/<name>/scripts/`; anything else in a Go verb or Makefile target.
+- `commands/<name>.md` is a short launcher (Usage block allowed): read `$ARGUMENTS`, run the agent/script, relay the
+  report, point at the agent file; procedure lives in the agent or skill.
+  Skill shell logic lives in `skills/<name>/scripts/`; anything else in a Go verb or Makefile target.
 - Agents hold no memory scope; they PROPOSE memory in their report and the main session writes it.
 - `claude-code agents list` lists the CLI agents, not this roster.
 
