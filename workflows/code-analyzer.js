@@ -398,7 +398,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const deferred = confirmed.filter(f => ORDER[f.severity] > MIN_FIX)
   totalMerged += mergedCount
   const metrics = { scopers: PRE ? 0 : GROUPS.length, chunks: chunks.length, auditors: auditorCount, refuters: refuteCalls, confirmed: confirmed.length, refuted: refuted.length, deferred: deferred.length }
-  log(`round ${round}/${ROUNDS}: confirmed ${confirmed.length}, refuted ${refuted.length}, below the fix floor ${deferred.length}, unverified ${unverified.length}`)
+  log(`round ${round}/${ROUNDS}: merged ${mergedCount}, confirmed ${confirmed.length}, refuted ${refuted.length}, below the fix floor ${deferred.length}, unverified ${unverified.length}`)
 
   const base = { confirmed, refuted, unverified, deferred, round }
   if ((!FIX && !PART) || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
@@ -426,6 +426,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const partition = planWaves(planTasks, HOT, CAP)
   const planMd = planMarkdown(partition)
   const sizes = partition.waves.map(w => w.length)
+  log(`plan: ${sizes.length} wave(s) [${sizes.join(',')}], ${partition.edges.length} edge(s)`)
   decisions.push(`partition: ${sizes.length} wave(s), max parallel ${Math.max(0, ...sizes)}, ${partition.edges.length} conflict edge(s), ${partition.hotspotTask ? partition.hotspotTask.owns.length : 0} hotspot file(s) pulled out`)
   if (!FIX) { rounds.push({ ...base, fixed: [], gate: null, partition, plan: planMd, exit: 'partition', metrics }); break }
 
@@ -487,6 +488,12 @@ for (let round = 1; round <= ROUNDS; round++) {
   ].map(relPath))].filter(p => SRC_RE.test(p) && !TEST_RE.test(p))
   if (!touched.length) { rounds.push({ ...out, exit: 'nothing-changed' }); break }
   if (round >= ROUNDS) { rounds.push({ ...out, exit: 'capped' }); break }
+  if (typeof budget !== 'undefined' && budget && budget.total && budget.remaining() < 150000) {
+    decisions.push(`re-audit round ${round + 1} skipped: budget under 150k tokens remaining`)
+    log(`re-audit skipped: low budget`)
+    rounds.push({ ...out, exit: 'capped' })
+    break
+  }
   log(`round ${round + 1}/${ROUNDS}: re-auditing ${touched.length} file(s) the fix touched`)
   rounds.push(out)
   // Next round audits exactly what this round's fix touched — PKGS/GROUPS are just the touched file list, chunked.

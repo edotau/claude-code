@@ -2,7 +2,7 @@ export const meta = {
   name: 'relay3',
   description: 'Streaming relay: each package flows find → rederive → fix → guard test → gate on its own, no barrier between packages',
   whenToUse:
-    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/relay3.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default medium), focus, steps {find, rederive, fix, test, gate} = {model, effort} per stage (claude only). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report}. Details: saved-workflows.md.',
+    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/relay3.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default medium), focus, known [{file, symptom}] (bug already named: skips Find and Rederive for that file\'s package), fast (false ignores known), steps {find, rederive, fix, test, gate} = {model, effort} per stage (claude only). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Find', detail: 'two lenses per package; claims merged by file ±10 lines or same symbol within the package' },
     { title: 'Rederive', detail: 'each claim re-derived blind from file:line + symptom' },
@@ -61,6 +61,12 @@ const FIX = a.fix !== false
 const ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
 const MIN_FIX = ORDER[a.minFix] !== undefined ? ORDER[a.minFix] : ORDER.medium
 const NEAR = 10
+const MIN_SEV = ORDER[a.minFix] !== undefined ? a.minFix : 'medium'
+// known: bugs the caller already named; their package skips Find and Rederive (a.fast === false or fix:false disables).
+const KNOWN = {}
+if (FIX && a.fast !== false && Array.isArray(a.known)) {
+  for (const k of a.known) if (k && k.file && k.symptom) (KNOWN[dirOf(String(k.file).replace(CWD + '/', ''))] = KNOWN[dirOf(String(k.file).replace(CWD + '/', ''))] || []).push(k)
+}
 const FOCUS = a.focus ? ' Focus for this group: ' + a.focus + '.' : ''
 const RULES =
   'Shared live tree, other packages are being edited in parallel: never git stash|checkout|reset|restore|clean|commit|add, never ' +
@@ -99,6 +105,11 @@ function merge(raw) {
 }
 
 async function review(p) {
+  if (KNOWN[p]) {
+    const confirmed = KNOWN[p].map((k) => ({ file: norm(k.file), line: 0, symbol: 'named by the task', symptom: String(k.symptom), scenario: String(k.symptom), severity: MIN_SEV, rederived: 'named by the task' }))
+    log(p + ': fast path, ' + confirmed.length + ' named, find+rederive skipped')
+    return { pkg: p, merged: confirmed.length, confirmed, dropped: [], unverified: [], fast: true }
+  }
   const finds = await parallel(LENSES.map((l) => () =>
     agent(
       READONLY + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + ' Find real bugs of this kind: ' + l.ask + '.' + FOCUS +
@@ -117,6 +128,7 @@ async function review(p) {
   const unverified = ok.filter((x) => !x.r).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
   const confirmed = ok.filter((x) => x.r && x.r.reproduced).map((x) => ({ ...x.f, severity: x.r.severity, rederived: x.r.scenario }))
   const dropped = ok.filter((x) => x.r && !x.r.reproduced).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
+  log(p + ': merged ' + merged.length + ', confirmed ' + confirmed.length + ', dropped ' + dropped.length + ', unverified ' + unverified.length)
   return { pkg: p, merged: merged.length, confirmed, dropped, unverified }
 }
 
@@ -151,7 +163,8 @@ async function repair(rev) {
   // A green gate over unchanged code proves nothing: a fixer that did not finish counts as red.
   const done = !!(impl && impl.status === 'done')
   const green = done && !!(gate && gate.green)
-  const decisions = [(done ? 'fixed ' : 'fix NOT done (' + (impl ? impl.status : 'no result') + ') for ') + cs.length + ' finding(s) in ' + p,
+  log(p + ': fixed ' + (done ? cs.length : 0) + '/' + cs.length + ', gate ' + (green ? 'green' : 'red'))
+  const decisions = [...(rev.fast ? ['fast path: skipped find+rederive, task names the bug'] : []), (done ? 'fixed ' : 'fix NOT done (' + (impl ? impl.status : 'no result') + ') for ') + cs.length + ' finding(s) in ' + p,
     green ? 'gate green in ' + p : 'gate red in ' + p]
   return { ...rev, fixed: cs.length, impl, test, gate, green, decisions }
 }

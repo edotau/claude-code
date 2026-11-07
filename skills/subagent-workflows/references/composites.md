@@ -116,6 +116,10 @@ graph (shared file, or an exported change imported by the other package), colour
 final single-owner task. Waves run in sequence, tasks of a wave in parallel; each fixer owns only its listed files.
 `fix:false, partition:true` returns `partition {waves, hotspotTask, edges}` and a `## Tasks` plan block, no edits.
 
+Why disjoint dirs and waves, not `isolation: 'worktree'`: the house rule is no worktree without the owner's yes
+(`rules/standards/worktree-git.md`), a worktree costs setup and a merge per writer, and package-disjoint writers
+or conflict-free waves in the shared tree give the same disjointness.
+
 ## New composite: template
 
 ```text
