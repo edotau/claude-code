@@ -118,9 +118,12 @@ async function review(p) {
   return { pkg: p, merged: merged.length, confirmed, dropped }
 }
 
+// inPkg: a finder may cite a file outside its package; that finding is fixed by the file's own package, never by p.
+const inPkg = (file, p) => norm(file).startsWith(norm(p) + '/')
+
 async function repair(rev) {
   const p = rev.pkg
-  const cs = rev.confirmed.filter((c) => ORDER[c.severity] <= MIN_FIX)
+  const cs = rev.confirmed.filter((c) => ORDER[c.severity] <= MIN_FIX && inPkg(c.file, p))
   if (!FIX) return { ...rev, fixed: 0, decisions: [] }
   if (!cs.length) return { ...rev, fixed: 0, decisions: ['no finding at or above minFix in ' + p] }
   log(p + ': ' + cs.length + ' finding(s) at or above minFix, fixing now')
@@ -149,6 +152,16 @@ async function repair(rev) {
 }
 
 const results = (await pipeline(PKGS, review, repair)).filter(Boolean)
+// Findings cited outside their finder's package: fix them per owning directory after the stream, one at a time.
+const foreign = {}
+for (const r of results) for (const c of r.confirmed) if (!inPkg(c.file, r.pkg) && ORDER[c.severity] <= MIN_FIX) (foreign[dirOf(norm(c.file))] = foreign[dirOf(norm(c.file))] || []).push(c)
+for (const dir of Object.keys(foreign)) {
+  if (!FIX) break
+  const fr = await repair({ pkg: dir, merged: 0, confirmed: foreign[dir], dropped: [] })
+  fr.confirmed = []
+  fr.decisions = ['re-routed ' + foreign[dir].length + ' finding(s) cited outside their finder\'s package to ' + dir, ...(fr.decisions || [])]
+  results.push(fr)
+}
 const confirmed = results.flatMap((r) => r.confirmed).sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
 const red = results.filter((r) => r.fixed && !(r.gate && r.gate.green)).map((r) => r.pkg)
 const fixed = results.filter((r) => r.fixed).map((r) => ({ pkg: r.pkg, findings: r.fixed, impl: r.impl, test: r.test, gate: r.gate }))
