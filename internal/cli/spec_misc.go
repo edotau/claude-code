@@ -81,14 +81,6 @@ func workspaceSpecNodes() map[string]*completion.Node {
 			"nuke":      {Flags: []completion.Flag{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
 			"workspace": {Args: []func() []string{setupWorkspaceSubwords}, Flags: []completion.Flag{flag("with"), boolFlag("dry-run")}},
 		}}}},
-		"worktree": {Sub: map[string]*completion.Node{
-			"list":   {Flags: []completion.Flag{formatFlag()}},
-			"create": {Flags: []completion.Flag{flag("branch")}},
-			"merge": {Args: []func() []string{worktreeNames}, Flags: []completion.Flag{boolFlag("dry-run"), flag("target"),
-				boolFlag("no-clean"), valuedFlag("resolve-agent", worktreeResolveAgents), boolFlag("resume"), flag("verify"), boolFlag("no-verify"), boolFlag("full-verify")}},
-			"clean":     {Args: []func() []string{worktreeNames}, Flags: []completion.Flag{boolFlag("dry-run"), boolFlag("force")}},
-			"clean-all": {Flags: []completion.Flag{boolFlag("dry-run"), boolFlag("yes")}},
-		}},
 		"test": {Sub: map[string]*completion.Node{"mutate": {Flags: []completion.Flag{flag("run")}}, "ramdisk": {}}},
 		"plan": {Sub: map[string]*completion.Node{
 			"status": {Flags: []completion.Flag{boolFlag("all"), formatFlag()}},

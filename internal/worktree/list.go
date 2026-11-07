@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,6 +240,33 @@ func asExitErr(err error) (int, bool) {
 // EligibleForClean mirrors the bar Clean itself rechecks live; list only offers the command, never acts.
 func (e Entry) EligibleForClean() bool {
 	return e.Exists && !e.Orphaned && !e.Locked && !e.Dirty && e.Merged
+}
+
+// StatusFlags lists the entry's state words for the text list; "clean" when none apply.
+func (e Entry) StatusFlags() []string {
+	var status []string
+	if e.Dirty {
+		status = append(status, "dirty")
+	}
+	if e.Merged {
+		status = append(status, "merged")
+	}
+	if e.Stale {
+		status = append(status, fmt.Sprintf("stale(%s)", e.ActivitySource))
+	}
+	if e.Orphaned {
+		status = append(status, "orphaned")
+	}
+	if e.Prunable {
+		status = append(status, "prunable")
+	}
+	if e.Locked {
+		status = append(status, "locked")
+	}
+	if len(status) == 0 {
+		status = append(status, "clean")
+	}
+	return status
 }
 
 // Names lists the worktree dirs under cwd's repo root (~/worktrees/<repo>) — a plain listing, fast for Tab.
