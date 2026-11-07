@@ -143,3 +143,30 @@ func decodePoolEnvelopes(t *testing.T, r io.Reader) []agent.Envelope {
 		envs = append(envs, env)
 	}
 }
+
+// A task that reaches run leaves a record carrying its task id, the shared batch id and its plan_task.
+func TestRunTasksStampsRecordIDs(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	base := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
+	mk := func(id, plan string, off int) Task {
+		return Task{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*agent.Prepared, error) {
+			rec := agent.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
+			return &agent.Prepared{Record: rec}, nil
+		}}
+	}
+	var buf bytes.Buffer
+	RunTasks(t.Context(), []Task{mk("a", "Phase 1.1", 0), mk("b", "", 1)}, PoolOptions{ID: "batch-x", Jobs: 1, Out: &buf})
+	got := map[string]agent.Record{}
+	for _, r := range agent.RecentRecords(10) {
+		got[r.TaskID] = r
+	}
+	if len(got) != 2 {
+		t.Fatalf("records by task id = %+v, want a and b", got)
+	}
+	if a := got["a"]; a.BatchID != "batch-x" || a.PlanTask != "Phase 1.1" {
+		t.Errorf("record a = task %q batch %q plan %q", a.TaskID, a.BatchID, a.PlanTask)
+	}
+	if b := got["b"]; b.BatchID != "batch-x" || b.PlanTask != "" {
+		t.Errorf("record b = batch %q plan %q, want batch-x and no plan", b.BatchID, b.PlanTask)
+	}
+}

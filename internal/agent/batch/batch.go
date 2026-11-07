@@ -38,6 +38,8 @@ type TaskLine struct {
 	Workdir string `json:"workdir"`
 	Tools   *bool  `json:"tools"`
 	Timeout string `json:"timeout"` // a Go duration such as 5m
+
+	PlanTask string `json:"plan_task"` // optional plan task this line implements, same character rule as id
 }
 
 // ParsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.
@@ -77,6 +79,7 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 type Task struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
+	Plan    string // plan_task of the line, stamped on the dispatch record
 	Req     agent.RunOptions
 	Prepare func(ctx context.Context) (*agent.Prepared, error)
 	Err     error
@@ -225,6 +228,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
 func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agent.Envelope, ok bool) {
 	rec := &p.Record
+	rec.TaskID, rec.BatchID, rec.PlanTask = t.ID, b.o.ID, t.Plan
 	ctx = agent.WithBatchRun(ctx, b.lim)
 	if b.o.FailFast {
 		ctx = agent.WithFailFast(ctx, b.stop)
@@ -262,6 +266,9 @@ func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agen
 
 var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
+// planTaskRE is batchIDRE plus the space, so a plan heading such as "Phase 1.1" is a valid plan_task.
+var planTaskRE = regexp.MustCompile(`^[A-Za-z0-9._ -]{1,64}$`)
+
 // ParseTask validates one line like the ask flags; on error the task keeps its id and agent.
 func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (Task, error) {
@@ -276,6 +283,10 @@ func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet
 	if seen[t.ID] {
 		return t, fmt.Errorf("line %d: duplicate id %q", l.N, t.ID)
 	}
+	if tl.PlanTask != "" && !planTaskRE.MatchString(tl.PlanTask) {
+		return t, fmt.Errorf("line %d: plan_task %q must match %s", l.N, tl.PlanTask, planTaskRE)
+	}
+	t.Plan = tl.PlanTask
 	seen[t.ID] = true
 	if strings.TrimSpace(tl.Prompt) == "" {
 		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
