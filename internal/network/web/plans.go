@@ -182,6 +182,10 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		http.Error(w, "plan not found", http.StatusNotFound)
+		return
+	}
 	b, err := io.ReadAll(io.LimitReader(f, maxPlanBytes+1))
 	if err != nil {
 		s.logger.Printf("plan read: %v", err)

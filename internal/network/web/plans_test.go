@@ -102,6 +102,17 @@ func TestPlansAPIPathGuard(t *testing.T) {
 	}
 }
 
+// /api/plan answers 404, never 500, for a directory named like a plan.
+func TestPlansAPIDirectoryNamedMd(t *testing.T) {
+	s, dir := plansServer(t)
+	if err := os.Mkdir(filepath.Join(dir, "plans", "x.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if w := getPlan(t, s, "x.md"); w.Code != http.StatusNotFound {
+		t.Errorf("dir x.md = %d %s, want 404", w.Code, w.Body)
+	}
+}
+
 type sseFrame struct{ ev, data string }
 
 // plansStream is a live /api/events connection delivering every frame, with the hubs running.

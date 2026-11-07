@@ -501,10 +501,12 @@ func Extract(ctx context.Context, urls []string) int {
 // tail past it cannot change the first enrichMaxChars anyway), and a character cap on what replaces
 // the snippet — five enriched results stay under ~10KB of tool output.
 const (
-	enrichTimeout  = 5 * time.Second
 	enrichMaxBody  = 256 << 10
 	enrichMaxChars = 1800
 )
+
+// enrichTimeout is a var so tests can shorten it.
+var enrichTimeout = 5 * time.Second
 
 // enrichResults APPENDS each page's own text after the Tavily snippet, fetched CONCURRENTLY so the
 // whole pass costs one slowest-fetch, not a sum. Append, never replace: the snippet is Tavily's
@@ -578,6 +580,8 @@ func robotsAllowed(ctx context.Context, u *url.URL, cache map[string]string) boo
 
 // fetchRobots returns the origin's robots.txt body, or "" when it is missing or unreadable.
 func fetchRobots(ctx context.Context, origin string) string {
+	ctx, cancel := context.WithTimeout(ctx, enrichTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin+"/robots.txt", nil)
 	if err != nil {
 		return ""

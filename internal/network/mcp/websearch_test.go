@@ -419,6 +419,28 @@ func TestFetchPageTextRefusesInternalAddresses(t *testing.T) {
 	}
 }
 
+// TestFetchRobotsTimesOutOnSilentHost: a host that accepts and never answers cannot block a deadline-less ctx.
+func TestFetchRobotsTimesOutOnSilentHost(t *testing.T) {
+	allowLoopbackFetch(t)
+	orig := enrichTimeout
+	enrichTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { enrichTimeout = orig })
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	done := make(chan string, 1)
+	go func() { done <- fetchRobots(context.Background(), srv.URL) }()
+	select {
+	case got := <-done:
+		if got != "" {
+			t.Errorf("fetchRobots = %q, want empty", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("fetchRobots still blocked after 2s on a silent host")
+	}
+}
+
 // TestFetchPageTextHonorsRobots: a Disallow for * keeps the snippet and the page is never requested.
 func TestFetchPageTextHonorsRobots(t *testing.T) {
 	allowLoopbackFetch(t)
