@@ -117,3 +117,4 @@ dev-mods/
 
 # settings.WriteWithBackup lock beside the generated settings.json
 /settings.json.lock
+settings.json
