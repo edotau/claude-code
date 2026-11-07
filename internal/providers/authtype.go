@@ -584,17 +584,26 @@ func authHint(p *Provider, name string) string {
 	return "set " + name + " with `claude-code vault set`"
 }
 
-// LoginU2M runs the browser login for a u2m row, seals the refresh token, mints once and returns the token's lifetime.
-func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.Duration, error) {
+// loginHost checks that p is a u2m row with an https (or loopback) workspace host and returns that host.
+func loginHost(p *Provider) (string, error) {
 	if p.Auth.Type != AuthOAuth {
-		return 0, fmt.Errorf("%s: auth.type is %q, not %s", p.Name, p.Auth.Type, AuthOAuth)
+		return "", fmt.Errorf("%s: auth.type is %q, not %s", p.Name, p.Auth.Type, AuthOAuth)
 	}
 	if err := checkAuthScheme(p); err != nil {
-		return 0, err
+		return "", err
 	}
 	host := AuthHost(p)
 	if host == "" {
-		return 0, fmt.Errorf("%s: no workspace host (set host or base_url)", p.Name)
+		return "", fmt.Errorf("%s: no workspace host (set host or base_url)", p.Name)
+	}
+	return host, nil
+}
+
+// LoginU2M runs the browser login for a u2m row, seals the refresh token, mints once and returns the token's lifetime.
+func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.Duration, error) {
+	host, err := loginHost(p)
+	if err != nil {
+		return 0, err
 	}
 	tok, err := oauth.LoginU2M(ctx, host, opts)
 	if err != nil {
@@ -603,6 +612,11 @@ func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.D
 	if tok.Refresh == "" {
 		return 0, fmt.Errorf("%s: login returned no refresh token", p.Name)
 	}
+	return sealLogin(p, tok)
+}
+
+// sealLogin seals a fresh login's tokens and returns the cached access token's lifetime.
+func sealLogin(p *Provider, tok oauth.Token) (time.Duration, error) {
 	// A fresh login supersedes the lock holder's refresh, so a lock timeout still seals it.
 	seal := func() error {
 		if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
@@ -611,7 +625,8 @@ func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.D
 		unsealedRefresh.Delete(p.Name)
 		return finishCredential(p, tok.Access, tok.Expiry)
 	}
-	if err = withRefreshLock(p, seal); errors.Is(err, errRefreshLockTimeout) {
+	err := withRefreshLock(p, seal)
+	if errors.Is(err, errRefreshLockTimeout) {
 		err = seal()
 	}
 	if err != nil {
