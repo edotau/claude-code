@@ -341,10 +341,16 @@ func TestMintExpiryComesFromMintedToken(t *testing.T) {
 	}
 }
 
-// An SP-identity row reports m2m as the minted kind.
-func TestMintedAuthTypeSPIsM2M(t *testing.T) {
-	if got := mintedAuthType(&providers.Provider{Identity: providers.IdentitySP}); got != providers.AuthM2M {
-		t.Errorf("mintedAuthType = %q, want m2m", got)
+// The minted kind comes from the token: an SP token (sub == client_id) is m2m even on an oauth row.
+func TestMintedAuthTypeReadsTheToken(t *testing.T) {
+	enc := base64.RawURLEncoding.EncodeToString
+	jwt := func(claims string) string { return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(claims)) + ".sig" }
+	row := &providers.Provider{Auth: providers.Auth{Type: providers.AuthOAuth}}
+	if got := mintedAuthType(row, jwt(`{"sub":"sp-1","client_id":"sp-1"}`)); got != providers.AuthM2M {
+		t.Errorf("SP token on an oauth row = %q, want m2m", got)
+	}
+	if got := mintedAuthType(row, jwt(`{"sub":"me@example.com","client_id":"databricks-cli"}`)); got != authLabel(row) {
+		t.Errorf("user token = %q, want the row label %q", got, authLabel(row))
 	}
 }
 
