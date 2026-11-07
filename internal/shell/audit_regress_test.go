@@ -76,3 +76,44 @@ func TestReadOnlyGitRefusesNoIndex(t *testing.T) {
 		}
 	}
 }
+
+// TestGitAddPathRejectsPathspecAndGlob pins that pathspec magic and globs are not admitted as named files.
+func TestGitAddPathRejectsPathspecAndGlob(t *testing.T) {
+	w := t.TempDir()
+	if !gitAddPathAllowed("a.go", w) {
+		t.Fatal("plain named file refused")
+	}
+	for _, p := range []string{"*", ".env*", ":/", ":(top)x", ":!x", "a?.go", "[a-z]*"} {
+		if gitAddPathAllowed(p, w) {
+			t.Errorf("gitAddPathAllowed(%q) = true, want false", p)
+		}
+	}
+}
+
+// TestTokensKeepsBraceExpansionWhole pins that an unquoted ${VAR} stays one word while a bare } still splits.
+func TestTokensKeepsBraceExpansionWhole(t *testing.T) {
+	if got, want := Tokens("cd ${HOME}/repo"), []string{"cd", "${HOME}/repo"}; !slices.Equal(got, want) {
+		t.Errorf("Tokens = %q, want %q", got, want)
+	}
+	if got, want := Tokens("{ cd x; }"), []string{"cd", "x;"}; !slices.Equal(got, want) {
+		t.Errorf("group close = %q, want %q", got, want)
+	}
+}
+
+// TestBraceExpansionEndNestingAndQuotes pins that ${...} closes at its matching brace, past nested ${} and quoted braces.
+func TestBraceExpansionEndNestingAndQuotes(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"echo ${x:-${y}} z", []string{"echo", "${x:-${y}}", "z"}},
+		{`echo ${x:-"}"} z`, []string{"echo", `${x:-"}"}`, "z"}},
+		{`echo ${x:-\}} z`, []string{"echo", `${x:-\}}`, "z"}},
+		{"echo ${x:-unterminated z", []string{"echo", "${x:-unterminated", "z"}},
+	}
+	for _, c := range cases {
+		if got := Tokens(c.in); !slices.Equal(got, c.want) {
+			t.Errorf("Tokens(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

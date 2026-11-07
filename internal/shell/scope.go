@@ -530,9 +530,10 @@ func gitAddAllowed(paths []string, workDir string) bool {
 	return true
 }
 
-// gitAddPathAllowed admits one named file inside workDir: no flag, directory, `.`/`..` or trailing slash.
+// gitAddPathAllowed admits one named file inside workDir: no flag, directory, `.`/`..`, slash suffix, pathspec or glob.
 func gitAddPathAllowed(p, workDir string) bool {
-	if strings.HasPrefix(p, "-") || p == "." || p == ".." || strings.HasSuffix(p, "/") {
+	if strings.HasPrefix(p, "-") || p == "." || p == ".." || strings.HasSuffix(p, "/") ||
+		strings.HasPrefix(p, ":") || strings.ContainsAny(p, `*?[\`) { // pathspec magic and globs: git expands them
 		return false
 	}
 	rel, ok := relInside(p, workDir)

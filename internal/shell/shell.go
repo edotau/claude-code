@@ -78,12 +78,67 @@ func Tokens(seg string) []string {
 			flush() // whitespace, or an unquoted close of a subshell/group: a word boundary, never part of the word
 			continue
 		default:
-			i, quote = plainStep(&b, seg, i)
+			if end := dollarBraceEnd(seg, i); end > 0 {
+				b.WriteString(seg[i : end+1]) // a `${VAR}` expansion stays one word
+				i = end
+			} else {
+				i, quote = plainStep(&b, seg, i)
+			}
 		}
 		started = true
 	}
 	flush()
 	return trimGroupOpen(out)
+}
+
+// dollarBraceEnd is braceExpansionEnd when seg[i] is `$`, else -1.
+func dollarBraceEnd(seg string, i int) int {
+	if seg[i] != '$' {
+		return -1
+	}
+	return braceExpansionEnd(seg, i)
+}
+
+// braceExpansionEnd is the index of the `}` closing a `${` at seg[i], or -1 when seg[i:] opens none.
+func braceExpansionEnd(seg string, i int) int {
+	if i+1 >= len(seg) || seg[i+1] != '{' {
+		return -1
+	}
+	depth := 1
+	for j := i + 2; j < len(seg); j++ {
+		switch seg[j] {
+		case '\\':
+			j++
+		case '\'', '"':
+			k := quotedEnd(seg, j)
+			if k < 0 {
+				return -1
+			}
+			j = k
+		case '$':
+			if j+1 < len(seg) && seg[j+1] == '{' {
+				depth++
+				j++
+			}
+		case '}':
+			if depth--; depth == 0 {
+				return j
+			}
+		}
+	}
+	return -1
+}
+
+// quotedEnd is the index of the quote closing the one opened at seg[i], or -1 when unterminated.
+func quotedEnd(seg string, i int) int {
+	quote := seg[i]
+	for j := i + 1; j < len(seg); j++ {
+		var q byte
+		if j, q = quotedStep(seg, j, quote); q == 0 {
+			return j
+		}
+	}
+	return -1
 }
 
 // plainStep handles an unquoted, non-boundary byte seg[i]: opens a quote, resolves a backslash escape or writes it.
