@@ -4,12 +4,13 @@ import (
 	"slices"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/router"
 )
 
-func askSpecFlags() []flagInfo {
+func askSpecFlags() []completion.Flag {
 	flag, boolFlag, valuedFlag := specFlag, specBoolFlag, specValuedFlag
-	return []flagInfo{
+	return []completion.Flag{
 		valuedFlag("agent", agentNames), flag("agents"), valuedFlag("profile", providerNames), flag("model"),
 		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("read-only"), boolFlag("no-tools"), boolFlag("native"), flag("allow"), flag("ask"), flag("deny"),
 		valuedFlag("mode", func() []string { return []string{"default", "auto", "plan"} }),
@@ -22,70 +23,70 @@ func askSpecFlags() []flagInfo {
 }
 
 // agentsRunSpecNodes are the `agents` subcommands that run a task: list, ask and dispatch.
-func agentsRunSpecNodes(askFlags []flagInfo) map[string]*compNode {
+func agentsRunSpecNodes(askFlags []completion.Flag) map[string]*completion.Node {
 	flag, boolFlag, formatFlag := specFlag, specBoolFlag, specFormatFlag
-	return map[string]*compNode{
-		"list": {flags: []flagInfo{flag("host"), flag("remote-bin"), formatFlag()}},
-		"ask":  {flags: askFlags},
-		"dispatch": {args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, flags: []flagInfo{
+	return map[string]*completion.Node{
+		"list": {Flags: []completion.Flag{flag("host"), flag("remote-bin"), formatFlag()}},
+		"ask":  {Flags: askFlags},
+		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []completion.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background")}},
 	}
 }
 
-func addLauncherSpecNodes(tree map[string]*compNode, askFlags []flagInfo) {
+func addLauncherSpecNodes(tree map[string]*completion.Node, askFlags []completion.Flag) {
 	flag, boolFlag := specFlag, specBoolFlag
 	// Launchers that only ever get a bare node (no flags of their own — see noComplete).
 	for _, v := range []string{"opus", "sonnet", "haiku", "fable", "science"} {
-		tree[v] = &compNode{}
+		tree[v] = &completion.Node{}
 	}
-	tree["anthropic"] = &compNode{flags: []flagInfo{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"),
+	tree["anthropic"] = &completion.Node{Flags: []completion.Flag{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"),
 		boolFlag("print-env"), flag("keep-env"), flag("overlay")}}
 	// Agent verbs: ask/resume/review/transfer/status/result/cancel/setup/catalog, same shape per agent.
 	for _, v := range []string{"codex", "copilot", "opencode"} {
-		tree[v] = &compNode{sub: agentSubNodes(askFlags)}
+		tree[v] = &completion.Node{Sub: agentSubNodes(askFlags)}
 	}
-	tree["gemini"] = &compNode{sub: agentSubNodes(askFlags)}
+	tree["gemini"] = &completion.Node{Sub: agentSubNodes(askFlags)}
 	// Every remaining verb (hook/statusline/version/completion/__complete and anything future) at
 	// least gets an empty node so it's never silently unrepresented.
 	for _, c := range commands() {
 		if tree[c.name] == nil {
-			tree[c.name] = &compNode{}
+			tree[c.name] = &completion.Node{}
 		}
 	}
-	tree["hook"] = &compNode{args: []func() []string{hookEvents}}
+	tree["hook"] = &completion.Node{Args: []func() []string{hookEvents}}
 }
 
 // agentSubNodes is the one builder for every agent verb's completion subtree (codex, copilot,
 // opencode, gemini): ask/resume/review/transfer/status/result/cancel/setup/catalog, same shape per agent.
-func agentSubNodes(askFlags []flagInfo) map[string]*compNode {
-	flag := func(name string) flagInfo { return flagInfo{name: name} }
-	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
-	formatFlag := func() flagInfo { return flagInfo{name: "format", values: formatValues} }
-	return map[string]*compNode{
-		"ask":    {flags: askFlags},
+func agentSubNodes(askFlags []completion.Flag) map[string]*completion.Node {
+	flag := func(name string) completion.Flag { return completion.Flag{Name: name} }
+	boolFlag := func(name string) completion.Flag { return completion.Flag{Name: name, IsBool: true} }
+	formatFlag := func() completion.Flag { return completion.Flag{Name: "format", Values: formatValues} }
+	return map[string]*completion.Node{
+		"ask":    {Flags: askFlags},
 		"resume": {},
-		"review": {flags: []flagInfo{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
+		"review": {Flags: []completion.Flag{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
 			boolFlag("adversarial"), boolFlag("background"), flag("rubric")}},
-		"explore":  {flags: []flagInfo{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
-		"transfer": {flags: []flagInfo{flag("source"), boolFlag("wait")}},
-		"status":   {flags: []flagInfo{boolFlag("all"), formatFlag()}},
-		"tail":     {flags: []flagInfo{boolFlag("f")}},
-		"result":   {flags: []flagInfo{formatFlag()}},
+		"explore":  {Flags: []completion.Flag{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
+		"transfer": {Flags: []completion.Flag{flag("source"), boolFlag("wait")}},
+		"status":   {Flags: []completion.Flag{boolFlag("all"), formatFlag()}},
+		"tail":     {Flags: []completion.Flag{boolFlag("f")}},
+		"result":   {Flags: []completion.Flag{formatFlag()}},
 		"cancel":   {},
-		"profile":  {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("clear")}},
+		"profile":  {Args: []func() []string{providerNames}, Flags: []completion.Flag{boolFlag("clear")}},
 		"on":       {},
 		"off":      {},
-		"setup":    {flags: []flagInfo{formatFlag()}},
+		"setup":    {Flags: []completion.Flag{formatFlag()}},
 		"catalog":  {},
 	}
 }
 
 // reviewSubNodes gives every review detector (reviewTools, review.go) an empty node — none of them
 // have their own completable flags today.
-func reviewSubNodes() map[string]*compNode {
-	out := map[string]*compNode{}
+func reviewSubNodes() map[string]*completion.Node {
+	out := map[string]*completion.Node{}
 	for _, n := range reviewToolNames() {
-		out[n] = &compNode{}
+		out[n] = &completion.Node{}
 	}
 	return out
 }

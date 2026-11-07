@@ -1,4 +1,4 @@
-// Package completion renders and installs bash tab completion for claude-code.
+// Package completion computes candidates and renders and installs bash tab completion for claude-code.
 package completion
 
 import (

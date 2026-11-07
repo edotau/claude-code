@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 
+	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network"
@@ -17,6 +18,7 @@ type command struct {
 	group   string
 	hidden  bool
 	run     func(args []string) int
+	spec    func() *completion.Node
 }
 
 // Menu groups; declaration order in commands() is the display order.
@@ -49,14 +51,14 @@ func commands() []command {
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run},
-		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: func(a []string) int { return network.Run(a, func() any { return verbTree() }) }},
+		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: func(a []string) int { return network.Run(a, func() any { return verbTree() }) }, spec: networkSpecNodes},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }},
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
-		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
+		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory, spec: memorySpecNodes},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: cmdPlan},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
