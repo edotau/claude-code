@@ -1,14 +1,21 @@
 package databricks
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 const exHost = "https://example.cloud.databricks.com"
@@ -338,5 +345,32 @@ func TestRescueScrubsInheritedAuthEnv(t *testing.T) {
 	want := []string{"PATH=/bin", "HOME=/h", "CLAUDE_CODE_NO_FLICKER=1", "MY_DATABRICKS_NOTE=keep"}
 	if !slices.Equal(got, want) {
 		t.Errorf("scrubbed = %v, want %v", got, want)
+	}
+}
+
+// A probe timeout is named as such, not the bare "network error".
+func TestProbeFailureNamesTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+	if got := probeFailure(ctx, errors.New("x")); got != "network error: timeout" {
+		t.Errorf("probeFailure = %q", got)
+	}
+	if got := probeFailure(context.Background(), &net.DNSError{Name: "h"}); got != "network error: DNS" {
+		t.Errorf("DNS probeFailure = %q", got)
+	}
+}
+
+// A non-2xx reply whose body is cut off says so instead of reporting a clean HTTP code.
+func TestProbeReportsCutOffBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("partial"))
+	}))
+	defer srv.Close()
+	p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
+	if got := probe(context.Background(), p, "tok", "m"); got != "HTTP 502 (body cut off)" {
+		t.Errorf("probe = %q", got)
 	}
 }

@@ -369,7 +369,7 @@ func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 	if secret == "" {
 		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
 	}
-	tok, err := m2mToken(ctx, name, AuthHost(p), p.Auth.SPClientID, secret, force)
+	tok, err := m2mToken(ctx, p, name, AuthHost(p), p.Auth.SPClientID, secret, force)
 	if err != nil {
 		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
@@ -390,7 +390,7 @@ func finishSPCredential(p *Provider, v string, exp time.Time) error {
 		ttl = 5 * time.Minute
 	}
 	until := time.Now().Add(ttl)
-	if e, ok := jwtExp(v); ok && exp.IsZero() {
+	if e, ok := JWTExp(v); ok && exp.IsZero() {
 		exp = time.Unix(e, 0)
 	}
 	if !exp.IsZero() && exp.Add(-expiryMargin).Before(until) {
@@ -418,7 +418,7 @@ func sealedAccess(p *Provider, margin time.Duration) (string, bool) {
 	if err != nil || v == "" {
 		return "", false
 	}
-	exp, ok := jwtExp(v)
+	exp, ok := JWTExp(v)
 	if !ok || !time.Unix(exp, 0).Add(-margin).After(time.Now()) {
 		return "", false
 	}
@@ -467,7 +467,7 @@ func mintAuth(ctx context.Context, p *Provider, force bool) (oauth.Token, error)
 	case AuthPAT:
 		return oauth.Token{Access: secret}, nil
 	case AuthM2M:
-		return m2mToken(ctx, name, host, p.Auth.ClientID, secret, force)
+		return m2mToken(ctx, p, name, host, p.Auth.ClientID, secret, force)
 	}
 	return mintU2M(ctx, p, host, name, secret)
 }
@@ -479,7 +479,7 @@ type clientAccess struct {
 }
 
 // m2mToken serves an m2m/sp token sealed by any process while it is valid past expiryMargin; force mints anew.
-func m2mToken(ctx context.Context, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
+func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
 	name := secretName + "_ACCESS"
 	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
 	bind := hex.EncodeToString(sum[:8])
@@ -490,6 +490,9 @@ func m2mToken(ctx context.Context, secretName, host, clientID, secret string, fo
 	}
 	tok, err := mintM2M(ctx, host, clientID, secret)
 	if err != nil {
+		return tok, err
+	}
+	if err := checkIssuer(p, tok.Access); err != nil { // a wrong-issuer token must not reach the shared vault
 		return tok, err
 	}
 	if b, err := json.Marshal(clientAccess{Access: tok.Access, Bind: bind}); err == nil {
@@ -507,7 +510,7 @@ func sealedClientAccess(name, bind string) (string, bool) {
 	if err != nil || !found || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
 		return "", false
 	}
-	exp, ok := jwtExp(ca.Access)
+	exp, ok := JWTExp(ca.Access)
 	if !ok || !time.Unix(exp, 0).Add(-expiryMargin).After(time.Now()) {
 		return "", false
 	}

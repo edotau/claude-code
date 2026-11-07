@@ -243,3 +243,31 @@ func TestNoDatabricksProfileNamesImport(t *testing.T) {
 		}
 	}
 }
+
+// A defaulted m2m/pat row's refusal says it already signs in without a browser and names the oauth-profile login.
+func TestLoginRefusalNamesNonBrowserSignIn(t *testing.T) {
+	useVaultTest(t)
+	err := providers.SetProviderFields("dbx-pat2", map[string]any{
+		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"auth": map[string]any{"type": "pat"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, stderr := captureOutput(t, func() int { return login([]string{"--profile", "dbx-pat2", "--dry-run"}) })
+	if !strings.Contains(stderr, "without a browser") || !strings.Contains(stderr, "login -p <oauth profile>") {
+		t.Errorf("stderr %q, want the no-browser note and the oauth-profile hint", stderr)
+	}
+}
+
+// Every bad flag value from checkLoginFlags is a usage error (2), --as ones included.
+func TestCheckLoginFlagsAsIsUsageError(t *testing.T) {
+	for _, as := range []string{"sp", "bogus"} {
+		var code int
+		var bad bool
+		captureOutput(t, func() int { code, bad = checkLoginFlags(as, ""); return 0 })
+		if !bad || code != 2 {
+			t.Errorf("--as %s = (%d, %v), want (2, true)", as, code, bad)
+		}
+	}
+}

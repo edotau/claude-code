@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"strconv"
@@ -544,5 +545,93 @@ func TestStopCallbackFinishesInFlightResponse(t *testing.T) {
 	stopCallback(srv)
 	if body := <-got; body != "Login complete." {
 		t.Fatalf("client got %q, want the full response", body)
+	}
+}
+
+// A non-JSON error reply (a proxy page) keeps a clipped body in the error text.
+func TestNonJSONErrorBodyIsKept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("<html>Captive portal login</html>"))
+	}))
+	defer srv.Close()
+	_, err := RefreshU2M(context.Background(), srv.URL, "r")
+	if err == nil || !strings.Contains(err.Error(), "Captive portal login") {
+		t.Errorf("err = %v, want the body snippet", err)
+	}
+}
+
+// A host carrying userinfo, a query or a fragment is refused, so no secret reaches an error or URL.
+func TestNormHostRejectsUserinfoQueryFragment(t *testing.T) {
+	for _, h := range []string{"https://u:secret@h.example.com", "https://h.example.com?o=1", "https://h.example.com#x"} {
+		if _, err := normHost(h); err == nil {
+			t.Errorf("normHost(%q) accepted", h)
+		}
+	}
+}
+
+// A listen failure that is not EADDRINUSE surfaces its cause instead of "busy".
+func TestListenLoopbackReportsRealCause(t *testing.T) {
+	_, _, err := listenLoopback(70000)
+	if err == nil || strings.Contains(err.Error(), "busy") {
+		t.Errorf("err = %v, want the underlying listen error", err)
+	}
+}
+
+type connThenFail struct{}
+
+func (connThenFail) RoundTrip(r *http.Request) (*http.Response, error) {
+	if tr := httptrace.ContextClientTrace(r.Context()); tr != nil && tr.GotConn != nil {
+		tr.GotConn(httptrace.GotConnInfo{})
+	}
+	return nil, errors.New("timeout before WroteRequest fired")
+}
+
+// A request that failed after a connection was obtained, with no write failure reported, counts as sent.
+func TestPostOnceAssumesSentAfterConn(t *testing.T) {
+	orig := tokenClient
+	tokenClient = &http.Client{Transport: connThenFail{}}
+	t.Cleanup(func() { tokenClient = orig })
+	_, _, written, err := postOnce(context.Background(), tokenRequest{host: "http://127.0.0.1:1", op: "refresh"})
+	if err == nil || !written {
+		t.Errorf("written=%v err=%v, want written=true with an error", written, err)
+	}
+}
+
+type connWriteFail struct{}
+
+func (connWriteFail) RoundTrip(r *http.Request) (*http.Response, error) {
+	tr := httptrace.ContextClientTrace(r.Context())
+	tr.GotConn(httptrace.GotConnInfo{})
+	tr.WroteRequest(httptrace.WroteRequestInfo{Err: errors.New("broken pipe")})
+	return nil, errors.New("write failed")
+}
+
+// A connection whose write failed never sent the request, so the grant stays retryable.
+func TestPostOnceWriteFailureIsNotSent(t *testing.T) {
+	orig := tokenClient
+	tokenClient = &http.Client{Transport: connWriteFail{}}
+	t.Cleanup(func() { tokenClient = orig })
+	_, _, written, err := postOnce(context.Background(), tokenRequest{host: "http://127.0.0.1:1", op: "refresh"})
+	if err == nil || written {
+		t.Errorf("written=%v err=%v, want written=false with an error", written, err)
+	}
+}
+
+// Control and ANSI escape bytes in a server body never reach the error text.
+func TestNonJSONErrorBodyStripsControlBytes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("bad\x1b[31mred\x07gateway\r\n\x00end"))
+	}))
+	defer srv.Close()
+	_, err := RefreshU2M(context.Background(), srv.URL, "r")
+	if err == nil || !strings.Contains(err.Error(), "bad [31mred gateway end") {
+		t.Fatalf("err = %v, want control bytes replaced by spaces", err)
+	}
+	for _, r := range err.Error() {
+		if r < 0x20 || r == 0x7f {
+			t.Errorf("control rune %q in %q", r, err)
+		}
 	}
 }

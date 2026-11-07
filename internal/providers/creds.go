@@ -179,7 +179,7 @@ func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
 		}
 	}
 	exp := time.Time{}
-	if e, ok := jwtExp(v); ok {
+	if e, ok := JWTExp(v); ok {
 		exp = time.Unix(e, 0)
 	}
 	if err := finishCredential(p, v, exp); err != nil {
@@ -190,7 +190,7 @@ func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
 
 // rotateNearExpiry reports whether v came from the primary command, is near expiry and a refresh command exists.
 func rotateNearExpiry(p *Provider, cmd, v string) bool {
-	exp, ok := jwtExp(v)
+	exp, ok := JWTExp(v)
 	return ok && p.Auth.RefreshCommand != "" && cmd != p.Auth.RefreshCommand &&
 		time.Until(time.Unix(exp, 0)) < expiryMargin
 }
@@ -207,7 +207,7 @@ func finishCredential(p *Provider, v string, exp time.Time) error {
 	}
 	until := time.Now().Add(ttl)
 	if exp.IsZero() {
-		if e, ok := jwtExp(v); ok {
+		if e, ok := JWTExp(v); ok {
 			exp = time.Unix(e, 0)
 		}
 	}

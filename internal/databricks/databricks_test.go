@@ -234,7 +234,7 @@ func TestPlanProfileErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p, err := plan(args)
 			if name == "no value" || name == "= (empty)" {
-				if err != nil { // an empty name falls back to the default profile
+				if err != nil { // an empty name falls back to the workspace's last profile, then the pin
 					t.Fatalf("plan(%q) error = %v", args, err)
 				}
 				return
@@ -573,5 +573,27 @@ func TestCutFlagFindsFlagAnywhere(t *testing.T) {
 func TestSubverbCheckAllAfterOtherArgs(t *testing.T) {
 	if _, ok := subverbExit([]string{"check", "--profile", "nope", "--all"}); !ok {
 		t.Error("check ... --all not routed to the sweep")
+	}
+}
+
+// A workspace's last claude profile beats the global vault pin when no session profile is set.
+func TestResolveProfileUsesWorkspaceLastProfile(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "")
+	vaulttest.SetRecord(t, "claude", "profile", "cc")
+	providers.RecordLastProfile("claude", "bb")
+	if got := resolveProfile(mustLoad(t), ""); got != "bb" {
+		t.Errorf("resolveProfile = %q, want the workspace's last profile bb", got)
+	}
+}
+
+// A non-Databricks last-used profile must not shadow the pinned Databricks record profile.
+func TestResolveProfileLastNonDatabricksFallsToPin(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "")
+	vaulttest.SetRecord(t, "claude", "profile", "cc")
+	providers.RecordLastProfile("claude", "not-databricks")
+	if got := resolveProfile(mustLoad(t), ""); got != "cc" {
+		t.Errorf("resolveProfile = %q, want the pinned cc", got)
 	}
 }

@@ -67,9 +67,13 @@ func baseImportRow(c Candidate, existing map[string]json.RawMessage, o ImportOpt
 			Auth     map[string]json.RawMessage `json:"auth"`
 			Identity string                     `json:"identity"`
 		}
-		_ = json.Unmarshal(raw, &p)
+		if json.Unmarshal(raw, &p) != nil {
+			return r, "" // a malformed row reads as unreadable, so the import skips it
+		}
 		value, set := p.Auth["spClientId"]
-		_ = json.Unmarshal(value, &r.SPClientID)
+		if set && json.Unmarshal(value, &r.SPClientID) != nil {
+			return r, ""
+		}
 		r.PairingSet, r.identity = set, p.Identity
 	}
 	return r, ek
@@ -106,7 +110,7 @@ func existingSkipReason(r Row, c Candidate, ek string, o ImportOptions) string {
 	case !o.Replace:
 		return "row exists (use --replace)"
 	case ek == "":
-		return "existing row has no sealed auth.type; switch it with `claude-code databricks login --profile " + r.ID + " --auth-type oauth`"
+		return "existing row has no readable sealed auth.type; switch it with `claude-code databricks login --profile " + r.ID + " --auth-type oauth`"
 	case ek != c.Auth:
 		return "existing auth.type " + ek + " is never changed"
 	}
@@ -130,8 +134,12 @@ func secretName(id, authType string) string {
 func sealedNames(existing map[string]json.RawMessage) map[string]string {
 	out := map[string]string{}
 	for id, raw := range existing {
-		var p providers.Provider
-		_ = json.Unmarshal(raw, &p)
+		var p struct {
+			Auth struct {
+				SPClientID string `json:"spClientId"`
+			} `json:"auth"`
+		}
+		_ = json.Unmarshal(raw, &p) // an unrelated bad field must not hide the row's sealed secret
 		auth := existingAuthType(raw)
 		if auth == providers.AuthOAuth && p.Auth.SPClientID != "" {
 			out[secretName(id, providers.AuthM2M)] = id
@@ -157,7 +165,9 @@ func existingAuthType(raw json.RawMessage) string {
 			Type string `json:"type"`
 		} `json:"auth"`
 	}
-	_ = json.Unmarshal(raw, &p)
+	if json.Unmarshal(raw, &p) != nil {
+		return ""
+	}
 	if !slices.Contains([]string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT}, p.Auth.Type) {
 		return ""
 	}
@@ -188,6 +198,12 @@ func RowJSON(r Row) (json.RawMessage, error) {
 
 // Apply writes the add/replace rows into the overlay doc's providers map.
 func Apply(top map[string]json.RawMessage, rows []Row) error {
+	if raw, ok := top["providers"]; ok {
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			return fmt.Errorf("providers overlay: existing value is not an object: %w", err)
+		}
+	}
 	provs := Existing(top)
 	keys := providers.ObjectKeys(top["providers"])
 	for _, r := range rows {

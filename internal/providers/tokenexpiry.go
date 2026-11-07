@@ -28,8 +28,8 @@ func tokenExpiryPath(name string) string {
 // maxJWTExp bounds a plausible exp claim (year 9999) so the float64 to int64 conversion cannot overflow.
 const maxJWTExp = 253402300799
 
-// jwtExp returns the numeric exp claim of a JWT-shaped credential; false for anything else.
-func jwtExp(v string) (int64, bool) {
+// JWTExp returns the numeric exp claim of a JWT-shaped credential; false for anything else.
+func JWTExp(v string) (int64, bool) {
 	var claims struct {
 		Exp *float64 `json:"exp"`
 	}
@@ -50,7 +50,7 @@ type tokenExpiryRecord struct {
 
 // recordTokenExpiry stores only the exp claim of a JWT credential; every error is ignored.
 func recordTokenExpiry(name, v string) {
-	exp, ok := jwtExp(v)
+	exp, ok := JWTExp(v)
 	path := tokenExpiryPath(name)
 	if !ok || path == "" {
 		return

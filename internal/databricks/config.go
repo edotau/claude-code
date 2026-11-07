@@ -3,10 +3,13 @@ package databricks
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -404,11 +407,28 @@ func probe(ctx context.Context, p *providers.Provider, tok, model string) string
 	}
 	resp, err := probeClient.Do(req)
 	if err != nil {
-		return "network error"
+		return probeFailure(ctx, err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil && resp.StatusCode >= 300 {
+		return fmt.Sprintf("HTTP %d (body cut off)", resp.StatusCode)
+	}
 	return classify(resp.StatusCode, strings.ReplaceAll(string(raw), tok, "***"))
+}
+
+// probeFailure names a transport failure by kind; the error text itself could echo the URL.
+func probeFailure(ctx context.Context, err error) string {
+	var ne net.Error
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()):
+		return "network error: timeout"
+	case errors.As(err, new(*net.DNSError)):
+		return "network error: DNS"
+	case errors.As(err, new(*tls.CertificateVerificationError)):
+		return "network error: TLS"
+	}
+	return "network error"
 }
 
 // classify names a probe outcome: ok, budget denied (403 mentioning budget), else HTTP <code>: <message>.
