@@ -41,7 +41,7 @@ fan-out explore (Procedure below), and `ask --agent gemini --tools --dirs …` o
 - **Fan-out explore** — up to 12 parallel `claude-code gemini explore [--no-web] --background` jobs per wave,
   merged into one Codebase Context Brief with file:line and URLs.
 - **Targeted scans and web lookups** — `claude-code gemini ask --tools --workdir <repo>` (1–20 files, known entry
-  points); without `--tools` agy cannot search. Fallback: `skills/web-search/SKILL.md`.
+  points); without `--tools` agy cannot search. Fallback: `skills/web-explore/SKILL.md`.
 - **1M-context sweeps** — `claude-code agents ask --agent gemini --tools --dirs <d>`, whole-repo surveys,
   structured data across many files.
 - **Whole-module second-opinion review (`sweep-review`)** —
