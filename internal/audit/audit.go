@@ -99,15 +99,18 @@ func Log(a Action, resource, detail string) {
 		event.Detail = event.Detail[:n]
 	}
 	file := File()
-	if os.MkdirAll(filepath.Dir(file), 0o700) != nil {
+	dir := filepath.Dir(file)
+	if os.MkdirAll(dir, 0o700) != nil {
 		return
 	}
+	_ = os.Chmod(dir, 0o700) // MkdirAll's mode applies only on create
 	rotate(file)
 	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return
 	}
 	defer func() { _ = f.Close() }()
+	_ = f.Chmod(0o600) // OpenFile's mode applies only on create
 	_, _ = f.Write(append(line, '\n'))
 }
 
