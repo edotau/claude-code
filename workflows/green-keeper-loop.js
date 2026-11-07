@@ -2,7 +2,7 @@ export const meta = {
   name: 'green-keeper-loop',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
-    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix}: each {model, effort}, claude only (haiku|sonnet|opus); an external fixer is rejected.',
+    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix}: each {model, effort}, claude only (haiku|sonnet|opus|fable); an external fixer is rejected.',
   phases: [
     { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
     { title: 'Gate', detail: 'one fixer per iteration: run the gate, fix root causes within scope, re-run' },

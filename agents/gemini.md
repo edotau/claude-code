@@ -193,8 +193,8 @@ Guidance: say what to focus on, what to skip, what shape the output should take.
 `--files`, lower `--max-files`, or add `--index` when context overflows. If it can't auth, report the
 error; the fallback order above applies.
 
-Model aliases: `opus` (reasoning; use for sweep-review), `sonnet`, `haiku` (lite); `--model` accepts an alias, a
-version or a wire id. Ids per profile: `claude-code gemini catalog`. Full flag reference: `claude-code agents ask -h`.
+Model aliases: `opus` (reasoning; use for sweep-review), `sonnet`, `haiku` (lite), `fable`; `--model` accepts an alias,
+a version or a wire id. Ids per profile: `claude-code gemini catalog`. Full flag reference: `claude-code agents ask -h`.
 
 ### Sweep-review (`@agent-gemini sweep-review`)
 

@@ -69,8 +69,8 @@ packages -> [ relay3 stream p1 | p2 | ... | pN ]  (no barrier)  -> merged report
 task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> relay3:paths | relay3:packages | plan draft
 ```
 
-- Code: `orchestrate.js` (Size, Route). Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips
-  sizing.
+- Code: `orchestrate.js` (Size, Route, then Simplify and Review once over relay3's fixes, Record).
+  Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
   `steps` pin. Under Claude quota pressure the hook downshifts one alias (`dispatch-effort`).
 - Failure: untested routes (LOW/MEDIUM, implementer, EPIC) at R11; LOW route first run `2026-11-07-route-test-low.md`.
@@ -101,9 +101,11 @@ main session -> Explore x3 -> Plan -> code-worker || copilot (test agent) -> fan
 
 ```text
 main -> Workflow orchestrate -> workflow(relay3) -> agent() leaves      (workflow nests one level)
+main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> workflow(green-keeper-loop)
 ```
 
-- `orchestrate` returns relay3's result plus tier, route and `recorded` paths. PostToolUse(Workflow) fires at launch,
+- `orchestrate` returns relay3's result plus tier, route, simplify, review and `recorded` paths.
+  PostToolUse(Workflow) fires at launch,
   so recording happens in-run by a final Haiku agent (`2e9a90ff`, #23).
 
 ### Sequential plan and tournament

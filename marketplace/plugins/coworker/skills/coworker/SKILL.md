@@ -47,7 +47,7 @@ Pick and fallback: `~/.claude/skills/subagent-workflows/references/cost-routing.
 
   agents=   copilot (first when available) · opencode · databricks (agent=<a> picks its agent, default claude)
             several names = relay unless a mode word is given (bare coworker leaf)
-  model=    alias (opus|sonnet|haiku), wire id, or a discovered model (kimi-k3, deepseek-v4-pro, glm-5.3…);
+  model=    alias (opus|sonnet|haiku|fable), wire id, or a discovered model (kimi-k3, deepseek-v4-pro, glm-5.3…);
             discovery = the router picks a rare model from the discovered pool (copilot/opencode only)
   profile=  vault profile that bills the run (dev, prod, …); omitted = the session profile
   mode      single (default) · compare (same task, side by side) · relay (each answer feeds the next) ·
