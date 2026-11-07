@@ -197,11 +197,9 @@ func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t Task, i int,
 		done <- batchDone{i, taskFailure(t, err), false}
 		return
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		b.execute(ctx, sctx, t, i, done)
-	}()
+	})
 }
 
 // execute prepares and runs t on its reserved slot, retrying a real failure once, and reports to done.
