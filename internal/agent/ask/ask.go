@@ -169,7 +169,7 @@ func (r *askRun) prelude() (int, bool) {
 		return r.fail(err, 2)
 	}
 	f.tools = f.tools || f.readOnly // read-only tools are still tools
-	if code, err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.as, f.name, f.background, f.job, f.tools, f.noTools); err != nil {
+	if code, err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
 		return r.fail(err, code)
 	}
 	if r.schema, err = agent.ResolveOutputSchema(f.outputSchema); err != nil {
@@ -190,6 +190,9 @@ func (r *askRun) selectAgent() (int, bool) {
 		return r.fail(err, 2)
 	}
 	f.name = r.ag
+	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
+		return r.fail(err, 2)
+	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
 		return r.fail(err, 2)
 	}
@@ -283,7 +286,7 @@ func (r *askRun) askState() *askState {
 func (r *askRun) execute() int {
 	f := r.f
 	if f.live {
-		return startLive(r.state, f.name, f.format)
+		return startLive(r.state, r.perms, f.name, f.as, f.format)
 	}
 	if r.jobRec != nil && r.jobRec.Live {
 		return runLiveHolder(r.jobRec)
@@ -385,15 +388,12 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.
-func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback, as, name string, background bool, job string, tools, noTools bool) (int, error) {
+func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback string, background bool, job string, tools, noTools bool) (int, error) {
 	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
 		return 2, err
 	}
 	if err := agent.ValidateAskFlags(format, fallback); err != nil {
 		return 1, err
-	}
-	if err := agent.ValidateAs(as, name); err != nil {
-		return 2, err
 	}
 	return 1, agent.AskExclusive(background, job, tools, noTools)
 }

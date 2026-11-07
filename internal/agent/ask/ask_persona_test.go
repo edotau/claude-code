@@ -3,6 +3,7 @@ package ask
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,5 +68,23 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int { return Cmd(append(base, "--agent", "claude:nope", "go")) })
 	if code != 2 || stderr == "" {
 		t.Fatalf("unknown persona: exit %d stderr %q, want 2 with a message", code, stderr)
+	}
+}
+
+// --as is checked against the resolved agent: a claude persona passes, any other agent exits 2.
+func TestAskAsChecksResolvedAgent(t *testing.T) {
+	personaFixture(t)
+	base := []string{"--fallback", "none", "--format", "json", "--as", "sp"}
+	run := func(sel string) (int, string) {
+		code, _, stderr := captureOutput(t, func() int { return Cmd(append(append([]string{}, base...), "--agent", sel, "go")) })
+		return code, stderr
+	}
+	if code, stderr := run("claude:tester"); code != 1 || strings.Contains(stderr, "applies to claude only") {
+		t.Errorf("claude persona: exit %d stderr %q, want 1 (agent unavailable) with --as accepted", code, stderr)
+	}
+	for _, sel := range []string{"codex", "codex:tester"} {
+		if code, stderr := run(sel); code != 2 || !strings.Contains(stderr, "applies to claude only") {
+			t.Errorf("--agent %s --as sp: exit %d stderr %q, want 2 with \"applies to claude only\"", sel, code, stderr)
+		}
 	}
 }

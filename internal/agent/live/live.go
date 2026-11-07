@@ -21,6 +21,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 
 	"github.com/edotau/claude-code/internal/agent"
 )
@@ -68,10 +69,11 @@ type pumpBuf struct {
 	cond   *sync.Cond
 	buf    []byte
 	closed bool
+	done   chan struct{} // closed once the reader hit EOF or an error: all of stdout is in buf
 }
 
 func newPumpBuf(src io.Reader) *pumpBuf {
-	b := &pumpBuf{}
+	b := &pumpBuf{done: make(chan struct{})}
 	b.cond = sync.NewCond(&b.mu)
 	go func() {
 		chunk := make([]byte, 32<<10)
@@ -83,6 +85,7 @@ func newPumpBuf(src io.Reader) *pumpBuf {
 			b.cond.Broadcast()
 			b.mu.Unlock()
 			if err != nil {
+				close(b.done)
 				return
 			}
 		}
@@ -168,6 +171,9 @@ func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 	defer cancel(nil)
 	logSink := agent.NewLogSink(rec.LogPath())
 	defer logSink.Close()
+	if req.Identity != "" {
+		ctx = providers.WithIdentity(ctx, req.Identity)
+	}
 	ctx = agent.WithLogEvents(agent.WithLog(ctx, logSink), logSink)
 	cmd, tail, profile, err := be.Build(ctx, req)
 	if err != nil {
@@ -197,10 +203,17 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *agent.
 		return err
 	}
 	exited := make(chan error, 1) // buffered: the waiter never blocks on a gone reader
-	go func() { exited <- cmd.Wait() }()
+	pump := newPumpBuf(stdout)
+	go func() { // os/exec: Wait closes the pipe, so it runs only after the pump read all of stdout (or the run is cancelled)
+		select {
+		case <-pump.done:
+		case <-ctx.Done():
+		}
+		exited <- cmd.Wait()
+	}()
 	events := agent.NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
-	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(newPumpBuf(stdout)), events: events, idleFor: IdleOf(rec.Request),
+	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(pump), events: events, idleFor: IdleOf(rec.Request),
 		cancel: cancel, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record

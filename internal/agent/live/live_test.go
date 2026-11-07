@@ -480,3 +480,39 @@ func TestListenLiveRefusesOverlongSocketPath(t *testing.T) {
 		t.Fatalf("listenLive = %v, want an over-the-unix-limit error", err)
 	}
 }
+
+// fakeExitAfterResult answers the first turn with a bulky assistant line and the final result, then exits at once.
+const fakeExitAfterResult = `#!/bin/sh
+IFS= read -r line
+pad=$(head -c 400000 /dev/zero | tr '\0' x)
+printf '{"type":"assistant","session_id":"s1","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$pad"
+printf '{"type":"result","subtype":"success","is_error":false,"result":"final","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}\n'
+`
+
+// The last turn's tail survives a child that exits right after writing it: Wait runs only once stdout is drained.
+func TestLiveFinalResultSurvivesImmediateChildExit(t *testing.T) {
+	for i := range 30 {
+		liveEnvScript(t, fakeExitAfterResult)
+		id, wait := startHolder(t, context.Background(), time.Minute)
+		env, err := SendLive(context.Background(), id, "go", agent.Discard)
+		if err != nil || env.Answer != "final" {
+			t.Fatalf("run %d: answer %q, err %v; want the final result delivered", i, env.Answer, err)
+		}
+		_ = wait()
+	}
+}
+
+// A cancelled run still reaps the child and ends the holder: serveChild's Wait goroutine must not block forever.
+func TestLiveCancelEndsHolderAndReapsChild(t *testing.T) {
+	liveEnvScript(t, "#!/bin/sh\nexec /bin/sleep 20\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	_, wait := startHolder(t, ctx, time.Minute)
+	cancel()
+	done := make(chan error, 1)
+	go func() { done <- wait() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("holder did not end after cancel: serveChild deadlocked on pump.done")
+	}
+}

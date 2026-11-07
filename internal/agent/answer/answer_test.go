@@ -56,3 +56,29 @@ func TestStructuredAnswerEnumExactNumbers(t *testing.T) {
 		}
 	}
 }
+
+// The span whose opener comes first is the outer one; the other pair is the fallback when it is not valid JSON.
+func TestJSONSpanOuterOpenerWins(t *testing.T) {
+	for name, c := range map[string][2]string{
+		"array in prose with inner object": {`Here you go: [{"name":"a"}]`, `[{"name":"a"}]`},
+		"object in prose":                  {`Sure: {"name":"a"} done`, `{"name":"a"}`},
+		"object with nested array":         {`x {"l":[1,2]} y`, `{"l":[1,2]}`},
+		"fenced block beats prose":         {"see [1]\n```json\n{\"k\":1}\n```", `{"k":1}`},
+		"whole text":                       {` {"k":[1]} `, `{"k":[1]}`},
+		"invalid first pair falls over":    {`[oops] {"k":1}`, `{"k":1}`},
+	} {
+		if got := jsonSpan(c[0]); got != c[1] {
+			t.Errorf("%s: jsonSpan(%q) = %q, want %q", name, c[0], got, c[1])
+		}
+	}
+}
+
+func TestStructuredArrayInProseKeepsArray(t *testing.T) {
+	v, _, err := Structured(`Here you go: [{"name":"a"}]`, `{"type":"array","items":{"type":"object"}}`)
+	if err != nil {
+		t.Fatalf("array schema rejected an array answer: %v", err)
+	}
+	if string(v) != `[{"name":"a"}]` {
+		t.Errorf("value = %s, want the array", v)
+	}
+}
