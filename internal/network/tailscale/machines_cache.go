@@ -52,7 +52,10 @@ func CachedMachineNames() []string {
 		return nil
 	}
 	var c machinesCache
-	if !schemas.DecodeOK(machinesCacheFormat, data, &c) || time.Since(c.At) > machinesCacheTTL {
+	if !schemas.DecodeOK(machinesCacheFormat, data, &c) {
+		return nil
+	}
+	if age := time.Since(c.At); age < 0 || age > machinesCacheTTL { // future At (clock skew) is stale
 		return nil
 	}
 	return c.Names

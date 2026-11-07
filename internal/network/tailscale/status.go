@@ -1,9 +1,11 @@
 package tailscale
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -241,7 +243,37 @@ type RemoteRunner func(ctx context.Context, argv []string) ([]byte, error)
 func ExecRunner(ctx context.Context, argv []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.WaitDelay = execWaitDelay
-	return cmd.Output()
+	return outputCapped(cmd)
+}
+
+// capBuffer collects writes up to max, then fails the write so the child is cut off with memory bounded.
+type capBuffer struct {
+	buf  bytes.Buffer
+	max  int
+	over bool
+}
+
+func (w *capBuffer) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.max {
+		w.over = true
+		return 0, fmt.Errorf("output over %d bytes", w.max)
+	}
+	return w.buf.Write(p)
+}
+
+// outputCapped is cmd.Output() with stdout held to maxCaptureBytes: over it, the command fails with an over-cap error.
+func outputCapped(cmd *exec.Cmd) ([]byte, error) {
+	stdout := &capBuffer{max: maxCaptureBytes}
+	var stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = stdout, &stderr
+	err := cmd.Run()
+	if stdout.over { // the child's SIGPIPE exit would otherwise mask the cap
+		return stdout.buf.Bytes(), fmt.Errorf("output over %d bytes", stdout.max)
+	}
+	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) && ee.Stderr == nil {
+		ee.Stderr = stderr.Bytes()
+	}
+	return stdout.buf.Bytes(), err
 }
 
 // CapturePanes lists and captures every cc-* tmux pane on host via run, bounding the round trip to
