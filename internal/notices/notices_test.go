@@ -3,6 +3,7 @@ package notices
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -34,5 +35,19 @@ func TestNoticesIsolateSessions(t *testing.T) {
 	}
 	if Drain("b") != nil || Append("", Notice{Text: "x"}) == nil {
 		t.Fatal("another session's drain must be empty and an empty session must be refused")
+	}
+}
+
+// TestDrainKeepsNoticesAfterOversizedLine: a notice over 1MiB must not drop the ones after it.
+func TestDrainKeepsNoticesAfterOversizedLine(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, text := range []string{"A", strings.Repeat("x", 3<<19), "C"} {
+		if err := Append("big", Notice{Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := Drain("big")
+	if len(got) != 3 || got[0].Text != "A" || got[2].Text != "C" {
+		t.Fatalf("drain returned %d notices, want 3 (A, oversized, C)", len(got))
 	}
 }

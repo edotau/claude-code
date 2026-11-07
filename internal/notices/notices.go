@@ -2,7 +2,6 @@
 package notices
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -77,11 +76,9 @@ func Drain(session string) []Notice {
 		return nil
 	}
 	var out []Notice
-	sc := bufio.NewScanner(bytes.NewReader(raw))
-	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
-	for sc.Scan() {
+	for _, line := range bytes.Split(raw, []byte("\n")) { // no line-size cap, unlike bufio.Scanner
 		var n Notice
-		if json.Unmarshal(sc.Bytes(), &n) == nil && n.Text != "" {
+		if json.Unmarshal(line, &n) == nil && n.Text != "" {
 			out = append(out, n)
 		}
 	}
