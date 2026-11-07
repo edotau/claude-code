@@ -102,6 +102,23 @@ func TestFindConflicts(t *testing.T) {
 	}
 }
 
+// TestDoctorConflictSeesSecretArgDifference: defs differing only in a secret arg are a real conflict, shown redacted.
+func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
+	defs := []Def{
+		{"github", "user", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
+		{"github", "project:/x/.mcp.json", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
+	}
+	conflicts := doctorConflicts(defs, "/home/u")
+	if len(conflicts) != 1 || !conflicts[0].Real {
+		t.Fatalf("secret-only difference not flagged real: %+v", conflicts)
+	}
+	for _, r := range conflicts[0].Rows {
+		if strings.Contains(strings.Join(r.D.Args, " "), "ghp_") {
+			t.Errorf("conflict row leaks a token: %v", r.D.Args)
+		}
+	}
+}
+
 // TestFindSecrets: inline tokens in env/headers/url query strings flag; ${ENV} refs, file paths, and
 // placeholders stay clean.
 func TestFindSecrets(t *testing.T) {
