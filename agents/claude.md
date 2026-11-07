@@ -140,7 +140,7 @@ lenses and confidence filter; hot-path check: `skills/evaluate-code/references/p
 (`code-worker`, never `inherit`) are terminal. If you cannot dispatch, fall back to sequential implementation.
 
 Dispatch mechanics, concurrency, pattern choice and per-leaf naming are `skills/subagent-workflows/SKILL.md`'s job
-(→ Sequential plan; → Concurrency, Rules for caps and escalation); handed a lane plan:
+(→ patterns.md → Sequential plan and tournament; → Concurrency, Rules for caps and escalation); handed a lane plan:
 `skills/subagent-workflows/references/lane-orchestrator.md`. Saved Workflows run only when the user asks.
 
 ## Report contract

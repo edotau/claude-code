@@ -15,7 +15,7 @@
 | tmux.conf | [`internal/launch/tmux.conf`](../../internal/launch/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
 | VS Code machine-settings template | [`internal/network/vscode/machine-settings.template.json`](../../internal/network/vscode/machine-settings.template.json) | `claude-code theme vscode` | — |
 | VS Code keybindings template | [`internal/network/vscode/keybindings.template.json`](../../internal/network/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
-| claude-science config | [`internal/agent/science.toml`](../../internal/agent/science.toml) | `claude-code science` (`--print-env`) | — |
+| claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code science` (`--print-env`) | — |
 | wl-paste WSL clipboard proxy | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
 | Plan template | [`docs/templates/plan.md`](plan.md) (read at runtime, not embedded) | `Plan` agent; `plan-gate` and `plan-skeleton` hooks paste it | — |
 | Web dashboard page | [`internal/network/web/assets/index.html.tmpl`](../../internal/network/web/assets/index.html.tmpl) | `claude-code network page` (`GET /`) | — |
@@ -24,8 +24,7 @@
 
 `claude-code install` also renders a Windows-only subset of the same settings template (drops
 `hooks`/`statusLine` and any Linux-path string) via `internal/launch/windows_settings.go`'s
-`stripWindowsOnly`, written to `%USERPROFILE%\.claude\settings.json` on WSL. Example:
-[settings/settings.windows.json](examples/settings/settings.windows.json).
+`stripWindowsOnly`, written to `%USERPROFILE%\.claude\settings.json` on WSL.
 
 ## Memory — generated, not seed templates
 
@@ -33,5 +32,5 @@ Two more memory outputs are generated (not seeded from `templates/*.md`) and are
 
 | Output | Built by | Example |
 | --- | --- | --- |
-| Store catalog (`memory/index.md`) | `BuildCatalog` (`internal/memory/region.go`), run by `claude-code memory index` | [memory/index.md](examples/memory/index.md) |
-| A repo's `MEMORY.md` bank region | `buildBankRegion` (`internal/memory/region.go`), run by `claude-code memory index` | [memory/MEMORY.md](examples/memory/MEMORY.md) |
+| Store catalog (`memory/index.md`) | `BuildCatalog` (`internal/memory/bank/region.go`), run by `claude-code memory index` | [memory/index.md](examples/memory/index.md) |
+| A repo's `MEMORY.md` bank region | `buildBankRegion` (`internal/memory/bank/region.go`), run by `claude-code memory index` | [memory/MEMORY.md](examples/memory/MEMORY.md) |
