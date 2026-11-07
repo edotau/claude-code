@@ -1,4 +1,4 @@
-package cli
+package doctor
 
 import (
 	"encoding/json"
@@ -39,7 +39,7 @@ func TestDoctorSecretAuditExitCodes(t *testing.T) {
 		for _, finding := range []bool{false, true} {
 			t.Run(mode+map[bool]string{false: "/clean", true: "/finding"}[finding], func(t *testing.T) {
 				args, value := doctorSecretAuditFixture(t, mode, finding)
-				code, stdout, stderr := captureOutput(t, func() int { return cmdDoctor(args) })
+				code, stdout, stderr := captureOutput(t, func() int { return Run(args) })
 				want := 0
 				if finding {
 					want = 1
@@ -111,7 +111,7 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 				}
 			}
 			code, stdout, stderr := captureOutput(t, func() int {
-				return cmdDoctor([]string{"--secrets", "--since", "1"})
+				return Run([]string{"--secrets", "--since", "1"})
 			})
 			if code != 1 {
 				t.Errorf("%s finding was lost: exit %d, want 1", finding, code)
@@ -130,7 +130,7 @@ func TestDoctorAuditUsageErrors(t *testing.T) {
 		{"--scan", "--format", "json"}, {"--git", "--format", "json"},
 		{"--secrets", "--format", "json"},
 	} {
-		code, _, _ := captureOutput(t, func() int { return cmdDoctor(args) })
+		code, _, _ := captureOutput(t, func() int { return Run(args) })
 		if code != 2 {
 			t.Errorf("doctor %v exit %d, want 2", args, code)
 		}
@@ -146,7 +146,7 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, format := range []string{"text", "json"} {
-		code, stdout, _ := captureOutput(t, func() int { return cmdDoctor([]string{"--format", format}) })
+		code, stdout, _ := captureOutput(t, func() int { return Run([]string{"--format", format}) })
 		if strings.Contains(stdout, "obviously-fake-doctor-value") {
 			t.Fatal("plain doctor leaked a raw value")
 		}
@@ -210,7 +210,7 @@ func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {
 	audit.Log(audit.ProviderSwitch, "gemini", "")
 	audit.Log(audit.HookBlocked, "safety", "destructive command")
 
-	code, stdout, stderr := captureOutput(t, func() int { return cmdDoctor([]string{"--audit"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"--audit"}) })
 	if code != 0 {
 		t.Fatalf("doctor --audit = %d, want 0: %s", code, stderr)
 	}
@@ -241,7 +241,7 @@ func TestDoctorAuditJSONShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	audit.Log(audit.SecretSet, "OPENAI_API_KEY", "")
 
-	code, stdout, stderr := captureOutput(t, func() int { return cmdDoctor([]string{"--audit", "--format", "json"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"--audit", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("doctor --audit --format json = %d, want 0: %s", code, stderr)
 	}
@@ -264,7 +264,7 @@ func TestDoctorAuditJSONShape(t *testing.T) {
 // doctor --audit --days rejects a non-positive value, same as the old `audit --days`.
 func TestDoctorAuditRejectsNonPositiveDays(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return cmdDoctor([]string{"--audit", "--days", "0"}) })
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"--audit", "--days", "0"}) })
 	if code != 2 {
 		t.Errorf("doctor --audit --days 0 = %d, want 2", code)
 	}
@@ -289,7 +289,7 @@ func TestDoctorJSONWriteError(t *testing.T) {
 	t.Cleanup(func() { doctorChecks = orig })
 	closedStdout(t)
 
-	code := cmdDoctor([]string{"--format", "json"})
+	code := Run([]string{"--format", "json"})
 	if code == 0 {
 		t.Errorf("doctor --format json on closed stdout: exit %d, want non-zero", code)
 	}
@@ -300,7 +300,7 @@ func TestDoctorJSONWriteError(t *testing.T) {
 func TestDoctorAuditJSONWriteError(t *testing.T) {
 	closedStdout(t)
 
-	code := cmdDoctor([]string{"--audit", "--format", "json"})
+	code := Run([]string{"--audit", "--format", "json"})
 	if code == 0 {
 		t.Errorf("doctor --audit --format json on closed stdout: exit %d, want non-zero", code)
 	}
