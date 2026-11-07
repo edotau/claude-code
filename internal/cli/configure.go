@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/desktop"
+	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -183,7 +184,7 @@ func configureRestore(agents, out string, renderAgents, noAgents bool) int {
 	if out != "" && (renderAgents || agents != "") {
 		return helptext.Fail("configure: --out resets a settings file; --agents and --agent never write one")
 	}
-	return cmdRestore(agents, out, renderAgents, noAgents)
+	return launch.CmdRestore(agents, out, renderAgents, noAgents)
 }
 
 // configureRevert runs --revert; extras is true when a flag that only --restore takes was given.
@@ -194,7 +195,7 @@ func configureRevert(agents string, dryRun, extras bool) int {
 	if err := unknownAgent(agents); err != nil {
 		return helptext.Fail("%v", err)
 	}
-	return cmdRevert(agents, dryRun)
+	return launch.CmdRevert(agents, dryRun)
 }
 
 func renderModeConflict(restore, revert bool, section string) error {
