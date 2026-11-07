@@ -319,3 +319,40 @@ func TestBusyLineAbandonsHungScan(t *testing.T) {
 		t.Fatal("busyLine still blocked on the hung scan 3s after a 200ms deadline")
 	}
 }
+
+// TestDivergedAtTellsSiblingCommitsFromRewrite: two new commits on one base are not a rewrite; an amended pushed one is.
+func TestDivergedAtTellsSiblingCommitsFromRewrite(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		amend         bool
+		wantRewritten bool
+	}{{"sibling commits", false, false}, {"amended after push", true, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := gittest.Repo(t)
+			commit := func(file string) {
+				gittest.WriteRel(t, repo, file, file+"\n")
+				gittest.In(t, repo, "add", file)
+				gittest.In(t, repo, "commit", "-q", "-m", file)
+			}
+			if tc.amend {
+				commit("pushed")
+				gittest.In(t, repo, "branch", "-q", "up")
+				gittest.In(t, repo, "commit", "-q", "--amend", "-m", "pushed, reworded")
+			} else {
+				gittest.In(t, repo, "branch", "-q", "up")
+				gittest.In(t, repo, "switch", "-q", "up")
+				commit("remote")
+				gittest.In(t, repo, "switch", "-q", "main")
+				commit("local")
+			}
+			gittest.In(t, repo, "branch", "-q", "--set-upstream-to=up")
+			d, err := divergedAt(context.Background(), repo)
+			if err != nil || d == nil {
+				t.Fatalf("divergedAt = %v, %v; want a divergence (ahead 1, behind 1)", d, err)
+			}
+			if d.rewritten != tc.wantRewritten {
+				t.Errorf("rewritten = %v, want %v (ahead %d, behind %d)", d.rewritten, tc.wantRewritten, d.ahead, d.behind)
+			}
+		})
+	}
+}
