@@ -21,9 +21,9 @@ Databricks uses `--model gpt-6.1-sol`; `--model discovery` needs a Databricks `P
 
 Smoke each agent once: `claude-code agents ask --agent <a> "Reply READY only."` (`agents` ✓ = binary + credential). Name
 it in the brief (`Agent: <name>`), or `Agent: claude` when the brief costs more than the work, the step needs this
-session's context, or the smoke failed. Model alias (`opus`/`sonnet`/`haiku`): `internal/router/table.json` maps agent ×
-alias → model, effort, account and price. The CLI starts cold: paste every fact plus the shared-tree line; opencode has
-ignored `--workdir` and written the live tree, so check `git diff --stat`. In a batch
+session's context, or the smoke failed. Model alias (`opus`/`sonnet`/`haiku`/`fable`): `internal/router/table.json`
+maps agent × alias → model, effort, account and price. The CLI starts cold: paste every fact plus the shared-tree line;
+opencode has ignored `--workdir` and written the live tree, so check `git diff --stat`. In a batch
 (`agents ask --batch`, `agents dispatch`, workflows) each account runs up to its cap (`inflight.Base`; a profile's
 `concurrency` overrides), the machine up to min(cap × accounts, 4 × CPUs); outside one nothing caps. Back off on
 `429`s.

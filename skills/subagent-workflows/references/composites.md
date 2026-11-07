@@ -18,11 +18,14 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Size | sizer, `haiku` low | task, `git status`, `go list` | `{tier, packages, paths, focus}` | tier enum | decision line |
 | Route | none (code) | tier | `relay3:paths` · `relay3:packages` · `plan` | EPIC returns early | route line |
 | Run | relay3 (composite B) | paths or packages | relay3 result | exit `green\|red\|review` | child decisions |
+| Simplify | simplifier, `sonnet` medium | files relay3 fixed | simplify result | simplify gate; `polish:false` skips | decision |
+| Review | reviewer, `sonnet` high, read-only | that diff | findings | critical/high/medium earn one more relay3 | decision |
 | Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
 
 - **Args**: `cwd` and one of `task`, `packages`, `paths`, `range` (git range; changed files become paths); optional
-  `tier`, `fix` (true), `minFix` (medium), `focus`, `label`, `record:false`,
-  `steps {size, intel, impl, plan, record, child}`.
+  `tier`, `fix` (true), `minFix` (medium), `focus`, `polish` (true; false skips Simplify and Review), `label`,
+  `record:false`, `steps {size, intel, impl, plan, simplify, review, record, child}`.
+  Exits `green|red|review|plan|error`.
 - **Cost**: HIGH over N packages is relay3's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
 - **Failure modes and guards**: sizer returns nothing, so pass `tier`; untested routes (LOW/MEDIUM/impl/EPIC) went
   live only in `2026-11-07-route-test-low.md`; owner messages reach running agents (R8, open); classifier outage

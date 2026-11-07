@@ -2,16 +2,17 @@
 
 Run one only when the user asks; the default dispatch is `/code-worker` ‖ `copilot`
 (`rules/workflows/master-workflow.md` → Phase 6). Each is a deterministic template of master-workflow phases, run by
-name (`Workflow({name, args})`) or nested via `workflow(name, args)` (one level). Control flow is code, never a model
+path (`Workflow({scriptPath: "~/.claude/workflows/<name>.js", args})`; a by-name call is accepted but `dispatch-effort`
+redirects it to the `scriptPath`) or nested via `workflow(name, args)` (one level). Control flow is code, never a model
 decision; agents work in the shared tree.
 
 | Workflow | Shape | Key args (`steps` = per-stage `{model?, effort?}`) |
 | --- | --- | --- |
-| `green-keeper-loop` | gate → fix in scope → re-run, ≤3 per call (whole task ≤5); exits `green\|stalled\|capped\|error` | `{scope, gate?, maxIterations?, claudeState?, steps: {detect, fix}}` |
-| `code-analyzer` | scoped auditors → proximity merge (±10 lines or same symbol) → refute → dependency scan + wave plan → fix + test per package, wave by wave (hotspot files last) → gate → re-audit (≤rounds); returns the shared relay3 shape plus refuted, rounds | `{range\|paths\|findings, fix?, partition?, cap?, hotspots?, minFix?, rounds?, steps: {scope, audit, refute, fix, test, gate, depscan}}` |
-| `code-evaluator` | trap scenarios with vs without a skill, then judges score each run | `{base, skill, scenarios?, seeds?, steps: {run, judge}}` |
-| `relay3` | streaming per-package relay: find → rederive → fix → guard test → gate, no barrier between packages; exits `green\|red\|review\|error` | `{cwd, packages\|paths, fix?, minFix?, focus?, steps: {find, rederive, fix, test, gate}}` |
-| `orchestrate` | size the job (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) then route: relay3 on paths (MEDIUM adds intel, a feature adds an implementer), relay3 on packages (HIGH), plan draft (EPIC); when relay3 fixed something, one Simplify and one Review pass (`polish:false` skips; a critical/high/medium finding earns one more relay3, capped at one loop); exits `green\|red\|review\|plan\|error` | `{cwd, task\|packages\|paths, tier?, fix?, minFix?, focus?, polish?, steps: {size, intel, impl, plan, simplify, review, child}}` |
+| `green-keeper-loop` | gate → fix in scope → re-run, ≤3 per call (whole task ≤5); exits `green\|stalled\|capped\|error` | `{scope, gate?, maxIterations?, fixesPerIteration?, claudeState?, steps: {detect, fix}}` |
+| `code-analyzer` | scoped auditors → proximity merge (±10 lines or same symbol) → refute → dependency scan + wave plan → fix + test per package, wave by wave (hotspot files last) → gate → re-audit (≤rounds); returns the shared relay3 shape plus refuted, rounds | `{range\|paths\|findings, fix?, partition?, cap?, hotspots?, minFix?, rounds?, dimensions?, tests?, gate?, maxIterations?, prior?, chunkChars?, refuteBatch?, steps: {scope, audit, refute, fix, test, gate, depscan}}` |
+| `code-evaluator` | trap scenarios with vs without a skill, then judges score each run | `{base, skill, scenarios?, seeds?, conditions?, steps: {run, judge}}` |
+| `relay3` | streaming per-package relay: find → rederive → fix → guard test → gate, no barrier between packages; exits `green\|red\|review\|error` | `{cwd, packages\|paths, slice?, fix?, minFix?, focus?, steps: {find, rederive, fix, test, gate}}` |
+| `orchestrate` | size the job (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) then route: relay3 on paths (MEDIUM adds intel, a feature adds an implementer), relay3 on packages (HIGH), plan draft (EPIC); when relay3 fixed something, one Simplify and one Review pass (`polish:false` skips; a critical/high/medium finding earns one more relay3, capped at one loop); a final Record agent files the report and decisions (`record:false` skips); `range` = a git range whose changed Go files become paths; exits `green\|red\|review\|plan\|error` | `{cwd, task\|packages\|paths\|range, tier?, fix?, minFix?, focus?, polish?, label?, record?, steps: {size, intel, impl, plan, simplify, review, record, child}}` |
 
 - Workflows are Claude only: a stage runs at `model` = `haiku|sonnet|opus|fable` (`effort` up to `max`), and an
   `agent`/`profile` field or an unknown stage errors before any agent runs. Parser: `stepOf`, copied verbatim into
@@ -26,8 +27,8 @@ decision; agents work in the shared tree.
 
 ## Authoring
 
-- Scripts stay in `workflows/` (the only place by-name runs resolve); `claude-code workflow lint` fails when a script
-  is missing from the table above or a row names no script.
+- Scripts stay in `workflows/` (the only place by-name runs resolve; the documented call is `scriptPath`);
+  `claude-code workflow lint` fails when a script is missing from the table above or a row names no script.
 - Every `agent()` call pins `model:` (or `agentType:`) and `effort:`; `meta` is a pure literal; plain JavaScript only.
 
 ## Run from a leaf
@@ -36,7 +37,7 @@ A leaf has no `Workflow` tool, so it runs one through a headless Claude session,
 
 ```bash
 claude-code agents ask --agent claude --tools --timeout 20m \
-  "Run Workflow({name: \"<name>\", args: {…}}) and print the result"
+  "Run Workflow({scriptPath: \"~/.claude/workflows/<name>.js\", args: {…}}) and print the result"
 ```
 
 `--background` past ~3 minutes; from a scratch cwd pass the script inline (`Workflow({script: <contents>})`). Put the

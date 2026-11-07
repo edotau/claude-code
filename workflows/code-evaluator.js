@@ -9,7 +9,7 @@ export const meta = {
   name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
-    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {model haiku|sonnet|opus, effort} (defaults run haiku, judge sonnet; claude only; replaces the old model arg). RETURNS {runs, cells}.',
+    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {model haiku|sonnet|opus|fable, effort} (defaults run haiku, judge sonnet; claude only; replaces the old model arg). RETURNS {runs, cells}.',
   phases: [{ title: 'Execute' }, { title: 'Judge' }],
 }
 
