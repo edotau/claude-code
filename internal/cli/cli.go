@@ -188,9 +188,8 @@ type menuRow struct {
 	frac                float64
 }
 
-// menuRows lays out the visible verbs: UPPERCASE groups in declaration order, each preceded by a blank line.
-func menuRows() []menuRow {
-	cmds := commands()
+// visibleGroups returns the visible verbs' group names in declaration order and the visible verb count.
+func visibleGroups(cmds []command) ([]string, int) {
 	var groups []string
 	seen := map[string]bool{}
 	total := 0
@@ -204,6 +203,13 @@ func menuRows() []menuRow {
 			groups = append(groups, c.group)
 		}
 	}
+	return groups, total
+}
+
+// menuRows lays out the visible verbs: UPPERCASE groups in declaration order, each preceded by a blank line.
+func menuRows() []menuRow {
+	cmds := commands()
+	groups, total := visibleGroups(cmds)
 	var rows []menuRow
 	n := 0
 	for _, g := range groups {

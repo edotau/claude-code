@@ -118,12 +118,17 @@ func configureList(section string, pos []string, format string) int {
 	return configureProviderList(name, format)
 }
 
+// wantsList is true for --list, or a non-text --format outside the --all check.
+func (o *configureOpts) wantsList() bool {
+	return o.list || *o.format != helptext.Text && !o.all
+}
+
 func configureRun(o *configureOpts, section string, pos []string) int {
 	profile, err := configureAllProfile(o, section, pos)
 	if err != nil {
 		return helptext.Fail("configure: %v", err)
 	}
-	if o.list || *o.format != helptext.Text && !o.all {
+	if o.wantsList() {
 		return configureList(section, pos, *o.format)
 	}
 	if o.restore || o.revert {
