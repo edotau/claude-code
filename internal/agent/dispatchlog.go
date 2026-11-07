@@ -48,6 +48,9 @@ type Record struct {
 	RemoteBin      string     `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
 	FallbackPolicy string     `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
 	Live           bool       `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
+	TaskID         string     `json:"task_id,omitempty"`         // ask --batch: the task line's id
+	BatchID        string     `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
+	PlanTask       string     `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
 }
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.

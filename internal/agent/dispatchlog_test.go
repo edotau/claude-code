@@ -777,3 +777,30 @@ func TestLogSinkConcurrentStreamsNoInterleave(t *testing.T) {
 		delete(want, l)
 	}
 }
+
+// task_id, batch_id and plan_task survive Save and Load; a record without them still loads.
+func TestRecordTaskBatchPlanRoundTrip(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	r := NewRecord("codex", RunOptions{Prompt: "p"}, time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC))
+	r.TaskID, r.BatchID, r.PlanTask = "t1", "batch-x", "Phase 1.1"
+	if err := r.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadRecord(r.ID)
+	if err != nil || got.TaskID != "t1" || got.BatchID != "batch-x" || got.PlanTask != "Phase 1.1" {
+		t.Fatalf("loaded = %+v, %v", got, err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(paths.DispatchDir(), r.ID+".json"))
+	for _, key := range []string{`"task_id"`, `"batch_id"`, `"plan_task"`} {
+		if !strings.Contains(string(raw), key) {
+			t.Errorf("saved JSON lacks %s: %s", key, raw)
+		}
+	}
+
+	const oldID = "20260101T000000.000-codex"
+	writeRawDispatch(t, oldID, `{"id":"`+oldID+`","agent":"codex","request":{},"status":"ok"}`)
+	old, err := LoadRecord(oldID)
+	if err != nil || old.Status != "ok" || old.TaskID != "" || old.BatchID != "" || old.PlanTask != "" {
+		t.Fatalf("old record = %+v, %v", old, err)
+	}
+}
