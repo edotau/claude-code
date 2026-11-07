@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -74,30 +75,26 @@ func CmdAgents(args []string) int {
 		agentsPage.Fprint(os.Stderr)
 		return 0
 	}
-	switch args[0] {
-	case "list":
-		return cmdAgentsList(args[1:])
-	case "ask":
-		return ask.Cmd(args[1:])
-	case "dispatch":
-		return dispatch.Cmd(args[1:])
-	case "sync":
-		return cmdAgentsSync(args[1:])
-	case "tree":
-		return Tree(args[1:])
-	case "reap":
-		return cmdAgentsReap(args[1:])
-	case "status", "result", "tail", "cancel":
-		return lifecycle.Job(args[0], args[1:])
-	case "send":
-		return lifecycle.Send(args[1:])
-	case "-h", "--help", "help":
+	if run := agentsVerbs[args[0]]; run != nil {
+		return run(args[1:])
+	}
+	if slices.Contains([]string{"-h", "--help", "help"}, args[0]) {
 		agentsPage.Fprint(os.Stderr)
 		return 0
 	}
 	helptext.Fail("agents: unknown subcommand %q", args[0])
 	agentsPage.Fprint(os.Stderr)
 	return 1
+}
+
+// agentsVerbs routes `agents <verb>` to its handler; the job verbs share lifecycle.Job.
+var agentsVerbs = map[string]func([]string) int{
+	"list": cmdAgentsList, "ask": ask.Cmd, "dispatch": dispatch.Cmd, "sync": cmdAgentsSync,
+	"tree": Tree, "reap": cmdAgentsReap, "send": lifecycle.Send,
+	"status": func(a []string) int { return lifecycle.Job("status", a) },
+	"result": func(a []string) int { return lifecycle.Job("result", a) },
+	"tail":   func(a []string) int { return lifecycle.Job("tail", a) },
+	"cancel": func(a []string) int { return lifecycle.Job("cancel", a) },
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.
@@ -183,6 +180,20 @@ func renderAgentsTree(opts tree.Options, format string, showAll bool) int {
 	return 0
 }
 
+// checkTreeFlags rejects an invalid --format and the --watch combinations that cannot run.
+func checkTreeFlags(format string, watch bool, interval time.Duration) error {
+	if err := helptext.CheckFormat(format); err != nil {
+		return err
+	}
+	if watch && format == helptext.JSON {
+		return errors.New("--watch has no JSON form; drop --format json")
+	}
+	if watch && interval <= 0 {
+		return errors.New("--interval must be positive")
+	}
+	return nil
+}
+
 // Tree is `claude-code agents tree`.
 func Tree(args []string) int {
 	fs := helptext.NewFlagSet("agents tree", agentsTreePage)
@@ -197,16 +208,8 @@ func Tree(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
+	if err := checkTreeFlags(*format, *watch, *interval); err != nil {
 		fmt.Fprintln(os.Stderr, "agents tree:", err)
-		return 2
-	}
-	if *watch && *format == helptext.JSON {
-		fmt.Fprintln(os.Stderr, "agents tree: --watch has no JSON form; drop --format json")
-		return 2
-	}
-	if *watch && *interval <= 0 {
-		fmt.Fprintln(os.Stderr, "agents tree: --interval must be positive")
 		return 2
 	}
 	// A named session shows whole.
@@ -216,11 +219,16 @@ func Tree(args []string) int {
 	if !*watch {
 		return renderAgentsTree(opts, *format, all)
 	}
+	return watchAgentsTree(opts, *format, all, *interval)
+}
+
+// watchAgentsTree redraws the tree every interval until a render fails.
+func watchAgentsTree(opts tree.Options, format string, showAll bool, interval time.Duration) int {
 	for {
 		fmt.Print(clearScreen)
-		if code := renderAgentsTree(opts, *format, all); code != 0 {
+		if code := renderAgentsTree(opts, format, showAll); code != 0 {
 			return code
 		}
-		time.Sleep(*interval)
+		time.Sleep(interval)
 	}
 }

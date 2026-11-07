@@ -49,3 +49,12 @@ func TestHistoryMenuSummaryNamesConfigOnly(t *testing.T) {
 		t.Errorf("history summary = %+v, must not mention memory", c)
 	}
 }
+
+// TestHistoryLogRejectsNegativeCount: -n -1 is a usage error (exit 2), not a leaked `git log --1` failure.
+func TestHistoryLogRejectsNegativeCount(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code, _, stderr := captureOutput(t, func() int { return historyLog([]string{"-n", "-1"}) })
+	if code != 2 || !strings.Contains(stderr, "-n must be") {
+		t.Errorf("code=%d stderr=%q, want exit 2 naming -n", code, stderr)
+	}
+}
