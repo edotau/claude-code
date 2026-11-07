@@ -255,6 +255,7 @@ func noticeContext(ctx context.Context, in *core.Input) (text, warn string) {
 type divergence struct {
 	top, head, up, branch, upName string
 	ahead, behind                 int
+	rewritten                     bool // some commit's patch sits on both sides
 }
 
 // divergedLine names a shared checkout's local/upstream divergence once per (HEAD, upstream) pair; "" otherwise.
@@ -274,8 +275,12 @@ func divergedLine(ctx context.Context, in *core.Input) (string, error) {
 	if !firstSighting(in.SessionID, "diverged\t"+d.head+"\t"+d.up) {
 		return "", nil
 	}
-	return fmt.Sprintf("local %s diverged from %s (ahead %d, behind %d): a commit was rewritten; do not commit until "+
-		"it is reconciled%s", d.branch, d.upName, d.ahead, d.behind, d.authors(ctx, in)), nil
+	why := "both sides have new commits; merge " + d.upName + " before committing on top"
+	if d.rewritten {
+		why = "a commit was rewritten; do not commit until it is reconciled"
+	}
+	return fmt.Sprintf("local %s diverged from %s (ahead %d, behind %d): %s%s", d.branch, d.upName, d.ahead, d.behind,
+		why, d.authors(ctx, in)), nil
 }
 
 // divergedAt reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.
@@ -293,7 +298,14 @@ func divergedAt(ctx context.Context, dir string) (*divergence, error) {
 	if len(ids) != 5 {
 		return nil, err
 	}
-	return &divergence{top: ids[0], head: ids[1], up: ids[2], branch: ids[3], upName: ids[4], ahead: a, behind: b}, nil
+	// A rewrite (amend, rebase) leaves the same patch on both sides; --cherry-mark tags those commits "=".
+	marked, _, err := core.Git(ctx, dir, "rev-list", "--left-right", "--cherry-mark", "HEAD...@{upstream}")
+	if err != nil {
+		return nil, err
+	}
+	rewritten := slices.ContainsFunc(marked, func(l string) bool { return strings.HasPrefix(l, "=") })
+	return &divergence{top: ids[0], head: ids[1], up: ids[2], branch: ids[3], upName: ids[4], ahead: a, behind: b,
+		rewritten: rewritten}, nil
 }
 
 // bothSides parses rev-list --left-right --count output; zeros for anything else.
