@@ -1,4 +1,4 @@
-package cli
+package memorycmd
 
 import (
 	"os"
@@ -43,7 +43,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 
 func checkMemoryRecallUnstampedRefs(t *testing.T, repo string) {
 	t.Helper()
-	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"recall", "--repo", repo, "stamped", "id-marked", "rule"}) })
+	code, out, stderr := captureOutput(t, func() int { return Run([]string{"recall", "--repo", repo, "stamped", "id-marked", "rule"}, nil) })
 	if code != 0 {
 		t.Fatalf("memory recall: code=%d stderr=%q", code, stderr)
 	}
@@ -92,7 +92,7 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, stderr := captureOutput(t, func() int {
-		return cmdMemory([]string{"recall", "--repo", repo, "--load", "1", "never", "settled", "widget", "rollout"})
+		return Run([]string{"recall", "--repo", repo, "--load", "1", "never", "settled", "widget", "rollout"}, nil)
 	})
 	if code != 0 {
 		t.Fatalf("memory recall --load: code=%d stderr=%q", code, stderr)
@@ -105,7 +105,7 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 // TestMemoryRecallNoQueryFails: an empty query is refused (exit 1), naming memoryUsage.
 func TestMemoryRecallNoQueryFails(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"recall"}) })
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"recall"}, nil) })
 	if code != 1 || !strings.Contains(stderr, "no query") {
 		t.Errorf("memory recall with no terms: code=%d stderr=%q", code, stderr)
 	}
@@ -127,7 +127,7 @@ func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, stderr := captureOutput(t, func() int {
-		return cmdMemory([]string{"recall", "--repo", repo, "--load", "3", "loadable", "widgets", "gadgets", "fact"})
+		return Run([]string{"recall", "--repo", repo, "--load", "3", "loadable", "widgets", "gadgets", "fact"}, nil)
 	})
 	if code != 0 {
 		t.Fatalf("memory recall --load: code=%d stderr=%q", code, stderr)
