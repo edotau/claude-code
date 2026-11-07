@@ -1,15 +1,16 @@
 package cli
 
 import (
+	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
 // gateway router's flags, which bare `gateway` also takes.
-func gatewayRouteFlags() []flagInfo {
+func gatewayRouteFlags() []completion.Flag {
 	flag, valuedFlag, formatFlag := specFlag, specValuedFlag, specFormatFlag
-	return []flagInfo{valuedFlag("model", func() []string { return router.Aliases }),
+	return []completion.Flag{valuedFlag("model", func() []string { return router.Aliases }),
 		valuedFlag("agent", func() []string { return router.TableAgents }),
 		flag("task"), valuedFlag("fallback", func() []string { return router.FallbackModes }), formatFlag()}
 }
@@ -18,52 +19,52 @@ func vaultSections() []string {
 	return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
 }
 
-func integrationSpecNodes() map[string]*compNode {
+func integrationSpecNodes() map[string]*completion.Node {
 	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
-	return map[string]*compNode{
-		"models": {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
+	return map[string]*completion.Node{
+		"models": {Flags: []completion.Flag{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinAliases), boolFlag("dry-run"), formatFlag()}},
-		"gateway": {flags: gatewayRouteFlags(), sub: map[string]*compNode{
+		"gateway": {Flags: gatewayRouteFlags(), Sub: map[string]*completion.Node{
 			"token":  {},
-			"router": {flags: gatewayRouteFlags()},
-			"proxy": {flags: []flagInfo{boolFlag("start"), boolFlag("stop"), boolFlag("status"), boolFlag("serve"),
+			"router": {Flags: gatewayRouteFlags()},
+			"proxy": {Flags: []completion.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("status"), boolFlag("serve"),
 				flag("port"), formatFlag()}},
 		}},
-		"workflow": {sub: map[string]*compNode{
-			"skeleton": {args: []func() []string{workflowPatterns}, flags: []flagInfo{flag("name")}},
+		"workflow": {Sub: map[string]*completion.Node{
+			"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []completion.Flag{flag("name")}},
 			"lint":     {},
 		}},
-		"review": {sub: reviewSubNodes()},
-		"vault": {sub: map[string]*compNode{
-			"list": {args: []func() []string{vaultSections}, flags: []flagInfo{boolFlag("tailscale"), formatFlag()}},
-			"set": {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("tailscale"), boolFlag("api-key"),
+		"review": {Sub: reviewSubNodes()},
+		"vault": {Sub: map[string]*completion.Node{
+			"list": {Args: []func() []string{vaultSections}, Flags: []completion.Flag{boolFlag("tailscale"), formatFlag()}},
+			"set": {Args: []func() []string{secretNames}, Flags: []completion.Flag{boolFlag("tailscale"), boolFlag("api-key"),
 				boolFlag("dry-run")}},
-			"get":           {args: []func() []string{secretNames}, flags: []flagInfo{boolFlag("export"), boolFlag("key")}},
-			"delete":        {args: []func() []string{secretNames}},
-			"import":        {flags: []flagInfo{boolFlag("yes")}},
-			"export":        {args: []func() []string{secretNames}, flags: []flagInfo{flag("out")}},
+			"get":           {Args: []func() []string{secretNames}, Flags: []completion.Flag{boolFlag("export"), boolFlag("key")}},
+			"delete":        {Args: []func() []string{secretNames}},
+			"import":        {Flags: []completion.Flag{boolFlag("yes")}},
+			"export":        {Args: []func() []string{secretNames}, Flags: []completion.Flag{flag("out")}},
 			"edit":          {},
-			"rotate-secret": {flags: []flagInfo{boolFlag("force")}},
+			"rotate-secret": {Flags: []completion.Flag{boolFlag("force")}},
 		}},
-		"databricks": {flags: []flagInfo{valuedFlag("profile", providerNames)}, sub: map[string]*compNode{
-			"check": {flags: []flagInfo{boolFlag("all"), valuedFlag("profile", providerNames), boolFlag("1m"), flag("model")}},
-			"login": {args: []func() []string{providerNames}, flags: []flagInfo{flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", func() []string { return []string{"user", "sp"} })}},
-			"mint":  {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("dry-run"), boolFlag("copy"), valuedFlag("as", func() []string { return []string{"user", "sp"} })}},
-			"import": {flags: []flagInfo{flag("dbxcfg"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
+		"databricks": {Flags: []completion.Flag{valuedFlag("profile", providerNames)}, Sub: map[string]*completion.Node{
+			"check": {Flags: []completion.Flag{boolFlag("all"), valuedFlag("profile", providerNames), boolFlag("1m"), flag("model")}},
+			"login": {Args: []func() []string{providerNames}, Flags: []completion.Flag{flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", func() []string { return []string{"user", "sp"} })}},
+			"mint":  {Flags: []completion.Flag{valuedFlag("profile", providerNames), boolFlag("dry-run"), boolFlag("copy"), valuedFlag("as", func() []string { return []string{"user", "sp"} })}},
+			"import": {Flags: []completion.Flag{flag("dbxcfg"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
 				boolFlag("seal-secrets"), boolFlag("apply")}},
-			"export": {flags: []flagInfo{boolFlag("pick"), flag("rename"), flag("out"), boolFlag("merge"), boolFlag("force")}},
-			"config": {args: []func() []string{func() []string { return []string{"claude", "codex"} }}, flags: dbxCfgFlags(true)},
-			"rescue": {flags: append(dbxCfgFlags(false), boolFlag("print"))},
+			"export": {Flags: []completion.Flag{boolFlag("pick"), flag("rename"), flag("out"), boolFlag("merge"), boolFlag("force")}},
+			"config": {Args: []func() []string{func() []string { return []string{"claude", "codex"} }}, Flags: dbxCfgFlags(true)},
+			"rescue": {Flags: append(dbxCfgFlags(false), boolFlag("print"))},
 		}},
 	}
 }
 
 // dbxCfgFlags are the flags `databricks config` (withOut) and `databricks rescue` share.
-func dbxCfgFlags(withOut bool) []flagInfo {
-	fs := []flagInfo{{name: "profile", values: providerNames}, {name: "host"}, {name: "wire"},
-		{name: "model"}, {name: "auth"}, {name: "set"}, {name: "unset"}}
+func dbxCfgFlags(withOut bool) []completion.Flag {
+	fs := []completion.Flag{{Name: "profile", Values: providerNames}, {Name: "host"}, {Name: "wire"},
+		{Name: "model"}, {Name: "auth"}, {Name: "set"}, {Name: "unset"}}
 	if withOut {
-		fs = append(fs, flagInfo{name: "out"}, flagInfo{name: "force", isBool: true})
+		fs = append(fs, completion.Flag{Name: "out"}, completion.Flag{Name: "force", IsBool: true})
 	}
 	return fs
 }
