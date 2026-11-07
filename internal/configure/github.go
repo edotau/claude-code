@@ -58,7 +58,7 @@ func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 	if err != nil {
 		return err
 	}
-	p := ProfileBy(reg, "github", providers.AuthCLI)
+	p := reg.ProfileBy("github", providers.AuthCLI)
 	if p == nil {
 		return errors.New("github models: no github profile in the registry")
 	}
