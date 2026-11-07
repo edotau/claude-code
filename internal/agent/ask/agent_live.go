@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/live"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -47,7 +46,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 		err = r.Available()
 	}
 	if err == nil {
-		err = live.CheckLiveCap("")
+		err = job.CheckLiveCap("")
 	}
 	if err != nil {
 		return failAsk(format, name, err)
@@ -66,7 +65,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 		abandonLive(&rec, err)
 		return failAsk(format, name, err)
 	}
-	if err := live.WaitLiveReady(rec.ID, rec.PID); err != nil {
+	if err := job.WaitLiveReady(rec.ID, rec.PID); err != nil {
 		abandonLive(&rec, err)
 		return failAsk(format, name, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
 	}
@@ -75,11 +74,11 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 			ID     string `json:"id"`
 			Socket string `json:"socket"`
 			Log    string `json:"log"`
-		}{rec.ID, live.LiveSocket(rec.ID), rec.Log})
+		}{rec.ID, job.LiveSocket(rec.ID), rec.Log})
 		fmt.Println(string(body))
 		return 0
 	}
-	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, live.IdleOf(req))
+	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, job.IdleOf(req))
 	return 0
 }
 
@@ -94,5 +93,5 @@ func abandonLive(rec *agent.Record, cause error) {
 	}
 }
 
-// runLiveHolder is live.RunHolder over the cli client's launcher.
-func runLiveHolder(rec *agent.Record) int { return live.RunHolder(rec, NewClient().Launcher) }
+// runLiveHolder is job.RunHolder over the cli client's launcher.
+func runLiveHolder(rec *agent.Record) int { return job.RunHolder(rec, NewClient().Launcher) }
