@@ -68,28 +68,37 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
 	switch {
 	case id && sec:
-		idVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_ID")
-		secVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
-		if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
-			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
-		}
-		if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
-			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_SECRET malformed: %v", err), false
-		}
-		if _, err := oauthToken(apiBaseURL, idVal, secVal, http.DefaultClient)(ctx); err != nil {
-			reason := strings.TrimPrefix(err.Error(), "tailscale: oauth token mint: ")
-			return fmt.Sprintf("; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET rejected (%s)", reason), false
-		}
-		return "; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET verified", true
+		return oauthNote(ctx)
 	case id != sec && !api:
 		return "; api credential incomplete: need both TAILSCALE_OAUTH_CLIENT_ID and _SECRET", false
-	}
-	if api {
-		keyVal, _, _ := vault.Get("TAILSCALE_API_KEY")
-		if err := shapes.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
-			return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
-		}
-		return "; api credential TAILSCALE_API_KEY", true
+	case api:
+		return apiKeyNote()
 	}
 	return "; no admin credential", true
+}
+
+// oauthNote validates the OAuth client pair's shape, then mints a token to confirm it works.
+func oauthNote(ctx context.Context) (note string, ok bool) {
+	idVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_ID")
+	secVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
+	if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
+		return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
+	}
+	if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
+		return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_SECRET malformed: %v", err), false
+	}
+	if _, err := oauthToken(apiBaseURL, idVal, secVal, http.DefaultClient)(ctx); err != nil {
+		reason := strings.TrimPrefix(err.Error(), "tailscale: oauth token mint: ")
+		return fmt.Sprintf("; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET rejected (%s)", reason), false
+	}
+	return "; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET verified", true
+}
+
+// apiKeyNote validates the API key's shape.
+func apiKeyNote() (note string, ok bool) {
+	keyVal, _, _ := vault.Get("TAILSCALE_API_KEY")
+	if err := shapes.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
+		return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
+	}
+	return "; api credential TAILSCALE_API_KEY", true
 }
