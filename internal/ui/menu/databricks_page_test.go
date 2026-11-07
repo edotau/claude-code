@@ -766,7 +766,7 @@ func TestDbxIdentitySavesCheckedPair(t *testing.T) {
 	if !strings.Contains(strings.Join(f.calls, ","), "check:new-client-12345678:new-secret-VALUE") {
 		t.Errorf("calls=%v", f.calls)
 	}
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if n := utf8.RuneCountInString(l); n > 80 {
 			t.Errorf("%d cols: %q", n, l)
 		}

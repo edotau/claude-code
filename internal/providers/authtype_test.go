@@ -617,8 +617,7 @@ func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
 	}
 	t.Cleanup(func() { mintM2M = orig })
 	_, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true)
-	var hm *HostMismatchError
-	if !errors.As(err, &hm) {
+	if _, ok := errors.AsType[*HostMismatchError](err); !ok {
 		t.Fatalf("m2mToken err = %v; want HostMismatchError", err)
 	}
 	if raw, found, _ := vault.ReadSecret(secretName + "_ACCESS"); found {
