@@ -328,3 +328,21 @@ func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 		}
 	}
 }
+
+// TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines: args and `claude mcp list` output are printed verbatim by
+// the report, so a token in either must be scrubbed too.
+func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
+	dir := t.TempDir()
+	const tok = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	userJSON := filepath.Join(dir, ".claude.json")
+	write(t, userJSON, `{"mcpServers": {"gh": {"command": "npx", "args": ["srv", "--token", "`+tok+`"]}}}`)
+	claude := fakeBin(t, dir, "claude", "echo 'gh: npx srv --token "+tok+" - ✔ Connected'\necho 'web: https://x.test/mcp?api_key=zzz1234 - ✘ Failed'")
+
+	var out strings.Builder
+	Doctor(&out, Options{UserPath: userJSON, Home: dir, Claude: claude})
+	for _, leak := range []string{"ghp_aaaa", "zzz1234"} {
+		if strings.Contains(out.String(), leak) {
+			t.Errorf("text report echoed %q:\n%s", leak, out.String())
+		}
+	}
+}
