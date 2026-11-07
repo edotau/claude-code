@@ -76,7 +76,7 @@ func Drain(session string) []Notice {
 		return nil
 	}
 	var out []Notice
-	for _, line := range bytes.Split(raw, []byte("\n")) { // no line-size cap, unlike bufio.Scanner
+	for line := range bytes.SplitSeq(raw, []byte("\n")) { // no line-size cap, unlike bufio.Scanner
 		var n Notice
 		if json.Unmarshal(line, &n) == nil && n.Text != "" {
 			out = append(out, n)

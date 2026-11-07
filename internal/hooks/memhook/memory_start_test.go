@@ -2,15 +2,16 @@ package memhook
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/paths"
 
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row
 	"github.com/edotau/claude-code/internal/memory/bank"
