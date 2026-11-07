@@ -272,7 +272,7 @@ func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 		return core.Result{}, false
 	}
 	s, err := leafBrief(in.AgentTranscriptPath)
-	if err != nil || s.ranOn || !(requestsAgent(s.brief) || pinnedAgentType(leafAgentType(in))) {
+	if err != nil || s.ranOn || (!requestsAgent(s.brief) && !pinnedAgentType(leafAgentType(in))) {
 		return core.Result{}, false
 	}
 	if in.StopHookActive || s.gated || s.handedBack {
