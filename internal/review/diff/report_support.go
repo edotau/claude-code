@@ -171,6 +171,15 @@ func asMap(v any) map[string]any {
 // getChangedSourceFiles ports get_changed_source_files: git diff --name-only, filtered to
 // existing files whose extension appears in source.Extensions.
 func getChangedSourceFiles(repo, base, head string) []string {
+	files, err := changedSourceFiles(repo, base, head)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
+	return files
+}
+
+// changedSourceFiles is getChangedSourceFiles returning the git error when both diff forms fail.
+func changedSourceFiles(repo, base, head string) ([]string, error) {
 	exts := map[string]bool{}
 	for _, list := range source.Extensions {
 		for _, e := range list {
@@ -203,10 +212,9 @@ func getChangedSourceFiles(repo, base, head string) []string {
 				files = append(files, full)
 			}
 		}
-		return files
+		return files, nil
 	}
-	fmt.Fprintf(os.Stderr, "Warning: git diff %s...%s failed, no files reviewed: %v\n", base, head, lastErr)
-	return nil
+	return nil, fmt.Errorf("git diff %s...%s failed, no files reviewed: %w", base, head, lastErr)
 }
 
 func extAt(path string) string {
@@ -229,9 +237,13 @@ func languageForExt(ext string) string {
 }
 
 // runQualityChecker ports run_quality_checker: source.Quality over each changed source file.
-func runQualityChecker(repo, base, head string) map[string]any {
+func runQualityChecker(repo, base, head string) (map[string]any, error) {
+	changed, err := changedSourceFiles(repo, base, head)
+	if err != nil {
+		return nil, err
+	}
 	var results []map[string]any
-	for _, path := range getChangedSourceFiles(repo, base, head) {
+	for _, path := range changed {
 		lang := languageForExt(extAt(path))
 		qr, err := source.Quality(path, lang)
 		if err != nil {
@@ -265,7 +277,7 @@ func runQualityChecker(repo, base, head string) map[string]any {
 		"total_code_smells":      totalSmells,
 		"total_solid_violations": totalViolations,
 		"files":                  filesAny,
-	}
+	}, nil
 }
 
 // extractQualityIssues flattens quality_analysis["files"] (or itself, single-file shape) smells
