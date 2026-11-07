@@ -417,14 +417,18 @@ func codexOwnModel() string {
 	if err != nil {
 		return ""
 	}
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") {
-			return "" // top-level keys end at the first table header
+	multiline, depth := "", 0
+	for _, raw := range strings.SplitAfter(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if multiline == "" && depth == 0 {
+			if strings.HasPrefix(line, "[") {
+				return "" // top-level keys end at the first table header
+			}
+			if k, v, ok := strings.Cut(line, "="); ok && strings.Trim(strings.TrimSpace(k), `"'`) == "model" {
+				return agentconfig.TOMLString(v)
+			}
 		}
-		if k, v, ok := strings.Cut(line, "="); ok && strings.Trim(strings.TrimSpace(k), `"'`) == "model" {
-			return agentconfig.TOMLString(v)
-		}
+		multiline, depth = agentconfig.TOMLLineState(raw, multiline, depth)
 	}
 	return ""
 }
