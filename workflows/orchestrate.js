@@ -112,7 +112,7 @@ if (!tier && !TASK) {
   if (!PKGS.length) PKGS = strs(sz.packages)
   if (!PATHS.length) PATHS = strs(sz.paths)
   if (!a.focus && sz.focus) focus = sz.focus
-} else decisions.push('sized as ' + tier + ': args.tier given')
+} else if (a.tier) decisions.push('sized as ' + tier + ': args.tier given')
 
 // ── Route ──
 const route = tier === 'EPIC' ? 'plan' : tier === 'HIGH' ? 'relay3:packages' : 'relay3:paths'
