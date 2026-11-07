@@ -403,7 +403,7 @@ func dbxShort(id string) string {
 }
 
 func saveDbxIdentity(d *dialog, env, mode, spID, secret, note string) {
-	if err := configure.SaveDbxIdentity(d.reg, env, mode, spID, secret); err != nil {
+	if err := databricks.SaveIdentity(d.reg, env, mode, spID, secret); err != nil {
 		d.printf("%s: identity: %v\n", env, err)
 		return
 	}
