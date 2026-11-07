@@ -23,11 +23,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/signin"
-	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -286,7 +286,7 @@ func RunMintContext(ctx context.Context, argv []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tui.Preserve()()
+	defer proc.Preserve()()
 	var buf bytes.Buffer
 	cmd := attachedCommand(ctx, argv)
 	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
@@ -346,7 +346,7 @@ func RunLoginContext(ctx context.Context, argv []string) error {
 	if err != nil {
 		return err
 	}
-	defer tui.Preserve()()
+	defer proc.Preserve()()
 	cmd := attachedCommand(ctx, argv)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err = cmd.Run()
