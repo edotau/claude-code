@@ -17,8 +17,8 @@ decision; agents work in the shared tree.
 
 - Workflows are Claude only: a stage runs at `model` = `haiku|sonnet|opus|fable` (`effort` up to `max`), and an
   `agent`/`profile` field or an unknown stage errors before any agent runs. Parser: `stepOf`, copied verbatim into
-  `code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `relay3` and `orchestrate`. External agents run outside workflows (`/code-worker:codex`,
-  `/coworker:copilot`, `claude-code agents ask`).
+  `code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `relay3` and `orchestrate`. External agents
+  run outside workflows (`/code-worker:codex`, `/coworker:copilot`, `claude-code agents ask`).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. The top-level script reads it once and passes
   it down as `claudeState` (`ok|low|exhausted|unknown`); a failed read passes `unknown`. Nested `green-keeper-loop`
