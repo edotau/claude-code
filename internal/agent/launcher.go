@@ -78,7 +78,8 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 		name, val, hasVal := strings.Cut(a, "=")
 		switch {
 		case a == "--":
-			return o, append(rest, args[i+1:]...), nil
+			rest = append(rest, args[i+1:]...)
+			i = len(args)
 		case a == "--direct" && !claude:
 			o.Direct = true
 		case a == "--print-env":

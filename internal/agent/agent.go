@@ -47,6 +47,7 @@ type RunOptions struct {
 	OverlaySet                                          []string    `json:"-"`                   // names an overlay file sets; refused where the route sets them
 	OutputSchema                                        string      // JSON Schema text the answer must satisfy
 	Permissions                                         Permissions `json:"permissions,omitzero"` // allow/ask/deny rules and mode; zero value = no policy
+	Identity                                            string      `json:"identity,omitempty"`   // --as user|sp, claude only: the identity a live holder applies
 	Persona                                             *Schema     `json:"persona,omitempty"`    // claude: native agent definition; others: emulated
 	Pack                                                *pack.Spec  `json:"pack,omitempty"`       // inline workspace files into Prompt at Prepare; the record keeps the spec, not the bytes
 	Timeout                                             time.Duration

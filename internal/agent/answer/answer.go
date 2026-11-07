@@ -207,6 +207,14 @@ func jsonTypeIs(v any, t string) bool {
 	return n == t || (t == "number" && n == "integer")
 }
 
+// spanPairs orders the {..} and [..] delimiters so the one whose opener comes first (the outer span) is tried first.
+func spanPairs(s string) [][2]string {
+	if o, a := strings.Index(s, "{"), strings.Index(s, "["); a >= 0 && (o < 0 || a < o) {
+		return [][2]string{{"[", "]"}, {"{", "}"}}
+	}
+	return [][2]string{{"{", "}"}, {"[", "]"}}
+}
+
 // jsonSpan is the JSON in an answer: the text itself, a fenced block, or the outermost {...} / [...] span.
 func jsonSpan(answer string) string {
 	s := strings.TrimSpace(answer)
@@ -220,7 +228,7 @@ func jsonSpan(answer string) string {
 			return strings.TrimSpace(body[:j])
 		}
 	}
-	for _, p := range [][2]string{{"{", "}"}, {"[", "]"}} {
+	for _, p := range spanPairs(s) {
 		if i, j := strings.Index(s, p[0]), strings.LastIndex(s, p[1]); i >= 0 && j > i && json.Valid([]byte(s[i:j+1])) {
 			return s[i : j+1]
 		}
