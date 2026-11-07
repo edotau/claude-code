@@ -369,7 +369,7 @@ func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 	if secret == "" {
 		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
 	}
-	tok, err := m2mToken(ctx, p, name, AuthHost(p), p.Auth.SPClientID, secret, force)
+	tok, err := m2mToken(ctx, p, AuthHost(p), p.Auth.SPClientID, secret, force)
 	if err != nil {
 		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
@@ -467,7 +467,7 @@ func mintAuth(ctx context.Context, p *Provider, force bool) (oauth.Token, error)
 	case AuthPAT:
 		return oauth.Token{Access: secret}, nil
 	case AuthM2M:
-		return m2mToken(ctx, p, name, host, p.Auth.ClientID, secret, force)
+		return m2mToken(ctx, p, host, p.Auth.ClientID, secret, force)
 	}
 	return mintU2M(ctx, p, host, name, secret)
 }
@@ -478,11 +478,16 @@ type clientAccess struct {
 	Bind   string `json:"bind"`
 }
 
-// m2mToken serves an m2m/sp token sealed by any process while it is valid past expiryMargin; force mints anew.
-func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
-	name := secretName + "_ACCESS"
+// m2mAccessName is the vault cache slot for one service principal on one host, shared by every row that uses it.
+func m2mAccessName(host, clientID, secret string) (name, bind string) {
 	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
-	bind := hex.EncodeToString(sum[:8])
+	bind = hex.EncodeToString(sum[:8])
+	return "DATABRICKS_M2M_" + strings.ToUpper(bind) + "_ACCESS", bind
+}
+
+// m2mToken serves an m2m/sp token sealed by any process while it is valid past expiryMargin; force mints anew.
+func m2mToken(ctx context.Context, p *Provider, host, clientID, secret string, force bool) (oauth.Token, error) {
+	name, bind := m2mAccessName(host, clientID, secret)
 	if !force {
 		if v, ok := sealedClientAccess(name, bind); ok {
 			return oauth.Token{Access: v}, nil

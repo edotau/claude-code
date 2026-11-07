@@ -609,18 +609,52 @@ func TestClientTokenSharedAcrossProcesses(t *testing.T) {
 
 // A minted token that fails the issuer check is refused before it is sealed into the shared vault.
 func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
-	p, secretName := clientRow(t, false)
+	p, _ := clientRow(t, false)
 	p.Preset, p.Host = PresetDatabricks, "https://h.example.com"
 	orig := mintM2M
 	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
 		return oauth.Token{Access: jwtExpIn(time.Hour, "https://other.example.org/oidc")}, nil
 	}
 	t.Cleanup(func() { mintM2M = orig })
-	_, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true)
+	_, err := m2mToken(context.Background(), p, "h.example.com", "client", "secret", true)
 	if _, ok := errors.AsType[*HostMismatchError](err); !ok {
 		t.Fatalf("m2mToken err = %v; want HostMismatchError", err)
 	}
-	if raw, found, _ := vault.ReadSecret(secretName + "_ACCESS"); found {
-		t.Fatalf("wrong-issuer token was sealed in the vault: %q", raw)
+	if name, _ := m2mAccessName("h.example.com", "client", "secret"); vaultHas(t, name) {
+		t.Fatal("wrong-issuer token was sealed in the vault")
+	}
+}
+
+func vaultHas(t *testing.T, name string) bool {
+	t.Helper()
+	_, found, err := vault.ReadSecret(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+// Two rows for the same service principal share one cached token, so a forced mint on one reaches the other.
+func TestForcedMintSharedByRowsOfOneServicePrincipal(t *testing.T) {
+	p, _ := clientRow(t, false)
+	twin := *p
+	twin.Name = "m2m-share-twin"
+	if err := vault.Store(AuthSecretName(&twin), "secret"); err != nil {
+		t.Fatal(err)
+	}
+	calls, orig := 0, mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		calls++
+		return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	ctx := context.Background()
+	forced, err := Refresh(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Credential(ctx, &twin)
+	if err != nil || got != forced || calls != 1 {
+		t.Fatalf("twin row: same=%t calls=%d err=%v; want the forced token reused", got == forced, calls, err)
 	}
 }
