@@ -31,6 +31,8 @@ type Input struct {
 	Source              string `json:"source"`
 	AgentID             string `json:"agent_id"`
 	AgentTranscriptPath string `json:"agent_transcript_path"`
+	Trigger             string `json:"trigger"`
+	BackgroundTasks     int    `json:"-"` // length of the Stop payload's background_tasks array
 
 	Raw   []byte `json:"-"`
 	doc   map[string]any
@@ -73,6 +75,9 @@ func ParseInput(r io.Reader) *Input {
 	in.AgentID = in.Nested("agent_id")
 	in.Source = in.Nested("source")
 	in.AgentTranscriptPath = in.Nested("agent_transcript_path")
+	in.Trigger = in.Nested("trigger")
+	tasks, _ := in.doc["background_tasks"].([]any)
+	in.BackgroundTasks = len(tasks)
 	if _, ok := in.doc["sessionId"].(string); ok && in.HookEventName == "" {
 		in.agent = AgentCopilot
 	}
