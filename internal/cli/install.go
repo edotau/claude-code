@@ -10,22 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cmdRestore is `configure --restore`; the work lives in launch.Restore.
-func cmdRestore(agents, out string, forceHomes, noAgents bool) int {
-	if err := launch.Restore(os.Stdout, agents, out, forceHomes, noAgents); err != nil {
-		return helptext.Fail("%v", err)
-	}
-	return 0
-}
-
-// cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
-func cmdRevert(agents string, dryRun bool) int {
-	if err := launch.Revert(os.Stdout, agents, dryRun); err != nil {
-		return helptext.Fail("configure --revert: %v", err)
-	}
-	return 0
-}
-
 // toolsFlag is --tools, bare (every tool) or --tools=name,name2 (that subset only).
 type toolsFlag struct {
 	set   bool

@@ -1,4 +1,4 @@
-package cli
+package configurecmd
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -48,6 +47,7 @@ type configureOpts struct {
 	dryRun, check, restore, revert, agents, noAgents bool
 	list, all                                        bool
 	format                                           *string
+	providerList                                     func(name, format string) int
 }
 
 func configureFlags() (*flag.FlagSet, *configureOpts) {
@@ -68,12 +68,13 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	return fs, o
 }
 
-// cmdConfigure is the guided setup: every section in order, or the one named.
-func cmdConfigure(args []string) int {
+// Run is the guided setup: every section in order, or the one named; providerList prints `provider --list`.
+func Run(args []string, providerList func(name, format string) int) int {
 	if len(args) > 0 && args[0] == "desktop" {
-		return cmdConfigureDesktop(args[1:])
+		return configureDesktop(args[1:])
 	}
 	fs, o := configureFlags()
+	o.providerList = providerList
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -104,10 +105,14 @@ func configureAllProfile(o *configureOpts, section string, pos []string) (string
 	case len(pos) == 0:
 		return "", nil
 	}
-	return pos[0], knownProfile(pos[0])
+	reg, err := providers.Load()
+	if err != nil {
+		return "", fmt.Errorf("load providers: %w", err)
+	}
+	return pos[0], reg.Known(pos[0])
 }
 
-func configureList(section string, pos []string, format string) int {
+func configureList(o *configureOpts, section string, pos []string, format string) int {
 	if section != "provider" {
 		return helptext.Fail("configure: --list needs the provider page")
 	}
@@ -115,7 +120,7 @@ func configureList(section string, pos []string, format string) int {
 	if len(pos) > 0 {
 		name = pos[0]
 	}
-	return configureProviderList(name, format)
+	return o.providerList(name, format)
 }
 
 // wantsList is true for --list, or a non-text --format outside the --all check.
@@ -129,7 +134,7 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 		return helptext.Fail("configure: %v", err)
 	}
 	if o.wantsList() {
-		return configureList(section, pos, *o.format)
+		return configureList(o, section, pos, *o.format)
 	}
 	if o.restore || o.revert {
 		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents, o.noAgents)
@@ -145,76 +150,6 @@ func configureMenu(o *configureOpts, section, profile string) int {
 		Provider: o.provider, Agent: o.agent, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
 		JSON: *o.format == helptext.JSON, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
-}
-
-// knownProfile errors unless profile is in the provider registry.
-func knownProfile(profile string) error {
-	reg, err := providers.Load()
-	if err != nil {
-		return fmt.Errorf("load providers: %w", err)
-	}
-	if reg.Providers[profile] == nil {
-		return fmt.Errorf("unknown profile %s (see configure provider --list)", profile)
-	}
-	return nil
-}
-
-// configureRender runs --restore / --revert; the agent flag is a comma list there.
-func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
-	if err := renderModeConflict(restore, revert, section); err != nil {
-		return helptext.Fail("%v", err)
-	}
-	if revert {
-		return configureRevert(agents, dryRun, check || out != "" || renderAgents || noAgents)
-	}
-	if check || dryRun {
-		return helptext.Fail("configure: --restore takes no --check or --dry-run")
-	}
-	return configureRestore(agents, out, renderAgents, noAgents)
-}
-
-func configureRestore(agents, out string, renderAgents, noAgents bool) int {
-	if err := unknownAgent(agents); err != nil {
-		return helptext.Fail("%v", err)
-	}
-	if noAgents && (renderAgents || agents != "") {
-		return helptext.Fail("configure: --no-agents excludes --agents and --agent")
-	}
-	if out != "" && (renderAgents || agents != "") {
-		return helptext.Fail("configure: --out resets a settings file; --agents and --agent never write one")
-	}
-	return cmdRestore(agents, out, renderAgents, noAgents)
-}
-
-// configureRevert runs --revert; extras is true when a flag that only --restore takes was given.
-func configureRevert(agents string, dryRun, extras bool) int {
-	if extras {
-		return helptext.Fail("configure: --revert takes only --agent and --dry-run")
-	}
-	if err := unknownAgent(agents); err != nil {
-		return helptext.Fail("%v", err)
-	}
-	return cmdRevert(agents, dryRun)
-}
-
-func renderModeConflict(restore, revert bool, section string) error {
-	switch {
-	case restore && revert:
-		return errors.New("configure: --restore and --revert are mutually exclusive")
-	case section != "":
-		return fmt.Errorf("configure: --restore/--revert take no page (got %q)", section)
-	}
-	return nil
-}
-
-// unknownAgent rejects a typo the engine would skip silently.
-func unknownAgent(agents string) error {
-	for a := range strings.SplitSeq(agents, ",") {
-		if a = strings.TrimSpace(a); a != "" && !slices.Contains(agent.DefaultAgents, a) {
-			return fmt.Errorf("configure: unknown --agent %q (%s)", a, strings.Join(agent.DefaultAgents, "|"))
-		}
-	}
-	return nil
 }
 
 func init() {
@@ -250,7 +185,7 @@ var (
 	desktopEnsure = proxy.Ensure
 )
 
-func cmdConfigureDesktop(args []string) int {
+func configureDesktop(args []string) int {
 	fs := helptext.NewFlagSet("configure desktop", desktopPage)
 	profile := fs.String("profile", "", "profile serving Desktop (default: session profile)")
 	revert := fs.Bool("revert", false, "remove our Desktop profile and restore the previous selection")
