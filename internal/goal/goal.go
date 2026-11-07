@@ -3,7 +3,6 @@ package goal
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,39 +19,31 @@ import (
 // SessionEnv is the env var Claude Code sets in every live session's tools.
 const SessionEnv = "CLAUDE_CODE_SESSION_ID"
 
-// Ticket states; only Open blocks a Stop.
+// Ticket states.
 const (
-	Open    = "open"
-	Done    = "done"
-	Closed  = "closed"
-	Stalled = "stalled"
+	Open   = "open"
+	Done   = "done"
+	Closed = "closed"
 )
 
 const tailBytes = 400
-
-// MaxBlocks caps the stops one goal may block before it is declared stalled.
-const MaxBlocks = 5
 
 // IDPattern is a goal's stable task id.
 var IDPattern = regexp.MustCompile(`^g-[0-9a-f]{6}$`)
 
 // Goal is the ticket: what to finish, how to know, and the state of the last tick.
 type Goal struct {
-	ID         string `json:"id"`
-	Text       string `json:"text"`
-	Check      string `json:"check,omitempty"`      // shell command; done when it exits 0
-	Run        string `json:"run,omitempty"`        // workflow run id; done when its manifest status is completed
-	SessionDir string `json:"sessionDir,omitempty"` // <projects>/<slug>/<session>: holds workflows/<run>.json
-	Session    string `json:"session"`
-	CWD        string `json:"cwd,omitempty"`
-	Plan       string `json:"plan,omitempty"` // plan file whose `(task: <id>)` line mirrors this ticket
-	Status     string `json:"status"`
-	Reason     string `json:"reason,omitempty"`
-	Created    string `json:"created"`
-	Updated    string `json:"updated"`
-	LastOut    string `json:"lastOut,omitempty"`
-	LastHash   string `json:"lastHash,omitempty"` // hash of the last failing output; a repeat means a stall
-	Blocks     int    `json:"blocks,omitempty"`   // stops this goal has blocked
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	Check   string `json:"check,omitempty"` // shell command recorded as the done check (nothing runs it)
+	Session string `json:"session"`
+	CWD     string `json:"cwd,omitempty"`
+	Plan    string `json:"plan,omitempty"` // plan file whose `(task: <id>)` line mirrors this ticket
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
+	Created string `json:"created"`
+	Updated string `json:"updated"`
+	LastOut string `json:"lastOut,omitempty"`
 }
 
 // Dir is the ledger directory.
@@ -67,12 +58,6 @@ func Tail(s string) string {
 		s = "…" + s[len(s)-tailBytes:]
 	}
 	return s
-}
-
-// Hash fingerprints a check output for stall detection.
-func Hash(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:8])
 }
 
 // NewID returns a fresh g-<6hex> id.
@@ -172,9 +157,6 @@ func Add(g Goal) (Goal, error) {
 // A plan sync failure leaves the ticket unchanged so ticket and plan never disagree.
 func Tick(g Goal, status, reason, out string) (Goal, error) {
 	g.Status, g.Reason, g.Updated, g.LastOut = status, reason, now(), Tail(out)
-	if status != Open {
-		g.LastHash = ""
-	}
 	if !IDPattern.MatchString(g.ID) {
 		return g, fmt.Errorf("goal: bad id %q", g.ID)
 	}
@@ -192,16 +174,6 @@ func Tick(g Goal, status, reason, out string) (Goal, error) {
 
 func taskLine(id string) *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^(\s*- \[)([ xX])(\] .*\(task: ` + regexp.QuoteMeta(id) + `\).*)$`)
-}
-
-// PlanChecked reports whether the goal's plan line exists and is ticked `[x]` (a hand or commit-tick check-off).
-func PlanChecked(g Goal) bool {
-	data, err := os.ReadFile(g.Plan)
-	if g.Plan == "" || err != nil {
-		return false
-	}
-	m := taskLine(g.ID).FindStringSubmatch(string(data))
-	return m != nil && m[2] != " "
 }
 
 // SyncPlan ticks the goal's plan line `[x]` when the goal is done; any other status leaves the plan untouched.

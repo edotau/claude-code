@@ -13,8 +13,8 @@ import (
 // goalPage is `agents goal -h`.
 var goalPage = helptext.Page{
 	Usage: "claude-code agents goal <command> [flags]",
-	About: "Track a goal until its done check passes: the goal-keeper Stop hook blocks while this " +
-		"session's goals fail. Every line carries the goal's task id (g-xxxxxx).",
+	About: "Record goals and their done check in the ledger, optionally mirrored onto a plan line. " +
+		"Nothing runs the check automatically. Every line carries the goal's task id (g-xxxxxx).",
 	Commands: [][2]string{
 		{"add", "add <what> --check <cmd> [--plan <file>] [--id g-xxxxxx]"},
 		{"list", "every goal with its status, timestamp and last check output"},
