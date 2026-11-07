@@ -140,7 +140,7 @@
     "skills/reflection": {"kind": "content", "purpose": "Entry point to claude-code memory."},
     "skills/subagent-workflows": {"kind": "content", "purpose": "Choosing and running multi-agent work; handoff contract."},
     "skills/using-git-worktrees": {"kind": "content", "purpose": "Worktree verbs and manual recovery."},
-    "skills/web-explore": {"kind": "content", "purpose": "Web search, page reading and crawl through Tavily for every agent."},
+    "skills/web-explorer": {"kind": "content", "purpose": "Web search, page reading and crawl through Tavily for every agent."},
     "skills/evaluate-code/references": {"kind": "content", "purpose": "Lens checklists the skill loads on demand."},
     "skills/evaluate-code/references/security": {"kind": "content", "purpose": "OWASP checklist and security references."},
     "skills/evaluate-code/scripts": {"kind": "content", "purpose": "Skill helper scripts."},

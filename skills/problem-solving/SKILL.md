@@ -104,7 +104,7 @@ question first. Claim discipline: `references/verify.md`.
    by blindness, not discipline.
 2. **Primary sources beat memory, read narrow, never re-read.** Never invent a signature,
    endpoint, payload shape, or path from recall — fetch current docs (`opencode` agent in
-   DOC-LOOKUP mode, Context7 MCP, `web-explore`, or the installed package source); say so if none
+   DOC-LOOKUP mode, Context7 MCP, `web-explorer`, or the installed package source); say so if none
    is reachable. Locate the section, read that section; never re-fetch what's already in context.
 3. **Parallelize the independent and expensive.** Web fetches, doc lookups, and multi-area
    explorations go out in **one** batch. Chain small local reads only

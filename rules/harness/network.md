@@ -7,7 +7,7 @@ paths:
 
 | To… | Run |
 | --- | --- |
-| Search the web or read a page (any agent) | `claude-code network websearch --query "<query>"` · `--extract <url>` (`skills/web-explore/SKILL.md`) |
+| Search the web or read a page (any agent) | `claude-code network websearch --query "<query>"` · `--extract <url>` (`skills/web-explorer/SKILL.md`) |
 | Scrape repeated records | `claude-code network browser --extract <url> --container <sel> --field name=sel[@attr]` (`--next\|--pages\|--scroll\|--load-more`, `--format jsonl\|csv\|json`) |
 | Check MCP health, scope drift, inline secrets | `claude-code network mcp [--format json]` |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |

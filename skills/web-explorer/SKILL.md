@@ -1,5 +1,5 @@
 ---
-name: web-explore
+name: web-explorer
 description: Search, read and collect public web pages with Tavily, the default in every agent. Use for "search / look up / google / check online", "latest or current X", "is X still true", a pasted URL, "read this page", "docs on this site", "research or compare X", "list all X", "enrich this company", "monitor this page". Not for code in this checkout (search the repo), GitHub content (use `gh`), or private and login-gated pages.
 allowed-tools: Bash, mcp__web_search__web_search, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__tabs_close_mcp
 ---
