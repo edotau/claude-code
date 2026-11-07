@@ -1,4 +1,4 @@
-package cli
+package setup
 
 import (
 	"os"
@@ -9,13 +9,13 @@ import (
 )
 
 func TestCmdSetupNoArgs(t *testing.T) {
-	if got := cmdSetup(nil); got != 0 {
+	if got := Run(nil); got != 0 {
 		t.Fatalf("no-args exit = %d, want 0", got)
 	}
 }
 
 func TestCmdSetupUnknownMode(t *testing.T) {
-	if got := cmdSetup([]string{"bogus"}); got != 1 {
+	if got := Run([]string{"bogus"}); got != 1 {
 		t.Fatalf("unknown mode exit = %d, want 1", got)
 	}
 }

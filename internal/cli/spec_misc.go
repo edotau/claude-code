@@ -7,6 +7,7 @@ import (
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -63,27 +64,18 @@ func networkSpecNodes() *completion.Node {
 func workspaceSpecNodes() map[string]*completion.Node {
 	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
 	return map[string]*completion.Node{
-		"history": {Sub: map[string]*completion.Node{
-			"snapshot": {Flags: []completion.Flag{flag("note")}},
-			"log":      {Flags: []completion.Flag{flag("n"), formatFlag()}},
-			"diff":     {},
-		}},
 		"agents": {Sub: map[string]*completion.Node{
 			"sync": {Flags: []completion.Flag{valuedFlag("agent", cliAgentNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
 			"tree": {Flags: []completion.Flag{flag("days"), flag("session"), boolFlag("background"), boolFlag("bg"),
 				boolFlag("watch"), flag("interval"), formatFlag()}},
 			"reap": {Flags: []completion.Flag{boolFlag("dry-run")}},
 		}},
-		"install": {Flags: []completion.Flag{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", toolNames), valuedFlag("setup", setupModes)}, Sub: map[string]*completion.Node{"--setup": {Sub: map[string]*completion.Node{
+		"install": {Flags: []completion.Flag{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", toolNames), valuedFlag("setup", setup.Modes)}, Sub: map[string]*completion.Node{"--setup": {Sub: map[string]*completion.Node{
 			"adopt":     {Flags: []completion.Flag{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},
 			"nuke":      {Flags: []completion.Flag{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
-			"workspace": {Args: []func() []string{setupWorkspaceSubwords}, Flags: []completion.Flag{flag("with"), boolFlag("dry-run")}},
+			"workspace": {Args: []func() []string{setup.WorkspaceOps}, Flags: []completion.Flag{flag("with"), boolFlag("dry-run")}},
 		}}}},
 		"test": {Sub: map[string]*completion.Node{"mutate": {Flags: []completion.Flag{flag("run")}}, "ramdisk": {}}},
-		"plan": {Sub: map[string]*completion.Node{
-			"status": {Flags: []completion.Flag{boolFlag("all"), formatFlag()}},
-			"tick":   {Flags: []completion.Flag{flag("range"), flag("plan"), boolFlag("dry-run")}},
-		}},
 	}
 }
 
@@ -100,10 +92,6 @@ func routeTargets() []string { return append(tailscale.CachedMachineNames(), "of
 func statuslineStyles() []string {
 	return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"}
 }
-
-func setupWorkspaceSubwords() []string { return []string{"init", "link", "status"} }
-
-func setupModes() []string { return []string{"adopt", "nuke", "workspace"} }
 
 // toolNames derives from agent.Tools, the install --tools roster.
 func toolNames() []string { return tools.Names() }

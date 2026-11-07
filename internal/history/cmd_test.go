@@ -1,4 +1,4 @@
-package cli
+package history
 
 import (
 	"encoding/json"
@@ -42,11 +42,10 @@ func TestHistoryLogJSONKeepsConfigPlaneShape(t *testing.T) {
 	}
 }
 
-// TestHistoryMenuSummaryNamesConfigOnly: the history menu row must not claim memory coverage.
-func TestHistoryMenuSummaryNamesConfigOnly(t *testing.T) {
-	c := lookup("history")
-	if c == nil || strings.Contains(c.summary, "memory") {
-		t.Errorf("history summary = %+v, must not mention memory", c)
+// TestHistoryHelpNamesConfigOnly: the history description must not claim memory coverage.
+func TestHistoryHelpNamesConfigOnly(t *testing.T) {
+	if !strings.Contains(historyPage.About, "config") || strings.Contains(historyPage.About, "memory") {
+		t.Errorf("history description = %q, must name config only", historyPage.About)
 	}
 }
 
