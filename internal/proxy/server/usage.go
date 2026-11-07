@@ -50,15 +50,22 @@ func scrapeLastUsage(body []byte, inKey, outKey, detailsKey string) ledgerUsage 
 		Cached int `json:"cached_tokens"`
 	}
 	_ = json.Unmarshal(raw[detailsKey], &details)
-	var u ledgerUsage
-	if json.Unmarshal(raw[inKey], &u.input) != nil || json.Unmarshal(raw[outKey], &u.output) != nil {
-		return ledgerUsage{}
-	}
+	// An absent or null count is 0: an embeddings usage has no completion_tokens, and the prompt count still counts.
+	u := ledgerUsage{input: count(raw[inKey]), output: count(raw[outKey])}
 	if details.Cached > 0 && details.Cached <= u.input {
 		u.cacheRead = details.Cached
 		u.input -= u.cacheRead
 	}
 	return u
+}
+
+// count decodes one token count; absent, null or non-numeric reads as 0.
+func count(raw json.RawMessage) int {
+	var n int
+	if json.Unmarshal(raw, &n) != nil {
+		return 0
+	}
+	return n
 }
 
 // scrapeAnthropicUsage takes each field's max across usage objects: stream usage is cumulative, so summing double-counts.

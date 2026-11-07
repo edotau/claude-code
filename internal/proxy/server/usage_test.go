@@ -176,3 +176,14 @@ func TestScrapeAnthropicUsageCumulativeDeltaNotSummed(t *testing.T) {
 		t.Errorf("usage = %+v, want 100/50/30 (cumulative delta must not be added to start)", u)
 	}
 }
+
+// An embeddings-style usage object has no completion_tokens; the prompt count must still be recorded.
+func TestScrapeChatUsageMissingOutputKeepsInput(t *testing.T) {
+	u := scrapeChatUsage([]byte(`{"usage":{"prompt_tokens":8,"total_tokens":8}}`))
+	if u.input != 8 || u.output != 0 {
+		t.Errorf("usage = %+v, want input 8 output 0", u)
+	}
+	if u := scrapeChatUsage([]byte(`{"usage":{"prompt_tokens":null,"completion_tokens":3}}`)); u.output != 3 {
+		t.Errorf("null prompt_tokens: usage = %+v, want output 3", u)
+	}
+}
