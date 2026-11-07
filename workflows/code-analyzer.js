@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), minFix, rounds, dimensions (replaces the lenses), tests, steps {scope, audit, refute, fix, test, gate} = {model, effort} per stage (claude only). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, confirmed, refuted, rounds}. Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), minFix, rounds, dimensions (replaces the lenses), tests, steps {scope, audit, refute, fix, test, gate} = {model, effort} per stage (claude only). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report} plus refuted, rounds. Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -14,6 +14,7 @@ export const meta = {
 
 // ── Args ────────────────────────────────────────────────────────────────────
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
+const ERR = m => ({ exit: 'error', error: 'code-analyzer: ' + m, route: 'code-analyzer', decisions: [], report: '', unverified: [], rounds: [] })
 const CWD = a.cwd || ''
 const IN = CWD ? ' in ' + CWD : ''
 const CD = CWD ? 'cd ' + CWD + ' && ' : ''
@@ -25,16 +26,17 @@ let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings : null
 const RANGE = a.range || (PATHS.length || PRE ? '' : 'HEAD')
 const FIX = a.fix !== false
 // tests:false skips the per-package test agent for every package (no test agent).
-if (a.tests !== undefined && typeof a.tests !== 'boolean') return { exit: 'error', error: 'code-analyzer: args.tests must be a boolean', rounds: [] }
+if (a.tests !== undefined && typeof a.tests !== 'boolean') return ERR('args.tests must be a boolean')
 const TESTS = a.tests !== false
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
 // Rounds re-audit exactly the non-test source the previous round's fix touched, until dry/stalled/capped (D2: in-script loop, not self-recursion).
 const ROUNDS = Number.isInteger(a.rounds) && a.rounds > 0 ? a.rounds : 2
-let PRIOR = new Set(Array.isArray(a.prior) ? a.prior : [])
+// Prior findings as {file, line, symbol}; a string 'file:line' is accepted. Matched by proximity (same), not wording.
+let PRIOR = (Array.isArray(a.prior) ? a.prior : []).map(p => typeof p === 'string' ? { file: p.replace(/:\d+$/, ''), line: +(p.match(/:(\d+)$/) || [0, 0])[1], symbol: '' } : p)
 // Clean break: the per-stage args moved into steps.
 const REPLACED = { auditModel: 'audit', refuteModel: 'refute', refuters: 'refute', profiles: 'refute' }
 for (const k of Object.keys(REPLACED)) {
-  if (a[k] !== undefined) return { exit: 'error', error: `code-analyzer: ${k} was replaced by steps.${REPLACED[k]} (plans/2026-11-03-workflow-steps.md)`, rounds: [] }
+  if (a[k] !== undefined) return ERR(`${k} was replaced by steps.${REPLACED[k]} (plans/2026-11-03-workflow-steps.md)`)
 }
 const TEST_GLOBS = '*_test.go, testdata/, test_*.py, *_test.py, tests/, conftest.py, *.test.*, *.spec.*, __tests__/, fixtures/'
 const SRC_RE = /\.(go|py|ts|tsx|js|jsx|mjs|rs|java)$/
@@ -83,7 +85,7 @@ try {
     test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, OPT),
     gate: stepOf(a.steps, 'gate', {}, OPT),
   }
-} catch (e) { return { exit: 'error', error: 'code-analyzer: ' + e.message, rounds: [] } }
+} catch (e) { return ERR(e.message) }
 // Audit effort stays per lens unless steps.audit.effort is set; fix keeps opus+high for highs unless set.
 const AUDIT_EFFORT = RAW.audit && RAW.audit.effort
 const FIX_MODEL = RAW.fix && RAW.fix.model
@@ -132,10 +134,11 @@ const FINDINGS_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['file', 'line', 'package', 'title', 'scenario', 'evidence', 'severity'],
+        required: ['file', 'line', 'symbol', 'package', 'title', 'scenario', 'evidence', 'severity'],
         properties: {
           file: { type: 'string', description: 'repo-relative path' },
           line: { type: 'integer' },
+          symbol: { type: 'string', description: 'function or symbol the defect sits in' },
           package: { type: 'string', description: 'repo-relative package dir, e.g. internal/hooks' },
           title: { type: 'string', description: 'one-sentence defect' },
           scenario: { type: 'string', description: 'concrete input/state → wrong result' },
@@ -202,16 +205,30 @@ const SCOPE_SCHEMA = {
 }
 const relPath = p => (CWD ? String(p || '').replace(CWD + '/', '') : String(p || '')).replace(/^\.\//, '')
 // A missing package defaults to the finding's own file dir; an unknown severity defaults to medium (never silently dropped).
+const dirOfFile = f => relPath(f.file).split('/').slice(0, -1).join('/') || '.'
+const ownerPkg = f => {
+  if (!f.package) return dirOfFile(f)
+  if (inPkg(f.file, f.package)) return f.package
+  decisions.push(`re-routed ${relPath(f.file)}:${f.line} from ${f.package} to ${dirOfFile(f)}`)
+  return dirOfFile(f)
+}
 const norm = f => ({
   ...f,
-  package: f.package || relPath(f.file).split('/').slice(0, -1).join('/') || '.',
+  package: ownerPkg(f),
   severity: ORDER[f.severity] === undefined ? (log(`unknown severity '${f.severity}' on ${f.file} → medium`), 'medium') : f.severity,
 })
-const key = f => relPath(f.file) + ':' + f.title
+const NEAR = 10
+// Two findings are one bug when they share a file and sit within NEAR lines or name the same symbol (as relay3's merge).
+const same = (g, f) => relPath(g.file) === relPath(f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= NEAR || (!!g.symbol && g.symbol === f.symbol))
+// inPkg: a finding whose file is outside its package belongs to the file's own directory.
+const inPkg = (file, p) => p === '.' ? !relPath(file).includes('/') : relPath(file).startsWith(p.replace(/\/+$/, '') + '/')
+const decisions = []
 const REFUTE_BATCH = a.refuteBatch || 6
 
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
 const rounds = []
+let totalMerged = 0
+const PKG_COUNT = PKGS.length
 for (let round = 1; round <= ROUNDS; round++) {
   // ── Scope: capture each group's diff/file sizes ONCE per round (round 1: auditors spent 31–113 turns rediscovering it) ──
   phase('Scope')
@@ -253,7 +270,8 @@ for (let round = 1; round <= ROUNDS; round++) {
   const primaryDims = DIMENSIONS.filter(d => !d.hitsOnly)
   const hitDims = DIMENSIONS.filter(d => d.hitsOnly)
   log('auditing ' + TARGET + ' — ' + primaryDims.length + ' lens(es) × ' + chunks.length + ' chunk(s)' + (hitDims.length ? ', then ' + hitDims.map(d => d.key).join('/') + ' over flagged files' : ''))
-  const seen = new Set()
+  const seen = [...PRIOR] // proximity-merged across chunks, lenses and rounds
+  let mergedCount = 0
   const refuted = []
   const unverified = []
   let refuteCalls = 0
@@ -276,15 +294,15 @@ for (let round = 1; round <= ROUNDS; round++) {
   }
   const refuteStage = (found, u) => {
     const fresh = (found ? found.findings : []).filter(f => {
-      const k = `${f.file}:${f.line}:${f.title}`
-      if (seen.has(k)) return false
-      seen.add(k)
+      if (seen.some(g => same(g, f))) return false
+      seen.push(f)
       return true
     })
+    mergedCount += fresh.length
     // Batched per PACKAGE, ≤ REFUTE_BATCH findings each (round 11: per-file refuters grew to 24 agents / 7.9M reads).
     const byPkg = new Map()
     for (const f of fresh) {
-      const k = f.package || relPath(f.file).split('/').slice(0, -1).join('/') || '.'
+      const k = ownerPkg(f)
       byPkg.set(k, [...(byPkg.get(k) || []), f])
     }
     const batches = []
@@ -302,7 +320,8 @@ for (let round = 1; round <= ROUNDS; round++) {
         return fs.map((f, i) => {
           if (!v) { unverified.push({ ...f, reason: 'refuter returned no result' }); return null }
           const vd = verdicts.find(x => x.index === i)
-          if (!vd || vd.refuted) { refuted.push({ ...f, reason: vd ? vd.reason : 'no verdict' }); return null }
+          if (!vd) { unverified.push({ ...f, reason: 'refuter gave no verdict for this finding' }); return null }
+          if (vd.refuted) { refuted.push({ ...f, reason: vd.reason }); return null }
           return norm({ ...f, file: vd.file || f.file, line: vd.line || f.line, lens: u.dim.key })
         })
       })
@@ -319,13 +338,14 @@ for (let round = 1; round <= ROUNDS; round++) {
   confirmed.sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
   const toFix = confirmed.filter(f => ORDER[f.severity] <= MIN_FIX)
   const deferred = confirmed.filter(f => ORDER[f.severity] > MIN_FIX)
+  totalMerged += mergedCount
   const metrics = { scopers: PRE ? 0 : GROUPS.length, chunks: chunks.length, auditors: auditorCount, refuters: refuteCalls, confirmed: confirmed.length, refuted: refuted.length, deferred: deferred.length }
   log(`round ${round}/${ROUNDS}: confirmed ${confirmed.length}, refuted ${refuted.length}, below the fix floor ${deferred.length}, unverified ${unverified.length}`)
 
   const base = { confirmed, refuted, unverified, deferred, round }
   if (!FIX || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
-  if (PRIOR.size && toFix.every(f => PRIOR.has(key(f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
+  if (PRIOR.length && toFix.every(f => PRIOR.some(g => same(g, f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
 
   // ── Fix (packages in parallel; per package ADK Sequential: implementer, then test agent; disjoint file ownership) ────
   phase('Fix')
@@ -350,13 +370,14 @@ for (let round = 1; round <= ROUNDS; round++) {
       const impl = await agent(implTask,
         { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(FIX_MODEL || (hot ? 'opus' : 'sonnet')), effort: FIX_EFFORT || (hot ? 'high' : 'medium') })
       const implBlocked = !impl || impl.status === 'blocked'
+      const notDone = !impl || impl.status !== 'done' // a gate over a fix that did not finish proves nothing: red
       const testTask = () => `${ctx}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\nYou are the TEST agent (the implementer has finished): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
         `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg}, and report. Budget ~20 tool calls.`
       const tests = !testsNeeded || implBlocked ? null : await agent(testTask(),
         { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(S.test.model), effort: S.test.effort })
-      return { package: pkg, impl, tests, blocked: implBlocked }
+      return { package: pkg, pkg, findings: fs.length, impl, tests, test: tests, blocked: notDone, notDone }
     })()
   })).then(rs => rs.map((r, i) => r || { package: [...byPkg.keys()][i], blocked: true, error: 'fix stage failed' }))
 
@@ -377,7 +398,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   log(`round ${round + 1}/${ROUNDS}: re-auditing ${touched.length} file(s) the fix touched`)
   rounds.push(out)
   // Next round audits exactly what this round's fix touched — PKGS/GROUPS are just the touched file list, chunked.
-  PRIOR = new Set([...PRIOR, ...toFix.map(key)])
+  PRIOR = [...PRIOR, ...toFix]
   PATHS = touched
   PKGS = touched
   FILES_MODE = true
@@ -389,4 +410,24 @@ for (let round = 1; round <= ROUNDS; round++) {
 }
 
 const lastRound = rounds[rounds.length - 1] || { exit: 'error', round: 0 }
-return { ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds, unverified: rounds.flatMap(r => r.unverified || []) }
+const allConfirmed = rounds.flatMap(r => r.confirmed || [])
+const unverifiedAll = rounds.flatMap(r => r.unverified || [])
+const fixedAll = rounds.flatMap(r => r.fixed || [])
+// Red: a package whose fixer is not done, or every fixed package of a round whose gate is not green.
+const red = [...new Set(rounds.flatMap(r => (r.fixed || []).filter(x => x.notDone || x.blocked || (r.gate && r.gate.status !== 'green')).map(x => x.package)))]
+for (const r of rounds) {
+  for (const x of r.fixed || []) decisions.push(`${x.notDone ? 'fix NOT done (' + (x.impl ? x.impl.status : 'no result') + ') for ' : 'fixed '}${x.findings || 0} finding(s) in ${x.package}`)
+  if (r.gate) decisions.push(`round ${r.round}: gate ${r.gate.status}`)
+}
+if (!FIX) decisions.push('review only: fix=false')
+if (unverifiedAll.length) decisions.push(`${unverifiedAll.length} finding(s) unverified: refuter returned nothing`)
+const report = [`# code-analyzer: ${allConfirmed.length} confirmed finding(s) over ${rounds.length} round(s)`,
+  ...allConfirmed.map(c => `- **${c.severity}** \`${relPath(c.file)}:${c.line}\` (${c.symbol || '?'}) — ${c.title}`),
+  '', `Fixed: ${fixedAll.map(f => f.package + ' (' + (f.findings || 0) + ')').join(', ') || 'none'}. Red: ${red.join(', ') || 'none'}.`,
+  ...(unverifiedAll.length ? [`Unverified (refuter failed): ${unverifiedAll.map(u => relPath(u.file) + ':' + u.line).join(', ')}.`] : [])].join('\n')
+return {
+  ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds,
+  route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged,
+  dropped: rounds.flatMap(r => (r.refuted || []).map(f => ({ file: relPath(f.file), line: f.line, symptom: f.title }))),
+  unverified: unverifiedAll, fixed: fixedAll, red, decisions, report,
+}
