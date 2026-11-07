@@ -1,11 +1,9 @@
-package cli
+package providerscmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"slices"
-	"time"
 
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
@@ -18,18 +16,7 @@ var modelsDiscoverPage = helptext.Page{
 	Hint:  "Vendor-owned native catalogs are not rewritten. /discover-models defaults to --apply.",
 }
 
-type discoverResult struct {
-	Provider     string                `json:"provider"`
-	Profile      string                `json:"profile"`
-	Source       string                `json:"source"`
-	Discovered   int                   `json:"discovered"`
-	Additions    []providers.ModelInfo `json:"additions"`
-	Destinations []string              `json:"destinations"`
-	Status       string                `json:"status"`
-	Note         string                `json:"note,omitempty"`
-}
-
-func cmdModelsDiscover(args []string) int {
+func modelsDiscover(args []string) int {
 	fs := helptext.NewFlagSet("models discover", modelsDiscoverPage)
 	profile := fs.String("profile", "", "discover only this registry profile")
 	apply := fs.Bool("apply", false, "append discovered additions to saved runtime pickers")
@@ -63,11 +50,11 @@ func cmdModelsDiscover(args []string) int {
 	return printDiscoverResults(results, *apply, *format, code)
 }
 
-func printDiscoverResults(results []discoverResult, apply bool, format string, code int) int {
+func printDiscoverResults(results []copilot.DiscoverResult, apply bool, format string, code int) int {
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
-			Apply   bool             `json:"apply"`
-			Results []discoverResult `json:"results"`
+			Apply   bool                     `json:"apply"`
+			Results []copilot.DiscoverResult `json:"results"`
 		}{apply, results}); err != nil {
 			return helptext.Fail("models discover: cannot write JSON")
 		}
@@ -77,12 +64,12 @@ func printDiscoverResults(results []discoverResult, apply bool, format string, c
 	return code
 }
 
-func discoverPickerProfiles(reg *providers.Registry, names []string, apply bool) ([]discoverResult, int) {
-	results := make([]discoverResult, 0, len(names))
+func discoverPickerProfiles(reg *providers.Registry, names []string, apply bool) ([]copilot.DiscoverResult, int) {
+	results := make([]copilot.DiscoverResult, 0, len(names))
 	code, completed := 0, 0
 	for _, name := range names {
 		p, _ := reg.Get(name)
-		r := discoverPickerProfile(p, apply)
+		r := copilot.DiscoverPickerProfile(p, apply)
 		if r.Status == "error" {
 			code = 1
 		}
@@ -97,7 +84,7 @@ func discoverPickerProfiles(reg *providers.Registry, names []string, apply bool)
 	return results, code
 }
 
-func printDiscoverText(results []discoverResult) {
+func printDiscoverText(results []copilot.DiscoverResult) {
 	for _, r := range results {
 		fmt.Printf("%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, r.Source, r.Discovered, len(r.Additions))
 		for _, m := range r.Additions {
@@ -111,55 +98,4 @@ func printDiscoverText(results []discoverResult) {
 		}
 	}
 	fmt.Println("Saved entries are append-only choices, not current availability or inference proof. Native vendor catalogs are unchanged.")
-}
-
-func discoverPickerProfile(p *providers.Provider, apply bool) discoverResult {
-	r := discoverResult{Provider: p.Provider, Profile: p.Name, Additions: []providers.ModelInfo{}, Destinations: []string{}, Status: "skipped"}
-	source, skip := copilot.DiscoverySource(p)
-	r.Source = source
-	if skip != "" {
-		r.Note = skip
-		return r
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	live, err := copilot.DiscoverProfileModels(ctx, p)
-	if err != nil {
-		r.Status = "error"
-		r.Note = err.Error() + " (no fallback saved)"
-		return r
-	}
-	r.Discovered = len(live)
-	r.Destinations = discoverDestinations(p)
-	var added []providers.ModelInfo
-	if apply {
-		added, err = providers.AppendPickerModels(p, live)
-	} else {
-		added, err = providers.PreviewPickerModels(p, live)
-	}
-	if err != nil {
-		r.Status = "error"
-		r.Note = "saved picker additions unavailable or invalid; nothing overwritten: " + err.Error()
-		return r
-	}
-	if len(added) > 0 {
-		r.Additions = added
-	}
-	r.Status = "preview"
-	if apply {
-		r.Status = "applied"
-	}
-	r.Note = "Listing is not inference proof; existing selections and native vendor catalogs are unchanged."
-	return r
-}
-
-func discoverDestinations(p *providers.Provider) []string {
-	if p.Provider == "github" {
-		return []string{"sealed profile history only (Copilot pickers retain live policy filtering)"}
-	}
-	d := []string{"configure model picker", "agent model picker", "OpenCode harness-generated catalog (next routed launch)"}
-	if p.Preset == providers.PresetDatabricks {
-		d = append(d, "Codex generated catalog (Responses models with bundled metadata only)")
-	}
-	return d
 }

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"github.com/edotau/claude-code/internal/completion"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -13,8 +12,6 @@ func vaultSections() []string {
 func integrationSpecNodes() map[string]*completion.Node {
 	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
 	return map[string]*completion.Node{
-		"models": {Flags: []completion.Flag{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
-			valuedFlag("pin", modelPinAliases), boolFlag("dry-run"), formatFlag()}},
 		"workflow": {Sub: map[string]*completion.Node{
 			"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []completion.Flag{flag("name")}},
 			"lint":     {},
@@ -52,15 +49,6 @@ func dbxCfgFlags(withOut bool) []completion.Flag {
 		fs = append(fs, completion.Flag{Name: "out"}, completion.Flag{Name: "force", IsBool: true})
 	}
 	return fs
-}
-
-// modelPinAliases offers "alias=" stems for --pin; the user types the model id after the "=" themselves.
-func modelPinAliases() []string {
-	out := make([]string, 0, len(models.AliasNames)+1)
-	for _, s := range models.AliasNames {
-		out = append(out, s+"=")
-	}
-	return append(out, "all=")
 }
 
 // providerNames reads the provider registry straight off disk (no network): the same file
