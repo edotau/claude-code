@@ -130,10 +130,7 @@ func discoverPickerProfile(p *providers.Provider, apply bool) discoverResult {
 		return r
 	}
 	r.Discovered = len(live)
-	r.Destinations = []string{"configure model picker", "agent model picker", "OpenCode harness-generated catalog (next routed launch)"}
-	if p.Preset == providers.PresetDatabricks {
-		r.Destinations = append(r.Destinations, "Codex generated catalog (Responses models with bundled metadata only)")
-	}
+	r.Destinations = discoverDestinations(p)
 	var added []providers.ModelInfo
 	if apply {
 		added, err = providers.AppendPickerModels(p, live)
@@ -153,8 +150,16 @@ func discoverPickerProfile(p *providers.Provider, apply bool) discoverResult {
 		r.Status = "applied"
 	}
 	r.Note = "Listing is not inference proof; existing selections and native vendor catalogs are unchanged."
-	if p.Provider == "github" {
-		r.Destinations = []string{"sealed profile history only (Copilot pickers retain live policy filtering)"}
-	}
 	return r
+}
+
+func discoverDestinations(p *providers.Provider) []string {
+	if p.Provider == "github" {
+		return []string{"sealed profile history only (Copilot pickers retain live policy filtering)"}
+	}
+	d := []string{"configure model picker", "agent model picker", "OpenCode harness-generated catalog (next routed launch)"}
+	if p.Preset == providers.PresetDatabricks {
+		d = append(d, "Codex generated catalog (Responses models with bundled metadata only)")
+	}
+	return d
 }

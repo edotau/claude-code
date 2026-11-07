@@ -262,7 +262,7 @@ func previewSwitchProfile(reg *providers.Registry, profile string) int {
 	return printRecordDiff(apply, keptOff(reg, recs, profile))
 }
 
-// switchUsage prints switch's page; its one flag is pulled out by helptext.ExtractBool, so this FlagSet only renders it.
+// switchUsage prints switch's page; helptext.ExtractBool pulls its one flag out, so this FlagSet only renders it.
 func switchUsage() {
 	fs := helptext.NewFlagSet("switch", switchPage)
 	fs.Bool("dry-run", false, "print the agent record change, write nothing")
