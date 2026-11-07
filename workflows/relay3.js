@@ -148,9 +148,12 @@ async function repair(rev) {
       'if every command exited 0. Edit nothing.',
     { phase: 'Gate', label: 'gate:' + p, schema: GATE, model: S.gate.model, effort: S.gate.effort },
   )
-  const green = !!(gate && gate.green)
-  const decisions = ['fixed ' + cs.length + ' finding(s) at or above minFix in ' + p, green ? 'gate green in ' + p : 'gate red in ' + p]
-  return { ...rev, fixed: cs.length, impl, test, gate, decisions }
+  // A green gate over unchanged code proves nothing: a fixer that did not finish counts as red.
+  const done = !!(impl && impl.status === 'done')
+  const green = done && !!(gate && gate.green)
+  const decisions = [(done ? 'fixed ' : 'fix NOT done (' + (impl ? impl.status : 'no result') + ') for ') + cs.length + ' finding(s) in ' + p,
+    green ? 'gate green in ' + p : 'gate red in ' + p]
+  return { ...rev, fixed: cs.length, impl, test, gate, green, decisions }
 }
 
 // Estimate: 2 finders + ~4 rederivers per package, plus 3 per package that gets fixed.
@@ -172,7 +175,7 @@ for (const dir of Object.keys(foreign)) {
 }
 const confirmed = results.flatMap((r) => r.confirmed).sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
 const unverified = results.flatMap((r) => r.unverified || [])
-const red = results.filter((r) => r.fixed && !(r.gate && r.gate.green)).map((r) => r.pkg)
+const red = results.filter((r) => r.fixed && !r.green).map((r) => r.pkg)
 const fixed = results.filter((r) => r.fixed).map((r) => ({ pkg: r.pkg, findings: r.fixed, impl: r.impl, test: r.test, gate: r.gate }))
 const decisions = results.flatMap((r) => r.decisions || [])
 if (!FIX) decisions.push('review only: fix=false')
