@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -21,13 +22,19 @@ import (
 // posixPathRE matches an absolute POSIX path token. Deliberately greedy-but-bounded: every hit is
 // then existence-filtered, so over-matching costs a stat, not a false report.
 var posixPathRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`/[^\s"'` + "`" + `,;:()\[\]{}]+`)
+	return regexp.MustCompile(`/(?:\\ |[^\s"'` + "`" + `,;:()\[\]{}])+`)
 })
 
-// quotedPathRE matches a double-quoted absolute POSIX path, allowing spaces inside the quotes.
+// quotedPathRE matches a double- or single-quoted absolute POSIX path, allowing spaces inside the quotes.
 var quotedPathRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`"(/[^"]+)"`)
+	return regexp.MustCompile(`"(/[^"]+)"|'(/[^']+)'`)
 })
+
+// fetchClient pulls a client-only path over the SSH bridge; swapped in tests.
+var fetchClient = clipboard.FetchClient
+
+// bridgeReady reports an SSH session whose forwarded clipboard socket is present and ours; swapped in tests.
+var bridgeReady = clipboard.BridgeReady
 
 // imageExts are the extensions we report as images. Those image.DecodeConfig cannot read (no stdlib
 // decoder) still get a type+size line — the point is telling the user the path was recognized.
@@ -43,6 +50,7 @@ type pathReport struct {
 	path    string // resolved POSIX path
 	detail  string // "PNG 640×480, 12.3 KB" or "6 B"
 	isImage bool
+	err     string // fetch failure for a client-only path; path is then the client path
 }
 
 // pathToken is a scanned token: raw as written, trimmed with trailing punctuation stripped.
@@ -60,7 +68,7 @@ func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathTok
 		}
 	}
 	blanked := quoted.ReplaceAllStringFunc(text, func(m string) string {
-		q := quoted.FindStringSubmatch(m)[1]
+		q := strings.Join(quoted.FindStringSubmatch(m)[1:], "")
 		add(q, q)
 		return strings.Repeat(" ", len(m))
 	})
@@ -75,7 +83,11 @@ func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathTok
 }
 
 func scanPosixTokens(text string) []pathToken {
-	return scanTokens(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
+	toks := scanTokens(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
+	for i := range toks {
+		toks[i].trimmed = strings.ReplaceAll(toks[i].trimmed, `\ `, " ")
+	}
+	return toks
 }
 
 // describe builds the detail string for an existing file: image type+dimensions when decodable,
@@ -115,9 +127,36 @@ func collectReports(prompt string, res *paths.Resolver) []pathReport {
 		prompt = strings.ReplaceAll(prompt, tok.raw, strings.Repeat(" ", len(tok.raw)))
 	}
 	for _, tok := range scanPosixTokens(prompt) {
+		n := len(c.reps)
 		c.add("", tok.raw, tok.trimmed)
+		if len(c.reps) == n {
+			c.fetchRemote(tok.trimmed)
+		}
 	}
 	return c.reps
+}
+
+// fetchRemote pulls a /Users or /Volumes path that exists only on the SSH client and reports the local copy or the error.
+func (c *reportCollector) fetchRemote(client string) {
+	if !strings.HasPrefix(client, "/Users/") && !strings.HasPrefix(client, "/Volumes/") {
+		return
+	}
+	if _, err := os.Lstat(client); err == nil || c.seen[client] || !bridgeReady() {
+		return
+	}
+	c.seen[client] = true
+	local, err := fetchClient(client)
+	if err != nil {
+		c.reps = append(c.reps, pathReport{path: client, err: err.Error()})
+		return
+	}
+	detail, isImage, ok := describe(local)
+	if !ok {
+		c.reps = append(c.reps, pathReport{path: client, err: "fetched copy " + local + " is not a regular file"})
+		return
+	}
+	c.seen[local] = true
+	c.reps = append(c.reps, pathReport{win: client, path: local, detail: detail, isImage: isImage})
 }
 
 // reportCollector accumulates path reports, skipping paths it has already reported.
@@ -167,6 +206,10 @@ func feedbackMessage(reps []pathReport) string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
+		if r.err != "" {
+			fmt.Fprintf(&b, "⚠ %s — not fetched from the SSH client: %s", filepath.Base(r.path), r.err)
+			continue
+		}
 		icon := "📄"
 		if r.isImage {
 			icon = "🖼"
@@ -185,6 +228,10 @@ func feedbackMessage(reps []pathReport) string {
 func modelContext(reps []pathReport) string {
 	var lines, images []string
 	for _, r := range reps {
+		if r.err != "" {
+			lines = append(lines, fmt.Sprintf("  %s (client-only path, fetch failed: %s)", r.path, r.err))
+			continue
+		}
 		if r.win != "" {
 			lines = append(lines, fmt.Sprintf("  %s -> %s (%s)", r.win, r.path, r.detail))
 		} else {
