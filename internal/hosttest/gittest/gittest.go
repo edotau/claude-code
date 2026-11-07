@@ -48,7 +48,7 @@ func RepoAt(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	if out, err := exec.CommandContext(context.Background(), "cp", "-a", tmpl+"/.", dir).CombinedOutput(); err != nil {
-		t.Fatalf("copy template repo: %v %s", err, out)
+		t.Fatalf("copy template repo %s to %s: %v %s", tmpl, dir, err, out)
 	}
 	return dir
 }
