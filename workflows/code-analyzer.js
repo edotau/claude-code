@@ -283,6 +283,12 @@ const SCAN_SCHEMA = {
 }
 const REFUTE_BATCH = a.refuteBatch || 6
 
+// Preflight: Fix/Test use plugin agent code-worker:claude, absent when the session started on a bad settings.json.
+if (FIX) {
+  const probe = await agent('Reply with the single word OK.', { label: 'preflight:code-worker', phase: 'Scope', agentType: 'code-worker:claude', model: 'haiku', effort: 'low' }).catch(e => { log('preflight: ' + e.message); return null })
+  if (!probe) return ERR('agent type code-worker:claude did not run: plugin agents are not loaded; fix settings.json if invalid, restart the session, re-run (or pass fix:false)')
+}
+
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
 const rounds = []
 let totalMerged = 0
