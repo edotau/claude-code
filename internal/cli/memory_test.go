@@ -768,3 +768,14 @@ func TestMemoryShowFailReturnValue(t *testing.T) {
 		t.Errorf("memory show (no args) exit %d, want 2; stderr=%q", code, stderr)
 	}
 }
+
+// TestMemoryDigestReportsMissingClaudeBinary: the install hint from claude.ClaudeBinary must reach the user.
+func TestMemoryDigestReportsMissingClaudeBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "cfg"))
+	code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"digest", "--repo", t.TempDir()}) })
+	if code != 1 || !strings.Contains(stderr, "install --tools=claude") {
+		t.Errorf("memory digest without claude: code=%d stderr=%q, want 1 with the install hint", code, stderr)
+	}
+}
