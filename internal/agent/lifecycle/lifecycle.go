@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/live"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -170,7 +169,7 @@ func Send(args []string) int {
 	if rec, ferr := job.Find(id); ferr == nil {
 		id = rec.ID
 	}
-	env, err := live.SendLive(ctx, id, prompt, ask.StdoutSink(*format, id))
+	env, err := job.SendLive(ctx, id, prompt, ask.StdoutSink(*format, id))
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
 	}
