@@ -100,10 +100,10 @@ func writeState(st State) error {
 
 func removeState() { _ = os.Remove(stateFile()) }
 
-// Running reports the state of a live, healthy daemon (pid alive and the port answering).
+// Running reports the state of a live, healthy daemon (our serve-web pid alive and the port answering).
 func Running() (State, bool) {
 	st, err := readState()
-	if err != nil || !proc.Alive(st.PID) {
+	if err != nil || !proc.Alive(st.PID) || !isOurDaemon(st) {
 		return st, false
 	}
 	return st, healthy(context.Background(), st.Port)
@@ -281,7 +281,7 @@ func start(ctx context.Context, opts Options) (ServeResult, error) {
 		if err != nil {
 			return ServeResult{}, err
 		}
-		if err := waitHealthy(ctx, port); err != nil {
+		if err := waitHealthy(ctx, port, pid); err != nil {
 			_ = terminate(pid) // don't leave an unrecorded orphan holding the port
 			return ServeResult{}, err
 		}
@@ -337,9 +337,13 @@ func prepareDataDir() []string {
 	return notes
 }
 
-func waitHealthy(ctx context.Context, port int) error {
+// waitHealthy waits for port to answer while the spawned pid is still alive (a foreign responder must not pass).
+func waitHealthy(ctx context.Context, port, pid int) error {
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
+		if !proc.Alive(pid) {
+			return fmt.Errorf("code serve-web exited before becoming healthy (see %s)", logFile())
+		}
 		if healthy(ctx, port) {
 			return nil
 		}
@@ -366,11 +370,8 @@ func spawn(bin string, port int, folder string) (int, error) {
 	if err := cmd.Start(); err != nil {
 		return 0, err
 	}
-	pid := cmd.Process.Pid
-	if err := cmd.Process.Release(); err != nil {
-		return 0, err
-	}
-	return pid, nil
+	go func() { _ = cmd.Wait() }() // reap so an early exit reads as dead, not a zombie
+	return cmd.Process.Pid, nil
 }
 
 func openLogFile() (*os.File, error) {
@@ -475,6 +476,9 @@ func applyTailscale(ctx context.Context, st State, opts Options) (ServeResult, e
 		return ServeResult{}, err
 	}
 	if opts.NoTailscale {
+		if st.Tailscale {
+			stopTailscaleMapping(st.Funnel) // a rerun must not orphan the mapping an earlier run set
+		}
 		st.Tailscale, st.Funnel = false, false
 		st.URL = PublicURL("", "127.0.0.1", st.Port, token)
 		return finish(st, nil)
