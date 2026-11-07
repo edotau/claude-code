@@ -251,7 +251,11 @@ func (s *streamer) tool(tc inToolCall) error {
 			return err
 		}
 	} else if s.openTool != t {
-		return nil // fragment for an already-closed block: Anthropic blocks cannot be reopened
+		if args == "" {
+			return nil
+		}
+		// Anthropic blocks cannot be reopened; dropping the fragment would run the tool on truncated input.
+		return s.fail(500, "upstream interleaved tool call arguments", errUpstream)
 	}
 	if args == "" {
 		return nil

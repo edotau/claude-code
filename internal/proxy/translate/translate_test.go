@@ -651,3 +651,18 @@ func TestChatToolChoice(t *testing.T) {
 		jsonEqual(t, got, c.want)
 	}
 }
+
+func TestStreamChatInterleavedToolArgsFail(t *testing.T) {
+	in := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"f","arguments":""}},` +
+		`{"index":1,"id":"b","function":{"name":"g","arguments":""}}]}}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"x\":1}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n" +
+		"data: [DONE]\n\n"
+	var buf strings.Builder
+	if err := StreamChat(&buf, nil, strings.NewReader(in), "m"); !errors.Is(err, errUpstream) {
+		t.Fatalf("err = %v, want errUpstream (argument fragment for a closed block)", err)
+	}
+	got := parseSSE(t, buf.String())
+	if last := got[len(got)-1]; !strings.HasPrefix(last, "error ") {
+		t.Fatalf("last event %q, want error, not a clean message_stop", last)
+	}
+}
