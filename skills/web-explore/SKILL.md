@@ -39,6 +39,8 @@ tvly search 'Go 1.26 release date' --depth advanced --time-range year --include-
 - Key unset or auth error: stop and tell the user to run `claude-code vault set TAVILY_API_KEY` (free key at
   app.tavily.com). Never answer from memory as if you had searched.
 - The built-in `WebSearch` / `WebFetch` may be tried in Claude after Tavily, never instead of it.
+- Codex: its shell sandbox has no network, so these commands cannot reach Tavily there; use codex's own built-in web
+  search instead, still citing title + URL. Any other agent whose shell is offline does the same and says so.
 
 ## Write the query
 
