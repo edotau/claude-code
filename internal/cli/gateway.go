@@ -235,24 +235,39 @@ func cmdGatewayToken(args []string) int {
 	if fs.NArg() != 0 || *profile == "" {
 		return helptext.Fail("gateway token: want --profile <name> and no other arguments")
 	}
-	if *cfg != "" {
-		_ = os.Setenv("CLAUDE_CONFIG_DIR", *cfg)
+	token, code := mintProxyToken(*profile, *cfg)
+	if code != 0 {
+		return code
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	if _, err := tokenEnsure(ctx); err != nil {
-		return helptext.Fail("gateway token: proxy unavailable; run gateway proxy --start")
-	}
-	st, ok := tokenState(ctx)
-	if !ok {
-		return helptext.Fail("gateway token: proxy not running")
-	}
-	token, err := tokenMint(ctx, *profile, st.PID)
-	if err != nil {
-		return helptext.Fail("gateway token: %v", err)
-	}
+	return printToken(token)
+}
+
+func printToken(token string) int {
 	if _, err := fmt.Fprintln(os.Stdout, token); err != nil {
 		return 1
 	}
 	return 0
+}
+
+// mintProxyToken ensures the proxy is up and mints a token for profile; a nonzero code is the exit status.
+func mintProxyToken(profile, cfgDir string) (string, int) {
+	if cfgDir != "" {
+		if err := os.Setenv("CLAUDE_CONFIG_DIR", cfgDir); err != nil {
+			return "", helptext.Fail("gateway token: %v", err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := tokenEnsure(ctx); err != nil {
+		return "", helptext.Fail("gateway token: proxy unavailable; run gateway proxy --start")
+	}
+	st, ok := tokenState(ctx)
+	if !ok {
+		return "", helptext.Fail("gateway token: proxy not running")
+	}
+	token, err := tokenMint(ctx, profile, st.PID)
+	if err != nil {
+		return "", helptext.Fail("gateway token: %v", err)
+	}
+	return token, 0
 }

@@ -155,10 +155,7 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	return 0
 }
 
-// cmdWorktreeMerge previews (or, without --dry-run, applies) Preflight's two-phase merge: the plan is always printed
-// first, so an Issue is visible before anything mutates. --resolve-agent hands a predicted conflict to an agent and
-// --resume reattaches to one. SIGINT/SIGTERM cancels ctx, so Promote either completes or leaves main untouched. The
-// whole apply runs under one worktree.WithWorktreeLease hold; the engine is worktree.Merge.
+// cmdWorktreeMerge previews (--dry-run) or applies Preflight's two-phase merge under one worktree lease.
 func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	fs := helptext.NewFlagSet("worktree merge", helptext.Page{Usage: "claude-code worktree merge [flags] <name>\nclaude-code worktree merge --resume [flags] <name>", Hint: worktreeVerifyNote})
 	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without merging")
@@ -172,7 +169,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *resolveAgent != "" && *resolveAgent != "claude" && *resolveAgent != "codex" {
+	if !validResolveAgent(*resolveAgent) {
 		return helptext.Fail("worktree merge: --resolve-agent %q unknown (claude|codex)", *resolveAgent)
 	}
 	rest := fs.Args()
@@ -206,6 +203,8 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	return code
 }
 
+func validResolveAgent(a string) bool { return a == "" || a == "claude" || a == "codex" }
+
 // mergeDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.
 func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	plan, err := worktree.PlanOrResolve(ctx, repo, req, true)
@@ -235,8 +234,7 @@ func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 	return 0
 }
 
-// printMergePlan renders Preflight's plan: the pinned OIDs, then every Issue found (empty = clean).
-// An Issue found before OIDs are pinned (dirty/detached/mismatch) leaves them blank, not stale.
+// printMergePlan renders the pinned OIDs then every Issue; OIDs stay blank when an Issue stopped the plan early.
 func printMergePlan(plan *worktree.MergePlan) {
 	fmt.Printf("target: %s%s\n", plan.TargetRef, oidSuffix(plan.TargetOID))
 	fmt.Printf("source: %s%s\n", plan.WorktreePath, oidSuffix(plan.SourceOID))
