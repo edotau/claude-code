@@ -1,4 +1,4 @@
-package cli
+package network
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ import (
 
 func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 	for _, args := range [][]string{nil, {"-h"}, {"--help"}} {
-		code, _, stderr := captureOutput(t, func() int { return cmdNetwork(args) })
+		code, _, stderr := captureOutput(t, func() int { return Run(args, nil) })
 		if code != 0 {
 			t.Errorf("network %v: exit %d, want 0", args, code)
 		}
@@ -31,7 +31,7 @@ func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 }
 
 func TestNetworkUnknownSubverb(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return cmdNetwork([]string{"bogus"}) })
+	code, _, stderr := captureOutput(t, func() int { return Run([]string{"bogus"}, nil) })
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)
 	}
@@ -42,7 +42,7 @@ func TestNetworkUnknownSubverb(t *testing.T) {
 
 func TestNetworkOldSubverbsRejected(t *testing.T) {
 	for _, old := range []string{"web", "doctor", "status", "connect", "browsers"} {
-		if code, _, _ := captureOutput(t, func() int { return cmdNetwork([]string{old}) }); code != 1 {
+		if code, _, _ := captureOutput(t, func() int { return Run([]string{old}, nil) }); code != 1 {
 			t.Errorf("network %s: exit %d, want 1", old, code)
 		}
 	}

@@ -154,3 +154,37 @@ func AttachSession(host, session string) error {
 	}
 	return proc.Exec(bin, argv[1:], os.Environ())
 }
+
+// MachinesCached lists tailnet machines and refreshes the `dispatch --host` completion cache.
+func MachinesCached(ctx context.Context) ([]Machine, error) {
+	machines, err := Machines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(machines))
+	for _, m := range machines {
+		names = append(names, m.Name)
+	}
+	WriteMachinesCache(names)
+	return machines, nil
+}
+
+// MintKey parses expiry, mints an auth key through the admin API and hints at the usual 404 cause.
+func MintKey(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) {
+	exp, err := ParseKeyExpiry(expiry)
+	if err != nil {
+		return AuthKey{}, fmt.Errorf("--expiry: %w", err)
+	}
+	client, err := NewClient()
+	if err != nil {
+		return AuthKey{}, err
+	}
+	opts.Expiry = exp
+	key, err := client.CreateAuthKey(ctx, opts)
+	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
+		// The admin API answers 404, not 403, when an OAuth client lacks the auth_keys scope.
+		return AuthKey{}, fmt.Errorf("%w\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
+			"and OAuth-minted keys need --tags tag:<x> (a tag in tagOwners); or use TAILSCALE_API_KEY", err)
+	}
+	return key, err
+}
