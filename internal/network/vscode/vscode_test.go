@@ -223,6 +223,19 @@ func TestSyncKeybindingsBracketInHeaderCommentStaysValid(t *testing.T) {
 	}
 }
 
+// TestSyncKeybindingsOverlappingCommentDelimiterStaysValid: in `/*/ keep */` the first "*/" overlaps the opener.
+func TestSyncKeybindingsOverlappingCommentDelimiterStaysValid(t *testing.T) {
+	user := "/*/ keep */\n[\n  {\"key\": \"ctrl+k\", \"command\": \"myExtension.doThing\"}\n]\n"
+	tmpl, dest := keybindingsFixture(t, user)
+	if _, err := SyncKeybindings(tmpl, dest, false); err != nil {
+		t.Fatal(err)
+	}
+	entries, body := readKeybindingEntries(t, dest)
+	if len(entries) != 2 || !strings.HasPrefix(string(body), "/*/ keep */\n[") {
+		t.Errorf("header comment mangled (%d entries):\n%s", len(entries), body)
+	}
+}
+
 // A second run against the already-merged file has nothing left to change — no rewrite, no new backup.
 func TestSyncKeybindingsIsIdempotent(t *testing.T) {
 	tmpl, dest := keybindingsFixture(t, `[]`)
