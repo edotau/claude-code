@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
@@ -350,7 +349,6 @@ func deleteSecret(d *dialog, name string) bool {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
-	audit.Log(audit.SecretDelete, name, "")
 	d.printf("deleted %s\n", name)
 	return true
 }
@@ -435,7 +433,6 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 			d.printf("%s: not deleted: %v\n", name, err)
 			continue
 		}
-		audit.Log(audit.SecretDelete, name, "")
 		d.printf("deleted %s\n", name)
 	}
 	d.pendingDeletes = nil
