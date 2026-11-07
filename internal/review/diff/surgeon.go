@@ -76,6 +76,10 @@ type diffFileEntry struct {
 
 func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
 	args := []string{"diff", "--cached"}
+	if err := checkRefs(diffRange); err != nil {
+		fmt.Fprintf(stderr, "[error] %v\n", err)
+		return "", false
+	}
 	if diffRange != "" {
 		args = []string{"diff", diffRange}
 	}

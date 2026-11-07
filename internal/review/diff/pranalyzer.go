@@ -138,53 +138,59 @@ func gitInherit(repo string, args ...string) (out string, timedOut bool, err err
 	return out, ctx.Err() != nil, err
 }
 
-// changedFiles lists the base...head changes; an error means every ref-based git diff failed and nothing was staged.
-func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
-	out, err := runGitErr(repo, "diff", "--name-status", base+"..."+head)
-	if err != nil || out == "" {
-		out, err = runGitErr(repo, "diff", "--name-status", base, head)
+// refDiff runs `git diff <opts> base...head [-- paths]`, retrying the two-dot form only when the merge-base form errors.
+func refDiff(repo, base, head string, opts []string, paths ...string) (string, error) {
+	run := func(revs ...string) (string, error) {
+		args := append(append([]string{"diff"}, opts...), revs...)
+		if len(paths) > 0 {
+			args = append(append(args, "--"), paths...)
+		}
+		return runGitErr(repo, args...)
 	}
-	refErr := err
-	if err != nil || out == "" {
-		out, err = runGitErr(repo, "diff", "--name-status", "--cached")
-	}
-	var files []PRFileAnalysis
+	out, err := run(base + "..." + head)
 	if err != nil {
-		return files, err
+		out, err = run(base, head)
 	}
-	files = parseNameStatus(out)
-	if len(files) == 0 && refErr != nil {
-		return nil, refErr
-	}
-	return files, nil
+	return out, err
 }
 
-// parseNameStatus turns `git diff --name-status` output into files; unknown status letters count as modified.
+// changedFiles lists the base...head changes; an empty branch is not an error and the index is never consulted.
+func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
+	out, err := refDiff(repo, base, head, []string{"--name-status", "-z"})
+	if err != nil {
+		return nil, err
+	}
+	return parseNameStatus(out), nil
+}
+
+// parseNameStatus turns `git diff --name-status -z` output into files; unknown status letters count as modified.
 func parseNameStatus(out string) []PRFileAnalysis {
 	statusMap := map[string]string{"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied"}
 	var files []PRFileAnalysis
-	for line := range strings.SplitSeq(out, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
+	tok := strings.Split(strings.TrimRight(out, "\x00"), "\x00")
+	for i := 0; i+1 < len(tok); {
+		code, n := tok[i], 1
+		if code != "" && (code[0] == 'R' || code[0] == 'C') {
+			n = 2
 		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 2 {
-			continue
+		if i+n >= len(tok) {
+			break
 		}
-		status := statusMap[string(parts[0][0])]
+		status := ""
+		if code != "" {
+			status = statusMap[code[:1]]
+		}
 		if status == "" {
 			status = "modified"
 		}
-		files = append(files, PRFileAnalysis{Path: parts[len(parts)-1], Status: status})
+		files = append(files, PRFileAnalysis{Path: tok[i+n], Status: status})
+		i += n + 1
 	}
 	return files
 }
 
 func fileDiff(repo, filepath, base, head string) string {
-	out, err := runGitErr(repo, "diff", base+"..."+head, "--", filepath)
-	if err != nil || out == "" {
-		out, err = runGitErr(repo, "diff", "--cached", "--", filepath)
-	}
+	out, err := refDiff(repo, base, head, nil, filepath)
 	if err != nil {
 		return ""
 	}
@@ -294,7 +300,7 @@ func tierPoints(n, top, mid, low int) int {
 }
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue) {
-	out, err := runGitErr(repo, "log", "--oneline", base+"..."+head)
+	out, err := runGitErr(repo, "log", "--oneline", base+".."+head)
 	issues := []CommitIssue{}
 	if err != nil || out == "" {
 		return 0, issues

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -128,29 +129,48 @@ func actionForFinding(category, message string) string {
 
 func generateActionItems(findings []Finding) []ActionItem {
 	items := []ActionItem{}
-	seen := map[string]bool{}
+	idx := map[string]int{}
 	for _, f := range findings {
-		if seen[f.Category] {
-			continue
+		i, ok := idx[f.Category]
+		if !ok {
+			if len(items) >= 15 {
+				continue
+			}
+			idx[f.Category] = len(items)
+			items = append(items, ActionItem{Action: actionForFinding(f.Category, f.Message), FilesAffected: []string{}})
+			i = len(items) - 1
 		}
-		priority := "P2"
-		switch f.Severity {
-		case "critical":
-			priority = "P0"
-		case "high":
-			priority = "P1"
+		it := &items[i]
+		if sevRank(f.Severity) > sevRank(it.Severity) || it.Severity == "" {
+			it.Severity, it.Priority = f.Severity, priorityFor(f.Severity)
 		}
-		filesAffected := []string{}
-		if f.File != "" {
-			filesAffected = []string{f.File}
-		}
-		items = append(items, ActionItem{Priority: priority, Action: actionForFinding(f.Category, f.Message), Severity: f.Severity, FilesAffected: filesAffected})
-		seen[f.Category] = true
-		if len(items) >= 15 {
-			break
+		if f.File != "" && !slices.Contains(it.FilesAffected, f.File) {
+			it.FilesAffected = append(it.FilesAffected, f.File)
 		}
 	}
 	return items
+}
+
+// priorityFor maps a severity to P0 (critical), P1 (high) or P2.
+func priorityFor(sev string) string {
+	switch sev {
+	case "critical":
+		return "P0"
+	case "high":
+		return "P1"
+	}
+	return "P2"
+}
+
+// sevRank orders severities critical > high > anything else.
+func sevRank(sev string) int {
+	switch sev {
+	case "critical":
+		return 2
+	case "high":
+		return 1
+	}
+	return 0
 }
 
 // loadPRAnalysis returns the PR analysis map; prReport is non-nil only when the analysis ran here (no override).
