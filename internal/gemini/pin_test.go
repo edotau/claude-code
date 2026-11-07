@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/agenttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -22,7 +21,7 @@ func pinFixture(t *testing.T, session string) {
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("CLAUDE_PROFILE", session)
-	agenttest.StubRouter(t, "http://127.0.0.1:9999")
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:9999"))
 	row := func(host string) string {
 		return `{"preset":"databricks","host":"https://` + host + `.example.com","auth":{"type":"pat"},"models":{"opus":"databricks-claude-opus"}}`
 	}

@@ -432,7 +432,7 @@ var (
 )
 
 // StubRouter points configure at base: an unstubbed Ensure would relaunch the test binary as the daemon.
-// Tests reach it through agenttest; restore undoes it.
+// Tests call it directly; restore undoes it.
 func StubRouter(base string) (restore func()) {
 	oe := ensureRouter
 	ensureRouter = func(context.Context) (string, error) { return base, nil }
