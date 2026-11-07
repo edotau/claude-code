@@ -145,10 +145,11 @@ func leadingComment(raw []byte) string {
 				n = len(rest) - end
 			}
 		case bytes.HasPrefix(rest[end:], []byte("/*")):
-			n = bytes.Index(rest[end:], []byte("*/")) + 2
-			if n == 1 {
+			i := bytes.Index(rest[end+2:], []byte("*/")) // after "/*", so "/*/" is not its own close
+			if i < 0 {
 				return ""
 			}
+			n = i + 4
 		default:
 			return strings.TrimSpace(string(rest[:end]))
 		}
