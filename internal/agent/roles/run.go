@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/explore"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -37,7 +36,7 @@ type LegResult struct {
 
 // Run dispatches legs concurrently, host-isolated under a limit of min(jobs, 12), tagging progress lines with the label.
 func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, progress io.Writer) Report {
-	ctx = agent.WithBatchRun(ctx, agent.NewBatchLimiter(min(jobs, explore.MaxParts)))
+	ctx = agent.WithBatchRun(ctx, agent.NewBatchLimiter(min(jobs, MaxParts)))
 	rep := Report{Schema: ReportSchema, Role: r.Name, Agent: r.Agent, Legs: make([]LegResult, len(legs))}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -171,7 +170,7 @@ func exploreLegs(base agent.RunOptions, q Request) []Leg {
 	}
 	legs := make([]Leg, 0, len(parts))
 	for _, p := range parts {
-		legs = append(legs, Leg{Label: p, Opts: explore.Options(base, p, q.Web)})
+		legs = append(legs, Leg{Label: p, Opts: Options(base, p, q.Web)})
 	}
 	return legs
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/explore"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini schema (ReadNeedsTools)
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -56,7 +55,7 @@ func TestRoleExploreLegsOnePerPart(t *testing.T) {
 		t.Fatalf("want legs a,b; got %+v", legs)
 	}
 	o := legs[1].Opts
-	if o.Agent != "gemini" || !o.Tools || o.WorkDir != "/w" || o.Prompt != explore.Prompt("b", true) {
+	if o.Agent != "gemini" || !o.Tools || o.WorkDir != "/w" || o.Prompt != Prompt("b", true) {
 		t.Errorf("explore opts wrong: %+v", o)
 	}
 }
@@ -80,7 +79,7 @@ func TestRoleLegsCarryOutputSchema(t *testing.T) {
 func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 	vaulttest.Use(t)
 	legs := Legs(mustRole(t, "explore"), Request{Task: "whole", Web: false})
-	if len(legs) != 1 || legs[0].Opts.Prompt != explore.Prompt("whole", false) {
+	if len(legs) != 1 || legs[0].Opts.Prompt != Prompt("whole", false) {
 		t.Fatalf("want one leg on the task; got %+v", legs)
 	}
 }
