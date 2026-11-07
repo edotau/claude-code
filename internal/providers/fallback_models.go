@@ -20,7 +20,7 @@ func FallbackModels(p *Provider, liveErr error) ([]ModelInfo, string, error) {
 		if cached, cerr := codexCachedModels(); cerr == nil && len(cached) > 0 {
 			return cached, "chatgpt has no live /models route; showing codex's local model cache (~/.codex/models_cache.json, may be stale)", nil
 		}
-		return nil, "", fmt.Errorf("%v (run `codex` once to populate ~/.codex/models_cache.json, or pin a model id by hand: claude-code models --pin opus=chatgpt:<id>)", liveErr)
+		return nil, "", fmt.Errorf("%w (run `codex` once to populate ~/.codex/models_cache.json, or pin a model id by hand: claude-code models --pin opus=chatgpt:<id>)", liveErr)
 	}
 	if p.Auth.Type == AuthCLI {
 		if known := registryModels(p); len(known) > 0 {

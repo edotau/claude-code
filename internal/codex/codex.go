@@ -256,17 +256,32 @@ func (codexEngine) ProfileHint(o agent.LaunchOptions) error { return codexProfil
 
 func (codexEngine) RouteDetail() (string, bool) { return codexRouteDetail(), true }
 
-// codexHasJSON is true when the installed codex has `exec --json`; checked once per process.
-var codexHasJSON = sync.OnceValue(func() bool {
+var (
+	codexJSONMu    sync.Mutex
+	codexJSONKnown bool
+	codexJSONValue bool
+)
+
+// codexHasJSON is true when the installed codex has `exec --json`; only a definitive probe is cached per process.
+func codexHasJSON() bool {
+	codexJSONMu.Lock()
+	defer codexJSONMu.Unlock()
+	if codexJSONKnown {
+		return codexJSONValue
+	}
 	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
-	out, _ := exec.CommandContext(ctx, bin, "exec", "--help").CombinedOutput()
-	return strings.Contains(string(out), "--json")
-})
+	out, runErr := exec.CommandContext(ctx, bin, "exec", "--help").CombinedOutput()
+	has := strings.Contains(string(out), "--json")
+	if ctx.Err() == nil && (runErr == nil || has) {
+		codexJSONKnown, codexJSONValue = true, has
+	}
+	return has
+}
 
 // codexExecArgs inserts extra right after the exec subcommand, where codex takes its flags.
 func codexExecArgs(argv []string, extra ...string) []string {

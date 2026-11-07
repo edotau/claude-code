@@ -129,3 +129,15 @@ func TestTokenExpiryReadTolerant(t *testing.T) {
 		t.Error("unsafe name read a record")
 	}
 }
+
+// Given an exp claim that is huge, negative or not a number, jwtExp rejects it instead of overflowing.
+func TestJWTExpRejectsOutOfRange(t *testing.T) {
+	for _, exp := range []string{"1e30", "-5", "9.3e18"} {
+		if got, ok := jwtExp(fakeJWT(`{"exp":` + exp + `}`)); ok {
+			t.Errorf("exp %s accepted as %d", exp, got)
+		}
+	}
+	if got, ok := jwtExp(fakeJWT(`{"exp":1893456000}`)); !ok || got != 1893456000 {
+		t.Errorf("valid exp = %d, %v", got, ok)
+	}
+}

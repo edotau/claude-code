@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -513,5 +515,51 @@ func TestFakeCLISendEmitsReply(t *testing.T) {
 	}
 	if got := strings.Join(calls(t, log), "\n"); !strings.Contains(got, "session.create ") {
 		t.Errorf("record = %q, want session.create params", got)
+	}
+}
+
+// A ctx cancel must kill the runtime startClient started, without the caller's stop func ever running.
+func TestStartClientForceStopsOnCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a sh fake CLI")
+	}
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pid")
+	script := `#!/bin/sh
+echo $$ > "` + pidFile + `"
+while IFS= read -r line; do
+  case "$line" in Content-Length:*) n=${line#*: }; n=${n%?};; esac
+  [ -z "${line%?}" ] || continue
+  body=$(head -c "$n")
+  printf "%s\n" "$body" >> "` + pidFile + `.log"
+  id=$(printf '%s' "$body" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  r='{"jsonrpc":"2.0","id":"'$id'","result":{"protocolVersion":` + strconv.Itoa(copilot.GetSDKProtocolVersion()) + `}}'
+  printf 'Content-Length: %s\r\n\r\n%s' "${#r}" "$r"
+done
+`
+	cli := filepath.Join(dir, "fake-copilot")
+	if err := os.WriteFile(cli, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stopErr error
+	_, stop, err := startClient(ctx, SDKOptions{CLIPath: cli}, &stopErr)
+	if err != nil {
+		t.Fatalf("startClient: %v", err)
+	}
+	defer stop()
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if syscall.Kill(pid, 0) == nil {
+		t.Fatalf("runtime pid %d still alive after ctx cancel", pid)
 	}
 }

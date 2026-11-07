@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,12 +25,18 @@ func tokenExpiryPath(name string) string {
 	return filepath.Join(paths.StateDir(), "cache", "token-expiry", name+".json")
 }
 
+// maxJWTExp bounds a plausible exp claim (year 9999) so the float64 to int64 conversion cannot overflow.
+const maxJWTExp = 253402300799
+
 // jwtExp returns the numeric exp claim of a JWT-shaped credential; false for anything else.
 func jwtExp(v string) (int64, bool) {
 	var claims struct {
 		Exp *float64 `json:"exp"`
 	}
 	if !textutil.JWTClaims(v, &claims) || claims.Exp == nil {
+		return 0, false
+	}
+	if e := *claims.Exp; math.IsNaN(e) || e < 0 || e > maxJWTExp {
 		return 0, false
 	}
 	return int64(*claims.Exp), true

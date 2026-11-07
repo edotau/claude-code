@@ -299,12 +299,30 @@ func stderrToStdout(rs []rune, i int) bool {
 }
 
 // CanonicalSelf rewrites the harness binary's full paths ($HOME, ~ or absolute) to plain claude-code.
+// The installed ~/.local/bin/claude-code is rewritten too, but only while it resolves to the harness binary.
 func CanonicalSelf(cmd string) string {
 	home, _ := os.UserHomeDir()
-	for _, self := range []string{"$HOME/.claude/bin/claude-code", "~/.claude/bin/claude-code", home + "/.claude/bin/claude-code"} {
+	selves := []string{"$HOME/.claude/bin/claude-code", "~/.claude/bin/claude-code", home + "/.claude/bin/claude-code"}
+	if installedIsSelf(home) {
+		selves = append(selves, "$HOME/.local/bin/claude-code", "~/.local/bin/claude-code", home+"/.local/bin/claude-code")
+	}
+	for _, self := range selves {
 		cmd = strings.ReplaceAll(cmd, self+" ", "claude-code ")
 	}
 	return cmd
+}
+
+// installedIsSelf reports whether home's .local/bin/claude-code resolves to home's .claude/bin/claude-code.
+func installedIsSelf(home string) bool {
+	if home == "" {
+		return false
+	}
+	installed, err := filepath.EvalSymlinks(filepath.Join(home, ".local", "bin", "claude-code"))
+	if err != nil {
+		return false
+	}
+	self, err := filepath.EvalSymlinks(filepath.Join(home, ".claude", "bin", "claude-code"))
+	return err == nil && installed == self
 }
 
 // Command is CommandIn with roots[0] as the execution cwd (the hook runs in its first root).
