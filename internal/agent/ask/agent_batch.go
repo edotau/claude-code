@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/batch"
@@ -21,6 +22,9 @@ type batchOpts struct {
 	failFast        bool
 	agent, fallback string
 	native          bool
+	follow          bool
+	followIdle      time.Duration
+	retryAgents     []string
 }
 
 // batchExclusive are the ask flags that make no sense on a batch of independent tasks.
@@ -44,18 +48,35 @@ func checkBatchFlags(fs *flag.FlagSet, resume bool, o batchOpts) error {
 			bad = fmt.Errorf("--batch cannot be combined with --%s", f)
 		}
 	}
-	if helptext.Explicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
-		bad = errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
-	}
-	if bad == nil && o.jobs < 1 {
-		bad = fmt.Errorf("--jobs %d: need at least 1", o.jobs)
+	if bad == nil {
+		bad = checkBatchRun(fs, o)
 	}
 	return bad
 }
 
+// checkBatchRun rejects a non-JSON --format, --follow on stdin and a --jobs below 1.
+func checkBatchRun(fs *flag.FlagSet, o batchOpts) error {
+	if helptext.Explicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
+		return errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
+	}
+	if o.follow && fs.Lookup("batch").Value.String() == "-" {
+		return errors.New("--follow needs a --batch file: stdin cannot be followed")
+	}
+	if o.jobs < 1 {
+		return fmt.Errorf("--jobs %d: need at least 1", o.jobs)
+	}
+	return nil
+}
+
 func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunOptions) int {
 	in := io.Reader(os.Stdin)
-	if src != "-" {
+	var fw *follower
+	if o.follow {
+		var err error
+		if fw, in, err = newFollower(src, o.followIdle); err != nil {
+			return failAskCode("text", o.agent, fmt.Errorf("--batch: %w", err), 2)
+		}
+	} else if src != "-" {
 		f, err := os.Open(src)
 		if err != nil {
 			return failAskCode("text", o.agent, fmt.Errorf("--batch: %w", err), 2)
@@ -75,6 +96,10 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunO
 	bo := batch.Opts{Jobs: o.jobs, FailFast: o.failFast, Agent: o.agent, Fallback: o.fallback, Native: o.native}
 	if as := fs.Lookup("as"); as != nil {
 		bo.Identity = as.Value.String()
+	}
+	bo.Decorate = func(t *batch.Task) { t.Retry = retryFor(*t, bo, o.retryAgents) }
+	if fw != nil {
+		bo.Follow = fw.run
 	}
 	id, ok := batch.Run(ctx, lines, bo, base, helptext.Explicit(fs, "timeout"), NewClient, os.Stdout)
 	if !ok {
