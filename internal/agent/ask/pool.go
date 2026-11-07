@@ -1,90 +1,94 @@
-package batch
+package ask
 
 import (
-	"bufio"
-	"bytes"
 	"cmp"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
-	"path/filepath"
-	"regexp"
+	"os"
+	"os/signal"
 	"runtime"
 	"slices"
-	"strconv"
-	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // DefaultJobs is the default pool size: min(4, GOMAXPROCS).
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
 
-// DefaultToolsTimeout is the deadline of a fresh --tools run without an explicit timeout.
-const DefaultToolsTimeout = 45 * time.Minute
-
-// TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
-type TaskLine struct {
-	ID      string `json:"id"`
-	Agent   string `json:"agent"`
-	Profile string `json:"profile"`
-	Model   string `json:"model"`
-	Prompt  string `json:"prompt"`
-	Workdir string `json:"workdir"`
-	Tools   *bool  `json:"tools"`
-	Timeout string `json:"timeout"` // a Go duration such as 5m
-
-	PlanTask string `json:"plan_task"` // optional plan task this line implements, same character rule as id
+// Opts are the ask flags that apply to a whole --batch run; Identity is the --as value, empty when unset.
+type Opts struct {
+	Jobs            int
+	FailFast        bool
+	Agent, Fallback string
+	Native          bool
+	Identity        string
+	FollowInput     bool
+	FollowIdle      time.Duration
+	RetryAgents     []string
+	Decorate        func(*Task) // optional: called on every successfully built task
+	// Follow optionally feeds more tasks after the initial lines; ctx is cancelled when RunBatch returns.
+	Follow func(ctx context.Context, build func(ParsedLine) Task) <-chan Task
 }
 
-// ParsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.
-type ParsedLine struct {
-	N    int
-	Task TaskLine
-	Err  error
-}
-
-// ReadTaskLines decodes JSONL tasks; a malformed line or unknown field is that line's Err, never the whole batch's.
-func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
-	var out []ParsedLine
-	br := bufio.NewReader(r)
-	for n := 1; ; n++ {
-		line, err := br.ReadBytes('\n')
-		if len(bytes.TrimSpace(line)) > 0 {
-			pl := ParsedLine{N: n}
-			dec := json.NewDecoder(bytes.NewReader(line))
-			dec.DisallowUnknownFields()
-			if derr := dec.Decode(&pl.Task); derr != nil {
-				pl.Err = fmt.Errorf("line %d: %w", n, derr)
-			} else if extra := (json.RawMessage)(nil); !errors.Is(dec.Decode(&extra), io.EOF) {
-				pl.Err = fmt.Errorf("line %d: trailing data after the JSON object", n) // More() misses a stray '}'
-			}
-			out = append(out, pl)
-		}
-		if errors.Is(err, io.EOF) {
-			return out, nil
-		}
-		if err != nil {
-			return out, err
-		}
+// BuildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
+func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd string, seen map[string]bool,
+	newClient func() *agent.Client) (Task, error) {
+	t, err := ParseTask(l, o.Agent, base, timeoutSet, cwd, seen)
+	if err != nil {
+		return t, err
 	}
+	req := t.Req
+	req.Agent, req.Fallback, req.Native = t.Agent, o.Fallback, o.Native
+	client := newClient()
+	t.Prepare = func(ctx context.Context) (*agent.Prepared, error) {
+		p, err := client.Prepare(ctx, req, nil)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", l.N, err)
+		}
+		return p, nil
+	}
+	return t, nil
 }
 
-// Task is one scheduled task; Prepare routes it when it is about to start, and Err fails it before any run.
-type Task struct {
-	ID      string
-	Agent   string // the agent asked for, named on a failure envelope
-	Plan    string // plan_task of the line, stamped on the dispatch record
-	Req     agent.RunOptions
-	Prepare func(ctx context.Context) (*agent.Prepared, error)
-	Retry   func(ctx context.Context) (*agent.Prepared, error) // optional: reroutes a failed task once, same id
-	Err     error
+// RunBatch builds a task per line (a bad line fails alone, logged to os.Stderr) and runs them on the pool; true only if all ok.
+func RunBatch(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool,
+	newClient func() *agent.Client, out io.Writer) (id string, ok bool) {
+	if o.Identity != "" {
+		ctx = providers.WithIdentity(ctx, o.Identity)
+	}
+	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
+	seen := map[string]bool{}
+	build := func(l ParsedLine) Task {
+		t, err := BuildTask(l, o, base, timeoutSet, cwd, seen, newClient)
+		if err != nil {
+			t.Err = err
+			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
+		} else if o.Decorate != nil {
+			o.Decorate(&t)
+		}
+		return t
+	}
+	tasks := make([]Task, 0, len(lines))
+	for _, l := range lines {
+		tasks = append(tasks, build(l))
+	}
+	id = NewID()
+	po := PoolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr}
+	if o.Follow != nil {
+		fctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		po.More = o.Follow(fctx, build)
+	}
+	return id, RunTasks(ctx, tasks, po)
 }
 
 // PoolOptions configures RunTasks; Out is read when RunTasks is called, so a swapped os.Stdout is honored.
@@ -96,16 +100,6 @@ type PoolOptions struct {
 	Log      io.Writer   // per-task progress lines tagged with the task id; nil discards
 	More     <-chan Task // optional: tasks claimed as they arrive until it closes
 }
-
-// NewID names one batch run.
-func NewID() string {
-	var b [3]byte
-	_, _ = rand.Read(b[:]) // a failed read leaves zeros: the stamp alone still names the batch
-	return "batch-" + batchNow().UTC().Format("20060102T150405.000") + "-" + hex.EncodeToString(b[:])
-}
-
-// batchNow is the clock NewID reads; a var so tests can force two batches onto one millisecond.
-var batchNow = time.Now
 
 type batchDone struct {
 	i   int
@@ -311,70 +305,83 @@ func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agen
 	return env, err == nil && env.Status == agent.StatusOK
 }
 
-var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+// batchExclusive are the ask flags that make no sense on a batch of independent tasks.
+var batchExclusive = []string{"retry", "job", "background", "session", "log", "attach", "rubric", "debug-file"}
 
-// planTaskRE is batchIDRE plus the space, so a plan heading such as "Phase 1.1" is a valid plan_task.
-var planTaskRE = regexp.MustCompile(`^[A-Za-z0-9._ -]{1,64}$`)
-
-// ParseTask validates one line like the ask flags; on error the task keeps its id and agent.
-func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
-	seen map[string]bool) (Task, error) {
-	t := Task{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
-	if l.Err != nil {
-		return t, l.Err
+// runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool and streams one envelope per line.
+func runAskBatch(fs *flag.FlagSet, resume bool, src string, o Opts, base agent.RunOptions) int {
+	if err := checkBatchFlags(fs, resume, o); err != nil {
+		return failAskCode("text", o.Agent, err, 2)
 	}
-	tl := l.Task
-	if !batchIDRE.MatchString(t.ID) {
-		return t, fmt.Errorf("line %d: id %q must match %s", l.N, t.ID, batchIDRE)
-	}
-	if seen[t.ID] {
-		return t, fmt.Errorf("line %d: duplicate id %q", l.N, t.ID)
-	}
-	if tl.PlanTask != "" && !planTaskRE.MatchString(tl.PlanTask) {
-		return t, fmt.Errorf("line %d: plan_task %q must match %s", l.N, tl.PlanTask, planTaskRE)
-	}
-	t.Plan = tl.PlanTask
-	seen[t.ID] = true
-	if strings.TrimSpace(tl.Prompt) == "" {
-		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
-	}
-	req := base
-	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	name, err := agent.SelectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
-	if err != nil {
-		return t, fmt.Errorf("line %d: %w", l.N, err)
-	}
-	t.Agent = name
-	if tl.Tools != nil {
-		req.Tools = *tl.Tools
-	}
-	if req.Tools && req.NoTools {
-		return t, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
-	}
-	req, err = batchTaskLocation(l, req, timeoutSet, base.WorkDir, cwd)
-	if err != nil {
-		return t, err
-	}
-	t.Req = req
-	return t, nil
+	return runAskBatchInput(fs, src, o, base)
 }
 
-func batchTaskLocation(l ParsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {
-	switch {
-	case l.Task.Timeout != "":
-		d, err := time.ParseDuration(l.Task.Timeout)
-		if err != nil || d <= 0 {
-			return req, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, l.Task.Timeout)
+func checkBatchFlags(fs *flag.FlagSet, resume bool, o Opts) error {
+	var bad error
+	if resume || fs.NArg() > 0 {
+		bad = errors.New("--batch takes tasks from the JSONL source, not a session id or a positional task")
+	}
+	for _, f := range batchExclusive {
+		if helptext.Explicit(fs, f) {
+			bad = fmt.Errorf("--batch cannot be combined with --%s", f)
 		}
-		req.Timeout = d
-	case req.Tools && !timeoutSet:
-		req.Timeout = DefaultToolsTimeout
 	}
-	req.WorkDir = cmp.Or(l.Task.Workdir, baseWorkdir, cwd)
-	abs, err := filepath.Abs(req.WorkDir)
+	if bad == nil {
+		bad = checkBatchRun(fs, o)
+	}
+	return bad
+}
+
+// checkBatchRun rejects a non-JSON --format, --follow on stdin and a --jobs below 1.
+func checkBatchRun(fs *flag.FlagSet, o Opts) error {
+	if helptext.Explicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
+		return errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
+	}
+	if o.FollowInput && fs.Lookup("batch").Value.String() == "-" {
+		return errors.New("--follow needs a --batch file: stdin cannot be followed")
+	}
+	if o.Jobs < 1 {
+		return fmt.Errorf("--jobs %d: need at least 1", o.Jobs)
+	}
+	return nil
+}
+
+func runAskBatchInput(fs *flag.FlagSet, src string, o Opts, base agent.RunOptions) int {
+	in := io.Reader(os.Stdin)
+	var fw *follower
+	if o.FollowInput {
+		var err error
+		if fw, in, err = newFollower(src, o.FollowIdle); err != nil {
+			return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
+		}
+	} else if src != "-" {
+		f, err := os.Open(src)
+		if err != nil {
+			return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
+		}
+		defer f.Close()
+		in = f
+	}
+	lines, err := ReadTaskLines(in)
 	if err != nil {
-		return req, fmt.Errorf("line %d: workdir %q: %w", l.N, req.WorkDir, err)
+		return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
 	}
-	req.WorkDir = abs
-	return req, nil
+	if len(lines) == 0 {
+		return failAskCode("text", o.Agent, errors.New("--batch: no tasks in the input"), 2)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
+	defer stop()
+	if as := fs.Lookup("as"); as != nil {
+		o.Identity = as.Value.String()
+	}
+	o.Decorate = func(t *Task) { t.Retry = retryFor(*t, o, o.RetryAgents) }
+	if fw != nil {
+		o.Follow = fw.run
+	}
+	id, ok := RunBatch(ctx, lines, o, base, helptext.Explicit(fs, "timeout"), NewClient, os.Stdout)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
+		return 1
+	}
+	return 0
 }
