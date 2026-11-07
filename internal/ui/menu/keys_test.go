@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -508,17 +509,11 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 	}
 	editSecret(d, configure.TrackedSecret{Name: name, Source: "vault"})
 
-	if _, staged := d.pending[name]; staged {
-		t.Error("the staged Store must be dropped once Delete is picked")
-	}
 	if !d.pendingDeletes[name] {
 		t.Error("the delete must be staged in pendingDeletes")
 	}
 	if !strings.Contains(out.String(), "staged delete of "+name) {
 		t.Errorf("output = %q, want a staged-delete confirmation", out.String())
-	}
-	if got := os.Getenv(name); got != "" {
-		t.Errorf("env after dropping the staged Store = %q, want restored to empty", got)
 	}
 	if v, _, ok := vault.Get(name); !ok || v != "stored-value" {
 		t.Fatalf("vault value changed before commit: (%q, %v), want still stored-value", v, ok)
@@ -527,6 +522,12 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 
 	// Commit the page's staged changes, as secretsLoop's defer would on leaving the page.
 	confirmPageKeys(d, map[string]stagedKey{})
+	if _, staged := d.pending[name]; staged {
+		t.Error("the staged Store must be dropped once the delete commits")
+	}
+	if got := os.Getenv(name); got != "" {
+		t.Errorf("env after the delete commits = %q, want restored to empty", got)
+	}
 	if _, _, ok := vault.Get(name); ok {
 		t.Error("the vault value should be deleted once the staged delete commits")
 	}
@@ -688,5 +689,38 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 func TestSourceLabelUnreadableVault(t *testing.T) {
 	if got := sourceLabel("unreadable", ""); got != "vault unreadable" {
 		t.Errorf("sourceLabel = %q, want vault unreadable", got)
+	}
+}
+
+// A key staged before the secrets page opened, then deleted on the page and discarded at the leave prompt,
+// must keep its earlier staged value (and env): the cancel only undoes what the page itself changed.
+func TestStagedDeleteCancelKeepsPrePageStagedEdit(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	const name = "CONFIGURE_PREPAGE_STAGED"
+	t.Setenv(name, "")
+	vaulttest.Secret(t, name, "stored-value")
+	orig := saveConfirmed
+	saveConfirmed = func(string) bool { return false }
+	t.Cleanup(func() { saveConfirmed = orig })
+
+	d, _ := newDialog("y\n")
+	d.pending = map[string]stagedKey{}
+	if !d.stage(name, "pre-page-edit") {
+		t.Fatal("stage failed")
+	}
+	before := maps.Clone(d.pending)
+	if !deleteSecret(d, name) {
+		t.Fatal("deleteSecret = false")
+	}
+	confirmPageKeys(d, before)
+
+	if got := d.pending[name]; got.val != "pre-page-edit" {
+		t.Errorf("pending[%q] = %+v after cancel, want the pre-page staged edit kept", name, got)
+	}
+	if got := os.Getenv(name); got != "pre-page-edit" {
+		t.Errorf("env = %q after cancel, want pre-page-edit", got)
+	}
+	if d.pendingDeletes[name] {
+		t.Error("cancel must clear the staged delete")
 	}
 }

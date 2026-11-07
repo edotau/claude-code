@@ -335,9 +335,6 @@ func deleteSecret(d *dialog, name string) bool {
 		return false
 	}
 	if d.pending != nil {
-		if _, staged := d.pending[name]; staged {
-			restoreStaged(d, name, map[string]stagedKey{}) // drop any staged Store of the same name
-		}
 		if d.pendingDeletes == nil {
 			d.pendingDeletes = map[string]bool{}
 		}
@@ -419,8 +416,16 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		d.printf("secrets: %d change(s) discarded\n", len(page)+len(deletes))
 		return
 	}
+	for _, name := range deletes {
+		if _, staged := d.pending[name]; staged {
+			restoreStaged(d, name, map[string]stagedKey{}) // the delete wins over any staged Store of the same name
+		}
+	}
 	for _, name := range page {
-		k := d.pending[name]
+		k, ok := d.pending[name]
+		if !ok {
+			continue
+		}
 		if err := vault.Store(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue
