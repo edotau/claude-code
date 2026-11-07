@@ -2,12 +2,14 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), minFix, rounds, dimensions (replaces the lenses), tests, steps {scope, audit, refute, fix, test, gate} = {model, effort} per stage (claude only). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report} plus refuted, rounds. Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), tests, steps {scope, audit, refute, fix, test, gate, depscan} = {model, effort} per stage (claude only). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report, partition} plus refuted, rounds. Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
     { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings); re-anchors wrong citations, defaults to refuted when the evidence is thin' },
-    { title: 'Fix', detail: 'per package: implementer (opus only for highs), then test agent with its result' },
+    { title: 'Scan', detail: 'one read-only agent per package with fixable findings: files, exported, importers, hotspots' },
+    { title: 'Plan', detail: 'script-only conflict graph, greedy colouring into waves ≤cap; hotspot edits go to one final task' },
+    { title: 'Fix', detail: 'waves in sequence, tasks of a wave in parallel; per package: implementer (opus only for highs), then test agent with its result' },
     { title: 'Gate', detail: 'green-keeper-loop workflow over the touched packages, then re-audits what it touched for up to rounds rounds' },
   ],
 }
@@ -25,6 +27,13 @@ let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings : null
 // No range, paths or findings → audit the uncommitted working tree (git diff HEAD).
 const RANGE = a.range || (PATHS.length || PRE ? '' : 'HEAD')
 const FIX = a.fix !== false
+// partition:true with fix:false returns the wave plan (Scan + Plan) without editing anything.
+const PART = a.partition === true
+// Hotspot files are edited by one final single-owner task, not in the waves; '**/D/**' matches a directory.
+const HOTSPOTS = ['internal/schemas/ledger_test.go', 'internal/network/web/assets/architecture.json', 'skills/subagent-workflows/references/saved-workflows.md', 'settings.json', 'go.mod', 'go.sum', 'Makefile', '**/testdata/**']
+const HOT = [...HOTSPOTS, ...(Array.isArray(a.hotspots) ? a.hotspots.filter(Boolean) : [])]
+// Wave width: args.cap, bounded by the dispatch hook's 24 per account.
+const CAP = Math.min(Number.isInteger(a.cap) && a.cap > 0 ? a.cap : 8, 24)
 // tests:false skips the per-package test agent for every package (no test agent).
 if (a.tests !== undefined && typeof a.tests !== 'boolean') return ERR('args.tests must be a boolean')
 const TESTS = a.tests !== false
@@ -73,7 +82,7 @@ const stepOf = (steps, name, defaults, opt) => {
 
 // ── Steps: who runs each stage; defaults reproduce the pre-steps models and efforts ──
 const STAGES = ['scope', 'audit', 'refute', 'fix', 'test', 'gate']
-const OPT = { allowed: STAGES }
+const OPT = { allowed: [...STAGES, 'depscan'] }
 const RAW = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
 let S
 try {
@@ -84,6 +93,7 @@ try {
     fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, OPT),
     test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, OPT),
     gate: stepOf(a.steps, 'gate', {}, OPT),
+    depscan: stepOf(a.steps, 'depscan', { model: 'sonnet', effort: 'medium' }, OPT),
   }
 } catch (e) { return ERR(e.message) }
 // Audit effort stays per lens unless steps.audit.effort is set; fix keeps opus+high for highs unless set.
@@ -223,6 +233,54 @@ const same = (g, f) => relPath(g.file) === relPath(f.file) && (Math.abs((g.line 
 // inPkg: a finding whose file is outside its package belongs to the file's own directory.
 const inPkg = (file, p) => p === '.' ? !relPath(file).includes('/') : relPath(file).startsWith(p.replace(/\/+$/, '') + '/')
 const decisions = []
+const isHot = (f, hot) => hot.some(h => h.startsWith('**/') && h.endsWith('/**') ? ('/' + f).includes('/' + h.slice(3, -3) + '/') : f === h)
+// Pure planner: conflict graph over tasks, greedy colouring into waves ≤cap, hotspot edits pulled out.
+const planWaves = (tasks, hot, cap) => {
+  const hotOf = t => [...new Set([...(t.hotspots || []), ...t.files.filter(f => isHot(f, hot))])]
+  const ts = tasks.map(t => ({ ...t, hots: hotOf(t) })).map(t => ({ ...t, owns: t.files.filter(f => !t.hots.includes(f)) }))
+  const hotTasks = ts.filter(t => !t.owns.length)
+  const live = ts.filter(t => t.owns.length)
+  const edges = []
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    const x = live[i], y = live[j]
+    const shared = x.owns.find(f => y.owns.includes(f))
+    if (shared) edges.push([x.pkg, y.pkg, 'shared file ' + shared])
+    else if (x.exported && (x.importers || []).includes(y.pkg)) edges.push([x.pkg, y.pkg, y.pkg + ' imports exported ' + x.pkg])
+    else if (y.exported && (y.importers || []).includes(x.pkg)) edges.push([x.pkg, y.pkg, x.pkg + ' imports exported ' + y.pkg])
+  }
+  const nbrs = p => edges.filter(e => e[0] === p || e[1] === p).map(e => (e[0] === p ? e[1] : e[0]))
+  const order = [...live].sort((x, y) => nbrs(y.pkg).length - nbrs(x.pkg).length)
+  const waves = []
+  for (const t of order) {
+    const n = nbrs(t.pkg)
+    let w = waves.find(ws => ws.length < cap && !ws.some(o => n.includes(o.pkg)))
+    if (!w) { w = []; waves.push(w) }
+    w.push(t)
+  }
+  const out = waves.map(ws => ws.map(t => ({ pkg: t.pkg, owns: t.owns, reason: nbrs(t.pkg).length ? 'conflicts with ' + nbrs(t.pkg).join(', ') : 'no conflicts' })))
+  const hotPkgs = ts.filter(t => t.hots.length)
+  const hotspotTask = hotPkgs.length
+    ? { owns: [...new Set(hotPkgs.flatMap(t => t.hots))], edits: hotPkgs.map(t => ({ pkg: t.pkg, files: t.hots })) }
+    : null
+  return { waves: out, hotspotTask, edges }
+}
+const planMarkdown = p => {
+  const lines = ['## Tasks']
+  p.waves.forEach((ws, i) => ws.forEach((t, k) => lines.push(`- [ ] Wave ${i + 1}.${k + 1} — fix ${t.pkg} findings — leaf: code-worker, Agent: claude — owns: ${t.owns.join(', ')}`)))
+  if (p.hotspotTask) lines.push(`- [ ] Wave ${p.waves.length + 1}.1 — apply hotspot edits for ${p.hotspotTask.edits.map(e => e.pkg).join(', ')} — leaf: code-worker, Agent: claude — owns: ${p.hotspotTask.owns.join(', ')}`)
+  return lines.join('\n')
+}
+const SCAN_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['files', 'exported', 'importers', 'hotspots'],
+  properties: {
+    files: { type: 'array', items: { type: 'string' }, description: 'every repo-relative file the fix will likely edit, tests included' },
+    exported: { type: 'boolean', description: 'a fix changes an exported symbol or signature' },
+    importers: { type: 'array', items: { type: 'string' }, description: 'repo packages that import this package' },
+    hotspots: { type: 'array', items: { type: 'string' }, description: 'files from the hotspot list the fix will also edit' },
+  },
+}
 const REFUTE_BATCH = a.refuteBatch || 6
 
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
@@ -343,24 +401,47 @@ for (let round = 1; round <= ROUNDS; round++) {
   log(`round ${round}/${ROUNDS}: confirmed ${confirmed.length}, refuted ${refuted.length}, below the fix floor ${deferred.length}, unverified ${unverified.length}`)
 
   const base = { confirmed, refuted, unverified, deferred, round }
-  if (!FIX || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
+  if ((!FIX && !PART) || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
   if (PRIOR.length && toFix.every(f => PRIOR.some(g => same(g, f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
 
-  // ── Fix (packages in parallel; per package ADK Sequential: implementer, then test agent; disjoint file ownership) ────
-  phase('Fix')
+  // ── Scan → Plan: dependency scan per package, then a deterministic wave partition ──
   const byPkg = new Map()
   for (const f of toFix) byPkg.set(f.package, [...(byPkg.get(f.package) || []), f])
-  const fixed = await parallel([...byPkg.entries()].map(([pkg, fs]) => () => {
+  phase('Scan')
+  const scans = await parallel([...byPkg.entries()].map(([pkg, fs]) => () => agent(
+    `Read-only dependency scan of ${pkg}${IN}. A fixer will repair these findings:\n${fs.map(f => `- ${relPath(f.file)}:${f.line} ${f.title}`).join('\n')}\n` +
+      `Return files = every file the fix will likely edit (tests included), exported = whether it changes an exported symbol or signature, ` +
+      `importers = repo packages importing ${pkg} (run once: ${CD}go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./... and keep repo packages only, as repo-relative dirs), ` +
+      `hotspots = those of ${HOT.join(', ')} the fix must also edit. At most 5 tool calls. ${SHARED_TREE}`,
+    { label: `depscan:${round}:${pkg.split('/').pop()}`, phase: 'Scan', schema: SCAN_SCHEMA, model: routeModel(S.depscan.model), effort: S.depscan.effort }
+  ).catch(() => null)))
+  const planTasks = [...byPkg.entries()].map(([pkg, fs], i) => {
+    const sc = scans[i]
+    if (!sc) decisions.push(`depscan failed for ${pkg}: files taken from the findings, no importer edges`)
+    const files = [...new Set([...(sc ? sc.files : []), ...fs.map(f => f.file)].map(relPath))]
+    return { pkg, files, exported: !!(sc && sc.exported), importers: sc ? sc.importers.map(relPath) : [], hotspots: sc ? sc.hotspots.map(relPath) : [] }
+  })
+  phase('Plan')
+  const partition = planWaves(planTasks, HOT, CAP)
+  const planMd = planMarkdown(partition)
+  const sizes = partition.waves.map(w => w.length)
+  decisions.push(`partition: ${sizes.length} wave(s), max parallel ${Math.max(0, ...sizes)}, ${partition.edges.length} conflict edge(s), ${partition.hotspotTask ? partition.hotspotTask.owns.length : 0} hotspot file(s) pulled out`)
+  if (!FIX) { rounds.push({ ...base, fixed: [], gate: null, partition, plan: planMd, exit: 'partition', metrics }); break }
+
+  // ── Fix: waves in sequence, tasks of a wave in parallel (per task ADK Sequential: implementer, then test agent), then the hotspot task ──
+  phase('Fix')
+  const fixTask = (pkg, fs, owns, hotspot) => {
     const list = fs.map(f => `- ${f.file}:${f.line} [${f.severity}] ${f.title}\n  scenario: ${f.scenario}\n  evidence: ${f.evidence}`).join('\n')
     const files = [...new Set(fs.map(f => relPath(f.file)))]
-    const ctx = `Confirmed defects in ${pkg}${IN}:\n${list}\n${SHARED_TREE}`
+    const own = `You own ONLY: ${owns.join(', ')}. Never edit any other file; report it in leftUndone instead.`
+    const ctx = `Confirmed defects in ${pkg}${IN}:\n${list}\n${own}\n${SHARED_TREE}`
     // Opus only where a high/critical sits; the evidence rides in the prompt and the files are read in ONE call.
     const hot = fs.some(f => ORDER[f.severity] <= ORDER.high)
-    const testsNeeded = TESTS && fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test agent
+    const testsNeeded = !hotspot && TESTS && fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test agent
     // Test agent runs after the implementer and gets its result, so it asserts against code that has landed.
     return (async () => {
-      const implTask = `${ctx}\nYou are the IMPLEMENTER: fix every listed defect in non-test files of ${pkg} only; never test files or fixtures (${TEST_GLOBS}). ` +
+      const implTask = `${ctx}\nYou are the IMPLEMENTER: fix every listed defect in ${hotspot ? 'the files you own (hotspot edits other fixers deferred to you)' : `non-test files of ${pkg} you own; never test files or fixtures (${TEST_GLOBS})`}. ` +
         `The evidence above is already verified — do not re-audit. First tool call: cat ${files.join(' ')} (one call). ` +
         `Budget ~15 tool calls; then run the repo's formatter and linter on the files you touched (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint) and report per defect.\n` +
         `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).\n` +
@@ -371,7 +452,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(FIX_MODEL || (hot ? 'opus' : 'sonnet')), effort: FIX_EFFORT || (hot ? 'high' : 'medium') })
       const implBlocked = !impl || impl.status === 'blocked'
       const notDone = !impl || impl.status !== 'done' // a gate over a fix that did not finish proves nothing: red
-      const testTask = () => `${ctx}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\nYou are the TEST agent (the implementer has finished): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
+      const testTask = () => `${ctx}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\nYou are the TEST agent (the implementer has finished): only test files and fixtures (${TEST_GLOBS}) for ${pkg} that you own. ` +
         `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg}, and report. Budget ~20 tool calls.`
@@ -379,7 +460,18 @@ for (let round = 1; round <= ROUNDS; round++) {
         { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(S.test.model), effort: S.test.effort })
       return { package: pkg, pkg, findings: fs.length, impl, tests, test: tests, blocked: notDone, notDone }
     })()
-  })).then(rs => rs.map((r, i) => r || { package: [...byPkg.keys()][i], blocked: true, error: 'fix stage failed' }))
+  }
+  const fixed = []
+  for (const wave of partition.waves) {
+    const rs = await parallel(wave.map(t => () => fixTask(t.pkg, byPkg.get(t.pkg), t.owns, false)))
+    fixed.push(...rs.map((r, i) => r || { package: wave[i].pkg, blocked: true, error: 'fix stage failed' }))
+  }
+  if (partition.hotspotTask) {
+    const ht = partition.hotspotTask
+    const fs = ht.edits.flatMap(e => byPkg.get(e.pkg))
+    const r = await fixTask('hotspots', fs, ht.owns, true).catch(() => null)
+    fixed.push(r || { package: 'hotspots', blocked: true, error: 'hotspot fix failed' })
+  }
 
   // ── Gate (ADK LoopAgent via the saved green-keeper-loop workflow; a.gate passes through — green-keeper-loop auto-detects) ──
   phase('Gate')
@@ -387,7 +479,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const gate = await workflow('green-keeper-loop', { claudeState: CLAUDE_STATE, gate: a.gate, cwd: CWD || undefined, scope: pkgs, maxIterations: MAX_ITER, ...(RAW.gate ? { steps: { fix: RAW.gate } } : {}) })
 
   const metricsOut = { ...metrics, fixPairs: byPkg.size, gateIterations: gate ? gate.iterations : 0 }
-  const out = { ...base, fixed, gate, metrics: metricsOut }
+  const out = { ...base, fixed, gate, partition, plan: planMd, metrics: metricsOut }
   if (!gate || gate.status !== 'green' || out.fixed.some(x => x.blocked)) { rounds.push({ ...out, exit: 'blocked' }); break }
   const touched = [...new Set([
     ...out.fixed.flatMap(x => [...((x.impl && x.impl.filesChanged) || []), ...((x.tests && x.tests.filesChanged) || [])]),
@@ -420,14 +512,18 @@ for (const r of rounds) {
   if (r.gate) decisions.push(`round ${r.round}: gate ${r.gate.status}`)
 }
 if (!FIX) decisions.push('review only: fix=false')
+const lastPart = [...rounds].reverse().find(r => r.partition)
+const partitionOut = lastPart ? lastPart.partition : null
+const planOut = lastPart ? lastPart.plan : ''
 if (unverifiedAll.length) decisions.push(`${unverifiedAll.length} finding(s) unverified: refuter returned nothing`)
 const report = [`# code-analyzer: ${allConfirmed.length} confirmed finding(s) over ${rounds.length} round(s)`,
   ...allConfirmed.map(c => `- **${c.severity}** \`${relPath(c.file)}:${c.line}\` (${c.symbol || '?'}) — ${c.title}`),
   '', `Fixed: ${fixedAll.map(f => f.package + ' (' + (f.findings || 0) + ')').join(', ') || 'none'}. Red: ${red.join(', ') || 'none'}.`,
-  ...(unverifiedAll.length ? [`Unverified (refuter failed): ${unverifiedAll.map(u => relPath(u.file) + ':' + u.line).join(', ')}.`] : [])].join('\n')
+  ...(unverifiedAll.length ? [`Unverified (refuter failed): ${unverifiedAll.map(u => relPath(u.file) + ':' + u.line).join(', ')}.`] : []),
+  ...(planOut ? ['', planOut] : [])].join('\n')
 return {
   ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds,
   route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged,
   dropped: rounds.flatMap(r => (r.refuted || []).map(f => ({ file: relPath(f.file), line: f.line, symptom: f.title }))),
-  unverified: unverifiedAll, fixed: fixedAll, red, decisions, report,
+  unverified: unverifiedAll, fixed: fixedAll, red, decisions, report, partition: partitionOut,
 }

@@ -104,6 +104,15 @@ launch(A|B) -> wait (never poll) -> read result -> verify diffs -> scoped gate -
 
 Never `git stash|checkout|reset|restore|clean` in the live tree; peers share it (CLAUDE.md rule 4).
 
+## F. code-analyzer partition: scan, plan, waves
+
+Use when a fix touches several packages and merge conflicts cost more than the serial time. After Refute, one
+`depscan` agent per package returns `{files, exported, importers, hotspots}`; a script (no agent) builds a conflict
+graph (shared file, or an exported change imported by the other package), colours it greedily into waves of at most
+`cap` (default 8, never over the 24 dispatch cap), and pulls hotspot files (`HOTSPOTS` plus `args.hotspots`) into one
+final single-owner task. Waves run in sequence, tasks of a wave in parallel; each fixer owns only its listed files.
+`fix:false, partition:true` returns `partition {waves, hotspotTask, edges}` and a `## Tasks` plan block, no edits.
+
 ## New composite: template
 
 ```text
