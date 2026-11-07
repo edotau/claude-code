@@ -161,3 +161,22 @@ func TestParseFrontmatterUnindentedBlockList(t *testing.T) {
 		t.Errorf("model = %v, want opus", fm["model"])
 	}
 }
+
+// stripQuotes removes one matching surrounding pair only; inner quotes survive.
+func TestParseFrontmatterKeepsInnerQuotes(t *testing.T) {
+	fm, _ := ParseFrontmatter("---\ntitle: 'say \"hi\"'\n---\nBody.\n")
+	if fm["title"] != `say "hi"` {
+		t.Errorf("title = %q, want %q", fm["title"], `say "hi"`)
+	}
+}
+
+// A bare `key:` with no list items is an empty string; items turn it into a list.
+func TestParseFrontmatterBareKeyIsEmptyString(t *testing.T) {
+	fm, _ := ParseFrontmatter("---\nempty:\nname: x\ntags:\n  - a\n---\nBody.\n")
+	if fm["empty"] != "" {
+		t.Errorf("empty = %#v, want \"\"", fm["empty"])
+	}
+	if tags, ok := fm["tags"].([]string); !ok || len(tags) != 1 || tags[0] != "a" {
+		t.Errorf("tags = %#v, want [a]", fm["tags"])
+	}
+}

@@ -62,14 +62,13 @@ func (p *fmParser) feed(line string) {
 	p.key, p.list, p.haveList = key, nil, false
 	p.fm[key] = parseScalar(value)
 	if value == "" {
-		p.list, p.haveList = []string{}, true
-		p.fm[key] = p.list
+		p.haveList = true
 	}
 }
 
 // continuation handles an indented line: a list item under a block list, else a folded string continuation.
 func (p *fmParser) continuation(line string) {
-	if p.haveList {
+	if p.haveList && (len(p.list) > 0 || fmRes().list.MatchString(line)) {
 		if lm := fmRes().list.FindStringSubmatch(line); lm != nil {
 			p.list = append(p.list, stripQuotes(strings.TrimSpace(lm[1])))
 			p.fm[p.key] = p.list
@@ -129,5 +128,10 @@ func parseScalar(value string) any {
 	return stripQuotes(value)
 }
 
-// stripQuotes trims leading/trailing quote characters (both kinds, repeated).
-func stripQuotes(s string) string { return strings.Trim(s, "\"'") }
+// stripQuotes removes one matching pair of surrounding quotes, leaving inner and unpaired quotes intact.
+func stripQuotes(s string) string {
+	if n := len(s); n >= 2 && (s[0] == '"' || s[0] == '\'') && s[n-1] == s[0] {
+		return s[1 : n-1]
+	}
+	return s
+}
