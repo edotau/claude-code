@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // drive runs the server over a scripted set of request lines and returns the decoded responses.
@@ -660,5 +664,17 @@ func TestExtractMatchesTavilyNormalisedURL(t *testing.T) {
 	})
 	if code != 0 || !strings.Contains(out, "# https://example.com\nBODY") || !strings.Contains(out, "failed: boom") {
 		t.Errorf("code=%d out=%q, want body for normalised echo and failure surfaced", code, out)
+	}
+}
+
+// TestTavilySearchReportsUnreadableVault: a locked vault is a vault error, not "key is not set".
+func TestTavilySearchReportsUnreadableVault(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(keyName, "")
+	vaulttest.Secret(t, keyName, "tvly-test")
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
+	_, err := tavilySearch(context.Background(), "q", 1)
+	if err == nil || strings.Contains(err.Error(), "is not set") || !strings.Contains(err.Error(), "vault") {
+		t.Fatalf("err = %v, want a vault read error, not %q", err, "is not set")
 	}
 }
