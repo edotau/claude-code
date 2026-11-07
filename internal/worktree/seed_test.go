@@ -252,3 +252,18 @@ func TestSeedChecksDestIgnoreRules(t *testing.T) {
 		t.Fatalf(".env copied into a branch that does not ignore it (stat err = %v)", err)
 	}
 }
+
+// A directory-only `.venv/` ignore rule must still let seedPath symlink .venv into a worktree that has none yet.
+func TestSeedPathVenvWithDirOnlyIgnoreRule(t *testing.T) {
+	main, dest := t.TempDir(), gitRepo(t)
+	if err := os.MkdirAll(filepath.Join(main, ".venv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, ".gitignore"), []byte(".venv/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedPath(main, dest, ".venv"); err != nil {
+		t.Fatal(err)
+	}
+	requireSeededVenv(t, dest, main)
+}

@@ -46,7 +46,11 @@ func seedPath(main, dest, name string) error {
 func seedIgnored(dest, name string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := gitCmd(ctx, "-C", dest, "check-ignore", "-q", name).Run(); err != nil {
+	probe := name
+	if name == ".venv" {
+		probe += "/" // a `.venv/` rule only matches paths git treats as directories
+	}
+	if err := gitCmd(ctx, "-C", dest, "check-ignore", "-q", probe).Run(); err != nil {
 		if code, isExit := asExitErr(err); isExit && code == 1 {
 			return false, nil
 		}

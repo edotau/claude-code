@@ -366,6 +366,10 @@ func tarWriteBytes(tw *tar.Writer, name string, data []byte) error {
 }
 
 func tarWriteFile(tw *tar.Writer, dir, rel string) error {
+	// Untracked symlinks (dir links, dangling links) are skipped like regularFilesUnder does: the target lives elsewhere.
+	if fi, err := os.Lstat(filepath.Join(dir, rel)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
 	data, err := os.ReadFile(filepath.Join(dir, rel))
 	if err != nil {
 		return err

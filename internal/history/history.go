@@ -103,7 +103,13 @@ var secretRE = regexp.MustCompile(
 		`|\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}` + // JWT (header.payload)
 		`|\bsk-[A-Za-z0-9_-]{24,}` + // OpenAI/Anthropic-style key
 		`|\bnvapi-[A-Za-z0-9_-]{24,}` + // NVIDIA
-		`|\bgh[pousr]_[A-Za-z0-9]{28,}`) // GitHub
+		`|\bgh[pousr]_[A-Za-z0-9]{28,}` + // GitHub
+		`|\bgithub_pat_[A-Za-z0-9_]{22,}` + // GitHub fine-grained PAT
+		`|\bAIza[0-9A-Za-z_-]{35}` + // Google API key
+		`|\btvly-[A-Za-z0-9_-]{16,}` + // Tavily
+		`|\bgsk_[A-Za-z0-9]{24,}` + // Groq
+		`|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b` + // AWS access key id
+		`|\bxox[abprs]-[A-Za-z0-9-]{10,}`) // Slack
 
 // Snapshot copies each of files into the store and commits iff something in THIS plane actually
 // changed. An absent file is a FACT (an agent config is often absent on a fresh box), not an error;
@@ -147,7 +153,7 @@ func (s *Store) stageFile(f HistoryFile, plane string, res *Result) error {
 	if loc := secretRE.FindIndex(data); loc != nil {
 		res.Skipped = append(res.Skipped, Skip{f.Label,
 			fmt.Sprintf("holds a credential-shaped value at byte %d — not committed", loc[0])})
-		return nil
+		return dropStale(f, dest, res)
 	}
 	if prev, err := os.ReadFile(dest); err == nil && bytes.Equal(prev, data) {
 		return nil
@@ -160,6 +166,19 @@ func (s *Store) stageFile(f HistoryFile, plane string, res *Result) error {
 	}
 	res.Changed = append(res.Changed, f.Label)
 	return nil
+}
+
+// dropStale removes a held-back file's old store copy so the log never shows it as current.
+func dropStale(f HistoryFile, dest string, res *Result) error {
+	err := os.Remove(dest)
+	if err == nil {
+		res.Changed = append(res.Changed, f.Label)
+		return nil
+	}
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // stageUnreadable records a watched file that could not be read: absent (and removed from the store) or skipped.

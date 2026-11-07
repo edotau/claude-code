@@ -578,3 +578,27 @@ func TestNukeRefusesAncestorOfHome(t *testing.T) {
 		t.Errorf("a dir under home must pass the floor, got %v", err)
 	}
 }
+
+func TestTarWriteFileSkipsDirAndDanglingSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(dir, "dirlink")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, rel := range []string{"dirlink", "dangling"} {
+		if err := tarWriteFile(tw, dir, rel); err != nil {
+			t.Fatalf("tarWriteFile(%q) = %v, want symlink skipped", rel, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tar.NewReader(&buf).Next(); err == nil {
+		t.Fatal("archive holds an entry, want none for skipped symlinks")
+	}
+}

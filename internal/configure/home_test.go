@@ -69,3 +69,18 @@ func TestRegisterClaudeMCPWrapsExitError(t *testing.T) {
 		t.Fatalf("registration error = %v; want wrapped exit status 7 and command output", err)
 	}
 }
+
+// A failing add must not remove the existing web_search registration first.
+func TestRegisterClaudeMCPAddFailureKeepsExisting(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	log := filepath.Join(dir, "calls")
+	pathstest.FakeVendor(t, "claude", `echo "$2" >> `+log+`; [ "$2" = add ] && { echo locked; exit 3; }; exit 0`)
+	if err := RegisterClaudeMCPContext(context.Background(), "/bin/claude-code"); err == nil {
+		t.Fatal("want add error")
+	}
+	got, _ := os.ReadFile(log)
+	if strings.Contains(string(got), "remove") {
+		t.Fatalf("existing registration removed before a successful add; calls:\n%s", got)
+	}
+}
