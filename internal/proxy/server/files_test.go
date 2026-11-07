@@ -170,7 +170,7 @@ func TestFilesCacheKeyedByMediaType(t *testing.T) {
 
 func TestStoreFileBoundsCache(t *testing.T) {
 	r := &Router{now: time.Now}
-	for i := 0; i < fileCacheMax+10; i++ {
+	for i := range fileCacheMax + 10 {
 		r.storeFile(strconv.Itoa(i), "f")
 	}
 	if len(r.files) > fileCacheMax {
