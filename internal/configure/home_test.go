@@ -52,7 +52,8 @@ func TestRegisterCodexMCPPreservesOtherTables(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := prefix + "[mcp_servers.web_search]\ncommand = \"/bin/claude-code\"\nargs = [\"network\", \"websearch\"]\n\n" + other
+			want := prefix + "[mcp_servers.web_search]\ncommand = \"/bin/claude-code\"\nargs = [\"network\", \"websearch\"]\n" +
+				"default_tools_approval_mode = \"approve\"\nenv_vars = [\"DBUS_SESSION_BUS_ADDRESS\", \"XDG_RUNTIME_DIR\"]\n\n" + other
 			if string(got) != want {
 				t.Fatalf("registration changed unrelated TOML:\ngot: %s\nwant: %s", got, want)
 			}
