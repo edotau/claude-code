@@ -19,7 +19,6 @@ func coreSpecNodes() map[string]*completion.Node {
 		"clean":    {Flags: []completion.Flag{flag("target"), flag("older-than"), boolFlag("dry-run"), boolFlag("yes"), boolFlag("list")}},
 		"usage":    {Flags: []completion.Flag{flag("session"), flag("days"), formatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}},
 		"describe": {Flags: []completion.Flag{formatFlag()}},
-		"doctor":   {Flags: []completion.Flag{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"), flag("range"), boolFlag("secrets"), boolFlag("refresh"), formatFlag()}},
 		"help-svg": {Flags: []completion.Flag{flag("out"), flag("check")}},
 		"theme": {Args: []func() []string{theme.GradientNames}, Flags: []completion.Flag{boolFlag("palettes"), boolFlag("reset")},
 			Sub: map[string]*completion.Node{
@@ -32,7 +31,6 @@ func coreSpecNodes() map[string]*completion.Node {
 			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
 			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), boolFlag("all"),
 			boolFlag("no-agents"), formatFlag()}},
-		"preflight":  {Flags: []completion.Flag{flag("discover"), boolFlag("live"), boolFlag("refresh")}},
 		"clip":       {Flags: []completion.Flag{boolFlag("serve")}},
 		"completion": {Flags: []completion.Flag{boolFlag("install")}},
 	}
