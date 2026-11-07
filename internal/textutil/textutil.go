@@ -92,7 +92,7 @@ func HumanBytes(n int64) string {
 	f := float64(n)
 	for _, suffix := range []string{"KiB", "MiB", "GiB", "TiB"} {
 		f /= unit
-		if f < unit {
+		if f < unit-0.05 {
 			return fmt.Sprintf("%.1f %s", f, suffix)
 		}
 	}
