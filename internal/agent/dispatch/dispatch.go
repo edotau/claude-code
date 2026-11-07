@@ -50,6 +50,7 @@ func Cmd(args []string) int {
 	timeout := fs.Duration("timeout", 0, "per-leg time limit (0 = the agent's default)")
 	format := helptext.FormatFlag(fs)
 	background := fs.Bool("background", false, "detach each leg and print its id; no merged report")
+	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) each answer must satisfy")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -61,23 +62,40 @@ func Cmd(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if len(parts) > explore.MaxParts {
-		return helptext.FailUsage("dispatch: %d --part values; the fan-out cap is %d", len(parts), explore.MaxParts)
-	}
-	role, err := roles.Lookup(pos[0])
+	role, schema, err := resolveInputs(pos[0], len(parts), *outputSchema)
 	if err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
 	}
 	cwd, _ := os.Getwd()
-	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Web: !*noWeb, Timeout: *timeout}
-	for m := range strings.SplitSeq(*models, ",") {
-		if m = strings.TrimSpace(m); m != "" {
-			q.Models = append(q.Models, m)
-		}
-	}
+	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Models: splitModels(*models),
+		Web: !*noWeb, Timeout: *timeout, OutputSchema: schema}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return dispatchRun(ctx, role, q, *jobs, *format, *background)
+}
+
+// resolveInputs checks the part cap, looks up the role and loads the --output-schema, before any leg runs.
+func resolveInputs(roleName string, nparts int, schemaArg string) (roles.Role, string, error) {
+	if nparts > explore.MaxParts {
+		return roles.Role{}, "", fmt.Errorf("%d --part values; the fan-out cap is %d", nparts, explore.MaxParts)
+	}
+	role, err := roles.Lookup(roleName)
+	if err != nil {
+		return roles.Role{}, "", err
+	}
+	schema, err := agent.ResolveOutputSchema(schemaArg)
+	return role, schema, err
+}
+
+// splitModels returns the non-empty, trimmed entries of a comma-separated --models value.
+func splitModels(s string) []string {
+	var out []string
+	for m := range strings.SplitSeq(s, ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // dispatchRun builds the legs (splitting explore when no --part) and runs or detaches them.

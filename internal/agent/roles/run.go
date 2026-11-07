@@ -138,6 +138,7 @@ type Request struct {
 	Parts, Models []string
 	Web           bool
 	Timeout       time.Duration
+	OutputSchema  string
 }
 
 // Leg is one dispatch of a role; a non-empty Err means it failed before dispatch.
@@ -149,7 +150,7 @@ type Leg struct {
 
 // Legs builds r's legs for q; the shape follows the role name, the agent comes from the table.
 func Legs(r Role, q Request) []Leg {
-	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout}
+	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema}
 	switch r.Name {
 	case "explore":
 		return exploreLegs(base, q)

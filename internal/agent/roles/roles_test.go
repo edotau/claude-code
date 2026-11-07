@@ -61,6 +61,22 @@ func TestRoleExploreLegsOnePerPart(t *testing.T) {
 	}
 }
 
+func TestRoleLegsCarryOutputSchema(t *testing.T) {
+	vaulttest.Use(t)
+	const schema = `{"type":"object"}`
+	for _, tc := range []struct{ role, models string }{{"explore", ""}, {"fleet", ""}, {"compare", ""}} {
+		legs := Legs(mustRole(t, tc.role), Request{Task: "t", Parts: []string{"a"}, WorkDir: "/w", OutputSchema: schema})
+		if len(legs) == 0 {
+			t.Fatalf("%s: no legs", tc.role)
+		}
+		for _, l := range legs {
+			if l.Err == "" && l.Opts.OutputSchema != schema {
+				t.Errorf("%s leg %q: OutputSchema = %q, want %q", tc.role, l.Label, l.Opts.OutputSchema, schema)
+			}
+		}
+	}
+}
+
 func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 	vaulttest.Use(t)
 	legs := Legs(mustRole(t, "explore"), Request{Task: "whole", Web: false})
