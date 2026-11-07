@@ -1,4 +1,4 @@
-package cli
+package network
 
 import (
 	"context"
@@ -41,8 +41,8 @@ var networkPage = helptext.Page{
 	Hint: "claude-code network <command> -h lists that command's flags.",
 }
 
-// cmdNetwork is the one connectivity verb: tailnet, browsers, web search, MCP health and the agent page.
-func cmdNetwork(args []string) int {
+// Run is the one connectivity verb: tailnet, browsers, web search, MCP health and the agent page.
+func Run(args []string, verbs func() any) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		networkPage.Fprint(os.Stderr)
 		return 0
@@ -52,7 +52,7 @@ func cmdNetwork(args []string) int {
 		"browser":   cmdNetworkBrowser,
 		"websearch": cmdNetworkWebsearch,
 		"mcp":       cmdNetworkMCP,
-		"page":      cmdNetworkPage,
+		"page":      func(a []string) int { return cmdNetworkPage(a, verbs) },
 		"view":      cmdNetworkView,
 		"remote":    cmdNetworkRemote,
 		"restart":   cmdRestart,
@@ -244,7 +244,7 @@ func cmdNetworkView(args []string) int {
 	return 0
 }
 
-func cmdNetworkPage(args []string) int {
+func cmdNetworkPage(args []string, verbs func() any) int {
 	fs := helptext.NewFlagSet("network page", helptext.Page{Usage: "claude-code network page [flags]",
 		About: "Serve the agent page and dashboard on the tailnet."})
 	addr := fs.String("addr", "", "bind address (default: this node's tailnet IPv4 on port 7777)")
@@ -262,7 +262,7 @@ func cmdNetworkPage(args []string) int {
 	defer stop()
 	if err := web.Run(ctx, web.Options{
 		Addr: *addr, Hosts: hostList, Days: *days, DryRunDispatch: *dryRun,
-		ErrOut: os.Stderr, Verbs: func() any { return verbTree() },
+		ErrOut: os.Stderr, Verbs: verbs,
 	}); err != nil {
 		return helptext.Fail("network page: %v", err)
 	}

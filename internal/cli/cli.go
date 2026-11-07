@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/setup"
@@ -68,7 +69,7 @@ func commands() []command {
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run},
-		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
+		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: func(a []string) int { return network.Run(a, func() any { return verbTree() }) }},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }},

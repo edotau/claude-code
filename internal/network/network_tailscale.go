@@ -1,4 +1,4 @@
-package cli
+package network
 
 import (
 	"context"
@@ -207,15 +207,10 @@ func tailscaleMachines(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
 		return helptext.BadFormat("", err)
 	}
-	machines, err := tailscale.Machines(ctx)
+	machines, err := tailscale.MachinesCached(ctx)
 	if err != nil {
 		return helptext.Fail("network tailscale machines: %v", err)
 	}
-	names := make([]string, 0, len(machines))
-	for _, m := range machines {
-		names = append(names, m.Name)
-	}
-	tailscale.WriteMachinesCache(names) // `dispatch --host` completion reads this cache; never calls the network itself
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, machines); err != nil {
 			return helptext.Fail("network tailscale machines: %v", err)
@@ -269,25 +264,12 @@ func tailscaleConnectKeyless(ctx context.Context) int {
 }
 
 func tailscaleKey(ctx context.Context, o tsOpts) int {
-	exp, err := tailscale.ParseKeyExpiry(o.expiry)
-	if err != nil {
-		return helptext.Fail("network tailscale key: --expiry: %v", err)
-	}
-	client, err := tailscale.NewClient()
-	if err != nil {
-		return helptext.Fail("network tailscale key: %v", err)
-	}
 	tagList := textutil.SplitCSV(o.tags)
-	key, err := client.CreateAuthKey(ctx, tailscale.KeyOpts{
+	key, err := tailscale.MintKey(ctx, o.expiry, tailscale.KeyOpts{
 		Ephemeral: o.ephemeral, Preauthorized: o.preauth, Reusable: o.reusable,
-		Tags: tagList, Expiry: exp, Description: o.desc,
+		Tags: tagList, Description: o.desc,
 	})
 	if err != nil {
-		// The admin API answers 404, not 403, when an OAuth client lacks the auth_keys scope.
-		if strings.Contains(err.Error(), "HTTP 404") {
-			return helptext.Fail("network tailscale key: %v\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
-				"and OAuth-minted keys need --tags tag:<x> (a tag in tagOwners); or use TAILSCALE_API_KEY", err)
-		}
 		return helptext.Fail("network tailscale key: %v", err)
 	}
 	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(tagList, ","))
