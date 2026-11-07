@@ -125,6 +125,12 @@ func claudeSessionCount(session string, files []string) int {
 // buildAgentsUsage runs the codex/opencode/copilot store reads concurrently (10s budget) and folds the
 // already-computed claude transcript scan in; always returns all four agents, in this order.
 func buildAgentsUsage(scan *transcriptScan, session string, days int) []agentUsage {
+	claudeRow := claudeAgentUsage(scan, claudeSessionCount(session, scan.files))
+	if session != "" {
+		// A claude session id cannot scope the other agents' stores, so they are not read.
+		const note = "not scoped to a claude session"
+		return []agentUsage{claudeRow, {Agent: "codex", Note: note}, {Agent: "opencode", Note: note}, {Agent: "copilot", Note: note}}
+	}
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -137,7 +143,7 @@ func buildAgentsUsage(scan *transcriptScan, session string, days int) []agentUsa
 	go func() { defer wg.Done(); copilotU = copilotUsage(ctx, cutoff) }()
 	wg.Wait()
 
-	return []agentUsage{claudeAgentUsage(scan, claudeSessionCount(session, scan.files)), codexU, opencodeU, copilotU}
+	return []agentUsage{claudeRow, codexU, opencodeU, copilotU}
 }
 
 // sortModelsByTokens orders a model slice by tokens descending, in place.

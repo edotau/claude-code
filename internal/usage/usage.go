@@ -283,7 +283,7 @@ func startQuotaFetch(enabled bool) <-chan []quota {
 	go func() {
 		qs := fetchQuotas()
 		for i := range qs {
-			if qs[i].Note == "" || qs[i].Limit > 0 {
+			if !noteOnly(qs[i]) {
 				qs[i].LeftPct = 100 - qs[i].UsedPct
 			}
 		}

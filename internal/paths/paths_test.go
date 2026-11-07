@@ -294,6 +294,28 @@ func TestCanonDeepMissingLeafThroughSymlink(t *testing.T) {
 	}
 }
 
+func TestCanonDeepDanglingSymlinkEscapes(t *testing.T) {
+	store, outside := Canon(t.TempDir()), Canon(t.TempDir())
+	target := filepath.Join(outside, "newfile")
+	link := filepath.Join(store, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	rel := filepath.Join(store, "rel")
+	if err := os.Symlink(filepath.Join("..", filepath.Base(outside), "gone"), rel); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if got := CanonDeep(link); got != target {
+		t.Errorf("CanonDeep(dangling link) = %q, want %q", got, target)
+	}
+	if got, want := CanonDeep(filepath.Join(link, "sub", "file")), filepath.Join(target, "sub", "file"); got != want {
+		t.Errorf("CanonDeep(dangling link/sub/file) = %q, want %q", got, want)
+	}
+	if got, want := CanonDeep(rel), filepath.Join(outside, "gone"); got != want {
+		t.Errorf("CanonDeep(relative dangling) = %q, want %q", got, want)
+	}
+}
+
 func TestAppendLineConcurrent(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "sub", "log")
 	var wg sync.WaitGroup

@@ -75,3 +75,15 @@ func TestRefreshAccountPassesLoginToGh(t *testing.T) {
 		}
 	}
 }
+
+// A cached row has no fetch time of its own, so recording it would stamp an hours-old reading as fresh.
+func TestRecordQuotasSkipsCachedRows(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	qs := []quota{{Provider: "anthropic", Window: "5h", UsedPct: 90, Note: "cached; HTTP 500"}}
+	if n := recordQuotas(qs, time.Now()); n != 0 {
+		t.Fatalf("recorded %d accounts from a cached row, want 0", n)
+	}
+	if _, ok := router.LoadState()["anthropic·max"]; ok {
+		t.Error("cached row reached quota.json")
+	}
+}

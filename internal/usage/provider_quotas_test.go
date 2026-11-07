@@ -560,3 +560,22 @@ func TestRowLabelEmptyProvider(t *testing.T) {
 		t.Errorf("rowLabel(\"\", prod) = %q, want prod", got)
 	}
 }
+
+// A "cached; ..." row is data, not a placeholder: it gets LeftPct and a state while keeping its note.
+func TestFetchedCachedRowGetsLeftAndState(t *testing.T) {
+	orig, origRec := fetchQuotas, recordQuotaState
+	fetchQuotas = func() []quota {
+		return []quota{{Provider: "anthropic", Window: "5h", UsedPct: 85, Note: "cached; HTTP 500"}}
+	}
+	recordQuotaState = func([]quota) {}
+	t.Cleanup(func() { fetchQuotas, recordQuotaState = orig, origRec })
+	qs := <-startQuotaFetch(true)
+	if len(qs) != 1 || qs[0].LeftPct != 15 || qs[0].State != "warn" || qs[0].Note == "" {
+		t.Fatalf("cached row = %+v, want LeftPct 15, warn, note kept", qs)
+	}
+	var b strings.Builder
+	printSubscriptionQuotas(&b, qs, "left")
+	if !strings.Contains(b.String(), "cached; HTTP 500") || !strings.Contains(b.String(), "15%") {
+		t.Errorf("table lacks the value or note:\n%s", b.String())
+	}
+}

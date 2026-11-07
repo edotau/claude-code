@@ -66,10 +66,15 @@ func warnThreshold() float64 {
 	return pct
 }
 
+// noteOnly is true for an "unavailable" placeholder; a "cached; ..." row still carries a real UsedPct.
+func noteOnly(q quota) bool {
+	return q.Note != "" && q.Limit == 0 && !strings.HasPrefix(q.Note, "cached")
+}
+
 // setStates classifies each quota as "ok", "warn", or "exceeded" based on UsedPct and threshold.
 func setStates(qs []quota, threshold float64) {
 	for i := range qs {
-		if qs[i].Note != "" && qs[i].Limit == 0 {
+		if noteOnly(qs[i]) {
 			continue
 		}
 		switch {
@@ -291,7 +296,7 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 			pct = q.LeftPct
 		}
 		val, state := bar(pct)+" "+fmt.Sprintf("%4s", fmt.Sprintf("%.0f%%", pct)), q.State
-		if q.Note != "" && q.Limit == 0 {
+		if noteOnly(q) {
 			val, state = "-", "-"
 		}
 		if q.Limit > 0 {
