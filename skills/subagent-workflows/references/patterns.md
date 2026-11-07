@@ -2,7 +2,8 @@
 
 Every row maps to code this repo runs. Serves `../SKILL.md` Phase 0: pick the shape here, fill each node with a leaf
 type (below), then wire stages into a template from [composites.md](composites.md). Trial evidence:
-`memory/claude-code/reports/2026-11-07-workflow-scorecard.md` (ranking, yields) and `2026-11-07-workflow-trial-decisions.md`
+`memory/claude-code/reports/2026-11-07-workflow-scorecard.md` (ranking, yields) and
+`2026-11-07-workflow-trial-decisions.md`
 (decision numbers `#n` below); current-docs check: `2026-11-07-agent-design-research.md`.
 
 ## Execution mode: subagents, plus scripts that hold the plan
@@ -68,7 +69,8 @@ packages -> [ relay3 stream p1 | p2 | ... | pN ]  (no barrier)  -> merged report
 task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> relay3:paths | relay3:packages | plan draft
 ```
 
-- Code: `orchestrate.js` (Size, Route). Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` arg skips sizing.
+- Code: `orchestrate.js` (Size, Route). Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips
+  sizing.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
   `steps` pin. Under Claude quota pressure the hook downshifts one alias (`dispatch-effort`).
 - Failure: untested routes (LOW/MEDIUM, implementer, EPIC) at R11; LOW route first run `2026-11-07-route-test-low.md`.
@@ -114,7 +116,8 @@ main -> Workflow orchestrate -> workflow(relay3) -> agent() leaves      (workflo
 
 - Agent teams / `TeamCreate`: experimental, one per session, no nesting.
 - Loop-until-dry and the modal sweep: yield 2.2 and 2.5, retired or pre-pass only (scorecard 7-8).
-- External agents inside workflows: `stepOf` rejects `agent`/`profile` (`e1ef8731`); run them outside via `/code-worker:codex`.
+- External agents inside workflows: `stepOf` rejects `agent`/`profile` (`e1ef8731`); run them outside via
+  `/code-worker:codex`.
 - Peer-to-peer agent debate: no harness component; refute/rederive is one-way and blind.
 
 ## Agent type selection
