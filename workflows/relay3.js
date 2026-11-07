@@ -2,7 +2,7 @@ export const meta = {
   name: 'relay3',
   description: 'Streaming relay: each package flows find → rederive → fix → guard test → gate → simplify → review → fix-all on its own, no barrier between packages',
   whenToUse:
-    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/relay3.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default medium), focus, known [{file, symptom}] (bug already named: skips Find and Rederive for that file\'s package), fast (false ignores known), polish (default true; false skips Simplify, Review and Fix-all; also skipped under 150k budget tokens left), steps {find, rederive, fix, test, gate, simplify, review} = {model, effort} per stage (claude only; fix-all uses steps.fix). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red, decisions, report}. Details: saved-workflows.md.',
+    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/relay3.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, known [{file, symptom}] (bug already named: skips Find and Rederive for that file\'s package), fast (false ignores known), polish (default true; false skips Simplify, Review and Fix-all; also skipped under 150k budget tokens left), steps {find, rederive, fix, test, gate, simplify, review} = {model, effort} per stage (claude only; fix-all uses steps.fix). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Find', detail: 'two lenses per package; claims merged by file ±10 lines or same symbol within the package' },
     { title: 'Rederive', detail: 'each claim re-derived blind from file:line + symptom' },
@@ -64,9 +64,9 @@ try {
 const FIX = a.fix !== false
 const POLISH = a.polish !== false
 const ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
-const MIN_FIX = ORDER[a.minFix] !== undefined ? ORDER[a.minFix] : ORDER.medium
+const MIN_FIX = ORDER[a.minFix] !== undefined ? ORDER[a.minFix] : ORDER.low
 const NEAR = 10
-const MIN_SEV = ORDER[a.minFix] !== undefined ? a.minFix : 'medium'
+const MIN_SEV = ORDER[a.minFix] !== undefined ? a.minFix : 'low'
 // known: bugs the caller already named; their package skips Find and Rederive (a.fast === false or fix:false disables).
 const KNOWN = {}
 if (FIX && a.fast !== false && Array.isArray(a.known)) {

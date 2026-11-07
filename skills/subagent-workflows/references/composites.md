@@ -24,7 +24,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
 
 - **Args**: `cwd` and one of `task`, `packages`, `paths`, `range` (git range; changed files become paths); optional
-  `tier`, `fix` (true), `minFix` (medium), `focus`,
+  `tier`, `fix` (true), `minFix` (low), `focus`,
   `polish` (true; false skips relay3's per-package chain and the final pass), `label`,
   `record:false`, `steps {size, intel, impl, plan, dedupe, simplify, review, record, child}`.
   Exits `green|red|review|plan|error`.
