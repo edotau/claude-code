@@ -193,3 +193,10 @@ func TestGenerateActionItemsMergesCategory(t *testing.T) {
 		t.Fatalf("got %+v, want P0 critical with all three files", it)
 	}
 }
+
+func TestGenerateReportFailsWhenQualityDiffFails(t *testing.T) {
+	_, err := generateReport(t.TempDir(), "nobase", "nohead", map[string]any{"status": "skipped"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "git diff") {
+		t.Fatalf("generateReport() error = %v, want a git diff failure, not a clean quality pass", err)
+	}
+}

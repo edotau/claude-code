@@ -245,7 +245,10 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 
 	qualityMap := qualityAnalysisOverride
 	if qualityMap == nil {
-		qualityMap = runQualityChecker(repoPath, base, head)
+		var qErr error
+		if qualityMap, qErr = runQualityChecker(repoPath, base, head); qErr != nil {
+			return Report{}, qErr
+		}
 	}
 
 	findings := generateFindingsList(prMap, qualityMap)
