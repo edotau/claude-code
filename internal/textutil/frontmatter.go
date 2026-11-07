@@ -12,7 +12,7 @@ import (
 var fmRes = sync.OnceValue(func() (r struct {
 	list, kv *regexp.Regexp
 }) {
-	r.list = regexp.MustCompile(`^\s+-\s+(.+)$`)
+	r.list = regexp.MustCompile(`^\s*-\s+(.+)$`)
 	r.kv = regexp.MustCompile(`^(\w[\w-]*):\s*(.*)$`)
 	return
 })
@@ -48,7 +48,8 @@ type fmParser struct {
 
 // feed consumes one non-blank frontmatter line.
 func (p *fmParser) feed(line string) {
-	if p.key != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+	// YAML allows block-list items at the key's own indent, so an open list also takes "- item".
+	if p.key != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") || (p.haveList && strings.HasPrefix(line, "-"))) {
 		p.continuation(line)
 		return
 	}

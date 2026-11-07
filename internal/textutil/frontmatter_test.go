@@ -148,3 +148,16 @@ func TestParseFrontmatterClosingFenceAtEOF(t *testing.T) {
 		t.Errorf("body = %q, want empty", body)
 	}
 }
+
+// A block list whose "- item" lines sit at the key's own indent is valid YAML and must keep its items.
+func TestParseFrontmatterUnindentedBlockList(t *testing.T) {
+	content := "---\nname: x\ntools:\n- Read\n- \"Grep\"\nmodel: opus\n---\nbody\n"
+	fm, _ := ParseFrontmatter(content)
+	tools, _ := fm["tools"].([]string)
+	if len(tools) != 2 || tools[0] != "Read" || tools[1] != "Grep" {
+		t.Errorf("tools = %#v, want [Read Grep]", fm["tools"])
+	}
+	if fm["model"] != "opus" {
+		t.Errorf("model = %v, want opus", fm["model"])
+	}
+}

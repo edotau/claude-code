@@ -131,13 +131,22 @@ func Canon(p string) string {
 	return p
 }
 
-// CanonDeep resolves symlinks in p's deepest existing ancestor and rejoins the missing tail unresolved.
-func CanonDeep(p string) string {
+// maxLinkDepth bounds dangling-symlink chasing in CanonDeep.
+const maxLinkDepth = 40
+
+// CanonDeep resolves symlinks in p's deepest existing ancestor and rejoins the missing tail unresolved;
+// a dangling symlink is followed to its target.
+func CanonDeep(p string) string { return canonDeep(p, 0) }
+
+func canonDeep(p string, depth int) string {
 	p = filepath.Clean(p)
 	tail := ""
 	for cur := p; ; {
 		if r, err := filepath.EvalSymlinks(cur); err == nil {
 			return filepath.Join(r, tail)
+		}
+		if t, ok := danglingTarget(cur, depth); ok {
+			return filepath.Join(canonDeep(t, depth+1), tail)
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
@@ -146,4 +155,22 @@ func CanonDeep(p string) string {
 		tail = filepath.Join(filepath.Base(cur), tail)
 		cur = parent
 	}
+}
+
+// danglingTarget returns the absolute target of cur when it is a symlink whose target is missing.
+func danglingTarget(cur string, depth int) (string, bool) {
+	if depth >= maxLinkDepth {
+		return "", false
+	}
+	if fi, err := os.Lstat(cur); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return "", false
+	}
+	t, err := os.Readlink(cur)
+	if err != nil {
+		return "", false
+	}
+	if !filepath.IsAbs(t) {
+		t = filepath.Join(canonDeep(filepath.Dir(cur), depth+1), t)
+	}
+	return t, true
 }

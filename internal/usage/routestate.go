@@ -36,9 +36,9 @@ func recordQuotas(qs []quota, now time.Time) int {
 	return n
 }
 
-// recordable is true for a windowed, ungrouped row that is not a failure note (a cached note still counts).
+// recordable is true for a windowed, ungrouped, freshly fetched row; cached rows carry no fetch time and would look fresh.
 func recordable(q quota) bool {
-	return q.Window != "" && q.Group == "" && (q.Note == "" || strings.HasPrefix(q.Note, "cached"))
+	return q.Window != "" && q.Group == "" && q.Note == ""
 }
 
 // accountKey maps a quota row to route's account key; "" for providers the router has no column for.

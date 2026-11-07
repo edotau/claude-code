@@ -409,6 +409,24 @@ func TestBuildAgentsUsageAlwaysReturnsFour(t *testing.T) {
 	}
 }
 
+// TestBuildAgentsUsageSessionScopesOnlyClaude: with a session, the other agents are skipped with a not-scoped note.
+func TestBuildAgentsUsageSessionScopesOnlyClaude(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	stubLookPathSqlite3(t, func() error { return nil })
+
+	got := buildAgentsUsage(&transcriptScan{agg: transcript.NewUsageAggregate()}, "sess-1", 0)
+	if len(got) != 4 || got[0].Agent != "claude" {
+		t.Fatalf("got %+v, want claude first of four rows", got)
+	}
+	for _, row := range got[1:] {
+		if row.Note != "not scoped to a claude session" {
+			t.Errorf("%s note = %q, want the not-scoped note", row.Agent, row.Note)
+		}
+	}
+}
+
 // --- claudeSessionCount ---
 
 // TestClaudeSessionCountExplicitSession: an explicit --session with files found counts as 1 session,
