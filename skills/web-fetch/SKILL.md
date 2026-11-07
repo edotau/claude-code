@@ -31,8 +31,8 @@ tvly extract https://go.dev/doc/ --extract-depth advanced -o /tmp/scratch/doc.js
 
 The harness verb takes only URLs and retries failures once at advanced depth; use `tvly extract` for `--query`,
 `--extract-depth`, `--format text`, `--timeout` and `-o`. `tvly extract` works without a key (rate-limited).
-`tvly map` and `tvly crawl` need `TAVILY_API_KEY`, which the harness keeps in the vault
-(`claude-code vault set TAVILY_API_KEY`); `tvly login` is the CLI's own store. Never print or log the key.
+`tvly map` and `tvly crawl` need `TAVILY_API_KEY` from the vault: `eval "$(claude-code vault get --export
+TAVILY_API_KEY)"` in the same command (plain `vault get` prints `NAME=value`, not the bare key). Never print or log it.
 
 ## Map and crawl
 
