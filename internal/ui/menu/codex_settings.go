@@ -4,6 +4,7 @@ import (
 	"maps"
 
 	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -126,26 +127,12 @@ func stageCodexChoice(d *dialog, f codex.CodexField, next map[string]string) err
 }
 
 func saveCodexSettings(d *dialog, old, next map[string]string) bool {
-	err := codex.UpdateCodexOverlay(func(current map[string]string) map[string]string {
-		for _, f := range codex.CodexFields() {
-			before, hadBefore := old[f.Key]
-			after, hasAfter := next[f.Key]
-			if hadBefore == hasAfter && before == after {
-				continue
-			}
-			if hasAfter {
-				current[f.Key] = after
-			} else {
-				delete(current, f.Key)
-			}
-		}
-		return current
-	})
-	if err != nil {
+	saved, err := configure.SaveCodexSettings(d.o.Home, old, next)
+	if !saved {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	if err := codex.ApplyCodexSettings(d.o.Home); err != nil {
+	if err != nil {
 		d.printf("codex: preferences saved; native apply failed: %v\n", err)
 		return false
 	}

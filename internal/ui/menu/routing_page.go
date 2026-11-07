@@ -202,23 +202,7 @@ func saveRouting(d *dialog, staged map[string]string, resetKeys map[string]bool)
 		d.printf("routing: %d change(s) discarded\n", n)
 		return
 	}
-	err := providers.UpdateRouting(func(r *providers.Routing) error {
-		for _, m := range settings.Modules() {
-			for _, f := range m.Fields() {
-				switch {
-				case resetKeys[f.Key]:
-					if err := f.Set(r, ""); err != nil {
-						return err
-					}
-				case staged[f.Key] != "":
-					if err := f.Set(r, staged[f.Key]); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		return nil
-	})
+	err := configure.SaveRouting(staged, resetKeys)
 	if err != nil {
 		d.printf("routing: %v\n", err)
 		return
