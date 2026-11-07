@@ -247,12 +247,19 @@ func approveScoped(workDir string) copilot.PermissionHandlerFunc {
 	}
 }
 
+// webSearchServer is the harness Tavily MCP server (`network websearch`), the one MCP server scoped tools may call.
+const webSearchServer = "web_search"
+
 func scopedAllowed(req copilot.PermissionRequest, workDir string) bool {
 	switch r := req.(type) {
 	case rpc.PermissionRequestWrite:
 		return shell.WriteAllowed(r.FileName, workDir)
 	case *rpc.PermissionRequestWrite:
 		return shell.WriteAllowed(r.FileName, workDir)
+	case rpc.PermissionRequestMCP:
+		return r.ServerName == webSearchServer
+	case *rpc.PermissionRequestMCP:
+		return r.ServerName == webSearchServer
 	}
 	switch req.Kind() {
 	case rpc.PermissionRequestKindRead, rpc.PermissionRequestKindURL:
