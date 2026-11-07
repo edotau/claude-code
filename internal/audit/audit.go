@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -114,10 +115,22 @@ func Log(a Action, resource, detail string) {
 func rotate(file string) {
 	_ = paths.WithFileLock(file, func() error {
 		if fi, err := os.Stat(file); err == nil && fi.Size() > maxBytes {
+			archiveOld(file + ".1")
 			return os.Rename(file, file+".1")
 		}
 		return nil
 	})
+}
+
+// keepRotated bounds the archive: rotations keep .1 through .keepRotated (about keepRotated MiB) and drop the oldest.
+const keepRotated = 5
+
+// archiveOld shifts .1..(keepRotated-1) up one so a new rotation never overwrites history; the oldest falls off.
+func archiveOld(rotated string) {
+	base := rotated[:len(rotated)-1]
+	for n := keepRotated; n >= 2; n-- {
+		_ = os.Rename(base+strconv.Itoa(n-1), base+strconv.Itoa(n))
+	}
 }
 
 // scrub replaces every credential-shaped field so the log can never become a secret store.

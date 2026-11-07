@@ -109,3 +109,18 @@ func TestPreviewRedactsThenTruncates(t *testing.T) {
 		t.Errorf("Preview = %q, want %q", got, want)
 	}
 }
+
+func TestLooksPlaceholderOnlyCountsInHead(t *testing.T) {
+	// Given real tokens with "xxx" past the placeholder window; When checked; Then they are credential-shaped
+	tok := "sk-Ab3K9fQ2LmZ7pR1tVw8xxxYc4Hd6Ns0J"
+	if !Looks(tok) {
+		t.Errorf("Looks(%q) = false, want true", tok)
+	}
+	if got := Redact("key=" + tok); strings.Contains(got, tok) {
+		t.Errorf("Redact left token unredacted: %q", got)
+	}
+	// And a placeholder inside the head is still ignored
+	if Looks("sk-xxxxxxxxxxxxxxxxxxxxxxxx") {
+		t.Error("head placeholder flagged as credential")
+	}
+}

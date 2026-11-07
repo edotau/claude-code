@@ -48,11 +48,15 @@ func Store(name, value string) error {
 	return nil
 }
 
-// Delete removes name's vault record without resolving a key; an absent name is a no-op.
+// Delete removes name's vault record without resolving a key and audits it; an absent name is a no-op.
 func Delete(name string) error {
-	return Update(func(tx *Tx) error {
+	if err := Update(func(tx *Tx) error {
 		return tx.Put(Secrets, name, "")
-	})
+	}); err != nil {
+		return err
+	}
+	audit.Log(audit.SecretDelete, name, "")
+	return nil
 }
 
 // Redact renders a stored value for display: a 5-char prefix (enough to recognise a paste) plus its length.
@@ -225,11 +229,7 @@ func Remove(name string) error {
 	if !slices.Contains(names, name) {
 		return fmt.Errorf("%s not set", name)
 	}
-	if err := Delete(name); err != nil {
-		return err
-	}
-	audit.Log(audit.SecretDelete, name, "")
-	return nil
+	return Delete(name)
 }
 
 // SecretMeta is a vault record's display and probe metadata, without ciphertext or key information.

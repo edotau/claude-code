@@ -295,3 +295,32 @@ func TestSetPATReadFailureKeepsOldValue(t *testing.T) {
 		t.Errorf("old PAT lost: %q ok=%v", v, ok)
 	}
 }
+
+// TestSetPATReadFailureRestoresAuthBlock pins that an aborted SetPAT leaves the row's command auth untouched.
+func TestSetPATReadFailureRestoresAuthBlock(t *testing.T) {
+	mintRow(t, 200)
+	name := providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)
+	if err := vault.Store(name, "dapi-OLD"); err != nil {
+		t.Fatal(err)
+	}
+	goodKey := os.Getenv("HARNESS_VAULT_KEY")
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
+	if _, err := SetPAT(context.Background(), "mrow", "dapi-NEW"); err == nil {
+		t.Fatal("want a read error")
+	}
+	t.Setenv("HARNESS_VAULT_KEY", goodKey)
+	if doc := overlayDoc(t); strings.Contains(doc, providers.AuthPAT) || !strings.Contains(doc, "printf") {
+		t.Errorf("auth block not restored after aborted SetPAT: %s", doc)
+	}
+}
+
+// TestSetPATRejectedRestoresCommandAuth pins that a rejected PAT puts a command-auth row back, not just oauth/m2m.
+func TestSetPATRejectedRestoresCommandAuth(t *testing.T) {
+	mintRow(t, 401)
+	if _, err := SetPAT(context.Background(), "mrow", "dapi-BAD"); err == nil {
+		t.Fatal("want error")
+	}
+	if doc := overlayDoc(t); strings.Contains(doc, providers.AuthPAT) || !strings.Contains(doc, "printf") {
+		t.Errorf("command auth not restored after rejected PAT: %s", doc)
+	}
+}
