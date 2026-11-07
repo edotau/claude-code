@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/configure"
@@ -37,6 +38,7 @@ type dbxFake struct {
 	rows     [][][2]string
 	calls    []string
 	mintErr  error
+	checkErr error
 	copyErr  error
 	copied   []string
 	sched    []time.Duration
@@ -81,9 +83,9 @@ func (s *dbxScreen) Read(p []byte) (int, error) {
 
 func installDbxFake(t *testing.T, f *dbxFake) {
 	t.Helper()
-	l, m, sp, sc, cp, sh, shl := dbxLogin, dbxMint, dbxSetPAT, dbxSecret, dbxCopy, dbxSchedule, dbxShell
+	l, m, sp, sc, cp, sh, shl, ck := dbxLogin, dbxMint, dbxSetPAT, dbxSecret, dbxCopy, dbxSchedule, dbxShell, dbxCheckSP
 	t.Cleanup(func() {
-		dbxLogin, dbxMint, dbxSetPAT, dbxSecret, dbxCopy, dbxSchedule, dbxShell = l, m, sp, sc, cp, sh, shl
+		dbxLogin, dbxMint, dbxSetPAT, dbxSecret, dbxCopy, dbxSchedule, dbxShell, dbxCheckSP = l, m, sp, sc, cp, sh, shl, ck
 	})
 	dbxLogin = func(_ context.Context, name string, _ io.Writer) error {
 		f.calls = append(f.calls, "login:"+name)
@@ -108,7 +110,11 @@ func installDbxFake(t *testing.T, f *dbxFake) {
 		scr := &dbxScreen{f: f}
 		return &uidialog.Shell{Out: scr, In: bufio.NewReader(scr)}
 	}
-	dbxSecret = func(string, func(string) string) (string, error) { return f.secret, nil }
+	dbxSecret = func(string, string, func(string) string) (string, error) { return f.secret, nil }
+	dbxCheckSP = func(_ context.Context, _, id, secret string) error {
+		f.calls = append(f.calls, "check:"+id+":"+secret)
+		return f.checkErr
+	}
 	dbxCopy = func(_ context.Context, v string) error {
 		f.copied = append(f.copied, v)
 		return f.copyErr
@@ -588,7 +594,7 @@ func TestDbxIdentitySavesRowAndSealedSecret(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{secret: "sp-secret-VALUE"}
 	installDbxFake(t, f)
-	dbxSecret = func(prompt string, _ func(string) string) (string, error) {
+	dbxSecret = func(_, prompt string, _ func(string) string) (string, error) {
 		if strings.Contains(prompt, "client id") {
 			return "sp-client-1", nil
 		}
@@ -674,5 +680,105 @@ func TestDbxSaveIdentityKeepsConcurrentRotationOnRowFailure(t *testing.T) {
 	}
 	if got, _, _ := vault.ReadSecret(name); got != "sp-secret-ROTATED" {
 		t.Errorf("rollback clobbered the newer secret, stored value length %d", len(got))
+	}
+}
+
+func dbxIdentityRun(t *testing.T, f *dbxFake, pick int, seed bool) (*dialog, string) {
+	t.Helper()
+	d := dbxEnv(t)
+	if seed {
+		vaulttest.Put(t, vault.Overlay, "providers", strings.Replace(dbxDoc,
+			`"cliProfile":"dev","auth":{"type":"oauth"}`, `"cliProfile":"dev","auth":{"type":"oauth","spClientId":"2c8d8d24-0000-3e6b"}`, 1))
+		if err := vault.Store(providers.SecretName(providers.GroupDatabricks, "dev", providers.AuthM2M), "stored-VALUE"); err != nil {
+			t.Fatal(err)
+		}
+		reg, err := providers.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.reg = reg
+	}
+	installDbxFake(t, f)
+	dbxSecret = func(hint, prompt string, _ func(string) string) (string, error) {
+		f.calls = append(f.calls, "prompt:"+hint+"|"+prompt)
+		if strings.Contains(prompt, "client id") {
+			return "new-client-12345678", nil
+		}
+		return "new-secret-VALUE", nil
+	}
+	f.picks = []int{pick}
+	dbxIdentity(d, "dev")
+	t.Logf("calls=%v\n%s", f.calls, dbxOut(d))
+	return d, dbxOut(d)
+}
+
+func dbxSavedIdentity(t *testing.T) string {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg.Providers["dev"].Identity
+}
+
+func dbxVaultSecret(t *testing.T) string {
+	t.Helper()
+	v, _, err := vault.ReadSecret(providers.SecretName(providers.GroupDatabricks, "dev", providers.AuthM2M))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// Given a stored SP id and secret, picking sp neither prompts nor checks; the kept line shows the short id.
+func TestDbxIdentityKeepsStoredPair(t *testing.T) {
+	f := &dbxFake{checkErr: errors.New("must not run")}
+	_, out := dbxIdentityRun(t, f, 2, true)
+	if strings.Join(f.calls, ",") != "" || !strings.Contains(out, "SP 2c8d…3e6b · secret stored — kept") ||
+		!strings.Contains(out, "dev: identity sp · SP and secret kept") || dbxSavedIdentity(t) != "sp" {
+		t.Errorf("calls=%v out=%q", f.calls, out)
+	}
+	if strings.Contains(out, "stored-VALUE") || dbxVaultSecret(t) != "stored-VALUE" {
+		t.Error("secret printed or changed")
+	}
+}
+
+// Given a failing check, a new pair writes nothing to the vault and the failure line carries no secret.
+func TestDbxIdentityChecksBeforeSaving(t *testing.T) {
+	f := &dbxFake{checkErr: errors.New("invalid_client")}
+	d, out := dbxIdentityRun(t, f, 2, false)
+	if !strings.Contains(out, "SP check failed: invalid_client") || strings.Contains(out, "new-secret-VALUE") {
+		t.Errorf("out=%q", out)
+	}
+	if dbxVaultSecret(t) != "" || dbxSavedIdentity(t) == "sp" || d.changed {
+		t.Error("something was saved after a failed check")
+	}
+}
+
+// Given a passing check, the pair is saved and the confirmation fits 80 columns.
+func TestDbxIdentitySavesCheckedPair(t *testing.T) {
+	f := &dbxFake{}
+	_, out := dbxIdentityRun(t, f, 2, false)
+	want := "dev: identity sp · SP new-…5678 · secret saved (DATABRICKS_DEV_M2M)"
+	if !strings.Contains(out, want) || dbxVaultSecret(t) != "new-secret-VALUE" {
+		t.Errorf("out=%q", out)
+	}
+	if !strings.Contains(strings.Join(f.calls, ","), "check:new-client-12345678:new-secret-VALUE") {
+		t.Errorf("calls=%v", f.calls)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if n := utf8.RuneCountInString(l); n > 80 {
+			t.Errorf("%d cols: %q", n, l)
+		}
+	}
+}
+
+// Given a stored pair, the extra row re-prompts, hinting the short id and the stored secret.
+func TestDbxIdentityChangeRowPrompts(t *testing.T) {
+	f := &dbxFake{}
+	_, out := dbxIdentityRun(t, f, 3, true)
+	if c := strings.Join(f.calls, ","); !strings.Contains(c, "prompt:empty keeps 2c8d…3e6b|") ||
+		!strings.Contains(c, "prompt:empty keeps the stored secret|") || !strings.Contains(out, "secret saved") {
+		t.Errorf("calls=%v out=%q", f.calls, out)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/providers"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -26,7 +27,12 @@ var (
 
 	dbxShell = func(d *dialog) *uidialog.Shell { return d.shell() }
 
-	dbxSecret = tui.Secret
+	dbxSecret = tui.SecretHint
+
+	dbxCheckSP = func(ctx context.Context, host, id, secret string) error {
+		_, err := oauth.MintM2M(ctx, host, id, secret)
+		return err
+	}
 
 	dbxCopy = clipboard.WriteSecret
 
@@ -180,7 +186,7 @@ func dbxDo(d *dialog, env, what string, fn func(context.Context) error) {
 }
 
 func dbxPaste(d *dialog, env string) {
-	v, err := dbxSecret("Personal access token: ", vault.Preview)
+	v, err := dbxSecret("", "Personal access token: ", vault.Preview)
 	if err != nil || v == "" {
 		return
 	}
@@ -302,7 +308,8 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	return false, nil
 }
 
-// dbxIdentity picks env's identity mode, then asks for the SP client id and secret when the mode can use one.
+// dbxIdentity picks env's identity mode; a service principal already stored (id and secret) is kept unless the
+// "change service principal" row is picked, otherwise it asks for the id and secret and checks them before saving.
 func dbxIdentity(d *dialog, env string) {
 	p := d.reg.Providers[env]
 	if p == nil {
@@ -310,40 +317,105 @@ func dbxIdentity(d *dialog, env string) {
 	}
 	modes := []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
 	cur, _ := providers.ResolveIdentity(p.Identity, "")
-	rows := make([][2]string, len(modes))
+	name := providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M)
+	stored, hasSecret, err := vault.ReadSecret(name)
+	if err != nil {
+		d.printf("%s: identity: %v\n", env, err)
+		return
+	}
+	kept := p.Auth.SPClientID != "" && hasSecret
+	rows := make([][2]string, len(modes), len(modes)+1)
 	for i, m := range modes {
 		rows[i] = [2]string{m, uidialog.Mark(m == cur)}
+	}
+	if kept {
+		rows = append(rows, [2]string{"change service principal", "new client id and secret"})
 	}
 	idx, err := dbxShell(d).Pick("identity · "+env, rows, max(slices.Index(modes, cur), 0))
 	if err != nil || idx < 0 {
 		return
 	}
-	spID := p.Auth.SPClientID
-	if modes[idx] == providers.IdentityUser { // user mode never reads the SP: keep the stored id and secret
-		saveDbxIdentity(d, env, modes[idx], spID, "")
+	change := idx == len(modes)
+	mode, spID := cur, p.Auth.SPClientID
+	if !change {
+		mode = modes[idx]
+	}
+	if mode == providers.IdentityUser && !change { // user mode never reads the SP: keep the stored id and secret
+		saveDbxIdentity(d, env, mode, spID, "", "")
 		return
 	}
-	id, err := dbxSecret("Service principal client id (empty keeps "+cmp.Or(spID, "none")+"): ", func(s string) string { return s })
+	if kept && !change {
+		d.printf("SP %s · secret stored — kept\n", dbxShort(spID))
+		saveDbxIdentity(d, env, mode, spID, "", "SP and secret kept")
+		return
+	}
+	dbxIdentityPrompt(d, env, mode, p, stored)
+}
+
+// dbxIdentityPrompt asks for the SP id and secret (empty keeps the stored ones), checks the pair, then saves it.
+func dbxIdentityPrompt(d *dialog, env, mode string, p *providers.Provider, storedSecret string) {
+	spID := p.Auth.SPClientID
+	hint := ""
+	if spID != "" {
+		hint = "empty keeps " + dbxShort(spID)
+	}
+	id, err := dbxSecret(hint, "Service principal client id: ", func(s string) string { return s })
 	if err != nil {
 		return
 	}
 	spID = cmp.Or(id, spID)
 	secret := ""
 	if spID != "" {
-		if secret, err = dbxSecret("Service principal secret (empty keeps the stored one): ", vault.Preview); err != nil {
+		hint = ""
+		if storedSecret != "" {
+			hint = "empty keeps the stored secret"
+		}
+		if secret, err = dbxSecret(hint, "Service principal secret: ", vault.Preview); err != nil {
 			return
 		}
 	}
-	saveDbxIdentity(d, env, modes[idx], spID, secret)
+	if pair := cmp.Or(secret, storedSecret); spID != "" && pair != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), dbxNetTimeout)
+		defer cancel()
+		if err := dbxCheckSP(ctx, providers.AuthHost(p), spID, pair); err != nil {
+			d.printf("SP check failed: %v\n", err)
+			return
+		}
+	}
+	note := ""
+	switch {
+	case secret != "":
+		note = "secret saved (" + providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M) + ")"
+	case storedSecret != "" && id != "":
+		note = "secret kept"
+	case storedSecret != "":
+		note = "SP and secret kept"
+	}
+	saveDbxIdentity(d, env, mode, spID, secret, note)
 }
 
-func saveDbxIdentity(d *dialog, env, mode, spID, secret string) {
+// dbxShort is an id as first4…last4 (short ids are shown whole).
+func dbxShort(id string) string {
+	if r := []rune(id); len(r) > 9 {
+		return string(r[:4]) + "…" + string(r[len(r)-4:])
+	}
+	return id
+}
+
+func saveDbxIdentity(d *dialog, env, mode, spID, secret, note string) {
 	if err := configure.SaveDbxIdentity(d.reg, env, mode, spID, secret); err != nil {
 		d.printf("%s: identity: %v\n", env, err)
 		return
 	}
 	d.changed = true
-	d.printf("%s: identity %s\n", env, mode)
+	line := env + ": identity " + mode
+	if spID != "" && note != "" && note != "SP and secret kept" {
+		line += " · SP " + dbxShort(spID)
+	}
+	if note != "" {
+		line += " · " + note
+	}
+	d.printf("%s\n", line)
 }
 
 // reload refreshes the registry after a login, PAT or apply changed it.
