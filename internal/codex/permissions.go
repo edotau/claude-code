@@ -46,21 +46,26 @@ func codexGateInstalled() bool {
 	}
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
 	for _, group := range config.Hooks[settings.EventPreToolUse] {
-		if group.Matcher != "" {
-			matcher, err := regexp.Compile("^(?:" + group.Matcher + ")$")
-			if err != nil || !matcher.MatchString("Bash") {
-				continue
-			}
-		}
-		for _, hook := range group.Hooks {
-			cmd := strings.TrimSpace(hook.Command)
-			if hook.Type == "command" && !hook.Async &&
-				(cmd == command || cmd == settings.AgentEnv+"=codex "+command) {
-				return true
-			}
+		if matchesBash(group.Matcher) && slices.ContainsFunc(group.Hooks, func(h settings.Hook) bool { return isGateHook(h, command) }) {
+			return true
 		}
 	}
 	return false
+}
+
+// matchesBash reports whether a hook group's matcher selects the Bash tool (empty selects all).
+func matchesBash(matcher string) bool {
+	if matcher == "" {
+		return true
+	}
+	re, err := regexp.Compile("^(?:" + matcher + ")$")
+	return err == nil && re.MatchString("Bash")
+}
+
+// isGateHook reports whether hook is the synchronous permission-gate command.
+func isGateHook(hook settings.Hook, command string) bool {
+	cmd := strings.TrimSpace(hook.Command)
+	return hook.Type == "command" && !hook.Async && (cmd == command || cmd == settings.AgentEnv+"=codex "+command)
 }
 
 // codexRender maps p onto codex; a Deny it cannot enforce is an error naming the rule, so nothing runs unguarded.
@@ -105,16 +110,9 @@ func codexRule(r agent.Rule, decision string, tools bool) (string, error) {
 		}
 		return "", fmt.Errorf("codex: cannot enforce %s %s (codex has only Bash prefix rules and a read-only sandbox)", decision, r)
 	}
-	prefix, wild := strings.CutSuffix(r.Arg, ":*")
-	if !wild {
-		prefix, wild = strings.CutSuffix(r.Arg, " *") // Claude's trailing wildcard, same as ":*"
-	}
-	if strings.Contains(prefix, "*") {
-		return "", notPrefixError{fmt.Sprintf("codex: cannot enforce %s %s (a mid-pattern * is not a prefix rule)", decision, r)}
-	}
-	toks := shell.Tokens(prefix)
-	if r.Arg == "" || len(toks) == 0 || len(shell.Segments(prefix)) != 1 || strings.ContainsAny(prefix, "<>`$()|&;") {
-		return "", notPrefixError{fmt.Sprintf("codex: cannot render %s as a command prefix", r)}
+	toks, wild, err := bashPrefixTokens(r, decision)
+	if err != nil {
+		return "", err
 	}
 	if !wild && decision != "forbidden" {
 		return "", fmt.Errorf("codex: %s is an exact command; a prefix rule would match more", r) // only Deny may over-match
@@ -125,6 +123,22 @@ func codexRule(r agent.Rule, decision string, tools bool) (string, error) {
 	}
 	return fmt.Sprintf("prefix_rule(pattern=[%s], decision=%q, justification=%s)\n", strings.Join(pat, ", "), decision,
 		strconv.Quote("dispatch permission "+r.String())), nil
+}
+
+// bashPrefixTokens splits a Bash rule into command-prefix tokens; wild reports a trailing wildcard.
+func bashPrefixTokens(r agent.Rule, decision string) (toks []string, wild bool, err error) {
+	prefix, wild := strings.CutSuffix(r.Arg, ":*")
+	if !wild {
+		prefix, wild = strings.CutSuffix(r.Arg, " *") // Claude's trailing wildcard, same as ":*"
+	}
+	if strings.Contains(prefix, "*") {
+		return nil, false, notPrefixError{fmt.Sprintf("codex: cannot enforce %s %s (a mid-pattern * is not a prefix rule)", decision, r)}
+	}
+	toks = shell.Tokens(prefix)
+	if r.Arg == "" || len(toks) == 0 || len(shell.Segments(prefix)) != 1 || strings.ContainsAny(prefix, "<>`$()|&;") {
+		return nil, false, notPrefixError{fmt.Sprintf("codex: cannot render %s as a command prefix", r)}
+	}
+	return toks, wild, nil
 }
 
 // codexSwapSandbox swaps `--sandbox workspace-write` for --approve-for-me (they conflict; it implies that sandbox).
@@ -147,11 +161,8 @@ func codexRulesHome(rules string) (home string, remove func(), err error) {
 		return "", nil, err
 	}
 	remove = func() {
-		auth := filepath.Join(home, "auth.json")
-		if fresh, err := os.ReadFile(auth); err == nil && !isLink(auth) {
-			if err := paths.AtomicWrite(filepath.Join(real, "auth.json"), fresh, 0o600); err != nil { // codex refreshed the tokens in place
-				fmt.Fprintf(os.Stderr, "codex: refreshed auth.json not saved to %s: %v\n", real, err)
-			}
+		if !saveRefreshedAuth(real, home) {
+			return // keep home: its auth.json is the only copy of the refreshed login
 		}
 		_ = os.RemoveAll(home)
 	}
@@ -160,6 +171,23 @@ func codexRulesHome(rules string) (home string, remove func(), err error) {
 		return "", nil, err
 	}
 	return home, remove, nil
+}
+
+// saveRefreshedAuth copies a codex-refreshed auth.json from home back to real; false means the copy failed.
+func saveRefreshedAuth(real, home string) bool {
+	auth := filepath.Join(home, "auth.json")
+	if isLink(auth) {
+		return true
+	}
+	fresh, err := os.ReadFile(auth)
+	if err != nil {
+		return errors.Is(err, os.ErrNotExist)
+	}
+	if err := paths.AtomicWrite(filepath.Join(real, "auth.json"), fresh, 0o600); err != nil { // codex refreshed the tokens in place
+		fmt.Fprintf(os.Stderr, "codex: refreshed auth.json not saved to %s (kept in %s): %v\n", real, home, err)
+		return false
+	}
+	return true
 }
 
 // linkHome links every entry of real into home except rules/, then writes home/rules/ with the user's files and rules.
@@ -177,14 +205,8 @@ func linkHome(real, home, rules string) error {
 			return err
 		}
 	}
-	cfg, err := retargetedConfig(real, home)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := writeRetargetedConfig(real, home); err != nil {
 		return err
-	}
-	if err == nil {
-		if err := os.WriteFile(filepath.Join(home, "config.toml"), cfg, 0o600); err != nil {
-			return err
-		}
 	}
 	if err := os.Mkdir(filepath.Join(home, "rules"), 0o700); err != nil {
 		return err
@@ -195,6 +217,18 @@ func linkHome(real, home, rules string) error {
 		}
 	}
 	return os.WriteFile(filepath.Join(home, "rules", "dispatch.rules"), []byte(rules), 0o600)
+}
+
+// writeRetargetedConfig writes home/config.toml from real's; a missing real config is not an error.
+func writeRetargetedConfig(real, home string) error {
+	cfg, err := retargetedConfig(real, home)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(home, "config.toml"), cfg, 0o600)
 }
 
 // retargetedConfig is real's config.toml with each hook-trust key moved to home/hooks.json: codex keys trust by the
@@ -211,6 +245,17 @@ func retargetedConfig(real, home string) ([]byte, error) {
 func isLink(p string) bool {
 	fi, err := os.Lstat(p)
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
+}
+
+// requireFileAuth errors when neither a provider key in env nor auth.json would survive a per-dispatch CODEX_HOME.
+func requireFileAuth(env []string) error {
+	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, CodexKeyEnv+"=") }) {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(codexHome(), "auth.json")); err != nil {
+		return errors.New("codex: Bash permission rules need a per-dispatch CODEX_HOME, which loses the keyring-backed ChatGPT sign-in; use a provider route")
+	}
+	return nil
 }
 
 // codexApplyPermissions renders req.Permissions onto the exec argv/env. The zero Permissions returns both untouched.
@@ -236,10 +281,8 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	if pol.rules == "" {
 		return argv, env, remove, nil
 	}
-	if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, CodexKeyEnv+"=") }) {
-		if _, serr := os.Stat(filepath.Join(codexHome(), "auth.json")); serr != nil {
-			return nil, nil, remove, errors.New("codex: Bash permission rules need a per-dispatch CODEX_HOME, which loses the keyring-backed ChatGPT sign-in; use a provider route")
-		}
+	if err := requireFileAuth(env); err != nil {
+		return nil, nil, remove, err
 	}
 	home, remove, err := codexRulesHome(pol.rules)
 	if err != nil {
