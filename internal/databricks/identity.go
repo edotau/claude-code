@@ -1,5 +1,5 @@
-// databricks_page.go — the databricks home row and page: per-env login, PAT paste, mint, copy and agent repointing.
-package configure
+// identity.go — the databricks home row and page: per-env login, PAT paste, mint, copy and agent repointing.
+package databricks
 
 import (
 	"errors"
@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	DbxSetRow = providers.SetProviderFields
+	SetRow = providers.SetProviderFields
 )
 
-// SaveDbxIdentity writes env's identity mode and paired client id to its provider row, then seals secret (when given)
+// SaveIdentity writes env's identity mode and paired client id to its provider row, then seals secret (when given)
 // as DATABRICKS_<ENV>_M2M, restoring the old one if the row write fails; never echoed. Mode sp needs a client id.
-func SaveDbxIdentity(reg *providers.Registry, env, mode, spID, secret string) error {
+func SaveIdentity(reg *providers.Registry, env, mode, spID, secret string) error {
 	p := reg.Providers[env]
 	if p == nil {
 		return fmt.Errorf("%s: no such profile", env)
@@ -43,17 +43,17 @@ func SaveDbxIdentity(reg *providers.Registry, env, mode, spID, secret string) er
 	}
 	auth := p.Auth
 	auth.SPClientID = spID
-	if err := DbxSetRow(env, map[string]any{"identity": mode, "auth": auth}); err != nil {
+	if err := SetRow(env, map[string]any{"identity": mode, "auth": auth}); err != nil {
 		if secret == "" {
 			return err
 		}
-		return errors.Join(err, DbxRestoreSecret(name, secret, prev, hadPrev))
+		return errors.Join(err, RestoreSecret(name, secret, prev, hadPrev))
 	}
 	return nil
 }
 
-// DbxRestoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
-func DbxRestoreSecret(name, wrote, prev string, hadPrev bool) error {
+// RestoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
+func RestoreSecret(name, wrote, prev string, hadPrev bool) error {
 	wrote = strings.TrimSpace(wrote)
 	restored := false
 	err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
