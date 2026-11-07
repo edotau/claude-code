@@ -628,3 +628,16 @@ func TestSelectAbbreviatedPartialOwns(t *testing.T) {
 		t.Fatalf("partial annotation: results=%+v err=%v", results, err)
 	}
 }
+
+func TestCoversAbsoluteOwnsMatchRepoRelativeFiles(t *testing.T) {
+	files := []string{"internal/plans/tick.go"}
+	if all, any := Covers([]string{"/home/x/repo/internal/plans/tick.go"}, files); !all || !any {
+		t.Errorf("absolute file entry: all=%v any=%v, want true true", all, any)
+	}
+	if _, any := Covers([]string{"/home/x/repo/internal/plans/"}, files); !any {
+		t.Error("absolute dir entry should cover a file under it")
+	}
+	if _, any := Covers([]string{"/home/x/repo/internal/plans/other.go"}, files); any {
+		t.Error("absolute entry for a different file must not be covered")
+	}
+}

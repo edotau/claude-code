@@ -357,11 +357,30 @@ func Covers(owns, files []string) (all, any bool) {
 	return all && hasFile, any
 }
 
+// absCovers reports whether an absolute entry ends in the repo-relative file, or in a directory the file sits under.
+func absCovers(entry, dir, file string) bool {
+	if !path.IsAbs(entry) {
+		return false
+	}
+	if strings.HasSuffix(entry, "/"+file) {
+		return true
+	}
+	for d := path.Dir(file); d != "."; d = path.Dir(d) {
+		if strings.HasSuffix(dir, "/"+d) {
+			return true
+		}
+	}
+	return false
+}
+
 // touchesEntry reports whether any file is entry, lives under dir, or matches entry as a glob.
 func touchesEntry(entry, dir string, files []string) bool {
 	for _, f := range files {
 		file := filepath.ToSlash(f)
 		if entry != "" && (file == entry || file == dir || strings.HasPrefix(file, dir+"/")) {
+			return true
+		}
+		if absCovers(entry, dir, file) {
 			return true
 		}
 		if ok, err := path.Match(entry, file); err == nil && ok {
