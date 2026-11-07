@@ -23,7 +23,7 @@ const CD = CWD ? 'cd ' + CWD + ' && ' : ''
 let PATHS = Array.isArray(a.paths) ? a.paths.filter(Boolean) : []
 let PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : PATHS
 // A pre-verified findings list (same shape as FINDINGS_SCHEMA items) skips Scope/Find/Refute and goes straight to Fix.
-// Accept relay3-shaped findings ({symbol, symptom, rederived}) as well as this script's {title, scenario, evidence}.
+// Accept code-relay-shaped findings ({symbol, symptom, rederived}) as well as this script's {title, scenario, evidence}.
 const asFinding = f => ({ ...f, title: f.title || f.symptom || f.symbol || '(untitled)', scenario: f.scenario || f.rederived || f.symptom || 'not given',
   evidence: f.evidence || (f.symbol ? `${f.symbol} at ${f.file}:${f.line} (caller-supplied)` : 'caller-supplied, not re-verified') })
 let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings.map(asFinding) : null
@@ -61,7 +61,7 @@ const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|test|audit, never edit settings.json. ' +
   (CWD ? 'Prefix every shell command with `cd ' + CWD + ' &&`. ' : '') + 'Comments 1 line ≤120 chars.'
 
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, relay3, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-relay, code-engineer ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
@@ -231,7 +231,7 @@ const norm = f => ({
   severity: ORDER[f.severity] === undefined ? (log(`unknown severity '${f.severity}' on ${f.file} → medium`), 'medium') : f.severity,
 })
 const NEAR = 10
-// Two findings are one bug when they share a file and sit within NEAR lines or name the same symbol (as relay3's merge).
+// Two findings are one bug when they share a file and sit within NEAR lines or name the same symbol (as code-relay's merge).
 const same = (g, f) => relPath(g.file) === relPath(f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= NEAR || (!!g.symbol && g.symbol === f.symbol))
 // inPkg: a finding whose file is outside its package belongs to the file's own directory.
 const inPkg = (file, p) => p === '.' ? !relPath(file).includes('/') : relPath(file).startsWith(p.replace(/\/+$/, '') + '/')

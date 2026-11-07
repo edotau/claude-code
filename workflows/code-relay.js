@@ -1,8 +1,8 @@
 export const meta = {
-  name: 'relay3',
+  name: 'code-relay',
   description: 'Streaming relay: each package flows find → rederive → fix → guard test → gate → simplify → review → fix-all on its own, no barrier between packages',
   whenToUse:
-    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/relay3.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, known [{file, symptom}] (bug already named: skips Find and Rederive for that file\'s package), fast (false ignores known), polish (default true; false skips Simplify, Review and Fix-all; also skipped under 150k budget tokens left), steps {find, rederive, fix, test, gate, simplify, review} = {model, effort} per stage (claude only; fix-all uses steps.fix). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red, decisions, report}. Details: saved-workflows.md.',
+    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-relay.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, known [{file, symptom}] (bug already named: skips Find and Rederive for that file\'s package), fast (false ignores known), polish (default true; false skips Simplify, Review and Fix-all; also skipped under 150k budget tokens left), steps {find, rederive, fix, test, gate, simplify, review} = {model, effort} per stage (claude only; fix-all uses steps.fix). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Find', detail: 'two lenses per package; claims merged by file ±10 lines or same symbol within the package' },
     { title: 'Rederive', detail: 'each claim re-derived blind from file:line + symptom' },
@@ -14,7 +14,7 @@ export const meta = {
   ],
 }
 
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, relay3, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-relay, code-engineer ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
@@ -36,7 +36,7 @@ const stepOf = (steps, name, defaults, opt) => {
 }
 // ── end stepOf ──
 
-const ERR = (m) => ({ exit: 'error', error: 'relay3: ' + m, route: 'relay3', decisions: [], report: '' })
+const ERR = (m) => ({ exit: 'error', error: 'code-relay: ' + m, route: 'code-relay', decisions: [], report: '' })
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 const CWD = a.cwd || ''
 const RAWP = Array.isArray(a.paths) ? a.paths.filter(Boolean).map((p) => String(p).replace(CWD + '/', '').replace(/\/+$/, '')) : []
@@ -272,7 +272,7 @@ async function polish(p, files) {
 const SLICE = Number.isInteger(a.slice) && a.slice > 0 ? a.slice : 0
 const ALL = PKGS
 if (SLICE) PKGS = ALL.slice(0, SLICE)
-log('relay3: ' + PKGS.length + ' package(s), est. ' + (PKGS.length * 6) + ' agents' + (FIX ? ' (+3 per fixed package, up to ' + (PKGS.length * 3) + ', +4 more with polish' : '') +
+log('code-relay: ' + PKGS.length + ' package(s), est. ' + (PKGS.length * 6) + ' agents' + (FIX ? ' (+3 per fixed package, up to ' + (PKGS.length * 3) + ', +4 more with polish' : '') +
   (SLICE && ALL.length > SLICE ? '; slice=' + SLICE + ' skipped ' + (ALL.length - SLICE) + ': ' + ALL.slice(SLICE).join(', ') : ''))
 const results = (await pipeline(PKGS, review, repair)).filter(Boolean)
 // Findings cited outside their finder's package: fix them per owning directory after the stream, one at a time.
@@ -294,12 +294,12 @@ if (!FIX) decisions.push('review only: fix=false')
 if (unverified.length) decisions.push(unverified.length + ' finding(s) unverified: rederive agent returned nothing')
 if (SLICE && ALL.length > SLICE) decisions.push('slice=' + SLICE + ': skipped ' + (ALL.length - SLICE) + ' package(s)')
 const bullets = confirmed.map((c) => '- **' + c.severity + '** `' + c.file + ':' + c.line + '` (' + c.symbol + ') — ' + c.symptom)
-const report = ['# relay3: ' + confirmed.length + ' confirmed finding(s) in ' + PKGS.length + ' package(s)', ...bullets,
+const report = ['# code-relay: ' + confirmed.length + ' confirmed finding(s) in ' + PKGS.length + ' package(s)', ...bullets,
   '', 'Fixed: ' + fixed.map((f) => f.pkg + ' (' + f.findings + ')').join(', ') + (fixed.length ? '' : 'none') + '. Red: ' + (red.join(', ') || 'none') + '.',
   ...(unverified.length ? ['Unverified (rederive failed): ' + unverified.map((u) => u.file + ':' + u.line).join(', ') + '.'] : [])].join('\n')
 return {
   exit: red.length ? 'red' : FIX ? 'green' : 'review',
-  route: 'relay3',
+  route: 'code-relay',
   packages: PKGS.length,
   merged: results.reduce((n, r) => n + r.merged, 0),
   confirmed,

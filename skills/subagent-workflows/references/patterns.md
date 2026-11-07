@@ -22,19 +22,19 @@ only ([docs](https://code.claude.com/docs/en/agent-teams)); not used (#3). Subag
 | A lead over peers | agent teams | never here |
 
 Workflow limits (docs): 16 concurrent agents by default, 1,000 per run, no mid-run input, run a small slice first
-(`relay3` `slice`). The dispatch cap (24 per account, 4 x CPUs machine-wide) claims one slot per `agent()` site in a
+(`code-relay` `slice`). The dispatch cap (24 per account, 4 x CPUs machine-wide) claims one slot per `agent()` site in a
 script (`internal/hooks/agents/leaves.go` `Effort`).
 
 ## Patterns we run
 
 | Pattern | Harness component | Roles filled by | Enforced by |
 | --- | --- | --- | --- |
-| Pipeline | `relay3.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
-| Fan-out / fan-in | `relay3.js` `pipeline(PKGS, review, repair)` · parallel leaves | `code-worker` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
+| Pipeline | `code-relay.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
+| Fan-out / fan-in | `code-relay.js` `pipeline(PKGS, review, repair)` · parallel leaves | `code-worker` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
 | Expert pool | `code-engineer.js` sizing router | `haiku` sizer picks the route | tier table, `dispatch-effort` |
 | Producer-reviewer | fix, guard test (`test mutate`), gate · rederive | implementer vs blind re-deriver | `test mutate` exit 0, gate exit codes |
 | Supervisor | main session + leaves | `code-worker`, `coworker:*`, `Explore` | dispatch cap, `dispatch-stop` ran-on |
-| Hierarchical | `code-engineer.js` calling `workflow()` on `relay3.js` | one workflow level | runtime rule: one nesting level |
+| Hierarchical | `code-engineer.js` calling `workflow()` on `code-relay.js` | one workflow level | runtime rule: one nesting level |
 
 ### Pipeline
 
@@ -42,7 +42,7 @@ script (`internal/hooks/agents/leaves.go` `Effort`).
 package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fix -> guard test -> gate(p)
 ```
 
-- Code: `/home/edotau/.claude/workflows/relay3.js` (`review`, `repair`). Gate is package-scoped plus
+- Code: `/home/edotau/.claude/workflows/code-relay.js` (`review`, `repair`). Gate is package-scoped plus
   `internal/schemas` when a writer changed.
 - Evidence: R9 26 agents / 2.0M tokens, yield 7.5 findings per 1M; R10 60 / 4.8M (7.1); R11 114 / 8.8M (7.0).
 - Failures and fixes: a fixer limited to its package skipped findings cited elsewhere (`d51420fb`); a blocked fixer
@@ -52,24 +52,24 @@ package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fi
 ### Fan-out / fan-in
 
 ```text
-packages -> [ relay3 stream p1 | p2 | ... | pN ]  (no barrier)  -> merged report
+packages -> [ code-relay stream p1 | p2 | ... | pN ]  (no barrier)  -> merged report
 ```
 
-- relay3 streams each package to its fixer the moment its findings are confirmed; the older barrier shape
+- code-relay streams each package to its fixer the moment its findings are confirmed; the older barrier shape
   (`wf-relay2`: all reviews, then all fixes) is retired (scorecard rank 3). Finders in `code-analyzer.js` remain a
   fan-out over (dimension x chunk) with a refute step.
 - Manual form: `Agent` calls in one message with `Owns:` files; fan-in reads every diff and the seam between leaves
   (`../SKILL.md` Phase 3).
-- Failure: wording-based dedupe produced duplicate findings (`code-analyzer` yield 2.8 and 4.0); relay3 merges by
+- Failure: wording-based dedupe produced duplicate findings (`code-analyzer` yield 2.8 and 4.0); code-relay merges by
   file +-10 lines or same symbol. Loop-until-dry never converged (119 agents / 10M, yield 2.2): retired.
 
 ### Expert pool
 
 ```text
-task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> relay3:paths | relay3:packages | plan draft
+task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-relay:paths | code-relay:packages | plan draft
 ```
 
-- Code: `code-engineer.js` (Size, Route, then Simplify and Review once over relay3's fixes, Record).
+- Code: `code-engineer.js` (Size, Route, then Simplify and Review once over code-relay's fixes, Record).
   Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
   `steps` pin. Under Claude quota pressure the hook downshifts one alias (`dispatch-effort`).
@@ -101,11 +101,11 @@ main session -> Explore x3 -> Plan -> code-worker || copilot (test agent) -> fan
 ### Hierarchical
 
 ```text
-main -> Workflow code-engineer -> workflow(relay3) -> agent() leaves      (workflow nests one level)
+main -> Workflow code-engineer -> workflow(code-relay) -> agent() leaves      (workflow nests one level)
 main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> workflow(green-keeper-loop)
 ```
 
-- `code-engineer` returns relay3's result plus tier, route, simplify, review and `recorded` paths.
+- `code-engineer` returns code-relay's result plus tier, route, simplify, review and `recorded` paths.
   PostToolUse(Workflow) fires at launch,
   so recording happens in-run by a final Haiku agent (`2e9a90ff`, #23).
 
