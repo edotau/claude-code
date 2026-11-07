@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/settings"
@@ -174,7 +175,7 @@ func TestCompletionSkipsTypedFlags(t *testing.T) {
 // since nothing here ever calls a command's run func, must never hang trying to launch one either.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "science", "claude"} {
-		if n := specTree()[name]; n != nil && len(n.flags) != 0 {
+		if n := specTree()[name]; n != nil && len(n.Flags) != 0 {
 			t.Errorf("specTree()[%q] must not carry its own flags (bare launcher)", name)
 		}
 		done := make(chan []string, 1)
@@ -190,10 +191,9 @@ func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 	}
 }
 
-// TestNoCompleteNamesAreRealVerbs guards the noComplete table against naming a verb that was renamed
-// or removed, which would silently stop protecting it.
-func TestNoCompleteNamesAreRealVerbs(t *testing.T) {
-	for name := range noComplete {
+// TestCompletionLaunchersAreRealVerbs guards the expected launcher names against registry drift.
+func TestCompletionLaunchersAreRealVerbs(t *testing.T) {
+	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "science", "claude"} {
 		if lookup(name) == nil {
 			t.Errorf("noComplete lists %q, which is not a registered verb", name)
 		}
@@ -469,7 +469,7 @@ func TestFlagEqualsValueForm(t *testing.T) {
 // its own beyond any in-process subwords — its flags belong to a process this binary never
 // inspects, and nothing here may invoke a command's run func to find out what they are.
 func TestNoCompleteLauncherStillOffersNothing(t *testing.T) {
-	for name := range noComplete {
+	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "science", "claude"} {
 		if got := completionCandidates([]string{name, "--"}); len(got) != 0 {
 			t.Errorf("%s -- = %v, want none (noComplete launcher)", name, got)
 		}
@@ -491,7 +491,7 @@ func TestCompletionNeverInvokesARunFunc(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatalf("completionCandidates(%v) hung — must never call a run func", words)
 		}
-		for sub := range specTree()[c.name].sub {
+		for sub := range specTree()[c.name].Sub {
 			words := []string{c.name, sub, ""}
 			done := make(chan []string, 1)
 			go func() { done <- completionCandidates(words) }()
@@ -523,7 +523,7 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 }
 
 // TestVendorCompletionSubverbFlags: a vendor subverb's own flags complete past it, pinning two
-// representative cases (status's --all and setup's --format) against their flagInfo wiring.
+// representative cases (status's --all and setup's --format) against their completion.Flag wiring.
 func TestVendorCompletionSubverbFlags(t *testing.T) {
 	if got := completionCandidates([]string{"codex", "status", "--"}); !slices.Contains(got, "--all") {
 		t.Errorf("codex status -- = %v, missing --all", got)
@@ -584,7 +584,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 			continue
 		}
 		var got []string
-		for w := range node.sub {
+		for w := range node.Sub {
 			got = append(got, w)
 		}
 		slices.Sort(got)
@@ -597,19 +597,19 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	checkReviewSubwordSpec(t, tree)
 }
 
-func checkInstallSetupSpec(t *testing.T, tree map[string]*compNode) {
+func checkInstallSetupSpec(t *testing.T, tree map[string]*completion.Node) {
 	t.Helper()
 	// install --setup <mode> is its own sub-dispatch, nested under install's "--setup" node.
 	installNode := tree["install"]
 	if installNode == nil {
 		t.Fatal("install: no node in specTree()")
 	}
-	setupNode := installNode.sub["--setup"]
+	setupNode := installNode.Sub["--setup"]
 	if setupNode == nil {
 		t.Fatal(`install: no "--setup" sub-node in specTree()`)
 	}
 	var gotSetup []string
-	for w := range setupNode.sub {
+	for w := range setupNode.Sub {
 		gotSetup = append(gotSetup, w)
 	}
 	wantSetup := []string{"adopt", "nuke", "workspace"}
@@ -620,7 +620,7 @@ func checkInstallSetupSpec(t *testing.T, tree map[string]*compNode) {
 	}
 }
 
-func checkReviewSubwordSpec(t *testing.T, tree map[string]*compNode) {
+func checkReviewSubwordSpec(t *testing.T, tree map[string]*completion.Node) {
 	t.Helper()
 	// review derives its subwords from reviewTools itself (same source its dispatch switch reads),
 	// so there is no separate hand list to drift — assert the derivation is wired, not duplicate it.
@@ -629,7 +629,7 @@ func checkReviewSubwordSpec(t *testing.T, tree map[string]*compNode) {
 		t.Fatal("review: no node in specTree()")
 	}
 	var got []string
-	for w := range reviewNode.sub {
+	for w := range reviewNode.Sub {
 		got = append(got, w)
 	}
 	slices.Sort(got)
@@ -662,13 +662,13 @@ func TestHookDomainMatchesRegistry(t *testing.T) {
 // literal flag.NewFlagSet calls in cmdWorktreeMerge (internal/cli/worktree.go) — catching exactly
 // the kind of drift Part 3 replaced three hand tables to prevent.
 func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
-	node := specTree()["worktree"].sub["merge"]
+	node := specTree()["worktree"].Sub["merge"]
 	if node == nil {
-		t.Fatal(`specTree()["worktree"].sub["merge"] is nil`)
+		t.Fatal(`specTree()["worktree"].Sub["merge"] is nil`)
 	}
 	var got []string
-	for _, f := range node.flags {
-		got = append(got, f.name)
+	for _, f := range node.Flags {
+		got = append(got, f.Name)
 	}
 	slices.Sort(got)
 	want := []string{"dry-run", "full-verify", "no-clean", "no-verify", "resolve-agent", "resume", "target", "verify"}
@@ -709,7 +709,7 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 	if memNode == nil {
 		t.Fatal("memory: no node in specTree()")
 	}
-	node := memNode.sub["update"]
+	node := memNode.Sub["update"]
 	if node == nil {
 		t.Fatal("memory update: no sub-node in specTree()")
 	}
@@ -723,13 +723,13 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 // (fallback, attach, keep-env, autonomous, enable-memory) before this test existed; background and
 // job joined later (job dispatch control: --background detaches, --job replays a saved record).
 func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
-	node := specTree()["agents"].sub["ask"]
+	node := specTree()["agents"].Sub["ask"]
 	if node == nil {
-		t.Fatal(`specTree()["agents"].sub["ask"] is nil`)
+		t.Fatal(`specTree()["agents"].Sub["ask"] is nil`)
 	}
 	var got []string
-	for _, f := range node.flags {
-		got = append(got, f.name)
+	for _, f := range node.Flags {
+		got = append(got, f.Name)
 	}
 	slices.Sort(got)
 	want := []string{

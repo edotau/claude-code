@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
@@ -131,16 +132,16 @@ func describe(reg *providers.Registry) (Describe, error) {
 }
 
 // subwordNames lists node's own subcommand words, sorted; nil for a leaf/launcher node.
-func subwordNames(node *compNode) []string {
-	if node == nil || node.sub == nil {
+func subwordNames(node *completion.Node) []string {
+	if node == nil || node.Sub == nil {
 		return nil
 	}
-	return slices.Sorted(maps.Keys(node.sub))
+	return slices.Sorted(maps.Keys(node.Sub))
 }
 
 // flagNames lists a verb's completable flags across its own node and every subverb, "--flag" or
 // "--flag <value>", sorted.
-func flagNames(node *compNode) []string {
+func flagNames(node *completion.Node) []string {
 	if node == nil {
 		return nil
 	}
@@ -148,7 +149,7 @@ func flagNames(node *compNode) []string {
 	for _, name := range ownFlagNames(node) {
 		seen[name] = true
 	}
-	for _, sub := range node.sub {
+	for _, sub := range node.Sub {
 		for _, name := range ownFlagNames(sub) {
 			seen[name] = true
 		}
@@ -173,14 +174,14 @@ type verbNode struct {
 }
 
 // ownFlagNames lists only node's own flags ("--flag" or "--flag <value>"), sorted.
-func ownFlagNames(node *compNode) []string {
+func ownFlagNames(node *completion.Node) []string {
 	if node == nil {
 		return nil
 	}
 	var out []string
-	for _, f := range node.flags {
-		name := "--" + f.name
-		if !f.isBool {
+	for _, f := range node.Flags {
+		name := "--" + f.Name
+		if !f.IsBool {
 			name += " <value>"
 		}
 		out = append(out, name)
@@ -200,7 +201,7 @@ func verbTree() []verbNode {
 		node := tree[c.name]
 		v := verbNode{Name: c.name, Group: c.group, Summary: c.summary, Hidden: c.hidden, Flags: ownFlagNames(node)}
 		for _, w := range subwordNames(node) {
-			v.Subverbs = append(v.Subverbs, verbSub{Name: w, Flags: ownFlagNames(node.sub[w])})
+			v.Subverbs = append(v.Subverbs, verbSub{Name: w, Flags: ownFlagNames(node.Sub[w])})
 		}
 		out = append(out, v)
 	}
