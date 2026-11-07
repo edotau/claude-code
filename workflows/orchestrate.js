@@ -7,6 +7,7 @@ export const meta = {
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
     { title: 'Run', detail: 'relay3 over the paths (TRIVIAL/LOW/MEDIUM) or the packages (HIGH)' },
+    { title: 'Record', detail: 'one cheap agent appends the report and decisions to the memory store (record:false skips)' },
   ],
 }
 
@@ -44,7 +45,7 @@ if (!CWD || !(TASK || PATHS.length || PKGS.length)) return ERR('args.cwd and one
 if (a.tier !== undefined && !TIERS.includes(a.tier)) return ERR('args.tier must be ' + TIERS.join('|'))
 // steps.child is relay3's own steps; the rest are ours.
 const { child: CHILD_STEPS, ...OWN } = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
-const OPT = { allowed: ['size', 'intel', 'impl', 'plan'] }
+const OPT = { allowed: ['size', 'intel', 'impl', 'plan', 'record'] }
 let S
 try {
   S = {
@@ -52,6 +53,7 @@ try {
     intel: stepOf(OWN, 'intel', { model: 'sonnet', effort: 'medium' }, OPT),
     impl: stepOf(OWN, 'impl', { model: 'sonnet', effort: 'medium' }, OPT),
     plan: stepOf(OWN, 'plan', { model: 'sonnet', effort: 'medium' }, OPT),
+    record: stepOf(OWN, 'record', { model: 'haiku', effort: 'low' }, OPT),
   }
 } catch (e) { return ERR(e.message) }
 
@@ -66,6 +68,7 @@ const SIZED = {
 const INTEL = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } }, focus: { type: 'string' } }, required: ['paths', 'focus'] }
 const WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, summary: { type: 'string' } }, required: ['status', 'summary'] }
 const PLAN = { type: 'object', properties: { plan: { type: 'string' } }, required: ['plan'] }
+const RECORDED = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } } }, required: ['paths'] }
 
 // ── Size ──
 phase('Size')
@@ -104,7 +107,7 @@ if (tier === 'EPIC') {
   ).catch(() => null)
   if (!p) return ERR('plan agent returned nothing', tier, route, decisions)
   decisions.push('epic: no code changed, plan drafted for the owner')
-  return { exit: 'plan', tier, route, packages: 0, merged: 0, confirmed: [], dropped: [], fixed: [], red: [], decisions, report: head + '\n' + p.plan }
+  return await record({ exit: 'plan', tier, route, packages: 0, merged: 0, confirmed: [], dropped: [], fixed: [], red: [], decisions, report: head + '\n' + p.plan })
 }
 const target = tier === 'HIGH' ? { packages: PKGS.length ? PKGS : [...new Set(PATHS)] } : { paths: PATHS }
 if (tier === 'MEDIUM' && TASK) {
@@ -134,7 +137,21 @@ try {
   r = await workflow({ scriptPath: CWD + '/workflows/relay3.js' }, { cwd: CWD, ...target, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS })
 } catch (e) { return ERR('relay3 threw: ' + e.message, tier, route, decisions) }
 if (!r || r.exit === 'error') return ERR((r && r.error) || 'relay3 returned nothing', tier, route, decisions)
-return {
+return await record({
   exit: r.exit, tier, route, packages: r.packages, merged: r.merged, confirmed: r.confirmed, dropped: r.dropped, fixed: r.fixed, red: r.red,
   decisions: [...decisions, ...(r.decisions || [])], report: head + '\n' + (r.report || ''),
+})
+
+// record appends the run's report and decisions to the repo's memory reports so continuity needs no hand-written notes.
+async function record(res) {
+  if (a.record === false) return res
+  const label = String(a.label || 'orchestrate').replace(/[^A-Za-z0-9._-]+/g, '-')
+  const w = await agent(
+    RULES + ' Write two files and nothing else. Run `cd ' + CWD + ' && claude-code memory path` for the store dir D and `date +%F` for DATE. ' +
+      '(1) Append (create if missing) the markdown REPORT below, followed by one blank line, to D/reports/DATE-' + label + '.md. ' +
+      '(2) Append each DECISION below as a line `- DATE · ' + label + ' · <decision>` to D/reports/DATE-decisions.md (create with a `# Decisions` title). ' +
+      'Never edit any other file. Return the two paths.\nREPORT:\n' + res.report + '\nDECISIONS:\n' + res.decisions.map((d) => '- ' + d).join('\n'),
+    { phase: 'Record', label: 'record', schema: RECORDED, model: S.record.model, effort: S.record.effort },
+  ).catch(() => null)
+  return { ...res, recorded: w ? w.paths : [], decisions: [...res.decisions, w ? 'recorded: ' + w.paths.join(', ') : 'record agent returned nothing'] }
 }
