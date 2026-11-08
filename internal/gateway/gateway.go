@@ -157,7 +157,9 @@ func proxyStart(ctx context.Context) int {
 	if err != nil {
 		return helptext.Fail("proxy: %v", err)
 	}
-	fmt.Println(base)
+	if _, err := fmt.Println(base); err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
 	return 0
 }
 
