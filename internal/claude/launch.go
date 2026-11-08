@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/launchplan"
@@ -102,7 +103,9 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
 	base := strings.TrimSpace(os.Getenv(proc.EnvAnthropicBaseURL))
-	inherited := isProxySessionBase(base) && isProxySessionBase(own) && sameHostPort(base, own) // the live proxy's own base
+	// the live proxy's own base: same proxy as this launch's, or this harness session's /p/<profile> (a max dispatch from a
+	// Databricks session must not keep the session's proxy base and lose its own credential)
+	inherited := isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(base))
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
 		dropHarnessCredential(plan)
@@ -120,6 +123,20 @@ func keepShellKeys(plan *agent.Plan, keys []string, inherited bool) {
 		plan.Keep = append(slices.Clone(plan.Keep), k)
 	}
 }
+
+// sessionProxyBase reports raw is the proxy base this harness session was launched on (/p/<CLAUDE_PROFILE>).
+func sessionProxyBase(raw string) bool {
+	u, err := url.Parse(raw)
+	sp := providers.SessionProfile()
+	if err != nil || sp == "" || strings.TrimRight(u.Path, "/") != "/p/"+sp {
+		return false
+	}
+	st, err := readProxyState() // a /p/<profile> base on another port is the user's own override, not this session's
+	return err == nil && st.Port != 0 && u.Port() == strconv.Itoa(st.Port)
+}
+
+// readProxyState is the live proxy's state; tests swap it so no real daemon is read.
+var readProxyState = proxy.ReadState
 
 // isProxySessionBase reports whether raw is a loopback proxy session base (http://127.0.0.1:<port>/p/<profile>).
 func isProxySessionBase(raw string) bool {
