@@ -84,7 +84,9 @@ func commands() []command {
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: func(a []string) int { return describe.Run(a, describeVerbs()) }},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, setup.Run) }},
-		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int { return configurecmd.Run(a, configureProviderList) }, spec: configurecmd.Spec},
+		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int {
+			return configurecmd.Run(a, func(name, format string) int { return providerscmd.ProviderList(name, format, describeVerbs) })
+		}, spec: configurecmd.Spec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: themecmd.Run, spec: themecmd.Spec},
 	}, hiddenCommands()...)
 }
