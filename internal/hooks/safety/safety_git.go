@@ -23,7 +23,7 @@ const rewriteTimeout = 2 * time.Second
 var rebaseResumeFlags = map[string]bool{"--continue": true, "--skip": true, "--abort": true, "--quit": true,
 	"--edit-todo": true, "--show-current-patch": true}
 var rebaseValueFlags = map[string]bool{"--onto": true, "-x": true, "--exec": true, "-s": true, "--strategy": true,
-	"-X": true, "--strategy-option": true}
+	"-X": true, "--strategy-option": true, "--empty": true, "--whitespace": true, "-C": true}
 
 // rewriteRisk is one history rewrite: its verb, how many commits it rewrites, and why the tree is shared.
 type rewriteRisk struct {
@@ -252,8 +252,12 @@ func dropDataHeredocs(cmd string) string {
 // heredocTail reports any line after a heredoc's close (or any non-start line outside one) that runs a file.
 func heredocTail(lines []string) bool {
 	for i := 0; i < len(lines); i++ {
-		if delim, ok := dataHeredocStart(lines[i]); ok {
-			if end := heredocEnd(lines, i+1, delim, false); end > i {
+		delim, _, dash, ok := inertHeredocStart(lines[i])
+		if !ok {
+			delim, ok = dataHeredocStart(lines[i])
+		}
+		if ok {
+			if end := heredocEnd(lines, i+1, delim, dash); end > i {
 				i = end
 				continue
 			}
