@@ -1,18 +1,27 @@
-// gemini.go — the gemini agent's submenu: it runs on agy (Antigravity) with the Google sign-in only.
+// vendors.go — per-vendor sign-in and verify: agy (gemini), gh, agent Set up verify, tailscale admin credential.
 package configure
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // AgyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.
@@ -140,4 +149,92 @@ func signalAliveDescendants(pids []int, sig syscall.Signal) {
 		}
 	}
 	signalDescendants(alive, sig)
+}
+
+// ghAccountRE pulls the account name out of `gh auth status`'s "Logged in to github.com account <name>" line.
+var ghAccountRE = regexp.MustCompile(`account\s+(\S+)`)
+
+// ghStatus is what `gh auth status` reports: whether the binary exists, whether it is logged in, and the
+// account name — never a token (gh itself only ever prints a masked one).
+type ghStatus struct {
+	Found    bool
+	LoggedIn bool
+	Account  string
+}
+
+// GHAuthCheck runs `gh auth status` (8s cap); its exit code is the verdict, its stdout+stderr the account line.
+func GHAuthCheck() ghStatus {
+	bin, err := exec.LookPath("gh")
+	if err != nil {
+		return ghStatus{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "auth", "status").CombinedOutput()
+	st := ghStatus{Found: true, LoggedIn: err == nil}
+	if m := ghAccountRE.FindStringSubmatch(string(out)); len(m) > 1 {
+		st.Account = m[1]
+	}
+	return st
+}
+
+// WriteGithubCopilotModels validates and merges picks and fallback into vault overlay/providers.
+func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
+	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
+		if strings.TrimSpace(picks[alias]) == "" {
+			return fmt.Errorf("github-copilot models: %s model is empty", alias)
+		}
+	}
+	if fallback == "auto" {
+		return errors.New(`github-copilot opencode_fallback: "auto" is not a valid fallback (opencode's own catalog has no alias by that name)`)
+	}
+	fields := map[string]any{"models": picks}
+	if fallback != "" {
+		fields["opencode_fallback"] = fallback
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	p := reg.ProfileBy("github", providers.AuthCLI)
+	if p == nil {
+		return errors.New("github models: no github profile in the registry")
+	}
+	return providers.SetProviderFields(p.Name, fields)
+}
+
+// setupVerifyTimeout caps the one small real request the verify step sends.
+const setupVerifyTimeout = 2 * time.Minute
+
+// QuotaFailure reports a verify error that means exhausted credits or a rate limit, not bad credentials.
+func QuotaFailure(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "quota") || strings.Contains(s, "rate_limit")
+}
+
+// VerifyAgent asks the agent for "pong" through `claude-code agents ask`, the same request preflight sends.
+func VerifyAgent(ctx context.Context, agent string) error {
+	bin, err := agentpkg.SelfBinary()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, setupVerifyTimeout)
+	defer cancel()
+	pin := preflight.Pin{Agent: agent, Status: preflight.StatusOK, Served: "n/a"}
+	for _, p := range preflight.LivePongs(ctx, bin, []preflight.Pin{pin}) {
+		if !p.OK {
+			return errors.New(p.Err)
+		}
+	}
+	return nil
+}
+
+// HasAdminCredential reports, by name only, whether a tailscale admin API credential is set.
+func HasAdminCredential() bool {
+	for _, n := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY"} {
+		if src, _ := vault.HasSecretErr(n); src != "" { // presence only: no decrypt per home render
+			return true
+		}
+	}
+	return false
 }
