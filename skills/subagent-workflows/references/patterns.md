@@ -66,10 +66,10 @@ packages -> [ code-workers stream p1 | p2 | ... | pN ]  (no barrier)  -> merged 
 ### Expert pool
 
 ```text
-task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers:paths | code-workers:packages | plan draft
+task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers x<=3 | code-analyzer (bare range) | plan draft
 ```
 
-- Code: `code-engineer.js` (Size, Route, then Simplify and Review once over code-workers's fixes, Record).
+- Code: `code-engineer.js` (Size, Route, then Simplify and Review once over the children's merged fixes, Record).
   Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
   `steps` pin. Under Claude quota pressure the hook downshifts one alias (`dispatch-effort`).
@@ -101,11 +101,11 @@ main session -> Explore x3 -> Plan -> claude || copilot (test agent) -> fan-in -
 ### Hierarchical
 
 ```text
-main -> Workflow code-engineer -> workflow(code-workers) -> agent() leaves      (workflow nests one level)
-main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> workflow(green-keeper-loop)
+main -> Workflow code-engineer -> workflow(code-workers | code-analyzer) -> in-script stages -> agent() leaves
+main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script stageGate
 ```
 
-- `code-engineer` returns code-workers's result plus tier, route, simplify, review and `recorded` paths.
+- `code-engineer` returns its children's merged result plus tier, route, polish, files and `recorded` paths.
   PostToolUse(Workflow) fires at launch,
   so recording happens in-run by a final Haiku agent (`2e9a90ff`, #23).
 

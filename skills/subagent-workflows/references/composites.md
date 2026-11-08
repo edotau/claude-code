@@ -21,12 +21,13 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Run | code-workers (composite B) | paths or packages | code-workers result | exit `green\|red\|review` | child decisions |
 | Dedupe | deduper, `sonnet` medium | combined diff of 2+ fixed packages | applied, flagged, Δ lines | only cross-package duplicated helpers; `polish:false` skips | decision |
 | Simplify | simplifier, `sonnet` medium | merged diff of all fixed files | simplify result | simplify gate | decision |
-| Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one more code-workers, capped at one loop | decision |
+| Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one Fix-all, guard test and gate per package (no second child run) | decision |
 | Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
 
-- **Args**: `cwd` and one of `task`, `packages`, `paths`, `range` (git range; changed files become paths); optional
+- **Args**: `cwd` and one of `task`, `packages`, `paths`, `range` (git range; bare range runs
+  code-analyzer), `skill`; optional
   `tier`, `fix` (true), `minFix` (low), `focus`,
-  `polish` (true; false skips code-workers's per-package chain and the final pass), `label`,
+  `polish` (true; false skips the one polish over the merged diff), `gate`/`gateScope`, `skill`, `label`,
   `record:false`, `steps {size, intel, impl, plan, dedupe, simplify, review, record, child}`.
   Exits `green|red|review|plan|error`.
 - **Cost**: HIGH over N packages is code-workers's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
