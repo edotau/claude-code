@@ -148,12 +148,12 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 }
 
 // copilotLogin runs copilot on its GitHub sign-in (`copilot login`, GH_TOKEN); blanked BYOK vars cannot redirect it.
-func copilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
+func copilotLogin(model, login string, h *agent.Headless) ([]string, []string, error) {
 	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
 		model = ""
 	}
 	env := []string{"COPILOT_MODEL=" + model, proc.EnvCopilotProviderBaseURL + "=", "COPILOT_OFFLINE=", proc.EnvCopilotProvidersConfig + "="}
-	tok, err := CopilotLaunchToken()
+	tok, err := CopilotLaunchTokenFor(login)
 	if err != nil {
 		return nil, nil, err
 	}
