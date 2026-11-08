@@ -87,6 +87,10 @@ func ClassifyMemoryFile(dir, name string) FileKind {
 	if !strings.HasSuffix(name, ".md") {
 		return KindOther
 	}
+	return classifyTopicFile(path)
+}
+
+func classifyTopicFile(path string) FileKind {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return KindOther
@@ -178,6 +182,10 @@ func ScanBankRegion(text string) (start, end int, err error) {
 		}
 		off = lineEnd
 	}
+	return validateBankRegionBounds(start, end, begins, ends)
+}
+
+func validateBankRegionBounds(start, end, begins, ends int) (int, int, error) {
 	if begins == 0 && ends == 0 {
 		return -1, -1, nil
 	}
