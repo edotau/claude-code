@@ -57,6 +57,32 @@ echo '{"loggedIn":true,"subscriptionType":"max"}'`)
 	}
 }
 
+func TestClaudeLoginProbeScrubsParentEnv(t *testing.T) {
+	resetClaudeProbe()
+	t.Cleanup(resetClaudeProbe)
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HARNESS_KEEP_ENV", "")
+	t.Setenv(providers.EnvSessionProfile, "parent-route")
+	t.Setenv("PROBE_CONTROL", "preserved")
+	envFile := filepath.Join(dir, "probe-env")
+	t.Setenv("PROBE_ENV_FILE", envFile)
+	pathstest.FakeVendor(t, "claude", `printf 'CLAUDE_PROFILE=%s\nPROBE_CONTROL=%s\n' "${CLAUDE_PROFILE-unset}" "$PROBE_CONTROL" > "$PROBE_ENV_FILE"
+echo '{"loggedIn":true,"subscriptionType":"max"}'`)
+	loggedIn, plan, err := ClaudeLoginProbe()
+	if err != nil || !loggedIn || plan != " (max)" {
+		t.Fatalf("ClaudeLoginProbe() = %v, %q, %v", loggedIn, plan, err)
+	}
+	got, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "CLAUDE_PROFILE=unset\nPROBE_CONTROL=preserved\n"; string(got) != want {
+		t.Fatalf("probe env = %q, want %q", got, want)
+	}
+}
+
 func TestClaudeLoginProbeNoBinary(t *testing.T) {
 	resetClaudeProbe()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

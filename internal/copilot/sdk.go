@@ -194,7 +194,7 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 // parseProviderHeaders reverses copilotCredEnv's "Key: Value" lines joined by newlines; nil when none.
 func parseProviderHeaders(raw string) map[string]string {
 	var out map[string]string
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		k, v, ok := strings.Cut(line, ": ")
 		if !ok {
 			continue

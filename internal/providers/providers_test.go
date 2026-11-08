@@ -36,6 +36,28 @@ func load(t *testing.T) *Registry {
 	return reg
 }
 
+func TestHeaderLines(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    string
+	}{
+		{name: "nil"},
+		{name: "empty", headers: map[string]string{}},
+		{
+			name:    "sorted newline separated",
+			headers: map[string]string{"Z-Team": "last", "A-Empty": "", "M-Value": "with: colon"},
+			want:    "A-Empty: \nM-Value: with: colon\nZ-Team: last",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := HeaderLines(tc.headers); got != tc.want {
+				t.Fatalf("HeaderLines(%v) = %q, want %q", tc.headers, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEmbeddedDefaultsValid(t *testing.T) {
 	if _, err := Parse(defaultsJSON, nil); err != nil {
 		t.Fatal(err)

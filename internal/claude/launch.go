@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -248,7 +247,7 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
 		plan.Set[proc.EnvAnthropicBaseURL] = route
 	}
-	if h := customHeaders(p.Headers); h != "" {
+	if h := providers.HeaderLines(p.Headers); h != "" {
 		plan.Set[proc.EnvAnthropicCustomHeaders] = h
 	}
 	if !providers.CredentialPresent(p) {
@@ -334,14 +333,6 @@ func providerEnv(env map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-func customHeaders(h map[string]string) string {
-	lines := make([]string, 0, len(h))
-	for _, k := range slices.Sorted(maps.Keys(h)) {
-		lines = append(lines, k+": "+h[k])
-	}
-	return strings.Join(lines, "\n")
 }
 
 // shellQuote single-quotes s when it holds shell metacharacters; apiKeyHelper runs under a shell.
