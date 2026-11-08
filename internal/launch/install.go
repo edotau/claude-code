@@ -311,7 +311,7 @@ func browserDoctorDetail() string {
 	return "no Chromium-family default (claude-code network browser)"
 }
 
-// rtkDoctorStatus reports the rtk compressor and fails when PATH's rtk is not that binary (the hook then spells a path).
+// rtkDoctorStatus reports the rtk compressor and fails when PATH's rtk is not that binary; a shadow is never executed.
 func rtkDoctorStatus() (bool, string) {
 	bin := shell.RTKBinary()
 	if bin == "" {
@@ -323,9 +323,6 @@ func rtkDoctorStatus() (bool, string) {
 		return true, bin + " (rtk rewrite; PATH rtk is this binary)"
 	case found == "":
 		return false, bin + " is not on PATH — run make install (links ~/.local/bin/rtk)"
-	}
-	if v := toolPATHVersion(found); v != "" {
-		found += " " + v
 	}
 	return false, "PATH rtk " + found + " shadows " + bin + " — run make install, or put ~/.local/bin first on PATH"
 }
