@@ -696,7 +696,12 @@ func TestRunToolProgressVetoesRetry(t *testing.T) {
 
 var errCodexMissing = errors.New(`exec: "codex": executable file not found in $PATH`)
 
-func fallbackConfigDir(t *testing.T) { t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) }
+// fallbackConfigDir isolates the config dir and retry's process-wide cooldowns, which an earlier test's 429 sets.
+func fallbackConfigDir(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	retry.ResetCooldowns()
+	t.Cleanup(retry.ResetCooldowns)
+}
 
 // TestRunWithFallback wires the classifier into Run: codex failing with no answer must rerun on the
 // fallback agent with Fallback set, while a successful or excluded-class codex run must not.
