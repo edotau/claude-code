@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -46,7 +43,7 @@ func importCfg(args []string) int {
 	pick := fs.Bool("pick", false, "choose profiles in a picker (default: all)")
 	apply := fs.Bool("apply", false, "write the profiles (default: print the diff)")
 	dryRun := fs.Bool("dry-run", false, "print changes without writing, even with --apply")
-	fold := fs.Bool("fold-legacy", false, "fold unreferenced digitalbtd user rows into dev/qa/prod by host")
+	fold := fs.Bool("fold-legacy", false, "fold m2m rows into the profile pairing their host and client id")
 	seal := fs.Bool("seal-secrets", false, "seal client secrets and PATs in the vault")
 	replace := fs.Bool("replace", false, "overwrite an existing row of the same id")
 	rename := renameFlag{}
@@ -96,18 +93,16 @@ func importCandidates(path string, pick bool) ([]Candidate, error) {
 }
 
 func runImport(path string, cands []Candidate, options ImportOptions, apply, fold, seal bool) int {
-	rows, folded, oldDoc, newDoc, err := previewImport(cands, options, fold)
+	rows, plan, oldDoc, newDoc, err := previewImport(cands, options, fold)
 	if err != nil {
 		return fail("import: %v", err)
 	}
 	printImportTable(rows)
-	for _, id := range folded {
-		fmt.Printf("fold %s -> %s\n", id, strings.TrimPrefix(id, legacyUserPrefix))
-	}
+	printFold(os.Stdout, plan)
 	if !printDiff(os.Stdout, oldDoc, newDoc) {
 		fmt.Println("no changes")
 	}
-	if len(folded) == 0 && !slices.ContainsFunc(rows, func(r Row) bool { return r.Action != "skip" }) {
+	if plan.empty() && !slices.ContainsFunc(rows, func(r Row) bool { return r.Action != "skip" }) {
 		fmt.Println("nothing to import")
 		return 0
 	}
@@ -115,7 +110,7 @@ func runImport(path string, cands []Candidate, options ImportOptions, apply, fol
 		fmt.Println("dry-run: pass --apply to write")
 		return 0
 	}
-	key, err := legacyFoldKey(folded)
+	key, err := legacyFoldKey(plan)
 	if err != nil {
 		return fail("import: %v", err)
 	}
@@ -129,9 +124,9 @@ func runImport(path string, cands []Candidate, options ImportOptions, apply, fol
 	return 0
 }
 
-// previewImport plans the import and the legacy fold without writing; it returns the rows, folded ids and both docs.
+// previewImport plans the import and the legacy fold without writing; it returns the rows, the fold plan and both docs.
 func previewImport(cands []Candidate, options ImportOptions, fold bool) (
-	rows []Row, folded []string, oldDoc, newDoc []byte, err error,
+	rows []Row, plan foldPlan, oldDoc, newDoc []byte, err error,
 ) {
 	oldDoc, newDoc, err = providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, tx *vault.Tx) error {
 		rows = ImportPlan(cands, Existing(top), options)
@@ -140,12 +135,12 @@ func previewImport(cands []Candidate, options ImportOptions, fold bool) (
 		}
 		if fold {
 			var err error
-			folded, err = foldLegacy(top, tx, nil, false)
+			plan, err = foldLegacy(top, tx, nil, false)
 			return err
 		}
 		return nil
 	})
-	return rows, folded, oldDoc, newDoc, err
+	return rows, plan, oldDoc, newDoc, err
 }
 
 func commitImport(cands []Candidate, options ImportOptions, fold bool, key *vault.Key) ([]Row, error) {
@@ -360,235 +355,4 @@ func pickHostPair(pairs [][2]Candidate, host string, choices map[string]string) 
 		choices[p[0].Name] = p[1].Name
 	}
 	return nil
-}
-
-const legacyUserPrefix = "digitalbtd-digitalbtd-user-"
-
-func legacyFoldKey(ids []string) (*vault.Key, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	needed := false
-	err := vault.View(func(tx *vault.Tx) error {
-		for _, id := range ids {
-			for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
-				if _, ok := tx.Get(vault.Secrets, secretName(id, method)); ok {
-					needed = true
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil || !needed {
-		return nil, err
-	}
-	key, _, err := vault.MasterKey()
-	return key, err
-}
-
-// foldLegacy is explicit import work, never a registry-load migration; references always veto deletion.
-func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx, key *vault.Key, apply bool) ([]string, error) {
-	refs, err := legacyReferences(top, tx)
-	if err != nil {
-		return nil, err
-	}
-	provs := Existing(top)
-	var folded []string
-	for _, id := range []string{"dev", "qa", "prod"} {
-		old := legacyUserPrefix + id
-		if refs[old] {
-			continue
-		}
-		if !legacyFoldable(provs, old, id) {
-			continue
-		}
-		if ok, err := foldLegacySecrets(tx, old, id, key, apply); err != nil {
-			return nil, err
-		} else if !ok {
-			continue
-		}
-		delete(provs, old)
-		folded = append(folded, old)
-	}
-	keys := providers.ObjectKeys(top["providers"])
-	keys = slices.DeleteFunc(keys, func(k string) bool { _, ok := provs[k]; return !ok })
-	top["providers"], err = providers.MarshalOrdered(keys, provs)
-	return folded, err
-}
-
-// legacyFoldable reports whether the legacy row old and row id both exist and describe the same Databricks identity.
-func legacyFoldable(provs map[string]json.RawMessage, old, id string) bool {
-	if len(provs[old]) == 0 || len(provs[id]) == 0 {
-		return false
-	}
-	var from, to providers.Provider
-	if json.Unmarshal(provs[old], &from) != nil || json.Unmarshal(provs[id], &to) != nil {
-		return false
-	}
-	return sameDatabricksHost(&from, &to) &&
-		from.Auth.Type == to.Auth.Type && from.Auth.SPClientID == to.Auth.SPClientID && from.Identity == to.Identity
-}
-
-// sameDatabricksHost reports whether both rows are Databricks presets on the same valid https host.
-func sameDatabricksHost(from, to *providers.Provider) bool {
-	host, ok := normalizeHost(providers.AuthHost(from))
-	dest, valid := normalizeHost(providers.AuthHost(to))
-	return ok && valid && host == dest && from.Preset == providers.PresetDatabricks && to.Preset == providers.PresetDatabricks
-}
-
-func foldLegacySecrets(tx *vault.Tx, old, id string, key *vault.Key, apply bool) (bool, error) {
-	methods, ok := legacyMethods(tx, old, id)
-	if !ok {
-		return false, nil
-	}
-	if !apply || len(methods) == 0 {
-		return true, nil
-	}
-	if key == nil {
-		return false, vault.ErrLocked
-	}
-	if kid, _ := tx.Get(vault.Meta, "kid"); kid != key.Kid {
-		return false, vault.ErrWrongKey
-	}
-	for _, method := range methods {
-		if err := moveLegacySecret(tx, key, secretName(old, method), secretName(id, method)); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
-}
-
-// legacyMethods lists the auth methods old holds a secret for; false when id already holds one of them.
-func legacyMethods(tx *vault.Tx, old, id string) ([]string, bool) {
-	var methods []string
-	for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
-		if _, found := tx.Get(vault.Secrets, secretName(old, method)); !found {
-			continue
-		}
-		if _, found := tx.Get(vault.Secrets, secretName(id, method)); found {
-			return nil, false
-		}
-		methods = append(methods, method)
-	}
-	return methods, true
-}
-
-// moveLegacySecret reseals the secret record src under dst's name and blanks src.
-func moveLegacySecret(tx *vault.Tx, key *vault.Key, src, dst string) error {
-	record, _, err := tx.Record(src)
-	if err != nil {
-		return err
-	}
-	value, err := key.Open(src, record)
-	if err != nil {
-		return err
-	}
-	record.Sealed = key.Seal(dst, value)
-	if err := tx.PutRecord(dst, record); err != nil {
-		return err
-	}
-	return tx.Put(vault.Secrets, src, "")
-}
-
-// legacyReferences searches active vault configuration and plans; snapshots and a row's own key are not references.
-func legacyReferences(top map[string]json.RawMessage, tx *vault.Tx) (map[string]bool, error) {
-	refs := map[string]bool{}
-	scan := func(text string) {
-		for _, tag := range []string{"dev", "qa", "prod"} {
-			id := legacyUserPrefix + tag
-			if strings.Contains(text, id) {
-				refs[id] = true
-			}
-		}
-	}
-	scanVaultConfig(top, tx, scan)
-	if err := scanSettingsAndPlans(scan); err != nil {
-		return nil, err
-	}
-	return refs, nil
-}
-
-// scanVaultConfig scans the active overlay doc and the vault's pins, env and overlay rows.
-func scanVaultConfig(top map[string]json.RawMessage, tx *vault.Tx, scan func(string)) {
-	for key, raw := range top {
-		if key != "providers" {
-			scan(string(raw))
-		}
-	}
-	for _, raw := range Existing(top) {
-		scan(string(raw))
-	}
-	for _, bucket := range []string{vault.Pins, vault.Env, vault.Overlay} {
-		for key, val := range tx.All(bucket) {
-			if bucket == vault.Overlay && (key == "providers" || key == "providers.prev") {
-				continue
-			}
-			scan(key)
-			scan(val)
-		}
-	}
-}
-
-// scanSettingsAndPlans scans the settings files, then every plans directory they name plus the default one.
-func scanSettingsAndPlans(scan func(string)) error {
-	dirs := []string{filepath.Join(paths.ConfigDir(), "plans")}
-	for _, name := range []string{"settings.json", "settings.local.json"} {
-		dir, err := scanSettingsFile(name, scan)
-		if err != nil {
-			return err
-		}
-		if dir != "" {
-			dirs = append(dirs, dir)
-		}
-	}
-	for _, dir := range dirs {
-		if err := scanPlanDir(dir, scan); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// scanSettingsFile scans one settings file and returns its plansDirectory, "" when absent.
-func scanSettingsFile(name string, scan func(string)) (string, error) {
-	b, err := os.ReadFile(filepath.Join(paths.ConfigDir(), name))
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	scan(string(b))
-	var settings struct {
-		PlansDirectory string `json:"plansDirectory"`
-	}
-	if err := json.Unmarshal(b, &settings); err != nil {
-		return "", err
-	}
-	dir := settings.PlansDirectory
-	if dir != "" && !filepath.IsAbs(dir) {
-		dir = filepath.Join(paths.ConfigDir(), dir)
-	}
-	return dir, nil
-}
-
-// scanPlanDir scans every file under dir; a missing dir is empty.
-func scanPlanDir(dir string, scan func(string)) error {
-	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if errors.Is(err, os.ErrNotExist) && path == dir {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		scan(string(b))
-		return nil
-	})
 }
