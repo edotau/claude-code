@@ -1,4 +1,4 @@
-package dispatch
+package agentcmd
 
 import (
 	"context"
@@ -40,7 +40,8 @@ func (p *partFlag) Set(s string) error {
 	return nil
 }
 
-func Cmd(args []string) int {
+// dispatchCmd is `agents dispatch`.
+func dispatchCmd(args []string) int {
 	fs := helptext.NewFlagSet("dispatch", dispatchPage)
 	var parts partFlag
 	fs.Var(&parts, "part", "explore: one sub-question per leg (repeatable, max 12)")

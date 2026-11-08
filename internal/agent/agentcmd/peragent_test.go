@@ -208,5 +208,5 @@ func TestAgentSubPageHasNoFormatDebris(t *testing.T) {
 	}
 }
 
-// agentVerb runs AgentVerb with no split-review runner: these tests never reach a multi-part review.
-func agentVerb(name string, args []string) int { return AgentVerb(name, args, nil) }
+// agentVerb runs AgentVerb.
+func agentVerb(name string, args []string) int { return AgentVerb(name, args) }
