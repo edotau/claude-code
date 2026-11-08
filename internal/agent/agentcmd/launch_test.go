@@ -1,4 +1,4 @@
-package cli
+package agentcmd
 
 import (
 	"bytes"
@@ -98,5 +98,15 @@ func TestRunPlanUsageErrorExitsTwo(t *testing.T) {
 	err := fmt.Errorf("launch: %w", &launchplan.UsageError{Msg: "not a harness profile"})
 	if code := runPlan("claude", agent.Plan{}, agent.LaunchOptions{}, err); code != 2 {
 		t.Fatalf("runPlan(UsageError) = %d, want 2", code)
+	}
+}
+
+// `<alias> --help` runs claude's own help; a profile with no model for the alias must not refuse it.
+func TestLaunchClaudeHelpSkipsModelLookup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	pathstest.FakeVendor(t, "claude", `[ "$1" = --help ] && echo FAKE-CLAUDE-HELP`)
+	code, out, errOut := captureOutput(t, func() int { return launchClaude("nosuchalias", []string{"--help"}) })
+	if code != 0 || !strings.Contains(out, "FAKE-CLAUDE-HELP") {
+		t.Fatalf("launchClaude(--help) = %d, stdout %q, stderr %q; want 0 and claude's help", code, out, errOut)
 	}
 }

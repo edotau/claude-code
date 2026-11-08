@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/agentcmd"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/paths"
@@ -19,10 +21,10 @@ import (
 // `ask` = `ask --agent <v>`, a word in agentSubverbs = agentSub, else launch with args forwarded.
 func agentVerb(name string, args []string) int {
 	if len(args) == 0 {
-		return launchAgent(name, args)
+		return agentcmd.LaunchAgent(name, args)
 	}
 	if args[0] == "--" {
-		return launchAgent(name, args[1:])
+		return agentcmd.LaunchAgent(name, args[1:])
 	}
 	if args[0] == "ask" {
 		return ask.Cmd(append([]string{"--agent", name}, args[1:]...))
@@ -38,7 +40,7 @@ func agentVerb(name string, args []string) int {
 		s, _ := agent.LookupSchema(name)
 		return helptext.WrappedDocs(s.CLI.Binary)
 	}
-	return launchAgent(name, args)
+	return agentcmd.LaunchAgent(name, args)
 }
 
 // lookup finds a command by its name.
@@ -69,12 +71,12 @@ func Run(argv []string) int {
 	}
 	// A leading flag with no verb is a claude flag: `claude-code --resume` launches Claude Code.
 	if strings.HasPrefix(name, "-") {
-		return cmdClaude(argv[1:])
+		return agentcmd.Claude(argv[1:])
 	}
 	// A profile name no verb shadows launches Claude Code on it: `claude-code ollama`.
 	if reg, err := providers.Load(); err == nil {
 		if _, ok := reg.Providers[name]; ok {
-			return cmdClaude(append([]string{"--profile", name}, args...))
+			return agentcmd.Claude(append([]string{"--profile", name}, args...))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
