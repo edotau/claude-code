@@ -4,7 +4,6 @@ package menu
 import (
 	"cmp"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 
@@ -43,7 +42,7 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 
 // agentProfileChoices is the picker's profile values: off ("") first, then the own login, then the rest.
 func agentProfileChoices(d *dialog, agent string) []string {
-	names := seedProfiles(d, agent)
+	names := configure.SeedProfiles(d.reg, agent)
 	if agent == "opencode" {
 		names = slices.DeleteFunc(names, func(n string) bool { return n == opencode.OwnLogin })
 		names = slices.Insert(names, 0, opencode.OwnLogin)
@@ -86,7 +85,7 @@ func signInProfile(d *dialog, agent string) string {
 	if agent == "opencode" {
 		return opencode.OwnLogin
 	}
-	if names := seedProfiles(d, agent); len(names) > 0 && d.reg != nil && d.reg.Providers[names[0]].Auth.Login == agent {
+	if names := configure.SeedProfiles(d.reg, agent); len(names) > 0 && d.reg != nil && d.reg.Providers[names[0]].Auth.Login == agent {
 		return names[0]
 	}
 	return ""
@@ -94,17 +93,7 @@ func signInProfile(d *dialog, agent string) string {
 
 // writeAgentField sets one record field (a vault.AgentRecord.WithPin name) and prints it; (false, nil) if unchanged.
 func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
-	rec := vault.GetAgentRecord(agent)
-	next := rec.WithPin(field, val)
-	if reflect.DeepEqual(rec, next) {
-		return false, nil
-	}
-	if field == "PROFILE" {
-		_, err := configure.ApplyProfile([]string{agent}, val)
-		if err != nil {
-			return false, err
-		}
-	} else if err := vault.SetAgentRecord(agent, next); err != nil {
+	if changed, err := configure.SetAgentPin(agent, field, val); !changed || err != nil {
 		return false, err
 	}
 	d.printf("  %s %s: %s\n", agent, strings.ToLower(field), cmp.Or(val, "unset"))
@@ -121,28 +110,6 @@ const (
 
 // seedAgents is claude then every external agent, the dialog's rows in order.
 func seedAgents() []string { return append([]string{"claude"}, agentpkg.Names()...) }
-
-// seedProfiles lists the profiles agent can serve, its own login first; empty when the registry is unloaded.
-func seedProfiles(d *dialog, agent string) []string {
-	var own, rest []string
-	if d.reg != nil {
-		for n, p := range d.reg.Providers {
-			switch {
-			case p == nil || !agentpkg.CanServe(agent, p):
-			case agent != "claude" && p.Auth.Login == agent:
-				own = append(own, n)
-			default:
-				rest = append(rest, n)
-			}
-		}
-	}
-	slices.Sort(own)
-	slices.Sort(rest)
-	if agent == "opencode" {
-		own = append([]string{opencode.OwnLogin}, own...)
-	}
-	return append(own, rest...)
-}
 
 // seedLabel is the shown name of a stored profile: "" reads as automatic for claude and off for the rest.
 func seedLabel(agent, profile string) string {
@@ -167,7 +134,7 @@ func seedDefaults(d *dialog) map[string]string {
 	for _, a := range seedAgents() {
 		out[a] = recs[a].Profile
 		if out[a] == "" && a != "claude" && d.reg != nil {
-			if ps := seedProfiles(d, a); len(ps) > 0 && seedOwnLogin(d, a, ps[0]) {
+			if ps := configure.SeedProfiles(d.reg, a); len(ps) > 0 && seedOwnLogin(d, a, ps[0]) {
 				out[a] = ps[0]
 			}
 		}
@@ -177,7 +144,7 @@ func seedDefaults(d *dialog) map[string]string {
 
 // seedPick opens agent's picker; ok is false when dismissed.
 func seedPick(d *dialog, agent, cur string) (profile string, ok bool) {
-	names := append(seedProfiles(d, agent), "")
+	names := append(configure.SeedProfiles(d.reg, agent), "")
 	rows := make([][2]string, len(names))
 	for i, n := range names {
 		rows[i] = [2]string{seedLabel(agent, n), uidialog.Mark(n == cur)}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -59,7 +59,11 @@ func Models(args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	if code, handled := applyModelPins(reg, *provider, *unpin, *dryRun, pins); handled {
+	var preview func(func(map[string]vault.AgentRecord)) int
+	if *dryRun {
+		preview = func(mutate func(map[string]vault.AgentRecord)) int { return printRecordDiff(mutate, nil) }
+	}
+	if code, handled := configure.ApplyModelPins(reg, *provider, *unpin, pins, preview); handled {
 		return code
 	}
 	sel, err := providers.Select(reg, *provider)
@@ -67,30 +71,6 @@ func Models(args []string) int {
 		return helptext.Fail("%v", err)
 	}
 	return renderModelSelection(reg, sel, *format, *live)
-}
-
-func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool, pins []string) (code int, handled bool) {
-	if !unpin && len(pins) == 0 {
-		return 0, false
-	}
-	set, err := agentconfig.ParseModelPins(reg, provider, unpin, pins)
-	if err != nil {
-		return helptext.Fail("%v", err), true
-	}
-	warn, err := copilot.ValidateCopilotPins(provider, pins)
-	if err != nil {
-		return helptext.Fail("%v", err), true
-	}
-	if warn != "" {
-		fmt.Fprintln(os.Stderr, "claude-code: models:", warn)
-	}
-	if dryRun {
-		return printRecordDiff(func(m map[string]vault.AgentRecord) { m["claude"] = agentconfig.WithClaudeModels(m["claude"], set) }, nil), true
-	}
-	if err := agentconfig.ApplyClaudeModels(set); err != nil {
-		return helptext.Fail("%v", err), true
-	}
-	return 0, false
 }
 
 func renderModelSelection(reg *providers.Registry, sel providers.Selection, format string, live bool) int {
