@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"strings"
 	"sync/atomic"
@@ -135,7 +136,7 @@ func TestRunTasksPrepareErrorEnvelopeFailFast(t *testing.T) {
 }
 
 // checkPrepareEnvelopes asserts one error envelope per task a and b; failFast expects b cancelled before start.
-func checkPrepareEnvelopes(t *testing.T, envs []agent.Envelope, failFast bool) {
+func checkPrepareEnvelopes(t *testing.T, envs []wire.Envelope, failFast bool) {
 	t.Helper()
 	if len(envs) != 2 {
 		t.Fatalf("got %d envelopes, want 2", len(envs))
@@ -155,7 +156,7 @@ func checkPrepareEnvelopes(t *testing.T, envs []agent.Envelope, failFast bool) {
 	}
 }
 
-func checkPrepareEnvelope(t *testing.T, env agent.Envelope, msg string) {
+func checkPrepareEnvelope(t *testing.T, env wire.Envelope, msg string) {
 	t.Helper()
 	if env.BatchID != "batch-t" || env.Status != "error" || env.Agent != "x" || env.Error == nil {
 		t.Fatalf("incorrect prepare failure envelope: %+v", env)
@@ -165,12 +166,12 @@ func checkPrepareEnvelope(t *testing.T, env agent.Envelope, msg string) {
 	}
 }
 
-func decodePoolEnvelopes(t *testing.T, r io.Reader) []agent.Envelope {
+func decodePoolEnvelopes(t *testing.T, r io.Reader) []wire.Envelope {
 	t.Helper()
-	var envs []agent.Envelope
+	var envs []wire.Envelope
 	dec := json.NewDecoder(r)
 	for {
-		var env agent.Envelope
+		var env wire.Envelope
 		err := dec.Decode(&env)
 		if errors.Is(err, io.EOF) {
 			return envs
@@ -237,7 +238,7 @@ func TestRunTasksMoreClaimsTasks(t *testing.T) {
 	}
 	var ids []string
 	for _, env := range decodePoolEnvelopes(t, &buf) {
-		if env.BatchID != "batch-m" || env.Status != agent.StatusOK {
+		if env.BatchID != "batch-m" || env.Status != wire.StatusOK {
 			t.Errorf("envelope %+v: want ok and batch-m", env)
 		}
 		ids = append(ids, env.TaskID)
@@ -278,7 +279,7 @@ func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
 }
 
 // runOpts runs the JSONL initial lines through RunBatch against the fake opencode vendor and returns envelopes by task id.
-func runOpts(t *testing.T, initial string, o Opts) map[string][]agent.Envelope {
+func runOpts(t *testing.T, initial string, o Opts) map[string][]wire.Envelope {
 	t.Helper()
 	lines, err := ReadTaskLines(strings.NewReader(initial))
 	if err != nil {
@@ -288,7 +289,7 @@ func runOpts(t *testing.T, initial string, o Opts) map[string][]agent.Envelope {
 	base := agent.RunOptions{Provider: "acme", Model: "acme-large", WorkDir: t.TempDir()}
 	var buf bytes.Buffer
 	id, _ := RunBatch(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
-	byID := map[string][]agent.Envelope{}
+	byID := map[string][]wire.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		if env.BatchID != id {
 			t.Errorf("envelope %s batch_id %q, want the run's %q", env.TaskID, env.BatchID, id)
@@ -320,18 +321,18 @@ func TestRunFollowClaimsTasksAndBadLinesFailAlone(t *testing.T) {
 		`{"id":"g","prompt":"ok"}`}, "\n")+"\n", 2)
 	got := runOpts(t, `{"id":"a","prompt":"ok"}`+"\n", Opts{Follow: follow})
 	for _, id := range []string{"f", "g"} {
-		if len(got[id]) != 1 || got[id][0].Status != agent.StatusOK {
+		if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
 			t.Errorf("task %s = %+v, want one ok envelope", id, got[id])
 		}
 	}
 	for _, id := range []string{"u", "np", "t4"} { // the malformed line has no id: it is named after its line number
-		if len(got[id]) != 1 || got[id][0].Status != agent.StatusError {
+		if len(got[id]) != 1 || got[id][0].Status != wire.StatusError {
 			t.Errorf("bad line %s = %+v, want one error envelope", id, got[id])
 		}
 	}
 	var ok, failed int // the initial a runs; the followed duplicate a is a failure envelope under the same id
 	for _, env := range got["a"] {
-		if env.Status == agent.StatusOK {
+		if env.Status == wire.StatusOK {
 			ok++
 		} else {
 			failed++
@@ -348,7 +349,7 @@ func TestRunDecorateSetsRetry(t *testing.T) {
 	var again atomic.Int32
 	decorate := func(task *Task) { task.Retry = vendorPrepare(t, "ok", &again) }
 	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n", Opts{Decorate: decorate})
-	if len(got["a"]) != 1 || got["a"][0].Status != agent.StatusOK || len(got["a"][0].Hops) < 2 || again.Load() != 1 {
+	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusOK || len(got["a"][0].Hops) < 2 || again.Load() != 1 {
 		t.Errorf("a = %+v retries %d, want one ok envelope with >= 2 hops after one retry", got["a"], again.Load())
 	}
 }
@@ -357,8 +358,8 @@ func TestRunDecorateSetsRetry(t *testing.T) {
 func TestRunWithoutHooks(t *testing.T) {
 	vendorHost(t)
 	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n"+`{"id":"b","prompt":"ok"}`+"\n", Opts{})
-	if len(got["a"]) != 1 || got["a"][0].Status != agent.StatusError || len(got["a"][0].Hops) != 1 ||
-		len(got["b"]) != 1 || got["b"][0].Status != agent.StatusOK {
+	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError || len(got["a"][0].Hops) != 1 ||
+		len(got["b"]) != 1 || got["b"][0].Status != wire.StatusOK {
 		t.Errorf("envelopes = %+v, want a failed once without retry and b ok", got)
 	}
 }

@@ -1,4 +1,4 @@
-package agent
+package wire
 
 import (
 	"bufio"
@@ -76,9 +76,9 @@ func (t *TransportTracker) Result() *Transport {
 }
 
 // resultError is a failed turn whose result event was consumed, so the stream stays at a turn boundary.
-type resultError struct{ error }
+type ResultError struct{ error }
 
-func (e resultError) Unwrap() error { return e.error }
+func (e ResultError) Unwrap() error { return e.error }
 
 // NewResultError marks err as a failed turn whose result event was consumed.
-func NewResultError(err error) error { return resultError{err} }
+func NewResultError(err error) error { return ResultError{err} }

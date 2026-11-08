@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"path/filepath"
@@ -142,7 +143,7 @@ func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
 	big := strings.Repeat("x", agent.MaxPromptBytes+10)
 
-	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: big}, agent.Discard)
+	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: big}, wire.Discard)
 	var e *retry.Error
 	if !errors.As(err, &e) || !errors.Is(e, agent.ErrPromptTooLarge) {
 		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
@@ -159,7 +160,7 @@ func stallRun(t *testing.T, window, settle time.Duration, lines []string, delays
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = parseOpenCodeEvents(bufio.NewReader(pr), agent.Discard, firstByte, nil, renew)
+		_, _ = parseOpenCodeEvents(bufio.NewReader(pr), wire.Discard, firstByte, nil, renew)
 	}()
 	for i, l := range lines {
 		time.Sleep(delays[i])
@@ -209,7 +210,7 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
 	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
 
-	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, agent.Discard)
+	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, wire.Discard)
 	var ae *retry.Error
 	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(ae.Error(), "prompt refused") {
 		t.Fatalf("err = %v, want a fatal *agent.Error carrying the hook's reason", err)
@@ -219,7 +220,7 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 	}
 
 	decision = core.Allow
-	_, err = l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, agent.Discard)
+	_, err = l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, wire.Discard)
 	if _, statErr := os.Stat(marker); statErr != nil {
 		t.Errorf("control: an allowing hook must launch the process, marker: %v (run err: %v)", statErr, err)
 	}
@@ -242,7 +243,7 @@ func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := agent.RunOptions{Prompt: "hi", Tools: true, Permissions: agent.Permissions{Deny: []agent.Rule{deny}}}
-	_, _ = l.Run(context.Background(), req, agent.Discard) // the fake prints nothing, so an empty-answer error is expected
+	_, _ = l.Run(context.Background(), req, wire.Discard) // the fake prints nothing, so an empty-answer error is expected
 	got, _ := os.ReadFile(seen)
 	for _, want := range []string{`PERM={`, `"bash"`, `harness-hooks-`} {
 		if !strings.Contains(string(got), want) {

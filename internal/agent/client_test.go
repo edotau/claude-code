@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,7 +133,7 @@ func TestClientPrepareWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 	}
 }
 
-func runPreparedWorkdir(t *testing.T, workdir string) Result {
+func runPreparedWorkdir(t *testing.T, workdir string) wire.Result {
 	t.Helper()
 	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
 	p, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "test prompt",
@@ -182,18 +183,18 @@ type burstRunner struct {
 func (*burstRunner) Name() string     { return "fake" }
 func (*burstRunner) Caps() Caps       { return Caps{} }
 func (*burstRunner) Available() error { return nil }
-func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w Sink) (Result, error) {
+func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w wire.Sink) (wire.Result, error) {
 	for range b.n {
-		_ = w.Emit(Event{Type: EventText, Text: "x"})
+		_ = w.Emit(wire.Event{Type: wire.EventText, Text: "x"})
 	}
 	if b.ctx != nil {
 		b.ctx <- ctx
 	}
 	if b.hold {
 		<-ctx.Done()
-		return Result{}, context.Cause(ctx)
+		return wire.Result{}, context.Cause(ctx)
 	}
-	return Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 func streamPrepared(t *testing.T, r Engine) *Prepared {
@@ -203,15 +204,15 @@ func streamPrepared(t *testing.T, r Engine) *Prepared {
 }
 
 // streamPreparedRun streams p through c.Exec, as Stream does for a RunOptions.
-func streamPreparedRun(c *Client, p *Prepared) <-chan Event {
-	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink Sink) (Result, error) {
+func streamPreparedRun(c *Client, p *Prepared) <-chan wire.Event {
+	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		return c.Exec(ctx, p, sink, RunRecordedOpts{})
 	})
 }
 
-func drainEvents(ch <-chan Event) (results int, last Event) {
+func drainEvents(ch <-chan wire.Event) (results int, last wire.Event) {
 	for ev := range ch {
-		if ev.Type == EventResult {
+		if ev.Type == wire.EventResult {
 			results++
 		}
 		last = ev
@@ -255,7 +256,7 @@ func TestStreamFullBufferDropsStillEndsInOneResult(t *testing.T) {
 		t.Fatal("no dropped-events note within 5s")
 	}
 	results, last := drainEvents(ch)
-	if results != 1 || last.Type != EventResult {
+	if results != 1 || last.Type != wire.EventResult {
 		t.Errorf("results = %d, last = %q, want one result last", results, last.Type)
 	}
 	if len(notes) != 0 {
@@ -269,10 +270,10 @@ func TestStreamStalledConsumerCancelsRun(t *testing.T) {
 	streamStall = 20 * time.Millisecond
 	t.Cleanup(func() { streamStall = orig })
 	r := &burstRunner{n: streamBuffer, ctx: make(chan context.Context, 1)}
-	ch := (&Client{}).streamWith(context.Background(), "fake", func(ctx context.Context, w Sink) (Result, error) {
+	ch := (&Client{}).streamWith(context.Background(), "fake", func(ctx context.Context, w wire.Sink) (wire.Result, error) {
 		res, err := r.Run(ctx, RunOptions{}, w)
 		for ctx.Err() == nil {
-			_ = w.Emit(Event{Type: EventText})
+			_ = w.Emit(wire.Event{Type: wire.EventText})
 			time.Sleep(5 * time.Millisecond)
 		}
 		return res, err
@@ -294,7 +295,7 @@ func TestStreamPrepareFailureYieldsOneResult(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ch := (&Client{}).Stream(context.Background(), RunOptions{Agent: "no-such-agent", Prompt: "p"})
 	results, last := drainEvents(ch)
-	if results != 1 || last.Type != EventResult || last.Status != StatusError {
+	if results != 1 || last.Type != wire.EventResult || last.Status != wire.StatusError {
 		t.Errorf("results = %d, last = %+v, want one error result", results, last)
 	}
 }

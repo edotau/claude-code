@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -79,14 +80,14 @@ func TestClaudeNoToolsAnthropic(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "must-not-leak")
 
 	var out strings.Builder
-	res, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low", NoTools: true}, agent.NewTextSink(&out))
+	res, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low", NoTools: true}, wire.NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertAnthropicNoToolsResponse(t, res, out.String(), gotKey, gotAuth, gotBody)
 
 	status = http.StatusTooManyRequests
-	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true}, agent.Discard)
+	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true}, wire.Discard)
 	if e := retry.Classify("claude", err, false); e.Kind != retry.KindRateLimit || e.RetryAfter != 3*time.Second || e.Status != 429 {
 		t.Errorf("429 classified as %+v", e)
 	}
@@ -115,7 +116,7 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 	registry(t, srv)
 
 	var out strings.Builder
-	res, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "hi", Provider: "toai", Effort: "high", NoTools: true}, agent.NewTextSink(&out))
+	res, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "hi", Provider: "toai", Effort: "high", NoTools: true}, wire.NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,16 +125,16 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 		t.Errorf("auth=%q body=%s", gotAuth, gotBody)
 	}
 
-	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "boom", Provider: "toai", NoTools: true}, agent.Discard)
+	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "boom", Provider: "toai", NoTools: true}, wire.Discard)
 	var he *httpError
 	if !errors.As(err, &he) || retry.Classify("claude", err, false).Kind != retry.KindTransient {
 		t.Errorf("502 = %v", err)
 	}
 }
 
-func assertAnthropicNoToolsResponse(t *testing.T, res agent.Result, output, key, auth, body string) {
+func assertAnthropicNoToolsResponse(t *testing.T, res wire.Result, output, key, auth, body string) {
 	t.Helper()
-	if output != "ok" || res.Answer != "ok" || res.Model != "claude-haiku-4-5-20251001" || res.Usage != (agent.Usage{InputTokens: 7, OutputTokens: 2}) {
+	if output != "ok" || res.Answer != "ok" || res.Model != "claude-haiku-4-5-20251001" || res.Usage != (wire.Usage{InputTokens: 7, OutputTokens: 2}) {
 		t.Errorf("res = %+v, stream %q", res, output)
 	}
 	if key != "anth-key" || auth != "" {
@@ -144,9 +145,9 @@ func assertAnthropicNoToolsResponse(t *testing.T, res agent.Result, output, key,
 	}
 }
 
-func assertOpenAINoToolsResponse(t *testing.T, res agent.Result, output string) {
+func assertOpenAINoToolsResponse(t *testing.T, res wire.Result, output string) {
 	t.Helper()
-	if output != "hello" || res.Model != "gpt-x-2026" || res.Provider != "toai" || res.Usage != (agent.Usage{InputTokens: 5, OutputTokens: 2}) {
+	if output != "hello" || res.Model != "gpt-x-2026" || res.Provider != "toai" || res.Usage != (wire.Usage{InputTokens: 5, OutputTokens: 2}) {
 		t.Errorf("res = %+v stream %q", res, output)
 	}
 }
@@ -170,12 +171,12 @@ func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 	fakeFailingClaude(t)
 	req := agent.RunOptions{Prompt: "x", Provider: "max"}
 
-	_, directErr := claudeAgent.Run(context.Background(), req, agent.Discard)
+	_, directErr := claudeAgent.Run(context.Background(), req, wire.Discard)
 	if directErr == nil {
 		t.Fatal("claudeRunner.Run must fail in this sandbox (fake failing claude) for this test to prove anything")
 	}
 	req.NoTools = true
-	res, err := claudeAgent.Run(context.Background(), req, agent.Discard)
+	res, err := claudeAgent.Run(context.Background(), req, wire.Discard)
 	if res.Fallback != "" {
 		t.Errorf("res.Fallback = %q, want none: there is no second agent any more", res.Fallback)
 	}
@@ -186,7 +187,7 @@ func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 
 // TestClaudeNoToolsAndToolsExclusive: asking for both is refused before anything runs.
 func TestClaudeNoToolsAndToolsExclusive(t *testing.T) {
-	_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Tools: true, NoTools: true}, agent.Discard)
+	_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Tools: true, NoTools: true}, wire.Discard)
 	if err == nil || !strings.Contains(err.Error(), "exclusive") {
 		t.Errorf("err = %v, want the --no-tools/--tools exclusivity error", err)
 	}
@@ -223,7 +224,7 @@ func TestParseChatStream(t *testing.T) {
 			if (err == nil) != (tc.err == "") || err != nil && !strings.HasPrefix(err.Error(), tc.err) {
 				t.Fatalf("err = %v, want prefix %q", err, tc.err)
 			}
-			if usage != (agent.Usage{InputTokens: 7, OutputTokens: 3}) || model != "served-model" || out.String() != tc.output {
+			if usage != (wire.Usage{InputTokens: 7, OutputTokens: 3}) || model != "served-model" || out.String() != tc.output {
 				t.Fatalf("usage = %+v, model = %q, output = %q", usage, model, out.String())
 			}
 		})
@@ -243,7 +244,7 @@ func TestParseChatStreamLargeChunkAndGarbageLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}
-	if out.String() != big+"end" || model != "m" || usage != (agent.Usage{InputTokens: 2, OutputTokens: 1}) {
+	if out.String() != big+"end" || model != "m" || usage != (wire.Usage{InputTokens: 2, OutputTokens: 1}) {
 		t.Fatalf("streamed %d bytes, model %q, usage %+v", out.Len(), model, usage)
 	}
 }
@@ -254,7 +255,7 @@ func TestClaudeNoToolsSessionSkipsOneShot(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++ }))
 	defer srv.Close()
 	registry(t, srv)
-	_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true, SessionID: "s-1"}, agent.Discard)
+	_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true, SessionID: "s-1"}, wire.Discard)
 	if hits != 0 || err == nil || !strings.Contains(err.Error(), "no launcher") {
 		t.Fatalf("hits=%d err=%v; want the claude process path (no launcher), never the API", hits, err)
 	}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"maps"
 	"os/exec"
 	"slices"
@@ -32,10 +33,10 @@ var _ agent.Engine = claudeAgent
 // Available also finds the native installer's versions dir (ClaudeBinary), which the base's AgentBin lookup does not.
 func (claudeEngine) Available() error { _, err := ClaudeBinary(); return err }
 
-func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
+func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	if req.NoTools { // the one-shot has no system-prompt or schema channel; those go through the claude process
 		if req.Tools {
-			return agent.Result{}, errors.New("claude: --no-tools and --tools are exclusive")
+			return wire.Result{}, errors.New("claude: --no-tools and --tools are exclusive")
 		}
 		// a session must resume through the claude process: the stateless one-shot would silently drop it
 		if req.SessionID == "" && req.SystemPrompt == "" && req.AppendSystemPrompt == "" && req.OutputSchema == "" && req.Persona == nil {
@@ -45,33 +46,33 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink agent.Si
 		}
 	}
 	if err := refuseUnmappedDeny(req.Permissions); err != nil {
-		return agent.Result{}, err
+		return wire.Result{}, err
 	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
-		return agent.Result{}, err
+		return wire.Result{}, err
 	}
 	return claudeExec(ctx, req, prompt, sink)
 }
 
 // claudeExec runs one stream-json claude process to completion and parses its events into sink.
-func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink agent.Sink) (agent.Result, error) {
+func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink wire.Sink) (wire.Result, error) {
 	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, prompt)
 	if err != nil {
-		return agent.Result{}, err
+		return wire.Result{}, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return agent.Result{}, err
+		return wire.Result{}, err
 	}
 	agentconfig.RecordOverlayDebug("claude", cmd.Env)
 	if err := cmd.Start(); err != nil {
-		return agent.Result{}, err
+		return wire.Result{}, err
 	}
 	wd := newStallWatch(claudeIdleLimit, func() { _ = cmd.Cancel() }) // a silent child must not hold the run to --timeout
 	out := &agent.EOFReader{R: stdout}
-	res, perr := parseClaudeEvents(bufio.NewReader(out), false, wd, sink, agent.EventLogFor(ctx))
+	res, perr := parseClaudeEvents(bufio.NewReader(out), false, wd, sink, wire.EventLogFor(ctx))
 	wd.stop()
 	werr := agent.ReapChild(cmd, out, perr)
 	res.Provider = cl.Set[providers.EnvSessionProfile]
@@ -225,24 +226,24 @@ func (ev claudeEvent) text() string {
 }
 
 // parseClaudeStream emits top-level assistant text and tool calls to sink and returns the result event's envelope.
-func parseClaudeStream(br *bufio.Reader, sink agent.Sink, logs ...agent.StreamLog) (res agent.Result, _ error) {
+func parseClaudeStream(br *bufio.Reader, sink wire.Sink, logs ...wire.StreamLog) (res wire.Result, _ error) {
 	return parseClaudeEvents(br, false, nil, sink, logs...)
 }
 
 // parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
-func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink agent.Sink, logs ...agent.StreamLog) (res agent.Result, _ error) {
-	lg := agent.PickLog(logs)
+func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink wire.Sink, logs ...wire.StreamLog) (res wire.Result, _ error) {
+	lg := wire.PickLog(logs)
 	sawResult := false
-	seen := agent.Answer{Join: "\n\n"} // top-level assistant text, the answer when no result event delivers one
-	ts := agent.TransportTracker{Start: agent.Clock()}
+	seen := wire.Answer{Join: "\n\n"} // top-level assistant text, the answer when no result event delivers one
+	ts := wire.TransportTracker{Start: wire.Clock()}
 	defer func() { res.Transport = ts.Result() }()
-	partial := func(err error) (agent.Result, error) {
+	partial := func(err error) (wire.Result, error) {
 		if res.Answer == "" {
 			res.Answer = seen.String()
 		}
 		return res, err
 	}
-	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
+	err := wire.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev claudeEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			return false, fmt.Errorf("decode stream-json: %w", err)
@@ -267,31 +268,31 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 }
 
 type claudeStreamState struct {
-	res       *agent.Result
-	transport *agent.TransportTracker
-	log       agent.StreamLog
-	sink      agent.Sink
-	seen      *agent.Answer
+	res       *wire.Result
+	transport *wire.TransportTracker
+	log       wire.StreamLog
+	sink      wire.Sink
+	seen      *wire.Answer
 }
 
 func (s claudeStreamState) apply(ev claudeEvent, untilResult bool) (bool, error) {
 	switch ev.Type {
 	case "stream_event":
-		s.transport.Event(agent.Clock())
+		s.transport.Event(wire.Clock())
 	case "system":
 		return false, applyClaudeSystem(ev, s.res, s.transport, s.log, s.sink)
 	case "assistant":
 		return false, applyClaudeAssistantEvent(ev, s.res, s.log, s.sink, s.seen)
 	case "result":
 		if err := applyClaudeResult(s.res, ev); err != nil {
-			_ = agent.EmitError(s.log, s.sink, err.Error())
+			_ = wire.EmitError(s.log, s.sink, err.Error())
 			return false, err
 		}
 		s.log.Emit("result", ev.Result)
 		return untilResult, nil
 	case "error":
 		if t := ev.text(); t != "" {
-			_ = agent.EmitError(s.log, s.sink, t)
+			_ = wire.EmitError(s.log, s.sink, t)
 			return false, fmt.Errorf("claude: %s", t)
 		}
 	}
@@ -301,12 +302,12 @@ func (s claudeStreamState) apply(ev claudeEvent, untilResult bool) (bool, error)
 var errNoResult = errors.New("claude: stream ended without a result event")
 
 // applyClaudeSystem records an api_retry and the session model from a system event.
-func applyClaudeSystem(ev claudeEvent, res *agent.Result, ts *agent.TransportTracker, lg agent.StreamLog, sink agent.Sink) error {
+func applyClaudeSystem(ev claudeEvent, res *wire.Result, ts *wire.TransportTracker, lg wire.StreamLog, sink wire.Sink) error {
 	if ev.Subtype == "api_retry" {
 		ts.Retry(ev.ErrorStatus)
 		lg.Emit("retry", fmt.Sprintf("attempt %d/%d status=%d retry_in=%dms",
 			ev.Attempt, ev.MaxRetries, ts.LastStatus(), ev.RetryDelayMs))
-		if err := sink.Emit(agent.Event{Type: agent.EventRetry, Status: strconv.Itoa(ts.LastStatus()),
+		if err := sink.Emit(wire.Event{Type: wire.EventRetry, Status: strconv.Itoa(ts.LastStatus()),
 			Text: fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxRetries, ev.RetryDelayMs)}); err != nil {
 			return err
 		}
@@ -318,7 +319,7 @@ func applyClaudeSystem(ev claudeEvent, res *agent.Result, ts *agent.TransportTra
 }
 
 // applyClaudeAssistantEvent logs and emits a top-level assistant message; a subagent's is ignored.
-func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.StreamLog, sink agent.Sink, seen *agent.Answer) error {
+func applyClaudeAssistantEvent(ev claudeEvent, res *wire.Result, lg wire.StreamLog, sink wire.Sink, seen *wire.Answer) error {
 	if ev.ParentToolUseID != "" {
 		return nil
 	}
@@ -330,7 +331,7 @@ func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.Strea
 	return emitClaudeAssistant(sink, msg, seen)
 }
 
-func logClaudeAssistant(lg agent.StreamLog, msg anthropic.Message) {
+func logClaudeAssistant(lg wire.StreamLog, msg anthropic.Message) {
 	for _, b := range msg.Content {
 		switch b := b.AsAny().(type) {
 		case anthropic.TextBlock:
@@ -342,12 +343,12 @@ func logClaudeAssistant(lg agent.StreamLog, msg anthropic.Message) {
 }
 
 // emitClaudeAssistant emits each text block through seen and each tool call to sink.
-func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, seen *agent.Answer) error {
+func emitClaudeAssistant(sink wire.Sink, msg anthropic.Message, seen *wire.Answer) error {
 	for _, b := range msg.Content {
 		var err error
 		switch b := b.AsAny().(type) {
 		case anthropic.ToolUseBlock:
-			err = sink.Emit(agent.ToolEvent(b.Name, b.ID))
+			err = sink.Emit(wire.ToolEvent(b.Name, b.ID))
 		case anthropic.TextBlock:
 			if b.Text != "" {
 				err = seen.Emit(sink, b.Text, true)
@@ -360,18 +361,18 @@ func emitClaudeAssistant(sink agent.Sink, msg anthropic.Message, seen *agent.Ans
 	return nil
 }
 
-func applyClaudeResult(res *agent.Result, ev claudeEvent) error {
+func applyClaudeResult(res *wire.Result, ev claudeEvent) error {
 	if ev.Result != "" && !ev.IsError { // an error result's text rides in the error, not over the partial answer
 		res.Answer = ev.Result // a resumed session's closing empty result must not erase the last real one
 	}
 	u := ev.Usage
-	res.Usage = agent.Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
+	res.Usage = wire.Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
 		CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens, CostUSD: ev.TotalCostUSD}
 	if len(ev.Structured) > 0 && string(ev.Structured) != "null" {
 		res.Structured = ev.Structured
 	}
 	if ev.IsError {
-		return agent.NewResultError(fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result))
+		return wire.NewResultError(fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result))
 	}
 	return nil
 }

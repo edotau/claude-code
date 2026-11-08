@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"slices"
 	"strings"
@@ -25,28 +26,28 @@ const claudeFixture = `{"type":"system","subtype":"init","session_id":"sess-1","
 
 func TestParseClaudeStream(t *testing.T) {
 	var out strings.Builder
-	res, err := parseClaudeStream(newBR(claudeFixture), agent.NewTextSink(&out))
+	res, err := parseClaudeStream(newBR(claudeFixture), wire.NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "Hello\nworld" {
 		t.Errorf("stream = %q (subagent text must be skipped)", out.String())
 	}
-	if res.Answer != "Hello\nworld" || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Usage != (agent.Usage{InputTokens: 10, CacheReadTokens: 90, OutputTokens: 4, CostUSD: 0.01}) {
+	if res.Answer != "Hello\nworld" || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Usage != (wire.Usage{InputTokens: 10, CacheReadTokens: 90, OutputTokens: 4, CostUSD: 0.01}) {
 		t.Errorf("res = %+v", res)
 	}
 }
 
 func TestParseClaudeStreamErrors(t *testing.T) {
 	isErr := `{"type":"result","subtype":"success","is_error":true,"result":"API Error: 429 rate_limit_error"}` + "\n"
-	_, err := parseClaudeStream(newBR(isErr), agent.NewTextSink(&strings.Builder{}))
+	_, err := parseClaudeStream(newBR(isErr), wire.NewTextSink(&strings.Builder{}))
 	if e := retry.Classify("claude", err, false); e == nil || e.Kind != retry.KindRateLimit {
 		t.Errorf("is_error result = %v", err)
 	}
-	if _, err := parseClaudeStream(newBR(`{"type":"system","subtype":"init"}`), agent.NewTextSink(&strings.Builder{})); err == nil {
+	if _, err := parseClaudeStream(newBR(`{"type":"system","subtype":"init"}`), wire.NewTextSink(&strings.Builder{})); err == nil {
 		t.Error("a stream without a result event must fail")
 	}
-	if _, err := parseClaudeStream(newBR(`{"type":`), agent.NewTextSink(&strings.Builder{})); err == nil {
+	if _, err := parseClaudeStream(newBR(`{"type":`), wire.NewTextSink(&strings.Builder{})); err == nil {
 		t.Error("truncated JSON must fail")
 	}
 }
@@ -57,20 +58,20 @@ func TestParseClaudeStreamResultApplication(t *testing.T) {
 	{"type":"assistant","parent_tool_use_id":"tool-1","message":{"model":"subagent-model","content":[{"type":"text","text":"hidden"}]}}
 	{"type":"result","session_id":"result-id","is_error":true,"subtype":"error_during_execution","result":"partial result","usage":{"input_tokens":7,"output_tokens":3,"cache_creation_input_tokens":2,"cache_read_input_tokens":4}}`
 	var out strings.Builder
-	res, err := parseClaudeStream(newBR(stream), agent.NewTextSink(&out))
+	res, err := parseClaudeStream(newBR(stream), wire.NewTextSink(&out))
 	if err == nil || err.Error() != "claude error_during_execution: partial result" {
 		t.Fatalf("err = %v", err)
 	}
 	if out.String() != "one\ntwo" || res.Answer != "one\n\ntwo" || res.SessionID != "result-id" || res.Model != "answer-model" {
 		t.Fatalf("res = %+v, output = %q", res, out.String())
 	}
-	if res.Usage != (agent.Usage{InputTokens: 7, OutputTokens: 3, CacheCreationTokens: 2, CacheReadTokens: 4}) {
+	if res.Usage != (wire.Usage{InputTokens: 7, OutputTokens: 3, CacheCreationTokens: 2, CacheReadTokens: 4}) {
 		t.Fatalf("usage = %+v", res.Usage)
 	}
 }
 
 func TestParseClaudeStreamWriteError(t *testing.T) {
-	res, err := parseClaudeStream(newBR(claudeFixture), agent.NewTextSink(failingStreamWriter{}))
+	res, err := parseClaudeStream(newBR(claudeFixture), wire.NewTextSink(failingStreamWriter{}))
 	if !errors.Is(err, io.ErrClosedPipe) || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Answer != "Hello" { // parsed text survives the dead sink
 		t.Fatalf("res = %+v, err = %v", res, err)
 	}
@@ -101,7 +102,7 @@ func TestParseClaudeStreamNewlineError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			injected := errors.New("newline rejected")
 			w := &newlineRejectWriter{err: injected}
-			_, err := parseClaudeStream(newBR(stream), agent.NewTextSink(w))
+			_, err := parseClaudeStream(newBR(stream), wire.NewTextSink(w))
 			if !errors.Is(err, injected) {
 				t.Fatalf("err = %v, want injected newline error", err)
 			}
@@ -126,7 +127,7 @@ func TestParseClaudeStreamStringMessage(t *testing.T) {
 		`{"type":"assistant","session_id":"sess-2","message":{"model":"claude-opus-5","content":[{"type":"text","text":"done"}]}}` + "\n" +
 		`{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"sess-2"}` + "\n"
 	var out strings.Builder
-	res, err := parseClaudeStream(newBR(stream), agent.NewTextSink(&out))
+	res, err := parseClaudeStream(newBR(stream), wire.NewTextSink(&out))
 	if err != nil {
 		t.Fatalf("a string message event must not fail the dispatch: %v", err)
 	}
@@ -138,7 +139,7 @@ func TestParseClaudeStreamStringMessage(t *testing.T) {
 // TestParseClaudeStreamErrorEventText surfaces an "error"-type event's string message as the returned error.
 func TestParseClaudeStreamErrorEventText(t *testing.T) {
 	stream := `{"type":"error","message":"fatal: connection reset","session_id":"sess-3"}` + "\n"
-	_, err := parseClaudeStream(newBR(stream), agent.NewTextSink(&strings.Builder{}))
+	_, err := parseClaudeStream(newBR(stream), wire.NewTextSink(&strings.Builder{}))
 	if err == nil || !strings.Contains(err.Error(), "fatal: connection reset") {
 		t.Fatalf("err = %v, want the error event's message text", err)
 	}
@@ -155,12 +156,12 @@ func TestParseClaudeStreamTransport(t *testing.T) {
 	base := time.Unix(1000, 0)
 	ticks := []time.Duration{0, 150 * time.Millisecond, 950 * time.Millisecond} // start, event 1, event 2
 	i := 0
-	old := agent.Clock
-	agent.Clock = func() time.Time { d := ticks[i]; i++; return base.Add(d) }
-	defer func() { agent.Clock = old }()
+	old := wire.Clock
+	wire.Clock = func() time.Time { d := ticks[i]; i++; return base.Add(d) }
+	defer func() { wire.Clock = old }()
 	var out strings.Builder
 	var lines []string
-	res, err := parseClaudeStream(newBR(stream), agent.NewTextSink(&out), func(k, x string) { lines = append(lines, k+": "+x) })
+	res, err := parseClaudeStream(newBR(stream), wire.NewTextSink(&out), func(k, x string) { lines = append(lines, k+": "+x) })
 	if err != nil || res.Answer != "hi" || out.String() != "hi" {
 		t.Fatalf("res=%+v out=%q err=%v", res, out.String(), err)
 	}
@@ -170,7 +171,7 @@ func TestParseClaudeStreamTransport(t *testing.T) {
 	}
 }
 
-func assertClaudeRetryTransport(t *testing.T, tr *agent.Transport) {
+func assertClaudeRetryTransport(t *testing.T, tr *wire.Transport) {
 	t.Helper()
 	if tr == nil || tr.Retries != 2 || !slices.Equal(tr.RetryStatuses, []int{529, 0}) || tr.FirstEventMs != 150 || tr.MaxGapMs != 800 {
 		t.Fatalf("transport = %+v", tr)
@@ -191,7 +192,7 @@ func TestParseClaudeStreamKeepsLastNonEmptyResult(t *testing.T) {
 {"type":"result","subtype":"success","is_error":false,"result":"The dispatch ran and the agent replied PONG-7.","session_id":"s","total_cost_usd":0.2154}
 {"type":"result","subtype":"success","is_error":false,"result":"","session_id":"s","total_cost_usd":0.2154}
 `
-	res, err := parseClaudeStream(newBR(stream), agent.NewTextSink(io.Discard))
+	res, err := parseClaudeStream(newBR(stream), wire.NewTextSink(io.Discard))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestParseClaudeStreamKeepsLastNonEmptyResult(t *testing.T) {
 func TestParseClaudeStreamNoResultKeepsText(t *testing.T) {
 	stream := `{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"Hello"}]}}
 {"type":"assistant","parent_tool_use_id":"t","message":{"content":[{"type":"text","text":"sub"}]}}`
-	res, err := parseClaudeStream(newBR(stream), agent.Discard)
+	res, err := parseClaudeStream(newBR(stream), wire.Discard)
 	if !errors.Is(err, errNoResult) || res.Answer != "Hello" || res.SessionID != "s" {
 		t.Fatalf("res = %+v, err = %v", res, err)
 	}
@@ -214,7 +215,7 @@ func TestParseClaudeStreamNoResultKeepsText(t *testing.T) {
 func TestParseClaudeStreamErrorResultKeepsAssistantText(t *testing.T) {
 	stream := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}
 {"type":"result","is_error":true,"result":"API Error: 529"}`
-	res, err := parseClaudeStream(newBR(stream), agent.Discard)
+	res, err := parseClaudeStream(newBR(stream), wire.Discard)
 	if err == nil || !strings.Contains(err.Error(), "529") || res.Answer != "Hello" {
 		t.Fatalf("res = %+v, err = %v; want Answer Hello and a 529 error", res, err)
 	}

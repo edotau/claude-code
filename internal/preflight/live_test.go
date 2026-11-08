@@ -3,6 +3,7 @@ package preflight
 import (
 	"bytes"
 	"context"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -86,13 +86,13 @@ func TestInstallStepRows(t *testing.T) {
 	pinAll(t)
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model", "COPILOT_MODEL": "gone-model"})
 	var asked []string
-	runAsk = func(_ context.Context, _, a string) (agent.Envelope, error) {
+	runAsk = func(_ context.Context, _, a string) (wire.Envelope, error) {
 		asked = append(asked, a)
 		if a == "opencode" {
-			return agent.Envelope{Status: "error", Error: &agent.EnvelopeError{Kind: "auth"}}, nil
+			return wire.Envelope{Status: "error", Error: &wire.EnvelopeError{Kind: "auth"}}, nil
 		}
 		fb := "gemini"
-		return agent.Envelope{Status: "ok", Provider: "dev", Model: "good-model", Fallback: &fb}, nil
+		return wire.Envelope{Status: "ok", Provider: "dev", Model: "good-model", Fallback: &fb}, nil
 	}
 	var buf bytes.Buffer
 	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now())
@@ -113,9 +113,9 @@ func TestInstallStepRows(t *testing.T) {
 func TestInstallStepSkipsWithoutCredential(t *testing.T) {
 	hermeticVault(t)
 	pinAll(t)
-	runAsk = func(context.Context, string, string) (agent.Envelope, error) {
+	runAsk = func(context.Context, string, string) (wire.Envelope, error) {
 		t.Error("ask must not run without a credential")
-		return agent.Envelope{}, nil
+		return wire.Envelope{}, nil
 	}
 	var buf bytes.Buffer
 	RunInstallStep(context.Background(), &buf, preflightRegistry(false), "claude-code", time.Now())
@@ -136,9 +136,9 @@ func TestInstallStepSharesBudget(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	runAsk = func(ctx context.Context, _, _ string) (agent.Envelope, error) {
+	runAsk = func(ctx context.Context, _, _ string) (wire.Envelope, error) {
 		<-ctx.Done()
-		return agent.Envelope{}, ctx.Err()
+		return wire.Envelope{}, ctx.Err()
 	}
 	var buf bytes.Buffer
 	start := time.Now()

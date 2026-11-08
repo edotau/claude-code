@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -333,11 +334,11 @@ func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 	return bin
 }
 
-func ndjson(t *testing.T, evs ...agent.Event) []string {
+func ndjson(t *testing.T, evs ...wire.Event) []string {
 	t.Helper()
 	var out []string
 	for i, ev := range evs {
-		ev.Schema, ev.Seq, ev.DispatchID = agent.EventSchema, int64(i+1), "REMOTE-ID"
+		ev.Schema, ev.Seq, ev.DispatchID = wire.EventSchema, int64(i+1), "REMOTE-ID"
 		b, err := json.Marshal(ev)
 		if err != nil {
 			t.Fatal(err)
@@ -347,12 +348,12 @@ func ndjson(t *testing.T, evs ...agent.Event) []string {
 	return out
 }
 
-func resultEvent(env agent.Envelope) agent.Event {
-	env.Schema = agent.EnvelopeSchema
-	return agent.Event{Type: agent.EventResult, Host: "remotebox", Envelope: &env}
+func resultEvent(env wire.Envelope) wire.Event {
+	env.Schema = wire.EnvelopeSchema
+	return wire.Event{Type: wire.EventResult, Host: "remotebox", Envelope: &env}
 }
 
-func assertRelayedStream(t *testing.T, evs []agent.Event) string {
+func assertRelayedStream(t *testing.T, evs []wire.Event) string {
 	t.Helper()
 	var types []string
 	for _, ev := range evs {
@@ -376,7 +377,7 @@ func assertRelayedStream(t *testing.T, evs []agent.Event) string {
 	return local
 }
 
-func assertRelayedEnvelope(t *testing.T, got *agent.Envelope, local string) {
+func assertRelayedEnvelope(t *testing.T, got *wire.Envelope, local string) {
 	t.Helper()
 	if got == nil || got.Usage == nil || got.Usage.CostUSD != 0.0123 || string(got.Structured) != `{"k":1}` {
 		t.Fatalf("result envelope lost remote fields: %+v", got)
@@ -402,13 +403,13 @@ func assertDropped(t *testing.T, dropped []string, want ...string) {
 // ask --host over a fake ssh: the remote start is dropped, events keep the remote host stamp, the local result carries
 // the remote envelope's cost/structured/emulated/session plus local drops, and the banner goes to the dispatch log.
 func TestAskHostRelaysRemoteStream(t *testing.T) {
-	env := agent.Envelope{Status: agent.StatusOK, Agent: "claude", Answer: "hi there", SessionID: "sess-9",
-		Usage:      &agent.Usage{InputTokens: 3, OutputTokens: 4, CostUSD: 0.0123},
+	env := wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "hi there", SessionID: "sess-9",
+		Usage:      &wire.Usage{InputTokens: 3, OutputTokens: 4, CostUSD: 0.0123},
 		Structured: json.RawMessage(`{"k":1}`), Emulated: []string{"--output-schema"}, Dropped: []string{"--effort"}}
 	lines := ndjson(t,
-		agent.Event{Type: agent.EventStart, Host: "remotebox"},
-		agent.Event{Type: agent.EventText, Host: "remotebox", Text: "hi there"},
-		agent.Event{Type: agent.EventToolUse, Host: "remotebox", Tool: &agent.ToolRef{ID: "t1", Name: "Read"}},
+		wire.Event{Type: wire.EventStart, Host: "remotebox"},
+		wire.Event{Type: wire.EventText, Host: "remotebox", Text: "hi there"},
+		wire.Event{Type: wire.EventToolUse, Host: "remotebox", Tool: &wire.ToolRef{ID: "t1", Name: "Read"}},
 		resultEvent(env))
 	bin := hostFixture(t, "Welcome to fakehost banner", lines, 0)
 	att := filepath.Join(t.TempDir(), "a.txt")
@@ -433,11 +434,11 @@ func TestAskHostRelaysRemoteStream(t *testing.T) {
 	}
 }
 
-func lastEnvelope(t *testing.T, out string) *agent.Envelope {
+func lastEnvelope(t *testing.T, out string) *wire.Envelope {
 	t.Helper()
 	evs := decodeEvents(t, out)
 	e := evs[len(evs)-1]
-	if e.Type != agent.EventResult || e.Envelope == nil {
+	if e.Type != wire.EventResult || e.Envelope == nil {
 		t.Fatalf("no result event last:\n%s", out)
 	}
 	return e.Envelope
@@ -452,8 +453,8 @@ func TestAskHostErrorClassification(t *testing.T) {
 		{"ssh 255", "transient", "connection failed", 255, func(*testing.T) []string { return nil }},
 		{"exit without result", "fatal", "stream-json", 3, func(*testing.T) []string { return nil }},
 		{"remote schema error", "schema", "remote fakehost:", 0, func(t *testing.T) []string {
-			return ndjson(t, resultEvent(agent.Envelope{Status: agent.StatusError, Agent: "claude",
-				Error: &agent.EnvelopeError{Kind: "schema", Message: "answer fails the schema"}}))
+			return ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusError, Agent: "claude",
+				Error: &wire.EnvelopeError{Kind: "schema", Message: "answer fails the schema"}}))
 		}},
 	}
 	for _, c := range cases {
@@ -513,7 +514,7 @@ func readCalls(t *testing.T, calls string) []string {
 
 // The caller's --fallback reaches the remote ask instead of a hard-coded none.
 func TestAskHostForwardsFallback(t *testing.T) {
-	lines := ndjson(t, resultEvent(agent.Envelope{Status: agent.StatusOK, Agent: "claude", Answer: "ok"}))
+	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
 	if code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--fallback", "agents",
@@ -537,14 +538,14 @@ func TestAskEnvRejectionNeverEchoesValue(t *testing.T) {
 
 // ask --retry of a --host dispatch replays it on the same host through the same remote binary, never locally.
 func TestAskRetryOfHostDispatchRunsRemote(t *testing.T) {
-	lines := ndjson(t, resultEvent(agent.Envelope{Status: agent.StatusOK, Agent: "claude", Answer: "ok"}))
+	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
 	code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--format", "json", "go")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	var env agent.Envelope
+	var env wire.Envelope
 	if err := json.Unmarshal([]byte(out), &env); err != nil || env.DispatchID == "" {
 		t.Fatalf("no dispatch id (%v):\n%s", err, out)
 	}
@@ -558,11 +559,11 @@ func TestAskRetryOfHostDispatchRunsRemote(t *testing.T) {
 
 // ask --retry keeps the original --fallback policy instead of reverting to the all default.
 func TestAskRetryKeepsFallbackPolicy(t *testing.T) {
-	lines := ndjson(t, resultEvent(agent.Envelope{Status: agent.StatusOK, Agent: "claude", Answer: "ok"}))
+	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
 	code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--fallback", "none", "--format", "json", "go")
-	var env agent.Envelope
+	var env wire.Envelope
 	if err := json.Unmarshal([]byte(out), &env); code != 0 || err != nil {
 		t.Fatalf("exit %d (%v):\n%s", code, err, out)
 	}
@@ -598,11 +599,11 @@ func captureAskStdout(t *testing.T, args ...string) (int, string) {
 	return code, stdout
 }
 
-func decodeEvents(t *testing.T, s string) []agent.Event {
+func decodeEvents(t *testing.T, s string) []wire.Event {
 	t.Helper()
-	var evs []agent.Event
+	var evs []wire.Event
 	for l := range strings.SplitSeq(strings.TrimSpace(s), "\n") {
-		var ev agent.Event
+		var ev wire.Event
 		if err := json.Unmarshal([]byte(l), &ev); err != nil {
 			t.Fatalf("line %q is not an event: %v", l, err)
 		}
@@ -612,13 +613,13 @@ func decodeEvents(t *testing.T, s string) []agent.Event {
 }
 
 // streamTypesAndText returns the comma-joined event types and the concatenated text, checking seq rises.
-func streamTypesAndText(t *testing.T, evs []agent.Event) (string, string) {
+func streamTypesAndText(t *testing.T, evs []wire.Event) (string, string) {
 	t.Helper()
 	var types []string
 	var text strings.Builder
 	for i, ev := range evs {
 		types = append(types, ev.Type)
-		if ev.Type == agent.EventText {
+		if ev.Type == wire.EventText {
 			if ev.Sep {
 				text.WriteString("\n")
 			}
@@ -631,7 +632,7 @@ func streamTypesAndText(t *testing.T, evs []agent.Event) (string, string) {
 	return strings.Join(types, ","), text.String()
 }
 
-func assertEventsLogMirrors(t *testing.T, evs []agent.Event, dispatchID, secret string) {
+func assertEventsLogMirrors(t *testing.T, evs []wire.Event, dispatchID, secret string) {
 	t.Helper()
 	logb, err := os.ReadFile(filepath.Join(paths.DispatchDir(), dispatchID+".events.jsonl"))
 	if err != nil {
@@ -696,7 +697,7 @@ func TestAskStreamJSONPreRunFailureOneResultEvent(t *testing.T) {
 		t.Fatalf("want a failing exit; stdout:\n%s", out)
 	}
 	evs := decodeEvents(t, out)
-	if len(evs) != 1 || evs[0].Type != agent.EventResult || evs[0].Envelope == nil || evs[0].Envelope.Status == "" {
+	if len(evs) != 1 || evs[0].Type != wire.EventResult || evs[0].Envelope == nil || evs[0].Envelope.Status == "" {
 		t.Fatalf("want exactly one result event with an envelope, got %d: %s", len(evs), out)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
 	"sync"
 	"testing"
@@ -20,18 +21,18 @@ func fakeStream(t *testing.T, failOn ...string) *[]agent.RunOptions {
 	var mu sync.Mutex
 	var seen []agent.RunOptions
 	orig := streamLeg
-	streamLeg = func(_ *agent.Client, _ context.Context, o agent.RunOptions) <-chan agent.Event {
+	streamLeg = func(_ *agent.Client, _ context.Context, o agent.RunOptions) <-chan wire.Event {
 		mu.Lock()
 		seen = append(seen, o)
 		mu.Unlock()
-		env := agent.Envelope{Status: "ok", Agent: o.Agent, Model: o.Model, Answer: "answer " + o.Model}
+		env := wire.Envelope{Status: "ok", Agent: o.Agent, Model: o.Model, Answer: "answer " + o.Model}
 		for _, m := range failOn {
 			if m == o.Model {
-				env = agent.FailureEnvelope(o.Agent, errors.New("boom"))
+				env = wire.FailureEnvelope(o.Agent, errors.New("boom"))
 			}
 		}
-		ch := make(chan agent.Event, 1)
-		ch <- agent.ResultEvent(env)
+		ch := make(chan wire.Event, 1)
+		ch <- wire.ResultEvent(env)
 		close(ch)
 		return ch
 	}
@@ -164,12 +165,12 @@ func TestRoleVaultOverlayMovesExplore(t *testing.T) {
 
 func TestRunProgressTagsWholeLines(t *testing.T) {
 	orig := streamLeg
-	streamLeg = func(_ *agent.Client, _ context.Context, o agent.RunOptions) <-chan agent.Event {
-		ch := make(chan agent.Event, 4)
+	streamLeg = func(_ *agent.Client, _ context.Context, o agent.RunOptions) <-chan wire.Event {
+		ch := make(chan wire.Event, 4)
 		for _, s := range []string{"hel", "lo\nwor", "ld"} {
-			ch <- agent.Event{Type: agent.EventText, Text: s}
+			ch <- wire.Event{Type: wire.EventText, Text: s}
 		}
-		ch <- agent.ResultEvent(agent.Envelope{Status: "ok"})
+		ch <- wire.ResultEvent(wire.Envelope{Status: "ok"})
 		close(ch)
 		return ch
 	}

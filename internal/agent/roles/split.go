@@ -3,6 +3,7 @@ package roles
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"regexp"
 	"sort"
 	"strconv"
@@ -26,7 +27,7 @@ func Split(ctx context.Context, c *agent.Client, question string) []string {
 	res, err := splitRun(c, ctx, agent.RunOptions{
 		Agent: "claude", Model: "haiku", NoTools: true, Timeout: 60 * time.Second,
 		Prompt: "Split into 2–4 independent sub-questions, one per line, no numbering:\n" + question,
-	}, agent.Discard)
+	}, wire.Discard)
 	if err != nil {
 		return []string{question}
 	}

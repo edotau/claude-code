@@ -1,6 +1,9 @@
 package gemini
 
-import "github.com/edotau/claude-code/internal/agent"
+import (
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
+)
 
 func init() {
 	agent.Register(agent.Agent{Row: row, Driver: geminiEngine{agent.NewBaseEngine("gemini")}})
@@ -18,7 +21,7 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 		Tools: agent.Native, Autonomous: agent.Native, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated,
 		Permissions: agent.Native},
-	Events: []string{agent.EventStart, agent.EventText, agent.EventProgress, agent.EventResult, agent.EventError}, Cost: true,
+	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError}, Cost: true,
 	ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true, RefusesReadOnly: true,
 	ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},
 }}

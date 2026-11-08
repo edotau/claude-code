@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 	if len(c.Dispatches) != 1 || c.Dispatches[0].Account != "openai·openai" {
 		t.Fatalf("chain = %+v, want one dispatch on openai·openai", c)
 	}
-	if _, err := RunWithFallback(context.Background(), c, req, Discard, nil); err == nil {
+	if _, err := RunWithFallback(context.Background(), c, req, wire.Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
 	}
 	if e := loadState()["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
@@ -95,7 +96,7 @@ func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
 	c := Single(&fakeRunner{name: "copilot", errs: []error{nil}})
 	c.Skipped = []string{"opencode·openai: not configured", "copilot: exhausted"}
 	var got []string
-	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, func(s string) { got = append(got, s) }); err != nil {
+	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { got = append(got, s) }); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || strings.Contains(got[0], "opencode") || !strings.Contains(got[0], "copilot: exhausted") {
@@ -117,7 +118,7 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	}
 
 	rec := NewRecord("codex", RunOptions{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))
-	rec.Finish(Result{Answer: "ok", Model: "gpt-6.1-sol"}, nil, time.Second)
+	rec.Finish(wire.Result{Answer: "ok", Model: "gpt-6.1-sol"}, nil, time.Second)
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ const astra = "gpt-6-astra"
 func stubDispatches(c *Chain) []*pinFallbackRunner {
 	stubs := make([]*pinFallbackRunner, len(c.Dispatches))
 	for i := range c.Dispatches {
-		f := &pinFallbackRunner{name: c.Dispatches[i].Agent.Name(), res: Result{Answer: "answer from " + c.Dispatches[i].Agent.Name()}}
+		f := &pinFallbackRunner{name: c.Dispatches[i].Agent.Name(), res: wire.Result{Answer: "answer from " + c.Dispatches[i].Agent.Name()}}
 		stubs[i], c.Dispatches[i].Agent = f, f
 	}
 	return stubs
@@ -169,7 +170,7 @@ func TestAstraModelIdentityOwnLogin(t *testing.T) {
 		t.Fatalf("first dispatch is not codex: %+v; skipped %v", c.Dispatches, c.Skipped)
 	}
 	stubs := stubDispatches(&c)
-	if _, err := RunWithFallback(ctx, c, RunOptions{Prompt: "x", Model: astra}, Discard, nil); err != nil {
+	if _, err := RunWithFallback(ctx, c, RunOptions{Prompt: "x", Model: astra}, wire.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(stubs[0].seen) != 1 {
@@ -186,7 +187,7 @@ func TestAstraModelIdentityOwnLogin(t *testing.T) {
 
 func TestAstraModelIdentityZeroLegs(t *testing.T) {
 	stub := &pinFallbackRunner{name: "codex"}
-	_, err := RunWithFallback(context.Background(), Chain{Want: "codex"}, RunOptions{Prompt: "x", Model: astra}, Discard, nil)
+	_, err := RunWithFallback(context.Background(), Chain{Want: "codex"}, RunOptions{Prompt: "x", Model: astra}, wire.Discard, nil)
 	var e *retry.Error
 	if !errors.As(err, &e) || e.Kind != retry.KindFatal {
 		t.Errorf("err = %v, want *Error KindFatal", err)
@@ -283,7 +284,7 @@ func TestAstraProfileEligibilityUnsupportedSkipped(t *testing.T) {
 
 type pinFallbackRunner struct {
 	name string
-	res  Result
+	res  wire.Result
 	err  error
 	seen []RunOptions
 }
@@ -291,7 +292,7 @@ type pinFallbackRunner struct {
 func (f *pinFallbackRunner) Name() string     { return f.name }
 func (f *pinFallbackRunner) Caps() Caps       { return Caps{Model: Native, Effort: Native} }
 func (f *pinFallbackRunner) Available() error { return nil }
-func (f *pinFallbackRunner) Run(_ context.Context, req RunOptions, _ Sink) (Result, error) {
+func (f *pinFallbackRunner) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.Result, error) {
 	f.seen = append(f.seen, req)
 	return f.res, f.err
 }
@@ -409,7 +410,7 @@ func TestSealedAuthDispatchRecoversOnceThenMovesOn(t *testing.T) {
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized"), errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 
-	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" {
 		t.Fatalf("res=%+v err=%v, want the second dispatch's answer", res, err)
 	}
@@ -432,7 +433,7 @@ func TestTransientRecoverFailureDoesNotMark(t *testing.T) {
 	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	_, _ = RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	_, _ = RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if len(*calls) != 0 {
 		t.Fatalf("a transient recover failure condemned an account: %+v", *calls)
 	}
@@ -443,7 +444,7 @@ func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
 	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v: expected a move-on to the second dispatch", res, err)
 	}
@@ -554,7 +555,7 @@ func TestRateLimitedHopMarksAccount(t *testing.T) {
 	e429 := errors.New("rate limited: codex: exit status 1 exceeded retry limit, last status: 429 Too Many Requests")
 	codex := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "chatgpt"}
-	if _, err := RunWithFallback(context.Background(), ExplicitChain(codex, req), req, Discard, nil); err == nil {
+	if _, err := RunWithFallback(context.Background(), ExplicitChain(codex, req), req, wire.Discard, nil); err == nil {
 		t.Fatal("the 429 must surface")
 	}
 	e := loadState()["openai·chatgpt"]
@@ -563,7 +564,7 @@ func TestRateLimitedHopMarksAccount(t *testing.T) {
 	}
 	api := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
 	paid := RunOptions{Prompt: "p", Provider: "openai"} // credits billing: one endpoint's 429 must not bench the account
-	_, _ = RunWithFallback(context.Background(), ExplicitChain(api, paid), paid, Discard, nil)
+	_, _ = RunWithFallback(context.Background(), ExplicitChain(api, paid), paid, wire.Discard, nil)
 	if e := loadState()["openai·openai"]; !e.ExhaustedUntil.IsZero() {
 		t.Fatalf("openai·openai = %+v, want no mark on a credits 429", e)
 	}

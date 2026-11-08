@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -88,7 +89,7 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 
 	for _, name := range []string{"codex", "gemini"} {
 		t.Run(name+"/not-refused", func(t *testing.T) {
-			_, err := newCLIEngine(name).Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
+			_, err := newCLIEngine(name).Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, wire.Discard)
 			if err == nil {
 				t.Fatalf("%s: want a non-nil error (no route for a fake provider), got nil", name)
 			}
@@ -99,7 +100,7 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	}
 
 	t.Run("opencode/still-refused", func(t *testing.T) {
-		_, err := newCLIEngine("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
+		_, err := newCLIEngine("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, wire.Discard)
 		var e *retry.Error
 		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)
@@ -221,7 +222,7 @@ done
 echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"ok"}}'`
 	pathstest.FakeVendor(t, "codex", body)
 	_, err := newCLIEngine("codex").Run(context.Background(), RunOptions{Prompt: "task", Provider: "toai", Tools: true,
-		SystemPrompt: `be "terse"`, AppendSystemPrompt: "APP", OutputSchema: `{"type":"object","properties":{"a":{"type":"string"}}}`}, Discard)
+		SystemPrompt: `be "terse"`, AppendSystemPrompt: "APP", OutputSchema: `{"type":"object","properties":{"a":{"type":"string"}}}`}, wire.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,12 +262,12 @@ func assertCodexSchemaCleanup(t *testing.T, capture string) {
 func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; sleep 30 & sleep 30"}, nil, "", "", nil, true)
 	bad := errors.New("bad event")
-	parse := func(br *bufio.Reader, _ Sink, _ func(), _ ...StreamLog) (Result, error) {
+	parse := func(br *bufio.Reader, _ wire.Sink, _ func(), _ ...wire.StreamLog) (wire.Result, error) {
 		_, _ = br.ReadBytes('\n')
-		return Result{Answer: "seen"}, bad
+		return wire.Result{Answer: "seen"}, bad
 	}
 	start := time.Now()
-	res, err := RunEventStream(context.Background(), "x", cmd, tail, Discard, parse, nil)
+	res, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, nil)
 	if time.Since(start) > 10*time.Second || !errors.Is(err, bad) || res.Answer != "seen" {
 		t.Fatalf("took %v, res=%+v err=%v; want a prompt kill keeping the parse error and answer", time.Since(start), res, err)
 	}
@@ -276,11 +277,11 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
 	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; exec >&-; sleep 0.5; exit 7"}, nil, "", "", nil, true)
 	bad := errors.New("turn failed")
-	parse := func(br *bufio.Reader, _ Sink, _ func(), _ ...StreamLog) (Result, error) {
+	parse := func(br *bufio.Reader, _ wire.Sink, _ func(), _ ...wire.StreamLog) (wire.Result, error) {
 		_, _ = io.Copy(io.Discard, br)
-		return Result{}, bad
+		return wire.Result{}, bad
 	}
-	_, err := RunEventStream(context.Background(), "x", cmd, tail, Discard, parse, nil)
+	_, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, nil)
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 7 || !errors.Is(err, bad) {
 		t.Fatalf("err = %v; want exit code 7 (not a kill) joined with the parse error", err)
@@ -290,10 +291,10 @@ func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
 // RunStream carries a structured-only answer: no text is not an empty answer when the schema output arrived.
 func TestRunStreamKeepsStructured(t *testing.T) {
 	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
-	parse := func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error) {
-		return Result{Structured: json.RawMessage(`{"ok":true}`)}, nil
+	parse := func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
+		return wire.Result{Structured: json.RawMessage(`{"ok":true}`)}, nil
 	}
-	res, err := RunStream(context.Background(), "x", cmd, tail, Result{}, Discard, parse)
+	res, err := RunStream(context.Background(), "x", cmd, tail, wire.Result{}, wire.Discard, parse)
 	if err != nil || string(res.Structured) != `{"ok":true}` {
 		t.Fatalf("res=%+v err=%v; want Structured kept and no empty-answer error", res, err)
 	}

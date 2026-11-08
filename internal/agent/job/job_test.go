@@ -3,6 +3,7 @@ package job
 import (
 	"bytes"
 	"context"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -621,7 +622,7 @@ func finishLater(rec agent.Record, d time.Duration) <-chan error {
 	done := make(chan error, 1)
 	go func() {
 		time.Sleep(d)
-		rec.Finish(agent.Result{}, nil, d)
+		rec.Finish(wire.Result{}, nil, d)
 		done <- rec.Save()
 	}()
 	return done
@@ -674,7 +675,7 @@ func TestTailFollowSilentHeartbeat(t *testing.T) {
 		for end := time.Now().Add(4 * time.Second); !strings.Contains(out.String(), "no output for") && time.Now().Before(end); {
 			time.Sleep(10 * time.Millisecond)
 		}
-		rec.Finish(agent.Result{}, nil, time.Second)
+		rec.Finish(wire.Result{}, nil, time.Second)
 		saved <- rec.Save()
 	}()
 

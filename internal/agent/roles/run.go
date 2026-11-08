@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"strings"
 	"sync"
@@ -31,8 +32,8 @@ type Report struct {
 
 // LegResult is one leg's label and its `ask --format json` envelope.
 type LegResult struct {
-	Label    string         `json:"label"`
-	Envelope agent.Envelope `json:"envelope"`
+	Label    string        `json:"label"`
+	Envelope wire.Envelope `json:"envelope"`
 }
 
 // Run dispatches legs concurrently, host-isolated under a limit of min(jobs, 12), tagging progress lines with the label.
@@ -64,9 +65,9 @@ func runLeg(ctx context.Context, c *agent.Client, leg Leg, progress io.Writer, m
 	}
 	for ev := range streamLeg(c, ctx, leg.Opts) {
 		switch {
-		case ev.Type == agent.EventText && progress != nil:
+		case ev.Type == wire.EventText && progress != nil:
 			line = progressLines(line, ev, flush)
-		case ev.Type == agent.EventResult && ev.Envelope != nil:
+		case ev.Type == wire.EventResult && ev.Envelope != nil:
 			env = *ev.Envelope
 		}
 	}
@@ -76,7 +77,7 @@ func runLeg(ctx context.Context, c *agent.Client, leg Leg, progress io.Writer, m
 	return LegResult{Label: leg.Label, Envelope: env}
 }
 
-func progressLines(line []byte, ev agent.Event, flush func([]byte)) []byte {
+func progressLines(line []byte, ev wire.Event, flush func([]byte)) []byte {
 	if ev.Sep && len(line) > 0 {
 		line = append(line, '\n')
 	}
@@ -88,8 +89,8 @@ func progressLines(line []byte, ev agent.Event, flush func([]byte)) []byte {
 	return line
 }
 
-func failed(leg Leg, msg string) agent.Envelope {
-	env := agent.FailureEnvelope(leg.Opts.Agent, fmt.Errorf("%s", msg))
+func failed(leg Leg, msg string) wire.Envelope {
+	env := wire.FailureEnvelope(leg.Opts.Agent, fmt.Errorf("%s", msg))
 	if env.Model == "" {
 		env.Model = leg.Opts.Model
 	}

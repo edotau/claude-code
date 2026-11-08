@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -118,9 +119,9 @@ func (l hubDispatch) Available() error {
 	return err
 }
 
-func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
+func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	model := l.resolveModel(req.Model)
-	res := agent.Result{Provider: l.provider.Name, Model: model, SessionID: req.SessionID}
+	res := wire.Result{Provider: l.provider.Name, Model: model, SessionID: req.SessionID}
 	if model == "" {
 		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: fmt.Errorf("%s: no model resolved", l.provider.Name)}
 	}

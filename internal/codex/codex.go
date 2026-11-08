@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"maps"
 	"os"
@@ -51,7 +52,7 @@ func (codexEngine) Before(req agent.RunOptions, t providers.Target) providers.Ta
 
 func (codexEngine) RanModel(t providers.Target) string { return codexRanModel(t) }
 
-func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
+func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	res, prompt, env, argv := p.Result, p.Prompt, p.Env, p.Argv
 	bin, err := e.Bin()
 	if err != nil {
@@ -83,7 +84,7 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	if codexJSON {
 		return agent.RunStream(ctx, e.Name(), cmd, tail, res, sink, parseCodexStream)
 	}
-	cmd.Stdout = agent.TeeWriter(ctx, io.MultiWriter(agent.SinkWriter(sink), &answer))
+	cmd.Stdout = wire.TeeWriter(ctx, io.MultiWriter(wire.SinkWriter(sink), &answer))
 	agentconfig.RecordOverlayDebug(e.Name(), cmd.Env)
 	err = cmd.Run()
 	res.Answer = strings.TrimSpace(answer.String())

@@ -6,10 +6,11 @@ import (
 	"context"
 	"errors"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // tripFailFast cancels the batch when err ends the task (no fallback follows), before the dispatch's permit is released.
-func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res Result, err error) {
+func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.Result, err error) {
 	trip := retry.FailFastStop(ctx)
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
 		return

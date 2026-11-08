@@ -2,11 +2,11 @@ package copilot
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"slices"
 	"sync/atomic"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -21,7 +21,7 @@ func TestResumeSlot(t *testing.T) {
 
 type recSink struct{ types []string }
 
-func (s *recSink) Emit(ev agent.Event) error { s.types = append(s.types, ev.Type); return nil }
+func (s *recSink) Emit(ev wire.Event) error { s.types = append(s.types, ev.Type); return nil }
 
 // An approved tool then a 503 leaves the sink with a progress mark before any text; a denied-only run emits none.
 func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
@@ -34,13 +34,13 @@ func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
 		sink := &recSink{}
 		out := SDKResult{Text: "part", ToolRan: ok.Load()}
 		err := markToolRan(out, sink, errors.New("503 service unavailable")) // Run marks the tool before branching on err
-		_, _ = copilotPartial(agent.Result{}, out, err, sink)
+		_, _ = copilotPartial(wire.Result{}, out, err, sink)
 		return sink.types
 	}
-	if got := run(rpc.PermissionRequestRead{}); !slices.Equal(got, []string{agent.EventProgress, agent.EventText}) {
+	if got := run(rpc.PermissionRequestRead{}); !slices.Equal(got, []string{wire.EventProgress, wire.EventText}) {
 		t.Errorf("approved read: events = %v, want [progress text]", got)
 	}
-	if got := run(rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{agent.EventText}) {
+	if got := run(rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{wire.EventText}) {
 		t.Errorf("denied mcp: events = %v, want [text]", got)
 	}
 }
@@ -51,7 +51,7 @@ func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 	if err := markToolRan(SDKResult{ToolRan: true}, sink, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.types) != 1 || sink.types[0] != agent.EventProgress {
+	if len(sink.types) != 1 || sink.types[0] != wire.EventProgress {
 		t.Fatalf("sink saw %v, want one progress mark and no tool_use", sink.types)
 	}
 	if err := markToolRan(SDKResult{}, sink, nil); err != nil || len(sink.types) != 1 {
@@ -61,8 +61,8 @@ func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 
 // A failed run keeps the usage the collector summed before the failure.
 func TestCopilotPartialKeepsUsage(t *testing.T) {
-	want := agent.Usage{InputTokens: 7, OutputTokens: 3}
-	res, _ := copilotPartial(agent.Result{}, SDKResult{Text: "partial", Usage: want}, errors.New("boom"), agent.Discard)
+	want := wire.Usage{InputTokens: 7, OutputTokens: 3}
+	res, _ := copilotPartial(wire.Result{}, SDKResult{Text: "partial", Usage: want}, errors.New("boom"), wire.Discard)
 	if res.Usage != want {
 		t.Fatalf("Usage = %+v, want %+v", res.Usage, want)
 	}

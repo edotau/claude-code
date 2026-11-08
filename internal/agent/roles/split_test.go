@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
 	"testing"
 
@@ -12,8 +13,8 @@ import (
 
 func TestSplitFallsBackOnError(t *testing.T) {
 	orig := splitRun
-	splitRun = func(*agent.Client, context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
-		return agent.Result{Answer: "a\nb"}, errors.New("down")
+	splitRun = func(*agent.Client, context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
+		return wire.Result{Answer: "a\nb"}, errors.New("down")
 	}
 	t.Cleanup(func() { splitRun = orig })
 	if got := Split(context.Background(), nil, "q"); len(got) != 1 || got[0] != "q" {
@@ -27,8 +28,8 @@ func TestSplitCapsAtTwelve(t *testing.T) {
 	for i := range 20 {
 		lines = append(lines, fmt.Sprintf(" part %d ", i))
 	}
-	splitRun = func(*agent.Client, context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
-		return agent.Result{Answer: strings.Join(lines, "\n\n")}, nil
+	splitRun = func(*agent.Client, context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
+		return wire.Result{Answer: strings.Join(lines, "\n\n")}, nil
 	}
 	t.Cleanup(func() { splitRun = orig })
 	got := Split(context.Background(), nil, "q")
@@ -39,8 +40,8 @@ func TestSplitCapsAtTwelve(t *testing.T) {
 
 func TestSplitSingleLineReturnsQuestion(t *testing.T) {
 	orig := splitRun
-	splitRun = func(*agent.Client, context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
-		return agent.Result{Answer: "only one"}, nil
+	splitRun = func(*agent.Client, context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
+		return wire.Result{Answer: "only one"}, nil
 	}
 	t.Cleanup(func() { splitRun = orig })
 	if got := Split(context.Background(), nil, "q"); len(got) != 1 || got[0] != "q" {

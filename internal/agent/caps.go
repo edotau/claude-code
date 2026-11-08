@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/agent/answer"
 )
 
 // Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored.
@@ -36,7 +35,7 @@ type Engine interface {
 	Name() string
 	Caps() Caps
 	Available() error
-	Run(ctx context.Context, req RunOptions, sink Sink) (Result, error)
+	Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error)
 }
 
 // Engines lists every agent in roster order.
@@ -107,7 +106,7 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
 	drop(c.AppendSystemPrompt, req.AppendSystemPrompt != "", "--append-system-prompt", func() { req.AppendSystemPrompt = "" })
 	if req.OutputSchema != "" && c.OutputSchema != Native { // the answer is validated either way; only the instruction differs
-		req.Prompt += answer.Instruction(req.OutputSchema)
+		req.Prompt += wire.SchemaInstruction(req.OutputSchema)
 		emulated = append(emulated, "--output-schema")
 	}
 	return req, dropped, emulated

@@ -1,4 +1,4 @@
-package agent
+package wire
 
 import "strings"
 

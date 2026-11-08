@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"slices"
@@ -163,15 +164,15 @@ func ResolveOutputSchema(arg string) (string, error) {
 }
 
 // RecordEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
-func RecordEnvelope(rec Record, errw io.Writer) Envelope {
+func RecordEnvelope(rec Record, errw io.Writer) wire.Envelope {
 	if f, err := os.Open(rec.EventsPath()); err == nil {
 		defer f.Close()
-		var env *Envelope
+		var env *wire.Envelope
 		sc := bufio.NewScanner(f)
 		sc.Buffer(nil, 16<<20)
 		for sc.Scan() {
-			var ev Event
-			if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == EventResult && ev.Envelope != nil {
+			var ev wire.Event
+			if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
 				env = ev.Envelope
 			}
 		}
@@ -186,12 +187,12 @@ func RecordEnvelope(rec Record, errw io.Writer) Envelope {
 	if rec.Status == "error" {
 		runErr = fmt.Errorf("%s", rec.Error)
 	}
-	res := Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
+	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
 		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
 	if log, err := os.ReadFile(rec.LogPath()); err == nil {
 		res.Answer = string(log)
 	}
-	return NewEnvelope(res, runErr, rec.ID)
+	return wire.NewEnvelope(res, runErr, rec.ID)
 }
 
 // AskTarget bundles the ask flag pointers that a logged dispatch's request overwrites on --job/--retry.
