@@ -75,12 +75,15 @@ func (p Pong) Line() string {
 	return s
 }
 
-// runAsk runs `<bin> ask --agent a --fallback none --format json` and returns the envelope; a seam for tests.
+// runAsk runs `<bin> agents ask --agent a [--profile p] --fallback none --format json`; a seam for tests.
 var runAsk = defaultRunAsk
 
-func defaultRunAsk(ctx context.Context, bin, agentName string) (wire.Envelope, error) {
-	cmd := exec.CommandContext(ctx, bin, "agents", "ask", "--agent", agentName, "--fallback", "none", "--format", "json",
-		"Reply with the single word: pong")
+func defaultRunAsk(ctx context.Context, bin, agentName, profile string) (wire.Envelope, error) {
+	argv := []string{"agents", "ask", "--agent", agentName}
+	if profile != "" {
+		argv = append(argv, "--profile", profile)
+	}
+	cmd := exec.CommandContext(ctx, bin, append(argv, "--fallback", "none", "--format", "json", "Reply with the single word: pong")...)
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.Output()
@@ -102,20 +105,25 @@ func LivePongs(ctx context.Context, bin string, ps []Pin) []Pong {
 			live = append(live, p)
 		}
 	}
-	out := make([]Pong, len(live))
+	return pongAll(ctx, bin, live, "")
+}
+
+// pongAll pongs every pin in parallel; askProfile, when set, is passed to ask as --profile.
+func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string) []Pong {
+	out := make([]Pong, len(ps))
 	var wg sync.WaitGroup
-	for i, p := range live {
+	for i, p := range ps {
 		wg.Go(func() {
-			out[i] = pong(ctx, bin, p)
+			out[i] = pong(ctx, bin, p, askProfile)
 		})
 	}
 	wg.Wait()
 	return out
 }
 
-func pong(ctx context.Context, bin string, p Pin) Pong {
+func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 	r := Pong{Agent: p.Agent, Profile: p.Profile, Model: p.Model}
-	env, err := runAsk(ctx, bin, p.Agent)
+	env, err := runAsk(ctx, bin, p.Agent, askProfile)
 	r.Profile, r.Model = cmp.Or(env.Provider, r.Profile), cmp.Or(env.Model, r.Model)
 	switch {
 	case err != nil:
@@ -152,24 +160,73 @@ func printRefreshErrors(w io.Writer, errs []error) {
 
 func fieldsLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// RunInstallStep refreshes stale listings, then prints one live pong row per agent; silent without a credential.
-func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, bin string, now time.Time) {
+// RunInstallStep refreshes stale listings, then pongs each agent; silent only when no pin has a credential.
+func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, bin string, now time.Time) []Pong {
 	ps := Check(reg, now)
 	if slices.ContainsFunc(ps, func(p Pin) bool { return p.Status == StatusError }) {
 		printFixRows(w, ps)
-		return
+		return nil
 	}
 	if !anyCredential(reg, ps) {
-		return // no credential anywhere: nothing to ping
+		return nil // no credential anywhere: nothing to ping
 	}
 	ctx, cancel := context.WithTimeout(ctx, Budget)
 	defer cancel()
 	printRefreshErrors(w, RefreshStale(ctx, reg, ps, now, false))
 	ps = Check(reg, now)
-	for _, r := range LivePongs(ctx, bin, ps) {
+	pongs := LivePongs(ctx, bin, ps)
+	for _, r := range pongs {
 		fmt.Fprintln(w, r.Line())
 	}
 	printFixRows(w, ps)
+	return pongs
+}
+
+// profileAgents are the agents the all-Databricks arm pongs on a named profile.
+var profileAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
+
+// profileNames resolves profile to the profiles to pong, printing a skip row for each unusable one.
+func profileNames(w io.Writer, reg *providers.Registry, profile string) []string {
+	cands := []string{profile}
+	if profile == "all" {
+		cands = reg.ProfilesOf("databricks")
+	}
+	var names []string
+	for _, n := range cands {
+		prov := reg.Providers[n]
+		switch {
+		case prov == nil:
+			fmt.Fprintf(w, "pong skip · %s · unknown profile\n", n)
+		case prov.Preset != providers.PresetDatabricks:
+			fmt.Fprintf(w, "pong skip · %s · not a Databricks profile\n", n)
+		case !providers.CredentialPresent(prov):
+			fmt.Fprintf(w, "pong skip · %s · no credential\n", n)
+		default:
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 { // a fail row makes doctor exit non-zero: no pong ran
+		fmt.Fprintf(w, "pong · fail · %s · no usable Databricks profile\n", profile)
+	}
+	return names
+}
+
+// RunProfilePongs pongs every agent on profile (all = each usable Databricks profile), one row per agent x profile.
+func RunProfilePongs(ctx context.Context, w io.Writer, reg *providers.Registry, bin, profile string) []Pong {
+	var all []Pong
+	for _, n := range profileNames(w, reg, profile) {
+		pctx, cancel := context.WithTimeout(ctx, 2*Budget) // five cold agents in parallel outlast one install-step budget
+		ps := make([]Pin, len(profileAgents))
+		for i, a := range profileAgents {
+			ps[i] = Pin{Agent: a, Profile: n}
+		}
+		for _, r := range pongAll(pctx, bin, ps, n) {
+			fmt.Fprintln(w, r.Line())
+			all = append(all, r)
+		}
+		cancel()
+	}
+	return all
 }
 
 // Stale reports whether a Databricks profile in use has no fresh listing.

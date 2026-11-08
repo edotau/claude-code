@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/completion"
@@ -32,24 +33,36 @@ func preflightDiscover(profile string) int {
 }
 
 // preflightLive runs the post-install pong round against the running binary.
-func preflightLive(reg *providers.Registry) int {
+func preflightLive(reg *providers.Registry, profile string) int {
 	bin, err := os.Executable()
 	if err != nil {
 		return helptext.Fail("preflight: %v", err)
 	}
-	preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
+	var pongs []preflight.Pong
+	if profile != "" {
+		pongs = preflight.RunProfilePongs(context.Background(), os.Stdout, reg, bin, profile)
+		if len(pongs) == 0 {
+			return helptext.Fail("preflight: no pong ran for %q (unknown, non-Databricks or no credential)", profile)
+		}
+	} else {
+		pongs = preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
+	}
+	if slices.ContainsFunc(pongs, func(p preflight.Pong) bool { return !p.OK }) {
+		return 1
+	}
 	return 0
 }
 
 // Preflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func Preflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
-		Usage: "claude-code preflight [--live|--refresh|--discover <profile>]",
+		Usage: "claude-code preflight [--live [--profile <p>|all]|--refresh|--discover <profile>]",
 		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.\n" +
 			"--refresh only re-lists stale listings, silently.\n" +
 			"--discover re-seals one profile's model snapshot (Databricks or github), silently (a launch spawns it when expired).",
 	})
 	live := fs.Bool("live", false, "refresh stale listings and ask each pinned agent for pong")
+	profile := fs.String("profile", "", "with --live: pong every agent on this profile, or all Databricks profiles (all)")
 	refresh := fs.Bool("refresh", false, "re-list stale served-endpoint caches, print nothing")
 	discover := fs.String("discover", "", "re-seal one profile's model snapshot (Databricks or github)")
 	if code, done := helptext.Parse(fs, args); done {
@@ -58,21 +71,35 @@ func Preflight(args []string) int {
 	if *discover != "" {
 		return preflightDiscover(*discover)
 	}
+	if msg := preflightConflict(*live, *refresh, *profile); msg != "" {
+		return helptext.Fail("preflight: %s", msg)
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("preflight: %v", err)
 	}
-	return preflightReport(reg, *refresh, *live)
+	return preflightReport(reg, *refresh, *live, *profile)
+}
+
+// preflightConflict names the flag combination that would silently drop a flag, or "" when valid.
+func preflightConflict(live, refresh bool, profile string) string {
+	switch {
+	case profile != "" && !live:
+		return "--profile requires --live"
+	case refresh && live:
+		return "--refresh cannot be combined with --live"
+	}
+	return ""
 }
 
 // preflightReport runs the refresh or live step when asked, else prints each agent's pin check.
-func preflightReport(reg *providers.Registry, refresh, live bool) int {
+func preflightReport(reg *providers.Registry, refresh, live bool, profile string) int {
 	if refresh {
 		preflightRefresh(reg)
 		return 0
 	}
 	if live {
-		return preflightLive(reg)
+		return preflightLive(reg, profile)
 	}
 	for _, p := range preflight.Check(reg, time.Now()) {
 		fmt.Printf("%-8s %-9s %s\n", p.Agent, p.Status, p.Line())
@@ -82,5 +109,5 @@ func preflightReport(reg *providers.Registry, refresh, live bool) int {
 
 // PreflightSpecNode is the `preflight` completion spec.
 func PreflightSpecNode() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{{Name: "discover"}, {Name: "live", IsBool: true}, {Name: "refresh", IsBool: true}}}
+	return &completion.Node{Flags: []completion.Flag{{Name: "discover"}, {Name: "live", IsBool: true}, {Name: "profile"}, {Name: "refresh", IsBool: true}}}
 }

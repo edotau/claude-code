@@ -46,8 +46,8 @@ func pinAll(t *testing.T) {
 func TestCheckSkipsAgentsWithoutProfile(t *testing.T) {
 	hermeticVault(t)
 	reg, now := preflightRegistry(true), time.Now()
-	if got := Check(reg, now); len(got) != 0 {
-		t.Fatalf("with no profile every external agent is off and unchecked, got %+v", got)
+	if got := Check(reg, now); len(got) != 1 || got[0].Agent != "gemini" || got[0].Status != StatusOK {
+		t.Fatalf("with no profile every external agent but gemini (Google pin) is off, got %+v", got)
 	}
 	if line := StaticLine(reg, now); line != "" {
 		t.Fatalf("static line %q, want none while no Databricks profile is in play", line)
@@ -59,8 +59,8 @@ func TestCheckOwnLoginIsUnpinned(t *testing.T) {
 	hermeticVault(t)
 	setPins(t, map[string]string{"CODEX_PROFILE": "chatgpt", "OPENCODE_PROFILE": "zen-free"})
 	got := byAgent(Check(preflightRegistry(true), time.Now()))
-	if len(got) != 2 {
-		t.Fatalf("want codex and opencode checked, copilot off: %+v", got)
+	if len(got) != 3 {
+		t.Fatalf("want codex, opencode and gemini checked, copilot off: %+v", got)
 	}
 	for _, name := range []string{"codex", "opencode"} {
 		if p := got[name]; p.Status != StatusUnpinned || p.ProfileSource != "none" || p.Profile != "" || p.Detail != "own login, not Databricks" {

@@ -13,7 +13,7 @@ import (
 )
 
 // agents are the third-party CLIs whose pins are checked.
-var agents = []string{"codex", "copilot", "opencode"}
+var agents = []string{"codex", "copilot", "gemini", "opencode"}
 
 // Status values of a Pin.
 const (
@@ -73,6 +73,9 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sessi
 	p := Pin{Agent: name, Profile: spec.Profile, ProfileSource: "pin", Model: spec.Model, Served: "n/a"}
 	if p.Profile == "" && name == "codex" {
 		p.Profile, p.ProfileSource = session, "follows CLAUDE_PROFILE"
+	}
+	if p.Profile == "" && name == "gemini" { // gemini's pin is its own Google login, cleared by AgentPins
+		p.Profile = "antigravity"
 	}
 	if p.Profile == "" {
 		p.ProfileSource, p.Status = "none", StatusUnpinned
