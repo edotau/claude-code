@@ -129,7 +129,8 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
-	if d, msg, detail, ok := hardBlockVerdict(in, cmd, scan); ok {
+	d, msg, detail, _ := hardBlockVerdict(in, cmd, scan)
+	if d == core.Block {
 		return d, msg, detail
 	}
 	for _, re := range exfilPatterns() {
@@ -137,7 +138,11 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
-	return safetyAskVerdict(in)
+	ask, askMsg, askDetail := safetyAskVerdict(in)
+	if d > ask {
+		return d, askMsg + msg, detail
+	}
+	return ask, askMsg, askDetail
 }
 
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
