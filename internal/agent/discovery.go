@@ -54,7 +54,7 @@ func discoveryProvider(disp Dispatch, reg *providers.Registry, profile string) (
 	if profile == "" {
 		_, profile, _ = strings.Cut(disp.Account, "·")
 	}
-	p := profileRow(reg, profile)
+	p := reg.Row(profile)
 	if p == nil {
 		return nil, ""
 	}

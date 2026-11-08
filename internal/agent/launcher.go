@@ -318,7 +318,7 @@ func (p Plan) WriteFiles() error {
 // RecordEnv is the env Exec hands the child, recorded to COWORKER_OVERLAY_DEBUG; --print-env calls it as a dry exec.
 func (p Plan) RecordEnv() []string {
 	env := p.Env(os.Environ())
-	RecordOverlayDebug(p.Agent, env)
+	agentconfig.RecordOverlayDebug(p.Agent, env)
 	return env
 }
 

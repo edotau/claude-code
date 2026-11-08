@@ -176,6 +176,6 @@ func checkIsolation(ctx context.Context) error {
 
 // withBilling re-keys disp to p's account and billing.
 func withBilling(disp Dispatch, p *providers.Provider) Dispatch {
-	disp.Account, disp.Billing = profileAccount(p), billingOf(p)
+	disp.Account, disp.Billing = p.Account(), billingOf(p)
 	return disp
 }
