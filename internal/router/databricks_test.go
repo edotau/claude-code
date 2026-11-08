@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,5 +96,72 @@ func TestCodexDatabricksCandidateExhausted(t *testing.T) {
 	accts, r := dbxCandidates(t, "dev", []providers.OpencodeModel{dbxGPT}, st)
 	if !slices.Equal(accts, []string{dbxChatgpt}) || !hasDbxSkip(r, GateExhausted) {
 		t.Errorf("exhausted: accounts = %v skipped = %+v", accts, r.Skipped)
+	}
+}
+
+// vendorPick runs a pick for want with codex and copilot pinned to Databricks row dev.
+func vendorPick(t *testing.T, want string, pinned bool, st State, lead string) PickResult {
+	t.Helper()
+	tb := testTable(t)
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_PROFILE", "dev")
+	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	o := PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead}
+	if pinned {
+		o.Pins = map[string]PinSpec{"codex": {Profile: "dev"}, "copilot": {Profile: "dev"}}
+	}
+	return tb.Pick(context.Background(), "sonnet", want, st, o)
+}
+
+func accountsOf(r PickResult, agent string) []string {
+	var accts []string
+	for _, c := range r.Candidates {
+		if c.Agent == agent {
+			accts = append(accts, c.Account)
+		}
+	}
+	return accts
+}
+
+func TestPickVendorAfterDatabricksPin(t *testing.T) {
+	r := vendorPick(t, "copilot", true, nil, "")
+	if got := accountsOf(r, "codex"); !slices.Equal(got, []string{dbxAcct, dbxChatgpt}) {
+		t.Errorf("non-want codex accounts = %v, want [%s %s] (skipped %+v)", got, dbxAcct, dbxChatgpt, r.Skipped)
+	}
+	if got := accountsOf(r, "copilot"); slices.Contains(got, "github·personal") {
+		t.Errorf("wanted copilot accounts = %v, want the pin only without Lead", got)
+	}
+}
+
+func TestPickUnpinnedSessionDefaultOrder(t *testing.T) {
+	if got := accountsOf(vendorPick(t, "codex", false, nil, ""), "codex"); !slices.Equal(got, []string{dbxChatgpt, dbxAcct}) {
+		t.Errorf("unpinned codex = %v, want [%s %s]", got, dbxChatgpt, dbxAcct)
+	}
+	if got := accountsOf(vendorPick(t, "codex", false, nil, "dev"), "codex"); !slices.Equal(got, []string{dbxAcct, dbxChatgpt}) {
+		t.Errorf("unpinned codex, lead dev = %v, want [%s %s]", got, dbxAcct, dbxChatgpt)
+	}
+}
+
+func TestPickGeminiStaysOnGoogle(t *testing.T) {
+	got := accountsOf(vendorPick(t, "gemini", true, nil, "dev"), "gemini")
+	if len(got) == 0 {
+		t.Fatal("no gemini candidate")
+	}
+	for _, a := range got {
+		if !strings.HasPrefix(a, "google·") {
+			t.Errorf("gemini on %s, want google only", a)
+		}
+	}
+}
+
+func TestPickVendorSkipsExhausted(t *testing.T) {
+	st := State{dbxChatgpt: Entry{UsedPct: 100, Seen: now0, ResetsAt: now0.Add(time.Hour)}}
+	r := vendorPick(t, "copilot", true, st, "")
+	if got := accountsOf(r, "codex"); !slices.Equal(got, []string{dbxAcct}) {
+		t.Errorf("codex accounts = %v, want [%s]", got, dbxAcct)
+	}
+	if !slices.ContainsFunc(r.Skipped, func(s Skip) bool { return s.Gate == GateExhausted }) {
+		t.Errorf("no exhausted skip: %+v", r.Skipped)
 	}
 }
