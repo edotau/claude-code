@@ -1,4 +1,4 @@
-package cli
+package themecmd
 
 import (
 	"fmt"
@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/network/vscode"
 	"github.com/edotau/claude-code/internal/statusline"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -31,8 +33,8 @@ var themePage = helptext.Page{
 	Hint: "claude-code theme <command> -h lists that command's flags.",
 }
 
-// cmdTheme sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
-func cmdTheme(args []string) int {
+// Run sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
+func Run(args []string) int {
 	if code, ok := themeSubcommand(args); ok {
 		return code
 	}
@@ -69,7 +71,7 @@ func themeSubcommand(args []string) (code int, ok bool) {
 		fs := helptext.NewFlagSet("theme statusline", themeStatuslinePage)
 		return statusline.Run(fs, args[1:], os.Stdin, os.Stdout), true
 	case "vscode":
-		return cmdVSCode(args[1:]), true
+		return vscode.Run(args[1:]), true
 	}
 	return 0, false
 }
@@ -156,4 +158,16 @@ func themeApply(args []string) int {
 		return helptext.Fail("theme apply: %v", err)
 	}
 	return 0
+}
+
+// Spec is the completion node for the theme verb tree.
+func Spec() *completion.Node {
+	boolFlag := func(n string) completion.Flag { return completion.Flag{Name: n, IsBool: true} }
+	styles := func() []string { return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"} }
+	return &completion.Node{Args: []func() []string{theme.GradientNames}, Flags: []completion.Flag{boolFlag("palettes"), boolFlag("reset")},
+		Sub: map[string]*completion.Node{
+			"apply":      {Flags: []completion.Flag{boolFlag("dry-run")}},
+			"statusline": {Flags: []completion.Flag{{Name: "style", Values: styles}}},
+			"vscode":     vscode.Spec(),
+		}}
 }

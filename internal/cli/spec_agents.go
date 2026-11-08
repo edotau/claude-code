@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"slices"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/router"
@@ -81,27 +79,7 @@ func agentSubNodes(askFlags []completion.Flag) map[string]*completion.Node {
 	}
 }
 
-// reviewSubNodes gives every review detector (reviewTools, review.go) an empty node — none of them
-// have their own completable flags today.
-func reviewSubNodes() map[string]*completion.Node {
-	out := map[string]*completion.Node{}
-	for _, n := range reviewToolNames() {
-		out[n] = &completion.Node{}
-	}
-	return out
-}
-
 func cliAgentNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
-
-// reviewToolNames derives from reviewTools (review.go) so a new detector is completable for free.
-func reviewToolNames() []string {
-	out := make([]string, 0, len(reviewTools))
-	for n := range reviewTools {
-		out = append(out, n)
-	}
-	slices.Sort(out)
-	return out
-}
 
 // agentNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never
 // dials an agent.
