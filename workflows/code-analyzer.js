@@ -58,7 +58,7 @@ const MIN_FIX = ORDER[a.minFix] !== undefined ? ORDER[a.minFix] : ORDER.low
 let TARGET = RANGE ? 'the diff of ' + RANGE : 'the code under ' + PATHS.join(', ')
 const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|test|audit, never edit settings.json. ' +
-  (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Run each command bare, never as `cd … && cmd`: copilot\'s shell rejects compound commands. ' : '') + 'Comments 1 line ≤120 chars.'
+  (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). First run `cd ' + CWD + '` as its own command (your shell may start elsewhere), then each command bare, never as `cd … && cmd`: copilot\'s shell rejects compound commands. ' : '') + 'Comments 1 line ≤120 chars.'
 
 // ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
@@ -487,7 +487,7 @@ const EXT_CAP = Math.min(CAP, 4)
 const limiter = n => { let busy = 0; const q = []; const next = () => { if (busy < n && q.length) { busy++; q.shift()() } }
   return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej).finally(() => { busy--; next() })); next() }) }
 // Fix/gate stage context: bare commands (no `cd … &&`; copilot rejects compound commands), external agents use --workdir.
-const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Run each command bare, never as \`cd … && cmd\`: copilot's shell rejects compound commands.\n` : '', rules: SHARED_TREE, S, model: routeModel }
+const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). First run \`cd ${CWD}\` as its own command (your shell may start elsewhere), then each command bare, never as \`cd … && cmd\`: copilot's shell rejects compound commands.\n` : '', rules: SHARED_TREE, S, model: routeModel }
 const GATE_RULES = 'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. Edit only inside scope; re-run only the gate.'
 const auditGate = S.audit.ext ? limiter(EXT_CAP) : fn => fn()
 const refuteGate = S.refute.ext ? limiter(EXT_CAP) : fn => fn()
