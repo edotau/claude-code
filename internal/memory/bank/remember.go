@@ -39,17 +39,9 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, file)
-	var line, id string
+	var id string
 	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
-		var werr error
-		if file == "decisionLog.md" {
-			line = "## " + now.Format("2006-01-02") + " — " + fact
-			werr = prependBlock(path, file, line)
-		} else {
-			label := strings.ToUpper(kind[:1]) + kind[1:]
-			line = "- " + label + ": " + fact
-			werr = AppendBlocks(path, []string{line})
-		}
+		line, werr := writeRememberFact(path, file, kind, fact, now)
 		if werr != nil {
 			return werr
 		}
@@ -68,6 +60,16 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 		return "", err
 	}
 	return id, nil
+}
+
+func writeRememberFact(path, file, kind, fact string, now time.Time) (string, error) {
+	if file == "decisionLog.md" {
+		line := "## " + now.Format("2006-01-02") + " — " + fact
+		return line, prependBlock(path, file, line)
+	}
+	label := strings.ToUpper(kind[:1]) + kind[1:]
+	line := "- " + label + ": " + fact
+	return line, AppendBlocks(path, []string{line})
 }
 
 // prependBlock inserts block at the top of path's entries — decisionLog.md is newest-first.

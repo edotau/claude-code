@@ -256,7 +256,11 @@ func blockWithRef(p, ref string, contentRef bool) (found string, ok bool) {
 		blocks = append(blocks, ParseBlocks(SegKnowledge, base, data)...)
 	}
 	for _, b := range blocks {
-		if contentRef && ContentRef(b) == ref || !contentRef && strings.Contains(b, "<!-- id:"+ref+" -->") {
+		matches := strings.Contains(b, "<!-- id:"+ref+" -->")
+		if contentRef {
+			matches = ContentRef(b) == ref
+		}
+		if matches {
 			found, ok = b, true
 		}
 	}

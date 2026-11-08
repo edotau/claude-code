@@ -79,12 +79,17 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	if !strings.Contains(body, "<!-- id:"+id+" -->") {
 		t.Errorf("decisionLog.md missing the returned id %s: %q", id, body)
 	}
+	assertLaterProjectEntryFirst(t, root, id, now)
+}
+
+func assertLaterProjectEntryFirst(t *testing.T, root, id string, now time.Time) {
+	t.Helper()
 	// Round-trip: a second, later entry must still land ABOVE the first (newest-first).
 	id2, err := Remember(root, "project", "a second, later decision", now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ = os.ReadFile(filepath.Join(memstore.Dir(root), "decisionLog.md"))
+	data, _ := os.ReadFile(filepath.Join(memstore.Dir(root), "decisionLog.md"))
 	first := strings.Index(string(data), id2)
 	second := strings.Index(string(data), id)
 	if first == -1 || second == -1 || first > second {

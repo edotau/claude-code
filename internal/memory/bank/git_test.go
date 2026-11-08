@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -284,7 +285,7 @@ func TestStatusParsesRenamesAndUntrackedInDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []StatusEntry{{"R ", "b.md"}, {"??", "deep/dir/c.md"}}
-	if len(st) != len(want) || st[0] != want[0] || st[1] != want[1] {
+	if !slices.Equal(st, want) {
 		t.Fatalf("Status = %+v, want %+v", st, want)
 	}
 	if st, _ = r.Status("deep"); len(st) != 1 || st[0].Path != "deep/dir/c.md" {
