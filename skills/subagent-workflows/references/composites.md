@@ -11,7 +11,8 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 ## A. code-engineer: size, route, stream, record
 
 - **Use when**: any code job when no specific workflow fits; TRIVIAL to HIGH (EPIC stops at a plan).
-- **Script**: `/home/edotau/.claude/workflows/code-engineer.js` calling `/home/edotau/.claude/workflows/code-workers.js`.
+- **Script**: `/home/edotau/.claude/workflows/code-engineer.js` calling
+  `/home/edotau/.claude/workflows/code-workers.js`.
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |

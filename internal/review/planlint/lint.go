@@ -6,6 +6,7 @@ package planlint
 // silently. The `lint:opus-ok` marker exempts the effort and pin-value checks — a missing model: pin is always a hit.
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -126,7 +128,9 @@ func workflowParseDefects(files []string) (hits []string, skipped string) {
 	if err != nil {
 		return nil, "workflow lint: parse check skipped (node not on PATH)"
 	}
-	out, err := exec.Command(node, append([]string{"-e", parseCheckJS}, files...)...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute) // a hung node never stalls lint
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, append([]string{"-e", parseCheckJS}, files...)...).CombinedOutput()
 	if err == nil {
 		return nil, ""
 	}

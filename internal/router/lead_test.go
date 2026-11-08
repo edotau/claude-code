@@ -60,7 +60,7 @@ func TestGateLeadKeepsOtherAgentOnLeadAccount(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
 	reg, _ := providers.Load()
-	hop := Candidate{Agent: "copilot", Cell: Cell{Account: "databricks·dev", Model: "hop-marker"}}
+	hop := Candidate{Agent: "copilot", Account: "databricks·dev", Model: "hop-marker"}
 	var res PickResult
 	got := tb.gateLead(context.Background(), &pickGate{reg: reg, held: map[string]bool{}}, "sonnet", "codex", PinSpec{},
 		[]Candidate{hop}, State{}, PickOpts{Lead: "dev"}, now0, allConfigured, &res)
@@ -111,7 +111,7 @@ func TestGateLeadKeepsDistinctBaseAndDropsRepeats(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
 	reg, _ := providers.Load()
-	base := []Candidate{{Agent: "codex", Cell: Cell{Account: "x·other"}}, {Agent: "codex", Cell: Cell{Account: "openai·chatgpt", Model: "gpt-6.1-sol"}}}
+	base := []Candidate{{Agent: "codex", Account: "x·other"}, {Agent: "codex", Account: "openai·chatgpt", Model: "gpt-6.1-sol"}}
 	var res PickResult
 	got := tb.gateLead(context.Background(), &pickGate{reg: reg, held: map[string]bool{}}, "sonnet", "codex", PinSpec{},
 		base, State{}, PickOpts{Lead: "dev"}, now0, allConfigured, &res)
@@ -160,7 +160,7 @@ func TestGateLeadBaseCandidateWinsDedup(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
 	reg, _ := providers.Load()
-	base := []Candidate{{Agent: "codex", Cell: Cell{Account: dbxChatgpt, Model: "gpt-6.1-sol"}, Billing: "base-marker"}}
+	base := []Candidate{{Agent: "codex", Account: dbxChatgpt, Model: "gpt-6.1-sol", Billing: "base-marker"}}
 	var res PickResult
 	got := tb.gateLead(context.Background(), &pickGate{reg: reg, held: map[string]bool{}}, "sonnet", "codex", PinSpec{},
 		base, State{}, PickOpts{Lead: "dev"}, now0, allConfigured, &res)
