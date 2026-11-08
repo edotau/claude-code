@@ -526,11 +526,14 @@ function merge(done) {
   const kept = ok.filter((x) => KEEP.includes(x.r.exit)).sort((x, y) => KEEP.indexOf(x.r.exit) - KEEP.indexOf(y.r.exit))
   for (const x of kept) d.push(tag(x, x.child + ' exit ' + x.r.exit + ': not green'))
   for (const x of ok.filter((y) => y.r.exit === 'red' && !strs(y.r.red).length)) red.push(...x.group)
-  const confirmed = cat('confirmed').sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
+  // a finding cited outside its child's group that the file's owning group already confirmed is one bug: drop the copy
+  const owns = (x, f) => x.group.some((dd) => overlaps(dirsOf([stRel(CTX, f.file)])[0], dd))
+  const dupOwned = (x, f) => !owns(x, f) && ok.some((o) => o !== x && owns(o, f) && (o.r.confirmed || []).some((g) => sameBug(CTX, g, f)))
+  const confirmed = ok.flatMap((x) => (x.r.confirmed || []).filter((f) => !dupOwned(x, f))).sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
   const uniq = [...new Set(red)]
   return {
     exit: uniq.length ? 'red' : kept.length ? kept[0].r.exit : a.fix === false ? 'review' : 'green', tier, route, packages: ok.reduce((n, x) => n + (x.r.packages || 0), 0), merged: ok.reduce((n, x) => n + (x.r.merged || 0), 0),
-    confirmed, dropped: cat('dropped'), unverified: cat('unverified'), fixed: cat('fixed'), foreign: cat('foreign'), red: uniq, files: [...new Set(files.map((f) => stRel(CTX, f)))],
+    confirmed, dropped: cat('dropped'), unverified: cat('unverified'), fixed: cat('fixed'), foreign: ok.flatMap((x) => (x.r.foreign || []).filter((f) => !dupOwned(x, f))), red: uniq, files: [...new Set(files.map((f) => stRel(CTX, f)))],
     decisions: d, report: head + '\n' + ok.map((x) => x.r.report || '').join('\n\n'),
   }
 }
