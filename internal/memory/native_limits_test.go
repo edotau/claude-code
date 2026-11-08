@@ -70,6 +70,11 @@ func TestArchiveNativeReportsHealedIndexOverLimit(t *testing.T) {
 	if len(res.Archived) != 1 || fileExists(filepath.Join(dir, "stale-fact.md")) {
 		t.Errorf("archive did not land: Archived = %v", res.Archived)
 	}
+	assertHealedArchiveIndexOverLimit(t, idxPath)
+}
+
+func assertHealedArchiveIndexOverLimit(t *testing.T, idxPath string) {
+	t.Helper()
 	got := readFile(t, idxPath)
 	if strings.Contains(got, "(stale-fact.md)") || !strings.Contains(got, "(orphan-one.md)") || !strings.Contains(got, "(orphan-two.md)") {
 		t.Errorf("index not struck and healed:\n%s", got)

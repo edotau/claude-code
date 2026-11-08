@@ -40,8 +40,7 @@ var (
 	headingDate  = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
 )
 
-// AliasRepo records opt.Repo as an explicit alias of store opt.Into and folds any separate store of that
-// checkout into it, content-preserving, as one journaled commit under the bank lock.
+// AliasRepo records an alias and folds its separate store, preserving content, under the bank lock.
 func AliasRepo(opt AliasOptions) (AliasResult, error) {
 	if opt.Now.IsZero() {
 		opt.Now = time.Now()
@@ -66,7 +65,11 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 	if p.source == "" { // origin-only: AddOriginAlias takes the lock itself
 		return res, memstore.AddOriginAlias(p.target, canon)
 	}
-	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
+	return applyAlias(opt, canon, res, p)
+}
+
+func applyAlias(opt AliasOptions, canon string, res AliasResult, p *aliasPlan) (AliasResult, error) {
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var perr error
 		if res, p, perr = planAlias(opt, canon); perr != nil { // replan: the store may have moved since the preview read
 			return perr

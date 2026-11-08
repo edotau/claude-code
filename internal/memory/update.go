@@ -267,12 +267,7 @@ type UpdateOptions struct {
 
 // Update runs the headless narrative pass under the bank lock, settles the bank, and records the outcome.
 func Update(o UpdateOptions) error {
-	if o.Out == nil {
-		o.Out = io.Discard
-	}
-	if o.Timeout == 0 {
-		o.Timeout = UpdateTimeout
-	}
+	o = updateDefaults(o)
 	prior, _ := ReadUpdateResult(o.Session)
 	record := func(status string, updated bool) {
 		_ = WriteUpdateResult(o.Session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
@@ -289,15 +284,7 @@ func Update(o UpdateOptions) error {
 		record(UpdateFailed, false)
 		return fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock")))
 	}
-	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated := bank.NewestMtime(dir).After(run.before) || bank.NewestMtime(memstore.HomeBankDir()).After(run.beforeHome)
-	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
-		fmt.Fprintln(o.Out, "memory update: settle:", err)
-	}
-	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
-	if err := WriteDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
-		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
-	}
+	updated := run.finish(o, dir)
 	if err := errors.Join(lockErr, run.runErr); err != nil {
 		record(UpdateFailed, updated)
 		return fmt.Errorf("headless update: %w", err)
@@ -306,10 +293,33 @@ func Update(o UpdateOptions) error {
 	return nil
 }
 
+func updateDefaults(o UpdateOptions) UpdateOptions {
+	if o.Out == nil {
+		o.Out = io.Discard
+	}
+	if o.Timeout == 0 {
+		o.Timeout = UpdateTimeout
+	}
+	return o
+}
+
 // updateRun is what the locked section of Update observed: bank mtimes before the run and the run's own error.
 type updateRun struct {
 	before, beforeHome time.Time
 	runErr             error
+}
+
+func (r *updateRun) finish(o UpdateOptions, dir string) bool {
+	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
+	updated := bank.NewestMtime(dir).After(r.before) || bank.NewestMtime(memstore.HomeBankDir()).After(r.beforeHome)
+	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
+		fmt.Fprintln(o.Out, "memory update: settle:", err)
+	}
+	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
+	if err := WriteDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
+		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
+	}
+	return updated
 }
 
 // locked runs the agent or claude update under the store lock, recording mtimes first; the run's error rides in runErr.

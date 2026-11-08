@@ -29,7 +29,7 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallP
 		trace.Terms = terms
 		recallCacheInfo(tr)
 	}
-	if q == "" || (semantic && (strings.HasPrefix(q, "/") || bank.IsUpdateChild())) || distinctTokenCount(tokens) < recallMinTerms {
+	if skipRecallQuery(q, tokens, semantic) {
 		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
@@ -48,6 +48,10 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallP
 	picks := selectRecall(session, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace
+}
+
+func skipRecallQuery(query string, tokens []string, semantic bool) bool {
+	return query == "" || (semantic && (strings.HasPrefix(query, "/") || bank.IsUpdateChild())) || distinctTokenCount(tokens) < recallMinTerms
 }
 
 func recallRoot(root string) string {

@@ -314,13 +314,7 @@ func TestSearchableIndexIsIndexedButNotInjected(t *testing.T) {
 	if got := readFile(t, filepath.Join(dir, bank.NativeIndexFile)); strings.Contains(got, "stale-fact.md") {
 		t.Fatalf("reconcile re-injected a SEARCHABLE.md topic into MEMORY.md:\n%s", got)
 	}
-	st, err := NativeStats(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(st.Orphans) != 0 || len(st.Dangling) != 0 || st.IndexEntries != 1 {
-		t.Fatalf("stats = %+v, want 1 injected entry and no orphans/dangling", st)
-	}
+	assertSearchableIndexStats(t, dir)
 
 	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
@@ -330,6 +324,17 @@ func TestSearchableIndexIsIndexedButNotInjected(t *testing.T) {
 	}
 	if rec := readFile(t, filepath.Join(nativeArchiveDir(dir), bank.NativeArchiveIndexFile)); !strings.Contains(rec, "- [Stale fact](stale-fact.md) — a closed incident") {
 		t.Errorf("archive did not record the SEARCHABLE.md line verbatim:\n%s", rec)
+	}
+}
+
+func assertSearchableIndexStats(t *testing.T, dir string) {
+	t.Helper()
+	st, err := NativeStats(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Orphans) != 0 || len(st.Dangling) != 0 || st.IndexEntries != 1 {
+		t.Fatalf("stats = %+v, want 1 injected entry and no orphans/dangling", st)
 	}
 }
 
@@ -662,6 +667,11 @@ func TestArchiveCollisionVersionsByTimestampAndDedupesEqualContent(t *testing.T)
 		t.Fatalf("archive entries = %v, want exactly a.md plus one a@<ts>.md", got)
 	}
 
+	assertArchiveDedupesAndRefusesDivergentRestore(t, dir, archiveDir)
+}
+
+func assertArchiveDedupesAndRefusesDivergentRestore(t *testing.T, dir, archiveDir string) {
+	t.Helper()
 	// Equal-content re-archive must dedupe, not add a third version.
 	write(t, filepath.Join(dir, "a.md"), "---\nname: a\n---\n\nversion two\n")
 	idx2 := readFile(t, filepath.Join(dir, bank.NativeIndexFile))

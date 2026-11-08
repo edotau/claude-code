@@ -74,13 +74,7 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	}
 	// Rotate, trim and append under one lock: concurrent hooks and verbs must never interleave the renames.
 	appendLines := func() error {
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		_, err = f.WriteString(lines)
-		return err
+		return appendAccessLines(path, lines)
 	}
 	write := func() error {
 		maybeRotateAccessLog(path, now)
@@ -90,6 +84,16 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
 		_ = appendLines() // lock file unopenable: O_APPEND only, never rotate or trim unlocked; a timeout drops it
 	}
+}
+
+func appendAccessLines(path, lines string) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(lines)
+	return err
 }
 
 // maybeRotateAccessLog rotates the active log when its first entry is older than accessRotateDays.
