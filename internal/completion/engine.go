@@ -207,9 +207,12 @@ func positionAwareCandidates(path []string, node *Node, rest []string, cur strin
 	i := positionalInfo(path, node, rest)
 	var cands []string
 	if i == 0 && node != nil {
+		subs := make([]string, 0, len(node.Sub))
 		for w := range node.Sub {
-			cands = append(cands, w)
+			subs = append(subs, w)
 		}
+		slices.Sort(subs)
+		cands = append(cands, subs...)
 	}
 	domain := positionalDomain(node, i)
 	if domain != nil {
