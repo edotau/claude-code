@@ -5,11 +5,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/answer"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -36,9 +36,9 @@ func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(stri
 }
 
 // checkStructured fills res's structured answer; a schema failure also sets res.Status.
-func checkStructured(res *Result, schema, agentName string) *retry.Error {
+func checkStructured(res *wire.Result, schema, agentName string) *retry.Error {
 	var verr error
-	if res.Structured, res.SchemaUnchecked, verr = answer.Structured(cmp.Or(string(res.Structured), res.Answer), schema); verr != nil {
+	if res.Structured, res.SchemaUnchecked, verr = wire.Structured(cmp.Or(string(res.Structured), res.Answer), schema); verr != nil {
 		e := &retry.Error{Kind: retry.KindFatal, Agent: agentName, Err: verr}
 		res.Status = statusOf(e)
 		return e
@@ -100,17 +100,17 @@ func registeredSession(reg *providers.Registry) string {
 }
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
-func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(string)) (Result, error) {
+func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify func(string)) (wire.Result, error) {
 	if sink == nil {
-		sink = Discard
+		sink = wire.Discard
 	}
 	req, err := checkRun(r, req)
 	if err != nil {
-		return Result{Agent: r.Name(), Status: StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
+		return wire.Result{Agent: r.Name(), Status: wire.StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
 	ctx = withPermissionsEnv(ctx, req.Permissions)
-	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped, Emulated: emulated}
+	res := wire.Result{Agent: r.Name(), Status: wire.StatusError, Dropped: dropped, Emulated: emulated}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
 		if err := r.Available(); err != nil {
@@ -150,7 +150,7 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 }
 
 type runState struct {
-	res               Result
+	res               wire.Result
 	req               RunOptions
 	dropped, emulated []string
 	attempts          int
@@ -172,7 +172,7 @@ func recheckPermit(ctx context.Context) *retry.Error {
 	return nil
 }
 
-func (s *runState) attempt(ctx, actx context.Context, r Engine, sink Sink, notify func(string)) *retry.Error {
+func (s *runState) attempt(ctx, actx context.Context, r Engine, sink wire.Sink, notify func(string)) *retry.Error {
 	// Every attempt resumes after a possible idle: another task may have marked the account dead.
 	if skip := recheckPermit(ctx); skip != nil {
 		return s.note(skip)
@@ -181,12 +181,12 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink Sink, notif
 	if gerr != nil {
 		return s.note(gerr)
 	}
-	cw := &runSink{Sink: sink, agent: r.Name()}
+	cw := &wire.RunSink{Sink: sink, Agent: r.Name()}
 	out, err := r.Run(actx, s.req, cw)
 	// Preserve the actual agent named by a delegating engine.
 	out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, s.res.Agent), append(slices.Clone(s.dropped), out.Dropped...), s.emulated
 	s.res = out
-	e := retry.Classify(r.Name(), err, cw.progressed)
+	e := retry.Classify(r.Name(), err, cw.Progressed)
 	fallToNextAlias(r, &s.req, e, notify)
 	if e != nil {
 		_ = s.note(e)
@@ -194,16 +194,16 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink Sink, notif
 	return e
 }
 
-func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverErr error) (Result, error) {
+func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverErr error) (wire.Result, error) {
 	res := s.res
 	res.DurationMs = time.Since(start).Milliseconds()
 	res.Status = statusOf(e)
 	if res.Transport == nil {
-		res.Transport = &Transport{}
+		res.Transport = &wire.Transport{}
 	}
 	res.Transport.Attempts = s.attempts
 	if e == nil {
-		res.recovered = s.failed
+		res.Recovered = s.failed
 		if s.req.OutputSchema != "" { // Every answer is checked, native or emulated.
 			e = checkStructured(&res, s.req.OutputSchema, name)
 		}

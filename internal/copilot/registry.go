@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -53,7 +54,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	}
 	cr, ref, err := copilotSelect(ctx, reg, t.Provider, eps, base, copilotChoice([]string{models.Strip1M(t.Model)}))
 	if cr.Note != "" {
-		agent.EventLogFor(ctx).Emit("note", cr.Note)
+		wire.EventLogFor(ctx).Emit("note", cr.Note)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("copilot: %w", err)

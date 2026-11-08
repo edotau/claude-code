@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +24,7 @@ func (f fakeLauncher) Claude(context.Context, agent.ClaudeOptions, []string) (ag
 }
 
 // runFakeClaude runs claudeExec against a shell script standing in for claude, with the idle limit shortened.
-func runFakeClaude(t *testing.T, script string) (agent.Result, error) {
+func runFakeClaude(t *testing.T, script string) (wire.Result, error) {
 	t.Helper()
 	old := claudeIdleLimit
 	claudeIdleLimit = 300 * time.Millisecond
@@ -34,7 +35,7 @@ func runFakeClaude(t *testing.T, script string) (agent.Result, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	return claudeAgent.Run(ctx, agent.RunOptions{Prompt: "x", Tools: true, Launcher: fakeLauncher{bin}}, agent.Discard)
+	return claudeAgent.Run(ctx, agent.RunOptions{Prompt: "x", Tools: true, Launcher: fakeLauncher{bin}}, wire.Discard)
 }
 
 const (
@@ -60,7 +61,7 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 		t.Errorf("err = %v, want the idle duration and last event type", err)
 	}
 	e := retry.Classify("claude", err, false)
-	if e.Kind != retry.KindFatal || agent.StatusOf(e) != agent.StatusStalled {
+	if e.Kind != retry.KindFatal || agent.StatusOf(e) != wire.StatusStalled {
 		t.Errorf("kind = %v, status = %q", e.Kind, agent.StatusOf(e))
 	}
 	raw, _ := os.ReadFile(pidFile)

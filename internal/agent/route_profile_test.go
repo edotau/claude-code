@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"slices"
 	"strings"
 	"testing"
@@ -40,7 +41,7 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 	}
 	fakes := make(map[string]*pinFallbackRunner)
 	for i := range c.Dispatches {
-		f := &pinFallbackRunner{name: c.Dispatches[i].Agent.Name(), res: Result{Answer: "answer from " + c.Dispatches[i].Agent.Name()}}
+		f := &pinFallbackRunner{name: c.Dispatches[i].Agent.Name(), res: wire.Result{Answer: "answer from " + c.Dispatches[i].Agent.Name()}}
 		if fakes[f.name] != nil {
 			t.Fatalf("duplicate dispatch %q: %+v", f.name, c.Dispatches)
 		}
@@ -55,9 +56,9 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 }
 
 func failPinVendors(fakes map[string]*pinFallbackRunner) {
-	fakes["codex"].res = Result{}
+	fakes["codex"].res = wire.Result{}
 	fakes["codex"].err = &retry.Error{Agent: "codex", Kind: retry.KindQuota, Status: 402, Err: errors.New("402 monthly quota exhausted")}
-	fakes["opencode"].res = Result{}
+	fakes["opencode"].res = wire.Result{}
 	fakes["opencode"].err = &retry.Error{Agent: "opencode", Kind: retry.KindAuth, Status: 401,
 		AuthReason: "refresh token rejected", Err: errors.New("401 refresh token rejected")}
 }
@@ -106,7 +107,7 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 func TestPinFirstFallbackQuotaAuthFallback(t *testing.T) {
 	c, _, fakes := pinFirstSetup(t, false)
 	failPinVendors(fakes)
-	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, wire.Discard, nil)
 	if err != nil || res.Agent != "claude" || res.Answer != "answer from claude" || res.Fallback != "codex" {
 		t.Fatalf("result = %+v, err = %v", res, err)
 	}
@@ -128,7 +129,7 @@ func TestPinFirstFallbackClaudeExhausted(t *testing.T) {
 		t.Fatal("exhausted claude must be skipped")
 	}
 	failPinVendors(fakes)
-	_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, Discard, nil)
+	_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, wire.Discard, nil)
 	if err == nil {
 		t.Fatal("all hops failed, want an error")
 	}
@@ -140,8 +141,8 @@ func TestPinFirstFallbackContentPolicy(t *testing.T) {
 	// A policy refusal must stop even when the auth branch would otherwise advance.
 	fault := &retry.Error{Agent: "codex", Kind: retry.KindAuth, Status: 403,
 		AuthReason: "request rejected", Err: errors.New("403 content_policy refusal")}
-	fakes["codex"].res, fakes["codex"].err = Result{}, fault
-	_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, Discard, nil)
+	fakes["codex"].res, fakes["codex"].err = wire.Result{}, fault
+	_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, wire.Discard, nil)
 	if !errors.Is(err, fault) {
 		t.Errorf("err = %v, want original content-policy fault", err)
 	}

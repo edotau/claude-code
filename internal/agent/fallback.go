@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"slices"
 	"strings"
@@ -23,13 +24,13 @@ func askedSkips(reasons []string, want string) []string {
 }
 
 // RunWithFallback runs c's dispatches in turn while the previous one was unavailable; see dispatchUnavailable.
-func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, notify func(string)) (Result, error) {
+func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sink, notify func(string)) (wire.Result, error) {
 	if sink == nil {
-		sink = Discard
+		sink = wire.Discard
 	}
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
-		return Result{Agent: c.Want, Status: StatusError, FallbackReason: strings.Join(reasons, "; ")},
+		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
 			&retry.Error{Kind: retry.KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons))}
 	}
 	if shown := askedSkips(reasons, c.Want); len(shown) > 0 && notify != nil { // other agents' skips stay in the record
@@ -49,7 +50,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 }
 
 // chainOutcome folds every failed hop into err and marks res as a fallback when a different agent or route answered.
-func chainOutcome(c Chain, res Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (Result, error) {
+func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (wire.Result, error) {
 	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
@@ -60,11 +61,11 @@ func chainOutcome(c Chain, res Result, err error, reasons []string, prevDispatch
 }
 
 // announceFallback tells notify and the sink that disp takes over from prev after err.
-func announceFallback(sink Sink, notify func(string), prev Engine, disp Dispatch, err error) *retry.Error {
+func announceFallback(sink wire.Sink, notify func(string), prev Engine, disp Dispatch, err error) *retry.Error {
 	if notify != nil {
 		notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", dispatchLabel(prev), FallbackReason(err), dispatchLabel(disp.Agent), dispatchCell(disp)))
 	}
-	hop := Event{Type: EventRetry, Agent: disp.Agent.Name(),
+	hop := wire.Event{Type: wire.EventRetry, Agent: disp.Agent.Name(),
 		Text: fmt.Sprintf("fallback %s → %s: %s", dispatchLabel(prev), dispatchLabel(disp.Agent), FallbackReason(err))}
 	if serr := sink.Emit(hop); serr != nil {
 		return &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: serr}
@@ -73,11 +74,11 @@ func announceFallback(sink Sink, notify func(string), prev Engine, disp Dispatch
 }
 
 // runDispatch is one dispatch's scope: fail-fast is decided and a panic caught before the permit is released.
-func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, sink Sink, notify func(string)) (res Result, hops []Hop, panicked bool, err error) {
+func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, sink wire.Sink, notify func(string)) (res wire.Result, hops []wire.Hop, panicked bool, err error) {
 	release, aerr := retry.AcquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
-		res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
+		res, err = wire.Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	held := &retry.Permit{Account: key, Release: release,
@@ -89,7 +90,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 				panic(r)
 			}
 			pe := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
-			res, err = Result{Agent: pe.Agent, Status: StatusError, Invoked: lreq.Model}, pe
+			res, err = wire.Result{Agent: pe.Agent, Status: wire.StatusError, Invoked: lreq.Model}, pe
 			hops = append(hops, hopOf(disp, lreq, res, err))
 			panicked = true
 		}
@@ -102,7 +103,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	}()
 	// another task may have marked this account dead while this dispatch waited for its permit
 	if skip := cmp.Or(exhaustedSince(disp), authMarkedSince(disp)); skip != nil {
-		res, err = Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
+		res, err = wire.Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
@@ -133,24 +134,24 @@ func promptFromHandoff(path, prompt string) string {
 }
 
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
-func hopOf(disp Dispatch, req RunOptions, res Result, err error) Hop {
-	h := Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: disp.Account, Profile: cmp.Or(res.Provider, req.Provider),
+func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
+	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: disp.Account, Profile: cmp.Or(res.Provider, req.Provider),
 		Model: cmp.Or(res.Model, req.Model)}
 	if err != nil {
-		h.ErrorKind = errorKind(err)
+		h.ErrorKind = wire.ErrorKind(err)
 		if e, ok := errors.AsType[*retry.Error](err); ok && len(e.Earlier) > 0 {
 			h.Errors = append(h.Errors, envelopeErrors(append(slices.Clone(e.Earlier), e)...)...)
 		}
 	}
-	h.Errors = append(h.Errors, envelopeErrors(res.recovered...)...) // a dispatch that answered after retries lists them too
+	h.Errors = append(h.Errors, envelopeErrors(res.Recovered...)...) // a dispatch that answered after retries lists them too
 	return h
 }
 
 // envelopeErrors is the redacted envelope entry for each attempt, in order.
-func envelopeErrors(attempts ...*retry.Error) []EnvelopeError {
-	var out []EnvelopeError
+func envelopeErrors(attempts ...*retry.Error) []wire.EnvelopeError {
+	var out []wire.EnvelopeError
 	for _, a := range attempts {
-		out = append(out, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.AttemptMessage())})
+		out = append(out, wire.EnvelopeError{Kind: wire.ErrorKind(a), Message: shapes.Redact(a.AttemptMessage())})
 	}
 	return out
 }
@@ -211,7 +212,7 @@ func FallbackReason(err error) string {
 }
 
 // dispatchUnavailable is true when the binary, target or exec failed before any answer; claude/api never count.
-func dispatchUnavailable(r Engine, res Result, err error) bool {
+func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	if requestFault(err) {
 		return false
 	}
@@ -224,7 +225,7 @@ func dispatchUnavailable(r Engine, res Result, err error) bool {
 }
 
 // hopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
-func hopFailed(res Result, err error) bool {
+func hopFailed(res wire.Result, err error) bool {
 	if err == nil || res.Answer != "" || requestFault(err) {
 		return false
 	}
@@ -257,7 +258,7 @@ func handoffPrompt(doc string) string {
 
 type fallbackState struct {
 	req          RunOptions
-	res          Result
+	res          wire.Result
 	err          error
 	prev         Engine
 	prevDispatch Dispatch
@@ -265,10 +266,10 @@ type fallbackState struct {
 	ran          int
 	stopped      bool
 	handoff      string
-	hops         []Hop
+	hops         []wire.Hop
 }
 
-func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink Sink, notify func(string)) (bool, error) {
+func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	if i > 0 && !dispatchUnavailable(s.prev, s.res, s.err) {
 		s.stopped = true
@@ -300,20 +301,20 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 func (s *fallbackState) cancelled(i int, disp Dispatch, cerr error) error {
 	ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: cerr}
 	if i == 0 {
-		s.res = Result{Agent: ce.Agent, Status: statusOf(ce)}
+		s.res = wire.Result{Agent: ce.Agent, Status: statusOf(ce)}
 		return ce
 	}
 	s.err, s.res.Status, s.stopped = ce, statusOf(ce), true
 	return nil
 }
 
-func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispatch, sink Sink, notify func(string)) bool {
+func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) bool {
 	lreq := dispatchRequest(s.req, disp, i == 0 && disp.Agent.Name() == c.Want)
 	ctx, disp = freezeCopilot(ctx, disp, lreq) // The gate's actual target precedes the permit and cooldown key.
 	disp = ownLoginActual(disp, lreq)
 	key := cmp.Or(disp.Account, disp.Agent.Name()+"·own")
 	retry.WaitCooldown(ctx, key, retry.DefaultMaxDelay)
-	var dhops []Hop
+	var dhops []wire.Hop
 	var panicked bool
 	s.res, dhops, panicked, s.err = runDispatch(ctx, c, i, disp, lreq, s.req, key, sink, notify)
 	s.hops = append(s.hops, dhops...)

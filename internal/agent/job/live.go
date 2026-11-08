@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"net"
 	"os"
@@ -138,7 +139,7 @@ type liveSession struct {
 	be      agent.LiveBackend
 	stdin   io.Writer
 	dec     *bufio.Reader
-	events  *agent.EventLog
+	events  *wire.EventLog
 	idle    *time.Timer
 	idleFor time.Duration
 	busy    atomic.Bool
@@ -171,12 +172,12 @@ func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	logSink := agent.NewLogSink(rec.LogPath())
+	logSink := wire.NewLogSink(rec.LogPath())
 	defer logSink.Close()
 	if req.Identity != "" {
 		ctx = providers.WithIdentity(ctx, req.Identity)
 	}
-	ctx = agent.WithLogEvents(agent.WithLog(ctx, logSink), logSink)
+	ctx = wire.WithLogEvents(wire.WithLog(ctx, logSink), logSink)
 	cmd, tail, profile, err := be.Build(ctx, req)
 	if err != nil {
 		return err
@@ -213,13 +214,13 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *agent.
 		}
 		exited <- cmd.Wait()
 	}()
-	events := agent.NewEventLog(rec.EventsPath(), rec.ID)
+	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
 	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(pump), events: events, idleFor: IdleOf(rec.Request),
 		cancel: cancel, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record
-	_ = events.Emit(agent.Event{Type: agent.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
+	_ = events.Emit(wire.Event{Type: wire.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
 
 	return s.awaitChild(ctx, ln, exited, stdin, tail)
 }
@@ -251,7 +252,7 @@ var errLiveIdle = errors.New("idle timeout")
 // finish records the outcome: an idle end is a normal ok, anything else an error.
 func (s *liveSession) finish(cause error) error {
 	s.mu.Lock()
-	res := agent.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: agent.StatusOK}
+	res := wire.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: wire.StatusOK}
 	s.mu.Unlock()
 	var err error
 	if !errors.Is(cause, errLiveIdle) {
@@ -259,7 +260,7 @@ func (s *liveSession) finish(cause error) error {
 		if errors.Is(cause, context.Canceled) {
 			err = errors.New("cancelled")
 		}
-		res.Status = agent.StatusError
+		res.Status = wire.StatusError
 	}
 	s.rec.Finish(res, err, time.Since(s.rec.Time))
 	return s.rec.Save()
@@ -310,11 +311,11 @@ func (s *liveSession) accept(ctx context.Context, ln net.Listener, wg *sync.Wait
 // connSink streams events to one client; a failed write is remembered and never reaches the parser.
 type connSink struct {
 	c    net.Conn
-	out  *agent.JSONLSink
+	out  *wire.JSONLSink
 	dead bool
 }
 
-func (k *connSink) Emit(ev agent.Event) error {
+func (k *connSink) Emit(ev wire.Event) error {
 	if k.dead {
 		return nil
 	}
@@ -332,9 +333,9 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 			return
 		}
 	}
-	out := &connSink{c: c, out: agent.NewJSONLSink(c, s.rec.ID)}
+	out := &connSink{c: c, out: wire.NewJSONLSink(c, s.rec.ID)}
 	refuse := func(status, text string) {
-		_ = out.Emit(agent.Event{Type: agent.EventError, Agent: s.name, Status: status, Text: text})
+		_ = out.Emit(wire.Event{Type: wire.EventError, Agent: s.name, Status: status, Text: text})
 	}
 	_ = c.SetReadDeadline(time.Now().Add(liveIOTimeout))
 	var rq agent.LiveRequest
@@ -352,18 +353,18 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 		refuse(statusRefused, "the session is ending")
 		return
 	}
-	s.runTurn(ctx, rq.Prompt, agent.Multi(out, s.events))
+	s.runTurn(ctx, rq.Prompt, wire.Multi(out, s.events))
 }
 
 // runTurn writes one user message to the agent and relays its events up to the turn's result.
-func (s *liveSession) runTurn(ctx context.Context, prompt string, sink agent.Sink) {
+func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink) {
 	begin := time.Now()
 	sink = agent.NewRunSink(sink, s.name)
-	_ = sink.Emit(agent.Event{Type: agent.EventStart, DispatchID: s.rec.ID, Status: "running"})
-	var res agent.Result
+	_ = sink.Emit(wire.Event{Type: wire.EventStart, DispatchID: s.rec.ID, Status: "running"})
+	var res wire.Result
 	err := s.be.WriteTurn(s.stdin, prompt)
 	if err == nil {
-		res, err = s.be.Parse(s.dec, sink, agent.EventLogFor(ctx))
+		res, err = s.be.Parse(s.dec, sink, wire.EventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
 	res.Status = agent.StatusOf(retry.Classify(s.name, err, false))
@@ -375,7 +376,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink agent.Sin
 		s.cancel(fmt.Errorf("session stream broke: %w", err))
 	}
 	s.release() // before the result goes out: a client's next send must find the session free
-	_ = sink.Emit(agent.ResultEvent(agent.NewEnvelope(res, err, s.rec.ID)))
+	_ = sink.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, s.rec.ID)))
 }
 
 // release ends the in-flight turn and restarts the idle clock.
@@ -385,57 +386,57 @@ func (s *liveSession) release() {
 }
 
 // SendLive sends one turn to live session id and streams that turn's events to sink until its result.
-func SendLive(ctx context.Context, id, prompt string, sink agent.Sink) (agent.Envelope, error) {
+func SendLive(ctx context.Context, id, prompt string, sink wire.Sink) (wire.Envelope, error) {
 	rec, err := agent.LoadRecord(id)
 	if err != nil {
-		return agent.Envelope{}, err
+		return wire.Envelope{}, err
 	}
 	if !rec.Live {
-		return agent.Envelope{}, fmt.Errorf("dispatch %s is not a live session (start one: ask --agent claude|gemini --live)", rec.ID)
+		return wire.Envelope{}, fmt.Errorf("dispatch %s is not a live session (start one: ask --agent claude|gemini --live)", rec.ID)
 	}
 	if !rec.Alive() {
-		return agent.Envelope{}, fmt.Errorf("live session %s has ended (%s); start a new one", rec.ID, rec.Status)
+		return wire.Envelope{}, fmt.Errorf("live session %s has ended (%s); start a new one", rec.ID, rec.Status)
 	}
 	conn, err := (&net.Dialer{Timeout: liveIOTimeout}).DialContext(ctx, "unix", LiveSocket(rec.ID))
 	if err != nil {
-		return agent.Envelope{}, fmt.Errorf("live session %s: %w (claude-code agents reap clears dead sessions)", rec.ID, err)
+		return wire.Envelope{}, fmt.Errorf("live session %s: %w (claude-code agents reap clears dead sessions)", rec.ID, err)
 	}
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	_ = conn.SetWriteDeadline(time.Now().Add(liveIOTimeout))
 	if err := json.NewEncoder(conn).Encode(agent.LiveRequest{Schema: agent.LiveSchema, Prompt: prompt}); err != nil {
-		return agent.Envelope{}, err
+		return wire.Envelope{}, err
 	}
 	return receiveTurn(ctx, rec.ID, json.NewDecoder(conn), sink)
 }
 
-func receiveTurn(ctx context.Context, id string, dec *json.Decoder, sink agent.Sink) (agent.Envelope, error) {
+func receiveTurn(ctx context.Context, id string, dec *json.Decoder, sink wire.Sink) (wire.Envelope, error) {
 	for {
-		var ev agent.Event
+		var ev wire.Event
 		if err := dec.Decode(&ev); err != nil {
 			if ctx.Err() != nil {
-				return agent.Envelope{}, ctx.Err()
+				return wire.Envelope{}, ctx.Err()
 			}
-			return agent.Envelope{}, fmt.Errorf("live session %s closed before the turn's result: %w", id, err)
+			return wire.Envelope{}, fmt.Errorf("live session %s closed before the turn's result: %w", id, err)
 		}
 		if err := refusalError(ev); err != nil {
-			return agent.Envelope{}, err
+			return wire.Envelope{}, err
 		}
 		if err := sink.Emit(ev); err != nil {
-			return agent.Envelope{}, err
+			return wire.Envelope{}, err
 		}
-		if ev.Type == agent.EventResult {
+		if ev.Type == wire.EventResult {
 			if ev.Envelope == nil {
-				return agent.Envelope{}, errors.New("result event without an envelope")
+				return wire.Envelope{}, errors.New("result event without an envelope")
 			}
 			return *ev.Envelope, nil
 		}
 	}
 }
 
-func refusalError(ev agent.Event) error {
-	if ev.Type != agent.EventError {
+func refusalError(ev wire.Event) error {
+	if ev.Type != wire.EventError {
 		return nil
 	}
 	switch ev.Status {

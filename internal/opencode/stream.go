@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"regexp"
 	"strings"
 
@@ -59,13 +60,13 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 
 // parseOpenCodeEvents streams the root session's text parts; onMeaningful fires once on the first meaningful event,
 // onTool once per finished tool call, onStep on every step_start before that first meaningful event.
-func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(), onTool func(openCodeEvent), onStep func(), logs ...agent.StreamLog) (res agent.Result, _ error) {
-	ts := agent.TransportTracker{Start: agent.Clock()}
+func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onTool func(openCodeEvent), onStep func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
+	ts := wire.TransportTracker{Start: wire.Clock()}
 	defer func() { res.Transport = ts.Result() }()
-	lg := agent.PickLog(logs)
-	t := &ocTurn{sink: sink, lg: lg, res: &res, ts: &ts, ans: agent.Answer{Join: "\n"}, seenTools: map[string]bool{},
+	lg := wire.PickLog(logs)
+	t := &ocTurn{sink: sink, lg: lg, res: &res, ts: &ts, ans: wire.Answer{Join: "\n"}, seenTools: map[string]bool{},
 		onMeaningful: onMeaningful, onTool: onTool, onStep: onStep}
-	err := agent.DecodeLines(br, lg, t.handle)
+	err := wire.DecodeLines(br, lg, t.handle)
 	res.Answer = t.ans.String()
 	if err != nil {
 		return res, err
@@ -78,11 +79,11 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 
 // ocTurn is parseOpenCodeEvents' state across one run's JSON events.
 type ocTurn struct {
-	sink         agent.Sink
-	lg           agent.StreamLog
-	res          *agent.Result
-	ts           *agent.TransportTracker
-	ans          agent.Answer
+	sink         wire.Sink
+	lg           wire.StreamLog
+	res          *wire.Result
+	ts           *wire.TransportTracker
+	ans          wire.Answer
 	errs         []string
 	seenTools    map[string]bool
 	fired        bool
@@ -97,7 +98,7 @@ func (t *ocTurn) handle(raw []byte) (bool, error) {
 	if err := json.Unmarshal(raw, &ev); err != nil {
 		return false, fmt.Errorf("decode opencode json: %w", err)
 	}
-	t.ts.Event(agent.Clock())
+	t.ts.Event(wire.Clock())
 	if ev.SessionID != "" {
 		t.res.SessionID = ev.SessionID
 	}
@@ -165,23 +166,23 @@ func (t *ocTurn) stepFinish(ev openCodeEvent) {
 func (t *ocTurn) errorEvent(ev openCodeEvent) error {
 	msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
 	t.errs = append(t.errs, msg)
-	return agent.EmitError(t.lg, t.sink, msg)
+	return wire.EmitError(t.lg, t.sink, msg)
 }
 
 // emitOpenCodeTool emits tool_use once per call id, then tool_result when that call completes or errors.
-func emitOpenCodeTool(sink agent.Sink, ev openCodeEvent, seen map[string]bool) error {
+func emitOpenCodeTool(sink wire.Sink, ev openCodeEvent, seen map[string]bool) error {
 	p := ev.Part
 	if p.Tool == "" {
 		return nil
 	}
 	if !seen[p.CallID] {
 		seen[p.CallID] = true
-		if err := sink.Emit(agent.ToolEvent(p.Tool, p.CallID)); err != nil {
+		if err := sink.Emit(wire.ToolEvent(p.Tool, p.CallID)); err != nil {
 			return err
 		}
 	}
 	if p.State.Status == "completed" || p.State.Status == "error" {
-		return sink.Emit(agent.Event{Type: agent.EventToolResult, Tool: &agent.ToolRef{Name: p.Tool, ID: p.CallID}, Status: p.State.Status})
+		return sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: p.Tool, ID: p.CallID}, Status: p.State.Status})
 	}
 	return nil
 }

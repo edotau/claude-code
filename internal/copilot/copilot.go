@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"io/fs"
 	"os"
@@ -39,12 +40,12 @@ var (
 	_ agent.Authenticator = copilotEngine{}
 )
 
-func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
+func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = agent.DirectCtx(ctx, req)
 	cs := copilotSchema()
 	t, own, err := cs.TargetCtx(ctx, req)
 	if err != nil {
-		return agent.Result{}, err
+		return wire.Result{}, err
 	}
 	res, err := initialResult(cs, t, own)
 	if err != nil {
@@ -60,7 +61,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 		return res, copilotFatal(err)
 	}
 	out, err := copilotAsk(ctx, opts, prompt, images)
-	lg := agent.EventLogFor(ctx)
+	lg := wire.EventLogFor(ctx)
 	err = markToolRan(out, sink, err)
 	if err != nil {
 		lg.Emit("error", err.Error())
@@ -76,12 +77,12 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	if strings.TrimSpace(out.Text) == "" {
 		return res, agent.EmptyAnswer("copilot")
 	}
-	return res, sink.Emit(agent.Event{Type: agent.EventText, Text: out.Text})
+	return res, sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text})
 }
 
 // initialResult seeds the run result with the provider and model of target t.
-func initialResult(cs agent.Schema, t providers.Target, own bool) (agent.Result, error) {
-	res := agent.Result{Provider: cs.OwnProfile(), Model: models.Strip1M(t.Model)}
+func initialResult(cs agent.Schema, t providers.Target, own bool) (wire.Result, error) {
+	res := wire.Result{Provider: cs.OwnProfile(), Model: models.Strip1M(t.Model)}
 	if own {
 		return res, nil
 	}
@@ -179,18 +180,18 @@ func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err er
 }
 
 // markToolRan marks progress when the SDK run approved a tool, so a run that acted is not replayed.
-func markToolRan(out SDKResult, sink agent.Sink, err error) error {
+func markToolRan(out SDKResult, sink wire.Sink, err error) error {
 	if out.ToolRan {
-		err = errors.Join(err, sink.Emit(agent.Event{Type: agent.EventProgress}))
+		err = errors.Join(err, sink.Emit(wire.Event{Type: wire.EventProgress}))
 	}
 	return err
 }
 
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
-func copilotPartial(res agent.Result, out SDKResult, err error, sink agent.Sink) (agent.Result, error) {
+func copilotPartial(res wire.Result, out SDKResult, err error, sink wire.Sink) (wire.Result, error) {
 	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
 	if strings.TrimSpace(out.Text) != "" {
-		if serr := sink.Emit(agent.Event{Type: agent.EventText, Text: out.Text}); serr != nil {
+		if serr := sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text}); serr != nil {
 			err = errors.Join(err, serr)
 		}
 	}
@@ -356,7 +357,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, Fleet: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native, Permissions: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Emulated, Persona: agent.Emulated},
-	Events:       []string{agent.EventStart, agent.EventText, agent.EventProgress, agent.EventResult, agent.EventError},
+	Events:       []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError},
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
 	LoginArgv:     []string{"copilot", "login"},
 	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key",
@@ -368,8 +369,8 @@ var handoffDir = func(root string) string { return memstore.HandoffsDir(memstore
 // CopilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback dispatch;
 // partialSession and partialText are what the failed run got out.
 func CopilotQuotaHandoff(
-	req agent.RunOptions, res agent.Result, partialSession, partialText string, cause error, creds []string,
-) (agent.Result, error) {
+	req agent.RunOptions, res wire.Result, partialSession, partialText string, cause error, creds []string,
+) (wire.Result, error) {
 	acct := agent.NoteCopilotQuota(cause)
 	res.SessionID = cmp.Or(partialSession, res.SessionID)
 	path, _, werr := writeCopilotHandoff(req, res, partialText, acct, cause, creds)
@@ -395,7 +396,7 @@ func ResumeAlias(model string) string {
 
 // writeCopilotHandoff writes memory/<repo>/handoffs/<date>-copilot-<shortid>[-N].md, redacted, and returns path + body.
 func writeCopilotHandoff(
-	req agent.RunOptions, res agent.Result, partial, acct string, cause error, creds []string,
+	req agent.RunOptions, res wire.Result, partial, acct string, cause error, creds []string,
 ) (string, string, error) {
 	root := req.WorkDir
 	if root == "" {

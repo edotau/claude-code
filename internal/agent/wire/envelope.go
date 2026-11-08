@@ -1,4 +1,5 @@
-package agent
+// Package wire is the dispatch envelope: events, Result, NDJSON framing, the log tee and the structured-answer check.
+package wire
 
 import (
 	"cmp"
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/answer"
 	"github.com/edotau/claude-code/internal/shapes"
 )
 
@@ -69,7 +69,7 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 		env.Usage = &u
 	}
 	if err != nil {
-		env.Error = &EnvelopeError{Kind: errorKind(err), Message: shapes.Redact(err.Error())}
+		env.Error = &EnvelopeError{Kind: ErrorKind(err), Message: shapes.Redact(err.Error())}
 	}
 	if env.Status == "" {
 		env.Status = StatusOK
@@ -94,12 +94,12 @@ var envelopeKindTokens = map[retry.Kind]string{
 }
 
 // errorKind is the envelope token for err's class; an unclassified error is fatal.
-func errorKind(err error) string {
-	if re, ok := errors.AsType[remoteError](err); ok {
-		return re.kind
+func ErrorKind(err error) string {
+	if re, ok := errors.AsType[RemoteError](err); ok {
+		return re.Kind
 	}
 	switch {
-	case errors.Is(err, answer.ErrSchema):
+	case errors.Is(err, ErrSchema):
 		return "schema"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
@@ -180,3 +180,8 @@ func DidNotRun(res Result) string {
 	}
 	return strings.TrimSpace("did not run " + res.Agent + " — " + strings.TrimPrefix(res.FallbackReason, res.Agent+": "))
 }
+
+// RemoteError is a failure the remote reported in its envelope; Kind is the remote's envelope token, kept verbatim.
+type RemoteError struct{ Kind, Msg string }
+
+func (e RemoteError) Error() string { return e.Msg }

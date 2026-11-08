@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"net/http"
 	"strings"
@@ -23,13 +24,13 @@ import (
 const apiMaxTokens = 16_000
 
 // claudeOneShot is claude's tool-less one-shot via the anthropic SDK or openai route; ok is false for cli auth.
-func claudeOneShot(ctx context.Context, req agent.RunOptions, sink agent.Sink) (res agent.Result, ok bool, err error) {
+func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (res wire.Result, ok bool, err error) {
 	_, t, err := agent.ResolveRequestTarget(req)
 	if err != nil {
-		return agent.Result{}, true, err
+		return wire.Result{}, true, err
 	}
 	p := t.Provider
-	res = agent.Result{Provider: p.Name, Model: t.Model}
+	res = wire.Result{Provider: p.Name, Model: t.Model}
 	if p.Auth.Method() == providers.AuthCLI {
 		return res, false, nil
 	}
@@ -38,10 +39,10 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink agent.Sink) (
 	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, false)
 	if err != nil {
-		return agent.Result{}, true, err
+		return wire.Result{}, true, err
 	}
 	var answer strings.Builder
-	w := io.MultiWriter(agent.SinkWriter(sink), &answer)
+	w := io.MultiWriter(wire.SinkWriter(sink), &answer)
 	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
 		out, err := streamMessages(ctx, apiRequest{
 			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,
@@ -50,7 +51,7 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink agent.Sink) (
 		if out.Model != "" {
 			res.Model = out.Model
 		}
-		res.Answer, res.Usage = answer.String(), agent.Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens)}
+		res.Answer, res.Usage = answer.String(), wire.Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens)}
 		logAPIRun(ctx, res, err)
 		return res, true, err
 	}
@@ -71,8 +72,8 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink agent.Sink) (
 }
 
 // logAPIRun writes the one-shot's answer, usage or error to the dispatch log (the stream has no event boundaries).
-func logAPIRun(ctx context.Context, res agent.Result, err error) {
-	lg := agent.EventLogFor(ctx)
+func logAPIRun(ctx context.Context, res wire.Result, err error) {
+	lg := wire.EventLogFor(ctx)
 	if res.Answer != "" {
 		lg.Emit("assistant", res.Answer)
 	}
@@ -102,7 +103,7 @@ func (e *httpError) StatusCode() int           { return e.status }
 func (e *httpError) RetryAfter() time.Duration { return e.after }
 
 // chatStream POSTs {base}/chat/completions with stream=true and writes content deltas to w.
-func chatStream(ctx context.Context, base string, p *providers.Provider, model, prompt, effort string, w io.Writer) (agent.Usage, string, error) {
+func chatStream(ctx context.Context, base string, p *providers.Provider, model, prompt, effort string, w io.Writer) (wire.Usage, string, error) {
 	body := map[string]any{
 		"model":          model,
 		"messages":       []map[string]string{{"role": "user", "content": prompt}},
@@ -115,25 +116,25 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	payload, _ := json.Marshal(body)
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
-		return agent.Usage{}, "", err
+		return wire.Usage{}, "", err
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("Accept", "text/event-stream")
 	if err := providers.Authorize(ctx, p, hreq.Header); err != nil {
-		return agent.Usage{}, "", err
+		return wire.Usage{}, "", err
 	}
 	resp, err := chatClient.Do(hreq)
 	if err != nil {
 		if ctx.Err() != nil {
-			return agent.Usage{}, "", ctx.Err()
+			return wire.Usage{}, "", ctx.Err()
 		}
-		return agent.Usage{}, "", &httpError{msg: err.Error()}
+		return wire.Usage{}, "", &httpError{msg: err.Error()}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 600))
 		after, _ := textutil.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
-		return agent.Usage{}, "", &httpError{status: resp.StatusCode, after: max(after, 0),
+		return wire.Usage{}, "", &httpError{status: resp.StatusCode, after: max(after, 0),
 			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
 	return parseChatStream(resp.Body, w)
@@ -155,7 +156,7 @@ type chatChunk struct {
 }
 
 // applyChatLine folds one stream line into usage, served and w; done reports the [DONE] marker.
-func applyChatLine(line []byte, w io.Writer, usage *agent.Usage, served *string) (done bool, _ error) {
+func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string) (done bool, _ error) {
 	data, ok := bytes.CutPrefix(bytes.TrimRight(line, "\r\n"), []byte("data:"))
 	if data = bytes.TrimSpace(data); !ok || len(data) == 0 {
 		return false, nil
@@ -174,7 +175,7 @@ func applyChatLine(line []byte, w io.Writer, usage *agent.Usage, served *string)
 		*served = chunk.Model
 	}
 	if chunk.Usage != nil {
-		*usage = agent.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
+		*usage = wire.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
 	}
 	return false, writeChatChoices(w, chunk)
 }
@@ -190,8 +191,8 @@ func writeChatChoices(w io.Writer, chunk chatChunk) error {
 	return nil
 }
 
-func parseChatStream(r io.Reader, w io.Writer) (agent.Usage, string, error) {
-	var usage agent.Usage
+func parseChatStream(r io.Reader, w io.Writer) (wire.Usage, string, error) {
+	var usage wire.Usage
 	var served string
 	br := bufio.NewReader(r)
 	for {

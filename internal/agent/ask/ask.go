@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"os/signal"
@@ -535,7 +536,7 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	}
 	res, err := client.Exec(ctx, p, StdoutSink(format, p.Record.ID), opts)
 	reportAskResult(format, res, err, res.DispatchID)
-	for _, line := range []string{agent.RanOn(res), agent.DidNotRun(res)} {
+	for _, line := range []string{wire.RanOn(res), wire.DidNotRun(res)} {
 		if line != "" {
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}
@@ -551,14 +552,14 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 const formatStreamJSON = agent.FormatStreamJSON
 
 // StdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
-func StdoutSink(format, dispatchID string) agent.Sink {
+func StdoutSink(format, dispatchID string) wire.Sink {
 	switch format {
 	case helptext.JSON:
-		return agent.Discard
+		return wire.Discard
 	case formatStreamJSON:
-		return agent.NewJSONLSink(os.Stdout, dispatchID)
+		return wire.NewJSONLSink(os.Stdout, dispatchID)
 	}
-	return agent.NewTextSink(os.Stdout)
+	return wire.NewTextSink(os.Stdout)
 }
 
 // askState is the agent.AskTarget plus the flag pointers --retry resets or --job clears.

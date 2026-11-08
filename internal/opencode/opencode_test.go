@@ -3,6 +3,7 @@ package opencode
 import (
 	"bufio"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -205,7 +206,7 @@ func TestOpencodeOverlayModelsCorruptProviderOverlay(t *testing.T) {
 func TestParseOpenCodeEventsDecodeErrorKeepsText(t *testing.T) {
 	stream := `{"type":"text","sessionID":"s-1","part":{"text":"hi"}}
 {"type":123}`
-	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil, nil, nil)
+	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil, nil, nil)
 	if err == nil || res.Answer != "hi" || res.SessionID != "s-1" {
 		t.Fatalf("res = %+v, err = %v; want the decode error with text and session kept", res, err)
 	}

@@ -6,8 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // codexEvent mirrors the JSON events from codex exec.
@@ -32,25 +31,25 @@ type codexEvent struct {
 }
 
 type codexStreamState struct {
-	res          agent.Result
-	ans          agent.Answer
+	res          wire.Result
+	ans          wire.Answer
 	failure      string
-	log          agent.StreamLog
-	sink         agent.Sink
+	log          wire.StreamLog
+	sink         wire.Sink
 	onMeaningful func()
 }
 
 // parseCodexStream emits text, tools and usage, retaining the last message as the answer.
-func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (res agent.Result, _ error) {
-	ts := agent.TransportTracker{Start: agent.Clock()}
+func parseCodexStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
+	ts := wire.TransportTracker{Start: wire.Clock()}
 	defer func() { res.Transport = ts.Result() }()
-	state := codexStreamState{log: agent.PickLog(logs), sink: sink, onMeaningful: onMeaningful}
-	err := agent.DecodeLines(br, state.log, func(raw []byte) (bool, error) {
+	state := codexStreamState{log: wire.PickLog(logs), sink: sink, onMeaningful: onMeaningful}
+	err := wire.DecodeLines(br, state.log, func(raw []byte) (bool, error) {
 		var ev codexEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			return false, fmt.Errorf("decode codex json: %w", err)
 		}
-		ts.Event(agent.Clock())
+		ts.Event(wire.Clock())
 		return false, state.apply(ev)
 	})
 	res = state.res
@@ -72,7 +71,7 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		return s.completedItem(ev)
 	case "item.started":
 		if ev.Item.Type == "command_execution" {
-			tool := agent.ToolEvent("shell", ev.Item.ID)
+			tool := wire.ToolEvent("shell", ev.Item.ID)
 			tool.Text = ev.Item.Command
 			if err := s.sink.Emit(tool); err != nil {
 				return err
@@ -87,7 +86,7 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		s.log.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
 	case "turn.failed":
 		s.failure = cmp.Or(ev.Error.Message, "codex turn failed")
-		return agent.EmitError(s.log, s.sink, s.failure)
+		return wire.EmitError(s.log, s.sink, s.failure)
 	}
 	return nil
 }
@@ -107,7 +106,7 @@ func (s *codexStreamState) completedItem(ev codexEvent) error {
 		}
 		s.log.Emit("assistant", it.Text)
 	case "command_execution":
-		return s.sink.Emit(agent.Event{Type: agent.EventToolResult, Tool: &agent.ToolRef{Name: "shell", ID: it.ID}, Status: it.Status})
+		return s.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "shell", ID: it.ID}, Status: it.Status})
 	}
 	return nil
 }

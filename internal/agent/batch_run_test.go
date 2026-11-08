@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -41,13 +42,13 @@ func (g gaugeRunner) Name() string     { return g.name }
 func (g gaugeRunner) Caps() agent.Caps { return agent.Caps{} }
 
 func (g gaugeRunner) Available() error { return nil }
-func (g gaugeRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
+func (g gaugeRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	n := g.cur.Add(1)
 	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
 	}
 	time.Sleep(60 * time.Millisecond)
 	g.cur.Add(-1)
-	return agent.Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 // Tasks queued under different agent names but dispatches billed to one account never run more than agent.DefaultPerKey at once.
@@ -84,7 +85,7 @@ func (s slowRunner) Name() string     { return s.name }
 func (s slowRunner) Caps() agent.Caps { return agent.Caps{} }
 
 func (s slowRunner) Available() error { return nil }
-func (s slowRunner) Run(ctx context.Context, _ agent.RunOptions, _ agent.Sink) (agent.Result, error) {
+func (s slowRunner) Run(ctx context.Context, _ agent.RunOptions, _ wire.Sink) (wire.Result, error) {
 	if s.boom {
 		panic("boom")
 	}
@@ -95,11 +96,11 @@ func (s slowRunner) Run(ctx context.Context, _ agent.RunOptions, _ agent.Sink) (
 		select {
 		case <-s.wait:
 		case <-ctx.Done():
-			return agent.Result{}, ctx.Err()
+			return wire.Result{}, ctx.Err()
 		}
 	}
 	time.Sleep(s.sleep)
-	return agent.Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 // acctTask is a batch task whose single dispatch bills account.
@@ -164,16 +165,16 @@ func (g dispatchGauge) Name() string     { return g.name }
 func (g dispatchGauge) Caps() agent.Caps { return agent.Caps{} }
 
 func (g dispatchGauge) Available() error { return nil }
-func (g dispatchGauge) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
+func (g dispatchGauge) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	n := g.cur.Add(1)
 	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
 	}
 	time.Sleep(40 * time.Millisecond)
 	g.cur.Add(-1)
 	if g.fail {
-		return agent.Result{}, errors.New("HTTP 401 unauthorized")
+		return wire.Result{}, errors.New("HTTP 401 unauthorized")
 	}
-	return agent.Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 // Dispatches in flight never exceed --jobs while tasks fall back from a full account A to account B.
@@ -214,9 +215,9 @@ func (f flagRunner) Name() string     { return f.name }
 func (f flagRunner) Caps() agent.Caps { return agent.Caps{} }
 
 func (f flagRunner) Available() error { return nil }
-func (f flagRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
+func (f flagRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	f.runs.Add(1)
-	return agent.Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 // failFastPair runs first then a second task on Jobs=1 with FailFast; the second must neither prepare nor run.
@@ -322,7 +323,7 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 		}}
 	var out strings.Builder
 	batch.RunTasks(context.Background(), []batch.Task{task}, batch.PoolOptions{Jobs: 2, Out: &out})
-	var env agent.Envelope
+	var env wire.Envelope
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &env); err != nil {
 		t.Fatalf("decode %q: %v", out.String(), err)
 	}
@@ -348,11 +349,11 @@ func (r rateOnce) Name() string     { return r.name }
 func (r rateOnce) Caps() agent.Caps { return agent.Caps{} }
 
 func (r rateOnce) Available() error { return nil }
-func (r rateOnce) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
+func (r rateOnce) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	if r.n.Add(1) == 1 {
-		return agent.Result{}, &retry.Error{Kind: retry.KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
+		return wire.Result{}, &retry.Error{Kind: retry.KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
 	}
-	return agent.Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 // A dispatch backing off after a 429 holds no permit: with Jobs=1 a task on another account runs during the wait.
@@ -425,10 +426,10 @@ func (m markingRunner) Name() string     { return m.name }
 func (m markingRunner) Caps() agent.Caps { return agent.Caps{} }
 
 func (m markingRunner) Available() error { return nil }
-func (m markingRunner) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
+func (m markingRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	m.mark()
 	time.Sleep(50 * time.Millisecond)
-	return agent.Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 // A retry resumes after the backoff only if its account is still usable: one marked auth-dead meanwhile is skipped.
@@ -460,9 +461,9 @@ func (c cancelAfterRun) Name() string     { return c.name }
 func (c cancelAfterRun) Caps() agent.Caps { return agent.Caps{} }
 
 func (c cancelAfterRun) Available() error { return nil }
-func (c cancelAfterRun) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
+func (c cancelAfterRun) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	c.cancel() // the parent ctx dies at the moment the dispatch succeeds
-	return agent.Result{Answer: "a"}, nil
+	return wire.Result{Answer: "a"}, nil
 }
 
 // A cooldown that idles the dispatch before attempt 1 is followed by a recheck: an account marked auth-dead meanwhile
@@ -545,7 +546,7 @@ func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 	defer cancel()
 	var runs atomic.Int32
 	c := agent.Chain{Want: "first", Dispatches: []agent.Dispatch{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
-	res, err := agent.RunWithFallback(ctx, c, agent.RunOptions{Prompt: "p"}, agent.Discard, nil)
+	res, err := agent.RunWithFallback(ctx, c, agent.RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
 		t.Fatalf("res=%+v err=%v second ran %d times; want the first dispatch's answer alone", res, err, runs.Load())
 	}
