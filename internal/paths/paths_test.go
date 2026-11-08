@@ -21,6 +21,28 @@ func TestCacheDirIsDotMemoryCacheUnderConfigDir(t *testing.T) {
 	}
 }
 
+func TestConfigPathPrecedence(t *testing.T) {
+	home, native := t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", native)
+	for _, tc := range []struct{ home, want string }{
+		{home, filepath.Join(home, ".codex", "config.toml")},
+		{"", filepath.Join(native, "config.toml")},
+	} {
+		got, err := CodexConfigPath(tc.home)
+		if err != nil || got != tc.want {
+			t.Fatalf("ConfigPath(%q) = %q, %v; want %q", tc.home, got, err, tc.want)
+		}
+	}
+	t.Setenv("CODEX_HOME", "")
+	defaultHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := CodexConfigPath(""); err != nil || got != filepath.Join(defaultHome, ".codex", "config.toml") {
+		t.Fatalf("default ConfigPath = %q, %v", got, err)
+	}
+}
+
 var backupTS = time.Date(2026, 10, 21, 15, 4, 5, 123456789, time.UTC)
 
 func TestBackupPathNoFilesystemAccess(t *testing.T) {

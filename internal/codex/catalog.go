@@ -162,7 +162,11 @@ func runCodexCatalog(ctx context.Context, bin, home string, timeout time.Duratio
 	cmd.Env = spec.Environ(ctx) // no credentials for a --version probe; isolation and unset ride ctx
 	agentconfig.RecordOverlayDebug("codex-catalog", cmd.Env)
 	cmd.Dir = home
-	return cmd.Output()
+	out, err := cmd.Output()
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok && len(exit.Stderr) > 0 {
+		return out, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exit.Stderr)))
+	}
+	return out, err
 }
 
 var (
