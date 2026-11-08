@@ -193,7 +193,7 @@ if (tier === 'MEDIUM' && TASK) {
   } else decisions.push('intel returned nothing; kept the sized paths')
 }
 // code-workers only fixes bugs: a feature task gets an implementer first, then code-workers audits and hardens the new code.
-const feature = KIND ? KIND === 'feature' : /\b(build|add|implement|create|introduce|support|write)\b/i.test(TASK) && !/\b(audit|review)\b/i.test(TASK)
+const feature = KIND ? KIND === 'feature' : /^\W*(build|add|implement|create|introduce|support|write|finish)\b/i.test(TASK) // leading verb only: constraint text mentioning review must not veto
 let IMPL_FILES = []
 if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feature) {
   const impl = await agent(
