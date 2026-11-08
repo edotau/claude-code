@@ -1,5 +1,5 @@
 // Quota pressure on Claude subagents: near the Anthropic plan's limit the agent-effort hook downshifts an unset
-// dispatch model one model (≥90%) or hands a code-worker task to a coworker on the routed agent (≥97%).
+// dispatch model one model (≥90%) or hands a claude task to a copilot leaf (≥97%).
 package agents
 
 import (
@@ -20,14 +20,18 @@ import (
 	"github.com/edotau/claude-code/internal/usage"
 )
 
-// offloadPct is the window share at which a code-worker dispatch moves to a coworker leaf.
+// offloadPct is the window share at which a claude dispatch moves to a copilot leaf.
 const offloadPct = 97.0
 
 // envTestPct forces a reading for live checks; the subagents opt-out is providers.RouteSubagentsOn.
 const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
 
-// offloadTypes are the write-capable agent types a coworker leaf can carry; read-only types (Explore) never escalate.
-var offloadTypes = map[string]bool{"code-worker": true, "code-worker:claude": true}
+// offloadTypes are the write-capable in-context types a copilot leaf can take over (code-worker* until they are
+// deleted); read-only types (Explore) never escalate.
+var offloadTypes = map[string]bool{"claude": true, "code-worker": true, "code-worker:claude": true}
+
+// offloadAgent is the external agent a claude dispatch moves to under pressure.
+const offloadAgent = "copilot"
 
 // ClaudePressure is the forced test reading, else the cached Anthropic window; ok is false when neither exists.
 var ClaudePressure = func() (float64, string, bool) {
@@ -84,18 +88,18 @@ func applyPressure(in *core.Input, updated map[string]any, promptField, base str
 		return "", ""
 	}
 	alias := pressureAlias(base)
-	agent, model := RouteHint(alias)
+	agent, _ := RouteHint(alias)
 	hint := ""
 	if agent != "" {
 		hint = fmt.Sprintf("`claude-code agents ask --agent %s --model %s --tools`", agent, alias)
 	}
 	kind := in.Nested("tool_input", "subagent_type")
 	if pct >= offloadPct && offloadTypes[kind] && agent != "" {
-		to := poolType(agent)
-		offloadToCoworker(updated, promptField, window, hint, to, pct)
+		hint = fmt.Sprintf("`claude-code agents ask --agent %s --model %s --tools`", offloadAgent, alias)
+		offloadToCopilot(updated, promptField, window, hint, pct)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to %s (haiku) via %s.",
-				window, pct, kind, to, hint),
-			fmt.Sprintf("agent-effort: %.0f%% %s → %s via %s %s (%s)", pct, window, to, agent, model, alias)
+				window, pct, kind, offloadAgent, hint),
+			fmt.Sprintf("agent-effort: %.0f%% %s → %s (%s)", pct, window, offloadAgent, alias)
 	}
 	down := downshiftModel(updated, base)
 	offload := ""
@@ -142,20 +146,9 @@ func pressureActive() (pct float64, window string, ok bool) {
 	return pct, window, true
 }
 
-// poolType is the plugin leaf pinned to agent (code-worker:codex, coworker:opencode, …), else the bare coworker.
-func poolType(agent string) string {
-	switch agent {
-	case "codex", "gemini":
-		return "code-worker:" + agent
-	case "copilot", "opencode":
-		return "coworker:" + agent
-	}
-	return "coworker"
-}
-
-// offloadToCoworker retargets the dispatch at a haiku leaf of type to and prefixes its prompt with the routing note.
-func offloadToCoworker(updated map[string]any, promptField, window, hint, to string, pct float64) {
-	updated["subagent_type"], updated["model"] = to, "haiku"
+// offloadToCopilot retargets the dispatch at a haiku copilot leaf and prefixes its prompt with the routing note.
+func offloadToCopilot(updated map[string]any, promptField, window, hint string, pct float64) {
+	updated["subagent_type"], updated["model"] = offloadAgent, "haiku"
 	prompt, _ := updated[promptField].(string)
 	updated[promptField] = fmt.Sprintf("Routed by agent-effort (Claude %s window at %.0f%%): do this task through %s, "+
 		"then verify and report.\n\n%s", window, pct, hint, prompt)

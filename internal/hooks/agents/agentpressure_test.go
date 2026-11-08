@@ -36,13 +36,13 @@ func TestPressureDownshiftsUnsetModel(t *testing.T) {
 	}
 }
 
-func TestPressureOffloadsCodeWorker(t *testing.T) {
+func TestPressureOffloadsClaudeToCopilot(t *testing.T) {
 	withPressure(t, 98)
-	got, _ := runAgentEffort(t, spawn("code-worker", ""))
-	if got["subagent_type"] != "code-worker:codex" || got["model"] != "haiku" {
-		t.Fatalf("98%% code-worker = %+v, want code-worker:codex (the routed agent's leaf) at haiku", got)
+	got, _ := runAgentEffort(t, spawn("claude", ""))
+	if got["subagent_type"] != "copilot" || got["model"] != "haiku" {
+		t.Fatalf("98%% claude = %+v, want copilot at haiku", got)
 	}
-	if p, _ := got["prompt"].(string); !strings.HasPrefix(p, "Routed by agent-effort") || !strings.Contains(p, "--agent codex") ||
+	if p, _ := got["prompt"].(string); !strings.HasPrefix(p, "Routed by agent-effort") || !strings.Contains(p, "--agent copilot") ||
 		!strings.Contains(p, "refactor the parser") {
 		t.Errorf("prompt = %q, want the route prepended to the brief", p)
 	}
@@ -91,12 +91,14 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 	}
 }
 
-// The plugin's in-context Claude leaf offloads to the routed agent's leaf like the bare code-worker.
-func TestPressureOffloadsNamespacedCodeWorker(t *testing.T) {
+// Until Phase 2 deletes them, the code-worker types offload to copilot like claude.
+func TestPressureOffloadsCodeWorkerTypesToCopilot(t *testing.T) {
 	withPressure(t, 98)
-	got, _ := runAgentEffort(t, spawn("code-worker:claude", ""))
-	if got["subagent_type"] != "code-worker:codex" || got["model"] != "haiku" {
-		t.Fatalf("98%% code-worker:claude = %+v, want code-worker:codex (the routed agent's leaf) at haiku", got)
+	for _, kind := range []string{"code-worker", "code-worker:claude"} {
+		got, _ := runAgentEffort(t, spawn(kind, ""))
+		if got["subagent_type"] != "copilot" || got["model"] != "haiku" {
+			t.Fatalf("98%% %s = %+v, want copilot at haiku", kind, got)
+		}
 	}
 }
 
