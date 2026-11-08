@@ -171,6 +171,19 @@ func TestRTKNeverWrapsValueProducingSubcommands(t *testing.T) {
 	}
 }
 
+// rtk reports a failed go vet as "No issues found"; vet, alone or chained, is never wrapped, while go test still is.
+func TestRTKNeverWrapsGoVet(t *testing.T) {
+	bin := fakeRTK(t)
+	for _, cmd := range []string{"go vet ./a/...", "gofmt -l . && go vet ./..."} {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); ok {
+			t.Errorf("%q was wrapped to %q — rtk hides go vet failures", cmd, got)
+		}
+	}
+	if got, ok := rtkOut(t, rtkBashIn("go test ./a/...")); !ok || got != bin+" go test ./a/..." {
+		t.Errorf("go test = %q (emitted=%v), want it still wrapped", got, ok)
+	}
+}
+
 // An unrecognized global flag makes gitRTKSubcommand return "" (documented "fail closed"); rtkVetoed
 // must treat that the same as a known value subcommand and skip wrapping, not fall through to wrap.
 func TestRTKNeverWrapsUnrecognizedGlobalFlag(t *testing.T) {
