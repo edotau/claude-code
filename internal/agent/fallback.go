@@ -37,7 +37,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if shown := askedSkips(reasons, c.Want); len(shown) > 0 && notify != nil { // other agents' skips stay in the record
 		notify("skipped without an attempt — " + strings.Join(shown, "; "))
 	}
-	s := fallbackState{req: req, reasons: reasons}
+	s := fallbackState{req: req, task: req.Prompt, reasons: reasons}
 	for i, disp := range c.Dispatches {
 		if done, err := s.step(ctx, c, i, disp, sink, notify); err != nil {
 			return s.res, err
@@ -52,7 +52,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 
 // chainOutcome folds every failed hop into err and marks res as a fallback when a different agent or route answered.
 func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (wire.Result, error) {
-	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
+	if err != nil && !stopped && len(reasons) > 0 && (hopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, res, err)) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	if ran > 0 || c.Dispatches[ran].otherRoute || c.Dispatches[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
@@ -236,6 +236,24 @@ func hopFailed(res wire.Result, err error) bool {
 	return !retry.Progressed(err)
 }
 
+// cutOffMidRun: an external dispatch that had started work, then hit a rate limit, quota or auth wall.
+func cutOffMidRun(r Engine, res wire.Result, err error) bool {
+	e, ok := errors.AsType[*retry.Error](err)
+	if r == nil || !ok || !e.Progressed || res.Answer != "" || requestFault(err) {
+		return false
+	}
+	if s, known := LookupSchema(r.Name()); known && !s.External() {
+		return false
+	}
+	return e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota || e.AuthReason != ""
+}
+
+// midRunPrompt hands the next hop the task with a note that the cut-off hop may have left edits.
+func midRunPrompt(who, prompt string) string {
+	return "A previous dispatch (" + who + ") stopped mid-run and may have edited files. " +
+		"Run `git status --short` and `git diff` first, keep its correct edits, then finish the task.\n\n" + prompt
+}
+
 // ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
 // when the registry cannot load, any "x:y" model counts as pinned (fail closed).
 func ExplicitBackend(req RunOptions) bool {
@@ -259,6 +277,7 @@ func handoffPrompt(doc string) string {
 
 type fallbackState struct {
 	req          RunOptions
+	task         string // the prompt without any mid-run note; each hop wraps this, never the previous hop's prompt
 	res          wire.Result
 	err          error
 	prev         Engine
@@ -270,9 +289,18 @@ type fallbackState struct {
 	hops         []wire.Hop
 }
 
+// nextPrompt prefixes the cut-off note when an editing hop died mid-run.
+func (s *fallbackState) nextPrompt(midRun bool) string {
+	if !midRun {
+		return s.task
+	}
+	return midRunPrompt(hopLabel(s.prevDispatch), s.task)
+}
+
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
-	if i > 0 && !dispatchUnavailable(s.prev, s.res, s.err) {
+	midRun := i > 0 && cutOffMidRun(s.prev, s.res, s.err) // D1 = B: every external hop falls through
+	if i > 0 && !midRun && !dispatchUnavailable(s.prev, s.res, s.err) {
 		s.stopped = true
 		return true, nil
 	}
@@ -281,6 +309,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	}
 	if i > 0 {
 		s.reasons = append(s.reasons, hopLabel(s.prevDispatch)+": "+FallbackReason(s.err))
+		s.req.Prompt = s.nextPrompt(midRun && s.req.Tools && !s.req.ReadOnly) // only an editing successor gets the git note
 		if herr := announceFallback(sink, notify, s.prev, disp, s.err); herr != nil {
 			return true, herr
 		}
@@ -320,7 +349,8 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	s.res, dhops, panicked, s.err = runDispatch(ctx, c, i, disp, lreq, s.req, key, sink, notify)
 	s.hops = append(s.hops, dhops...)
 	if s.res.Handoff != s.handoff {
-		s.req.Prompt = promptFromHandoff(s.res.Handoff, s.req.Prompt)
+		s.task = promptFromHandoff(s.res.Handoff, s.task)
+		s.req.Prompt = s.task
 	}
 	s.handoff = cmp.Or(s.res.Handoff, s.handoff)
 	s.prev, s.prevDispatch, s.ran = disp.Agent, disp, i
