@@ -15,24 +15,68 @@ export const meta = {
 }
 
 // ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
-// stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
+// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
+const COWORKERS = []
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
+  const S_AGENTS = ['claude', 'codex', 'copilot', 'gemini', 'opencode']
   const S_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max']
-  const S_FIELDS = ['model', 'effort']
-  const allowed = (opt && opt.allowed) || []
+  const S_FIELDS = ['agent', 'model', 'effort', 'profile', 'provider']
+  const S_NAME = /^[A-Za-z0-9._-]+$/
+  const o = opt || {}
+  const allowed = o.allowed || []
   const d = defaults || {}
   if (steps !== undefined && (!steps || typeof steps !== 'object' || Array.isArray(steps))) throw new Error('steps must be an object')
   for (const k of Object.keys(steps || {})) if (!allowed.includes(k)) throw new Error(`steps.${k}: unknown stage (allowed: ${allowed.join('|')})`)
   const where = `steps.${name}`
   const v = (steps || {})[name] === undefined ? {} : steps[name]
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
-  for (const k of ['agent', 'profile']) if (k in v) throw new Error(`${where}.${k}: external agents were removed from workflows (claude only; use \`claude-code agents ask\` outside the workflow)`)
   for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
-  const model = v.model !== undefined ? v.model : d.model || 'sonnet'
-  if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')}`)
-  return { model, effort: v.effort !== undefined ? v.effort : d.effort || 'medium' }
+  for (const k of ['model', 'profile', 'provider']) if (v[k] !== undefined && !S_NAME.test(String(v[k]))) throw new Error(`${where}.${k} must be a plain name (no provider: prefix)`)
+  const who = v.agent !== undefined ? v.agent : 'claude'
+  if (!S_AGENTS.includes(who)) throw new Error(`${where}.agent must be ${S_AGENTS.join('|')}`)
+  const effort = v.effort !== undefined ? v.effort : d.effort || 'medium'
+  if (who === 'claude') {
+    if (v.profile !== undefined || v.provider !== undefined) throw new Error(`${where}: claude stages run in-context on the session profile; profile/provider need agent codex|copilot|gemini|opencode`)
+    const model = v.model !== undefined ? v.model : d.model || 'sonnet'
+    if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')}`)
+    const same = (_label, r) => r
+    return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
+  }
+  if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
+  let profile = v.profile !== undefined ? v.profile : o.profile || 'session'
+  let provider = v.provider !== undefined ? v.provider : o.provider || ''
+  if (who === 'gemini') { // owner rule R1: gemini runs on its Google login only
+    if (v.profile !== undefined) throw new Error(`${where}.profile: gemini runs on its Google login only`)
+    if (v.provider !== undefined && v.provider !== 'google') throw new Error(`${where}.provider: gemini runs on google only`)
+    profile = 'session'
+    provider = provider === 'google' ? 'google' : ''
+  }
+  const edit = d.tools === 'edit'
+  const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
+  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort} --profile ${profile}` +
+    (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
+  const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
+  const R = ['ran_on', 'coworker']
+  const record = (label, r) => {
+    const ok = !!(r && r.coworker === 'ok' && /\S/.test(r.ran_on || ''))
+    const why = ok ? '' : (r && r.coworker_error) || 'no ran_on in the result'
+    COWORKERS.push({ stage: name, label, agent: who, status: ok ? 'ok' : 'BLOCKED', ran_on: ok ? r.ran_on : '', hops: (r && r.hops) || 0, error: why })
+    log(`coworkers ${label}: ${ok ? 'ran on ' + r.ran_on + ' (hop ' + ((r && r.hops) || 0) + ')' : who + ' BLOCKED: ' + why}`)
+    return ok
+  }
+  return {
+    agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: who }, profile, provider,
+    task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a scratch file first, never do it in-context.` +
+      (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') +
+      ' Put the envelope\'s ran_on in ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed' +
+      ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n' + p,
+    schema: (s) => s ? { ...s, required: [...(s.required || []), ...R], properties: { ...s.properties, ...F } }
+      : { type: 'object', additionalProperties: false, required: ['answer', ...R], properties: { answer: { type: 'string' }, ...F } },
+    done: (label, r) => (record(label, r) ? r : null),
+    text: (label, r) => (record(label, r) ? r.answer : null),
+  }
 }
 // ── end stepOf ──
 
