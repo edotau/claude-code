@@ -8,24 +8,53 @@ import (
 
 // --- dashboard template escapes pane status fields before interpolating them into HTML ---
 
-func TestRenderDispatchesTemplateEscapesStatusFields(t *testing.T) {
-	src, err := assetsFS.ReadFile("assets/index.html.tmpl")
+func renderDispatchesInNode(t *testing.T, input string) string {
+	t.Helper()
+	node, err := exec.LookPath("node")
 	if err != nil {
-		t.Fatalf("read index.html.tmpl: %v", err)
+		t.Skip("node not on PATH")
 	}
-	body := string(src)
-	start := strings.Index(body, "function renderDispatches")
-	if start < 0 {
-		t.Fatal("renderDispatches function not found in the dashboard template")
+	src := templateSource(t)
+	script := extractJSFunc(t, src, "escapeHTML") + "\n}\n" +
+		extractJSFunc(t, src, "chip") + "\n}\n" +
+		extractJSFunc(t, src, "renderDispatches") + "\n}\n" +
+		`process.stdout.write(renderDispatches(` + input + `));`
+	out, err := exec.Command(node, "-e", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
 	}
-	end := strings.Index(body[start:], "\n}\n")
-	if end < 0 {
-		t.Fatal("could not find the end of renderDispatches")
+	return string(out)
+}
+
+func TestRenderDispatchesEmptyAndOptionalFields(t *testing.T) {
+	const empty = `<p class="muted">no cc-* panes</p>`
+	const card = `<div class="card"><div class="row"><strong>s</strong><span class="chip chip-idle">idle</span></div><div class="muted"> &middot; </div></div>`
+	for _, tt := range []struct{ input, want string }{
+		{"[]", empty},
+		{"null", empty},
+		{"undefined", empty},
+		{`[{session: 's', state: 'idle'}]`, card},
+		{`[{session: 's', state: 'idle', agent: '', reason: ''}]`, card},
+		{`[{session: 's', state: 'idle', agent: null, reason: null}]`, card},
+	} {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := renderDispatchesInNode(t, tt.input); got != tt.want {
+				t.Fatalf("renderDispatches(%s) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
-	fn := body[start : start+end]
-	for _, field := range []string{"p.session", "p.agent", "p.reason"} {
-		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderDispatches interpolates %s without escapeHTML(...): regression risk for a pane running attacker-controlled text\n%s", field, fn)
+}
+
+func TestRenderDispatchesTemplateEscapesStatusFields(t *testing.T) {
+	rendered := renderDispatchesInNode(t, `[{session: '<i>s</i>', agent: '<b>a</b>', reason: '"><img src=x onerror=1>', state: '<u>u</u>'}]`)
+	for _, raw := range []string{"<i>", "<b>", "<img", "<u>"} {
+		if strings.Contains(rendered, raw) {
+			t.Errorf("renderDispatches left raw %q in the HTML (attacker-controlled pane text): %s", raw, rendered)
+		}
+	}
+	for _, want := range []string{"&lt;i&gt;s&lt;/i&gt;", "&lt;b&gt;a&lt;/b&gt;", "&quot;&gt;&lt;img src=x onerror=1&gt;", "&lt;u&gt;u&lt;/u&gt;"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("renderDispatches output lacks escaped %q: %s", want, rendered)
 		}
 	}
 }

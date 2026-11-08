@@ -232,6 +232,10 @@ func TestUsageEndpointOmitsSecretsFromConfigDir(t *testing.T) {
 func TestUsageCacheBuildsOutsideLockAndCoalesces(t *testing.T) {
 	var c usageCache
 	now := func() time.Time { return time.Now() }
+	joined := make(chan struct{}, 2)
+	origJoin := onUsageJoin
+	onUsageJoin = func(usageKey) { joined <- struct{}{} }
+	t.Cleanup(func() { onUsageJoin = origJoin })
 	release, started := make(chan struct{}), make(chan struct{})
 	var builds atomic.Int32
 	done := make(chan struct{}, 2)
@@ -252,7 +256,11 @@ func TestUsageCacheBuildsOutsideLockAndCoalesces(t *testing.T) {
 	if err != nil || string(body) != "fast" {
 		t.Fatalf("other key = %q, %v; want it to build while days=30 is in flight", body, err)
 	}
-	time.Sleep(50 * time.Millisecond) // let the second caller reach the in-flight build
+	select {
+	case <-joined:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second caller never joined the in-flight days=30 build")
+	}
 	close(release)
 	<-done
 	<-done

@@ -31,6 +31,9 @@ var errUsageBuildAborted = errors.New("usage: build aborted")
 // usageReport is the build seam; production is the exact function behind `claude-code usage --format json`.
 var usageReport = usage.Report
 
+// onUsageJoin is a test seam: called when a caller starts waiting on another caller's in-flight build.
+var onUsageJoin = func(usageKey) {}
+
 // usageCache holds the last JSON body per day-window; one build per key at a time, never under the lock.
 type usageCache struct {
 	mu      sync.Mutex
@@ -65,6 +68,7 @@ func (c *usageCache) get(key usageKey, fresh bool, now func() time.Time, build f
 		if own != nil {
 			return c.runBuild(key, own, now, build)
 		}
+		onUsageJoin(key)
 		<-wait.done
 		if wait.err != nil {
 			return nil, wait.err
