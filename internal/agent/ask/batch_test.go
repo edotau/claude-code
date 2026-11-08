@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -123,11 +125,11 @@ func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
 func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
 	vendorHost(t)
 	var retried atomic.Int32
-	retry := func(context.Context) (*agent.Prepared, error) { retried.Add(1); return nil, errors.New("retry ran") }
-	noHops := func(context.Context) (*agent.Prepared, error) {
-		return &agent.Prepared{Record: agent.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
+	retry := func(context.Context) (*client.Prepared, error) { retried.Add(1); return nil, errors.New("retry ran") }
+	noHops := func(context.Context) (*client.Prepared, error) {
+		return &client.Prepared{Record: agent.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
 	}
-	badPrep := func(context.Context) (*agent.Prepared, error) { return nil, errors.New("prepare failed") }
+	badPrep := func(context.Context) (*client.Prepared, error) { return nil, errors.New("prepare failed") }
 	runRetryBatch(t, PoolOptions{},
 		Task{ID: "h", Agent: "opencode", Prepare: noHops, Retry: retry},
 		Task{ID: "p", Agent: "opencode", Prepare: badPrep, Retry: retry})
@@ -150,7 +152,7 @@ func TestRetrySkippedWhenCancelled(t *testing.T) {
 	defer cancel()
 	task := vendorTask(t, "a", "", "FAILME", "ok", &prep, &again)
 	inner := task.Prepare
-	task.Prepare = func(c context.Context) (*agent.Prepared, error) {
+	task.Prepare = func(c context.Context) (*client.Prepared, error) {
 		p, err := inner(c)
 		cancel()
 		return p, err

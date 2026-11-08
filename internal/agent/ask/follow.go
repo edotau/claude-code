@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 )
 
 // followPoll is how often the follower re-reads the batch file.
@@ -116,15 +116,15 @@ func (w *follower) poll(ctx context.Context, build func(ParsedLine) Task, out ch
 }
 
 // retryFor reroutes t once to the first --retry-agent other than the agent it ran on; nil when there is none.
-func retryFor(t Task, bo Opts, agents []string) func(context.Context) (*agent.Prepared, error) {
+func retryFor(t Task, bo Opts, agents []string) func(context.Context) (*client.Prepared, error) {
 	for _, name := range agents {
 		if name == t.Agent {
 			continue
 		}
 		req := t.Req
 		req.Agent, req.Fallback, req.Native = name, bo.Fallback, bo.Native
-		client := NewClient()
-		return func(ctx context.Context) (*agent.Prepared, error) { return client.Prepare(ctx, req, nil) }
+		cl := NewClient()
+		return func(ctx context.Context) (*client.Prepared, error) { return cl.Prepare(ctx, req, nil) }
 	}
 	return nil
 }

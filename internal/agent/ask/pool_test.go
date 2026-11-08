@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -36,11 +38,11 @@ func vendorHost(t *testing.T) {
 }
 
 // vendorPrepare routes a real opencode dispatch for prompt and counts how often it is called.
-func vendorPrepare(t *testing.T, prompt string, n *atomic.Int32) func(context.Context) (*agent.Prepared, error) {
+func vendorPrepare(t *testing.T, prompt string, n *atomic.Int32) func(context.Context) (*client.Prepared, error) {
 	dir := t.TempDir()
-	return func(ctx context.Context) (*agent.Prepared, error) {
+	return func(ctx context.Context) (*client.Prepared, error) {
 		n.Add(1)
-		return agent.NewClient(nil, nil, nil).Prepare(ctx, agent.RunOptions{Agent: "opencode", Provider: "acme",
+		return client.NewClient(nil, nil, nil).Prepare(ctx, agent.RunOptions{Agent: "opencode", Provider: "acme",
 			Model: "acme-large", Prompt: prompt, WorkDir: dir, Fallback: router.FallbackAgents}, nil)
 	}
 }
@@ -63,7 +65,7 @@ func TestRunTasksPreparesOverlap(t *testing.T) {
 			close(release)
 		}
 	})
-	prepare := func(context.Context) (*agent.Prepared, error) {
+	prepare := func(context.Context) (*client.Prepared, error) {
 		entered <- struct{}{}
 		<-release
 		return nil, errors.New("prepare failed")
@@ -103,7 +105,7 @@ func TestRunTasksPrepareErrorEnvelope(t *testing.T) {
 	var tasks []Task
 	for _, id := range []string{"a", "b"} {
 		tasks = append(tasks, Task{ID: id, Agent: "x",
-			Prepare: func(context.Context) (*agent.Prepared, error) {
+			Prepare: func(context.Context) (*client.Prepared, error) {
 				return nil, errors.New("boom " + id)
 			},
 		})
@@ -118,10 +120,10 @@ func TestRunTasksPrepareErrorEnvelope(t *testing.T) {
 func TestRunTasksPrepareErrorEnvelopeFailFast(t *testing.T) {
 	var secondCalls atomic.Int32
 	tasks := []Task{
-		{ID: "a", Agent: "x", Prepare: func(context.Context) (*agent.Prepared, error) {
+		{ID: "a", Agent: "x", Prepare: func(context.Context) (*client.Prepared, error) {
 			return nil, errors.New("boom a")
 		}},
-		{ID: "b", Agent: "x", Prepare: func(context.Context) (*agent.Prepared, error) {
+		{ID: "b", Agent: "x", Prepare: func(context.Context) (*client.Prepared, error) {
 			secondCalls.Add(1)
 			return nil, errors.New("boom b")
 		}},
@@ -189,9 +191,9 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
 	mk := func(id, plan string, off int) Task {
-		return Task{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*agent.Prepared, error) {
+		return Task{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*client.Prepared, error) {
 			rec := agent.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
-			return &agent.Prepared{Record: rec}, nil
+			return &client.Prepared{Record: rec}, nil
 		}}
 	}
 	var buf bytes.Buffer
@@ -289,7 +291,7 @@ func runOpts(t *testing.T, initial string, o Opts) map[string][]wire.Envelope {
 	o.Jobs, o.Agent, o.Fallback = 1, "opencode", router.FallbackAgents
 	base := agent.RunOptions{Provider: "acme", Model: "acme-large", WorkDir: t.TempDir()}
 	var buf bytes.Buffer
-	id, _ := RunBatch(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
+	id, _ := RunBatch(t.Context(), lines, o, base, false, func() *client.Client { return client.NewClient(nil, nil, nil) }, &buf)
 	byID := map[string][]wire.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		if env.BatchID != id {

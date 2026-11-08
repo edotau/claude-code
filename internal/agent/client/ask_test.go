@@ -1,9 +1,11 @@
-package agent
+package client
 
 import (
 	"io"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func newAskTarget() *AskTarget {
@@ -19,13 +21,13 @@ func newAskTarget() *AskTarget {
 // A retried or backgrounded dispatch must keep --no-tools; without it the tools come back on.
 func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 	s := newAskTarget()
-	s.Apply(Record{Agent: "claude", Request: RunOptions{NoTools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{NoTools: true}}, io.Discard)
 	if !*s.NoTools || *s.Tools {
 		t.Errorf("noTools=%v tools=%v; want noTools on, tools off", *s.NoTools, *s.Tools)
 	}
 	// Negative control: a record without NoTools clears an earlier value.
 	*s.NoTools = true
-	s.Apply(Record{Agent: "claude", Request: RunOptions{Tools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
 	if *s.NoTools || !*s.Tools {
 		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", *s.NoTools, *s.Tools)
 	}
@@ -34,11 +36,11 @@ func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 // A replayed read-only dispatch must stay read-only; the flag default would hand it write tools.
 func TestApplyRecordRoundTripsReadOnly(t *testing.T) {
 	s := newAskTarget()
-	s.Apply(Record{Agent: "claude", Request: RunOptions{ReadOnly: true, Tools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{ReadOnly: true, Tools: true}}, io.Discard)
 	if !*s.ReadOnly || !*s.Tools {
 		t.Errorf("readOnly=%v tools=%v; want both on", *s.ReadOnly, *s.Tools)
 	}
-	s.Apply(Record{Agent: "claude", Request: RunOptions{Tools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
 	if *s.ReadOnly {
 		t.Error("readOnly stayed on for a record without it")
 	}

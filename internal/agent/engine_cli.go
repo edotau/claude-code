@@ -32,8 +32,8 @@ func (s Schema) OwnProfile() string {
 	return s.Name
 }
 
-// target mirrors launch.Agent: the session target if it serves the agent, else its own login or a keyed one.
-func (s Schema) target(req RunOptions) (providers.Target, bool, error) {
+// Target mirrors launch.Agent: the session target if it serves the agent, else its own login or a keyed one.
+func (s Schema) Target(req RunOptions) (providers.Target, bool, error) {
 	t, own, note, err := s.targetNote(req)
 	if note != "" {
 		fmt.Fprintln(NoticeOut, note)
@@ -111,8 +111,8 @@ type CLIPrep struct {
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
 func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error) {
 	name := v.Name()
-	s := schemaFor(name)
-	t, own, err := s.target(req)
+	s := SchemaFor(name)
+	t, own, err := s.Target(req)
 	if err != nil {
 		return CLIPrep{}, err
 	}

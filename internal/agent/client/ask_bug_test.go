@@ -1,4 +1,4 @@
-package agent
+package client
 
 import (
 	"errors"
@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestResolveAskPromptBoundsStdin(t *testing.T) {
@@ -38,8 +40,8 @@ func TestResolveAskPromptBoundsStdin(t *testing.T) {
 	t.Cleanup(func() { _ = r.Close(); <-readerDone })
 	select {
 	case got := <-results:
-		want := PromptTooLarge(MaxPromptBytes+1, MaxPromptBytes)
-		if got.prompt != "" || !errors.Is(got.err, ErrPromptTooLarge) || got.err.Error() != want.Error() {
+		want := agent.PromptTooLarge(agent.MaxPromptBytes+1, agent.MaxPromptBytes)
+		if got.prompt != "" || !errors.Is(got.err, agent.ErrPromptTooLarge) || got.err.Error() != want.Error() {
 			t.Fatalf("ResolveAskPrompt = (%q, %v), want empty prompt and %q", got.prompt, got.err, want)
 		}
 	case <-time.After(3 * time.Second):

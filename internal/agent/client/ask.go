@@ -1,4 +1,4 @@
-package agent
+package client
 
 import (
 	"bufio"
@@ -12,13 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+
+	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -76,11 +77,11 @@ func AskPositional(positional []string, resume bool, session *string) ([]string,
 }
 
 // AskReselect re-resolves the agent after --job/--retry; it returns the new selector and agent.
-func AskReselect(ref, ag string, name *string, persona **Schema, defs map[string]*Schema) (string, string, error) {
+func AskReselect(ref, ag string, name *string, persona **agent.Schema, defs map[string]*agent.Schema) (string, string, error) {
 	if *name != ag { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
 		ref = *name
 	}
-	rest, p, err := SelectAgent(ref, defs) // a --retry re-parse puts the raw --agent value back
+	rest, p, err := agent.SelectAgent(ref, defs) // a --retry re-parse puts the raw --agent value back
 	if err != nil {
 		return ref, ag, err
 	}
@@ -106,42 +107,33 @@ func ResolveAskPrompt(prompt string) (string, error) {
 	if prompt != "" && prompt != "-" {
 		return prompt, nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(os.Stdin, MaxPromptBytes+1))
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, agent.MaxPromptBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read stdin: %w", err)
 	}
-	if len(raw) > MaxPromptBytes {
-		return "", PromptTooLarge(len(raw), MaxPromptBytes)
+	if len(raw) > agent.MaxPromptBytes {
+		return "", agent.PromptTooLarge(len(raw), agent.MaxPromptBytes)
 	}
 	return string(raw), nil
 }
 
 // BuildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
-func BuildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) Record {
+func BuildAskRecord(ctx context.Context, name string, req agent.RunOptions, jobRec *agent.Record, workdir string, background bool) agent.Record {
 	if jobRec != nil {
 		return *jobRec // same id: a job run continues the record it was spawned from
 	}
-	rec := ClaimRecord(name, req, time.Now())
+	rec := agent.ClaimRecord(name, req, time.Now())
 	cwd := workdir
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	rec.Repo = RepoRoot(ctx, cwd)
+	rec.Repo = job.RepoRoot(ctx, cwd)
 	rec.Owner = inflight.SessionOwner()
 	rec.Log = rec.LogPath()
 	if !background {
 		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
 	}
 	return rec
-}
-
-// RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
-func RepoRoot(ctx context.Context, cwd string) string {
-	out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
-	if err != nil || out == "" {
-		return cwd
-	}
-	return paths.MainCheckout(strings.TrimSpace(out))
 }
 
 // ResolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else as a file, and checks it parses.
@@ -165,7 +157,7 @@ func ResolveOutputSchema(arg string) (string, error) {
 }
 
 // RecordEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
-func RecordEnvelope(rec Record, errw io.Writer) wire.Envelope {
+func RecordEnvelope(rec agent.Record, errw io.Writer) wire.Envelope {
 	if f, err := os.Open(rec.EventsPath()); err == nil {
 		defer f.Close()
 		var env *wire.Envelope
@@ -204,7 +196,7 @@ type AskTarget struct {
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema         *string
 	Host, RemoteBin, Fallback                                         *string
 	Timeout                                                           *time.Duration
-	Persona                                                           **Schema
+	Persona                                                           **agent.Schema
 	Pack                                                              **pack.Spec
 	Attach, KeepEnv                                                   *[]string
 	PermMode                                                          *string
@@ -212,7 +204,7 @@ type AskTarget struct {
 }
 
 // Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
-func (t *AskTarget) Apply(rec Record, errw io.Writer) {
+func (t *AskTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
@@ -221,7 +213,7 @@ func (t *AskTarget) Apply(rec Record, errw io.Writer) {
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host, *t.RemoteBin = rec.Host, rec.RemoteBin
 	p := rec.Request.Permissions
-	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, RuleStrings(p.Allow), RuleStrings(p.Ask), RuleStrings(p.Deny)
+	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, agent.RuleStrings(p.Allow), agent.RuleStrings(p.Ask), agent.RuleStrings(p.Deny)
 	if t.Pack != nil {
 		*t.Pack = rec.Request.Pack
 	}
@@ -240,8 +232,8 @@ func (t *AskTarget) Apply(rec Record, errw io.Writer) {
 var ErrJobNotFresh = errors.New("not a fresh background job")
 
 // LoadJobRecord loads a --job record for a background run continuation and claims it for this process.
-func LoadJobRecord(id string) (Record, error) {
-	r, err := LoadRecord(id)
+func LoadJobRecord(id string) (agent.Record, error) {
+	r, err := agent.LoadRecord(id)
 	if err != nil {
 		return r, err
 	}
@@ -273,11 +265,11 @@ func OverlayLocal(file agentconfig.Overlay, live bool, host string) error {
 }
 
 // ParseAgentDefs parses --agents; --host cannot carry an inline definition.
-func ParseAgentDefs(agents, host string) (map[string]*Schema, error) {
-	var defs map[string]*Schema
+func ParseAgentDefs(agents, host string) (map[string]*agent.Schema, error) {
+	var defs map[string]*agent.Schema
 	if agents != "" {
 		var err error
-		if defs, err = ParseAgents(agents); err != nil {
+		if defs, err = agent.ParseAgents(agents); err != nil {
 			return nil, err
 		}
 	}

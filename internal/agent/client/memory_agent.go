@@ -1,9 +1,11 @@
-package agent
+package client
 
 import (
 	"context"
 	"fmt"
 	"os"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -16,7 +18,7 @@ func MemoryRunner(newClient func() *Client) memory.AgentFunc {
 		client := newClient()
 		client.Refresh = nil
 		client.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
-		res, err := client.Run(ctx, RunOptions{Agent: "claude", Prompt: prompt,
+		res, err := client.Run(ctx, agent.RunOptions{Agent: "claude", Prompt: prompt,
 			Effort: "medium", Tools: true, WorkDir: workdir}, wire.NewTextSink(os.Stdout))
 		who := res.Agent
 		if res.Fallback != "" {

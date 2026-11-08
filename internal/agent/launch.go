@@ -248,7 +248,7 @@ func retryConfigure(ctx context.Context, name string, o LaunchOptions) ([]string
 	if err != nil {
 		return nil, nil, err
 	}
-	spec := schemaFor(name)
+	spec := SchemaFor(name)
 	target, note, err := spec.ResolveTarget(reg, sel, o.Provider != "")
 	if err != nil {
 		return nil, nil, err
@@ -493,6 +493,6 @@ func login(e Driver, p *providers.Provider, model string, h *Headless) ([]string
 
 // HeadlessLaunch applies name's spec Launch.Env (never Launch.Args) to argv, with the route env going last.
 func HeadlessLaunch(name string, env, argv []string) (launchedEnv, launchedArgv []string) {
-	launchEnv, argv := schemaFor(name).applyLaunch(nil, argv, false)
+	launchEnv, argv := SchemaFor(name).applyLaunch(nil, argv, false)
 	return routeEnvLast(launchEnv, env), argv
 }

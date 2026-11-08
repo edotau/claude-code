@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -95,7 +97,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
-	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
+	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+client.RemoteBinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined")
 	fs.StringVar(&f.files, "files", "", "comma-separated file globs to inline")
@@ -176,7 +178,7 @@ func (r *askRun) prelude() (int, bool) {
 	if code, err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
 		return r.fail(err, code)
 	}
-	if r.schema, err = agent.ResolveOutputSchema(f.outputSchema); err != nil {
+	if r.schema, err = client.ResolveOutputSchema(f.outputSchema); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false
@@ -186,7 +188,7 @@ func (r *askRun) prelude() (int, bool) {
 func (r *askRun) selectAgent() (int, bool) {
 	f := r.f
 	var err error
-	if r.defs, err = agent.ParseAgentDefs(string(f.agents), f.host); err != nil {
+	if r.defs, err = client.ParseAgentDefs(string(f.agents), f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	r.ref = f.name
@@ -194,13 +196,13 @@ func (r *askRun) selectAgent() (int, bool) {
 		return r.fail(err, 2)
 	}
 	f.name = r.ag
-	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
+	if err := client.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := agent.OverlayLocal(r.fileOv, f.live, f.host); err != nil {
+	if err := client.OverlayLocal(r.fileOv, f.live, f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false
@@ -268,7 +270,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
 func (r *askRun) resolveRecord() (int, bool) {
 	f := r.f
-	positional, err := agent.AskPositional(r.fs.Args(), r.resume, &f.session)
+	positional, err := client.AskPositional(r.fs.Args(), r.resume, &f.session)
 	if err != nil {
 		return failAsk(f.format, f.name, err), true
 	}
@@ -284,10 +286,10 @@ func (r *askRun) resolveRecord() (int, bool) {
 			return rc, true
 		}
 	}
-	if r.ref, r.ag, err = agent.AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
+	if r.ref, r.ag, err = client.AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := agent.OverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
+	if err := client.OverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
 		return r.fail(err, 2)
 	}
 	if r.schema, err = askRefreshSchema(f.outputSchema, r.schema); err != nil {
@@ -352,7 +354,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 // askBatch layers the overlay over base and runs the --batch tasks.
 func askBatch(fs *flag.FlagSet, resume bool, src string, o Opts, base agent.RunOptions, fileOv agentconfig.Overlay,
 	env envFlag, keepEnv keepEnvFlag, format, name string) int {
-	ov, err := agent.ResolveOverlay(fileOv, env, keepEnv, false)
+	ov, err := client.ResolveOverlay(fileOv, env, keepEnv, false)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
@@ -364,7 +366,7 @@ func askRefreshSchema(raw, schema string) (string, error) {
 	if raw == "" {
 		return schema, nil
 	}
-	return agent.ResolveOutputSchema(raw)
+	return client.ResolveOutputSchema(raw)
 }
 
 // askEnableOverlays turns on --overlay-debug and --overlay; it returns the exit code of a failure, else 0.
@@ -391,14 +393,14 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, fileOv agentconfig.Overlay,
 	env envFlag, keepEnv keepEnvFlag, as, format, name string, background, native bool) int {
-	ov, err := agent.ResolveOverlay(fileOv, env, keepEnv, background)
+	ov, err := client.ResolveOverlay(fileOv, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
 	req = agent.ApplyOverlay(req, ov)
-	client := NewClient()
+	cl := NewClient()
 	ctx = providers.WithIdentity(ctx, as)
-	prepared, err := client.Prepare(ctx, req, jobRec)
+	prepared, err := cl.Prepare(ctx, req, jobRec)
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
@@ -412,7 +414,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		}
 		return askSpawn(fs, prepared, native, format, name)
 	}
-	return runAskAndReport(ctx, client, prepared, jobRec != nil, format)
+	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format)
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.
@@ -420,10 +422,10 @@ func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback string, ba
 	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
 		return 2, err
 	}
-	if err := agent.ValidateAskFlags(format, fallback); err != nil {
+	if err := client.ValidateAskFlags(format, fallback); err != nil {
 		return 1, err
 	}
-	return 1, agent.AskExclusive(background, job, tools, noTools)
+	return 1, client.AskExclusive(background, job, tools, noTools)
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
@@ -478,9 +480,9 @@ func askHostEnvCombos(host string, background bool, job, batchSrc string, hasEnv
 // askReadPrompt reads the framed stdin prompt, or resolves prompt; framed reader is nil when not framed.
 func askReadPrompt(framed bool, prompt string) (*bufio.Reader, string, error) {
 	if framed {
-		return agent.ReadFramedPrompt(os.Stdin)
+		return client.ReadFramedPrompt(os.Stdin)
 	}
-	p, err := agent.ResolveAskPrompt(prompt)
+	p, err := client.ResolveAskPrompt(prompt)
 	return nil, p, err
 }
 
@@ -510,7 +512,7 @@ func prepareExitCode(err error) int {
 }
 
 // askSpawn detaches a prepared dispatch as a background job.
-func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, name string) int {
+func askSpawn(fs *flag.FlagSet, prepared *client.Prepared, native bool, format, name string) int {
 	if err := job.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
 		return failAsk(format, name, err)
 	}
@@ -530,7 +532,7 @@ func absDebugFile(p string) string {
 }
 
 // runAskAndReport executes one prepared foreground dispatch and reports its outcome.
-func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, job bool, format string) int {
+func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepared, job bool, format string) int {
 	opts := agent.RunRecordedOpts{Job: job}
 	if job && format == helptext.Text {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
@@ -550,7 +552,7 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 }
 
 // The ask --format values.
-const formatStreamJSON = agent.FormatStreamJSON
+const formatStreamJSON = client.FormatStreamJSON
 
 // StdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
 func StdoutSink(format, dispatchID string) wire.Sink {
@@ -565,7 +567,7 @@ func StdoutSink(format, dispatchID string) wire.Sink {
 
 // askState is the agent.AskTarget plus the flag pointers --retry resets or --job clears.
 type askState struct {
-	agent.AskTarget
+	client.AskTarget
 	rubric *string
 	env    *envFlag
 }
@@ -575,8 +577,8 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	if job == "" {
 		return nil, 0, false
 	}
-	r, err := agent.LoadJobRecord(job)
-	if errors.Is(err, agent.ErrJobNotFresh) {
+	r, err := client.LoadJobRecord(job)
+	if errors.Is(err, client.ErrJobNotFresh) {
 		return nil, failAskCode(format, *s.Name, err, 2), true
 	}
 	if err != nil {

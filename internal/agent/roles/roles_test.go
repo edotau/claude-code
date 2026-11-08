@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -22,7 +24,7 @@ func fakeStream(t *testing.T, failOn ...string) *[]agent.RunOptions {
 	var mu sync.Mutex
 	var seen []agent.RunOptions
 	orig := streamLeg
-	streamLeg = func(_ *agent.Client, _ context.Context, o agent.RunOptions) <-chan wire.Event {
+	streamLeg = func(_ *client.Client, _ context.Context, o agent.RunOptions) <-chan wire.Event {
 		mu.Lock()
 		seen = append(seen, o)
 		mu.Unlock()
@@ -166,7 +168,7 @@ func TestRoleVaultOverlayMovesExplore(t *testing.T) {
 
 func TestRunProgressTagsWholeLines(t *testing.T) {
 	orig := streamLeg
-	streamLeg = func(_ *agent.Client, _ context.Context, o agent.RunOptions) <-chan wire.Event {
+	streamLeg = func(_ *client.Client, _ context.Context, o agent.RunOptions) <-chan wire.Event {
 		ch := make(chan wire.Event, 4)
 		for _, s := range []string{"hel", "lo\nwor", "ld"} {
 			ch <- wire.Event{Type: wire.EventText, Text: s}

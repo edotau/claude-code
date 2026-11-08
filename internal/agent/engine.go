@@ -93,8 +93,8 @@ func (s Schema) eng() Driver {
 	return BaseEngine{s.Name}
 }
 
-// schemaFor is the roster row for name, or a bare row carrying only the name when the roster has none.
-func schemaFor(name string) Schema {
+// SchemaFor is the roster row for name, or a bare row carrying only the name when the roster has none.
+func SchemaFor(name string) Schema {
 	if s, ok := LookupSchema(name); ok {
 		return s
 	}
@@ -111,9 +111,6 @@ type RegistryLaunch struct {
 	Revoke                           func()
 	Banner                           string
 }
-
-// SchemaFor is schemaFor for the vendor packages.
-func SchemaFor(name string) Schema { return schemaFor(name) }
 
 // LoginPresent is the agent's own sign-in presence bit (no network).
 func (s Schema) LoginPresent() bool { return AuthStatus(s.Name).Present }
@@ -142,10 +139,10 @@ func NewBaseEngine(name string) BaseEngine { return BaseEngine{name} }
 
 func (b BaseEngine) Name() string { return b.name }
 
-func (b BaseEngine) Caps() Caps { return schemaFor(b.name).CLI.Caps }
+func (b BaseEngine) Caps() Caps { return SchemaFor(b.name).CLI.Caps }
 
 func (b BaseEngine) Available() error {
-	_, err := paths.AgentBin(schemaFor(b.name).CLI.Binary)
+	_, err := paths.AgentBin(SchemaFor(b.name).CLI.Binary)
 	return err
 }
 

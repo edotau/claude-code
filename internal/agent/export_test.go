@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// SetChain and KeepCaller let the agent_test batch tests build a Prepared with a routed chain.
-func SetChain(p *Prepared, c Chain) *Prepared { p.chain = c; return p }
-
+// KeepCaller lets the agent_test batch tests build a dispatch that keeps the caller's own --model.
 func KeepCaller(d Dispatch) Dispatch { d.keepCaller = true; return d }
 
 // Hooks for the batch runner tests, which live in agent_test because batch imports agent.

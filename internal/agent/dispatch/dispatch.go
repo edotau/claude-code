@@ -10,7 +10,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
@@ -82,7 +83,7 @@ func resolveInputs(roleName string, nparts int, schemaArg string) (roles.Role, s
 	if err != nil {
 		return roles.Role{}, "", err
 	}
-	schema, err := agent.ResolveOutputSchema(schemaArg)
+	schema, err := client.ResolveOutputSchema(schemaArg)
 	return role, schema, err
 }
 
@@ -99,22 +100,22 @@ func splitModels(s string) []string {
 
 // dispatchRun builds the legs (splitting explore when no --part) and runs or detaches them.
 func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int, format string, background bool) int {
-	client := ask.NewClient()
+	cl := ask.NewClient()
 	if role.Name == "explore" && len(q.Parts) == 0 && !background {
-		q.Parts = roles.Split(ctx, client, q.Task)
+		q.Parts = roles.Split(ctx, cl, q.Task)
 	}
 	legs := roles.Legs(role, q)
 	if len(legs) == 0 {
 		return helptext.FailUsage("dispatch: role %q builds no legs (a renamed role must be explore, fleet or compare)", role.Name)
 	}
 	if background {
-		return dispatchDetach(ctx, client, legs, format)
+		return dispatchDetach(ctx, cl, legs, format)
 	}
 	var progress io.Writer = os.Stderr
 	if format == helptext.JSON {
 		progress = nil
 	}
-	rep := roles.Run(ctx, client, role, legs, max(1, jobs), progress)
+	rep := roles.Run(ctx, cl, role, legs, max(1, jobs), progress)
 	if format == helptext.JSON {
 		body, _ := json.Marshal(rep)
 		fmt.Println(string(body))
@@ -128,7 +129,7 @@ func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int
 }
 
 // dispatchDetach spawns each leg as `ask --background` does and prints its id (one JSON line per leg with --format json).
-func dispatchDetach(ctx context.Context, client *agent.Client, legs []roles.Leg, format string) int {
+func dispatchDetach(ctx context.Context, client *client.Client, legs []roles.Leg, format string) int {
 	code := 0
 	for _, leg := range legs {
 		if leg.Err != "" {

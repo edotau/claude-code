@@ -118,7 +118,7 @@ func Register(a Agent) {
 		panic("agent: Register " + a.Row.Name + " with a nil Driver")
 	case a.Row.Name != a.Driver.Name():
 		panic("agent: row " + a.Row.Name + " registered with driver " + a.Driver.Name())
-	case a.Launcher != nil && defaultLauncher != nil:
+	case a.Launcher != nil && DefaultLauncher != nil:
 		panic("agent: second Launcher registered by " + a.Row.Name)
 	case a.Hub != nil && hub != nil:
 		panic("agent: second Hub registered by " + a.Row.Name)
@@ -126,7 +126,7 @@ func Register(a Agent) {
 	addRow(a.Row)
 	drivers[a.Row.Name] = a.Driver
 	if a.Launcher != nil {
-		defaultLauncher = a.Launcher
+		DefaultLauncher = a.Launcher
 	}
 	if a.Hub != nil {
 		hub = a.Hub
@@ -411,7 +411,7 @@ func AgentUnbillable(agent string) string {
 	if err != nil {
 		return ""
 	}
-	if schemaFor("copilot").eng().DescribeRoute(reg).OK {
+	if SchemaFor("copilot").eng().DescribeRoute(reg).OK {
 		return ""
 	}
 	return "no account to bill"

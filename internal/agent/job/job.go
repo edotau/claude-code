@@ -18,9 +18,19 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shapes"
 )
+
+// RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
+func RepoRoot(ctx context.Context, cwd string) string {
+	out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
+	if err != nil || out == "" {
+		return cwd
+	}
+	return paths.MainCheckout(strings.TrimSpace(out))
+}
 
 // executable is swapped by tests.
 var executable = os.Executable
@@ -231,7 +241,7 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 	if err := checkAgent(name); err != nil {
 		return nil, err
 	}
-	recs := List(name, agent.RepoRoot(ctx, cwd), all || ref != "")
+	recs := List(name, RepoRoot(ctx, cwd), all || ref != "")
 	if ref != "" {
 		rec, err := Resolve(recs, ref, nil)
 		if err != nil {
@@ -251,7 +261,7 @@ func JobResult(ctx context.Context, name, cwd, ref string) (agent.Record, string
 	if err := checkAgent(name); err != nil {
 		return agent.Record{}, "", err
 	}
-	recs := List(name, agent.RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
+	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return r.Status != "running" })
 	if err != nil {
 		return agent.Record{}, "", err
@@ -275,7 +285,7 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 	if err := checkAgent(name); err != nil {
 		return agent.Record{}, err
 	}
-	recs := List(name, agent.RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
+	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, nil)
 	if err != nil {
 		return agent.Record{}, err
@@ -426,7 +436,7 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error)
 	if err := checkAgent(name); err != nil {
 		return agent.Record{}, err
 	}
-	recs := List(name, agent.RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
+	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return r.Alive() })
 	if err != nil {
 		return agent.Record{}, err

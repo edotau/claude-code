@@ -1,4 +1,4 @@
-package agent
+package client
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
@@ -24,7 +26,7 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostile := []string{"a'b", `a"b`, "$(touch " + marker + ")", "`touch " + marker + "`", "x; touch " + marker, "l1\nl2 'q' \\", "-oProxyCommand=x", "tab\there"}
-	req := RunOptions{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
+	req := agent.RunOptions{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
 		AppendSystemPrompt: hostile[5], OutputSchema: hostile[6], WorkDir: "/w/" + hostile[7], Env: []string{"K=" + hostile[0] + hostile[5]},
 		Timeout: time.Minute, Tools: true}
 	argv, err := RemoteArgv("wks", stub, "codex", "", req)
@@ -54,14 +56,14 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 
 func TestRemoteArgvRefusals(t *testing.T) {
 	for _, host := range []string{"-oProxyCommand=x", "", "a b", "h\n"} {
-		if _, err := RemoteArgv(host, "claude-code", "codex", "", RunOptions{}); err == nil {
+		if _, err := RemoteArgv(host, "claude-code", "codex", "", agent.RunOptions{}); err == nil {
 			t.Errorf("host %q accepted", host)
 		}
 	}
-	if _, err := RemoteArgv("h", "claude-code", "codex", "", RunOptions{Model: "a\x00b"}); err == nil {
+	if _, err := RemoteArgv("h", "claude-code", "codex", "", agent.RunOptions{Model: "a\x00b"}); err == nil {
 		t.Error("NUL value accepted")
 	}
-	if _, err := RemoteArgv("h", "bin\nx", "codex", "", RunOptions{}); err == nil {
+	if _, err := RemoteArgv("h", "bin\nx", "codex", "", agent.RunOptions{}); err == nil {
 		t.Error("newline in remote bin accepted")
 	}
 }
@@ -84,10 +86,15 @@ type handTimer struct {
 	f      func()
 }
 
-func (h *handTimer) Reset(time.Duration) bool { h.mu.Lock(); h.resets++; h.mu.Unlock(); return true }
-func (h *handTimer) Stop() bool               { return true }
-func (h *handTimer) count() int               { h.mu.Lock(); defer h.mu.Unlock(); return h.resets }
-func (h *handTimer) fire()                    { h.mu.Lock(); f := h.f; h.mu.Unlock(); f() }
+func (h *handTimer) Reset(time.Duration) bool {
+	h.mu.Lock()
+	h.resets++
+	h.mu.Unlock()
+	return true
+}
+func (h *handTimer) Stop() bool { return true }
+func (h *handTimer) count() int { h.mu.Lock(); defer h.mu.Unlock(); return h.resets }
+func (h *handTimer) fire()      { h.mu.Lock(); f := h.f; h.mu.Unlock(); f() }
 
 // swapIdleTimer installs a handTimer for the test and returns it.
 func swapIdleTimer(t *testing.T) *handTimer {
@@ -101,7 +108,7 @@ func swapIdleTimer(t *testing.T) *handTimer {
 // Every remote line resets the watchdog, so an active remote is never cut off; a silent one is once the watchdog fires.
 func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 	h := swapIdleTimer(t)
-	req := RunOptions{Prompt: "p", Timeout: time.Minute}
+	req := agent.RunOptions{Prompt: "p", Timeout: time.Minute}
 	r := NewRemoteEngine("codex", "fakehost", "claude-code", "")
 
 	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; done\n"+
@@ -130,7 +137,7 @@ func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 
 // A persona rides the single --agent value as vendor:persona.
 func TestRemoteArgvPersonaIsOneAgentValue(t *testing.T) {
-	script, err := remoteScript("claude-code", "codex", "", RunOptions{Persona: &Schema{Name: "reviewer", Prompt: "x"}})
+	script, err := remoteScript("claude-code", "codex", "", agent.RunOptions{Persona: &agent.Schema{Name: "reviewer", Prompt: "x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +156,7 @@ func TestRemoteScriptResolvesHarnessPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "claude-code"), []byte("#!/bin/sh\necho resolved\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	script, err := remoteScript("claude-code", "codex", "", RunOptions{})
+	script, err := remoteScript("claude-code", "codex", "", agent.RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +186,7 @@ func TestRemoteHomePath(t *testing.T) {
 			t.Errorf("remoteHomePath(%q) = %q, want %q", in, got, want)
 		}
 	}
-	script, err := remoteScript("/Users/me/.local/bin/claude-code", "codex", "", RunOptions{WorkDir: "/Users/me/.claude"})
+	script, err := remoteScript("/Users/me/.local/bin/claude-code", "codex", "", agent.RunOptions{WorkDir: "/Users/me/.claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,11 +197,11 @@ func TestRemoteHomePath(t *testing.T) {
 
 // Each permission rule crosses to the remote as its own quoted argv word, so spaces in a rule cannot split it.
 func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
-	perms, err := ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
+	perms, err := agent.ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	script, err := remoteScript("claude-code", "claude", "", RunOptions{Permissions: perms})
+	script, err := remoteScript("claude-code", "claude", "", agent.RunOptions{Permissions: perms})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,8 +214,22 @@ func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
 
 // --read-only must cross to the remote: bare --tools there would run with every tool enabled.
 func TestRemoteScriptRelaysReadOnly(t *testing.T) {
-	script, err := remoteScript("claude-code", "copilot", "", RunOptions{Tools: true, ReadOnly: true, Fleet: true})
+	script, err := remoteScript("claude-code", "copilot", "", agent.RunOptions{Tools: true, ReadOnly: true, Fleet: true})
 	if err != nil || !strings.Contains(script, " --read-only") || !strings.Contains(script, " --fleet") {
 		t.Fatalf("script = %s, err = %v; want --read-only and --fleet relayed", script, err)
+	}
+}
+
+type recSink struct{ got []wire.Event }
+
+func (s *recSink) Emit(ev wire.Event) error { s.got = append(s.got, ev); return nil }
+
+// A remote's progress mark counts as streamed output, so a failed remote tool-only run is not replayed.
+func TestRelayCountsProgressMark(t *testing.T) {
+	line := `{"schema":1,"seq":2,"type":"progress"}` + "\n"
+	rec := &recSink{}
+	_, streamed, err := remoteEngine{agent: "copilot"}.relay(context.Background(), strings.NewReader(line), rec, func() {}, func() {})
+	if err != nil || !streamed || len(rec.got) != 1 {
+		t.Fatalf("streamed=%v err=%v events=%v; want the mark relayed and counted", streamed, err, rec.got)
 	}
 }

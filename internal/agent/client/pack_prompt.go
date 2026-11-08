@@ -1,4 +1,4 @@
-package agent
+package client
 
 import (
 	"cmp"
@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/models"
@@ -32,11 +34,11 @@ func (f *packFile) remove() { _ = os.Remove(f.path) }
 
 // packBudget is the byte budget for d: its model window under the prompt-cap rule, then its transport cap
 // unless the pack travels as a file (the prompt then carries only the instruction).
-func packBudget(d Dispatch, req RunOptions, viaFile bool) (budget int, note string) {
-	s := schemaFor(d.Agent.Name())
+func packBudget(d agent.Dispatch, req agent.RunOptions, viaFile bool) (budget int, note string) {
+	s := agent.SchemaFor(d.Agent.Name())
 	model := d.Model
 	if model == "" {
-		if t, _, err := s.target(req); err == nil {
+		if t, _, err := s.Target(req); err == nil {
 			model = t.Model
 		}
 	}
@@ -54,15 +56,15 @@ func packBudget(d Dispatch, req RunOptions, viaFile bool) (budget int, note stri
 // not fit, and either inlines the pack in the prompt or, for a PackFile lead, stages it as a file to read.
 func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 	o := p.Opts
-	if len(p.chain.Dispatches) == 0 {
+	if len(p.Chain.Dispatches) == 0 {
 		return nil // routing already recorded why nothing can run
 	}
 	cwd, err := filepath.Abs(o.WorkDir) // "" is the process cwd; the child starts inside it, so the prompt path must be absolute
 	if err != nil {
 		return clientUsageError{err}
 	}
-	lead := p.chain.Dispatches[0]
-	viaFile := schemaFor(lead.Agent.Name()).CLI.PackVia == PackFile
+	lead := p.Chain.Dispatches[0]
+	viaFile := agent.SchemaFor(lead.Agent.Name()).CLI.PackVia == agent.PackFile
 	if viaFile && o.ReadOnly {
 		return clientUsageError{fmt.Errorf("%s reads a pack from a file with tools on: --read-only cannot be combined with --dirs/--files/--diff here", lead.Agent.Name())}
 	}
@@ -87,13 +89,13 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 			c.Notify(n)
 		}
 	}
-	p.chain = fitChain(p.chain, len(packed.Prompt), o)
+	p.Chain = fitChain(p.Chain, len(packed.Prompt), o)
 	return nil
 }
 
 // fitChain keeps the lead and every later dispatch whose budget holds n bytes; the rest become skip reasons.
-func fitChain(c Chain, n int, o RunOptions) Chain {
-	out := Chain{Want: c.Want, Dispatches: c.Dispatches[:1:1], Skipped: slices.Clone(c.Skipped)}
+func fitChain(c agent.Chain, n int, o agent.RunOptions) agent.Chain {
+	out := agent.Chain{Want: c.Want, Dispatches: c.Dispatches[:1:1], Skipped: slices.Clone(c.Skipped)}
 	for _, d := range c.Dispatches[1:] {
 		if b, _ := packBudget(d, o, false); b < n {
 			out.Skipped = append(out.Skipped, fmt.Sprintf("%s: packed prompt (%d KB) is over its %d KB budget", d.Agent.Name(), n/1024, b/1024))

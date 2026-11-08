@@ -4,7 +4,7 @@ import "testing"
 
 // TestSetupUnknownVendor: Setup reports a single failing "agent" check, not a panic or an empty report.
 func TestSetupUnknownVendor(t *testing.T) {
-	rep := schemaFor("nonexistent-vendor").Setup()
+	rep := SchemaFor("nonexistent-vendor").Setup()
 	if rep.OK {
 		t.Error("Setup(unknown vendor).OK = true, want false")
 	}
@@ -18,7 +18,7 @@ func TestSetupUnknownVendor(t *testing.T) {
 // Route's own detail text is a wave-3 concern (RouteDetail) and is deliberately not asserted here.
 func TestSetupKnownVendorChecks(t *testing.T) {
 	for _, name := range []string{"codex", "gemini", "copilot", "opencode"} {
-		rep := schemaFor(name).Setup()
+		rep := SchemaFor(name).Setup()
 		if rep.Agent != name {
 			t.Errorf("Setup(%q).Agent = %q", name, rep.Agent)
 		}
@@ -50,7 +50,7 @@ func assertSetupCheckRows(t *testing.T, name string, rep Report) {
 
 func TestSetupRejectsNonExternal(t *testing.T) {
 	for _, name := range []string{"claude", "nonexistent-vendor"} {
-		rep := schemaFor(name).Setup()
+		rep := SchemaFor(name).Setup()
 		if rep.OK || len(rep.Checks) != 1 || rep.Checks[0].State != "fail" ||
 			rep.Checks[0].Detail != errUnknownAgent(name).Error() {
 			t.Errorf("Setup(%q) = %+v", name, rep)
