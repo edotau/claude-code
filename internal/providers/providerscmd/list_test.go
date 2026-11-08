@@ -1,4 +1,4 @@
-package cli
+package providerscmd
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -15,7 +16,7 @@ import (
 // providerListCmdJSON runs `configure providers list <name> --format json`, requires exit 0, and returns stdout and stderr.
 func providerListCmdJSON(t *testing.T, name string) (stdout, stderr string) {
 	t.Helper()
-	code, stdout, stderr := captureOutput(t, func() int { return configureProviderList(name, "json") })
+	code, stdout, stderr := captureOutput(t, func() int { return ProviderList(name, "json", func() []describe.Verb { return nil }) })
 	if code != 0 {
 		t.Fatalf("provider list %q JSON exit %d stderr %q", name, code, stderr)
 	}
@@ -146,7 +147,7 @@ func credSourceFixture(t *testing.T) (map[string]providers.Auth, string) {
 		t.Fatal(err)
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", string(raw))
-	code, text, _ := captureOutput(t, func() int { return configureProviderList("", "text") })
+	code, text, _ := captureOutput(t, func() int { return ProviderList("", "text", nil) })
 	if code != 0 {
 		t.Fatalf("provider table exit %d", code)
 	}
@@ -178,7 +179,7 @@ func assertCredentialSource(t *testing.T, source, text string) {
 
 func assertCredentialDetail(t *testing.T, name, source, note, text string) {
 	t.Helper()
-	code, detail, _ := captureOutput(t, func() int { return configureProviderList(name, "text") })
+	code, detail, _ := captureOutput(t, func() int { return ProviderList(name, "text", nil) })
 	if code != 0 || !strings.Contains(detail, "cred      "+source) ||
 		(note != "" && !strings.Contains(detail, note)) {
 		t.Error("provider text detail omitted source or note")

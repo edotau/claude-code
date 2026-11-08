@@ -2,6 +2,8 @@ package providerscmd
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
@@ -70,4 +73,16 @@ func useTLSTransport(t *testing.T, srv *httptest.Server) {
 	old := http.DefaultClient.Transport
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
+}
+
+// useVaultTest points the vault at a temp dir with a fresh master key and returns that dir.
+func useVaultTest(t *testing.T) string {
+	t.Helper()
+	dir := vaulttest.Use(t)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
+	return dir
 }

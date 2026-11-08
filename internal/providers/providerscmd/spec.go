@@ -9,7 +9,9 @@ import (
 
 func boolFlag(name string) completion.Flag { return completion.Flag{Name: name, IsBool: true} }
 
-func profileFlag() completion.Flag { return completion.Flag{Name: "profile", Values: providerNames} }
+func profileFlag() completion.Flag {
+	return completion.Flag{Name: "profile", Values: providers.ProfileNames}
+}
 
 // modelPinAliases offers "alias=" stems for --pin; the user types the model id after the "=" themselves.
 func modelPinAliases() []string {
@@ -18,15 +20,6 @@ func modelPinAliases() []string {
 		out = append(out, s+"=")
 	}
 	return append(out, "all=")
-}
-
-// providerNames reads the provider registry straight off disk (no network).
-func providerNames() []string {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil
-	}
-	return reg.Names()
 }
 
 // ModelsSpec is the completion node for the models verb.
@@ -38,7 +31,7 @@ func ModelsSpec() *completion.Node {
 
 // SwitchSpec is the completion node for the switch verb.
 func SwitchSpec() *completion.Node {
-	return &completion.Node{Args: []func() []string{providerNames}, Flags: []completion.Flag{boolFlag("dry-run")}}
+	return &completion.Node{Args: []func() []string{providers.ProfileNames}, Flags: []completion.Flag{boolFlag("dry-run")}}
 }
 
 // ResolveSpec is the completion node for the resolve verb.
