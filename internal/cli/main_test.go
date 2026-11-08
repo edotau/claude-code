@@ -4,14 +4,9 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
@@ -105,48 +100,10 @@ func cliScratch(t *testing.T) {
 	}
 }
 
-// useTLSTransport routes http.DefaultClient through srv's TLS client and closes srv at cleanup.
-func useTLSTransport(t *testing.T, srv *httptest.Server) {
-	t.Helper()
-	old := http.DefaultClient.Transport
-	http.DefaultClient.Transport = srv.Client().Transport
-	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
-}
-
-// gitRun runs git in dir with an author/committer identity set and fails the test on error.
-func gitRun(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	if err := gitRunErr(dir, args...); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func gitRunErr(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
-		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git %v: %v: %s", args, err, out)
-	}
-	return nil
-}
-
 func renderHelpPage(page helptext.Page) string {
 	var out bytes.Buffer
 	page.Fprint(&out)
 	return out.String()
-}
-
-func helpPageHasCommand(page helptext.Page, name string) bool {
-	for _, row := range page.Commands {
-		words := strings.Fields(row[0])
-		if len(words) > 0 && words[0] == name {
-			return true
-		}
-	}
-	return false
 }
 
 // termWidth is a line's display width with tabs expanded to 8-column stops.
