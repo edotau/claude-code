@@ -82,8 +82,13 @@ func dedupExisting(files []string) []string {
 func walkJSONStrings(prefix []string, node any, visit func(path []string, val string)) {
 	switch v := node.(type) {
 	case map[string]any:
-		for k, child := range v {
-			walkJSONStrings(append(prefix, k), child, visit)
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			walkJSONStrings(append(prefix, k), v[k], visit)
 		}
 	case []any:
 		for i, child := range v {
