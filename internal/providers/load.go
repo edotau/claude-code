@@ -372,3 +372,12 @@ func applyOpencodeOverlay(base, o *OpencodeRouting) {
 		base.FreeFirstOutput = o.FreeFirstOutput
 	}
 }
+
+// ProfileNames lists the provider names straight off disk (no network), for tab completion.
+func ProfileNames() []string {
+	reg, err := Load()
+	if err != nil {
+		return nil
+	}
+	return reg.Names()
+}
