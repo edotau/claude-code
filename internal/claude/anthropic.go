@@ -294,7 +294,9 @@ func runSetupToken() {
 		fmt.Fprintln(os.Stderr, "claude-code:", err)
 		return
 	}
-	cmd := exec.CommandContext(context.Background(), bin, "setup-token")
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, bin, "setup-token")
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // drops the vault key and routing vars; HOME, TERM, DISPLAY stay
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: claude setup-token:", err)
