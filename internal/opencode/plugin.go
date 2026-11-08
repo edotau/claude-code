@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/launchplan"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
@@ -153,7 +151,7 @@ func renderPlugin(bin string, mods []pluginModule) ([]byte, error) {
 
 // writePlugin renders the plugin (0600, content-hashed name: launches on different binaries never collide); file:// URL.
 func writePlugin() (string, error) {
-	bin, err := launchplan.SelfBinary()
+	bin, err := paths.SelfBinary()
 	if err != nil {
 		bin = filepath.Join(paths.BinDir(), "claude-code")
 	}

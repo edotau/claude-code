@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/launchplan"
-
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -31,7 +29,7 @@ func newestInstalledClaude() string {
 	}
 	dir := filepath.Join(home, ".local", "share", "claude", "versions")
 	entries, _ := os.ReadDir(dir)
-	self, _ := launchplan.SelfBinary()
+	self, _ := paths.SelfBinary()
 	best := ""
 	for _, e := range entries {
 		cand := filepath.Join(dir, e.Name())
