@@ -93,6 +93,16 @@ func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
 	}
 }
 
+// TestPlanMirrorUntaggedWhenCWDIsMemoryStoreRepo: a cwd in memory/<repo> is the harness, so the copy lands in plans/.
+func TestPlanMirrorUntaggedWhenCWDIsMemoryStoreRepo(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	store := gittest.RepoAt(t, filepath.Join(cfg, "memory", "claude-code"))
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "store-words.md", planTemplate)
+	mirrorRun(t, "Mirror", "Write", store, draft)
+	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
+}
+
 func TestPlanMirrorRepoTaggedWhenCWDIsAnotherRepo(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

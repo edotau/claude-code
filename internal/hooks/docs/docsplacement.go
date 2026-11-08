@@ -170,6 +170,9 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 func blockPlacement(stderr io.Writer, base, where, root string) int {
 	plansDir := filepath.Join(paths.ConfigDir(), "plans")
 	store := memstore.Dir(root)
+	if core.UnderDir(canonDeep(memstore.StoreDir()), canonDeep(root)) {
+		store = root // a repo inside the memory store is its own bank, not the home one
+	}
 	plansHome := plans.Home(planRepoRoot(root))
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"Harness-authored markdown belongs under %s (plans) or the memory store (session artifacts):\n"+
