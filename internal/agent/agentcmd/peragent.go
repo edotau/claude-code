@@ -129,13 +129,9 @@ func agentSubPage(name, verb string) helptext.Page {
 	return page
 }
 
-// SplitReview runs a multi-part review; the caller owns it until the review verbs move here.
-type SplitReview func(name string, args []string, parts []roles.Part, scope roles.Scope,
-	adversarial, background bool, focus, rubric, model string) int
-
 // AgentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
 // `ask` = `ask --agent <v>`, a word in Subverbs = agentSub, else launch with args forwarded.
-func AgentVerb(name string, args []string, split SplitReview) int {
+func AgentVerb(name string, args []string) int {
 	if len(args) == 0 {
 		return LaunchAgent(name, args)
 	}
@@ -146,7 +142,7 @@ func AgentVerb(name string, args []string, split SplitReview) int {
 		return ask.Cmd(append([]string{"--agent", name}, args[1:]...))
 	}
 	if Subverbs[args[0]] {
-		return agentSub(name, args, split)
+		return agentSub(name, args)
 	}
 	if len(args) == 1 && slices.Contains([]string{"-h", "--help", "help"}, args[0]) {
 		AgentPage(name).Fprint(os.Stderr)
@@ -174,13 +170,13 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 }
 
 // agentSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/catalog).
-func agentSub(name string, args []string, split SplitReview) int {
+func agentSub(name string, args []string) int {
 	handlers := map[string]func(string, []string) int{
 		"resume": agentResume, "status": agentStatus, "tail": agentTail,
 		"result": agentResult, "cancel": agentCancel, "setup": agentSetup,
 		"catalog": agentCatalog, "explore": agentExplore,
 		"transfer": agentTransfer, "profile": cmdAgentProfile,
-		"review": func(name string, args []string) int { return agentReview(name, args, split) },
+		"review": agentReview,
 		"on":     func(name string, args []string) int { return cmdAgentOnOff(name, true, args) },
 		"off":    func(name string, args []string) int { return cmdAgentOnOff(name, false, args) },
 	}
@@ -252,7 +248,7 @@ func agentSetup(name string, args []string) int {
 }
 
 // agentReview is `claude-code <v> review [scope flags] [--adversarial] [--background] [--rubric f] [focus…]`.
-func agentReview(name string, args []string, split SplitReview) int {
+func agentReview(name string, args []string) int {
 	fs := newAgentFlags(name, "review")
 	uncommitted := fs.Bool("uncommitted", false, "working tree + index vs HEAD (default)")
 	base := fs.String("base", "", "diff against this branch (triple-dot merge base)")
@@ -276,7 +272,7 @@ func agentReview(name string, args []string, split SplitReview) int {
 	}
 	focus := strings.Join(fs.Args(), " ")
 	if parts := roles.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
-		return split(name, args, parts, scope, *adversarial, *background, focus, *rubric, *model)
+		return runSplitReview(name, args, parts, scope, *adversarial, *background, focus, *rubric, *model)
 	}
 	askArgs, cleanup, err := roles.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric, *model)
 	if err != nil {
