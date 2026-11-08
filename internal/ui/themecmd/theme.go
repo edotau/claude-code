@@ -162,11 +162,10 @@ func themeApply(args []string) int {
 
 // Spec is the completion node for the theme verb tree.
 func Spec() *completion.Node {
-	boolFlag := func(n string) completion.Flag { return completion.Flag{Name: n, IsBool: true} }
 	styles := func() []string { return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"} }
-	return &completion.Node{Args: []func() []string{theme.GradientNames}, Flags: []completion.Flag{boolFlag("palettes"), boolFlag("reset")},
+	return &completion.Node{Args: []func() []string{theme.GradientNames}, Flags: []completion.Flag{completion.BoolFlag("palettes"), completion.BoolFlag("reset")},
 		Sub: map[string]*completion.Node{
-			"apply":      {Flags: []completion.Flag{boolFlag("dry-run")}},
+			"apply":      {Flags: []completion.Flag{completion.BoolFlag("dry-run")}},
 			"statusline": {Flags: []completion.Flag{{Name: "style", Values: styles}}},
 			"vscode":     vscode.Spec(),
 		}}

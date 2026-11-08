@@ -2,12 +2,13 @@ package network
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )

@@ -1,10 +1,11 @@
 package agentcmd
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"

@@ -7,13 +7,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
-func plainFlag(name string) completion.Flag { return completion.Flag{Name: name} }
-func boolFlag(name string) completion.Flag  { return completion.Flag{Name: name, IsBool: true} }
-
-func valuedFlag(name string, values func() []string) completion.Flag {
-	return completion.Flag{Name: name, Values: values}
-}
-
 func providerNames() []string {
 	reg, err := providers.Load()
 	if err != nil {
@@ -32,9 +25,9 @@ func sections() []string {
 
 // Spec is the completion node for the configure verb.
 func Spec() *completion.Node {
-	formatFlag := valuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
+	formatFlag := completion.ValuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
 	return &completion.Node{Args: []func() []string{sections, providerNames}, Flags: []completion.Flag{
-		valuedFlag("profile", providerNames), valuedFlag("agent", agentNames), boolFlag("dry-run"), boolFlag("check"),
-		boolFlag("restore"), boolFlag("revert"), plainFlag("out"), boolFlag("agents"), boolFlag("list"), boolFlag("all"),
-		boolFlag("no-agents"), formatFlag}}
+		completion.ValuedFlag("profile", providerNames), completion.ValuedFlag("agent", agentNames), completion.BoolFlag("dry-run"), completion.BoolFlag("check"),
+		completion.BoolFlag("restore"), completion.BoolFlag("revert"), completion.Plain("out"), completion.BoolFlag("agents"), completion.BoolFlag("list"), completion.BoolFlag("all"),
+		completion.BoolFlag("no-agents"), formatFlag}}
 }

@@ -2,7 +2,6 @@ package memorycmd
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/memory"

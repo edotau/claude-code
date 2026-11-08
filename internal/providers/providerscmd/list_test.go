@@ -2,11 +2,12 @@ package providerscmd
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/providers"

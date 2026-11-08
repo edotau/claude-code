@@ -2,12 +2,13 @@ package worktreecmd
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/worktree"
 )

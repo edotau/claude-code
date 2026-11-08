@@ -2,14 +2,15 @@ package doctor
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/launch"

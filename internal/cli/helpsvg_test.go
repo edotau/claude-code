@@ -2,10 +2,11 @@ package cli
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // The README's menu image is the current menu: a verb added or reworded without `make help-svg` fails the gate.

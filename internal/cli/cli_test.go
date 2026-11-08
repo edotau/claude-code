@@ -1,14 +1,15 @@
 package cli
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )

@@ -1,12 +1,13 @@
 package setup
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestCmdSetupNoArgs(t *testing.T) {

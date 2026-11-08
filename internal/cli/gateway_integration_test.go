@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestDesktopAndTokenHelpFitsEightyColumns(t *testing.T) {

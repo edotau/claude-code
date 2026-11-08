@@ -2,12 +2,13 @@ package vaultcmd
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/ui/ansi"

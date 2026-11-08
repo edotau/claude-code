@@ -107,9 +107,6 @@ func refreshServed() {
 
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *completion.Node {
-	flag := func(n string) completion.Flag { return completion.Flag{Name: n} }
-	boolFlag := func(n string) completion.Flag { return completion.Flag{Name: n, IsBool: true} }
-	format := completion.Flag{Name: "format", Values: func() []string { return []string{helptext.Text, helptext.JSON} }}
-	return &completion.Node{Flags: []completion.Flag{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"),
-		flag("range"), boolFlag("secrets"), boolFlag("refresh"), format}}
+	return &completion.Node{Flags: []completion.Flag{completion.BoolFlag("audit"), completion.Plain("days"), completion.BoolFlag("scan"), completion.BoolFlag("git"), completion.Plain("since"),
+		completion.Plain("range"), completion.BoolFlag("secrets"), completion.BoolFlag("refresh"), completion.FormatFlag()}}
 }

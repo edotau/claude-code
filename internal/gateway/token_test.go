@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"

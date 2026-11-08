@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/ui/menu"

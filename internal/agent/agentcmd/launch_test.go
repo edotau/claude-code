@@ -3,10 +3,11 @@ package agentcmd
 import (
 	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 
