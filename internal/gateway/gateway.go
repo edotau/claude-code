@@ -2,6 +2,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -49,17 +50,21 @@ func Run(args []string) int {
 	return gatewayRoute(args, true)
 }
 
-func printProxyState(ps proxy.Status) {
+// printProxyState renders the proxy status block and writes it once; a write error is returned.
+func printProxyState(ps proxy.Status) error {
+	var buf bytes.Buffer
 	if ps.Running {
-		fmt.Printf("proxy     running  pid %d  %s  since %s\n", ps.PID, ps.URL, ps.Started)
+		fmt.Fprintf(&buf, "proxy     running  pid %d  %s  since %s\n", ps.PID, ps.URL, ps.Started)
 	} else {
-		fmt.Printf("proxy     not running  (log %s)\n", ps.Log)
+		fmt.Fprintf(&buf, "proxy     not running  (log %s)\n", ps.Log)
 	}
 	if len(ps.Fallback) == 0 {
-		fmt.Println("fallback  none")
+		buf.WriteString("fallback  none\n")
 	} else {
-		fmt.Println("fallback ", strings.Join(ps.Fallback, " → "))
+		fmt.Fprintln(&buf, "fallback ", strings.Join(ps.Fallback, " → "))
 	}
+	_, err := os.Stdout.Write(buf.Bytes())
+	return err
 }
 
 // proxyOpts are `gateway proxy`'s flag values.
@@ -175,8 +180,8 @@ func proxyStatus(ctx context.Context, format string) int {
 		if err := helptext.WriteJSON(os.Stdout, ps); err != nil {
 			return 1
 		}
-	} else {
-		printProxyState(ps)
+	} else if err := printProxyState(ps); err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
 	}
 	if !ps.Running {
 		return 1

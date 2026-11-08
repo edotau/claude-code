@@ -103,7 +103,9 @@ func renderGatewayRoute(name string, res router.PickResult, format string, withP
 		return helptext.Fail(name+": %v", err)
 	}
 	if withProxy {
-		printProxyState(ps)
+		if err := printProxyState(ps); err != nil {
+			return helptext.Fail(name+": %v", err)
+		}
 	}
 	return 0
 }
