@@ -57,11 +57,7 @@ func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	t.Helper()
 	r := testRepo(t)
 	main = r.Main
-	// Local (not just per-exec env) identity: IntegrateTarget's `git merge` runs through the code
-	// under test's own runGit, which does not set GIT_AUTHOR/COMMITTER — it relies on repo config,
-	// same as a real user's checkout would.
-	mergeFixtureRun(t, main, "config", "user.email", "t@t.com")
-	mergeFixtureRun(t, main, "config", "user.name", "t")
+	// The gittest template carries a local identity, so IntegrateTarget's `git merge` (no GIT_AUTHOR env) can commit.
 	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
 	dest, err := Create(r, "feature", CreateOptions{})
 	if err != nil {
@@ -531,8 +527,6 @@ func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
 	main := gitRepo(t)
-	mergeFixtureRun(t, main, "config", "user.email", "t@t.com")
-	mergeFixtureRun(t, main, "config", "user.name", "t")
 	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
 	repo, err := ResolveRepo(main)
 	if err != nil {

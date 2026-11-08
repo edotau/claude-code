@@ -377,8 +377,6 @@ func mergeFixtureCLISetup(t *testing.T) (repo string) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo = gitRepoCLI(t)
-	mergeFixtureCLIRun(t, repo, "config", "user.email", "t@t.com")
-	mergeFixtureCLIRun(t, repo, "config", "user.name", "t")
 	t.Chdir(repo)
 	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "feature"}) })
 	if code != 0 {
