@@ -66,8 +66,20 @@ func workflowDocDrift(root string) []string {
 }
 
 const helperStart, helperEnd = "// ── stepOf:", "// ── end stepOf ──"
+const stagesStart, stagesEnd = "// ── stages:", "// ── end stages ──"
 
-// workflowHelperDrift returns one message per workflow script using stepOf with a missing or differing block.
+// helperBlock is one library block that every script calling one of its functions must carry verbatim.
+type helperBlock struct {
+	name, start, end string
+	uses             []string
+}
+
+var helperBlocks = []helperBlock{
+	{"stepOf", helperStart, helperEnd, []string{"stepOf("}},
+	{"stages", stagesStart, stagesEnd, []string{"stageGate(", "stageFix(", "stagePolish(", "stageDetect("}},
+}
+
+// workflowHelperDrift returns one message per script that calls a block's functions with that block missing or differing.
 func workflowHelperDrift(root string) []string {
 	scripts, err := filepath.Glob(filepath.Join(root, "workflows", "*.js"))
 	if err != nil {
@@ -79,25 +91,49 @@ func workflowHelperDrift(root string) []string {
 		return []string{"skills scripts: " + err.Error()}
 	}
 	scripts = append(scripts, skills...)
+	srcs := map[string]string{}
+	for _, s := range scripts {
+		if data, err := os.ReadFile(s); err == nil { // lintScript already reports an unreadable script
+			srcs[s] = string(data)
+		}
+	}
+	var out []string
+	for _, b := range helperBlocks {
+		out = append(out, blockDrift(b, scripts, srcs)...)
+	}
+	return out
+}
+
+// blockDrift compares every script's copy of b with the first script's copy.
+func blockDrift(b helperBlock, scripts []string, srcs map[string]string) []string {
 	var out []string
 	first, firstName := "", ""
 	for _, s := range scripts {
-		data, err := os.ReadFile(s)
-		if err != nil { // lintScript already reports an unreadable script
+		src, ok := srcs[s]
+		if !ok {
 			continue
 		}
-		src := string(data)
-		i, j := strings.Index(src, helperStart), strings.Index(src, helperEnd)
+		i, j := strings.Index(src, b.start), strings.Index(src, b.end)
 		switch {
-		case i < 0 && !strings.Contains(src, "stepOf("):
+		case i < 0 && !usesAny(src, b.uses):
 			continue
 		case i < 0 || j < i:
-			out = append(out, s+": no stepOf block ("+helperStart+" … "+helperEnd+")")
+			out = append(out, s+": no "+b.name+" block ("+b.start+" … "+b.end+")")
 		case firstName == "":
 			first, firstName = src[i:j], s
 		case src[i:j] != first:
-			out = append(out, s+": stepOf block differs from "+filepath.Base(firstName)+" (copy it verbatim)")
+			out = append(out, s+": "+b.name+" block differs from "+filepath.Base(firstName)+" (copy it verbatim)")
 		}
 	}
 	return out
+}
+
+// usesAny reports whether src contains any of the call tokens.
+func usesAny(src string, uses []string) bool {
+	for _, u := range uses {
+		if strings.Contains(src, u) {
+			return true
+		}
+	}
+	return false
 }
