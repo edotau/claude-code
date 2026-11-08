@@ -77,9 +77,66 @@ func TestWorkflowLintDrift(t *testing.T) {
 					t.Fatalf("stderr %q lacks %q", errb.String(), w)
 				}
 			}
-			if tc.wantRC == 0 && errb.Len() != 0 {
-				t.Fatalf("unexpected stderr %q", errb.String())
+			if left := strings.ReplaceAll(errb.String(), "workflow lint: parse check skipped (node not on PATH)\n", ""); tc.wantRC == 0 && left != "" {
+				t.Fatalf("unexpected stderr %q", left)
 			}
 		})
+	}
+}
+
+func TestWorkflowHelperDrift(t *testing.T) {
+	block := func(tag string) string {
+		return helperStart + " x\nfunction stepOf() {" + tag + "}\n" + helperEnd + "\n"
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	put := func(name, body string) { writeScript(t, filepath.Join(root, "workflows"), name, body) }
+	put("a.js", block("1"))
+	put("b.js", block("1"))
+	put("none.js", "const x = 1\n")
+	if got := workflowHelperDrift(root); got != nil {
+		t.Fatalf("identical blocks: %v", got)
+	}
+	put("b.js", block("2"))
+	got := workflowHelperDrift(root)
+	if len(got) != 1 || !strings.Contains(got[0], "b.js") || !strings.Contains(got[0], "differs from a.js") {
+		t.Fatalf("differing block: %v", got)
+	}
+	put("b.js", block("1"))
+	put("c.js", "stepOf(1)\n")
+	got = workflowHelperDrift(root)
+	if len(got) != 1 || !strings.Contains(got[0], "c.js") || !strings.Contains(got[0], "no stepOf block") {
+		t.Fatalf("missing block: %v", got)
+	}
+}
+
+// A workflow script under skills/*/scripts is checked for a stepOf block like workflows/*.js.
+func TestWorkflowHelperDriftSkillScripts(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "skills", "s", "scripts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, dir, "w.js", "export const meta = {}\nstepOf(1)\n")
+	got := workflowHelperDrift(root)
+	if len(got) != 1 || !strings.Contains(got[0], "w.js") || !strings.Contains(got[0], "no stepOf block") {
+		t.Fatalf("skill script without block: %v", got)
+	}
+}
+
+// An unreadable script is lintScript's to report; workflowHelperDrift must skip it, not add a second line.
+func TestHelperDriftSkipsUnreadableScript(t *testing.T) {
+	root := t.TempDir()
+	wf := filepath.Join(root, "workflows")
+	if err := os.Mkdir(wf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "gone.js"), filepath.Join(wf, "dangling.js")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if got := workflowHelperDrift(root); len(got) != 0 {
+		t.Fatalf("workflowHelperDrift = %q, want no report for an unreadable script", got)
 	}
 }
