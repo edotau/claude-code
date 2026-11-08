@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/router"
@@ -133,7 +135,7 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Prepare(%s) = %v", profile, err)
 		}
-		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
+		res, err := client.Exec(context.Background(), p, nil, job.RunRecordedOpts{})
 		if len(res.Hops) != 1 {
 			t.Fatalf("%s: want one dispatch, got %+v, err %v", profile, res.Hops, err)
 		}
@@ -174,7 +176,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, _ := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
+		res, _ := client.Exec(context.Background(), p, nil, job.RunRecordedOpts{})
 		if len(res.Hops) != 1 {
 			t.Fatalf("%s: hops = %+v, want one unavailable dispatch", profile, res.Hops)
 		}
@@ -196,7 +198,7 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: Prepare = %v", name, err)
 		}
-		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
+		res, err := client.Exec(context.Background(), p, nil, job.RunRecordedOpts{})
 		if err == nil || len(res.Hops) != 1 {
 			t.Errorf("%s: %d hops, err %v; want one failed dispatch without fallback", name, len(res.Hops), err)
 		}

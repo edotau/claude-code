@@ -39,8 +39,8 @@ func TestReapDeadLiveHolder(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	mk := func(pid int) agent.Record {
-		rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	mk := func(pid int) job.Record {
+		rec := job.ClaimRecord("claude", agent.RunOptions{}, time.Now())
 		rec.Live, rec.PID = true, pid
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)
@@ -63,7 +63,7 @@ func TestReapDeadLiveHolder(t *testing.T) {
 	if _, err := os.Stat(job.LiveSocket(alive.ID)); err != nil {
 		t.Errorf("live holder's socket must stay: %v", err)
 	}
-	if got, _ := agent.LoadRecord(dead.ID); got.Status != "error" {
+	if got, _ := job.LoadRecord(dead.ID); got.Status != "error" {
 		t.Errorf("dead record status = %s, want error", got.Status)
 	}
 }

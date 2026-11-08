@@ -30,7 +30,7 @@ func sleeperScript(t *testing.T) string {
 }
 
 func TestResolveExactID(t *testing.T) {
-	recs := []agent.Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-codex"}}
+	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-codex"}}
 	got, err := Resolve(recs, "20261016T210100.000-codex", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestResolveExactID(t *testing.T) {
 }
 
 func TestResolveUniquePrefix(t *testing.T) {
-	recs := []agent.Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-gemini"}}
+	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-gemini"}}
 	got, err := Resolve(recs, "20261016T210100", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -52,19 +52,19 @@ func TestResolveUniquePrefix(t *testing.T) {
 }
 
 func TestResolveAmbiguousPrefixErrors(t *testing.T) {
-	recs := []agent.Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210000.001-codex"}}
+	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210000.001-codex"}}
 	if _, err := Resolve(recs, "20261016T2100", nil); err == nil {
 		t.Error("ambiguous prefix must error")
 	}
 }
 
 func TestResolveEmptyRefPicksNewestMatchingPred(t *testing.T) {
-	recs := []agent.Record{
+	recs := []Record{
 		{ID: "a", Status: "ok"},
 		{ID: "b", Status: "running"},
 		{ID: "c", Status: "ok"},
 	}
-	pred := func(r agent.Record) bool { return r.Status == "running" }
+	pred := func(r Record) bool { return r.Status == "running" }
 	got, err := Resolve(recs, "", pred)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestResolveEmptyRefPicksNewestMatchingPred(t *testing.T) {
 }
 
 func TestResolveNoMatchErrors(t *testing.T) {
-	recs := []agent.Record{{ID: "a", Status: "ok"}}
+	recs := []Record{{ID: "a", Status: "ok"}}
 	if _, err := Resolve(recs, "zzz", nil); err == nil {
 		t.Error("no matching id must error")
 	}
@@ -85,7 +85,7 @@ func TestListFiltersByAgentAndRepo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	mk := func(a, repo string, offset time.Duration) {
-		r := agent.NewRecord(a, agent.RunOptions{Prompt: "p"}, base.Add(offset))
+		r := NewRecord(a, agent.RunOptions{Prompt: "p"}, base.Add(offset))
 		r.Repo = repo
 		if err := r.Save(); err != nil {
 			t.Fatal(err)
@@ -118,7 +118,7 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	defer func() { executable = old }()
 
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 // assertSavedCancellation checks the saved record reflects the cancellation too.
 func assertSavedCancellation(t *testing.T, id string) {
 	t.Helper()
-	saved, err := agent.LoadRecord(id)
+	saved, err := LoadRecord(id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func assertSpawnLog(t *testing.T, path string) {
 // Spawn only sets rec.PID/Log in memory for the caller's print and must never save after cmd.Start().
 func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -196,13 +196,13 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if got, err := agent.LoadRecord(rec.ID); err == nil && got.Status == "ok" {
+		if got, err := LoadRecord(rec.ID); err == nil && got.Status == "ok" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	got, err := agent.LoadRecord(rec.ID)
+	got, err := LoadRecord(rec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestCancelDetectsPIDReuse(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() })
 
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = unrelated.Process.Pid                 // pretend the dispatch's old PID was reused by `sleep`
 	rec.Log = filepath.Join(t.TempDir(), "job.log") // a background record: Log is set
 	if err := rec.Save(); err != nil {
@@ -268,7 +268,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	defer func() { executable = old }()
 
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = cmd.Process.Pid
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -326,7 +326,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 // A foreground record (Log=="") whose pid is live but not `ask --job` is never signalled or rewritten.
 func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = os.Getpid() // the test process: alive, not a job
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -340,7 +340,7 @@ func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 	if string(before) != string(after) {
 		t.Errorf("record rewritten:\n%s\n->\n%s", before, after)
 	}
-	loaded, _ := agent.LoadRecord(rec.ID)
+	loaded, _ := LoadRecord(rec.ID)
 	if loaded.Status != "running" || loaded.Error != "" {
 		t.Errorf("loaded = %q/%q, want untouched running", loaded.Status, loaded.Error)
 	}
@@ -353,7 +353,7 @@ func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.PID, rec.Status = cmd.Process.Pid, "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -363,7 +363,7 @@ func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
 	if err := Cancel(&stale); err != nil {
 		t.Fatalf("Cancel = %v", err)
 	}
-	loaded, _ := agent.LoadRecord(rec.ID)
+	loaded, _ := LoadRecord(rec.ID)
 	if loaded.Status != "ok" || loaded.Error != "" {
 		t.Errorf("finished record changed to %q/%q", loaded.Status, loaded.Error)
 	}
@@ -375,7 +375,7 @@ func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = cmd.Process.Pid
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
 	if err := Cancel(&rec); err != nil {
 		t.Fatal(err)
 	}
-	loaded, _ := agent.LoadRecord(rec.ID)
+	loaded, _ := LoadRecord(rec.ID)
 	if loaded.Status != "error" || loaded.Error != "process gone (pid reused)" {
 		t.Fatalf("loaded = %q/%q", loaded.Status, loaded.Error)
 	}
@@ -394,7 +394,7 @@ func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
 	if err := Cancel(&rec); err != nil {
 		t.Fatal(err)
 	}
-	again, _ := agent.LoadRecord(rec.ID)
+	again, _ := LoadRecord(rec.ID)
 	if again.Error != "sentinel" {
 		t.Errorf("second Cancel rewrote the record: %q", again.Error)
 	}
@@ -422,7 +422,7 @@ func TestIsJobArgvRequiresWholeArgs(t *testing.T) {
 }
 
 // fixtureRecord saves rec under a fresh CLAUDE_CONFIG_DIR scoped to t, returning the saved record.
-func fixtureRecord(t *testing.T, rec agent.Record) agent.Record {
+func fixtureRecord(t *testing.T, rec Record) Record {
 	t.Helper()
 	if err := rec.Save(); err != nil {
 		t.Fatalf("Save(%+v): %v", rec, err)
@@ -458,7 +458,7 @@ func TestStatusRunningAlive(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "do the thing"}, base)
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "do the thing"}, base)
 	rec.Repo, rec.PID = cwd, os.Getpid()
 	fixtureRecord(t, rec)
 
@@ -483,7 +483,7 @@ func TestStatusRunningLostDeadPID(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "orphaned"}, base)
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "orphaned"}, base)
 	rec.Repo, rec.PID = cwd, adapterDeadPID(t)
 	fixtureRecord(t, rec)
 
@@ -502,7 +502,7 @@ func TestResultRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "still going"}, base)
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "still going"}, base)
 	rec.Repo, rec.PID = cwd, os.Getpid()
 	fixtureRecord(t, rec)
 
@@ -521,7 +521,7 @@ func TestResultOK(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "finished job"}, base)
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "finished job"}, base)
 	rec.Repo, rec.Status, rec.Log, rec.SessionID = cwd, "ok", logPath, "sess-1"
 	fixtureRecord(t, rec)
 
@@ -543,7 +543,7 @@ func TestCancelJobNoneRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "already done"}, base)
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "already done"}, base)
 	rec.Repo, rec.Status = cwd, "ok"
 	fixtureRecord(t, rec)
 
@@ -559,7 +559,7 @@ func TestCancelJobAmbiguousPrefixErrors(t *testing.T) {
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	for _, suffix := range []string{"-a", "-b"} {
-		rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "dup"}, base)
+		rec := NewRecord("codex", agent.RunOptions{Prompt: "dup"}, base)
 		rec.ID = "20261024T120000.000-codex" + suffix
 		rec.Repo, rec.PID = cwd, os.Getpid()
 		fixtureRecord(t, rec)
@@ -606,20 +606,20 @@ func fastTail(t *testing.T) {
 }
 
 // tailRecord saves a codex record in cwd with a log at logPath holding body (no file when body is nil).
-func tailRecord(t *testing.T, cwd, logPath string, body []byte, status string, pid int) agent.Record {
+func tailRecord(t *testing.T, cwd, logPath string, body []byte, status string, pid int) Record {
 	t.Helper()
 	if body != nil {
 		if err := os.WriteFile(logPath, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "tail me"}, time.Now())
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "tail me"}, time.Now())
 	rec.Repo, rec.Log, rec.Status, rec.PID = cwd, logPath, status, pid
 	return fixtureRecord(t, rec)
 }
 
 // finishLater flips rec to finished ok after d, reporting a Save failure via the returned channel.
-func finishLater(rec agent.Record, d time.Duration) <-chan error {
+func finishLater(rec Record, d time.Duration) <-chan error {
 	done := make(chan error, 1)
 	go func() {
 		time.Sleep(d)
@@ -709,7 +709,7 @@ func TestTailFollowLateLines(t *testing.T) {
 	defer cancel()
 	var out syncBuffer
 	type tailRes struct {
-		rec agent.Record
+		rec Record
 		err error
 	}
 	res := make(chan tailRes, 1)
@@ -761,8 +761,8 @@ func TestTailNoLogErrors(t *testing.T) {
 // TestFindAmbiguousPrefix: a prefix shared by two dispatches errors and names the count; an exact id resolves.
 func TestFindAmbiguousPrefix(t *testing.T) {
 	setConfigDir(t)
-	a := fixtureRecord(t, agent.NewRecord("claude", agent.RunOptions{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
-	b := fixtureRecord(t, agent.NewRecord("codex", agent.RunOptions{Prompt: "b"}, time.Now().Add(-time.Hour)))
+	a := fixtureRecord(t, NewRecord("claude", agent.RunOptions{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
+	b := fixtureRecord(t, NewRecord("codex", agent.RunOptions{Prompt: "b"}, time.Now().Add(-time.Hour)))
 	prefix := a.ID[:4]
 	if _, err := Find(prefix); err == nil || !strings.Contains(err.Error(), "matches 2") {
 		t.Errorf("Find(%q) err = %v, want an ambiguity error", prefix, err)
@@ -777,7 +777,7 @@ func TestFindAmbiguousPrefix(t *testing.T) {
 func TestTailEventsStopsWhenRecordFinishesWithoutResult(t *testing.T) {
 	setConfigDir(t)
 	fastTail(t)
-	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "x"}, time.Now())
+	rec := NewRecord("claude", agent.RunOptions{Prompt: "x"}, time.Now())
 	rec.PID = os.Getpid()
 	rec = fixtureRecord(t, rec)
 	line := `{"schema":1,"seq":0,"t_ms":0,"type":"text","text":"partial"}` + "\n"

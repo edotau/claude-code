@@ -12,9 +12,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/paths"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/shapes"
@@ -260,7 +261,7 @@ func ReviewParts(diff []byte, adversarial bool, focus, rubric string) []Part {
 }
 
 // SetReviewProgress stores p on the job record, when there is one.
-func SetReviewProgress(job *agent.Record, p string) {
+func SetReviewProgress(job *job.Record, p string) {
 	if job == nil {
 		return
 	}
@@ -270,7 +271,7 @@ func SetReviewProgress(job *agent.Record, p string) {
 
 // LastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
 func LastDispatchError(name string) string {
-	for _, r := range agent.RecentRecords(5) {
+	for _, r := range job.RecentRecords(5) {
 		if r.Agent == name && r.Status == "error" {
 			return shapes.Preview(r.Error, 400)
 		}

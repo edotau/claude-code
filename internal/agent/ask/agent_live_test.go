@@ -8,19 +8,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent"
 )
 
 // A holder that never became ready leaves its record marked error with the cause, not running.
 func TestAbandonLiveMarksRecordFailed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "hi"}, time.Now())
+	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "hi"}, time.Now())
 	rec.Status = "running"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
 	abandonLive(&rec, errors.New("socket never appeared"))
-	got, err := agent.LoadRecord(rec.ID)
+	got, err := job.LoadRecord(rec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,7 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 	if code, _, _ := captureOutput(t, func() int { return startLive(s, agent.Permissions{}, "claude", "sp", "json") }); code != 1 {
 		t.Fatalf("startLive = %d, want 1 (test binary is not relaunched)", code)
 	}
-	recs := agent.RecentRecords(1)
+	recs := job.RecentRecords(1)
 	if len(recs) != 1 || recs[0].Request.Identity != "sp" || !recs[0].Live {
 		t.Fatalf("records = %+v, want one live record with Identity sp", recs)
 	}

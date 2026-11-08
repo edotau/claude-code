@@ -45,10 +45,10 @@ func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
 	}
 }
 
-func saveResultRecord(t *testing.T, status, errMsg string) agent.Record {
+func saveResultRecord(t *testing.T, status, errMsg string) job.Record {
 	t.Helper()
 	cwd, _ := os.Getwd()
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := job.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.Status, rec.Error = status, errMsg
 	rec.Repo = job.RepoRoot(context.Background(), cwd)
 	if err := rec.Save(); err != nil {
@@ -221,7 +221,7 @@ func seedTailJob(t *testing.T, status, body string) string {
 	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "tail me"}, time.Now())
+	rec := job.NewRecord("codex", agent.RunOptions{Prompt: "tail me"}, time.Now())
 	rec.Repo, rec.Status, rec.Log = cwd, status, logPath
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

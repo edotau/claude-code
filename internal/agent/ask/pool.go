@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -300,7 +302,7 @@ func (b *batchRun) run(ctx context.Context, t Task, p *client.Prepared) (env wir
 	if p.Opts.Launcher != nil {
 		cl.Launcher = p.Opts.Launcher
 	}
-	res, err := cl.Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
+	res, err := cl.Exec(ctx, p, wire.Discard, job.RunRecordedOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}

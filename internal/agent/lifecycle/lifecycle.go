@@ -15,14 +15,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-func agentsCancel(rec agent.Record, format, cwd string) int {
+func agentsCancel(rec job.Record, format, cwd string) int {
 	rec, err := job.CancelJob(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
 		return helptext.Fail("agents cancel: %v", err)
@@ -52,7 +51,7 @@ func agentsJobPage(verb string) helptext.Page {
 	return helptext.Page{Usage: "claude-code agents " + verb + " <id> [flags]", About: about}
 }
 
-func agentsResult(rec agent.Record, format, cwd string) int {
+func agentsResult(rec job.Record, format, cwd string) int {
 	rec, log, err := job.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
 		return helptext.Fail("agents result: %v", err)
@@ -84,7 +83,7 @@ var agentsSendPage = helptext.Page{
 		"that turn's events; exits on its result. One turn at a time per session.",
 }
 
-func agentsStatus(rec agent.Record, format, cwd string) int {
+func agentsStatus(rec job.Record, format, cwd string) int {
 	rows, err := job.Status(context.Background(), rec.Agent, cwd, rec.ID, true)
 	if err != nil {
 		return helptext.Fail("agents status: %v", err)
@@ -101,7 +100,7 @@ func agentsStatus(rec agent.Record, format, cwd string) int {
 	return 0
 }
 
-func agentsTail(rec agent.Record, format string, follow bool, cwd string) int {
+func agentsTail(rec job.Record, format string, follow bool, cwd string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	var err error
@@ -194,7 +193,7 @@ func printLiveEnvelope(env wire.Envelope, format string) {
 }
 
 // ResultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
-func ResultExit(rec agent.Record) int {
+func ResultExit(rec job.Record) int {
 	if rec.Status != "error" {
 		return 0
 	}
@@ -215,7 +214,7 @@ func StatusDetail(r job.Row) string {
 }
 
 // TailExit is a tail's exit code: 1 for an errored job, or for a followed job that is still "running" (lost).
-func TailExit(rec agent.Record, follow bool) int {
+func TailExit(rec job.Record, follow bool) int {
 	if rec.Status == "running" && follow {
 		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
 		return 1

@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestSpawnArgvScrubsInheritedSecrets(t *testing.T) {
@@ -25,7 +23,7 @@ func TestSpawnArgvScrubsInheritedSecrets(t *testing.T) {
 	old := executable
 	executable = func() (string, error) { return script, nil }
 	t.Cleanup(func() { executable = old })
-	rec := agent.Record{Log: filepath.Join(dir, "child.log")}
+	rec := Record{Log: filepath.Join(dir, "child.log")}
 	if err := SpawnArgv(&rec, nil, []string{"REGRESSION_EXTRA=explicit-extra"}); err != nil {
 		t.Fatal(err)
 	}

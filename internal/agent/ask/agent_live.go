@@ -83,7 +83,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 }
 
 // abandonLive stops a holder that never became ready and marks its saved record failed.
-func abandonLive(rec *agent.Record, cause error) {
+func abandonLive(rec *job.Record, cause error) {
 	if rec.PID > 0 {
 		_ = job.Cancel(rec)
 	}
@@ -94,4 +94,4 @@ func abandonLive(rec *agent.Record, cause error) {
 }
 
 // runLiveHolder is job.RunHolder over the cli client's launcher.
-func runLiveHolder(rec *agent.Record) int { return job.RunHolder(rec, NewClient().Launcher) }
+func runLiveHolder(rec *job.Record) int { return job.RunHolder(rec, NewClient().Launcher) }

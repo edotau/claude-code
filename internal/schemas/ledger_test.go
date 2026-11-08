@@ -33,13 +33,13 @@ func unversioned(reason string) string { return "unversioned: " + reason }
 
 var writers = map[string]string{
 	"internal/codex/codex.go:codexSchemaFile":                         unversioned("foreign: codex --output-schema temp file"),
-	"internal/agent/dispatchlog.go:Save":                              "dispatch-record",
+	"internal/agent/job/record.go:Save":                               "dispatch-record",
 	"internal/providers/lastprofile.go:writeLastProfiles":             "last-profile",
 	"internal/providers/lastprofile.go:loadLastProfiles":              unversioned("backup: the corrupt last-profile.json copied aside before it is replaced"),
 	"internal/agentconfig/overlay_debug.go:appendOverlayDebug":        unversioned("debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values"),
 	"internal/agentconfig/overlay_debug.go:overlayDebugSalt":          unversioned("debug: the generated fingerprint salt beside the --overlay-debug file"),
 	"internal/agent/client/pack_prompt.go:write":                      unversioned("foreign: the packed context file an agy run reads, removed after the run"),
-	"internal/agent/dispatchlog.go:claimRecord":                       unversioned("claim: the running record, linked in whole"),
+	"internal/agent/job/record.go:claimRecord":                        unversioned("claim: the running record, linked in whole"),
 	"internal/agent/wire/log.go:openLocked":                           unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/wire/event.go:NewEventLog":                        "dispatch-events",
 	"internal/agent/job/live.go:AcquireLiveSlot":                      unversioned("lock: live-session slot file, flock only, no content"),

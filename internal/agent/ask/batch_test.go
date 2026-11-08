@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -73,7 +75,7 @@ func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
 		t.Errorf("prepare/retry calls = %d/%d, want 1/1", prep.Load(), again.Load())
 	}
 	var recs int
-	for _, r := range agent.RecentRecords(10) {
+	for _, r := range job.RecentRecords(10) {
 		recs++
 		if r.TaskID != "a" || r.BatchID != "batch-r" || r.PlanTask != "Phase 1.1" {
 			t.Errorf("record %s = task %q batch %q plan %q", r.ID, r.TaskID, r.BatchID, r.PlanTask)
@@ -127,7 +129,7 @@ func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
 	var retried atomic.Int32
 	retry := func(context.Context) (*client.Prepared, error) { retried.Add(1); return nil, errors.New("retry ran") }
 	noHops := func(context.Context) (*client.Prepared, error) {
-		return &client.Prepared{Record: agent.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
+		return &client.Prepared{Record: job.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
 	}
 	badPrep := func(context.Context) (*client.Prepared, error) { return nil, errors.New("prepare failed") }
 	runRetryBatch(t, PoolOptions{},

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -26,7 +28,7 @@ const lostError = "lost: process gone"
 // RunningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
 func RunningDispatches(now time.Time) []Dispatch {
 	var dispatches []Dispatch
-	for _, rec := range agent.RecentRecords(scanAllRecords) {
+	for _, rec := range job.RecentRecords(scanAllRecords) {
 		if !rec.Alive() {
 			continue
 		}
@@ -80,7 +82,7 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	if dryRun {
 		verb = "would reap"
 	}
-	snapshot := agent.RecentRecords(scanAllRecords)
+	snapshot := job.RecentRecords(scanAllRecords)
 	records, code := reapRecords(snapshot, dryRun, verb, out, errw)
 	socks := reapSockets(snapshot, dryRun, verb, out)
 	markers, err := reapMarkers(dryRun, verb, out)
@@ -96,13 +98,13 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	return code
 }
 
-func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io.Writer) (int, int) {
+func reapRecords(snapshot []job.Record, dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	code, records := 0, 0
 	for _, rec := range snapshot {
 		if rec.Status != "running" || rec.Alive() {
 			continue
 		}
-		if cur, err := agent.LoadRecord(rec.ID); err == nil && cur.Status != "running" {
+		if cur, err := job.LoadRecord(rec.ID); err == nil && cur.Status != "running" {
 			continue // the owner finished after the snapshot; keep its real result
 		}
 		rec.Status, rec.Error = "error", lostError
@@ -120,8 +122,8 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 }
 
 // reapSockets removes live-session sockets whose holder is gone (no record, or not alive); a live holder keeps its own.
-func reapSockets(snapshot []agent.Record, dryRun bool, verb string, out io.Writer) int {
-	records := make(map[string]agent.Record, len(snapshot))
+func reapSockets(snapshot []job.Record, dryRun bool, verb string, out io.Writer) int {
+	records := make(map[string]job.Record, len(snapshot))
 	for _, rec := range snapshot {
 		records[rec.ID] = rec
 	}

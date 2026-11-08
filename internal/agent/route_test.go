@@ -105,7 +105,7 @@ func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
 	}
 }
 
-// A codex dispatch asked at sonnet keeps the alias in the record (and so in --retry) and never inherits opus's effort.
+// A codex dispatch asked at sonnet never inherits opus's effort.
 func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -116,19 +116,6 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	}
 	if got := codexEffortAt(t, "sonnet"); got != "" {
 		t.Errorf("sonnet effort = %q, must not be upgraded to opus's high", got)
-	}
-
-	rec := NewRecord("codex", RunOptions{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))
-	rec.Finish(wire.Result{Answer: "ok", Model: "gpt-6.1-sol"}, nil, time.Second)
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := LoadRecord(rec.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Request.Model != "sonnet" || got.Model != "gpt-6.1-sol" {
-		t.Errorf("record request %q model %q: the replay source must stay the alias", got.Request.Model, got.Model)
 	}
 }
 

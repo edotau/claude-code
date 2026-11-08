@@ -170,8 +170,8 @@ func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string 
 	return proc.Drop(env, keep, slices.Collect(maps.Keys(foreign)))
 }
 
-// envNames are the names of KEY=VALUE entries.
-func envNames(env []string) []string {
+// EnvNames are the names of KEY=VALUE entries.
+func EnvNames(env []string) []string {
 	out := make([]string, len(env))
 	for i, kv := range env {
 		out[i], _, _ = strings.Cut(kv, "=")

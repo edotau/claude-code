@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -144,7 +146,7 @@ func runPreparedWorkdir(t *testing.T, workdir string) wire.Result {
 	if err != nil {
 		t.Fatalf("Prepare() = %v", err)
 	}
-	res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
+	res, err := client.Exec(context.Background(), p, nil, job.RunRecordedOpts{})
 	if err != nil || len(res.Hops) != 1 || res.Answer != "ok" {
 		t.Fatalf("Exec() = %+v, %v; want one successful dispatch", res, err)
 	}
@@ -203,13 +205,13 @@ func (b *burstRunner) Run(ctx context.Context, _ agent.RunOptions, w wire.Sink) 
 func streamPrepared(t *testing.T, r agent.Engine) *Prepared {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	return &Prepared{Opts: agent.RunOptions{Agent: "fake", Prompt: "p"}, Record: agent.ClaimRecord("fake", agent.RunOptions{Prompt: "p"}, time.Now()), Chain: agent.Single(r)}
+	return &Prepared{Opts: agent.RunOptions{Agent: "fake", Prompt: "p"}, Record: job.ClaimRecord("fake", agent.RunOptions{Prompt: "p"}, time.Now()), Chain: agent.Single(r)}
 }
 
 // streamPreparedRun streams p through c.Exec, as Stream does for a RunOptions.
 func streamPreparedRun(c *Client, p *Prepared) <-chan wire.Event {
 	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
-		return c.Exec(ctx, p, sink, agent.RunRecordedOpts{})
+		return c.Exec(ctx, p, sink, job.RunRecordedOpts{})
 	})
 }
 
