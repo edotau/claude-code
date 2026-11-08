@@ -62,7 +62,10 @@ func RTKRewrite(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	found, onPath := shell.RTKOnPath(bin)
-	word := rtkWord(bin, os.Getenv("HOME"), onPath)
+	word := textutil.QuoteSH(bin) // the command moves PATH or HOME, so bare rtk or "$HOME/…" could run another rtk
+	if !rtkEnvAltered.MatchString(cmd) {
+		word = rtkWord(bin, os.Getenv("HOME"), onPath)
+	}
 	updated["command"] = rtkAbsolute(rewritten, word)
 
 	note := fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", word)
@@ -72,27 +75,12 @@ func RTKRewrite(in *core.Input) core.Result {
 	return core.Result{Context: note, UpdatedInput: updated}
 }
 
-// rtkShadowNotice says PATH's rtk is not bin and how to fix it; found "" means PATH has no rtk at all.
+// rtkShadowNotice names PATH's rtk (untrusted: by path, never executed) and the fix; found "" means PATH has none.
 func rtkShadowNotice(found, bin string) string {
 	if found == "" {
 		return fmt.Sprintf("rtk: no rtk on PATH, so the pinned %s runs by path — run make install", bin)
 	}
-	if v := rtkVersion(found); v != "" {
-		found += " (" + v + ")"
-	}
 	return fmt.Sprintf("rtk: rtk on PATH is %s, not the pinned binary — run make install", found)
-}
-
-// rtkVersion is bin's first `--version` line, "" on any failure.
-func rtkVersion(bin string) string {
-	ctx, cancel := core.HookContext("rtk-rewrite")
-	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "--version").Output()
-	if err != nil {
-		return ""
-	}
-	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-	return line
 }
 
 // rtkFirstShadowNotice claims the session's one shadow notice: true only for the first caller (an O_EXCL marker).
@@ -134,6 +122,11 @@ func rtkExitOK(err error) bool {
 	var ee *exec.ExitError
 	return err == nil || errors.As(err, &ee) && ee.ExitCode() == 3
 }
+
+// rtkEnvAltered matches a command that assigns, exports, unsets or clears PATH or HOME (over-matching is safe).
+var rtkEnvAltered = regexp.MustCompile(`(^|[^\w$])(PATH|HOME)\+?=` +
+	`|\b(export|unset|readonly|declare|typeset|local)\s[^;&|\n]*\b(PATH|HOME)\b` +
+	`|\benv\s[^;&|\n]*(-i\b|-u\s*(PATH|HOME)\b|--ignore-environment|--unset[=\s](PATH|HOME)\b)`)
 
 // rtkCommandWord matches a bare `rtk` at command position: the start, or after `&&`, `||`, `;`, `|` or a newline.
 var rtkCommandWord = regexp.MustCompile(`(^|&&|\|\||[;|\n])(\s*)rtk(\s|$)`)
@@ -184,7 +177,7 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 // rtkGoVet: rtk 1.1.0 summarizes a failed `go vet` (e.g. a missing package) as "No issues found", so vet stays raw.
 func rtkGoVet(cmd string) bool {
 	for _, seg := range shell.Segments(cmd) {
-		if t := shell.Tokens(seg); len(t) > 1 && t[0] == "go" && t[1] == "vet" {
+		if t, _ := shell.Unwrap(shell.Tokens(seg), ""); len(t) > 1 && t[0] == "go" && t[1] == "vet" {
 			return true
 		}
 	}

@@ -68,13 +68,14 @@ func TestRTKDoctorStatusNamesShadow(t *testing.T) {
 		t.Fatal(err)
 	}
 	shadowDir := t.TempDir()
-	writeExec(t, filepath.Join(shadowDir, "rtk"), "#!/bin/sh\necho 'rtk 0.42.4'\n")
+	mark := filepath.Join(t.TempDir(), "ran")
+	writeExec(t, filepath.Join(shadowDir, "rtk"), "#!/bin/sh\n: > '"+mark+"'\necho 'rtk 0.42.4'\n")
 	for _, tc := range []struct {
 		name, path, want string
 		ok               bool
 	}{
 		{"pin first", userBin + ":" + shadowDir, "PATH rtk is this binary", true},
-		{"shadow first", shadowDir + ":" + userBin, "PATH rtk " + filepath.Join(shadowDir, "rtk") + " rtk 0.42.4 shadows " +
+		{"shadow first", shadowDir + ":" + userBin, "PATH rtk " + filepath.Join(shadowDir, "rtk") + " shadows " +
 			pin + " — run make install, or put ~/.local/bin first on PATH", false},
 		{"none on PATH", t.TempDir(), pin + " is not on PATH — run make install", false},
 	} {
@@ -83,5 +84,8 @@ func TestRTKDoctorStatusNamesShadow(t *testing.T) {
 		if ok != tc.ok || !strings.Contains(detail, tc.want) {
 			t.Errorf("%s: (%v, %q), want (%v, …%q…)", tc.name, ok, detail, tc.ok, tc.want)
 		}
+	}
+	if _, err := os.Stat(mark); err == nil {
+		t.Error("doctor executed the shadowing rtk")
 	}
 }

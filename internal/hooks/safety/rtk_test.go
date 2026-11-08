@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
@@ -174,7 +175,8 @@ func TestRTKNeverWrapsValueProducingSubcommands(t *testing.T) {
 // rtk reports a failed go vet as "No issues found"; vet, alone or chained, is never wrapped, while go test still is.
 func TestRTKNeverWrapsGoVet(t *testing.T) {
 	bin := fakeRTK(t)
-	for _, cmd := range []string{"go vet ./a/...", "gofmt -l . && go vet ./..."} {
+	for _, cmd := range []string{"go vet ./a/...", "gofmt -l . && go vet ./...", "GOOS=linux go vet ./x",
+		"env GOOS=linux go vet ./x", "ls && CGO_ENABLED=0 env -u X go vet ./x"} {
 		if got, ok := rtkOut(t, rtkBashIn(cmd)); ok {
 			t.Errorf("%q was wrapped to %q — rtk hides go vet failures", cmd, got)
 		}
@@ -495,7 +497,7 @@ func TestRTKShadowNoticeOncePerSession(t *testing.T) {
 		return RTKRewrite(in).Context
 	}
 	shadow := filepath.Join(os.Getenv("PATH"), "rtk")
-	if got := run("s1"); !strings.Contains(got, "rtk on PATH is "+shadow+" (rtk 0.0.1), not the pinned binary — run make install") {
+	if got := run("s1"); !strings.Contains(got, "rtk on PATH is "+shadow+", not the pinned binary — run make install") {
 		t.Errorf("first call note %q lacks the shadow notice", got)
 	}
 	if got := run("s1"); strings.Contains(got, "run make install") {
@@ -511,5 +513,48 @@ func TestRTKShadowNoticeOncePerSession(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(bin))
 	if got := run("s4"); strings.Contains(got, "make install") {
 		t.Errorf("PATH finds the pin, yet the note warns: %q", got)
+	}
+}
+
+// The shadowing rtk is untrusted: the notice names its path and never runs it.
+func TestRTKShadowNoticeNeverRunsShadow(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	fakeRTK(t)
+	dir := t.TempDir()
+	mark := filepath.Join(t.TempDir(), "ran")
+	if err := os.WriteFile(filepath.Join(dir, "rtk"), []byte("#!/bin/sh\n: > '"+mark+"'\necho 'rtk 6.6.6'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	in := core.ParseInput(strings.NewReader(rtkBashIn("ls")))
+	in.SessionID = "shadow"
+	note := RTKRewrite(in).Context
+	if _, err := os.Stat(mark); err == nil {
+		t.Errorf("the hook executed the shadowing rtk %s", filepath.Join(dir, "rtk"))
+	}
+	if !strings.Contains(note, "rtk on PATH is "+filepath.Join(dir, "rtk")+", not the pinned binary") {
+		t.Errorf("note %q does not name the shadow by path", note)
+	}
+}
+
+// A command that sets, exports or unsets PATH or HOME gets the quoted absolute pin, never bare rtk or "$HOME/…".
+func TestRTKPinnedPathWhenCommandAltersPathOrHome(t *testing.T) {
+	homeRTK(t)
+	bin := os.Getenv(shell.RTKBinaryEnv)
+	pinned := textutil.QuoteSH(bin)
+	for _, path := range []string{filepath.Dir(bin), t.TempDir()} { // bare-rtk and "$HOME/…" spellings
+		t.Setenv("PATH", path)
+		for _, cmd := range []string{"PATH=/tmp; ls internal", "HOME=/tmp ls", "export PATH=/tmp; ls", "export HOME; ls",
+			"unset PATH; ls", "unset HOME; ls", "env PATH=/tmp ls", "env -i ls", "env -u HOME ls", "a=1 PATH+=:/tmp ls"} {
+			if got, ok := rtkOut(t, rtkBashIn(cmd)); !ok || got != pinned+" "+cmd {
+				t.Errorf("PATH=%s %q = %q (emitted=%v), want %q", path, cmd, got, ok, pinned+" "+cmd)
+			}
+		}
+	}
+	t.Setenv("PATH", filepath.Dir(bin))
+	for _, cmd := range []string{"ls internal", "echo $PATH", "ls $HOME/x", "grep MYPATH=1 f"} {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); !ok || got != "rtk "+cmd {
+			t.Errorf("%q = %q (emitted=%v), want bare rtk", cmd, got, ok)
+		}
 	}
 }
