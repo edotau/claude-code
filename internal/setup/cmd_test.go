@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,7 +83,7 @@ func TestCmdSetupNukeRejectsPartialConfirmation(t *testing.T) {
 	os.Stdin = f
 	t.Cleanup(func() { os.Stdin = old })
 
-	code, _, _ := captureOutput(t, func() int {
+	code, _, _ := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupNuke([]string{"--dir", dir, "--apply"})
 	})
 	if code == 0 {
@@ -133,7 +134,7 @@ func setupWorkspaceGitRoot(t *testing.T) string {
 func TestSetupWorkspaceLinkRejectsDryRunWithoutLinking(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := setupWorkspaceGitRoot(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupWorkspace([]string{"link", "agents", "demo", root, "--dry-run"})
 	})
 	if code != 2 {
@@ -149,7 +150,7 @@ func TestSetupWorkspaceLinkRejectsDryRunWithoutLinking(t *testing.T) {
 func TestSetupWorkspaceStatusRejectsWith(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := setupWorkspaceGitRoot(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupWorkspace([]string{"status", "--with", "x", root})
 	})
 	if code != 2 {
@@ -163,7 +164,7 @@ func TestSetupWorkspaceInitDryRunSucceeds(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := setupWorkspaceGitRoot(t)
 	t.Chdir(root)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupWorkspace([]string{"init", "--dry-run"})
 	})
 	if code != 0 {
@@ -192,7 +193,7 @@ func TestCmdSetupNukeAcceptsConfirmationWithSpaces(t *testing.T) {
 	os.Stdin = f
 	t.Cleanup(func() { os.Stdin = old })
 
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupNuke([]string{"--dir", dir, "--apply"})
 	})
 	if code != 0 {
@@ -207,7 +208,7 @@ func TestCmdSetupNukeAcceptsConfirmationWithSpaces(t *testing.T) {
 func TestSetupWorkspaceStatusRejectsExtraPositionals(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := setupWorkspaceGitRoot(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupWorkspace([]string{"status", root, t.TempDir()})
 	})
 	if code != 2 {
@@ -219,7 +220,7 @@ func TestSetupWorkspaceStatusRejectsExtraPositionals(t *testing.T) {
 func TestSetupWorkspaceHelpListsInitFlagsOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for op, wantFlags := range map[string]bool{"init": true, "link": false, "status": false} {
-		_, out, errOut := captureOutput(t, func() int { return cmdSetupWorkspace([]string{op, "-h"}) })
+		_, out, errOut := hosttest.CaptureOutput(t, func() int { return cmdSetupWorkspace([]string{op, "-h"}) })
 		got := out + errOut
 		for _, flag := range []string{"--with", "--dry-run"} {
 			if has := strings.Contains(got, flag); has != wantFlags {

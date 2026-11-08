@@ -2,6 +2,7 @@ package themecmd
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,7 +29,7 @@ func TestThemeSetPersistsAndReloadsThroughStatuslineLoader(t *testing.T) {
 		t.Fatal("no gradient palettes registered")
 	}
 	want := names[len(names)-1]
-	code, _, _ := captureOutput(t, func() int { return Run([]string{want}) })
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{want}) })
 	if code != 0 {
 		t.Fatalf("theme %s exit %d", want, code)
 	}
@@ -41,7 +42,7 @@ func TestThemeSetPersistsAndReloadsThroughStatuslineLoader(t *testing.T) {
 
 func TestThemeSetMergesWithoutDisturbingOtherKeys(t *testing.T) {
 	dir := hermeticTheme(t)
-	code, _, _ := captureOutput(t, func() int { return Run([]string{"nord"}) })
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"nord"}) })
 	if code != 0 {
 		t.Fatalf("theme nord exit %d", code)
 	}
@@ -73,7 +74,7 @@ func TestThemeSetOnSecondCallPreservesFirstCallsOtherEdits(t *testing.T) {
 	if err := os.WriteFile(configPath(dir), []byte(seed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := captureOutput(t, func() int { return Run([]string{"ocean"}) }); code != 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"ocean"}) }); code != 0 {
 		t.Fatalf("theme ocean exit %d", code)
 	}
 	raw, err := os.ReadFile(configPath(dir))
@@ -94,7 +95,7 @@ func TestThemeSetOnSecondCallPreservesFirstCallsOtherEdits(t *testing.T) {
 
 func TestThemePalettesListsEveryPaletteAndWritesNothing(t *testing.T) {
 	dir := hermeticTheme(t)
-	code, out, _ := captureOutput(t, func() int { return Run([]string{"--palettes"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--palettes"}) })
 	if code != 0 {
 		t.Fatalf("theme --palettes exit %d", code)
 	}
@@ -110,7 +111,7 @@ func TestThemePalettesListsEveryPaletteAndWritesNothing(t *testing.T) {
 
 func TestThemeNoArgsPrintsHelpWithoutPalettes(t *testing.T) {
 	dir := hermeticTheme(t)
-	code, _, out := captureOutput(t, func() int { return Run(nil) })
+	code, _, out := hosttest.CaptureOutput(t, func() int { return Run(nil) })
 	if code != 0 {
 		t.Fatalf("theme (no args) exit %d", code)
 	}
@@ -124,7 +125,7 @@ func TestThemeNoArgsPrintsHelpWithoutPalettes(t *testing.T) {
 
 func TestThemeUnknownNameExitsTwoAndListsValid(t *testing.T) {
 	dir := hermeticTheme(t)
-	code, _, errOut := captureOutput(t, func() int { return Run([]string{"not-a-real-palette"}) })
+	code, _, errOut := hosttest.CaptureOutput(t, func() int { return Run([]string{"not-a-real-palette"}) })
 	if code != 2 {
 		t.Fatalf("theme not-a-real-palette exit %d, want 2", code)
 	}
@@ -143,7 +144,7 @@ func TestThemeUnknownNameExitsTwoAndListsValid(t *testing.T) {
 func TestThemeHelpExitsZeroWithoutRunning(t *testing.T) {
 	dir := hermeticTheme(t)
 	for _, flagArg := range []string{"-h", "--help"} {
-		code, _, _ := captureOutput(t, func() int { return Run([]string{flagArg}) })
+		code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{flagArg}) })
 		if code != 0 {
 			t.Errorf("theme %s exit %d, want 0 — asking for help is not an error", flagArg, code)
 		}
@@ -166,7 +167,7 @@ func TestThemeStatuslineRendersFromStdin(t *testing.T) {
 	old := os.Stdin
 	os.Stdin = r
 	defer func() { os.Stdin = old }()
-	code, out, _ := captureOutput(t, func() int { return Run([]string{"statusline", "--style", "minimal"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"statusline", "--style", "minimal"}) })
 	if code != 0 {
 		t.Fatalf("theme statusline exit %d", code)
 	}
@@ -177,7 +178,7 @@ func TestThemeStatuslineRendersFromStdin(t *testing.T) {
 
 func TestThemeStatuslineBadFlagExitsTwo(t *testing.T) {
 	hermeticTheme(t)
-	code, _, _ := captureOutput(t, func() int { return Run([]string{"statusline", "--nope"}) })
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"statusline", "--nope"}) })
 	if code != 2 {
 		t.Errorf("exit %d, want 2", code)
 	}
@@ -185,7 +186,7 @@ func TestThemeStatuslineBadFlagExitsTwo(t *testing.T) {
 
 func TestThemeHelpListsNewSubVerbs(t *testing.T) {
 	hermeticTheme(t)
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"-h"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"-h"}) })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -198,7 +199,7 @@ func TestThemeHelpListsNewSubVerbs(t *testing.T) {
 
 func TestThemeVSCodeDispatchesToVSCode(t *testing.T) {
 	hermeticTheme(t)
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"vscode", "--bogus-flag"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"vscode", "--bogus-flag"}) })
 	if code != 2 {
 		t.Errorf("exit %d, want 2 (flag parse error from vscode.Run)", code)
 	}
@@ -214,7 +215,7 @@ func TestThemeGetGradientSafety(t *testing.T) {
 	_ = hermeticTheme(t) // initialize theme directory
 
 	// Test that setting and getting a theme works without error
-	code, _, _ := captureOutput(t, func() int {
+	code, _, _ := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"nord"})
 	})
 	if code != 0 {
@@ -224,11 +225,11 @@ func TestThemeGetGradientSafety(t *testing.T) {
 
 func TestThemeResetDeletesOverrideAndIsIdempotent(t *testing.T) {
 	dir := hermeticTheme(t)
-	if code, _, _ := captureOutput(t, func() int { return Run([]string{"nord"}) }); code != 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"nord"}) }); code != 0 {
 		t.Fatalf("theme nord exit %d", code)
 	}
 	for i, want := range []string{"override removed", "already on the default"} {
-		code, out, _ := captureOutput(t, func() int { return Run([]string{"--reset"}) })
+		code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--reset"}) })
 		if code != 0 || !strings.Contains(out, want) {
 			t.Fatalf("reset #%d: exit %d, stdout %q, want %q", i+1, code, out, want)
 		}

@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ func personaFixture(t *testing.T) (other string) {
 // askLoggedRequest runs Cmd against the missing agent binary and returns the request it logged.
 func askLoggedRequest(t *testing.T, args ...string) agent.RunOptions {
 	t.Helper()
-	if code, _, stderr := captureOutput(t, func() int { return Cmd(args) }); code != 1 {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) }); code != 1 {
 		t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 	}
 	return job.RecentRecords(1)[0].Request
@@ -67,7 +68,7 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	if got := ask(append(base, "--retry", rec.ID)...).Persona; got == nil || got.Name != "tester" {
 		t.Fatalf("retry persona = %+v, want tester", got)
 	}
-	code, _, stderr := captureOutput(t, func() int { return Cmd(append(base, "--agent", "claude:nope", "go")) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(append(base, "--agent", "claude:nope", "go")) })
 	if code != 2 || stderr == "" {
 		t.Fatalf("unknown persona: exit %d stderr %q, want 2 with a message", code, stderr)
 	}
@@ -78,7 +79,7 @@ func TestAskAsChecksResolvedAgent(t *testing.T) {
 	personaFixture(t)
 	base := []string{"--fallback", "none", "--format", "json", "--as", "sp"}
 	run := func(sel string) (int, string) {
-		code, _, stderr := captureOutput(t, func() int { return Cmd(append(append([]string{}, base...), "--agent", sel, "go")) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(append(append([]string{}, base...), "--agent", sel, "go")) })
 		return code, stderr
 	}
 	if code, stderr := run("claude:tester"); code != 1 || strings.Contains(stderr, "applies to claude only") {

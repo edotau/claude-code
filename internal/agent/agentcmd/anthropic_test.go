@@ -1,6 +1,8 @@
 package agentcmd
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"strings"
 	"testing"
 )
@@ -8,7 +10,7 @@ import (
 const cliFakeToken = "sk-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
 
 func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cases := [][]string{
 		{"--oauth=" + cliFakeToken},
 		{"--x-api-key=" + cliFakeToken},
@@ -17,7 +19,7 @@ func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
 		{"--oauth=MISSING_KEY_FOR_TEST", "--print-env"},
 	}
 	for _, args := range cases {
-		code, out, errOut := captureOutput(t, func() int { return Anthropic(args) })
+		code, out, errOut := hosttest.CaptureOutput(t, func() int { return Anthropic(args) })
 		if code == 0 {
 			t.Errorf("%q: exit 0", args)
 		}

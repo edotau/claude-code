@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,7 +64,7 @@ func fakeSSHStatusOnPATH(t *testing.T, panes string) {
 
 func TestDispatchMissingHost(t *testing.T) {
 	hermeticDispatch(t)
-	code, _, stderr := captureOutput(t, func() int { return cmdNetworkRemote([]string{"hi"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkRemote([]string{"hi"}) })
 	if code == 0 {
 		t.Fatalf("missing --host: code = 0, want nonzero")
 	}
@@ -75,7 +76,7 @@ func TestDispatchMissingHost(t *testing.T) {
 func TestDispatchConflictingModes(t *testing.T) {
 	hermeticDispatch(t)
 	fakeSSHOnPATH(t, "cc-claude-ab12|1700000000|1|claude|claude\n")
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--host", "myhost", "--list", "--attach", "cc-claude-ab12"})
 	})
 	if code != 2 || out != "" || !strings.Contains(stderr, "mutually exclusive") {
@@ -86,7 +87,7 @@ func TestDispatchConflictingModes(t *testing.T) {
 func TestDispatchMissingTask(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
-	code, _, stderr := captureOutput(t, func() int { return cmdNetworkRemote([]string{"--host", "myhost"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkRemote([]string{"--host", "myhost"}) })
 	if code == 0 {
 		t.Fatalf("missing task: code = 0, want nonzero")
 	}
@@ -98,7 +99,7 @@ func TestDispatchMissingTask(t *testing.T) {
 func TestDispatchUnknownAgent(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--host", "myhost", "--agent", "bash", "hi"})
 	})
 	if code == 0 {
@@ -115,7 +116,7 @@ func TestDispatchUnknownAgent(t *testing.T) {
 func TestDispatchDryRunSpawnsNoSSH(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--host", "myhost", "--dir", "/tmp/work dir", "--name", "cc-claude-abcd", "--dry-run", "do", "the", "thing"})
 	})
 	if code != 0 {
@@ -139,7 +140,7 @@ func TestDispatchDryRunSpawnsNoSSH(t *testing.T) {
 func TestDispatchDryRunRejectsBadName(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--host", "myhost", "--name", "a b", "--dry-run", "hi"})
 	})
 	if code == 0 {
@@ -154,7 +155,7 @@ func TestDispatchListTextAndJSON(t *testing.T) {
 	hermeticDispatch(t)
 	listing := "cc-claude-ab12|1700000000|1|claude|claude\n"
 	fakeSSHOnPATH(t, listing)
-	code, out, stderr := captureOutput(t, func() int { return cmdNetworkRemote([]string{"--list", "--host", "myhost"}) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkRemote([]string{"--list", "--host", "myhost"}) })
 	if code != 0 {
 		t.Fatalf("--list exit %d, want 0; stderr=%q", code, stderr)
 	}
@@ -165,7 +166,7 @@ func TestDispatchListTextAndJSON(t *testing.T) {
 		t.Errorf("--list text output missing parsed CurrentCmd field (fieldSep regression):\n%s", out)
 	}
 
-	code, out, stderr = captureOutput(t, func() int {
+	code, out, stderr = hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--list", "--host", "myhost", "--format", "json"})
 	})
 	if code != 0 {
@@ -179,7 +180,7 @@ func TestDispatchListTextAndJSON(t *testing.T) {
 func TestDispatchListEmptyIsNotAnError(t *testing.T) {
 	hermeticDispatch(t)
 	fakeSSHOnPATH(t, "")
-	code, out, stderr := captureOutput(t, func() int { return cmdNetworkRemote([]string{"--list", "--host", "myhost"}) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkRemote([]string{"--list", "--host", "myhost"}) })
 	if code != 0 {
 		t.Fatalf("--list (no sessions) exit %d, want 0; stderr=%q", code, stderr)
 	}
@@ -191,7 +192,7 @@ func TestDispatchListEmptyIsNotAnError(t *testing.T) {
 func TestDispatchAttachRejectsBadSessionName(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--attach", "--host", "myhost", "../etc"})
 	})
 	if code == 0 {
@@ -205,7 +206,7 @@ func TestDispatchAttachRejectsBadSessionName(t *testing.T) {
 func TestDispatchAttachMissingSessionArg(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--attach", "--host", "myhost"})
 	})
 	if code == 0 {
@@ -226,7 +227,7 @@ func TestDispatchListStatusTextAndJSON(t *testing.T) {
 	hermeticDispatch(t)
 	capture := statusCaptureFrame("cc-claude-ab12", "%1", "claude", "claude", "thinking...")
 	fakeSSHStatusOnPATH(t, capture)
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--list", "--host", "myhost", "--status"})
 	})
 	if code != 0 {
@@ -236,7 +237,7 @@ func TestDispatchListStatusTextAndJSON(t *testing.T) {
 		t.Errorf("--list --status text output missing session/state:\n%s", out)
 	}
 
-	code, out, stderr = captureOutput(t, func() int {
+	code, out, stderr = hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--list", "--host", "myhost", "--status", "--format", "json"})
 	})
 	if code != 0 {
@@ -250,7 +251,7 @@ func TestDispatchListStatusTextAndJSON(t *testing.T) {
 func TestDispatchListStatusNoPanesIsEmptyNotError(t *testing.T) {
 	hermeticDispatch(t)
 	fakeSSHStatusOnPATH(t, "")
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--list", "--host", "myhost", "--status"})
 	})
 	if code != 0 {
@@ -264,7 +265,7 @@ func TestDispatchListStatusNoPanesIsEmptyNotError(t *testing.T) {
 func TestDispatchListStatusSSHFailure(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t) // no ssh on PATH at all: the capture round trip itself fails
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--list", "--host", "myhost", "--status"})
 	})
 	if code == 0 {
@@ -289,7 +290,7 @@ func TestDispatchLocalhostDryRunNeverLaunches(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", dir)
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--host", "localhost", "task", "--dry-run"})
 	})
 	if code != 0 {
@@ -307,7 +308,7 @@ func TestDispatchLocalhostDryRunNeverLaunches(t *testing.T) {
 }
 
 func TestDispatchHelp(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return cmdNetworkRemote(nil) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkRemote(nil) })
 	if code != 0 {
 		t.Fatalf("no args: code = %d, want 0", code)
 	}
@@ -320,7 +321,7 @@ func TestDispatchHelp(t *testing.T) {
 func TestDispatchListJSONWriteError(t *testing.T) {
 	hermeticDispatch(t)
 	fakeSSHOnPATH(t, "cc-claude-ab12|1700000000|1|claude|claude\n")
-	closedStdout(t)
+	hosttest.ClosedStdout(t)
 
 	code := cmdNetworkRemote([]string{"--list", "--host", "myhost", "--format", "json"})
 	if code == 0 {
@@ -332,7 +333,7 @@ func TestDispatchListEmptyTextOutput(t *testing.T) {
 	hermeticDispatch(t)
 	fakeSSHOnPATH(t, "") // no sessions
 
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--list", "--host", "myhost"})
 	})
 	if code != 0 {
@@ -349,7 +350,7 @@ func TestDispatchFlagsNotValidatedPerMode(t *testing.T) {
 	fakeSSHOnPATH(t, "")
 
 	// --dry-run is only valid in start mode, not with --list; it is silently ignored today
-	code, _, _ := captureOutput(t, func() int {
+	code, _, _ := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--host", "myhost", "--list", "--dry-run"})
 	})
 	_ = code
@@ -365,7 +366,7 @@ func TestDispatchStartReportsStdoutFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	closedStdout(t)
+	hosttest.ClosedStdout(t)
 	if got := dispatchStart(context.Background(), "stdout-test.invalid", "", "claude", "cc-stdout-test", "hello", false); got == 0 {
 		t.Fatal("dispatch start exit = 0 on closed stdout, want nonzero")
 	}
@@ -375,7 +376,7 @@ func TestDispatchStartReportsStdoutFailure(t *testing.T) {
 func TestNetworkRemoteRefusesOptionShapedHost(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkRemote([]string{"--host", "-oProxyCommand=touch /tmp/pwned", "--dry-run", "x"})
 	})
 	if code == 0 || !strings.Contains(stderr, "invalid ssh host") || strings.Contains(out, "ProxyCommand") {
