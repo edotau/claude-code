@@ -2,10 +2,13 @@ package copilot
 
 import (
 	"errors"
+	"os"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -57,6 +60,34 @@ func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 	}
 	if err := markToolRan(SDKResult{}, sink, nil); err != nil || len(sink.types) != 1 {
 		t.Fatalf("no tool ran: err=%v events=%v, want none emitted", err, sink.types)
+	}
+}
+
+// A _TOKEN credential and the SDK token never land in the quota hand-off file, in prompt, partial text or session.
+func TestHandoffNeverWritesCredentials(t *testing.T) {
+	const sdkToken, envSecret = "gho_SDKTOKEN12345", "dbx_pat_ENVSECRET9"
+	dir := t.TempDir()
+	orig := handoffDir
+	handoffDir = func(string) string { return dir }
+	t.Cleanup(func() { handoffDir = orig })
+	creds := CredentialValues([]string{"DBX_TOKEN=" + envSecret, "PLAIN=visible"}, sdkToken)
+	req := agent.RunOptions{WorkDir: t.TempDir(), Prompt: "use " + sdkToken + " and " + envSecret}
+	path, body, err := writeCopilotHandoff(req, wire.Result{SessionID: "sess-1"}, "partial "+envSecret,
+		"acct", errors.New("quota exhausted"), creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, s := range map[string]string{"file": string(onDisk), "returned body": body} {
+		if strings.Contains(s, sdkToken) || strings.Contains(s, envSecret) {
+			t.Errorf("%s holds a raw credential:\n%s", name, s)
+		}
+		if !strings.Contains(s, "REDACTED") {
+			t.Errorf("%s has no redaction marker:\n%s", name, s)
+		}
 	}
 }
 
