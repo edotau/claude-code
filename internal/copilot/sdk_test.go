@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -393,14 +395,36 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 	}
 }
 
-// buildFakeCLI compiles the hermetic fake copilot CLI once per test into a temp dir.
+var (
+	fakeCLIOnce sync.Once
+	fakeCLIDir  string
+	fakeCLIExe  string
+	fakeCLIErr  error
+)
+
+// buildFakeCLI compiles the hermetic fake copilot CLI once per package; TestMain removes its dir.
 func buildFakeCLI(t *testing.T) string {
 	t.Helper()
-	exe := filepath.Join(t.TempDir(), "fake")
-	if out, err := exec.Command("go", "build", "-o", exe, "./testdata/fakecli").CombinedOutput(); err != nil {
-		t.Fatalf("build fakecli: %v\n%s", err, out)
+	fakeCLIOnce.Do(func() {
+		fakeCLIDir, fakeCLIErr = os.MkdirTemp("", "copilot-fakecli-")
+		if fakeCLIErr != nil {
+			return
+		}
+		fakeCLIExe = filepath.Join(fakeCLIDir, "fake")
+		if out, err := exec.Command("go", "build", "-o", fakeCLIExe, "./testdata/fakecli").CombinedOutput(); err != nil {
+			fakeCLIErr = fmt.Errorf("build fakecli: %w\n%s", err, out)
+		}
+	})
+	if fakeCLIErr != nil {
+		t.Fatal(fakeCLIErr)
 	}
-	return exe
+	return fakeCLIExe
+}
+
+func removeFakeCLI() {
+	if fakeCLIDir != "" {
+		_ = os.RemoveAll(fakeCLIDir)
+	}
 }
 
 const registryPick = "dbx-openai/gpt-5-5"

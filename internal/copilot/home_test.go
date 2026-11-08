@@ -96,3 +96,31 @@ func TestRenderCopilotSettingsUnreadableIsSkipped(t *testing.T) {
 		t.Fatalf("path was replaced: %v", err)
 	}
 }
+
+// A registry home already holding a GitHub login is refused by seedCopilotHome; an empty login is allowed.
+func TestSeedCopilotHomeRefusesGitHubLogin(t *testing.T) {
+	logins := []string{
+		`{"lastLoggedInUser":{"host":"github.com","login":"octocat"}}`,
+		`{"loggedInUsers":[{"login":"octocat"}]}`,
+		`{"copilotTokens":{"github.com:octocat":"gho_x"}}`,
+	}
+	for _, body := range logins {
+		home, xdg := filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "xdg")
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := seedCopilotHome(t.TempDir(), home, xdg); err == nil || !strings.Contains(err.Error(), "GitHub login") {
+			t.Errorf("config.json %s: err = %v, want a GitHub-login refusal", body, err)
+		}
+	}
+	empty := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(empty, []byte(`{"loggedInUsers":[],"lastLoggedInUser":null}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkNoGitHubLogin(empty); err != nil {
+		t.Errorf("empty login fields refused: %v", err)
+	}
+}
