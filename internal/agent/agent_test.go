@@ -874,14 +874,17 @@ func TestRunWithFallbackLastHopMidRunCutKeepsChainSummary(t *testing.T) {
 	}
 }
 
-func TestRunWithFallbackMidRunWithAnswerIsNotRedispatched(t *testing.T) {
+// Codex keeps its last interim message as Answer when a 429 cuts the turn; the named-profile ladder still hops.
+func TestRunWithFallbackProgressedThen429OnNamedProfileHops(t *testing.T) {
 	fallbackConfigDir(t)
-	rate := &retry.Error{Kind: retry.KindRateLimit, Progressed: true, Err: errors.New("429")}
-	first := &fakeRunner{name: "codex", errs: []error{rate}}
-	next := &fakeRunner{name: "copilot", errs: []error{nil}}
-	RunWithFallback(context.Background(), chainOf([]Engine{first, next}), RunOptions{Prompt: "task", Tools: true}, wire.Discard, nil)
-	if len(next.seen) != 0 {
-		t.Fatalf("a hop that returned an answer was re-dispatched with prompt %q", next.seen[0].Prompt)
+	cut := errors.New("exit status 1\nexceeded retry limit, last status: 429 Too Many Requests")
+	prod := &fakeRunner{name: "codex", write: "I'll audit the imports", errs: []error{cut}} // Answer "a" = the interim message
+	dev := &fakeRunner{name: "codex", errs: []error{nil}}
+	c := chainOf([]Engine{prod, dev})
+	c.Dispatches[0].Account, c.Dispatches[1].Account = "databricks·prod", "databricks·dev"
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "task", Tools: true, Lead: "prod"}, wire.Discard, nil)
+	if len(dev.seen) != 1 || err != nil || len(res.Hops) != 2 || res.Fallback != "codex" {
+		t.Fatalf("dev ran %d times, hops=%+v res=%+v err=%v; want a second hop on databricks·dev", len(dev.seen), res.Hops, res, err)
 	}
 }
 
