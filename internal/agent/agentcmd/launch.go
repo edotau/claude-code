@@ -36,6 +36,13 @@ func launchClaude(alias string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
+	if helptext.WantsHelp(rest) { // claude's own help needs no profile or model, so no lookup may refuse it
+		bin, err := claude.ClaudeBinary()
+		if err != nil {
+			return helptext.Fail("%v", err)
+		}
+		return helptext.WrappedDocs(bin)
+	}
 	opts.Alias = alias
 	plan, err := claude.Claude(providers.WithIdentity(context.Background(), as), opts, rest)
 	if err == nil && !opts.PrintEnv && !launchplan.IsHeadless(rest) {
