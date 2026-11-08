@@ -482,4 +482,14 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	if want := "  plan             -> " + filepath.Join(cfg, "plans") + "/YYYY"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("plan line missing %q:\n%s", want, stderr.String())
 	}
+	if want := "  handoff          -> " + filepath.Join(repo, "handoffs"); !strings.Contains(stderr.String(), want) {
+		t.Errorf("handoff line must name the store itself, not memory/home; missing %q:\n%s", want, stderr.String())
+	}
+	for _, sub := range []string{"handoffs", "reports"} {
+		var e bytes.Buffer
+		in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, sub, "2026-11-07-x.md"))))
+		if code := Placement(in, &e); code != core.ExitProceed {
+			t.Errorf("%s inside the store = %d, want proceed (%s)", sub, code, e.String())
+		}
+	}
 }
