@@ -37,6 +37,7 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 - `docs/templates/plan.md` — the shape you return.
 - `rules/harness/docs-placement.md` — when a phase writes documentation.
 - `skills/web-explorer/SKILL.md` — prior art and library docs (Tavily) for Step 2b.
+- `skills/subagent-workflows/references/lane-orchestrator.md` — the lane shape, when the dispatch shape is chosen.
 
 ## Hands off to
 
@@ -145,7 +146,9 @@ Every phase is:
   CLI/TUI text <=80 columns.
 - **Dispatch shape:** `skills/subagent-workflows/SKILL.md` (caps, fan-out) — disjoint-package code steps run in
   parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a
-  feature or bug fix (`skills/subagent-workflows/SKILL.md` → Test agent).
+  feature or bug fix (`skills/subagent-workflows/SKILL.md` → Test agent). Many leaf-sized tasks across disjoint
+  packages: weigh a lane plan (`skills/subagent-workflows/references/lane-orchestrator.md`, one lane subagent per
+  package set fanning out `agents ask --batch`) against a saved workflow, and say which and why.
 - **Cost routing:** spread steps across agents per `~/.claude/skills/subagent-workflows/references/cost-routing.md`;
   Claude keeps judgement, integration and verification.
 - **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once at the end; commit by area
