@@ -26,6 +26,23 @@ func currentVaultSchema(t *testing.T) int {
 	return 0
 }
 
+func TestScanVaultOverlaySecretsSorted(t *testing.T) {
+	vaulttest.Use(t)
+	const value = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"d":{"k":"`+value+`"},"a":{"k":"`+value+`"},"c":{"k":"`+value+`"},"b":{"k":"`+value+`"},"e":{"k":"`+value+`"}}}`)
+	var want []string
+	for _, n := range []string{"a", "b", "c", "d", "e"} {
+		want = append(want, "vault:overlay/providers → providers."+n+".k holds an inline secret")
+	}
+	for range 20 {
+		scanner := &Scanner{Out: &bytes.Buffer{}}
+		scanner.ScanVault()
+		if !slices.Equal(scanner.Findings, want) {
+			t.Fatalf("findings = %v, want %v", scanner.Findings, want)
+		}
+	}
+}
+
 func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Use(t)
 	const value = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
