@@ -658,3 +658,28 @@ func TestForcedMintSharedByRowsOfOneServicePrincipal(t *testing.T) {
 		t.Fatalf("twin row: same=%t calls=%d err=%v; want the forced token reused", got == forced, calls, err)
 	}
 }
+
+// A forced u2m mint sealed by one process is adopted, with no refresh call, by another whose own token is near expiry.
+func TestForcedU2MMintAdoptedByOtherProcess(t *testing.T) {
+	p := mintRow(t, "u2m-adopt", AuthOAuth, "", "https://h.example.com")
+	if err := writeOAuth(p, oauthValue{Refresh: "rt"}); err != nil {
+		t.Fatal(err)
+	}
+	calls, orig := 0, refreshU2M
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) {
+		calls++
+		return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, ""), Refresh: "rt"}, nil
+	}
+	t.Cleanup(func() { refreshU2M = orig })
+	t.Cleanup(func() { cmdCache.Delete(p.Name) })
+	ctx := context.Background()
+	forced, err := Refresh(ctx, p) // process A
+	if err != nil || calls != 1 {
+		t.Fatalf("forced mint: calls=%d err=%v", calls, err)
+	}
+	cmdCache.Store(p.Name, cached{value: "b-old-token", until: time.Now().Add(-time.Second)}) // process B, token near expiry
+	got, err := Credential(ctx, p)
+	if err != nil || got != forced || calls != 1 {
+		t.Fatalf("process B: adopted=%t calls=%d err=%v; want A's sealed token with no mint", got == forced, calls, err)
+	}
+}
