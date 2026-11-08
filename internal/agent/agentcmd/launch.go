@@ -1,4 +1,5 @@
-package cli
+// Package agentcmd holds the agent-launch and agent-tracking verbs `claude-code` dispatches to.
+package agentcmd
 
 import (
 	"context"
@@ -15,15 +16,15 @@ import (
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	usagecmd "github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 )
 
-func cmdClaude(args []string) int { return launchClaude("", args) }
+// Claude is `claude-code claude`: Claude Code on the selected profile.
+func Claude(args []string) int { return launchClaude("", args) }
 
 // launchClaude launches Claude Code with alias as the main-loop model ("" = opus).
 func launchClaude(alias string, args []string) int {
@@ -43,8 +44,8 @@ func launchClaude(alias string, args []string) int {
 	return runPlan("claude", plan, opts, err)
 }
 
-// aliasVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
-func aliasVerb(alias string) func([]string) int {
+// AliasVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
+func AliasVerb(alias string) func([]string) int {
 	return func(a []string) int { return launchClaude(alias, a) }
 }
 
@@ -56,7 +57,8 @@ func parseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string,
 	return launchplan.ParseArgs(args, claude)
 }
 
-func launchAgent(name string, args []string) int {
+// LaunchAgent launches the named agent CLI.
+func LaunchAgent(name string, args []string) int {
 	opts, rest, err := parseLaunchArgs(args, false)
 	if err != nil {
 		return helptext.Fail("%v", err)
@@ -87,10 +89,8 @@ var (
 	versionWarnOut  io.Writer = os.Stderr
 )
 
-func cmdUsage(args []string) int { return usagecmd.Run(args, paths.ConfigDir(), os.Stdout, os.Stderr) }
-
-// cmdScience takes only a leading --print-env; every other flag is claude-science's own.
-func cmdScience(args []string) int {
+// Science takes only a leading --print-env; every other flag is claude-science's own.
+func Science(args []string) int {
 	var opts agent.LaunchOptions
 	if len(args) > 0 && args[0] == "--print-env" {
 		opts.PrintEnv, args = true, args[1:]
@@ -150,10 +150,62 @@ var hookPage = helptext.Page{
 	Hint:  settings.HookModules() + "\nevents: <Event> runs the dispatcher, --<module> one module, --all every module",
 }
 
-func cmdHook(args []string) int {
+// Hook runs one lifecycle hook.
+func Hook(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		hookPage.Fprint(os.Stderr)
 		return 0
 	}
 	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
+
+var anthropicPage = helptext.Page{
+	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model M]\n" +
+		"[--print-env] [--keep-env NAMES] [--overlay FILE] [claude args]",
+	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
+		"value; =NAME picks the vault key.",
+	Hint: "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
+}
+
+// anthropicHelp renders the page with its flag rows; the flags are parsed by claude.ParseAnthropicArgs.
+func anthropicHelp(w io.Writer) {
+	fs := helptext.NewFlagSet("anthropic", anthropicPage)
+	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
+	fs.Bool("x-api-key", false, "API key login; =NAME picks the vault key")
+	fs.String("model", "", "alias (opus), version (opus-5-5) or wire id: the main model")
+	fs.Bool("print-env", false, "print the resolved launch; never prompts")
+	fs.String("keep-env", "", "env names the credential scrub keeps")
+	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
+	p := anthropicPage
+	p.Flags = fs
+	p.Fprint(w)
+}
+
+// Anthropic is `claude-code anthropic`: first-party Claude Code with a login, OAuth token or API key.
+func Anthropic(args []string) int {
+	if helptext.WantsHelp(args) {
+		anthropicHelp(os.Stdout)
+		return 0
+	}
+	if len(args) == 1 && args[0] == helptext.DocsFlag {
+		return helptext.WrappedDocs("claude")
+	}
+	if err := databricks.RemovedFlagHint(args); err != nil {
+		return helptext.Fail("%v", err)
+	}
+	o, rest, err := claude.ParseAnthropicArgs(args)
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	secret := ""
+	if o.Mode != claude.AuthLogin {
+		if secret, err = claude.AnthropicSecret(o, vaultSet); err != nil {
+			return helptext.Fail("%v", err)
+		}
+	}
+	plan, err := claude.Anthropic(context.Background(), o, rest, secret)
+	return runPlan("claude", plan, o.LaunchOptions, err)
+}
+
+// vaultSet stores a missing secret through the vault verb; claude.AnthropicSecret calls it after the user confirms.
+func vaultSet(name string) int { return vaultcmd.Run([]string{"set", name}) }
