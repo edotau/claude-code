@@ -10,7 +10,7 @@ import (
 
 // TestVendorUsageFits80: every rendered line stays within an 80-column terminal.
 func TestVendorUsageFits80(t *testing.T) {
-	for _, vendor := range cliAgentNames() {
+	for _, vendor := range agentcmd.VendorNames() {
 		usage := renderHelpPage(agentcmd.AgentPage(vendor))
 		for line := range strings.SplitSeq(strings.TrimRight(usage, "\n"), "\n") {
 			if n := utf8.RuneCountInString(line); n > 80 {
@@ -22,7 +22,7 @@ func TestVendorUsageFits80(t *testing.T) {
 
 // TestVendorUsageNamesTail: every vendor's help block carries a tail row.
 func TestVendorUsageNamesTail(t *testing.T) {
-	for _, vendor := range cliAgentNames() {
+	for _, vendor := range agentcmd.VendorNames() {
 		if !strings.Contains(renderHelpPage(agentcmd.AgentPage(vendor)), "tail") {
 			t.Errorf("vendorUsage(%q) has no tail row", vendor)
 		}

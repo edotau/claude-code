@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/review/reviewcmd"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -105,8 +106,8 @@ func TestCompletionOffersHelpOnlyFlags(t *testing.T) {
 // TestCompletionFlagValues: the word after a value flag completes from its domain; a flag with no
 // registered domain (--model) offers nothing (filenames fallback), not an error.
 func TestCompletionFlagValues(t *testing.T) {
-	if got := completionCandidates([]string{"switch", ""}); !slices.Equal(got, providerNames()) {
-		t.Errorf("switch values = %v, want %v", got, providerNames())
+	if got := completionCandidates([]string{"switch", ""}); !slices.Equal(got, providers.ProfileNames()) {
+		t.Errorf("switch values = %v, want %v", got, providers.ProfileNames())
 	}
 	themeGot := completionCandidates([]string{"theme", ""})
 	for _, want := range append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...) {
@@ -114,8 +115,8 @@ func TestCompletionFlagValues(t *testing.T) {
 			t.Errorf("theme values = %v, missing %q", themeGot, want)
 		}
 	}
-	if got := completionCandidates([]string{"agents", "ask", "--agent", ""}); !slices.Equal(got, agentNames()) {
-		t.Errorf("ask --agent values = %v, want %v", got, agentNames())
+	if got := completionCandidates([]string{"agents", "ask", "--agent", ""}); !slices.Equal(got, agentcmd.EngineNames()) {
+		t.Errorf("ask --agent values = %v, want %v", got, agentcmd.EngineNames())
 	}
 	if got := completionCandidates([]string{"agents", "ask", "--model", ""}); len(got) != 0 {
 		t.Errorf("ask --model values = %v, want none (no registered domain)", got)
@@ -124,8 +125,8 @@ func TestCompletionFlagValues(t *testing.T) {
 
 // TestCompletionPositionals: a verb's first bare argument completes from its own static domain.
 func TestCompletionPositionals(t *testing.T) {
-	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, hookEvents()) {
-		t.Errorf("hook values = %v, want %v", got, hookEvents())
+	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, settings.HookEvents()) {
+		t.Errorf("hook values = %v, want %v", got, settings.HookEvents())
 	}
 	if got := completionCandidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, reviewcmd.WorkflowPatterns()) {
 		t.Errorf("workflow skeleton values = %v, want %v", got, reviewcmd.WorkflowPatterns())
@@ -513,7 +514,7 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 		want = append(want, sub)
 	}
 	slices.Sort(want)
-	for _, vendor := range cliAgentNames() {
+	for _, vendor := range agentcmd.VendorNames() {
 		got := completionCandidates([]string{vendor, ""})
 		slices.Sort(got)
 		if !slices.Equal(got, want) {
@@ -649,9 +650,9 @@ func TestHookDomainMatchesRegistry(t *testing.T) {
 			want = append(want, s.Event)
 		}
 	}
-	got := hookEvents()
+	got := settings.HookEvents()
 	if !slices.Equal(got, want) {
-		t.Errorf("hookEvents() = %v, want %v (settings.Registry)", got, want)
+		t.Errorf("settings.HookEvents() = %v, want %v (settings.Registry)", got, want)
 	}
 	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, want) {
 		t.Errorf("hook ⇥ = %v, want every registered event %v", got, want)

@@ -233,3 +233,8 @@ func printDescribe(d Describe) {
 	}
 	fmt.Printf("hooks: %d registered\n", len(d.Hooks))
 }
+
+// Spec is the completion node for the describe verb.
+func Spec() *completion.Node {
+	return &completion.Node{Flags: []completion.Flag{completion.FormatFlag()}}
+}
