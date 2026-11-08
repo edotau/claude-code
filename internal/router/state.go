@@ -317,7 +317,7 @@ func parseClockReset(low string, now time.Time) (time.Time, bool) {
 	}
 	t := time.Date(now.Year(), now.Month(), now.Day(), h, mi, 0, 0, now.Location())
 	if !t.After(now) {
-		t = t.Add(24 * time.Hour)
+		t = time.Date(now.Year(), now.Month(), now.Day()+1, h, mi, 0, 0, now.Location())
 	}
 	return t, true
 }
