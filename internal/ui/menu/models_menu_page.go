@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -109,7 +108,7 @@ func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 
 // pinModel writes alias's audited pin, qualified to profile when it is not the session's own (as --pin does).
 func pinModel(d *dialog, profile, alias, id string) {
-	spec := agentconfig.QualifyPinSpec(d.reg, profile, id)
+	spec := providers.QualifyPinSpec(d.reg, profile, id)
 	if _, err := writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", spec); err != nil {
 		d.println(err)
 		return
@@ -120,8 +119,7 @@ func pinModel(d *dialog, profile, alias, id string) {
 
 // unpinAllModels clears every model pin, same call cmdModels' --unpin flag makes, and audits each.
 func unpinAllModels(d *dialog) {
-	set, _ := agentconfig.ParseModelPins(d.reg, "", true, nil)
-	if err := agentconfig.ApplyClaudeModels(set); err != nil {
+	if err := configure.UnpinModels(d.reg); err != nil {
 		d.println(err)
 		return
 	}

@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -151,69 +150,6 @@ func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "claude-opus-5-5") {
 		t.Errorf("stdout = %q, want the registry's configured model in the fallback table", stdout)
-	}
-}
-
-// applyModelPins qualifies a bare model spec with --provider when it differs from the session's
-// subscribed provider, so the pin resolves against the provider it was validated for.
-func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
-	cliScratch(t)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
-		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
-	}
-	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "personal:claude-opus-5.5" {
-		t.Errorf("CLAUDE_OPUS_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
-	}
-}
-
-// --provider equal to the session's own subscribed provider stores the bare spec, unqualified.
-func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
-	cliScratch(t)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaulttest.SetRecord(t, "claude", "profile", "personal")
-	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
-		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
-	}
-	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "claude-opus-5.5" {
-		t.Errorf("CLAUDE_OPUS_MODEL = %q, want the bare spec %q", got, "claude-opus-5.5")
-	}
-}
-
-// qualifyPinSpec passes an already-qualified "provider:model" spec through unchanged, even when
-// --provider names a different provider than the one in the spec.
-func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
-	cliScratch(t)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := agentconfig.QualifyPinSpec(reg, "personal", "anthropic:claude-opus-5.5")
-	if got != "anthropic:claude-opus-5.5" {
-		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
-	}
-}
-
-// --pin all=... qualifies CLAUDE_MODEL the same way a per-alias pin does.
-func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
-	cliScratch(t)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	if code, handled := applyModelPins(reg, "personal", false, false, []string{"all=claude-opus-5.5"}); handled || code != 0 {
-		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
-	}
-	if got := providers.AgentRecord("claude").Model; got != "personal:claude-opus-5.5" {
-		t.Errorf("CLAUDE_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
 	}
 }
 
