@@ -83,6 +83,7 @@ var writers = map[string]string{
 	"internal/hooks/wthook/claimcheck.go:appendIfNew":                 unversioned("marker: per-session claim advisory dedupe lines"),
 	"internal/inflight/limiter.go:writeMarker":                        unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/wthook/worktree.go:busyLine":                      unversioned("marker: per-session worktree-busy dedupe stamp"),
+	"internal/hooks/safety/rtk.go:rtkFirstShadowNotice":               unversioned("marker: per-session rtk-shadow notice stamp"),
 	"internal/memory/recall/sessionroot.go:RecordSessionRoot":         unversioned("text: per-session launch repository root"),
 	"internal/hooks/memhook/memory.go:writeChain":                     unversioned("text: last-session chain stamp"),
 	"internal/hooks/memhook/agent_input.go:writeSynthTranscript":      unversioned("text: Claude-shaped transcript synthesized from an agent session"),

@@ -42,12 +42,12 @@ func RTKRewrite(in *core.Input) core.Result {
 	if !rtkApplies(in) {
 		return core.Result{}
 	}
-	cmd := in.ToolCommand()
-	if rtkVetoed(cmd, in.CWD, os.Getenv(shell.RTKBinaryEnv)) {
-		return core.Result{}
-	}
 	bin := shell.RTKBinary()
 	if bin == "" {
+		return core.Result{}
+	}
+	cmd := in.ToolCommand()
+	if rtkVetoed(cmd, in.CWD, bin) {
 		return core.Result{}
 	}
 	rewritten := rtkRewritten(bin, cmd)
@@ -61,10 +61,51 @@ func RTKRewrite(in *core.Input) core.Result {
 	if updated == nil {
 		return core.Result{}
 	}
-	updated["command"] = rtkAbsolute(rewritten, bin)
+	found, onPath := shell.RTKOnPath(bin)
+	word := rtkWord(bin, os.Getenv("HOME"), onPath)
+	updated["command"] = rtkAbsolute(rewritten, word)
 
-	note := fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", bin)
+	note := fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", word)
+	if !onPath && rtkFirstShadowNotice(in.SessionID) {
+		note += "\n" + rtkShadowNotice(found, bin)
+	}
 	return core.Result{Context: note, UpdatedInput: updated}
+}
+
+// rtkShadowNotice says PATH's rtk is not bin and how to fix it; found "" means PATH has no rtk at all.
+func rtkShadowNotice(found, bin string) string {
+	if found == "" {
+		return fmt.Sprintf("rtk: no rtk on PATH, so the pinned %s runs by path — run make install", bin)
+	}
+	if v := rtkVersion(found); v != "" {
+		found += " (" + v + ")"
+	}
+	return fmt.Sprintf("rtk: rtk on PATH is %s, not the pinned binary — run make install", found)
+}
+
+// rtkVersion is bin's first `--version` line, "" on any failure.
+func rtkVersion(bin string) string {
+	ctx, cancel := core.HookContext("rtk-rewrite")
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return line
+}
+
+// rtkFirstShadowNotice claims the session's one shadow notice: true only for the first caller (an O_EXCL marker).
+func rtkFirstShadowNotice(session string) bool {
+	dir := filepath.Join(paths.StateDir(), "hooks", "rtk-shadow")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return false
+	}
+	f, err := os.OpenFile(filepath.Join(dir, paths.Slug(session, "", 80, "session")), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return false
+	}
+	return f.Close() == nil
 }
 
 // rtkApplies reports whether the hook handles in at all: a Claude session's Bash call.
@@ -97,17 +138,41 @@ func rtkExitOK(err error) bool {
 // rtkCommandWord matches a bare `rtk` at command position: the start, or after `&&`, `||`, `;`, `|` or a newline.
 var rtkCommandWord = regexp.MustCompile(`(^|&&|\|\||[;|\n])(\s*)rtk(\s|$)`)
 
-// rtkAbsolute points every command-position `rtk` at the resolved bin, so the pinned binary always runs.
-func rtkAbsolute(cmd, bin string) string {
-	q := textutil.QuoteSH(bin)
-	return rtkCommandWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(q, "$", "$$")+"${3}")
+// rtkAbsolute points every command-position `rtk` at word (rtkWord's spelling), so the pinned binary always runs.
+func rtkAbsolute(cmd, word string) string {
+	return rtkCommandWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(word, "$", "$$")+"${3}")
+}
+
+// rtkWord spells bin for the shell so allow rules stay machine-independent: bare rtk when PATH finds bin (onPath),
+// else `"$HOME/<rest>"` under home, else the quoted absolute path.
+func rtkWord(bin, home string, onPath bool) string {
+	if onPath {
+		return "rtk"
+	}
+	home = strings.TrimRight(home, "/")
+	rest, ok := strings.CutPrefix(bin, home+"/")
+	if home == "" || !ok {
+		return textutil.QuoteSH(bin)
+	}
+	return `"$HOME/` + rtkDoubleQuoteEscaper.Replace(rest) + `"`
+}
+
+// rtkDoubleQuoteEscaper backslashes the four characters still special inside POSIX double quotes.
+var rtkDoubleQuoteEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`")
+
+// rtkWrapped reports whether word (an unquoted first token) already names bin: bare rtk, bin, or bin via $HOME.
+func rtkWrapped(word, bin string) bool {
+	if rest, ok := strings.CutPrefix(word, "$HOME/"); ok {
+		word = filepath.Join(os.Getenv("HOME"), rest)
+	}
+	return word == "rtk" || word == bin
 }
 
 // rtkVetoed reports whether the harness keeps cmd out of rtk: already wrapped, git in a linked worktree,
 // any commit (the plan tick reads git's own output), machine-readable flags, or git value subcommands.
 func rtkVetoed(cmd, cwd, bin string) bool {
-	fields := strings.Fields(cmd)
-	if len(fields) == 0 || fields[0] == bin || fields[0] == "rtk" || core.GitCommitCmd.MatchString(cmd) {
+	tokens := shell.Tokens(cmd)
+	if len(tokens) == 0 || rtkWrapped(tokens[0], bin) || core.GitCommitCmd.MatchString(cmd) {
 		return true
 	}
 	if rtkGitInLinkedWorktree(cmd, cwd) {

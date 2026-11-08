@@ -14,7 +14,7 @@ const RTKBinaryEnv = "HARNESS_RTK_BIN"
 // RTKBinary returns the absolute rtk binary to invoke, or "" when it is not available. Absence is the
 // normal case on a machine without rtk and must degrade to a no-op, never an error.
 func RTKBinary() string {
-	candidates := []string{filepath.Join(paths.BinDir(), "rtk"), "rtk"} // the pinned install first, then PATH
+	candidates := []string{RTKPinned(), "rtk"} // the pinned install first, then PATH
 	if name := os.Getenv(RTKBinaryEnv); name != "" {
 		candidates = []string{name}
 	}
@@ -27,4 +27,21 @@ func RTKBinary() string {
 		}
 	}
 	return ""
+}
+
+// RTKPinned is the harness-pinned rtk install, BinDir/rtk; it may not exist.
+func RTKPinned() string { return filepath.Join(paths.BinDir(), "rtk") }
+
+// RTKOnPath is PATH's rtk ("" when none) and whether it resolves, symlinks followed, to the same file as bin.
+func RTKOnPath(bin string) (found string, same bool) {
+	found, err := exec.LookPath("rtk")
+	if err != nil {
+		return "", false
+	}
+	got, err := filepath.EvalSymlinks(found)
+	if err != nil {
+		return found, false
+	}
+	want, err := filepath.EvalSymlinks(bin)
+	return found, err == nil && got == want
 }

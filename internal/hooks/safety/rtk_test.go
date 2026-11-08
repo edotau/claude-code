@@ -372,3 +372,131 @@ func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 		t.Fatalf("RTKRewrite command = %q (emitted=%v), want %q", got, ok, bin+" git status")
 	}
 }
+
+// A bin under $HOME is spelled through "$HOME/…" so allow rules match on every machine; anything else stays absolute.
+func TestRTKWordSpellsHome(t *testing.T) {
+	if got := rtkWord("/home/u/.claude/bin/rtk", "/home/u", true); got != "rtk" {
+		t.Errorf("PATH finds the pin: rtkWord = %q, want bare rtk", got)
+	}
+	for _, tc := range []struct{ name, bin, home, want string }{
+		{"under home", "/home/u/.claude/bin/rtk", "/home/u", `"$HOME/.claude/bin/rtk"`},
+		{"home trailing slash", "/home/u/.claude/bin/rtk", "/home/u/", `"$HOME/.claude/bin/rtk"`},
+		{"outside home", "/usr/local/bin/rtk", "/home/u", "/usr/local/bin/rtk"},
+		{"sibling prefix", "/home/user2/bin/rtk", "/home/u", "/home/user2/bin/rtk"},
+		{"home unset", "/home/u/.claude/bin/rtk", "", "/home/u/.claude/bin/rtk"},
+		{"home is root", "/usr/bin/rtk", "/", "/usr/bin/rtk"},
+		{"specials escaped", "/home/u/a b\"$`\\/rtk", "/home/u", `"$HOME/a b\"\$\` + "`" + `\\/rtk"`},
+	} {
+		if got := rtkWord(tc.bin, tc.home, false); got != tc.want {
+			t.Errorf("%s: rtkWord(%q, %q) = %q, want %q", tc.name, tc.bin, tc.home, got, tc.want)
+		}
+	}
+}
+
+// homeRTK installs the fake rtk under a fresh $HOME and returns its "$HOME/…" spelling.
+func homeRTK(t *testing.T) string {
+	t.Helper()
+	bin := fakeRTK(t)
+	t.Setenv("HOME", filepath.Dir(filepath.Dir(bin)))
+	return `"$HOME/` + filepath.Base(filepath.Dir(bin)) + `/rtk"`
+}
+
+// End to end: the rewrite and the bypass note carry the $HOME spelling, the shell runs it, and it is never re-wrapped.
+func TestRTKRewriteUsesHomeSpelling(t *testing.T) {
+	word := homeRTK(t)
+	in := core.ParseInput(strings.NewReader(rtkBashIn("ls internal")))
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	res := RTKRewrite(in)
+	if got := res.UpdatedInput["command"]; got != word+" ls internal" {
+		t.Fatalf("command = %q, want %q", got, word+" ls internal")
+	}
+	if !strings.Contains(res.Context, "exact bytes: "+word+" bypass <cmd>") {
+		t.Errorf("note %q does not name %s", res.Context, word)
+	}
+	if out, err := exec.Command("sh", "-c", word+" rewrite ok").CombinedOutput(); err != nil || string(out) != "rtk ok" {
+		t.Errorf("sh ran %s: output=%q err=%v", word, out, err)
+	}
+	for _, cmd := range []string{word + " ls", "$HOME/" + strings.Trim(word, `"`)[len("$HOME/"):] + " ls"} {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); ok {
+			t.Errorf("already-wrapped %q was rewritten to %q", cmd, got)
+		}
+	}
+}
+
+// The safety gate must not refuse the "$HOME/…"-prefixed rtk command any more than the absolute one.
+func TestRTKHomeSpellingPassesSafetyScan(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	word := homeRTK(t)
+	for _, cmd := range []string{word + " ls internal", word + " git log --oneline -5"} {
+		if res := scanPayload(strings.NewReader(rtkBashIn(cmd))); res.Decision != core.Allow {
+			t.Errorf("%q: decision=%d reason=%q, want allow", cmd, res.Decision, res.Reason)
+		}
+	}
+}
+
+// Bare rtk only when PATH resolves to the pinned file itself (symlinks followed); a different rtk first keeps $HOME.
+func TestRTKWordBareOnlyWhenPathFindsPin(t *testing.T) {
+	word := homeRTK(t)
+	bin := os.Getenv(shell.RTKBinaryEnv)
+	link := filepath.Join(t.TempDir(), "rtk")
+	if err := os.Symlink(bin, link); err != nil {
+		t.Fatal(err)
+	}
+	other := fakeRTKDir(t)
+	for _, tc := range []struct{ name, path, want string }{
+		{"pin dir on PATH", filepath.Dir(bin), "rtk"},
+		{"symlink to pin on PATH", filepath.Dir(link), "rtk"},
+		{"other rtk first", other + ":" + filepath.Dir(bin), word},
+		{"no rtk on PATH", t.TempDir(), word},
+	} {
+		t.Setenv("PATH", tc.path)
+		_, same := shell.RTKOnPath(bin)
+		if got := rtkWord(bin, os.Getenv("HOME"), same); got != tc.want {
+			t.Errorf("%s: rtkWord = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	t.Setenv("PATH", filepath.Dir(bin))
+	if got, ok := rtkOut(t, rtkBashIn("ls")); !ok || got != "rtk ls" {
+		t.Errorf("PATH finds the pin: command = %q (emitted=%v), want %q", got, ok, "rtk ls")
+	}
+}
+
+// fakeRTKDir writes a second, distinct rtk executable and returns its directory.
+func fakeRTKDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rtk"), []byte("#!/bin/sh\necho 'rtk 0.0.1'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// PATH shadowing the pin earns one notice per session naming the shadow and the fix; a PATH that finds the pin, none.
+func TestRTKShadowNoticeOncePerSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	bin := fakeRTK(t)
+	t.Setenv("PATH", fakeRTKDir(t))
+	run := func(session string) string {
+		in := core.ParseInput(strings.NewReader(rtkBashIn("ls")))
+		in.SessionID = session
+		return RTKRewrite(in).Context
+	}
+	shadow := filepath.Join(os.Getenv("PATH"), "rtk")
+	if got := run("s1"); !strings.Contains(got, "rtk on PATH is "+shadow+" (rtk 0.0.1), not the pinned binary — run make install") {
+		t.Errorf("first call note %q lacks the shadow notice", got)
+	}
+	if got := run("s1"); strings.Contains(got, "run make install") {
+		t.Errorf("second call in the same session repeated the notice: %q", got)
+	}
+	if got := run("s2"); !strings.Contains(got, "rtk on PATH is "+shadow) {
+		t.Errorf("a new session got no notice: %q", got)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if got := run("s3"); !strings.Contains(got, "no rtk on PATH, so the pinned "+bin+" runs by path — run make install") {
+		t.Errorf("no-rtk note %q lacks the missing notice", got)
+	}
+	t.Setenv("PATH", filepath.Dir(bin))
+	if got := run("s4"); strings.Contains(got, "make install") {
+		t.Errorf("PATH finds the pin, yet the note warns: %q", got)
+	}
+}

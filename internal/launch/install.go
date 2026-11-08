@@ -114,7 +114,8 @@ func checkHostHealth(check func(bool, bool, string, string)) {
 	check(true, false, "in-flight", inflightDoctorDetail())
 	proxyDetail, proxyStale := proxyStatus()
 	check(!proxyStale, false, "proxy", proxyDetail)
-	check(true, false, "rtk compressor", rtkDoctorStatus())
+	rtkOK, rtkDetail := rtkDoctorStatus()
+	check(rtkOK, false, "rtk compressor", rtkDetail)
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
 	check(true, false, "vscode serve", vscodeServeDoctorDetail())
@@ -310,12 +311,23 @@ func browserDoctorDetail() string {
 	return "no Chromium-family default (claude-code network browser)"
 }
 
-// rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.
-func rtkDoctorStatus() string {
-	if bin := shell.RTKBinary(); bin != "" {
-		return bin + " (rtk rewrite)"
+// rtkDoctorStatus reports the rtk compressor and fails when PATH's rtk is not that binary (the hook then spells a path).
+func rtkDoctorStatus() (bool, string) {
+	bin := shell.RTKBinary()
+	if bin == "" {
+		return true, "not on PATH — the rtk hook skips the rewrite"
 	}
-	return "not on PATH — the rtk hook skips the rewrite"
+	found, same := shell.RTKOnPath(bin)
+	switch {
+	case same:
+		return true, bin + " (rtk rewrite; PATH rtk is this binary)"
+	case found == "":
+		return false, bin + " is not on PATH — run make install (links ~/.local/bin/rtk)"
+	}
+	if v := toolPATHVersion(found); v != "" {
+		found += " " + v
+	}
+	return false, "PATH rtk " + found + " shadows " + bin + " — run make install, or put ~/.local/bin first on PATH"
 }
 
 // setupDoctorDetail reports the last `setup adopt`, never a failing check — a fresh clone has none.
