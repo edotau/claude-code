@@ -26,9 +26,8 @@ const offloadPct = 97.0
 // envTestPct forces a reading for live checks; the subagents opt-out is providers.RouteSubagentsOn.
 const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
 
-// offloadTypes are the write-capable in-context types a copilot leaf can take over (code-worker* until they are
-// deleted); read-only types (Explore) never escalate.
-var offloadTypes = map[string]bool{"claude": true, "code-worker": true, "code-worker:claude": true}
+// offloadTypes are the write-capable in-context types a copilot leaf can take over ; read-only types (Explore) never escalate.
+var offloadTypes = map[string]bool{"claude": true}
 
 // offloadAgent is the external agent a claude dispatch moves to under pressure.
 const offloadAgent = "copilot"

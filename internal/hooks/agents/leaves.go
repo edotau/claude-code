@@ -116,7 +116,7 @@ func Stop(in *core.Input) core.Result {
 	return note
 }
 
-// The leaf-stop gate: a leaf may not stop while its background dispatch runs; a coworker needs a ran-on line from a tool result.
+// The leaf-stop gate: a leaf may not stop while its background dispatch runs; an external-agent leaf needs a ran-on line from a tool result.
 
 // leafStopMaxWait bounds the wait from the dispatch's start, so a hung job cannot trap a leaf.
 const leafStopMaxWait = 2 * time.Hour
@@ -151,7 +151,7 @@ func leafStopBlock(in *core.Input, agentID string) (core.Result, bool) {
 	if block {
 		return expired, true
 	}
-	if res, block := coworkerRanOnVerdict(in, agentID); block || expired.SystemMessage == "" {
+	if res, block := ranOnVerdict(in, agentID); block || expired.SystemMessage == "" {
 		return res, block
 	}
 	return expired, false
@@ -187,8 +187,8 @@ func leafStopVerdict(agentID string, rec job.Record) (core.Result, bool) {
 // ranOnPattern matches the `ask: ran on` stderr line or the --format json "ran_on" field, as a tool result printed it.
 var ranOnPattern = regexp.MustCompile(`ask: ran on |\\"ran_on\\":`)
 
-// coworkerGateMark opens the coworker gate's reason; a tool result carrying it means the leaf was already gated once.
-const coworkerGateMark = "No tool result of yours carries an `ask: ran on` line"
+// ranOnGateMark opens the ran-on gate's reason; a tool result carrying it means the leaf was already gated once.
+const ranOnGateMark = "No tool result of yours carries an `ask: ran on` line"
 
 // handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
 const handedBackMark = "Report delivered to your caller"
@@ -224,7 +224,7 @@ func leafBrief(path string) (s leafScan, err error) {
 			return
 		}
 		s.ranOn = s.ranOn || ranOnPattern.MatchString(line)
-		s.gated = s.gated || strings.Contains(line, coworkerGateMark)
+		s.gated = s.gated || strings.Contains(line, ranOnGateMark)
 		s.handedBack = s.handedBack || strings.Contains(line, handedBackMark)
 	})
 	return s, err
@@ -262,18 +262,16 @@ var externalTypes = map[string]bool{"codex": true, "copilot": true, "gemini": tr
 
 // pinnedAgentType is true for a leaf type fixed to one external agent; its type is the request, whatever the brief says.
 func pinnedAgentType(t string) bool {
-	return externalTypes[t] || t == "code-worker:codex" || t == "code-worker:gemini" || t == "coworker:copilot" || t == "coworker:opencode"
+	return externalTypes[t]
 }
 
-// ranOnGated is true for the leaves that can call an external agent: codex|copilot|gemini|opencode, plus the
-// transitional coworker, coworker:*, code-worker, code-worker:codex|gemini.
+// ranOnGated is true for the leaves that can call an external agent: codex|copilot|gemini|opencode.
 func ranOnGated(t string) bool {
-	return externalTypes[t] || t == "coworker" || strings.HasPrefix(t, "coworker:") || t == "code-worker" ||
-		t == "code-worker:codex" || t == "code-worker:gemini"
+	return externalTypes[t]
 }
 
-// coworkerRanOnVerdict blocks a coworker's stop or hand-back once when no ran-on line was seen; a repeat passes.
-func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
+// ranOnVerdict blocks a gated leaf's stop or hand-back once when no ran-on line was seen; a repeat passes.
+func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	if !ranOnGated(leafAgentType(in)) {
 		return core.Result{}, false
 	}
@@ -282,9 +280,9 @@ func coworkerRanOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 		return core.Result{}, false
 	}
 	if in.StopHookActive || s.gated || s.handedBack {
-		return core.Result{SystemMessage: fmt.Sprintf("coworker %s: finished with no ran-on line", agentID)}, false
+		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: finished with no ran-on line", agentID)}, false
 	}
-	return core.Result{Decision: core.Block, Reason: coworkerGateMark + " (or a `ran_on` field), so the external agent was never " +
+	return core.Result{Decision: core.Block, Reason: ranOnGateMark + " (or a `ran_on` field), so the external agent was never " +
 		"called. Run the `claude-code agents ask` the brief requests, or report BLOCKED with the reason; do not do the work in-context."}, true
 }
 

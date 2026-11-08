@@ -50,8 +50,7 @@ func briefAgents(task string) []string {
 }
 
 // readOnlyTypes are subagent types without write tools; a Profile: line does not apply to them.
-var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true,
-	"code-worker:gemini": true, "claude-code-guide": true}
+var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true, "claude-code-guide": true}
 
 // inContextBrief is true when the brief's Agent: line says in-context.
 func inContextBrief(task string) bool {

@@ -202,24 +202,20 @@ func stubLabelModels(t *testing.T, cell, prof string) {
 func TestDispatchAgentLabels(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	prompt := "Agent: gemini → codex\nreview the thing"
-	got := labelOf(t, "code-worker", prompt, "review thing")
+	got := labelOf(t, "claude", prompt, "review thing")
 	if got != "gemini → codex: review thing" {
 		t.Fatalf("label = %q, want %q", got, "gemini → codex: review thing")
 	}
 	// Running twice (the labelled description fed back in) does not double-prefix.
-	if again := labelOf(t, "code-worker", prompt, got); again != got {
+	if again := labelOf(t, "claude", prompt, got); again != got {
 		t.Errorf("second run = %q, want unchanged %q", again, got)
 	}
 	if got := labelOf(t, "Explore", prompt, "review thing"); got != "sonnet: review thing" {
 		t.Errorf("Explore label = %q, want its own model prefix", got)
 	}
 	cases := []struct{ st, agent, want string }{
-		{"code-worker", "none", "sonnet: task"},
-		{"code-worker", "claude (in-context)", "sonnet: task"},
 		{"claude", "copilot", "copilot: task"},
 		{"copilot", "claude", "sonnet: task"},
-		{"coworker", "codex", "codex: task"},
-		{"code-worker", "claude", "sonnet: task"},
 		{"claude", "claude (in-context)", "sonnet: task"},
 		{"claude", "claude", "sonnet: task"},
 		{"codex", "codex → gemini", "gemini: task"},
@@ -231,7 +227,7 @@ func TestDispatchAgentLabels(t *testing.T) {
 		{"Mode: relay\nAgent: codex → gemini", "codex → gemini: task"},
 		{"Agent: codex → gemini", "codex → gemini: task"},
 	} {
-		if got := labelOf(t, "code-worker", c.prompt, "task"); got != c.want {
+		if got := labelOf(t, "claude", c.prompt, "task"); got != c.want {
 			t.Errorf("prompt %q = %q, want %q", c.prompt, got, c.want)
 		}
 	}
@@ -246,16 +242,16 @@ func TestDispatchAgentLabels(t *testing.T) {
 func TestDispatchLabelLowercase(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	lower := []struct{ st, agent, desc, want string }{
-		{"code-worker", "copilot", "Fix bug", "copilot: fix bug"},
-		{"code-worker", "copilot", "copilot: Fix bug", "copilot: fix bug"},
-		{"code-worker", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
-		{"code-worker", "none", "HTTP retry", "sonnet: HTTP retry"},
-		{"code-worker", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
-		{"code-worker", "none", "internal_x fix", "sonnet: internal_x fix"},
-		{"code-worker", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
-		{"code-worker", "none", "V2 bug", "sonnet: V2 bug"},
-		{"code-worker", "none", "Done. Next", "sonnet: done. Next"},
-		{"code-worker", "none", "code-worker: RTK hook", "sonnet: RTK hook"},
+		{"claude", "copilot", "Fix bug", "copilot: fix bug"},
+		{"claude", "copilot", "copilot: Fix bug", "copilot: fix bug"},
+		{"claude", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
+		{"claude", "none", "HTTP retry", "sonnet: HTTP retry"},
+		{"claude", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
+		{"claude", "none", "internal_x fix", "sonnet: internal_x fix"},
+		{"claude", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
+		{"claude", "none", "V2 bug", "sonnet: V2 bug"},
+		{"claude", "none", "Done. Next", "sonnet: done. Next"},
+		{"claude", "none", "claude: RTK hook", "sonnet: RTK hook"},
 		{"copilot", "none", "copilot: repair tests", "sonnet: repair tests"},
 		{"Plan", "none", "Plan: Repo-wide package consolidation", "sonnet: repo-wide package consolidation"},
 	}
@@ -279,7 +275,7 @@ func TestWorkflowLeavesCountsSpacedCalls(t *testing.T) {
 func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	payload := func(prompt string) string {
-		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"coworker","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
+		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"codex","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
 	}
 	stubLabelModels(t, "gpt-6.1-sol", "databricks-gpt-6-astra")
 	for prompt, want := range map[string]string{
@@ -292,7 +288,7 @@ func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 		}
 	}
 	// A known profile is validated upstream by applyProfile; the model comes from that profile's alias map.
-	if got := labelModel(map[string]any{"model": "sonnet"}, "coworker", "Agent: codex\nProfile: qa"); got != "databricks-gpt-6-astra" {
+	if got := labelModel(map[string]any{"model": "sonnet"}, "claude", "Agent: codex\nProfile: qa"); got != "databricks-gpt-6-astra" {
 		t.Errorf("profile model = %q, want the profile's sonnet row", got)
 	}
 }
@@ -618,13 +614,13 @@ func TestLeafJobIDsEnvelopeAndExitLine(t *testing.T) {
 	}
 }
 
-// coworkerTx writes a coworker leaf transcript (the brief, then the given tool results) with its meta.json beside it.
-func coworkerTx(t *testing.T, brief string, toolResults ...string) *core.Input {
+// gatedLeafTx writes a codex leaf transcript (the brief, then the given tool results) with its meta.json beside it.
+func gatedLeafTx(t *testing.T, brief string, toolResults ...string) *core.Input {
 	t.Helper()
-	return leafTx(t, "coworker", brief, toolResults...)
+	return leafTx(t, "codex", brief, toolResults...)
 }
 
-// leafTx is coworkerTx for any subagent type.
+// leafTx is gatedLeafTx for any subagent type.
 func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.Input {
 	t.Helper()
 	dir := t.TempDir()
@@ -647,11 +643,9 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 	return leafInput(tx)
 }
 
-// The ran-on gate covers every leaf that can request an agent (bare code-worker included) and spares code-worker:claude.
-func TestRanOnGateNamespacedTypes(t *testing.T) {
-	for st, want := range map[string]bool{"coworker:copilot": true, "coworker:databricks": true, "code-worker:codex": true,
-		"code-worker:gemini": true, "code-worker:claude": false, "code-worker": true, "codex": true, "copilot": true,
-		"gemini": true, "opencode": true, "claude": false} {
+// The ran-on gate covers every leaf type that can request an agent and spares claude.
+func TestRanOnGateTypes(t *testing.T) {
+	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
 		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nAgent: codex\n", "ls output"), "a1")
 		if blocked != want {
 			t.Errorf("%s: blocked = %v, want %v", st, blocked, want)
@@ -659,11 +653,9 @@ func TestRanOnGateNamespacedTypes(t *testing.T) {
 	}
 }
 
-// A pinned leaf type is the agent request: with no Agent: line it is still blocked, while bare code-worker is not.
+// A pinned leaf type is the agent request: with no Agent: line it is still blocked, while claude is not.
 func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
-	for st, want := range map[string]bool{"code-worker:codex": true, "code-worker:gemini": true, "coworker:copilot": true,
-		"coworker:opencode": true, "code-worker": false, "coworker:databricks": false, "codex": true, "copilot": true,
-		"gemini": true, "opencode": true, "claude": false} {
+	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
 		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nOwns: /tmp/x\n", "ls output"), "a1")
 		if blocked != want {
 			t.Errorf("%s with no Agent: line: blocked = %v, want %v", st, blocked, want)
@@ -671,9 +663,9 @@ func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
 	}
 }
 
-// A coworker whose brief requests an agent but whose tool results show no ran-on line is blocked, naming the line; prose does not count.
-func TestCoworkerNoRanOnBlocks(t *testing.T) {
-	in := coworkerTx(t, "Objective: x\nAgent: codex\n", "ls output")
+// A gated leaf whose brief requests an agent but shows no ran-on line in its tool results is blocked; prose does not count.
+func TestRanOnNoRanOnBlocks(t *testing.T) {
+	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", "ls output")
 	r, blocked := leafStopBlock(in, "a1")
 	if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, "ran on") {
 		t.Fatalf("got %+v blocked=%v, want a Block naming the ran-on line", r, blocked)
@@ -682,17 +674,12 @@ func TestCoworkerNoRanOnBlocks(t *testing.T) {
 	if code := core.Emit(core.AgentClaude, "SubagentStop", r, &out, &errb); code != core.ExitBlock {
 		t.Fatalf("Emit = %d, want ExitBlock", code)
 	}
-	for _, brief := range []string{"Objective: x\nAgent: in-context\n", "Objective: x\nOwns: a file\n"} {
-		if _, blocked := leafStopBlock(coworkerTx(t, brief, "ls"), "a1"); blocked {
-			t.Fatalf("exempt brief %q was blocked", brief)
-		}
-	}
 }
 
 // A tool result carrying the ask line or the json ran_on field releases the stop.
-func TestCoworkerRanOnReleases(t *testing.T) {
+func TestRanOnRanOnReleases(t *testing.T) {
 	for _, evidence := range []string{"ask: ran on codex · acct · gpt · fallback none", `{"ran_on":"ran on codex","fallback":false}`} {
-		in := coworkerTx(t, "Objective: x\nProfile: dev\n", evidence)
+		in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", evidence)
 		if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
 			t.Fatalf("evidence %q: got %+v blocked=%v, want a silent release", evidence, r, blocked)
 		}
@@ -700,8 +687,8 @@ func TestCoworkerRanOnReleases(t *testing.T) {
 }
 
 // The repeat stop (stop_hook_active) passes with a visible message, so a leaf is never trapped.
-func TestCoworkerRanOnFailOpenCap(t *testing.T) {
-	in := coworkerTx(t, "Objective: x\nAgent: codex\n", "ls")
+func TestRanOnRanOnFailOpenCap(t *testing.T) {
+	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", "ls")
 	in.StopHookActive = true
 	r, blocked := leafStopBlock(in, "a1")
 	if blocked || r.Decision == core.Block || !strings.Contains(r.SystemMessage, "a1: finished with no ran-on line") {
@@ -720,7 +707,7 @@ func TestLeafStopExpiredDoesNotHideLiveDispatch(t *testing.T) {
 	}
 }
 
-func TestCoworkerBriefContentRepresentations(t *testing.T) {
+func TestRanOnBriefContentRepresentations(t *testing.T) {
 	brief := "Objective: inspect only\nAgent: codex\n"
 	for _, tc := range []struct {
 		name    string
@@ -732,7 +719,7 @@ func TestCoworkerBriefContentRepresentations(t *testing.T) {
 		{"spaced string", brief, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			in := coworkerTx(t, brief)
+			in := gatedLeafTx(t, brief)
 			line, err := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": tc.content}})
 			if err != nil {
 				t.Fatal(err)
@@ -751,9 +738,9 @@ func TestCoworkerBriefContentRepresentations(t *testing.T) {
 	}
 }
 
-// A coworker hand-back with no ran-on line is denied once; after a denial or a delivered hand-back the gates pass.
-func TestHandbackGatesCoworkerOnce(t *testing.T) {
-	src := coworkerTx(t, "Objective: x\nProfile: dev\n", "ls output")
+// A gated leaf hand-back with no ran-on line is denied once; after a denial or a delivered hand-back the gates pass.
+func TestHandbackGatesRanOnOnce(t *testing.T) {
+	src := gatedLeafTx(t, "Objective: x\nProfile: dev\n", "ls output")
 	parent := filepath.Join(t.TempDir(), "session.jsonl")
 	sub := inflight.SubagentDir(parent)
 	if err := os.MkdirAll(sub, 0o700); err != nil {
@@ -766,11 +753,11 @@ func TestHandbackGatesCoworkerOnce(t *testing.T) {
 		}
 	}
 	payload := `{"hook_event_name":"PreToolUse","tool_name":"SubagentHandback","agent_id":"a1","transcript_path":"` + parent + `"}`
-	if r := Handback(core.ParseInput(strings.NewReader(payload))); r.Decision != core.Block || !strings.Contains(r.Reason, coworkerGateMark) {
+	if r := Handback(core.ParseInput(strings.NewReader(payload))); r.Decision != core.Block || !strings.Contains(r.Reason, ranOnGateMark) {
 		t.Fatalf("first hand-back must be denied with the gate reason, got %+v", r)
 	}
-	for _, prior := range []string{coworkerGateMark + " ...", `{"success":true,"message":"` + handedBackMark + `."}`} {
-		in := coworkerTx(t, "Objective: x\nProfile: dev\n", prior)
+	for _, prior := range []string{ranOnGateMark + " ...", `{"success":true,"message":"` + handedBackMark + `."}`} {
+		in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", prior)
 		if r, blocked := leafStopBlock(in, "a1"); blocked {
 			t.Errorf("after %q the gate must pass, got %+v", prior, r)
 		}
