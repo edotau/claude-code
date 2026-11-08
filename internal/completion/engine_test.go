@@ -154,3 +154,17 @@ func TestEngineCandidatesPreserveOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestEmptyPrefixSubcommandsSorted(t *testing.T) {
+	sub := map[string]*Node{}
+	for _, w := range []string{"merge", "clean", "list", "create", "clean-all", "alpha", "zeta"} {
+		sub[w] = &Node{}
+	}
+	e := syntheticEngine(map[string]*Node{"verb": {Sub: sub}})
+	want := []string{"alpha", "clean", "clean-all", "create", "list", "merge", "zeta"}
+	for range 20 {
+		if got := e.Candidates([]string{"verb", ""}); !slices.Equal(got, want) {
+			t.Fatalf("Candidates(verb \"\") = %v, want sorted %v", got, want)
+		}
+	}
+}
