@@ -2,12 +2,13 @@ package agent
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/providers"
 	"maps"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Schema is one agent definition: a roster CLI, or a prompt-bearing definition that runs on one.

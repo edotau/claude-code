@@ -4,15 +4,16 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
 	"maps"
 	"os"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ModelAsk is one agent-model decision, shared by the interactive launch and the headless dispatch.
