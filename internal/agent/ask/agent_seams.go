@@ -1,7 +1,7 @@
 package ask
 
 import (
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -11,7 +11,7 @@ import (
 
 // The terminal and sign-in UI the agent package calls but does not import.
 func init() {
-	agent.IsTerminal = ansi.IsTerminal
+	launchplan.IsTerminal = ansi.IsTerminal
 	signin.StdinIsTerminal = tui.StdinIsTerminal
 	signin.LoginRow = databricks.LoginRow
 	signin.PromptSecret = func(name string) (string, error) {

@@ -57,7 +57,7 @@ func loginCheck(s Schema) Check {
 
 // routeCheck pulls the "<name> route" detail from RouteDetail, without running the full doctor sweep.
 func (s Schema) routeCheck() Check {
-	detail, ok := s.eng().RouteDetail()
+	detail, ok := s.Eng().RouteDetail()
 	if !ok {
 		return Check{Name: "route", State: "warn", Detail: "no route check found for " + s.Name}
 	}
@@ -87,7 +87,7 @@ type Authenticator interface {
 }
 
 func authenticator(name string) (Authenticator, bool) {
-	a, ok := SchemaFor(name).eng().(Authenticator)
+	a, ok := SchemaFor(name).Eng().(Authenticator)
 	return a, ok
 }
 
@@ -127,5 +127,5 @@ func Configured(agent string, c router.Cell) error {
 	if _, err := paths.AgentBin(s.CLI.Binary); err != nil {
 		return err
 	}
-	return s.eng().Presence(c)
+	return s.Eng().Presence(c)
 }

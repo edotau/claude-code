@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
@@ -68,7 +70,7 @@ func databricksRoutes(p *providers.Provider, dialect, base string, routed bool) 
 
 // providerOptions is one provider's options block: base URL, key reference and the row's headers.
 func providerOptions(p *providers.Provider, cred, b string, bearer bool) map[string]any {
-	ref := "{env:" + agent.OpenCodeKeyEnv + "}"
+	ref := "{env:" + launchplan.OpenCodeKeyEnv + "}"
 	o := map[string]any{"baseURL": b}
 	headers := map[string]any{}
 	for k, v := range p.Headers {

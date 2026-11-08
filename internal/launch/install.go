@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/opencode"
 
@@ -36,7 +38,7 @@ import (
 )
 
 // selfBinary is the running harness binary; a seam so install tests never link the test binary.
-var selfBinary = agent.SelfBinary
+var selfBinary = launchplan.SelfBinary
 
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
 var userBinDir = func() string {
@@ -514,7 +516,7 @@ func extraPATHCopies(name, primary string) string {
 // toolPATHCopies lists distinct executables named name on PATH, skipping BinDir and the harness binary.
 func toolPATHCopies(name string) []string {
 	binDir, _ := filepath.Abs(paths.BinDir())
-	self, _ := agent.SelfBinary()
+	self, _ := launchplan.SelfBinary()
 	seen := map[string]bool{}
 	var copies []string
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -93,7 +95,7 @@ func TestTakeAsBeatsProfileIdentity(t *testing.T) {
 
 // A launch refusal (*agent.UsageError, even wrapped) prints its message and exits 2, not the generic 1.
 func TestRunPlanUsageErrorExitsTwo(t *testing.T) {
-	err := fmt.Errorf("launch: %w", &agent.UsageError{Msg: "not a harness profile"})
+	err := fmt.Errorf("launch: %w", &launchplan.UsageError{Msg: "not a harness profile"})
 	if code := runPlan("claude", agent.Plan{}, agent.LaunchOptions{}, err); code != 2 {
 		t.Fatalf("runPlan(UsageError) = %d, want 2", code)
 	}

@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/signin"
@@ -25,7 +27,7 @@ import (
 // Seams for tests.
 var (
 	findClaude = ClaudeBinary
-	selfBinary = agent.SelfBinary
+	selfBinary = launchplan.SelfBinary
 )
 
 // wipeKeys are inherited Anthropic knobs that would override the launch's own resolution.
@@ -48,7 +50,7 @@ const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
 
 // Claude resolves a Claude Code launch.
 func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
-	reg, sel, err := agent.SessionSelection(o, true)
+	reg, sel, err := launchplan.SessionSelection(o, true)
 	if err != nil {
 		return agent.Plan{}, err
 	}
@@ -69,7 +71,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 		plan.Unset = append(plan.Unset, proc.EnvClaudeConfigDir)
 	}
 	setModelAliasEnv(&plan, sel)
-	if err := setMainModel(&plan, sel, p, agent.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
+	if err := setMainModel(&plan, sel, p, launchplan.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
 		return agent.Plan{}, err
 	}
 	set1MOff(&plan, sel, p)
@@ -280,7 +282,7 @@ func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper, set
 		}
 	}
 	if passthrough { // no overlay: Claude Code disables subscription OAuth whenever an apiKeyHelper is set
-		if !agent.IsHeadless(args) {
+		if !launchplan.IsHeadless(args) {
 			// Remote Control refuses the inference-only setup-token; the interactive /login credential must win.
 			plan.Unset = append(plan.Unset, oauthKey)
 		} else if os.Getenv(oauthKey) == "" {

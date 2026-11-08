@@ -28,7 +28,7 @@ type RouteInfo struct {
 
 // DescribeRoute reports the fallback dispatch the agent (opencode|copilot) resolves to today, in priority
 // order. Every other agent reports RouteNone with a plain explanation — they have no fallback chain.
-func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.eng().DescribeRoute(reg) }
+func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.Eng().DescribeRoute(reg) }
 
 // RouteTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;
 // ok is false for RouteNone or a provider DescribeRoute named that the registry no longer has.
@@ -54,7 +54,7 @@ func RouteErr(ri RouteInfo) error {
 // RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for the agent, without
 // running the rest of the doctor sweep; ok is false for an unknown agent or a registry load error.
 func RouteDetail(name string) (detail string, ok bool) {
-	return SchemaFor(name).eng().RouteDetail()
+	return SchemaFor(name).Eng().RouteDetail()
 }
 
 // LoadSelection is the registry and its unpinned selection; ok is false when the registry does not load.
@@ -72,7 +72,7 @@ func LoadSelection() (reg *providers.Registry, sel providers.Selection, selErr e
 // no provider itself (explicit is false) — the agent's own subscription login or first keyed
 // provider with a resolvable credential. note is a one-line explanation to print on fallback.
 func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
-	name, e := s.Name, s.eng()
+	name, e := s.Name, s.Eng()
 	t, ok := sel.Aliases[models.Opus]
 	if !ok {
 		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)

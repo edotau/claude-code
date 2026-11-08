@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -35,7 +37,7 @@ func launchClaude(alias string, args []string) int {
 	}
 	opts.Alias = alias
 	plan, err := claude.Claude(providers.WithIdentity(context.Background(), as), opts, rest)
-	if err == nil && !opts.PrintEnv && !agent.IsHeadless(rest) {
+	if err == nil && !opts.PrintEnv && !launchplan.IsHeadless(rest) {
 		providers.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile])
 	}
 	return runPlan("claude", plan, opts, err)
@@ -51,7 +53,7 @@ func parseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string,
 	if err := databricks.RemovedFlagHint(args); err != nil {
 		return agent.LaunchOptions{}, nil, err
 	}
-	return agent.ParseArgs(args, claude)
+	return launchplan.ParseArgs(args, claude)
 }
 
 func launchAgent(name string, args []string) int {
@@ -59,10 +61,10 @@ func launchAgent(name string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
+	plan, err := launchplan.LaunchPlan(context.Background(), name, opts, rest)
 	if err == nil {
 		warnVersion(name, plan.Binary, opts, rest)
-		if !opts.PrintEnv && !agent.IsHeadless(rest) {
+		if !opts.PrintEnv && !launchplan.IsHeadless(rest) {
 			providers.RecordLastProfile(name, plan.Profile)
 		}
 	}
@@ -71,7 +73,7 @@ func launchAgent(name string, args []string) int {
 
 // warnVersion prints the one-line out-of-bounds warning for an interactive launch of the agent binary at path.
 func warnVersion(name, path string, opts agent.LaunchOptions, args []string) {
-	if !agent.WantsVersionWarning(opts, args) || !agentVersionTTY() {
+	if !launchplan.WantsVersionWarning(opts, args) || !agentVersionTTY() {
 		return
 	}
 	if line := tools.VersionWarning(name, path); line != "" {
@@ -99,7 +101,7 @@ func cmdScience(args []string) int {
 
 func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) int {
 	plan.Agent = name
-	if usage, ok := errors.AsType[*agent.UsageError](err); ok {
+	if usage, ok := errors.AsType[*launchplan.UsageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
