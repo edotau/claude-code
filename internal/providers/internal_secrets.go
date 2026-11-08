@@ -21,7 +21,8 @@ var loginSecrets = []string{OAuthTokenEnv, CopilotTokenEnv, "OPENCODE_API_KEY"}
 // RouteSecret reports a route credential: an agent login, a profile's auth env or any-method secret, any *_OAUTH/*_M2M.
 func (r *Registry) RouteSecret(name string) bool {
 	if slices.Contains(loginSecrets, name) ||
-		strings.HasSuffix(name, "_"+strings.ToUpper(AuthOAuth)) || strings.HasSuffix(name, "_"+strings.ToUpper(AuthM2M)) {
+		strings.HasSuffix(name, "_"+strings.ToUpper(AuthOAuth)) || strings.HasSuffix(name, "_"+strings.ToUpper(AuthM2M)) ||
+		strings.HasSuffix(name, "_"+strings.ToUpper(AuthM2M)+"_ACCESS") {
 		return true
 	}
 	for _, p := range r.Providers {
