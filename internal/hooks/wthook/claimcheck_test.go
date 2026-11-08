@@ -129,7 +129,7 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 	}
 }
 
-// TestClaimCheckMainCommitsHandedBackLeaf: main asks on a live leaf's claim, passes once that leaf handed back.
+// TestClaimCheckMainCommitsHandedBackLeaf: main asks on a live leaf's claim and a denied hand-back, passes once delivered.
 func TestClaimCheckMainCommitsHandedBackLeaf(t *testing.T) {
 	repo := claimFixture(t)
 	useClaimOwner(t, liveOwner)
@@ -145,9 +145,20 @@ func TestClaimCheckMainCommitsHandedBackLeaf(t *testing.T) {
 	if r := ClaimCheck(claimInput(t, add)); r.Decision != core.Ask {
 		t.Fatalf("live leaf's file: %v %q; want ask", r.Decision, r.Reason)
 	}
-	handback := `{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"SubagentHandback"}]}}` +
-		"\n" + `{"type":"user","message":{"content":[{"type":"tool_result"}]}}` + "\n"
-	gittest.WriteRel(t, filepath.Dir(tr), leafTr, working+handback)
+	handback := `{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_h1",` +
+		`"name":"SubagentHandback"}]}}` + "\n"
+	denied := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"PreToolUse:` +
+		`SubagentHandback hook error: dispatch: BLOCKED — job running","is_error":true,"tool_use_id":"toolu_h1"}]},` +
+		`"toolUseResult":"Error: PreToolUse:SubagentHandback hook error","toolDenialKind":"permission-rule"}` + "\n"
+	for name, tail := range map[string]string{"pending": "", "denied": denied} {
+		gittest.WriteRel(t, filepath.Dir(tr), leafTr, working+handback+tail)
+		if r := ClaimCheck(claimInput(t, add)); r.Decision != core.Ask {
+			t.Fatalf("%s hand-back leaf's file: %v %q; want ask", name, r.Decision, r.Reason)
+		}
+	}
+	delivered := `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_h1","type":"tool_result",` +
+		`"content":[{"type":"text","text":"{\"success\":true}"}]}]},"toolUseResult":{"success":true},"toolEndsTurn":true}` + "\n"
+	gittest.WriteRel(t, filepath.Dir(tr), leafTr, working+handback+delivered)
 	if r := ClaimCheck(claimInput(t, add)); r.Decision != core.Allow {
 		t.Fatalf("handed-back leaf's file: %v %q; want allow", r.Decision, r.Reason)
 	}
