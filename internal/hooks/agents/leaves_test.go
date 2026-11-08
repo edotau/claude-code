@@ -650,7 +650,8 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 // The ran-on gate covers every leaf that can request an agent (bare code-worker included) and spares code-worker:claude.
 func TestRanOnGateNamespacedTypes(t *testing.T) {
 	for st, want := range map[string]bool{"coworker:copilot": true, "coworker:databricks": true, "code-worker:codex": true,
-		"code-worker:gemini": true, "code-worker:claude": false, "code-worker": true} {
+		"code-worker:gemini": true, "code-worker:claude": false, "code-worker": true, "codex": true, "copilot": true,
+		"gemini": true, "opencode": true, "claude": false} {
 		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nAgent: codex\n", "ls output"), "a1")
 		if blocked != want {
 			t.Errorf("%s: blocked = %v, want %v", st, blocked, want)
@@ -661,7 +662,8 @@ func TestRanOnGateNamespacedTypes(t *testing.T) {
 // A pinned leaf type is the agent request: with no Agent: line it is still blocked, while bare code-worker is not.
 func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
 	for st, want := range map[string]bool{"code-worker:codex": true, "code-worker:gemini": true, "coworker:copilot": true,
-		"coworker:opencode": true, "code-worker": false, "coworker:databricks": false} {
+		"coworker:opencode": true, "code-worker": false, "coworker:databricks": false, "codex": true, "copilot": true,
+		"gemini": true, "opencode": true, "claude": false} {
 		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nOwns: /tmp/x\n", "ls output"), "a1")
 		if blocked != want {
 			t.Errorf("%s with no Agent: line: blocked = %v, want %v", st, blocked, want)
