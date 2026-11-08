@@ -109,7 +109,9 @@ func codexRouteDetail() string {
 	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default"))
 }
 
-// codexStatus runs `codex login status`; tests replace it so none of it reaches the real CLI.
+// codexStatus runs `codex login status` on the scrubbed agent env; tests replace it so none of it reaches the real CLI.
 var codexStatus = func(ctx context.Context, bin string) ([]byte, error) {
-	return exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()
+	cmd := exec.CommandContext(ctx, bin, "login", "status")
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx)
+	return cmd.CombinedOutput()
 }

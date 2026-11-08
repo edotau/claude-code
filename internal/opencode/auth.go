@@ -44,7 +44,9 @@ var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return exec.CommandContext(ctx, bin, args...).Output()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // never hand the vendor CLI HARNESS_VAULT_KEY
+	return cmd.Output()
 }
 
 var (
