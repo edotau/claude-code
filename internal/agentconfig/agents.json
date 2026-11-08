@@ -40,16 +40,17 @@
               "summary": "read-only git (git diff|log|show must start --no-ext-diff --no-textconv), git add <paths>, git commit (no --amend, --no-verify, -n, -c/-C)"
             },
             {
-              "commands": ["ls", "cat", "head", "tail", "wc", "grep", "rg"],
+              "commands": ["ls", "cat", "head", "tail", "wc", "grep", "rg", "diff", "cmp", "jq", "echo"],
               "bannedFlags": ["--pre"],
               "argsInside": true
             },
+            {"commands": ["sort"], "bannedFlags": ["-o", "--output"], "argsInside": true},
             {
               "commands": ["find"],
               "bannedFlags": ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"],
               "argsInside": true
             },
-            {"commands": ["claude-code"], "subcommands": ["test mutate", "network websearch"]},
+            {"commands": ["claude-code"], "subcommands": ["test mutate", "network websearch", "workflow lint"]},
             {
               "commands": ["claude-code"],
               "subcommands": ["review"],
