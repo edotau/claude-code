@@ -52,7 +52,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 
 // chainOutcome folds every failed hop into err and marks res as a fallback when a different agent or route answered.
 func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (wire.Result, error) {
-	if err != nil && !stopped && len(reasons) > 0 && (hopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, res, err)) {
+	if err != nil && !stopped && len(reasons) > 0 && (hopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, err)) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	if ran > 0 || c.Dispatches[ran].otherRoute || c.Dispatches[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
@@ -236,10 +236,10 @@ func hopFailed(res wire.Result, err error) bool {
 	return !retry.Progressed(err)
 }
 
-// cutOffMidRun: an external dispatch that had started work, then hit a rate limit, quota or auth wall.
-func cutOffMidRun(r Engine, res wire.Result, err error) bool {
+// cutOffMidRun: an external dispatch that started work, then hit a 429, quota or auth wall; any Answer is partial.
+func cutOffMidRun(r Engine, err error) bool {
 	e, ok := errors.AsType[*retry.Error](err)
-	if r == nil || !ok || !e.Progressed || res.Answer != "" || requestFault(err) {
+	if r == nil || !ok || !e.Progressed || requestFault(err) {
 		return false
 	}
 	if s, known := LookupSchema(r.Name()); known && !s.External() {
@@ -299,7 +299,7 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
-	midRun := i > 0 && cutOffMidRun(s.prev, s.res, s.err) // D1 = B: every external hop falls through
+	midRun := i > 0 && cutOffMidRun(s.prev, s.err) // D1 = B: every external hop falls through
 	if i > 0 && !midRun && !dispatchUnavailable(s.prev, s.res, s.err) {
 		s.stopped = true
 		return true, nil
