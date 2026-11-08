@@ -23,7 +23,8 @@ size: `agents/Plan.md` → `## Tasks`; 25–40-item dispatches timed out, 5–10
 ## Dispatch
 
 Bug fixes start with the live before/after run (`testing-guidelines.md`). Run the lane's disjoint leaves as one batch,
-one JSONL line per leaf (`id`, `agent`, `model`, `prompt`, `workdir`, `tools`, `timeout`):
+one JSONL line per leaf (`id`, `agent`, `profile`, `model`, `prompt`, `workdir`, `tools`, `timeout`; `profile`
+omitted = the pin, `dev|qa|prod` = the all-Databricks arm):
 
 ```bash
 claude-code agents ask --batch <lane>.jsonl --jobs 12 --fallback none --autonomous --attach <lane.md> --format json \
