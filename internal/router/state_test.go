@@ -433,3 +433,24 @@ func TestStateKeepsLegacyByokKeys(t *testing.T) {
 		t.Errorf("quota.json still carries byok keys: %s", disk)
 	}
 }
+
+func TestParseClockResetAcrossDST(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("no tzdata")
+	}
+	cases := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{"spring forward", time.Date(2026, 3, 7, 12, 0, 0, 0, ny), time.Date(2026, 3, 8, 9, 0, 0, 0, ny)},
+		{"fall back", time.Date(2026, 10, 31, 12, 0, 0, 0, ny), time.Date(2026, 11, 1, 9, 0, 0, 0, ny)},
+	}
+	for _, c := range cases {
+		got, ok := parseClockReset("try again at 9:00 am", c.now)
+		if !ok || !got.Equal(c.want) {
+			t.Errorf("%s: got %v ok=%v, want %v", c.name, got, ok, c.want)
+		}
+	}
+}
