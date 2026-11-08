@@ -36,7 +36,7 @@ func launchClaude(alias string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	if helptext.WantsHelp(rest) { // claude's own help needs no profile or model, so no lookup may refuse it
+	if bareHelp(rest) { // claude's own help needs no profile or model, so no lookup may refuse it
 		bin, err := claude.ClaudeBinary()
 		if err != nil {
 			return helptext.Fail("%v", err)
@@ -50,6 +50,9 @@ func launchClaude(alias string, args []string) int {
 	}
 	return runPlan("claude", plan, opts, err)
 }
+
+// bareHelp is a lone help flag; `claude mcp --help` still goes to claude so the subcommand's help is kept.
+func bareHelp(rest []string) bool { return len(rest) == 1 && helptext.WantsHelp(rest) }
 
 // AliasVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
 func AliasVerb(alias string) func([]string) int {
