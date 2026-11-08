@@ -496,6 +496,9 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 		sandbox = "workspace-write"
 	}
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
+	if h.Tools { // tests open loopback listeners; codex's only switch for that is network_access
+		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
+	}
 	if h.NoPersist {
 		argv = append(argv, "--ephemeral")
 	}
