@@ -274,11 +274,6 @@ const ALL = PKGS
 if (SLICE) PKGS = ALL.slice(0, SLICE)
 log('code-relay: ' + PKGS.length + ' package(s), est. ' + (PKGS.length * 6) + ' agents' + (FIX ? ' (+3 per fixed package, up to ' + (PKGS.length * 3) + ', +4 more with polish' : '') +
   (SLICE && ALL.length > SLICE ? '; slice=' + SLICE + ' skipped ' + (ALL.length - SLICE) + ': ' + ALL.slice(SLICE).join(', ') : ''))
-// Preflight: Fix/Test use plugin agent code-worker:claude, absent when the session started on a bad settings.json.
-if (FIX) {
-  const probe = await agent('Reply with the single word OK.', { label: 'preflight:code-worker', phase: 'Find', agentType: 'code-worker:claude', model: 'haiku', effort: 'low' }).catch(e => { log('preflight: ' + e.message); return null })
-  if (!probe) return ERR('agent type code-worker:claude did not run: plugin agents are not loaded; fix settings.json if invalid, restart the session, re-run (or pass fix:false)')
-}
 const results = (await pipeline(PKGS, review, repair)).filter(Boolean)
 // Findings cited outside their finder's package: fix them per owning directory after the stream, one at a time.
 const foreign = {}
