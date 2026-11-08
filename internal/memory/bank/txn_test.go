@@ -359,19 +359,24 @@ func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
 		t.Fatal("refused replay initialized the repo")
 	}
 	os.Remove(bad.path())
+	assertForgedJournalRefused(t)
+	assertDecoyUntouched(t, decoy)
+}
+
+func assertForgedJournalRefused(t *testing.T) {
+	t.Helper()
 	forged := filepath.Join(memstore.JournalDir(), "20000101-000000.000-11111111.json")
 	if err := os.MkdirAll(memstore.JournalDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	write(t, forged, `{"id":"../../forged","subject":"replay","state":"pending","changes":[]}`)
-	err = memstore.WithBankLock(memstore.BankLockWait, recoverJournals)
+	err := memstore.WithBankLock(memstore.BankLockWait, recoverJournals)
 	if err == nil || !strings.Contains(err.Error(), "does not match its file name") {
 		t.Fatalf("forged id accepted: %v", err)
 	}
 	if _, err := os.Stat(forged); err != nil {
 		t.Fatal("forged journal was moved or removed instead of refused")
 	}
-	assertDecoyUntouched(t, decoy)
 }
 
 // writeJournal seeds a pending one-file journal (extra fields merged in) under the state journal dir.
