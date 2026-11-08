@@ -23,12 +23,18 @@ func TestCodexStatusScrubsVaultKey(t *testing.T) {
 	}
 }
 
-func TestCodexHeadlessNetworkOnlyWithTools(t *testing.T) {
+// Tool runs stay sealed by default: network only with HARNESS_CODEX_NETWORK=1, and never for read-only runs.
+func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 	const net = "sandbox_workspace_write.network_access=true"
+	t.Setenv(codexNetworkEnv, "")
+	if got := codexHeadless(nil, &agent.Headless{Tools: true}); slices.Contains(got, net) {
+		t.Fatalf("default tools run must stay sealed: %q", got)
+	}
+	t.Setenv(codexNetworkEnv, "1")
 	if got := codexHeadless(nil, &agent.Headless{Tools: true}); !slices.Contains(got, net) {
-		t.Fatalf("tools run lacks %s (tests need loopback listeners): %q", net, got)
+		t.Fatalf("opted-in tools run lacks %s: %q", net, got)
 	}
 	if got := codexHeadless(nil, &agent.Headless{}); slices.Contains(got, net) {
-		t.Fatalf("read-only run must stay without network: %q", got)
+		t.Fatalf("read-only run must stay sealed even when opted in: %q", got)
 	}
 }
