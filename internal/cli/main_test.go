@@ -161,3 +161,17 @@ func termWidth(l string) int {
 	}
 	return w
 }
+
+// A command printing past the pipe buffer must not deadlock: the audit hung 5m on a large settings render.
+func TestCaptureOutputDrainsPastThePipeBuffer(t *testing.T) {
+	want := 256 << 10
+	code, stdout, _ := captureOutput(t, func() int {
+		if _, err := os.Stdout.Write(make([]byte, want)); err != nil {
+			return 1
+		}
+		return 0
+	})
+	if code != 0 || len(stdout) != want {
+		t.Fatalf("code %d, captured %d bytes, want %d", code, len(stdout), want)
+	}
+}

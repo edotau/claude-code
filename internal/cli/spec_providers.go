@@ -12,11 +12,6 @@ func vaultSections() []string {
 func integrationSpecNodes() map[string]*completion.Node {
 	flag, boolFlag, valuedFlag, formatFlag := specFlag, specBoolFlag, specValuedFlag, specFormatFlag
 	return map[string]*completion.Node{
-		"workflow": {Sub: map[string]*completion.Node{
-			"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []completion.Flag{flag("name")}},
-			"lint":     {},
-		}},
-		"review": {Sub: reviewSubNodes()},
 		"vault": {Sub: map[string]*completion.Node{
 			"list": {Args: []func() []string{vaultSections}, Flags: []completion.Flag{boolFlag("tailscale"), formatFlag()}},
 			"set": {Args: []func() []string{secretNames}, Flags: []completion.Flag{boolFlag("tailscale"), boolFlag("api-key"),
