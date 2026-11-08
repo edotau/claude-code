@@ -145,6 +145,8 @@ func pickCopilotModels(d *dialog) {
 		d.printf("github fallback: %v\n", err)
 		return
 	}
+	d.changed = true
+	d.reload()
 	suffix := ""
 	if fallback != "" {
 		suffix = " opencode_fallback=" + fallback

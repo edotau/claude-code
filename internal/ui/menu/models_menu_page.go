@@ -123,5 +123,6 @@ func unpinAllModels(d *dialog) {
 		d.println(err)
 		return
 	}
+	d.changed = true
 	d.println("every model pin cleared")
 }

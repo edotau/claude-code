@@ -315,8 +315,6 @@ func dbxIdentity(d *dialog, env string) {
 	if p == nil {
 		return
 	}
-	modes := []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
-	cur, _ := providers.ResolveIdentity(p.Identity, "")
 	name := providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M)
 	stored, hasSecret, err := vault.ReadSecret(name)
 	if err != nil {
@@ -324,6 +322,17 @@ func dbxIdentity(d *dialog, env string) {
 		return
 	}
 	kept := p.Auth.SPClientID != "" && hasSecret
+	mode, change, ok := dbxIdentityMode(d, env, p, kept)
+	if !ok {
+		return
+	}
+	dbxIdentityApply(d, env, mode, change, kept, p, stored)
+}
+
+// dbxIdentityMode shows the mode picker (plus the change-SP row when kept); mode is cur when change, ok false on cancel.
+func dbxIdentityMode(d *dialog, env string, p *providers.Provider, kept bool) (mode string, change, ok bool) {
+	modes := []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
+	cur, _ := providers.ResolveIdentity(p.Identity, "")
 	rows := make([][2]string, len(modes), len(modes)+1)
 	for i, m := range modes {
 		rows[i] = [2]string{m, uidialog.Mark(m == cur)}
@@ -333,13 +342,17 @@ func dbxIdentity(d *dialog, env string) {
 	}
 	idx, err := dbxShell(d).Pick("identity · "+env, rows, max(slices.Index(modes, cur), 0))
 	if err != nil || idx < 0 {
-		return
+		return "", false, false
 	}
-	change := idx == len(modes)
-	mode, spID := cur, p.Auth.SPClientID
-	if !change {
-		mode = modes[idx]
+	if idx == len(modes) {
+		return cur, true, true
 	}
+	return modes[idx], false, true
+}
+
+// dbxIdentityApply saves a picked mode: user keeps the stored pair, a kept pair is confirmed, anything else prompts.
+func dbxIdentityApply(d *dialog, env, mode string, change, kept bool, p *providers.Provider, stored string) {
+	spID := p.Auth.SPClientID
 	if mode == providers.IdentityUser && !change { // user mode never reads the SP: keep the stored id and secret
 		saveDbxIdentity(d, env, mode, spID, "", "")
 		return
@@ -354,44 +367,64 @@ func dbxIdentity(d *dialog, env string) {
 
 // dbxIdentityPrompt asks for the SP id and secret (empty keeps the stored ones), checks the pair, then saves it.
 func dbxIdentityPrompt(d *dialog, env, mode string, p *providers.Provider, storedSecret string) {
-	spID := p.Auth.SPClientID
+	id, spID, secret, ok := dbxPromptSP(p, storedSecret)
+	if !ok {
+		return
+	}
+	if err := dbxCheckPair(p, spID, cmp.Or(secret, storedSecret)); err != nil {
+		d.printf("SP check failed: %v\n", err)
+		return
+	}
+	saveDbxIdentity(d, env, mode, spID, secret, dbxIdentityNote(env, id, secret, storedSecret))
+}
+
+// dbxPromptSP asks for the SP client id and, once one is set, its secret; ok is false when a prompt is cancelled.
+func dbxPromptSP(p *providers.Provider, storedSecret string) (id, spID, secret string, ok bool) {
+	spID = p.Auth.SPClientID
 	hint := ""
 	if spID != "" {
 		hint = "empty keeps " + dbxShort(spID)
 	}
 	id, err := dbxSecret(hint, "Service principal client id: ", func(s string) string { return s })
 	if err != nil {
-		return
+		return "", "", "", false
 	}
 	spID = cmp.Or(id, spID)
-	secret := ""
-	if spID != "" {
-		hint = ""
-		if storedSecret != "" {
-			hint = "empty keeps the stored secret"
-		}
-		if secret, err = dbxSecret(hint, "Service principal secret: ", vault.Preview); err != nil {
-			return
-		}
+	if spID == "" {
+		return id, "", "", true
 	}
-	if pair := cmp.Or(secret, storedSecret); spID != "" && pair != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), dbxNetTimeout)
-		defer cancel()
-		if err := dbxCheckSP(ctx, providers.AuthHost(p), spID, pair); err != nil {
-			d.printf("SP check failed: %v\n", err)
-			return
-		}
+	hint = ""
+	if storedSecret != "" {
+		hint = "empty keeps the stored secret"
 	}
-	note := ""
+	secret, err = dbxSecret(hint, "Service principal secret: ", vault.Preview)
+	if err != nil {
+		return "", "", "", false
+	}
+	return id, spID, secret, true
+}
+
+// dbxCheckPair verifies an SP id and secret against the host; a missing half skips the check.
+func dbxCheckPair(p *providers.Provider, spID, pair string) error {
+	if spID == "" || pair == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dbxNetTimeout)
+	defer cancel()
+	return dbxCheckSP(ctx, providers.AuthHost(p), spID, pair)
+}
+
+// dbxIdentityNote words what the save did with the stored secret; "" when it wrote a new one with nothing kept.
+func dbxIdentityNote(env, id, secret, storedSecret string) string {
 	switch {
 	case secret != "":
-		note = "secret saved (" + providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M) + ")"
+		return "secret saved (" + providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M) + ")"
 	case storedSecret != "" && id != "":
-		note = "secret kept"
+		return "secret kept"
 	case storedSecret != "":
-		note = "SP and secret kept"
+		return "SP and secret kept"
 	}
-	saveDbxIdentity(d, env, mode, spID, secret, note)
+	return ""
 }
 
 // dbxShort is an id as first4…last4 (short ids are shown whole).

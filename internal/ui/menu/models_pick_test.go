@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +23,44 @@ import (
 // and the github-copilot provider's own models table is left untouched (opencode's fallback ladder reads it).
 // copilotPickerTitle is pickCopilotModel's numbered-prompt title, used to split repeated renders.
 const copilotPickerTitle = "copilot — model (github · copilot catalog)"
+
+func TestPickerChoicesSavedErrorUsesDialogOutput(t *testing.T) {
+	reg := menuTestEnv(t)
+	p := reg.Providers["max"]
+	if _, err := providers.AppendPickerModels(p, []providers.ModelInfo{{ID: "saved-model"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Update(func(tx *vault.Tx) error {
+		records, err := tx.Records()
+		if err != nil {
+			return err
+		}
+		for name, record := range records {
+			if strings.HasPrefix(name, "picker-additions/v1/") {
+				record.Sealed = []byte("invalid-sealed-record")
+				return tx.PutRecord(name, record)
+			}
+		}
+		return errors.New("picker additions record not created")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, wantErr := providers.PickerModels(p)
+	if wantErr == nil {
+		t.Fatal("corrupt saved additions must fail to read")
+	}
+	orig := modelChoices
+	t.Cleanup(func() { modelChoices = orig })
+	modelChoices = func(*providers.Provider, bool) []string { return []string{"live-model"} }
+	var out bytes.Buffer
+	got := pickerChoices(&dialog{out: &out}, p, true)
+	if !slices.Equal(got, []string{"live-model"}) {
+		t.Errorf("choices = %v, want live catalog preserved", got)
+	}
+	if want := "models: " + wantErr.Error() + "\n"; out.String() != want {
+		t.Errorf("dialog output = %q, want %q", out.String(), want)
+	}
+}
 
 func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	reg := menuTestEnv(t)
