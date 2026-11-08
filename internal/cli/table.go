@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 
+	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/configure/configurecmd"
@@ -101,7 +102,7 @@ func hiddenCommands() []command {
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
-		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: CmdAgents},
+		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: agentcmd.Run},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: doctor.Preflight, spec: doctor.PreflightSpecNode},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: providerscmd.Models, spec: providerscmd.ModelsSpec},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: reviewcmd.Review, spec: reviewcmd.ReviewSpec},

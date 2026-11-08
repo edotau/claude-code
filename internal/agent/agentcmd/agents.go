@@ -1,4 +1,4 @@
-package cli
+package agentcmd
 
 import (
 	"errors"
@@ -71,7 +71,8 @@ var agentsTreePage = helptext.Page{
 // clearScreen re-homes the cursor and wipes the terminal between --watch redraws.
 const clearScreen = "\x1b[H\x1b[2J"
 
-func CmdAgents(args []string) int {
+// Run is `claude-code agents`.
+func Run(args []string) int {
 	if len(args) == 0 {
 		agentsPage.Fprint(os.Stderr)
 		return 0
@@ -91,7 +92,7 @@ func CmdAgents(args []string) int {
 // agentsVerbs routes `agents <verb>` to its handler; the job verbs share lifecycle.Job.
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": ask.Cmd, "dispatch": dispatch.Cmd, "sync": cmdAgentsSync,
-	"tree": Tree, "reap": cmdAgentsReap, "send": lifecycle.Send,
+	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": lifecycle.Send,
 	"status": func(a []string) int { return lifecycle.Job("status", a) },
 	"result": func(a []string) int { return lifecycle.Job("result", a) },
 	"tail":   func(a []string) int { return lifecycle.Job("tail", a) },
@@ -195,8 +196,8 @@ func checkTreeFlags(format string, watch bool, interval time.Duration) error {
 	return nil
 }
 
-// Tree is `claude-code agents tree`.
-func Tree(args []string) int {
+// cmdAgentsTree is `agents tree`.
+func cmdAgentsTree(args []string) int {
 	fs := helptext.NewFlagSet("agents tree", agentsTreePage)
 	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
