@@ -5,6 +5,7 @@ package agents
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // labelAgents are the agents a dispatch label may name; labelTypes are the subagent types that carry one.
@@ -78,8 +80,8 @@ func agentEffortResult(in *core.Input) core.Result {
 		return *deny
 	}
 	e.pressure(in, promptField, task)
-	if !auto && applyLabel(updated, task) {
-		e.changed = true
+	if deny := e.label(in, task, auto); deny != nil {
+		return *deny
 	}
 	e.discovery(in, task, auto)
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
@@ -145,6 +147,22 @@ func (e *effortPlan) pressure(in *core.Input, promptField, task string) {
 	e.systemMessage = strings.TrimPrefix(e.systemMessage, "; ")
 }
 
+// label puts the model the dispatch runs on first in its description: a rewrite normally, a one-time deny in auto
+// mode, where a rewritten tool input is rejected by the classifier.
+func (e *effortPlan) label(in *core.Input, task string, auto bool) *core.Result {
+	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
+	if !auto {
+		e.changed = applyLabel(e.updated, task, session) || e.changed
+		return nil
+	}
+	probe := maps.Clone(e.updated)
+	if !applyLabel(probe, task, session) {
+		return nil
+	}
+	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: the description must start with the model the "+
+		"dispatch runs on. Resend this dispatch with description %q.", probe["description"])}
+}
+
 // discovery appends the bring-your-own-key hint; outside auto mode it counts as a change.
 func (e *effortPlan) discovery(in *core.Input, task string, auto bool) {
 	if hint := discoveryHint(in.Nested("tool_input", "subagent_type"), task); hint != "" {
@@ -163,14 +181,14 @@ func (e *effortPlan) result() core.Result {
 }
 
 // applyLabel prefixes the description with the agents doing the work, minus the leaf's own type.
-func applyLabel(updated map[string]any, task string) bool {
+func applyLabel(updated map[string]any, task string, session func() string) bool {
 	st, _ := updated["subagent_type"].(string)
 	orig, _ := updated["description"].(string)
 	desc := orig
 	if rest, ok := strings.CutPrefix(desc, st+":"); ok { // a hand-typed own-type prefix ("Plan: …") repeats the row
 		desc = strings.TrimSpace(rest)
 	}
-	label, desc := leafLabel(updated, st, task, desc)
+	label, desc := leafLabel(updated, st, task, desc, session)
 	out, ok := labelled(label, desc)
 	if !ok || out == orig {
 		return false
@@ -180,7 +198,7 @@ func applyLabel(updated map[string]any, task string) bool {
 }
 
 // leafLabel picks the prefix: a harness leaf's agents resolved to their model, else the leaf's own model.
-func leafLabel(updated map[string]any, st, task, desc string) (string, string) {
+func leafLabel(updated map[string]any, st, task, desc string, session func() string) (string, string) {
 	label, compare := harnessLabel(st, task), modeCompareRe.MatchString(task)
 	if label != "" && !compare {
 		desc = cutLabel(desc, label)                     // a hand-typed or earlier unsuffixed label
@@ -190,7 +208,11 @@ func leafLabel(updated map[string]any, st, task, desc string) (string, string) {
 		return label, desc
 	}
 	if label == "" && !compare && strings.TrimSpace(desc) != "" { // every other leaf leads with its own model
-		if m := ownModel(updated, st); m != "" {
+		m := ownModel(updated, st, session)
+		if routedOwn(st, task) { // an external agent or a Profile: runs on its own cell, not the dispatch alias
+			m = labelModel(updated, st, task)
+		}
+		if m != "" {
 			return m, cutLabel(desc, m)
 		}
 	}
@@ -236,16 +258,26 @@ func labelled(label, desc string) (string, bool) {
 	return label + ": " + lowerFirst(desc), true
 }
 
-// ownModel is the dispatch's model, else the agent file's; "inherit" names no model, so it labels nothing.
-func ownModel(updated map[string]any, st string) string {
+// ownModel is the dispatch's model, else the agent file's, else (also for `inherit`) the session's; "" labels nothing.
+func ownModel(updated map[string]any, st string, session func() string) string {
 	m, _ := updated["model"].(string)
-	if m == "" {
+	if m == "" || m == "inherit" {
 		m = rosterModel(st)
 	}
-	if m == "inherit" {
-		return ""
+	if m == "" || m == "inherit" {
+		return session()
 	}
 	return m
+}
+
+// routedOwn is true when the leaf runs on an external agent by its own type or on a Profile: the brief applies.
+func routedOwn(st, task string) bool {
+	return externalTypes[st] || profileApplies(st, task)
+}
+
+// profileApplies is true when the brief's Profile: line reaches a leaf of type st (read-only and in-context leaves ignore it).
+func profileApplies(st, task string) bool {
+	return briefProfile(task) != "" && !readOnlyTypes[st] && !inContextBrief(task)
 }
 
 // modeCompareRe matches a `Mode: compare` line in a brief.
@@ -368,8 +400,15 @@ func labelModel(updated map[string]any, st, task string) string {
 	if alias == "" {
 		alias = rosterModel(st)
 	}
-	names, p := briefAgents(task), briefProfile(task)
-	if _, own := splitType(st); agentLineRe.FindString(task) == "" && labelAgents[own] {
+	names, p := briefAgents(task), ""
+	if profileApplies(st, task) {
+		p = briefProfile(task)
+	}
+	own := st // a bare agent-named type is its own agent; a namespaced one names it after the colon
+	if _, a := splitType(st); a != "" {
+		own = a
+	}
+	if agentLineRe.FindString(task) == "" && labelAgents[own] {
 		names = []string{own} // a namespaced agent leaf with no Agent: line runs on its own agent
 	}
 	if len(names) == 0 || names[len(names)-1] == "claude" && p == "" {
@@ -430,7 +469,7 @@ func discoveryHint(st, task string) string {
 	if strings.Contains(task, "--model") {
 		return ""
 	}
-	hit := st == "coworker" || st == "coworker:copilot" || st == "coworker:opencode"
+	hit := st == "coworker" || st == "coworker:copilot" || st == "coworker:opencode" || st == "copilot" || st == "opencode"
 	for _, w := range agentNameRe.FindAllString(agentLabel(st, task), -1) {
 		hit = hit || w == "copilot" || w == "opencode"
 	}
