@@ -87,7 +87,7 @@ func siblingLeaf(in *core.Input) func(notices.Claim) string {
 	}
 }
 
-// leafEnded: the leaf's last assistant turn handed back or ended its turn, so its edits are the caller's to commit.
+// leafEnded: the leaf's last assistant turn ended its turn, or handed back and the hand-back's result is not a denial.
 func leafEnded(transcript string) bool {
 	f, err := os.Open(transcript)
 	if err != nil {
@@ -99,22 +99,43 @@ func leafEnded(transcript string) bool {
 	}
 	b, _ := io.ReadAll(f)
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	failed := map[string]bool{} // tool_use_id → is_error, for results after the last assistant turn
 	for _, line := range slices.Backward(lines) {
-		var rec struct {
-			Type    string `json:"type"`
-			Message struct {
-				StopReason string                        `json:"stop_reason"`
-				Content    []struct{ Type, Name string } `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "assistant" {
+		var rec leafRecord
+		if json.Unmarshal([]byte(line), &rec) != nil {
 			continue
 		}
-		return rec.Message.StopReason == "end_turn" || slices.ContainsFunc(rec.Message.Content, func(c struct{ Type, Name string }) bool {
-			return c.Type == "tool_use" && c.Name == "SubagentHandback"
+		if rec.Type != "assistant" {
+			for _, c := range rec.Message.Content {
+				if c.Type == "tool_result" {
+					failed[c.ToolUseID] = c.IsError
+				}
+			}
+			continue
+		}
+		return rec.Message.StopReason == "end_turn" || slices.ContainsFunc(rec.Message.Content, func(c leafContent) bool {
+			isErr, seen := failed[c.ID]
+			return c.Type == "tool_use" && c.Name == "SubagentHandback" && seen && !isErr
 		})
 	}
 	return false
+}
+
+// leafRecord is the slice of a transcript line leafEnded reads; a denied tool call's result carries is_error.
+type leafRecord struct {
+	Type    string `json:"type"`
+	Message struct {
+		StopReason string        `json:"stop_reason"`
+		Content    []leafContent `json:"content"`
+	} `json:"message"`
+}
+
+type leafContent struct {
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	ID        string `json:"id"`
+	ToolUseID string `json:"tool_use_id"`
+	IsError   bool   `json:"is_error"`
 }
 
 // leafTail bounds how much of a leaf transcript leafEnded reads from its end.
