@@ -110,3 +110,12 @@ func TestLaunchClaudeHelpSkipsModelLookup(t *testing.T) {
 		t.Fatalf("launchClaude(--help) = %d, stdout %q, stderr %q; want 0 and claude's help", code, out, errOut)
 	}
 }
+
+// Only a lone help flag takes the shortcut; a subcommand's --help goes through to claude.
+func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
+	for args, want := range map[string]bool{"--help": true, "-h": true, "mcp --help": false, "-p hi --help": false} {
+		if got := bareHelp(strings.Fields(args)); got != want {
+			t.Errorf("bareHelp(%q) = %v, want %v", args, got, want)
+		}
+	}
+}
