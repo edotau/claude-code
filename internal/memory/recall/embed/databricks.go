@@ -52,16 +52,20 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 			return nil, err
 		}
 	}
-	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
 	ns := p.Name + "|" + strings.TrimRight(p.Host, "/") + "|" + model
 	return &EmbedClient{Profile: p.Name, Model: model, Namespace: ns, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
-		if base, secret, ok := routerLink(ctx); ok { // the daemon holds the warm credential and upstream connections
-			via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
-			vecs, err := PostEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(proxy.ClientHeader, secret); return nil })
-			if err == nil || ctx.Err() != nil {
-				return vecs, err
-			}
-		}
-		return PostEmbeddings(ctx, url, texts, func(h http.Header) error { return providers.Authorize(ctx, p, h) })
+		return embedDatabricks(ctx, p, model, texts)
 	}}, nil
+}
+
+func embedDatabricks(ctx context.Context, p *providers.Provider, model string, texts []string) ([][]float32, error) {
+	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
+	if base, secret, ok := routerLink(ctx); ok { // the daemon holds the warm credential and upstream connections
+		via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
+		vecs, err := PostEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(proxy.ClientHeader, secret); return nil })
+		if err == nil || ctx.Err() != nil {
+			return vecs, err
+		}
+	}
+	return PostEmbeddings(ctx, url, texts, func(h http.Header) error { return providers.Authorize(ctx, p, h) })
 }

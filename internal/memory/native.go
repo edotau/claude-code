@@ -638,16 +638,10 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 		return err
 	}
 	lines := linesFor(indexLinks(string(rec)), moved)
-	if len(indexLinks(healed)) >= bank.NativeCoreCap {
-		// The injected core is full: the restored pointers stay recall-only, and the core takes only its repair.
-		searchable, err := readIfExists(filepath.Join(dir, bank.NativeSearchableFile))
-		if err != nil {
-			return err
-		}
-		b.put(bank.NativeSearchableFile, []byte(indexWithLines(string(searchable), lines)), searchable)
-		lines = nil
+	final, err := restoredIndex(b, dir, healed, lines)
+	if err != nil {
+		return err
 	}
-	final := indexWithLines(healed, lines)
 	b.put(bank.NativeIndexFile, []byte(final), index)
 	for _, name := range todo {
 		b.del(filepath.Join(nativeArchiveRel, name), archived[name])

@@ -123,20 +123,24 @@ func level2Headings(body []byte) []headingSpan {
 		if hn.Lines().Len() == 0 { // a bare "## " has no title and no segment to locate it by
 			return mdast.WalkContinue, nil
 		}
-		seg := hn.Lines().At(0)
-		lineStart := seg.Start
-		for lineStart > 0 && body[lineStart-1] != '\n' {
-			lineStart--
-		}
-		lineEnd := seg.Stop
-		for lineEnd < len(body) && body[lineEnd] != '\n' {
-			lineEnd++
-		}
-		if lineEnd < len(body) {
-			lineEnd++
-		}
-		out = append(out, headingSpan{title: string(seg.Value(body)), lineStart: lineStart, lineEnd: lineEnd})
+		out = append(out, headingLineSpan(body, hn))
 		return mdast.WalkContinue, nil
 	})
 	return out
+}
+
+func headingLineSpan(body []byte, hn *mdast.Heading) headingSpan {
+	seg := hn.Lines().At(0)
+	lineStart := seg.Start
+	for lineStart > 0 && body[lineStart-1] != '\n' {
+		lineStart--
+	}
+	lineEnd := seg.Stop
+	for lineEnd < len(body) && body[lineEnd] != '\n' {
+		lineEnd++
+	}
+	if lineEnd < len(body) {
+		lineEnd++
+	}
+	return headingSpan{title: string(seg.Value(body)), lineStart: lineStart, lineEnd: lineEnd}
 }

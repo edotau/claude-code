@@ -88,22 +88,27 @@ func (f recallIndexFixture) persisted(t testing.TB) map[fileKey]indexed {
 	t.Helper()
 	index := f.index(t)
 	for _, file := range bank.CorpusFiles(f.root) {
-		info, err := os.Stat(file.Path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		entry, ok := index[fileKey{file.Path, file.Mode}]
-		if !ok || entry.size != info.Size() || entry.mtimeNs != info.ModTime().UnixNano() {
-			t.Fatalf("missing or stale persisted entry for %s (mode %d)", file.Path, file.Mode)
-		}
-		if !entry.seg.Valid() {
-			t.Fatalf("invalid persisted segment for %s", file.Path)
-		}
+		assertPersistedRecallFile(t, file, index)
 	}
 	return index
+}
+
+func assertPersistedRecallFile(t testing.TB, file bank.CorpusFile, index map[fileKey]indexed) {
+	t.Helper()
+	info, err := os.Stat(file.Path)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := index[fileKey{file.Path, file.Mode}]
+	if !ok || entry.size != info.Size() || entry.mtimeNs != info.ModTime().UnixNano() {
+		t.Fatalf("missing or stale persisted entry for %s (mode %d)", file.Path, file.Mode)
+	}
+	if !entry.seg.Valid() {
+		t.Fatalf("invalid persisted segment for %s", file.Path)
+	}
 }
 
 func TestRecallIndexWarmEqualsCold(t *testing.T) {

@@ -229,6 +229,11 @@ func TestEmbedBusyClaimBlocksEveryRun(t *testing.T) {
 			t.Fatalf("%s: want ErrEmbedBusy, got %v", name, err)
 		}
 	}
+	assertBusyClaimUnchanged(t, calls, before, old)
+}
+
+func assertBusyClaimUnchanged(t *testing.T, calls, before int, old vectorRecord) {
+	t.Helper()
 	if calls != before {
 		t.Fatalf("a busy run called the endpoint %d times", calls-before)
 	}

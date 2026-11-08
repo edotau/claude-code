@@ -314,6 +314,17 @@ func (x *e2eRun) updateTranscript(t *testing.T) {
 	// copilot and the other agent dispatches are absent from <cfg>/bin, so the chain lands on the fake claude there
 	const marker = "e2e-update-marker-7731"
 	const session = "e2e-update-session"
+	transcript, argvLog, stdinLog := x.fakeTranscriptUpdate(t, marker)
+	before := dirHashes(t, x.cfg)
+
+	out := x.e.mustRun(t, "", "memory", "update", "--transcript", transcript, "--cwd", x.repo, "--session", session)
+	assertUpdateInvocation(t, transcript, argvLog, stdinLog, out)
+	x.assertTranscriptUpdateResult(t, marker, session)
+	assertOnlyStoreAndStateGrew(t, x.cfg, before)
+}
+
+func (x *e2eRun) fakeTranscriptUpdate(t *testing.T, marker string) (string, string, string) {
+	t.Helper()
 	argvLog, stdinLog := filepath.Join(t.TempDir(), "argv.log"), filepath.Join(t.TempDir(), "stdin.log")
 	script := "#!/bin/sh\n" +
 		"for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + argvLog + "'; done\n" +
@@ -328,9 +339,11 @@ func (x *e2eRun) updateTranscript(t *testing.T) {
 	transcript := filepath.Join(t.TempDir(), "session.jsonl")
 	write(t, transcript, `{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"hello"}}`+"\n"+
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"DECISION: ship the zebrafish gearbox"}]}}`+"\n")
-	before := dirHashes(t, x.cfg)
+	return transcript, argvLog, stdinLog
+}
 
-	out := x.e.mustRun(t, "", "memory", "update", "--transcript", transcript, "--cwd", x.repo, "--session", session)
+func assertUpdateInvocation(t *testing.T, transcript, argvLog, stdinLog, out string) {
+	t.Helper()
 	if !strings.Contains(out, "memory update: ran on") {
 		t.Errorf("update reported no runner:\n%s", out)
 	}
@@ -343,6 +356,10 @@ func (x *e2eRun) updateTranscript(t *testing.T) {
 	if argv, _ := os.ReadFile(argvLog); !strings.Contains(string(argv), "--print") {
 		t.Errorf("fake claude was not run headless: %q", argv)
 	}
+}
+
+func (x *e2eRun) assertTranscriptUpdateResult(t *testing.T, marker, session string) {
+	t.Helper()
 	if hist, _ := os.ReadFile(filepath.Join(x.bankDir, "sessionHistory.md")); !strings.Contains(string(hist), marker) {
 		t.Error("the fake reply's sessionHistory write is missing from the bank")
 	}
@@ -350,7 +367,6 @@ func (x *e2eRun) updateTranscript(t *testing.T) {
 	if !ok || res.Status != UpdateOK || !res.BankUpdated {
 		t.Errorf("update result = %+v ok=%v, want status ok with bank_updated", res, ok)
 	}
-	assertOnlyStoreAndStateGrew(t, x.cfg, before)
 }
 
 // assertOnlyStoreAndStateGrew checks every path new under cfg since before lives in the store or state/.

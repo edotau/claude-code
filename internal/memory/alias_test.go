@@ -370,6 +370,11 @@ func TestAliasApplyRollsBackWhenLaterLinkSwapFails(t *testing.T) {
 	if _, err := alias(t, e, false); err == nil {
 		t.Fatal("alias succeeded despite an unswappable link")
 	}
+	assertAliasLinkSwapRolledBack(t, e, first)
+}
+
+func assertAliasLinkSwapRolledBack(t *testing.T, e aliasEnv, first string) {
+	t.Helper()
 	if tg, _ := os.Readlink(first); tg != e.db {
 		t.Errorf("first link -> %q after failed fold, want rollback to %q", tg, e.db)
 	}

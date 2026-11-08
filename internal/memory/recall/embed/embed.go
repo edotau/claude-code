@@ -569,12 +569,16 @@ func semanticCache() (string, vectorRecord, error) {
 		}
 	}
 	if profile == "" {
-		if readErr != nil {
-			return "", vectorRecord{}, fmt.Errorf("embedding cache unreadable: %w", readErr)
-		}
-		return "", vectorRecord{}, errors.New("no embedding cache")
+		return "", vectorRecord{}, semanticCacheMiss(readErr)
 	}
 	return profile, cache, nil
+}
+
+func semanticCacheMiss(readErr error) error {
+	if readErr != nil {
+		return fmt.Errorf("embedding cache unreadable: %w", readErr)
+	}
+	return errors.New("no embedding cache")
 }
 
 type semanticResult struct {
