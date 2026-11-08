@@ -64,9 +64,12 @@ const stepOf = (steps, name, defaults, opt) => {
   const R = ['ran_on', 'coworker']
   const record = (label, r) => {
     const ranOn = (r && r.ran_on) || ''
-    // the envelope's own line; a reworded one still counts when it names the roster agent that ran (logged)
-    const ok = !!(r && r.coworker === 'ok' && (/^ran on \S/.test(ranOn) || /^(?:ran on )?(?:codex|copilot|gemini|opencode)\b\S*\s+\S/.test(ranOn)))
-    if (ok && !/^ran on \S/.test(ranOn)) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
+    // the envelope's line (wire.RanOn), or a reworded one naming the agent and a route (account·profile, profile:model or model id)
+    const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
+    const reworded = /^(?:ran on )?(?:codex|copilot|gemini|opencode)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
+    const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn)
+    const ok = !!(r && r.coworker === 'ok' && (canon || reworded) && !failed)
+    if (ok && !canon) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
     const why = ok ? '' : (r && r.coworker_error) || 'no ran_on in the result'
     COWORKERS.push({ stage: name, label, agent: who, status: ok ? 'ok' : 'BLOCKED', ran_on: ok ? r.ran_on : '', hops: (r && r.hops) || 0, error: why })
     log(`coworkers ${label}: ${ok ? 'ran on ' + r.ran_on + ' (hop ' + ((r && r.hops) || 0) + ')' : who + ' BLOCKED: ' + why}`)
