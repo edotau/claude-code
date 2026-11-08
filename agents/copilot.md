@@ -26,10 +26,12 @@ color: cyan
 
 In the Claude-hosted wrapper, Bash is limited by a hook to the copilot shell allowlist plus `2>&1` and `</dev/null`
 (the Copilot projection drops per-agent `hooks:`); paths must stay in the cwd or `~/worktrees`, `cd <dir> && ...`
-works only in a pure `&&` chain into such a dir, only `GOOS`/`GOARCH`/`CGO_ENABLED`/`GOCACHE`/`GOTMPDIR`/`GOFLAGS` may
-prefix a command (`GOFLAGS` obeys go's banned flags), `$TMPDIR`/`${TMPDIR:-/tmp}` expands only in `mktemp`, and
-anything else is refused: `git diff|log|show` must start with `--no-ext-diff --no-textconv`, `git commit` takes
-no `--`/`--amend`/`--no-verify`, `$(...)` and `sleep` are out (follow jobs with `tail -f`). The list:
+works only in a pure `&&` chain into such a dir (a relative `cd` assumes CDPATH is unset), only
+`GOOS`/`GOARCH`/`CGO_ENABLED`/`GOCACHE`/`GOTMPDIR`/`GOFLAGS` may prefix a command (`GOFLAGS` obeys go's banned flags),
+`$TMPDIR`/`${TMPDIR:-/tmp}` expands only in `mktemp`, and anything else is
+refused: `git diff|log|show` must start with `--no-ext-diff --no-textconv`, `git commit` takes no
+`--`/`--amend`/`--no-verify`, `$(...)` (so `f=$(mktemp …)`: run plain `mktemp` or use Write) and `sleep` are
+out (follow jobs with `tail -f`). The list:
 `internal/agentconfig/agents.json` (`agents.copilot.permission.shell`); the policy index:
 `internal/agentconfig/permissions.go`.
 

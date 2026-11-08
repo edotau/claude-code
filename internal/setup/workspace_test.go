@@ -4,27 +4,19 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
 // wsRepo makes a git toplevel with one commit so GitToplevel answers.
 func wsRepo(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	root := gittest.Repo(t)
 	if real, err := filepath.EvalSymlinks(root); err == nil {
 		root = real
-	}
-	for _, argv := range [][]string{
-		{"init", "-q"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
-		{"commit", "-q", "--allow-empty", "-m", "init"},
-	} {
-		cmd := exec.Command("git", append([]string{"-C", root}, argv...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", argv, err, out)
-		}
 	}
 	return root
 }

@@ -11,20 +11,14 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
 // placementRepo makes a temp git repo with one tracked root doc, so the gate has real git state.
 func placementRepo(t *testing.T) string {
 	t.Helper()
-	dir, _ := filepath.EvalSymlinks(t.TempDir())
-	for _, args := range [][]string{
-		{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "t"},
-	} {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v (%s)", args, err, out)
-		}
-	}
+	dir, _ := filepath.EvalSymlinks(gittest.Repo(t))
 	if err := os.WriteFile(filepath.Join(dir, "ARCHITECTURE.md"), []byte("# arch\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
 const cleanGo = "package fx\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
@@ -30,12 +32,7 @@ func gitFixture(t *testing.T) string {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
-	dir := t.TempDir()
-	for _, a := range [][]string{{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "t"}} {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", a, err, out)
-		}
-	}
+	dir := gittest.Repo(t)
 	writeFx(t, dir, "fx.go", cleanGo)
 	writeFx(t, dir, "notes.txt", "a\n")
 	for _, a := range [][]string{{"add", "."}, {"commit", "-q", "-m", "init"}} {

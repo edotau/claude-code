@@ -76,7 +76,7 @@ func TestCodex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range []string{`base_url = "https://x.example.com/serving-endpoints"`, `model = "databricks-gpt-5-5"`,
+	for _, w := range []string{`base_url = "https://x.example.com/serving-endpoints"`, `model = "databricks-gpt-6-1-sol"`,
 		`command = "/bin/cc"`, `args = ["resolve", "--profile", "databricks-dev"]`, `model_reasoning_effort = "high"`, "timeout_ms = 5000"} {
 		if !strings.Contains(r.Text, w) {
 			t.Errorf("missing %q in\n%s", w, r.Text)

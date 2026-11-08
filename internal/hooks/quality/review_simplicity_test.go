@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
 const rsClean = "package fx\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
@@ -77,8 +78,7 @@ func TestReviewSimplicityWriteUsesGitHead(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
-	dir := t.TempDir()
-	rsGit(t, dir, []string{"init", "-q"}, []string{"config", "user.email", "t@example.com"}, []string{"config", "user.name", "t"})
+	dir := gittest.Repo(t)
 	noisy := rsClean + "\n// old one\n// old two\nfunc Old() {}\n"
 	p := filepath.Join(dir, "a.go")
 	if err := os.WriteFile(p, []byte(noisy), 0o644); err != nil {
@@ -119,8 +119,7 @@ func TestReviewSimplicityGitFailureReportsNothing(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
-	dir := t.TempDir()
-	rsGit(t, dir, []string{"init", "-q"}, []string{"config", "user.email", "t@example.com"}, []string{"config", "user.name", "t"})
+	dir := gittest.Repo(t)
 	noisy := rsClean + "\n// old one\n// old two\nfunc Old() {}\n"
 	p := filepath.Join(dir, "a.go")
 	if err := os.WriteFile(p, []byte(noisy), 0o644); err != nil {

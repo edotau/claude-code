@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
 // RunGate ports code-review-gate.sh, an advisory hook with no Python CLI of its own (always exit 0).
@@ -29,11 +31,7 @@ func mustRun(t *testing.T, dir, name string, args ...string) {
 
 func newGateRepo(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	mustRun(t, dir, "git", "init", "-q", "-b", "main")
-	mustRun(t, dir, "git", "config", "user.name", "Test")
-	mustRun(t, dir, "git", "config", "user.email", "test@example.com")
-	return dir
+	return gittest.Repo(t)
 }
 
 func TestRunGateNoStagedFiles(t *testing.T) {

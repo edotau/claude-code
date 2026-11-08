@@ -313,7 +313,7 @@ func renderCodex(o Options) (Result, error) {
 	}
 	head, _, _ := strings.Cut(raw, authHeader)
 	head = replaceLine(head, "base_url", base)
-	model := "gpt-5.5"
+	model := "gpt-6.1-sol"
 	if o.Model != "" {
 		model = o.Model
 	}
