@@ -9,24 +9,16 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/launchplan"
-
-	"github.com/edotau/claude-code/internal/agent/client"
-
-	"github.com/edotau/claude-code/internal/agent/wire"
-
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -39,89 +31,6 @@ var askPage = helptext.Page{
 }
 
 func Cmd(args []string) int { return Run(args, false) }
-
-// askFlags are the values of ask's flags.
-type askFlags struct {
-	name, fallback, route, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, retryAgent, overlayPath, overlayDebug string
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast, follow                                                                      bool
-	timeout, followIdle                                                                                                                                                                                                           time.Duration
-	jobs, maxFiles, maxFileBytes                                                                                                                                                                                                  int
-	dirs, files                                                                                                                                                                                                                   string
-	diff, index                                                                                                                                                                                                                   bool
-	pack                                                                                                                                                                                                                          *pack.Spec
-	agents                                                                                                                                                                                                                        agentsFlag
-	attach                                                                                                                                                                                                                        attachFlag
-	keepEnv                                                                                                                                                                                                                       keepEnvFlag
-	permAllow, permAsk, permDeny                                                                                                                                                                                                  ruleFlag
-	permMode                                                                                                                                                                                                                      string
-	env                                                                                                                                                                                                                           envFlag
-}
-
-func askFlagSet() (*flag.FlagSet, *askFlags) {
-	fs := helptext.NewFlagSet("ask", askPage)
-	f := &askFlags{}
-	fs.StringVar(&f.name, "agent", "claude", "vendor, agents/<name>.md, vendor:name, or an --agents key")
-	fs.Var(&f.agents, "agents", "agent definitions: --agent takes their keys")
-	fs.StringVar(&f.fallback, "fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
-	fs.StringVar(&f.route, "route", "", "fallback ladder: default|first-party (default: by session profile)")
-	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
-	fs.StringVar(&f.provider, "profile", "", "profile or hub start (default: pin, then registry)")
-	fs.StringVar(&f.as, "as", "", "claude on a paired Databricks profile: user|sp, over the profile's identity")
-	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
-	fs.StringVar(&f.effort, "effort", "", "reasoning effort: low|medium|high|xhigh|max")
-	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
-	fs.StringVar(&f.session, "session", "", "resume this session id")
-	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
-	fs.BoolVar(&f.readOnly, "read-only", false, "tools may read files but never write, run shell or commit; implies --tools")
-	fs.Var(&f.permAllow, "allow", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)")
-	fs.Var(&f.permAsk, "ask", "ask before a tool call matching the rule (repeatable)")
-	fs.Var(&f.permDeny, "deny", "deny a tool call matching the rule (repeatable)")
-	fs.StringVar(&f.permMode, "mode", "", "permission mode for unmatched calls: default|auto|plan")
-	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
-	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
-	fs.BoolVar(&f.safeMode, "safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
-	fs.StringVar(&f.debugFile, "debug-file", "", "claude, gemini: write the agent's debug log to this path")
-	fs.Var(&f.attach, "attach", "attach a file (repeatable); task text precedes every attachment")
-	fs.Var(&f.keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
-	fs.Var(&f.env, "env", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused")
-	askRunFlags(fs, f)
-	return fs, f
-}
-
-func askRunFlags(fs *flag.FlagSet, f *askFlags) {
-	fs.StringVar(&f.systemPrompt, "system-prompt", "", "claude only: replace the system prompt")
-	fs.StringVar(&f.appendSystemPrompt, "append-system-prompt", "", "claude only: append to the system prompt")
-	fs.StringVar(&f.outputSchema, "output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
-	fs.BoolVar(&f.direct, "direct", false, "agents: hand the CLI the profile route, skip the proxy")
-	fs.BoolVar(&f.autonomous, "autonomous", false, "drive the run without stopping to ask, per agent")
-	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
-	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
-	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
-	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
-	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
-	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+client.RemoteBinEnv+", then claude-code)")
-	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
-	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined")
-	fs.StringVar(&f.files, "files", "", "comma-separated file globs to inline")
-	fs.BoolVar(&f.diff, "diff", false, "inline the files changed vs HEAD")
-	fs.BoolVar(&f.index, "index", false, "prepend an index of every matched path")
-	fs.IntVar(&f.maxFiles, "max-files", pack.DefaultMaxFiles, "max files to inline (0 = index only)")
-	fs.IntVar(&f.maxFileBytes, "max-file-bytes", pack.DefaultMaxFileBytes, "max bytes per inlined file")
-	fs.StringVar(&f.rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
-	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
-	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
-	fs.BoolVar(&f.showLog, "log", false, "list the 20 most recent dispatches and exit")
-	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
-	fs.StringVar(&f.job, "job", "", "internal: run saved dispatch <id> in place")
-	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
-	fs.IntVar(&f.jobs, "jobs", DefaultJobs(), "batch: tasks run at once")
-	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
-	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
-	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
-	fs.StringVar(&f.retryAgent, "retry-agent", "", "batch: retry a failure once on these agents")
-	fs.StringVar(&f.overlayPath, "overlay", "", "layer a JSON {set,unset,keep} file over the agent's env")
-	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
-}
 
 // askRun is one ask invocation: its flags plus what the setup phases resolve.
 type askRun struct {
@@ -419,66 +328,6 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format)
 }
 
-// askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.
-func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback string, background bool, job string, tools, noTools bool) (int, error) {
-	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
-		return 2, err
-	}
-	if err := client.ValidateAskFlags(format, fallback); err != nil {
-		return 1, err
-	}
-	return 1, client.AskExclusive(background, job, tools, noTools)
-}
-
-// askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
-func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
-	if f.dirs == "" && f.files == "" && !f.diff {
-		for _, n := range []string{"index", "max-files", "max-file-bytes"} {
-			if helptext.Explicit(fs, n) {
-				return nil, fmt.Errorf("--%s needs --dirs, --files or --diff", n)
-			}
-		}
-		return nil, nil
-	}
-	if f.maxFiles < 0 || f.maxFileBytes < 0 {
-		return nil, errors.New("--max-files and --max-file-bytes cannot be negative")
-	}
-	if f.batchSrc != "" || f.live || f.host != "" {
-		return nil, errors.New("--dirs/--files/--diff cannot be combined with --batch, --live or --host")
-	}
-	return &pack.Spec{Dirs: textutil.SplitCSV(f.dirs), Files: textutil.SplitCSV(f.files), Diff: f.diff, Index: f.index,
-		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, IndexOnly: f.maxFiles == 0}, nil
-}
-
-// askCheckCombos rejects the flag combinations that need the resolved agent.
-func askCheckCombos(fs *flag.FlagSet, name string, live, hasPersona bool, host string, background bool, job, batchSrc string, hasEnv bool) error {
-	if live {
-		if err := askLiveCombos(fs, name, hasPersona); err != nil {
-			return err
-		}
-	}
-	return askHostEnvCombos(host, background, job, batchSrc, hasEnv)
-}
-
-// askLiveCombos rejects --live with a persona, then checks the flags --live cannot take.
-func askLiveCombos(fs *flag.FlagSet, name string, hasPersona bool) error {
-	if hasPersona {
-		return errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor")
-	}
-	return askLiveCheck(fs, name)
-}
-
-// askHostEnvCombos rejects --host with --background/--job/--batch, and --env with --background.
-func askHostEnvCombos(host string, background bool, job, batchSrc string, hasEnv bool) error {
-	if host != "" && (background || job != "" || batchSrc != "") {
-		return errors.New("--host cannot be combined with --background, --job or --batch")
-	}
-	if hasEnv && background {
-		return errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record")
-	}
-	return nil
-}
-
 // askReadPrompt reads the framed stdin prompt, or resolves prompt; framed reader is nil when not framed.
 func askReadPrompt(framed bool, prompt string) (*bufio.Reader, string, error) {
 	if framed {
@@ -500,148 +349,4 @@ func warnAskMemory(ag string, enableMemory bool) {
 	if s, ok := agent.LookupSchema(ag); enableMemory && ok && s.CLI.Caps.Memory == agent.None {
 		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", ag)
 	}
-}
-
-// prepareExitCode is the code a Prepare error names, else 1.
-func prepareExitCode(err error) int {
-	if usage, ok := errors.AsType[interface {
-		error
-		ExitCode() int
-	}](err); ok {
-		return usage.ExitCode()
-	}
-	return 1
-}
-
-// askSpawn detaches a prepared dispatch as a background job.
-func askSpawn(fs *flag.FlagSet, prepared *client.Prepared, native bool, format, name string) int {
-	if err := job.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
-		return failAsk(format, name, err)
-	}
-	ReportBackgroundStart(format, prepared.Record)
-	return 0
-}
-
-// absDebugFile pins the path now: --workdir moves the child's cwd.
-func absDebugFile(p string) string {
-	if p == "" {
-		return p
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		return abs
-	}
-	return p
-}
-
-// runAskAndReport executes one prepared foreground dispatch and reports its outcome.
-func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepared, isJob bool, format string) int {
-	opts := job.RunRecordedOpts{Job: isJob}
-	if isJob && format == helptext.Text {
-		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
-	}
-	res, err := client.Exec(ctx, p, StdoutSink(format, p.Record.ID), opts)
-	reportAskResult(format, res, err, res.DispatchID)
-	for _, line := range []string{wire.RanOn(res), wire.DidNotRun(res)} {
-		if line != "" {
-			fmt.Fprintln(os.Stderr, "ask:", line)
-		}
-	}
-	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; agents ask --retry <id> replays it)")
-	if err != nil {
-		return helptext.Fail("ask: %v", err)
-	}
-	return 0
-}
-
-// The ask --format values.
-const formatStreamJSON = client.FormatStreamJSON
-
-// StdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
-func StdoutSink(format, dispatchID string) wire.Sink {
-	switch format {
-	case helptext.JSON:
-		return wire.Discard
-	case formatStreamJSON:
-		return wire.NewJSONLSink(os.Stdout, dispatchID)
-	}
-	return wire.NewTextSink(os.Stdout)
-}
-
-// askState is the agent.AskTarget plus the flag pointers --retry resets or --job clears.
-type askState struct {
-	client.AskTarget
-	rubric *string
-	env    *envFlag
-}
-
-// loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
-func loadAskJob(job, format string, s *askState, prompt *string) (rec *job.Record, rc int, done bool) {
-	if job == "" {
-		return nil, 0, false
-	}
-	r, err := client.LoadJobRecord(job)
-	if errors.Is(err, client.ErrJobNotFresh) {
-		return nil, failAskCode(format, *s.Name, err, 2), true
-	}
-	if err != nil {
-		return nil, failAsk(format, *s.Name, err), true
-	}
-	s.Apply(r, os.Stderr)
-	*prompt, *s.rubric = r.Request.Prompt, ""
-	return &r, 0, false
-}
-
-// loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
-func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
-	if retry == "" {
-		return 0, false
-	}
-	rec, err := job.LoadRecord(retry)
-	if err != nil {
-		return failAsk(format, *s.Name, err), true
-	}
-	// The logged request wins; only flags typed on this command line override it.
-	s.Apply(rec, os.Stderr)
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "attach" {
-			*s.Attach = nil
-		}
-		if f.Name == "keep-env" {
-			*s.KeepEnv = nil
-		}
-		if f.Name == "allow" {
-			*s.PermAllow = nil
-		}
-		if f.Name == "ask" {
-			*s.PermAsk = nil
-		}
-		if f.Name == "deny" {
-			*s.PermDeny = nil
-		}
-		if f.Name == "env" {
-			*s.env = nil
-		}
-	})
-	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
-		return failAskCode(format, *s.Name, err, 2), true
-	}
-	*prompt, *s.rubric = rec.Request.Prompt, ""
-	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
-	return 0, false
-}
-
-// printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
-func printDispatchLog(format string) int {
-	recs := job.RecentRecords(20)
-	if format == helptext.JSON {
-		return helptext.WriteJSONOrFail("ask", recs)
-	}
-	if len(recs) == 0 {
-		fmt.Println("no dispatches logged yet")
-		return 0
-	}
-	for _, r := range recs {
-		fmt.Print(r.LogLine())
-	}
-	return 0
 }
