@@ -104,7 +104,7 @@ var (
 	rateRE       = regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted`)
 	authRE       = regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key`)
 	transientRE  = regexp.MustCompile(`\b50[0234]\b|\b529\b|overloaded|timed? ?out|deadline exceeded|connection (reset|refused)|no such host|\beof\b|econnreset|etimedout|tls handshake|broken pipe`)
-	retryAfterRE = regexp.MustCompile(`(?:retry[- ]after|try again in)[:\s]+(\d+)\s*(m|min|minutes?)?`)
+	retryAfterRE = regexp.MustCompile(`(?:retry[- ]after|try again in)[:\s]+(\d+)\s*(?:(m|min|minutes?|ms|s|seconds?)(?:\b|\d))?`)
 )
 
 // Classify maps an error (or a failed child's stderr tail) to a Kind; typed status errors win over text.
@@ -152,14 +152,17 @@ func classifyText(err error) (Kind, time.Duration) {
 	return kind, retryAfterText(low)
 }
 
-// retryAfterText reads a "retry after N seconds|minutes" hint out of lower-cased error text.
+// retryAfterText reads a "retry after N ms|seconds|minutes" hint out of lower-cased error text.
 func retryAfterText(low string) time.Duration {
 	m := retryAfterRE.FindStringSubmatch(low)
 	if m == nil {
 		return 0
 	}
 	n, _ := strconv.Atoi(m[1])
-	if m[2] != "" {
+	switch m[2] {
+	case "ms":
+		return time.Duration(n) * time.Millisecond
+	case "m", "min", "minute", "minutes":
 		return time.Duration(n) * time.Minute
 	}
 	return time.Duration(n) * time.Second

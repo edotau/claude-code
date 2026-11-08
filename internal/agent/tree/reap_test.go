@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -65,5 +66,52 @@ func TestReapDeadLiveHolder(t *testing.T) {
 	}
 	if got, _ := job.LoadRecord(dead.ID); got.Status != "error" {
 		t.Errorf("dead record status = %s, want error", got.Status)
+	}
+}
+
+// Given a live-session socket with no dispatch record, Then Reap removes the orphan.
+func TestReapRemovesSocketWithoutRecord(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "rp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	const id = "20261108T010101.000-claude"
+	if err := os.MkdirAll(filepath.Dir(job.LiveSocket(id)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", job.LiveSocket(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var out bytes.Buffer
+	if code := Reap(false, &out, &out); code != 0 {
+		t.Fatalf("Reap = %d: %s", code, out.String())
+	}
+	if _, err := os.Stat(job.LiveSocket(id)); !os.IsNotExist(err) {
+		t.Errorf("orphan socket with no record must be removed: %v", err)
+	}
+}
+
+// Given a stale snapshot of a dead record whose owner restarted it on disk, Then the reaper leaves the live record alone.
+func TestReapRecordsSkipsRecordRevivedAfterSnapshot(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := job.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	rec.PID = 1<<22 + 7
+	stale := rec
+	rec.PID = os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	reapRecords([]job.Record{stale}, false, "reaped", &out, &out)
+	got, err := job.LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "running" || got.PID != os.Getpid() {
+		t.Errorf("record = %q pid %d, want the live owner's running record untouched", got.Status, got.PID)
 	}
 }

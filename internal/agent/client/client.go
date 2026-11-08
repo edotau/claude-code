@@ -214,7 +214,12 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d job.Run
 	ctx = agent.WithUnsetEnv(ctx, p.Opts.Unset)
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {
-			return wire.Result{Agent: p.Chain.Want, Status: wire.StatusError, DispatchID: p.Record.ID}, err
+			res := wire.Result{Agent: p.Chain.Want, Status: wire.StatusError, DispatchID: p.Record.ID}
+			p.Record.Finish(res, err, time.Since(p.Record.Time))
+			if serr := p.Record.Save(); serr != nil && d.Notify != nil {
+				d.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", p.Record.ID, serr))
+			}
+			return res, err
 		}
 		defer p.pack.remove()
 	}

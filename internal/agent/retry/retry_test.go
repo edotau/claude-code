@@ -348,3 +348,20 @@ func TestErrorDoesNotRepeatAgentPrefix(t *testing.T) {
 		t.Errorf("plain = %q, want %q", got, want)
 	}
 }
+
+// Given millisecond, second and minute hints, Then each unit is honored (ms was once read as minutes).
+func TestRetryAfterTextUnits(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"retry after 500ms":      500 * time.Millisecond,
+		"try again in 200 ms":    200 * time.Millisecond,
+		"retry after 30s":        30 * time.Second,
+		"try again in 2 minutes": 2 * time.Minute,
+		"retry-after: 3 min":     3 * time.Minute,
+		"try again in 6m0s":      6 * time.Minute,
+		"try again in 1m30s":     1 * time.Minute,
+	} {
+		if got := retryAfterText(in); got != want {
+			t.Errorf("retryAfterText(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

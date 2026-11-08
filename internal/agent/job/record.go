@@ -293,18 +293,20 @@ func RunRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 	defer events.Close()
 	sink := wire.Multi(out, events)
 	begin := time.Now()
-	if err := sink.Emit(wire.Event{Type: wire.EventStart, Agent: agentName, DispatchID: rec.ID, Status: "running"}); err != nil {
-		return wire.Result{Agent: agentName, Status: wire.StatusError}, err
+	res := wire.Result{Agent: agentName, Status: wire.StatusError}
+	err := sink.Emit(wire.Event{Type: wire.EventStart, Agent: agentName, DispatchID: rec.ID, Status: "running"})
+	if err == nil {
+		res, err = run(ctx, sink)
+		logSink.Close() // flush before writing the answer, so tail -f never misses the last line
+		if o.AnswerTo != nil && res.Answer != "" {
+			_, _ = io.WriteString(o.AnswerTo, res.Answer)
+		}
+		// the result event lands before the record leaves running, so a tail follower never exits without it
+		if rerr := sink.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, rec.ID))); rerr != nil && err == nil {
+			err = rerr
+		}
 	}
-	res, err := run(ctx, sink)
-	logSink.Close() // flush before the record leaves running, so tail -f never misses the last line
-	if o.AnswerTo != nil && res.Answer != "" {
-		_, _ = io.WriteString(o.AnswerTo, res.Answer)
-	}
-	// the result event lands before the record leaves running, so a tail follower never exits without it
-	if rerr := sink.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, rec.ID))); rerr != nil && err == nil {
-		err = rerr
-	}
+	logSink.Close()
 	rec.Finish(res, err, time.Since(begin))
 	if serr := rec.Save(); serr != nil && o.Notify != nil {
 		o.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", rec.ID, serr))

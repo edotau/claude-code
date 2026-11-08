@@ -9,12 +9,14 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -143,7 +145,10 @@ func dispatchDetach(ctx context.Context, client *client.Client, legs []roles.Leg
 			err = prepared.Record.Save()
 		}
 		if err == nil {
-			err = job.Spawn(&prepared.Record, nil)
+			if err = job.Spawn(&prepared.Record, nil); err != nil {
+				prepared.Record.Finish(wire.Result{}, err, time.Since(prepared.Record.Time))
+				_ = prepared.Record.Save()
+			}
 		}
 		if err != nil {
 			code = helptext.Fail("dispatch: %s: %v", leg.Label, err)

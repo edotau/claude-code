@@ -876,3 +876,26 @@ func (f *recordRunner) Available() error { return nil }
 func (f *recordRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	return f.res, f.err
 }
+
+type brokenSink struct{}
+
+func (brokenSink) Emit(wire.Event) error { return errors.New("stdout closed") }
+
+// Given a sink whose start emit fails, Then the claimed record leaves running instead of staying a phantom.
+func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	ran := false
+	_, err := RunRecorded(context.Background(), &rec, "claude", brokenSink{}, RunRecordedOpts{},
+		func(context.Context, wire.Sink) (wire.Result, error) { ran = true; return wire.Result{}, nil })
+	if err == nil || ran {
+		t.Fatalf("err = %v, ran = %v; want the emit error and no run", err, ran)
+	}
+	got, lerr := LoadRecord(rec.ID)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	if got.Status != "error" || got.Error == "" {
+		t.Errorf("record = %q/%q, want error with the cause", got.Status, got.Error)
+	}
+}
