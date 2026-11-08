@@ -20,9 +20,9 @@ const rmRecursive = `rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(-\S
 
 // hardBlocks are command shapes that are almost never intentional.
 var hardBlocks = core.LazyCompile(
-	rmRecursive+`/(\*|\s|$|[)\x60"'])`,
-	rmRecursive+`/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$|/?[)\x60"'])`,
-	rmRecursive+`(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
+	rmRecursive+`["']?/(\*|\s|$|[)\x60"'])`,
+	rmRecursive+`["']?/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$|/?[)\x60"'])`,
+	rmRecursive+`["']?(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
 	`mkfs\.`,
 	`dd\s+.*\sof=/dev/(sd|disk|nvme|hd)`,
 	`chmod\s+-R\s+777\s+/(\s|$)`,
@@ -334,9 +334,12 @@ func inertGh(toks []string) bool {
 	return len(toks) > 3 && (toks[1] == "pr" || toks[1] == "issue") && slices.Contains([]string{"create", "edit", "comment"}, toks[2])
 }
 
-// dropInertHeredocs removes bodies of file-only heredocs (`cat <<EOF > f`, `tee f <<EOF`); all other lines stay.
+// dropInertHeredocs removes file-only heredoc bodies unless the command also runs a file.
 func dropInertHeredocs(cmd string) string {
 	lines := strings.Split(cmd, "\n")
+	if runsWrittenFile.MatchString(lines[0]) || heredocTail(lines) {
+		return cmd
+	}
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
