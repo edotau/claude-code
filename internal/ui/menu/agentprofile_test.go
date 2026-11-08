@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -129,8 +130,8 @@ func TestSeedDismissWritesNothing(t *testing.T) {
 func TestSeedPickWritesProfilesOnly(t *testing.T) {
 	d, out := seedDialog(t, "")
 	// pick order in the picker: servable profiles, then the trailing off row
-	offOf := func(a string) int { return len(seedProfiles(d, a)) + 1 }
-	copilotProfiles := seedProfiles(d, "copilot")
+	offOf := func(a string) int { return len(configure.SeedProfiles(d.reg, a)) + 1 }
+	copilotProfiles := configure.SeedProfiles(d.reg, "copilot")
 	if len(copilotProfiles) == 0 {
 		t.Skip("registry serves copilot with no profile")
 	}
@@ -182,7 +183,7 @@ func TestSeedRowFitsEightyColumns(t *testing.T) {
 // Given a remembered last-used profile, seeding a registered profile after sign-in forgets it and sets the record.
 func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
 	d, out := seedDialog(t, "")
-	profiles := seedProfiles(d, "copilot")
+	profiles := configure.SeedProfiles(d.reg, "copilot")
 	if len(profiles) == 0 {
 		t.Skip("registry serves copilot with no profile")
 	}
