@@ -68,6 +68,8 @@ type PickOpts struct {
 	CanServe func(agent string, p *providers.Provider) bool
 	// CodexModel respells codex's Databricks target for the agent (the pin or flag rule).
 	CodexModel func(providers.Target) providers.Target
+	// Lead is the profile the wanted agent leads with (coworkers: the session's or an override); "" = its pin leads.
+	Lead string
 }
 
 // canServe is CanServe, or true for every pair when unset.

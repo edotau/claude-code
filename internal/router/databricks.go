@@ -99,6 +99,7 @@ func (t *RouteTable) gateCandidate(
 	var group []Candidate
 	if agent != "claude" && spec.Profile != "" {
 		group, _ = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
+		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
 	} else {
 		group, _ = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
 		if agent == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
@@ -113,7 +114,102 @@ func (t *RouteTable) gateCandidate(
 	if agent == "codex" && spec.Profile == "" {
 		group = append(group, t.gateCodexExtras(ctx, pg, alias, group, pins["copilot"], st, o, now, configured, res)...)
 	}
+	if agent == res.Want && o.Lead != "" && agent != "claude" {
+		group = t.gateLead(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)
+	}
 	return group, len(group) > 0
+}
+
+// gateVendor (non-want agents only; the want path is unchanged without Lead) is a pinned codex or copilot's own-login rows beside its pin; a skipped pin gets none (fails closed).
+func (t *RouteTable) gateVendor(
+	ctx context.Context, pg *pickGate, alias, agent string, own []Candidate, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	if pg.reg == nil || len(own) == 0 || agent == res.Want || (agent != "codex" && agent != "copilot") {
+		return nil
+	}
+	var rows []Candidate
+	for _, login := range loginProfiles(pg.reg, agent) {
+		if slices.ContainsFunc(own, func(c Candidate) bool { return c.Account == ProviderAccount(login) }) {
+			continue
+		}
+		rows = append(rows, t.gateRow(ctx, pg, alias, agent, login, "", true, st, o, now, configured, res)...)
+	}
+	return rows
+}
+
+// gateRow gates agent on profile prof. An own-login row carries no Profile, as on the unpinned path; quiet keeps only exhausted/auth skips.
+func (t *RouteTable) gateRow(
+	ctx context.Context, pg *pickGate, alias, agent, prof, model string, quiet bool, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	scratch := &PickResult{Alias: res.Alias, Want: res.Want}
+	g, _ := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
+	for _, sk := range scratch.Skipped {
+		if !quiet || sk.Gate == GateExhausted || sk.Gate == GateAuth { // a quiet row reports only real account state
+			sk.Reason = strings.Replace(sk.Reason, "pinned profile ", "profile ", 1)
+			res.Skipped = append(res.Skipped, sk)
+		}
+	}
+	if p := pg.reg.Providers[prof]; p != nil && p.Auth.Login == agent {
+		g = slices.Clone(g)
+		for i := range g {
+			g[i].Profile = ""
+		}
+	}
+	return g
+}
+
+// gateLead puts the wanted agent on o.Lead, then each of its login rows, ahead of base (deduped, base wins).
+// gemini never runs on a non-Google row (owner rule R1).
+func (t *RouteTable) gateLead(
+	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, base []Candidate, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	if pg.reg == nil {
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "lead " + o.Lead + ": no provider registry"})
+		return base
+	}
+	var lead []Candidate
+	for i, prof := range append([]string{o.Lead}, loginProfiles(pg.reg, agent)...) {
+		if prof == "" || (i > 0 && prof == o.Lead) {
+			continue
+		}
+		if agent == "gemini" && !googleRow(pg.reg, prof) {
+			res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google only, not " + prof})
+			continue
+		}
+		lead = append(lead, t.gateRow(ctx, pg, alias, agent, prof, spec.Model, i > 0, st, o, now, configured, res)...)
+	}
+	same := func(a, b Candidate) bool { return a.Agent == b.Agent && a.Account == b.Account && a.Model == b.Model }
+	for i, l := range lead {
+		if j := slices.IndexFunc(base, func(c Candidate) bool { return same(c, l) }); j >= 0 {
+			lead[i] = base[j]
+		}
+	}
+	for _, c := range base {
+		if !slices.ContainsFunc(lead, func(l Candidate) bool { return same(l, c) }) {
+			lead = append(lead, c)
+		}
+	}
+	return lead
+}
+
+// loginProfiles lists every registry row carrying agent's own CLI login, in name order.
+func loginProfiles(reg *providers.Registry, agent string) []string {
+	var rows []string
+	for _, n := range reg.Names() {
+		if reg.Providers[n].Auth.Login == agent {
+			rows = append(rows, n)
+		}
+	}
+	return rows
+}
+
+// googleRow reports a registry row on provider google (gemini's only allowed route).
+func googleRow(reg *providers.Registry, name string) bool {
+	p := reg.Providers[name]
+	return p != nil && p.Provider == "google"
 }
 
 // gateCodexExtras adds the session Databricks codex candidate and, when codex is wanted, the copilot hop.
