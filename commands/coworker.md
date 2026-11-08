@@ -1,1 +1,0 @@
-../marketplace/plugins/coworker/skills/coworker/SKILL.md

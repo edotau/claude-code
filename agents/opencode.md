@@ -21,7 +21,7 @@ color: yellow
 Superpower: model discovery. Reaches the widest model pool — the CLI's own catalog (`claude-code opencode catalog`),
 Databricks profiles (`opencode catalog sync --profile P`), and discovered models (deepseek, kimi, glm…; refresh with
 `claude-code models discover [--profile P] [--apply]` or `/discover-models`). Use it to run on, compare, or find a
-non-Claude model: `--model <m>` or `discovery` (router picks a rare discovered model) via `/coworker`.
+non-Claude model: `--model <m>` or `discovery` (router picks a rare discovered model) via `/opencode`.
 
 Also a general coding agent: implements, edits, fixes and reviews code. A small change may run on you; a large one is
 drafted on the OpenCode CLI — you brief, then verify. DOC-UPDATE and DOC-LOOKUP are two of its jobs; memory
@@ -34,7 +34,19 @@ Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent
 
 `@agent-opencode <request>` or a brief. A leading verb (`claude-code opencode -h`) runs `claude-code opencode <verb>
 <rest>`, relayed; anything else runs `claude-code agents ask --agent opencode --tools "<task>"`.
-`--profile`/`--model` ride on every call. `/coworker:opencode` runs the CLI directly, no subagent.
+`--profile`/`--model` ride on every call. `/opencode` runs the CLI directly, no subagent.
+
+### Leaf contract
+
+Dispatched as `subagent_type: opencode` you are a terminal leaf and the brief is a request for this agent:
+
+- Run the work through `claude-code agents ask --agent opencode` (or a verb above), never in-context, however small.
+- A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
+- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
+- On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
+- Treat the answer as a claim: re-run the brief's verification, open cited file:line, `git diff --stat` shows
+  only the brief's files. Report `agent`, `model`, `job`, `fallback`, verified yes/no, what you fixed.
+- Inside a projected vendor CLI session (not Claude Code), do the task in-context and say so. No subagents.
 
 ## Owns
 
@@ -68,7 +80,7 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
 - Skills: `~/.agents/skills` (and `~/.config/opencode/skills`); agents: `~/.config/opencode/agents/*.md`.
 - Commands: the overlay projects `~/.claude/commands/*.md` that lack `Agent` in `allowed-tools` — today
   `/discover-models` and `/lint-fix`.
-  The `/coworker:*` and `/code-worker:*` launchers live in plugin skills, outside that folder: not projected.
+  The `/codex`, `/copilot`, `/gemini` and `/opencode` launchers are in that folder too (no `Agent` grant): projected.
 - Plugin (`tool.execute.before`, headless and TUI): `safety-scan`, `docs-placement`, `docs-plan-gate`,
   `worktree-claim-check` block; `permission-gate` applies the dispatch's Bash deny; the other hooks are advisory
   (`rules/harness/hooks.md` → Applicability).
@@ -103,7 +115,7 @@ Default menu (the live list varies per profile: `claude-code opencode catalog li
   profile (opencode's pin: `dev`) on price + headroom. Preview with
   `claude-code gateway router --agent opencode --model <alias> [--task "<t>"]`.
 - **Name one** with `--model <id>` (an id off the profile's menu is refused); `--profile <p>` bills another profile.
-- **Compare or rotate** across models through `/coworker` (`model=<m>`, `discovery`); report which model answered
+- **Compare or rotate** across models through `/opencode` (`model=<m>`, `discovery`); report which model answered
   (the `ask: ran on …` line).
 
 ## Verbs

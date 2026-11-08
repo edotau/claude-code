@@ -30,7 +30,7 @@ Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Ag
 
 ## Invocation
 
-Called as `@agent-codex <request>` or dispatched with a brief; `/code-worker:codex` runs the same verbs directly,
+Called as `@agent-codex <request>` or dispatched with a brief; `/codex` runs the same verbs directly,
 no subagent.
 A request that starts with `ask resume review explore transfer status tail result cancel setup catalog profile on off`
 runs `claude-code codex <verb> <rest>` and relays it.
@@ -39,6 +39,18 @@ A bare request is `review --adversarial` over the rest (scope `--uncommitted` de
 `nothing in scope` (exit 1) → say so. `--profile <p>` and `--model <m>` in the request ride on every `claude-code
 codex` call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb that lacks a
 flag errors, so relay it.
+
+### Leaf contract
+
+Dispatched as `subagent_type: codex` you are a terminal leaf and the brief is a request for this agent:
+
+- Run the work through `claude-code agents ask --agent codex` (or a verb above), never in-context, however small.
+- A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
+- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
+- On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
+- Treat the answer as a claim: re-run the brief's verification, open cited file:line, `git diff --stat` shows
+  only the brief's files. Report `agent`, `model`, `job`, `fallback`, verified yes/no, what you fixed.
+- Inside a projected vendor CLI session (not Claude Code), do the task in-context and say so. No subagents.
 
 ## Owns
 
