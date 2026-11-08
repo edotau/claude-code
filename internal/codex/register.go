@@ -2,6 +2,7 @@ package codex
 
 import (
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -22,7 +23,7 @@ var row = agent.Schema{Name: "codex", CLI: agent.CLI{
 		Tools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Native, Persona: agent.Emulated,
 		Permissions: agent.Native},
-	Events:       []string{agent.EventStart, agent.EventText, agent.EventToolUse, agent.EventToolResult, agent.EventResult, agent.EventError},
+	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError},
 	ResumeFormat: "codex resume %s", ModelsProvider: "openai", LoginArgv: []string{"codex", "login"},
 	ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key",
 }}

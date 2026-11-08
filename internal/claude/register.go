@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -18,7 +19,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, DebugFile: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,
 		Permissions: agent.Native},
-	Events: []string{agent.EventStart, agent.EventText, agent.EventToolUse, agent.EventRetry, agent.EventResult, agent.EventError},
+	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventRetry, wire.EventResult, wire.EventError},
 	Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
 }}
 

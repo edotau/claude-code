@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -322,7 +323,7 @@ func TestAssistantCollectorSumsUsage(t *testing.T) {
 	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantUsageData{Model: "m", InputTokens: n(200), OutputTokens: n(25)}})
 	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantUsageData{Model: "m"}})
 	text, _, got := col.snapshot()
-	want := agent.Usage{InputTokens: 500, CacheReadTokens: 600, CacheCreationTokens: 100, OutputTokens: 75}
+	want := wire.Usage{InputTokens: 500, CacheReadTokens: 600, CacheCreationTokens: 100, OutputTokens: 75}
 	if got != want || text != "hi" {
 		t.Fatalf("snapshot = %q, %+v; want hi, %+v", text, got, want)
 	}

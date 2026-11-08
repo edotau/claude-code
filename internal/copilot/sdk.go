@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -68,7 +69,7 @@ type SDKResult struct {
 	Model     string
 	Duration  time.Duration
 	ToolRan   bool // a tool request was approved, so the run may have side effects
-	Usage     agent.Usage
+	Usage     wire.Usage
 }
 
 // BuildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
@@ -345,7 +346,7 @@ type assistantCollector struct {
 	mu    sync.Mutex
 	text  strings.Builder
 	model string
-	usage agent.Usage
+	usage wire.Usage
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
@@ -380,7 +381,7 @@ func tokenCount(p *int64) int {
 }
 
 // snapshot returns the trimmed text, last model and summed usage seen so far.
-func (c *assistantCollector) snapshot() (text, model string, usage agent.Usage) {
+func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return strings.TrimSpace(c.text.String()), c.model, c.usage

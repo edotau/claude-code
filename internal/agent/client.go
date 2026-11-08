@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"sync"
 	"time"
 
@@ -198,9 +199,9 @@ func (c *Client) record(ctx context.Context, o RunOptions, job *Record) Record {
 }
 
 // Exec runs a prepared dispatch, leaving initial record saving and background spawning to the caller.
-func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d RunRecordedOpts) (Result, error) {
+func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunRecordedOpts) (wire.Result, error) {
 	if out == nil {
-		out = Discard
+		out = wire.Discard
 	}
 	if d.Notify == nil {
 		d.Notify = c.Notify
@@ -208,11 +209,11 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d RunRecordedO
 	ctx = withUnsetEnv(ctx, p.Opts.Unset)
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {
-			return Result{Agent: p.chain.Want, Status: StatusError, DispatchID: p.Record.ID}, err
+			return wire.Result{Agent: p.chain.Want, Status: wire.StatusError, DispatchID: p.Record.ID}, err
 		}
 		defer p.pack.remove()
 	}
-	res, err := RunRecorded(ctx, &p.Record, p.chain.Want, out, d, func(ctx context.Context, sink Sink) (Result, error) {
+	res, err := RunRecorded(ctx, &p.Record, p.chain.Want, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
@@ -223,10 +224,10 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d RunRecordedO
 }
 
 // Run prepares, saves and executes one dispatch; a nil output discards the caller's stream.
-func (c *Client) Run(ctx context.Context, o RunOptions, out Sink) (Result, error) {
+func (c *Client) Run(ctx context.Context, o RunOptions, out wire.Sink) (wire.Result, error) {
 	p, err := c.Prepare(ctx, o, nil)
 	if err != nil {
-		return Result{Agent: cmp.Or(o.Agent, "claude"), Status: StatusError}, err
+		return wire.Result{Agent: cmp.Or(o.Agent, "claude"), Status: wire.StatusError}, err
 	}
 	if err := p.Record.Save(); err != nil && c.Notify != nil { // fail-open: the log never gates the run
 		c.Notify(fmt.Sprintf("dispatch %s record not saved before the run: %v", p.Record.ID, err))
@@ -247,9 +248,9 @@ var streamStall = 2 * time.Minute
 var ErrStreamAbandoned = errors.New("agent: stream consumer abandoned")
 
 type chanSink struct {
-	stamper
+	wire.Stamper
 	mu        sync.Mutex
-	ch        chan Event
+	ch        chan wire.Event
 	cancel    context.CancelCauseFunc
 	fullSince time.Time
 	dropped   int
@@ -257,18 +258,18 @@ type chanSink struct {
 }
 
 func newChanSink(cancel context.CancelCauseFunc) *chanSink {
-	return &chanSink{stamper: newStamper(), ch: make(chan Event, streamBuffer), cancel: cancel}
+	return &chanSink{Stamper: wire.NewStamper(), ch: make(chan wire.Event, streamBuffer), cancel: cancel}
 }
 
 // Emit stamps ev and drops the oldest buffered event when the consumer falls behind.
-func (s *chanSink) Emit(ev Event) error {
-	if ev.Type == EventProgress { // a retry-gate mark for the relay, not an event a Stream consumer reads
+func (s *chanSink) Emit(ev wire.Event) error {
+	if ev.Type == wire.EventProgress { // a retry-gate mark for the relay, not an event a Stream consumer reads
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.stamp(&ev)
-	if ev.Type == EventResult {
+	s.Stamp(&ev)
+	if ev.Type == wire.EventResult {
 		s.sawResult = true
 	}
 	select {
@@ -281,10 +282,10 @@ func (s *chanSink) Emit(ev Event) error {
 	return nil
 }
 
-func (s *chanSink) replaceOldest(ev Event) {
+func (s *chanSink) replaceOldest(ev wire.Event) {
 	if s.fullSince.IsZero() {
-		s.fullSince = Clock()
-	} else if Clock().Sub(s.fullSince) > streamStall {
+		s.fullSince = wire.Clock()
+	} else if wire.Clock().Sub(s.fullSince) > streamStall {
 		s.cancel(ErrStreamAbandoned)
 	}
 	select {
@@ -299,15 +300,15 @@ func (s *chanSink) replaceOldest(ev Event) {
 }
 
 // Stream runs a dispatch and returns its buffered event stream.
-func (c *Client) Stream(ctx context.Context, o RunOptions) <-chan Event {
-	return c.streamWith(ctx, cmp.Or(o.Agent, "claude"), func(ctx context.Context, sink Sink) (Result, error) {
+func (c *Client) Stream(ctx context.Context, o RunOptions) <-chan wire.Event {
+	return c.streamWith(ctx, cmp.Or(o.Agent, "claude"), func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		return c.Run(ctx, o, sink)
 	})
 }
 
 func (c *Client) streamWith(
-	ctx context.Context, agentName string, fn func(context.Context, Sink) (Result, error),
-) <-chan Event {
+	ctx context.Context, agentName string, fn func(context.Context, wire.Sink) (wire.Result, error),
+) <-chan wire.Event {
 	ctx, cancel := context.WithCancelCause(ctx)
 	sink := newChanSink(cancel)
 	go func() {
@@ -322,7 +323,7 @@ func (c *Client) streamWith(
 			sawResult := sink.sawResult
 			sink.mu.Unlock()
 			if err != nil && !sawResult {
-				_ = sink.Emit(ResultEvent(FailureEnvelope(agentName, err)))
+				_ = sink.Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 			}
 			sink.mu.Lock()
 			dropped := sink.dropped

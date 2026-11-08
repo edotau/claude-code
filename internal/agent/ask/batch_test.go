@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -45,12 +46,12 @@ func TestParseTaskPlanTask(t *testing.T) {
 }
 
 // runRetryBatch runs tasks with one job and returns the ok flag and the decoded envelopes by task id.
-func runRetryBatch(t *testing.T, o PoolOptions, tasks ...Task) (bool, map[string][]agent.Envelope) {
+func runRetryBatch(t *testing.T, o PoolOptions, tasks ...Task) (bool, map[string][]wire.Envelope) {
 	t.Helper()
 	var buf bytes.Buffer
 	o.Out, o.ID, o.Jobs = &buf, "batch-r", 1
 	ok := RunTasks(t.Context(), tasks, o)
-	byID := map[string][]agent.Envelope{}
+	byID := map[string][]wire.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		byID[env.TaskID] = append(byID[env.TaskID], env)
 	}
@@ -62,7 +63,7 @@ func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
 	vendorHost(t)
 	var prep, again atomic.Int32
 	_, got := runRetryBatch(t, PoolOptions{}, vendorTask(t, "a", "Phase 1.1", "FAILME", "ok", &prep, &again))
-	if len(got["a"]) != 1 || got["a"][0].Status != agent.StatusOK || len(got["a"][0].Hops) < 2 {
+	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusOK || len(got["a"][0].Hops) < 2 {
 		t.Fatalf("envelopes for a = %+v, want one ok envelope with >= 2 hops", got["a"])
 	}
 	if prep.Load() != 1 || again.Load() != 1 {
@@ -85,7 +86,7 @@ func TestRetryAlsoFailsEmitsRetryError(t *testing.T) {
 	vendorHost(t)
 	var prep, again atomic.Int32
 	ok, got := runRetryBatch(t, PoolOptions{}, vendorTask(t, "a", "", "FAILME", "FAILME", &prep, &again))
-	if ok || len(got["a"]) != 1 || got["a"][0].Status != agent.StatusError || len(got["a"][0].Hops) != 2 {
+	if ok || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError || len(got["a"][0].Hops) != 2 {
 		t.Fatalf("ok=%v envelopes for a = %+v, want one error envelope with 2 hops", ok, got["a"])
 	}
 	if prep.Load() != 1 || again.Load() != 1 {
@@ -97,7 +98,7 @@ func TestRetryAlsoFailsEmitsRetryError(t *testing.T) {
 func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
 	vendorHost(t)
 	var n, again atomic.Int32
-	done := make(chan map[string][]agent.Envelope, 1)
+	done := make(chan map[string][]wire.Envelope, 1)
 	go func() {
 		_, got := runRetryBatch(t, PoolOptions{},
 			vendorTask(t, "a", "", "FAILME", "ok", &n, &again),
@@ -108,7 +109,7 @@ func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
 	select {
 	case got := <-done:
 		for _, id := range []string{"a", "b", "c"} {
-			if len(got[id]) != 1 || got[id][0].Status != agent.StatusOK {
+			if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
 				t.Errorf("task %s envelopes = %+v, want one ok", id, got[id])
 			}
 		}
@@ -135,7 +136,7 @@ func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
 	var prep, again atomic.Int32
 	_, got := runRetryBatch(t, PoolOptions{FailFast: true},
 		vendorTask(t, "a", "", "FAILME", "ok", &prep, &again), vendorTask(t, "b", "", "ok", "", &prep, &prep))
-	if again.Load() != 0 || len(got["a"]) != 1 || got["a"][0].Status != agent.StatusError {
+	if again.Load() != 0 || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError {
 		t.Errorf("FailFast: retry calls %d, a envelopes %+v, want 0 retries and a's own error", again.Load(), got["a"])
 	}
 }

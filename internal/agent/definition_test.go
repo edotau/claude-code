@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -123,7 +124,7 @@ func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	down := &fakeRunner{name: "codex", errs: []error{errors.New(`exec: "codex": executable file not found in $PATH`)}, emptyAnswer: true}
 	emu := &fakeRunner{name: "gemini", caps: Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, wire.Discard, nil)
 	if err == nil || len(emu.seen) != 0 || len(res.Hops) != 2 {
 		t.Fatalf("agent=%q err=%v emulating runs=%d, want a refusal on the second hop and no run", res.Agent, err, len(emu.seen))
 	}

@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"net"
 	"os"
 	"path/filepath"
@@ -105,10 +106,10 @@ func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Dur
 
 type collect struct {
 	mu  sync.Mutex
-	got []agent.Event
+	got []wire.Event
 }
 
-func (c *collect) Emit(ev agent.Event) error {
+func (c *collect) Emit(ev wire.Event) error {
 	c.mu.Lock()
 	c.got = append(c.got, ev)
 	c.mu.Unlock()
@@ -125,7 +126,7 @@ func TestLiveSessionTurnsRefusalAndCancel(t *testing.T) {
 	}
 	assertLiveRecall(t, id)
 	slow := make(chan error, 1)
-	go func() { _, e := SendLive(context.Background(), id, "slow", agent.Discard); slow <- e }()
+	go func() { _, e := SendLive(context.Background(), id, "slow", wire.Discard); slow <- e }()
 	started := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "slow-started")
 	for range 400 {
 		if _, err := os.Stat(started); err == nil {
@@ -133,7 +134,7 @@ func TestLiveSessionTurnsRefusalAndCancel(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, err := SendLive(context.Background(), id, "second", agent.Discard); err != ErrLiveBusy {
+	if _, err := SendLive(context.Background(), id, "second", wire.Discard); err != ErrLiveBusy {
 		t.Errorf("concurrent send = %v, want ErrLiveBusy", err)
 	}
 	if err := os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "slow-go"), nil, 0o600); err != nil {
@@ -150,13 +151,13 @@ func assertLiveRecall(t *testing.T, id string) {
 	t.Helper()
 	var sink collect
 	env, err := SendLive(context.Background(), id, "remember 42", &sink)
-	if err != nil || env.Status != agent.StatusOK || env.Answer != "ok" {
+	if err != nil || env.Status != wire.StatusOK || env.Answer != "ok" {
 		t.Fatalf("turn 1 = %+v, %v", env, err)
 	}
-	if first := sink.got[0].Type; first != agent.EventStart {
+	if first := sink.got[0].Type; first != wire.EventStart {
 		t.Errorf("first event = %s, want start", first)
 	}
-	env2, err := SendLive(context.Background(), id, "what number", agent.Discard)
+	env2, err := SendLive(context.Background(), id, "what number", wire.Discard)
 	if err != nil || !strings.HasPrefix(env2.Answer, "42 pid ") {
 		t.Fatalf("turn 2 = %+v, %v (the second turn must recall the first)", env2, err)
 	}
@@ -186,7 +187,7 @@ func TestLiveIdleTimeoutEndsOK(t *testing.T) {
 	if got, _ := agent.LoadRecord(id); got.Status != "ok" {
 		t.Errorf("idle end status = %s, want ok", got.Status)
 	}
-	if _, err := SendLive(context.Background(), id, "x", agent.Discard); err == nil || !strings.Contains(err.Error(), "ended") {
+	if _, err := SendLive(context.Background(), id, "x", wire.Discard); err == nil || !strings.Contains(err.Error(), "ended") {
 		t.Errorf("send after idle = %v, want an ended error", err)
 	}
 }
@@ -222,7 +223,7 @@ func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
 	id, wait := startHolder(t, context.Background(), 300*time.Millisecond)
 	done := make(chan error, 1)
 	go func() {
-		_, err := SendLive(context.Background(), id, strings.Repeat("y", 200000), agent.Discard)
+		_, err := SendLive(context.Background(), id, strings.Repeat("y", 200000), wire.Discard)
 		done <- err
 	}()
 	select {
@@ -242,10 +243,10 @@ func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
 func TestLiveTurnErrorNeverLeaksIntoNextTurn(t *testing.T) {
 	liveEnv(t)
 	id, wait := startHolder(t, context.Background(), 5*time.Second)
-	if _, err := SendLive(context.Background(), id, "boom", agent.Discard); err != nil {
+	if _, err := SendLive(context.Background(), id, "boom", wire.Discard); err != nil {
 		t.Logf("failing turn: %v", err)
 	}
-	env, err := SendLive(context.Background(), id, "remember 7", agent.Discard)
+	env, err := SendLive(context.Background(), id, "remember 7", wire.Discard)
 	if err == nil && env.Answer == "late" {
 		t.Fatalf("next send got the previous turn's answer %q", env.Answer)
 	}
@@ -337,11 +338,11 @@ func TestLiveAgySession(t *testing.T) {
 
 func assertAgyRecallAndUsage(t *testing.T, id string) {
 	t.Helper()
-	env, err := SendLive(context.Background(), id, "remember 42", agent.Discard)
-	if err != nil || env.Status != agent.StatusOK || env.Answer != "ok" || env.Agent != "gemini" {
+	env, err := SendLive(context.Background(), id, "remember 42", wire.Discard)
+	if err != nil || env.Status != wire.StatusOK || env.Answer != "ok" || env.Agent != "gemini" {
 		t.Fatalf("turn 1 = %+v, %v", env, err)
 	}
-	env2, err := SendLive(context.Background(), id, "what number", agent.Discard)
+	env2, err := SendLive(context.Background(), id, "what number", wire.Discard)
 	if err != nil || env2.Answer != "42" {
 		t.Fatalf("turn 2 = %+v, %v (the second turn must recall the first)", env2, err)
 	}
@@ -376,7 +377,7 @@ func TestLiveClaudeCostIsPerTurn(t *testing.T) {
 	id, wait := startHolder(t, ctx, time.Minute)
 	defer func() { cancel(); _ = wait() }()
 	for turn := 1; turn <= 3; turn++ {
-		env, err := SendLive(context.Background(), id, "x", agent.Discard)
+		env, err := SendLive(context.Background(), id, "x", wire.Discard)
 		if err != nil || env.Usage.CostUSD != 0.5 {
 			t.Fatalf("turn %d = cost %v, %v; want the turn's own 0.5", turn, env.Usage.CostUSD, err)
 		}
@@ -421,11 +422,11 @@ func startAgy(t *testing.T, script string, req agent.RunOptions) (string, func()
 func TestLiveAgyErrorResultKeepsSession(t *testing.T) {
 	id, cancel, wait := startAgy(t, fakeErrAgy, agent.RunOptions{Timeout: time.Minute})
 	defer func() { cancel(); _ = wait() }()
-	env, err := SendLive(context.Background(), id, "fail now", agent.Discard)
-	if err == nil && env.Status != agent.StatusError {
+	env, err := SendLive(context.Background(), id, "fail now", wire.Discard)
+	if err == nil && env.Status != wire.StatusError {
 		t.Fatalf("failing turn = %+v, %v; want an error status", env, err)
 	}
-	if env2, err := SendLive(context.Background(), id, "again", agent.Discard); err != nil || env2.Status != agent.StatusOK {
+	if env2, err := SendLive(context.Background(), id, "again", wire.Discard); err != nil || env2.Status != wire.StatusOK {
 		t.Fatalf("turn after an ERROR result = %+v, %v; the session must survive", env2, err)
 	}
 }
@@ -434,11 +435,11 @@ func TestLiveAgyErrorResultKeepsSession(t *testing.T) {
 func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
 	id, cancel, wait := startAgy(t, fakeErrAgy, agent.RunOptions{Timeout: time.Minute, AppendSystemPrompt: "SPEAK-FRENCH"})
 	defer func() { cancel(); _ = wait() }()
-	e1, err := SendLive(context.Background(), id, "hello", agent.Discard)
+	e1, err := SendLive(context.Background(), id, "hello", wire.Discard)
 	if err != nil || !strings.Contains(e1.Answer, "SPEAK-FRENCH") {
 		t.Fatalf("turn 1 = %+v, %v; want the system prompt in the first turn", e1, err)
 	}
-	e2, err := SendLive(context.Background(), id, "hello", agent.Discard)
+	e2, err := SendLive(context.Background(), id, "hello", wire.Discard)
 	if err != nil || strings.Contains(e2.Answer, "SPEAK-FRENCH") {
 		t.Fatalf("turn 2 = %+v, %v; the system prompt must not repeat", e2, err)
 	}
@@ -448,14 +449,14 @@ func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
 func TestLiveAgyResumedUsageBaseline(t *testing.T) {
 	id, cancel, wait := startAgy(t, fakeCumAgy, agent.RunOptions{Timeout: time.Minute, SessionID: "old"})
 	defer func() { cancel(); _ = wait() }()
-	e1, err := SendLive(context.Background(), id, "a", agent.Discard)
+	e1, err := SendLive(context.Background(), id, "a", wire.Discard)
 	if err != nil {
 		t.Fatalf("first turn: %v", err)
 	}
 	if e1.Usage != nil {
 		t.Errorf("first resumed turn usage = %+v, want none (unknown), not the history", e1.Usage)
 	}
-	e2, err := SendLive(context.Background(), id, "b", agent.Discard)
+	e2, err := SendLive(context.Background(), id, "b", wire.Discard)
 	if err != nil {
 		t.Fatalf("second turn: %v", err)
 	}
@@ -494,7 +495,7 @@ func TestLiveFinalResultSurvivesImmediateChildExit(t *testing.T) {
 	for i := range 30 {
 		liveEnvScript(t, fakeExitAfterResult)
 		id, wait := startHolder(t, context.Background(), time.Minute)
-		env, err := SendLive(context.Background(), id, "go", agent.Discard)
+		env, err := SendLive(context.Background(), id, "go", wire.Discard)
 		if err != nil || env.Answer != "final" {
 			t.Fatalf("run %d: answer %q, err %v; want the final result delivered", i, env.Answer, err)
 		}

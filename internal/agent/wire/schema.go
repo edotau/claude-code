@@ -1,5 +1,4 @@
-// Package answer checks a structured agent answer against a JSON Schema (stdlib only).
-package answer
+package wire
 
 import (
 	"bytes"
@@ -17,8 +16,8 @@ import (
 // ErrSchema marks an answer that is not JSON satisfying the requested schema; the envelope kind is "schema".
 var ErrSchema = errors.New("schema")
 
-// Instruction is the one line that asks an agent without a native flag for schema-shaped JSON.
-func Instruction(schema string) string {
+// SchemaInstruction is the one line that asks an agent without a native flag for schema-shaped JSON.
+func SchemaInstruction(schema string) string {
 	return "\n\nAnswer with only a JSON value matching this JSON Schema, no prose or code fence: " + compactJSON(schema)
 }
 

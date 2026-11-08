@@ -2,67 +2,13 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
-
-// readEvents decodes the event file at path, one Event per line.
-func readEvents(t *testing.T, path string) []Event {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var evs []Event
-	for ln := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
-		var ev Event
-		if err := json.Unmarshal([]byte(ln), &ev); err != nil {
-			t.Fatalf("bad event line %q: %v", ln, err)
-		}
-		evs = append(evs, ev)
-	}
-	return evs
-}
-
-// A secret split across two text deltas must land redacted in the event file, never raw.
-func TestEventLogRedactsSecretSplitAcrossDeltas(t *testing.T) {
-	tok := "ghp_" + strings.Repeat("a", 36)
-	path := filepath.Join(t.TempDir(), "x.events.jsonl")
-	l := NewEventLog(path, "id1")
-	_ = l.Emit(Event{Type: EventText, Text: "token " + tok[:20]})
-	_ = l.Emit(Event{Type: EventText, Text: tok[20:] + " end\n"})
-	l.Close()
-	raw, _ := os.ReadFile(path)
-	if strings.Contains(string(raw), tok) || strings.Contains(string(raw), tok[:20]) {
-		t.Fatalf("event file leaks the split secret:\n%s", raw)
-	}
-	if !strings.Contains(string(raw), "end") {
-		t.Fatalf("text lost:\n%s", raw)
-	}
-}
-
-// Held text is flushed before the next non-text event, so the file reads text then tool_use.
-func TestEventLogFlushesHeldTextBeforeToolUse(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "x.events.jsonl")
-	l := NewEventLog(path, "id1")
-	_ = l.Emit(Event{Type: EventStart})
-	_ = l.Emit(Event{Type: EventText, Text: "no newline yet"})
-	_ = l.Emit(ToolEvent("Bash", "t1"))
-	_ = l.Emit(Event{Type: EventResult})
-	l.Close()
-	var got []string
-	for _, ev := range readEvents(t, path) {
-		got = append(got, ev.Type)
-	}
-	if want := "start,text,tool_use,result"; strings.Join(got, ",") != want {
-		t.Fatalf("event order = %v, want %s", got, want)
-	}
-}
 
 // Each fallback hop emits exactly one retry event with the documented text.
 func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
@@ -71,15 +17,15 @@ func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	first := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{errors.New("boom")}}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	var evs []Event
-	sink := sinkFunc(func(ev Event) error { evs = append(evs, ev); return nil })
+	var evs []wire.Event
+	sink := sinkFunc(func(ev wire.Event) error { evs = append(evs, ev); return nil })
 	c := Chain{Want: "codex", Dispatches: []Dispatch{{Agent: first}, {Agent: second}}}
 	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, sink, nil); err != nil {
 		t.Fatal(err)
 	}
 	var retries []string
 	for _, ev := range evs {
-		if ev.Type == EventRetry {
+		if ev.Type == wire.EventRetry {
 			retries = append(retries, ev.Text)
 		}
 	}
@@ -88,41 +34,9 @@ func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
 	}
 }
 
-type sinkFunc func(Event) error
+type sinkFunc func(wire.Event) error
 
-func (f sinkFunc) Emit(ev Event) error { return f(ev) }
-
-func TestEventLogFlushesEachEventBeforeClose(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "x.events.jsonl")
-	l := NewEventLog(path, "d1")
-	defer l.Close()
-	_ = l.Emit(Event{Type: EventStart, Agent: "codex", DispatchID: "d1", Status: "running"})
-	_ = l.Emit(Event{Type: EventText, Text: "line one\n"})
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), `"start"`) || !strings.Contains(string(b), "line one") {
-		t.Fatalf("live reader sees %q before Close", b)
-	}
-}
-
-// A secret inside the result envelope's structured value lands redacted in the event file, nested values too.
-func TestEventLogRedactsStructured(t *testing.T) {
-	tok := "ghp_" + strings.Repeat("b", 36)
-	path := filepath.Join(t.TempDir(), "x.events.jsonl")
-	l := NewEventLog(path, "id1")
-	env := Envelope{Answer: "ok", Structured: json.RawMessage(`{"a":{"list":["` + tok + `",9007199254740993]}}`)}
-	_ = l.Emit(ResultEvent(env))
-	l.Close()
-	raw, _ := os.ReadFile(path)
-	if strings.Contains(string(raw), tok) {
-		t.Fatalf("event file leaks the structured secret:\n%s", raw)
-	}
-	if !strings.Contains(string(raw), "9007199254740993") {
-		t.Fatalf("structured number altered:\n%s", raw)
-	}
-}
+func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }
 
 // resultProbe records the on-disk record status at the moment the result event is emitted.
 type resultProbe struct {
@@ -130,8 +44,8 @@ type resultProbe struct {
 	status string
 }
 
-func (p *resultProbe) Emit(ev Event) error {
-	if ev.Type == EventResult {
+func (p *resultProbe) Emit(ev wire.Event) error {
+	if ev.Type == wire.EventResult {
 		got, _ := LoadRecord(p.id)
 		p.status = got.Status
 	}
@@ -144,8 +58,8 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	probe := &resultProbe{id: rec.ID}
 	_, err := RunRecorded(context.Background(), &rec, "codex", probe, RunRecordedOpts{},
-		func(context.Context, Sink) (Result, error) {
-			return Result{Agent: "codex", Status: StatusOK, Answer: "hi"}, nil
+		func(context.Context, wire.Sink) (wire.Result, error) {
+			return wire.Result{Agent: "codex", Status: wire.StatusOK, Answer: "hi"}, nil
 		})
 	if err != nil {
 		t.Fatal(err)
@@ -153,46 +67,21 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	if probe.status != "running" {
 		t.Fatalf("record status at result emit = %q, want running", probe.status)
 	}
-	if got, _ := LoadRecord(rec.ID); got.Status != StatusOK {
-		t.Fatalf("final record status = %q, want %q", got.Status, StatusOK)
+	if got, _ := LoadRecord(rec.ID); got.Status != wire.StatusOK {
+		t.Fatalf("final record status = %q, want %q", got.Status, wire.StatusOK)
 	}
 }
 
-type recSink struct{ got []Event }
+type recSink struct{ got []wire.Event }
 
-func (s *recSink) Emit(ev Event) error { s.got = append(s.got, ev); return nil }
+func (s *recSink) Emit(ev wire.Event) error { s.got = append(s.got, ev); return nil }
 
-// A progress mark flips runSink's flag with no text or tool call; an empty text event does not.
-func TestRunSinkCountsProgressMark(t *testing.T) {
-	rs := &runSink{Sink: Discard, agent: "x"}
-	_ = rs.Emit(Event{Type: EventText})
-	if rs.progressed {
-		t.Fatal("empty text counted as progress")
-	}
-	_ = rs.Emit(Event{Type: EventProgress})
-	if !rs.progressed {
-		t.Fatal("progress mark not counted")
-	}
-}
-
-// The mark reaches no renderer or reader: not the text sink, the event file or a Client stream.
-func TestProgressMarkIsInvisible(t *testing.T) {
-	var sb strings.Builder
-	_ = NewTextSink(&sb).Emit(Event{Type: EventProgress})
-	path := filepath.Join(t.TempDir(), "x.events.jsonl")
-	l := NewEventLog(path, "id1")
-	_ = l.Emit(Event{Type: EventStart})
-	_ = l.Emit(Event{Type: EventProgress})
-	l.Close()
+// The chanSink queues no progress mark for a Client stream.
+func TestChanSinkDropsProgressMark(t *testing.T) {
 	cs := newChanSink(func(error) {})
-	_ = cs.Emit(Event{Type: EventProgress})
-	if sb.Len() != 0 || len(cs.ch) != 0 {
-		t.Errorf("text sink wrote %q, stream queued %d events; want neither", sb.String(), len(cs.ch))
-	}
-	for _, ev := range readEvents(t, path) {
-		if ev.Type == EventProgress {
-			t.Errorf("event file kept the mark: %+v", ev)
-		}
+	_ = cs.Emit(wire.Event{Type: wire.EventProgress})
+	if len(cs.ch) != 0 {
+		t.Errorf("stream queued %d events; want none", len(cs.ch))
 	}
 }
 

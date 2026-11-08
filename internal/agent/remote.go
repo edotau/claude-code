@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"os/exec"
@@ -176,11 +177,6 @@ func RemoteArgv(host, bin, agentName, fallback string, req RunOptions) ([]string
 	return remote.StreamArgs(host, script)
 }
 
-// remoteError is a failure the remote reported in its envelope; kind is the remote's envelope token, kept verbatim.
-type remoteError struct{ kind, msg string }
-
-func (e remoteError) Error() string { return e.msg }
-
 // remoteKind maps an envelope error token to the local failure class.
 func remoteKind(token string) retry.Kind {
 	switch token {
@@ -197,8 +193,8 @@ func remoteKind(token string) retry.Kind {
 }
 
 // resultFromEnvelope is the local Result for a remote result event; dropped lists the flags the local side dropped.
-func resultFromEnvelope(env Envelope, agentName string, dropped []string) Result {
-	res := Result{Agent: cmp.Or(env.Agent, agentName), Status: env.Status, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
+func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) wire.Result {
+	res := wire.Result{Agent: cmp.Or(env.Agent, agentName), Status: env.Status, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
 		SessionID: env.SessionID, Answer: env.Answer, DurationMs: env.DurationMs, Dropped: append(dropped, env.Dropped...),
 		SchemaUnchecked: env.SchemaUnchecked, Emulated: env.Emulated, FallbackReason: env.FallbackReason, Handoff: env.Handoff,
 		Transport: env.Transport, Hops: env.Hops, Structured: env.Structured}
@@ -209,19 +205,19 @@ func resultFromEnvelope(env Envelope, agentName string, dropped []string) Result
 		res.Fallback = *env.Fallback
 	}
 	if res.Transport == nil {
-		res.Transport = &Transport{Attempts: 1}
+		res.Transport = &wire.Transport{Attempts: 1}
 	}
 	return res
 }
 
 // Run streams the remote ask: events are re-emitted on sink, the remote result event becomes the Result.
-func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
+func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
 	argv, err := RemoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
-		return Result{Agent: r.agent, Status: StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: err}
+		return wire.Result{Agent: r.agent, Status: wire.StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: err}
 	}
 	if strings.ContainsRune(req.Prompt, 0) {
-		return Result{Agent: r.agent, Status: StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: errors.New("remote ask: a NUL byte cannot cross the framed prompt")}
+		return wire.Result{Agent: r.agent, Status: wire.StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: errors.New("remote ask: a NUL byte cannot cross the framed prompt")}
 	}
 	dropped := remoteDropped(req)
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -241,7 +237,7 @@ func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 		err = cmd.Start()
 	}
 	if err != nil {
-		return Result{Agent: r.agent, Status: StatusError, Dropped: dropped}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: fmt.Errorf("ssh: %w", err)}
+		return wire.Result{Agent: r.agent, Status: wire.StatusError, Dropped: dropped}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: fmt.Errorf("ssh: %w", err)}
 	}
 	// stdin stays open after the prompt: its closing (below, or by a dead ssh) is the remote's cancel signal
 	go func() { _, _ = io.WriteString(in, req.Prompt+"\x00") }()
@@ -265,14 +261,14 @@ func remoteWatchdog(timeout time.Duration, cancel context.CancelCauseFunc) (func
 	return func() { wd.Reset(idle) }, func() { wd.Stop() }
 }
 
-func (r remoteEngine) remoteOutcome(ctx context.Context, env *Envelope, streamed bool, sinkErr, werr error, tail *retry.TailBuffer, dropped []string) (Result, error) {
-	res := Result{Agent: r.agent, Status: StatusError, Dropped: dropped}
+func (r remoteEngine) remoteOutcome(ctx context.Context, env *wire.Envelope, streamed bool, sinkErr, werr error, tail *retry.TailBuffer, dropped []string) (wire.Result, error) {
+	res := wire.Result{Agent: r.agent, Status: wire.StatusError, Dropped: dropped}
 	switch {
 	case env != nil:
 		res = resultFromEnvelope(*env, r.agent, dropped)
 		if env.Error != nil {
 			e := &retry.Error{Kind: remoteKind(env.Error.Kind), Agent: r.agent, Progressed: streamed,
-				Err: remoteError{kind: env.Error.Kind, msg: "remote " + r.host + ": " + env.Error.Message}}
+				Err: wire.RemoteError{Kind: env.Error.Kind, Msg: "remote " + r.host + ": " + env.Error.Message}}
 			return res, e
 		}
 		return res, nil
@@ -282,7 +278,7 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *Envelope, streamed
 		return res, retry.Classify(r.agent, fmt.Errorf("ssh %s: %w", r.host, context.Cause(ctx)), streamed)
 	}
 	if streamed {
-		res.Status = StatusPartial
+		res.Status = wire.StatusPartial
 	}
 	return res, r.noResult(werr, tail, streamed)
 }
@@ -311,7 +307,7 @@ func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool
 
 // relay reads the remote's NDJSON: events go to sink under the local dispatch id, the result event is returned,
 // anything else (ssh banners, warnings) goes to the dispatch log. A dead sink stops the child via stop.
-func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink Sink, stop, touch func()) (env *Envelope, streamed bool, sinkErr error) {
+func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink wire.Sink, stop, touch func()) (env *wire.Envelope, streamed bool, sinkErr error) {
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
 		line, rerr := rd.ReadBytes('\n')
@@ -323,19 +319,19 @@ func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink Sink, stop,
 	}
 }
 
-func (r remoteEngine) relayLine(ctx context.Context, line []byte, sink Sink, stop func(), env *Envelope, streamed bool, sinkErr error) (*Envelope, bool, error) {
+func (r remoteEngine) relayLine(ctx context.Context, line []byte, sink wire.Sink, stop func(), env *wire.Envelope, streamed bool, sinkErr error) (*wire.Envelope, bool, error) {
 	if len(line) == 0 {
 		return env, streamed, sinkErr
 	}
-	var ev Event
+	var ev wire.Event
 	if !decodeRemoteEvent(line, &ev) {
-		logEvent(ctx, "ssh", string(line))
+		wire.LogEvent(ctx, "ssh", string(line))
 		return env, streamed, sinkErr
 	}
-	if ev.Type == EventResult && ev.Envelope != nil {
+	if ev.Type == wire.EventResult && ev.Envelope != nil {
 		return ev.Envelope, streamed, sinkErr
 	}
-	if ev.Type == EventStart || sinkErr != nil {
+	if ev.Type == wire.EventStart || sinkErr != nil {
 		return env, streamed, sinkErr
 	}
 	ev.DispatchID, ev.Seq, ev.TMs = "", 0, 0
@@ -343,11 +339,11 @@ func (r remoteEngine) relayLine(ctx context.Context, line []byte, sink Sink, sto
 	if sinkErr = sink.Emit(ev); sinkErr != nil {
 		stop()
 	}
-	return env, streamed || ev.progress(), sinkErr
+	return env, streamed || ev.Progress(), sinkErr
 }
 
-func decodeRemoteEvent(line []byte, ev *Event) bool {
-	return json.Unmarshal(line, ev) == nil && ev.Schema == EventSchema && ev.Type != ""
+func decodeRemoteEvent(line []byte, ev *wire.Event) bool {
+	return json.Unmarshal(line, ev) == nil && ev.Schema == wire.EventSchema && ev.Type != ""
 }
 
 // touchWriter calls touch on every write and discards the bytes.

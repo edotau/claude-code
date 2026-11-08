@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"os/signal"
@@ -104,7 +105,7 @@ type PoolOptions struct {
 
 type batchDone struct {
 	i   int
-	env agent.Envelope
+	env wire.Envelope
 	ok  bool
 }
 
@@ -123,7 +124,7 @@ func RunTasks(ctx context.Context, tasks []Task, o PoolOptions) bool {
 	defer cancel()
 	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel}
 	allOK := true
-	emit := func(env agent.Envelope, ok bool) {
+	emit := func(env wire.Envelope, ok bool) {
 		env.BatchID = o.ID
 		if !writeEnvelope(o.Out, env) {
 			cancel() // nobody reads stdout any more: stop spending tokens
@@ -216,13 +217,13 @@ func (b *batchRun) execute(ctx, sctx context.Context, t Task, i int, done chan<-
 	env, ok := b.run(sctx, t, prepared)
 	if !ok {
 		env = b.retry(sctx, t, env)
-		ok = env.Status == agent.StatusOK && env.Error == nil
+		ok = env.Status == wire.StatusOK && env.Error == nil
 	}
 	done <- batchDone{i, env, ok}
 }
 
 // retry runs t.Retry once after a real failure and returns the retry's envelope with both attempts in Hops.
-func (b *batchRun) retry(ctx context.Context, t Task, first agent.Envelope) agent.Envelope {
+func (b *batchRun) retry(ctx context.Context, t Task, first wire.Envelope) wire.Envelope {
 	if t.Retry == nil || ctx.Err() != nil || len(first.Hops) == 0 || !cancelsBatch(first) {
 		return first
 	}
@@ -238,7 +239,7 @@ func (b *batchRun) retry(ctx context.Context, t Task, first agent.Envelope) agen
 }
 
 // writeEnvelope writes env as one JSON line; false only when the write itself failed.
-func writeEnvelope(w io.Writer, env agent.Envelope) bool {
+func writeEnvelope(w io.Writer, env wire.Envelope) bool {
 	body, err := json.Marshal(env)
 	if err != nil || w == nil {
 		return true
@@ -248,14 +249,14 @@ func writeEnvelope(w io.Writer, env agent.Envelope) bool {
 }
 
 // taskFailure is the error envelope of a task that never ran.
-func taskFailure(t Task, err error) agent.Envelope {
-	env := agent.FailureEnvelope(t.Agent, err)
+func taskFailure(t Task, err error) wire.Envelope {
+	env := wire.FailureEnvelope(t.Agent, err)
 	env.TaskID = t.ID
 	return env
 }
 
 // cancelsBatch reports whether a failed envelope should cancel a fail-fast batch: a cancellation itself does not.
-func cancelsBatch(env agent.Envelope) bool { return env.Error == nil || env.Error.Kind != "canceled" }
+func cancelsBatch(env wire.Envelope) bool { return env.Error == nil || env.Error.Kind != "canceled" }
 
 // logf writes one progress line tagged with the task id.
 func (b *batchRun) logf(id, format string, a ...any) {
@@ -268,7 +269,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 }
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
-func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agent.Envelope, ok bool) {
+func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env wire.Envelope, ok bool) {
 	rec := &p.Record
 	rec.TaskID, rec.BatchID, rec.PlanTask = t.ID, b.o.ID, t.Plan
 	ctx = agent.WithBatchRun(ctx, b.lim)
@@ -284,9 +285,9 @@ func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agen
 	defer func() {
 		if r := recover(); r != nil {
 			err := &retry.Error{Kind: retry.KindFatal, Agent: t.Agent, Err: fmt.Errorf("panic: %v", r)}
-			rec.Finish(agent.Result{Agent: t.Agent, Status: agent.StatusError}, err, time.Since(start))
+			rec.Finish(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, time.Since(start))
 			_ = rec.Save()
-			env, ok = agent.NewEnvelope(agent.Result{Agent: t.Agent, Status: agent.StatusError}, err, rec.ID), false
+			env, ok = wire.NewEnvelope(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, rec.ID), false
 			env.TaskID = t.ID
 		}
 	}()
@@ -296,14 +297,14 @@ func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agen
 	if p.Opts.Launcher != nil {
 		client.Launcher = p.Opts.Launcher
 	}
-	res, err := client.Exec(ctx, p, agent.Discard, agent.RunRecordedOpts{})
+	res, err := client.Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}
 	b.logf(t.ID, "dispatch %s", rec.ID)
-	env = agent.NewEnvelope(res, err, res.DispatchID)
+	env = wire.NewEnvelope(res, err, res.DispatchID)
 	env.TaskID = t.ID
-	return env, err == nil && env.Status == agent.StatusOK
+	return env, err == nil && env.Status == wire.StatusOK
 }
 
 // batchExclusive are the ask flags that make no sense on a batch of independent tasks.

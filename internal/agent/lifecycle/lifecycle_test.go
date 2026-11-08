@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"strings"
@@ -17,8 +18,8 @@ func checkJobTailEvents(t *testing.T, code int, out string) {
 	if code != 0 || len(lines) != 3 {
 		t.Fatalf("tail = %d, %d lines %q, want 3 events then exit", code, len(lines), out)
 	}
-	for i, want := range []string{agent.EventStart, agent.EventText, agent.EventResult} {
-		var ev agent.Event
+	for i, want := range []string{wire.EventStart, wire.EventText, wire.EventResult} {
+		var ev wire.Event
 		if err := json.Unmarshal([]byte(lines[i]), &ev); err != nil || ev.Type != want {
 			t.Errorf("line %d = %q, want type %s", i, lines[i], want)
 		}
@@ -26,7 +27,7 @@ func checkJobTailEvents(t *testing.T, code int, out string) {
 }
 
 // seedClaudeJob saves a finished claude record with a log and, when events is non-nil, an events file.
-func seedClaudeJob(t *testing.T, at time.Time, events []agent.Event) agent.Record {
+func seedClaudeJob(t *testing.T, at time.Time, events []wire.Event) agent.Record {
 	t.Helper()
 	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, at)
 	rec.Repo = t.TempDir()
@@ -63,13 +64,13 @@ func TestAgentsCancelNotRunning(t *testing.T) {
 // TestAgentsJobLifecycleClaude: status/result/tail resolve a claude dispatch by id and read its events.
 func TestAgentsJobLifecycleClaude(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	env := agent.NewEnvelope(agent.Result{Agent: "claude", Answer: "from-event", SessionID: "sess-1"}, nil, "")
+	env := wire.NewEnvelope(wire.Result{Agent: "claude", Answer: "from-event", SessionID: "sess-1"}, nil, "")
 	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
 	env.DispatchID = rec.ID
-	evs := []agent.Event{
-		{Schema: 1, Seq: 0, Type: agent.EventStart},
-		{Schema: 1, Seq: 1, Type: agent.EventText, Text: "hi"},
-		{Schema: 1, Seq: 2, Type: agent.EventResult, Envelope: &env},
+	evs := []wire.Event{
+		{Schema: 1, Seq: 0, Type: wire.EventStart},
+		{Schema: 1, Seq: 1, Type: wire.EventText, Text: "hi"},
+		{Schema: 1, Seq: 2, Type: wire.EventResult, Envelope: &env},
 	}
 	var b strings.Builder
 	for _, ev := range evs {
@@ -88,7 +89,7 @@ func TestAgentsJobLifecycleClaude(t *testing.T) {
 	}
 
 	out = captureStdout(t, func() { code = Job("result", []string{rec.ID, "--format", "json"}) })
-	var got agent.Envelope
+	var got wire.Envelope
 	if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, out, err)
 	}
@@ -107,7 +108,7 @@ func TestAgentsResultJSONWithoutEvents(t *testing.T) {
 
 	var code int
 	out := captureStdout(t, func() { code = Job("result", []string{rec.ID, "--format", "json"}) })
-	var got agent.Envelope
+	var got wire.Envelope
 	if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, out, err)
 	}
@@ -125,7 +126,7 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 	}
 
 	code, stdout, stderr := captureOutput(t, func() int { return Job("result", []string{rec.ID, "--format", "json"}) })
-	var got agent.Envelope
+	var got wire.Envelope
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, stdout, err)
 	}

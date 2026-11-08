@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,7 +105,7 @@ func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 
 	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; done\n"+
 		`printf '%s\n' '{"schema":1,"type":"result","envelope":{"status":"ok","answer":"done"}}'`+"\n")
-	res, err := r.Run(context.Background(), req, Discard)
+	res, err := r.Run(context.Background(), req, wire.Discard)
 	if err != nil || res.Answer != "done" {
 		t.Fatalf("active remote killed: res=%+v err=%v", res, err)
 	}
@@ -120,7 +121,7 @@ func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 		}
 		h.fire()
 	}()
-	_, err = r.Run(context.Background(), req, Discard)
+	_, err = r.Run(context.Background(), req, wire.Discard)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("silent remote: err=%v, want the watchdog deadline", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"path/filepath"
@@ -53,28 +54,28 @@ func (f *fakeRunner) Name() string {
 }
 func (f *fakeRunner) Caps() Caps       { return f.caps }
 func (f *fakeRunner) Available() error { return nil }
-func (f *fakeRunner) Run(_ context.Context, req RunOptions, w Sink) (Result, error) {
+func (f *fakeRunner) Run(_ context.Context, req RunOptions, w wire.Sink) (wire.Result, error) {
 	f.seen = append(f.seen, req)
-	w.Emit(Event{Type: EventText, Text: f.write})
+	w.Emit(wire.Event{Type: wire.EventText, Text: f.write})
 	err := f.errs[len(f.seen)-1]
 	ans := "a"
 	if f.emptyAnswer {
 		ans = ""
 	}
-	return Result{Answer: ans}, err
+	return wire.Result{Answer: ans}, err
 }
 
 func TestRunDropsAndProgressVeto(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{nil}}
-	res, err := Run(context.Background(), f, RunOptions{Prompt: "p", Model: "m", Effort: "max"}, Discard, nil)
+	res, err := Run(context.Background(), f, RunOptions{Prompt: "p", Model: "m", Effort: "max"}, wire.Discard, nil)
 	if err != nil || res.Agent != "fake" || !reflect.DeepEqual(res.Dropped, []string{"--effort=max"}) || f.seen[0].Effort != "" {
 		t.Fatalf("res=%+v err=%v seen=%+v", res, err, f.seen)
 	}
 
 	f = &fakeRunner{write: "partial", errs: []error{errors.New("HTTP 503 overloaded"), nil}}
 	var out strings.Builder
-	_, err = Run(context.Background(), f, RunOptions{Prompt: "p"}, NewTextSink(&out), nil)
+	_, err = Run(context.Background(), f, RunOptions{Prompt: "p"}, wire.NewTextSink(&out), nil)
 	var e *retry.Error
 	if !errors.As(err, &e) || !e.Progressed || len(f.seen) != 1 {
 		t.Fatalf("streamed output must veto retry: err=%v attempts=%d", err, len(f.seen))
@@ -87,7 +88,7 @@ func TestRunDropsAndProgressVeto(t *testing.T) {
 func TestRunAgentFallsBackToRunnerNameWhenUnset(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &fakeRunner{name: "api", errs: []error{nil}}
-	res, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Agent != "api" {
 		t.Fatalf("res.Agent = %q, err = %v, want %q and nil err", res.Agent, err, "api")
 	}
@@ -159,7 +160,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	hard := errors.New("HTTP 429: You exceeded your current quota. Quota exceeded for metric: requests, limit: 0, model: big")
 	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{hard, nil}}
 	var notes []string
-	res, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
+	res, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { notes = append(notes, s) })
 	if err != nil || len(f.seen) != 2 || f.seen[0].Model != "" || f.seen[1].Model != "sonnet" {
 		t.Fatalf("err=%v seen=%+v res=%+v", err, f.seen, res)
 	}
@@ -169,7 +170,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 
 	// A transient 429 keeps the model: nothing to demote.
 	f = &fakeRunner{caps: Caps{Model: Native}, errs: []error{errors.New("HTTP 429 rate limited, try again in 1s"), nil}}
-	if _, err := Run(context.Background(), f, RunOptions{Prompt: "p", Model: "opus"}, Discard, nil); err != nil || f.seen[1].Model != "opus" {
+	if _, err := Run(context.Background(), f, RunOptions{Prompt: "p", Model: "opus"}, wire.Discard, nil); err != nil || f.seen[1].Model != "opus" {
 		t.Fatalf("transient 429 must retry the same alias: err=%v seen=%+v", err, f.seen)
 	}
 }
@@ -180,7 +181,7 @@ func assertQuotaNoDemote(t *testing.T, acctErr error) {
 	t.Helper()
 	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{acctErr}}
 	var notes []string
-	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
+	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { notes = append(notes, s) })
 	var e *retry.Error
 	if !errors.As(err, &e) || e.Kind != retry.KindQuota {
 		t.Fatalf("err = %v, want a KindQuota error", err)
@@ -218,22 +219,22 @@ func TestDispatchUnavailable(t *testing.T) {
 		name string
 		r    Engine
 		req  RunOptions
-		res  Result
+		res  wire.Result
 		err  error
 		want bool
 	}{
-		{"nil error", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, nil, false},
-		{"claude ends the chain", &fakeRunner{name: "claude"}, RunOptions{}, Result{}, genericErr, false},
-		{"any vendor dispatch", &fakeRunner{name: "gemini"}, RunOptions{}, Result{}, genericErr, true},
-		{"non-empty answer", &fakeRunner{name: "codex"}, RunOptions{}, Result{Answer: "partial"}, genericErr, false},
-		{"deadline exceeded", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, deadline, false},
-		{"canceled", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, canceled, false},
-		{"prompt too large", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, tooLarge, false},
-		{"progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, progressed, false},
-		{"wrapped progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, fmt.Errorf("agent: %w", progressed), false},
-		{"not progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, &retry.Error{Kind: retry.KindFatal, Err: genericErr}, true},
-		{"binary missing", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, genericErr, true},
-		{"claude model alias stays eligible", &fakeRunner{name: "codex"}, RunOptions{Model: "opus"}, Result{}, genericErr, true},
+		{"nil error", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, nil, false},
+		{"claude ends the chain", &fakeRunner{name: "claude"}, RunOptions{}, wire.Result{}, genericErr, false},
+		{"any vendor dispatch", &fakeRunner{name: "gemini"}, RunOptions{}, wire.Result{}, genericErr, true},
+		{"non-empty answer", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{Answer: "partial"}, genericErr, false},
+		{"deadline exceeded", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, deadline, false},
+		{"canceled", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, canceled, false},
+		{"prompt too large", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, tooLarge, false},
+		{"progressed", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, progressed, false},
+		{"wrapped progressed", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, fmt.Errorf("agent: %w", progressed), false},
+		{"not progressed", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, &retry.Error{Kind: retry.KindFatal, Err: genericErr}, true},
+		{"binary missing", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, genericErr, true},
+		{"claude model alias stays eligible", &fakeRunner{name: "codex"}, RunOptions{Model: "opus"}, wire.Result{}, genericErr, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -266,7 +267,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 
 	codex := newCodexHang()
 	_, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}),
-		RunOptions{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, NewTextSink(io.Discard), nil)
+		RunOptions{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, wire.NewTextSink(io.Discard), nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("tools-on timeout must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
@@ -274,7 +275,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	codex = newCodexHang()
-	_, err = RunWithFallback(ctx, chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+	_, err = RunWithFallback(ctx, chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
@@ -288,7 +289,7 @@ func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
 	for _, tools := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Tools=%v", tools), func(t *testing.T) {
 			hang := newCodexHang()
-			_, err := Run(context.Background(), hang, RunOptions{Prompt: "p", Tools: tools, Timeout: 20 * time.Millisecond}, Discard, nil)
+			_, err := Run(context.Background(), hang, RunOptions{Prompt: "p", Tools: tools, Timeout: 20 * time.Millisecond}, wire.Discard, nil)
 			var e *retry.Error
 			if !errors.As(err, &e) || e.Kind != retry.KindFatal || !errors.Is(err, context.DeadlineExceeded) || hang.calls != 1 {
 				t.Fatalf("Tools=%v: calls=%d err=%v, want KindFatal wrapping DeadlineExceeded after one call", tools, hang.calls, err)
@@ -307,10 +308,10 @@ func newCodexHang() *codexHang {
 	return &codexHang{name: "codex", caps: Caps{Tools: Native}}
 }
 
-func (h *codexHang) Run(ctx context.Context, _ RunOptions, _ Sink) (Result, error) {
+func (h *codexHang) Run(ctx context.Context, _ RunOptions, _ wire.Sink) (wire.Result, error) {
 	h.calls++
 	<-ctx.Done()
-	return Result{}, ctx.Err()
+	return wire.Result{}, ctx.Err()
 }
 
 func TestIsText(t *testing.T) {
@@ -371,17 +372,17 @@ func TestRunStatusAndAttempts(t *testing.T) {
 		status   string
 		attempts int
 	}{
-		{"ok", "", []error{nil}, StatusOK, 1},
-		{"retried transient then ok", "", []error{errors.New("HTTP 503 overloaded"), nil}, StatusOK, 2},
-		{"quota", "", []error{&retry.Error{Kind: retry.KindQuota, Err: errors.New("plan exhausted")}}, StatusQuota, 1},
-		{"partial", "half", []error{errors.New("boom")}, StatusPartial, 1},
-		{"stalled", "", []error{dl, dl, dl}, StatusStalled, 3},
-		{"error", "", []error{errors.New("bad request")}, StatusError, 1},
+		{"ok", "", []error{nil}, wire.StatusOK, 1},
+		{"retried transient then ok", "", []error{errors.New("HTTP 503 overloaded"), nil}, wire.StatusOK, 2},
+		{"quota", "", []error{&retry.Error{Kind: retry.KindQuota, Err: errors.New("plan exhausted")}}, wire.StatusQuota, 1},
+		{"partial", "half", []error{errors.New("boom")}, wire.StatusPartial, 1},
+		{"stalled", "", []error{dl, dl, dl}, wire.StatusStalled, 3},
+		{"error", "", []error{errors.New("bad request")}, wire.StatusError, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakeRunner{write: c.write, errs: c.errs}
-			res, _ := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, nil)
+			res, _ := Run(context.Background(), f, RunOptions{Prompt: "p"}, wire.Discard, nil)
 			if res.Status != c.status || res.Transport == nil || res.Transport.Attempts != c.attempts {
 				t.Fatalf("status=%q transport=%+v, want %q attempts=%d", res.Status, res.Transport, c.status, c.attempts)
 			}
@@ -396,7 +397,7 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{nil}}
 		c := Chain{Want: "codex", Skipped: []string{"codex: chatgpt exhausted"},
 			Dispatches: []Dispatch{{Agent: codex, Account: "databricks·codex", keepCaller: true, otherRoute: true}}}
-		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 		if err != nil || res.Agent != "codex" || res.Fallback == "" ||
 			!strings.Contains(res.FallbackReason, "chatgpt exhausted") {
 			t.Fatalf("res=%+v err=%v, want Fallback set with the skip reason", res, err)
@@ -404,7 +405,7 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 	})
 	t.Run("gemini answering itself stays null", func(t *testing.T) {
 		gemini := &fakeRunner{name: "gemini", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{gemini}), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{gemini}), RunOptions{Prompt: "p"}, wire.Discard, nil)
 		if err != nil || res.Fallback != "" || res.FallbackReason != "" {
 			t.Fatalf("res=%+v err=%v, want no fallback", res, err)
 		}
@@ -535,7 +536,7 @@ func TestExplicitDispatchFailureDoesNotAdvance(t *testing.T) {
 		first = &fakeRunner{name: "codex", errs: []error{errors.New("exit status 1")}, emptyAnswer: true}
 		next = &fakeRunner{name: "opencode", errs: []error{nil}}
 		c := Chain{Want: "codex", Dispatches: []Dispatch{{Agent: first}, {Agent: next}}}
-		_, err = RunWithFallback(context.Background(), c, RunOptions{Prompt: "p", Provider: provider}, Discard, nil)
+		_, err = RunWithFallback(context.Background(), c, RunOptions{Prompt: "p", Provider: provider}, wire.Discard, nil)
 		return first, next, err
 	}
 	if _, next, err := run(""); err != nil || len(next.seen) != 1 {
@@ -551,9 +552,9 @@ func TestExplicitDispatchFailureDoesNotAdvance(t *testing.T) {
 }
 
 // envelopeMap round-trips the envelope NewEnvelope builds, so the test pins wire names, not Go types.
-func envelopeMap(t *testing.T, res Result, err error) map[string]any {
+func envelopeMap(t *testing.T, res wire.Result, err error) map[string]any {
 	t.Helper()
-	b, merr := json.Marshal(NewEnvelope(res, err, "d1"))
+	b, merr := json.Marshal(wire.NewEnvelope(res, err, "d1"))
 	if merr != nil {
 		t.Fatal(merr)
 	}
@@ -585,7 +586,7 @@ func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
 	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v: want the second hop to answer", res, err)
 	}
@@ -599,7 +600,7 @@ func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
 // A single successful dispatch keeps the envelope free of fallback and names exactly one hop.
 func TestEnvelopeHopsSingleDispatch(t *testing.T) {
 	r := &fakeRunner{name: "claude", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +618,7 @@ func TestRunWithFallbackCancelledBeforeDispatchNeverRuns(t *testing.T) {
 	r := &fakeRunner{name: "claude", errs: []error{nil}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := RunWithFallback(ctx, Single(r), RunOptions{Prompt: "p"}, Discard, nil)
+	_, err := RunWithFallback(ctx, Single(r), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
@@ -630,7 +631,7 @@ func TestRunWithFallbackCancelledBeforeDispatchNeverRuns(t *testing.T) {
 func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
 	fastDefaultBackoff(t)
 	r := &fakeRunner{name: "claude", errs: []error{&retry.Error{Kind: retry.KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -653,7 +654,7 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 	name := fmt.Sprintf("hmg%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, fakeJWT("adb-1.azuredatabricks.net")))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p", Provider: name}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p", Provider: name}, wire.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -667,7 +668,7 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 func TestRunDropsFleetWhenAgentLacksIt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{nil}}
-	res, err := Run(context.Background(), f, RunOptions{Prompt: "p", Fleet: true}, Discard, nil)
+	res, err := Run(context.Background(), f, RunOptions{Prompt: "p", Fleet: true}, wire.Discard, nil)
 	if err != nil || !reflect.DeepEqual(res.Dropped, []string{"--fleet"}) || f.seen[0].Fleet {
 		t.Fatalf("res=%+v err=%v seen=%+v", res, err, f.seen)
 	}
@@ -676,16 +677,16 @@ func TestRunDropsFleetWhenAgentLacksIt(t *testing.T) {
 // toolRunner reports a tool call, no text, then a transient failure: the tool may have had effects.
 type toolRunner struct{ fakeRunner }
 
-func (f *toolRunner) Run(_ context.Context, req RunOptions, w Sink) (Result, error) {
+func (f *toolRunner) Run(_ context.Context, req RunOptions, w wire.Sink) (wire.Result, error) {
 	f.seen = append(f.seen, req)
-	_ = w.Emit(ToolEvent("Bash", "t1"))
-	return Result{}, io.ErrUnexpectedEOF
+	_ = w.Emit(wire.ToolEvent("Bash", "t1"))
+	return wire.Result{}, io.ErrUnexpectedEOF
 }
 
 func TestRunToolProgressVetoesRetry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &toolRunner{}
-	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, nil)
+	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, wire.Discard, nil)
 	var e *retry.Error
 	if !errors.As(err, &e) || !e.Progressed || len(f.seen) != 1 {
 		t.Fatalf("a tool call must veto retry: err=%v attempts=%d", err, len(f.seen))
@@ -702,7 +703,7 @@ func TestRunWithFallbackFallsBackAndReportsIt(t *testing.T) {
 	fallbackConfigDir(t)
 	codex := &fakeRunner{name: "codex", errs: []error{errCodexMissing}, emptyAnswer: true}
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -722,7 +723,7 @@ func TestRunWithFallbackEachDispatchRunsItsOwnCell(t *testing.T) {
 	opencode := &fakeRunner{name: "opencode", caps: Caps{Model: Native}, errs: []error{nil}}
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 	req := RunOptions{Prompt: "p", Model: "gpt-6.1-sol"}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, wire.Discard, nil)
 	if err != nil || res.Agent != "opencode" || res.Fallback != "codex" || len(claude.seen) != 0 {
 		t.Fatalf("res=%+v err=%v claude.seen=%d", res, err, len(claude.seen))
 	}
@@ -738,7 +739,7 @@ func TestRunWithFallbackKeepsAliasOnClaudeDispatch(t *testing.T) {
 	fallbackConfigDir(t)
 	codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{errCodexMissing}, emptyAnswer: true}
 	claude := &fakeRunner{name: "claude", caps: Caps{Model: Native}, errs: []error{nil}}
-	if _, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}, "", "opus"), RunOptions{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {
+	if _, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}, "", "opus"), RunOptions{Prompt: "p", Model: "claude-opus-5.5"}, wire.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	if claude.seen[0].Model != "opus" {
@@ -751,11 +752,11 @@ func TestRunWithFallbackGateSkipsMakeZeroAttempts(t *testing.T) {
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 	c := Chain{Want: "copilot", Skipped: []string{"copilot: github·u exhausted until 2026-11-01"},
 		Dispatches: []Dispatch{{Agent: claude, Model: "sonnet"}}}
-	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Fallback != "copilot" || !strings.Contains(res.FallbackReason, "exhausted until 2026-11-01") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
-	if _, err := RunWithFallback(context.Background(), Chain{Want: "copilot", Skipped: c.Skipped}, RunOptions{Prompt: "p"}, Discard, nil); err == nil {
+	if _, err := RunWithFallback(context.Background(), Chain{Want: "copilot", Skipped: c.Skipped}, RunOptions{Prompt: "p"}, wire.Discard, nil); err == nil {
 		t.Error("an empty chain must fail with the skips")
 	}
 }
@@ -767,7 +768,7 @@ func TestRunWithFallbackQuotaMarksAccountAndMovesOn(t *testing.T) {
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 	c := chainOf([]Engine{copilot, claude}, "", "sonnet")
 	c.Dispatches[0].Account, c.Dispatches[0].Billing = "github·u", "credits"
-	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Agent != "claude" || len(copilot.seen) != 1 {
 		t.Fatalf("res=%+v err=%v copilot attempts=%d (quota is never retried)", res, err, len(copilot.seen))
 	}
@@ -779,7 +780,7 @@ func TestRunWithFallbackQuotaMarksAccountAndMovesOn(t *testing.T) {
 func TestRunWithFallbackEmptyChainMeansNoFallback(t *testing.T) {
 	fallbackConfigDir(t)
 	codex := &fakeRunner{name: "codex", errs: []error{errCodexMissing}, emptyAnswer: true}
-	res, err := RunWithFallback(context.Background(), Single(codex), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(codex), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err == nil || res.Fallback != "" || res.Agent != "codex" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -789,7 +790,7 @@ func TestRunWithFallbackSuccessNeedsNoFallback(t *testing.T) {
 	fallbackConfigDir(t)
 	codex := &fakeRunner{name: "codex", errs: []error{nil}}
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
 		t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 	}
@@ -799,7 +800,7 @@ func TestRunWithFallbackPromptTooLargeNotRetried(t *testing.T) {
 	fallbackConfigDir(t)
 	codex := &fakeRunner{name: "codex", errs: []error{fmt.Errorf("p: %w", ErrPromptTooLarge)}, emptyAnswer: true}
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 		t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 	}
@@ -810,7 +811,7 @@ func TestRunWithFallbackExplicitNonClaudeModelNeverOverridden(t *testing.T) {
 	codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{errCodexMissing}, emptyAnswer: true}
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 	req := RunOptions{Prompt: "p", Model: "openai:gpt-4"}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), req, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), req, wire.Discard, nil)
 	if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 		t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 	}
