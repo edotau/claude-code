@@ -57,10 +57,10 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	parseHits, skipped := workflowParseDefects(readableFiles(files))
-	if skipped != "" {
+	bad := 0
+	if skipped != "" { // plan decision: a missing node is a visible skip; the exit code follows the other checks
 		fmt.Fprintln(stderr, skipped)
 	}
-	bad := 0
 	for _, f := range files {
 		bad += lintScript(f, stderr)
 	}
@@ -356,13 +356,71 @@ func registryHidingDefects(path string) []string {
 	}
 	src := string(data)
 	out := metaLiteralDefects(path, src)
-	for i, l := range strings.Split(stripStrings(src), "\n") { // masked: a prompt line starting "throw " is prose
-		t := strings.TrimSpace(l)
-		if l != "" && l[0] != ' ' && l[0] != '\t' && (strings.HasPrefix(t, "throw ") || (strings.HasPrefix(t, "if ") && strings.Contains(t, ") throw "))) {
-			out = append(out, fmt.Sprintf("%s:%d: top-level throw — the registry imports the module to read meta, so it fires before any run; return {error} instead", path, i+1))
-		}
+	for _, line := range topLevelThrowLines(stripStrings(src)) {
+		out = append(out, fmt.Sprintf("%s:%d: top-level throw — the registry imports the module to read meta, so it fires before any run; return {error} instead", path, line))
 	}
 	return out
+}
+
+var throwTokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\bfunction\b|=>|\bthrow\b`)
+})
+
+// topLevelThrowLines scans module blocks but skips function and block-arrow bodies.
+func topLevelThrowLines(masked string) []int {
+	var lines []int
+	for at := 0; at < len(masked); {
+		loc := throwTokenRe().FindStringIndex(masked[at:])
+		if loc == nil {
+			break
+		}
+		start, end := at+loc[0], at+loc[1]
+		at = end
+		if masked[start:end] != "=>" && start > 0 && (isIdentByte(masked[start-1]) || masked[start-1] == '$') {
+			continue
+		}
+		if masked[start:end] == "throw" {
+			lines = append(lines, 1+strings.Count(masked[:start], "\n"))
+			continue
+		}
+		at = callableBodyEnd(masked, start, end)
+	}
+	return lines
+}
+
+// callableBodyEnd skips a function's parameters and block body, or an arrow's block body.
+func callableBodyEnd(masked string, start, end int) int {
+	if masked[start:end] == "function" {
+		open := strings.IndexByte(masked[end:], '(')
+		if open < 0 {
+			return end
+		}
+		end = maskedGroupEnd(masked, end+open, '(', ')')
+	}
+	for end < len(masked) && strings.ContainsRune(" \t\r\n", rune(masked[end])) {
+		end++
+	}
+	if end < len(masked) && masked[end] == '{' {
+		return maskedGroupEnd(masked, end, '{', '}')
+	}
+	return end
+}
+
+// maskedGroupEnd returns the byte after a balanced group in string/comment-masked JavaScript.
+func maskedGroupEnd(masked string, open int, opener, closer byte) int {
+	depth := 0
+	for i := open; i < len(masked); i++ {
+		switch masked[i] {
+		case opener:
+			depth++
+		case closer:
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return len(masked)
 }
 
 // metaLiteralDefects flags an `export const meta` whose value is not a pure literal.
@@ -579,7 +637,7 @@ func planFill(src, model string, i int, window string) (fillEdit, int) {
 func fillOptions(src, model string, argsStart, argsEnd int, span argSpan) (fillEdit, int) {
 	opt := src[argsStart+span.start : argsStart+span.end]
 	trimmed := strings.TrimLeft(opt, " \t\n")
-	if trimmed == "" || trimmed[0] != '{' {
+	if trimmed == "" || trimmed[0] != '{' || strings.Contains(stripStrings(trimmed), "...") {
 		return fillEdit{}, fillAmbiguous
 	}
 	braceAt := argsStart + span.start + (len(opt) - len(trimmed))

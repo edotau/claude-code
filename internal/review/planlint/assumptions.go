@@ -243,13 +243,17 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 		Findings:      findings,
 	}
 
+	var err error
 	if jsonOut {
 		b, _ := reviewsource.PyMarshalIndent(result)
-		fmt.Fprintln(stdout, string(b))
-		return 0
+		_, err = fmt.Fprintln(stdout, string(b))
+	} else {
+		err = printAssumptions(stdout, source, findings, groups, verdict)
 	}
-
-	printAssumptions(stdout, source, findings, groups, verdict)
+	if err != nil {
+		fmt.Fprintf(stderr, "assumption_linter.py: error: writing output: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -263,27 +267,30 @@ func assumptionVerdict(n int) string {
 	return "CLARIFY"
 }
 
-func printAssumptions(stdout io.Writer, source string, findings []Finding, groups []categoryGroup, verdict string) {
+func printAssumptions(dst io.Writer, source string, findings []Finding, groups []categoryGroup, verdict string) error {
+	stdout := &strings.Builder{}
 	fmt.Fprintf(stdout, "Assumption Linter — %s\n", source)
 	fmt.Fprintf(stdout, "Findings: %d   Verdict: %s\n", len(findings), verdict)
 	if len(findings) == 0 {
 		fmt.Fprintln(stdout, "\n  Plan looks explicit. Assumptions are surfaced.")
-		return
-	}
-	fmt.Fprintln(stdout)
-	for _, g := range groups {
-		fmt.Fprintf(stdout, "  [%s] (%d)\n", g.name, len(g.items))
-		for _, item := range g.items[:min(len(g.items), 5)] {
-			ref := ""
-			if item.Line != 0 {
-				ref = fmt.Sprintf("L%d: ", item.Line)
-			}
-			fmt.Fprintf(stdout, "    %s%s\n", ref, item.Message)
-			fmt.Fprintf(stdout, "      -> \"%s\" in: %s\n", item.Matched, textutil.TruncateRunes(item.Context, 80))
-		}
-		if len(g.items) > 5 {
-			fmt.Fprintf(stdout, "    ... and %d more\n", len(g.items)-5)
-		}
+	} else {
 		fmt.Fprintln(stdout)
+		for _, g := range groups {
+			fmt.Fprintf(stdout, "  [%s] (%d)\n", g.name, len(g.items))
+			for _, item := range g.items[:min(len(g.items), 5)] {
+				ref := ""
+				if item.Line != 0 {
+					ref = fmt.Sprintf("L%d: ", item.Line)
+				}
+				fmt.Fprintf(stdout, "    %s%s\n", ref, item.Message)
+				fmt.Fprintf(stdout, "      -> \"%s\" in: %s\n", item.Matched, textutil.TruncateRunes(item.Context, 80))
+			}
+			if len(g.items) > 5 {
+				fmt.Fprintf(stdout, "    ... and %d more\n", len(g.items)-5)
+			}
+			fmt.Fprintln(stdout)
+		}
 	}
+	_, err := io.WriteString(dst, stdout.String())
+	return err
 }

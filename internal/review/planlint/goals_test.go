@@ -221,3 +221,14 @@ func TestExtractStepsFencedPhaseFallsBackToList(t *testing.T) {
 		t.Fatalf("steps = %d, want 2: %q", len(steps), steps)
 	}
 }
+
+// A failed stdout write must exit 1 with a stderr line, in both text and JSON modes.
+func TestRunGoalsStdoutWriteError(t *testing.T) {
+	for _, args := range [][]string{{"-"}, {"-", "--json"}} {
+		var stderr bytes.Buffer
+		code := RunGoals(args, strings.NewReader("1. Add the flag\n"), failWriter{}, &stderr)
+		if code != 1 || !strings.Contains(stderr.String(), "writing output") {
+			t.Errorf("args %v: code=%d stderr=%q; want 1 and 'writing output'", args, code, stderr.String())
+		}
+	}
+}

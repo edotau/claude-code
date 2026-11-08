@@ -2,6 +2,7 @@ package planlint
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,5 +107,20 @@ func TestRunAssumptionsHelpAfterPositional(t *testing.T) {
 	}
 	if !strings.HasPrefix(stdout.String(), "usage: claude-code review assumptions [<input>] [flags]\n") {
 		t.Errorf("want the review assumptions usage page:\n%s", stdout.String())
+	}
+}
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("no space left on device") }
+
+// A failed stdout write must exit 1 with a stderr line, in both text and JSON modes.
+func TestRunAssumptionsStdoutWriteError(t *testing.T) {
+	for _, args := range [][]string{{"-"}, {"-", "--json"}} {
+		var stderr bytes.Buffer
+		code := RunAssumptions(args, strings.NewReader("We should probably add caching."), failWriter{}, &stderr)
+		if code != 1 || !strings.Contains(stderr.String(), "writing output") {
+			t.Errorf("args %v: code=%d stderr=%q; want 1 and 'writing output'", args, code, stderr.String())
+		}
 	}
 }
