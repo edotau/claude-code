@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 
+	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/configure/configurecmd"
@@ -15,12 +16,14 @@ import (
 	"github.com/edotau/claude-code/internal/memory/memorycmd"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers/providerscmd"
 	"github.com/edotau/claude-code/internal/review/reviewcmd"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/testtool"
 	"github.com/edotau/claude-code/internal/ui/themecmd"
+	usagecmd "github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 	"github.com/edotau/claude-code/internal/worktree/worktreecmd"
 )
@@ -51,15 +54,15 @@ var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDia
 func commands() []command {
 	return append([]command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: aliasVerb(models.Opus)},
-		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: aliasVerb(models.Sonnet)},
-		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: aliasVerb(models.Haiku)},
-		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: aliasVerb(models.Fable)},
-		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
-		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
+		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: agentcmd.AliasVerb(models.Opus)},
+		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: agentcmd.AliasVerb(models.Sonnet)},
+		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: agentcmd.AliasVerb(models.Haiku)},
+		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: agentcmd.AliasVerb(models.Fable)},
+		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: agentcmd.Anthropic},
+		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: agentcmd.Science},
 		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return agentVerb("copilot", a) }},
 		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return agentVerb("codex", a) }},
-		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: cmdGemini},
+		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: func(a []string) int { return agentVerb("gemini", a) }},
 		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return agentVerb("opencode", a) }},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		// AUTH
@@ -77,7 +80,7 @@ func commands() []command {
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},
 		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: gateway.Run, spec: gateway.Spec},
-		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: cmdUsage},
+		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: func(a []string) int { return usagecmd.Run(a, paths.ConfigDir(), os.Stdout, os.Stderr) }},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: func(a []string) int { return describe.Run(a, describeVerbs()) }},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, setup.Run) }},
@@ -99,14 +102,14 @@ func describeVerbs() []describe.Verb {
 func hiddenCommands() []command {
 	return []command{
 		// Hidden: dispatchable, named in the trailing note, off the menu.
-		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
+		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: agentcmd.Claude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: CmdAgents},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: doctor.Preflight, spec: doctor.PreflightSpecNode},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: providerscmd.Models, spec: providerscmd.ModelsSpec},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: reviewcmd.Review, spec: reviewcmd.ReviewSpec},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: reviewcmd.Workflow, spec: reviewcmd.WorkflowSpec},
-		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},
+		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: agentcmd.Hook},
 		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: clipboard.Clip, spec: clipboard.Spec},
 		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: clipboard.ClipClear},
 		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: clipboard.WLPaste},

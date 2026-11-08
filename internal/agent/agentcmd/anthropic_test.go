@@ -1,4 +1,4 @@
-package cli
+package agentcmd
 
 import (
 	"strings"
@@ -17,7 +17,7 @@ func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
 		{"--oauth=MISSING_KEY_FOR_TEST", "--print-env"},
 	}
 	for _, args := range cases {
-		code, out, errOut := captureOutput(t, func() int { return cmdAnthropic(args) })
+		code, out, errOut := captureOutput(t, func() int { return Anthropic(args) })
 		if code == 0 {
 			t.Errorf("%q: exit 0", args)
 		}
