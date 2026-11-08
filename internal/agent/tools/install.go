@@ -1,11 +1,7 @@
 package tools
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,8 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -194,142 +188,6 @@ func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 		version, opencodeMaxMajor+1, opencodeAllowMajorEnv)
 }
 
-// ghRelease is the subset of a GitHub releases/latest response this package reads.
-type ghRelease struct {
-	TagName string    `json:"tag_name"`
-	Assets  []ghAsset `json:"assets"`
-}
-
-// ghAsset is one downloadable file of a release.
-type ghAsset struct {
-	Name string `json:"name"`
-	URL  string `json:"browser_download_url"`
-}
-
-// codexAssetName is the codex release asset for goos/goarch (musl on Linux), or "" when unmapped.
-func codexAssetName(goos, goarch string) string {
-	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[goarch]
-	if arch == "" {
-		return ""
-	}
-	switch goos {
-	case "linux":
-		return "codex-" + arch + "-unknown-linux-musl.tar.gz"
-	case "darwin":
-		return "codex-" + arch + "-apple-darwin.tar.gz"
-	default:
-		return ""
-	}
-}
-
-// selectCodexAsset finds the download URL for goos/goarch among release's assets.
-func selectCodexAsset(release ghRelease, goos, goarch string) (url, name string, err error) {
-	name = codexAssetName(goos, goarch)
-	if name == "" {
-		return "", "", fmt.Errorf("codex: no release asset mapped for %s/%s", goos, goarch)
-	}
-	if i := slices.IndexFunc(release.Assets, func(a ghAsset) bool { return a.Name == name }); i >= 0 {
-		return release.Assets[i].URL, name, nil
-	}
-	return "", "", fmt.Errorf("codex: asset %s not found in release %s", name, release.TagName)
-}
-
-// extractTarGzSingleFile returns the bytes of the one regular file in a .tar.gz, the shape of every codex asset.
-func extractTarGzSingleFile(data []byte) ([]byte, error) {
-	gz, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	hdr, err := tr.Next()
-	if err != nil {
-		return nil, fmt.Errorf("empty archive: %w", err)
-	}
-	if hdr.Typeflag != tar.TypeReg {
-		return nil, fmt.Errorf("first entry %s is not a regular file", hdr.Name)
-	}
-	return io.ReadAll(tr)
-}
-
-// codexCompanions ship as their own release assets beside codex; 0.163+ refuses tool calls without its host.
-var codexCompanions = []string{"codex-code-mode-host"}
-
-// installCodex extracts the latest release and its companions into BinDir(), never another dir.
-func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	if dir != paths.BinDir() {
-		dir = redirectToBinDir(w, "codex ships real release binaries")
-	}
-	fmt.Fprintf(w, "  github   %s\n", codexReleaseURL)
-	data, err := httpGet(ctx, codexReleaseURL)
-	if err != nil {
-		return err
-	}
-	var rel ghRelease
-	if err := json.Unmarshal(data, &rel); err != nil {
-		return fmt.Errorf("codex: release %w", err)
-	}
-	dlURL, assetName, err := selectCodexAsset(rel, goosOverride, goarchOverride)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(w, "  release  %s %s\n", rel.TagName, assetName)
-	if dryRun {
-		fmt.Fprintln(w, "  (dry-run: would download and extract codex + "+strings.Join(codexCompanions, ", ")+")")
-		return nil
-	}
-	all, err := stageCodex(ctx, rel, assetName, dlURL)
-	if err != nil {
-		return err
-	}
-	for _, s := range all {
-		if err := installBinary(w, dir, s.name, s.bin); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-type stagedBinary struct {
-	name string
-	bin  []byte
-}
-
-// stageCodex downloads every asset before writing any, so a failure leaves the old install untouched.
-func stageCodex(ctx context.Context, rel ghRelease, assetName, dlURL string) ([]stagedBinary, error) {
-	var all []stagedBinary
-	codexBin, err := fetchReleaseBinary(ctx, "codex", dlURL)
-	if err != nil {
-		return nil, err
-	}
-	for _, name := range codexCompanions {
-		asset := strings.Replace(assetName, "codex", name, 1)
-		i := slices.IndexFunc(rel.Assets, func(a ghAsset) bool { return a.Name == asset })
-		if i < 0 {
-			return nil, fmt.Errorf("codex: companion asset %s not found in release %s", asset, rel.TagName)
-		}
-		bin, err := fetchReleaseBinary(ctx, name, rel.Assets[i].URL)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, stagedBinary{name, bin})
-	}
-	return append(all, stagedBinary{"codex", codexBin}), nil
-}
-
-// fetchReleaseBinary downloads one single-file .tar.gz release asset and returns the binary inside.
-func fetchReleaseBinary(ctx context.Context, name, url string) ([]byte, error) {
-	tgz, err := httpGet(ctx, url)
-	if err != nil {
-		return nil, err
-	}
-	bin, err := extractTarGzSingleFile(tgz)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
-	}
-	return bin, nil
-}
-
 // claudeScienceAssetName mirrors claude.ai/install.sh's os/arch naming (x64/arm64).
 func claudeScienceAssetName(goos, goarch string) string {
 	arch := map[string]string{"amd64": "x64", "arm64": "arm64"}[goarch]
@@ -410,59 +268,4 @@ func updateAgy(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 		return installAgy(ctx, w, dir, dryRun)
 	}
 	return runSelfUpdate(ctx, w, bin, dryRun)
-}
-
-// tailscaleAppBin is the CLI inside the macOS app; the cask puts nothing on PATH.
-var tailscaleAppBin = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-
-// installTailscaleCask runs `brew install --cask tailscale-app`; brew itself skips an installed app.
-func installTailscaleCask(ctx context.Context, w io.Writer, dryRun bool) error {
-	fmt.Fprintln(w, "  exec     brew install --cask tailscale-app")
-	if dryRun {
-		return nil
-	}
-	brew, err := exec.LookPath("brew")
-	if err != nil {
-		return errors.New("tailscale: brew not found; install Homebrew or see https://tailscale.com/download")
-	}
-	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, brew, "install", "--cask", "tailscale-app")
-	cmd.Stdout, cmd.Stderr = w, w
-	return cmd.Run()
-}
-
-// linkTailscaleCLI writes ~/.local/bin/tailscale exec'ing the app's CLI (Tailscale's documented alias, no admin).
-func linkTailscaleCLI(w io.Writer, dryRun bool) error {
-	local := localBinDir()
-	if local == "" {
-		return errors.New("tailscale: no home directory for ~/.local/bin")
-	}
-	dst := filepath.Join(local, "tailscale")
-	if _, err := os.Lstat(dst); err == nil {
-		fmt.Fprintln(w, "  keep     "+dst)
-		return nil
-	}
-	fmt.Fprintf(w, "  cli      %s → %s\n", dst, tailscaleAppBin)
-	if dryRun {
-		return nil
-	}
-	if _, err := os.Stat(tailscaleAppBin); err != nil {
-		return fmt.Errorf("tailscale: app CLI missing after install: %w", err)
-	}
-	return installBinary(w, local, "tailscale", []byte("#!/bin/sh\nexec \""+tailscaleAppBin+"\" \"$@\"\n"))
-}
-
-// installTailscale is a system install, not into dir: brew cask on macOS, the official script (sudo inside) on Linux.
-func installTailscale(ctx context.Context, w io.Writer, _ string, dryRun bool) error {
-	switch goosOverride {
-	case "linux":
-		return runInstallScript(ctx, w, dryRun, tailscaleInstallScript, nil, nil)
-	case "darwin":
-		if err := installTailscaleCask(ctx, w, dryRun); err != nil {
-			return err
-		}
-		return linkTailscaleCLI(w, dryRun)
-	}
-	return fmt.Errorf("tailscale: no installer for %s; see https://tailscale.com/download", goosOverride)
 }
