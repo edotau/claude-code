@@ -191,7 +191,7 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 // (--work-tree / --git-dir / -C chain, else the segment's cwd after any `cd`) is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
 	var harness, worktrees, hit string
-	shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
+	shell.EachGit(dropRemoteHeredocs(dropDataHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
 		if !gitBannedUnder(target, verb, args, &harness, &worktrees) {
 			return false
 		}
