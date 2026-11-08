@@ -45,6 +45,10 @@
               "argsInside": true
             },
             {"commands": ["sort"], "bannedFlags": ["-o", "--output"], "argsInside": true},
+            {"commands": ["cut", "mkdir"], "argsInside": true},
+            {"commands": ["uniq"], "check": "uniqOneInput", "argsInside": true, "summary": "uniq (one input, no output file)"},
+            {"commands": ["printf"], "check": "printfNoVar", "summary": "printf (no -v)"},
+            {"commands": ["tr", "basename", "dirname", "pwd", "mktemp"]},
             {
               "commands": ["find"],
               "bannedFlags": ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"],

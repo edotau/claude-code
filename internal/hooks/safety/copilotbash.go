@@ -21,7 +21,8 @@ const CopilotBashHook = "copilot-bash"
 // copilotBashReason names the hook's allowlist, generated from the copilot shell policy.
 func copilotBashReason() string {
 	p := agentconfig.ShellPolicy()
-	return "copilot-bash: BLOCKED — Bash is limited to " + p.Commands.Summary() + ", 2>&1, paths in the cwd or ~/worktrees, " +
+	return "copilot-bash: BLOCKED — Bash is limited to " + p.Commands.Summary() + ", 2>&1, </dev/null, cd <dir> && chains, Go env prefixes (GOOS|GOARCH|CGO_ENABLED|" +
+		"GOCACHE|GOTMPDIR|GOFLAGS), $TMPDIR in mktemp, paths in the cwd or ~/worktrees, " +
 		p.HookExtras.Summary() + "."
 }
 
