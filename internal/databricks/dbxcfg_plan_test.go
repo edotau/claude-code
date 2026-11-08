@@ -359,6 +359,10 @@ func TestSealedNamesKeepsRowWithUnrelatedBadField(t *testing.T) {
 	if got := sealedNames(existing)[secretName("a", providers.AuthM2M)]; got != "a" {
 		t.Errorf("sealedNames owner of a's m2m secret = %q, want a", got)
 	}
+	unpaired := map[string]json.RawMessage{"b": json.RawMessage(`{"auth":{"type":"oauth","spClientId":5}}`)}
+	if got := sealedNames(unpaired)[secretName("b", providers.AuthOAuth)]; got != "b" {
+		t.Errorf("sealedNames owner of b's oauth secret = %q, want b despite the unreadable pairing", got)
+	}
 }
 
 // Apply refuses a providers value that is not an object instead of overwriting it.
