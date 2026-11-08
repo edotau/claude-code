@@ -1,23 +1,14 @@
-package cli
+package providerscmd
 
 import (
-	"fmt"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// printLines prints each line of a rendered view.
-func printLines(lines []string) {
-	for _, l := range lines {
-		fmt.Println(l)
-	}
-}
-
-// configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
-func configureProviderList(name, format string) int {
+// ProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
+func ProviderList(name, format string, verbs func() []describe.Verb) int {
 	if err := helptext.CheckFormat(format); err != nil {
 		return helptext.BadFormat("configure provider", err)
 	}
@@ -26,7 +17,7 @@ func configureProviderList(name, format string) int {
 		return helptext.Fail("%v", err)
 	}
 	if format == helptext.JSON {
-		return providerListJSON(reg, name)
+		return providerListJSON(reg, name, verbs())
 	}
 	if name == "" {
 		printProviderTable(reg)
@@ -63,8 +54,8 @@ type providerListEntry struct {
 }
 
 // providerListJSON emits the describe provider view: all providers, or the one named, never a credential.
-func providerListJSON(reg *providers.Registry, name string) int {
-	d, err := describe.Build(reg, describeVerbs())
+func providerListJSON(reg *providers.Registry, name string, verbs []describe.Verb) int {
+	d, err := describe.Build(reg, verbs)
 	if err != nil {
 		return helptext.Fail("configure provider: %v", err)
 	}
