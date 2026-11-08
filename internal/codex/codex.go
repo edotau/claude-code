@@ -496,7 +496,7 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 		sandbox = "workspace-write"
 	}
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
-	if h.Tools { // tests open loopback listeners; codex's only switch for that is network_access
+	if h.Tools && os.Getenv(codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
 	}
 	if h.NoPersist {
@@ -511,6 +511,9 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	// The prompt rides stdin behind the `-` operand: a positional prompt like "help" is a codex subcommand.
 	return append(argv, "-")
 }
+
+// codexNetworkEnv=1 opts codex tool runs into sandbox network (loopback test listeners); default sealed.
+const codexNetworkEnv = "HARNESS_CODEX_NETWORK"
 
 // codexKeychainService is the macOS/Linux keyring service codex stores its ChatGPT login under when
 // config.toml sets cli_auth_credentials_store = "keyring" (the whole auth.json body as the secret value).
