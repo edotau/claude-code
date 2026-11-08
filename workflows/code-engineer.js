@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-engineer',
   description: 'One size-routed entry point: size the job, then route it through code-relay (or draft a plan for an epic)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {model, effort} per stage (claude only; child is code-relay\'s steps, where Simplify, Review and Fix-all also run per package). polish (default true; false skips both levels: code-relay\'s per-package chain and code-engineer\'s final pass) runs after code-relay when it fixed something: Dedupe (only when 2+ packages were fixed), then Simplify and Review over the merged diff; any finding, lows included, earns one more code-relay pass (capped at one loop). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-relay as known, skipping Find and Rederive. A low token budget (under 150k left) skips the final pass, the review loop and code-relay\'s per-package polish. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, dedupe, simplify, review, decisions, report}. Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {model, effort} per stage (claude only; child is code-relay\'s steps, where Simplify, Review and Fix-all also run per package). polish (default true; false skips both levels: code-relay\'s per-package chain and code-engineer\'s final pass) runs after code-relay when it fixed something: Dedupe (only when 2+ packages were fixed), then Simplify and Review over the merged diff; any finding, lows included, earns one more code-relay pass (capped at one loop). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-relay as known, skipping Find and Rederive. A low token budget (under 150k left) skips the final pass, the review loop and code-relay\'s per-package polish. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, files (sorted repo-relative files the implementer, fixers and test writers changed), dedupe, simplify, review, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
@@ -87,7 +87,7 @@ const tierOf = (kind, paths, pkgs) => {
   return files.length >= 2 ? 'MEDIUM' : 'LOW'
 }
 const INTEL = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } }, focus: { type: 'string' } }, required: ['paths', 'focus'] }
-const WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, summary: { type: 'string' } }, required: ['status', 'summary'] }
+const WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, summary: { type: 'string' }, files: { type: 'array', items: { type: 'string' } } }, required: ['status', 'summary'] }
 const PLAN = { type: 'object', properties: { plan: { type: 'string' } }, required: ['plan'] }
 const SIMP = {
   type: 'object',
@@ -194,12 +194,14 @@ if (tier === 'MEDIUM' && TASK) {
 }
 // code-relay only fixes bugs: a feature task gets an implementer first, then code-relay audits and hardens the new code.
 const feature = KIND ? KIND === 'feature' : /\b(build|add|implement|create|introduce|support|write)\b/i.test(TASK) && !/\b(audit|review)\b/i.test(TASK)
+let IMPL_FILES = []
 if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feature) {
   const impl = await agent(
     RULES + ' Make this change in these files (new files in the same package ok) and nothing else; smallest correct change, functions < 50 lines, 1-line comments. ' +
-      'Run gofmt and go vet on the package. Do not write tests; code-relay follows with find, fix, guard test and gate.\nFiles: ' + target.paths.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus,
+      'Run gofmt and go vet on the package. Do not write tests; code-relay follows with find, fix, guard test and gate. Return `files`: every repo-relative file you changed.\nFiles: ' + target.paths.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus,
     { phase: 'Route', label: 'impl', schema: WORK, model: S.impl.model, effort: S.impl.effort },
   ).catch(() => null)
+  if (impl) IMPL_FILES = strs(impl.files).map((f) => f.replace(CWD + '/', ''))
   decisions.push('implementer ran: ' + (impl ? impl.status + ' — ' + impl.summary : 'returned nothing'))
   decisions.push('feature task: code-relay below is an audit-and-harden pass over the new code, not a feature builder')
 }
@@ -225,6 +227,13 @@ if (wantPolish && lowBudget()) {
   log('polish skipped: low budget')
 } else if (wantPolish) res = await polish(res)
 return await record(res)
+
+// touchedFiles is the sorted, deduped union of the files the implementer, fixers and test writers reported changing.
+function touchedFiles(fixed) {
+  const norm = (f) => String(f).replace(CWD + '/', '')
+  const fs = (fixed || []).flatMap((f) => [...strs(f.impl && f.impl.files), ...strs(f.test && f.test.files)])
+  return [...new Set([...IMPL_FILES, ...fs.map(norm)])].sort()
+}
 
 // changedFiles lists the files code-relay's fixers and test writers reported, repo-relative; a package dir stands in when none were named.
 function changedFiles(fixed) {
@@ -304,7 +313,9 @@ async function dedupe(res, files) {
 }
 
 // record appends the run's report and decisions to the repo's memory reports so continuity needs no hand-written notes.
-async function record(res) {
+async function record(res0) {
+  const files = touchedFiles(res0.fixed)
+  const res = { ...res0, files, report: res0.report + (files.length ? '\n\nFiles touched: ' + files.join(', ') : '') }
   if (a.record === false) return res
   const label = String(a.label || 'code-engineer').replace(/[^A-Za-z0-9._-]+/g, '-')
   const w = await agent(
