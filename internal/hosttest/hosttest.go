@@ -140,6 +140,22 @@ func linkTools(bin string) {
 	}
 }
 
+// HermeticEnv points CLAUDE_CONFIG_DIR, HOME and XDG config/data at a fresh temp dir and clears profile/model/key overrides.
+func HermeticEnv(t testing.TB) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("BASH_COMPLETION_USER_DIR", "")
+	for _, k := range []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
+		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
+		t.Setenv(k, "")
+	}
+}
+
 // MainTB lets TestMain call testing.TB stubs: Cleanup is deferred until the caller runs Run's returned funcs.
 type MainTB struct {
 	testing.TB
