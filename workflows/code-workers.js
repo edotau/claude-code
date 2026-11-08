@@ -183,6 +183,7 @@ async function review(p) {
       { phase: 'Find', label: 'find:' + l.key + ':' + p, schema: S.find.schema(FINDINGS), model: S.find.model, effort: S.find.effort, ...S.find.type },
     ).then((r) => S.find.done('find:' + l.key + ':' + p, r))))
   const merged = merge(finds.filter(Boolean).flatMap((r) => r.findings || []))
+  const blocked = finds.filter((r) => !r).length // BLOCKED or empty find legs: over half means the package was not really searched
   const judged = await parallel(merged.map((f, i) => () =>
     agent(
       S.rederive.task(READONLY + ' A teammate says there is a bug at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
@@ -197,7 +198,7 @@ async function review(p) {
     .map((c, i) => c || { ...repro[i].f, severity: repro[i].r.severity, rederived: repro[i].r.scenario })
   const dropped = ok.filter((x) => x.r && !x.r.reproduced).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
   log(p + ': merged ' + merged.length + ', confirmed ' + confirmed.length + ', dropped ' + dropped.length + ', unverified ' + unverified.length)
-  return { pkg: p, merged: merged.length, confirmed, dropped, unverified }
+  return { pkg: p, merged: merged.length, confirmed, dropped, unverified, starved: blocked * 2 > finds.length ? blocked + '/' + finds.length : '' }
 }
 
 // Severity drift: finder and rederiver split across the fix line → one blind tie-breaker; the median of three wins.
@@ -224,6 +225,7 @@ async function repair(rev) {
   const p = rev.pkg
   const cs = rev.confirmed.filter((c) => ORDER[c.severity] <= MIN_FIX && inPkg(c.file, p))
   if (!FIX) return { ...rev, fixed: 0, decisions: [] }
+  if (!cs.length && rev.starved) return { ...rev, fixed: 0, decisions: [p + ': ' + rev.starved + ' find legs BLOCKED — red, not clean'] }
   if (!cs.length) return { ...rev, fixed: 0, decisions: ['no finding at or above minFix in ' + p] }
   log(p + ': ' + cs.length + ' finding(s) at or above minFix, fixing now')
   const impl = S.fix.done('fix:' + p, await agent(
@@ -338,7 +340,7 @@ for (const dir of Object.keys(foreign)) {
 }
 const confirmed = results.flatMap((r) => r.confirmed).sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
 const unverified = results.flatMap((r) => r.unverified || [])
-const red = results.filter((r) => r.fixed && !r.green).map((r) => r.pkg)
+const red = results.filter((r) => (r.fixed && !r.green) || (!r.fixed && r.starved)).map((r) => r.pkg)
 const fixed = results.filter((r) => r.fixed).map((r) => ({ pkg: r.pkg, findings: r.fixed, impl: r.impl, test: r.test, gate: r.gate, simplify: r.simplify, review: r.review, fixall: r.fixall }))
 const decisions = results.flatMap((r) => r.decisions || [])
 if (!FIX) decisions.push('review only: fix=false')
