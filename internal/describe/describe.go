@@ -1,4 +1,5 @@
-package cli
+// Package describe builds the machine-readable map of the harness behind `describe` and the network page.
+package describe
 
 import (
 	"fmt"
@@ -66,7 +67,15 @@ type DescribeHook struct {
 	Timeout int    `json:"timeout"`
 }
 
-func cmdDescribe(args []string) int {
+// Verb is one top-level verb as the cli table lists it; Node is its completion spec (nil for a bare launcher).
+type Verb struct {
+	Name, Group, Summary string
+	Hidden               bool
+	Node                 *completion.Node
+}
+
+// Run is the `describe` verb over the cli table's verbs.
+func Run(args []string, verbs []Verb) int {
 	fs := helptext.NewFlagSet("describe", helptext.Page{
 		Usage: "claude-code describe [flags]",
 		About: "One map of the whole harness for an agent: verbs, providers, agents, model aliases and hooks. " +
@@ -80,7 +89,7 @@ func cmdDescribe(args []string) int {
 	if err != nil {
 		return helptext.Fail("describe: %v", err)
 	}
-	d, err := describe(reg)
+	d, err := Build(reg, verbs)
 	if err != nil {
 		return helptext.Fail("describe: %v", err)
 	}
@@ -96,19 +105,18 @@ func cmdDescribe(args []string) int {
 	return 0
 }
 
-// describe builds the describe view from an already-loaded registry, so a caller that loaded one
+// Build builds the describe view from an already-loaded registry, so a caller that loaded one
 // itself (e.g. configureProviderList) never pays for a second load.
-func describe(reg *providers.Registry) (Describe, error) {
+func Build(reg *providers.Registry, verbs []Verb) (Describe, error) {
 	d := Describe{Version: textutil.BuildVersion(), Models: models.AliasNames}
-	tree := specTree()
-	for _, c := range commands() {
-		if strings.HasPrefix(c.name, "__") {
+	for _, c := range verbs {
+		if strings.HasPrefix(c.Name, "__") {
 			continue
 		}
-		node := tree[c.name]
+		node := c.Node
 		d.Commands = append(d.Commands, DescribeCommand{
-			Name: c.name, Group: c.group, Summary: c.summary, Hidden: c.hidden,
-			Subverbs: subwordNames(node), Flags: flagNames(node),
+			Name: c.Name, Group: c.Group, Summary: c.Summary, Hidden: c.Hidden,
+			Subverbs: subwordNames(node), Flags: FlagNames(node),
 		})
 	}
 	d.Providers = DescribeProviders{Default: reg.Default, Fallback: reg.Fallback}
@@ -139,9 +147,9 @@ func subwordNames(node *completion.Node) []string {
 	return slices.Sorted(maps.Keys(node.Sub))
 }
 
-// flagNames lists a verb's completable flags across its own node and every subverb, "--flag" or
+// FlagNames lists a verb's completable flags across its own node and every subverb, "--flag" or
 // "--flag <value>", sorted.
-func flagNames(node *completion.Node) []string {
+func FlagNames(node *completion.Node) []string {
 	if node == nil {
 		return nil
 	}
@@ -190,16 +198,15 @@ func ownFlagNames(node *completion.Node) []string {
 	return out
 }
 
-// verbTree is the verb map behind the network page's Architecture tab, in menu order.
-func verbTree() []verbNode {
-	tree := specTree()
+// VerbTree is the verb map behind the network page's Architecture tab, in menu order.
+func VerbTree(verbs []Verb) []verbNode {
 	var out []verbNode
-	for _, c := range commands() {
-		if strings.HasPrefix(c.name, "__") {
+	for _, c := range verbs {
+		if strings.HasPrefix(c.Name, "__") {
 			continue
 		}
-		node := tree[c.name]
-		v := verbNode{Name: c.name, Group: c.group, Summary: c.summary, Hidden: c.hidden, Flags: ownFlagNames(node)}
+		node := c.Node
+		v := verbNode{Name: c.Name, Group: c.Group, Summary: c.Summary, Hidden: c.Hidden, Flags: ownFlagNames(node)}
 		for _, w := range subwordNames(node) {
 			v.Subverbs = append(v.Subverbs, verbSub{Name: w, Flags: ownFlagNames(node.Sub[w])})
 		}
