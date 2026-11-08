@@ -3,6 +3,7 @@ package client
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,9 +26,11 @@ func (f *packFile) write() error {
 	if err != nil {
 		return fmt.Errorf("pack file: %w", err)
 	}
-	defer out.Close()
 	_, err = out.WriteString(f.body)
-	return err
+	if err = errors.Join(err, out.Close()); err != nil {
+		return fmt.Errorf("pack file: %w", errors.Join(err, os.Remove(f.path)))
+	}
+	return nil
 }
 
 func (f *packFile) remove() { _ = os.Remove(f.path) }

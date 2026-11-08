@@ -104,9 +104,11 @@ func reapRecords(snapshot []job.Record, dryRun bool, verb string, out, errw io.W
 		if rec.Status != "running" || rec.Alive() {
 			continue
 		}
-		if cur, err := job.LoadRecord(rec.ID); err == nil && cur.Status != "running" {
-			continue // the owner finished after the snapshot; keep its real result
+		cur, err := job.LoadRecord(rec.ID)
+		if err != nil || cur.Status != "running" || cur.Alive() {
+			continue // the owner may have finished or started after the snapshot
 		}
+		rec = cur
 		rec.Status, rec.Error = "error", lostError
 		if !dryRun {
 			if err := rec.Save(); err != nil {
@@ -121,7 +123,7 @@ func reapRecords(snapshot []job.Record, dryRun bool, verb string, out, errw io.W
 	return records, code
 }
 
-// reapSockets removes live-session sockets whose holder is gone (no record, or not alive); a live holder keeps its own.
+// reapSockets removes sockets whose holder is dead or has no dispatch record.
 func reapSockets(snapshot []job.Record, dryRun bool, verb string, out io.Writer) int {
 	records := make(map[string]job.Record, len(snapshot))
 	for _, rec := range snapshot {

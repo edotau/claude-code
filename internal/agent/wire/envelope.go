@@ -166,7 +166,7 @@ func ranOnCost(res Result) string {
 // compactCount spells n as 950, 23.4k or 1.84M.
 func compactCount(n int) string {
 	switch {
-	case n >= 1_000_000:
+	case n >= 999_950:
 		return strconv.FormatFloat(float64(n)/1e6, 'f', 2, 64) + "M"
 	case n >= 1_000:
 		return strconv.FormatFloat(float64(n)/1e3, 'f', 1, 64) + "k"
