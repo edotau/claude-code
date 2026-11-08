@@ -24,7 +24,7 @@ func TestGitCommitAllowedRefusesReuse(t *testing.T) {
 	}
 }
 
-// TestCommandGoEnvAndGitGrep pins that only GOOS/GOARCH/CGO_ENABLED may prefix go, and git grep never opens a pager.
+// TestCommandGoEnvAndGitGrep pins that only the Go env names may prefix an allowed command, and git grep never opens a pager.
 func TestCommandGoEnvAndGitGrep(t *testing.T) {
 	root := t.TempDir()
 	cases := []struct {
@@ -38,7 +38,7 @@ func TestCommandGoEnvAndGitGrep(t *testing.T) {
 		{"GOFLAGS=-toolexec=x go vet ./...", false},
 		{"GOOS=darwin LD_PRELOAD=x go vet ./...", false},
 		{"GOOS=darwin rm -rf x", false},
-		{"GOOS=darwin ls", false},
+		{"GOOS=darwin ls", true},
 		{"GOOS=darwin env go vet ./...", false},
 		{"GOOS=darwin go vet -vettool=x ./...", false},
 		{"GOOS=darwin go run ./...", false},
@@ -135,7 +135,7 @@ func TestCommandRm(t *testing.T) {
 		{"rm /etc/passwd", false}, {"rm .git/config", false}, {"rm state/vault.db", false}, {"rm settings.json", false},
 		{"rm settings.local.json", false}, {"rm link-out", false}, {"rm link-in", false}, {"rm link-out/x", false},
 		{"rm sub", false}, {"rm missing.go", false}, {"rm a.go sub", false}, {"rm a.go; rm b.go", true},
-		{"cd sub && rm c.go", false},
+		{"cd sub && rm c.go", true}, {"cd sub | rm c.go", false}, {"cd sub; rm c.go", false}, {"cd sub || rm c.go", false},
 		{"rm dirlink/record", false}, {"rm SETTINGS.JSON", false}, {"rm VAULT.DB", false}, {"rm X.CREDENTIALS.JSON", false},
 		{"rm STATE/x", false}, {"rm " + filepath.Join(root, "STATE", "x"), false}, {"rm viagit/config", false}, {"rm metadata/config", true},
 	}
@@ -285,6 +285,55 @@ func TestCanonicalSelfInstalledSymlink(t *testing.T) {
 	for _, in := range []string{link + " doctor", "~/.local/bin/claude-code doctor", "$HOME/.local/bin/claude-code doctor"} {
 		if got := CanonicalSelf(in); got != "claude-code doctor" {
 			t.Errorf("CanonicalSelf(%q) = %q", in, got)
+		}
+	}
+}
+
+// additionRoots builds a hermetic $HOME/.claude root (with sub/f) and a ~/worktrees/x root for the allowlist additions.
+func additionRoots(t *testing.T) (root, wt string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root, wt = filepath.Join(home, ".claude"), filepath.Join(home, "worktrees")
+	touch(t, filepath.Join(root, "sub", "f"))
+	touch(t, filepath.Join(wt, "x", "f"))
+	return root, wt
+}
+
+// TestCommandAllowlistAdditions pins the intended forms of mktemp, cd chains, mkdir, text tools, Go env and </dev/null.
+func TestCommandAllowlistAdditions(t *testing.T) {
+	root, wt := additionRoots(t)
+	for _, cmd := range []string{
+		`mktemp "${TMPDIR:-/tmp}/copilot-task.XXXXXX"`, "mktemp $TMPDIR/x.XXXXXX", "mktemp", "mktemp -d",
+		"cd sub && go test ./...", "cd " + filepath.Join(wt, "x") + " && ls f", "cd sub && cd .. && ls",
+		"mkdir -p sub/new/dir", "mkdir -p " + filepath.Join(root, "abs"),
+		`printf '%s' x | cut -d: -f1 | tr a-z A-Z | sort | uniq -c`, "basename a/b.go && dirname a/b.go && pwd", "uniq sub/f",
+		"GOCACHE=/tmp/gocache GOTMPDIR=/tmp GOFLAGS=-count=1 go test ./...", `GOFLAGS="-mod=mod -count=1" make test`,
+		"go test ./... < /dev/null", "go vet ./...</dev/null 2>&1",
+	} {
+		if !CommandIn(cmd, root, []string{root, wt}, nil) {
+			t.Errorf("CommandIn(%q) refused, want allowed", cmd)
+		}
+	}
+}
+
+// TestCommandAllowlistAdditionAbuses pins that each addition's escape shape stays blocked.
+func TestCommandAllowlistAdditionAbuses(t *testing.T) {
+	root, wt := additionRoots(t)
+	for _, cmd := range []string{
+		"cd /etc && ls", "cd .. && ls", "cd", "cd -", "cd sub extra", "ls | cd sub && ls f", "cd sub && ls; ls f",
+		"GOOS=darwin cd /etc", "cd $TMPDIR && ls",
+		"mkdir /tmp/x", "mkdir -p ../x",
+		"GOFLAGS=-toolexec=x go test ./...", `GOFLAGS="-count=1 --exec=x" make test`, "GOFLAGS=-modfile=/tmp/go.mod go test ./...",
+		"LD_PRELOAD=x go test ./...", "PATH=/tmp go test ./...", "GOOS=darwin",
+		"printf x > f", "printf -v PATH /tmp && go test ./...", "printf -vPATH x", "sed -n 1p f", "cut -f1 /etc/passwd",
+		"uniq sub/f out", "uniq -c sub/f out", "uniq -- -a -b",
+		"mktemp x && cat > /etc/y", "ls $TMPDIR", "cat ${TMPDIR:-/tmp}/x", "mktemp ${HOME}/x", "mktemp $TMPDIRX",
+		"mktemp '$TMPDIR/x'", "f=$(mktemp)", "GOOS=darwin mktemp $TMPDIR/x",
+		"ls < /etc/passwd", "ls << /dev/null", "ls </dev/nullx",
+	} {
+		if CommandIn(cmd, root, []string{root, wt}, nil) {
+			t.Errorf("CommandIn(%q) allowed, want blocked", cmd)
 		}
 	}
 }

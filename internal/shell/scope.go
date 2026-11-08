@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 )
@@ -28,19 +29,31 @@ var gitLeadingFlags = map[string][]string{
 	"show": {"--no-ext-diff", "--no-textconv"}, "blame": {"--no-textconv"},
 }
 
-// goEnvPrefix is the only env assignment tolerated before `go` (cross-compile vet and build checks).
-var goEnvPrefix = regexp.MustCompile(`^(GOOS|GOARCH|CGO_ENABLED)=[A-Za-z0-9_]+$`)
+// envPrefix is the only env assignment tolerated before a command (cross-compile, cache dirs and GOFLAGS).
+var envPrefix = regexp.MustCompile(`^(?:(?:GOOS|GOARCH|CGO_ENABLED)=[A-Za-z0-9_]+|(GOCACHE|GOTMPDIR|GOFLAGS)=(.*))$`)
 
-// stripGoEnv drops leading goEnvPrefix words from w when the command that follows is go; otherwise w is unchanged.
-func stripGoEnv(w []string) []string {
+// stripEnv drops w's leading envPrefix words, returning GOFLAGS' fields; false when no command follows them.
+func stripEnv(w []string) (goFlags, rest []string, ok bool) {
 	i := 0
-	for i < len(w) && goEnvPrefix.MatchString(w[i]) {
-		i++
+	for ; i < len(w); i++ {
+		m := envPrefix.FindStringSubmatch(w[i])
+		if m == nil {
+			break
+		}
+		if m[1] == "GOFLAGS" {
+			goFlags = append(goFlags, strings.Fields(m[2])...)
+		}
 	}
-	if i == 0 || i >= len(w) || w[i] != "go" {
-		return w
+	return goFlags, w[i:], i < len(w)
+}
+
+// goFlagsAllowed holds GOFLAGS' fields to the go rule's banned flags and the root, like go's own args.
+func goFlagsAllowed(fields []string, rules agentconfig.ShellRules, root string) bool {
+	if len(fields) == 0 {
+		return true
 	}
-	return w[i:]
+	i := slices.IndexFunc(rules, func(r agentconfig.ShellRule) bool { return slices.Contains(r.Commands, "go") })
+	return i >= 0 && noFlag(fields, rules[i].BannedFlags...) && argsInside(fields, root)
 }
 
 // gitVerbFlags are those verbs' only dash args: branch must carry --list or -l, and `git status -v` runs textconv.
@@ -201,25 +214,29 @@ func WriteAllowed(file, workDir string) bool {
 		base != ".credentials.json" && !strings.HasPrefix(base, "vault.db")
 }
 
-// splitShell splits cmd on && || ; | outside quotes into word lists; false on anything it cannot judge.
-func splitShell(cmd string) ([][]string, bool) {
+// splitShell splits cmd on && || ; | outside quotes into word lists and the separator after each ("" last).
+func splitShell(cmd string) ([][]string, []string, bool) {
 	var s shellWords
 	rs := []rune(cmd)
 	for i := 0; i < len(rs); i++ {
 		var ok bool
 		if i, ok = s.step(rs, i); !ok {
-			return nil, false
+			return nil, nil, false
 		}
 	}
-	if s.quote != 0 || !s.flushSeg() {
-		return nil, false
+	if s.quote != 0 || !s.flushSeg("") {
+		return nil, nil, false
 	}
-	return s.segs, true
+	return s.segs, s.seps, true
 }
+
+// tmpdirMark stands in for a $TMPDIR reference inside a word; only mktemp may carry it.
+const tmpdirMark = "\x00TMPDIR"
 
 // shellWords is splitShell's walk state: finished segments, the current segment's words, the word being built.
 type shellWords struct {
 	segs   [][]string
+	seps   []string
 	words  []string
 	cur    strings.Builder
 	quote  rune
@@ -228,12 +245,13 @@ type shellWords struct {
 
 // step consumes rs[i] (and a rune it pairs with), returning the last index used; false on anything not judged.
 func (s *shellWords) step(rs []rune, i int) (int, bool) {
+	if end, ok, handled := s.special(rs, i); handled {
+		return end, ok
+	}
 	r := rs[i]
 	switch {
 	case s.quote != 0:
 		return i, s.quoted(r)
-	case !s.inWord && stderrToStdout(rs, i):
-		return i + len("2>&1") - 1, true // 2>&1 only merges output already going to the terminal
 	case strings.ContainsRune("`$<>\\\n\r(){}*?[~", r):
 		return i, false // substitution, redirection, globbing and grouping are not judged
 	case strings.ContainsRune(`'"`, r):
@@ -242,12 +260,30 @@ func (s *shellWords) step(rs []rune, i int) (int, bool) {
 		s.flushWord()
 	case strings.ContainsRune(";|&", r):
 		end, ok := separatorEnd(rs, i)
-		return end, ok && s.flushSeg()
+		return end, ok && s.flushSeg(string(rs[i:end+1]))
 	default:
 		s.cur.WriteRune(r)
 		s.inWord = true
 	}
 	return i, true
+}
+
+// special takes a $TMPDIR reference (outside single quotes), an unquoted </dev/null or 2>&1; handled is false otherwise.
+func (s *shellWords) special(rs []rune, i int) (end int, ok, handled bool) {
+	switch {
+	case s.quote == 0 && !s.inWord && stderrToStdout(rs, i):
+		return i + len("2>&1") - 1, true, true // 2>&1 only merges output already going to the terminal
+	case rs[i] == '$' && s.quote != '\'':
+		end = tmpdirRef(rs, i)
+		s.cur.WriteString(tmpdirMark)
+		s.inWord = true
+	case rs[i] == '<' && s.quote == 0:
+		s.flushWord()
+		end = devNullInput(rs, i)
+	default:
+		return i, false, false
+	}
+	return end, end >= 0, true
 }
 
 // quoted handles one rune inside quotes: the closing quote ends them, any other rune joins the word.
@@ -271,13 +307,39 @@ func (s *shellWords) flushWord() {
 	}
 }
 
-func (s *shellWords) flushSeg() bool {
+func (s *shellWords) flushSeg(sep string) bool {
 	s.flushWord()
 	if len(s.words) == 0 {
 		return false
 	}
-	s.segs, s.words = append(s.segs, s.words), nil
+	s.segs, s.seps, s.words = append(s.segs, s.words), append(s.seps, sep), nil
 	return true
+}
+
+// tmpdirRef is the last index of a $TMPDIR or ${TMPDIR:-/tmp} reference at rs[i]; -1 on any other expansion.
+func tmpdirRef(rs []rune, i int) int {
+	rest := string(rs[i:])
+	if strings.HasPrefix(rest, "${TMPDIR:-/tmp}") {
+		return i + len("${TMPDIR:-/tmp}") - 1
+	}
+	end := i + len("$TMPDIR")
+	if !strings.HasPrefix(rest, "$TMPDIR") || end < len(rs) && (rs[end] == '_' || unicode.IsLetter(rs[end]) || unicode.IsDigit(rs[end])) {
+		return -1
+	}
+	return end - 1
+}
+
+// devNullInput is the last index of a "</dev/null" or "< /dev/null" input redirect at rs[i]; -1 on any other.
+func devNullInput(rs []rune, i int) int {
+	j := i + 1
+	for j < len(rs) && (rs[j] == ' ' || rs[j] == '\t') {
+		j++
+	}
+	end := j + len("/dev/null")
+	if end > len(rs) || string(rs[j:end]) != "/dev/null" || end < len(rs) && !strings.ContainsRune(" \t;|&", rs[end]) {
+		return -1
+	}
+	return end - 1
 }
 
 // separatorEnd is the last index of the separator at rs[i] (`&&` and `||` take two); false on a lone `&`.
@@ -336,21 +398,66 @@ func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
 // CommandIn reports whether every segment of cmd, run in cwd, passes the policy's commands or extra (which may be nil)
 // in a root; cwd must be absolute and inside a root, and relative operands resolve against it, never another root.
 func CommandIn(cmd, cwd string, roots []string, extra agentconfig.ShellRules) bool {
-	if !filepath.IsAbs(cwd) || !slices.ContainsFunc(roots, func(root string) bool { _, ok := relInside(cwd, root); return ok }) {
+	if !filepath.IsAbs(cwd) || !inRoots(cwd, roots) {
 		return false
 	}
-	segs, ok := splitShell(cmd)
-	if !ok {
+	segs, seps, ok := splitShell(cmd)
+	if !ok || !cdChainSafe(segs, seps) {
 		return false
 	}
-	rules := agentconfig.ShellPolicy().Commands
 	for _, w := range segs {
-		w = absolutizeOperands(stripGoEnv(w), cwd)
-		if !slices.ContainsFunc(roots, func(root string) bool { return allows(rules, w, root) || allows(extra, w, root) }) {
+		if w[0] != "mktemp" && slices.ContainsFunc(w, func(a string) bool { return strings.Contains(a, tmpdirMark) }) {
+			return false
+		}
+		if w[0] == "cd" {
+			cwd, ok = cdTarget(w, cwd, roots)
+		} else {
+			ok = segmentAllowed(w, cwd, roots, extra)
+		}
+		if !ok {
 			return false
 		}
 	}
 	return true
+}
+
+// segmentAllowed reports whether one non-cd segment, run in cwd, passes the policy or extra in some root.
+func segmentAllowed(w []string, cwd string, roots []string, extra agentconfig.ShellRules) bool {
+	goFlags, rest, ok := stripEnv(w)
+	if !ok {
+		return false
+	}
+	rest = absolutizeOperands(rest, cwd)
+	rules := agentconfig.ShellPolicy().Commands
+	return slices.ContainsFunc(roots, func(root string) bool {
+		return goFlagsAllowed(goFlags, rules, root) && (allows(rules, rest, root) || allows(extra, rest, root))
+	})
+}
+
+// inRoots reports whether p resolves inside any of roots.
+func inRoots(p string, roots []string) bool {
+	return slices.ContainsFunc(roots, func(root string) bool { _, ok := relInside(p, root); return ok })
+}
+
+// cdChainSafe admits cd only between && (no || or ; anywhere), so every later segment runs in cd's dir.
+func cdChainSafe(segs [][]string, seps []string) bool {
+	prev, unsafe := "&&", slices.Contains(seps, "||") || slices.Contains(seps, ";")
+	for k, w := range segs {
+		if w[0] == "cd" && (unsafe || prev != "&&" || seps[k] == "|") {
+			return false
+		}
+		prev = seps[k]
+	}
+	return true
+}
+
+// cdTarget is `cd <dir>`'s resolved dir, false unless it is one plain operand resolving inside a root.
+func cdTarget(w []string, cwd string, roots []string) (string, bool) {
+	if len(w) != 2 || strings.HasPrefix(w[1], "-") {
+		return "", false
+	}
+	dir := resolveReal(w[1], cwd)
+	return dir, filepath.IsAbs(dir) && inRoots(dir, roots)
 }
 
 // checks are the Go rules a policy entry names by "check"; each gets the args after the matched subcommand.
@@ -358,6 +465,25 @@ var checks = map[string]func(args []string, workDir string) bool{
 	"scopedGit":    func(args []string, workDir string) bool { return scopedGit(append([]string{"git"}, args...), workDir) },
 	"noOutputFlag": func(args []string, _ string) bool { return !outputFlag(args) },
 	"regularFiles": rmAllowed,
+	"printfNoVar": func(args []string, _ string) bool {
+		return !slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "-v") })
+	},
+	"uniqOneInput": uniqOneInput,
+}
+
+// uniqOneInput admits at most one operand (a word after -- counts): uniq writes its second operand.
+func uniqOneInput(args []string, _ string) bool {
+	n := 0
+	for i, a := range args {
+		if a == "--" {
+			n += len(args) - i - 1
+			break
+		}
+		if a == "-" || !strings.HasPrefix(a, "-") {
+			n++
+		}
+	}
+	return n <= 1
 }
 
 // allows reports whether any rule for w's command admits w inside workDir (an unknown check admits nothing).

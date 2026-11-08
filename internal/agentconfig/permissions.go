@@ -5,7 +5,8 @@
 //     agents.json `useGuardRules`; converted in internal/gemini (agyGuardRules).
 //   - copilot shell allowlist: agents.json agents.copilot.permission.shell, read here by ShellPolicy() and
 //     enforced by internal/shell (SDK --tools tier and the `hook copilot-bash` guard). Argument-level git logic stays Go
-//     (shell check "scopedGit"); a rule's "check" names such a Go rule.
+//     (shell check "scopedGit"); a rule's "check" names such a Go rule. Shell syntax beyond the rules (cd && chains,
+//     Go env prefixes, $TMPDIR in mktemp, 2>&1, </dev/null) is judged in internal/shell/scope.go.
 //   - codex, copilot, opencode launch knobs: agents.json (approvalPolicy, sandboxMode, launch args).
 //   - safety-scan hook: internal/hooks/safety*.go blocks destructive shapes for every agent, on top of all of the above.
 //
