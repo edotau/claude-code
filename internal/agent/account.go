@@ -8,22 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// profileRow is the registry row named name, or nil when absent.
-func profileRow(reg *providers.Registry, name string) *providers.Provider {
-	if reg == nil || name == "" {
-		return nil
-	}
-	return reg.Providers[name]
-}
-
-// profileAccount is a profile's route-state account key: the structured <provider>·<profile> pair.
-func profileAccount(p *providers.Provider) string {
-	if p.Provider == "" {
-		return p.Name
-	}
-	return p.Provider + "·" + p.Name
-}
-
 // ResolveAccount is resolveAccount for callers outside the package (the gateway router view).
 var ResolveAccount = resolveAccount
 
@@ -49,7 +33,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 			return "", ""
 		}
 	}
-	return profileAccount(t.Provider), billingOf(t.Provider)
+	return t.Provider.Account(), billingOf(t.Provider)
 }
 
 func billedAgentTarget(agentName, model string) providers.Target {
@@ -83,7 +67,7 @@ func ownLoginAccount(agentName, account string) bool {
 		return false
 	}
 	p := reg.Providers[profile]
-	return p != nil && p.Auth.Login == agentName && profileAccount(p) == account
+	return p != nil && p.Auth.Login == agentName && p.Account() == account
 }
 
 // billingOf: a harness-held key bills per use, anything else is a plan.
@@ -101,7 +85,7 @@ func explicitAccount(r Engine, req RunOptions) (string, string) {
 		if hub.OwnPlan(p.OpencodeID) {
 			return "opencode·go", router.BillSubscription
 		}
-		return profileAccount(p), billingOf(p)
+		return p.Account(), billingOf(p)
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -118,7 +102,7 @@ func explicitAccount(r Engine, req RunOptions) (string, string) {
 	if p.Auth.Login == "copilot" { // the GitHub login bills the pinned profile
 		return copilotLoginAccount(), billingOf(p)
 	}
-	return profileAccount(p), billingOf(p)
+	return p.Account(), billingOf(p)
 }
 
 // copilotLoginAccount is the pinned copilot profile's route-state key (github·<profile>), or "" when no user is pinned.

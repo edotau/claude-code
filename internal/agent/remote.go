@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -235,7 +236,7 @@ func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 		out, err = cmd.StdoutPipe()
 	}
 	if err == nil {
-		RecordOverlayDebug("remote", cmd.Env)
+		agentconfig.RecordOverlayDebug("remote", cmd.Env)
 		err = cmd.Start()
 	}
 	if err != nil {

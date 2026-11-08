@@ -120,7 +120,7 @@ func runPlan(name string, plan agent.Plan, opts agent.LaunchOptions, err error) 
 	plan = plan.WithOverlay(ov)
 	if opts.PrintEnv {
 		plan.Print(os.Stdout)
-		if agent.OverlayDebugOn() {
+		if agentconfig.OverlayDebugOn() {
 			plan.RecordEnv() // dry exec: the env Exec would hand the child
 		}
 		return 0

@@ -160,7 +160,7 @@ func runCodexCatalog(ctx context.Context, bin, home string, timeout time.Duratio
 	cmd := exec.CommandContext(ctx, bin, args...)
 	spec := agent.EnvSpec{Mode: agent.EnvAgent, Unset: []string{agentconfig.OverlayVar}, Set: []string{"CODEX_HOME=" + home}}
 	cmd.Env = spec.Environ(ctx) // no credentials for a --version probe; isolation and unset ride ctx
-	agent.RecordOverlayDebug("codex-catalog", cmd.Env)
+	agentconfig.RecordOverlayDebug("codex-catalog", cmd.Env)
 	cmd.Dir = home
 	return cmd.Output()
 }

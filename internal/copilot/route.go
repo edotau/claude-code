@@ -49,7 +49,7 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
 	for _, name := range fallbackProfiles(reg) {
-		if p := reg.Providers[name]; agent.DatabricksUsable(p) {
+		if p := reg.Providers[name]; p.DatabricksUsable() {
 			return pick(p)
 		}
 	}
@@ -66,7 +66,7 @@ func fallbackProfiles(reg *providers.Registry) []string {
 // describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
 // registry anthropic provider's key; 4) none.
 func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
-	if pin := vault.GetAgentRecord("copilot").Profile; reg != nil && agent.DatabricksUsable(reg.Providers[pin]) { // a pinned Databricks profile is the route
+	if pin := vault.GetAgentRecord("copilot").Profile; reg != nil && reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile is the route
 		p := reg.Providers[pin]
 		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
@@ -126,7 +126,7 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 	var steps []RouteStep
 	pin := vault.GetAgentRecord("copilot").Profile
 	if p := reg.Providers[pin]; p != nil && p.Preset == providers.PresetDatabricks {
-		steps = append(steps, RouteStep{Label: "databricks-" + pin, When: "pinned", OK: agent.DatabricksUsable(p)})
+		steps = append(steps, RouteStep{Label: "databricks-" + pin, When: "pinned", OK: p.DatabricksUsable()})
 	}
 	a, ok := copilotAuthSource()
 	gh := "GitHub"
@@ -135,7 +135,7 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 	}
 	steps = append(steps, RouteStep{Label: gh, When: fmt.Sprintf("under %.0f%% of credits", copilotWorkablePct), OK: ok})
 	for _, name := range fallbackProfiles(reg) {
-		if p := reg.Providers[name]; name != pin && agent.DatabricksUsable(p) {
+		if p := reg.Providers[name]; name != pin && p.DatabricksUsable() {
 			steps = append(steps, RouteStep{Label: "databricks-" + name, When: "fallback", OK: true})
 			break
 		}

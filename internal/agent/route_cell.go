@@ -136,7 +136,7 @@ func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp 
 
 // hubOpencode reports a candidate that rides the opencode hub rather than its own agent CLI.
 func (rc routeCtx) hubOpencode(cand router.Candidate) bool {
-	if pr := profileRow(rc.reg, cand.Profile); pr != nil && pr.OpencodeID == "" {
+	if pr := rc.reg.Row(cand.Profile); pr != nil && pr.OpencodeID == "" {
 		return false // a row with no opencode id can't ride the hub; the native agent takes <profile>:<model>
 	}
 	return IsHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)

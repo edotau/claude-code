@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -191,7 +192,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	if err != nil {
 		return res, err
 	}
-	RecordOverlayDebug(name, cmd.Env)
+	agentconfig.RecordOverlayDebug(name, cmd.Env)
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
