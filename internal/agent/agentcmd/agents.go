@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/dispatch"
-	"github.com/edotau/claude-code/internal/agent/lifecycle"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/paths"
@@ -89,14 +88,14 @@ func Run(args []string) int {
 	return 1
 }
 
-// agentsVerbs routes `agents <verb>` to its handler; the job verbs share lifecycle.Job.
+// agentsVerbs routes `agents <verb>` to its handler; the job verbs share Job.
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": ask.Cmd, "dispatch": dispatch.Cmd, "sync": cmdAgentsSync,
-	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": lifecycle.Send,
-	"status": func(a []string) int { return lifecycle.Job("status", a) },
-	"result": func(a []string) int { return lifecycle.Job("result", a) },
-	"tail":   func(a []string) int { return lifecycle.Job("tail", a) },
-	"cancel": func(a []string) int { return lifecycle.Job("cancel", a) },
+	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": Send,
+	"status": func(a []string) int { return Job("status", a) },
+	"result": func(a []string) int { return Job("result", a) },
+	"tail":   func(a []string) int { return Job("tail", a) },
+	"cancel": func(a []string) int { return Job("cancel", a) },
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.

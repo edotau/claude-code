@@ -1,5 +1,4 @@
-// Package lifecycle holds the `claude-code agents status|result|tail|cancel|send` verb handlers.
-package lifecycle
+package agentcmd
 
 import (
 	"context"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -220,4 +220,110 @@ func TailExit(rec job.Record, follow bool) int {
 		return 1
 	}
 	return ResultExit(rec)
+}
+
+// agentStatus is `claude-code <v> status [id] [--all] [--format text|json]`.
+func agentStatus(name string, args []string) int {
+	fs := newAgentFlags(name, "status")
+	all := fs.Bool("all", false, "every repo, not just this one")
+	format := helptext.FormatFlag(fs)
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat(name+" status", err)
+	}
+	ref := firstPositional(pos)
+	cwd, _ := os.Getwd()
+	rows, err := job.Status(context.Background(), name, cwd, ref, *all)
+	if err != nil {
+		return helptext.Fail("%s status: %v", name, err)
+	}
+	if *format == helptext.JSON {
+		return helptext.WriteJSONOrFail(name+" status", rows)
+	}
+	if len(rows) == 0 {
+		fmt.Printf("no %s dispatches logged yet\n", name)
+		return 0
+	}
+	for _, r := range rows {
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, StatusDetail(r))
+	}
+	return 0
+}
+
+// agentTail is `claude-code <v> tail [id] [-f]`: exit 0 when the job ended ok, 1 on error or a lost job.
+func agentTail(name string, args []string) int {
+	fs := newAgentFlags(name, "tail")
+	follow := fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	ref := firstPositional(pos)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	cwd, _ := os.Getwd()
+	rec, err := job.Tail(ctx, name, cwd, ref, *follow, os.Stdout)
+	if err != nil {
+		return helptext.Fail("%s tail: %v", name, err)
+	}
+	return TailExit(rec, *follow)
+}
+
+// agentResult is `claude-code <v> result [id] [--format text|json]`.
+func agentResult(name string, args []string) int {
+	fs := newAgentFlags(name, "result")
+	format := helptext.FormatFlag(fs)
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat(name+" result", err)
+	}
+	ref := firstPositional(pos)
+	cwd, _ := os.Getwd()
+	rec, log, err := job.JobResult(context.Background(), name, cwd, ref)
+	if err != nil {
+		return helptext.Fail("%s result: %v", name, err)
+	}
+	s, _ := agent.LookupSchema(name)
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, struct {
+			ID      string `json:"id"`
+			Session string `json:"session,omitempty"`
+			Resume  string `json:"resume,omitempty"`
+			Log     string `json:"log"`
+		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
+			return helptext.Fail("%s result: %v", name, err)
+		}
+		return ResultExit(rec)
+	}
+	fmt.Print(log)
+	if log != "" && !strings.HasSuffix(log, "\n") {
+		fmt.Println()
+	}
+	if rec.SessionID != "" {
+		fmt.Printf("session: %s\n", rec.SessionID)
+		printResumeHint(s, rec.SessionID)
+	}
+	return ResultExit(rec)
+}
+
+// agentCancel is `claude-code <v> cancel [id]`.
+func agentCancel(name string, args []string) int {
+	fs := newAgentFlags(name, "cancel")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	ref := fs.Arg(0)
+	cwd, _ := os.Getwd()
+	rec, err := job.CancelJob(context.Background(), name, cwd, ref)
+	if err != nil {
+		return helptext.Fail("%s cancel: %v", name, err)
+	}
+	fmt.Printf("cancelled %s\n", rec.ID)
+	return 0
 }

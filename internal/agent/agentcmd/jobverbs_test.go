@@ -1,4 +1,4 @@
-package lifecycle
+package agentcmd
 
 import (
 	"encoding/json"

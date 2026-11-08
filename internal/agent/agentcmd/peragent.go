@@ -1,31 +1,31 @@
-package cli
+package agentcmd
 
 import (
 	"context"
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"slices"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/agent/agentcmd"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/lifecycle"
 	"github.com/edotau/claude-code/internal/agent/roles"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/providers/providerscmd"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
-// agentSubverbs are the words agentVerb routes to agentSub: the keys of agentSubPages.
-var agentSubverbs = func() map[string]bool {
+// Subverbs are the words AgentVerb routes to agentSub: the keys of agentSubPages.
+var Subverbs = func() map[string]bool {
 	m := make(map[string]bool, len(agentSubPages))
 	for verb := range agentSubPages {
 		m[verb] = true
@@ -47,8 +47,8 @@ var agentAbout = map[string]string{
 		"commands below run it headless.",
 }
 
-// agentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
-func agentPage(name string) helptext.Page {
+// AgentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
+func AgentPage(name string) helptext.Page {
 	rows := agentCommandRows(name)
 	s, _ := agent.LookupSchema(name)
 	if s.CLI.CatalogUsage != "" {
@@ -129,6 +129,36 @@ func agentSubPage(name, verb string) helptext.Page {
 	return page
 }
 
+// SplitReview runs a multi-part review; the caller owns it until the review verbs move here.
+type SplitReview func(name string, args []string, parts []roles.Part, scope roles.Scope,
+	adversarial, background bool, focus, rubric, model string) int
+
+// AgentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
+// `ask` = `ask --agent <v>`, a word in Subverbs = agentSub, else launch with args forwarded.
+func AgentVerb(name string, args []string, split SplitReview) int {
+	if len(args) == 0 {
+		return LaunchAgent(name, args)
+	}
+	if args[0] == "--" {
+		return LaunchAgent(name, args[1:])
+	}
+	if args[0] == "ask" {
+		return ask.Cmd(append([]string{"--agent", name}, args[1:]...))
+	}
+	if Subverbs[args[0]] {
+		return agentSub(name, args, split)
+	}
+	if len(args) == 1 && slices.Contains([]string{"-h", "--help", "help"}, args[0]) {
+		AgentPage(name).Fprint(os.Stderr)
+		return 0
+	}
+	if len(args) == 1 && args[0] == helptext.DocsFlag {
+		s, _ := agent.LookupSchema(name)
+		return helptext.WrappedDocs(s.CLI.Binary)
+	}
+	return LaunchAgent(name, args)
+}
+
 // agentSubHelp prints the sub-verb's page when args open with -h/--help, for sub-verbs without a FlagSet.
 func agentSubHelp(name, verb string, args []string) bool {
 	if len(args) == 0 || (args[0] != "-h" && args[0] != "--help") {
@@ -144,14 +174,15 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 }
 
 // agentSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/catalog).
-func agentSub(name string, args []string) int {
+func agentSub(name string, args []string, split SplitReview) int {
 	handlers := map[string]func(string, []string) int{
 		"resume": agentResume, "status": agentStatus, "tail": agentTail,
 		"result": agentResult, "cancel": agentCancel, "setup": agentSetup,
-		"catalog": agentCatalog, "review": agentReview, "explore": agentExplore,
+		"catalog": agentCatalog, "explore": agentExplore,
 		"transfer": agentTransfer, "profile": cmdAgentProfile,
-		"on":  func(name string, args []string) int { return cmdAgentOnOff(name, true, args) },
-		"off": func(name string, args []string) int { return cmdAgentOnOff(name, false, args) },
+		"review": func(name string, args []string) int { return agentReview(name, args, split) },
+		"on":     func(name string, args []string) int { return cmdAgentOnOff(name, true, args) },
+		"off":    func(name string, args []string) int { return cmdAgentOnOff(name, false, args) },
 	}
 	if run := handlers[args[0]]; run != nil {
 		return run(name, args[1:])
@@ -183,117 +214,11 @@ func agentResume(name string, args []string) int {
 	return ask.Cmd(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
 }
 
-// agentStatus is `claude-code <v> status [id] [--all] [--format text|json]`.
-func agentStatus(name string, args []string) int {
-	fs := newAgentFlags(name, "status")
-	all := fs.Bool("all", false, "every repo, not just this one")
-	format := helptext.FormatFlag(fs)
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name+" status", err)
-	}
-	ref := firstPositional(pos)
-	cwd, _ := os.Getwd()
-	rows, err := job.Status(context.Background(), name, cwd, ref, *all)
-	if err != nil {
-		return helptext.Fail("%s status: %v", name, err)
-	}
-	if *format == helptext.JSON {
-		return helptext.WriteJSONOrFail(name+" status", rows)
-	}
-	if len(rows) == 0 {
-		fmt.Printf("no %s dispatches logged yet\n", name)
-		return 0
-	}
-	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, lifecycle.StatusDetail(r))
-	}
-	return 0
-}
-
-// agentTail is `claude-code <v> tail [id] [-f]`: exit 0 when the job ended ok, 1 on error or a lost job.
-func agentTail(name string, args []string) int {
-	fs := newAgentFlags(name, "tail")
-	follow := fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	ref := firstPositional(pos)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	cwd, _ := os.Getwd()
-	rec, err := job.Tail(ctx, name, cwd, ref, *follow, os.Stdout)
-	if err != nil {
-		return helptext.Fail("%s tail: %v", name, err)
-	}
-	return lifecycle.TailExit(rec, *follow)
-}
-
-// agentResult is `claude-code <v> result [id] [--format text|json]`.
-func agentResult(name string, args []string) int {
-	fs := newAgentFlags(name, "result")
-	format := helptext.FormatFlag(fs)
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name+" result", err)
-	}
-	ref := firstPositional(pos)
-	cwd, _ := os.Getwd()
-	rec, log, err := job.JobResult(context.Background(), name, cwd, ref)
-	if err != nil {
-		return helptext.Fail("%s result: %v", name, err)
-	}
-	s, _ := agent.LookupSchema(name)
-	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
-			ID      string `json:"id"`
-			Session string `json:"session,omitempty"`
-			Resume  string `json:"resume,omitempty"`
-			Log     string `json:"log"`
-		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
-			return helptext.Fail("%s result: %v", name, err)
-		}
-		return lifecycle.ResultExit(rec)
-	}
-	fmt.Print(log)
-	if log != "" && !strings.HasSuffix(log, "\n") {
-		fmt.Println()
-	}
-	if rec.SessionID != "" {
-		fmt.Printf("session: %s\n", rec.SessionID)
-		printResumeHint(s, rec.SessionID)
-	}
-	return lifecycle.ResultExit(rec)
-}
-
 // printResumeHint prints the agent's resume command for a session; nothing when it has none (ResumeHint("") is "").
 func printResumeHint(s agent.Schema, sessionID string) {
 	if hint := s.ResumeHint(sessionID); hint != "" {
 		fmt.Printf("resume: %s\n", hint)
 	}
-}
-
-// agentCancel is `claude-code <v> cancel [id]`.
-func agentCancel(name string, args []string) int {
-	fs := newAgentFlags(name, "cancel")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	ref := fs.Arg(0)
-	cwd, _ := os.Getwd()
-	rec, err := job.CancelJob(context.Background(), name, cwd, ref)
-	if err != nil {
-		return helptext.Fail("%s cancel: %v", name, err)
-	}
-	fmt.Printf("cancelled %s\n", rec.ID)
-	return 0
 }
 
 // agentSetup is `claude-code <v> setup [--format text|json]`.
@@ -327,7 +252,7 @@ func agentSetup(name string, args []string) int {
 }
 
 // agentReview is `claude-code <v> review [scope flags] [--adversarial] [--background] [--rubric f] [focus…]`.
-func agentReview(name string, args []string) int {
+func agentReview(name string, args []string, split SplitReview) int {
 	fs := newAgentFlags(name, "review")
 	uncommitted := fs.Bool("uncommitted", false, "working tree + index vs HEAD (default)")
 	base := fs.String("base", "", "diff against this branch (triple-dot merge base)")
@@ -351,7 +276,7 @@ func agentReview(name string, args []string) int {
 	}
 	focus := strings.Join(fs.Args(), " ")
 	if parts := roles.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
-		return runSplitReview(name, args, parts, scope, *adversarial, *background, focus, *rubric, *model)
+		return split(name, args, parts, scope, *adversarial, *background, focus, *rubric, *model)
 	}
 	askArgs, cleanup, err := roles.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric, *model)
 	if err != nil {
@@ -477,7 +402,7 @@ func launchAgentCatalog(name string, s agent.Schema, format string) int {
 		}
 		return providerscmd.Models([]string{"--live", "--profile", n, "--format", format})
 	case len(s.CLI.ModelsArgv) > 0:
-		return agentcmd.LaunchAgent(name, s.CLI.ModelsArgv)
+		return LaunchAgent(name, s.CLI.ModelsArgv)
 	default:
 		fmt.Printf("%s: no model catalog\n", name)
 		return 0
@@ -500,4 +425,83 @@ func launchFlags(name string) *flag.FlagSet {
 		fs.String("f", "", "config.toml whose keys ride as -c overrides")
 	}
 	return fs
+}
+
+// cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's record profile.
+func cmdAgentProfile(name string, args []string) int {
+	if _, ok := agent.LookupSchema(name); !ok {
+		return helptext.Fail("%s profile: unknown agent", name)
+	}
+	fs := newAgentFlags(name, "profile")
+	unpin := fs.Bool("clear", false, "unpin: launches use today's selection again")
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if len(pos) > 1 || (*unpin && len(pos) > 0) {
+		return helptext.Fail("%s profile: want one profile name, or --clear", name)
+	}
+	switch {
+	case *unpin:
+		own := vault.OwnLoginProfiles[name] // an external agent's cleared profile is its own login, not off
+		if _, err := configure.ApplyProfile([]string{name}, own); err != nil {
+			return helptext.Fail("%s profile: %v", name, err)
+		}
+		fmt.Printf("%s: profile cleared (own login)\n", name)
+		return 0
+	case len(pos) == 0:
+		fmt.Println(configure.ProfileStatus(name))
+		return 0
+	}
+	return setAgentProfile(name, pos[0])
+}
+
+func setAgentProfile(name, profile string) int {
+	reg, err := providers.Load()
+	if err != nil {
+		return helptext.Fail("%s profile: %v", name, err)
+	}
+	if _, err := configure.ApplyProfile([]string{name}, profile); err != nil {
+		return helptext.Fail("%s profile: %v (see claude-code configure provider --list)", name, err)
+	}
+	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", name, profile, name)
+	preflight.Warm(os.Stdout, reg, time.Now())
+	if name == "codex" {
+		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
+	}
+	return 0
+}
+
+// cmdAgentOnOff is `<agent> on|off`: off clears the record's profile, on sets the own login; claude is always on.
+func cmdAgentOnOff(name string, on bool, args []string) int {
+	verb, value := "off", agent.AgentOff
+	if on {
+		verb, value = "on", agent.AgentOn
+	}
+	fs := newAgentFlags(name, verb)
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		return helptext.Fail("%s %s: takes no arguments", name, verb)
+	}
+	if agent.VaultAgentIsClaude(name) {
+		return helptext.Fail("%s %s: %s is always on", name, verb, name)
+	}
+	if err := agent.ValidAgentActive(name, value); err != nil {
+		return helptext.Fail("%s %s: %v", name, verb, err)
+	}
+	profile := ""
+	if on {
+		profile = vault.OwnLoginProfiles[name]
+	}
+	if _, err := configure.ApplyProfile([]string{name}, profile); err != nil {
+		return helptext.Fail("%s %s: %v", name, verb, err)
+	}
+	if on {
+		fmt.Printf("%s: on\n", name)
+	} else {
+		fmt.Printf("%s: off\n", name)
+	}
+	return 0
 }

@@ -64,3 +64,10 @@ func useVaultTest(t *testing.T) string {
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
 	return dir
 }
+
+// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	_, stdout, _ := captureOutput(t, func() int { fn(); return 0 })
+	return stdout
+}
