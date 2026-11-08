@@ -23,7 +23,7 @@ var gatewayPage = helptext.Page{
 		"(proxy). Bare: the router pick, then the proxy status.",
 	Commands: [][2]string{
 		{"router", "which agent + model a task routes to, and why"},
-		{"proxy", "the loopback proxy: --start | --stop | --status | --serve"},
+		{"proxy", "the loopback proxy: --start|--stop|--restart|--status|--serve"},
 		{"token", "print only the proxy credential for a credential helper"},
 	},
 	Hint: "claude-code gateway <command> -h lists that command's flags.",
@@ -178,7 +178,7 @@ func proxyStatus(ctx context.Context, format string) int {
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, ps); err != nil {
-			return 1
+			return helptext.Fail("gateway proxy: %v", err)
 		}
 	} else if err := printProxyState(ps); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)

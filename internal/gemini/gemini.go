@@ -79,7 +79,11 @@ func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headle
 }
 
 func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	if p, ok := reg.LoginProfile("google", e.Name()); ok && GeminiLoginPresent() {
+	present, perr := geminiLoginProbe()
+	if perr != nil {
+		fmt.Fprintf(os.Stderr, "gemini: agy login marker unreadable, Google-login fallback dropped: %v\n", perr)
+	}
+	if p, ok := reg.LoginProfile("google", e.Name()); ok && present {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
 		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return t, "gemini (Google login via agy)", true
@@ -87,7 +91,7 @@ func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target,
 	return providers.Target{}, "", false
 }
 
-// AuthStatus is agy's cached Google login from disk; Source and Method are empty when absent, Err when unreadable.
+// AuthStatus is agy's cached Google login from disk; Source is empty and Method is AuthNone when absent, Err when unreadable.
 func (geminiEngine) AuthStatus() providers.AuthState {
 	ok, err := geminiLoginProbe()
 	if !ok {
@@ -164,7 +168,11 @@ func (geminiEngine) NewLive() agent.LiveBackend { return &agyLive{} }
 
 // geminiLogin runs agy on its own cached Google sign-in (AgyLoginMarker); without one it errors with the sign-in hint.
 func geminiLogin(model string, h *agent.Headless) ([]string, []string, error) {
-	if !GeminiLoginPresent() {
+	present, perr := geminiLoginProbe()
+	if perr != nil {
+		return nil, nil, fmt.Errorf("gemini: agy login marker unreadable: %w", perr)
+	}
+	if !present {
 		s, _ := agent.LookupSchema("gemini")
 		return nil, nil, errors.New("gemini: agy is not signed in; " + s.CLI.ConfigureHint)
 	}
@@ -225,7 +233,10 @@ var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
-		base, effort, _ = agyGatewayBase(cmp.Or(geminiRecord().Model, AgyDefaultModel))
+		base, effort, ok = agyGatewayBase(geminiRecord().Model)
+		if !ok { // a non-Gemini or mistyped pin must not leave base empty
+			base, effort, _ = agyGatewayBase(AgyDefaultModel)
+		}
 	}
 	if effort == "" {
 		return base, base
@@ -599,7 +610,7 @@ func applyAgyResult(res *wire.Result, ev agyEvent) error {
 
 // --- gemini: report-only. agy (the agent's binary, name unchanged) has no known settings-file
 // auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
-// auth is the cached Google login marker at launch time (see agent.GeminiLoginPresent).
+// auth is the cached Google login marker at launch time (see gemini.GeminiLoginPresent).
 
 func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 	if sel.Provider.Auth.Method() == providers.AuthCLI {

@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -170,5 +172,34 @@ func TestPrintProxyStateReportsWriteError(t *testing.T) {
 	t.Cleanup(func() { os.Stdout = orig })
 	if err := printProxyState(proxy.Status{Log: "x.log"}); err == nil {
 		t.Fatal("printProxyState returned nil despite a failed stdout write")
+	}
+}
+
+// TestProxyStatusJSONReportsWriteError: a failed JSON write prints a message instead of a silent exit 1.
+func TestProxyStatusJSONReportsWriteError(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("no /dev/full: %v", err)
+	}
+	defer full.Close()
+	r, w, _ := os.Pipe()
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = full, w
+	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
+	code := proxyStatus(context.Background(), "json")
+	w.Close()
+	msg, _ := io.ReadAll(r)
+	if code != 1 || !strings.Contains(string(msg), "gateway proxy:") {
+		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
+	}
+}
+
+// TestGatewayHelpListsProxyRestart: the bare help row for proxy names every lifecycle mode.
+func TestGatewayHelpListsProxyRestart(t *testing.T) {
+	var b strings.Builder
+	gatewayPage.Fprint(&b)
+	if !strings.Contains(b.String(), "--restart") {
+		t.Errorf("gateway help omits --restart:\n%s", b.String())
 	}
 }
