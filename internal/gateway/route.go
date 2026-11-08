@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -39,6 +40,8 @@ func gatewayRoute(args []string, withProxy bool) int {
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
 	fallback := fs.String("fallback", router.FallbackAll, "all, agents or none")
 	route := fs.String("route", "", "fallback ladder: default|first-party (default: by session profile)")
+	profile := fs.String("profile", "", "lead profile, or session")
+	provider := fs.String("provider", "", "lead on this provider's signed-in profile")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -46,7 +49,12 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if code := checkRouteFlags(name, *route, *format, *fallback, *want); code != 0 {
 		return code
 	}
-	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, ask.RouteRefresh)
+	lead, err := routeLead(*want, *profile, *provider)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+		return 2
+	}
+	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, lead, ask.RouteRefresh)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
@@ -245,4 +253,16 @@ func printEnds(res router.PickResult) {
 		}
 	}
 	fmt.Println("no claude hop (--fallback agents|none)")
+}
+
+// routeLead is the profile --profile/--provider make the wanted agent lead with; "" when neither is set.
+func routeLead(want, profile, provider string) (string, error) {
+	if profile == "" && provider == "" {
+		return "", nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return "", err
+	}
+	return agent.ResolveLead(reg, want, profile, provider)
 }

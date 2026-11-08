@@ -3,8 +3,11 @@ package agent
 import (
 	"cmp"
 	"context"
+	"fmt"
+	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -22,6 +25,7 @@ type Dispatch struct {
 	servedRepick                 func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
 	keepCaller, unroutedDispatch bool                       // keepCaller: the wanted dispatch keeps the caller's own --model
 	otherRoute                   bool                       // not the wanted agent's own login or pinned profile
+	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
 }
 
 // Chain is a routed dispatch: Want is the agent asked for, Dispatches run in order, Skipped are gate drops.
@@ -84,7 +88,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		pickWant = ""
 	}
 	pick := tb.Pick(ctx, alias, pickWant, loadState(), o)
-	reg, _ := providers.Load()
+	reg := loadRegistryWarn()
 	c := Chain{Want: want}
 	if nativeLead {
 		c.Dispatches = append(c.Dispatches, Dispatch{Agent: newCLIEngine("opencode"), keepCaller: true, unroutedDispatch: true})
@@ -94,7 +98,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	}
 	c.Skipped = pickSkips(pick, nativeLead)
 	current, _ := models.Alias(alias)
-	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, row: row, exact: exact, callerModel: callerModel,
+	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
 		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
@@ -102,6 +106,19 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		return Chain{}, pick, err
 	}
 	return c, pick, nil
+}
+
+var registryWarnOnce sync.Once
+
+// loadRegistryWarn loads the provider registry; on failure it warns once per process that registry rows are dropped.
+func loadRegistryWarn() *providers.Registry {
+	reg, err := providers.Load()
+	if err != nil {
+		registryWarnOnce.Do(func() {
+			fmt.Fprintf(os.Stderr, "warning: provider registry failed to load, registry-dependent routes are dropped: %v\n", err)
+		})
+	}
+	return reg
 }
 
 // routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the agent pins.
@@ -131,7 +148,7 @@ func pickSkips(pick router.PickResult, nativeLead bool) []string {
 
 // addCandidates appends a dispatch to c for each pick candidate whose cell can run, recording the rest as skipped.
 func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead bool, alias string) (Chain, error) {
-	for _, cand := range pick.Candidates {
+	for i, cand := range pick.Candidates {
 		if nativeLead && IsHubAgent(cand.Agent) {
 			continue
 		}
@@ -150,7 +167,7 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 		}
 		disp = rc.discoveryCandidate(disp, cand, alias)
 		disp.servedRepick = rc.servedRepickFor(cand)
-		disp.otherRoute = rc.otherRoute(cand)
+		disp.otherRoute, disp.rung = rc.otherRoute(cand), i+1
 		if !slices.ContainsFunc(c.Dispatches, disp.same) { // ladder rung models can collapse onto one cell
 			c.Dispatches = append(c.Dispatches, disp)
 		}
@@ -160,6 +177,9 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 
 // otherRoute reports a candidate that is not the wanted agent's own login or pinned profile.
 func (rc routeCtx) otherRoute(cand router.Candidate) bool {
+	if rc.lead != "" && cand.Agent == rc.want {
+		return cand.Profile != rc.lead
+	}
 	return cand.Agent != rc.want || (rc.want != "claude" && cand.Profile != rc.pins[rc.want].Profile)
 }
 
@@ -175,7 +195,7 @@ func ExplicitChain(r Engine, req RunOptions) Chain {
 	acct, billing := explicitAccount(r, req)
 	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
 	if req.Model == router.DiscoveryModel {
-		reg, _ := providers.Load()
+		reg := loadRegistryWarn()
 		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
 	}
 	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
@@ -217,4 +237,33 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		out.Effort = disp.Effort
 	}
 	return out
+}
+
+// LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).
+const LeadSession = "session"
+
+// ResolveLead is the profile a routed run leads with: profile (LeadSession = the session's), narrowed to provider.
+func ResolveLead(reg *providers.Registry, agentName, profile, provider string) (string, error) {
+	fromSession := profile == LeadSession
+	if fromSession {
+		profile = cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+	}
+	if profile != "" && reg.Providers[profile] == nil {
+		return "", fmt.Errorf("profile %s is not in the registry", profile)
+	}
+	if provider == "" {
+		return profile, nil
+	}
+	if p := reg.Providers[profile]; p != nil && p.Provider == provider {
+		return profile, nil
+	}
+	if profile != "" && !fromSession {
+		return "", fmt.Errorf("--profile %s is not a %s profile", profile, provider)
+	}
+	for _, n := range reg.ProfilesOf(provider) {
+		if p := reg.Providers[n]; CanServe(agentName, p) && providers.CredentialPresent(p) {
+			return n, nil
+		}
+	}
+	return "", fmt.Errorf("no signed-in %s profile serves %s", provider, agentName)
 }

@@ -18,6 +18,7 @@ type routeCtx struct {
 	reg                           *providers.Registry
 	pins                          map[string]router.PinSpec
 	want, row, exact, callerModel string
+	lead                          string // profile the wanted agent leads with; "" = its pin
 	current, dispatchID           string
 	explicitModel, native         bool
 }

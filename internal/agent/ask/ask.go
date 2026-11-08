@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -48,6 +49,7 @@ type askRun struct {
 	prompt  string
 	state   *askState
 	perms   agent.Permissions
+	lead    string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 }
 
 // Run is Cmd; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
@@ -57,7 +59,7 @@ func Run(args []string, resume bool) int {
 		return code
 	}
 	r := &askRun{f: f, fs: fs, args: args, resume: resume}
-	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.parsePerms} {
+	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.resolveLead, r.parsePerms} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -172,7 +174,7 @@ func (r *askRun) retryAgents() ([]string, error) {
 
 func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
-	return agent.RunOptions{Model: f.model, Provider: f.provider, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
+	return agent.RunOptions{Model: f.model, Provider: f.provider, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
 		Timeout: f.timeout, KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: []string(f.env), OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms}
@@ -254,7 +256,7 @@ func (r *askRun) execute() int {
 
 func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
-	return agent.RunOptions{Prompt: prompt, Model: f.model, Provider: f.provider, Effort: f.effort,
+	return agent.RunOptions{Prompt: prompt, Model: f.model, Provider: f.provider, Lead: r.lead, Effort: f.effort,
 		WorkDir: f.workdir, SessionID: f.session, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools, Timeout: f.timeout,
 		Attach: []string(f.attach), KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, DebugFile: f.debugFile, SystemPrompt: f.systemPrompt,
@@ -349,4 +351,25 @@ func warnAskMemory(ag string, enableMemory bool) {
 	if s, ok := agent.LookupSchema(ag); enableMemory && ok && s.CLI.Caps.Memory == agent.None {
 		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", ag)
 	}
+}
+
+// resolveLead turns --profile session, --provider, or --profile with an explicit --fallback into a routed lead.
+func (r *askRun) resolveLead() (int, bool) {
+	f := r.f
+	fallbackSet := false
+	r.fs.Visit(func(fl *flag.Flag) { fallbackSet = fallbackSet || fl.Name == "fallback" })
+	// --fallback none has nothing to fall back to, so a named --profile keeps pinning one route
+	if f.leadProvider == "" && f.provider != agent.LeadSession && (f.provider == "" || !fallbackSet || f.fallback == router.FallbackNone) {
+		return 0, false
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return r.fail(err, 1)
+	}
+	lead, err := agent.ResolveLead(reg, r.ag, f.provider, f.leadProvider)
+	if err != nil {
+		return r.fail(err, 2)
+	}
+	r.lead, f.provider = lead, ""
+	return 0, false
 }
