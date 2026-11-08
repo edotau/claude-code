@@ -145,6 +145,7 @@ var writers = map[string]string{
 	"internal/review/diff/report.go:writeReport":                      unversioned("foreign: -o output"),
 	"internal/review/source/quality_cli.go:emitQualityJSON":           unversioned("foreign: -o output"),
 	"internal/router/state.go:Update":                                 "quota",
+	"internal/router/state.go:backupCorruptState":                     unversioned("backup: the corrupt quota.json copied aside before it is replaced"),
 	"internal/schemas/schemas.go:LogMigration":                        "migrations",
 	"internal/schemas/schemas.go:rewrite":                             unversioned("foreign: rewrites registered formats in place during migration"),
 	"internal/vault/nofollow_unix.go:openAppendNoFollow":              unversioned("foreign: user .env file"),

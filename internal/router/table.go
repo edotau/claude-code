@@ -283,17 +283,22 @@ func (t *RouteTable) AliasOf(model string) string {
 	if slices.Contains(Aliases, model) {
 		return model
 	}
-	_, bare, _ := strings.Cut(model, ":") // provider:model
-	if bare == "" {
-		bare = model
+	ids := []string{model}
+	if _, bare, _ := strings.Cut(model, ":"); bare != "" {
+		ids = append(ids, bare)
 	}
-	if alias := t.aliasOfCell(bare); alias != "" {
-		return alias
+	for _, id := range ids {
+		if alias := t.aliasOfCell(id); alias != "" {
+			return alias
+		}
+		if f := models.FamilyOf(id); slices.Contains(Aliases, f) {
+			return f
+		}
+		if alias := registryAliasOf(id); alias != "" {
+			return alias
+		}
 	}
-	if f := models.FamilyOf(bare); slices.Contains(Aliases, f) {
-		return f
-	}
-	return registryAliasOf(bare)
+	return ""
 }
 
 // aliasOfCell is the alias whose table cell (any agent) runs bare, with or without a provider prefix; "" if none.
