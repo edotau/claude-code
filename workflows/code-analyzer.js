@@ -107,7 +107,7 @@ const stepOf = (steps, name, defaults, opt) => {
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
   const R = ['ran_on', 'coworker']
   const record = (label, r) => {
-    const ok = !!(r && r.coworker === 'ok' && /\S/.test(r.ran_on || ''))
+    const ok = !!(r && r.coworker === 'ok' && /^ran on \S/.test(r.ran_on || '')) // the envelope's own line, never a paraphrase
     const why = ok ? '' : (r && r.coworker_error) || 'no ran_on in the result'
     COWORKERS.push({ stage: name, label, agent: who, status: ok ? 'ok' : 'BLOCKED', ran_on: ok ? r.ran_on : '', hops: (r && r.hops) || 0, error: why })
     log(`coworkers ${label}: ${ok ? 'ran on ' + r.ran_on + ' (hop ' + ((r && r.hops) || 0) + ')' : who + ' BLOCKED: ' + why}`)
@@ -117,7 +117,7 @@ const stepOf = (steps, name, defaults, opt) => {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: who }, profile, provider,
     task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a file under ${'$'}{TMPDIR:-/tmp}, never in the repo, and never do it in-context.` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') +
-      ' Put the envelope\'s ran_on in ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed' +
+      ' The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed' +
       ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n' + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...R], properties: { ...s.properties, ...F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...R], properties: { answer: { type: 'string' }, ...F } },
