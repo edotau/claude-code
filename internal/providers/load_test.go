@@ -18,13 +18,30 @@ var sealedKinds = []struct{ kind, clientID, secret string }{
 	{AuthM2M, "sp-client", "sp-secret-xyz"},
 }
 
+func mintFollowersReady(t *testing.T, n int32) <-chan struct{} {
+	t.Helper()
+	var followers atomic.Int32
+	ready := make(chan struct{})
+	setFlightHook(t, func(leader bool) {
+		if !leader && followers.Add(1) == n {
+			close(ready)
+		}
+	})
+	return ready
+}
+
 func TestSealedAuthHerdMintsOnce(t *testing.T) {
 	for _, k := range sealedKinds {
 		t.Run(k.kind, func(t *testing.T) {
 			var posts atomic.Int32
+			ready := mintFollowersReady(t, 19) // all 19 followers of the 20-caller herd must wait on the flight
 			srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 				posts.Add(1)
-				time.Sleep(150 * time.Millisecond) // keep the flight open while the herd arrives
+				select { // hold the flight open until every follower is waiting on it
+				case <-ready:
+				case <-time.After(10 * time.Second):
+					t.Error("not all 19 followers joined the mint flight")
+				}
 				return 200, map[string]any{"access_token": "herd-token", "expires_in": 3600}
 			})
 			p := mintRow(t, "sf-herd-"+k.kind, k.kind, k.clientID, srv.URL)

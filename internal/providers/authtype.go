@@ -316,44 +316,17 @@ var (
 	mintM2M              = oauth.MintM2M
 	spNoteOut  io.Writer = os.Stderr
 	spCache    sync.Map
-	spFlightMu sync.Mutex
-	spFlights  = map[string]*flight{}
+	spFlights  = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, bool) {
+		if c, ok := spCache.Load(name); ok && time.Now().Before(c.(cached).until) {
+			return c.(cached).value, true
+		}
+		return "", false
+	}}
 )
 
 // spCredential isolates SP tokens, expiry records and flights from the user's profile key.
 func spCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	for {
-		spFlightMu.Lock()
-		if !force {
-			if c, ok := spCache.Load(p.Name); ok && time.Now().Before(c.(cached).until) {
-				spFlightMu.Unlock()
-				return c.(cached).value, nil
-			}
-		}
-		f, inflight := spFlights[p.Name]
-		if !inflight {
-			f = &flight{done: make(chan struct{}), force: force}
-			spFlights[p.Name] = f
-			spFlightMu.Unlock()
-			defer func() {
-				spFlightMu.Lock()
-				delete(spFlights, p.Name)
-				close(f.done)
-				spFlightMu.Unlock()
-			}()
-			f.val, f.err = mintSP(context.WithoutCancel(ctx), p, force)
-			return f.val, f.err
-		}
-		spFlightMu.Unlock()
-		select {
-		case <-f.done:
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-		if f.force || !force {
-			return f.val, f.err
-		}
-	}
+	return spFlights.do(ctx, p.Name, force, func(ctx context.Context) (string, error) { return mintSP(ctx, p, force) })
 }
 
 // mintSP mints the paired service principal's token (same workspace host); it never touches the user login.
@@ -430,6 +403,9 @@ func sealAccess(p *Provider, tok string) {
 	ov, err := readOAuth(p)
 	if err != nil { // a failed read must not re-seal {access} alone and drop the refresh token
 		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) skipped: vault read failed\n", p.Name, AuthSecretName(p))
+		return
+	}
+	if ov.Access == tok { // the rotation path already sealed this access token
 		return
 	}
 	ov.Access = tok
