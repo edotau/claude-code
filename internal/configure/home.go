@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/codex"
@@ -143,6 +143,6 @@ func RegisterCodexMCP(path, bin string) error {
 
 // RenderAgentConfigs re-renders the agent configs, writing progress to out.
 func RenderAgentConfigs(out io.Writer) error {
-	_, err := agent.RenderConfigs(agentrender.RenderOptions{Out: out})
+	_, err := client.RenderConfigs(agentrender.RenderOptions{Out: out})
 	return err
 }

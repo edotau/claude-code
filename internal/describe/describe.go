@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -130,7 +131,7 @@ func Build(reg *providers.Registry, verbs []Verb) (Describe, error) {
 			Credential: providers.CredentialPresent(p), Models: p.Models,
 		})
 	}
-	for _, r := range agent.RosterRows() {
+	for _, r := range client.RosterRows() {
 		d.Agents = append(d.Agents, DescribeAgent{Name: r.Name, Available: r.Available, Reason: r.Reason, Caps: r.Levels})
 	}
 	for _, s := range settings.Specs() {

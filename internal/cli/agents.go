@@ -10,7 +10,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/client"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/dispatch"
 	"github.com/edotau/claude-code/internal/agent/lifecycle"
@@ -155,7 +154,7 @@ func cmdAgentsSync(args []string) int {
 
 // listAgents prints the roster as text, or as the JSON array of rows.
 func listAgents(format string) int {
-	rows := agent.RosterRows()
+	rows := client.RosterRows()
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents", rows)
 	}

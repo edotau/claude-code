@@ -1,9 +1,11 @@
-package agent
+package client
 
 import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // RosterRow is one agent in `agents`: its binary, availability, capability levels and event kinds.
@@ -14,7 +16,7 @@ type RosterRow struct {
 	Reason    string            `json:"reason,omitempty"`
 	Caps      map[string]string `json:"caps"`
 	Events    []string          `json:"events"`
-	Levels    Caps              `json:"-"`
+	Levels    agent.Caps        `json:"-"`
 	shown     []string
 }
 
@@ -25,27 +27,27 @@ var rosterShown = []string{"model", "profile", "effort", "workdir", "session", "
 // RosterRows describes every registered agent, probing each one's availability.
 func RosterRows() []RosterRow {
 	var rows []RosterRow
-	for _, r := range Engines() {
+	for _, r := range agent.Engines() {
 		row := RosterRow{Available: true}
 		if err := r.Available(); err != nil {
 			row.Available, row.Reason = false, err.Error()
 		}
-		s, _ := LookupSchema(r.Name())
+		s, _ := agent.LookupSchema(r.Name())
 		row.Caps = map[string]string{}
 		for _, f := range CapFields(s.CLI.Caps) {
 			row.Caps[f.Name] = f.L.String()
-			if f.L != None && slices.Contains(rosterShown, f.Name) {
+			if f.L != agent.None && slices.Contains(rosterShown, f.Name) {
 				row.shown = append(row.shown, f.Name+":"+f.L.String())
 			}
 		}
-		row.Caps["cost"], row.Caps["live"] = None.String(), None.String()
+		row.Caps["cost"], row.Caps["live"] = agent.None.String(), agent.None.String()
 		if s.CLI.Cost {
-			row.Caps["cost"] = Native.String()
+			row.Caps["cost"] = agent.Native.String()
 		}
 		if s.HasLive() {
-			row.Caps["live"] = Native.String()
+			row.Caps["live"] = agent.Native.String()
 		}
-		row.Caps["background"], row.Caps["remote"] = Native.String(), Native.String()
+		row.Caps["background"], row.Caps["remote"] = agent.Native.String(), agent.Native.String()
 		row.Binary = s.CLI.Binary
 		if !s.External() {
 			row.Binary = s.Name
@@ -66,13 +68,13 @@ func (r RosterRow) Line() string {
 }
 
 // CapFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
-func CapFields(c Caps) []struct {
+func CapFields(c agent.Caps) []struct {
 	Name string
-	L    Level
+	L    agent.Level
 } {
 	return []struct {
 		Name string
-		L    Level
+		L    agent.Level
 	}{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
 		{"tools", c.Tools}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
 		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
