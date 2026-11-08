@@ -24,7 +24,7 @@ const defaultWidth = 120
 func terminalWidth() int { return ansi.Columns(defaultWidth) }
 
 // columnWidths sizes the type/status columns to the longest value actually in the rendered set, so
-// a table stays aligned instead of a fixed guess (e.g. "code-worker") breaking it.
+// a table stays aligned instead of a fixed guess (e.g. "general-purpose") breaking it.
 type columnWidths struct {
 	subType    int
 	subStatus  int

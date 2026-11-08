@@ -6,9 +6,9 @@ verifies each in the shared tree, and commits it.
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Manager | main session | splits lanes by disjoint packages, dispatches one `code-worker` per lane, merges, runs the suite once with approval | edits a lane's files |
+| Manager | main session | splits lanes by disjoint packages, dispatches one `claude` leaf per lane, merges, runs the suite once with approval | edits a lane's files |
 | Lane orchestrator | that subagent | writes the lane checklist, dispatches and verifies each leaf, commits named files, ticks the box | edits outside its lane |
-| Leaf | a `code-worker` that requests `Agent: <x>` via `claude-code agents ask` | one checklist line, owned files only | commits or dispatches subagents |
+| Leaf | a `claude` leaf (or an agent-named type) that requests `Agent: <x>` via `claude-code agents ask` | one checklist line, owned files only | commits or dispatches subagents |
 
 ## Lane plan
 

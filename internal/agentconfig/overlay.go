@@ -1,4 +1,4 @@
-// overlay.go — COWORKER_OVERLAY: a per-launch {set, unset, keep} layer over a coworker's env; secrets by vault name only.
+// overlay.go — COWORKER_OVERLAY: a per-launch {set, unset, keep} layer over an agent's env; secrets by vault name only.
 package agentconfig
 
 import (

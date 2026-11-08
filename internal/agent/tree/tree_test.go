@@ -137,8 +137,8 @@ func TestBuildDiscoversSessionsAndSubagentsByDepth(t *testing.T) {
 	if got := byID["fakeagentid002"].Depth; got != 2 {
 		t.Errorf("agent002 depth = %d, want 2", got)
 	}
-	if got := byID["fakeagentid001"].Type; got != "code-workers" {
-		t.Errorf("agent001 type = %q, want code-workers", got)
+	if got := byID["fakeagentid001"].Type; got != "copilot" {
+		t.Errorf("agent001 type = %q, want copilot", got)
 	}
 }
 
