@@ -10,7 +10,7 @@
     },
     "functions": 8,
     "classes": 0,
-    "avg_complexity": 3.2
+    "avg_complexity": 2.9
   },
   "quality_score": 100,
   "grade": "A",
@@ -20,49 +20,49 @@
     {
       "name": "ConfigDir",
       "parameters": 0,
-      "lines": 13,
-      "complexity": 4
+      "lines": 10,
+      "complexity": 3
     },
     {
       "name": "EnvDir",
       "parameters": 0,
-      "lines": 4,
-      "complexity": 3
+      "lines": 1,
+      "complexity": 1
     },
     {
       "name": "BinDir",
       "parameters": 0,
-      "lines": 4,
+      "lines": 1,
       "complexity": 1
     },
     {
       "name": "StateDir",
       "parameters": 0,
-      "lines": 4,
+      "lines": 1,
       "complexity": 1
     },
     {
       "name": "ClaudeJSON",
       "parameters": 0,
-      "lines": 13,
+      "lines": 10,
       "complexity": 3
     },
     {
       "name": "WriteIfChanged",
       "parameters": 3,
-      "lines": 9,
+      "lines": 6,
       "complexity": 3
     },
     {
       "name": "AtomicWrite",
       "parameters": 3,
-      "lines": 29,
+      "lines": 26,
       "complexity": 7
     },
     {
       "name": "WithFileLock",
       "parameters": 2,
-      "lines": 16,
+      "lines": 15,
       "complexity": 4
     }
   ],
