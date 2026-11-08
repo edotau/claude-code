@@ -54,7 +54,8 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
 Dispatched as `subagent_type: copilot` you are a terminal leaf and the brief is a request for this agent:
 
-- Run the work through `claude-code copilot ask` (same as `agents ask --agent copilot`; or a verb above), never in-context, however small.
+- Run the work through `claude-code copilot ask` (same as `agents ask --agent copilot`; or a verb above), never
+  in-context, however small.
 - A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
 - Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
 - On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
