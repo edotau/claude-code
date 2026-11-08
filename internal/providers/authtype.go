@@ -369,7 +369,7 @@ func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 	if secret == "" {
 		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
 	}
-	tok, err := m2mToken(ctx, p, AuthHost(p), p.Auth.SPClientID, secret, force)
+	tok, err := m2mToken(ctx, p, name, AuthHost(p), p.Auth.SPClientID, secret, force)
 	if err != nil {
 		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
@@ -467,7 +467,7 @@ func mintAuth(ctx context.Context, p *Provider, force bool) (oauth.Token, error)
 	case AuthPAT:
 		return oauth.Token{Access: secret}, nil
 	case AuthM2M:
-		return m2mToken(ctx, p, host, p.Auth.ClientID, secret, force)
+		return m2mToken(ctx, p, name, host, p.Auth.ClientID, secret, force)
 	}
 	return mintU2M(ctx, p, host, name, secret)
 }
@@ -478,16 +478,11 @@ type clientAccess struct {
 	Bind   string `json:"bind"`
 }
 
-// m2mAccessName is the vault cache slot for one service principal on one host, shared by every row that uses it.
-func m2mAccessName(host, clientID, secret string) (name, bind string) {
-	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
-	bind = hex.EncodeToString(sum[:8])
-	return "DATABRICKS_M2M_" + strings.ToUpper(bind) + "_ACCESS", bind
-}
-
 // m2mToken serves an m2m/sp token sealed by any process while it is valid past expiryMargin; force mints anew.
-func m2mToken(ctx context.Context, p *Provider, host, clientID, secret string, force bool) (oauth.Token, error) {
-	name, bind := m2mAccessName(host, clientID, secret)
+func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
+	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
+	bind := hex.EncodeToString(sum[:8])
+	name := secretName + "_ACCESS" // per row on purpose: a forced mint rotates only that row's slot
 	if !force {
 		if v, ok := sealedClientAccess(name, bind); ok {
 			return oauth.Token{Access: v}, nil
@@ -503,9 +498,21 @@ func m2mToken(ctx context.Context, p *Provider, host, clientID, secret string, f
 	if b, err := json.Marshal(clientAccess{Access: tok.Access, Bind: bind}); err == nil {
 		if err := vault.Store(name, string(b)); err != nil {
 			fmt.Fprintf(os.Stderr, "cache access token (%s) failed\n", name)
+		} else {
+			dropLegacyAccess("DATABRICKS_M2M_" + strings.ToUpper(bind) + "_ACCESS")
 		}
 	}
 	return tok, nil
+}
+
+// dropLegacyAccess deletes the pre-per-row hash-named cache slot, only when it exists.
+func dropLegacyAccess(slot string) {
+	if _, found, _ := vault.ReadSecret(slot); !found {
+		return
+	}
+	if err := vault.Delete(slot); err != nil {
+		fmt.Fprintf(os.Stderr, "drop legacy access token slot %s failed: %v\n", slot, err)
+	}
 }
 
 // sealedClientAccess returns the sealed token under name when bind matches and it stays valid past expiryMargin.

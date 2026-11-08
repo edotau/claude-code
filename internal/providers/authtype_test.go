@@ -3,6 +3,8 @@ package providers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -609,18 +612,18 @@ func TestClientTokenSharedAcrossProcesses(t *testing.T) {
 
 // A minted token that fails the issuer check is refused before it is sealed into the shared vault.
 func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
-	p, _ := clientRow(t, false)
+	p, secretName := clientRow(t, false)
 	p.Preset, p.Host = PresetDatabricks, "https://h.example.com"
 	orig := mintM2M
 	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
 		return oauth.Token{Access: jwtExpIn(time.Hour, "https://other.example.org/oidc")}, nil
 	}
 	t.Cleanup(func() { mintM2M = orig })
-	_, err := m2mToken(context.Background(), p, "h.example.com", "client", "secret", true)
+	_, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true)
 	if _, ok := errors.AsType[*HostMismatchError](err); !ok {
 		t.Fatalf("m2mToken err = %v; want HostMismatchError", err)
 	}
-	if name, _ := m2mAccessName("h.example.com", "client", "secret"); vaultHas(t, name) {
+	if vaultHas(t, secretName+"_ACCESS") {
 		t.Fatal("wrong-issuer token was sealed in the vault")
 	}
 }
@@ -634,28 +637,23 @@ func vaultHas(t *testing.T, name string) bool {
 	return found
 }
 
-// Two rows for the same service principal share one cached token, so a forced mint on one reaches the other.
-func TestForcedMintSharedByRowsOfOneServicePrincipal(t *testing.T) {
-	p, _ := clientRow(t, false)
-	twin := *p
-	twin.Name = "m2m-share-twin"
-	if err := vault.Store(AuthSecretName(&twin), "secret"); err != nil {
-		t.Fatal(err)
-	}
-	calls, orig := 0, mintM2M
-	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
-		calls++
-		return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, "")}, nil
-	}
-	t.Cleanup(func() { mintM2M = orig })
-	ctx := context.Background()
-	forced, err := Refresh(ctx, p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := Credential(ctx, &twin)
-	if err != nil || got != forced || calls != 1 {
-		t.Fatalf("twin row: same=%t calls=%d err=%v; want the forced token reused", got == forced, calls, err)
+// An m2m row and a paired profile cache their SP token under <PROFILE>_M2M_ACCESS, never a hash name.
+func TestM2MTokenCachedUnderProfileName(t *testing.T) {
+	for _, sp := range []bool{false, true} {
+		t.Run(fmt.Sprint("sp=", sp), func(t *testing.T) {
+			p, secretName := clientRow(t, sp)
+			orig := mintM2M
+			mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+				return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
+			}
+			t.Cleanup(func() { mintM2M = orig })
+			if _, err := Refresh(context.Background(), p); err != nil {
+				t.Fatal(err)
+			}
+			if !vaultHas(t, secretName+"_ACCESS") {
+				t.Fatalf("no token cache at %s_ACCESS", secretName)
+			}
+		})
 	}
 }
 
@@ -681,5 +679,83 @@ func TestForcedU2MMintAdoptedByOtherProcess(t *testing.T) {
 	got, err := Credential(ctx, p)
 	if err != nil || got != forced || calls != 1 {
 		t.Fatalf("process B: adopted=%t calls=%d err=%v; want A's sealed token with no mint", got == forced, calls, err)
+	}
+}
+
+// A forced m2m mint on one row seals only that row's slot; another row on the same principal keeps its own token.
+func TestM2MForcedMintLeavesOtherRowSlot(t *testing.T) {
+	p, nameA := clientRow(t, false)
+	nameB := nameA + "_OTHER"
+	calls, orig := 0, mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		calls++
+		return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	ctx := context.Background()
+	a1, errA := m2mToken(ctx, p, nameA, "h.example.com", "client", "secret", true)
+	b1, errB := m2mToken(ctx, p, nameB, "h.example.com", "client", "secret", true)
+	a2, errA2 := m2mToken(ctx, p, nameA, "h.example.com", "client", "secret", true)
+	bAgain, errB2 := m2mToken(ctx, p, nameB, "h.example.com", "client", "secret", false)
+	if errA != nil || errB != nil || errA2 != nil || errB2 != nil {
+		t.Fatalf("errs = %v %v %v %v", errA, errB, errA2, errB2)
+	}
+	if a1 == b1 || a2 == a1 || bAgain != b1 || calls != 3 {
+		t.Fatalf("row B reused=%t rowA rotated=%t calls=%d; want B's own sealed token and 3 mints", bAgain == b1, a2 != a1, calls)
+	}
+}
+
+// A mint drops the old hash-named DATABRICKS_M2M_<HASH>_ACCESS slot so it is not left sealed in the vault.
+func TestM2MMintDeletesLegacyHashSlot(t *testing.T) {
+	p, secretName := clientRow(t, false)
+	sum := sha256.Sum256([]byte("h.example.com\x00client\x00secret"))
+	legacy := "DATABRICKS_M2M_" + strings.ToUpper(hex.EncodeToString(sum[:8])) + "_ACCESS"
+	if err := vault.Store(legacy, "stale"); err != nil {
+		t.Fatal(err)
+	}
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	if _, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true); err != nil {
+		t.Fatal(err)
+	}
+	if vaultHas(t, legacy) {
+		t.Fatalf("legacy slot %s survived a mint", legacy)
+	}
+}
+
+// A mint with no legacy hash slot writes no secret_delete audit entry: the slot is checked before the delete.
+func TestM2MMintSkipsDeleteWhenLegacySlotAbsent(t *testing.T) {
+	p, secretName := clientRow(t, false)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	since := time.Now().Add(-time.Second)
+	if _, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true); err != nil {
+		t.Fatal(err)
+	}
+	events, err := audit.Read(since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Action == audit.SecretDelete {
+			t.Fatalf("mint audited a delete with no legacy slot present: %+v", e)
+		}
+	}
+}
+
+// The <PROFILE>_M2M_ACCESS cache slot is a route secret, so it is filtered from child env like <PROFILE>_M2M.
+func TestRouteSecretCoversM2MAccessSlot(t *testing.T) {
+	r := &Registry{}
+	if !r.RouteSecret("DATABRICKS_DEV_M2M_ACCESS") {
+		t.Fatal("DATABRICKS_DEV_M2M_ACCESS not treated as a route secret")
+	}
+	if r.RouteSecret("DATABRICKS_DEV_ACCESS") {
+		t.Fatal("unrelated _ACCESS name treated as a route secret")
 	}
 }
