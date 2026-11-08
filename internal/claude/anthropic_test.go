@@ -3,12 +3,15 @@ package claude
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -284,3 +287,16 @@ func TestAnthropicSecretMissingNamesKey(t *testing.T) {
 
 // failStore stands in for the vault verb; the tests never reach a real store.
 func failStore(string) int { return 1 }
+
+func TestRunSetupTokenScrubsVaultKey(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", "setup-secret")
+	t.Setenv("DISPLAY", ":7")
+	out := filepath.Join(t.TempDir(), "env")
+	pathstest.FakeVendor(t, "claude", `echo "key=$HARNESS_VAULT_KEY display=$DISPLAY" > `+out)
+	runSetupToken()
+	got, err := os.ReadFile(out)
+	if err != nil || strings.Contains(string(got), "setup-secret") || !strings.Contains(string(got), "display=:7") {
+		t.Fatalf("setup-token env (err=%v): %q; want no vault key, DISPLAY kept", err, got)
+	}
+}
