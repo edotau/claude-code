@@ -58,6 +58,9 @@ session and nothing changed. `@agent-gemini` gives the same brief off Claude's b
 
 `gh search code|repos` → library docs and web search through `skills/web-explorer/SKILL.md` (Tavily, every agent) →
 package registries (prefer battle-tested libraries) → `@agent-gemini` for cited web and deep research.
+Run it beside Phase 4, not before: dispatch the research leaf (`gemini`, fallback `claude` with web-explorer) and
+`Plan` in one message, both in the background; relay the findings to the running `Plan` with `SendMessage`, or
+merge them into the draft at review if `Plan` finished first.
 
 ## Phase 4: Plan (MEDIUM+)
 

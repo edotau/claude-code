@@ -36,6 +36,7 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 
 - `docs/templates/plan.md` — the shape you return.
 - `rules/harness/docs-placement.md` — when a phase writes documentation.
+- `skills/web-explorer/SKILL.md` — prior art and library docs (Tavily) for Step 2b.
 
 ## Hands off to
 
@@ -63,6 +64,9 @@ Follow `~/.claude/skills/problem-solving/SKILL.md` Steps 0–3, with the plannin
    `rules/standards/testing-guidelines.md`.
 3. **Step 2 — Gather evidence.** Read the real code — name files, functions and line numbers; a plan built
    on guessed structure is wrong. List the assumptions found along the way.
+   **Step 2b — Research** (new implementation, not a refactor or harness-internal work): the caller's research
+   leaf sends findings as messages mid-run; fold each in and cite it. With no caller research, look up prior art
+   yourself via web-explorer; none arrived by drafting time = `research pending` under Risks.
 4. **Step 3 — Decide and commit.** Identify 2–3 approaches, then recommend the simplest design that meets
    requirements: minimum change, surgical edits, no speculative features or one-use abstractions, and say
    what you deliberately left out (lines per Plan rules → Decided). A decision that is genuinely the user's
