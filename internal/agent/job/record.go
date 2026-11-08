@@ -209,7 +209,7 @@ func pruneDispatches(dir string) {
 		_ = os.Remove(filepath.Join(dir, name))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log")) // ignore not-exist
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+agent.LiveSockSuffix))
+		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+wire.LiveSockSuffix))
 		excess--
 	}
 }

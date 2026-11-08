@@ -19,4 +19,9 @@ var (
 		Name: "ask-envelope", Owner: "internal/agent/wire", Kind: schemas.Wire, Version: EnvelopeSchema,
 		New: func() any { return new(Envelope) },
 	})
+
+	_ = schemas.Register(schemas.Format{
+		Name: "live-request", Owner: "internal/agent/wire", Kind: schemas.Wire, Version: LiveSchema,
+		New: func() any { return new(LiveRequest) },
+	})
 )

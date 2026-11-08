@@ -33,7 +33,7 @@ func SendLive(ctx context.Context, id, prompt string, sink wire.Sink) (wire.Enve
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	_ = conn.SetWriteDeadline(time.Now().Add(liveIOTimeout))
-	if err := json.NewEncoder(conn).Encode(agent.LiveRequest{Schema: agent.LiveSchema, Prompt: prompt}); err != nil {
+	if err := json.NewEncoder(conn).Encode(wire.LiveRequest{Schema: wire.LiveSchema, Prompt: prompt}); err != nil {
 		return wire.Envelope{}, err
 	}
 	return receiveTurn(ctx, rec.ID, json.NewDecoder(conn), sink)

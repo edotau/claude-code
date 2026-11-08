@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -17,7 +17,7 @@ var ErrLiveBusy = errors.New("a turn is already in flight on this live session")
 var errLiveCap = fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
 
 // LiveSocket is the unix socket path of live session id.
-func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+agent.LiveSockSuffix) }
+func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+wire.LiveSockSuffix) }
 
 // LiveCount counts live sessions still running, other than skip.
 func LiveCount(skip string) int {

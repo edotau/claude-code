@@ -80,7 +80,7 @@ func (k *connSink) Emit(ev wire.Event) error {
 	return nil
 }
 
-// serveConn reads one agent.LiveRequest and runs it as the session's single in-flight turn.
+// serveConn reads one wire.LiveRequest and runs it as the session's single in-flight turn.
 func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 	if uc, ok := c.(*net.UnixConn); ok { // defense in depth beside the 0600 socket: a peer of another uid is dropped
 		if uid, err := proc.PeerUID(uc); !errors.Is(err, proc.ErrPeerUnsupported) && (err != nil || uid != uint32(os.Getuid())) {
@@ -92,7 +92,7 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 		_ = out.Emit(wire.Event{Type: wire.EventError, Agent: s.name, Status: status, Text: text})
 	}
 	_ = c.SetReadDeadline(time.Now().Add(liveIOTimeout))
-	var rq agent.LiveRequest
+	var rq wire.LiveRequest
 	if err := json.NewDecoder(bufio.NewReader(c)).Decode(&rq); err != nil || strings.TrimSpace(rq.Prompt) == "" {
 		refuse(statusRefused, "send one JSON line {\"schema\":1,\"prompt\":\"...\"}")
 		return
