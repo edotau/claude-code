@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/memstore"
@@ -508,7 +509,7 @@ func TestCompletionNeverInvokesARunFunc(t *testing.T) {
 // future addition (e.g. explore) is picked up without a second hand-copied list to keep in lockstep.
 func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	want := []string{"ask"}
-	for sub := range agentSubverbs {
+	for sub := range agentcmd.Subverbs {
 		want = append(want, sub)
 	}
 	slices.Sort(want)
@@ -571,7 +572,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	// gemini's subwords are "ask" (handled by vendorVerb's own if, not vendorSubverbs) plus every
 	// vendor subverb — derived from vendorSubverbs, not hand-copied, so a future subverb never drifts.
 	geminiWant := []string{"ask"}
-	for sub := range agentSubverbs {
+	for sub := range agentcmd.Subverbs {
 		geminiWant = append(geminiWant, sub)
 	}
 	cases["gemini"] = geminiWant

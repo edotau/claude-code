@@ -4,44 +4,14 @@ package cli
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/agentcmd"
 
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 )
-
-// agentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
-// `ask` = `ask --agent <v>`, a word in agentSubverbs = agentSub, else launch with args forwarded.
-func agentVerb(name string, args []string) int {
-	if len(args) == 0 {
-		return agentcmd.LaunchAgent(name, args)
-	}
-	if args[0] == "--" {
-		return agentcmd.LaunchAgent(name, args[1:])
-	}
-	if args[0] == "ask" {
-		return ask.Cmd(append([]string{"--agent", name}, args[1:]...))
-	}
-	if agentSubverbs[args[0]] {
-		return agentSub(name, args)
-	}
-	if len(args) == 1 && slices.Contains([]string{"-h", "--help", "help"}, args[0]) {
-		agentPage(name).Fprint(os.Stderr)
-		return 0
-	}
-	if len(args) == 1 && args[0] == helptext.DocsFlag {
-		s, _ := agent.LookupSchema(name)
-		return helptext.WrappedDocs(s.CLI.Binary)
-	}
-	return agentcmd.LaunchAgent(name, args)
-}
 
 // lookup finds a command by its name.
 func lookup(name string) *command {
