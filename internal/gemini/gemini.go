@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"io/fs"
 	"os"
@@ -556,7 +557,7 @@ func finishAgyTurn(res agent.Result, sink agent.Sink, ans *agent.Answer, respons
 		if openStep != "" {
 			why = "turn ended with an unfinished " + openStep + " step"
 		}
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: "gemini", Progressed: true, Err: errors.New("agy: partial result: " + why)}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: true, Err: errors.New("agy: partial result: " + why)}
 	}
 	return res, nil
 }
@@ -642,7 +643,7 @@ type agyLive struct {
 	prev    agent.Usage
 }
 
-func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *agent.TailBuffer, string, error) {
+func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
 	ctx = agent.DirectCtx(ctx, req)
 	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
 	p, err := agent.PrepareCLI(ctx, "gemini", req)

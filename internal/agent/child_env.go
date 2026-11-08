@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"maps"
 	"os"
@@ -177,7 +178,7 @@ func envNames(env []string) []string {
 }
 
 // ChildCmd builds an exec.Cmd in its own process group with inherited credentials scrubbed; agent also scrubs the vault key.
-func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *TailBuffer) {
+func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *retry.TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
@@ -190,7 +191,7 @@ func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
-	tail := &TailBuffer{}
+	tail := &retry.TailBuffer{}
 	cmd.Stderr = io.Writer(tail) // the dispatch log, when ctx carries one, sees stderr as it arrives
 	if sk := stderrLogFrom(ctx); sk != nil {
 		cmd.Stderr = io.MultiWriter(tail, sk.Stream())
@@ -199,7 +200,7 @@ func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 }
 
 // childErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err for classification.
-func childErr(ctx context.Context, name string, err error, tail *TailBuffer) error {
+func childErr(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
 	if err == nil {
 		return nil
 	}

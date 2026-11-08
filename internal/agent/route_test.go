@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"strings"
 	"testing"
 	"time"
@@ -186,8 +187,8 @@ func TestAstraModelIdentityOwnLogin(t *testing.T) {
 func TestAstraModelIdentityZeroLegs(t *testing.T) {
 	stub := &pinFallbackRunner{name: "codex"}
 	_, err := RunWithFallback(context.Background(), Chain{Want: "codex"}, RunOptions{Prompt: "x", Model: astra}, Discard, nil)
-	var e *Error
-	if !errors.As(err, &e) || e.Kind != KindFatal {
+	var e *retry.Error
+	if !errors.As(err, &e) || e.Kind != retry.KindFatal {
 		t.Errorf("err = %v, want *Error KindFatal", err)
 	}
 	if len(stub.seen) != 0 {
@@ -454,16 +455,16 @@ func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
 func TestCondemnAuthRules(t *testing.T) {
 	needs := fmt.Errorf("x: %w", providers.ErrNeedsLogin)
 	for name, c := range map[string]struct {
-		e       *Error
+		e       *retry.Error
 		recover error
 		want    bool
 	}{
-		"auth + condemning recover":      {&Error{Kind: KindAuth, Err: errors.New("401")}, needs, true},
-		"auth + transient recover":       {&Error{Kind: KindAuth, Err: errors.New("401")}, errors.New("exit status 1"), false},
-		"auth + no recover run":          {&Error{Kind: KindAuth, Err: errors.New("401")}, nil, false},
-		"fatal error carrying the login": {&Error{Kind: KindFatal, Err: needs}, nil, true},
-		"fatal ordinary":                 {&Error{Kind: KindFatal, Err: errors.New("boom")}, needs, false},
-		"transient ordinary":             {&Error{Kind: KindTransient, Err: errors.New("503")}, nil, false},
+		"auth + condemning recover":      {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, needs, true},
+		"auth + transient recover":       {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, errors.New("exit status 1"), false},
+		"auth + no recover run":          {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, nil, false},
+		"fatal error carrying the login": {&retry.Error{Kind: retry.KindFatal, Err: needs}, nil, true},
+		"fatal ordinary":                 {&retry.Error{Kind: retry.KindFatal, Err: errors.New("boom")}, needs, false},
+		"transient ordinary":             {&retry.Error{Kind: retry.KindTransient, Err: errors.New("503")}, nil, false},
 	} {
 		condemnAuth(c.e, c.recover)
 		if got := c.e.AuthReason != ""; got != c.want {
@@ -477,13 +478,13 @@ func TestNoteAuthNeedsAccountAndReason(t *testing.T) {
 	prev := markAuth
 	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
 	t.Cleanup(func() { markAuth = prev })
-	noteAuth(Dispatch{Account: ""}, &Error{AuthReason: "r"})
-	noteAuth(Dispatch{Account: "codex:x"}, &Error{})
+	noteAuth(Dispatch{Account: ""}, &retry.Error{AuthReason: "r"})
+	noteAuth(Dispatch{Account: "codex:x"}, &retry.Error{})
 	noteAuth(Dispatch{Account: "codex:x"}, errors.New("plain"))
 	if len(calls) != 0 {
 		t.Fatalf("noteAuth marked without an account or reason: %+v", calls)
 	}
-	noteAuth(Dispatch{Account: "codex:x"}, &Error{AuthReason: "r"})
+	noteAuth(Dispatch{Account: "codex:x"}, &retry.Error{AuthReason: "r"})
 	if len(calls) != 1 || calls[0].account != "codex:x" {
 		t.Fatalf("calls = %+v", calls)
 	}
@@ -547,9 +548,9 @@ func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 // A plain 429 (no quota wording) that exhausts the retries holds the account out of the picks for 10 minutes.
 func TestRateLimitedHopMarksAccount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	b, m := DefaultBaseDelay, DefaultMaxDelay
-	DefaultBaseDelay, DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
-	t.Cleanup(func() { DefaultBaseDelay, DefaultMaxDelay = b, m })
+	b, m := retry.DefaultBaseDelay, retry.DefaultMaxDelay
+	retry.DefaultBaseDelay, retry.DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
+	t.Cleanup(func() { retry.DefaultBaseDelay, retry.DefaultMaxDelay = b, m })
 	e429 := errors.New("rate limited: codex: exit status 1 exceeded retry limit, last status: 429 Too Many Requests")
 	codex := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "chatgpt"}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -86,7 +87,7 @@ func TestClaudeNoToolsAnthropic(t *testing.T) {
 
 	status = http.StatusTooManyRequests
 	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true}, agent.Discard)
-	if e := agent.Classify("claude", err, false); e.Kind != agent.KindRateLimit || e.RetryAfter != 3*time.Second || e.Status != 429 {
+	if e := retry.Classify("claude", err, false); e.Kind != retry.KindRateLimit || e.RetryAfter != 3*time.Second || e.Status != 429 {
 		t.Errorf("429 classified as %+v", e)
 	}
 }
@@ -125,7 +126,7 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 
 	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "boom", Provider: "toai", NoTools: true}, agent.Discard)
 	var he *httpError
-	if !errors.As(err, &he) || agent.Classify("claude", err, false).Kind != agent.KindTransient {
+	if !errors.As(err, &he) || retry.Classify("claude", err, false).Kind != retry.KindTransient {
 		t.Errorf("502 = %v", err)
 	}
 }

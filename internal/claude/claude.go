@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"maps"
 	"os/exec"
 	"slices"
@@ -151,14 +152,14 @@ func permissionArgs(req agent.RunOptions) []string {
 func refuseUnmappedDeny(p agent.Permissions) error {
 	for _, r := range p.Deny {
 		if r.Tool == "" {
-			return &agent.Error{Kind: agent.KindFatal, Agent: "claude", Err: fmt.Errorf("cannot enforce deny rule %q: no tool name", r.String())}
+			return &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: fmt.Errorf("cannot enforce deny rule %q: no tool name", r.String())}
 		}
 	}
 	return nil
 }
 
 // claudeCmd resolves the launch plan for args and returns the unstarted child with its env layered (--env last).
-func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt string) (*exec.Cmd, *agent.TailBuffer, agent.ClaudeLaunch, error) {
+func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt string) (*exec.Cmd, *retry.TailBuffer, agent.ClaudeLaunch, error) {
 	if req.Launcher == nil {
 		return nil, nil, agent.ClaudeLaunch{}, errors.New("claude: no launcher (caller must set RunOptions.Launcher)")
 	}

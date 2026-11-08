@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -99,7 +100,7 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 
 	t.Run("opencode/still-refused", func(t *testing.T) {
 		_, err := newCLIEngine("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
-		var e *Error
+		var e *retry.Error
 		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)
 		}

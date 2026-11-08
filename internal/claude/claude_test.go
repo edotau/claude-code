@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"slices"
 	"strings"
@@ -39,7 +40,7 @@ func TestParseClaudeStream(t *testing.T) {
 func TestParseClaudeStreamErrors(t *testing.T) {
 	isErr := `{"type":"result","subtype":"success","is_error":true,"result":"API Error: 429 rate_limit_error"}` + "\n"
 	_, err := parseClaudeStream(newBR(isErr), agent.NewTextSink(&strings.Builder{}))
-	if e := agent.Classify("claude", err, false); e == nil || e.Kind != agent.KindRateLimit {
+	if e := retry.Classify("claude", err, false); e == nil || e.Kind != retry.KindRateLimit {
 		t.Errorf("is_error result = %v", err)
 	}
 	if _, err := parseClaudeStream(newBR(`{"type":"system","subtype":"init"}`), agent.NewTextSink(&strings.Builder{})); err == nil {
@@ -256,8 +257,8 @@ func TestClaudeArgsPermissions(t *testing.T) {
 		}
 	}
 	err := refuseUnmappedDeny(agent.Permissions{Deny: []agent.Rule{{Arg: "x"}}})
-	var ae *agent.Error
-	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), "(x)") {
+	var ae *retry.Error
+	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "(x)") {
 		t.Errorf("nameless deny rule must be refused naming it, got %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"os"
 	"slices"
 	"strings"
@@ -445,7 +446,7 @@ func StubProxyForTest(base, secret string) {
 	ensureRouter = func(context.Context) (string, error) { return base, nil }
 	routerSecret = func() (string, error) { return secret, nil }
 	mintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
-	sharedPoll = 25 * time.Millisecond
+	retry.SharedPoll = 25 * time.Millisecond
 }
 
 type directKey struct{}

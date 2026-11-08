@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"slices"
 	"strings"
 
@@ -183,7 +184,7 @@ func refusePureBashDeny(req agent.RunOptions) error {
 	}
 	for _, r := range req.Permissions.Deny {
 		if r.Tool == "Bash" {
-			return &agent.Error{Agent: "opencode", Kind: agent.KindFatal,
+			return &retry.Error{Agent: "opencode", Kind: retry.KindFatal,
 				Err: fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher)", r)}
 		}
 	}

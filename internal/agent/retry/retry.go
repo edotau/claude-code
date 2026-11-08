@@ -1,6 +1,5 @@
-package agent
-
-// Retry, backoff, cooldown and error classification for agent dispatches.
+// Package retry is retry, backoff, cooldown and error classification plus the dispatch limiter for agent dispatches.
+package retry
 
 import (
 	"context"
@@ -47,11 +46,11 @@ type Error struct {
 	AuthReason string // set on a KindAuth whose Recover failed with a login/rejected verdict: mark the account, move on
 	Err        error
 	Earlier    []*Error // the attempts before this one, oldest first; Do sets it on the error it returns
-	terminal   bool     // a state check refused the attempt: retrying cannot help
+	Terminal   bool     // a state check refused the attempt: retrying cannot help
 }
 
-// progressed is true when err is an *Error whose output already reached the stream.
-func progressed(err error) bool {
+// Progressed is true when err is an *Error whose output already reached the stream.
+func Progressed(err error) bool {
 	e, ok := errors.AsType[*Error](err)
 	return ok && e.Progressed
 }
@@ -71,8 +70,8 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// attemptMessage is Error() as one attempt saw it, without the "(after N attempts)" tally.
-func (e *Error) attemptMessage() string {
+// AttemptMessage is Error() as one attempt saw it, without the "(after N attempts)" tally.
+func (e *Error) AttemptMessage() string {
 	one := *e
 	one.Attempts = 0
 	return one.Error()
@@ -80,7 +79,7 @@ func (e *Error) attemptMessage() string {
 
 // Retryable is true for rate-limit and transient failures that have not streamed output.
 func (e *Error) Retryable() bool {
-	return !e.Progressed && !e.terminal && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
+	return !e.Progressed && !e.Terminal && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
 // KindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
@@ -215,8 +214,8 @@ var cooldowns = struct {
 	until map[string]time.Time
 }{until: map[string]time.Time{}}
 
-// coolDown holds key back for d; a shorter hold never replaces a longer one.
-func coolDown(key string, d time.Duration) {
+// CoolDown holds key back for d; a shorter hold never replaces a longer one.
+func CoolDown(key string, d time.Duration) {
 	cooldowns.Lock()
 	defer cooldowns.Unlock()
 	if t := time.Now().Add(d); t.After(cooldowns.until[key]) {
@@ -224,8 +223,8 @@ func coolDown(key string, d time.Duration) {
 	}
 }
 
-// waitCooldown blocks until key's cooldown ends, for at most maxWait, or until ctx is done.
-func waitCooldown(ctx context.Context, key string, maxWait time.Duration) {
+// WaitCooldown blocks until key's cooldown ends, for at most maxWait, or until ctx is done.
+func WaitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 	if key == "" {
 		return
 	}
@@ -280,10 +279,10 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	}
 	for attempt := 1; attempt <= p.MaxAttempts; attempt++ {
 		if last != nil {
-			earlier = append(earlier, withoutEarlier(last))
+			earlier = append(earlier, WithoutEarlier(last))
 		}
 		if cooling(p.Key) { // before the attempt's own timeout; the wait holds no permit, first attempt included
-			if err := p.idle(ctx, func() { waitCooldown(ctx, p.Key, p.MaxDelay) }); err != nil {
+			if err := p.idle(ctx, func() { WaitCooldown(ctx, p.Key, p.MaxDelay) }); err != nil {
 				return abandoned(err, attempt, last, earlier, false)
 			}
 		}
@@ -320,13 +319,13 @@ func (p Policy) notifyRetry(last *Error, attempt int, wait time.Duration) {
 func (p Policy) retryDelay(last *Error, attempt int) time.Duration {
 	wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
 	if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
-		coolDown(p.Key, wait) // Other loops back off too, even when this one gives up.
+		CoolDown(p.Key, wait) // Other loops back off too, even when this one gives up.
 	}
 	return wait
 }
 
-// withoutEarlier is a copy of e with its own Earlier chain cut.
-func withoutEarlier(e *Error) *Error {
+// WithoutEarlier is a copy of e with its own Earlier chain cut.
+func WithoutEarlier(e *Error) *Error {
 	snap := *e
 	snap.Earlier = nil
 	return &snap
@@ -338,7 +337,7 @@ func abandoned(err error, attempt int, last *Error, earlier []*Error, pending bo
 	if last != nil {
 		e.Agent = last.Agent
 		if pending {
-			e.Earlier = append(slices.Clone(earlier), withoutEarlier(last))
+			e.Earlier = append(slices.Clone(earlier), WithoutEarlier(last))
 		}
 	}
 	return e

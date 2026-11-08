@@ -3,6 +3,7 @@ package gemini
 import (
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"path/filepath"
@@ -71,8 +72,8 @@ func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 func TestAgyPermissionSettingsRefusesPlan(t *testing.T) {
 	p := agent.Permissions{Mode: "plan"}
 	_, _, err := agyPermissionSettings(p, true, "/w", io.Discard)
-	var ae *agent.Error
-	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), "plan") {
+	var ae *retry.Error
+	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "plan") {
 		t.Errorf("plan with tools: err = %v, want a fatal refusal naming plan", err)
 	}
 	if _, _, err := agyPermissionSettings(p, false, "/w", io.Discard); err != nil {

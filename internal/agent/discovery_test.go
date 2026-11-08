@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"testing"
 	"time"
 
@@ -114,10 +115,10 @@ func TestDiscoveryRetryModelKeepsCapabilityPathWithServedRepick(t *testing.T) {
 func TestRetryModelSkipsProgressedError(t *testing.T) {
 	disp := Dispatch{repick: func(string) string { return "dbx:m-b" }}
 	capMsg := errors.New("400: max_new_tokens exceeds the model limit")
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, &Error{Kind: KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
+	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, &retry.Error{Kind: retry.KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
 		t.Errorf("progressed capability error repicked %q, want none", got)
 	}
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, &Error{Kind: KindFatal, Agent: "x", Err: capMsg}); got != "dbx:m-b" {
+	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, &retry.Error{Kind: retry.KindFatal, Agent: "x", Err: capMsg}); got != "dbx:m-b" {
 		t.Errorf("unprogressed capability error = %q, want dbx:m-b", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"path/filepath"
@@ -91,7 +92,7 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 		return "", nil, nil
 	}
 	if p.Mode == "plan" && tools { // plan denies unmatched calls; agy has no deny-all, so --settings would run every tool
-		return "", nil, &agent.Error{Kind: agent.KindFatal, Agent: "gemini", Err: errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools")}
+		return "", nil, &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Err: errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools")}
 	}
 	cfg, err := loadAgentConfig()
 	if err != nil {

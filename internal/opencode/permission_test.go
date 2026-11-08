@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"slices"
 	"strings"
 	"testing"
@@ -63,8 +64,8 @@ func TestOpencodePermissionBashDeny(t *testing.T) {
 	}
 	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
 	_, err = opencodeApplyPermissions(nil, req)
-	var ae *agent.Error
-	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(err.Error(), "Bash(rm *)") {
+	var ae *retry.Error
+	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "Bash(rm *)") {
 		t.Errorf("--safe-mode err = %v, want a fatal agent.Error naming the rule", err)
 	}
 }

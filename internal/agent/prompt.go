@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"net/http"
 	"os"
 	"regexp"
@@ -124,7 +125,7 @@ func requestFault(err error) bool {
 	if errors.Is(err, ErrBadAttach) || errors.Is(err, ErrPromptTooLarge) {
 		return true
 	}
-	if e, ok := errors.AsType[*Error](err); ok && e.Status == 413 {
+	if e, ok := errors.AsType[*retry.Error](err); ok && e.Status == 413 {
 		return true
 	}
 	return contentPolicyRE.MatchString(err.Error())

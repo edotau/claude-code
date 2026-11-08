@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"os/signal"
@@ -111,7 +112,7 @@ type batchDone struct {
 type batchRun struct {
 	o    PoolOptions
 	logM sync.Mutex
-	lim  *agent.Limiter
+	lim  *retry.Limiter
 	stop func() // cancels the batch
 }
 
@@ -120,7 +121,7 @@ func RunTasks(ctx context.Context, tasks []Task, o PoolOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, lim: agent.NewBatchLimiter(jobs), stop: cancel}
+	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel}
 	allOK := true
 	emit := func(env agent.Envelope, ok bool) {
 		env.BatchID = o.ID
@@ -178,13 +179,13 @@ func (b *batchRun) feed(ctx context.Context, tasks []Task, queue []int, done cha
 // claim reserves a slot for t, then prepares and runs it in its own goroutine.
 func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t Task, i int, done chan<- batchDone) {
 	sl, err := b.lim.Reserve(ctx)
-	sctx := agent.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
+	sctx := retry.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
 	if err != nil {
 		cancelled := ctx.Err() != nil
 		if cancelled {
 			err = fmt.Errorf("cancelled before start: %w", context.Canceled)
 		}
-		agent.Settle(sctx)
+		retry.Settle(sctx)
 		if b.o.FailFast && !cancelled {
 			b.stop() // before the next task is considered, so it never starts
 		}
@@ -207,11 +208,11 @@ func (b *batchRun) execute(ctx, sctx context.Context, t Task, i int, done chan<-
 		if b.o.FailFast && !cancelled {
 			b.stop() // before Settle frees the slot, so the next task never reserves it
 		}
-		agent.Settle(sctx)
+		retry.Settle(sctx)
 		done <- batchDone{i, taskFailure(t, err), false}
 		return
 	}
-	defer agent.Settle(sctx)
+	defer retry.Settle(sctx)
 	env, ok := b.run(sctx, t, prepared)
 	if !ok {
 		env = b.retry(sctx, t, env)
@@ -272,7 +273,7 @@ func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agen
 	rec.TaskID, rec.BatchID, rec.PlanTask = t.ID, b.o.ID, t.Plan
 	ctx = agent.WithBatchRun(ctx, b.lim)
 	if b.o.FailFast {
-		ctx = agent.WithFailFast(ctx, b.stop)
+		ctx = retry.WithFailFast(ctx, b.stop)
 	}
 	start := time.Now()
 	defer func() { // runs after the recover below has set env: any failed task cancels before its slot is settled
@@ -282,7 +283,7 @@ func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env agen
 	}()
 	defer func() {
 		if r := recover(); r != nil {
-			err := &agent.Error{Kind: agent.KindFatal, Agent: t.Agent, Err: fmt.Errorf("panic: %v", r)}
+			err := &retry.Error{Kind: retry.KindFatal, Agent: t.Agent, Err: fmt.Errorf("panic: %v", r)}
 			rec.Finish(agent.Result{Agent: t.Agent, Status: agent.StatusError}, err, time.Since(start))
 			_ = rec.Save()
 			env, ok = agent.NewEnvelope(agent.Result{Agent: t.Agent, Status: agent.StatusError}, err, rec.ID), false

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"os/exec"
@@ -387,7 +388,7 @@ func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	first := &pinFallbackRunner{name: "codex", err: &Error{Kind: KindQuota, Agent: "codex", Err: io.EOF}}
+	first := &pinFallbackRunner{name: "codex", err: &retry.Error{Kind: retry.KindQuota, Agent: "codex", Err: io.EOF}}
 	second := &pinFallbackRunner{name: "claude", res: Result{Answer: "ok"}}
 	chain := Chain{Want: "codex", Dispatches: []Dispatch{
 		{Agent: first, Model: "prof:gpt-6-astra"},

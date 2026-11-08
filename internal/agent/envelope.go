@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"slices"
 	"strconv"
 	"strings"
@@ -88,8 +89,8 @@ func FailureEnvelope(agentName string, err error) Envelope {
 	return env
 }
 
-var envelopeKindTokens = map[Kind]string{
-	KindAuth: "auth", KindRateLimit: "rate_limit", KindTransient: "transient", KindQuota: "quota",
+var envelopeKindTokens = map[retry.Kind]string{
+	retry.KindAuth: "auth", retry.KindRateLimit: "rate_limit", retry.KindTransient: "transient", retry.KindQuota: "quota",
 }
 
 // errorKind is the envelope token for err's class; an unclassified error is fatal.
@@ -105,7 +106,7 @@ func errorKind(err error) string {
 	case errors.Is(err, context.Canceled):
 		return "canceled"
 	}
-	if e, ok := errors.AsType[*Error](err); ok {
+	if e, ok := errors.AsType[*retry.Error](err); ok {
 		if e.AuthReason != "" { // a condemned login is an auth failure, whatever the failing dispatch classified it as
 			return "auth"
 		}

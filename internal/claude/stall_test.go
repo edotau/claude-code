@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,8 +59,8 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	if !strings.Contains(err.Error(), "300ms") || !strings.Contains(err.Error(), "last event: system") {
 		t.Errorf("err = %v, want the idle duration and last event type", err)
 	}
-	e := agent.Classify("claude", err, false)
-	if e.Kind != agent.KindFatal || agent.StatusOf(e) != agent.StatusStalled {
+	e := retry.Classify("claude", err, false)
+	if e.Kind != retry.KindFatal || agent.StatusOf(e) != agent.StatusStalled {
 		t.Errorf("kind = %v, status = %q", e.Kind, agent.StatusOf(e))
 	}
 	raw, _ := os.ReadFile(pidFile)

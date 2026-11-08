@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"os"
 	"regexp"
 	"strings"
@@ -123,7 +124,7 @@ func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 	if err == nil {
 		return ""
 	}
-	if progressed(err) {
+	if retry.Progressed(err) {
 		return "" // text or tools already ran: a re-run on the next model would repeat them
 	}
 	switch msg := err.Error(); {

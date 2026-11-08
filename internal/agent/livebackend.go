@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os/exec"
 
@@ -25,7 +26,7 @@ type LiveRequest struct {
 // LiveBackend is how one agent holds a session open: build the process, write a turn, parse one turn's events.
 type LiveBackend interface {
 	// Build returns the unstarted child and the provider profile it routes through.
-	Build(ctx context.Context, req RunOptions) (cmd *exec.Cmd, tail *TailBuffer, provider string, err error)
+	Build(ctx context.Context, req RunOptions) (cmd *exec.Cmd, tail *retry.TailBuffer, provider string, err error)
 	WriteTurn(w io.Writer, prompt string) error
 	// Parse reads dec up to and including the turn's result event; usage and cost are that turn's alone.
 	Parse(dec *bufio.Reader, sink Sink, lg func(kind, text string)) (Result, error)
@@ -67,12 +68,12 @@ func WriteJSONLine(w io.Writer, v any) error {
 // The helpers below are the live package's reach into the dispatch internals.
 
 // ChildErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err.
-func ChildErr(ctx context.Context, name string, err error, tail *TailBuffer) error {
+func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
 	return childErr(ctx, name, err, tail)
 }
 
 // StatusOf maps a classified failure to the envelope status.
-func StatusOf(e *Error) string { return statusOf(e) }
+func StatusOf(e *retry.Error) string { return statusOf(e) }
 
 // NewRunSink stamps agent's name on sink's events and counts its text bytes.
 func NewRunSink(sink Sink, agent string) Sink { return &runSink{Sink: sink, agent: agent} }
