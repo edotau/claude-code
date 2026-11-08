@@ -11,12 +11,12 @@ type noLauncher struct{ agent.Launcher }
 
 func TestRunHolderRestoresLauncher(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var got *agent.Record
+	var got *Record
 	orig := serveLive
-	serveLive = func(_ context.Context, rec *agent.Record) error { got = rec; return nil }
+	serveLive = func(_ context.Context, rec *Record) error { got = rec; return nil }
 	t.Cleanup(func() { serveLive = orig })
 
-	rec := &agent.Record{ID: "live-holder-test"}
+	rec := &Record{ID: "live-holder-test"}
 	if code := RunHolder(rec, noLauncher{}); code != 0 {
 		t.Fatalf("RunHolder = %d, want 0", code)
 	}

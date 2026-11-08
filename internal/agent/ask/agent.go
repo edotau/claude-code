@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -132,7 +134,7 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 }
 
 // ReportBackgroundStart tells the caller how to track a detached job.
-func ReportBackgroundStart(format string, rec agent.Record) {
+func ReportBackgroundStart(format string, rec job.Record) {
 	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			ID  string `json:"id"`

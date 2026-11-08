@@ -1,4 +1,4 @@
-package agent
+package job
 
 import (
 	"cmp"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -21,35 +23,46 @@ import (
 	"github.com/edotau/claude-code/internal/shapes"
 )
 
+// DispatchSchema versions the dispatch record file.
+const DispatchSchema = 1
+
+var dispatchFormat = schemas.Register(schemas.Format{
+	Name: "dispatch-record", Owner: "internal/agent/job", Kind: schemas.Record, Version: DispatchSchema,
+	Glob:    func() string { return filepath.Join(paths.DispatchDir(), "*.json") },
+	New:     func() any { return new(Record) },
+	Clean:   "dispatch-log",
+	Migrate: schemas.SameShape,
+})
+
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
 type Record struct {
-	Schema         int        `json:"schema"`
-	ID             string     `json:"id"`
-	Time           time.Time  `json:"time"`
-	Agent          string     `json:"agent"`
-	Request        RunOptions `json:"request"`
-	Status         string     `json:"status"` // running | ok | error
-	Error          string     `json:"error,omitempty"`
-	Provider       string     `json:"provider,omitempty"`
-	Model          string     `json:"model,omitempty"`         // as the agent reported it; may be empty
-	Invoked        string     `json:"invoked_model,omitempty"` // the model the last hop was asked to run; RunOptions keeps the original
-	SessionID      string     `json:"session_id,omitempty"`
-	DurationMs     int64      `json:"duration_ms,omitempty"`
-	Fallback       string     `json:"fallback,omitempty"` // the original agent's name, when it ran instead
-	FallbackReason string     `json:"fallback_reason,omitempty"`
-	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
-	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
-	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
-	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
-	Progress       string     `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
-	Owner          int        `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
-	Host           string     `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
-	RemoteBin      string     `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
-	FallbackPolicy string     `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
-	Live           bool       `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
-	TaskID         string     `json:"task_id,omitempty"`         // ask --batch: the task line's id
-	BatchID        string     `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
-	PlanTask       string     `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
+	Schema         int              `json:"schema"`
+	ID             string           `json:"id"`
+	Time           time.Time        `json:"time"`
+	Agent          string           `json:"agent"`
+	Request        agent.RunOptions `json:"request"`
+	Status         string           `json:"status"` // running | ok | error
+	Error          string           `json:"error,omitempty"`
+	Provider       string           `json:"provider,omitempty"`
+	Model          string           `json:"model,omitempty"`         // as the agent reported it; may be empty
+	Invoked        string           `json:"invoked_model,omitempty"` // the model the last hop was asked to run; RunOptions keeps the original
+	SessionID      string           `json:"session_id,omitempty"`
+	DurationMs     int64            `json:"duration_ms,omitempty"`
+	Fallback       string           `json:"fallback,omitempty"` // the original agent's name, when it ran instead
+	FallbackReason string           `json:"fallback_reason,omitempty"`
+	RanAs          string           `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
+	Repo           string           `json:"repo,omitempty"`            // main checkout root the job belongs to
+	PID            int              `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
+	Log            string           `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
+	Progress       string           `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
+	Owner          int              `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
+	Host           string           `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
+	RemoteBin      string           `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
+	FallbackPolicy string           `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
+	Live           bool             `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
+	TaskID         string           `json:"task_id,omitempty"`         // ask --batch: the task line's id
+	BatchID        string           `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
+	PlanTask       string           `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
 }
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.
@@ -71,13 +84,13 @@ var dispatchKeep = 200
 const dispatchPruneMargin = 20
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
-func NewRecord(agent string, req RunOptions, now time.Time) Record {
-	req.EnvNames = envNames(req.Env)
-	return Record{Schema: DispatchSchema, ID: recordID(now, agent), Time: now.UTC(), Agent: agent, Request: req, Status: "running"}
+func NewRecord(name string, req agent.RunOptions, now time.Time) Record {
+	req.EnvNames = agent.EnvNames(req.Env)
+	return Record{Schema: DispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running"}
 }
 
 // ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).
-func ClaimRecord(agent string, req RunOptions, now time.Time) Record {
+func ClaimRecord(agent string, req agent.RunOptions, now time.Time) Record {
 	return claimRecord(NewRecord(agent, req, now))
 }
 
@@ -196,7 +209,7 @@ func pruneDispatches(dir string) {
 		_ = os.Remove(filepath.Join(dir, name))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log")) // ignore not-exist
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+LiveSockSuffix))
+		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+agent.LiveSockSuffix))
 		excess--
 	}
 }

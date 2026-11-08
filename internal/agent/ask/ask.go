@@ -133,7 +133,7 @@ type askRun struct {
 	defs    map[string]*agent.Schema
 	fileOv  agentconfig.Overlay
 	schema  string
-	jobRec  *agent.Record
+	jobRec  *job.Record
 	prompt  string
 	state   *askState
 	perms   agent.Permissions
@@ -391,7 +391,7 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 }
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
-func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, fileOv agentconfig.Overlay,
+func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *job.Record, fileOv agentconfig.Overlay,
 	env envFlag, keepEnv keepEnvFlag, as, format, name string, background, native bool) int {
 	ov, err := client.ResolveOverlay(fileOv, env, keepEnv, background)
 	if err != nil {
@@ -532,9 +532,9 @@ func absDebugFile(p string) string {
 }
 
 // runAskAndReport executes one prepared foreground dispatch and reports its outcome.
-func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepared, job bool, format string) int {
-	opts := agent.RunRecordedOpts{Job: job}
-	if job && format == helptext.Text {
+func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepared, isJob bool, format string) int {
+	opts := job.RunRecordedOpts{Job: isJob}
+	if isJob && format == helptext.Text {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
 	res, err := client.Exec(ctx, p, StdoutSink(format, p.Record.ID), opts)
@@ -573,7 +573,7 @@ type askState struct {
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
-func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
+func loadAskJob(job, format string, s *askState, prompt *string) (rec *job.Record, rc int, done bool) {
 	if job == "" {
 		return nil, 0, false
 	}
@@ -594,7 +594,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	if retry == "" {
 		return 0, false
 	}
-	rec, err := agent.LoadRecord(retry)
+	rec, err := job.LoadRecord(retry)
 	if err != nil {
 		return failAsk(format, *s.Name, err), true
 	}
@@ -630,7 +630,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 
 // printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
 func printDispatchLog(format string) int {
-	recs := agent.RecentRecords(20)
+	recs := job.RecentRecords(20)
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("ask", recs)
 	}

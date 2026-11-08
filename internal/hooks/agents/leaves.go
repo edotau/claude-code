@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -121,8 +122,8 @@ func Stop(in *core.Input) core.Result {
 const leafStopMaxWait = 2 * time.Hour
 
 // loadDispatch reads state/dispatch/<id>.json by its exact id (LoadRecord also takes a prefix); tests replace it.
-var loadDispatch = func(id string) (agentpkg.Record, error) {
-	r, err := agentpkg.LoadRecord(id)
+var loadDispatch = func(id string) (job.Record, error) {
+	r, err := job.LoadRecord(id)
 	if err == nil && r.ID != id {
 		err = fmt.Errorf("dispatch %q: no exact match", id)
 	}
@@ -175,7 +176,7 @@ func liveDispatchVerdict(ids []string, agentID string) (expired core.Result, blo
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
-func leafStopVerdict(agentID string, rec agentpkg.Record) (core.Result, bool) {
+func leafStopVerdict(agentID string, rec job.Record) (core.Result, bool) {
 	if time.Since(rec.Time) >= leafStopMaxWait {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}

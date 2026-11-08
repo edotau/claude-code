@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -28,9 +30,9 @@ func checkJobTailEvents(t *testing.T, code int, out string) {
 }
 
 // seedClaudeJob saves a finished claude record with a log and, when events is non-nil, an events file.
-func seedClaudeJob(t *testing.T, at time.Time, events []wire.Event) agent.Record {
+func seedClaudeJob(t *testing.T, at time.Time, events []wire.Event) job.Record {
 	t.Helper()
-	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, at)
+	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, at)
 	rec.Repo = t.TempDir()
 	rec.Status, rec.SessionID, rec.DurationMs = "ok", "sess-1", 42
 	if err := rec.Save(); err != nil {
@@ -148,7 +150,7 @@ func TestResultExitRedactsError(t *testing.T) {
 	}
 	orig := os.Stderr
 	os.Stderr = w
-	rc := ResultExit(agent.Record{Status: "error", Error: "401 bad key " + key})
+	rc := ResultExit(job.Record{Status: "error", Error: "401 bad key " + key})
 	os.Stderr = orig
 	w.Close()
 	out, _ := io.ReadAll(r)

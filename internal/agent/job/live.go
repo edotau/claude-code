@@ -51,7 +51,7 @@ func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id
 // LiveCount counts live sessions still running, other than skip.
 func LiveCount(skip string) int {
 	n := 0
-	for _, r := range agent.RecentRecords(1 << 20) {
+	for _, r := range RecentRecords(1 << 20) {
 		if r.Live && r.ID != skip && r.Alive() {
 			n++
 		}
@@ -135,7 +135,7 @@ func AcquireLiveSlot() (func(), error) {
 
 // liveSession is the holder's state: one agent child, its stdin, and one buffered reader over its stdout.
 type liveSession struct {
-	rec     *agent.Record
+	rec     *Record
 	name    string
 	be      agent.LiveBackend
 	stdin   io.Writer
@@ -151,7 +151,7 @@ type liveSession struct {
 }
 
 // ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or exit; Timeout is idle.
-func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
+func ServeLive(ctx context.Context, rec *Record) (err error) {
 	req, name := rec.Request, rec.Agent
 	row, _ := agent.LookupSchema(name)
 	lc, ok := row.Live()
@@ -186,7 +186,7 @@ func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 	return serveChild(ctx, cancel, rec, name, be, cmd, tail, profile)
 }
 
-func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *agent.Record, name string,
+func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record, name string,
 	be agent.LiveBackend, cmd *exec.Cmd, tail *retry.TailBuffer, profile string) error {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -388,7 +388,7 @@ func (s *liveSession) release() {
 
 // SendLive sends one turn to live session id and streams that turn's events to sink until its result.
 func SendLive(ctx context.Context, id, prompt string, sink wire.Sink) (wire.Envelope, error) {
-	rec, err := agent.LoadRecord(id)
+	rec, err := LoadRecord(id)
 	if err != nil {
 		return wire.Envelope{}, err
 	}
@@ -467,7 +467,7 @@ func WaitLiveReady(id string, pid int) error {
 		if _, err := os.Stat(LiveSocket(id)); err == nil {
 			return nil
 		}
-		if rec, err := agent.LoadRecord(id); err == nil && rec.Status != "running" {
+		if rec, err := LoadRecord(id); err == nil && rec.Status != "running" {
 			return errors.New(rec.Error)
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -479,7 +479,7 @@ func WaitLiveReady(id string, pid int) error {
 var serveLive = ServeLive
 
 // RunHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.
-func RunHolder(rec *agent.Record, launcher agent.Launcher) int {
+func RunHolder(rec *Record, launcher agent.Launcher) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	rec.Request.Launcher = launcher // json:"-", so the record loaded from disk has none

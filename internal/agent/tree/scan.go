@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -401,7 +402,7 @@ func firstTimestamp(path string) time.Time {
 }
 
 // dispatchFromRecord renders a dispatch record; a still-running record reports its elapsed time so far.
-func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatch {
+func dispatchFromRecord(rec job.Record, matched string, now time.Time) Dispatch {
 	duration := rec.Elapsed()
 	if duration == "" && rec.Status == "running" {
 		duration = now.Sub(rec.Time).Round(time.Second).String()
@@ -418,7 +419,7 @@ func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []
 	var dispatches []Dispatch
 	matched := map[string]bool{}
 	for _, id := range transcript.DispatchIDs(transcriptPath) {
-		rec, err := agent.LoadRecord(id)
+		rec, err := job.LoadRecord(id)
 		if err != nil {
 			continue
 		}
@@ -436,7 +437,7 @@ func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []
 // pendingDispatch matches the newest running dispatch for this cwd that started no earlier than the subagent.
 func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Dispatch {
 	start := firstTimestamp(transcriptPath)
-	for _, rec := range agent.RecentRecords(50) {
+	for _, rec := range job.RecentRecords(50) {
 		if matched[rec.ID] || rec.Status != "running" || rec.Request.WorkDir != cwd {
 			continue
 		}

@@ -42,7 +42,7 @@ desktop-meta | derived | 0 | <fixed at init> | internal/desktop | keep
 desktop-profile | derived | 0 | <fixed at init> | internal/desktop | keep
 desktop-state | record | 1 | <fixed at init> | internal/desktop | keep
 dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent/wire | clean:dispatch-log
-dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
+dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent/job | clean:dispatch-log
 gateway-budget-cache | cache | 1 | state/harness/usage/gateway-budget.json | internal/usage | keep
 last-profile | cache | 2 | state/harness/last-profile.json | internal/providers | keep
 live-request | wire | 1 | - | internal/agent | keep

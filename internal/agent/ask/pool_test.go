@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -192,14 +194,14 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	base := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
 	mk := func(id, plan string, off int) Task {
 		return Task{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := agent.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
+			rec := job.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
 			return &client.Prepared{Record: rec}, nil
 		}}
 	}
 	var buf bytes.Buffer
 	RunTasks(t.Context(), []Task{mk("a", "Phase 1.1", 0), mk("b", "", 1)}, PoolOptions{ID: "batch-x", Jobs: 1, Out: &buf})
-	got := map[string]agent.Record{}
-	for _, r := range agent.RecentRecords(10) {
+	got := map[string]job.Record{}
+	for _, r := range job.RecentRecords(10) {
 		got[r.TaskID] = r
 	}
 	if len(got) != 2 {

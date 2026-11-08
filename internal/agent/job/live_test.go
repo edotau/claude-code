@@ -80,7 +80,7 @@ func startHolder(t *testing.T, ctx context.Context, idle time.Duration) (string,
 
 func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Duration) (string, func() error) {
 	t.Helper()
-	rec := agent.ClaimRecord(name, agent.RunOptions{Timeout: idle}, time.Now())
+	rec := ClaimRecord(name, agent.RunOptions{Timeout: idle}, time.Now())
 	rec.Live, rec.PID = true, os.Getpid()
 	rec.Request.Launcher = testLauncher{}
 	if err := rec.Save(); err != nil {
@@ -172,7 +172,7 @@ func assertLiveCancelled(t *testing.T, id string, wait func() error) {
 	if _, err := os.Stat(LiveSocket(id)); !os.IsNotExist(err) {
 		t.Errorf("socket must be removed on exit: %v", err)
 	}
-	got, _ := agent.LoadRecord(id)
+	got, _ := LoadRecord(id)
 	if got.Status != "error" || got.Error != "cancelled" {
 		t.Errorf("record = %s %q, want error cancelled", got.Status, got.Error)
 	}
@@ -185,7 +185,7 @@ func TestLiveIdleTimeoutEndsOK(t *testing.T) {
 	if err := wait(); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := agent.LoadRecord(id); got.Status != "ok" {
+	if got, _ := LoadRecord(id); got.Status != "ok" {
 		t.Errorf("idle end status = %s, want ok", got.Status)
 	}
 	if _, err := SendLive(context.Background(), id, "x", wire.Discard); err == nil || !strings.Contains(err.Error(), "ended") {
@@ -197,14 +197,14 @@ func TestLiveIdleTimeoutEndsOK(t *testing.T) {
 func TestLiveCapOfFour(t *testing.T) {
 	liveEnv(t)
 	for range MaxLiveSessions {
-		rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+		rec := ClaimRecord("claude", agent.RunOptions{}, time.Now())
 		rec.Live, rec.PID = true, os.Getpid()
 		_ = rec.Save()
 	}
 	if err := CheckLiveCap(""); err == nil {
 		t.Fatal("cap must refuse a fifth session")
 	}
-	dead := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	dead := ClaimRecord("claude", agent.RunOptions{}, time.Now())
 	dead.Live, dead.Status = true, "ok"
 	_ = dead.Save()
 	if n := LiveCount(""); n != MaxLiveSessions {
@@ -331,7 +331,7 @@ func TestLiveAgySession(t *testing.T) {
 	if err := wait(); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := agent.LoadRecord(id)
+	got, _ := LoadRecord(id)
 	if got.Status != "error" || got.Error != "cancelled" || got.Agent != "gemini" || got.SessionID != "c1" {
 		t.Errorf("record = %s %q agent=%s session=%q, want error cancelled gemini c1", got.Status, got.Error, got.Agent, got.SessionID)
 	}
@@ -355,7 +355,7 @@ func assertAgyRecallAndUsage(t *testing.T, id string) {
 // An agent without a live mode is refused before anything starts.
 func TestServeLiveRejectsAgentWithoutLive(t *testing.T) {
 	liveEnv(t)
-	rec := agent.ClaimRecord("codex", agent.RunOptions{}, time.Now())
+	rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
 	rec.Live = true
 	if err := ServeLive(context.Background(), &rec); err == nil || !strings.Contains(err.Error(), "no live mode") {
 		t.Errorf("ServeLive(codex) = %v, want a no-live-mode error", err)
@@ -402,7 +402,7 @@ func startAgy(t *testing.T, script string, req agent.RunOptions) (string, func()
 	if err := os.WriteFile(filepath.Join(paths.BinDir(), "gemini"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rec := agent.ClaimRecord("gemini", req, time.Now())
+	rec := ClaimRecord("gemini", req, time.Now())
 	rec.Live, rec.PID = true, os.Getpid()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

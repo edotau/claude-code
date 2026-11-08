@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -76,7 +78,7 @@ func (e dedupeEnv) session(t *testing.T, id, prompt string, withSub bool) {
 func (e dedupeEnv) dispatch(t *testing.T, name, prompt, workDir, repo, sessionID string) string {
 	t.Helper()
 	req := agent.RunOptions{Prompt: prompt, WorkDir: workDir}
-	rec := agent.NewRecord(name, req, e.now.Add(-time.Minute))
+	rec := job.NewRecord(name, req, e.now.Add(-time.Minute))
 	rec.PID, rec.Repo, rec.SessionID = os.Getpid(), repo, sessionID
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

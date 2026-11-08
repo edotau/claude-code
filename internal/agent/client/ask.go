@@ -118,11 +118,11 @@ func ResolveAskPrompt(prompt string) (string, error) {
 }
 
 // BuildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
-func BuildAskRecord(ctx context.Context, name string, req agent.RunOptions, jobRec *agent.Record, workdir string, background bool) agent.Record {
+func BuildAskRecord(ctx context.Context, name string, req agent.RunOptions, jobRec *job.Record, workdir string, background bool) job.Record {
 	if jobRec != nil {
 		return *jobRec // same id: a job run continues the record it was spawned from
 	}
-	rec := agent.ClaimRecord(name, req, time.Now())
+	rec := job.ClaimRecord(name, req, time.Now())
 	cwd := workdir
 	if cwd == "" {
 		cwd, _ = os.Getwd()
@@ -157,7 +157,7 @@ func ResolveOutputSchema(arg string) (string, error) {
 }
 
 // RecordEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
-func RecordEnvelope(rec agent.Record, errw io.Writer) wire.Envelope {
+func RecordEnvelope(rec job.Record, errw io.Writer) wire.Envelope {
 	if f, err := os.Open(rec.EventsPath()); err == nil {
 		defer f.Close()
 		var env *wire.Envelope
@@ -204,7 +204,7 @@ type AskTarget struct {
 }
 
 // Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
-func (t *AskTarget) Apply(rec agent.Record, errw io.Writer) {
+func (t *AskTarget) Apply(rec job.Record, errw io.Writer) {
 	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
@@ -232,8 +232,8 @@ func (t *AskTarget) Apply(rec agent.Record, errw io.Writer) {
 var ErrJobNotFresh = errors.New("not a fresh background job")
 
 // LoadJobRecord loads a --job record for a background run continuation and claims it for this process.
-func LoadJobRecord(id string) (agent.Record, error) {
-	r, err := agent.LoadRecord(id)
+func LoadJobRecord(id string) (job.Record, error) {
+	r, err := job.LoadRecord(id)
 	if err != nil {
 		return r, err
 	}

@@ -39,12 +39,12 @@ var executable = os.Executable
 // stdout+stderr -> rec.Log (0600); sets rec.PID in memory for the caller's print, but never saves —
 // the caller already saved rec as "running" before calling Spawn, and the --job child saves its own
 // PID once it starts, so a post-Start save here could overwrite a fast child's finished status.
-func Spawn(rec *agent.Record, extra []string) error {
+func Spawn(rec *Record, extra []string) error {
 	return SpawnArgv(rec, append([]string{"agents", "ask", "--job", rec.ID}, extra...), nil)
 }
 
 // SpawnArgv is Spawn for an arbitrary claude-code argv, with env appended to the child's environment.
-func SpawnArgv(rec *agent.Record, argv, env []string) error {
+func SpawnArgv(rec *Record, argv, env []string) error {
 	exe, err := executable()
 	if err != nil {
 		return err
@@ -72,9 +72,9 @@ func SpawnArgv(rec *agent.Record, argv, env []string) error {
 }
 
 // List returns dispatch records for agentName, newest first; all=false keeps only Repo==repo.
-func List(agentName, repo string, all bool) []agent.Record {
-	var out []agent.Record
-	for _, r := range agent.RecentRecords(1 << 20) {
+func List(agentName, repo string, all bool) []Record {
+	var out []Record
+	for _, r := range RecentRecords(1 << 20) {
 		if r.Agent != agentName {
 			continue
 		}
@@ -87,9 +87,9 @@ func List(agentName, repo string, all bool) []agent.Record {
 }
 
 // Resolve picks by exact id, unique id prefix, else the newest record matching pred.
-func Resolve(recs []agent.Record, ref string, pred func(agent.Record) bool) (agent.Record, error) {
+func Resolve(recs []Record, ref string, pred func(Record) bool) (Record, error) {
 	if ref != "" {
-		var match []agent.Record
+		var match []Record
 		for _, r := range recs {
 			if r.ID == ref {
 				return r, nil
@@ -102,9 +102,9 @@ func Resolve(recs []agent.Record, ref string, pred func(agent.Record) bool) (age
 		case 1:
 			return match[0], nil
 		case 0:
-			return agent.Record{}, fmt.Errorf("no dispatch matches %q (see claude-code <agent> status)", ref)
+			return Record{}, fmt.Errorf("no dispatch matches %q (see claude-code <agent> status)", ref)
 		default:
-			return agent.Record{}, fmt.Errorf("%q matches %d dispatches, be more specific (see claude-code <agent> status)", ref, len(match))
+			return Record{}, fmt.Errorf("%q matches %d dispatches, be more specific (see claude-code <agent> status)", ref, len(match))
 		}
 	}
 	for _, r := range recs {
@@ -112,7 +112,7 @@ func Resolve(recs []agent.Record, ref string, pred func(agent.Record) bool) (age
 			return r, nil
 		}
 	}
-	return agent.Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
+	return Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
 }
 
 // jobArgvSettled reads pid's argv, retrying for ~500ms while it does not match: a child spawned a moment ago
@@ -135,14 +135,14 @@ func isJobArgv(argv []string, id string) bool {
 }
 
 // reloadRecord refreshes rec from disk, keeping rec as is when the load fails.
-func reloadRecord(rec *agent.Record) {
-	if latest, err := agent.LoadRecord(rec.ID); err == nil {
+func reloadRecord(rec *Record) {
+	if latest, err := LoadRecord(rec.ID); err == nil {
 		*rec = latest
 	}
 }
 
 // failIfRunning reloads rec and marks it Status "error" with msg only if it is still "running".
-func failIfRunning(rec *agent.Record, msg string) error {
+func failIfRunning(rec *Record, msg string) error {
 	reloadRecord(rec)
 	if rec.Status != "running" {
 		return nil
@@ -154,7 +154,7 @@ func failIfRunning(rec *agent.Record, msg string) error {
 // Cancel verifies rec.PID is still the job it was spawned as (guards against pid reuse), interrupts it
 // (SIGINT), waits up to 5s, escalates to SIGKILL and waits up to 2s more, and only once the process is
 // gone marks a still-"running" record Status "error", Error "cancelled by claude-code <agent> cancel".
-func Cancel(rec *agent.Record) error {
+func Cancel(rec *Record) error {
 	if rec.PID <= 0 {
 		return fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
 	}
@@ -213,8 +213,8 @@ func waitGone(pid int, d time.Duration) bool {
 }
 
 // Find resolves ref (exact id or unique prefix) across every agent's records, so the caller learns the agent.
-func Find(ref string) (agent.Record, error) {
-	return Resolve(agent.RecentRecords(1<<20), ref, func(agent.Record) bool { return false })
+func Find(ref string) (Record, error) {
+	return Resolve(RecentRecords(1<<20), ref, func(Record) bool { return false })
 }
 
 // checkAgent errors when name is not a registered agent.
@@ -247,7 +247,7 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 		if err != nil {
 			return nil, err
 		}
-		recs = []agent.Record{rec}
+		recs = []Record{rec}
 	}
 	rows := make([]Row, len(recs))
 	for i, r := range recs {
@@ -257,17 +257,17 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 }
 
 // JobResult returns ref's record (default: newest finished) and its log text; a running match errors.
-func JobResult(ctx context.Context, name, cwd, ref string) (agent.Record, string, error) {
+func JobResult(ctx context.Context, name, cwd, ref string) (Record, string, error) {
 	if err := checkAgent(name); err != nil {
-		return agent.Record{}, "", err
+		return Record{}, "", err
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return r.Status != "running" })
+	rec, err := Resolve(recs, ref, func(r Record) bool { return r.Status != "running" })
 	if err != nil {
-		return agent.Record{}, "", err
+		return Record{}, "", err
 	}
 	if rec.Status == "running" {
-		return agent.Record{}, "", fmt.Errorf("job %s is still running", rec.ID)
+		return Record{}, "", fmt.Errorf("job %s is still running", rec.ID)
 	}
 	log, _ := os.ReadFile(rec.Log) // best-effort: a missing log still returns the record
 	return rec, string(log), nil
@@ -281,16 +281,16 @@ var (
 
 // Tail copies ref's log (default: name's newest job in cwd's repo) to w. With follow it keeps copying until the
 // record stops being alive, printing a heartbeat line per tailBeat of silence. It returns the record as last seen.
-func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (agent.Record, error) {
+func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (Record, error) {
 	if err := checkAgent(name); err != nil {
-		return agent.Record{}, err
+		return Record{}, err
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, nil)
 	if err != nil {
-		return agent.Record{}, err
+		return Record{}, err
 	}
-	rec, f, err := openTail(ctx, rec, follow, agent.Record.LogPath)
+	rec, f, err := openTail(ctx, rec, follow, Record.LogPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rec, fmt.Errorf("job %s has no log (it never started the CLI, or predates dispatch logs)", rec.ID)
@@ -304,7 +304,7 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 	return followLog(ctx, rec, f, w)
 }
 
-func followLog(ctx context.Context, rec agent.Record, f *os.File, w io.Writer) (agent.Record, error) {
+func followLog(ctx context.Context, rec Record, f *os.File, w io.Writer) (Record, error) {
 	lastOut, lastBeat := time.Now(), time.Time{}
 	for rec.Alive() {
 		if err := sleepCtx(ctx, tailPoll); err != nil {
@@ -329,8 +329,8 @@ func followLog(ctx context.Context, rec agent.Record, f *os.File, w io.Writer) (
 
 // TailEvents copies rec's <id>.events.jsonl to w; with follow it waits for a result event or until the record
 // leaves running, printing a heartbeat event per tailBeat of silence. It returns the record as last seen.
-func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer) (agent.Record, error) {
-	rec, f, err := openTail(ctx, rec, follow, agent.Record.EventsPath)
+func TailEvents(ctx context.Context, rec Record, follow bool, w io.Writer) (Record, error) {
+	rec, f, err := openTail(ctx, rec, follow, Record.EventsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rec, fmt.Errorf("job %s has no event stream (it predates event logs, or never started)", rec.ID)
@@ -341,7 +341,7 @@ func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer)
 	return followEvents(ctx, rec, follow, w, bufio.NewReader(f))
 }
 
-func openTail(ctx context.Context, rec agent.Record, follow bool, path func(agent.Record) string) (agent.Record, *os.File, error) {
+func openTail(ctx context.Context, rec Record, follow bool, path func(Record) string) (Record, *os.File, error) {
 	f, err := os.Open(path(rec))
 	for follow && errors.Is(err, os.ErrNotExist) && rec.Alive() {
 		if err = sleepCtx(ctx, tailPoll); err != nil {
@@ -353,7 +353,7 @@ func openTail(ctx context.Context, rec agent.Record, follow bool, path func(agen
 	return rec, f, err
 }
 
-func followEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer, br *bufio.Reader) (agent.Record, error) {
+func followEvents(ctx context.Context, rec Record, follow bool, w io.Writer, br *bufio.Reader) (Record, error) {
 	var pend []byte
 	lastOut, lastBeat := time.Now(), time.Time{}
 	for {
@@ -376,7 +376,7 @@ func followEvents(ctx context.Context, rec agent.Record, follow bool, w io.Write
 	}
 }
 
-func eventHeartbeat(w io.Writer, rec agent.Record, n int, lastOut, lastBeat time.Time) time.Time {
+func eventHeartbeat(w io.Writer, rec Record, n int, lastOut, lastBeat time.Time) time.Time {
 	if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
 		fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d}\n",
 			wire.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds())
@@ -412,8 +412,8 @@ func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (n int, done bo
 }
 
 // reloaded re-reads rec from the dispatch log; a record pruned mid-follow keeps its last known state.
-func reloaded(rec agent.Record) agent.Record {
-	if latest, err := agent.LoadRecord(rec.ID); err == nil {
+func reloaded(rec Record) Record {
+	if latest, err := LoadRecord(rec.ID); err == nil {
 		return latest
 	}
 	return rec
@@ -432,26 +432,26 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // CancelJob interrupts ref's job, default: the single running job for name in cwd's repo.
-func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error) {
+func CancelJob(ctx context.Context, name, cwd, ref string) (Record, error) {
 	if err := checkAgent(name); err != nil {
-		return agent.Record{}, err
+		return Record{}, err
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return r.Alive() })
+	rec, err := Resolve(recs, ref, func(r Record) bool { return r.Alive() })
 	if err != nil {
-		return agent.Record{}, err
+		return Record{}, err
 	}
 	if !rec.Alive() {
-		return agent.Record{}, fmt.Errorf("job %s is not running", rec.ID)
+		return Record{}, fmt.Errorf("job %s is not running", rec.ID)
 	}
 	if err := Cancel(&rec); err != nil {
-		return agent.Record{}, err
+		return Record{}, err
 	}
 	return rec, nil
 }
 
 // toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/agent/ask.go).
-func toRow(r agent.Record) Row {
+func toRow(r Record) Row {
 	status := r.Status
 	if status == "running" && !r.Alive() {
 		status = "lost"

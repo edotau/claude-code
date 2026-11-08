@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -64,7 +66,7 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 		r := gaugeRunner{name: name, cur: &cur, max: &peak}
 		tasks = append(tasks, batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*client.Prepared, error) {
-				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: "shared·acct"})}}), nil
+				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: "shared·acct"})}}), nil
 			}})
 	}
 	var out strings.Builder
@@ -113,7 +115,7 @@ func setChain(p *client.Prepared, c agent.Chain) *client.Prepared { p.Chain = c;
 func acctTask(t *testing.T, name, account string, r agent.Engine) batch.Task {
 	return batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := agent.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
+			rec := job.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
 			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: account})}}), nil
 		}}
 }
@@ -194,7 +196,7 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 		first, second := dispatchGauge{name: "codex", fail: true, cur: &cur, max: &peak}, dispatchGauge{name: "gemini", cur: &cur, max: &peak}
 		tasks = append(tasks, batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
 			Prepare: func(context.Context) (*client.Prepared, error) {
-				rec := agent.Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
+				rec := job.Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
 				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "codex", Dispatches: []agent.Dispatch{
 					agent.KeepCaller(agent.Dispatch{Agent: first, Account: "A·acct"}), {Agent: second, Account: "B·acct"}}}), nil
 			}})
@@ -298,7 +300,7 @@ func TestBatchPanickingDispatchDoesNotFallBack(t *testing.T) {
 	var runs atomic.Int32
 	task := batch.Task{ID: "t", Agent: "boom", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := agent.Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
+			rec := job.Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
 			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "boom", Dispatches: []agent.Dispatch{
 				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·A"},
 				{Agent: flagRunner{name: "next", runs: &runs}, Account: "next·B"},
@@ -321,7 +323,7 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 	first := agent.NewFailingRunner("claude", fmt.Errorf("agauth: %w", providers.ErrNeedsLogin))
 	task := batch.Task{ID: "t", Agent: "claude", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := agent.Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
+			rec := job.Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
 			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "claude", Dispatches: []agent.Dispatch{
 				{Agent: first, Account: "claude:agauth"},
 				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·B"},
@@ -342,7 +344,7 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 func TestBatchFailFastEmptyChainStopsQueuedTask(t *testing.T) {
 	failFastPair(t, batch.Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*client.Prepared, error) {
-			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "first"}), nil
+			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "first"}), nil
 		}})
 }
 
@@ -505,7 +507,7 @@ func TestBatchCapsOwnLoginDispatchesPerAgent(t *testing.T) {
 		id := fmt.Sprintf("own%d", i)
 		tasks = append(tasks, batch.Task{ID: id, Agent: "opencode", Req: agent.RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*client.Prepared, error) {
-				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "opencode", Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r})}}), nil
+				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "opencode", Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r})}}), nil
 			}})
 	}
 	var out strings.Builder
@@ -527,7 +529,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 		r := gaugeRunner{name: name, cur: &cur, max: &runPeak}
 		tasks = append(tasks, batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*client.Prepared, error) {
-				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: agent.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: account})}}), nil
+				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: account})}}), nil
 			}})
 	}
 	stop := make(chan struct{})

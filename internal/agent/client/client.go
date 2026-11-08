@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -33,14 +35,14 @@ func NewClient(alias func(string) string, refresh func(context.Context, string) 
 // Prepared is a routed, recorded dispatch that has not started.
 type Prepared struct {
 	Opts   agent.RunOptions
-	Record agent.Record
+	Record job.Record
 	Chain  agent.Chain
 	remote agent.Engine
 	pack   *packFile // the pack an agent reads from the workdir; written by Exec, removed after the run
 }
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
-func (c *Client) Prepare(ctx context.Context, o agent.RunOptions, job *agent.Record) (*Prepared, error) {
+func (c *Client) Prepare(ctx context.Context, o agent.RunOptions, claim *job.Record) (*Prepared, error) {
 	o, err := c.withDefaults(o)
 	if err != nil {
 		return nil, err
@@ -68,7 +70,7 @@ func (c *Client) Prepare(ctx context.Context, o agent.RunOptions, job *agent.Rec
 		}
 	}
 	p.Opts = o
-	p.Record = c.record(ctx, o, job)
+	p.Record = c.record(ctx, o, claim)
 	if o.Pack != nil {
 		if p.remote != nil {
 			return nil, clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
@@ -90,12 +92,12 @@ func (c *Client) withDefaults(o agent.RunOptions) (agent.RunOptions, error) {
 }
 
 // Record builds the dispatch record for o without routing, persona refusal or rubric (live sessions, review jobs).
-func (c *Client) Record(ctx context.Context, o agent.RunOptions, job *agent.Record) (agent.Record, error) {
+func (c *Client) Record(ctx context.Context, o agent.RunOptions, claim *job.Record) (job.Record, error) {
 	o, err := c.withDefaults(o)
 	if err != nil {
-		return agent.Record{}, err
+		return job.Record{}, err
 	}
-	return c.record(ctx, o, job), nil
+	return c.record(ctx, o, claim), nil
 }
 
 // resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its agent and
@@ -185,14 +187,14 @@ func (c *Client) alias(prompt string) string {
 	return ""
 }
 
-func (c *Client) record(ctx context.Context, o agent.RunOptions, job *agent.Record) agent.Record {
+func (c *Client) record(ctx context.Context, o agent.RunOptions, claim *job.Record) job.Record {
 	dir := o.WorkDir
 	if o.Host != "" {
 		dir = ""
 	}
-	rec := BuildAskRecord(ctx, o.Agent, o, job, dir, o.Background)
+	rec := BuildAskRecord(ctx, o.Agent, o, claim, dir, o.Background)
 	rec.Request.Launcher = c.Launcher
-	if job == nil {
+	if claim == nil {
 		rec.FallbackPolicy = o.Fallback
 		if o.Host != "" {
 			rec.Host, rec.RemoteBin = o.Host, RemoteBin(o.RemoteBin)
@@ -202,7 +204,7 @@ func (c *Client) record(ctx context.Context, o agent.RunOptions, job *agent.Reco
 }
 
 // Exec runs a prepared dispatch, leaving initial record saving and background spawning to the caller.
-func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d agent.RunRecordedOpts) (wire.Result, error) {
+func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d job.RunRecordedOpts) (wire.Result, error) {
 	if out == nil {
 		out = wire.Discard
 	}
@@ -216,7 +218,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d agent.R
 		}
 		defer p.pack.remove()
 	}
-	res, err := agent.RunRecorded(ctx, &p.Record, p.Chain.Want, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
+	res, err := job.RunRecorded(ctx, &p.Record, p.Chain.Want, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
@@ -235,7 +237,7 @@ func (c *Client) Run(ctx context.Context, o agent.RunOptions, out wire.Sink) (wi
 	if err := p.Record.Save(); err != nil && c.Notify != nil { // fail-open: the log never gates the run
 		c.Notify(fmt.Sprintf("dispatch %s record not saved before the run: %v", p.Record.ID, err))
 	}
-	return c.Exec(ctx, p, out, agent.RunRecordedOpts{})
+	return c.Exec(ctx, p, out, job.RunRecordedOpts{})
 }
 
 // SelectAndOverlay is selectAndOverlay for the batch runner.

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -74,7 +76,7 @@ func askRetryArgs(t *testing.T, dir string, tt askRetryCase) ([]string, int) {
 			}
 			opts.Permissions = p
 		}
-		rec := agent.NewRecord("claude", opts, time.Now().Add(-time.Hour))
+		rec := job.NewRecord("claude", opts, time.Now().Add(-time.Hour))
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +128,7 @@ func TestCmdAskBadPermissionRuleNeverLaunches(t *testing.T) {
 	if code != 2 || !strings.Contains(stderr, `permission rule "Bash("`) {
 		t.Fatalf("exit = %d, stderr = %q; want 2 naming the rule", code, stderr)
 	}
-	if n := len(agent.RecentRecords(2)); n != 0 {
+	if n := len(job.RecentRecords(2)); n != 0 {
 		t.Fatalf("%d dispatch records written; the bad rule must stop before launch", n)
 	}
 }
@@ -146,7 +148,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			if code != 1 {
 				t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 			}
-			records := agent.RecentRecords(2)
+			records := job.RecentRecords(2)
 			if len(records) != wantRecords {
 				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
 			}
@@ -177,7 +179,7 @@ func TestCmdAskBackgroundAndJobMutuallyExclusive(t *testing.T) {
 // --job on a record that already finished is refused: only a fresh running, pid-less record may be run.
 func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := job.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.Status = "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -226,7 +228,7 @@ func agyJobFixture(t *testing.T) {
 // runAskJobIntoLog mirrors job.Spawn: the job child's own stdout and stderr are the log file, which it returns.
 func runAskJobIntoLog(t *testing.T) string {
 	t.Helper()
-	rec := agent.NewRecord("gemini", agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
+	rec := job.NewRecord("gemini", agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
 	rec.Log = rec.LogPath()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -286,7 +288,7 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	res, err := NewClient().Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
+	res, err := NewClient().Exec(context.Background(), p, nil, job.RunRecordedOpts{})
 	if err == nil || len(res.Hops) != 1 {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}

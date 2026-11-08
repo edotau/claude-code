@@ -27,33 +27,33 @@ func runSplitReview(name string, args []string, parts []roles.Part, scope roles.
 	if background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
 	}
-	var job *agent.Record
+	var parent *job.Record
 	if id := os.Getenv(reviewJobEnv); id != "" {
-		r, err := agent.LoadRecord(id)
+		r, err := job.LoadRecord(id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "review: job record %s not updated: %v\n", id, err)
 		} else {
-			job = &r
+			parent = &r
 		}
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
-		roles.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
+		roles.SetReviewProgress(parent, fmt.Sprintf("part %d/%d", i+1, len(parts)))
 		askArgs, cleanup, err := roles.ReviewArgs(name, scope, p.Diff, adversarial, false,
 			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric, model)
 		if err != nil {
-			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
+			return finishSplitReview(parent, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
 		}
 		ans, rc := captureAnswer(func() int { return ask.Cmd(askArgs) })
 		cleanup()
 		if rc != 0 {
 			fmt.Print(roles.MergeReports(adversarial, parts[:len(answers)], answers))
-			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), roles.LastDispatchError(name)))
+			return finishSplitReview(parent, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), roles.LastDispatchError(name)))
 		}
 		answers = append(answers, ans)
 	}
 	fmt.Print(roles.MergeReports(adversarial, parts, answers))
-	return finishSplitReview(job, nil)
+	return finishSplitReview(parent, nil)
 }
 
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.
@@ -83,11 +83,11 @@ func spawnSplitReview(name string, args []string, n int) int {
 }
 
 // finishSplitReview closes the parent job record (when any) with err's text and returns the exit code.
-func finishSplitReview(job *agent.Record, err error) int {
-	if job != nil {
-		job.Progress = ""
-		job.Finish(wire.Result{}, err, time.Since(job.Time))
-		if serr := job.Save(); serr != nil {
+func finishSplitReview(parent *job.Record, err error) int {
+	if parent != nil {
+		parent.Progress = ""
+		parent.Finish(wire.Result{}, err, time.Since(parent.Time))
+		if serr := parent.Save(); serr != nil {
 			fmt.Fprintf(os.Stderr, "review: job record not saved: %v\n", serr)
 		}
 	}
