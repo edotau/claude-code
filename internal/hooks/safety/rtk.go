@@ -178,7 +178,17 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 	if rtkGitInLinkedWorktree(cmd, cwd) {
 		return true // Claude Code's worktree-isolation check cannot verify an rtk-wrapped git
 	}
-	return rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd)
+	return rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd) || rtkGoVet(cmd)
+}
+
+// rtkGoVet: rtk 1.1.0 summarizes a failed `go vet` (e.g. a missing package) as "No issues found", so vet stays raw.
+func rtkGoVet(cmd string) bool {
+	for _, seg := range shell.Segments(cmd) {
+		if t := shell.Tokens(seg); len(t) > 1 && t[0] == "go" && t[1] == "vet" {
+			return true
+		}
+	}
+	return false
 }
 
 // rtkGitValueVetoed reports whether any git segment runs a value subcommand or one gitRTKSubcommand can't classify.
