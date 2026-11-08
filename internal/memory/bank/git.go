@@ -65,13 +65,8 @@ func (r Repo) Ensure() error {
 		return err
 	}
 	gitDir := filepath.Join(r.Dir, ".git")
-	if !r.Exists() {
-		if _, err := os.Lstat(gitDir); err == nil {
-			return fmt.Errorf("memory repo: %s exists but is not a directory (foreign worktree?)", gitDir)
-		}
-		if _, err := r.run("init", "--quiet", "--initial-branch=main"); err != nil {
-			return err
-		}
+	if err := r.initIfAbsent(gitDir); err != nil {
+		return err
 	}
 	if err := r.checkRoot(gitDir); err != nil {
 		return err
@@ -85,6 +80,17 @@ func (r Repo) Ensure() error {
 		return err
 	}
 	return writeIfAbsent(filepath.Join(r.Dir, ".gitignore"), storeGitignore, 0o644)
+}
+
+func (r Repo) initIfAbsent(gitDir string) error {
+	if r.Exists() {
+		return nil
+	}
+	if _, err := os.Lstat(gitDir); err == nil {
+		return fmt.Errorf("memory repo: %s exists but is not a directory (foreign worktree?)", gitDir)
+	}
+	_, err := r.run("init", "--quiet", "--initial-branch=main")
+	return err
 }
 
 // checkRoot proves plain discovery from inside Dir lands on gitDir (not an empty .git or a parent's), that no commondir
@@ -188,16 +194,7 @@ func (r Repo) Log(n int) ([]string, error) {
 // Commit stages exactly rels (store-relative; an absent tracked rel stages its deletion) and commits when the
 // index changed. Rejections name the path only; file bytes never reach the error.
 func (r Repo) Commit(rels []string, subject, body string) (sha string, committed bool, err error) {
-	stage, err := r.stageable(rels)
-	if err != nil {
-		return "", false, err
-	}
-	if len(stage) > 0 {
-		if _, err := r.run(append([]string{"add", "-A", "--"}, stage...)...); err != nil {
-			return "", false, err
-		}
-	}
-	if err := r.checkStaged(rels); err != nil {
+	if err := r.stageRels(rels); err != nil {
 		return "", false, err
 	}
 	if _, err := r.run("diff", "--cached", "--quiet"); err == nil {
@@ -216,6 +213,19 @@ func (r Repo) Commit(rels []string, subject, body string) (sha string, committed
 	return sha, true, err
 }
 
+func (r Repo) stageRels(rels []string) error {
+	stage, err := r.stageable(rels)
+	if err != nil {
+		return err
+	}
+	if len(stage) > 0 {
+		if _, err := r.run(append([]string{"add", "-A", "--"}, stage...)...); err != nil {
+			return err
+		}
+	}
+	return r.checkStaged(rels)
+}
+
 // stageable validates rels and drops the absent-and-untracked ones (`add` rejects a pathspec matching nothing).
 func (r Repo) stageable(rels []string) ([]string, error) {
 	var present, absent []string
@@ -228,12 +238,8 @@ func (r Repo) stageable(rels []string) ([]string, error) {
 			absent = append(absent, rel)
 			continue
 		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
+		if err := checkStageContent(abs, rel); err != nil {
 			return nil, err
-		}
-		if stageSecretRE.Match(data) {
-			return nil, fmt.Errorf("credential-shaped content: %s", rel)
 		}
 		present = append(present, rel)
 	}
@@ -250,6 +256,17 @@ func (r Repo) stageable(rels []string) ([]string, error) {
 		}
 	}
 	return present, nil
+}
+
+func checkStageContent(abs, rel string) error {
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return err
+	}
+	if stageSecretRE.Match(data) {
+		return fmt.Errorf("credential-shaped content: %s", rel)
+	}
+	return nil
 }
 
 // checkStaged refuses an index holding anything beyond rels: a stray `git add` (or a pathspec glob) skipped validation.
@@ -274,7 +291,7 @@ func (r Repo) checkStaged(rels []string) error {
 // ancestor can redirect a write outside the store), to a regular (or absent) file.
 func (r Repo) validateRel(rel string) error {
 	bad := fmt.Errorf("memory repo: invalid path %q", rel)
-	if rel == "" || rel == "." || rel == ".." || filepath.IsAbs(rel) || filepath.Clean(rel) != rel {
+	if invalidRelSyntax(rel) {
 		return bad
 	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")
@@ -289,6 +306,10 @@ func (r Repo) validateRel(rel string) error {
 		}
 	}
 	return nil
+}
+
+func invalidRelSyntax(rel string) bool {
+	return rel == "" || rel == "." || rel == ".." || filepath.IsAbs(rel) || filepath.Clean(rel) != rel
 }
 
 // checkRelPart requires the i-th path element at abs to be absent, a plain directory, or (the leaf) a regular file.

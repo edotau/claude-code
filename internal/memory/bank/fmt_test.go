@@ -129,21 +129,11 @@ func TestFormatBankMarkdownNeverTouches(t *testing.T) {
 // them is wrapped, and even when the span itself is wider than the wrap cap (kept whole, over-width).
 func TestFormatBankMarkdownNeverSplitsProtectedSpans(t *testing.T) {
 	t.Parallel()
-	longCode := "`" + strings.Join(repeatWords(13), " ") + "`" // spaces inside: 13*10+12 = 142 runes, >120
-	line := "see " + longCode + " for details"
-	out := formatBankMarkdown(line)
-	if !strings.Contains(out, longCode) {
-		t.Fatalf("code span split or altered:\n%s", out)
-	}
-	for l := range strings.SplitSeq(out, "\n") {
-		if l == longCode && utf8RuneCount(l) <= BankFmtMaxLine {
-			t.Errorf("expected the lone code-span line to stay over-width (unsplit), got %d runes", utf8RuneCount(l))
-		}
-	}
+	assertProtectedCodeSpan(t)
 
 	link := "[" + strings.Join(repeatWords(6), " ") + "](http://example.com/a/b/c/with/a/long/path/here)"
-	line = "read " + link + " " + strings.Join(repeatWords(10), " ")
-	out = formatBankMarkdown(line)
+	line := "read " + link + " " + strings.Join(repeatWords(10), " ")
+	out := formatBankMarkdown(line)
 	if !strings.Contains(out, link) {
 		t.Fatalf("link split or altered:\n%s", out)
 	}
@@ -156,6 +146,21 @@ func TestFormatBankMarkdownNeverSplitsProtectedSpans(t *testing.T) {
 	}
 }
 
+func assertProtectedCodeSpan(t *testing.T) {
+	t.Helper()
+	longCode := "`" + strings.Join(repeatWords(13), " ") + "`" // spaces inside: 13*10+12 = 142 runes, >120
+	line := "see " + longCode + " for details"
+	out := formatBankMarkdown(line)
+	if !strings.Contains(out, longCode) {
+		t.Fatalf("code span split or altered:\n%s", out)
+	}
+	for l := range strings.SplitSeq(out, "\n") {
+		if l == longCode && utf8RuneCount(l) <= BankFmtMaxLine {
+			t.Errorf("expected the lone code-span line to stay over-width (unsplit), got %d runes", utf8RuneCount(l))
+		}
+	}
+}
+
 func utf8RuneCount(s string) int { return len([]rune(s)) }
 
 // TestFormatBankMarkdownUnsplittableTokenStaysOverWidth: a single token with no space (a long URL-shaped
@@ -164,6 +169,11 @@ func TestFormatBankMarkdownUnsplittableTokenStaysOverWidth(t *testing.T) {
 	t.Parallel()
 	token := strings.Repeat("y", 150)
 	out := formatBankMarkdown("- " + token)
+	assertUnsplittableTokenLine(t, out, token)
+}
+
+func assertUnsplittableTokenLine(t *testing.T, out, token string) {
+	t.Helper()
 	lines := strings.Split(out, "\n")
 	if len(lines) != 1 {
 		t.Fatalf("got %d lines, want 1 (one unsplittable token): %q", len(lines), out)
@@ -377,7 +387,12 @@ func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 		t.Fatalf("store dirty after fmt commit: status=%v err=%v", st, err)
 	}
 
-	changed, err = FormatBank(false)
+	assertBankFmtNoOp(t, headAfterFirst)
+}
+
+func assertBankFmtNoOp(t *testing.T, headAfterFirst string) {
+	t.Helper()
+	changed, err := FormatBank(false)
 	if err != nil {
 		t.Fatal(err)
 	}
