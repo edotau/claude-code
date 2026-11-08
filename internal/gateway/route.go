@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -22,7 +24,7 @@ func cmdGatewayRouter(args []string) int { return gatewayRoute(args, false) }
 // routePage is the verb's name and help page; withProxy is bare `gateway`.
 func routePage(withProxy bool) (string, helptext.Page) {
 	about := "Show which agent and model a task routes to: gated on availability, the pinned\n" +
-		"profile and quota, then ranked by a weighted price + headroom score."
+		"profile and quota, then ordered by ladder rung, then account state, then weighted score."
 	if withProxy {
 		return "gateway", helptext.Page{Usage: "claude-code gateway [router|proxy] [--model M] [flags]",
 			About: about + "\nThen the loopback proxy's status; `gateway proxy` runs its lifecycle."}
@@ -95,7 +97,11 @@ func renderGatewayRoute(name string, res router.PickResult, format string, withP
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("gateway router", routePayload(rj, ps, withProxy))
 	}
-	printRoute(res, src, pins)
+	var buf bytes.Buffer
+	writeRoute(&buf, res, src, pins)
+	if _, err := os.Stdout.Write(buf.Bytes()); err != nil {
+		return helptext.Fail(name+": %v", err)
+	}
 	if withProxy {
 		printProxyState(ps)
 	}
@@ -170,41 +176,46 @@ func newRouteJSON(res router.PickResult, src routeSources, pins map[string]pinJS
 	return out
 }
 
-// printRoute renders weights, subagents switch, pins, scored candidates, the claude end and skipped gates.
+// printRoute writes the text view to stdout, ignoring write errors (tests); the verb checks them.
 func printRoute(res router.PickResult, src routeSources, pins map[string]pinJSON) {
+	writeRoute(os.Stdout, res, src, pins)
+}
+
+// writeRoute renders weights, subagents switch, pins, scored candidates, the claude end and skipped gates.
+func writeRoute(w io.Writer, res router.PickResult, src routeSources, pins map[string]pinJSON) {
 	var ws []string
 	for _, d := range router.Dimensions {
 		ws = append(ws, fmt.Sprintf("%s=%.2f", d.Name(), res.Weights[d.Name()]))
 	}
-	fmt.Printf("model %s  weights %s (%s)\n", res.Alias, strings.Join(ws, " "), src.Weights)
+	fmt.Fprintf(w, "model %s  weights %s (%s)\n", res.Alias, strings.Join(ws, " "), src.Weights)
 	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
-	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
-	printPins(pins)
-	printCandidates(res.Candidates)
-	printEnds(res)
-	printSkipped(res.Skipped)
+	fmt.Fprintf(w, "subagents %s (%s)\n", onOff, src.Subagents.Source)
+	printPins(w, pins)
+	printCandidates(w, res.Candidates)
+	printEnds(w, res)
+	printSkipped(w, res.Skipped)
 }
 
 // printCandidates prints the scored candidate table.
-func printCandidates(cands []router.Candidate) {
+func printCandidates(w io.Writer, cands []router.Candidate) {
 	if len(cands) == 0 {
-		fmt.Println("no agent passes the gates")
+		fmt.Fprintln(w, "no agent passes the gates")
 		return
 	}
 	wRun, wModel, wAcct := len("AGENT"), len("MODEL"), len("ACCOUNT")
 	for _, c := range cands {
 		wRun, wModel, wAcct = max(wRun, len(c.Agent)), max(wModel, len(c.Model)), max(wAcct, len(c.Account))
 	}
-	fmt.Printf("%-3s %-*s %-*s %-6s %-*s %-8s %6s %8s %6s\n", "#", wRun, "AGENT", wModel, "MODEL", "EFFORT",
+	fmt.Fprintf(w, "%-3s %-*s %-*s %-6s %-*s %-8s %6s %8s %6s\n", "#", wRun, "AGENT", wModel, "MODEL", "EFFORT",
 		wAcct, "ACCOUNT", "STATE", "PRICE", "HEADROOM", "TOTAL")
 	for i, c := range cands {
-		fmt.Printf("%-3d %-*s %-*s %-6s %-*s %-8s %6.2f %8.2f %6.2f\n", i+1, wRun, c.Agent, wModel, c.Model,
+		fmt.Fprintf(w, "%-3d %-*s %-*s %-6s %-*s %-8s %6.2f %8.2f %6.2f\n", i+1, wRun, c.Agent, wModel, c.Model,
 			cmp.Or(c.Effort, "-"), wAcct, c.Account, c.State, c.Scores["price"], c.Scores["headroom"], c.Total)
 	}
 }
 
 // printSkipped prints each skipped agent with its gate and reason.
-func printSkipped(skipped []router.Skip) {
+func printSkipped(w io.Writer, skipped []router.Skip) {
 	if len(skipped) == 0 {
 		return
 	}
@@ -212,14 +223,14 @@ func printSkipped(skipped []router.Skip) {
 	for _, s := range skipped {
 		wSkip, wGate = max(wSkip, len(s.Agent)), max(wGate, len(s.Gate))
 	}
-	fmt.Printf("%-*s %-*s %s\n", wSkip, "SKIP", wGate, "GATE", "REASON")
+	fmt.Fprintf(w, "%-*s %-*s %s\n", wSkip, "SKIP", wGate, "GATE", "REASON")
 	for _, s := range skipped {
-		fmt.Printf("%-*s %-*s %s\n", wSkip, s.Agent, wGate, s.Gate, s.Reason)
+		fmt.Fprintf(w, "%-*s %-*s %s\n", wSkip, s.Agent, wGate, s.Gate, s.Reason)
 	}
 }
 
 // printPins prints each agent's profile pin (off, or - when unset), wrapped at 80 cols under a 7-space indent.
-func printPins(pins map[string]pinJSON) {
+func printPins(w io.Writer, pins map[string]pinJSON) {
 	line, n := "pins   ", 0
 	for _, a := range pinAgents {
 		tok := a + "=" + cmp.Or(pins[a].Profile, "-")
@@ -227,7 +238,7 @@ func printPins(pins map[string]pinJSON) {
 			tok = a + "=off"
 		}
 		if n > 0 && len(line)+1+len(tok) > 80 {
-			fmt.Println(line)
+			fmt.Fprintln(w, line)
 			line, n = "       ", 0
 		}
 		if n > 0 {
@@ -235,24 +246,24 @@ func printPins(pins map[string]pinJSON) {
 		}
 		line, n = line+tok, n+1
 	}
-	fmt.Println(line)
+	fmt.Fprintln(w, line)
 }
 
 // printEnds names where the chain ends: the claude hop's account and model, or why there is none.
-func printEnds(res router.PickResult) {
+func printEnds(w io.Writer, res router.PickResult) {
 	for _, c := range res.Candidates {
 		if c.Agent == "claude" {
-			fmt.Printf("ends at claude on %s (%s)\n", c.Account, c.Model)
+			fmt.Fprintf(w, "ends at claude on %s (%s)\n", c.Account, c.Model)
 			return
 		}
 	}
 	for _, s := range res.Skipped {
 		if s.Agent == "claude" {
-			fmt.Printf("no claude hop: %s\n", s.Reason)
+			fmt.Fprintf(w, "no claude hop: %s\n", s.Reason)
 			return
 		}
 	}
-	fmt.Println("no claude hop (--fallback agents|none)")
+	fmt.Fprintln(w, "no claude hop (--fallback agents|none)")
 }
 
 // routeLead is the profile --profile/--provider make the wanted agent lead with; "" when neither is set.

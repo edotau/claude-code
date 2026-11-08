@@ -212,7 +212,7 @@ func FallbackReason(err error) string {
 	return textutil.CapRunes(s, 200, "")
 }
 
-// dispatchUnavailable is true when the binary, target or exec failed before any answer; claude/api never count.
+// dispatchUnavailable: a pre-answer auth failure, or a failed hop of an external engine (otherwise claude/api never).
 func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	if requestFault(err) {
 		return false
