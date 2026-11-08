@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-workers',
   description: 'Streaming relay: each package flows find → rederive → fix → guard test → gate → simplify → review → fix-all on its own, no barrier between packages',
   whenToUse:
-    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-workers.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, known [{file, symptom}] (bug already named: skips Find and Rederive for that file\'s package), fast (false ignores known), polish (default true; false skips Simplify, Review and Fix-all; also skipped under 150k budget tokens left), steps {find, rederive, fix, test, gate, simplify, review} = {model, effort} per stage (claude only; fix-all uses steps.fix). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red, decisions, report}. Details: saved-workflows.md.',
+    'USE: audit and repair several Go packages (or a LOW/MEDIUM job\'s files) without a barrier between them; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-workers.js", args: {cwd, packages: [...] | paths: [...]}}). OPTIONAL: slice (run only the first N packages), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, known [{file, symptom}] (bug already named: skips Find and Rederive for that file\'s package), fast (false ignores known), polish (default true; false skips Simplify, Review and Fix-all; also skipped under 150k budget tokens left), steps {find, rederive, fix, test, gate, simplify, review} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session\'s route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; fix-all uses steps.fix). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red, decisions, report, coworkers}. Details: saved-workflows.md.',
   phases: [
     { title: 'Find', detail: 'two lenses per package; claims merged by file ±10 lines or same symbol within the package' },
     { title: 'Rederive', detail: 'each claim re-derived blind from file:line + symptom' },
@@ -92,19 +92,31 @@ let PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages.filter(Bo
 if (!CWD || !PKGS.length) return ERR('args.cwd and one of args.packages or args.paths are required')
 // ── Steps: who runs each stage ──
 const STAGES = ['find', 'rederive', 'fix', 'test', 'gate', 'simplify', 'review']
-const OPT = { allowed: STAGES }
+const OPT = { allowed: STAGES, external: true, profile: a.profile, provider: a.provider }
 let S
 try {
   S = {
     find: stepOf(a.steps, 'find', { model: 'sonnet', effort: 'medium' }, OPT),
     rederive: stepOf(a.steps, 'rederive', { model: 'sonnet', effort: 'medium' }, OPT),
-    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, OPT),
-    test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium' }, OPT),
-    gate: stepOf(a.steps, 'gate', { model: 'haiku', effort: 'low' }, OPT),
-    simplify: stepOf(a.steps, 'simplify', { model: 'sonnet', effort: 'medium' }, OPT),
+    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium', tools: 'edit' }, OPT),
+    test: stepOf(a.steps, 'test', { model: 'sonnet', effort: 'medium', tools: 'edit' }, OPT),
+    gate: stepOf(a.steps, 'gate', { model: 'haiku', effort: 'low', tools: 'edit' }, OPT),
+    simplify: stepOf(a.steps, 'simplify', { model: 'sonnet', effort: 'medium', tools: 'edit' }, OPT),
     review: stepOf(a.steps, 'review', { model: 'sonnet', effort: 'high' }, OPT),
   }
 } catch (e) { return ERR(e.message) }
+for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a[k]))) return ERR('args.' + k + ' must be a plain name')
+const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
+if (EXT.length) {
+  const pf = await agent(
+    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing.\n' +
+      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents --profile ${s.profile}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+    { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
+  )
+  for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
+  const dead = ((pf && pf.routes) || []).filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : ''))
+  if (dead.length) return ERR('coworkers: no route for ' + dead.join(', ') + '; BLOCKED before any work')
+}
 const FIX = a.fix !== false
 const POLISH = a.polish !== false
 const ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
@@ -171,17 +183,17 @@ async function review(p) {
   }
   const finds = await parallel(LENSES.map((l) => () =>
     agent(
-      READONLY + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + ' Find real bugs of this kind: ' + l.ask + '.' + FOCUS +
-        ' Each finding: file, line, function or symbol, a one-line symptom, a concrete failing scenario. Return {findings: []} when clean.',
-      { phase: 'Find', label: 'find:' + l.key + ':' + p, schema: FINDINGS, model: S.find.model, effort: S.find.effort },
-    )))
+      S.find.task(READONLY + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + ' Find real bugs of this kind: ' + l.ask + '.' + FOCUS +
+        ' Each finding: file, line, function or symbol, a one-line symptom, a concrete failing scenario. Return {findings: []} when clean.'),
+      { phase: 'Find', label: 'find:' + l.key + ':' + p, schema: S.find.schema(FINDINGS), model: S.find.model, effort: S.find.effort, ...S.find.type },
+    ).then((r) => S.find.done('find:' + l.key + ':' + p, r))))
   const merged = merge(finds.filter(Boolean).flatMap((r) => r.findings || []))
   const judged = await parallel(merged.map((f, i) => () =>
     agent(
-      READONLY + ' A teammate says there is a bug at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
-        '. You have not seen their reasoning. Derive your own failing scenario from the code and rate its severity; reproduced=false if you cannot.',
-      { phase: 'Rederive', label: 'rederive:' + p + ':' + i, schema: REDERIVE, model: S.rederive.model, effort: S.rederive.effort },
-    ).then((r) => ({ f, r }))))
+      S.rederive.task(READONLY + ' A teammate says there is a bug at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
+        '. You have not seen their reasoning. Derive your own failing scenario from the code and rate its severity; reproduced=false if you cannot.'),
+      { phase: 'Rederive', label: 'rederive:' + p + ':' + i, schema: S.rederive.schema(REDERIVE), model: S.rederive.model, effort: S.rederive.effort, ...S.rederive.type },
+    ).then((r) => ({ f, r: S.rederive.done('rederive:' + p + ':' + i, r) }))))
   // A null rederive (rate or API error) is unverified, never refuted.
   const ok = merged.map((f, i) => judged[i] || { f, r: null })
   const unverified = ok.filter((x) => !x.r).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
@@ -198,11 +210,11 @@ async function settleSeverity(p, x, i) {
   const out = { ...x.f, severity: x.r.severity, rederived: x.r.scenario }
   const fixes = (s) => ORDER[s] <= MIN_FIX
   if (fixes(x.f.severity) === fixes(x.r.severity)) return out
-  const t = await agent(
-    READONLY + ' Rate the severity of a possible bug at ' + x.f.file + ':' + x.f.line + ' (' + x.f.symbol + '): ' + x.f.symptom +
-      '. Derive your own failing scenario from the code; reproduced=false if you cannot.',
-    { phase: 'Rederive', label: 'tiebreak:' + p + ':' + i, schema: REDERIVE, model: S.rederive.model, effort: S.rederive.effort },
-  ).catch(() => null)
+  const t = S.rederive.done('tiebreak:' + p + ':' + i, await agent(
+    S.rederive.task(READONLY + ' Rate the severity of a possible bug at ' + x.f.file + ':' + x.f.line + ' (' + x.f.symbol + '): ' + x.f.symptom +
+      '. Derive your own failing scenario from the code; reproduced=false if you cannot.'),
+    { phase: 'Rederive', label: 'tiebreak:' + p + ':' + i, schema: S.rederive.schema(REDERIVE), model: S.rederive.model, effort: S.rederive.effort, ...S.rederive.type },
+  ).catch(() => null))
   const votes = [x.f.severity, x.r.severity, t ? (t.reproduced ? t.severity : 'low') : null].filter(Boolean).sort((a, b) => ORDER[a] - ORDER[b])
   out.severity = votes.length === 3 ? votes[1] : votes[0] // no tie-breaker: the higher rating stands
   out.severityVotes = votes
@@ -219,25 +231,25 @@ async function repair(rev) {
   if (!FIX) return { ...rev, fixed: 0, decisions: [] }
   if (!cs.length) return { ...rev, fixed: 0, decisions: ['no finding at or above minFix in ' + p] }
   log(p + ': ' + cs.length + ' finding(s) at or above minFix, fixing now')
-  const impl = await agent(
-    RULES + ' Fix these confirmed bugs in package ' + p + ' and nothing else; edit only non-test files under it. Root cause first, smallest ' +
+  const impl = S.fix.done('fix:' + p, await agent(
+    S.fix.task(RULES + ' Fix these confirmed bugs in package ' + p + ' and nothing else; edit only non-test files under it. Root cause first, smallest ' +
       'correct change, functions < 50 lines, 1-line comments. Before finishing, grep every caller OUTSIDE the package of each function you ' +
       'changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). Run gofmt and go vet ./' +
-      norm(p) + '/....\n' + list(cs),
-    { phase: 'Fix', label: 'fix:' + p, schema: WORK, model: S.fix.model, effort: S.fix.effort },
-  )
-  const test = await agent(
-    RULES + ' Fixes just landed in ' + p + ' (`git diff -- ' + p + '`). Write ONE regression test per fix in the package _test.go files that ' +
+      norm(p) + '/....\n' + list(cs)),
+    { phase: 'Fix', label: 'fix:' + p, schema: S.fix.schema(WORK), model: S.fix.model, effort: S.fix.effort, ...S.fix.type },
+  ))
+  const test = S.test.done('test:' + p, await agent(
+    S.test.task(RULES + ' Fixes just landed in ' + p + ' (`git diff -- ' + p + '`). Write ONE regression test per fix in the package _test.go files that ' +
       'calls the real code and fails without the fix; prove each with `claude-code test mutate <file> <old> <new> --run <RE> ./' + norm(p) +
-      ' </dev/null` (exit 0 = caught). Edit only *_test.go files under ' + p + '; each test under complexity 10. Put "n/a" in callers.\n' + list(cs),
-    { phase: 'Test', label: 'test:' + p, schema: WORK, model: S.test.model, effort: S.test.effort },
-  )
-  const gate = await agent(
-    RULES + ' Run and report: `set -o pipefail; go build ./' + norm(p) + '/... && go vet ./' + norm(p) + '/... && go test -count=1 ./' + norm(p) +
+      ' </dev/null` (exit 0 = caught). Edit only *_test.go files under ' + p + '; each test under complexity 10. Put "n/a" in callers.\n' + list(cs)),
+    { phase: 'Test', label: 'test:' + p, schema: S.test.schema(WORK), model: S.test.model, effort: S.test.effort, ...S.test.type },
+  ))
+  const gate = S.gate.done('gate:' + p, await agent(
+    S.gate.task(RULES + ' Run and report: `set -o pipefail; go build ./' + norm(p) + '/... && go vet ./' + norm(p) + '/... && go test -count=1 ./' + norm(p) +
       '/...`; if `git diff -- ' + p + '` changes a function that writes a file, also `go test -count=1 ./internal/schemas/`. green=true only ' +
-      'if every command exited 0. Edit nothing.',
-    { phase: 'Gate', label: 'gate:' + p, schema: GATE, model: S.gate.model, effort: S.gate.effort },
-  )
+      'if every command exited 0. Edit nothing.'),
+    { phase: 'Gate', label: 'gate:' + p, schema: S.gate.schema(GATE), model: S.gate.model, effort: S.gate.effort, ...S.gate.type },
+  ))
   // A green gate over unchanged code proves nothing: a fixer that did not finish counts as red.
   const done = !!(impl && impl.status === 'done')
   const testOk = !!(test && test.status !== 'blocked')
@@ -265,46 +277,46 @@ async function polish(p, files) {
     return { green: true, decisions: ['polish skipped in ' + p + ': budget under 150k tokens remaining'] }
   }
   const scope = 'Only these files (the tree is shared; never touch or diff others): ' + files.join(' ') + '. Diff: `git diff -- ' + files.join(' ') + '`.'
-  const sp = await agent(
-    RULES + ' Simplify gate (' + CWD + '/skills/simplify/SKILL.md, quality.md -> Simplify) over package ' + p + '. ' + scope +
+  const sp = S.simplify.done('simplify:' + p, await agent(
+    S.simplify.task(RULES + ' Simplify gate (' + CWD + '/skills/simplify/SKILL.md, quality.md -> Simplify) over package ' + p + '. ' + scope +
       ' Run `claude-code review simplify ' + files.join(' ') + '`, then one in-context pass (reuse, simplification, efficiency, altitude). Name the assumption before every cut; ' +
       'flag instead of cutting when it has no covering test; never cut semantic comments, error context or distinct tests; never fix bugs (flag them). Edit only the listed non-test files under ' + p + '. ' +
       'After edits run gofmt, go vet and go test for ' + p + '; if a test regresses, revert your own edit by hand (never git checkout/restore/stash) and flag it. ' +
-      'Return applied[] and flagged[] as `file:line · what · assumption`, deltaLines (net changed lines, negative = removed) and status (clean = nothing to do).',
-    { phase: 'Simplify', label: 'simplify:' + p, schema: SIMP, model: S.simplify.model, effort: S.simplify.effort },
-  ).catch(() => null)
+      'Return applied[] and flagged[] as `file:line · what · assumption`, deltaLines (net changed lines, negative = removed) and status (clean = nothing to do).'),
+    { phase: 'Simplify', label: 'simplify:' + p, schema: S.simplify.schema(SIMP), model: S.simplify.model, effort: S.simplify.effort, ...S.simplify.type },
+  ).catch(() => null))
   const simplify = sp || { applied: [], flagged: [], deltaLines: 0, status: 'blocked' }
   const d = ['simplify: ' + (sp ? simplify.applied.length + ' applied, ' + simplify.flagged.length + ' flagged, Δ ' + simplify.deltaLines + ' lines (' + simplify.status + ')' : 'agent returned nothing') + ' in ' + p]
-  const rv = await agent(
-    READONLY + ' Review the final diff of package ' + p + ' with the ' + CWD + '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, ' +
-      'changed behavior callers rely on, errors dropped). ' + scope + ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.',
-    { phase: 'Review', label: 'review:' + p, schema: REVF, model: S.review.model, effort: S.review.effort },
-  ).catch(() => null)
+  const rv = S.review.done('review:' + p, await agent(
+    S.review.task(READONLY + ' Review the final diff of package ' + p + ' with the ' + CWD + '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, ' +
+      'changed behavior callers rely on, errors dropped). ' + scope + ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.'),
+    { phase: 'Review', label: 'review:' + p, schema: S.review.schema(REVF), model: S.review.model, effort: S.review.effort, ...S.review.type },
+  ).catch(() => null))
   const findings = rv ? rv.findings : []
   const sev = ['critical', 'high', 'medium', 'low'].map((k) => [k, findings.filter((f) => f.severity === k).length]).filter((x) => x[1])
   const review = { findings, ran: !!rv }
   d.push('review: ' + (rv ? findings.length + ' findings (' + (sev.map((x) => x[1] + ' ' + x[0]).join(', ') || 'none') + ')' : 'agent returned nothing') + ' in ' + p)
   if (!findings.length) return { green: true, simplify, review, fixall: { fixed: 0, status: 'skipped' }, decisions: d }
   const text = findings.map((f) => '- ' + f.file + ':' + f.line + ' (' + f.symbol + ', ' + f.severity + '): ' + f.symptom).join('\n')
-  const fx = await agent(
-    RULES + ' Fix EVERY review finding below in package ' + p + ', lows included, in one pass; edit only non-test files under it. Root cause first, smallest correct change, ' +
-      'functions < 50 lines, 1-line comments. Run gofmt and go vet ./' + norm(p) + '/.... Put "n/a" in callers.\n' + text,
-    { phase: 'Fix', label: 'fixall:' + p, schema: WORK, model: S.fix.model, effort: S.fix.effort },
-  ).catch(() => null)
+  const fx = S.fix.done('fixall:' + p, await agent(
+    S.fix.task(RULES + ' Fix EVERY review finding below in package ' + p + ', lows included, in one pass; edit only non-test files under it. Root cause first, smallest correct change, ' +
+      'functions < 50 lines, 1-line comments. Run gofmt and go vet ./' + norm(p) + '/.... Put "n/a" in callers.\n' + text),
+    { phase: 'Fix', label: 'fixall:' + p, schema: S.fix.schema(WORK), model: S.fix.model, effort: S.fix.effort, ...S.fix.type },
+  ).catch(() => null))
   const fixedAll = !!(fx && fx.status === 'done')
   d.push('fix-all: ' + (fixedAll ? findings.length : 0) + ' fixed of ' + findings.length + ' in ' + p + (fixedAll ? '' : ' (NOT done: ' + (fx ? fx.status : 'no result') + ')'))
   if (!fixedAll) return { green: false, simplify, review, fixall: { fixed: 0, status: fx ? fx.status : 'none' }, decisions: d }
-  const ft = await agent(
-    RULES + ' Fix-all just landed in ' + p + ' (`git diff -- ' + p + '`). Write a guard test for each behavior change in the package _test.go files that calls the real code ' +
+  const ft = S.test.done('fixall-test:' + p, await agent(
+    S.test.task(RULES + ' Fix-all just landed in ' + p + ' (`git diff -- ' + p + '`). Write a guard test for each behavior change in the package _test.go files that calls the real code ' +
       'and fails without the change; prove each with `claude-code test mutate <file> <old> <new> --run <RE> ./' + norm(p) + ' </dev/null` (exit 0 = caught). Skip pure style edits. ' +
-      'Edit only *_test.go files under ' + p + '; each test under complexity 10. Put "n/a" in callers.\n' + text,
-    { phase: 'Test', label: 'fixall-test:' + p, schema: WORK, model: S.test.model, effort: S.test.effort },
-  ).catch(() => null)
-  const g2 = await agent(
-    RULES + ' Run and report: `set -o pipefail; go build ./' + norm(p) + '/... && go vet ./' + norm(p) + '/... && go test -count=1 ./' + norm(p) +
-      '/...`; if `git diff -- ' + p + '` changes a function that writes a file, also `go test -count=1 ./internal/schemas/`. green=true only if every command exited 0. Edit nothing.',
-    { phase: 'Gate', label: 'regate:' + p, schema: GATE, model: S.gate.model, effort: S.gate.effort },
-  ).catch(() => null)
+      'Edit only *_test.go files under ' + p + '; each test under complexity 10. Put "n/a" in callers.\n' + text),
+    { phase: 'Test', label: 'fixall-test:' + p, schema: S.test.schema(WORK), model: S.test.model, effort: S.test.effort, ...S.test.type },
+  ).catch(() => null))
+  const g2 = S.gate.done('regate:' + p, await agent(
+    S.gate.task(RULES + ' Run and report: `set -o pipefail; go build ./' + norm(p) + '/... && go vet ./' + norm(p) + '/... && go test -count=1 ./' + norm(p) +
+      '/...`; if `git diff -- ' + p + '` changes a function that writes a file, also `go test -count=1 ./internal/schemas/`. green=true only if every command exited 0. Edit nothing.'),
+    { phase: 'Gate', label: 'regate:' + p, schema: S.gate.schema(GATE), model: S.gate.model, effort: S.gate.effort, ...S.gate.type },
+  ).catch(() => null))
   const ftOk = !!(ft && ft.status !== 'blocked')
   const ok = ftOk && !!(g2 && g2.green)
   d.push('re-gate ' + (g2 && g2.green ? 'green' : 'red') + ' in ' + p)
@@ -353,4 +365,5 @@ return {
   red,
   decisions,
   report,
+  coworkers: COWORKERS,
 }

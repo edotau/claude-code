@@ -2,7 +2,7 @@ export const meta = {
   name: 'green-keeper-loop',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
-    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix}: each {model, effort}, claude only (haiku|sonnet|opus|fable); an external fixer is rejected.',
+    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session\'s route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages).',
   phases: [
     { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
     { title: 'Gate', detail: 'one fixer per iteration: run the gate, fix root causes within scope, re-run' },
@@ -80,10 +80,22 @@ const stepOf = (steps, name, defaults, opt) => {
 let ST
 try {
   ST = {
-    detect: stepOf(a.steps, 'detect', { model: 'haiku', effort: 'low' }, { allowed: ['detect', 'fix'] }),
-    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium' }, { allowed: ['detect', 'fix'] }),
+    detect: stepOf(a.steps, 'detect', { model: 'haiku', effort: 'low' }, { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }),
+    fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium', tools: 'edit' }, { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }),
   }
 } catch (e) { return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['green-keeper-loop: ' + e.message], history: [] } }
+for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a[k]))) return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['args.' + k + ' must be a plain name'], history: [] }
+const EXT = [...new Map(Object.values(ST).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
+if (EXT.length) {
+  const pf = await agent(
+    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing.\n' +
+      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents --profile ${s.profile}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+    { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
+  )
+  for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
+  const dead = ((pf && pf.routes) || []).filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : ''))
+  if (dead.length) return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['coworkers: no route for ' + dead.join(', ') + '; BLOCKED before any work'], history: [] }
+}
 let GATE = a.gate || ''
 let GATE_SOURCE = a.gate ? 'args' : ''
 const CD = a.cwd ? `cwd: ${a.cwd}. Prefix every command with \`cd ${a.cwd} &&\` (the shell cwd resets).\n` : ''
@@ -138,17 +150,18 @@ if (!GATE && !SCOPE_GIVEN) {
 }
 if (!GATE) {
   phase('Detect')
-  const d = await agent(
-    `${CD}Pick this repo's verify gate; do NOT run it. First call: ls Makefile go.mod pyproject.toml setup.cfg package.json Cargo.toml .venv 2>/dev/null; then read only the file that decides (at most 3 tool calls). ` +
+  let d = await agent(
+    ST.detect.task(`${CD}Pick this repo's verify gate; do NOT run it. First call: ls Makefile go.mod pyproject.toml setup.cfg package.json Cargo.toml .venv 2>/dev/null; then read only the file that decides (at most 3 tool calls). ` +
     `The toolchain file decides; a Makefile only ever PREPENDS a lint step. Scope dirs: ${SCOPE.join(' ') || '(repo root)'}. ` +
     `(1) go.mod → "go build ./... && go vet ./<dir>/... && go test ./<dir>/..." over the scope dirs (./... when the scope is the root); ` +
     `(2) pyproject.toml/setup.cfg → "ruff check <dir> && pytest -q <dir-or-tests>" (ruff only if configured; prefix each with .venv/bin/python -m when .venv exists); ` +
     `(3) package.json → "npm run lint && npm test -- <scope paths>" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test -p <crate of each scope dir>". ` +
     `If a Makefile has a lint (or fmt/vet) target with a report-only form (e.g. its help says CHECK=1 reports), return "make lint CHECK=1 && " + that command and source "Makefile"; ` +
     `skip a lint target that only auto-fixes — it edits files outside the scope, and other sessions share this checkout. Never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
-    `(5) Makefile only, no toolchain file, or no scoped command derivable → gate "" and source "none" (the caller must pass args.gate).`,
-    { label: 'detect', phase: 'Detect', schema: DETECT_SCHEMA, model: routeModel(ST.detect.model), effort: ST.detect.effort }
+    `(5) Makefile only, no toolchain file, or no scoped command derivable → gate "" and source "none" (the caller must pass args.gate).`),
+    { label: 'detect', phase: 'Detect', schema: ST.detect.schema(DETECT_SCHEMA), ...ST.detect.type, model: routeModel(ST.detect.model), effort: ST.detect.effort }
   )
+  d = ST.detect.done('detect', d)
   GATE = (d && d.gate) || ''
   GATE_SOURCE = (d && d.source) || 'none'
   log(`gate detected (${GATE_SOURCE}): ${GATE || 'none'}`)
@@ -172,9 +185,10 @@ for (let i = 1; i <= MAX_ITER; i++) {
     `repeat for at most ${FIXES} distinct failures this iteration, then report (the rest go into residual verbatim). ` +
     `A failure outside scope goes into residual verbatim.`
   last = await agent(
-    prompt,
-    { label: `gate:${i}`, phase: 'Gate', schema: GATE_SCHEMA, model: routeModel(ST.fix.model), effort: ST.fix.effort }
+    ST.fix.task(prompt),
+    { label: `gate:${i}`, phase: 'Gate', schema: ST.fix.schema(GATE_SCHEMA), ...ST.fix.type, model: routeModel(ST.fix.model), effort: ST.fix.effort }
   )
+  last = ST.fix.done('gate:' + i, last)
   if (!last) { last = { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: ['agent returned no result'], summary: 'no result' } }
   history.push({ iteration: i, ...last })
   log(`gate ${i}/${MAX_ITER}: ${last.status} (${last.failuresBefore} → ${last.failuresAfter}) changed=${last.filesChanged.length}`)
@@ -196,4 +210,5 @@ return {
   filesChanged: [...new Set(history.flatMap(h => h.filesChanged))],
   residual: last.residual,
   history,
+  coworkers: COWORKERS,
 }
