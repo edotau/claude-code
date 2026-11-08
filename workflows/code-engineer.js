@@ -109,11 +109,6 @@ const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.to
 const RECORDED = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } } }, required: ['paths'] }
 
 // ── Size ──
-// Preflight: Fix/Test use plugin agent code-worker:claude, absent when the session started on a bad settings.json.
-if (a.fix !== false) {
-  const probe = await agent('Reply with the single word OK.', { label: 'preflight:code-worker', phase: 'Size', agentType: 'code-worker:claude', model: 'haiku', effort: 'low' }).catch(e => { log('preflight: ' + e.message); return null })
-  if (!probe) return ERR('agent type code-worker:claude did not run: plugin agents are not loaded; fix settings.json if invalid, restart the session, re-run (or pass fix:false)')
-}
 phase('Size')
 const decisions = []
 let tier = a.tier
