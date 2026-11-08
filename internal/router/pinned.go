@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"syscall"
@@ -220,7 +222,7 @@ func discoverySkipped(e Entry, agent, entry string, now time.Time) bool {
 	return ok && now.Sub(at) < discoverySkipTTL
 }
 
-// SkipDiscovery marks the pool entry p serves as wire unusable for agent and returns it, "" when none matches.
+// SkipDiscovery marks a pool entry unusable; returns "" for no match or a persistence error, reported on stderr.
 func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 	var hit string
 	err := Update(func(s State) {
@@ -241,6 +243,7 @@ func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 		}
 	})
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "discovery: could not persist model skip (%s)\n", stateErrClass(err))
 		return ""
 	}
 	return hit

@@ -116,9 +116,7 @@ func loadState() (State, error) {
 	return decodeState(raw)
 }
 
-// Update applies fn to the stored state under the file lock and writes it back (0600); best-effort.
-// A newer-schema document or an unreadable file is left untouched and its error returned; a corrupt one is
-// copied to quota.json.corrupt-<unix> before it is replaced.
+// Update applies fn under the file lock; unreadable/newer state stays untouched, corrupt state keeps one backup.
 func Update(fn func(State)) error {
 	path := StatePath()
 	return paths.WithFileLock(path, func() error {
@@ -127,12 +125,8 @@ func Update(fn func(State)) error {
 			if errors.Is(err, schemas.ErrNewer) || !isDecodeErr(err) {
 				return err
 			}
-			raw, rerr := os.ReadFile(path)
-			if rerr != nil {
-				return rerr
-			}
-			if berr := paths.AtomicWrite(fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix()), raw, 0o600); berr != nil {
-				return berr
+			if err := backupCorruptState(path); err != nil {
+				return err
 			}
 		}
 		fn(s)
@@ -142,6 +136,31 @@ func Update(fn func(State)) error {
 		}
 		return paths.AtomicWrite(path, data, 0o600)
 	})
+}
+
+// backupCorruptState preserves the corrupt bytes and removes earlier backups under the state lock.
+func backupCorruptState(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	backup := fmt.Sprintf("%s.corrupt-%d", path, time.Now().UnixNano())
+	if err := paths.AtomicWrite(backup, raw, 0o600); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		old := filepath.Join(filepath.Dir(path), entry.Name())
+		if old != backup && entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), filepath.Base(path)+".corrupt-") {
+			if err := os.Remove(old); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // isDecodeErr reports whether err came from decodeState rather than from reading the file.
@@ -258,16 +277,24 @@ func (s State) AuthMarked(account string, now time.Time) (string, bool) {
 	return e.AuthReason, true
 }
 
-// Status classifies e at now: exhausted (100% or a live remembered failure), low (≥90%), ok, or unknown.
+// Status classifies quota; stale exhausted readings without a reset are unknown, live failure marks remain exhausted.
 func (e Entry) Status(now time.Time) string {
 	switch {
 	case e.ExhaustedUntil.After(now):
 		return StateExhausted
 	case e.Seen.IsZero():
 		return StateUnknown
-	case e.UsedPct >= ExhaustedPct && (e.ResetsAt.IsZero() || e.ResetsAt.After(now)):
+	case e.ResetsAt.IsZero():
+		if e.UsedPct >= ExhaustedPct && now.Sub(e.Seen) > StaleAfter {
+			return StateUnknown
+		}
+	case !e.ResetsAt.After(now):
+		return StateOK
+	}
+	switch {
+	case e.UsedPct >= ExhaustedPct:
 		return StateExhausted
-	case e.UsedPct >= LowPct && (e.ResetsAt.IsZero() || e.ResetsAt.After(now)):
+	case e.UsedPct >= LowPct:
 		return StateLow
 	}
 	return StateOK
