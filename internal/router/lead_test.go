@@ -30,27 +30,22 @@ func TestPickLeadPutsWantedAgentOnLeadProfileFirst(t *testing.T) {
 	}
 }
 
-func TestPickLeadGeminiNeverLeadsOnNonGoogleRow(t *testing.T) {
+// A lead naming a Databricks gateway row runs gemini there (the all-Databricks arm, on command).
+func TestPickLeadGeminiLeadsOnNamedDatabricksRow(t *testing.T) {
 	r := leadPick(t, "gemini", "dev")
-	for _, c := range r.Candidates {
-		if c.Agent == "gemini" && c.Profile == "dev" {
-			t.Fatalf("gemini led on non-Google row dev: %+v", c)
-		}
-	}
-	if !slices.ContainsFunc(r.Skipped, func(s Skip) bool {
-		return s.Agent == "gemini" && strings.Contains(s.Reason, "gemini runs on Google only, not dev")
-	}) {
-		t.Fatalf("no gemini Google-only skip: %+v", r.Skipped)
+	if len(r.Candidates) == 0 || r.Candidates[0].Agent != "gemini" || r.Candidates[0].Profile != "dev" {
+		t.Fatalf("gemini did not lead on dev: %+v (skipped %+v)", r.Candidates, r.Skipped)
 	}
 }
 
-func TestGoogleRow(t *testing.T) {
+func TestGeminiRow(t *testing.T) {
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{
-		"chatgpt": {Name: "chatgpt", Provider: "openai", Auth: providers.Auth{Login: "codex"}},
+		"chatgpt": {Name: "chatgpt", Provider: "openai", Auth: providers.Auth{Login: "codex", Type: "cli"}},
 		"g":       {Name: "g", Provider: "google"},
+		"dev":     {Name: "dev", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}},
 	}}
-	if !googleRow(reg, "g") || googleRow(reg, "chatgpt") || googleRow(reg, "missing") {
-		t.Error("googleRow must be true only for a provider google row")
+	if !geminiRow(reg, "g") || !geminiRow(reg, "dev") || geminiRow(reg, "chatgpt") || geminiRow(reg, "missing") {
+		t.Error("geminiRow must accept Google and Databricks gateway rows only")
 	}
 }
 
@@ -192,7 +187,8 @@ func TestPickLeadQuietLoginRowSkips(t *testing.T) {
 	}
 }
 
-func TestPickPinnedGeminiOnNonGoogleRowIsSkipped(t *testing.T) {
+// A gemini pin on a Databricks gateway row is the owner's choice and runs there.
+func TestPickPinnedGeminiOnDatabricksRowRuns(t *testing.T) {
 	tb := testTable(t)
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", "")
@@ -200,13 +196,8 @@ func TestPickPinnedGeminiOnNonGoogleRowIsSkipped(t *testing.T) {
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
 	r := tb.Pick(context.Background(), "sonnet", "gemini", State{}, PickOpts{Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"gemini": {Profile: "dev"}}})
-	for _, c := range r.Candidates {
-		if c.Agent == "gemini" && c.Profile == "dev" {
-			t.Fatalf("pinned gemini ran on non-Google row: %+v", c)
-		}
-	}
-	if !slices.ContainsFunc(r.Skipped, func(s Skip) bool { return strings.Contains(s.Reason, "gemini runs on Google only, not dev") }) {
-		t.Fatalf("no Google-only skip: %+v", r.Skipped)
+	if !slices.ContainsFunc(r.Candidates, func(c Candidate) bool { return c.Agent == "gemini" && c.Profile == "dev" }) {
+		t.Fatalf("pinned gemini not on dev: %+v (skipped %+v)", r.Candidates, r.Skipped)
 	}
 }
 

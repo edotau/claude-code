@@ -35,6 +35,8 @@ func TestResolveLead(t *testing.T) {
 		{"", "codex", LeadSession, "databricks", "dev", ""},
 		{"", "codex", "", "github", "", "no signed-in github profile serves codex"},
 		{"", "codex", "nosuch", "", "", "not in the registry"},
+		{"dev", "gemini", LeadSession, "", "", ""},
+		{"dev", "gemini", "dev", "", "dev", ""},
 	}
 	for _, c := range cases {
 		t.Setenv(providers.EnvSessionProfile, c.env)

@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // agyArgv maps Autonomous onto "--mode auto"; --dangerously-skip-permissions rides on Tools alone, so
@@ -195,5 +197,18 @@ func TestAgyLiveErroredTurnKeepsUsageBaseline(t *testing.T) {
 	res, err := parse(result(1500))
 	if err != nil || res.Usage.InputTokens != 500 {
 		t.Fatalf("turn 3 InputTokens = %d, err = %v; want the 500 delta", res.Usage.InputTokens, err)
+	}
+}
+
+// On a Databricks gateway row agy lists only the base id, so the effort suffix must ride --effort, not --model.
+func TestAgyGatewayModelIsBaseWithEffort(t *testing.T) {
+	gw := providers.Target{Provider: &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}},
+		Model: "gemini-3.8-flash-high"}
+	req := agent.RunOptions{Model: "gemini-3.8-flash-high"}
+	if m := agyModel(req, gw); strings.HasSuffix(m, "-high") || m == "" {
+		t.Fatalf("gateway --model = %q, want the base id", m)
+	}
+	if e := agyGatewayEffort(req, gw); e != "high" {
+		t.Fatalf("gateway --effort = %q, want high", e)
 	}
 }
