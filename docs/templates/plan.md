@@ -47,14 +47,14 @@ go build ./... && go vet ./internal/<pkg>/...
 command the plan touches (stdin from `/dev/null`) under `/tmp/<slug>/base/`.
 **Verify:** every later commit reruns them on a fresh binary and `diff -r`s against `base/`; name each expected
 difference, and re-capture when a peer's commit changes the output.
-**Agent / parallel:** `leaf: code-worker, Agent: in-context`; before everything.
+**Agent / parallel:** `leaf: claude, Agent: in-context`; before everything.
 
 ### Phase 1 — <verb> <object>
 
 **Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
 **Change:** the exact edit, with the code — functions, signatures, data flow.
 **Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
-**Agent / parallel:** `leaf: <code-worker[:claude|codex|gemini]|coworker[:copilot|opencode|databricks]|…>`,
+**Agent / parallel:** `leaf: <claude|codex|copilot|gemini|opencode|…>`,
 `Agent: <requested agent or in-context>`
 (or `Workflow <name>`); parallel-safe with Phase N, or depends on Phase M.
 
@@ -79,17 +79,17 @@ difference, and re-capture when a peer's commit changes the output.
 
 A phase is a group of tasks, not a unit of work: each `### Phase` section lists its task ids. Every task is leaf-sized
 — one package (or ≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf — and names its `leaf:` (a
-`subagent_type`, `code-worker` for MEDIUM+ changes), `Agent:` (requested agent or in-context) and `owns:` files
+`subagent_type`, `claude` for MEDIUM+ changes), `Agent:` (requested agent or in-context) and `owns:` files
 (`skills/subagent-workflows/SKILL.md` -> Leaf types). A commit that touches every `owns:` file ticks the task
 (`docs-plan-tick`). Start with a repo path; later entries may abbreviate against the previous one: a bare name sits in
 its directory, `<dir>/<file>` drops the shared leading part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
-`- [ ] Phase 2.1 — Add --attach — leaf: code-worker, Agent: opencode — owns: internal/agent/engine_cli.go`
+`- [ ] Phase 2.1 — Add --attach — leaf: opencode, Agent: opencode — owns: internal/agent/engine_cli.go`
 
 Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
 point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a
 multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md`.
 
-- [ ] Phase 0.1 — Capture the baseline — leaf: code-worker, Agent: in-context — owns: /tmp/<slug>
+- [ ] Phase 0.1 — Capture the baseline — leaf: claude, Agent: in-context — owns: /tmp/<slug>
 - [ ] Phase 1.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
 - [ ] Phase 2.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
 - [ ] **you** — Decide D1 before Phase N
