@@ -634,11 +634,24 @@ func agyModel(req agent.RunOptions, t providers.Target) string {
 		t.Model = AgyDefaultModel
 	}
 	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
-	if agent.GeminiGatewayRow(t.Provider) {
-		_, arg := agyGatewayArg(gt.Model)
-		return arg
+	if agent.GeminiGatewayRow(t.Provider) { // gateway agy lists only the base id; the effort rides --effort (agyGatewayEffort)
+		base, _ := agyGatewayArg(gt.Model)
+		return base
 	}
 	return gt.Model
+}
+
+// agyGatewayEffort is the effort a gateway run passes as --effort: the caller's, else the pinned id's suffix.
+func agyGatewayEffort(req agent.RunOptions, t providers.Target) string {
+	if req.Effort != "" || !agent.GeminiGatewayRow(t.Provider) {
+		return req.Effort
+	}
+	if t.Model == "" {
+		t.Model = AgyDefaultModel
+	}
+	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
+	base, arg := agyGatewayArg(gt.Model)
+	return strings.TrimPrefix(strings.TrimPrefix(arg, base), "-")
 }
 
 // newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
@@ -648,7 +661,7 @@ func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) (agyRequest, error) {
 		return agyRequest{}, err
 	}
 	return agyRequest{
-		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: agyGatewayEffort(req, p.Target), Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 		Settings: settings, Unmapped: unmapped,
 	}, nil

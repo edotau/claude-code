@@ -175,8 +175,8 @@ func (t *RouteTable) gateLead(
 		if prof == "" || (i > 0 && prof == o.Lead) {
 			continue
 		}
-		if agent == "gemini" && !googleRow(pg.reg, prof) {
-			res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google only, not " + prof})
+		if agent == "gemini" && !geminiRow(pg.reg, prof) {
+			res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks gateway row, not " + prof})
 			continue
 		}
 		lead = append(lead, t.gateRow(ctx, pg, alias, agent, prof, spec.Model, i > 0, st, o, now, configured, res)...)
@@ -206,10 +206,14 @@ func loginProfiles(reg *providers.Registry, agent string) []string {
 	return rows
 }
 
-// googleRow reports a registry row on provider google (gemini's only allowed route).
-func googleRow(reg *providers.Registry, name string) bool {
+// geminiRow reports a row gemini can run on: Google first-party, or a Databricks gateway row named on command.
+func geminiRow(reg *providers.Registry, name string) bool {
 	p := reg.Providers[name]
-	return p != nil && p.Provider == "google"
+	if p == nil {
+		return false
+	}
+	m := p.Auth.Method()
+	return p.Provider == "google" || p.Preset == providers.PresetDatabricks && p.Auth.Login == "" && m != providers.AuthNone && m != providers.AuthCLI
 }
 
 // gateCodexExtras adds the session Databricks codex candidate and, when codex is wanted, the copilot hop.

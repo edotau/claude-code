@@ -144,7 +144,7 @@ func TestPickUnpinnedSessionDefaultOrder(t *testing.T) {
 }
 
 func TestPickGeminiStaysOnGoogle(t *testing.T) {
-	got := accountsOf(vendorPick(t, "gemini", true, nil, "dev"), "gemini")
+	got := accountsOf(vendorPick(t, "gemini", true, nil, ""), "gemini") // no lead: the default path stays on Google
 	if len(got) == 0 {
 		t.Fatal("no gemini candidate")
 	}

@@ -247,6 +247,10 @@ func ResolveLead(reg *providers.Registry, agentName, profile, provider string) (
 	fromSession := profile == LeadSession
 	if fromSession {
 		profile = cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+		// a session-inherited lead never moves gemini off its pin; only a named profile or provider does
+		if p := reg.Providers[profile]; agentName == "gemini" && provider == "" && (p == nil || p.Provider != "google") {
+			return "", nil
+		}
 	}
 	if profile != "" && reg.Providers[profile] == nil {
 		return "", fmt.Errorf("profile %s is not in the registry", profile)
