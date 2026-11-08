@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -129,10 +130,10 @@ func reapSockets(snapshot []job.Record, dryRun bool, verb string, out io.Writer)
 	for _, rec := range snapshot {
 		records[rec.ID] = rec
 	}
-	socks, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*"+agent.LiveSockSuffix))
+	socks, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*"+wire.LiveSockSuffix))
 	n := 0
 	for _, sock := range socks {
-		id := strings.TrimSuffix(filepath.Base(sock), agent.LiveSockSuffix)
+		id := strings.TrimSuffix(filepath.Base(sock), wire.LiveSockSuffix)
 		if rec, ok := records[id]; ok && rec.Alive() {
 			continue
 		}

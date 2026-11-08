@@ -14,17 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-const (
-	LiveSchema     = 1
-	LiveSockSuffix = ".sock"
-)
-
-// LiveRequest is the one line a client sends on the session socket: a single user turn.
-type LiveRequest struct {
-	Schema int    `json:"schema"`
-	Prompt string `json:"prompt"`
-}
-
 // LiveBackend is how one agent holds a session open: build the process, write a turn, parse one turn's events.
 type LiveBackend interface {
 	// Build returns the unstarted child and the provider profile it routes through.
