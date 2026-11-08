@@ -141,23 +141,26 @@ func (s *Server) handlePlans(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
-// resolvePlan maps a request path to a real .md file inside the plans root; false means reject.
-func (s *Server) resolvePlan(rel string) (string, bool) {
+var errPlanPath = errors.New("invalid plan path")
+
+// resolvePlan maps a request path to a real .md file inside the plans root; errPlanPath rejects it,
+// and a missing file returns its os error (errors.Is os.ErrNotExist).
+func (s *Server) resolvePlan(rel string) (string, error) {
 	if !plainPlanRel(rel) {
-		return "", false
+		return "", errPlanPath
 	}
 	root, err := filepath.EvalSymlinks(s.plansRoot())
 	if err != nil {
-		return "", false
+		return "", err
 	}
 	full, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
-		return "", false
+		return "", err
 	}
 	if in, err := filepath.Rel(root, full); err != nil || in == ".." || strings.HasPrefix(in, ".."+string(filepath.Separator)) {
-		return "", false
+		return "", errPlanPath
 	}
-	return full, true
+	return full, nil
 }
 
 // plainPlanRel accepts only a relative, slash-separated .md path with no ".." element.
@@ -171,8 +174,12 @@ func plainPlanRel(rel string) bool {
 
 func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
-	full, ok := s.resolvePlan(rel)
-	if !ok {
+	full, err := s.resolvePlan(rel)
+	if errors.Is(err, os.ErrNotExist) {
+		http.Error(w, "plan not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
 		http.Error(w, "invalid plan path", http.StatusBadRequest)
 		return
 	}
@@ -232,8 +239,8 @@ func (s *Server) handlePlanTick(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web: bad tick request", http.StatusBadRequest)
 		return
 	}
-	full, ok := s.resolvePlan(req.Path)
-	if !ok {
+	full, err := s.resolvePlan(req.Path)
+	if err != nil {
 		http.Error(w, "invalid plan path", http.StatusBadRequest)
 		return
 	}

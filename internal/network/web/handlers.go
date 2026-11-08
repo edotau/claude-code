@@ -65,7 +65,7 @@ func (s *Server) handleDispatches(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), sshTimeout)
 	defer cancel()
-	statuses, err := s.status.get(ctx, resolved, s.run, s.now())
+	statuses, err := s.status.get(ctx, resolved, s.run, s.now)
 	if err != nil {
 		http.Error(w, "web: "+err.Error(), http.StatusBadGateway)
 		return
@@ -273,16 +273,19 @@ func (c *statusCache) entry(host string) *hostStatus {
 
 // get returns host's cached pane statuses, refreshing via run when the cache has aged past
 // statusCacheTTL. It never returns raw captures — only the classified, bounded tailscale.PaneStatus.
-func (c *statusCache) get(ctx context.Context, host string, run tailscale.RemoteRunner, now time.Time) ([]tailscale.PaneStatus, error) {
+func (c *statusCache) get(ctx context.Context, host string, run tailscale.RemoteRunner, clock func() time.Time) ([]tailscale.PaneStatus, error) {
 	h := c.entry(host)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if !h.sampled.IsZero() && now.Sub(h.sampled) < statusCacheTTL {
+	if !h.sampled.IsZero() && clock().Sub(h.sampled) < statusCacheTTL {
 		return h.statuses, nil
 	}
 	caps, err := tailscale.CapturePanes(ctx, host, true, run)
+	now := clock()
 	h.statuses = tailscale.ObservePanes(h.statuses, caps, err, now)
-	h.sampled = now
+	if err == nil { // a failed capture is not a sample: the next request retries
+		h.sampled = now
+	}
 	if err != nil && len(h.statuses) == 0 {
 		return nil, err
 	}

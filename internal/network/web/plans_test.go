@@ -102,6 +102,14 @@ func TestPlansAPIPathGuard(t *testing.T) {
 	}
 }
 
+func TestPlansAPIMissingFileReturnsNotFound(t *testing.T) {
+	s, _ := plansServer(t)
+	w := getPlan(t, s, "missing.md")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("missing plan = %d %s, want 404", w.Code, w.Body)
+	}
+}
+
 // /api/plan answers 404, never 500, for a directory named like a plan.
 func TestPlansAPIDirectoryNamedMd(t *testing.T) {
 	s, dir := plansServer(t)

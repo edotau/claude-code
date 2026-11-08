@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,6 +117,18 @@ func TestHandleViewFollowStreamsResultLine(t *testing.T) {
 	}
 }
 
+// readyCtx wraps a request context and closes ready the first time Done is polled.
+type readyCtx struct {
+	context.Context
+	ready chan struct{}
+	once  sync.Once
+}
+
+func (c *readyCtx) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.ready) })
+	return c.Context.Done()
+}
+
 // --- follow=1 stops when the request context is cancelled, for an agent that never finishes ---
 
 // TestHandleViewFollowStopsOnContextCancel uses an agent with no new events and no terminal result
@@ -127,7 +140,10 @@ func TestHandleViewFollowStopsOnContextCancel(t *testing.T) {
 	s := newTestServer(t, Options{ClaudeDir: agenttreeTestdata, Days: 36500}, nil)
 	// A real server (not httptest.ResponseRecorder) so cancelling mid-request is a genuine client
 	// disconnect the server side can observe via r.Context().
-	srv := httptest.NewServer(s.mux)
+	ready := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mux.ServeHTTP(w, r.WithContext(&readyCtx{Context: r.Context(), ready: ready}))
+	}))
 	defer srv.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,7 +169,11 @@ func TestHandleViewFollowStopsOnContextCancel(t *testing.T) {
 		errc <- err
 	}()
 
-	time.Sleep(200 * time.Millisecond) // let handleView reach tree.Follow's poll loop
+	select { // Done is first polled by tree.Follow's loop, so cancelling after this is mid-follow
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handleView never reached tree.Follow's poll loop")
+	}
 	cancel()
 
 	select {

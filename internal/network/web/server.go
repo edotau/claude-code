@@ -119,6 +119,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("web: listen %s: %w", s.boundAddr, err)
 	}
+	s.boundAddr = ln.Addr().String() // port 0 resolves to the kernel's pick; hostAllowed must match it
 	srv := &http.Server{
 		Handler:           s.mux,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -320,13 +321,18 @@ func (s *Server) hostAllowed(hostHeader string) bool {
 // https) or when a browser extension spoofs Host but can't spoof these.
 func (s *Server) checkOrigin(r *http.Request) bool {
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
-		return site == "same-origin" || site == "none"
+		return site == "same-origin" || site == "none" || isTopLevelRead(r)
 	}
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true // no browser-set origin info at all (curl, same-origin fetch omitting it): allow
 	}
 	return s.hostAllowed(strings.TrimPrefix(strings.TrimPrefix(origin, "https://"), "http://"))
+}
+
+// isTopLevelRead reports a GET/HEAD top-level navigation (a link or address bar from another site), which sends no state change.
+func isTopLevelRead(r *http.Request) bool {
+	return r.Header.Get("Sec-Fetch-Mode") == "navigate" && (r.Method == http.MethodGet || r.Method == http.MethodHead)
 }
 
 // checkCSRF requires the per-process token on every mutating request, via header only (never a form

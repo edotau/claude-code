@@ -154,6 +154,28 @@ func TestGuardAndOriginOnTree(t *testing.T) {
 	}
 }
 
+func TestGuardAllowsCrossSiteTopLevelReads(t *testing.T) {
+	s := newTestServer(t, Options{}, nil)
+	for _, tt := range []struct {
+		method, mode, host string
+		want               int
+	}{
+		{http.MethodGet, "navigate", "127.0.0.1:7777", http.StatusOK},
+		{http.MethodHead, "navigate", "127.0.0.1:7777", http.StatusOK},
+		{http.MethodGet, "cors", "127.0.0.1:7777", http.StatusForbidden},
+		{http.MethodGet, "navigate", "evil.example", http.StatusMisdirectedRequest},
+	} {
+		t.Run(tt.method+"/"+tt.mode+"/"+tt.host, func(t *testing.T) {
+			req := newReq(t, tt.method, "/", tt.host)
+			req.Header.Set("Sec-Fetch-Site", "cross-site")
+			req.Header.Set("Sec-Fetch-Mode", tt.mode)
+			if w := do(s, req); w.Code != tt.want {
+				t.Fatalf("cross-site %s %s = %d %s, want %d", tt.method, tt.mode, w.Code, w.Body, tt.want)
+			}
+		})
+	}
+}
+
 // --- CSRF ---
 
 func dispatchForm(host, agent, dir, task string) *url.Values {
@@ -538,6 +560,46 @@ func TestHandleDispatchesStaleCacheExpiresAndResamples(t *testing.T) {
 	}
 	if *calls != 2 {
 		t.Errorf("a request past the cache TTL should resample, got %d capture calls, want 2", *calls)
+	}
+}
+
+func TestHandleDispatchesCaptureFailureKeepsClassifiedStatus(t *testing.T) {
+	fakeNow := time.Now()
+	var captureErr error
+	run := func(context.Context, []string) ([]byte, error) {
+		return []byte(webCaptureFrame("cc-claude-a", "%1", "claude", "claude", "$ ")), captureErr
+	}
+	s := newStatusTestServer(t, Options{}, run, func() time.Time { return fakeNow })
+	if w := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777")); w.Code != http.StatusOK {
+		t.Fatalf("initial capture = %d %s, want 200", w.Code, w.Body)
+	}
+	fakeNow = fakeNow.Add(statusCacheTTL + time.Second)
+	captureErr = errSimulatedSSH
+	w := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("failed refresh with cached pane = %d %s, want 200", w.Code, w.Body)
+	}
+	var statuses []tailscale.PaneStatus
+	if err := json.Unmarshal(w.Body.Bytes(), &statuses); err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].Session != "cc-claude-a" || statuses[0].State != tailscale.StateError {
+		t.Fatalf("failed refresh statuses = %+v, want cached pane classified as error", statuses)
+	}
+}
+
+func TestHandleDispatchesRetriesFailedFirstCapture(t *testing.T) {
+	run, calls := countingCaptureRunner("", errSimulatedSSH)
+	now := time.Now()
+	s := newStatusTestServer(t, Options{}, run, func() time.Time { return now })
+	for i := range 2 {
+		w := do(s, newReq(t, "GET", "/api/dispatches?host=localhost", "127.0.0.1:7777"))
+		if w.Code != http.StatusBadGateway {
+			t.Fatalf("request %d: status = %d, want 502 after failed capture; body=%s", i, w.Code, w.Body)
+		}
+	}
+	if *calls != 2 {
+		t.Fatalf("failed first capture must retry immediately, got %d calls, want 2", *calls)
 	}
 }
 
