@@ -24,7 +24,8 @@ func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target,
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
 		return t, "", nil
 	}
-	detail, ok := copilotHeadroom(context.Background(), copilotPinLogin())
+	// the target GitHub row's own login: an explicit --profile personal is gated on that account, not the copilot pin
+	detail, ok := copilotHeadroom(context.Background(), cmp.Or(t.Provider.Login, copilotPinLogin()))
 	if ok {
 		return t, "", nil
 	}
