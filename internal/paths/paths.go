@@ -383,3 +383,15 @@ func VSCodeSettings() (string, error) {
 		return filepath.Join(home, ".config", "Code", "User", "settings.json"), nil
 	}
 }
+
+// SelfBinary is the resolved absolute path of the running harness binary.
+func SelfBinary() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return filepath.Abs(exe)
+}

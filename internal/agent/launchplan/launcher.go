@@ -3,8 +3,6 @@ package launchplan
 import (
 	"cmp"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -153,16 +151,4 @@ func applyModel(sel *providers.Selection, model string, session bool, verbAlias 
 // IsHeadless reports a `claude -p`/`--print` run, the only launch that carries the setup-token.
 func IsHeadless(args []string) bool {
 	return slices.Contains(args, "-p") || slices.Contains(args, "--print")
-}
-
-// SelfBinary is the resolved absolute path of the running harness binary.
-func SelfBinary() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
-	}
-	return filepath.Abs(exe)
 }

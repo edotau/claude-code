@@ -27,7 +27,7 @@ import (
 // Seams for tests.
 var (
 	findClaude = ClaudeBinary
-	selfBinary = launchplan.SelfBinary
+	selfBinary = paths.SelfBinary
 )
 
 // wipeKeys are inherited Anthropic knobs that would override the launch's own resolution.
