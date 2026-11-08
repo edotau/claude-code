@@ -1,7 +1,9 @@
 ---
 name: Plan
 description: |
-  Software architect for implementation plans; overrides the built-in Plan agent so plan mode and `subagent_type: "Plan"` follow this harness's planning rules. Read-only: explores the codebase, weighs trade-offs, returns a plan in `docs/templates/plan.md` ending with a `## Tasks` checklist. Use for "plan this", "how should we build", plan mode research, and any MEDIUM+ change before code is written.
+  Read-only planner on the session's own model: explores the code, weighs trade-offs, returns a plan in `docs/templates/plan.md` form ending in `## Tasks`; overrides the built-in Plan so plan mode follows this harness's rules.
+  Dispatch: subagent_type Plan, description "<session model>: plan <topic>" (e.g. "claude-opus-5-5: plan profile fold").
+  Use for: plan mode research, "plan this" / "how should we build", any MEDIUM+ change before code is written.
 tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
 model: inherit
 ---

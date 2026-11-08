@@ -1,12 +1,14 @@
 ---
 name: claude
 description: |
-  The default in-context coding agent and leaf (`subagent_type: claude`, headless `claude-code agents ask --agent claude`): one well-scoped task, or a full lifecycle, done in this context. Use it to explore, design, implement, simplify and self-review ("how should we build this" through "ready to verify"), to review a diff, or as one of N parallel leaves, each owning named files. A leaf: it cannot fan out.
+  In-context coding leaf on the session's own model: one scoped task, or explore → design → implement → simplify → self-review, done in this context. A leaf: it cannot fan out.
+  Dispatch: subagent_type claude, description "<session model>: <task>" (e.g. "claude-opus-5-5: add cache layer"). Headless: `claude-code agents ask --agent claude`.
+  Use for: a scoped edit, a design-then-build task, a diff review, one of N parallel leaves each owning named files.
 
   <example>
   Context: Cross-module change with real design choices to make.
   user: "We need to add a caching layer before the request handler."
-  assistant: "Dispatching claude — it surveys current caching, weighs 2-3 integration points, plans, then implements, simplifies, and self-reviews."
+  assistant: Agent(subagent_type: "claude", description: "claude-opus-5-5: add caching layer before the request handler") — it surveys current caching, weighs 2-3 integration points, implements, simplifies and self-reviews.
   </example>
 model: inherit
 color: blue

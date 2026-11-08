@@ -1,12 +1,14 @@
 ---
 name: copilot
 description: |
-  Agent on the GitHub Copilot CLI (`claude-code copilot <verb>` or headless `claude-code agents ask --agent copilot`). TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer (rename, module move, signature change, newly failing suite), and writes NEW coverage once the live check confirms the behavior. LAST-MILE: merges verified worktree branches and writes the conventional commit AFTER gates are green. Not the release gate nor memory.
+  Leaf on the GitHub Copilot CLI. Must report a `ran on` line.
+  Dispatch: subagent_type copilot, description "<routed model>: <task>"; <routed model> = copilot's vault pin, else its route-table model (e.g. "gpt-6.1-sol: repair tests for rename"). CLI: `claude-code copilot <verb>`; headless `claude-code agents ask --agent copilot`.
+  Use for: TEST (primary): repair the EXISTING tests a change breaks, dispatched in the SAME message as the implementer; write NEW coverage once the live check confirms behavior. LAST-MILE: merge verified worktree branches and write the conventional commit after gates are green. Not the release gate nor memory.
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.
   user: "Rename ResolveEnv to CanonicalizeEnv everywhere."
-  assistant: "Dispatching an implementer and copilot (TEST mode) in the same message — copilot repairs every existing test the rename breaks, concurrently."
+  assistant: Agent(subagent_type: "copilot", description: "gpt-6.1-sol: repair tests broken by the ResolveEnv rename"), in the same message as the implementer.
   </example>
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 hooks:
