@@ -1,4 +1,4 @@
-package agent
+package client
 
 import (
 	"context"
@@ -8,7 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
+
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -38,7 +41,7 @@ func TestPreparePacksAndKeepsRecordCompact(t *testing.T) {
 	dir := gitRepoWith(t, map[string]string{"main.go": "package main // NEEDLE-1", ".env": "TOKEN=hunter2"})
 	var notes []string
 	client := NewClient(router.RuleClassifier{}.Alias, nil, func(s string) { notes = append(notes, s) })
-	p, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "explain", WorkDir: dir,
+	p, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "explain", WorkDir: dir,
 		Fallback: router.FallbackNone, Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare() = %v", err)
@@ -54,7 +57,7 @@ func TestPreparePacksAndKeepsRecordCompact(t *testing.T) {
 func TestPrepareRefusesPackWithHost(t *testing.T) {
 	setupWorkdirFixture(t)
 	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
-	_, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "p", Host: "box",
+	_, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "p", Host: "box",
 		Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "--host") {
 		t.Fatalf("Prepare() = %v, want a --host refusal", err)
@@ -63,26 +66,26 @@ func TestPrepareRefusesPackWithHost(t *testing.T) {
 
 // Given a lead with a 1M window and a stub on a 200K model, an n between their budgets drops only the stub.
 func TestFitChainSkipsSmallWindows(t *testing.T) {
-	lead := Dispatch{Agent: &fakeRunner{name: "claude"}, Model: "claude-sonnet-5-5[1m]"}
-	small := Dispatch{Agent: &fakeRunner{name: "stub"}, Model: "mystery-model"}
-	chain := Chain{Dispatches: []Dispatch{lead, small}}
-	lb, _ := packBudget(lead, RunOptions{}, false)
-	sb, _ := packBudget(small, RunOptions{}, false)
+	lead := agent.Dispatch{Agent: stubEngine("claude"), Model: "claude-sonnet-5-5[1m]"}
+	small := agent.Dispatch{Agent: stubEngine("stub"), Model: "mystery-model"}
+	chain := agent.Chain{Dispatches: []agent.Dispatch{lead, small}}
+	lb, _ := packBudget(lead, agent.RunOptions{}, false)
+	sb, _ := packBudget(small, agent.RunOptions{}, false)
 	if sb >= lb {
 		t.Fatalf("fixture: small budget %d must be under lead %d", sb, lb)
 	}
-	got := fitChain(chain, (lb+sb)/2, RunOptions{})
+	got := fitChain(chain, (lb+sb)/2, agent.RunOptions{})
 	if len(got.Dispatches) != 1 || len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0], "stub") {
 		t.Fatalf("chain = %+v, want only the lead and a skip naming stub", got)
 	}
-	if kept := fitChain(chain, sb-1, RunOptions{}); len(kept.Dispatches) != 2 {
+	if kept := fitChain(chain, sb-1, agent.RunOptions{}); len(kept.Dispatches) != 2 {
 		t.Errorf("a prompt under both budgets must keep both, got %+v", kept)
 	}
 }
 
 func TestPackBudgetArgvCap(t *testing.T) {
-	d := Dispatch{Agent: &fakeRunner{name: "opencode"}, Model: "claude-sonnet-5-5[1m]"}
-	if got, note := packBudget(d, RunOptions{}, false); got != MaxPromptBytes || !strings.Contains(note, "argv prompt cap") {
+	d := agent.Dispatch{Agent: stubEngine("opencode"), Model: "claude-sonnet-5-5[1m]"}
+	if got, note := packBudget(d, agent.RunOptions{}, false); got != agent.MaxPromptBytes || !strings.Contains(note, "argv prompt cap") {
 		t.Errorf("budget = %d (%q), want MaxPromptBytes with a cap note", got, note)
 	}
 }
@@ -92,9 +95,9 @@ func TestPackPromptFileTransport(t *testing.T) {
 	setupWorkdirFixture(t)
 	body := strings.Repeat("x", 300<<10)
 	dir := gitRepoWith(t, map[string]string{"big.txt": body, ".env": "TOKEN=hunter2"})
-	lead := Dispatch{Agent: &fakeRunner{name: "gemini"}, Model: "claude-sonnet-5-5[1m]"}
-	p := &Prepared{Opts: RunOptions{Prompt: "find it", WorkDir: dir, Pack: &pack.Spec{Dirs: []string{"."}, MaxFileBytes: 400 << 10}},
-		chain: Chain{Dispatches: []Dispatch{lead}}}
+	lead := agent.Dispatch{Agent: stubEngine("gemini"), Model: "claude-sonnet-5-5[1m]"}
+	p := &Prepared{Opts: agent.RunOptions{Prompt: "find it", WorkDir: dir, Pack: &pack.Spec{Dirs: []string{"."}, MaxFileBytes: 400 << 10}},
+		Chain: agent.Chain{Dispatches: []agent.Dispatch{lead}}}
 	p.Record.ID = "id1"
 	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
 		t.Fatal(err)
@@ -126,8 +129,8 @@ func TestPackPromptFileTransport(t *testing.T) {
 // Given a gemini lead (pack read from a file with tools), --read-only is refused before any launch.
 func TestPackPromptRefusesReadOnlyOnFileRoute(t *testing.T) {
 	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
-	o := RunOptions{Prompt: "p", WorkDir: dir, ReadOnly: true, Pack: &pack.Spec{Dirs: []string{"."}}}
-	p := &Prepared{Opts: o, chain: Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "gemini"}}}}}
+	o := agent.RunOptions{Prompt: "p", WorkDir: dir, ReadOnly: true, Pack: &pack.Spec{Dirs: []string{"."}}}
+	p := &Prepared{Opts: o, Chain: agent.Chain{Dispatches: []agent.Dispatch{{Agent: stubEngine("gemini")}}}}
 	err := NewClient(router.RuleClassifier{}.Alias, nil, nil).packPrompt(context.Background(), p)
 	if err == nil || !strings.Contains(err.Error(), "--read-only") {
 		t.Fatalf("packPrompt() = %v, want a --read-only refusal", err)
@@ -141,8 +144,8 @@ func TestPackPromptFilePathAbsoluteForRelativeWorkdir(t *testing.T) {
 	if err := os.Mkdir("sub", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p := &Prepared{Opts: RunOptions{Prompt: "p", WorkDir: "sub", Pack: &pack.Spec{Dirs: []string{"."}}},
-		chain: Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "gemini"}}}}}
+	p := &Prepared{Opts: agent.RunOptions{Prompt: "p", WorkDir: "sub", Pack: &pack.Spec{Dirs: []string{"."}}},
+		Chain: agent.Chain{Dispatches: []agent.Dispatch{{Agent: stubEngine("gemini")}}}}
 	p.Record.ID = "id1"
 	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
 		t.Fatal(err)
@@ -151,4 +154,14 @@ func TestPackPromptFilePathAbsoluteForRelativeWorkdir(t *testing.T) {
 	if want := filepath.Join(abs, pack.FilePrefix+"id1.md"); p.pack.path != want || !strings.Contains(p.Opts.Prompt, want) {
 		t.Fatalf("pack path = %q, prompt = %q, want absolute %q", p.pack.path, p.Opts.Prompt, want)
 	}
+}
+
+// stubEngine is an agent.Engine that only has a name; the pack tests never run it.
+type stubEngine string
+
+func (s stubEngine) Name() string     { return string(s) }
+func (s stubEngine) Caps() agent.Caps { return agent.Caps{} }
+func (s stubEngine) Available() error { return nil }
+func (s stubEngine) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
+	return wire.Result{}, nil
 }

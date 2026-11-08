@@ -36,7 +36,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	dir, reg, sel := fallbackTargetFixture(t)
 	sub := sel.Provider
 	// codex: subscription can't serve it, no ChatGPT login present -> target unchanged, no note.
-	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, false)
+	target, note, err := SchemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "codex", "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	target, note, err = schemaFor("codex").ResolveTarget(reg, sel, false)
+	target, note, err = SchemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func assertFallbackModelPinAndExplicitProvider(t *testing.T, reg *providers.Regi
 	// The CODEX_MODEL pin beats chatgpt's opus alias and codexOwnModel's config.toml (unset here).
 	vaulttest.SetRecord(t, "codex", "model", "")
 	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
-	target, _, err := schemaFor("codex").ResolveTarget(reg, sel, false)
+	target, _, err := SchemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func assertFallbackModelPinAndExplicitProvider(t *testing.T, reg *providers.Regi
 	}
 
 	// An explicit provider choice is never overridden by a fallback.
-	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, true)
+	target, note, err := SchemaFor("codex").ResolveTarget(reg, sel, true)
 	if err != nil {
 		t.Fatal(err)
 	}

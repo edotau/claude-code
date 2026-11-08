@@ -87,7 +87,7 @@ type Authenticator interface {
 }
 
 func authenticator(name string) (Authenticator, bool) {
-	a, ok := schemaFor(name).eng().(Authenticator)
+	a, ok := SchemaFor(name).eng().(Authenticator)
 	return a, ok
 }
 

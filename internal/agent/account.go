@@ -37,7 +37,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 }
 
 func billedAgentTarget(agentName, model string) providers.Target {
-	t, own, _, err := schemaFor(agentName).targetNote(RunOptions{Provider: sessionProvider(agentName), Model: model})
+	t, own, _, err := SchemaFor(agentName).targetNote(RunOptions{Provider: sessionProvider(agentName), Model: model})
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == agentName {
 		return providers.Target{}
 	}

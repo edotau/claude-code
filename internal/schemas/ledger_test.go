@@ -38,7 +38,7 @@ var writers = map[string]string{
 	"internal/providers/lastprofile.go:loadLastProfiles":              unversioned("backup: the corrupt last-profile.json copied aside before it is replaced"),
 	"internal/agentconfig/overlay_debug.go:appendOverlayDebug":        unversioned("debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values"),
 	"internal/agentconfig/overlay_debug.go:overlayDebugSalt":          unversioned("debug: the generated fingerprint salt beside the --overlay-debug file"),
-	"internal/agent/pack_prompt.go:write":                             unversioned("foreign: the packed context file an agy run reads, removed after the run"),
+	"internal/agent/client/pack_prompt.go:write":                      unversioned("foreign: the packed context file an agy run reads, removed after the run"),
 	"internal/agent/dispatchlog.go:claimRecord":                       unversioned("claim: the running record, linked in whole"),
 	"internal/agent/wire/log.go:openLocked":                           unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/wire/event.go:NewEventLog":                        "dispatch-events",

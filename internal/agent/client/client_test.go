@@ -1,4 +1,4 @@
-package agent
+package client
 
 import (
 	"cmp"
@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -25,20 +27,20 @@ import (
 // Explicit Model/Provider/Effort beat the definition's.
 func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
 	c := &Client{}
-	defs := map[string]*Schema{"sec": {Name: "sec", Prompt: "client", Model: "cm", Profile: "cp", Effort: "low"}}
-	o := RunOptions{Agent: "sec", Agents: defs, Model: "mine", Provider: "myprov", Effort: "max"}
+	defs := map[string]*agent.Schema{"sec": {Name: "sec", Prompt: "client", Model: "cm", Profile: "cp", Effort: "low"}}
+	o := agent.RunOptions{Agent: "sec", Agents: defs, Model: "mine", Provider: "myprov", Effort: "max"}
 	if err := c.resolve(&o); err != nil || o.Model != "mine" || o.Provider != "myprov" || o.Effort != "max" || o.Agent != "claude" {
 		t.Fatalf("explicit options lost: %+v, %v", o, err)
 	}
 	t.Run("definition defaults", func(t *testing.T) { assertDefinitionOverlay(t, c, defs) })
-	if o = (RunOptions{Agent: "ghost"}); c.resolve(&o) == nil {
+	if o = (agent.RunOptions{Agent: "ghost"}); c.resolve(&o) == nil {
 		t.Error("an unknown ref must fail resolve")
 	}
 }
 
-func assertDefinitionOverlay(t *testing.T, c *Client, defs map[string]*Schema) {
+func assertDefinitionOverlay(t *testing.T, c *Client, defs map[string]*agent.Schema) {
 	t.Helper()
-	o := RunOptions{Agent: "sec", Agents: defs}
+	o := agent.RunOptions{Agent: "sec", Agents: defs}
 	if err := c.resolve(&o); err != nil || o.Model != "cm" || o.Provider != "cp" || o.Effort != "low" || o.Persona.Prompt != "client" {
 		t.Fatalf("definition not overlaid: %+v, %v", o, err)
 	}
@@ -47,7 +49,7 @@ func assertDefinitionOverlay(t *testing.T, c *Client, defs map[string]*Schema) {
 // A definition with `model: inherit` carries no model of its own, so nothing reaches routing.
 func TestOverlayInheritModelIsNone(t *testing.T) {
 	c := &Client{}
-	o := RunOptions{Agent: "plan", Agents: map[string]*Schema{"plan": {Name: "plan", Prompt: "p", Model: "inherit"}}}
+	o := agent.RunOptions{Agent: "plan", Agents: map[string]*agent.Schema{"plan": {Name: "plan", Prompt: "p", Model: "inherit"}}}
 	if err := c.resolve(&o); err != nil || o.Model != "" || o.Persona.Model != "inherit" {
 		t.Fatalf("inherit leaked into the request model: %+v, %v", o, err)
 	}
@@ -56,12 +58,12 @@ func TestOverlayInheritModelIsNone(t *testing.T) {
 // Record resolves the selector to its agent but, unlike Prepare, never routes or applies the rubric.
 func TestClientRecordSkipsRouting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	defs, err := ParseAgents(`{"sec":{"prompt":"p","agent":"codex"}}`)
+	defs, err := agent.ParseAgents(`{"sec":{"prompt":"p","agent":"codex"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := NewClient(nil, nil, nil)
-	o := RunOptions{Agent: "sec", Agents: defs, Prompt: "x", Provider: "no-such-provider", Rubric: "/nonexistent/rubric.md"}
+	o := agent.RunOptions{Agent: "sec", Agents: defs, Prompt: "x", Provider: "no-such-provider", Rubric: "/nonexistent/rubric.md"}
 	if _, err := c.Prepare(t.Context(), o, nil); err == nil {
 		t.Fatal("control: Prepare should fail on the unknown provider")
 	}
@@ -137,12 +139,12 @@ func TestClientPrepareWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 func runPreparedWorkdir(t *testing.T, workdir string) wire.Result {
 	t.Helper()
 	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
-	p, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "test prompt",
+	p, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "test prompt",
 		Fallback: router.FallbackAgents, WorkDir: workdir}, nil)
 	if err != nil {
 		t.Fatalf("Prepare() = %v", err)
 	}
-	res, err := client.Exec(context.Background(), p, nil, RunRecordedOpts{})
+	res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 	if err != nil || len(res.Hops) != 1 || res.Answer != "ok" {
 		t.Fatalf("Exec() = %+v, %v; want one successful dispatch", res, err)
 	}
@@ -168,7 +170,7 @@ func TestClientRunNotifiesUnsavedRecord(t *testing.T) {
 	c := NewClient(nil, nil, func(s string) { notes = append(notes, s) })
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, _ = c.Run(ctx, RunOptions{Agent: "claude", Provider: "max", Prompt: "x"}, nil)
+	_, _ = c.Run(ctx, agent.RunOptions{Agent: "claude", Provider: "max", Prompt: "x"}, nil)
 	if !slices.ContainsFunc(notes, func(s string) bool { return strings.Contains(s, "record not saved before the run") }) {
 		t.Fatalf("notes = %q, want the pre-run 'record not saved' notice", notes)
 	}
@@ -182,9 +184,9 @@ type burstRunner struct {
 }
 
 func (*burstRunner) Name() string     { return "fake" }
-func (*burstRunner) Caps() Caps       { return Caps{} }
+func (*burstRunner) Caps() agent.Caps { return agent.Caps{} }
 func (*burstRunner) Available() error { return nil }
-func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w wire.Sink) (wire.Result, error) {
+func (b *burstRunner) Run(ctx context.Context, _ agent.RunOptions, w wire.Sink) (wire.Result, error) {
 	for range b.n {
 		_ = w.Emit(wire.Event{Type: wire.EventText, Text: "x"})
 	}
@@ -198,16 +200,16 @@ func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w wire.Sink) (wire.
 	return wire.Result{Answer: "a"}, nil
 }
 
-func streamPrepared(t *testing.T, r Engine) *Prepared {
+func streamPrepared(t *testing.T, r agent.Engine) *Prepared {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	return &Prepared{Opts: RunOptions{Agent: "fake", Prompt: "p"}, Record: ClaimRecord("fake", RunOptions{Prompt: "p"}, time.Now()), chain: Single(r)}
+	return &Prepared{Opts: agent.RunOptions{Agent: "fake", Prompt: "p"}, Record: agent.ClaimRecord("fake", agent.RunOptions{Prompt: "p"}, time.Now()), Chain: agent.Single(r)}
 }
 
 // streamPreparedRun streams p through c.Exec, as Stream does for a RunOptions.
 func streamPreparedRun(c *Client, p *Prepared) <-chan wire.Event {
 	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
-		return c.Exec(ctx, p, sink, RunRecordedOpts{})
+		return c.Exec(ctx, p, sink, agent.RunRecordedOpts{})
 	})
 }
 
@@ -272,7 +274,7 @@ func TestStreamStalledConsumerCancelsRun(t *testing.T) {
 	t.Cleanup(func() { streamStall = orig })
 	r := &burstRunner{n: streamBuffer, ctx: make(chan context.Context, 1)}
 	ch := (&Client{}).streamWith(context.Background(), "fake", func(ctx context.Context, w wire.Sink) (wire.Result, error) {
-		res, err := r.Run(ctx, RunOptions{}, w)
+		res, err := r.Run(ctx, agent.RunOptions{}, w)
 		for ctx.Err() == nil {
 			_ = w.Emit(wire.Event{Type: wire.EventText})
 			time.Sleep(5 * time.Millisecond)
@@ -294,9 +296,18 @@ func TestStreamStalledConsumerCancelsRun(t *testing.T) {
 // Given Prepare fails, Then the stream carries one failure result and closes.
 func TestStreamPrepareFailureYieldsOneResult(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	ch := (&Client{}).Stream(context.Background(), RunOptions{Agent: "no-such-agent", Prompt: "p"})
+	ch := (&Client{}).Stream(context.Background(), agent.RunOptions{Agent: "no-such-agent", Prompt: "p"})
 	results, last := drainEvents(ch)
 	if results != 1 || last.Type != wire.EventResult || last.Status != wire.StatusError {
 		t.Errorf("results = %d, last = %+v, want one error result", results, last)
+	}
+}
+
+// The chanSink queues no progress mark for a Client stream.
+func TestChanSinkDropsProgressMark(t *testing.T) {
+	cs := newChanSink(func(error) {})
+	_ = cs.Emit(wire.Event{Type: wire.EventProgress})
+	if len(cs.ch) != 0 {
+		t.Errorf("stream queued %d events; want none", len(cs.ch))
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -106,8 +108,8 @@ func (a *agentsFlag) Set(s string) error {
 }
 
 // NewClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
-func NewClient() *agent.Client {
-	return agent.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
+func NewClient() *client.Client {
+	return client.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 

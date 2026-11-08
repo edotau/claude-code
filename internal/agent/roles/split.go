@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -21,10 +23,10 @@ const MaxParts = 12
 var listMarker = regexp.MustCompile(`^(?:[-*•]|\d+[.)])\s+`)
 
 // splitRun is the model-call seam for Split.
-var splitRun = (*agent.Client).Run
+var splitRun = (*client.Client).Run
 
 // Split asks a cheap model for independent sub-questions; any error or a single line returns question whole.
-func Split(ctx context.Context, c *agent.Client, question string) []string {
+func Split(ctx context.Context, c *client.Client, question string) []string {
 	res, err := splitRun(c, ctx, agent.RunOptions{
 		Agent: "claude", Model: "haiku", NoTools: true, Timeout: 60 * time.Second,
 		Prompt: "Split into 2–4 independent sub-questions, one per line, no numbering:\n" + question,

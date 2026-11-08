@@ -328,7 +328,7 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 			}
 			vaulttest.SetRecord(t, c.agent, "model", pin)
 			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-			tg, _, _, err := schemaFor(c.agent).targetNote(RunOptions{Provider: c.profile, Model: c.flag})
+			tg, _, _, err := SchemaFor(c.agent).targetNote(RunOptions{Provider: c.profile, Model: c.flag})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -368,7 +368,7 @@ func stubRouter(t *testing.T, ensure func(context.Context) (string, error)) {
 
 func cfgFor(t *testing.T, ctx context.Context, vendor, provider, model string) ([]string, []string) {
 	t.Helper()
-	env, argv, err := schemaFor(vendor).Configure(ctx, target(t, provider, model), "")
+	env, argv, err := SchemaFor(vendor).Configure(ctx, target(t, provider, model), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestLaunchEnvCannotOverrideRouterBase(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
 	vaulttest.Put(t, vault.Overlay, "agents",
 		`{"agents":{"copilot":{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://evil.example.com","KEEP_ME=1"]}}}}`)
-	env, _, err := schemaFor("copilot").Configure(context.Background(), tg, "")
+	env, _, err := SchemaFor("copilot").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestAuthNoneNotRouted(t *testing.T) {
 	p := *tg.Provider
 	p.Auth = providers.Auth{Type: providers.AuthNone}
 	tg.Provider = &p
-	env, argv, err := schemaFor("codex").Configure(context.Background(), tg, "")
+	env, argv, err := SchemaFor("codex").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestAuthNoneNotRouted(t *testing.T) {
 
 func TestEnsureRouterErrorSurfaces(t *testing.T) {
 	stubRouter(t, func(context.Context) (string, error) { return "", errors.New("boom") })
-	_, _, err := schemaFor("codex").Configure(context.Background(), target(t, "openai", "gpt-5"), "")
+	_, _, err := SchemaFor("codex").Configure(context.Background(), target(t, "openai", "gpt-5"), "")
 	if err == nil || !strings.Contains(err.Error(), "router") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
 	}
@@ -452,7 +452,7 @@ func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 	ctx := WithDirect(context.Background())
 	own := map[string]string{"X-Tenant": "t1"}
 
-	_, argv, err := schemaFor("codex").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
+	_, argv, err := SchemaFor("codex").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 		t.Errorf("direct codex headers wrong: %q", argv)
 	}
 	for _, v := range []string{"opencode", "copilot"} {
-		env, _, err := schemaFor(v).Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
+		env, _, err := SchemaFor(v).Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -481,7 +481,7 @@ func TestGeminiRefusedOnRoutedRow(t *testing.T) {
 	if !CanServe("opencode", p) {
 		t.Error("control: opencode speaks gemini and should serve the row")
 	}
-	_, _, err := schemaFor("gemini").configureRoute(t.Context(), providers.Target{Provider: p, Model: "gemini-x"}, nil)
+	_, _, err := SchemaFor("gemini").configureRoute(t.Context(), providers.Target{Provider: p, Model: "gemini-x"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "agy has no custom base URL") {
 		t.Errorf("err = %v, want the agy no-custom-base-URL refusal", err)
 	}
@@ -491,14 +491,14 @@ func TestGeminiRefusedOnRoutedRow(t *testing.T) {
 func TestCodexInteractiveCarriesEffortPin(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
 	vaulttest.SetRecord(t, "codex", "effort", "medium")
-	_, argv, err := schemaFor("codex").Configure(context.Background(), tg, "")
+	_, argv, err := SchemaFor("codex").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(argv, `model_reasoning_effort="medium"`) {
 		t.Errorf("interactive argv = %q, want the effort pin", argv)
 	}
-	_, argv, err = schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", Effort: "low"})
+	_, argv, err = SchemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", Effort: "low"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +524,7 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 		if why == "" {
 			t.Fatalf("%s/%s: control: Serves has no reason", c.agent, c.p.Name)
 		}
-		_, _, err := schemaFor(c.agent).configureRoute(t.Context(), providers.Target{Provider: c.p, Model: "m"}, nil)
+		_, _, err := SchemaFor(c.agent).configureRoute(t.Context(), providers.Target{Provider: c.p, Model: "m"}, nil)
 		if err == nil || err.Error() != c.agent+": "+why {
 			t.Errorf("%s/%s: err = %v, want %q", c.agent, c.p.Name, err, c.agent+": "+why)
 		}

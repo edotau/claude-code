@@ -125,7 +125,7 @@ func TestVendorEngineNilProviderDefense(t *testing.T) {
 
 	// Call vendorTarget and check if t.Provider is nil when own=false.
 	// If it is, the subsequent code must handle it gracefully (not panic).
-	t_, own, err := schemaFor("opencode").target(req)
+	t_, own, err := SchemaFor("opencode").Target(req)
 
 	// If we got here without panicking, that's good. But we should also check
 	// that if own=false and we got a valid return, t.Provider is not nil OR
@@ -177,11 +177,11 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, _, err := schemaFor("codex").ResolveTarget(reg, sel, false)
+	rt, _, err := SchemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}
-	bt, _, _, _, err := schemaFor("codex").targetBase(RunOptions{Prompt: "p", Model: "haiku"})
+	bt, _, _, _, err := SchemaFor("codex").targetBase(RunOptions{Prompt: "p", Model: "haiku"})
 	if err != nil {
 		t.Fatalf("vendorTargetBase: %v", err)
 	}

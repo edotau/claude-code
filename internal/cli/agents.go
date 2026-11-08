@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/dispatch"
@@ -101,7 +103,7 @@ var agentsVerbs = map[string]func([]string) int{
 func cmdAgentsList(args []string) int {
 	fs := helptext.NewFlagSet("agents list", agentsListPage)
 	host := fs.String("host", "", "list the agents on this ssh host instead (runs its agents list --format)")
-	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
+	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+client.RemoteBinEnv+", then claude-code)")
 	format := fs.String("format", "text", "text, or json: per agent {name, binary, available, reason, caps, events}")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -111,7 +113,7 @@ func cmdAgentsList(args []string) int {
 		return 2
 	}
 	if *host != "" {
-		if err := agent.ListRemote(*host, agent.RemoteBin(*remoteBin), *format, os.Stdout); err != nil {
+		if err := client.ListRemote(*host, client.RemoteBin(*remoteBin), *format, os.Stdout); err != nil {
 			return helptext.Fail("%v", err)
 		}
 		return 0

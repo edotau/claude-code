@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/agent/client"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -56,7 +58,7 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 		return helptext.Fail("agents result: %v", err)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, agent.RecordEnvelope(rec, os.Stderr)); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, client.RecordEnvelope(rec, os.Stderr)); err != nil {
 			return helptext.Fail("agents result: %v", err)
 		}
 		return ResultExit(rec)
@@ -65,7 +67,7 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 	if log != "" && !strings.HasSuffix(log, "\n") {
 		fmt.Println()
 	}
-	if line := agent.RecordEnvelope(rec, os.Stderr).RanOn; line != "" {
+	if line := client.RecordEnvelope(rec, os.Stderr).RanOn; line != "" {
 		fmt.Println("ask:", line)
 	}
 	if rec.SessionID != "" {
@@ -157,11 +159,11 @@ func Send(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(pos) < 2 || !slices.Contains([]string{helptext.Text, helptext.JSON, agent.FormatStreamJSON}, *format) {
+	if len(pos) < 2 || !slices.Contains([]string{helptext.Text, helptext.JSON, client.FormatStreamJSON}, *format) {
 		fs.Usage()
 		return 2
 	}
-	prompt, err := agent.ResolveAskPrompt(strings.Join(pos[1:], " "))
+	prompt, err := client.ResolveAskPrompt(strings.Join(pos[1:], " "))
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
 	}

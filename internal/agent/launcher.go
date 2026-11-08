@@ -44,7 +44,8 @@ type Launcher interface {
 	Claude(ctx context.Context, o ClaudeOptions, args []string) (ClaudeLaunch, error)
 }
 
-var defaultLauncher Launcher
+// DefaultLauncher is the Launcher the one Register that supplies it installs; the Client hands it to new runs.
+var DefaultLauncher Launcher
 
 // LaunchOptions are the harness flags consumed before passthrough.
 type LaunchOptions struct {

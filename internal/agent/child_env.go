@@ -107,8 +107,8 @@ func withPermissionsEnv(ctx context.Context, p Permissions) context.Context {
 
 type unsetKey struct{}
 
-// withUnsetEnv carries names every child env built under ctx drops from its inherited base (an overlay's unset).
-func withUnsetEnv(ctx context.Context, names []string) context.Context {
+// WithUnsetEnv carries names every child env built under ctx drops from its inherited base (an overlay's unset).
+func WithUnsetEnv(ctx context.Context, names []string) context.Context {
 	if len(names) == 0 {
 		return ctx
 	}

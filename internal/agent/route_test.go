@@ -377,10 +377,10 @@ func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 // A run on an agent's own login reports the registry profile naming that login, never the retired "own-login".
 func TestOwnProfileNamesTheLoginRow(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if got := schemaFor("codex").OwnProfile(); got == "own-login" || got == "" {
+	if got := SchemaFor("codex").OwnProfile(); got == "own-login" || got == "" {
 		t.Errorf("OwnProfile(codex) = %q", got)
 	}
-	if got := schemaFor("opencode").OwnProfile(); got != "opencode" {
+	if got := SchemaFor("opencode").OwnProfile(); got != "opencode" {
 		t.Errorf("OwnProfile(opencode) = %q, want the agent name when no row names its login", got)
 	}
 }

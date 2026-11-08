@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/agent/job"
+
 	"github.com/edotau/claude-code/internal/agent"
 )
 
@@ -48,7 +50,7 @@ func saveResultRecord(t *testing.T, status, errMsg string) agent.Record {
 	cwd, _ := os.Getwd()
 	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.Status, rec.Error = status, errMsg
-	rec.Repo = agent.RepoRoot(context.Background(), cwd)
+	rec.Repo = job.RepoRoot(context.Background(), cwd)
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}

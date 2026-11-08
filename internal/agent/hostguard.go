@@ -52,7 +52,7 @@ func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.
 	if disp.Agent.Name() != "copilot" {
 		return ctx, disp
 	}
-	t, own, note, err := schemaFor("copilot").targetNote(req)
+	t, own, note, err := SchemaFor("copilot").targetNote(req)
 	if err != nil {
 		return ctx, disp // the agent reports its own resolution failure
 	}
@@ -68,7 +68,7 @@ func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, disp.Account) {
 		return disp
 	}
-	t, own, _, err := schemaFor(name).targetNote(req)
+	t, own, _, err := SchemaFor(name).targetNote(req)
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == name {
 		return disp
 	}
@@ -88,7 +88,7 @@ func (s Schema) TargetCtx(ctx context.Context, req RunOptions) (providers.Target
 		}
 		return t, f.own, nil
 	}
-	return s.target(req)
+	return s.Target(req)
 }
 
 // guardRouteHost fails a hop before any child starts when p's credential was issued for another host than its route.

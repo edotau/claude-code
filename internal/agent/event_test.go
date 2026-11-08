@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -69,28 +68,5 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	}
 	if got, _ := LoadRecord(rec.ID); got.Status != wire.StatusOK {
 		t.Fatalf("final record status = %q, want %q", got.Status, wire.StatusOK)
-	}
-}
-
-type recSink struct{ got []wire.Event }
-
-func (s *recSink) Emit(ev wire.Event) error { s.got = append(s.got, ev); return nil }
-
-// The chanSink queues no progress mark for a Client stream.
-func TestChanSinkDropsProgressMark(t *testing.T) {
-	cs := newChanSink(func(error) {})
-	_ = cs.Emit(wire.Event{Type: wire.EventProgress})
-	if len(cs.ch) != 0 {
-		t.Errorf("stream queued %d events; want none", len(cs.ch))
-	}
-}
-
-// A remote's progress mark counts as streamed output, so a failed remote tool-only run is not replayed.
-func TestRelayCountsProgressMark(t *testing.T) {
-	line := `{"schema":1,"seq":2,"type":"progress"}` + "\n"
-	rec := &recSink{}
-	_, streamed, err := remoteEngine{agent: "copilot"}.relay(context.Background(), strings.NewReader(line), rec, func() {}, func() {})
-	if err != nil || !streamed || len(rec.got) != 1 {
-		t.Fatalf("streamed=%v err=%v events=%v; want the mark relayed and counted", streamed, err, rec.got)
 	}
 }
