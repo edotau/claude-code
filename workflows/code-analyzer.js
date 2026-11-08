@@ -74,7 +74,7 @@ const stepOf = (steps, name, defaults, opt) => {
   const where = `steps.${name}`
   const v = (steps || {})[name] === undefined ? {} : steps[name]
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
-  for (const k of ['agent', 'profile']) if (k in v) throw new Error(`${where}.${k}: external agents were removed from workflows (claude only; use /code-worker:codex etc. outside the workflow)`)
+  for (const k of ['agent', 'profile']) if (k in v) throw new Error(`${where}.${k}: external agents were removed from workflows (claude only; use `claude-code agents ask` outside the workflow)`)
   for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
   const model = v.model !== undefined ? v.model : d.model || 'sonnet'
@@ -269,8 +269,8 @@ const planWaves = (tasks, hot, cap) => {
 }
 const planMarkdown = p => {
   const lines = ['## Tasks']
-  p.waves.forEach((ws, i) => ws.forEach((t, k) => lines.push(`- [ ] Wave ${i + 1}.${k + 1} — fix ${t.pkg} findings — leaf: code-worker, Agent: claude — owns: ${t.owns.join(', ')}`)))
-  if (p.hotspotTask) lines.push(`- [ ] Wave ${p.waves.length + 1}.1 — apply hotspot edits for ${p.hotspotTask.edits.map(e => e.pkg).join(', ')} — leaf: code-worker, Agent: claude — owns: ${p.hotspotTask.owns.join(', ')}`)
+  p.waves.forEach((ws, i) => ws.forEach((t, k) => lines.push(`- [ ] Wave ${i + 1}.${k + 1} — fix ${t.pkg} findings — leaf: claude — owns: ${t.owns.join(', ')}`)))
+  if (p.hotspotTask) lines.push(`- [ ] Wave ${p.waves.length + 1}.1 — apply hotspot edits for ${p.hotspotTask.edits.map(e => e.pkg).join(', ')} — leaf: claude — owns: ${p.hotspotTask.owns.join(', ')}`)
   return lines.join('\n')
 }
 const SCAN_SCHEMA = {
@@ -285,12 +285,6 @@ const SCAN_SCHEMA = {
   },
 }
 const REFUTE_BATCH = a.refuteBatch || 6
-
-// Preflight: Fix/Test use plugin agent code-worker:claude, absent when the session started on a bad settings.json.
-if (FIX) {
-  const probe = await agent('Reply with the single word OK.', { label: 'preflight:code-worker', phase: 'Scope', agentType: 'code-worker:claude', model: 'haiku', effort: 'low' }).catch(e => { log('preflight: ' + e.message); return null })
-  if (!probe) return ERR('agent type code-worker:claude did not run: plugin agents are not loaded; fix settings.json if invalid, restart the session, re-run (or pass fix:false)')
-}
 
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
 const rounds = []
@@ -459,7 +453,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         `Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)\n` +
         `Put the TASK/ISSUE facts as plain sentences in your summary.`
       const impl = await agent(implTask,
-        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(FIX_MODEL || (hot ? 'opus' : 'sonnet')), effort: FIX_EFFORT || (hot ? 'high' : 'medium') })
+        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'claude', model: routeModel(FIX_MODEL || (hot ? 'opus' : 'sonnet')), effort: FIX_EFFORT || (hot ? 'high' : 'medium') })
       const implBlocked = !impl || impl.status === 'blocked'
       const notDone = !impl || impl.status !== 'done' // a gate over a fix that did not finish proves nothing: red
       const testTask = () => `${ctx}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\nYou are the TEST agent (the implementer has finished): only test files and fixtures (${TEST_GLOBS}) for ${pkg} that you own. ` +
@@ -467,7 +461,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg}, and report. Budget ~20 tool calls.`
       const tests = !testsNeeded || implBlocked ? null : await agent(testTask(),
-        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker:claude', model: routeModel(S.test.model), effort: S.test.effort })
+        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'claude', model: routeModel(S.test.model), effort: S.test.effort })
       return { package: pkg, pkg, findings: fs.length, impl, tests, test: tests, blocked: notDone, notDone }
     })()
   }

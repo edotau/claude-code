@@ -41,7 +41,7 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
 	srv := setup(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`)
 	resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku"}`,
-		map[string]string{"X-Claude-Code-Session-Id": "sess-1", proxy.AgentHeader: "code-worker"})
+		map[string]string{"X-Claude-Code-Session-Id": "sess-1", proxy.AgentHeader: "claude"})
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
@@ -58,7 +58,7 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 // checkNonKeyLedgerEntry asserts the entry carries the prod profile, databricks provider, session, agent and usage.
 func checkNonKeyLedgerEntry(t *testing.T, e tokenledger.Entry) {
 	t.Helper()
-	if e.Profile != "prod" || e.Provider != "databricks" || e.Session != "sess-1" || e.Agent != "code-worker" || e.Input != 7 || e.Output != 3 || e.CacheRead != 2 {
+	if e.Profile != "prod" || e.Provider != "databricks" || e.Session != "sess-1" || e.Agent != "claude" || e.Input != 7 || e.Output != 3 || e.CacheRead != 2 {
 		t.Errorf("entry = %+v", e)
 	}
 }

@@ -50,12 +50,12 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 3. **Dispatch, then verify what comes back.** Anything bigger than a one-line edit goes to a leaf whose brief names
-   the files it owns: `code-worker:claude|codex|gemini` (your pin, or that agent),
-   `coworker:copilot|opencode|databricks` (experimental; other agents or accounts); bare `code-worker`/`coworker`
-   run the agent the brief's `Agent:` names (`Profile:`). Dispatch external agents yourself, by leaf: a plan phase is
-   never a command handed to the owner to run. Non-trivial work starts with `Explore` legs; an unrelated mid-task
-   request goes to a background leaf. Run leaves in parallel only on disjoint files (cap: the dispatch hook's 24 per
-   account), and check every leaf's claims (diff, gate, deletions) before committing. Pipeline:
+   the files it owns: `claude` (in-context default) or an external agent by name (`codex`, `copilot`, `gemini`,
+   `opencode`; `Model:`/`Profile:` lines in the brief, experimental).
+   Dispatch external agents yourself, by leaf: a plan phase is never a command handed to the owner to run.
+   Non-trivial work starts with `Explore` legs; an unrelated mid-task request goes to a background leaf. Run leaves
+   in parallel only on disjoint files (cap: the dispatch hook's 24 per account), and check every leaf's claims
+   (diff, gate, deletions) before committing. Pipeline:
    `rules/workflows/master-workflow.md`; shapes, briefs, test agent and recovery:
    `skills/subagent-workflows/SKILL.md`.
 4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
@@ -72,7 +72,7 @@ auto-loads while you work in that code). Anything unlisted: `claude-code describ
 | --- | --- | --- |
 | Install, settings, hooks | `make install` (`claude-code install --dry-run` previews) | `rules/harness/settings-management.md` · `rules/harness/hooks.md` |
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
-| Agents and dispatch | `claude-code agents ask --agent <agent> "<task>"` · `/code-worker` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
+| Agents and dispatch | `claude-code agents ask --agent <agent> "<task>"` · `claude` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code network mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |

@@ -26,7 +26,7 @@ Every Write/Edit, and every path a `git add` stages, is recorded per session and
 dirty (staged counts), its owner is live and the file has no newer commit. Before you edit a claimed file the hook
 says who holds it; staging or committing it (`git add`, `git commit`, `-a`, paths) asks, and blocks in a leaf;
 `git add -p` passes. Inspect by hand: `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered until
-staged: edits made by Bash (`sed -i`, formatters) and by external agents (codex/copilot/opencode coworkers) — check
+staged: edits made by Bash (`sed -i`, formatters) and by external agents (codex/copilot/opencode leaves) — check
 `git diff <file>` before staging, as below.
 Commit with explicit paths, `git commit -m "<msg>" -- <your files>`: a bare `git commit` takes whatever a peer staged.
 

@@ -30,10 +30,10 @@ script (`internal/hooks/agents/leaves.go` `Effort`).
 | Pattern | Harness component | Roles filled by | Enforced by |
 | --- | --- | --- | --- |
 | Pipeline | `code-relay.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
-| Fan-out / fan-in | `code-relay.js` `pipeline(PKGS, review, repair)` · parallel leaves | `code-worker` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
+| Fan-out / fan-in | `code-relay.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
 | Expert pool | `code-engineer.js` sizing router | `haiku` sizer picks the route | tier table, `dispatch-effort` |
 | Producer-reviewer | fix, guard test (`test mutate`), gate · rederive | implementer vs blind re-deriver | `test mutate` exit 0, gate exit codes |
-| Supervisor | main session + leaves | `code-worker`, `coworker:*`, `Explore` | dispatch cap, `dispatch-stop` ran-on |
+| Supervisor | main session + leaves | `claude`, `codex`/`copilot`/`gemini`/`opencode`, `Explore` | dispatch cap, `dispatch-stop` ran-on |
 | Hierarchical | `code-engineer.js` calling `workflow()` on `code-relay.js` | one workflow level | runtime rule: one nesting level |
 
 ### Pipeline
@@ -91,7 +91,7 @@ finder claim -> blind re-derivation from file:line + symptom -> reproduced | dro
 ### Supervisor
 
 ```text
-main session -> Explore x3 -> Plan -> code-worker || copilot (test agent) -> fan-in -> verify -> commit
+main session -> Explore x3 -> Plan -> claude || copilot (test agent) -> fan-in -> verify -> commit
 ```
 
 - The main session decides, integrates and commits; leaves never dispatch, commit or run the full suite
@@ -113,7 +113,7 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> workflow(gre
 
 - Sequential plan: per task implementer, spec review until `SPEC_COMPLIANT`, `Skill(simplify)`, quality review until
   `SHIP` ([prompts.md](prompts.md)); stop and ask when an assumption breaks. Ticks via `docs-plan-tick`.
-- Tournament: baseline the eval, send one brief verbatim to N `code-worker`s (`isolation: "worktree"`, branch
+- Tournament: baseline the eval, send one brief verbatim to N `claude` leaves (`isolation: "worktree"`, branch
   `compete/<slug>/<n>`), re-measure yourself, `claude-code worktree merge` the winner, tag losers. A tie is not a win.
 
 ### Not used
@@ -121,7 +121,7 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> workflow(gre
 - Agent teams / `TeamCreate`: experimental, one per session, no nesting.
 - Loop-until-dry and the modal sweep: yield 2.2 and 2.5, retired or pre-pass only (scorecard 7-8).
 - External agents inside workflows: `stepOf` rejects `agent`/`profile` (`e1ef8731`); run them outside via
-  `/code-worker:codex`.
+  `claude-code agents ask --agent codex`.
 - Peer-to-peer agent debate: no harness component; refute/rederive is one-way and blind.
 
 ## Agent type selection
@@ -131,12 +131,12 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> workflow(gre
 | Read-only scan before work | `Explore` | built-in | scope to touched dirs |
 | Design the checklist | `Plan` | `inherit` | plan only; `agents/Plan.md` |
 | In-context judge or integrator | `claude` | `inherit` | `agents/claude.md` |
-| Default leaf, one scoped task | `code-worker:claude` | `sonnet` / medium | bare `code-worker` runs the brief's `Agent:` |
-| Diff or plan review, other family | `code-worker:codex` | pinned in agent file | verdict word |
-| Read-heavy sweep, 1M context | `code-worker:gemini` · `gemini` | `sonnet` / low | cannot write |
-| Mechanical edits, test repair | `coworker:copilot` · `copilot` | `sonnet` / medium | experimental |
-| Edits on discovered models | `coworker:opencode` | `sonnet` / medium | experimental |
-| Any agent on a Databricks profile | `coworker:databricks` | per profile | blocked without its secret |
+| Default leaf, one scoped task | `claude` | `sonnet` / medium | in-context |
+| Diff or plan review, other family | `codex` | pinned in agent file | verdict word |
+| Read-heavy sweep, 1M context | `gemini` | `sonnet` / low | cannot write |
+| Mechanical edits, test repair | `copilot` | `sonnet` / medium | experimental |
+| Edits on discovered models | `opencode` | `sonnet` / medium | experimental |
+| Any agent on a Databricks profile | any type + `Profile:` | per profile | blocked without its secret |
 | Workflow stage | `agent()` with `model`+`effort` | `haiku\|sonnet\|opus\|fable`, `low..max` | claude only |
 
 Escalate by lowering `effort` before changing model; after one failed high-effort Sonnet attempt re-dispatch on `opus`.
@@ -145,10 +145,10 @@ Alias guidance: aliases or `inherit`, never dated ids on first-party use (resear
 ## Split vs merge; skill vs agent vs brief
 
 - Agent file = who (role reused across sessions); skill = how (named in a brief's `Method:`); brief = this task. A
-  one-off role is a brief to `code-worker`.
-- Split only when expertise, tool grant or authority differs (read-only `Explore` vs editing `code-worker`) or several
-  shapes reuse it. Merge when two files differ only in task wording; a role that only picks another agent is a plugin
-  leaf (`code-worker:<agent>`), not a file. Prefer few focused leaves: each costs a brief and a fan-in read.
+  one-off role is a brief to `claude`.
+- Split only when expertise, tool grant or authority differs (read-only `Explore` vs editing `claude`) or several
+  shapes reuse it. Merge when two files differ only in task wording; a role that only picks another agent is that
+  agent's leaf type (`codex`, `copilot`…), not a file. Prefer few focused leaves: each costs a brief and a fan-in read.
 - Prose instructs, hooks guarantee: a new type that requests external agents joins `ranOnGated`
   (`internal/hooks/agents/leaves.go`) and `labelTypes`/`labelPools` (`internal/hooks/agents/agenteffort.go`).
 

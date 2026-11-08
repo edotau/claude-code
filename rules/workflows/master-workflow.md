@@ -1,7 +1,6 @@
 ---
 paths:
   - "skills/subagent-workflows/**"
-  - "marketplace/plugins/code-worker/skills/code-worker/SKILL.md"
   - "agents/*.md"
   - "workflows/*.js"
 ---
@@ -63,7 +62,7 @@ package registries (prefer battle-tested libraries) → `@agent-gemini` for cite
 ## Phase 4: Plan (MEDIUM+)
 
 Feed both briefs to plan mode or `Plan` (rules `agents/Plan.md`, shape `docs/templates/plan.md`), then review the draft
-before asking for approval: in-context for MEDIUM, `claude-code codex ask` (or a `coworker`) for HIGH+, against
+before asking for approval: in-context for MEDIUM, `claude-code codex ask` (or a `codex` leaf) for HIGH+, against
 `skills/evaluate-code/references/task-review.md` → Plan review. **Gate: user approval.**
 
 ## Phase 5: Refine (opt-in, `--refine`)

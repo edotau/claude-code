@@ -60,7 +60,7 @@ can:
    issue.
 3. **Phase 0 can catch a regression** — its baseline covers the commands the later phases change.
 4. **Tasks tick** — every task's `owns:` names real paths the phase edits, so `docs-plan-tick` can close it; a
-   `coworker` task names a `code-worker` fallback.
+   `codex`/`copilot`/`gemini`/`opencode` task names a `claude` fallback.
 5. **A cold start works** — could an engineer follow it without getting stuck: spec covered without scope creep,
    placeholder-free, each code change carries its code.
 

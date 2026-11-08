@@ -25,23 +25,22 @@ for a workflow and no specific one fits, run `code-engineer` (`/home/edotau/.cla
 
 ## Leaf types
 
-A leaf works itself on your pin (`code-worker`) or requests another agent via `claude-code agents ask --agent <x>`
-(`coworker`, **experimental**); bare `code-worker`/`coworker` take the brief's `Agent:`. Trust a request only on the
-`ran on` line its `ask` prints (`dispatch-stop` blocks a stop with none, once); keep a `code-worker` fallback.
+A leaf's `subagent_type` is the agent doing the work: `claude` works in-context; `codex`, `copilot`, `gemini` and
+`opencode` request themselves via `claude-code agents ask --agent <x>` (**experimental**). Trust a request only on the
+`ran on` line its `ask` prints (`dispatch-stop` blocks a stop with none, once); keep a `claude` fallback.
 
 | Leaf | subagent_type | Role | Method skill | Output |
 | --- | --- | --- | --- | --- |
-| Claude worker | `code-worker:claude` | Default: in-context Sonnet work, reasoning, integration | per brief | Status report |
-| Codex · Gemini | `code-worker:codex` · `code-worker:gemini` | Diff or plan review · read-heavy sweeps | `evaluate-code` | Verdict · file:line findings |
-| Copilot · opencode | `coworker:copilot` · `coworker:opencode` | Mechanical edits, test repair · edits on discovered models | per brief | Status report |
-| Databricks | `coworker:databricks` | Any agent forced onto a Databricks profile (`agent=`, default claude) | per brief | Status report |
-| Bare worker | `code-worker` · `coworker` | Run the agent the brief's `Agent:` names (`Profile:` for coworker) | per brief | Status report |
+| Claude | `claude` | Default: in-context Sonnet work, reasoning, integration | per brief | Status report |
+| Codex · Gemini | `codex` · `gemini` | Diff or plan review · read-heavy sweeps | `evaluate-code` | Verdict · file:line findings |
+| Copilot · opencode | `copilot` · `opencode` | Mechanical edits, test repair · edits on discovered models | per brief | Status report |
+| Databricks | any type + `Profile: <name>` | Force the agent onto a Databricks profile; the type is unchanged | per brief | Status report |
 | Explore | `Explore` | Read-only scan before any non-trivial work | none | Codebase Context Brief |
 | Plan | `Plan` | Design the checklist the leaves execute | `plans/` template | Plan file |
 | Test agent | `copilot` (TEST mode) | Repair and write tests beside the implementer | `testing-guidelines.md` | Test report |
 
-The `dispatch-effort` hook prefixes the `description` with the planned model (`coworker gpt-6.1-sol: <task>`); an
-`inherit` agent runs at the parent's model: fan out as `code-worker`.
+The `dispatch-effort` hook prefixes the `description` with the planned model (`gpt-6.1-sol: <task>`; in auto
+mode it denies once naming the text to resend); an `inherit` agent runs at the parent's model: fan out as `claude`.
 
 ## Workflow
 
@@ -72,7 +71,7 @@ and a fan-in read.
 **Brief (in)** — a fresh agent can act from it alone:
 
 - `Objective:` one outcome. `Agent:` the agent requested via `ask` (omitted or `in-context` = does it itself; several
-  names = relay `a → b` unless `Mode: compare`). `Profile:` a vault profile (moves the dispatch to `coworker`; unknown
+  names = relay `a → b` unless `Mode: compare`). `Profile:` a vault profile (the dispatch keeps its type; unknown
   names are denied). `Model:` is planned, not implemented. `Task:` the plan task id it lands (the hook claims it).
 - `Owns:` the exact files, plus "Do NOT edit <others>". `Method:` the skill to follow. `Workflow:` a saved Workflow it
   may run, the only way a leaf starts one. `Context:` paths with lines, decisions, plan path. `Constraints:` CLAUDE.md
@@ -97,7 +96,7 @@ Parallel leaves never share a file; batch deep-context leaves (Databricks `429`)
 
 #### Test agent
 
-A feature or bug fix gets a test agent (`copilot`, or `code-worker` for a scoped suite) in the SAME message as the
+A feature or bug fix gets a test agent (`copilot`, or `claude` for a scoped suite) in the SAME message as the
 implementer (refactors get none). The main thread owns the live check; the test agent repairs broken tests at once, ends
 its turn after the baseline, and resumes on the manager's "landed" `SendMessage`, testing the seam each time a piece
 lands, not only at the end. One per suite, never for review. Loop: `rules/standards/testing-guidelines.md`. A leaf at
@@ -107,7 +106,7 @@ its cap (3 cycles per test, 5 per task) reports and stops.
 | --- | --- |
 | One failing test or package | the loop yourself, or one `copilot` leaf |
 | Failures across packages | one `copilot` leaf per package in ONE message, each owning only its `_test.go` files |
-| A change being implemented | `code-worker` ‖ `copilot` in one message; copilot repairs now, writes new tests after "landed" |
+| A change being implemented | `claude` ‖ `copilot` in one message; copilot repairs now, writes new tests after "landed" |
 | A fixed bug | after your live before/after, one leaf writes the regression test + `test mutate` proof |
 | Suite must go green, bounded | `Workflow green-keeper-loop` — only when the user asks |
 
@@ -156,11 +155,11 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 | Reviewers disagree | Keep both findings with their sources |
 | A leaf touched a file it didn't own | Revert that hunk, re-dispatch with the `Owns:` line sharpened |
 | External agent unavailable (credential or route missing, e.g. a Databricks profile without its M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
-| Quota pressure | `dispatch-effort` moves work to `coworker` ([cost-routing.md](references/cost-routing.md)) |
+| Quota pressure | `dispatch-effort` moves work to `copilot` ([cost-routing.md](references/cost-routing.md)) |
 
 ## Test scenarios
 
-- **Normal**: two `code-worker` leaves on disjoint packages plus a `copilot` test agent go out in one message. Fan-in
+- **Normal**: two `claude` leaves on disjoint packages plus a `copilot` test agent go out in one message. Fan-in
   reads each diff and the seam between them, the test agent runs on "landed", simplify runs once, then one commit names
   the files.
 - **Error**: a leaf fails its `Verify:` twice (second time with the failure output and a changed brief). The other
