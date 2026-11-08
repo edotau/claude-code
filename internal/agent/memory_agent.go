@@ -3,8 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/memory"
 )

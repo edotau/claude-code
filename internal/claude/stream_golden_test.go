@@ -2,10 +2,11 @@ package claude
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )

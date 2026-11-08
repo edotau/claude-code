@@ -6,12 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/opencode"

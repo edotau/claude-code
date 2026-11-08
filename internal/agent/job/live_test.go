@@ -2,7 +2,6 @@ package job
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/gemini"
 

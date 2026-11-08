@@ -5,10 +5,11 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/proc"
 	"os"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // KeyKind names the keys Pick reacts to; anything else printable arrives as KeyRune with Rune set.

@@ -2,10 +2,11 @@ package copilot
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"slices"
 	"sync/atomic"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"

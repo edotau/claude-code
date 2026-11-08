@@ -2,10 +2,11 @@ package opencode
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
 
 	"github.com/edotau/claude-code/internal/agent"
 )

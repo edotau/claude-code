@@ -5,9 +5,10 @@ package agent
 import (
 	"context"
 	"errors"
+	"time"
+
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
 )

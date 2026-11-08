@@ -3,7 +3,6 @@ package job
 import (
 	"bytes"
 	"context"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/codex"

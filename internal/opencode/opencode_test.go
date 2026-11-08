@@ -3,12 +3,13 @@ package opencode
 import (
 	"bufio"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 

@@ -2,9 +2,10 @@ package agent_test
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // RanOn reads the answering (final) hop: a fallback run names the original agent, an own-login run says so.

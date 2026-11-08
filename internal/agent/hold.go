@@ -3,8 +3,9 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"

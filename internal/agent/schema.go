@@ -1,8 +1,9 @@
 package agent
 
 import (
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"path/filepath"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"

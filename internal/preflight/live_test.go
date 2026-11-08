@@ -3,7 +3,6 @@ package preflight
 import (
 	"bytes"
 	"context"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"

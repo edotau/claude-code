@@ -3,13 +3,14 @@ package gemini
 import (
 	"encoding/json"
 	"errors"
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"

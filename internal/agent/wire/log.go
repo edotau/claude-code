@@ -3,12 +3,13 @@ package wire
 import (
 	"bytes"
 	"context"
-	"github.com/edotau/claude-code/internal/shapes"
-	"github.com/edotau/claude-code/internal/textutil"
 	"io"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // logLineCap bounds one buffered log line; a longer run is redacted and written as its own chunk.

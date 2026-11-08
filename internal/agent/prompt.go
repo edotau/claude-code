@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
 )
 
 // Preamble frames system text as instructions ahead of the task, for an agent with no system-prompt channel.
