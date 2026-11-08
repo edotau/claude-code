@@ -74,7 +74,7 @@ const stepOf = (steps, name, defaults, opt) => {
   const where = `steps.${name}`
   const v = (steps || {})[name] === undefined ? {} : steps[name]
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
-  for (const k of ['agent', 'profile']) if (k in v) throw new Error(`${where}.${k}: external agents were removed from workflows (claude only; use `claude-code agents ask` outside the workflow)`)
+  for (const k of ['agent', 'profile']) if (k in v) throw new Error(`${where}.${k}: external agents were removed from workflows (claude only; use \`claude-code agents ask\` outside the workflow)`)
   for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
   const model = v.model !== undefined ? v.model : d.model || 'sonnet'
