@@ -129,6 +129,30 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 	}
 }
 
+// TestClaimCheckMainCommitsHandedBackLeaf: main asks on a live leaf's claim, passes once that leaf handed back.
+func TestClaimCheckMainCommitsHandedBackLeaf(t *testing.T) {
+	repo := claimFixture(t)
+	useClaimOwner(t, liveOwner)
+	tr := filepath.Join(t.TempDir(), "S.jsonl")
+	leafTr := "S/subagents/agent-leafone1.jsonl"
+	working := `{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Edit"}]}}` + "\n"
+	gittest.WriteRel(t, filepath.Dir(tr), leafTr, working)
+	gittest.WriteRel(t, repo, "a.txt", "leaf one\n")
+	Claim(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leafone1", "cwd": repo,
+		"transcript_path": tr, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
+	add := map[string]any{"session_id": "S", "cwd": repo, "transcript_path": tr, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "git add a.txt"}}
+	if r := ClaimCheck(claimInput(t, add)); r.Decision != core.Ask {
+		t.Fatalf("live leaf's file: %v %q; want ask", r.Decision, r.Reason)
+	}
+	handback := `{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"SubagentHandback"}]}}` +
+		"\n" + `{"type":"user","message":{"content":[{"type":"tool_result"}]}}` + "\n"
+	gittest.WriteRel(t, filepath.Dir(tr), leafTr, working+handback)
+	if r := ClaimCheck(claimInput(t, add)); r.Decision != core.Allow {
+		t.Fatalf("handed-back leaf's file: %v %q; want allow", r.Decision, r.Reason)
+	}
+}
+
 // TestClaimCheckDropsLandedClaim: a claim older than the file's last commit has landed, so staging the file passes.
 func TestClaimCheckDropsLandedClaim(t *testing.T) {
 	repo := claimFixture(t)
