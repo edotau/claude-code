@@ -251,7 +251,7 @@ if (EXT.length) {
 }
 let GATE = a.gate || ''
 let GATE_SOURCE = a.gate ? 'args' : ''
-const CD = a.cwd ? `cwd: ${a.cwd} (external agents: ask --workdir ${a.cwd}). First run \`cd ${a.cwd}\` as its own command (your shell may start elsewhere), then each command bare, never as \`cd … && cmd\`: copilot's shell rejects compound commands.\n` : ''
+const CD = a.cwd ? `cwd: ${a.cwd} (external agents: ask --workdir ${a.cwd}). Prefix every shell command with \`cd ${a.cwd} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : ''
 const SCOPE_GIVEN = Array.isArray(a.scope) && a.scope.length > 0
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : ['(whole repo — scope not given; prefer the smallest fix)']
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
