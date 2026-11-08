@@ -152,7 +152,11 @@ func TestCollectGitFailureFallback(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			dir, bin := t.TempDir(), t.TempDir()
 			write(t, filepath.Join(dir, "a.go"), "package a")
-			script := "#!/bin/sh\nif [ \"$3\" = \"" + stage + "\" ]; then exit 1; fi\nprintf 'true\\n'\n"
+			fail := "exit 1" // rev-parse fails as real git does outside a repo, so no ancestor .git of TempDir matters
+			if stage == "rev-parse" {
+				fail = "echo 'fatal: not a git repository (or any of the parent directories): .git' >&2; exit 128"
+			}
+			script := "#!/bin/sh\nif [ \"$3\" = \"" + stage + "\" ]; then " + fail + "; fi\nprintf 'true\\n'\n"
 			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
 				t.Fatal(err)
 			}
