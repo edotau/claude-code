@@ -77,10 +77,7 @@ func rewriteRange(verb string, args []string) ([]string, bool) {
 		if slices.ContainsFunc(args, func(a string) bool { return rebaseResumeFlags[a] }) {
 			return nil, false // acts on a rebase whose start was already checked
 		}
-		if slices.Contains(args, "--root") {
-			return []string{"HEAD"}, true
-		}
-		return []string{cmp.Or(firstOperand(args, rebaseValueFlags), "@{upstream}") + "..HEAD"}, true
+		return rebaseRange(args), true
 	case "reset":
 		if base := firstOperand(args, nil); base != "" && !slices.Contains(args, "--") {
 			return []string{base + "..HEAD"}, true
@@ -89,19 +86,47 @@ func rewriteRange(verb string, args []string) ([]string, bool) {
 	return nil, false
 }
 
+// rebaseRange selects the explicit target branch, or HEAD when rebasing the current branch.
+func rebaseRange(args []string) []string {
+	operands := rewriteOperands(args, rebaseValueFlags)
+	if slices.Contains(args, "--root") {
+		if len(operands) > 0 {
+			return []string{operands[0]}
+		}
+		return []string{"HEAD"}
+	}
+	base, branch := "@{upstream}", "HEAD"
+	if len(operands) > 0 {
+		base = operands[0]
+	}
+	if len(operands) > 1 {
+		branch = operands[1]
+	}
+	return []string{base + ".." + branch}
+}
+
 // firstOperand is the first non-option word before `--`, skipping the value of each flag in valueFlags.
 func firstOperand(args []string, valueFlags map[string]bool) string {
+	if operands := rewriteOperands(args, valueFlags); len(operands) > 0 {
+		return operands[0]
+	}
+	return ""
+}
+
+// rewriteOperands collects non-option words before `--`, skipping option values.
+func rewriteOperands(args []string, valueFlags map[string]bool) []string {
+	var operands []string
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--":
-			return ""
+			return operands
 		case valueFlags[a]:
 			i++
 		case !strings.HasPrefix(a, "-"):
-			return a
+			operands = append(operands, a)
 		}
 	}
-	return ""
+	return operands
 }
 
 // assessRewrite is risky when the target tree is shared and the range holds a commit; errors fail open with a warning.
@@ -116,6 +141,15 @@ func assessRewrite(in *core.Input, target, verb string, rng []string) (rewriteRi
 		return rewriteRisk{}, false // not a repo, a non-commit operand or an empty range: git rewrites nothing
 	}
 	_, branch, nested := wthook.CheckoutOf(ctx, top)
+	if verb == "rebase" {
+		ref := rng[0]
+		if _, tip, ok := strings.Cut(ref, ".."); ok {
+			ref = tip
+		}
+		if ref != "HEAD" {
+			branch = ref
+		}
+	}
 	reasons, err := shareReasons(ctx, in, top, linked, nested)
 	r := rewriteRisk{verb: verb, branch: branch, commits: n, reasons: reasons}
 	if err != nil {
@@ -143,7 +177,7 @@ func probeRewrite(ctx context.Context, target string, rng []string) (string, boo
 
 // rewriteCount is how many commits rng holds in dir; 0 when its base is not a commit (a path, no upstream).
 func rewriteCount(ctx context.Context, dir string, rng []string) (int, error) {
-	if base, isRange := strings.CutSuffix(rng[0], "..HEAD"); isRange {
+	if base, _, isRange := strings.Cut(rng[0], ".."); isRange {
 		if ok, err := isCommit(ctx, dir, base); err != nil || !ok {
 			return 0, err
 		}
