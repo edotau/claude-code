@@ -33,7 +33,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 			return "", ""
 		}
 	}
-	return t.Provider.Account(), billingOf(t.Provider)
+	return t.Provider.Account(), router.DefaultBilling(t.Provider)
 }
 
 func billedAgentTarget(agentName, model string) providers.Target {
@@ -70,14 +70,6 @@ func ownLoginAccount(agentName, account string) bool {
 	return p != nil && p.Auth.Login == agentName && p.Account() == account
 }
 
-// billingOf: a harness-held key bills per use, anything else is a plan.
-func billingOf(p *providers.Provider) string {
-	if p.APIKeyAuth() {
-		return router.BillCredits
-	}
-	return router.BillSubscription
-}
-
 // explicitAccount is the <provider>·<profile> key of the named backend; a hub dispatch names its own profile.
 func explicitAccount(r Engine, req RunOptions) (string, string) {
 	if l, ok := r.(HubEngine); ok {
@@ -85,7 +77,7 @@ func explicitAccount(r Engine, req RunOptions) (string, string) {
 		if hub.OwnPlan(p.OpencodeID) {
 			return "opencode·go", router.BillSubscription
 		}
-		return p.Account(), billingOf(p)
+		return p.Account(), router.DefaultBilling(p)
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -100,9 +92,9 @@ func explicitAccount(r Engine, req RunOptions) (string, string) {
 		return "", ""
 	}
 	if p.Auth.Login == "copilot" { // the GitHub login bills the pinned profile
-		return copilotLoginAccount(), billingOf(p)
+		return copilotLoginAccount(), router.DefaultBilling(p)
 	}
-	return p.Account(), billingOf(p)
+	return p.Account(), router.DefaultBilling(p)
 }
 
 // copilotLoginAccount is the pinned copilot profile's route-state key (github·<profile>), or "" when no user is pinned.
