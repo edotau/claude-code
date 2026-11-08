@@ -23,12 +23,12 @@ func CaptureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string
 	}
 	var bo, be bytes.Buffer
 	var drained sync.WaitGroup
-	drained.Go(func() { io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
-	drained.Go(func() { io.Copy(&be, re) })
+	drained.Go(func() { _, _ = io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
+	drained.Go(func() { _, _ = io.Copy(&be, re) })
 	os.Stdout, os.Stderr = wo, we
 	code = fn()
-	wo.Close()
-	we.Close()
+	_ = wo.Close()
+	_ = we.Close()
 	os.Stdout, os.Stderr = oldOut, oldErr
 	drained.Wait()
 	return code, bo.String(), be.String()

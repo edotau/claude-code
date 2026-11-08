@@ -3,12 +3,13 @@ package vaultcmd
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"

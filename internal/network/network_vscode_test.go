@@ -1,9 +1,10 @@
 package network
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestNetworkVSCodeHelpListsFlags(t *testing.T) {

@@ -2,9 +2,10 @@ package vaultcmd
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"golang.org/x/sys/unix"
 )

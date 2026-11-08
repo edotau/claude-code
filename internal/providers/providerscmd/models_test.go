@@ -3,13 +3,14 @@ package providerscmd
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"

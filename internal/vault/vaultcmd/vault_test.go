@@ -2,12 +2,13 @@ package vaultcmd
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/vault"

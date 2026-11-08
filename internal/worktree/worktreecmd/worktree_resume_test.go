@@ -2,11 +2,12 @@ package worktreecmd
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/worktree"
 )

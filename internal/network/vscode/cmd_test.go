@@ -1,11 +1,12 @@
 package vscode
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {
