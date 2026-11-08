@@ -1,1 +1,0 @@
-../marketplace/plugins/code-worker/skills/code-worker/SKILL.md
