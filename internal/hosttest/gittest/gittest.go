@@ -73,7 +73,9 @@ func buildTemplate() {
 	}
 	env := append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "--allow-empty", "-q", "-m", "init"}} {
+	steps := [][]string{{"init", "-q", "-b", "main"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t.com"},
+		{"commit", "--allow-empty", "-q", "-m", "init"}}
+	for _, args := range steps {
 		cmd := exec.CommandContext(context.Background(), "git", args...)
 		cmd.Dir = tmpl
 		cmd.Env = env

@@ -23,6 +23,37 @@ func commitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func TestInspectDerivesGitDirWithoutRevParse(t *testing.T) {
+	repo := testRepo(t)
+	wt, err := Create(repo, "activity", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitDir, err := gitDirFromPath(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * StaleAfter)
+	if err := os.Chtimes(filepath.Join(gitDir, "logs", "HEAD"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	e := Entry{Path: wt, Head: headOf(wt), Exists: true, Registered: true}
+	trace := filepath.Join(t.TempDir(), "git.trace")
+	t.Setenv("GIT_TRACE", trace)
+	Inspect(repo, &e, headOf(repo.Main), nil, time.Now())
+	if len(e.Problems) != 0 || !e.Stale || e.ActivitySource != "reflog" {
+		t.Fatalf("Inspect must use linked checkout activity: %+v", e)
+	}
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireContains(t, "inspection trace", string(data), "status --porcelain")
+	if strings.Contains(string(data), "rev-parse --path-format=absolute --git-dir") {
+		t.Fatalf("Inspect spawned a redundant git-dir lookup:\n%s", data)
+	}
+}
+
 func TestListEmptyRepo(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)

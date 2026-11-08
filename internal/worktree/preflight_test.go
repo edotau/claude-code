@@ -102,6 +102,25 @@ func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 	}
 }
 
+func TestScreenCheckoutsStopsOnTargetMismatch(t *testing.T) {
+	repo := testRepo(t)
+	plan := &MergePlan{WorktreePath: filepath.Join(t.TempDir(), "missing-worktree")}
+	stop, err := screenCheckouts(context.Background(), repo, plan, "release", false)
+	if err != nil || !stop {
+		t.Fatalf("target mismatch must stop before inspecting the nonexistent worktree: stop=%v err=%v", stop, err)
+	}
+	if plan.TargetRef != "main" || len(plan.Issues) != 1 {
+		t.Fatalf("branch screen did not preserve target and issue: %+v", plan)
+	}
+	issue := plan.Issues[0]
+	if issue.Code != IssueTargetMismatch || !strings.Contains(issue.Detail, `requested target was "release"`) {
+		t.Fatalf("issue = %+v, want requested-target mismatch", issue)
+	}
+	if plan.TargetOID != "" || plan.SourceOID != "" {
+		t.Fatalf("mismatched target must not pin OIDs: %+v", plan)
+	}
+}
+
 func TestPreflightFastForward(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)

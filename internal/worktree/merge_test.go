@@ -51,6 +51,38 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
+func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
+	mergeFixtureLockEnv(t)
+	repo, main, wt := mergeFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
+	ctx := context.Background()
+	plan, err := Preflight(ctx, repo, "feature", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	integrated, err := IntegrateTarget(ctx, repo, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace := filepath.Join(t.TempDir(), "git.trace")
+	t.Setenv("GIT_TRACE", trace)
+	result, err := Promote(ctx, repo, plan)
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+	if result.AfterOID != integrated.AfterOID || headOf(main) != integrated.AfterOID {
+		t.Fatalf("promotion = %+v, HEAD = %s, want %s", result, headOf(main), integrated.AfterOID)
+	}
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireContains(t, "promotion trace", string(data), "merge-base --is-ancestor", "merge --ff-only")
+	if strings.Contains(string(data), "merge-tree") {
+		t.Fatalf("proven fast-forward unnecessarily simulated a merge:\n%s", data)
+	}
+}
+
 // TestPromoteTargetMovedBetweenIntegrateAndPromote simulates another actor advancing main after
 // IntegrateTarget ran but before Promote reacquires the lock and rechecks: Promote must stop with a
 // retry hint, never fabricate a real conflicting merge.
@@ -354,6 +386,28 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 	}
 	if elapsed < wait {
 		t.Fatalf("Acquire returned after %v, want it to have waited at least %v", elapsed, wait)
+	}
+}
+
+func TestAfterPromoteCleanClosesLedgerOnce(t *testing.T) {
+	mergeFixtureLockEnv(t)
+	repo, main, wt := mergeFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
+	wantHead := headOf(wt)
+	outcome, err := Merge(context.Background(), repo, MergeRequest{
+		Name: "feature", NoVerify: true, Out: io.Discard, Err: io.Discard,
+		ShowPlan: func(*MergePlan) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Clean == nil || !outcome.Clean.Removed || !outcome.Clean.BranchDeleted {
+		t.Fatalf("clean = %+v, want worktree and branch removed", outcome.Clean)
+	}
+	text := ledgerFile(t, main, "feature")
+	requireContains(t, "closed ledger", text, "- Via: merge\n", "- Merge: "+wantHead+"\n", "- Branch: deleted\n")
+	if strings.Count(text, "closed via merge") != 1 || strings.Contains(text, "removed via") {
+		t.Fatalf("merge and cleanup must close the ledger exactly once:\n%s", text)
 	}
 }
 

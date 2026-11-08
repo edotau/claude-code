@@ -139,19 +139,8 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 // screenCheckouts records an issue for a detached or mismatched target and a dirty or mid-operation checkout; stop
 // is true once the plan holds any issue.
 func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target string, trackedOnlyWorktree bool) (stop bool, err error) {
-	branch, err := requireBranch(ctx, repo.Main)
-	if err != nil {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-		plan.Issues = append(plan.Issues, Issue{Code: IssueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
-		return true, nil
-	}
-	plan.TargetRef = branch
-	if target != "" && target != branch {
-		plan.Issues = append(plan.Issues, Issue{Code: IssueTargetMismatch,
-			Detail: fmt.Sprintf("main checkout is on %q, requested target was %q", branch, target)})
-		return true, nil
+	if stop, err := screenTargetBranch(ctx, repo, plan, target); err != nil || stop {
+		return stop, err
 	}
 
 	targetOID, err := headOfContext(ctx, repo.Main)
@@ -173,6 +162,25 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target st
 		plan.Issues = append(plan.Issues, *issue)
 	}
 	return len(plan.Issues) > 0, nil // dirty or mid-operation: stop before pinning OIDs or writing anything
+}
+
+// screenTargetBranch records the main checkout's branch on plan; stop is true for a detached or non-target checkout.
+func screenTargetBranch(ctx context.Context, repo *Repo, plan *MergePlan, target string) (stop bool, err error) {
+	branch, err := requireBranch(ctx, repo.Main)
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		plan.Issues = append(plan.Issues, Issue{Code: IssueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
+		return true, nil
+	}
+	plan.TargetRef = branch
+	if target != "" && target != branch {
+		plan.Issues = append(plan.Issues, Issue{Code: IssueTargetMismatch,
+			Detail: fmt.Sprintf("main checkout is on %q, requested target was %q", branch, target)})
+		return true, nil
+	}
+	return false, nil
 }
 
 // pinOIDs fixes the target and source HEADs on the plan.

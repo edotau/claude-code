@@ -188,6 +188,11 @@ func cleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 
 // cleanAt is cleanInLease's body for a dest the caller already validated under the same lease.
 func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanResult, error) {
+	return cleanAtWith(repo, name, dest, dryRun, log, LedgerClose{Via: "clean"})
+}
+
+// cleanAtWith is cleanAt whose ledger close on removal is closing (Head defaults to the worktree HEAD).
+func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, closing LedgerClose) (CleanResult, error) {
 	if log == nil {
 		log = io.Discard
 	}
@@ -218,7 +223,7 @@ func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanRe
 		result.Removed = true // preview: every recheck above passed, so this one is eligible
 		return result, nil
 	}
-	return removeMerged(repo, name, dest, entry, result, log), nil
+	return removeMerged(repo, name, dest, entry, result, log, closing), nil
 }
 
 // inUseReason is the refusal reason for a worktree some process is using ("" = free).
@@ -280,8 +285,8 @@ func cleanInspectReason(repo *Repo, dest, gitDir string) (entry Entry, reason st
 	return entry, ""
 }
 
-// removeMerged removes a worktree that passed every recheck, deletes its merged branch and closes the ledger.
-func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult, log io.Writer) CleanResult {
+// removeMerged removes a worktree that passed every recheck, deletes its merged branch and closes the ledger once.
+func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult, log io.Writer, closing LedgerClose) CleanResult {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	if out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "remove", dest).CombinedOutput(); err != nil {
@@ -292,9 +297,11 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 	if result.Branch != "" && gitCmd(ctx, "-C", repo.Main, "branch", "-d", result.Branch).Run() == nil {
 		result.BranchDeleted = true // -d refuses an unmerged branch; failure there just keeps it
 	}
-	if err := CloseLedger(repo.Main, name, LedgerClose{
-		Via: "clean", Head: entry.Head, BranchDeleted: result.BranchDeleted,
-	}); err != nil {
+	closing.BranchDeleted = result.BranchDeleted
+	if closing.Head == "" {
+		closing.Head = entry.Head
+	}
+	if err := CloseLedger(repo.Main, name, closing); err != nil {
 		fmt.Fprintf(log, "worktree-clean: warning: ledger: %v\n", err)
 	}
 	return result

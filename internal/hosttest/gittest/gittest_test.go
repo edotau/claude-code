@@ -8,6 +8,22 @@ import (
 	"testing"
 )
 
+func TestRepoCopyInheritsLocalIdentity(t *testing.T) {
+	repo := Repo(t)
+	for _, tc := range []struct {
+		key, want string
+	}{
+		{"user.name", "t"},
+		{"user.email", "t@t.com"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			if got := strings.TrimSpace(In(t, repo, "config", "--local", "--get", tc.key)); got != tc.want {
+				t.Fatalf("copied repo config %s = %q, want %q", tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestInIgnoresLeakedGitDir(t *testing.T) {
 	outer := Repo(t)
 	inner := Repo(t)

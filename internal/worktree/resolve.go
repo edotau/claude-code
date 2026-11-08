@@ -339,12 +339,8 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 	if !clean {
 		return failOperation(op, fmt.Errorf("resolve: conflict markers remain in %q after the agent exited — refusing to stage or commit", badPath))
 	}
-	changed, err := agentChangedPaths(ctx, op, worktreePath)
-	if err != nil {
+	if err := agentEditsInScope(ctx, op, worktreePath); err != nil {
 		return failOperation(op, err)
-	}
-	if extra := outsideConflictPaths(changed, op.ConflictPaths); len(extra) > 0 {
-		return failOperation(op, fmt.Errorf("resolve: agent changed %v outside the conflicted paths %v — refusing to stage or commit", extra, op.ConflictPaths))
 	}
 
 	addArgs := append([]string{"add", "--"}, op.ConflictPaths...)
@@ -371,6 +367,18 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 		return op, nil, fmt.Errorf("resolve: save resolved checkpoint: %w", err)
 	}
 	return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
+}
+
+// agentEditsInScope errors when the agent changed any tracked path beyond op's conflicted paths.
+func agentEditsInScope(ctx context.Context, op *Operation, worktreePath string) error {
+	changed, err := agentChangedPaths(ctx, op, worktreePath)
+	if err != nil {
+		return err
+	}
+	if extra := outsideConflictPaths(changed, op.ConflictPaths); len(extra) > 0 {
+		return fmt.Errorf("resolve: agent changed %v outside the conflicted paths %v — refusing to stage or commit", extra, op.ConflictPaths)
+	}
+	return nil
 }
 
 // pollUntilResolved is the fallback path for --resume: nothing re-invokes the agent, so this only
@@ -493,15 +501,20 @@ func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 }
 
 // hasMergeHead reports whether path's own git-dir still has an in-progress merge recorded.
-func hasMergeHead(ctx context.Context, path string) (bool, error) {
-	_, err := runGit(ctx, path, nil, "rev-parse", "--verify", "-q", "MERGE_HEAD")
-	if err == nil {
+func hasMergeHead(_ context.Context, path string) (bool, error) {
+	gitDir, err := gitDirFromPath(path)
+	if err != nil {
+		return false, err
+	}
+	_, statErr := os.Stat(filepath.Join(gitDir, "MERGE_HEAD"))
+	switch {
+	case statErr == nil:
 		return true, nil
-	}
-	if code, ok := asExitErr(err); ok && code == 1 {
+	case os.IsNotExist(statErr):
 		return false, nil
+	default:
+		return false, statErr
 	}
-	return false, err
 }
 
 // failOperation marks op failed, best-effort re-saves it (the operation file is preserved either way,

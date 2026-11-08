@@ -71,12 +71,7 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 	if err != nil {
 		return res, err
 	}
-	if conflicts, err := simulateMerge(ctx, repo.Main, plan.CommonDir, freshSource, freshTarget, true); err != nil {
-		return nil, fmt.Errorf("promote: re-simulation failed: %w", err)
-	} else if len(conflicts) > 0 {
-		return nil, fmt.Errorf("promote: re-simulation predicts a conflict in %v — refusing to fall back to a real merge", conflicts)
-	}
-
+	// promoteFreshHeads proved ancestry, so the ff-only merge below cannot conflict: no re-simulation.
 	if err := ctx.Err(); err != nil {
 		return nil, err // never start the ff-only update once canceled — repo.Main stays untouched
 	}

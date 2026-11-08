@@ -55,6 +55,27 @@ func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentNam
 	t.Cleanup(func() { runResolveAgent = orig })
 }
 
+func TestHasMergeHeadUsesCheckoutLocalFile(t *testing.T) {
+	_, main, wt := mergeFixtureSetup(t)
+	gitDir, err := gitDirFromPath(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := hasMergeHead(ctx, wt)
+	if err != nil || !got {
+		t.Fatalf("linked checkout MERGE_HEAD exists despite invalid contents and canceled git context: got %v, %v", got, err)
+	}
+	got, err = hasMergeHead(ctx, main)
+	if err != nil || got {
+		t.Fatalf("main must not inherit the linked checkout's MERGE_HEAD: got %v, %v", got, err)
+	}
+}
+
 // requireMergeHead fails with why unless wt's MERGE_HEAD presence equals want.
 func requireMergeHead(t *testing.T, wt string, want bool, why string) {
 	t.Helper()
@@ -623,6 +644,43 @@ func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T)
 	requirePhase(t, "op", op.Phase, "failed")
 	requireMergeHead(t, wt, true, "MERGE_HEAD was cleaned up on a fallback mismatch — no automatic cleanup is permitted")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+}
+
+func TestFinalizeAgentResolutionPropagatesScopeProbeError(t *testing.T) {
+	repo, _, wt, plan := resolveFixtureConflictSetup(t)
+	ctx := context.Background()
+	if _, err := materializeConflict(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	op := &Operation{Repo: repo.Main, Worktree: filepath.Base(wt), TargetRef: plan.TargetRef, TargetOID: plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID, ConflictPaths: []string{"f.txt"}, Phase: "resolving", AgentExitOK: true}
+	before := headOf(wt)
+	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	probeErr := errors.New("scope probe unavailable")
+	original := runGit
+	t.Cleanup(func() { runGit = original })
+	runGit = func(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
+		if args[0] == "merge-tree" {
+			return nil, probeErr
+		}
+		return original(ctx, dir, env, args...)
+	}
+	failed, result, err := finalizeAgentResolution(ctx, op, wt)
+	if !errors.Is(err, probeErr) {
+		t.Fatalf("scope probe error must fail resolution: op=%+v result=%+v err=%v", failed, result, err)
+	}
+	requireFlag(t, result == nil, true, "nil resolution result")
+	requirePhase(t, "op", failed.Phase, "failed")
+	if headOf(wt) != before {
+		t.Fatal("scope probe failure must not create a resolution commit")
+	}
+	unmerged, err := unmergedPaths(ctx, wt)
+	if err != nil || !containsPath(unmerged, "f.txt") {
+		t.Fatalf("scope probe failure must leave the conflict unstaged: paths=%v err=%v", unmerged, err)
+	}
+	requireMergeHead(t, wt, true, "scope probe failure must preserve the in-progress merge")
 }
 
 // A failed save of the "resolved" checkpoint must surface, not report success with the phase only in memory.
