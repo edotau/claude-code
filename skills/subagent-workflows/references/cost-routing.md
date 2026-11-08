@@ -38,16 +38,18 @@ NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>`
 ## Fallback
 
 - **Ladder**: `routing.ladders` (`internal/providers/defaults.json`); `claude-code gateway router [--agent a] [--model
-  M] [--task "<t>"]` shows the pick, scores and skip gates. Default: copilot (gpt-6.1-sol, gpt-6-astra) → Databricks →
-  codex (openai) → opencode, Claude scored in after copilot; `--route first-party`: copilot → codex → gemini →
-  opencode-go. The `--agent` asked for leads when it passes the gates.
+  M] [--task "<t>"]` shows the pick, scores and skip gates. Default: copilot on Databricks, then copilot on GitHub
+  (gpt-6.1-sol, gpt-6-astra) → Databricks → codex (openai) → opencode, Claude scored in after copilot;
+  `--route first-party`: copilot → codex → gemini → opencode-go. The `--agent` asked for leads when it passes the
+  gates; `--profile session|<p>` and `--provider <x>` (with `--fallback`) lead on that route and still fall back.
 - **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile only
   while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). **Score**:
   `0.5 × price + 0.5 × headroom`; accounts ≥90% used sort last.
 - **`--fallback all|agents|none`** (default `all`): `agents` stops before Claude, `none` fails fast instead of running
   on Claude; review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
 - **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `<AGENT>_MODEL` > table cell;
-  `--profile` is one dispatch with no fallback.
+  `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any other
+  explicit `--fallback`.
 - A `<agent>: session profile … cannot serve …; using <x>` line is the credential route, not a fallback: report
   `fallback: none`. Copilot-on-Databricks: `rules/harness/agent.md` → Dispatch behavior.
 
