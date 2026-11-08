@@ -296,7 +296,7 @@ if (EXT.length) {
 
 const RULES =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit|add, never make build|install|audit, never edit settings.json. ' +
-  'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). First run `cd ' + CWD + '` as its own command (your shell may start elsewhere), then each command bare, never as `cd … && cmd`: copilot\'s shell rejects compound commands.'
+  'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).'
 const CTX = { cwd: CWD, cd: '', rules: RULES, S: { ...CS, dedupe: S.dedupe, simplify: S.simplify, review: S.review }, gateMax: ST_GATE_MAX }
 const SIZED = {
   type: 'object',
