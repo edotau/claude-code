@@ -206,7 +206,13 @@ async function stageFix(ctx, o) {
   const files = [...new Set([...((impl && impl.files) || []), ...((test && test.files) || [])].map((f) => stRel(ctx, f)))]
   return { pkg: o.pkg, impl, test, done, testOk: o.tests === false || !!(test && test.status !== 'blocked'), files }
 }
-// stagePolish: once over a merged diff: Dedupe (2+ packages), Simplify, Review, then per package with findings one stageFix and stageGate.
+// stageRepair: stageFix, then stageGate only when the fix finished (a green gate over unchanged code proves nothing).
+async function stageRepair(ctx, pkg, findings, o) {
+  const fx = await stageFix(ctx, { pkg, findings, label: o.label })
+  const gate = fx.done ? await stageGate(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: o.gate }) : null
+  return { ...fx, gate, green: fx.done && fx.testOk && !!gate && gate.exit === 'green', files: [...fx.files, ...(gate ? gate.filesChanged : [])] }
+}
+// stagePolish: once over a merged diff: Dedupe (2+ packages), Simplify, Review, then one stageRepair per package.
 async function stagePolish(ctx, o) {
   const files = [...new Set(o.files.map((f) => stRel(ctx, f)))]
   const pkgs = [...new Set(files.map(stDir))]
@@ -239,11 +245,19 @@ async function stagePolish(ctx, o) {
   const incomplete = findings.filter((f) => !pkgs.includes(stDir(f.file)))
   const open = incomplete.filter((f) => f.severity !== 'low')
   if (incomplete.length) lines.push('unresolved: ' + incomplete.length + ' review finding(s) outside the fixed packages (' + open.length + ' MEDIUM+): ' + incomplete.map((f) => f.file + ':' + f.line).join(', '))
-  const fixall = (await parallel(Object.keys(byPkg).map((p) => async () => {
-    const fx = await stageFix(ctx, { pkg: p, findings: byPkg[p], label: 'fixall:' + p })
-    const g = fx.done ? await stageGate(ctx, { scope: [p], check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: 'regate:' + p }) : null
-    return { pkg: p, findings: byPkg[p].length, done: fx.done, green: fx.done && fx.testOk && !!g && g.exit === 'green', files: [...fx.files, ...(g ? g.filesChanged : [])] }
-  }))).filter(Boolean)
+  // a fixer edits under its package, nested ones too: run in waves by ancestor count, so ancestors finish first
+  const keys = Object.keys(byPkg)
+  const depth = (p) => keys.filter((q) => q !== p && (q === '.' || p.startsWith(q + '/'))).length
+  const byKey = {}
+  for (const w of [...new Set(keys.map(depth))].sort((x, y) => x - y)) {
+    const ps = keys.filter((p) => depth(p) === w)
+    const rs = await parallel(ps.map((p) => async () => {
+      const r = await stageRepair(ctx, p, byPkg[p], { label: 'fixall:' + p, gate: 'regate:' + p })
+      return { pkg: p, findings: byPkg[p].length, done: r.done, green: r.green, files: r.files }
+    }))
+    ps.forEach((p, i) => { byKey[p] = rs[i] })
+  }
+  const fixall = keys.map((p) => byKey[p]).filter(Boolean)
   for (const x of fixall) lines.push('fix-all ' + x.pkg + ': ' + (x.done ? x.findings + ' fixed' : 'NOT done') + ', gate ' + (x.green ? 'green' : 'red'))
   const report = ['', '## Polish', ...lines.map((l) => '- ' + l), ...findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom)].join('\n')
   const red = [...new Set([...fixall.filter((x) => !x.green).map((x) => x.pkg), ...open.map((f) => stDir(f.file))])]
@@ -399,16 +413,14 @@ async function repair(rev) {
   if (!cs.length && rev.starved) return { ...rev, fixed: 0, decisions: [p + ': ' + rev.starved + ' find legs BLOCKED — red, not clean'] }
   if (!cs.length) return { ...rev, fixed: 0, decisions: ['no finding at or above minFix in ' + p] }
   log(p + ': ' + cs.length + ' finding(s) at or above minFix, fixing now')
-  const fx = await stageFix(CTX, { pkg: p, findings: cs.map((c) => ({ ...c, scenario: c.rederived || c.scenario })), label: p })
-  // A green gate over unchanged code proves nothing: a fixer that did not finish skips the gate and counts as red.
-  const gate = fx.done ? await stageGate(CTX, { scope: [norm(p)], check: S.gate, fix: S.fix, max: MAX_ITER, schemas: true, label: 'gate:' + p }) : null
-  const green = fx.done && fx.testOk && !!gate && gate.exit === 'green'
+  const fx = await stageRepair(CTX, p, cs.map((c) => ({ ...c, scenario: c.rederived || c.scenario })), { label: p, gate: 'gate:' + p, scope: norm(p) })
+  const { gate, green } = fx
   log(p + ': fixed ' + (fx.done ? cs.length : 0) + '/' + cs.length + ', gate ' + (green ? 'green' : 'red'))
   const decisions = [...(rev.fast ? ['fast path: skipped find+rederive, task names the bug'] : []),
     (fx.done ? 'fixed ' : 'fix NOT done (' + (fx.impl ? fx.impl.status : 'no result') + ') for ') + cs.length + ' finding(s) in ' + p,
     gate ? 'gate ' + gate.exit + (gate.iterations ? ' after ' + gate.iterations + ' fix iteration(s)' : '') + ' in ' + p : 'gate skipped in ' + p + ': fix not done',
     ...(fx.done && !fx.testOk ? ['test blocked in ' + p] : [])]
-  return { ...rev, fixed: cs.length, impl: fx.impl, test: fx.test, gate, green, files: [...fx.files, ...(gate ? gate.filesChanged : [])], decisions }
+  return { ...rev, fixed: cs.length, impl: fx.impl, test: fx.test, gate, green, files: fx.files, decisions }
 }
 
 // Estimate: 2 finders + ~4 rederivers per package, plus 3 per package that gets fixed.
