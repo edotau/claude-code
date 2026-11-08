@@ -33,7 +33,7 @@ Name the alias (`opus`/`sonnet`/`haiku`/`fable`), never a concrete model id: `in
 the vault overlay map each alias per provider.
 
 - **`opus`** — architectural decisions, maximum-reasoning research and analysis.
-- **`sonnet`** — planning, review, orchestration, exploration; the default `code-worker` leaf.
+- **`sonnet`** — planning, review, orchestration, exploration; the default `claude` leaf.
 - **`haiku`** — high-frequency, cost-sensitive leaves and quick lookups.
 - **Gemini** (`claude-code agents ask --agent gemini --tools --dirs <d>`) — sweeps whose context exceeds a session
   window (1M tokens).
