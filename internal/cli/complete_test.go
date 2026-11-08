@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/review/reviewcmd"
@@ -690,7 +691,7 @@ func TestConfigureDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 		if node == nil {
 			t.Fatalf("%s: no node in specTree()", verb)
 		}
-		got := flagNames(node)
+		got := describe.FlagNames(node)
 		for _, f := range flags {
 			boolForm, valuedForm := "--"+f, "--"+f+" <value>"
 			if !slices.Contains(got, boolForm) && !slices.Contains(got, valuedForm) {
@@ -711,7 +712,7 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 	if node == nil {
 		t.Fatal("memory update: no sub-node in specTree()")
 	}
-	if got := flagNames(node); slices.Contains(got, "--repo") || slices.Contains(got, "--repo <value>") {
+	if got := describe.FlagNames(node); slices.Contains(got, "--repo") || slices.Contains(got, "--repo <value>") {
 		t.Errorf("memory update: specTree() flags = %v, must not advertise --repo", got)
 	}
 }
