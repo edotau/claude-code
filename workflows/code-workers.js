@@ -232,7 +232,7 @@ async function repair(rev) {
   if (!cs.length) return { ...rev, fixed: 0, decisions: ['no finding at or above minFix in ' + p] }
   log(p + ': ' + cs.length + ' finding(s) at or above minFix, fixing now')
   const impl = S.fix.done('fix:' + p, await agent(
-    S.fix.task(RULES + ' Fix these confirmed bugs in package ' + p + ' and nothing else; edit only non-test files under it. Root cause first, smallest ' +
+    S.fix.task(RULES + ' Fix these confirmed bugs in package ' + p + ' and nothing else; edit only non-test files under it (the Test stage writes any requested test; that is not unfinished work, so report done). Root cause first, smallest ' +
       'correct change, functions < 50 lines, 1-line comments. Before finishing, grep every caller OUTSIDE the package of each function you ' +
       'changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). Run gofmt and go vet ./' +
       norm(p) + '/....\n' + list(cs)),
@@ -299,7 +299,7 @@ async function polish(p, files) {
   if (!findings.length) return { green: true, simplify, review, fixall: { fixed: 0, status: 'skipped' }, decisions: d }
   const text = findings.map((f) => '- ' + f.file + ':' + f.line + ' (' + f.symbol + ', ' + f.severity + '): ' + f.symptom).join('\n')
   const fx = S.fix.done('fixall:' + p, await agent(
-    S.fix.task(RULES + ' Fix EVERY review finding below in package ' + p + ', lows included, in one pass; edit only non-test files under it. Root cause first, smallest correct change, ' +
+    S.fix.task(RULES + ' Fix EVERY review finding below in package ' + p + ', lows included, in one pass; edit only non-test files under it (the Test stage writes any requested test; that is not unfinished work, so report done). Root cause first, smallest correct change, ' +
       'functions < 50 lines, 1-line comments. Run gofmt and go vet ./' + norm(p) + '/.... Put "n/a" in callers.\n' + text),
     { phase: 'Fix', label: 'fixall:' + p, schema: S.fix.schema(WORK), model: S.fix.model, effort: S.fix.effort, ...S.fix.type },
   ).catch(() => null))
