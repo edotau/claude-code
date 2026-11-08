@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -62,8 +62,8 @@ func renderModeConflict(restore, revert bool, section string) error {
 // unknownAgent rejects a typo the engine would skip silently.
 func unknownAgent(agents string) error {
 	for a := range strings.SplitSeq(agents, ",") {
-		if a = strings.TrimSpace(a); a != "" && !slices.Contains(agent.DefaultAgents, a) {
-			return fmt.Errorf("configure: unknown --agent %q (%s)", a, strings.Join(agent.DefaultAgents, "|"))
+		if a = strings.TrimSpace(a); a != "" && !slices.Contains(client.DefaultAgents, a) {
+			return fmt.Errorf("configure: unknown --agent %q (%s)", a, strings.Join(client.DefaultAgents, "|"))
 		}
 	}
 	return nil

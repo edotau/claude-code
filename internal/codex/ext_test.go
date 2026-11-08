@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentconfig/render/rendertest"
 )
@@ -37,7 +37,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -70,9 +70,9 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
+	_, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
-		t.Fatalf("expected agent.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
+		t.Fatalf("expected client.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}
 	got, readErr := os.ReadFile(tomlPath)
 	if readErr != nil {
@@ -103,7 +103,7 @@ func TestRenderCodexHooksWriteConflictLeavesConfigTomlUntouched(t *testing.T) {
 	tomlPath := seedCodexFile(t, home, "config.toml", originalToml)
 	hooksPath := seedCodexFile(t, home, "hooks.json", []byte(`{"hooks":{}}`))
 	var out bytes.Buffer
-	plan, drift, err := agent.PrepareConfigs(agentrender.RenderOptions{
+	plan, drift, err := client.PrepareConfigs(agentrender.RenderOptions{
 		Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"},
 	})
 	if err != nil || !drift {
@@ -136,7 +136,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -148,8 +148,8 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	assertCodexApprovalBeforeForeignTables(t, content)
 
 	var out2 bytes.Buffer
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
-		t.Fatalf("second agent.RenderConfigs: %v\n%s", err, out2.String())
+	if _, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("second client.RenderConfigs: %v\n%s", err, out2.String())
 	}
 	raw2, err := os.ReadFile(path)
 	if err != nil {
@@ -216,7 +216,7 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 

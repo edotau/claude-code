@@ -1,10 +1,12 @@
 // render.go renders agent configs and hooks without launching a session.
-package agent
+package client
 
 import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 
@@ -79,7 +81,7 @@ func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel provid
 		if !want[name] {
 			continue
 		}
-		d, err := SchemaFor(name).Eng().Render(reg, sel, home, o, out)
+		d, err := agent.SchemaFor(name).Eng().Render(reg, sel, home, o, out)
 		if err != nil {
 			return drift, err
 		}
@@ -99,7 +101,7 @@ func RevertConfigs(o agentrender.RenderOptions) error {
 		out = os.Stdout
 	}
 	for _, a := range agents {
-		files, err := SchemaFor(a).Eng().ConfigPaths(o.Home)
+		files, err := agent.SchemaFor(a).Eng().ConfigPaths(o.Home)
 		if err != nil {
 			return fmt.Errorf("generate: %w", err)
 		}

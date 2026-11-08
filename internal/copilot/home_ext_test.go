@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentconfig/render/rendertest"
 )
@@ -29,7 +29,7 @@ func seedCopilotSettings(t *testing.T, home, content string) string {
 func renderCopilotOnly(t *testing.T, home string) {
 	t.Helper()
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
+	if _, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 }
@@ -81,7 +81,7 @@ func TestCopilotSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
+	if _, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -115,7 +115,7 @@ func TestCopilotSettingsNullJSONUntouched(t *testing.T) {
 					}
 				}()
 				var out bytes.Buffer
-				if _, err := agent.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
+				if _, err := client.RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 					t.Fatalf("Run: %v\n%s", err, out.String())
 				}
 			}()

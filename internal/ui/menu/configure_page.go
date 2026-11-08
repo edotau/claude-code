@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -494,11 +495,11 @@ func modelsReport(d *dialog) bool {
 }
 
 func runAgents(d *dialog) bool {
-	agentList := agent.DefaultAgents
+	agentList := client.DefaultAgents
 	if d.o.Agent != "" {
 		agentList = []string{d.o.Agent}
 	}
-	_, err := agent.RenderConfigs(agentrender.RenderOptions{
+	_, err := client.RenderConfigs(agentrender.RenderOptions{
 		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out,
 	})
 	if err != nil {

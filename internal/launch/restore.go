@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -44,7 +44,7 @@ func renderAgentConfigs(w io.Writer, agents string, forceHomes bool) error {
 			return tui.ConfirmKey(fmt.Sprintf("overwrite %s?", path), true)
 		}
 	}
-	prepared, _, err := agent.PrepareConfigs(opts)
+	prepared, _, err := client.PrepareConfigs(opts)
 	if err != nil || prepared == nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func renderAgentConfigs(w io.Writer, agents string, forceHomes bool) error {
 
 // Revert is `configure --revert [--agent a,b] [--dry-run]`.
 func Revert(w io.Writer, agents string, dryRun bool) error {
-	return agent.RevertConfigs(render.RenderOptions{Agents: splitAgents(agents), DryRun: dryRun, Out: w})
+	return client.RevertConfigs(render.RenderOptions{Agents: splitAgents(agents), DryRun: dryRun, Out: w})
 }
 
 func splitAgents(agents string) []string {
