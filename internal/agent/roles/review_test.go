@@ -9,15 +9,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
 // initRepo creates a git repo at t.TempDir() with one commit on main;
 func initRepo(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	runGit(t, dir, "init", "-q", "-b", "main")
-	runGit(t, dir, "config", "user.email", "test@example.com")
-	runGit(t, dir, "config", "user.name", "Test")
+	dir := gittest.Repo(t)
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

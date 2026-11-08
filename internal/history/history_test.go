@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -241,10 +242,7 @@ func TestLogListsCommits(t *testing.T) {
 // A clean git env is the whole point of history.go: a snapshot taken inside a session must never
 // touch whichever repo GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE happen to name — only the history store.
 func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
-	decoy := t.TempDir()
-	runGitCmd(t, decoy, "init", "--quiet", "--initial-branch=main")
-	runGitCmd(t, decoy, "config", "user.email", "decoy@localhost")
-	runGitCmd(t, decoy, "config", "user.name", "decoy")
+	decoy := gittest.Repo(t)
 	write(t, filepath.Join(decoy, "tracked.txt"), "original\n")
 	runGitCmd(t, decoy, "add", "tracked.txt")
 	runGitCmd(t, decoy, "commit", "--quiet", "-m", "seed")
