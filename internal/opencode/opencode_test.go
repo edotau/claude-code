@@ -139,13 +139,6 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 			t.Errorf("model=%v small_model=%v, want github-copilot/%s and github-copilot/%s", doc["model"], doc["small_model"], main, small)
 		}
 	})
-	t.Run("no opencode-go ids", func(t *testing.T) {
-		for _, k := range []string{"model", "small_model"} {
-			if s, _ := doc[k].(string); strings.HasPrefix(s, "opencode-go/") {
-				t.Errorf("%s = %q, an opencode-go id on a copilot-only login", k, s)
-			}
-		}
-	})
 }
 
 // TestOpencodeOverlayModelsFollowTable checks the opencode overlay's model/small_model are the table's opencode cells,

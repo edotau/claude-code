@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -91,49 +92,94 @@ func TestInteractiveConfigCarriesPlugin(t *testing.T) {
 	}
 }
 
-// idleHookExecs renders the plugin over a fake binary that logs each hook exec and runs 600ms, drives it under node
-// with two back-to-back session.idle events then a third once the first exec ended, and returns the exec count.
-func idleHookExecs(t *testing.T, env []string) int {
+// runPluginNode writes the plugin and driver into dir, runs the driver under node with env, and returns its output.
+func runPluginNode(t *testing.T, dir string, body []byte, driver string, env []string) string {
 	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not installed")
 	}
+	for name, data := range map[string][]byte{"plugin.mjs": body, "driver.mjs": []byte(driver)} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command(node, filepath.Join(dir, "driver.mjs"))
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node driver: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
+// idleHookExecs renders the plugin over a fake binary whose exec sleeps 300ms, drives two back-to-back session.idle
+// events, then a third once the first exec exited, and returns the memory-update exec count. Hosted runs wait a grace.
+func idleHookExecs(t *testing.T, env []string) int {
+	t.Helper()
 	dir := t.TempDir()
-	logf := filepath.Join(dir, "execs.log")
+	logf, endf := filepath.Join(dir, "execs.log"), filepath.Join(dir, "ends.log")
 	bin := filepath.Join(dir, "fakecc")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+logf+"\nsleep 0.6\n"), 0o700); err != nil {
+	script := "#!/bin/sh\necho \"$@\" >> " + logf + "\nsleep 0.3\necho done >> " + endf + "\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	body, err := renderPlugin(bin, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	driver := `import { ClaudeCodeHarness } from "./plugin.mjs"
+	driver := `import { readFileSync } from "node:fs"
+import { ClaudeCodeHarness } from "./plugin.mjs"
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const ends = () => { try { return readFileSync(process.env.HARNESS_TEST_ENDS, "utf8").split("\n").filter(Boolean).length } catch { return 0 } }
+// waitEnds polls until n execs exited, then settles for the plugin's exit callback.
+const waitEnds = async (n) => { for (let i = 0; i < 250 && ends() < n; i++) await sleep(20); await sleep(50) }
+const hosted = process.env.HARNESS_OPENCODE_HOSTED === "1"
 const h = await ClaudeCodeHarness({ directory: "/tmp" })
 const idle = { event: { type: "session.idle", properties: { sessionID: "s1" } } }
 await h.event(idle); await h.event(idle)
-await new Promise((r) => setTimeout(r, 1500))
+if (hosted) await sleep(300) // a hosted plugin launches nothing: a grace catches a stray exec
+else await waitEnds(1)
 await h.event(idle)
-await new Promise((r) => setTimeout(r, 1000))
+if (!hosted) await waitEnds(2)
 `
-	for name, data := range map[string]string{"plugin.mjs": string(body), "driver.mjs": driver} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	cmd := exec.Command(node, filepath.Join(dir, "driver.mjs"))
-	cmd.Env = env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("node driver: %v\n%s", err, out)
-	}
+	runPluginNode(t, dir, body, driver, append(slices.Clone(env), "HARNESS_TEST_ENDS="+endf))
 	data, _ := os.ReadFile(logf)
 	return strings.Count(string(data), "hook Stop --memory-update")
 }
 
+// TestPluginAskDecisionBlocksTool: an "ask" from a guard blocks the call, since the plugin cannot obtain approval.
+func TestPluginAskDecisionBlocksTool(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fakecc")
+	ask := `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}`
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+ask+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver := `import { ClaudeCodeHarness } from "./plugin.mjs"
+const h = await ClaudeCodeHarness({ directory: "/tmp" })
+try {
+  await h["tool.execute.before"]({ tool: "bash", sessionID: "s1" }, { args: { command: "ls" } })
+  console.log("RAN")
+} catch (e) {
+  console.log("BLOCKED " + e.message)
+}
+`
+	out := runPluginNode(t, dir, body, driver, os.Environ())
+	if !strings.Contains(out, "BLOCKED approval required; blocked") || strings.Contains(out, "RAN") {
+		t.Errorf("ask decision must block the tool with the default reason, got:\n%s", out)
+	}
+}
+
 // TestPluginIdleKeepsOneMemoryUpdateInFlight: a session.idle while that session's memory-update still runs starts no second.
 func TestPluginIdleKeepsOneMemoryUpdateInFlight(t *testing.T) {
-	if got := idleHookExecs(t, os.Environ()); got != 2 {
+	// strip an inherited hosted marker: a shell that exports it would silence the plugin and pass vacuously
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, hostedEnv+"=") })
+	if got := idleHookExecs(t, env); got != 2 {
 		t.Errorf("memory-update execs = %d, want 2 (idle 1 and idle 3; idle 2 overlapped idle 1)", got)
 	}
 }
