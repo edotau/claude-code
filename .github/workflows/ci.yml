@@ -4,9 +4,8 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # CI is off for cost (owner, 2026-11-08); validation runs locally before every push (`make audit`). Manual run only.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
