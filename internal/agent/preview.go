@@ -37,7 +37,7 @@ func RosterPick(o router.PickOpts) (router.PickOpts, error) {
 
 // PreviewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
 // a dispatch dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
-func PreviewRoute(model, task, want, fallback string, refresh func(context.Context, string) bool) (router.PickResult, error) {
+func PreviewRoute(model, task, want, fallback, lead string, refresh func(context.Context, string) bool) (router.PickResult, error) {
 	tb, err := router.Load()
 	if err != nil {
 		return router.PickResult{}, err
@@ -47,7 +47,7 @@ func PreviewRoute(model, task, want, fallback string, refresh func(context.Conte
 		return router.PickResult{}, err
 	}
 	chain, pick, err := RouteChainFor(context.Background(), want, model, hint, fallback, false,
-		router.PickOpts{Refresh: refresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+		router.PickOpts{Lead: lead, Refresh: refresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
 	if err != nil {
 		return router.PickResult{}, err
 	}
@@ -72,15 +72,15 @@ func previewHint(tb *router.RouteTable, model, task string) (string, error) {
 func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
 	res := pick
 	res.Candidates = nil
-	dispatches := chain.Dispatches
-	for _, c := range pick.Candidates {
-		if len(dispatches) == 0 || dispatches[0].Agent.Name() != c.Agent || dispatches[0].Account != c.Account {
+	for _, d := range chain.Dispatches {
+		if d.rung < 1 || d.rung > len(pick.Candidates) {
 			continue
 		}
+		c := pick.Candidates[d.rung-1]
 		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
-			c.Model, c.Effort = dispatches[0].Model, dispatches[0].Effort
+			c.Model, c.Effort = d.Model, d.Effort
 		}
-		res.Candidates, dispatches = append(res.Candidates, c), dispatches[1:]
+		res.Candidates = append(res.Candidates, c)
 	}
 	res.Skipped = slices.Clone(pick.Skipped)
 	for _, s := range chain.Skipped {

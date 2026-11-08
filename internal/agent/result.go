@@ -16,6 +16,7 @@ import (
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type RunOptions struct {
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
+	Lead                                                string      // profile the wanted agent leads the pick with; "" = its pin leads
 	Attach                                              []string    // absolute file paths, task text precedes them
 	KeepEnv                                             []string    // names the credential scrub must not drop, from --keep-env
 	Tools, Autonomous, EnableMemory, Direct             bool        // Direct: agent keeps the provider route, skips the router

@@ -28,6 +28,7 @@ type askFlags struct {
 	keepEnv                                                                                                                                                                                                                       keepEnvFlag
 	permAllow, permAsk, permDeny                                                                                                                                                                                                  ruleFlag
 	permMode                                                                                                                                                                                                                      string
+	leadProvider                                                                                                                                                                                                                  string
 	env                                                                                                                                                                                                                           envFlag
 }
 
@@ -39,7 +40,8 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.fallback, "fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
 	fs.StringVar(&f.route, "route", "", "fallback ladder: default|first-party (default: by session profile)")
 	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
-	fs.StringVar(&f.provider, "profile", "", "profile or hub start (default: pin, then registry)")
+	fs.StringVar(&f.provider, "profile", "", "profile, or session; with --fallback or --provider it leads, else pins")
+	fs.StringVar(&f.leadProvider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
 	fs.StringVar(&f.as, "as", "", "claude on a paired Databricks profile: user|sp, over the profile's identity")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: low|medium|high|xhigh|max")

@@ -151,14 +151,14 @@ func (c *Client) route(ctx context.Context, r agent.Engine, o agent.RunOptions) 
 			return agent.Chain{}, err
 		}
 	}
-	if agent.ExplicitBackend(o) {
+	if agent.ExplicitBackend(o) && o.Lead == "" {
 		return c.explicit(reg, r, o)
 	}
 	if err := ctx.Err(); err != nil {
 		return agent.Chain{}, err
 	}
 	chain, _, err := agent.RouteChainFor(ctx, o.Agent, o.Model, c.alias(o.Prompt), o.Fallback, o.Native,
-		router.PickOpts{Refresh: c.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(o.WorkDir) }})
+		router.PickOpts{Lead: o.Lead, Refresh: c.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(o.WorkDir) }})
 	return chain, err
 }
 
