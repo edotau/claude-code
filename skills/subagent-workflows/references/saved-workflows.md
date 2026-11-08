@@ -21,9 +21,9 @@ decision; agents work in the shared tree.
   the agent's own login when the session cannot serve it. `profile`/`provider` (run args or per stage) override it.
   After a 429/quota/auth failure, even mid-run, the chain runs: same model on another endpoint, GitHub copilot
   gpt-6.1-sol, another agent, BLOCKED; an editing successor checks `git diff` first. gemini defaults to Google; a
-  named Databricks profile runs it there. A run preflights each external route once with `claude-code gateway router`. Parser: `stepOf`, verbatim in
-  `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `code-workers` and `code-engineer` (enforced by
-  `workflow lint`).
+  named Databricks profile runs it there. A run preflights each external route once with `claude-code gateway router`.
+  Parser: `stepOf`, verbatim in `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `code-workers` and
+  `code-engineer` (enforced by `workflow lint`).
 - `code-engineer` is the size-routed rewrite, renamed from `orchestrate` on 2026-11-07 (A/B:
   `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
