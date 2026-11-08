@@ -19,17 +19,17 @@ import (
 
 type fakeSignin struct {
 	p     *providers.Provider
-	check func() error
+	check func(context.Context) error
 	login func(string)
 }
 
 func (fakeSignin) Status() providers.AuthState { return providers.AuthState{} }
 
-func (f fakeSignin) Check(context.Context) (providers.AuthVerdict, string) {
+func (f fakeSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	if f.check == nil {
 		return providers.VerdictOK, ""
 	}
-	err := f.check()
+	err := f.check(ctx)
 	if err != nil && !errors.Is(err, providers.ErrNeedsLogin) {
 		return providers.VerdictTransient, err.Error()
 	}
@@ -42,7 +42,7 @@ func (f fakeSignin) Login(context.Context, io.Reader, io.Writer) error {
 }
 
 // allSeams stubs the sign-in factory and TTY gates; per maps row -> check result, tty sets both gates.
-func allSeams(t *testing.T, per map[string]func() error, tty bool, timeout time.Duration) *[]string {
+func allSeams(t *testing.T, per map[string]func(context.Context) error, tty bool, timeout time.Duration) *[]string {
 	t.Helper()
 	f, to, si, se := allSigninFor, allCheckTimeout, allStdinTTY, allStderrTTY
 	t.Cleanup(func() { allSigninFor, allCheckTimeout, allStdinTTY, allStderrTTY = f, to, si, se })
@@ -61,11 +61,22 @@ func allSeams(t *testing.T, per map[string]func() error, tty bool, timeout time.
 	return &logins
 }
 
-func mixed() map[string]func() error {
-	return map[string]func() error{
-		"dev":  func() error { return nil },
-		"qa":   func() error { return fmt.Errorf("wrap: %w", providers.ErrNeedsLogin) },
-		"prod": func() error { time.Sleep(time.Second); return nil },
+func mixed() map[string]func(context.Context) error {
+	return map[string]func(context.Context) error{
+		"dev":  func(context.Context) error { return nil },
+		"qa":   func(context.Context) error { return fmt.Errorf("wrap: %w", providers.ErrNeedsLogin) },
+		"prod": func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() },
+	}
+}
+
+func TestNamedProviderRemovedDuringLogin(t *testing.T) {
+	if got := namedProvider("removed", nil); got != nil {
+		t.Fatalf("removed provider = %+v, want nil", got)
+	}
+	d := &dialog{reg: &providers.Registry{Providers: map[string]*providers.Provider{}}}
+	got := allLoginRow(d, allRowStatus{Row: "removed", Status: allNeedsLogin})
+	if got.Row != "removed" || got.Status != allError || got.Detail != "provider no longer registered" {
+		t.Fatalf("removed login row = %+v", got)
 	}
 }
 
@@ -83,20 +94,22 @@ func TestAllRowsSorted(t *testing.T) {
 }
 
 func TestAllAllStatuses(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
 	cases := []struct {
 		name string
-		f    func() error
+		f    func(context.Context) error
 		want string
 	}{
-		{"ok", func() error { return nil }, allOK},
-		{"needs login", func() error { return providers.ErrNeedsLogin }, allNeedsLogin},
-		{"timeout", func() error { time.Sleep(time.Second); return nil }, allTimedOut},
-		{"error", func() error { return errors.New("boom") }, allError},
+		{"ok", func(context.Context) error { return nil }, allOK},
+		{"needs login", func(context.Context) error { return providers.ErrNeedsLogin }, allNeedsLogin},
+		{"timeout", func(context.Context) error { <-release; return nil }, allTimedOut},
+		{"error", func(context.Context) error { return errors.New("boom") }, allError},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			d := dbxEnv(t)
-			allSeams(t, map[string]func() error{"dev": c.f}, false, 50*time.Millisecond)
+			allSeams(t, map[string]func(context.Context) error{"dev": c.f}, false, 50*time.Millisecond)
 			got := allCheckAll(context.Background(), d.reg, []string{"dev"})
 			if got[0].Status != c.want || got[0].Row != "dev" {
 				t.Fatalf("got %+v, want status %q", got[0], c.want)
@@ -160,7 +173,7 @@ func TestAllAllLoginGate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			d := dbxEnv(t)
-			logins := allSeams(t, map[string]func() error{"qa": func() error { return providers.ErrNeedsLogin }}, c.tty, time.Second)
+			logins := allSeams(t, map[string]func(context.Context) error{"qa": func(context.Context) error { return providers.ErrNeedsLogin }}, c.tty, time.Second)
 			d.o.All, d.o.Check, d.o.DryRun = true, c.chk, c.dry
 			d.br = bufio.NewReader(strings.NewReader("y\n"))
 			runProviderAll(d)
@@ -176,7 +189,7 @@ func TestAllAllLoginGate(t *testing.T) {
 
 func TestAllAllLoginDeclined(t *testing.T) {
 	d := dbxEnv(t)
-	logins := allSeams(t, map[string]func() error{"qa": func() error { return providers.ErrNeedsLogin }}, true, time.Second)
+	logins := allSeams(t, map[string]func(context.Context) error{"qa": func(context.Context) error { return providers.ErrNeedsLogin }}, true, time.Second)
 	d.o.All = true
 	d.br = bufio.NewReader(strings.NewReader("n\n"))
 	if runProviderAll(d) || len(*logins) != 0 {

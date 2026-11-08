@@ -56,9 +56,9 @@ func allRows(reg *providers.Registry, profile string) []string {
 	return rows
 }
 
-// namedProvider returns p with its registry key filled in as Name.
+// namedProvider returns p with its registry key filled in as Name; nil stays nil (the row was removed).
 func namedProvider(name string, p *providers.Provider) *providers.Provider {
-	if p.Name != "" {
+	if p == nil || p.Name != "" {
 		return p
 	}
 	cp := *p
@@ -168,12 +168,15 @@ func offerAllLogins(d *dialog, res []allRowStatus) {
 
 // allLoginRow prompts, logs in and re-checks one failing row; the returned status is the final verdict.
 func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
+	p := namedProvider(s.Row, d.reg.Providers[s.Row])
+	if p == nil {
+		return allRowStatus{Row: s.Row, Status: allError, Detail: "provider no longer registered"}
+	}
 	fmt.Fprintf(os.Stderr, "%s: login required. Log in now? [Y/n] ", s.Row)
 	if !uidialog.Yes(d.br) {
 		return s
 	}
 	ctx := context.Background()
-	p := namedProvider(s.Row, d.reg.Providers[s.Row])
 	if err := allSigninFor(p).Login(ctx, d.o.In, os.Stderr); err != nil {
 		return allRowStatus{Row: s.Row, Status: allError, Detail: "login: " + err.Error()}
 	}

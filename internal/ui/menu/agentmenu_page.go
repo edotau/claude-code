@@ -655,9 +655,6 @@ func pinCopilotProfile(d *dialog, user string) bool {
 			profile = "personal"
 		}
 	}
-	if user == "" {
-		profile = signInProfile(d, "copilot") // gh's active account is copilot's own-login profile
-	}
 	if _, err := writeAgentField(d, "copilot", "PROFILE", profile); err != nil {
 		d.printf("copilot: %v\n", err)
 		return false

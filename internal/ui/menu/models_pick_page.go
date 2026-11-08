@@ -311,7 +311,7 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 		d.printf("copilot: no github provider registered\n")
 		return
 	}
-	ids := modelChoices(p, false)
+	ids := pickerChoices(d, p, false)
 	if len(ids) == 0 {
 		d.printf("copilot: no model list available for %s\n", p.Name)
 		return
@@ -342,7 +342,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 	if claude {
 		aliases = append(aliases, models.Fable)
 	}
-	choices := sync.OnceValue(func() []string { return modelChoices(p, claude) }) // alias-independent; a fetch takes 20–45s
+	choices := sync.OnceValue(func() []string { return pickerChoices(d, p, claude) }) // alias-independent; a fetch takes 20–45s
 	for {
 		rows := make([][2]string, len(aliases))
 		for i, s := range aliases {
@@ -396,24 +396,28 @@ func saveModel(d *dialog, p *providers.Provider, claude bool, alias, id string) 
 	d.changed = true
 }
 
+// pickerChoices is modelChoices plus the account's saved models; a failed saved-model read is printed on d.
+func pickerChoices(d *dialog, p *providers.Provider, claude bool) []string {
+	choices := modelChoices(p, claude)
+	if p.Provider == "github" { // Copilot keeps its live enabled catalog, not saved history.
+		return choices
+	}
+	saved, err := providers.PickerModels(p)
+	if err != nil {
+		d.printf("models: %v\n", err)
+		return choices
+	}
+	for _, m := range saved {
+		if !slices.Contains(choices, m.ID) {
+			choices = append(choices, m.ID)
+		}
+	}
+	return choices
+}
+
 // modelChoices lists ids the account can serve: opencode's catalog for a hub account, the live API (else the
 // registry's own table) for claude's provider.
-var modelChoices = func(p *providers.Provider, claude bool) (choices []string) {
-	defer func() {
-		if p.Provider == "github" {
-			return // Copilot keeps its live enabled catalog, not saved history.
-		}
-		saved, err := providers.PickerModels(p)
-		if err != nil {
-			fmt.Printf("models: %v\n", err)
-			return
-		}
-		for _, m := range saved {
-			if !slices.Contains(choices, m.ID) {
-				choices = append(choices, m.ID)
-			}
-		}
-	}()
+var modelChoices = func(p *providers.Provider, claude bool) []string {
 	if !claude && p.OpencodeID != "" {
 		if ids := opencodeModels(p.OpencodeID); len(ids) > 0 {
 			return ids

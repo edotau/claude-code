@@ -78,6 +78,21 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 	}
 }
 
+func TestUnpinAllModelsMarksDialogChanged(t *testing.T) {
+	reg := menuTestEnv(t)
+	for _, alias := range []string{"opus", "sonnet", "haiku", "fable"} {
+		vaulttest.SetRecord(t, "claude", "aliases."+alias, "pinned-"+alias)
+	}
+	d := &dialog{reg: reg, out: discardWriter{}}
+	unpinAllModels(d)
+	if got := vault.GetAgentRecord("claude"); len(got.Aliases) != 0 || got.Profile != "max" {
+		t.Fatalf("unpin all must clear aliases and retain the profile: %+v", got)
+	}
+	if !d.changed {
+		t.Fatal("unpin all must trigger config regeneration")
+	}
+}
+
 // discardWriter is an io.Writer that throws away everything written to it (dialog.out needs one when
 // a test never asserts on dialog output).
 type discardWriter struct{}

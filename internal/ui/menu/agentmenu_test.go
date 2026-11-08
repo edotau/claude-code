@@ -168,16 +168,15 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 		var out strings.Builder
 		d := &dialog{reg: reg, out: &out}
 		_, actions := menuRows(d)
-		origPick := pickMenu
+		origPick, orig := pickMenu, saveConfirmed
+		t.Cleanup(func() { saveConfirmed, pickMenu = orig, origPick })
 		pickMenu = flatPick(func(string, [][2]string, int) (int, error) { // a submenu's key paste, then Submit
 			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789")
 			return len(actions), nil
 		})
-		orig := saveConfirmed
 		var asked []string
 		saveConfirmed = func(q string) bool { asked = append(asked, q); return yes }
 		rc := runMenu(d)
-		saveConfirmed, pickMenu = orig, origPick
 		if rc != 0 {
 			t.Fatalf("yes=%v: rc=%d", yes, rc)
 		}

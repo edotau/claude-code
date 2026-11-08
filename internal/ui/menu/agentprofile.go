@@ -201,6 +201,7 @@ func saveSeed(d *dialog, choice map[string]string) bool {
 		d.printf("seed: %v\n", err)
 		return false
 	}
+	d.changed = true
 	d.println("agent profiles saved")
 	return true
 }
