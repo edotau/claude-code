@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"context"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os/exec"
 
@@ -15,7 +16,7 @@ func (claudeEngine) NewLive() agent.LiveBackend { return &claudeLive{} }
 // claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
 type claudeLive struct{ prevCost float64 }
 
-func (*claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *agent.TailBuffer, string, error) {
+func (*claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
 	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--include-partial-messages"}, req)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"os/exec"
@@ -181,18 +182,18 @@ type remoteError struct{ kind, msg string }
 func (e remoteError) Error() string { return e.msg }
 
 // remoteKind maps an envelope error token to the local failure class.
-func remoteKind(token string) Kind {
+func remoteKind(token string) retry.Kind {
 	switch token {
 	case "auth":
-		return KindAuth
+		return retry.KindAuth
 	case "rate_limit":
-		return KindRateLimit
+		return retry.KindRateLimit
 	case "transient":
-		return KindTransient
+		return retry.KindTransient
 	case "quota":
-		return KindQuota
+		return retry.KindQuota
 	}
-	return KindFatal
+	return retry.KindFatal
 }
 
 // resultFromEnvelope is the local Result for a remote result event; dropped lists the flags the local side dropped.
@@ -217,10 +218,10 @@ func resultFromEnvelope(env Envelope, agentName string, dropped []string) Result
 func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	argv, err := RemoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
-		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: err}
+		return Result{Agent: r.agent, Status: StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: err}
 	}
 	if strings.ContainsRune(req.Prompt, 0) {
-		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: errors.New("remote ask: a NUL byte cannot cross the framed prompt")}
+		return Result{Agent: r.agent, Status: StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: errors.New("remote ask: a NUL byte cannot cross the framed prompt")}
 	}
 	dropped := remoteDropped(req)
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -240,7 +241,7 @@ func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 		err = cmd.Start()
 	}
 	if err != nil {
-		return Result{Agent: r.agent, Status: StatusError, Dropped: dropped}, &Error{Kind: KindFatal, Agent: r.agent, Err: fmt.Errorf("ssh: %w", err)}
+		return Result{Agent: r.agent, Status: StatusError, Dropped: dropped}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: fmt.Errorf("ssh: %w", err)}
 	}
 	// stdin stays open after the prompt: its closing (below, or by a dead ssh) is the remote's cancel signal
 	go func() { _, _ = io.WriteString(in, req.Prompt+"\x00") }()
@@ -264,21 +265,21 @@ func remoteWatchdog(timeout time.Duration, cancel context.CancelCauseFunc) (func
 	return func() { wd.Reset(idle) }, func() { wd.Stop() }
 }
 
-func (r remoteEngine) remoteOutcome(ctx context.Context, env *Envelope, streamed bool, sinkErr, werr error, tail *TailBuffer, dropped []string) (Result, error) {
+func (r remoteEngine) remoteOutcome(ctx context.Context, env *Envelope, streamed bool, sinkErr, werr error, tail *retry.TailBuffer, dropped []string) (Result, error) {
 	res := Result{Agent: r.agent, Status: StatusError, Dropped: dropped}
 	switch {
 	case env != nil:
 		res = resultFromEnvelope(*env, r.agent, dropped)
 		if env.Error != nil {
-			e := &Error{Kind: remoteKind(env.Error.Kind), Agent: r.agent, Progressed: streamed,
+			e := &retry.Error{Kind: remoteKind(env.Error.Kind), Agent: r.agent, Progressed: streamed,
 				Err: remoteError{kind: env.Error.Kind, msg: "remote " + r.host + ": " + env.Error.Message}}
 			return res, e
 		}
 		return res, nil
 	case sinkErr != nil:
-		return res, &Error{Kind: KindFatal, Agent: r.agent, Err: sinkErr}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: sinkErr}
 	case ctx.Err() != nil:
-		return res, Classify(r.agent, fmt.Errorf("ssh %s: %w", r.host, context.Cause(ctx)), streamed)
+		return res, retry.Classify(r.agent, fmt.Errorf("ssh %s: %w", r.host, context.Cause(ctx)), streamed)
 	}
 	if streamed {
 		res.Status = StatusPartial
@@ -287,7 +288,7 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *Envelope, streamed
 }
 
 // noResult classifies an ssh exit that never delivered a result event.
-func (r remoteEngine) noResult(werr error, tail *TailBuffer, streamed bool) *Error {
+func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool) *retry.Error {
 	detail := strings.TrimSpace(tail.String())
 	if len(detail) > 600 {
 		detail = "…" + detail[len(detail)-600:]
@@ -297,15 +298,15 @@ func (r remoteEngine) noResult(werr error, tail *TailBuffer, streamed bool) *Err
 		code = ee.ExitCode()
 	}
 	msg := fmt.Sprintf("ssh %s: connection failed (exit %d)", r.host, code)
-	kind := KindTransient
+	kind := retry.KindTransient
 	if code != 255 {
 		msg = fmt.Sprintf("remote ask on %s ended (exit %d) without a result event; does it run a claude-code with --format stream-json?", r.host, code)
-		kind = KindFatal
+		kind = retry.KindFatal
 	}
 	if detail != "" {
 		msg += ": " + detail
 	}
-	return &Error{Kind: kind, Agent: r.agent, Progressed: streamed, Err: errors.New(msg)}
+	return &retry.Error{Kind: kind, Agent: r.agent, Progressed: streamed, Err: errors.New(msg)}
 }
 
 // relay reads the remote's NDJSON: events go to sink under the local dispatch id, the result event is returned,

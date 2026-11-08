@@ -2,6 +2,7 @@ package claude
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"sync"
 	"time"
 
@@ -110,5 +111,5 @@ func (w *stallWatch) stalled() error {
 		return nil
 	}
 	err := fmt.Errorf("%w: claude was silent for %s (last event: %s)", agent.ErrStalled, w.d, w.last)
-	return &agent.Error{Kind: agent.KindFatal, Agent: "claude", Err: err}
+	return &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: err}
 }

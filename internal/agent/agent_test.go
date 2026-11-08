@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"path/filepath"
@@ -74,7 +75,7 @@ func TestRunDropsAndProgressVeto(t *testing.T) {
 	f = &fakeRunner{write: "partial", errs: []error{errors.New("HTTP 503 overloaded"), nil}}
 	var out strings.Builder
 	_, err = Run(context.Background(), f, RunOptions{Prompt: "p"}, NewTextSink(&out), nil)
-	var e *Error
+	var e *retry.Error
 	if !errors.As(err, &e) || !e.Progressed || len(f.seen) != 1 {
 		t.Fatalf("streamed output must veto retry: err=%v attempts=%d", err, len(f.seen))
 	}
@@ -180,8 +181,8 @@ func assertQuotaNoDemote(t *testing.T, acctErr error) {
 	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{acctErr}}
 	var notes []string
 	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
-	var e *Error
-	if !errors.As(err, &e) || e.Kind != KindQuota {
+	var e *retry.Error
+	if !errors.As(err, &e) || e.Kind != retry.KindQuota {
 		t.Fatalf("err = %v, want a KindQuota error", err)
 	}
 	if len(f.seen) != 1 || f.seen[0].Model != "" {
@@ -208,10 +209,10 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 func TestDispatchUnavailable(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	genericErr := errors.New(`exec: "codex": executable file not found in $PATH`)
-	deadline := &Error{Kind: KindFatal, Err: context.DeadlineExceeded}
-	canceled := &Error{Kind: KindFatal, Err: context.Canceled}
-	tooLarge := &Error{Kind: KindFatal, Err: fmt.Errorf("prompt: %w", ErrPromptTooLarge)}
-	progressed := &Error{Kind: KindTransient, Progressed: true, Err: genericErr}
+	deadline := &retry.Error{Kind: retry.KindFatal, Err: context.DeadlineExceeded}
+	canceled := &retry.Error{Kind: retry.KindFatal, Err: context.Canceled}
+	tooLarge := &retry.Error{Kind: retry.KindFatal, Err: fmt.Errorf("prompt: %w", ErrPromptTooLarge)}
+	progressed := &retry.Error{Kind: retry.KindTransient, Progressed: true, Err: genericErr}
 
 	cases := []struct {
 		name string
@@ -230,7 +231,7 @@ func TestDispatchUnavailable(t *testing.T) {
 		{"prompt too large", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, tooLarge, false},
 		{"progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, progressed, false},
 		{"wrapped progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, fmt.Errorf("agent: %w", progressed), false},
-		{"not progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, &Error{Kind: KindFatal, Err: genericErr}, true},
+		{"not progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, &retry.Error{Kind: retry.KindFatal, Err: genericErr}, true},
 		{"binary missing", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, genericErr, true},
 		{"claude model alias stays eligible", &fakeRunner{name: "codex"}, RunOptions{Model: "opus"}, Result{}, genericErr, true},
 	}
@@ -288,8 +289,8 @@ func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
 		t.Run(fmt.Sprintf("Tools=%v", tools), func(t *testing.T) {
 			hang := newCodexHang()
 			_, err := Run(context.Background(), hang, RunOptions{Prompt: "p", Tools: tools, Timeout: 20 * time.Millisecond}, Discard, nil)
-			var e *Error
-			if !errors.As(err, &e) || e.Kind != KindFatal || !errors.Is(err, context.DeadlineExceeded) || hang.calls != 1 {
+			var e *retry.Error
+			if !errors.As(err, &e) || e.Kind != retry.KindFatal || !errors.Is(err, context.DeadlineExceeded) || hang.calls != 1 {
 				t.Fatalf("Tools=%v: calls=%d err=%v, want KindFatal wrapping DeadlineExceeded after one call", tools, hang.calls, err)
 			}
 		})
@@ -372,7 +373,7 @@ func TestRunStatusAndAttempts(t *testing.T) {
 	}{
 		{"ok", "", []error{nil}, StatusOK, 1},
 		{"retried transient then ok", "", []error{errors.New("HTTP 503 overloaded"), nil}, StatusOK, 2},
-		{"quota", "", []error{&Error{Kind: KindQuota, Err: errors.New("plan exhausted")}}, StatusQuota, 1},
+		{"quota", "", []error{&retry.Error{Kind: retry.KindQuota, Err: errors.New("plan exhausted")}}, StatusQuota, 1},
 		{"partial", "half", []error{errors.New("boom")}, StatusPartial, 1},
 		{"stalled", "", []error{dl, dl, dl}, StatusStalled, 3},
 		{"error", "", []error{errors.New("bad request")}, StatusError, 1},
@@ -628,7 +629,7 @@ func TestRunWithFallbackCancelledBeforeDispatchNeverRuns(t *testing.T) {
 // A 429 followed by success is one hop, no error_kind, whose errors list the recovered rate_limit attempt.
 func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
 	fastDefaultBackoff(t)
-	r := &fakeRunner{name: "claude", errs: []error{&Error{Kind: KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
+	r := &fakeRunner{name: "claude", errs: []error{&retry.Error{Kind: retry.KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
 	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -685,7 +686,7 @@ func TestRunToolProgressVetoesRetry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &toolRunner{}
 	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, Discard, nil)
-	var e *Error
+	var e *retry.Error
 	if !errors.As(err, &e) || !e.Progressed || len(f.seen) != 1 {
 		t.Fatalf("a tool call must veto retry: err=%v attempts=%d", err, len(f.seen))
 	}

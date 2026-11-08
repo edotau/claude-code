@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"io/fs"
 	"os"
@@ -93,7 +94,7 @@ func initialResult(cs agent.Schema, t providers.Target, own bool) (agent.Result,
 
 // quotaHandoffEligible reports whether err is a quota failure on a copilot-billed route, so the task can hand off.
 func quotaHandoffEligible(own bool, t providers.Target, err error) bool {
-	return (own || t.Provider.Auth.Login == "copilot") && agent.Classify("copilot", err, false).Kind == agent.KindQuota
+	return (own || t.Provider.Auth.Login == "copilot") && retry.Classify("copilot", err, false).Kind == retry.KindQuota
 }
 
 // options builds the SDK options for target t; env is the BYOK route env; done (never nil) releases a registry route.
@@ -197,7 +198,7 @@ func copilotPartial(res agent.Result, out SDKResult, err error, sink agent.Sink)
 }
 
 func copilotFatal(err error) error {
-	return &agent.Error{Kind: agent.KindFatal, Agent: "copilot", Err: err}
+	return &retry.Error{Kind: retry.KindFatal, Agent: "copilot", Err: err}
 }
 
 // copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
@@ -270,7 +271,7 @@ func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registr
 	from := t.Provider
 	t, note, err := copilotGate(reg, t)
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
-		return t, note, &agent.Error{Kind: agent.KindQuota, Agent: e.Name(), Err: errors.New(note)}
+		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
 	if tier := ResumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
 		t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus

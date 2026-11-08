@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os/exec"
 	"slices"
@@ -116,18 +117,18 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	p := CLIPrep{Target: t, Result: Result{Provider: s.OwnProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // agentTargetNote can report a non-own target with no provider resolved
-			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
+			return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
 		}
 		p.Result.Provider = t.Provider.Name
 		p.Result.Model = v.RanModel(t)
 	}
 	p.Prompt, err = v.Attach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
-		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
+		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: err}
 	}
 	ct := v.Before(req, t)
 	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && len(p.Prompt) > n {
-		return p, &Error{Kind: KindFatal, Agent: name, Err: PromptTooLarge(len(p.Prompt), n)}
+		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: PromptTooLarge(len(p.Prompt), n)}
 	}
 	h := cliHeadless(s, p.Prompt, req)
 	if own {
@@ -136,11 +137,11 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		p.Env, p.Argv, err = s.configureHeadless(ctx, ct, h)
 	}
 	if err != nil {
-		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
+		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: err}
 	}
 	v.After(&p, req)
 	if err := CheckRouteNames(p.Env, req.OverlaySet); err != nil {
-		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
+		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: err}
 	}
 	p.Env = append(p.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
@@ -166,12 +167,12 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, 
 
 // EmptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
 func EmptyAnswer(name string) error {
-	return &Error{Kind: KindFatal, Agent: name,
+	return &retry.Error{Kind: retry.KindFatal, Agent: name,
 		Err: errors.New("the CLI exited 0 with an empty answer (model returned no text)")}
 }
 
 // RunStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
-func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
+func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res Result, sink Sink,
 	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error)) (Result, error) {
 	out, err := RunEventStream(ctx, name, cmd, tail, sink, parse, nil)
 	return withParsed(res, out), err
@@ -185,7 +186,7 @@ func withParsed(res, out Result) Result {
 }
 
 // RunEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
-func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, sink Sink,
+func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, sink Sink,
 	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error), onMeaningful func()) (Result, error) {
 	var res Result
 	stdout, err := cmd.StdoutPipe()

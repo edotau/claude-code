@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -121,18 +122,18 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 	model := l.resolveModel(req.Model)
 	res := agent.Result{Provider: l.provider.Name, Model: model, SessionID: req.SessionID}
 	if model == "" {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: fmt.Errorf("%s: no model resolved", l.provider.Name)}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: fmt.Errorf("%s: no model resolved", l.provider.Name)}
 	}
 	if len(req.Prompt) > agent.MaxPromptBytes {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.PromptTooLarge(len(req.Prompt), agent.MaxPromptBytes)}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: agent.PromptTooLarge(len(req.Prompt), agent.MaxPromptBytes)}
 	}
 	bin, env, argv, err := l.prepareLaunch(req, model)
 	if err != nil {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: err}
 	}
 	env, plugged, err := opencodeApplyPlugin(env, req)
 	if err != nil {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: err}
 	}
 	cctx := ctx
 	var onFirstByte, onStep func()
@@ -148,7 +149,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 	}
 	argv, err = host.before(argv, req.Prompt)
 	if err != nil {
-		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: err}
 	}
 	cmd, tail := agent.ChildCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, host.parser(onStep), onFirstByte)
@@ -163,7 +164,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 // runError is the hub run's outcome: a stall after first output, then a tools-off answer that is only tool calls.
 func (l hubDispatch) runError(cctx context.Context, req agent.RunOptions, answer string, runErr error) error {
 	if l.firstOutput > 0 && errors.Is(context.Cause(cctx), agent.ErrStalled) {
-		return &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.ErrStalled}
+		return &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: agent.ErrStalled}
 	}
 	if runErr != nil {
 		return runErr

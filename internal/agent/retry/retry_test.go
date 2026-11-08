@@ -1,4 +1,4 @@
-package agent
+package retry
 
 import (
 	"context"
@@ -272,12 +272,12 @@ func TestDoCancelledReacquireReturnsCancellation(t *testing.T) {
 // A waiter whose cooldown is extended by another task while it sleeps must keep waiting for the new deadline.
 func TestWaitCooldownHonorsExtendedDeadline(t *testing.T) {
 	key := "cool-extend-" + t.Name()
-	coolDown(key, 100*time.Millisecond)
+	CoolDown(key, 100*time.Millisecond)
 	start := time.Now()
 	done := make(chan time.Duration)
-	go func() { waitCooldown(context.Background(), key, 5*time.Second); done <- time.Since(start) }()
+	go func() { WaitCooldown(context.Background(), key, 5*time.Second); done <- time.Since(start) }()
 	time.Sleep(40 * time.Millisecond)
-	coolDown(key, 300*time.Millisecond)
+	CoolDown(key, 300*time.Millisecond)
 	if got := <-done; got < 300*time.Millisecond {
 		t.Errorf("waiter resumed after %v, want it to wait out the extended ~340ms hold", got)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"strings"
 	"time"
@@ -151,7 +152,7 @@ func (b BaseEngine) Bin() (string, error) {
 	s, _ := LookupSchema(b.name)
 	bin, err := paths.AgentBin(s.CLI.Binary)
 	if err != nil {
-		return "", &Error{Kind: KindFatal, Agent: b.name, Err: err}
+		return "", &retry.Error{Kind: retry.KindFatal, Agent: b.name, Err: err}
 	}
 	return bin, nil
 }

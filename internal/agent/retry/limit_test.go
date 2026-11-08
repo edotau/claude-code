@@ -1,4 +1,4 @@
-package agent
+package retry
 
 import (
 	"context"
@@ -33,21 +33,6 @@ func countAccountMarkers(dir, account string) int {
 	return n
 }
 
-// samplePeak counts account markers every interval until stop closes and returns the peak.
-func samplePeak(dir, account string, interval time.Duration, stop <-chan struct{}, peak *atomic.Int32) {
-	for {
-		select {
-		case <-stop:
-			return
-		default:
-		}
-		n := int32(countAccountMarkers(dir, account))
-		for cur := peak.Load(); n > cur && !peak.CompareAndSwap(cur, n); cur = peak.Load() {
-		}
-		time.Sleep(interval)
-	}
-}
-
 // Verify-2: 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12, every dispatch and
 // spawn finishes, and the marker dir is empty at the end. The limiter's caps lift the in-process DefaultPerKey=4
 // that RunTasks uses, so the file-backed shared limiter is the binding gate.
@@ -64,7 +49,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	owner := helper.Process.Pid
 	t.Cleanup(func() { _ = helper.Process.Kill(); _ = helper.Wait() })
 
-	l := newLimiter(13, capA)
+	l := NewLimiter(13, capA)
 	l.limits = lim
 
 	stop := make(chan struct{})
@@ -80,7 +65,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 13 { // 13 batch dispatches: exactly what one dispatch does in l.acquire — take, hold, release
 		wg.Go(func() {
-			release, err := l.acquire(context.Background(), account)
+			release, err := l.Acquire(context.Background(), account)
 			if err != nil {
 				t.Errorf("dispatch acquire: %v", err)
 				return
@@ -151,13 +136,13 @@ func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	if ok, _ := inflight.TryClaim(inflight.Claim{Owner: os.Getpid(), ID: "other", Account: full}, lim); !ok {
 		t.Fatal("seed claim refused")
 	}
-	l := newLimiter(1, DefaultPerKey)
+	l := NewLimiter(1, DefaultPerKey)
 	l.limits = lim
 	ctx, cancel := context.WithCancel(context.Background())
 	waited := make(chan error, 1)
 	tried := make(chan struct{}, 1)
 	observeRefusedClaim(t, full, tried)
-	go func() { _, err := l.acquire(ctx, full); waited <- err }()
+	go func() { _, err := l.Acquire(ctx, full); waited <- err }()
 	select {
 	case <-tried: // the full-account dispatch was refused and is now polling
 	case <-time.After(5 * time.Second):
@@ -169,7 +154,7 @@ func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	if err := <-waited; err == nil {
 		t.Fatal("cancelled wait returned a permit")
 	}
-	if _, err := l.acquire(ctx, free); err == nil {
+	if _, err := l.Acquire(ctx, free); err == nil {
 		t.Fatal("an already-cancelled dispatch got a permit while capacity was free")
 	}
 	if n := countAccountMarkers(inflight.Dir(), full) + countAccountMarkers(inflight.Dir(), free); n != 1 {
@@ -179,8 +164,8 @@ func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 
 func observeRefusedClaim(t *testing.T, full string, tried chan<- struct{}) {
 	t.Helper()
-	origClaim := sharedTryClaim
-	sharedTryClaim = func(c inflight.Claim, lim inflight.Limits) (bool, inflight.Snapshot) {
+	origClaim := SharedTryClaim
+	SharedTryClaim = func(c inflight.Claim, lim inflight.Limits) (bool, inflight.Snapshot) {
 		ok, err := origClaim(c, lim)
 		if c.Account == full && !ok {
 			select {
@@ -190,14 +175,14 @@ func observeRefusedClaim(t *testing.T, full string, tried chan<- struct{}) {
 		}
 		return ok, err
 	}
-	t.Cleanup(func() { sharedTryClaim = origClaim })
+	t.Cleanup(func() { SharedTryClaim = origClaim })
 }
 
-func assertFreeAccountRuns(t *testing.T, l *limiter, free string) {
+func assertFreeAccountRuns(t *testing.T, l *Limiter, free string) {
 	t.Helper()
 	got := make(chan error, 1)
 	go func() {
-		release, err := l.acquire(context.Background(), free)
+		release, err := l.Acquire(context.Background(), free)
 		if err == nil {
 			release()
 		}

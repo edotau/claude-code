@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"path/filepath"
@@ -142,7 +143,7 @@ func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 	big := strings.Repeat("x", agent.MaxPromptBytes+10)
 
 	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: big}, agent.Discard)
-	var e *agent.Error
+	var e *retry.Error
 	if !errors.As(err, &e) || !errors.Is(e, agent.ErrPromptTooLarge) {
 		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
 	}
@@ -209,8 +210,8 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
 
 	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, agent.Discard)
-	var ae *agent.Error
-	if !errors.As(err, &ae) || ae.Kind != agent.KindFatal || !strings.Contains(ae.Error(), "prompt refused") {
+	var ae *retry.Error
+	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(ae.Error(), "prompt refused") {
 		t.Fatalf("err = %v, want a fatal *agent.Error carrying the hook's reason", err)
 	}
 	if _, statErr := os.Stat(marker); statErr == nil {

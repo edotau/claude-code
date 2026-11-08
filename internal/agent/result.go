@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
@@ -76,7 +77,7 @@ type Result struct {
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch RunWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
-	recovered       []*Error        // attempts that failed before the successful one, for the hop's errors
+	recovered       []*retry.Error  // attempts that failed before the successful one, for the hop's errors
 }
 
 // Hop is one dispatch RunWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
@@ -109,11 +110,11 @@ const (
 )
 
 // statusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.
-func statusOf(e *Error) string {
+func statusOf(e *retry.Error) string {
 	switch {
 	case e == nil:
 		return StatusOK
-	case e.Kind == KindQuota:
+	case e.Kind == retry.KindQuota:
 		return StatusQuota
 	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, ErrStalled):
 		return StatusStalled

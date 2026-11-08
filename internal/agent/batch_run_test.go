@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -54,7 +55,7 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var cur, peak atomic.Int32
 	var tasks []batch.Task
-	for i := range agent.DefaultPerKey + 3 {
+	for i := range retry.DefaultPerKey + 3 {
 		name := fmt.Sprintf("agent%d", i)
 		r := gaugeRunner{name: name, cur: &cur, max: &peak}
 		tasks = append(tasks, batch.Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
@@ -66,8 +67,8 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: len(tasks), Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
-	if got := int(peak.Load()); got > agent.DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent dispatches on one account = %d, want 2..%d", got, agent.DefaultPerKey)
+	if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
+		t.Errorf("peak concurrent dispatches on one account = %d, want 2..%d", got, retry.DefaultPerKey)
 	}
 }
 
@@ -114,7 +115,7 @@ func acctTask(t *testing.T, name, account string, r agent.Engine) batch.Task {
 func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var tasks []batch.Task
-	for i := range agent.DefaultPerKey + 2 {
+	for i := range retry.DefaultPerKey + 2 {
 		name := fmt.Sprintf("p%d", i)
 		tasks = append(tasks, acctTask(t, name, "panic·acct", slowRunner{name: name, boom: true}))
 	}
@@ -138,7 +139,7 @@ func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	bRan := make(chan struct{})
 	var tasks []batch.Task
-	n := agent.DefaultPerKey + 2
+	n := retry.DefaultPerKey + 2
 	for i := range n {
 		name := fmt.Sprintf("a%d", i)
 		tasks = append(tasks, acctTask(t, name, "A·acct", slowRunner{name: name, wait: bRan}))
@@ -349,7 +350,7 @@ func (r rateOnce) Caps() agent.Caps { return agent.Caps{} }
 func (r rateOnce) Available() error { return nil }
 func (r rateOnce) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
 	if r.n.Add(1) == 1 {
-		return agent.Result{}, &agent.Error{Kind: agent.KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
+		return agent.Result{}, &retry.Error{Kind: retry.KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
 	}
 	return agent.Result{Answer: "a"}, nil
 }
@@ -493,7 +494,7 @@ func TestBatchCapsOwnLoginDispatchesPerAgent(t *testing.T) {
 	var cur, peak atomic.Int32
 	r := gaugeRunner{name: "opencode", cur: &cur, max: &peak}
 	var tasks []batch.Task
-	for i := range agent.DefaultPerKey + 3 {
+	for i := range retry.DefaultPerKey + 3 {
 		id := fmt.Sprintf("own%d", i)
 		tasks = append(tasks, batch.Task{ID: id, Agent: "opencode", Req: agent.RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*agent.Prepared, error) {
@@ -504,8 +505,8 @@ func TestBatchCapsOwnLoginDispatchesPerAgent(t *testing.T) {
 	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: len(tasks), Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
-	if got := int(peak.Load()); got > agent.DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent own-login dispatches = %d, want 2..%d", got, agent.DefaultPerKey)
+	if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
+		t.Errorf("peak concurrent own-login dispatches = %d, want 2..%d", got, retry.DefaultPerKey)
 	}
 }
 

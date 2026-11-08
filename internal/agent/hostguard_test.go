@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -42,7 +43,7 @@ func TestGuardAttemptOwnLoginIsolatedFailsWhenRegistryUnreadable(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{not json`)
 	r := &fakeRunner{}
 	_, gerr := guardAttempt(withIsolation(context.Background()), r, RunOptions{})
-	if gerr == nil || gerr.Kind != KindFatal {
+	if gerr == nil || gerr.Kind != retry.KindFatal {
 		t.Fatalf("isolated guardAttempt = %v, want KindFatal", gerr)
 	}
 	if _, gerr := guardAttempt(context.Background(), r, RunOptions{}); gerr != nil {
@@ -79,8 +80,8 @@ func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"HM_KEY"},"models":{"opus":"m"}}}}}`)
 	r := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
 	_, err := Run(withIsolation(context.Background()), r, RunOptions{Prompt: "p", Model: "hm:opus"}, Discard, nil)
-	var e *Error
-	if !errors.As(err, &e) || e.Kind != KindAuth || len(r.seen) != 0 {
+	var e *retry.Error
+	if !errors.As(err, &e) || e.Kind != retry.KindAuth || len(r.seen) != 0 {
 		t.Fatalf("err = %v, runs = %d; want KindAuth before any run", err, len(r.seen))
 	}
 }

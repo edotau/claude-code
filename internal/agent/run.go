@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"slices"
 	"strings"
 	"time"
@@ -21,24 +22,24 @@ func withCoolKey(ctx context.Context, key string) context.Context {
 }
 
 // fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.
-func fallToNextAlias(r Engine, req *RunOptions, e *Error, notify func(string)) {
-	if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
+func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(string)) {
+	if e != nil && (e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota) && providers.ModelDenied(e.Err.Error()) &&
 		r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model)) {
 		cur := cmp.Or(req.Model, models.Opus)
 		if next := models.NextAlias(cur); next != "" {
 			if notify != nil {
 				notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
 			}
-			req.Model, e.RetryAfter, e.Kind = next, 0, KindRateLimit
+			req.Model, e.RetryAfter, e.Kind = next, 0, retry.KindRateLimit
 		}
 	}
 }
 
 // checkStructured fills res's structured answer; a schema failure also sets res.Status.
-func checkStructured(res *Result, schema, agentName string) *Error {
+func checkStructured(res *Result, schema, agentName string) *retry.Error {
 	var verr error
 	if res.Structured, res.SchemaUnchecked, verr = answer.Structured(cmp.Or(string(res.Structured), res.Answer), schema); verr != nil {
-		e := &Error{Kind: KindFatal, Agent: agentName, Err: verr}
+		e := &retry.Error{Kind: retry.KindFatal, Agent: agentName, Err: verr}
 		res.Status = statusOf(e)
 		return e
 	}
@@ -105,7 +106,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	}
 	req, err := checkRun(r, req)
 	if err != nil {
-		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+		return Result{Agent: r.Name(), Status: StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
 	ctx = withPermissionsEnv(ctx, req.Permissions)
@@ -113,7 +114,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
 		if err := r.Available(); err != nil {
-			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+			return res, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 		}
 	}
 	p := runPolicy(ctx, req, notify)
@@ -126,7 +127,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	}
 	start := time.Now()
 	state := runState{res: res, req: req, dropped: dropped, emulated: emulated}
-	e := Do(ctx, p, func(actx context.Context, attempt int) *Error {
+	e := retry.Do(ctx, p, func(actx context.Context, attempt int) *retry.Error {
 		state.attempts = attempt
 		return state.attempt(ctx, actx, r, sink, notify)
 	})
@@ -153,25 +154,25 @@ type runState struct {
 	req               RunOptions
 	dropped, emulated []string
 	attempts          int
-	failed            []*Error
+	failed            []*retry.Error
 }
 
-func (s *runState) note(e *Error) *Error {
-	s.failed = append(s.failed, withoutEarlier(e))
+func (s *runState) note(e *retry.Error) *retry.Error {
+	s.failed = append(s.failed, retry.WithoutEarlier(e))
 	return e
 }
 
-func recheckPermit(ctx context.Context) *Error {
-	if h, _ := ctx.Value(permitKey{}).(*permit); h != nil && h.recheck != nil {
-		if skip := h.recheck(); skip != nil {
-			skip.terminal = true
+func recheckPermit(ctx context.Context) *retry.Error {
+	if h := retry.Held(ctx); h != nil && h.Recheck != nil {
+		if skip := h.Recheck(); skip != nil {
+			skip.Terminal = true
 			return skip
 		}
 	}
 	return nil
 }
 
-func (s *runState) attempt(ctx, actx context.Context, r Engine, sink Sink, notify func(string)) *Error {
+func (s *runState) attempt(ctx, actx context.Context, r Engine, sink Sink, notify func(string)) *retry.Error {
 	// Every attempt resumes after a possible idle: another task may have marked the account dead.
 	if skip := recheckPermit(ctx); skip != nil {
 		return s.note(skip)
@@ -185,7 +186,7 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink Sink, notif
 	// Preserve the actual agent named by a delegating engine.
 	out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, s.res.Agent), append(slices.Clone(s.dropped), out.Dropped...), s.emulated
 	s.res = out
-	e := Classify(r.Name(), err, cw.progressed)
+	e := retry.Classify(r.Name(), err, cw.progressed)
 	fallToNextAlias(r, &s.req, e, notify)
 	if e != nil {
 		_ = s.note(e)
@@ -193,7 +194,7 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink Sink, notif
 	return e
 }
 
-func (s *runState) finish(name string, start time.Time, e *Error, recoverErr error) (Result, error) {
+func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverErr error) (Result, error) {
 	res := s.res
 	res.DurationMs = time.Since(start).Milliseconds()
 	res.Status = statusOf(e)
@@ -216,15 +217,15 @@ func (s *runState) finish(name string, start time.Time, e *Error, recoverErr err
 }
 
 // runPolicy is DefaultPolicy under req's timeout, ctx's cooldown key and ctx's permit.
-func runPolicy(ctx context.Context, req RunOptions, notify func(string)) Policy {
-	p := DefaultPolicy()
+func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.Policy {
+	p := retry.DefaultPolicy()
 	if req.Timeout > 0 {
 		p.AttemptTimeout = req.Timeout
 	}
 	p.Notify = notify
 	p.Key, _ = ctx.Value(coolKey{}).(string)
-	if h, _ := ctx.Value(permitKey{}).(*permit); h != nil {
-		p.Idle = h.idle
+	if h := retry.Held(ctx); h != nil {
+		p.Idle = h.Idle
 	}
 	return p
 }

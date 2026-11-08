@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"strings"
 	"sync"
@@ -36,7 +37,7 @@ type LegResult struct {
 
 // Run dispatches legs concurrently, host-isolated under a limit of min(jobs, 12), tagging progress lines with the label.
 func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, progress io.Writer) Report {
-	ctx = agent.WithBatchRun(ctx, agent.NewBatchLimiter(min(jobs, MaxParts)))
+	ctx = agent.WithBatchRun(ctx, retry.NewBatchLimiter(min(jobs, MaxParts)))
 	rep := Report{Schema: ReportSchema, Role: r.Name, Agent: r.Agent, Legs: make([]LegResult, len(legs))}
 	var wg sync.WaitGroup
 	var mu sync.Mutex

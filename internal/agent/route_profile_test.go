@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"slices"
 	"strings"
 	"testing"
@@ -55,9 +56,9 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 
 func failPinVendors(fakes map[string]*pinFallbackRunner) {
 	fakes["codex"].res = Result{}
-	fakes["codex"].err = &Error{Agent: "codex", Kind: KindQuota, Status: 402, Err: errors.New("402 monthly quota exhausted")}
+	fakes["codex"].err = &retry.Error{Agent: "codex", Kind: retry.KindQuota, Status: 402, Err: errors.New("402 monthly quota exhausted")}
 	fakes["opencode"].res = Result{}
-	fakes["opencode"].err = &Error{Agent: "opencode", Kind: KindAuth, Status: 401,
+	fakes["opencode"].err = &retry.Error{Agent: "opencode", Kind: retry.KindAuth, Status: 401,
 		AuthReason: "refresh token rejected", Err: errors.New("401 refresh token rejected")}
 }
 
@@ -137,7 +138,7 @@ func TestPinFirstFallbackClaudeExhausted(t *testing.T) {
 func TestPinFirstFallbackContentPolicy(t *testing.T) {
 	c, _, fakes := pinFirstSetup(t, false)
 	// A policy refusal must stop even when the auth branch would otherwise advance.
-	fault := &Error{Agent: "codex", Kind: KindAuth, Status: 403,
+	fault := &retry.Error{Agent: "codex", Kind: retry.KindAuth, Status: 403,
 		AuthReason: "request rejected", Err: errors.New("403 content_policy refusal")}
 	fakes["codex"].res, fakes["codex"].err = Result{}, fault
 	_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, Discard, nil)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"os"
 	"slices"
@@ -417,12 +418,12 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	}
 	env, err := opencodeApplyPermissions(p.Env, req)
 	if err != nil {
-		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
+		return p.Result, &retry.Error{Kind: retry.KindFatal, Agent: e.Name(), Err: err}
 	}
 	p.Env, p.Argv = env, opencodePolicyArgv(p.Argv, req)
 	env, plugged, err := opencodeApplyPlugin(p.Env, req)
 	if err != nil {
-		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
+		return p.Result, &retry.Error{Kind: retry.KindFatal, Agent: e.Name(), Err: err}
 	}
 	p.Env = env
 	host := newHookHost(req)
@@ -432,7 +433,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	}
 	argv, err := host.before(p.Argv, p.Prompt)
 	if err != nil {
-		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
+		return p.Result, &retry.Error{Kind: retry.KindFatal, Agent: e.Name(), Err: err}
 	}
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
 	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser(nil))

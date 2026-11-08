@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"net/http"
 	"strings"
@@ -54,10 +55,10 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink agent.Sink) (
 		return res, true, err
 	}
 	if err := providers.ClaudeCodeError(p, t.Model); err != nil { // Responses-only: the one-shot has no such wire
-		return res, true, &agent.Error{Kind: agent.KindFatal, Agent: "claude", Err: err}
+		return res, true, &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: err}
 	}
 	if _, servable, why := providers.WireFor(p, t.Model); !servable {
-		return res, true, &agent.Error{Kind: agent.KindFatal, Agent: "claude", Err: errors.New(why)}
+		return res, true, &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: errors.New(why)}
 	}
 	base, _ := p.Route(providers.ProtocolOpenAI)
 	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, req.Effort, w)

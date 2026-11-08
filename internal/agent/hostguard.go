@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"os"
 	"slices"
 
@@ -134,7 +135,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 }
 
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
-func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Context, *Error) {
+func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Context, *retry.Error) {
 	var gp *providers.Provider
 	var err error
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && r.Name() == "copilot" {
@@ -145,10 +146,10 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 		gp, err = guardProvider(r, req)
 	}
 	if err != nil {
-		return ctx, Classify(r.Name(), err, false)
+		return ctx, retry.Classify(r.Name(), err, false)
 	}
 	if err := checkIsolation(ctx); err != nil { // before the own-login return: that hop is scrubbed too
-		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+		return ctx, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 	}
 	if gp == nil {
 		return ctx, nil
@@ -158,9 +159,9 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	}
 	if err := guardRouteHost(ctx, gp); err != nil {
 		if _, ok := errors.AsType[*providers.HostMismatchError](err); ok {
-			return ctx, &Error{Kind: KindAuth, Agent: r.Name(), Err: err, AuthReason: FallbackReason(err)} // misconfigured: move on
+			return ctx, &retry.Error{Kind: retry.KindAuth, Agent: r.Name(), Err: err, AuthReason: FallbackReason(err)} // misconfigured: move on
 		}
-		return ctx, Classify(r.Name(), err, false) // a transient auth.command/OAuth failure stays retryable
+		return ctx, retry.Classify(r.Name(), err, false) // a transient auth.command/OAuth failure stays retryable
 	}
 	return withOwnProvider(ctx, gp), nil
 }

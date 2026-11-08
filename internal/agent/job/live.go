@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"io"
 	"net"
 	"os"
@@ -184,7 +185,7 @@ func ServeLive(ctx context.Context, rec *agent.Record) (err error) {
 }
 
 func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *agent.Record, name string,
-	be agent.LiveBackend, cmd *exec.Cmd, tail *agent.TailBuffer, profile string) error {
+	be agent.LiveBackend, cmd *exec.Cmd, tail *retry.TailBuffer, profile string) error {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -224,7 +225,7 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *agent.
 }
 
 func (s *liveSession) awaitChild(ctx context.Context, ln net.Listener, exited chan error, stdin io.Closer,
-	tail *agent.TailBuffer) error {
+	tail *retry.TailBuffer) error {
 	var wg sync.WaitGroup
 	go s.accept(ctx, ln, &wg)
 	var cause error
@@ -365,7 +366,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink agent.Sin
 		res, err = s.be.Parse(s.dec, sink, agent.EventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
-	res.Status = agent.StatusOf(agent.Classify(s.name, err, false))
+	res.Status = agent.StatusOf(retry.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()

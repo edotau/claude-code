@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -10,7 +11,7 @@ import (
 )
 
 // exhaustedSince is a KindQuota error when dispatch's account is marked exhausted right now, else nil.
-func exhaustedSince(disp Dispatch) *Error {
+func exhaustedSince(disp Dispatch) *retry.Error {
 	if disp.Account == "" || disp.Account == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return nil
 	}
@@ -19,11 +20,11 @@ func exhaustedSince(disp Dispatch) *Error {
 	if e.Status(now) != router.StateExhausted {
 		return nil
 	}
-	return &Error{Kind: KindQuota, Agent: disp.Agent.Name(), Err: errors.New(router.ExhaustedReason(disp.Account, e, now))}
+	return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: errors.New(router.ExhaustedReason(disp.Account, e, now))}
 }
 
 // authMarkedSince is a KindAuth error when dispatch's account was marked auth-dead after the chain was built, else nil.
-func authMarkedSince(disp Dispatch) *Error {
+func authMarkedSince(disp Dispatch) *retry.Error {
 	if disp.Account == "" {
 		return nil
 	}
@@ -31,7 +32,7 @@ func authMarkedSince(disp Dispatch) *Error {
 	if !marked {
 		return nil
 	}
-	return &Error{Kind: KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
+	return &retry.Error{Kind: retry.KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
 }
 
 // rateLimitHold is how long a plain 429 on a subscription account (no parsed reset) keeps it out of the picks.
@@ -45,7 +46,7 @@ func noteQuota(disp Dispatch, err error) {
 	}
 	now := time.Now()
 	until := now.Add(rateLimitHold)
-	if e.Kind == KindQuota {
+	if e.Kind == retry.KindQuota {
 		until = router.ResetFor(err.Error(), disp.Billing, loadState()[disp.Account], now)
 	} else if t, ok := router.ParseReset(err.Error(), now); ok {
 		until = t
@@ -54,15 +55,15 @@ func noteQuota(disp Dispatch, err error) {
 }
 
 // holdable is err's *Error when it should bench the account: a quota, or a rate limit on a subscription plan.
-func holdable(disp Dispatch, err error) (*Error, bool) {
-	var e *Error
+func holdable(disp Dispatch, err error) (*retry.Error, bool) {
+	var e *retry.Error
 	if disp.Account == "" || !errors.As(err, &e) {
 		return nil, false
 	}
 	switch e.Kind {
-	case KindQuota:
+	case retry.KindQuota:
 		return e, true
-	case KindRateLimit: // a per-endpoint 429 on a credits account must not bench the whole account
+	case retry.KindRateLimit: // a per-endpoint 429 on a credits account must not bench the whole account
 		return e, disp.Billing == router.BillSubscription
 	}
 	return nil, false
@@ -71,7 +72,7 @@ func holdable(disp Dispatch, err error) (*Error, bool) {
 // NoteCopilotQuota marks the pinned copilot account exhausted by cause and returns that account's route-state key.
 func NoteCopilotQuota(cause error) string {
 	acct := copilotLoginAccount()
-	noteQuota(Dispatch{Account: acct, Billing: router.BillSubscription}, Classify("copilot", cause, false))
+	noteQuota(Dispatch{Account: acct, Billing: router.BillSubscription}, retry.Classify("copilot", cause, false))
 	return acct
 }
 
@@ -87,9 +88,9 @@ func noteStall(disp Dispatch, err error) {
 
 // condemnAuth tags a KindAuth whose Recover failed with a condemning verdict, or any error that itself condemns
 // (an initial u2m invalid_grant / missing refresh token can classify as fatal with no Recover run).
-func condemnAuth(e *Error, recoverErr error) {
+func condemnAuth(e *retry.Error, recoverErr error) {
 	switch {
-	case e.Kind == KindAuth && providers.Verdict(recoverErr).Condemns():
+	case e.Kind == retry.KindAuth && providers.Verdict(recoverErr).Condemns():
 		e.AuthReason = FallbackReason(recoverErr)
 	case e.Err != nil && providers.Verdict(e.Err).Condemns():
 		e.AuthReason = FallbackReason(e.Err)
@@ -98,7 +99,7 @@ func condemnAuth(e *Error, recoverErr error) {
 
 // noteAuth marks the dispatch's account auth-dead for a condemned KindAuth, so Pick skips it until a login clears it.
 func noteAuth(disp Dispatch, err error) {
-	var e *Error
+	var e *retry.Error
 	if disp.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {
 		return
 	}
