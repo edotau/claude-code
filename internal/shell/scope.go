@@ -41,6 +41,9 @@ func stripEnv(w []string) (goFlags, rest []string, ok bool) {
 			break
 		}
 		if m[1] == "GOFLAGS" {
+			if strings.ContainsAny(m[2], `'"\`) { // go splits GOFLAGS with quoted.Split; a quote hides a field from Fields
+				return nil, nil, false
+			}
 			goFlags = append(goFlags, strings.Fields(m[2])...)
 		}
 	}
@@ -473,10 +476,13 @@ var checks = map[string]func(args []string, workDir string) bool{
 	"noOutputFlag": func(args []string, _ string) bool { return !outputFlag(args) },
 	"regularFiles": rmAllowed,
 	"printfNoVar": func(args []string, _ string) bool {
-		return !slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "-v") })
+		return !slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "-v") || printfAssign.MatchString(a) })
 	},
 	"uniqOneInput": uniqOneInput,
 }
+
+// printfAssign is bash printf's %n (any flags, width or length modifier): it assigns the count to the named variable.
+var printfAssign = regexp.MustCompile(`%[-+ #'0-9.*hlLjzt]*n`)
 
 // uniqOneInput admits at most one operand (a word after -- counts): uniq writes its second operand.
 func uniqOneInput(args []string, _ string) bool {
