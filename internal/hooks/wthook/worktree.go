@@ -303,9 +303,15 @@ func divergedAt(ctx context.Context, dir string) (*divergence, error) {
 	if err != nil {
 		return nil, err
 	}
-	rewritten := slices.ContainsFunc(marked, func(l string) bool { return strings.HasPrefix(l, "=") })
+	rewritten := slices.ContainsFunc(marked, func(l string) bool { return strings.HasPrefix(l, "=") && hasPatch(ctx, ids[0], l[1:]) })
 	return &divergence{top: ids[0], head: ids[1], up: ids[2], branch: ids[3], upName: ids[4], ahead: a, behind: b,
 		rewritten: rewritten}, nil
+}
+
+// hasPatch reports whether commit changes a file; empty commits share one patch-id yet replace nothing.
+func hasPatch(ctx context.Context, dir, commit string) bool {
+	files, _, err := core.Git(ctx, dir, "diff-tree", "--root", "-r", "--name-only", "--no-commit-id", commit)
+	return err != nil || len(files) > 0 && files[0] != ""
 }
 
 // bothSides parses rev-list --left-right --count output; zeros for anything else.
