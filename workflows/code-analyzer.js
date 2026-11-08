@@ -92,14 +92,9 @@ const stepOf = (steps, name, defaults, opt) => {
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }
   if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
-  let profile = v.profile !== undefined ? v.profile : o.profile || 'session'
-  let provider = v.provider !== undefined ? v.provider : o.provider || ''
-  if (who === 'gemini') { // owner rule R1: gemini runs on its Google login only
-    if (v.profile !== undefined) throw new Error(`${where}.profile: gemini runs on its Google login only`)
-    if (v.provider !== undefined && v.provider !== 'google') throw new Error(`${where}.provider: gemini runs on google only`)
-    profile = 'session'
-    provider = provider === 'google' ? 'google' : ''
-  }
+  // gemini too: 'session' keeps its Google pin; a named profile or provider databricks runs it on Databricks (267d604e).
+  const profile = v.profile !== undefined ? v.profile : o.profile || 'session'
+  const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
   const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
   const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort} --profile ${profile}` +
@@ -115,7 +110,7 @@ const stepOf = (steps, name, defaults, opt) => {
   }
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: who }, profile, provider,
-    task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a file under ${'$'}{TMPDIR:-/tmp}, never in the repo, and never do it in-context.` +
+    task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; attach that exact path, and never do it in-context.` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') +
       ' The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed' +
       ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n' + p,
@@ -188,7 +183,10 @@ const CODE_DIMENSIONS = [
   { key: 'contracts', prompt: 'contract drift: help text, comments or docs that disagree with the code; flags parsed but never read; fields declared but never set; exported symbols with no caller (verify with grep)', effort: 'low', hitsOnly: true },
 ]
 let FILES_MODE = !RANGE && PATHS.length > 0
-let DIMENSIONS = Array.isArray(a.dimensions) && a.dimensions.length ? a.dimensions : (FILES_MODE ? CODE_DIMENSIONS : DEFAULT_DIMENSIONS)
+// A caller lens may be a bare prompt string or lack a key; both get key lens<i> (labels read find:1:undefined:7).
+const asDims = ds => ds.map((d, i) => typeof d === 'string' ? { key: 'lens' + i, prompt: d } : { ...d, key: d.key || 'lens' + i })
+const ARG_DIMS = Array.isArray(a.dimensions) && a.dimensions.length ? asDims(a.dimensions) : null
+let DIMENSIONS = ARG_DIMS || (FILES_MODE ? CODE_DIMENSIONS : DEFAULT_DIMENSIONS)
 // Group packages/files ≤4 per auditor so one context holds the whole group.
 let GROUPS = []
 for (let i = 0; i < Math.max(1, PKGS.length); i += 4) GROUPS.push(PKGS.slice(i, i + 4))
@@ -341,6 +339,12 @@ const SCAN_SCHEMA = {
   },
 }
 const REFUTE_BATCH = a.refuteBatch || 6
+// External audit/refute legs share one route: ≤4 in flight each (44 at once drew 429 storms); CAP is fix-wave width, not a rate.
+const EXT_CAP = Math.min(CAP, 4)
+const limiter = n => { let busy = 0; const q = []; const next = () => { if (busy < n && q.length) { busy++; q.shift()() } }
+  return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej).finally(() => { busy--; next() })); next() }) }
+const auditGate = S.audit.ext ? limiter(EXT_CAP) : fn => fn()
+const refuteGate = S.refute.ext ? limiter(EXT_CAP) : fn => fn()
 
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
 const rounds = []
@@ -405,9 +409,9 @@ for (let round = 1; round <= ROUNDS; round++) {
       (u.chunk.files.length
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`)
-    return agent(S.audit.task(prompt),
+    return auditGate(() => agent(S.audit.task(prompt),
       { label: `find:${round}:${u.key}`, phase: 'Find', schema: S.audit.schema(FINDINGS_SCHEMA), ...S.audit.type, model: routeModel(S.audit.model), effort: AUDIT_EFFORT || u.dim.effort || 'low' }
-    ).then(r => S.audit.done(`find:${round}:${u.key}`, r))
+    )).then(r => S.audit.done(`find:${round}:${u.key}`, r))
   }
   const refuteStage = (found, u) => {
     const fresh = (found ? found.findings : []).filter(f => {
@@ -433,7 +437,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
         `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
       const label = `refute:${round}:${pkg.split('/').pop()}:${bi}`
-      return agent(S.refute.task(brief), { label, phase: 'Refute', schema: S.refute.schema(VERDICTS_SCHEMA), ...S.refute.type, model: routeModel(S.refute.model), effort: S.refute.effort }).then(v => {
+      return refuteGate(() => agent(S.refute.task(brief), { label, phase: 'Refute', schema: S.refute.schema(VERDICTS_SCHEMA), ...S.refute.type, model: routeModel(S.refute.model), effort: S.refute.effort })).then(v => {
         v = S.refute.done(label, v)
         const verdicts = v && Array.isArray(v.verdicts) ? v.verdicts : []
         return fs.map((f, i) => {
@@ -462,6 +466,14 @@ for (let round = 1; round <= ROUNDS; round++) {
   log(`round ${round}/${ROUNDS}: merged ${mergedCount}, confirmed ${confirmed.length}, refuted ${refuted.length}, below the fix floor ${deferred.length}, unverified ${unverified.length}`)
 
   const base = { confirmed, refuted, unverified, deferred, round }
+  // More than half of a stage's external legs BLOCKED means the round saw too little to call it clean.
+  const legs = p => COWORKERS.filter(c => c.label.startsWith(p))
+  const starved = [['audit', `find:${round}:`], ['refute', `refute:${round}:`]].map(([st, p]) => [st, legs(p)])
+    .filter(([, ls]) => ls.filter(c => c.status === 'BLOCKED').length * 2 > ls.length)
+  if (starved.length) {
+    for (const [st, ls] of starved) decisions.push(`round ${round}: ${st} ${ls.filter(c => c.status === 'BLOCKED').length}/${ls.length} external legs BLOCKED — exit blocked, not dry`)
+    rounds.push({ ...base, fixed: [], gate: null, exit: 'blocked', metrics }); break
+  }
   if ((!FIX && !PART) || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
   if (PRIOR.length && toFix.every(f => PRIOR.some(g => same(g, f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
@@ -564,7 +576,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   FILES_MODE = true
   GROUPS = []
   for (let i = 0; i < Math.max(1, PKGS.length); i += 4) GROUPS.push(PKGS.slice(i, i + 4))
-  DIMENSIONS = Array.isArray(a.dimensions) && a.dimensions.length ? a.dimensions : CODE_DIMENSIONS
+  DIMENSIONS = ARG_DIMS || CODE_DIMENSIONS
   TARGET = 'the code under ' + PATHS.join(', ')
   PRE = null
 }

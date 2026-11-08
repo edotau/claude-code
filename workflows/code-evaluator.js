@@ -53,14 +53,9 @@ const stepOf = (steps, name, defaults, opt) => {
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }
   if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
-  let profile = v.profile !== undefined ? v.profile : o.profile || 'session'
-  let provider = v.provider !== undefined ? v.provider : o.provider || ''
-  if (who === 'gemini') { // owner rule R1: gemini runs on its Google login only
-    if (v.profile !== undefined) throw new Error(`${where}.profile: gemini runs on its Google login only`)
-    if (v.provider !== undefined && v.provider !== 'google') throw new Error(`${where}.provider: gemini runs on google only`)
-    profile = 'session'
-    provider = provider === 'google' ? 'google' : ''
-  }
+  // gemini too: 'session' keeps its Google pin; a named profile or provider databricks runs it on Databricks (267d604e).
+  const profile = v.profile !== undefined ? v.profile : o.profile || 'session'
+  const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
   const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
   const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort} --profile ${profile}` +
@@ -76,7 +71,7 @@ const stepOf = (steps, name, defaults, opt) => {
   }
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: who }, profile, provider,
-    task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a file under ${'$'}{TMPDIR:-/tmp}, never in the repo, and never do it in-context.` +
+    task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; attach that exact path, and never do it in-context.` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') +
       ' The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed' +
       ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n' + p,
