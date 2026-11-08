@@ -98,7 +98,7 @@ if (EXT.length) {
 }
 let GATE = a.gate || ''
 let GATE_SOURCE = a.gate ? 'args' : ''
-const CD = a.cwd ? `cwd: ${a.cwd}. Prefix every command with \`cd ${a.cwd} &&\` (the shell cwd resets).\n` : ''
+const CD = a.cwd ? `cwd: ${a.cwd} (external agents: ask --workdir ${a.cwd}). Run each command bare, never as \`cd … && cmd\`: copilot's shell rejects compound commands.\n` : ''
 const SCOPE_GIVEN = Array.isArray(a.scope) && a.scope.length > 0
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : ['(whole repo — scope not given; prefer the smallest fix)']
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
@@ -183,7 +183,7 @@ for (let i = 1; i <= MAX_ITER; i++) {
     `Rules: ${RULES}\n${prior}\n` +
     `Protocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise fix the FIRST failure per the Method, re-run the gate; ` +
     `repeat for at most ${FIXES} distinct failures this iteration, then report (the rest go into residual verbatim). ` +
-    `A failure outside scope goes into residual verbatim.`
+    `A failure outside scope goes into residual verbatim. If the gate cannot run at all (permission denied, missing command), set status="error", residual to the exact refusal, and stop.`
   last = await agent(
     ST.fix.task(prompt),
     { label: `gate:${i}`, phase: 'Gate', schema: ST.fix.schema(GATE_SCHEMA), ...ST.fix.type, model: routeModel(ST.fix.model), effort: ST.fix.effort }
@@ -192,7 +192,7 @@ for (let i = 1; i <= MAX_ITER; i++) {
   if (!last) { last = { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: ['agent returned no result'], summary: 'no result' } }
   history.push({ iteration: i, ...last })
   log(`gate ${i}/${MAX_ITER}: ${last.status} (${last.failuresBefore} → ${last.failuresAfter}) changed=${last.filesChanged.length}`)
-  if (last.status === 'green') break
+  if (last.status === 'green' || last.status === 'error') break // an unrunnable gate never improves by retrying
   if (i > 1 && last.status !== 'green' && last.status === history[i - 2].status && last.failuresBefore === last.failuresAfter && history[i - 2].failuresAfter === last.failuresAfter) {
     stalled = true
     log('no progress across two iterations — escalating instead of burning the cap')
@@ -203,7 +203,7 @@ if (last.status !== 'green') log(`gate still ${last.status} after ${history.leng
 
 return {
   status: last.status,
-  exit: last.status === 'green' ? 'green' : stalled ? 'stalled' : 'capped', // 'error' normalizes upstream; stall/cap always close the loop first
+  exit: last.status === 'green' ? 'green' : last.status === 'error' ? 'error' : stalled ? 'stalled' : 'capped',
   gate: GATE,
   gateSource: GATE_SOURCE,
   iterations: history.length,
