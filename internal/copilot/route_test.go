@@ -1,6 +1,7 @@
 package copilot
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
@@ -149,5 +150,25 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 func TestHeadlessAutonomousFlags(t *testing.T) {
 	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !slices.Contains(auto, "--allow-all-tools") {
 		t.Errorf("autonomous argv = %v", auto)
+	}
+}
+
+// An explicit GitHub target is gated on its own login, not the copilot record's (here pinned to Databricks).
+func TestCopilotGateUsesTargetLogin(t *testing.T) {
+	pinsScratch(t)
+	vaulttest.UseKeyring(t)
+	gh := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", gh)
+	if err := os.WriteFile(filepath.Join(gh, "hosts.yml"), []byte("github.com:\n    users:\n        work:\n            oauth_token: x\n    user: work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.SetRecord(t, "copilot", "profile", "dev")
+	orig := CopilotUsedPct
+	CopilotUsedPct = func(_ context.Context, login string) (float64, bool) { return 10, login == "work" }
+	t.Cleanup(func() { CopilotUsedPct = orig })
+	target := providers.Target{Provider: &providers.Provider{Name: "w", Login: "work", Auth: providers.Auth{Login: "copilot"}}}
+	got, notice, err := copilotGate(nil, target)
+	if err != nil || notice != "" || got.Provider == nil || got.Provider.Name != "w" {
+		t.Fatalf("gate moved an explicit workable GitHub target: got %+v notice %q err %v", got.Provider, notice, err)
 	}
 }
