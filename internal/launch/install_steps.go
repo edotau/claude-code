@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // Install copies the binary into BinDir, links the agent CLIs, and seeds a missing settings.json
@@ -50,7 +51,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	installClipboardProxy(w, dryRun)
 	installClipBridge(w, target, dryRun)
 	seedTmuxConf(w, dryRun)
-	if err := linkOnPath(w, target, dryRun); err != nil {
+	if err := linkUserBins(w, target, dryRun); err != nil {
 		return err
 	}
 	settingsErr := installSettings(w, dryRun)
@@ -195,11 +196,11 @@ func agentsCompactLine(w io.Writer) {
 	}
 }
 
-// linkOnPathCompact runs linkOnPath, suppressing its routine "link" success line; a "warning" (not on
+// linkOnPathCompact runs linkUserBins, suppressing its routine "link" success line; a "warning" (not on
 // PATH) or "skip" (a real file is there) line always prints in full.
 func linkOnPathCompact(w io.Writer, target string) error {
 	var buf bytes.Buffer
-	if err := linkOnPath(&buf, target, false); err != nil {
+	if err := linkUserBins(&buf, target, false); err != nil {
 		return err
 	}
 	for _, l := range splitNonEmpty(buf.String()) {
@@ -416,10 +417,21 @@ func syncAgents(w io.Writer, dryRun bool) {
 	}
 }
 
-// linkOnPath points userBinDir/claude-code at the installed binary; a real file there is left alone.
-func linkOnPath(w io.Writer, target string, dryRun bool) error {
+// linkUserBins links claude-code, and the pinned rtk when installed, into userBinDir so PATH finds them.
+func linkUserBins(w io.Writer, target string, dryRun bool) error {
+	if err := linkOnPath(w, "claude-code", target, dryRun); err != nil {
+		return err
+	}
+	if rtk := shell.RTKPinned(); executableRealPath(rtk) != "" {
+		return linkOnPath(w, "rtk", rtk, dryRun)
+	}
+	return nil
+}
+
+// linkOnPath points userBinDir/name at target; a real file there is left alone.
+func linkOnPath(w io.Writer, name, target string, dryRun bool) error {
 	dir := userBinDir()
-	link := filepath.Join(dir, "claude-code")
+	link := filepath.Join(dir, name)
 	if cur, err := os.Readlink(link); err == nil && cur == target {
 		return nil
 	}
