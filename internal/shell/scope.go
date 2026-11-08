@@ -112,14 +112,9 @@ func grepArgsSafe(args []string) bool {
 		case a == "--":
 			return true
 		case strings.HasPrefix(a, "--"):
-			name, val, hasEq := strings.Cut(a, "=")
-			if len(name) >= 4 && strings.HasPrefix("--file", name) { // --fi.. may abbreviate --file
-				if !hasEq && i+1 < len(args) {
-					i, val = i+1, args[i+1]
-				}
-				if escapesPath(val) {
-					return false
-				}
+			var ok bool
+			if i, ok = grepLongFlag(args, i); !ok {
+				return false
 			}
 		case strings.HasPrefix(a, "-"):
 			var ok bool
@@ -129,6 +124,18 @@ func grepArgsSafe(args []string) bool {
 		}
 	}
 	return true
+}
+
+// grepLongFlag refuses a --file (or --fi.. abbreviation) value outside the checkout; it may consume the next arg.
+func grepLongFlag(args []string, i int) (int, bool) {
+	name, val, hasEq := strings.Cut(args[i], "=")
+	if len(name) < 4 || !strings.HasPrefix("--file", name) { // --fi.. may abbreviate --file
+		return i, true
+	}
+	if !hasEq && i+1 < len(args) {
+		i, val = i+1, args[i+1]
+	}
+	return i, !escapesPath(val)
 }
 
 // grepShortCluster walks the short flags of args[i]; a value letter ends the cluster (its value may be the next arg).
@@ -580,22 +587,35 @@ func argsInside(args []string, workDir string) bool {
 
 // absolutizeOperands joins rm's, git add/commit's plain relative operands and git -C's dir onto cwd, so no root can rebase them.
 func absolutizeOperands(w []string, cwd string) []string {
-	first, last := 1, len(w)
-	switch {
-	case w[0] == "git" && len(w) >= 3 && w[1] == "-C":
-		first, last = 2, 3
-	case w[0] == "git" && len(w) >= 3 && (w[1] == "add" || w[1] == "commit"):
-		first = 2
-	case w[0] != "rm":
+	first, last, ok := operandRange(w)
+	if !ok {
 		return w
 	}
 	out := slices.Clone(w)
 	for i := first; i < last; i++ {
-		if rmOperandPlain(out[i]) && !filepath.IsAbs(out[i]) && (w[0] != "git" || !strings.HasSuffix(out[i], "/")) {
+		if relativeOperand(out[i], w[0] == "git") {
 			out[i] = filepath.Join(cwd, out[i])
 		}
 	}
 	return out
+}
+
+// operandRange is the [first, last) span of w that absolutizeOperands rewrites; ok is false for other commands.
+func operandRange(w []string) (first, last int, ok bool) {
+	switch {
+	case w[0] == "git" && len(w) >= 3 && w[1] == "-C":
+		return 2, 3, true
+	case w[0] == "git" && len(w) >= 3 && (w[1] == "add" || w[1] == "commit"):
+		return 2, len(w), true
+	case w[0] != "rm":
+		return 0, 0, false
+	}
+	return 1, len(w), true
+}
+
+// relativeOperand is a plain relative operand; for git, a slash-suffixed dir stays as written.
+func relativeOperand(a string, git bool) bool {
+	return rmOperandPlain(a) && !filepath.IsAbs(a) && (!git || !strings.HasSuffix(a, "/"))
 }
 
 // rmOperandPlain is an operand with no flag, home, glob or .. form.
@@ -676,8 +696,7 @@ func gitAddAllowed(paths []string, workDir string) bool {
 
 // gitAddPathAllowed admits one named file inside workDir: no flag, directory, `.`/`..`, slash suffix, pathspec or glob.
 func gitAddPathAllowed(p, workDir string) bool {
-	if strings.HasPrefix(p, "-") || p == "." || p == ".." || strings.HasSuffix(p, "/") ||
-		strings.HasPrefix(p, ":") || strings.ContainsAny(p, `*?[\`) { // pathspec magic and globs: git expands them
+	if !gitAddPathPlain(p) {
 		return false
 	}
 	rel, ok := relInside(p, workDir)
@@ -688,6 +707,12 @@ func gitAddPathAllowed(p, workDir string) bool {
 		return false
 	}
 	return true
+}
+
+// gitAddPathPlain is a path with no flag, `.`/`..`, slash suffix, pathspec magic or glob (git expands those).
+func gitAddPathPlain(p string) bool {
+	return !strings.HasPrefix(p, "-") && p != "." && p != ".." && !strings.HasSuffix(p, "/") &&
+		!strings.HasPrefix(p, ":") && !strings.ContainsAny(p, `*?[\`)
 }
 
 // gitCommitAllowed admits flag-safe commits whose pathspecs pass gitAddPathAllowed (files inside workDir).
