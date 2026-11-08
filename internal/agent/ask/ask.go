@@ -140,6 +140,9 @@ func (r *askRun) dispatchMode() (int, bool) {
 		if err != nil {
 			return r.fail(err, 2)
 		}
+		if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
+			return code, true
+		}
 		o := Opts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
 			FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents}
 		return askBatch(r.fs, r.resume, f.batchSrc, o,

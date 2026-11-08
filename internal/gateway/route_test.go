@@ -424,3 +424,20 @@ func TestCopilotUsedPctNoEntryRefreshWithoutRecordUnverified(t *testing.T) {
 		t.Error("a never-seen account must stay unverified")
 	}
 }
+
+// TestRenderGatewayRouteFailsWhenStdoutFull: a failed stdout write gives a nonzero exit, not 0.
+func TestRenderGatewayRouteFailsWhenStdoutFull(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("no /dev/full: %v", err)
+	}
+	defer full.Close()
+	orig := os.Stdout
+	os.Stdout = full
+	t.Cleanup(func() { os.Stdout = orig })
+	res := router.PickResult{Alias: "m", Weights: map[string]float64{}}
+	if code := renderGatewayRoute("gateway router", res, "", false); code == 0 {
+		t.Fatal("exit 0 despite a failed stdout write")
+	}
+}
