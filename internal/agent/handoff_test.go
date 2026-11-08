@@ -3,11 +3,12 @@ package agent
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"

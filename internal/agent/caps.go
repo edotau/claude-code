@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored.

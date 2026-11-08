@@ -245,14 +245,6 @@ func TestDoAttemptTimeoutFastTransientStillRetried(t *testing.T) {
 	}
 }
 
-// fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
-func fastDefaultBackoff(t *testing.T) {
-	t.Helper()
-	b, m := DefaultBaseDelay, DefaultMaxDelay
-	DefaultBaseDelay, DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
-	t.Cleanup(func() { DefaultBaseDelay, DefaultMaxDelay = b, m })
-}
-
 // A wait that cannot take its permit back returns the cancellation, with the earlier failure kept.
 func TestDoCancelledReacquireReturnsCancellation(t *testing.T) {
 	p := fastPolicy()

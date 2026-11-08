@@ -3,12 +3,13 @@ package roles
 import (
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
 )

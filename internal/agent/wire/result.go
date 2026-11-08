@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/json"
+
 	"github.com/edotau/claude-code/internal/agent/retry"
 )
 

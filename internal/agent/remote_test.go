@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // The remote command line is run by a real sh against a stub binary that prints its argv, one NUL-terminated word each.

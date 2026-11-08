@@ -2,12 +2,13 @@ package lifecycle
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
 )

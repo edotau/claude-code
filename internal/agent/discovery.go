@@ -2,11 +2,12 @@ package agent
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"os"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"

@@ -2,9 +2,10 @@ package codex
 
 import (
 	"bufio"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // A completed answer survives a later typed-decode failure; a garbage line before it stays tolerated.

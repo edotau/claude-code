@@ -2,9 +2,10 @@ package claude
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
 
 	"github.com/edotau/claude-code/internal/agent"
 )

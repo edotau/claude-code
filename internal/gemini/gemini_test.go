@@ -2,10 +2,11 @@ package gemini
 
 import (
 	"bufio"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // agyArgv maps Autonomous onto "--mode auto"; --dangerously-skip-permissions rides on Tools alone, so
