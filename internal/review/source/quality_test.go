@@ -22,6 +22,23 @@ func readGolden(t *testing.T, name string) string {
 	return expandGolden(string(b))
 }
 
+func TestFindFunctionsGoExcludesFollowingRawStringConst(t *testing.T) {
+	function := "package fixture\nfunc f(x int) int { if x > 0 { return 1 }; return 0 }\n"
+	fixture := "const fixture = `if if if && && && || || || for for case`\n"
+	next := "func g() {}\n"
+	baseline := findFunctions(function+next, "go")
+	got := findFunctions(function+fixture+next, "go")
+	if len(baseline) != 2 || len(got) != 2 {
+		t.Fatalf("function counts = %d, %d; want 2 each", len(baseline), len(got))
+	}
+	if got[0].Name != "f" || baseline[0].Name != "f" {
+		t.Fatalf("first function names = %q, %q; want f", got[0].Name, baseline[0].Name)
+	}
+	if got[0].Complexity != baseline[0].Complexity {
+		t.Errorf("f complexity with const = %d, without const = %d", got[0].Complexity, baseline[0].Complexity)
+	}
+}
+
 func TestRunQualityMatchesGolden(t *testing.T) {
 	cases := []struct {
 		name string
@@ -48,8 +65,9 @@ func TestRunQualityMatchesGolden(t *testing.T) {
 				t.Fatalf("read golden: %v", err)
 			}
 			// Python's print() adds a trailing newline; the golden capture already has it.
-			if stdout.String() != expandGolden(string(want)) {
-				t.Errorf("output mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout.String(), expandGolden(string(want)))
+			expected := expandGolden(string(want))
+			if stdout.String() != expected {
+				t.Errorf("output mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout.String(), expected)
 			}
 		})
 	}

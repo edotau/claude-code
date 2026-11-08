@@ -3,6 +3,9 @@ package source
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -130,6 +133,10 @@ func findFunctions(content, language string) []FunctionInfo {
 	if !ok {
 		pattern = functionPatterns()["python"]
 	}
+	var goEnds []int
+	if language == "go" {
+		goEnds = goFunctionEnds(content)
+	}
 	var out []FunctionInfo
 	for _, loc := range pattern.FindAllStringSubmatchIndex(content, -1) {
 		groups := submatchStrings(content, loc, pattern)
@@ -141,6 +148,12 @@ func findFunctions(content, language string) []FunctionInfo {
 		params := splitParams(paramsStr)
 		matchEnd := loc[1]
 		body := functionBody(content, matchEnd, pattern)
+		for _, end := range goEnds {
+			if end > matchEnd { // ends ascend: the first one past the signature closes this func
+				body = body[:min(len(body), end-matchEnd)]
+				break
+			}
+		}
 		out = append(out, FunctionInfo{
 			Name:       name,
 			Parameters: len(params),
@@ -149,6 +162,21 @@ func findFunctions(content, language string) []FunctionInfo {
 		})
 	}
 	return out
+}
+
+func goFunctionEnds(content string) []int {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", content, parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+	var ends []int
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			ends = append(ends, fset.Position(fn.End()).Offset)
+		}
+	}
+	return ends
 }
 
 // submatchStrings returns capture groups 1..n as strings ("" when a group did not participate).
