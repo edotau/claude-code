@@ -36,8 +36,12 @@ tvly search 'Go 1.26 release date' --depth advanced --time-range year --include-
   fresh shell. Never print or log the key, and never store it with `tvly login` (secrets live only in the vault).
 - The harness verb takes only a query or URLs. Use `tvly search` for `--time-range`, `--start-date`, `--topic news`,
   `--include-domains` and `--depth`; use `tvly extract` for `--extract-depth advanced`, `--format text`, `-o`.
-- Key unset or auth error: stop and tell the user to run `claude-code vault set TAVILY_API_KEY` (free key at
-  app.tavily.com). Never answer from memory as if you had searched.
+- Setup, when a check fails (`command -v tvly`; `claude-code vault get --export TAVILY_API_KEY` exits non-zero):
+  - `tvly` missing: `uv tool install tavily-cli` (no `uv`: `brew install uv` on macOS, else
+    `pipx install tavily-cli`); rungs 1-2 work without it.
+  - Key missing or auth error: stop and hand the user these steps (never answer from memory as if you had searched):
+    sign in at <https://app.tavily.com> (free tier available), copy the key from API Keys, then run
+    `! claude-code vault set TAVILY_API_KEY` and paste it at the prompt, never in chat.
 - The built-in `WebSearch` / `WebFetch` may be tried in Claude after Tavily, never instead of it.
 - Codex: its shell sandbox has no network, so these commands cannot reach Tavily there; use codex's own built-in web
   search instead, still citing title + URL. Any other agent whose shell is offline does the same and says so.
