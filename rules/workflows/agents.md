@@ -14,7 +14,7 @@ paths:
 | Ask another agent (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents ask --log` · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
 | Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--host <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`cost-routing.md` → Ask flags and lifecycle) |
 | Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
-| Same from the prompt box | `/coworker:copilot` · `/coworker:opencode` · `/code-worker:gemini` `<verb> \| <task>` (bare task = `ask`); `/code-worker:codex <verb>` (bare = adversarial review); `@agent-<name>` for a subagent |
+| Same from the prompt box | `@agent-<name>` for a subagent (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the Agent tool with `subagent_type` set to that name |
 | Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `@agent-codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
@@ -36,10 +36,10 @@ paths:
 ## Authoring: file, skill or brief
 
 - **Agent file** = who (a role reused across sessions); **skill** = how (a procedure any role follows, named in a
-  brief's `Method:`); **brief** = this task. A one-off role is a brief to `code-worker`, never a new file.
+  brief's `Method:`); **brief** = this task. A one-off role is a brief to `claude`, never a new file.
 - **Split** a role into its own file only when its expertise, tool grant or authority differs (read-only `Explore`
-  vs editing `code-worker`), or several shapes reuse it; **merge** when two files differ only in task wording. A role
-  that only picks a different agent is a plugin leaf (`code-worker:<agent>`, `coworker:<agent>`), not a new file.
+  vs editing `claude`), or several shapes reuse it; **merge** when two files differ only in task wording. A role
+  that only picks a different agent is the leaf type of that agent (`codex`, `copilot`…), not a new file.
 - **Model:** `inherit` for in-context roles that judge (`claude`, `Plan`), an alias (`sonnet`) for leaves; never a
   dated id — `internal/router/table.json` maps aliases to models. Docs accept aliases (incl. `fable`), full ids or
   `inherit`; pinning is for third-party providers. **Tools:** list them; a read-only role gets none
