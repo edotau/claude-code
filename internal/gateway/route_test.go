@@ -441,3 +441,17 @@ func TestRenderGatewayRouteFailsWhenStdoutFull(t *testing.T) {
 		t.Fatal("exit 0 despite a failed stdout write")
 	}
 }
+
+// TestNewRouteJSONEndsIsFirstClaudeAccount: JSON ends agrees with the text view's first claude candidate.
+func TestNewRouteJSONEndsIsFirstClaudeAccount(t *testing.T) {
+	cl := func(acct string) router.Candidate {
+		c := router.Candidate{Agent: "claude"}
+		c.Account = acct
+		return c
+	}
+	res := router.PickResult{Candidates: []router.Candidate{cl("free-acct"), cl("paid-acct")}}
+	got := newRouteJSON(res, routeSources{}, nil)
+	if got.Ends != "free-acct" || len(got.Candidates) != 2 {
+		t.Fatalf("ends %q candidates %d, want free-acct and 2", got.Ends, len(got.Candidates))
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -173,5 +174,26 @@ func TestGeminiLoginUnreadableMarkerIsError(t *testing.T) {
 	_, _, err := geminiLogin("gemini-3.8-flash", nil)
 	if err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("geminiLogin err = %v, want an unreadable-marker error", err)
+	}
+}
+
+// A turn that errors before any result event must not reset the usage baseline: the next delta stays a delta.
+func TestAgyLiveErroredTurnKeepsUsageBaseline(t *testing.T) {
+	result := func(in int) string {
+		return `{"event":"result","result":{"status":"SUCCESS","response":"r","usage":{"input_tokens":` + strconv.Itoa(in) + `}}}`
+	}
+	b := &agyLive{}
+	parse := func(stream string) (wire.Result, error) {
+		return b.Parse(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+	}
+	if _, err := parse(result(1000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parse(`{"event":123}`); err == nil {
+		t.Fatal("want the decode error on the errored turn")
+	}
+	res, err := parse(result(1500))
+	if err != nil || res.Usage.InputTokens != 500 {
+		t.Fatalf("turn 3 InputTokens = %d, err = %v; want the 500 delta", res.Usage.InputTokens, err)
 	}
 }

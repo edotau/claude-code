@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -201,5 +202,39 @@ func TestGatewayHelpListsProxyRestart(t *testing.T) {
 	gatewayPage.Fprint(&b)
 	if !strings.Contains(b.String(), "--restart") {
 		t.Errorf("gateway help omits --restart:\n%s", b.String())
+	}
+}
+
+// TestProxyStartReportsWriteError: a failed stdout write of the base URL is an exit 1, not a silent 0.
+func TestProxyStartReportsWriteError(t *testing.T) {
+	tokenDaemon(t, func(http.ResponseWriter, proxy.SessionRequest) {})
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("no /dev/full: %v", err)
+	}
+	defer full.Close()
+	r, w, _ := os.Pipe()
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = full, w
+	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
+	code := proxyStart(context.Background())
+	w.Close()
+	msg, _ := io.ReadAll(r)
+	if code != 1 || !strings.Contains(string(msg), "gateway proxy:") {
+		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
+	}
+}
+
+// TestSpecProxyCompletesRestart: the completion node lists every real proxy lifecycle flag.
+func TestSpecProxyCompletesRestart(t *testing.T) {
+	fs, _ := proxyFlags()
+	have := map[string]bool{}
+	for _, f := range Spec().Sub["proxy"].Flags {
+		have[f.Name] = true
+	}
+	for _, name := range []string{"start", "stop", "restart", "status", "serve", "port"} {
+		if fs.Lookup(name) == nil || !have[name] {
+			t.Errorf("flag %q: defined=%v completed=%v", name, fs.Lookup(name) != nil, have[name])
+		}
 	}
 }

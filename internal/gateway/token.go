@@ -31,6 +31,7 @@ func cmdGatewayToken(args []string) int {
 
 func printToken(token string) int {
 	if _, err := fmt.Fprintln(os.Stdout, token); err != nil {
+		fmt.Fprintf(os.Stderr, "gateway token: write stdout: %v\n", err)
 		return 1
 	}
 	return 0

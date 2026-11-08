@@ -168,11 +168,11 @@ func routePins() (map[string]pinJSON, error) {
 // newRouteJSON maps a pick onto the emitted shape (agent for agent, <provider>·<profile> account keys).
 func newRouteJSON(res router.PickResult, src routeSources, pins map[string]pinJSON) routeJSON {
 	out := routeJSON{Model: res.Alias, Want: res.Want, Weights: res.Weights, Sources: src,
-		Candidates: make([]router.Candidate, 0, len(res.Candidates)), Skipped: res.Skipped, Pins: pins}
+		Candidates: append([]router.Candidate{}, res.Candidates...), Skipped: res.Skipped, Pins: pins}
 	for _, c := range res.Candidates {
-		out.Candidates = append(out.Candidates, c)
 		if c.Agent == "claude" {
 			out.Ends = c.Account
+			break
 		}
 	}
 	return out

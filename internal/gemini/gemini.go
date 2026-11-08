@@ -701,6 +701,9 @@ func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
 // Parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
 func (b *agyLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
 	res, err := parseAgyEvents(dec, sink, true, lg)
+	if err != nil && !agent.IsResultError(err) {
+		return res, err
+	}
 	total := res.Usage
 	if b.resumed { // the history behind a --session is unknown: this turn reports no usage, later ones their delta
 		b.resumed, b.prev, res.Usage = false, total, wire.Usage{}
