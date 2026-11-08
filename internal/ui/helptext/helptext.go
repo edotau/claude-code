@@ -14,9 +14,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
-	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // row is an indented command line: the left column ends at the first run of 2+ spaces (or the line, for a flag).
@@ -118,7 +118,7 @@ func TermWidth(w io.Writer) int {
 	if n := ansi.Columns(0); n > 0 {
 		return n
 	}
-	n, _, err := tui.Size(int(f.Fd()))
+	n, _, err := proc.Size(int(f.Fd()))
 	if err != nil {
 		return 0
 	}

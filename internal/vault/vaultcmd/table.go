@@ -14,11 +14,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/table"
-	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -27,7 +27,7 @@ func Width() int {
 	if n := ansi.Columns(0); n > 0 {
 		return n
 	}
-	if n, _, err := tui.Size(int(os.Stdout.Fd())); err == nil && n > 0 {
+	if n, _, err := proc.Size(int(os.Stdout.Fd())); err == nil && n > 0 {
 		return n
 	}
 	return 80

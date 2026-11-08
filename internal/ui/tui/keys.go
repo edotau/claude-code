@@ -5,6 +5,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/proc"
 	"os"
 	"sync"
 	"unicode/utf8"
@@ -205,7 +206,7 @@ func (t *Terminal) Keys() <-chan Key { return t.keys }
 
 // Size returns the terminal's current width and height (80x24 when the query fails).
 func (t *Terminal) Size() (w, h int) {
-	w, h, err := Size(t.fd)
+	w, h, err := proc.Size(t.fd)
 	if err != nil || w <= 0 || h <= 0 {
 		return 80, 24
 	}

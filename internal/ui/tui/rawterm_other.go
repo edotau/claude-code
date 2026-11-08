@@ -15,5 +15,4 @@ var errCanceled = errors.New("tui: input canceled")
 func isTerminal(int) bool                            { return false }
 func makeRaw(int) (*termState, error)                { return nil, errNoTTY }
 func restore(int, *termState) error                  { return nil }
-func Size(int) (int, int, error)                     { return 0, 0, errNoTTY }
 func readPassword(int, func([]byte)) ([]byte, error) { return nil, errNoTTY }
