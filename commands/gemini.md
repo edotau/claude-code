@@ -5,9 +5,10 @@ allowed-tools: Bash(claude-code gemini *), Bash(claude-code agents ask --agent g
 disable-model-invocation: true
 ---
 
-# /code-worker:gemini
+# /gemini
 
-Launcher only. Verbs and flags: `claude-code gemini -h`; the agent's role and report contract: `~/.claude/agents/gemini.md`.
+Launcher only. Verbs and flags: `claude-code gemini -h`; the agent's role and report contract:
+`~/.claude/agents/gemini.md`.
 
 1. Strip `profile=<p>` and `model=<m>` from `$ARGUMENTS`; they become `--profile <p>` / `--model <m>`.
 2. First remaining word is a verb → run `claude-code gemini <verb> [flags] <rest>`.
@@ -15,5 +16,5 @@ Launcher only. Verbs and flags: `claude-code gemini -h`; the agent's role and re
 3. Anything else is a task → run `claude-code agents ask --agent gemini [flags] "<task>"`.
 
 Pass arguments as literal CLI arguments, never shell-evaluated. Long tasks: add `--background` and relay the job id
-(`/code-worker:gemini status`, `/code-worker:gemini result <id>`). Relay the output as-is;
+(`/gemini status`, `/gemini result <id>`). Relay the output as-is;
 a verb that rejects a flag errors — relay that, don't retry.

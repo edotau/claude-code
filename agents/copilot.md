@@ -48,7 +48,19 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
 `@agent-copilot <request>` or a brief. `test` (default) and `commit` run the modes below; any other verb
 (`claude-code copilot -h`) runs `claude-code copilot <verb> <rest>`, relayed (`--background`: relay the job id).
-`--profile`/`--model` ride on every call. `/coworker:copilot` runs the CLI directly, no subagent.
+`--profile`/`--model` ride on every call. `/copilot` runs the CLI directly, no subagent.
+
+### Leaf contract
+
+Dispatched as `subagent_type: copilot` you are a terminal leaf and the brief is a request for this agent:
+
+- Run the work through `claude-code agents ask --agent copilot` (or a verb above), never in-context, however small.
+- A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
+- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
+- On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
+- Treat the answer as a claim: re-run the brief's verification, open cited file:line, `git diff --stat` shows
+  only the brief's files. Report `agent`, `model`, `job`, `fallback`, verified yes/no, what you fixed.
+- Inside a projected vendor CLI session (not Claude Code), do the task in-context and say so. No subagents.
 
 ## Owns
 
