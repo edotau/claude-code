@@ -18,7 +18,7 @@ only ([docs](https://code.claude.com/docs/en/agent-teams)); not used (#3). Subag
 | Who holds the plan | Harness form | Use when |
 | --- | --- | --- |
 | Claude turn by turn | one leaf, parallel leaves in one message, `Plan` checklist | the next step depends on the last |
-| The script | `/home/edotau/.claude/workflows/*.js` ([saved-workflows.md](saved-workflows.md)) | steps known up front, same every time |
+| The script | `~/.claude/workflows/*.js` ([saved-workflows.md](saved-workflows.md)) | steps known up front, same every time |
 | A lead over peers | agent teams | never here |
 
 Workflow limits (docs): 16 concurrent agents by default, 1,000 per run, no mid-run input, run a small slice first
@@ -42,7 +42,7 @@ in a script (`internal/hooks/agents/leaves.go` `Effort`).
 package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fix -> guard test -> gate(p)
 ```
 
-- Code: `/home/edotau/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped plus
+- Code: `~/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped plus
   `internal/schemas` when a writer changed.
 - Evidence: R9 26 agents / 2.0M tokens, yield 7.5 findings per 1M; R10 60 / 4.8M (7.1); R11 114 / 8.8M (7.0).
 - Failures and fixes: a fixer limited to its package skipped findings cited elsewhere (`d51420fb`); a blocked fixer

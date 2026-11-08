@@ -11,8 +11,8 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 ## A. code-engineer: size, route, stream, record
 
 - **Use when**: any code job when no specific workflow fits; TRIVIAL to HIGH (EPIC stops at a plan).
-- **Script**: `/home/edotau/.claude/workflows/code-engineer.js` calling
-  `/home/edotau/.claude/workflows/code-workers.js`.
+- **Script**: `~/.claude/workflows/code-engineer.js` calling
+  `~/.claude/workflows/code-workers.js`.
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
@@ -145,12 +145,12 @@ Returns:     {exit, route, packages, merged, confirmed, dropped, unverified, fix
 
 ### Checklist: adding it as a saved workflow
 
-- Script in `/home/edotau/.claude/workflows/<name>.js`; `meta` is a pure literal with `name`, `description`,
+- Script in `~/.claude/workflows/<name>.js`; `meta` is a pure literal with `name`, `description`,
   `whenToUse` (USE / CALL / OPTIONAL / RETURNS) and `phases`.
 - A row in the table of [saved-workflows.md](saved-workflows.md); `claude-code workflow lint` fails on a script
   missing from it or a row naming no script.
 - Copy `stepOf` verbatim (markers `── stepOf: copied verbatim` to `── end stepOf ──`) from
-  `/home/edotau/.claude/workflows/code-workers.js`; every stage reads its pin through it.
+  `~/.claude/workflows/code-workers.js`; every stage reads its pin through it.
 - Every `agent()` call pins `model:` and `effort:`; claude only, no `agent`/`profile` fields.
 - Return the shared result shape above; `ERR(...)` for bad args; no shell state outside agents; plain JavaScript.
 - A log line with the agent estimate at launch, and a `slice` arg for the first run.
