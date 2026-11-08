@@ -1,6 +1,7 @@
 package vaultcmd
 
 import (
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func ptyIoctl(fd uintptr, req uint, arg unsafe.Pointer) error {
 }
 
 func TestVaultGetKeyRefusesTTY(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatal(err)

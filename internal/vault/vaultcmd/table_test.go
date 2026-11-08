@@ -2,6 +2,7 @@ package vaultcmd
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -104,7 +105,7 @@ func TestTailscaleAPIVerdict(t *testing.T) {
 }
 
 func TestRecordLabelsReportsUnreadableVault(t *testing.T) {
-	dir := useVaultTest(t)
+	dir := vaulttest.UseFreshKey(t)
 	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestRecordLabelsReportsUnreadableVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	var labels map[string]string
-	_, _, stderr := captureOutput(t, func() int { labels = recordLabels(); return 0 })
+	_, _, stderr := hosttest.CaptureOutput(t, func() int { labels = recordLabels(); return 0 })
 	if len(labels) != 0 || !strings.Contains(stderr, "vault list: reading labels:") {
 		t.Fatalf("labels=%v stderr=%q, want empty map and a reading-labels warning", labels, stderr)
 	}

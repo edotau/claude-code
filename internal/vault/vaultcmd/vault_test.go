@@ -2,6 +2,7 @@ package vaultcmd
 
 import (
 	"bytes"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"regexp"
 	"slices"
@@ -35,7 +36,7 @@ func TestCmdVault(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			if got := Run(tt.args); got != tt.want {
 				t.Errorf("Run(%q) = %d, want %d", tt.args, got, tt.want)
 			}
@@ -46,8 +47,8 @@ func TestCmdVault(t *testing.T) {
 // vault edit has no flags or commands of its own; -h must print its own usage-only page, not vaultPage's
 // COMMANDS list (every other vault -h path already covers the parent page itself).
 func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
-	useVaultTest(t)
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"edit", "-h"}) })
+	vaulttest.UseFreshKey(t)
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"edit", "-h"}) })
 	if code != 0 {
 		t.Fatalf("vault edit -h: exit %d, want 0", code)
 	}
@@ -61,7 +62,7 @@ func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
 }
 
 func TestVaultVerbs(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"}
 	if len(vaultVerbs) != len(want) {
 		t.Errorf("vaultVerbs has %d entries, want exactly %v", len(vaultVerbs), want)
@@ -96,7 +97,7 @@ func vaultTestStdin(t *testing.T, input string) {
 }
 
 func TestCmdVaultListTailscalePresenceOnly(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	for _, name := range []string{
 		"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET",
 		"TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
@@ -107,7 +108,7 @@ func TestCmdVaultListTailscalePresenceOnly(t *testing.T) {
 	if err := vault.Store("TAILSCALE_API_KEY", value); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"list", "--tailscale"})
 	})
 	if code != 0 {
@@ -133,9 +134,9 @@ func TestCmdVaultListTailscalePresenceOnly(t *testing.T) {
 }
 
 func TestCmdVaultSetTailscalePipedTwoLines(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	vaultTestStdin(t, "id-value\nsecret-value\n")
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"set", "--tailscale"})
 	})
 	if code != 0 {
@@ -153,9 +154,9 @@ func TestCmdVaultSetTailscalePipedTwoLines(t *testing.T) {
 }
 
 func TestCmdVaultSetTailscaleApiKeyOneLine(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	vaultTestStdin(t, "apikeyvalue\n")
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"set", "--tailscale", "--api-key"})
 	})
 	if code != 0 {
@@ -168,7 +169,7 @@ func TestCmdVaultSetTailscaleApiKeyOneLine(t *testing.T) {
 }
 
 func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	for _, tc := range []struct {
 		name  string
 		input string
@@ -178,9 +179,9 @@ func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
 		{"empty secret", "id-value\n\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			vaultTestStdin(t, tc.input)
-			code, _, stderr := captureOutput(t, func() int {
+			code, _, stderr := hosttest.CaptureOutput(t, func() int {
 				return Run([]string{"set", "--tailscale"})
 			})
 			if code != 1 {
@@ -197,9 +198,9 @@ func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
 }
 
 func TestCmdVaultSetTailscaleDryRunStoresNothing(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	vaultTestStdin(t, "id-value\nsecret-value\n")
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"set", "--tailscale", "--dry-run"})
 	})
 	if code != 0 {
@@ -222,9 +223,9 @@ func TestCmdVaultSetTailscaleDryRunStoresNothing(t *testing.T) {
 }
 
 func TestCmdVaultSetBareExitsTwo(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	withStdin(t, "")
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"set"})
 	})
 	if code != 2 {
@@ -252,8 +253,8 @@ func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			useVaultTest(t)
-			code, _, stderr := captureOutput(t, func() int {
+			vaulttest.UseFreshKey(t)
+			code, _, stderr := hosttest.CaptureOutput(t, func() int {
 				return vaultStoreTailscale(false, tc.pairs)
 			})
 			if code != 1 {
@@ -282,7 +283,7 @@ func TestCmdVaultRotateSecretRefusesWithEnvSetWithoutForce(t *testing.T) {
 	// --force refuses, present with --force rotates.
 	vaulttest.Put(t, vault.Meta, "key_command", `["/bin/true"]`)
 
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"rotate-secret"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"rotate-secret"}) })
 	if code != 1 {
 		t.Fatalf("vault rotate-secret = %d, want 1; stderr = %q", code, stderr)
 	}
@@ -290,7 +291,7 @@ func TestCmdVaultRotateSecretRefusesWithEnvSetWithoutForce(t *testing.T) {
 		t.Errorf("stderr = %q, want it to name key_command", stderr)
 	}
 
-	code, _, stderr = captureOutput(t, func() int { return Run([]string{"rotate-secret", "--force"}) })
+	code, _, stderr = hosttest.CaptureOutput(t, func() int { return Run([]string{"rotate-secret", "--force"}) })
 	if code != 0 {
 		t.Fatalf("vault rotate-secret --force = %d, want 0; stderr = %q", code, stderr)
 	}
@@ -345,10 +346,10 @@ func TestVaultUsageRowsMatchHelptextRowRegex(t *testing.T) {
 // TestConfigVerbIsUnknown is also the only coverage of Run's unknown-command path (provider lookup → exit 2).
 
 func TestVaultSetCopilotTokenRefusesShortValue(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	withStdin(t, "ok\n")
 
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"set", "COPILOT_GITHUB_TOKEN"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"set", "COPILOT_GITHUB_TOKEN"}) })
 	if code == 0 {
 		t.Fatal("set COPILOT_GITHUB_TOKEN accepted a short value")
 	}
@@ -361,10 +362,10 @@ func TestVaultSetCopilotTokenRefusesShortValue(t *testing.T) {
 }
 
 func TestVaultSetTailscaleCredentialRefusesMalformedShape(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	withStdin(t, "not-a-client-id\n")
 
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"set", "TAILSCALE_OAUTH_CLIENT_ID"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"set", "TAILSCALE_OAUTH_CLIENT_ID"}) })
 	if code == 0 {
 		t.Fatal("set TAILSCALE_OAUTH_CLIENT_ID accepted a malformed value")
 	}
@@ -378,11 +379,11 @@ func TestVaultSetTailscaleCredentialRefusesMalformedShape(t *testing.T) {
 
 // A valid-shaped GitHub token is accepted and sealed in the vault.
 func TestVaultSetCopilotTokenAcceptsValidShape(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	const tok = "gh" + "p_validshapedFAKEtoken1234567890"
 	withStdin(t, tok+"\n")
 
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"set", "COPILOT_GITHUB_TOKEN"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"set", "COPILOT_GITHUB_TOKEN"}) })
 	if code != 0 {
 		t.Fatalf("set COPILOT_GITHUB_TOKEN exit = %d", code)
 	}
@@ -398,10 +399,10 @@ func TestVaultSetCopilotTokenAcceptsValidShape(t *testing.T) {
 }
 
 func TestVaultSetNameDryRunStoresNothing(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	const value = "obviously-fake-dry-run"
 	withStdin(t, value+"\n")
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"set", "VAULT_TEST_DUMMY", "--dry-run"})
 	})
 	if code != 0 || !strings.Contains(stdout, "would add VAULT_TEST_DUMMY") {
@@ -417,9 +418,9 @@ func TestVaultSetNameDryRunStoresNothing(t *testing.T) {
 }
 
 func TestVaultSetNameAndTailscaleRefused(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	withStdin(t, "obviously-fake-unused\n")
-	code, _, _ := captureOutput(t, func() int {
+	code, _, _ := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"set", "VAULT_TEST_DUMMY", "--tailscale"})
 	})
 	if code != 2 || len(vault.Names()) != 0 {
@@ -446,9 +447,9 @@ func withStdin(t *testing.T, content string) {
 }
 
 func TestVaultStorageHelpPrintsUsage(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	for _, op := range []string{"set", "get", "delete", "import", "export"} {
-		code, stdout, stderr := captureOutput(t, func() int { return Run([]string{op, "-h"}) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{op, "-h"}) })
 		if code != 0 || !strings.Contains(stderr, "usage: claude-code vault "+op) || stdout != "" {
 			t.Errorf("vault %s -h: want usage + exit 0 and no op output, got exit %d", op, code)
 		}

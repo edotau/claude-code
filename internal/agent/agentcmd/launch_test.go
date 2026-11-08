@@ -3,6 +3,7 @@ package agentcmd
 import (
 	"bytes"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"slices"
 	"strings"
 	"testing"
@@ -105,7 +106,7 @@ func TestRunPlanUsageErrorExitsTwo(t *testing.T) {
 func TestLaunchClaudeHelpSkipsModelLookup(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pathstest.FakeVendor(t, "claude", `[ "$1" = --help ] && echo FAKE-CLAUDE-HELP`)
-	code, out, errOut := captureOutput(t, func() int { return launchClaude("nosuchalias", []string{"--help"}) })
+	code, out, errOut := hosttest.CaptureOutput(t, func() int { return launchClaude("nosuchalias", []string{"--help"}) })
 	if code != 0 || !strings.Contains(out, "FAKE-CLAUDE-HELP") {
 		t.Fatalf("launchClaude(--help) = %d, stdout %q, stderr %q; want 0 and claude's help", code, out, errOut)
 	}

@@ -2,6 +2,7 @@ package vaultcmd
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 )
 
 func TestVaultGetKeyRefusesTTY(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatal(err)

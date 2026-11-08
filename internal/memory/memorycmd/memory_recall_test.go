@@ -1,6 +1,7 @@
 package memorycmd
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,7 +44,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 
 func checkMemoryRecallUnstampedRefs(t *testing.T, repo string) {
 	t.Helper()
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"recall", "--repo", repo, "stamped", "id-marked", "rule"}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"recall", "--repo", repo, "stamped", "id-marked", "rule"}, nil) })
 	if code != 0 {
 		t.Fatalf("memory recall: code=%d stderr=%q", code, stderr)
 	}
@@ -91,7 +92,7 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 		[]byte("# Active Context\n\n- never settled widget rollout detail\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"recall", "--repo", repo, "--load", "1", "never", "settled", "widget", "rollout"}, nil)
 	})
 	if code != 0 {
@@ -105,7 +106,7 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 // TestMemoryRecallNoQueryFails: an empty query is refused (exit 1), naming memoryUsage.
 func TestMemoryRecallNoQueryFails(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"recall"}, nil) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"recall"}, nil) })
 	if code != 1 || !strings.Contains(stderr, "no query") {
 		t.Errorf("memory recall with no terms: code=%d stderr=%q", code, stderr)
 	}
@@ -126,7 +127,7 @@ func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
 	if _, err := bank.Remember(repo, "feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"recall", "--repo", repo, "--load", "3", "loadable", "widgets", "gadgets", "fact"}, nil)
 	})
 	if code != 0 {
@@ -144,7 +145,7 @@ func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
 // when an invalid format is specified (regression for internal/cli/memory.go error handling).
 func TestMemoryRecallFormatValidation(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdMemoryRecall([]string{"test", "--format", "invalid"})
 	})
 	if code == 0 {
@@ -159,7 +160,7 @@ func TestMemoryRecallFormatValidation(t *testing.T) {
 // (regression for internal/cli/memory.go:150 where helptext.Fail() return value not used).
 func TestMemoryRecallFailReturnValue(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdMemoryRecall([]string{})
 	})
 	// Should return non-zero when no arguments given
@@ -174,7 +175,7 @@ func TestMemoryRecallFailReturnValue(t *testing.T) {
 func TestMemoryRecallLoadBlockErrorSilent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// Use --load with an invalid block ID to trigger ShowBlock() error
-	code, out, _ := captureOutput(t, func() int {
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return cmdMemoryRecall([]string{"nonexistent", "--load", "1"})
 	})
 	// Should succeed (exit 0) but only print the title, not the body

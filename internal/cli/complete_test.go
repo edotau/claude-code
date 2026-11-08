@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -203,7 +205,7 @@ func TestCompletionLaunchersAreRealVerbs(t *testing.T) {
 
 // TestCompleteDispatch: the hidden __complete verb prints one candidate per line.
 func TestCompleteDispatch(t *testing.T) {
-	code, out, _ := captureOutput(t, func() int { return cmdComplete([]string{"me"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdComplete([]string{"me"}) })
 	if code != 0 {
 		t.Fatalf("__complete me exit %d", code)
 	}
@@ -214,7 +216,7 @@ func TestCompleteDispatch(t *testing.T) {
 
 // TestCompletionScript: the emitted script registers only the harness binary.
 func TestCompletionScript(t *testing.T) {
-	code, out, _ := captureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
 	if code != 0 {
 		t.Fatalf("completion bash exit %d", code)
 	}
@@ -238,7 +240,7 @@ func TestCompletionScriptBash(t *testing.T) {
 	}
 	dir := t.TempDir()
 	script := filepath.Join(dir, "completion.bash")
-	_, out, _ := captureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
 	if err := writeFile(script, out, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +281,7 @@ func TestCompletionInstallHonorsBashCompletionUserDirOverride(t *testing.T) {
 	override := t.TempDir()
 	t.Setenv("BASH_COMPLETION_USER_DIR", override)
 	t.Setenv("XDG_DATA_HOME", t.TempDir()) // must be ignored while the override is set
-	code, out, _ := captureOutput(t, func() int { return cmdCompletion([]string{"--install"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"--install"}) })
 	if code != 0 {
 		t.Fatalf("completion --install exit %d", code)
 	}
@@ -298,7 +300,7 @@ func TestCompletionInstallHonorsBashCompletionUserDirOverride(t *testing.T) {
 	t.Setenv("BASH_COMPLETION_USER_DIR", "")
 	xdg := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", xdg)
-	if code, _, _ := captureOutput(t, func() int { return cmdCompletion([]string{"--install"}) }); code != 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"--install"}) }); code != 0 {
 		t.Fatalf("completion --install (XDG fallback) exit %d", code)
 	}
 	if _, err := readFile(filepath.Join(xdg, "bash-completion", "completions", "claude-code")); err != nil {
@@ -311,7 +313,7 @@ func TestCompletionHelpExitsZeroWithoutInstalling(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("BASH_COMPLETION_USER_DIR", dir)
 	for _, flagArg := range []string{"-h", "--help"} {
-		code, stdout, stderr := captureOutput(t, func() int { return cmdCompletion([]string{flagArg}) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{flagArg}) })
 		out := stdout + stderr
 		if code != 0 {
 			t.Errorf("completion %s exit %d, want 0", flagArg, code)
@@ -327,7 +329,7 @@ func TestCompletionHelpExitsZeroWithoutInstalling(t *testing.T) {
 
 // TestCompletionUnknownArgExitsTwo: an unrecognized argument is a usage error, not a silent no-op.
 func TestCompletionUnknownArgExitsTwo(t *testing.T) {
-	if code, _, _ := captureOutput(t, func() int { return cmdCompletion([]string{"--bogus"}) }); code != 2 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"--bogus"}) }); code != 2 {
 		t.Errorf("completion --bogus exit %d, want 2", code)
 	}
 }
@@ -557,7 +559,7 @@ func TestSpecTreeCoversEveryCommand(t *testing.T) {
 // (grepped from the verb's run func at the time this test was written) — a word added to the
 // switch without a matching specTree entry drifts silently otherwise.
 func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cases := map[string][]string{
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,7 +20,7 @@ func TestMenuSVGIsCurrent(t *testing.T) {
 }
 
 func TestMenuSVGReportsStdoutFailure(t *testing.T) {
-	closedStdout(t)
+	hosttest.ClosedStdout(t)
 	if got := cmdMenuSVG(nil); got == 0 {
 		t.Fatal("help-svg exit = 0 on closed stdout, want nonzero")
 	}
