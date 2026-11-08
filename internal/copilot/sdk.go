@@ -187,7 +187,24 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 		WireModel:       model,
 		MaxPromptTokens: atoi(proc.EnvCopilotProviderMaxPromptTokens),
 		MaxOutputTokens: atoi(proc.EnvCopilotProviderMaxOutputTokens),
+		Headers:         parseProviderHeaders(get(proc.EnvCopilotProviderHeaders)),
 	}
+}
+
+// parseProviderHeaders reverses copilotCredEnv's "Key: Value" lines joined by newlines; nil when none.
+func parseProviderHeaders(raw string) map[string]string {
+	var out map[string]string
+	for _, line := range strings.Split(raw, "\n") {
+		k, v, ok := strings.Cut(line, ": ")
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // WellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies

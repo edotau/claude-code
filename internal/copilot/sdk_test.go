@@ -65,6 +65,20 @@ func TestProviderFromEnvLastDuplicateWins(t *testing.T) {
 	}
 }
 
+func TestProviderFromEnvHeaders(t *testing.T) {
+	p := providerFromEnv([]string{
+		"COPILOT_PROVIDER_BASE_URL=https://h/serving-endpoints",
+		"COPILOT_PROVIDER_HEADERS=X-Route: serving\nX-Context: tenant: workspace",
+	})
+	if p == nil {
+		t.Fatal("provider = nil, want BYOK provider")
+	}
+	want := map[string]string{"X-Route": "serving", "X-Context": "tenant: workspace"}
+	if !reflect.DeepEqual(p.Headers, want) {
+		t.Errorf("Headers = %v, want %v", p.Headers, want)
+	}
+}
+
 // A gateway Claude id keeps its wire name but gets copilot's catalog ModelID; other ids pass through.
 func TestProviderFromEnvWellKnownModelID(t *testing.T) {
 	for id, want := range map[string]string{
@@ -353,15 +367,14 @@ func TestCreateAndResumeCarryInstructions(t *testing.T) {
 		t.Fatal("no session.create/resume recorded")
 		return nil
 	}
-	created, resumed := fields(""), fields("sess-1")
-	if !reflect.DeepEqual(created, resumed) {
-		t.Errorf("create = %v, resume = %v; want equal", created, resumed)
+	want := map[string]any{
+		"sys": map[string]any{"mode": "append", "content": "be brief"},
+		"ins": []any{dir}, "skl": []any{dir + "/skills"}, "agt": []any{dir + "/agents"},
 	}
-	if sys, _ := created["sys"].(map[string]any); sys["mode"] != "append" || sys["content"] != "be brief" {
-		t.Errorf("systemMessage = %v, want append mode with the text", created["sys"])
-	}
-	if created["ins"] == nil || created["skl"] == nil || created["agt"] == nil {
-		t.Errorf("directories missing: %v", created)
+	for name, got := range map[string]map[string]any{"create": fields(""), "resume": fields("sess-1")} {
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s fields = %v, want %v", name, got, want)
+		}
 	}
 }
 
