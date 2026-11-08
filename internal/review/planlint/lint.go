@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -53,19 +54,41 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", pattern)
 		return 1
 	}
+	parseHits, skipped := workflowParseDefects(readableFiles(files))
+	if skipped != "" {
+		fmt.Fprintln(stderr, skipped)
+	}
 	bad := 0
 	for _, f := range files {
 		bad += lintScript(f, stderr)
 	}
-	for _, hit := range workflowDocDrift(root) {
-		fmt.Fprintln(stderr, hit)
-		bad++
-	}
+	bad += printHits(stderr, parseHits)
+	bad += printHits(stderr, workflowHelperDrift(root))
+	bad += printHits(stderr, workflowDocDrift(root))
 	if bad > 0 {
 		return 1
 	}
 	fmt.Fprintf(stdout, "workflow lint: %d script(s) clean\n", len(files))
 	return 0
+}
+
+// printHits writes each hit to stderr and returns how many there were.
+func printHits(stderr io.Writer, hits []string) int {
+	for _, hit := range hits {
+		fmt.Fprintln(stderr, hit)
+	}
+	return len(hits)
+}
+
+// readableFiles drops files lintScript already reports as unreadable, so node never re-reports them as parse errors.
+func readableFiles(files []string) []string {
+	var out []string
+	for _, f := range files {
+		if _, err := os.ReadFile(f); err == nil {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // lintScript prints every defect in one script to stderr and returns how many it found.
@@ -80,6 +103,52 @@ func lintScript(f string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, hit)
 	}
 	return len(hits)
+}
+
+// parseCheckJS compiles each file as an AsyncFunction body (the Workflow runtime's shape), `export` stripped.
+const parseCheckJS = `const fs = require('fs')
+const AF = Object.getPrototypeOf(async function () {}).constructor
+let bad = 0
+for (const f of process.argv.slice(1)) {
+  try { new AF(fs.readFileSync(f, 'utf8').replace(/^export /gm, '')) } catch (e) { bad++; console.log(f + ': ' + e.message) }
+}
+process.exit(bad ? 1 : 0)`
+
+// lookNode finds node; tests swap it to prove the visible skip.
+var lookNode = func() (string, error) { return exec.LookPath("node") }
+
+// workflowParseDefects compiles every script with node; with no node it returns a visible skip line, never a silent pass.
+func workflowParseDefects(files []string) (hits []string, skipped string) {
+	if len(files) == 0 {
+		return nil, ""
+	}
+	node, err := lookNode()
+	if err != nil {
+		return nil, "workflow lint: parse check skipped (node not on PATH)"
+	}
+	out, err := exec.Command(node, append([]string{"-e", parseCheckJS}, files...)...).CombinedOutput()
+	if err == nil {
+		return nil, ""
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		if isParseLine(line, files) {
+			hits = append(hits, line+" (does not parse)")
+		}
+	}
+	if len(hits) == 0 {
+		hits = []string{"workflow lint: node parse check failed: " + err.Error() + ": " + strings.TrimSpace(string(out))}
+	}
+	return hits, ""
+}
+
+// isParseLine reports whether line is parseCheckJS's own "<file>: <message>" output, not node noise.
+func isParseLine(line string, files []string) bool {
+	for _, f := range files {
+		if strings.HasPrefix(line, f+": ") {
+			return true
+		}
+	}
+	return false
 }
 
 // skillScripts returns every skills/*/scripts/*.js under root that opens with `export const meta` (a

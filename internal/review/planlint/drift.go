@@ -64,3 +64,40 @@ func workflowDocDrift(root string) []string {
 	}
 	return out
 }
+
+const helperStart, helperEnd = "// ── stepOf:", "// ── end stepOf ──"
+
+// workflowHelperDrift returns one message per workflow script using stepOf with a missing or differing block.
+func workflowHelperDrift(root string) []string {
+	scripts, err := filepath.Glob(filepath.Join(root, "workflows", "*.js"))
+	if err != nil {
+		return []string{"workflows: " + err.Error()}
+	}
+	sort.Strings(scripts)
+	skills, err := skillScripts(root)
+	if err != nil {
+		return []string{"skills scripts: " + err.Error()}
+	}
+	scripts = append(scripts, skills...)
+	var out []string
+	first, firstName := "", ""
+	for _, s := range scripts {
+		data, err := os.ReadFile(s)
+		if err != nil { // lintScript already reports an unreadable script
+			continue
+		}
+		src := string(data)
+		i, j := strings.Index(src, helperStart), strings.Index(src, helperEnd)
+		switch {
+		case i < 0 && !strings.Contains(src, "stepOf("):
+			continue
+		case i < 0 || j < i:
+			out = append(out, s+": no stepOf block ("+helperStart+" … "+helperEnd+")")
+		case firstName == "":
+			first, firstName = src[i:j], s
+		case src[i:j] != first:
+			out = append(out, s+": stepOf block differs from "+filepath.Base(firstName)+" (copy it verbatim)")
+		}
+	}
+	return out
+}

@@ -3,6 +3,7 @@ package planlint
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -418,5 +419,105 @@ func TestCallWindowSkipsCommentApostrophe(t *testing.T) {
 	src := "agent('x', { // don't wait\n model: 'sonnet' })\nagent('y', { model: 'opus' })"
 	if got := callWindow(src, 0); strings.Contains(got, "opus") {
 		t.Fatalf("window %q spilled into the next call", got)
+	}
+}
+
+// A nested unescaped backtick (the b81c06ae shape) does not compile; the escaped fix (6006600a) does.
+func TestWorkflowParseDefects(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil { // hosttest strips PATH; PLANLINT_NODE names the binary instead
+		node := os.Getenv("PLANLINT_NODE")
+		if node == "" {
+			t.Skip("node not on PATH and PLANLINT_NODE unset")
+		}
+		orig := lookNode
+		lookNode = func() (string, error) { return node, nil }
+		t.Cleanup(func() { lookNode = orig })
+	}
+	dir := t.TempDir()
+	bad := writeScript(t, dir, "bad.js", "export const meta = {}\nconst p = `run `git show` now`\n")
+	good := writeScript(t, dir, "good.js", "export const meta = {}\nconst p = `run \\`git show\\` now`\n")
+	if hits, _ := workflowParseDefects([]string{good}); len(hits) != 0 {
+		t.Fatalf("good script flagged: %v", hits)
+	}
+	hits, _ := workflowParseDefects([]string{bad, good})
+	if len(hits) != 1 || !strings.Contains(hits[0], "bad.js") || !strings.Contains(hits[0], "does not parse") {
+		t.Fatalf("want one bad.js parse hit, got %v", hits)
+	}
+}
+
+func TestWorkflowParseSkippedWithoutNode(t *testing.T) {
+	orig := lookNode
+	lookNode = func() (string, error) { return "", exec.ErrNotFound }
+	t.Cleanup(func() { lookNode = orig })
+	hits, skipped := workflowParseDefects([]string{"x.js"})
+	if len(hits) != 0 || !strings.Contains(skipped, "parse check skipped") {
+		t.Fatalf("hits=%v skipped=%q", hits, skipped)
+	}
+}
+
+// One unreadable script is one defect: lintScript reports it, node is never handed it to re-report as a parse error.
+func TestUnreadableScriptReportedOnce(t *testing.T) {
+	root := t.TempDir()
+	wf := filepath.Join(root, "workflows")
+	if err := os.Mkdir(wf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a sh stand-in for node")
+	}
+	if err := os.Symlink(filepath.Join(root, "gone.js"), filepath.Join(wf, "dangling.js")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	fake := writeScript(t, root, "fakenode", "#!/bin/sh\nshift 2\nfor f; do echo \"$f: ENOENT\"; done\nexit 1\n")
+	if err := os.Chmod(fake, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := lookNode
+	lookNode = func() (string, error) { return fake, nil }
+	t.Cleanup(func() { lookNode = orig })
+	var out, errb bytes.Buffer
+	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 {
+		t.Fatalf("rc = %d, want 1", rc)
+	}
+	if got := errb.String(); strings.Count(got, "cannot read file") != 1 || strings.Contains(got, "does not parse") {
+		t.Fatalf("stderr = %q, want one 'cannot read file' and no 'does not parse'", got)
+	}
+}
+
+// Only parseCheckJS's own "<file>: <message>" lines are parse failures; node warnings beside them are not relabelled.
+func TestParseDefectsIgnoreNodeNoise(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a sh stand-in for node")
+	}
+	dir := t.TempDir()
+	script := writeScript(t, dir, "a.js", "x\n")
+	fake := writeScript(t, dir, "fakenode", "#!/bin/sh\necho '(node:1) Warning: noisy'\necho '"+script+": boom'\nexit 1\n")
+	if err := os.Chmod(fake, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := lookNode
+	lookNode = func() (string, error) { return fake, nil }
+	t.Cleanup(func() { lookNode = orig })
+	hits, skipped := workflowParseDefects([]string{script})
+	if skipped != "" || len(hits) != 1 || hits[0] != script+": boom (does not parse)" {
+		t.Fatalf("hits = %q skipped = %q, want only the file's own line labelled", hits, skipped)
+	}
+}
+
+// Every top-level `export` is stripped before the parse check, not only the first.
+func TestParseCheckStripsEveryExport(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		node = os.Getenv("PLANLINT_NODE") // hosttest strips PATH
+	}
+	if node == "" {
+		t.Skip("node not on PATH and PLANLINT_NODE unset")
+	}
+	orig := lookNode
+	lookNode = func() (string, error) { return node, nil }
+	t.Cleanup(func() { lookNode = orig })
+	p := writeScript(t, t.TempDir(), "two.js", "export const meta = {}\nexport const x = 1\n")
+	if hits, _ := workflowParseDefects([]string{p}); len(hits) != 0 {
+		t.Fatalf("two exports reported as parse defect: %v", hits)
 	}
 }
