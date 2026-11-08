@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/agentcmd"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
@@ -475,7 +477,7 @@ func launchAgentCatalog(name string, s agent.Schema, format string) int {
 		}
 		return providerscmd.Models([]string{"--live", "--profile", n, "--format", format})
 	case len(s.CLI.ModelsArgv) > 0:
-		return launchAgent(name, s.CLI.ModelsArgv)
+		return agentcmd.LaunchAgent(name, s.CLI.ModelsArgv)
 	default:
 		fmt.Printf("%s: no model catalog\n", name)
 		return 0
