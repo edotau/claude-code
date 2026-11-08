@@ -445,9 +445,7 @@ func TestRenderGatewayRouteFailsWhenStdoutFull(t *testing.T) {
 // TestNewRouteJSONEndsIsFirstClaudeAccount: JSON ends agrees with the text view's first claude candidate.
 func TestNewRouteJSONEndsIsFirstClaudeAccount(t *testing.T) {
 	cl := func(acct string) router.Candidate {
-		c := router.Candidate{Agent: "claude"}
-		c.Account = acct
-		return c
+		return router.Candidate{Agent: "claude", Cell: router.Cell{Account: acct}}
 	}
 	res := router.PickResult{Candidates: []router.Candidate{cl("free-acct"), cl("paid-acct")}}
 	got := newRouteJSON(res, routeSources{}, nil)
