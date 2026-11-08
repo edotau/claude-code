@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"os/signal"
 	"slices"
@@ -174,13 +175,13 @@ func Send(args []string) int {
 		return helptext.Fail("agents send: %v", err)
 	}
 	printLiveEnvelope(env, *format)
-	if env.Status != agent.StatusOK {
+	if env.Status != wire.StatusOK {
 		return 1
 	}
 	return 0
 }
 
-func printLiveEnvelope(env agent.Envelope, format string) {
+func printLiveEnvelope(env wire.Envelope, format string) {
 	if format == helptext.JSON {
 		body, _ := json.Marshal(env)
 		fmt.Println(string(body))

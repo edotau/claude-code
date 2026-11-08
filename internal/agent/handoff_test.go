@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,14 +67,14 @@ func assertUnknownTargetRewrite(t *testing.T, model string) {
 // handoffRunner returns a canned Result and error per call, so a dispatch can carry a hand-off path.
 type handoffRunner struct {
 	name string
-	res  Result
+	res  wire.Result
 	err  error
 }
 
 func (h *handoffRunner) Name() string     { return h.name }
 func (h *handoffRunner) Caps() Caps       { return Caps{} }
 func (h *handoffRunner) Available() error { return nil }
-func (h *handoffRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
+func (h *handoffRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
 	return h.res, h.err
 }
 
@@ -82,12 +83,12 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
 	first := func() *handoffRunner {
-		return &handoffRunner{name: "copilot", res: Result{Handoff: "/tmp/x.md"}, err: quota}
+		return &handoffRunner{name: "copilot", res: wire.Result{Handoff: "/tmp/x.md"}, err: quota}
 	}
 
 	t.Run("dispatch 2 succeeds", func(t *testing.T) {
-		second := &handoffRunner{name: "claude", res: Result{Answer: "from dispatch 2"}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
+		second := &handoffRunner{name: "claude", res: wire.Result{Answer: "from dispatch 2"}}
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, wire.Discard, nil)
 		if err != nil || res.Answer != "from dispatch 2" || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want dispatch 2's answer with handoff /tmp/x.md", res, err)
 		}
@@ -96,15 +97,15 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	t.Run("dispatch 2 fails with another error", func(t *testing.T) {
 		boom := errors.New("boom: unrelated failure")
 		second := &handoffRunner{name: "claude", err: boom}
-		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, wire.Discard, nil)
 		if err == nil || !errors.Is(err, boom) || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want dispatch 2's error with handoff /tmp/x.md", res, err)
 		}
 	})
 
 	t.Run("a later dispatch's own handoff wins", func(t *testing.T) {
-		second := &handoffRunner{name: "claude", res: Result{Answer: "ok", Handoff: "/tmp/y.md"}}
-		res, _ := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
+		second := &handoffRunner{name: "claude", res: wire.Result{Answer: "ok", Handoff: "/tmp/y.md"}}
+		res, _ := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, wire.Discard, nil)
 		if res.Handoff != "/tmp/y.md" {
 			t.Errorf("handoff = %q, want the later dispatch's /tmp/y.md", res.Handoff)
 		}
@@ -122,8 +123,8 @@ func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
 	for name, path := range map[string]string{"readable": file, "unreadable": file + ".missing"} {
 		t.Run(name, func(t *testing.T) {
 			second := &fakeRunner{name: "claude", errs: []error{nil}}
-			first := &handoffRunner{name: "copilot", res: Result{Handoff: path}, err: quota}
-			if _, err := RunWithFallback(context.Background(), chainOf([]Engine{first, second}, "", "sonnet"), RunOptions{Prompt: "BARE-TASK"}, Discard, nil); err != nil {
+			first := &handoffRunner{name: "copilot", res: wire.Result{Handoff: path}, err: quota}
+			if _, err := RunWithFallback(context.Background(), chainOf([]Engine{first, second}, "", "sonnet"), RunOptions{Prompt: "BARE-TASK"}, wire.Discard, nil); err != nil {
 				t.Fatal(err)
 			}
 			got := second.seen[0].Prompt

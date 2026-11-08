@@ -2,11 +2,10 @@ package gemini
 
 import (
 	"bufio"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/agent"
 )
 
 // agyArgv maps Autonomous onto "--mode auto"; --dangerously-skip-permissions rides on Tools alone, so
@@ -67,7 +66,7 @@ func TestAgyArgvDebugFile(t *testing.T) {
 func TestParseAgyStreamDecodeErrorKeepsText(t *testing.T) {
 	stream := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi"}}
 {"event":123}`
-	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
 	if err == nil || res.Answer != "hi" {
 		t.Fatalf("res = %+v, err = %v; want the decode error with the text kept", res, err)
 	}
@@ -75,7 +74,7 @@ func TestParseAgyStreamDecodeErrorKeepsText(t *testing.T) {
 
 type agySinkRec struct{ types []string }
 
-func (s *agySinkRec) Emit(ev agent.Event) error { s.types = append(s.types, ev.Type); return nil }
+func (s *agySinkRec) Emit(ev wire.Event) error { s.types = append(s.types, ev.Type); return nil }
 
 // A tool step marks progress (one progress mark per step, never a tool_use) before a later decode failure; planning steps do not.
 func TestParseAgyToolStepMarksProgress(t *testing.T) {
@@ -88,10 +87,10 @@ func TestParseAgyToolStepMarksProgress(t *testing.T) {
 		if _, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), sink, nil); err == nil {
 			t.Fatal("want the decode error")
 		}
-		if slices.Contains(sink.types, agent.EventToolUse) {
+		if slices.Contains(sink.types, wire.EventToolUse) {
 			t.Errorf("%s step: placeholder tool_use reached the sink: %v", stepType, sink.types)
 		}
-		return slices.DeleteFunc(sink.types, func(ty string) bool { return ty != agent.EventProgress })
+		return slices.DeleteFunc(sink.types, func(ty string) bool { return ty != wire.EventProgress })
 	}
 	if got := run("tool"); len(got) != 1 {
 		t.Errorf("tool step: %d progress marks, want 1", len(got))
@@ -104,7 +103,7 @@ func TestParseAgyToolStepMarksProgress(t *testing.T) {
 // A result carrying only structured_output (no response text) is a success and keeps the structure.
 func TestParseAgyStructuredOnlySucceeds(t *testing.T) {
 	stream := `{"event":"result","result":{"status":"SUCCESS","structured_output":{"k":1}}}`
-	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
 	if err != nil || string(res.Structured) != `{"k":1}` {
 		t.Fatalf("res = %+v, err = %v; want no error and Structured kept", res, err)
 	}
@@ -114,7 +113,7 @@ func TestParseAgyStructuredOnlySucceeds(t *testing.T) {
 func TestParseAgyResponseSurvivesLaterDecodeError(t *testing.T) {
 	stream := `{"event":"result","result":{"status":"SUCCESS","response":"R"}}
 {"event":123}`
-	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
 	if err == nil || res.Answer != "R" {
 		t.Fatalf("res = %+v, err = %v; want the decode error with Answer R", res, err)
 	}
@@ -125,7 +124,7 @@ func TestParseAgyRefusedToolStepIsNotPartial(t *testing.T) {
 	stream := `{"event":"step_update","step_update":{"step_type":"tool","state":"ACTIVE"}}
 {"event":"step_update","step_update":{"step_type":"tool","state":"ERROR"}}
 {"event":"result","result":{"status":"SUCCESS","response":"blocked as asked"}}`
-	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), agent.Discard, nil)
+	res, err := parseAgyStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
 	if err != nil || res.Answer != "blocked as asked" {
 		t.Fatalf("res.Answer = %q, err = %v; want the answer and no partial error", res.Answer, err)
 	}

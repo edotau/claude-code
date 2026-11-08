@@ -1,4 +1,4 @@
-package agent
+package wire
 
 import (
 	"errors"
@@ -38,3 +38,7 @@ func TestAnswerTurnsJoinAndLast(t *testing.T) {
 		t.Error("empty answer's Last must be empty")
 	}
 }
+
+type recSink struct{ got []Event }
+
+func (s *recSink) Emit(ev Event) error { s.got = append(s.got, ev); return nil }

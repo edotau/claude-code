@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"path/filepath"
@@ -194,12 +195,12 @@ func (h *hookHost) before(argv []string, prompt string) ([]string, error) {
 
 // parser is the stream parser that hands each finished tool call to the during-run phase; onStep (may be nil)
 // fires on every step_start.
-func (h *hookHost) parser(onStep func()) func(*bufio.Reader, agent.Sink, func(), ...agent.StreamLog) (agent.Result, error) {
+func (h *hookHost) parser(onStep func()) func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
 	var onTool func(openCodeEvent)
 	if h != nil {
 		onTool = h.during
 	}
-	return func(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (agent.Result, error) {
+	return func(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseOpenCodeEvents(br, sink, onMeaningful, onTool, onStep, logs...)
 	}
 }
@@ -220,7 +221,7 @@ func (h *hookHost) during(ev openCodeEvent) {
 }
 
 // after runs Stop then SessionEnd once the child has exited; res carries the session id opencode minted.
-func (h *hookHost) after(res agent.Result) {
+func (h *hookHost) after(res wire.Result) {
 	if h == nil {
 		return
 	}

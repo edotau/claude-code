@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"os/exec"
@@ -76,13 +77,13 @@ func (p Pong) Line() string {
 // runAsk runs `<bin> ask --agent a --fallback none --format json` and returns the envelope; a seam for tests.
 var runAsk = defaultRunAsk
 
-func defaultRunAsk(ctx context.Context, bin, agentName string) (agent.Envelope, error) {
+func defaultRunAsk(ctx context.Context, bin, agentName string) (wire.Envelope, error) {
 	cmd := exec.CommandContext(ctx, bin, "agents", "ask", "--agent", agentName, "--fallback", "none", "--format", "json",
 		"Reply with the single word: pong")
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.Output()
-	var env agent.Envelope
+	var env wire.Envelope
 	if jerr := json.Unmarshal(out, &env); jerr != nil {
 		if err != nil {
 			return env, err

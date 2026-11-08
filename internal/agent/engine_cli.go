@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os/exec"
 	"slices"
@@ -99,7 +100,7 @@ func newCLIEngine(name string) cliEngine { return cliEngine{mustDriver(name).(He
 
 // CLIPrep is an agent run resolved up to its child's env: the route target, the prompt and the headless argv.
 type CLIPrep struct {
-	Result Result
+	Result wire.Result
 	Target providers.Target
 	Prompt string
 	Env    []string
@@ -114,7 +115,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	if err != nil {
 		return CLIPrep{}, err
 	}
-	p := CLIPrep{Target: t, Result: Result{Provider: s.OwnProfile(), Model: t.Model, SessionID: req.SessionID}}
+	p := CLIPrep{Target: t, Result: wire.Result{Provider: s.OwnProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // agentTargetNote can report a non-own target with no provider resolved
 			return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
@@ -156,7 +157,7 @@ func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
 	return h
 }
 
-func (v cliEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
+func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = DirectCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
 	if err != nil {
@@ -172,23 +173,23 @@ func EmptyAnswer(name string) error {
 }
 
 // RunStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
-func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res Result, sink Sink,
-	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error)) (Result, error) {
+func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res wire.Result, sink wire.Sink,
+	parse func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error)) (wire.Result, error) {
 	out, err := RunEventStream(ctx, name, cmd, tail, sink, parse, nil)
 	return withParsed(res, out), err
 }
 
 // withParsed copies the parser's answer, usage, transport and structured output into res; an empty session id keeps res's.
-func withParsed(res, out Result) Result {
+func withParsed(res, out wire.Result) wire.Result {
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	res.SessionID = cmp.Or(out.SessionID, res.SessionID)
 	return res
 }
 
 // RunEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
-func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, sink Sink,
-	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error), onMeaningful func()) (Result, error) {
-	var res Result
+func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, sink wire.Sink,
+	parse func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error), onMeaningful func()) (wire.Result, error) {
+	var res wire.Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return res, err
@@ -197,7 +198,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
-	lg := EventLogFor(ctx)
+	lg := wire.EventLogFor(ctx)
 	idle := &idleReader{src: EOFReader{R: stdout}, last: time.Now().UnixNano()}
 	stop := heartbeat(lg, idle, name)
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
@@ -254,7 +255,7 @@ func (i *idleReader) Read(p []byte) (int, error) {
 }
 
 // heartbeat logs a "still running" line each heartbeatEvery of stdout silence until the returned stop is called.
-func heartbeat(lg StreamLog, i *idleReader, name string) (stop func()) {
+func heartbeat(lg wire.StreamLog, i *idleReader, name string) (stop func()) {
 	if lg == nil {
 		return func() {}
 	}

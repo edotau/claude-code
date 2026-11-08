@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -79,7 +80,7 @@ func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"HM_KEY"},"models":{"opus":"m"}}}}}`)
 	r := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
-	_, err := Run(withIsolation(context.Background()), r, RunOptions{Prompt: "p", Model: "hm:opus"}, Discard, nil)
+	_, err := Run(withIsolation(context.Background()), r, RunOptions{Prompt: "p", Model: "hm:opus"}, wire.Discard, nil)
 	var e *retry.Error
 	if !errors.As(err, &e) || e.Kind != retry.KindAuth || len(r.seen) != 0 {
 		t.Fatalf("err = %v, runs = %d; want KindAuth before any run", err, len(r.seen))
@@ -93,7 +94,7 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	name := fmt.Sprintf("hmt%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, fakeJWT("adb-1.azuredatabricks.net")))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
-	res, err := Run(context.Background(), r, RunOptions{Prompt: "p", Provider: name}, Discard, nil)
+	res, err := Run(context.Background(), r, RunOptions{Prompt: "p", Provider: name}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v; want an answer on attempt 2", res, err)
 	}
@@ -112,7 +113,7 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 	first := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 	c := Chain{Want: "claude", Dispatches: []Dispatch{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
-	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" || len(first.seen) != 0 || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v first=%d second=%d; want hop 2 to answer", res, err, len(first.seen), len(second.seen))
 	}

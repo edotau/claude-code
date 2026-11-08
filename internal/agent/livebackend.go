@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os/exec"
 
@@ -29,7 +30,7 @@ type LiveBackend interface {
 	Build(ctx context.Context, req RunOptions) (cmd *exec.Cmd, tail *retry.TailBuffer, provider string, err error)
 	WriteTurn(w io.Writer, prompt string) error
 	// Parse reads dec up to and including the turn's result event; usage and cost are that turn's alone.
-	Parse(dec *bufio.Reader, sink Sink, lg func(kind, text string)) (Result, error)
+	Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error)
 }
 
 // LiveCapable is a CLI that can hold a session open; a fresh backend serves each session.
@@ -76,11 +77,13 @@ func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffe
 func StatusOf(e *retry.Error) string { return statusOf(e) }
 
 // NewRunSink stamps agent's name on sink's events and counts its text bytes.
-func NewRunSink(sink Sink, agent string) Sink { return &runSink{Sink: sink, agent: agent} }
+func NewRunSink(sink wire.Sink, agent string) wire.Sink {
+	return &wire.RunSink{Sink: sink, Agent: agent}
+}
 
 // IsResultError reports a failed turn whose result event was consumed, so the stream sits at a turn boundary.
 func IsResultError(err error) bool {
-	_, ok := errors.AsType[resultError](err)
+	_, ok := errors.AsType[wire.ResultError](err)
 	return ok
 }
 

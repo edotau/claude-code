@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"os/exec"
@@ -367,7 +368,7 @@ func followEvents(ctx context.Context, rec agent.Record, follow bool, w io.Write
 func eventHeartbeat(w io.Writer, rec agent.Record, n int, lastOut, lastBeat time.Time) time.Time {
 	if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
 		fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d}\n",
-			agent.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds())
+			wire.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds())
 		return now
 	}
 	return lastBeat
@@ -388,7 +389,7 @@ func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (n int, done bo
 			return n, done, err
 		}
 		var ev struct{ Type string }
-		if json.Unmarshal(*pend, &ev) == nil && ev.Type == agent.EventResult {
+		if json.Unmarshal(*pend, &ev) == nil && ev.Type == wire.EventResult {
 			done = true
 		}
 		n += len(*pend)

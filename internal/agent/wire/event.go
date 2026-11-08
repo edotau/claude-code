@@ -1,4 +1,4 @@
-package agent
+package wire
 
 import (
 	"bufio"
@@ -83,19 +83,19 @@ func (s *TextSink) Emit(ev Event) error {
 }
 
 // stamper numbers and times a sink's events; the caller holds the sink's lock.
-type stamper struct {
+type Stamper struct {
 	seq   int64
 	start time.Time
 	host  string
 }
 
-func newStamper() stamper {
+func NewStamper() Stamper {
 	host, _ := os.Hostname()
-	return stamper{start: Clock(), host: host}
+	return Stamper{start: Clock(), host: host}
 }
 
 // stamp sets ev's schema, seq, t_ms and, when unset, host.
-func (s *stamper) stamp(ev *Event) {
+func (s *Stamper) Stamp(ev *Event) {
 	s.seq++
 	ev.Schema, ev.Seq, ev.TMs = EventSchema, s.seq, Clock().Sub(s.start).Milliseconds()
 	if ev.Host == "" {
@@ -105,7 +105,7 @@ func (s *stamper) stamp(ev *Event) {
 
 // JSONLSink writes one JSON object per line, stamping schema, seq, t_ms and the dispatch identity.
 type JSONLSink struct {
-	stamper
+	Stamper
 	mu         sync.Mutex
 	w          io.Writer
 	dispatchID string
@@ -113,14 +113,14 @@ type JSONLSink struct {
 
 // NewJSONLSink is a JSONLSink over w for dispatchID.
 func NewJSONLSink(w io.Writer, dispatchID string) *JSONLSink {
-	return &JSONLSink{stamper: newStamper(), w: w, dispatchID: dispatchID}
+	return &JSONLSink{Stamper: NewStamper(), w: w, dispatchID: dispatchID}
 }
 
 // Emit stamps ev and writes it as one line.
 func (s *JSONLSink) Emit(ev Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.stamp(&ev)
+	s.Stamp(&ev)
 	if ev.DispatchID == "" {
 		ev.DispatchID = s.dispatchID
 	}
@@ -173,22 +173,22 @@ func (w textWriter) Write(p []byte) (int, error) {
 func SinkWriter(s Sink) io.Writer { return textWriter{s: s} }
 
 // runSink stamps the running agent's name and notes progress, so a retry never repeats streamed output or tool effects.
-type runSink struct {
+type RunSink struct {
 	Sink
-	agent      string
-	progressed bool
+	Agent      string
+	Progressed bool
 }
 
-func (r *runSink) Emit(ev Event) error {
+func (r *RunSink) Emit(ev Event) error {
 	if ev.Agent == "" {
-		ev.Agent = r.agent
+		ev.Agent = r.Agent
 	}
-	r.progressed = r.progressed || ev.progress() // before the sink: a failed emit still saw the event
+	r.Progressed = r.Progressed || ev.Progress() // before the sink: a failed emit still saw the event
 	return r.Sink.Emit(ev)
 }
 
 // progress is true for an event a replay could repeat: answer text, a tool call that may have had effects, or a mark.
-func (ev Event) progress() bool {
+func (ev Event) Progress() bool {
 	switch ev.Type {
 	case EventProgress:
 		return true

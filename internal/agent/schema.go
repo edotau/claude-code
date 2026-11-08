@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -20,9 +21,9 @@ var (
 	})
 
 	_ = schemas.Register(schemas.Format{
-		Name: "dispatch-events", Owner: "internal/agent", Kind: schemas.Log, Version: EventSchema,
+		Name: "dispatch-events", Owner: "internal/agent/wire", Kind: schemas.Log, Version: wire.EventSchema,
 		Glob:  func() string { return filepath.Join(paths.DispatchDir(), "*"+paths.DispatchEventsSuffix) },
-		New:   func() any { return new(Event) },
+		New:   func() any { return new(wire.Event) },
 		Clean: "dispatch-log",
 	})
 
@@ -32,7 +33,7 @@ var (
 	})
 
 	_ = schemas.Register(schemas.Format{
-		Name: "ask-envelope", Owner: "internal/agent", Kind: schemas.Wire, Version: EnvelopeSchema,
-		New: func() any { return new(Envelope) },
+		Name: "ask-envelope", Owner: "internal/agent/wire", Kind: schemas.Wire, Version: wire.EnvelopeSchema,
+		New: func() any { return new(wire.Envelope) },
 	})
 )

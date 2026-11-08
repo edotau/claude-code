@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"path/filepath"
 	"slices"
@@ -154,14 +155,14 @@ func failAskCode(format, agentName string, err error, code int) int {
 func printAskFailure(format, agentName string, err error) {
 	switch format {
 	case helptext.JSON:
-		body, _ := json.Marshal(agent.FailureEnvelope(agentName, err))
+		body, _ := json.Marshal(wire.FailureEnvelope(agentName, err))
 		fmt.Println(string(body))
 	case formatStreamJSON:
-		_ = StdoutSink(format, "").Emit(agent.ResultEvent(agent.FailureEnvelope(agentName, err)))
+		_ = StdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 	}
 }
 
-func reportAskResult(format string, res agent.Result, err error, dispatchID string) {
+func reportAskResult(format string, res wire.Result, err error, dispatchID string) {
 	for _, d := range res.Dropped {
 		if d == "--read-only (tools off)" {
 			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
@@ -170,7 +171,7 @@ func reportAskResult(format string, res agent.Result, err error, dispatchID stri
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
 	if format == helptext.JSON {
-		body, _ := json.Marshal(agent.NewEnvelope(res, err, dispatchID))
+		body, _ := json.Marshal(wire.NewEnvelope(res, err, dispatchID))
 		fmt.Println(string(body))
 		return
 	}

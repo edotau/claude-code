@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"strings"
 	"time"
@@ -80,7 +81,7 @@ type Driver interface {
 type HeadlessDriver interface {
 	Driver
 	// Exec runs the prepared child and fills the Result.
-	Exec(ctx context.Context, p CLIPrep, req RunOptions, sink Sink) (Result, error)
+	Exec(ctx context.Context, p CLIPrep, req RunOptions, sink wire.Sink) (wire.Result, error)
 }
 
 // eng is the engine driving s; a row with none (claude) gets baseEngine's defaults.

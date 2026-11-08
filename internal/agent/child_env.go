@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"maps"
 	"os"
@@ -193,7 +194,7 @@ func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	}
 	tail := &retry.TailBuffer{}
 	cmd.Stderr = io.Writer(tail) // the dispatch log, when ctx carries one, sees stderr as it arrives
-	if sk := stderrLogFrom(ctx); sk != nil {
+	if sk := wire.StderrLogFrom(ctx); sk != nil {
 		cmd.Stderr = io.MultiWriter(tail, sk.Stream())
 	}
 	return cmd, tail

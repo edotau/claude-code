@@ -2,17 +2,17 @@ package claude
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/edotau/claude-code/internal/agent"
 )
 
-type goldenSink func(agent.Event)
+type goldenSink func(wire.Event)
 
-func (f goldenSink) Emit(ev agent.Event) error { f(ev); return nil }
+func (f goldenSink) Emit(ev wire.Event) error { f(ev); return nil }
 
 // TestParseClaudeStreamGolden runs a scrubbed real `claude -p --output-format stream-json` capture through the parser.
 func TestParseClaudeStreamGolden(t *testing.T) {
@@ -22,11 +22,11 @@ func TestParseClaudeStreamGolden(t *testing.T) {
 	}
 	var text strings.Builder
 	var tools []string
-	sink := goldenSink(func(ev agent.Event) {
+	sink := goldenSink(func(ev wire.Event) {
 		switch ev.Type {
-		case agent.EventText:
+		case wire.EventText:
 			text.WriteString(ev.Text)
-		case agent.EventToolUse:
+		case wire.EventToolUse:
 			tools = append(tools, ev.Tool.Name)
 		}
 	})
@@ -41,7 +41,7 @@ func TestParseClaudeStreamGolden(t *testing.T) {
 	}
 }
 
-func assertGoldenClaudeResult(t *testing.T, res agent.Result, text, answer string, tools []string) {
+func assertGoldenClaudeResult(t *testing.T, res wire.Result, text, answer string, tools []string) {
 	t.Helper()
 	if text != answer || res.Answer != answer {
 		t.Errorf("text = %q, answer = %q", text, res.Answer)

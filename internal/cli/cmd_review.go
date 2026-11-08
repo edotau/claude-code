@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"slices"
@@ -84,7 +85,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 func finishSplitReview(job *agent.Record, err error) int {
 	if job != nil {
 		job.Progress = ""
-		job.Finish(agent.Result{}, err, time.Since(job.Time))
+		job.Finish(wire.Result{}, err, time.Since(job.Time))
 		if serr := job.Save(); serr != nil {
 			fmt.Fprintf(os.Stderr, "review: job record not saved: %v\n", serr)
 		}

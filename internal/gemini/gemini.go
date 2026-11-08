@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"io/fs"
 	"os"
@@ -46,7 +47,7 @@ func (geminiEngine) Before(req agent.RunOptions, t providers.Target) providers.T
 	return t
 }
 
-func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
+func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	areq, err := newAgyRequest(p, req)
 	if err != nil {
 		return p.Result, err
@@ -368,14 +369,14 @@ func agyStdin(r agyRequest) (string, error) {
 
 // runAgy drives `agy` headless over stream-json: agent_response text deltas stream live, and the
 // result event carries the final answer, usage, conversation id and status.
-func runAgy(ctx context.Context, r agyRequest, sink agent.Sink) (agent.Result, error) {
+func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, error) {
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
-		return agent.Result{}, fmt.Errorf("gemini: %w", err)
+		return wire.Result{}, fmt.Errorf("gemini: %w", err)
 	}
 	stdin, err := agyStdin(r)
 	if err != nil {
-		return agent.Result{}, err
+		return wire.Result{}, err
 	}
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
 	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, nil)
@@ -414,23 +415,23 @@ type agyEvent struct {
 }
 
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
-func parseAgyStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (agent.Result, error) {
-	return parseAgyEvents(br, sink, false, agent.PickLog(logs))
+func parseAgyStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
+	return parseAgyEvents(br, sink, false, wire.PickLog(logs))
 }
 
 // parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
-func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.StreamLog) (res agent.Result, _ error) {
-	ts := agent.TransportTracker{Start: agent.Clock()}
+func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog) (res wire.Result, _ error) {
+	ts := wire.TransportTracker{Start: wire.Clock()}
 	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res}
 	defer func() { res.Transport = ts.Result() }()
-	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
+	err := wire.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev agyEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			t.flush()
-			_ = agent.EmitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
+			_ = wire.EmitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
 			return false, fmt.Errorf("decode agy stream-json: %w", err)
 		}
-		ts.Event(agent.Clock())
+		ts.Event(wire.Clock())
 		return t.handle(ev)
 	})
 	if err != nil {
@@ -450,11 +451,11 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 
 // agyTurn is parseAgyEvents' state across one turn's stream-json events.
 type agyTurn struct {
-	sink      agent.Sink
-	lg        agent.StreamLog
+	sink      wire.Sink
+	lg        wire.StreamLog
 	once      bool
-	res       *agent.Result
-	ans       agent.Answer
+	res       *wire.Result
+	ans       wire.Answer
 	pending   strings.Builder
 	response  string
 	sawResult bool
@@ -498,9 +499,9 @@ func (t *agyTurn) result(ev agyEvent) (bool, error) {
 	t.response = ev.Result.Response
 	t.flush()
 	if err := applyAgyResult(t.res, ev); err != nil {
-		_ = agent.EmitError(t.lg, t.sink, err.Error()) // the agy error returned below aborts
+		_ = wire.EmitError(t.lg, t.sink, err.Error()) // the agy error returned below aborts
 		if t.once {
-			err = agent.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
+			err = wire.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
 		}
 		return false, err
 	}
@@ -509,7 +510,7 @@ func (t *agyTurn) result(ev agyEvent) (bool, error) {
 }
 
 // emitAgyToolStart marks progress once per tool step: agy runs tools without tool events, so none can be shown.
-func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink agent.Sink) error {
+func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink wire.Sink) error {
 	if ev.StepUpdate.StepType != agyToolStep {
 		return nil
 	}
@@ -519,11 +520,11 @@ func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink agent.Sink) error {
 	if !start {
 		return nil
 	}
-	return sink.Emit(agent.Event{Type: agent.EventProgress})
+	return sink.Emit(wire.Event{Type: wire.EventProgress})
 }
 
 // noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
-func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg agent.StreamLog) {
+func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg wire.StreamLog) {
 	if t, st := ev.StepUpdate.StepType, ev.StepUpdate.State; t != "agent_response" && t != "user_input" && st != "" {
 		if !agyStepEnded(st) {
 			*openStep = t
@@ -542,7 +543,7 @@ func agyStepEnded(state string) bool { return state == "DONE" || state == "ERROR
 
 // finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in
 // result.response (no agent_response deltas) still answers.
-func finishAgyTurn(res agent.Result, sink agent.Sink, ans *agent.Answer, response string, flush func(), openStep string, once bool) (agent.Result, error) {
+func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response string, flush func(), openStep string, once bool) (wire.Result, error) {
 	flush()
 	var emitErr error
 	if ans.Empty() && response != "" {
@@ -562,12 +563,12 @@ func finishAgyTurn(res agent.Result, sink agent.Sink, ans *agent.Answer, respons
 	return res, nil
 }
 
-func applyAgyResult(res *agent.Result, ev agyEvent) error {
+func applyAgyResult(res *wire.Result, ev agyEvent) error {
 	out := ev.Result
 	if out.ConversationID != "" {
 		res.SessionID = out.ConversationID
 	}
-	res.Usage = agent.Usage{
+	res.Usage = wire.Usage{
 		InputTokens:     out.Usage.InputTokens,
 		OutputTokens:    out.Usage.OutputTokens + out.Usage.ThinkingTokens,
 		CacheReadTokens: out.Usage.CacheReadTokens,
@@ -640,7 +641,7 @@ type agyLive struct {
 	tools   bool
 	intro   string // emulated system prompts, owed to the first turn only
 	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
-	prev    agent.Usage
+	prev    wire.Usage
 }
 
 func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
@@ -680,14 +681,14 @@ func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
 }
 
 // Parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
-func (b *agyLive) Parse(dec *bufio.Reader, sink agent.Sink, lg func(kind, text string)) (agent.Result, error) {
+func (b *agyLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
 	res, err := parseAgyEvents(dec, sink, true, lg)
 	total := res.Usage
 	if b.resumed { // the history behind a --session is unknown: this turn reports no usage, later ones their delta
-		b.resumed, b.prev, res.Usage = false, total, agent.Usage{}
+		b.resumed, b.prev, res.Usage = false, total, wire.Usage{}
 		return res, err
 	}
-	res.Usage = agent.Usage{InputTokens: max(total.InputTokens-b.prev.InputTokens, 0), OutputTokens: max(total.OutputTokens-b.prev.OutputTokens, 0),
+	res.Usage = wire.Usage{InputTokens: max(total.InputTokens-b.prev.InputTokens, 0), OutputTokens: max(total.OutputTokens-b.prev.OutputTokens, 0),
 		CacheReadTokens: max(total.CacheReadTokens-b.prev.CacheReadTokens, 0), CostUSD: max(total.CostUSD-b.prev.CostUSD, 0)}
 	b.prev = total
 	return res, err

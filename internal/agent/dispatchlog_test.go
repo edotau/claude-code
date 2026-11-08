@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"io"
 	"os"
 	"os/exec"
@@ -35,7 +36,7 @@ func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	if got, _ := LoadRecord("20261016T210000"); got.Status != "running" || got.Request.Prompt != "p" || !got.Request.Tools {
 		t.Fatalf("running record = %+v", got)
 	}
-	r.Finish(Result{Provider: "chatgpt"}, nil, time.Second)
+	r.Finish(wire.Result{Provider: "chatgpt"}, nil, time.Second)
 	_ = r.Save()
 	if got, _ := LoadRecord(r.ID); got.Status != "ok" || got.Provider != "chatgpt" {
 		t.Fatalf("finished record = %+v", got)
@@ -389,14 +390,14 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	first := &pinFallbackRunner{name: "codex", err: &retry.Error{Kind: retry.KindQuota, Agent: "codex", Err: io.EOF}}
-	second := &pinFallbackRunner{name: "claude", res: Result{Answer: "ok"}}
+	second := &pinFallbackRunner{name: "claude", res: wire.Result{Answer: "ok"}}
 	chain := Chain{Want: "codex", Dispatches: []Dispatch{
 		{Agent: first, Model: "prof:gpt-6-astra"},
 		{Agent: second, Model: "prof:claude-sonnet-5-5"},
 	}}
 	req := RunOptions{Prompt: "p", Model: "gpt-6-astra"}
 	rec := NewRecord("codex", req, time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC))
-	res, err := RunWithFallback(context.Background(), chain, req, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chain, req, wire.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,10 +561,10 @@ func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string 
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	path := filepath.Join(t.TempDir(), "d.log")
-	sink := NewLogSink(path)
-	ctx := WithLog(context.Background(), sink)
+	sink := wire.NewLogSink(path)
+	ctx := wire.WithLog(context.Background(), sink)
 	if jobMode {
-		ctx = WithLogEvents(context.Background(), sink)
+		ctx = wire.WithLogEvents(context.Background(), sink)
 	}
 	fn(ctx)
 	sink.Close()
@@ -581,7 +582,7 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 		pathstest.FakeVendor(t, "opencode", emitScript(
 			`{"type":"text","sessionID":"ses_A","part":{"text":"hello AWS_SECRET=`+evSecret+`"}}`,
 			`{"type":"step_finish","sessionID":"ses_A","part":{"tokens":{"input":3,"output":2}}}`))
-		if _, err := r.Run(ctx, RunOptions{Prompt: "p", WorkDir: t.TempDir()}, NewTextSink(&out)); err != nil {
+		if _, err := r.Run(ctx, RunOptions{Prompt: "p", WorkDir: t.TempDir()}, wire.NewTextSink(&out)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 	})
@@ -612,12 +613,12 @@ func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var caller strings.Builder
 			log := loggedRun(t, tc.job, func(ctx context.Context) {
-				if stderrLogFrom(ctx) == nil {
+				if wire.StderrLogFrom(ctx) == nil {
 					t.Fatal("stderrLogFrom lost the sink")
 				}
-				w := TeeWriter(ctx, &caller)
+				w := wire.TeeWriter(ctx, &caller)
 				_, _ = io.WriteString(w, "raw-stdout-answer\n")
-				logEvent(ctx, "result", "ev-line")
+				wire.LogEvent(ctx, "result", "ev-line")
 			})
 			if caller.String() != "raw-stdout-answer\n" {
 				t.Errorf("caller stream = %q", caller.String())
@@ -645,7 +646,7 @@ func readLog(t *testing.T, path string) string {
 // TestLogSinkModeAppendRedact: the log is 0600, a second sink appends, and a secret split across Writes is redacted.
 func TestLogSinkModeAppendRedact(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "job.log")
-	s1 := NewLogSink(path)
+	s1 := wire.NewLogSink(path)
 	_, _ = s1.Stream().Write([]byte("first\n"))
 	s1.Close()
 
@@ -662,7 +663,7 @@ func TestLogSinkModeAppendRedact(t *testing.T) {
 	if shapes.Redact(line) == line {
 		t.Fatalf("shapes.Redact(%q) left it unchanged; test has no teeth", line)
 	}
-	s2 := NewLogSink(path)
+	s2 := wire.NewLogSink(path)
 	w := s2.Stream()
 	_, _ = w.Write([]byte("key=sk-"))
 	_, _ = w.Write([]byte(token))
@@ -690,7 +691,7 @@ func TestLogSinkStdoutByteIdentical(t *testing.T) {
 		t.Helper()
 		var buf bytes.Buffer
 		cmd, _ := ChildCmd(ctx, bin, nil, nil, "", "", nil, true)
-		cmd.Stdout = TeeWriter(ctx, &buf)
+		cmd.Stdout = wire.TeeWriter(ctx, &buf)
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("run fake: %v", err)
 		}
@@ -698,8 +699,8 @@ func TestLogSinkStdoutByteIdentical(t *testing.T) {
 	}
 	plain := run(context.Background())
 	logPath := filepath.Join(dir, "job.log")
-	sink := NewLogSink(logPath)
-	teed := run(WithLog(context.Background(), sink))
+	sink := wire.NewLogSink(logPath)
+	teed := run(wire.WithLog(context.Background(), sink))
 	sink.Close()
 
 	if !bytes.Equal(plain, teed) {
@@ -719,7 +720,7 @@ func TestLogSinkStdoutByteIdentical(t *testing.T) {
 // TestLogSinkPartialLineFlushedOnClose: an unterminated last line waits for Close, which adds the newline.
 func TestLogSinkPartialLineFlushedOnClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "job.log")
-	s := NewLogSink(path)
+	s := wire.NewLogSink(path)
 	_, _ = s.Stream().Write([]byte("whole\npartial"))
 	if got := readLog(t, path); got != "whole\n" {
 		t.Errorf("log before Close = %q, want %q", got, "whole\n")
@@ -733,7 +734,7 @@ func TestLogSinkPartialLineFlushedOnClose(t *testing.T) {
 // TestLogSinkLazyCreate: NewLogSink alone creates no file; the first Stream does.
 func TestLogSinkLazyCreate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "job.log")
-	s := NewLogSink(path)
+	s := wire.NewLogSink(path)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("Stat before Stream err = %v, want not-exist", err)
 	}
@@ -747,7 +748,7 @@ func TestLogSinkLazyCreate(t *testing.T) {
 // TestLogSinkConcurrentStreamsNoInterleave: two streams written concurrently keep every log line whole.
 func TestLogSinkConcurrentStreamsNoInterleave(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "job.log")
-	s := NewLogSink(path)
+	s := wire.NewLogSink(path)
 	const n = 500
 	want := map[string]bool{}
 	var wg sync.WaitGroup
