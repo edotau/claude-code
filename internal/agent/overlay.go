@@ -5,32 +5,15 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 )
 
-// overlayIdle reports a launch the overlay changes nothing about: empty layer and no $COWORKER_OVERLAY to hide.
-func overlayIdle(r agentconfig.Resolved) bool {
+// OverlayIdle reports a launch the overlay changes nothing about: empty layer and no $COWORKER_OVERLAY to hide.
+func OverlayIdle(r agentconfig.Resolved) bool {
 	return len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && os.Getenv(agentconfig.OverlayVar) == ""
-}
-
-// ApplyOverlay layers r under req's --env (the shorthand wins) and unsets $COWORKER_OVERLAY in the child (one hop).
-func ApplyOverlay(req RunOptions, r agentconfig.Resolved) RunOptions {
-	if overlayIdle(r) {
-		return req
-	}
-	env := make([]string, 0, len(r.Set)+len(req.Env))
-	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
-		env = append(env, k+"="+r.Set[k])
-	}
-	req.Env = append(env, req.Env...)
-	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
-	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar})
-	req.OverlaySet = slices.Sorted(maps.Keys(r.Set))
-	return req
 }
 
 // CheckRouteNames refuses a name in names that route (KEY=VALUE, before the overlay is appended) already sets.
@@ -65,7 +48,7 @@ func (p Plan) CheckOverlay(r agentconfig.Resolved) error {
 
 // WithOverlay layers r over an interactive plan the way ApplyOverlay does for a headless run; the launch's own Set wins.
 func (p Plan) WithOverlay(r agentconfig.Resolved) Plan {
-	if overlayIdle(r) {
+	if OverlayIdle(r) {
 		return p
 	}
 	set := maps.Clone(r.Set)
@@ -77,16 +60,4 @@ func (p Plan) WithOverlay(r agentconfig.Resolved) Plan {
 	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { _, own := p.Set[k]; return own })
 	p.Unset = slices.Concat(p.Unset, unset, []string{agentconfig.OverlayVar})
 	return p
-}
-
-// EnableOverlay checks path and points this process and its --job relaunches at it (absolute).
-func EnableOverlay(path string) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	if _, err := agentconfig.LoadOverlay(abs); err != nil {
-		return err
-	}
-	return os.Setenv(agentconfig.OverlayVar, abs)
 }

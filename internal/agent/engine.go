@@ -85,8 +85,8 @@ type HeadlessDriver interface {
 	Exec(ctx context.Context, p CLIPrep, req RunOptions, sink wire.Sink) (wire.Result, error)
 }
 
-// eng is the engine driving s; a row with none (claude) gets baseEngine's defaults.
-func (s Schema) eng() Driver {
+// Eng is the engine driving s; a row with none (claude) gets baseEngine's defaults.
+func (s Schema) Eng() Driver {
 	if e, ok := driverFor(s.Name); ok {
 		return e
 	}

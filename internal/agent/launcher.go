@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -59,52 +57,7 @@ type LaunchOptions struct {
 	Overlay  string   // --overlay FILE; empty reads $COWORKER_OVERLAY
 }
 
-// flagValue is the value of the flag at args[i]: val when inline (--flag=val), else the next arg and its index.
-func flagValue(args []string, i int, name, val string, hasVal bool) (string, int, error) {
-	if hasVal {
-		return val, i, nil
-	}
-	if i+1 >= len(args) {
-		return "", i, fmt.Errorf("%s needs a value", name)
-	}
-	return args[i+1], i + 1, nil
-}
-
-// ParseArgs strips harness flags from args (the first "--" ends them) and refuses a --keep-env name ask would refuse.
-func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
-	var o LaunchOptions
-	var rest []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		name, val, hasVal := strings.Cut(a, "=")
-		switch {
-		case a == "--":
-			rest = append(rest, args[i+1:]...)
-			i = len(args)
-		case a == "--direct" && !claude:
-			o.Direct = true
-		case a == "--print-env":
-			o.PrintEnv = true
-		default:
-			setter := o.launchFlagSetter(name, claude)
-			if setter == nil {
-				rest = append(rest, a)
-				continue
-			}
-			var err error
-			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
-				return o, nil, err
-			}
-			setter(val)
-		}
-	}
-	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
-		return LaunchOptions{}, nil, err
-	}
-	return o, rest, nil
-}
-
-func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {
+func (o *LaunchOptions) LaunchFlagSetter(name string, claude bool) func(string) {
 	fields := map[string]*string{"--profile": &o.Provider, "--model": &o.Model, "--overlay": &o.Overlay}
 	if !claude {
 		fields["-f"], fields["--file"] = &o.File, &o.File
@@ -139,22 +92,6 @@ type Plan struct {
 	ForeignBase bool   // the shell's ANTHROPIC_BASE_URL differs from the profile's: no harness credential may go there
 	Profile     string // the profile an agent CLI launch resolved, for RecordLastProfile
 	OnExecFail  func() // runs when Exec returns (the exec failed): drops state minted for the launch
-}
-
-// UsageError is a launch refusal the CLI reports verbatim with exit 2.
-type UsageError struct{ Msg string }
-
-func (e *UsageError) Error() string { return e.Msg }
-
-// envMap turns a KEY=VALUE env list into a map, dropping malformed entries.
-func envMap(env []string) map[string]string {
-	out := map[string]string{}
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			out[k] = v
-		}
-	}
-	return out
 }
 
 // Env applies the plan to base (KEY=VALUE list).
@@ -369,94 +306,3 @@ var _ = schemas.Register(schemas.Format{
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "overlay-*.json") },
 	Version: 1, Keep: "rewritten on every launch; Claude Code reads it, so no schema field",
 })
-
-// lookPath is the seam for resolving an agent binary.
-var lookPath = paths.AgentBin
-
-// selection loads the registry and applies the per-launch profile/model flags.
-func selection(o LaunchOptions) (*providers.Registry, providers.Selection, error) {
-	return SessionSelection(o, false)
-}
-
-// SessionSelection loads the registry and applies --profile/--model > pins > the workspace's last profile > defaults;
-// session marks a Claude launch.
-func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, providers.Selection, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil, providers.Selection{}, err
-	}
-	if session && o.Provider == "" { // this workspace beats the global pin, which only seeds new workspaces
-		o.Provider = lastProfile(reg, "claude")
-	}
-	sel, err := providers.Select(reg, o.Provider)
-	if o.Model != "" && sel.Provider != nil {
-		applyModel(&sel, o.Model, session, o.Alias)
-		err = nil
-	}
-	return reg, sel, err
-}
-
-// MainAlias is the alias whose model is the launch's main model: the one --model names, else the verb's, else opus.
-func MainAlias(o LaunchOptions) string {
-	if t, _, _ := parseModelFlag(o.Model); t != "" {
-		return t
-	}
-	return cmp.Or(o.Alias, models.Opus)
-}
-
-// parseModelFlag reads --model: alias is the Claude family it names ("" for a non-Claude wire id), canonical its
-// catalog id ("" when unknown), bare is true when the input was a bare alias (opus), which floats.
-func parseModelFlag(s string) (alias, canonical string, bare bool) {
-	s = strings.TrimSpace(s)
-	name := strings.ToLower(models.Strip1M(s))
-	if c, ok := models.Alias(name); ok && slices.Contains(models.AliasNames, name) {
-		return name, c, !models.Has1M(s)
-	}
-	canonical, _, ok := models.Resolve(s)
-	if !ok {
-		return "", "", false
-	}
-	if f, _, _, ok := models.ParseClaudeID(canonical); ok && slices.Contains(models.AliasNames, f) {
-		return f, canonical, false
-	}
-	return "", canonical, false
-}
-
-// applyModel applies --model to sel: a bare alias keeps the alias's resolution, else the main alias.
-func applyModel(sel *providers.Selection, model string, session bool, verbAlias string) {
-	alias, canonical, bare := parseModelFlag(model)
-	dst := models.Opus
-	if session {
-		dst = MainAlias(LaunchOptions{Model: model, Alias: verbAlias})
-	}
-	if bare {
-		if t, ok := sel.Aliases[alias]; ok && dst != alias {
-			sel.Aliases[dst] = t
-		}
-		return
-	}
-	wire := strings.TrimSpace(model)
-	oneM := models.Has1M(wire)
-	wire = models.Strip1M(wire)
-	if canonical != "" {
-		wire = sel.Provider.WireModel(canonical)
-	}
-	sel.Aliases[dst] = providers.Target{Provider: sel.Provider, Model: wire, OneM: oneM}
-}
-
-// IsHeadless reports a `claude -p`/`--print` run, the only launch that carries the setup-token.
-func IsHeadless(args []string) bool {
-	return slices.Contains(args, "-p") || slices.Contains(args, "--print")
-}
-
-// SelfBinary is the resolved absolute path of the running harness binary.
-func SelfBinary() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
-	}
-	return filepath.Abs(exe)
-}

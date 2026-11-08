@@ -79,7 +79,7 @@ func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel provid
 		if !want[name] {
 			continue
 		}
-		d, err := SchemaFor(name).eng().Render(reg, sel, home, o, out)
+		d, err := SchemaFor(name).Eng().Render(reg, sel, home, o, out)
 		if err != nil {
 			return drift, err
 		}
@@ -99,7 +99,7 @@ func RevertConfigs(o agentrender.RenderOptions) error {
 		out = os.Stdout
 	}
 	for _, a := range agents {
-		files, err := SchemaFor(a).eng().ConfigPaths(o.Home)
+		files, err := SchemaFor(a).Eng().ConfigPaths(o.Home)
 		if err != nil {
 			return fmt.Errorf("generate: %w", err)
 		}

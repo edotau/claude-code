@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -69,7 +71,7 @@ func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) 
 	for k, v := range p.Headers {
 		headers[k] = v
 	}
-	ref := "{env:" + agent.OpenCodeKeyEnv + "}"
+	ref := "{env:" + launchplan.OpenCodeKeyEnv + "}"
 	// Native SDKs keep provider-specific state (Gemini 3 thought signatures) the openai-compatible shim drops.
 	switch dialect {
 	case providers.ProtocolAnthropic:
@@ -79,7 +81,7 @@ func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) 
 	}
 	var env []string
 	if cred != "" {
-		env = append(env, agent.OpenCodeKeyEnv+"="+cred)
+		env = append(env, launchplan.OpenCodeKeyEnv+"="+cred)
 		options["apiKey"] = ref
 		native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && agent.IsGateway(base))
 		if native && p.Auth.HeaderStyle() == providers.HeaderBearer {
@@ -181,7 +183,7 @@ func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
 func opencodeRunArgv(model string, h agent.Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)
-	return agent.HeadlessLaunch("opencode", env, argv)
+	return launchplan.HeadlessLaunch("opencode", env, argv)
 }
 
 // opencodeToolsOff is the tools-off config: every tool denied and every MCP server the overlay configures disabled.
@@ -250,7 +252,7 @@ func opencodeArgv(model string, h agent.Headless) []string {
 		// -f is variadic: without "--", opencode reads the prompt as another file path.
 		return append(append(argv, "--"), h.Prompt)
 	}
-	return append(argv, agent.Positional(h.Prompt)...)
+	return append(argv, launchplan.Positional(h.Prompt)...)
 }
 
 // opencodeTitle is the session title: "opencode: " plus the prompt's first 40 runes on one line.
@@ -547,7 +549,7 @@ func (e opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err erro
 	if cred, err := opencodeCredential("opencode"); err == nil {
 		env = append(env, cred...) // the vault key when opencode stores no login of its own
 	}
-	env, argv = agent.HeadlessLaunch(e.Name(), env, argv)
+	env, argv = launchplan.HeadlessLaunch(e.Name(), env, argv)
 	return env, argv, nil
 }
 

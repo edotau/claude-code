@@ -22,7 +22,7 @@ import (
 func TestMain(m *testing.M) {
 	NoticeOut = io.Discard
 	agentconfig.SetCatalogWarn(io.Discard)
-	StubProxyForTest(testRouterBase, testRouterSecret)
+	StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-xyz")
 	os.Exit(hosttest.Main(m))
 }
 

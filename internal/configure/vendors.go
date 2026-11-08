@@ -14,7 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -214,7 +215,7 @@ func QuotaFailure(err error) bool {
 
 // VerifyAgent asks the agent for "pong" through `claude-code agents ask`, the same request preflight sends.
 func VerifyAgent(ctx context.Context, agent string) error {
-	bin, err := agentpkg.SelfBinary()
+	bin, err := launchplan.SelfBinary()
 	if err != nil {
 		return err
 	}

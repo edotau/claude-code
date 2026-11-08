@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -358,7 +360,7 @@ func askBatch(fs *flag.FlagSet, resume bool, src string, o Opts, base agent.RunO
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
-	return runAskBatch(fs, resume, src, o, agent.ApplyOverlay(base, ov))
+	return runAskBatch(fs, resume, src, o, launchplan.ApplyOverlay(base, ov))
 }
 
 // askRefreshSchema re-resolves raw, since a --retry/--job record may carry an already-resolved schema; empty keeps schema.
@@ -382,7 +384,7 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 		}
 	}
 	if overlayPath != "" {
-		if err := agent.EnableOverlay(overlayPath); err != nil {
+		if err := launchplan.EnableOverlay(overlayPath); err != nil {
 			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay:", err)
 			return 2
 		}
@@ -397,7 +399,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
-	req = agent.ApplyOverlay(req, ov)
+	req = launchplan.ApplyOverlay(req, ov)
 	cl := NewClient()
 	ctx = providers.WithIdentity(ctx, as)
 	prepared, err := cl.Prepare(ctx, req, jobRec)

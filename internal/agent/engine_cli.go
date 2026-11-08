@@ -57,14 +57,14 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 // targetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
 func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note string, applied bool, err error) {
 	if reg, _ := providers.Load(); req.Provider == "" && !namesProvider(reg, req.Model) { // the vault pin outranks the session
-		if req.Provider, err = pinnedProfile(s.Name); err != nil {
+		if req.Provider, err = PinnedProfile(s.Name); err != nil {
 			return t, false, "", true, err
 		}
 	}
 	reg, t, err := resolveTarget(req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil { // an explicit login still passes the CLI's own gate
-			t, note, err = s.eng().GateExplicit(req, reg, t)
+			t, note, err = s.Eng().GateExplicit(req, reg, t)
 		}
 		return t, false, note, true, err
 	}
@@ -297,14 +297,6 @@ func DirectCtx(ctx context.Context, req RunOptions) context.Context {
 		return WithDirect(ctx)
 	}
 	return ctx
-}
-
-// EnsureRouter starts or finds the loopback router and returns its base URL.
-func EnsureRouter(ctx context.Context) (string, error) { return ensureRouter(ctx) }
-
-// MintSession mints a router session token for profile and pid.
-func MintSession(ctx context.Context, profile string, pid int) (string, error) {
-	return mintSession(ctx, profile, pid)
 }
 
 // PrepareCLI resolves req's route and headless argv for the named roster CLI.

@@ -411,7 +411,7 @@ func AgentUnbillable(agent string) string {
 	if err != nil {
 		return ""
 	}
-	if SchemaFor("copilot").eng().DescribeRoute(reg).OK {
+	if SchemaFor("copilot").Eng().DescribeRoute(reg).OK {
 		return ""
 	}
 	return "no account to bill"

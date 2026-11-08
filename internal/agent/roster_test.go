@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -255,9 +254,6 @@ func TestAgentPinsRejectUnreadableRecords(t *testing.T) {
 	}
 	if _, err := RosterPick(router.PickOpts{}); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
 		t.Fatalf("RosterPick error = %v", err)
-	}
-	if _, err := LaunchPlan(context.Background(), "codex", LaunchOptions{PrintEnv: true}, nil); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
-		t.Fatalf("LaunchPlan error = %v", err)
 	}
 }
 

@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -154,7 +155,7 @@ func configureMenu(o *configureOpts, section, profile string) int {
 
 func init() {
 	// An agent the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
-	agent.OfferConfigure = func(name string, reason error) bool {
+	launchplan.OfferConfigure = func(name string, reason error) bool {
 		if !ansi.IsTerminal(os.Stdin) || !ansi.IsTerminal(os.Stderr) {
 			return false
 		}

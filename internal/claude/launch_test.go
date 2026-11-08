@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -46,7 +48,7 @@ func TestHeadless(t *testing.T) {
 		{[]string{"-c"}, false},
 		{[]string{"--settings", "x"}, false},
 	} {
-		if got := agent.IsHeadless(tc.args); got != tc.want {
+		if got := launchplan.IsHeadless(tc.args); got != tc.want {
 			t.Errorf("agent.IsHeadless(%v) = %v, want %v", tc.args, got, tc.want)
 		}
 	}
@@ -81,25 +83,25 @@ func hermetic(t *testing.T, userProviders string) {
 }
 
 func TestParseArgs(t *testing.T) {
-	o, rest, err := agent.ParseArgs([]string{"--profile=openai", "-p", "hi", "--model", "gpt-5", "--print-env", "--", "--model", "x"}, true)
+	o, rest, err := launchplan.ParseArgs([]string{"--profile=openai", "-p", "hi", "--model", "gpt-5", "--print-env", "--", "--model", "x"}, true)
 	if err != nil || o.Provider != "openai" || o.Model != "gpt-5" || !o.PrintEnv {
 		t.Fatalf("%+v %v", o, err)
 	}
 	if !slices.Equal(rest, []string{"-p", "hi", "--model", "x"}) {
 		t.Errorf("rest %q", rest)
 	}
-	if _, _, err := agent.ParseArgs([]string{"--profile"}, true); err == nil {
+	if _, _, err := launchplan.ParseArgs([]string{"--profile"}, true); err == nil {
 		t.Error("missing value accepted")
 	}
 }
 
 // --keep-env takes a comma list, repeatable, and accepts both the "--name value" and "--name=value" shapes.
 func TestParseArgsKeepEnv(t *testing.T) {
-	o, _, err := agent.ParseArgs([]string{"--keep-env", "LANG,LC_ALL", "--keep-env=HOME"}, true)
+	o, _, err := launchplan.ParseArgs([]string{"--keep-env", "LANG,LC_ALL", "--keep-env=HOME"}, true)
 	if err != nil || !slices.Equal(o.KeepEnv, []string{"LANG", "LC_ALL", "HOME"}) {
 		t.Fatalf("KeepEnv = %q, err %v", o.KeepEnv, err)
 	}
-	if _, _, err := agent.ParseArgs([]string{"--keep-env"}, true); err == nil {
+	if _, _, err := launchplan.ParseArgs([]string{"--keep-env"}, true); err == nil {
 		t.Error("missing value accepted")
 	}
 }
