@@ -1,12 +1,14 @@
 ---
 name: gemini
 description: |
-  Extended Explore agent on Gemini via agy (`claude-code gemini <verb>` or headless `claude-code agents ask --agent gemini`). Use it for a cited codebase + web brief, a 1M-token whole-repo or multi-module sweep, a diff review on the Gemini family, or a targeted trace or web lookup. Read-only intent.
+  Read-only Explore leaf on Gemini via agy (1M-token context). Must report a `ran on` line.
+  Dispatch: subagent_type gemini, description "<routed model>: <task>"; <routed model> = gemini's vault pin, else its route-table model. CLI: `claude-code gemini <verb>`; headless `claude-code agents ask --agent gemini`.
+  Use for: a cited codebase + web brief, a whole-repo or multi-module sweep, a diff review on the Gemini family, a targeted trace or web lookup.
 
   <example>
   Context: Multi-part question mixing code and web research.
   user: "How does our provider registry load overlays, and what do other Go projects do for layered config?"
-  assistant: "Launching gemini to fan out a code job on the registry and a web job on layered-config prior art, then merge them into one cited brief."
+  assistant: Agent(subagent_type: "gemini", description: "<routed model>: registry overlays + layered-config prior art") — fans out a code job and a web job, merges one cited brief.
   </example>
 model: sonnet
 effort: low

@@ -1,12 +1,14 @@
 ---
 name: codex
 description: |
-  General-purpose agent on the OpenAI Codex CLI (a different model family). Use it for a cross-family diff review ("second opinion", "ship or block"), vetting a plan before code ("challenge this plan"), a delegated edit or scoped gate run, or a code + web brief. Driven by `claude-code codex <verb>` or headless `claude-code agents ask --agent codex`.
+  Leaf on the OpenAI Codex CLI (a different model family). Must report a `ran on` line.
+  Dispatch: subagent_type codex, description "<routed model>: <task>"; <routed model> = codex's vault pin, else its route-table model (e.g. "gpt-6.1-sol: second-opinion review"). CLI: `claude-code codex <verb>`; headless `claude-code agents ask --agent codex`.
+  Use for: a cross-family diff review ("second opinion", "ship or block"), challenging a plan before code, a delegated edit or scoped gate run, a code + web brief.
 
   <example>
   Context: User wants a second opinion on a finished diff before merging.
   user: "Give me a second opinion on this PR diff — ship or block?"
-  assistant: "Running `claude-code codex review` — it reads the diff cold and returns SHIP IT / NEEDS WORK / BLOCK with file:line fixes."
+  assistant: Agent(subagent_type: "codex", description: "gpt-6.1-sol: review PR diff, ship or block") — runs `claude-code codex review`, returns SHIP IT / NEEDS WORK / BLOCK with file:line fixes.
   </example>
 color: red
 tools: [Read, Write, Edit, Bash, Grep, Glob]

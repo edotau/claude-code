@@ -1,12 +1,14 @@
 ---
 name: opencode
 description: |
-  Model-discovery coding agent on the OpenCode CLI (`claude-code opencode <verb>` or headless `claude-code agents ask --agent opencode`): reaches the widest model pool (its catalog, Databricks profiles, discovered models like deepseek/kimi/glm), so use it to run on, compare or find a non-Claude model. Also implements and fixes code, reviews a diff, scans code + web, refreshes docs (DOC-UPDATE) and answers library questions (DOC-LOOKUP).
+  Model-discovery coding leaf on the OpenCode CLI: the widest model pool (its catalog, Databricks profiles, discovered models like deepseek/kimi/glm). Must report a `ran on` line.
+  Dispatch: subagent_type opencode, description "<routed model>: <task>"; <routed model> = opencode's vault pin, else its route-table model. CLI: `claude-code opencode <verb>`; headless `claude-code agents ask --agent opencode`.
+  Use for: running on, comparing or finding a non-Claude model; implementing and fixing code; a diff review; a code + web scan; DOC-UPDATE and DOC-LOOKUP.
 
   <example>
   Context: User wants a small feature in a named package.
   user: "Add a --dry-run flag to the sync command in internal/widgets."
-  assistant: "Dispatching opencode to implement the flag in internal/widgets and run the package's tests."
+  assistant: Agent(subagent_type: "opencode", description: "<routed model>: add --dry-run to widgets sync") — implements the flag and runs the package's tests.
   </example>
 tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch, mcp__web_search__web_search]
 model: sonnet
