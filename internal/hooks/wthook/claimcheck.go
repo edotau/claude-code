@@ -2,8 +2,10 @@ package wthook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -73,8 +75,9 @@ func siblingLeaf(in *core.Input) func(notices.Claim) string {
 		}
 		ok, seen := live[c.Agent]
 		if !seen {
-			st, err := os.Stat(filepath.Join(inflight.SubagentDir(in.TranscriptPath), "agent-"+c.Agent+".jsonl"))
-			ok = err == nil && time.Since(st.ModTime()) < inflight.Idle
+			tr := filepath.Join(inflight.SubagentDir(in.TranscriptPath), "agent-"+c.Agent+".jsonl")
+			st, err := os.Stat(tr)
+			ok = err == nil && time.Since(st.ModTime()) < inflight.Idle && !leafEnded(tr)
 			live[c.Agent] = ok
 		}
 		if !ok {
@@ -83,6 +86,39 @@ func siblingLeaf(in *core.Input) func(notices.Claim) string {
 		return "leaf " + c.Agent[:min(8, len(c.Agent))]
 	}
 }
+
+// leafEnded: the leaf's last assistant turn handed back or ended its turn, so its edits are the caller's to commit.
+func leafEnded(transcript string) bool {
+	f, err := os.Open(transcript)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err == nil && st.Size() > leafTail {
+		_, _ = f.Seek(-leafTail, io.SeekEnd)
+	}
+	b, _ := io.ReadAll(f)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var rec struct {
+			Type    string `json:"type"`
+			Message struct {
+				StopReason string                        `json:"stop_reason"`
+				Content    []struct{ Type, Name string } `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(lines[i]), &rec) != nil || rec.Type != "assistant" {
+			continue
+		}
+		return rec.Message.StopReason == "end_turn" || slices.ContainsFunc(rec.Message.Content, func(c struct{ Type, Name string }) bool {
+			return c.Type == "tool_use" && c.Name == "SubagentHandback"
+		})
+	}
+	return false
+}
+
+// leafTail bounds how much of a leaf transcript leafEnded reads from its end.
+const leafTail = 256 << 10
 
 func flattenClaims(byPath map[string]map[string]int64) map[string][]claimHit {
 	out := make(map[string][]claimHit, len(byPath))
