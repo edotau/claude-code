@@ -154,27 +154,28 @@ func assertOpenAINoToolsResponse(t *testing.T, res wire.Result, output string) {
 }
 
 // fakeFailingClaude points CLAUDE_CONFIG_DIR at a bin/ holding a claude that exits 1, so no real claude is spawned.
-func fakeFailingClaude(t *testing.T) {
+func fakeFailingClaude(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte("#!/bin/sh\necho fake claude failure >&2\nexit 1\n"), 0o755); err != nil {
+	bin := filepath.Join(dir, "bin", "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho fake claude failure >&2\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	return bin
 }
 
-// TestClaudeNoToolsCLIAuthRunsTheCLI proves a cli-auth profile (no key to call the provider with) falls through to the
-// claude CLI itself, which answers tool-less anyway: the envelope names no fallback and carries claude's own error.
+// A CLI-auth profile runs the fake claude binary with or without NoTools and preserves its error without fallback.
 func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
-	fakeFailingClaude(t)
-	req := agent.RunOptions{Prompt: "x", Provider: "max"}
+	bin := fakeFailingClaude(t)
+	req := agent.RunOptions{Prompt: "x", Provider: "max", Launcher: fakeLauncher{bin: bin}}
 
 	_, directErr := claudeAgent.Run(context.Background(), req, wire.Discard)
-	if directErr == nil {
-		t.Fatal("claudeRunner.Run must fail in this sandbox (fake failing claude) for this test to prove anything")
+	if directErr == nil || !strings.Contains(directErr.Error(), "fake claude failure") {
+		t.Fatalf("direct err = %v, want the fake claude binary's failure output", directErr)
 	}
 	req.NoTools = true
 	res, err := claudeAgent.Run(context.Background(), req, wire.Discard)

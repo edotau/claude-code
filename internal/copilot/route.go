@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -251,11 +250,7 @@ func copilotCredEnv(p *providers.Provider, cred string) []string {
 		}
 	}
 	if len(p.Headers) > 0 {
-		var hs []string
-		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			hs = append(hs, k+": "+p.Headers[k])
-		}
-		env = append(env, proc.EnvCopilotProviderHeaders+"="+strings.Join(hs, "\n"))
+		env = append(env, proc.EnvCopilotProviderHeaders+"="+providers.HeaderLines(p.Headers))
 	}
 	return env
 }

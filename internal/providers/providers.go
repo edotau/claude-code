@@ -33,6 +33,15 @@ const providerLocal = "local"
 // provider is p.Provider ("" for a row built in Go without one).
 func (p Provider) provider() string { return p.Provider }
 
+// HeaderLines renders headers as sorted "Name: value" lines joined by newlines (the env and settings wire form).
+func HeaderLines(h map[string]string) string {
+	lines := make([]string, 0, len(h))
+	for _, k := range slices.Sorted(maps.Keys(h)) {
+		lines = append(lines, k+": "+h[k])
+	}
+	return strings.Join(lines, "\n")
+}
+
 // Provider is one upstream: a direct API or a gateway exposing several dialects under one host.
 type Provider struct {
 	Name string `json:"-"`

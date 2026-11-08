@@ -99,7 +99,7 @@ func leafEnded(transcript string) bool {
 	}
 	b, _ := io.ReadAll(f)
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
+	for _, line := range slices.Backward(lines) {
 		var rec struct {
 			Type    string `json:"type"`
 			Message struct {
@@ -107,7 +107,7 @@ func leafEnded(transcript string) bool {
 				Content    []struct{ Type, Name string } `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal([]byte(lines[i]), &rec) != nil || rec.Type != "assistant" {
+		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type != "assistant" {
 			continue
 		}
 		return rec.Message.StopReason == "end_turn" || slices.ContainsFunc(rec.Message.Content, func(c struct{ Type, Name string }) bool {
