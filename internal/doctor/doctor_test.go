@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -20,11 +21,8 @@ import (
 
 func doctorGitFixture(t *testing.T, dirty bool) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := gittest.Repo(t)
 	run := func(args ...string) { t.Helper(); gitRun(t, dir, args...) }
-	run("init", "-q")
-	run("config", "user.email", "fake@example.invalid")
-	run("config", "user.name", "fixture")
 	text := "nothing sensitive\n"
 	if dirty {
 		text = "FAKE_TOKEN=" + "gh" + "p_obviouslyFAKEfixtureToken1234567890\n"
