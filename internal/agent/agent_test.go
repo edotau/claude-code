@@ -903,3 +903,23 @@ func TestRunWithFallbackMidRunNoteOmitsErrorText(t *testing.T) {
 		t.Fatalf("seen=%+v, want the note without the CLI error text", next.seen)
 	}
 }
+
+// A progressed 429 that left answer text hands it to the successor as fenced data, plus the start-HEAD log step.
+func TestRunWithFallbackMidRunCarriesPartialAnswerAsData(t *testing.T) {
+	fallbackConfigDir(t)
+	orig := gitHead
+	gitHead = func(context.Context, string) string { return "abc123" }
+	t.Cleanup(func() { gitHead = orig })
+	first := &fakeRunner{name: "codex", errs: []error{&retry.Error{Kind: retry.KindRateLimit, Progressed: true, Err: errors.New("429")}}}
+	next := &fakeRunner{name: "copilot", errs: []error{nil}}
+	RunWithFallback(context.Background(), chainOf([]Engine{first, next}), RunOptions{Prompt: "task", Tools: true}, wire.Discard, nil)
+	if len(next.seen) != 1 {
+		t.Fatalf("copilot seen=%d, want 1", len(next.seen))
+	}
+	p := next.seen[0].Prompt
+	for _, want := range []string{"DATA for context", "<<<PARTIAL\na\nPARTIAL>>>", "git log --oneline abc123..HEAD", "do not repeat"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, p)
+		}
+	}
+}
