@@ -76,6 +76,160 @@ const stepOf = (steps, name, defaults, opt) => {
   }
 }
 // ── end stepOf ──
+// ── stages: copied verbatim into code-analyzer, green-keeper-loop, code-workers, code-engineer ──
+// Shared stages, called in-script so workflow() nesting stays one level; ctx = {cwd, cd, rules, S, model?, gateMax?}.
+const ST_NEAR = 10
+const ST_GATE_MAX = 2
+const stRel = (ctx, f) => String(f || '').replace(ctx.cwd ? ctx.cwd + '/' : /^$/, '').replace(/^\.\//, '')
+const stDir = (f) => String(f).split('/').slice(0, -1).join('/') || '.'
+// sameBug: one bug when two findings share a file and sit within ST_NEAR lines or name the same symbol.
+const sameBug = (ctx, g, f) => stRel(ctx, g.file) === stRel(ctx, f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= ST_NEAR || (!!g.symbol && g.symbol === f.symbol))
+const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() < 150000
+// stCost: a cost finding (perf, runtime, complexity, test-quality) has no failing scenario, only a cited cost and a safe fix.
+const stCost = (f) => !!f.kind && f.kind !== 'bug'
+const ST_LIST = { type: 'array', items: { type: 'string' } }
+const ST_WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, files: ST_LIST, summary: { type: 'string' }, callers: { type: 'string' }, leftUndone: ST_LIST }, required: ['status', 'files', 'summary'] }
+const ST_CHECK = { type: 'object', properties: { green: { type: 'boolean' }, output: { type: 'string' } }, required: ['green', 'output'] }
+const ST_SIMP = { type: 'object', properties: { applied: ST_LIST, flagged: ST_LIST, deltaLines: { type: 'integer' }, status: { type: 'string', enum: ['done', 'clean', 'partial', 'blocked'] } }, required: ['applied', 'flagged', 'deltaLines', 'status'] }
+const ST_REVF = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } }, required: ['findings'] }
+const ST_LOOP = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'failuresBefore', 'failuresAfter', 'filesChanged', 'residual', 'summary'],
+  properties: {
+    status: { type: 'string', enum: ['green', 'red', 'error'], description: 'green = gate exits 0 after this iteration' },
+    failuresBefore: { type: 'integer', description: 'distinct failures the first gate run of this iteration reported' },
+    failuresAfter: { type: 'integer', description: 'distinct failures the last gate run of this iteration reported' },
+    filesChanged: { type: 'array', items: { type: 'string' } },
+    residual: { type: 'array', items: { type: 'string' }, description: 'one line per failure still red, verbatim from the gate' },
+    summary: { type: 'string', description: 'what failed, what was fixed, why anything remains' },
+  },
+}
+const ST_DETECT = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['gate', 'source'],
+  properties: {
+    gate: { type: 'string', description: 'exact command, empty when nothing matches' },
+    source: { type: 'string', enum: ['Makefile', 'go.mod', 'pyproject', 'package.json', 'Cargo.toml', 'none'] },
+  },
+}
+// stageAsk runs one stage agent; a thrown call becomes null, and st.done records an external stage's ran-on.
+const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prompt), {
+  label, phase: ph, schema: st.schema(schema), ...st.type,
+  model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
+}).catch(() => null).then((r) => st.done(label, r))
+// stageDetect picks a scoped verify gate from the toolchain file; gate '' when none.
+async function stageDetect(ctx, st, scope) {
+  phase('Detect')
+  const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Pick this repo's verify gate; do NOT run it. First call: ls Makefile go.mod pyproject.toml setup.cfg package.json Cargo.toml .venv 2>/dev/null; then read only the file that decides (at most 3 tool calls). ` +
+    `The toolchain file decides; a Makefile only ever PREPENDS a lint step. Scope dirs: ${scope.join(' ') || '(repo root)'}. ` +
+    `(1) go.mod → "go build ./... && go vet ./<dir>/... && go test ./<dir>/..." over the scope dirs (./... when the scope is the root); ` +
+    `(2) pyproject.toml/setup.cfg → "ruff check <dir> && pytest -q <dir-or-tests>" (ruff only if configured; prefix each with .venv/bin/python -m when .venv exists); ` +
+    `(3) package.json → "npm run lint && npm test -- <scope paths>" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test -p <crate of each scope dir>". ` +
+    `If a Makefile has a lint (or fmt/vet) target with a report-only form (e.g. its help says CHECK=1 reports), return "make lint CHECK=1 && " + that command and source "Makefile"; ` +
+    `skip a lint target that only auto-fixes — it edits files outside the scope, and other sessions share this checkout. Never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
+    `(5) Makefile only, no toolchain file, or no scoped command derivable → gate "" and source "none" (the caller must pass args.gate).`, ST_DETECT)
+  return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
+}
+// stageGate: an optional cheap check, then up to o.max fixer iterations over o.scope; exit green|stalled|capped|error.
+async function stageGate(ctx, o) {
+  const tag = o.label || 'gate'
+  const cmd = o.gate || o.scope.map((p) => 'go build ./' + p + '/... && go vet ./' + p + '/... && go test -count=1 ./' + p + '/...').join(' && ')
+  const out = (status, exit, hist, residual) => {
+    if (status !== 'green' && hist.length) log(tag + ' still ' + status + ' after ' + hist.length + ' iteration(s); residual: ' + residual.length)
+    return { status, exit, gate: cmd, iterations: hist.length, filesChanged: [...new Set(hist.flatMap((h) => h.filesChanged))], residual, history: hist }
+  }
+  if (o.check) {
+    const c = await stageAsk(ctx, o.check, tag, 'Gate', ctx.rules + ' Run and report: `set -o pipefail; ' + cmd + '`' +
+      (o.schemas ? '; if `git diff -- ' + o.scope.join(' ') + '` changes a function that writes a file, also `go test -count=1 ./internal/schemas/`' : '') + '. green=true only if every command exited 0. Edit nothing.', ST_CHECK)
+    if (c && c.green) return out('green', 'green', [], [])
+    if (!o.max) return out('red', 'capped', [], [c ? c.output : 'gate check returned nothing'])
+  }
+  const hist = []
+  for (let i = 1; i <= (o.max || 0); i++) {
+    const last = hist[hist.length - 1]
+    const prior = last && last.residual.length ? '\nStill red after iteration ' + (i - 1) + ':\n- ' + last.residual.join('\n- ') + '\n' : ''
+    const r = (await stageAsk(ctx, o.fix, tag + ':' + i, 'Gate', 'Iteration ' + i + '/' + o.max + ' of a gate loop. ' + ctx.cd +
+      'Method: ~/.claude/skills/problem-solving/references/verify.md (Gate Loop)\nGate: ' + cmd + '\nEdit ONLY under: ' + o.scope.join(', ') + '\nRules: ' + ctx.rules + '\n' + prior +
+      '\nProtocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise fix the FIRST failure per the Method, re-run the gate; repeat for at most ' + (o.fixes || 3) +
+      ' distinct failures this iteration, then report (the rest go into residual verbatim). A failure outside scope goes into residual verbatim.' +
+      ' If the gate cannot run at all (permission denied, missing command), set status="error", residual to the exact refusal, and stop.', ST_LOOP)) ||
+      { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: ['agent returned no result'], summary: 'no result' }
+    hist.push({ iteration: i, ...r })
+    log(tag + ' ' + i + '/' + o.max + ': ' + r.status + ' (' + r.failuresBefore + ' → ' + r.failuresAfter + ') changed=' + r.filesChanged.length)
+    if (r.status === 'green') return out('green', 'green', hist, r.residual)
+    if (r.status === 'error') return out('error', 'error', hist, r.residual) // an unrunnable gate never improves by retrying
+    if (last && last.status === r.status && r.failuresBefore === r.failuresAfter && last.failuresAfter === r.failuresAfter) {
+      log('no progress across two iterations — escalating instead of burning the cap')
+      return out(r.status, 'stalled', hist, r.residual)
+    }
+  }
+  const end = hist[hist.length - 1]
+  return out(end ? end.status : 'red', 'capped', hist, end ? end.residual : [])
+}
+// stageFix: one implementer over confirmed findings in one package, then one guard test per behavior change.
+async function stageFix(ctx, o) {
+  const item = (f) => '- ' + stRel(ctx, f.file) + ':' + (f.line || 0) + ' (' + (f.symbol || '?') + ', ' + f.severity + (stCost(f) ? ', ' + f.kind : '') + '): ' + (f.symptom || f.title) +
+    (f.scenario ? '\n  scenario: ' + f.scenario : '') + (f.evidence ? '\n  evidence: ' + f.evidence : '')
+  const list = o.findings.map(item).join('\n')
+  const bugs = o.findings.filter((f) => !stCost(f))
+  const costs = o.findings.filter(stCost)
+  const own = o.owns && o.owns.length ? ' You own ONLY: ' + o.owns.join(', ') + '; list any other file you would need in leftUndone.'
+    : ' Edit only non-test files under ' + o.pkg + ', except a *_test.go file a cost finding cites.'
+  const impl = await stageAsk(ctx, ctx.S.fix, 'fix:' + o.label, 'Fix', ctx.rules + ' Fix these confirmed defects in ' + o.pkg + ' and nothing else.' + own +
+    ' The evidence is verified: do not re-audit; first tool call: cat the cited files. The Test stage writes any requested test; that is not unfinished work, so report done. ' +
+    'Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). Root cause first, smallest correct change, functions < 50 lines, 1-line comments. ' +
+    'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). ' +
+    'Run the repo formatter and linter on what you touched' + (o.owns ? '' : ' (gofmt + go vet ./' + o.pkg + '/... for Go)') + '. Return `files`: every repo-relative file you changed.\n' + list, ST_WORK, o.pin)
+  const done = !!(impl && impl.status === 'done')
+  const test = done && o.tests !== false ? await stageAsk(ctx, ctx.S.test, 'test:' + o.label, 'Test', ctx.rules + ' Fixes just landed in ' + o.pkg + ' (`git diff -- ' + o.pkg + '`; changed: ' + (impl.files || []).join(', ') + '). ' +
+    'Repair tests the fixes break. Edit only test files; each test under complexity 10. Skip comment-only and dead-code fixes. Put "n/a" in callers.' +
+    (bugs.length ? '\nWrite ONE regression test per bug fix that calls the real code and fails without the fix; for Go prove each with `claude-code test mutate <file> <old> <new> --run <RE> ./' + o.pkg + ' </dev/null` (exit 0 = caught).\n' + bugs.map(item).join('\n') : '') +
+    (costs.length ? '\nFor each cost fix, pin the unchanged behavior it must keep: a test that calls the real code and passes before and after the fix ' +
+      '(it need not fail without it; no mutate). When existing tests already pin that behavior, name them in summary and add none.\n' + costs.map(item).join('\n') : ''), ST_WORK) : null
+  const files = [...new Set([...((impl && impl.files) || []), ...((test && test.files) || [])].map((f) => stRel(ctx, f)))]
+  return { pkg: o.pkg, impl, test, done, testOk: o.tests === false || !!(test && test.status !== 'blocked'), files }
+}
+// stagePolish: once over a merged diff: Dedupe (2+ packages), Simplify, Review, then per package with findings one stageFix and stageGate.
+async function stagePolish(ctx, o) {
+  const files = [...new Set(o.files.map((f) => stRel(ctx, f)))]
+  const pkgs = [...new Set(files.map(stDir))]
+  const scope = ' Only these files (the tree is shared; never touch or diff others): ' + files.join(' ') + '. Diff: `git diff -- ' + files.join(' ') + '`.'
+  const cut = ' Name the assumption before every cut; flag instead of cutting when it has no covering test; never cut semantic comments, error context or distinct tests; never fix bugs (flag them). ' +
+    'After edits run gofmt, go vet and go test for ' + pkgs.join(', ') + '; if a test regresses, revert your own edit by hand (never git checkout/restore/stash) and flag it. ' +
+    'Return applied[] and flagged[] as `file:line · what · assumption`, deltaLines (net changed lines, negative = removed) and status (clean = nothing to do).'
+  const sum = (k, r) => k + ': ' + (r ? r.applied.length + ' applied, ' + r.flagged.length + ' flagged, Δ ' + r.deltaLines + ' lines (' + r.status + ')' : 'agent returned nothing')
+  const lines = []
+  let dedupe = null
+  if (pkgs.length >= 2 && ctx.S.dedupe) {
+    phase('Dedupe')
+    dedupe = await stageAsk(ctx, ctx.S.dedupe, 'dedupe', 'Dedupe', ctx.rules + ' Cross-package dedupe, the reuse angle of ' + ctx.cwd + '/skills/simplify/SKILL.md.' + scope +
+      ' Look ONLY for helpers or logic duplicated across these packages (grep siblings, `git log -S`); compare a near-duplicate with its original for behavior the copy lost, then consolidate at the original (callers import it; no new shim).' + cut, ST_SIMP)
+    lines.push(sum('dedupe', dedupe))
+  } else lines.push('dedupe skipped: ' + pkgs.length + ' package(s)')
+  phase('Simplify')
+  const simplify = await stageAsk(ctx, ctx.S.simplify, 'simplify', 'Simplify', ctx.rules + ' Simplify gate (' + ctx.cwd + '/skills/simplify/SKILL.md, quality.md -> Simplify), run ONCE over the merged diff.' + scope +
+    ' Run `claude-code review simplify ' + files.join(' ') + '`, then one in-context pass (reuse, simplification, efficiency, altitude). Edit only the listed non-test files.' + cut, ST_SIMP)
+  lines.push(sum('simplify', simplify))
+  phase('Review')
+  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Read-only: edit nothing, never run go test. Review the final diff with the ' + ctx.cwd +
+    '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + scope +
+    ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.', ST_REVF)
+  const findings = rv ? rv.findings.map((f) => ({ ...f, file: stRel(ctx, f.file) })) : []
+  lines.push('review: ' + (rv ? findings.length + ' finding(s)' : 'agent returned nothing'))
+  const byPkg = {}
+  for (const f of findings) if (/\.go$/.test(f.file) && !/_test\.go$/.test(f.file) && pkgs.includes(stDir(f.file))) (byPkg[stDir(f.file)] = byPkg[stDir(f.file)] || []).push(f)
+  const fixall = (await parallel(Object.keys(byPkg).map((p) => async () => {
+    const fx = await stageFix(ctx, { pkg: p, findings: byPkg[p], label: 'fixall:' + p })
+    const g = fx.done ? await stageGate(ctx, { scope: [p], check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: 'regate:' + p }) : null
+    return { pkg: p, findings: byPkg[p].length, done: fx.done, green: fx.done && fx.testOk && !!g && g.exit === 'green', files: [...fx.files, ...(g ? g.filesChanged : [])] }
+  }))).filter(Boolean)
+  for (const x of fixall) lines.push('fix-all ' + x.pkg + ': ' + (x.done ? x.findings + ' fixed' : 'NOT done') + ', gate ' + (x.green ? 'green' : 'red'))
+  const report = ['', '## Polish', ...lines.map((l) => '- ' + l), ...findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom)].join('\n')
+  return { dedupe, simplify, review: { findings, ran: !!rv }, fixall, green: fixall.every((x) => x.green), red: fixall.filter((x) => !x.green).map((x) => x.pkg), files: [...new Set(fixall.flatMap((x) => x.files))], decisions: lines, report }
+}
+// ── end stages ──
 let ST
 try {
   ST = {
@@ -119,95 +273,20 @@ const routeModel = m => (PRESSURE && MODEL_DOWN[m]) ? MODEL_DOWN[m] : m
 if (PRESSURE) log(`pressure: claude account ${routeState.state} — stepping Claude stages down one model`)
 else if (!routeState) log('pressure: route read failed — no downshift (fail open)')
 
-const GATE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['status', 'failuresBefore', 'failuresAfter', 'filesChanged', 'residual', 'summary'],
-  properties: {
-    status: { type: 'string', enum: ['green', 'red', 'error'], description: 'green = gate exits 0 after this iteration' },
-    failuresBefore: { type: 'integer', description: 'distinct failures the first gate run of this iteration reported' },
-    failuresAfter: { type: 'integer', description: 'distinct failures the last gate run of this iteration reported' },
-    filesChanged: { type: 'array', items: { type: 'string' } },
-    residual: { type: 'array', items: { type: 'string' }, description: 'one line per failure still red, verbatim from the gate' },
-    summary: { type: 'string', description: 'what failed, what was fixed, why anything remains' },
-  },
-}
-
-const DETECT_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['gate', 'source'],
-  properties: {
-    gate: { type: 'string', description: 'exact command, empty when nothing matches' },
-    source: { type: 'string', enum: ['Makefile', 'go.mod', 'pyproject', 'package.json', 'Cargo.toml', 'none'] },
-  },
-}
-
 // ── Detect (ADK leaf: pick the verify gate when the caller didn't pass one) ─────────────────
 if (!GATE && !SCOPE_GIVEN) {
   return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['no scope and no gate: pass args.gate or args.scope; a suite-wide gate is never auto-detected'], history: [] }
 }
+const CTX = { cwd: a.cwd || '', cd: CD, rules: RULES, S: ST, model: routeModel }
 if (!GATE) {
-  phase('Detect')
-  let d = await agent(
-    ST.detect.task(`${CD}Pick this repo's verify gate; do NOT run it. First call: ls Makefile go.mod pyproject.toml setup.cfg package.json Cargo.toml .venv 2>/dev/null; then read only the file that decides (at most 3 tool calls). ` +
-    `The toolchain file decides; a Makefile only ever PREPENDS a lint step. Scope dirs: ${SCOPE.join(' ') || '(repo root)'}. ` +
-    `(1) go.mod → "go build ./... && go vet ./<dir>/... && go test ./<dir>/..." over the scope dirs (./... when the scope is the root); ` +
-    `(2) pyproject.toml/setup.cfg → "ruff check <dir> && pytest -q <dir-or-tests>" (ruff only if configured; prefix each with .venv/bin/python -m when .venv exists); ` +
-    `(3) package.json → "npm run lint && npm test -- <scope paths>" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test -p <crate of each scope dir>". ` +
-    `If a Makefile has a lint (or fmt/vet) target with a report-only form (e.g. its help says CHECK=1 reports), return "make lint CHECK=1 && " + that command and source "Makefile"; ` +
-    `skip a lint target that only auto-fixes — it edits files outside the scope, and other sessions share this checkout. Never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
-    `(5) Makefile only, no toolchain file, or no scoped command derivable → gate "" and source "none" (the caller must pass args.gate).`),
-    { label: 'detect', phase: 'Detect', schema: ST.detect.schema(DETECT_SCHEMA), ...ST.detect.type, model: routeModel(ST.detect.model), effort: ST.detect.effort }
-  )
-  d = ST.detect.done('detect', d)
-  GATE = (d && d.gate) || ''
-  GATE_SOURCE = (d && d.source) || 'none'
+  const d = await stageDetect(CTX, ST.detect, SCOPE)
+  GATE = d.gate
+  GATE_SOURCE = d.source
   log(`gate detected (${GATE_SOURCE}): ${GATE || 'none'}`)
   if (!GATE) return { status: 'error', exit: 'error', gate: null, gateSource: GATE_SOURCE, iterations: 0, filesChanged: [], residual: ['no gate detected under ' + (a.cwd || 'cwd') + '; pass args.gate'], history: [] }
 }
 
 // ── Loop (ADK LoopAgent: sub-agent per iteration, exit on the escalation signal or the cap) ────
 phase('Gate')
-const history = []
-let last = null
-let stalled = false
-for (let i = 1; i <= MAX_ITER; i++) {
-  const prior = last && last.residual.length ? `\nStill red after iteration ${i - 1}:\n- ${last.residual.join('\n- ')}\n` : ''
-  const prompt =
-    `Iteration ${i}/${MAX_ITER} of a gate loop. ${CD}` +
-    `Method: ~/.claude/skills/problem-solving/references/verify.md (Gate Loop)\n` +
-    `Gate: ${GATE}\n` +
-    `Edit ONLY under: ${SCOPE.join(', ')}\n` +
-    `Rules: ${RULES}\n${prior}\n` +
-    `Protocol: run the gate and paste its tail; if exit 0 → status="green" and stop. Otherwise fix the FIRST failure per the Method, re-run the gate; ` +
-    `repeat for at most ${FIXES} distinct failures this iteration, then report (the rest go into residual verbatim). ` +
-    `A failure outside scope goes into residual verbatim. If the gate cannot run at all (permission denied, missing command), set status="error", residual to the exact refusal, and stop.`
-  last = await agent(
-    ST.fix.task(prompt),
-    { label: `gate:${i}`, phase: 'Gate', schema: ST.fix.schema(GATE_SCHEMA), ...ST.fix.type, model: routeModel(ST.fix.model), effort: ST.fix.effort }
-  )
-  last = ST.fix.done('gate:' + i, last)
-  if (!last) { last = { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: ['agent returned no result'], summary: 'no result' } }
-  history.push({ iteration: i, ...last })
-  log(`gate ${i}/${MAX_ITER}: ${last.status} (${last.failuresBefore} → ${last.failuresAfter}) changed=${last.filesChanged.length}`)
-  if (last.status === 'green' || last.status === 'error') break // an unrunnable gate never improves by retrying
-  if (i > 1 && last.status !== 'green' && last.status === history[i - 2].status && last.failuresBefore === last.failuresAfter && history[i - 2].failuresAfter === last.failuresAfter) {
-    stalled = true
-    log('no progress across two iterations — escalating instead of burning the cap')
-    break
-  }
-}
-if (last.status !== 'green') log(`gate still ${last.status} after ${history.length} iteration(s); residual: ${last.residual.length}`)
-
-return {
-  status: last.status,
-  exit: last.status === 'green' ? 'green' : last.status === 'error' ? 'error' : stalled ? 'stalled' : 'capped',
-  gate: GATE,
-  gateSource: GATE_SOURCE,
-  iterations: history.length,
-  filesChanged: [...new Set(history.flatMap(h => h.filesChanged))],
-  residual: last.residual,
-  history,
-  coworkers: COWORKERS,
-}
+const g = await stageGate(CTX, { scope: SCOPE, gate: GATE, fix: ST.fix, max: MAX_ITER, fixes: FIXES, label: 'gate' })
+return { ...g, gateSource: GATE_SOURCE, coworkers: COWORKERS }
