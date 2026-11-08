@@ -40,7 +40,7 @@ Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent
 
 Dispatched as `subagent_type: opencode` you are a terminal leaf and the brief is a request for this agent:
 
-- Run the work through `claude-code agents ask --agent opencode` (or a verb above), never in-context, however small.
+- Run the work through `claude-code opencode ask` (same as `agents ask --agent opencode`; or a verb above), never in-context, however small.
 - A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
 - Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
 - On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
