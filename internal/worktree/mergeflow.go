@@ -103,7 +103,8 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 	return scoped, "scoped go gate, " + strconv.Itoa(len(pkgs)) + " test pkgs", nil
 }
 
-// afterPromote reports the promotion, ticks the plan, closes the ledger and cleans the worktree unless NoClean.
+// afterPromote reports the promotion, ticks the plan, then cleans the worktree unless NoClean. The ledger closes
+// exactly once: by the clean (carrying the merge and branch state) or, when no removal happens, right here.
 func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, promoted, integrated *MergeResult) (*MergeOutcome, error) {
 	fmt.Fprintf(req.Out, "promoted:   %s -> %s on %s\n", ShortOID(promoted.BeforeOID), ShortOID(promoted.AfterOID), plan.TargetRef)
 	if req.AfterPromote != nil {
@@ -111,17 +112,26 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 			fmt.Fprintf(req.Err, "worktree merge: warning: plan tick: %v\n", err)
 		}
 	}
-	if err := CloseLedger(repo.Main, req.Name, LedgerClose{Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID}); err != nil {
-		fmt.Fprintf(req.Err, "worktree merge: warning: ledger: %v\n", err)
-	}
+	closing := LedgerClose{Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID}
 	if req.NoClean {
+		warnLedger(req.Err, CloseLedger(repo.Main, req.Name, closing))
 		return &MergeOutcome{}, nil
 	}
-	result, err := cleanAt(repo, req.Name, plan.WorktreePath, false, req.Err)
+	result, err := cleanAtWith(repo, req.Name, plan.WorktreePath, false, req.Err, closing)
+	if !result.Removed {
+		warnLedger(req.Err, CloseLedger(repo.Main, req.Name, closing)) // refused or failed: the merge still landed
+	}
 	if err != nil {
 		return nil, fmt.Errorf("clean: %w", err)
 	}
 	return &MergeOutcome{Clean: &result}, nil
+}
+
+// warnLedger reports a failed ledger close as a warning; the merge itself already landed.
+func warnLedger(errOut io.Writer, err error) {
+	if err != nil {
+		fmt.Fprintf(errOut, "worktree merge: warning: ledger: %v\n", err)
+	}
 }
 
 // runGate runs the verify gate (or announces its absence); a failure leaves the worktree on disk and blocks promotion.

@@ -184,8 +184,7 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 
 	gitDir, gdErr := e.gitDir, error(nil)
 	if gitDir == "" {
-		out, err := gitCmd(ctx, "-C", e.Path, "rev-parse", "--path-format=absolute", "--git-dir").Output()
-		gitDir, gdErr = strings.TrimSpace(string(out)), err
+		gitDir, gdErr = gitDirFromPath(e.Path)
 	}
 	if gdErr != nil {
 		e.Problems = append(e.Problems, "git-dir lookup failed: "+gdErr.Error())
@@ -193,6 +192,31 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		e.ActivityAt, e.ActivitySource = activity(gitDir, e.Path)
 	}
 	e.Stale = !e.ActivityAt.IsZero() && now.Sub(e.ActivityAt) > StaleAfter
+}
+
+// gitDirFromPath resolves a worktree's git-dir from <path>/.git: a directory, or a linked worktree's gitdir file.
+func gitDirFromPath(path string) (string, error) {
+	dotGit := filepath.Join(path, ".git")
+	info, err := os.Stat(dotGit)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return dotGit, nil
+	}
+	data, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", err
+	}
+	rest, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if !ok {
+		return "", fmt.Errorf("%s: no gitdir: line", dotGit)
+	}
+	dir := strings.TrimSpace(rest)
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(path, dir)
+	}
+	return dir, nil
 }
 
 // activity picks the freshest available evidence of last use: the reflog, then the index, then the
