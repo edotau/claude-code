@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 type (
@@ -177,6 +178,6 @@ func checkIsolation(ctx context.Context) error {
 
 // withBilling re-keys disp to p's account and billing.
 func withBilling(disp Dispatch, p *providers.Provider) Dispatch {
-	disp.Account, disp.Billing = p.Account(), billingOf(p)
+	disp.Account, disp.Billing = p.Account(), router.DefaultBilling(p)
 	return disp
 }

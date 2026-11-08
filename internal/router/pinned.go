@@ -58,7 +58,7 @@ func (t *RouteTable) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 		return nil, false
 	}
-	billing := cmp.Or(t.Billing[c.Account], defaultBilling(p))
+	billing := cmp.Or(t.Billing[c.Account], DefaultBilling(p))
 	cand, ok := t.gateAccount(ctx, agent, c, billing, st, o, now, res)
 	if !ok {
 		return nil, false
@@ -75,8 +75,8 @@ func noteNotReady(res *PickResult, agent, pin, model, used string, p *providers.
 	}
 }
 
-// defaultBilling is credits for an API-key provider, else subscription.
-func defaultBilling(p *providers.Provider) string {
+// DefaultBilling is credits for an API-key provider, else subscription.
+func DefaultBilling(p *providers.Provider) string {
 	if p.APIKeyAuth() {
 		return BillCredits
 	}
