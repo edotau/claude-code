@@ -381,11 +381,16 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	a := analyze(text, source)
 
+	var err error
 	if jsonOut {
-		fmt.Fprintln(stdout, string(goalsJSON(a)))
-		return 0
+		_, err = fmt.Fprintln(stdout, string(goalsJSON(a)))
+	} else {
+		err = printGoals(stdout, a)
 	}
-	printGoals(stdout, a)
+	if err != nil {
+		fmt.Fprintf(stderr, "goal_verifier.py: error: writing output: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -407,7 +412,8 @@ func goalsJSON(a analysis) []byte {
 	return b
 }
 
-func printGoals(stdout io.Writer, a analysis) {
+func printGoals(dst io.Writer, a analysis) error {
+	stdout := &strings.Builder{}
 	fmt.Fprintf(stdout, "Goal Verifier — %s\n", a.source)
 	pctStr := "0"
 	if !a.noPlan {
@@ -430,4 +436,6 @@ func printGoals(stdout io.Writer, a analysis) {
 			fmt.Fprintf(stdout, "  ! %s  (%s)\n", textutil.TruncateRunes(t.Title, 100), t.Reason)
 		}
 	}
+	_, err := io.WriteString(dst, stdout.String())
+	return err
 }

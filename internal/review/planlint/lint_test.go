@@ -115,6 +115,7 @@ func TestStripStringsSkipsComments(t *testing.T) {
 
 // The verb: a clean tree reports the count on stdout and exits 0; a flagged one lists hits on stderr and exits 1.
 func TestRunWorkflowLint(t *testing.T) {
+	useNode(t)
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
 		t.Fatal(err)
@@ -135,6 +136,7 @@ func TestRunWorkflowLint(t *testing.T) {
 // RunWorkflowLint treats a skills/<x>/scripts/<y>.js that opens with `export const meta` the same as
 // a workflows/*.js: clean passes, an unpinned agent() call is flagged on stderr and fails the run.
 func TestRunWorkflowLintSkillsScripts(t *testing.T) {
+	useNode(t)
 	root := t.TempDir()
 	cleanDir := filepath.Join(root, "skills", "clean-skill", "scripts")
 	if err := os.MkdirAll(cleanDir, 0o755); err != nil {
@@ -394,6 +396,7 @@ func TestFillModelIgnoresTemplateLiteral(t *testing.T) {
 // The shipped scripts must satisfy every check — a lint that lands red breaks make audit everywhere.
 // Anchored on this source file's path so a cwd change can never make the guard skip instead of gate.
 func TestShippedWorkflowsAreClean(t *testing.T) {
+	useNode(t)
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed — cannot locate the repo root")
@@ -424,15 +427,7 @@ func TestCallWindowSkipsCommentApostrophe(t *testing.T) {
 
 // A nested unescaped backtick (the b81c06ae shape) does not compile; the escaped fix (6006600a) does.
 func TestWorkflowParseDefects(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil { // hosttest strips PATH; PLANLINT_NODE names the binary instead
-		node := os.Getenv("PLANLINT_NODE")
-		if node == "" {
-			t.Skip("node not on PATH and PLANLINT_NODE unset")
-		}
-		orig := lookNode
-		lookNode = func() (string, error) { return node, nil }
-		t.Cleanup(func() { lookNode = orig })
-	}
+	useNode(t)
 	dir := t.TempDir()
 	bad := writeScript(t, dir, "bad.js", "export const meta = {}\nconst p = `run `git show` now`\n")
 	good := writeScript(t, dir, "good.js", "export const meta = {}\nconst p = `run \\`git show\\` now`\n")
@@ -520,4 +515,47 @@ func TestParseCheckStripsEveryExport(t *testing.T) {
 	if hits, _ := workflowParseDefects([]string{p}); len(hits) != 0 {
 		t.Fatalf("two exports reported as parse defect: %v", hits)
 	}
+}
+
+// With no node the parse check cannot run, so the verb must exit 1 rather than print clean.
+// A throw inside a braced top-level block still fires at import; a throw inside a function or arrow body does not.
+func TestRegistryHidingBracedTopLevelThrow(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"if.js":    "export const meta = { name: 'x' }\nif (!process.env.X) {\n  throw new Error('x')\n}\n",
+		"inl.js":   "export const meta = { name: 'x' }\nif (c) { throw new Error('x') }\n",
+		"block.js": "export const meta = { name: 'x' }\n{\n  throw new Error('x')\n}\n",
+	} {
+		if got := registryHidingDefects(writeScript(t, dir, name, body)); len(got) != 1 || !strings.Contains(got[0], "top-level throw") {
+			t.Errorf("%s: got %v, want one top-level throw hit", name, got)
+		}
+	}
+	ok := writeScript(t, dir, "ok.js", "export const meta = { name: 'x' }\nconst f = () => {\n  throw new Error('a')\n}\nfunction g(a, b) {\n  if (a) { throw new Error('b') }\n}\n")
+	if got := registryHidingDefects(ok); len(got) != 0 {
+		t.Errorf("throws inside callables flagged: %v", got)
+	}
+}
+
+// An object spread inside the options literal could overwrite an inserted pin, so FillModel leaves it alone.
+func TestFillModelObjectSpreadAmbiguous(t *testing.T) {
+	src := "agent('p', { ...leafOpts })\n"
+	out, ambiguous := FillModel(src, "sonnet")
+	if out != src || len(ambiguous) != 1 || ambiguous[0] != "line 1" {
+		t.Errorf("out=%q ambiguous=%v; want unchanged and [line 1]", out, ambiguous)
+	}
+}
+
+// useNode makes lookNode find a real node (hosttest strips PATH; PLANLINT_NODE names the binary) or skips.
+func useNode(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("node"); err == nil {
+		return
+	}
+	node := os.Getenv("PLANLINT_NODE")
+	if node == "" {
+		t.Skip("node not on PATH and PLANLINT_NODE unset")
+	}
+	orig := lookNode
+	lookNode = func() (string, error) { return node, nil }
+	t.Cleanup(func() { lookNode = orig })
 }
