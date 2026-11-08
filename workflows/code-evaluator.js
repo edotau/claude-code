@@ -9,7 +9,7 @@ export const meta = {
   name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
-    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {model haiku|sonnet|opus|fable, effort} (defaults run haiku, judge sonnet; claude only; replaces the old model arg). RETURNS {runs, cells}.',
+    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {runs, cells}.',
   phases: [{ title: 'Execute' }, { title: 'Judge' }],
 }
 
@@ -91,11 +91,23 @@ if (a.model !== undefined) return { error: 'code-evaluator: model was replaced b
 let ST
 try {
   ST = {
-    run: stepOf(a.steps, 'run', { model: 'haiku', effort: 'medium' }, { allowed: ['run', 'judge'] }),
-    judge: stepOf(a.steps, 'judge', { model: 'sonnet', effort: 'high' }, { allowed: ['run', 'judge'] }),
+    run: stepOf(a.steps, 'run', { model: 'haiku', effort: 'medium', tools: 'edit' }, { allowed: ['run', 'judge'], external: true, profile: a.profile, provider: a.provider }),
+    judge: stepOf(a.steps, 'judge', { model: 'sonnet', effort: 'high' }, { allowed: ['run', 'judge'], external: true, profile: a.profile, provider: a.provider }),
   }
 } catch (e) {
   return { error: `code-evaluator: ${e.message}` }
+}
+for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a[k]))) return { error: 'code-evaluator: args.' + k + ' must be a plain name' }
+const EXT = [...new Map(Object.values(ST).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
+if (EXT.length) {
+  const pf = await agent(
+    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing.\n' +
+      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents --profile ${s.profile}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+    { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
+  )
+  for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
+  const dead = ((pf && pf.routes) || []).filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : ''))
+  if (dead.length) return { error: 'code-evaluator: coworkers: no route for ' + dead.join(', ') + '; BLOCKED before any work' }
 }
 const RUN_MODEL = ST.run.model
 const JUDGE_MODEL = ST.judge.model
@@ -204,8 +216,9 @@ ${report ?? '(agent produced no report)'}
 phase('Execute')
 const results = await pipeline(
   RUNS,
-  item => agent(executorPrompt(item), { label: `exec:${item.run}`, phase: 'Execute', model: RUN_MODEL, effort: ST.run.effort }),
-  (report, item) => agent(judgePrompt(item, report), { label: `judge:${item.run}`, phase: 'Judge', schema: SCORES, model: JUDGE_MODEL, effort: ST.judge.effort })
+  async item => ST.run.text(`exec:${item.run}`, await agent(ST.run.task(executorPrompt(item)), { label: `exec:${item.run}`, phase: 'Execute', ...ST.run.type, schema: ST.run.schema(), model: RUN_MODEL, effort: ST.run.effort })),
+  (report, item) => agent(ST.judge.task(judgePrompt(item, report)), { label: `judge:${item.run}`, phase: 'Judge', ...ST.judge.type, schema: ST.judge.schema(SCORES), model: JUDGE_MODEL, effort: ST.judge.effort })
+    .then(scores => ST.judge.done(`judge:${item.run}`, scores))
     .then(scores => ({ run: item.run, scenario: item.scenario, condition: item.condition, scores })),
 )
 
@@ -233,4 +246,4 @@ const cells = [...cellMap.values()].map(cell => ({
   mean: Object.fromEntries(NUMERIC_KEYS.map(k => [k, cell.n ? cell.sums[k] / cell.n : 0])),
 }))
 
-return { runs, cells }
+return { runs, cells, coworkers: COWORKERS }
