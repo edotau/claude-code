@@ -99,11 +99,23 @@ func authSourceFor(pin string) (CopilotAuth, bool) {
 
 // CopilotLaunchToken is the token a copilot launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for
 // the SDK), or "" to leave copilot on its own credential. It logs the source to stderr and the audit log.
-func CopilotLaunchToken() (string, error) {
-	if err := copilotPinError(); err != nil {
-		return "", err
+func CopilotLaunchToken() (string, error) { return CopilotLaunchTokenFor("") }
+
+// CopilotLaunchTokenFor is CopilotLaunchToken for the target GitHub row's login; "" uses the copilot record's pin.
+func CopilotLaunchTokenFor(login string) (string, error) {
+	var a CopilotAuth
+	var ok bool
+	if login != "" { // an explicit --profile <github row> runs on that row's gh login, never the record's or a stored token
+		a, ok = authSourceFor(login)
+		if !ok {
+			return "", fmt.Errorf("copilot: GitHub user %s is not logged in to gh; run `gh auth login`", login)
+		}
+	} else {
+		if err := copilotPinError(); err != nil {
+			return "", err
+		}
+		a, ok = copilotAuthSource()
 	}
-	a, ok := copilotAuthSource()
 	if !ok {
 		return "", nil
 	}

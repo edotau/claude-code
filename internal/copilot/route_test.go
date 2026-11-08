@@ -172,3 +172,21 @@ func TestCopilotGateUsesTargetLogin(t *testing.T) {
 		t.Fatalf("gate moved an explicit workable GitHub target: got %+v notice %q err %v", got.Provider, notice, err)
 	}
 }
+
+// An explicit GitHub row's login wins over a stored COPILOT_GITHUB_TOKEN and over the record's pin.
+func TestCopilotLaunchTokenForTargetLogin(t *testing.T) {
+	pinsScratch(t)
+	vaulttest.UseKeyring(t)
+	gh := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", gh)
+	if err := os.WriteFile(filepath.Join(gh, "hosts.yml"), []byte("github.com:\n    users:\n        work:\n            oauth_token: x\n    user: work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.Secret(t, providers.CopilotTokenEnv, "stored-expired")
+	if a, ok := authSourceFor("work"); !ok || a.Account != "work" || a.token == "stored-expired" {
+		t.Fatalf("target login lost to the stored token: %+v ok=%v", a, ok)
+	}
+	if _, err := CopilotLaunchTokenFor("nobody"); err == nil {
+		t.Fatal("a target login missing from gh must fail, never fall back to the stored token")
+	}
+}

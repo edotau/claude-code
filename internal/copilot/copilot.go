@@ -123,7 +123,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 		return opts, nil, done, copilotFatal(err)
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
-	if err := applyCopilotToken(&opts, own, env); err != nil {
+	if err := applyCopilotToken(&opts, own, t.Provider.Login, env); err != nil {
 		return opts, nil, done, copilotFatal(err)
 	}
 	return opts, env, done, nil
@@ -207,9 +207,9 @@ func copilotFatal(err error) error {
 var copilotAsk = SDKAsk
 
 // applyCopilotToken puts the own-login launch token, then the harness account's env token, on the SDK's token field.
-func applyCopilotToken(opts *SDKOptions, own bool, env []string) error {
+func applyCopilotToken(opts *SDKOptions, own bool, login string, env []string) error {
 	if own {
-		tok, err := CopilotLaunchToken()
+		tok, err := CopilotLaunchTokenFor(login)
 		if err != nil {
 			return err
 		}
@@ -247,8 +247,12 @@ func absPaths(paths []string) ([]string, error) {
 	return out, nil
 }
 
-func (copilotEngine) Login(_ *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
-	return copilotLogin(model, h)
+func (copilotEngine) Login(p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
+	login := ""
+	if p != nil {
+		login = p.Login
+	}
+	return copilotLogin(model, login, h)
 }
 
 func (copilotEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
