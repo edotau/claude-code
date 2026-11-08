@@ -34,10 +34,11 @@ function claudeInput(args) {
   return out
 }
 
-// denied reads a Claude-shaped hook document on stdout: a deny decision blocks like exit 2 does.
+// denied blocks deny and ask decisions: the plugin cannot obtain approval for an ask.
 function denied(stdout) {
   try {
     const out = JSON.parse(stdout).hookSpecificOutput ?? {}
+    if (out.permissionDecision === "ask") return out.permissionDecisionReason || "approval required; blocked"
     return out.permissionDecision === "deny" ? (out.permissionDecisionReason || "denied") : ""
   } catch {
     return ""

@@ -78,15 +78,15 @@ func ocCheckEnv(t *testing.T) (*ocCheckFake, string) {
 	t.Setenv("DATABRICKS_OCFAKE_PAT", ocCheckToken)
 	f := &ocCheckFake{calls: map[string]int{}, tools: map[string]bool{}}
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.calls[r.URL.Path]++
+		f.mu.Unlock()
 		if r.URL.Path == "/api/2.0/serving-endpoints" {
 			_, _ = w.Write([]byte(dbxListing))
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
 		hasTools := strings.Contains(string(body), `"tools"`)
-		f.mu.Lock()
-		f.calls[r.URL.Path]++
-		f.mu.Unlock()
 		switch {
 		case strings.Contains(r.URL.Path, "boom-1"):
 			http.Error(w, "internal exploded", 500)
@@ -150,9 +150,12 @@ func TestOpencodeMenuAddRefusesUnserved(t *testing.T) {
 }
 
 func TestOpencodeMenuAddForceBypassesWorkspaceCheck(t *testing.T) {
-	ocCheckEnv(t)
+	f, _ := ocCheckEnv(t)
 	if code, _, _ := ocMenu(t, "add", "--profile", "ocfake", "--force", "bogus-model=Bogus"); code != 0 {
 		t.Fatal("--force must bypass the workspace check")
+	}
+	if n := f.count(""); n != 0 { // every path contains "", so this counts all requests, listing included
+		t.Errorf("--force sent %d workspace requests, want 0", n)
 	}
 	if g, _ := lastMenuEntry(); g.ID != "bogus-model" || g.Label != "Bogus" {
 		t.Errorf("forced entry = %+v", g)
@@ -519,9 +522,13 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 		t.Fatalf("check: %d %s", code, stderr)
 	}
 	want := map[string]string{"glm-5-2": "ok tools", "kimi-k3": "ok no-tools", "boom-1": "transient 500", "ghost": "missing"}
-	for id, c := range liveCheckColumns(t) {
-		if c != want[id] {
-			t.Errorf("%s check = %q, want %q", id, c, want[id])
+	got := liveCheckColumns(t)
+	if len(got) != len(want) {
+		t.Errorf("rows = %v, want %d rows", got, len(want))
+	}
+	for id, c := range want {
+		if v, ok := got[id]; !ok || v != c {
+			t.Errorf("%s check = %q (present %v), want %q", id, v, ok, c)
 		}
 	}
 	// a cache for another provider must not show
