@@ -113,6 +113,25 @@ func TestWorkflowHelperDrift(t *testing.T) {
 	}
 }
 
+// A stages block is held to the same verbatim rule as stepOf; a stage call without the block is a hit.
+func TestWorkflowStagesDrift(t *testing.T) {
+	block := func(tag string) string {
+		return stagesStart + " x\nasync function stageGate() {" + tag + "}\n" + stagesEnd + "\n"
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "workflows")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, dir, "a.js", block("1"))
+	writeScript(t, dir, "b.js", block("2"))
+	writeScript(t, dir, "c.js", "await stageFix(ctx, {})\n")
+	got := strings.Join(workflowHelperDrift(root), "\n")
+	if !strings.Contains(got, "b.js: stages block differs from a.js") || !strings.Contains(got, "c.js: no stages block") {
+		t.Fatalf("stages drift: %q", got)
+	}
+}
+
 // A workflow script under skills/*/scripts is checked for a stepOf block like workflows/*.js.
 func TestWorkflowHelperDriftSkillScripts(t *testing.T) {
 	root := t.TempDir()
