@@ -7,6 +7,7 @@ import (
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/configure/configurecmd"
 	"github.com/edotau/claude-code/internal/databricks"
+	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/history"
@@ -64,7 +65,7 @@ func commands() []command {
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: providerscmd.Resolve, spec: providerscmd.ResolveSpec},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run},
-		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: func(a []string) int { return network.Run(a, func() any { return verbTree() }) }, spec: networkSpecNodes},
+		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: func(a []string) int { return network.Run(a, func() any { return describe.VerbTree(describeVerbs()) }) }, spec: networkSpecNodes},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: providerscmd.Switch, spec: providerscmd.SwitchSpec},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }},
@@ -77,12 +78,22 @@ func commands() []command {
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},
 		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: gateway.Run, spec: gateway.Spec},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: cmdUsage},
-		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
+		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: func(a []string) int { return describe.Run(a, describeVerbs()) }},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, setup.Run) }},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int { return configurecmd.Run(a, configureProviderList) }, spec: configurecmd.Spec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: themecmd.Run, spec: themecmd.Spec},
 	}, hiddenCommands()...)
+}
+
+// describeVerbs lists the table's verbs with their completion specs, for describe and the network page.
+func describeVerbs() []describe.Verb {
+	tree := specTree()
+	var out []describe.Verb
+	for _, c := range commands() {
+		out = append(out, describe.Verb{Name: c.name, Group: c.group, Summary: c.summary, Hidden: c.hidden, Node: tree[c.name]})
+	}
+	return out
 }
 
 func hiddenCommands() []command {

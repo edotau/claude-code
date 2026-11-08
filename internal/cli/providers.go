@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -52,7 +53,7 @@ func printProviderTable(reg *providers.Registry) {
 
 // providerListEntry is the describe provider view plus where its credential resolves from.
 type providerListEntry struct {
-	DescribeProvider
+	describe.DescribeProvider
 	Group       string `json:"group"` // the family `--list` files it under (anthropic, openai, ... local)
 	Source      string `json:"source"`
 	Note        string `json:"note"`
@@ -63,7 +64,7 @@ type providerListEntry struct {
 
 // providerListJSON emits the describe provider view: all providers, or the one named, never a credential.
 func providerListJSON(reg *providers.Registry, name string) int {
-	d, err := describe(reg)
+	d, err := describe.Build(reg, describeVerbs())
 	if err != nil {
 		return helptext.Fail("configure provider: %v", err)
 	}
