@@ -29,7 +29,7 @@ func profileSpawn(t *testing.T, kind, prompt string) string {
 func TestProfileBriefKeepsTypeIdempotently(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubProfiles(t, []string{"dbx", "openai"}, true)
-	for _, kind := range []string{"general-purpose", "claude", "copilot", "code-worker", "coworker"} {
+	for _, kind := range []string{"general-purpose", "claude", "copilot"} {
 		brief := "Agent: codex\nProfile: dbx\nreview a.go"
 		res := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, kind, brief))))
 		if res.Decision == core.Block || res.UpdatedInput == nil {
@@ -61,7 +61,7 @@ func TestProfileBriefDefaultsToClaudeAsk(t *testing.T) {
 // A sentence-ending period after the name ("Profile: dbx.") still routes to dbx, not an unknown "dbx.".
 func TestProfileTrailingPeriodIsNotPartOfName(t *testing.T) {
 	stubProfiles(t, []string{"dbx"}, true)
-	updated := map[string]any{"subagent_type": "code-worker", "prompt": "Profile: dbx.\ndo it"}
+	updated := map[string]any{"subagent_type": "claude", "prompt": "Profile: dbx.\ndo it"}
 	if note, deny := applyProfile(updated, "prompt", "Profile: dbx.\ndo it"); deny != nil || !strings.Contains(note, "--profile dbx`") {
 		t.Fatalf("note=%q deny=%v", note, deny)
 	}
@@ -92,7 +92,7 @@ func TestProfileLabels(t *testing.T) {
 		{"no profile", "Agent: codex", "codex"},
 	}
 	for _, c := range cases {
-		if got := agentLabel("coworker", c.task); got != c.want {
+		if got := agentLabel("general-purpose", c.task); got != c.want {
 			t.Errorf("%s: agentLabel = %q, want %q", c.name, got, c.want)
 		}
 	}

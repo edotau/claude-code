@@ -28,29 +28,10 @@ import (
 // labelAgents are the agents a dispatch label may name; labelTypes are the subagent types that carry one.
 var (
 	labelAgents = map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true}
-	labelTypes  = map[string]bool{"claude": true, "code-worker": true, "coworker": true,
-		"codex": true, "copilot": true, "gemini": true, "opencode": true}
+	labelTypes  = map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true}
 	agentLineRe = regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`)
 	agentNameRe = regexp.MustCompile(`[a-z]+`)
-	// labelPools are the plugin pools whose namespaced agents ("code-worker:codex") carry a label.
-	labelPools = map[string]bool{"code-worker": true, "coworker": true}
 )
-
-// splitType splits a plugin subagent type ("code-worker:codex") into pool and agent; a bare type is (st, "").
-func splitType(st string) (pool, agent string) {
-	if pool, agent, ok := strings.Cut(st, ":"); ok {
-		return pool, agent
-	}
-	return st, ""
-}
-
-// labelType reports whether st is a bare label type or a namespaced pool agent.
-func labelType(st string) bool {
-	if pool, agent := splitType(st); agent != "" {
-		return labelPools[pool]
-	}
-	return labelTypes[st]
-}
 
 // agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, quota
 // pressure, label); a Workflow gets the former workflow-lint rewrite or a Block.
@@ -219,21 +200,12 @@ func leafLabel(updated map[string]any, st, task, desc string, session func() str
 	return label, desc
 }
 
-// harnessLabel names the agents a harness leaf requests; a code-worker with none runs on claude.
+// harnessLabel names the agents a harness leaf requests; other types carry no label.
 func harnessLabel(st, task string) string {
-	label := ""
-	if labelType(st) { // only harness leaves carry an agent label; any type gets the prefix strip + lowercase
-		label = agentLabel(st, task)
+	if !labelTypes[st] {
+		return ""
 	}
-	pool, agent := splitType(st)
-	switch {
-	case label != "":
-	case st == "code-worker": // a wrapper leaf names who runs it; other types are their own agent
-		label = "claude"
-	case pool == "code-worker" && agent != "", st == "coworker:databricks":
-		label = agent
-	}
-	return label
+	return agentLabel(st, task)
 }
 
 func cutLabel(desc, label string) string {
@@ -290,9 +262,8 @@ func agentLabel(st, task string) string {
 		return ""
 	}
 	var names []string
-	_, own := splitType(st)
 	for _, w := range briefAgents(task) {
-		if w != st && w != own {
+		if w != st {
 			names = append(names, w)
 		}
 	}
@@ -347,16 +318,12 @@ func explicitModel(in *core.Input) bool {
 	return m != "" && !strings.EqualFold(m, "inherit")
 }
 
-// agentFile is the roster file of a bare or namespaced agent type; ok is false for an empty or path-shaped segment.
+// agentFile is the roster file of an agent type; ok is false for an empty or path-shaped name.
 func agentFile(name string) (string, bool) {
-	pool, agent := splitType(name)
-	if name == "" || filepath.Base(pool) != pool || agent != "" && filepath.Base(agent) != agent {
+	if name == "" || filepath.Base(name) != name {
 		return "", false
 	}
-	if agent == "" {
-		return filepath.Join(paths.ConfigDir(), "agents", name+".md"), true
-	}
-	return filepath.Join(paths.ConfigDir(), "marketplace", "plugins", pool, "agents", agent+".md"), true
+	return filepath.Join(paths.ConfigDir(), "agents", name+".md"), true
 }
 
 // rosterModel is the named harness agent's frontmatter model ("" for a built-in or a path-shaped name).
@@ -404,12 +371,8 @@ func labelModel(updated map[string]any, st, task string) string {
 	if profileApplies(st, task) {
 		p = briefProfile(task)
 	}
-	own := st // a bare agent-named type is its own agent; a namespaced one names it after the colon
-	if _, a := splitType(st); a != "" {
-		own = a
-	}
-	if agentLineRe.FindString(task) == "" && labelAgents[own] {
-		names = []string{own} // a namespaced agent leaf with no Agent: line runs on its own agent
+	if agentLineRe.FindString(task) == "" && labelAgents[st] {
+		names = []string{st} // an agent-named leaf with no Agent: line runs on its own agent
 	}
 	if len(names) == 0 || names[len(names)-1] == "claude" && p == "" {
 		return alias
@@ -463,13 +426,13 @@ func cellModelFor(agent, alias string) string {
 // discoveryPoolSize is the curated Discovery pool's model count (a var so tests can pin it).
 var discoveryPoolSize = func() int { return len(router.DiscoveryPool()) }
 
-// discoveryHint is the one-line `--model discovery` reminder for a coworker spawn or a brief whose Agent: line names copilot or
+// discoveryHint is the one-line `--model discovery` reminder for a brief whose Agent: line names copilot or
 // opencode; "" when neither applies or the brief already passes --model.
 func discoveryHint(st, task string) string {
 	if strings.Contains(task, "--model") {
 		return ""
 	}
-	hit := st == "coworker" || st == "coworker:copilot" || st == "coworker:opencode" || st == "copilot" || st == "opencode"
+	hit := st == "copilot" || st == "opencode"
 	for _, w := range agentNameRe.FindAllString(agentLabel(st, task), -1) {
 		hit = hit || w == "copilot" || w == "opencode"
 	}

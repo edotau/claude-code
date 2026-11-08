@@ -54,18 +54,18 @@ func TestPressureOffloadsClaudeToCopilot(t *testing.T) {
 
 func TestPressureNeverTouchesExplicitModelOrOptOut(t *testing.T) {
 	withPressure(t, 99)
-	if got, _ := runAgentEffort(t, spawn("code-worker", `,"model":"opus"`)); got != nil && (got["model"] != "opus" || got["subagent_type"] != "code-worker") {
+	if got, _ := runAgentEffort(t, spawn("claude", `,"model":"opus"`)); got != nil && (got["model"] != "opus" || got["subagent_type"] != "claude") {
 		t.Errorf("explicit model rewritten: %+v", got)
 	}
 	t.Setenv("HARNESS_ROUTE_SUBAGENTS", "0")
-	if got, _ := runAgentEffort(t, spawn("code-worker", "")); got["subagent_type"] != "code-worker" || got["model"] != "sonnet" {
+	if got, _ := runAgentEffort(t, spawn("claude", "")); got["subagent_type"] != "claude" || got["model"] != "sonnet" {
 		t.Errorf("opt-out must leave only the classifier pin: %+v", got)
 	}
 }
 
 func TestPressureBelowLowIsSilent(t *testing.T) {
 	withPressure(t, 50)
-	if got, _ := runAgentEffort(t, spawn("code-worker", "")); got["model"] != "sonnet" || got["subagent_type"] != "code-worker" {
+	if got, _ := runAgentEffort(t, spawn("claude", "")); got["model"] != "sonnet" || got["subagent_type"] != "claude" {
 		t.Errorf("50%% must not reroute: %+v", got)
 	}
 }
@@ -80,7 +80,7 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 	if billsSubscription() {
 		t.Fatal("openai (API key) session must not count as the subscription")
 	}
-	updated := map[string]any{"subagent_type": "code-worker"}
+	updated := map[string]any{"subagent_type": "claude"}
 	if note, _ := applyPressure(&core.Input{}, updated, "prompt", "sonnet"); note != "" || updated["model"] != nil {
 		t.Errorf("pressure applied to a non-subscription session: %q %v", note, updated)
 	}
@@ -91,18 +91,7 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 	}
 }
 
-// Until Phase 2 deletes them, the code-worker types offload to copilot like claude.
-func TestPressureOffloadsCodeWorkerTypesToCopilot(t *testing.T) {
-	withPressure(t, 98)
-	for _, kind := range []string{"code-worker", "code-worker:claude"} {
-		got, _ := runAgentEffort(t, spawn(kind, ""))
-		if got["subagent_type"] != "copilot" || got["model"] != "haiku" {
-			t.Fatalf("98%% %s = %+v, want copilot at haiku", kind, got)
-		}
-	}
-}
-
-// A read-only Explore is never escalated to a write-capable coworker, even at 98%.
+// A read-only Explore is never escalated to a write-capable copilot leaf, even at 98%.
 func TestPressureNeverOffloadsReadOnlyExplore(t *testing.T) {
 	withPressure(t, 98)
 	got, _ := runAgentEffort(t, spawn("Explore", ""))
