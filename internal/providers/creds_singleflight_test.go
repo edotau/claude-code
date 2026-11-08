@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,6 +30,14 @@ func runCount(t *testing.T, counter string) int {
 		t.Fatal(err)
 	}
 	return strings.Count(string(b), "x\n")
+}
+
+// setFlightHook swaps the mint-flight seam for one test and restores the previous hook at cleanup.
+func setFlightHook(t *testing.T, h func(leader bool)) {
+	t.Helper()
+	orig := flightHook
+	flightHook = h
+	t.Cleanup(func() { flightHook = orig })
 }
 
 func freshProvider(t *testing.T, p *Provider) *Provider {
@@ -94,14 +103,19 @@ func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 	refresh := fmt.Sprintf("echo forced >> %q; echo fresh-token", forced)
 	p := freshProvider(t, &Provider{Name: "sf-refresh",
 		Auth: Auth{Type: AuthKey, Command: cmd, RefreshCommand: refresh}})
+	var startOnce sync.Once
+	started := make(chan struct{})
+	setFlightHook(t, func(leader bool) {
+		if leader {
+			startOnce.Do(func() { close(started) })
+		}
+	})
 	done := make(chan struct{})
 	go func() { _, _ = Credential(context.Background(), p); close(done) }()
-	deadline := time.Now().Add(5 * time.Second)
-	for runCount(t, counter) == 0 { // wait until the non-forced mint is truly in flight
-		if time.Now().After(deadline) {
-			t.Fatal("non-forced mint never started")
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-started: // the non-forced flight is registered, its mint is running
+	case <-time.After(5 * time.Second):
+		t.Fatal("non-forced mint never started")
 	}
 	got, err := Refresh(context.Background(), p)
 	if err != nil || got != "fresh-token" {
@@ -144,20 +158,40 @@ func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
 	}
 }
 
+// subprocessStartSignal is emitted by a real child of the auth shell, not the flight hook.
+func subprocessStartSignal(t *testing.T) (signal struct {
+	command string
+	ready   chan struct{}
+}) {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	signal.ready = make(chan struct{})
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+		close(signal.ready)
+	}()
+	address := strings.ReplaceAll(listener.Addr().String(), ":", "/")
+	signal.command = fmt.Sprintf("bash -c 'echo started > /dev/tcp/%s'", address)
+	return signal
+}
+
 func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
 	gate := filepath.Join(t.TempDir(), "gate")
-	cmd, counter := countingCmd(t, "lc", "0", fmt.Sprintf("while [ ! -e %q ]; do sleep 0.02; done; echo survived-token", gate))
+	started := subprocessStartSignal(t)
+	cmd, counter := countingCmd(t, "lc", "0", fmt.Sprintf("%s; while [ ! -e %q ]; do sleep 0.02; done; echo survived-token", started.command, gate))
 	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthKey, Command: cmd}})
 	lctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _, _ = Credential(lctx, p) }() // leader
-	deadline := time.Now().Add(5 * time.Second)
-	for runCount(t, counter) == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("leader mint never started")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitFlightSignal(t, started.ready)
 	vals, errs := make([]string, 5), make([]error, 5)
 	var wg sync.WaitGroup
 	for i := range vals {

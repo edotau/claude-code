@@ -40,6 +40,9 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if sealedAuth(p.Auth.Type) {
 		return authCredential(ctx, p, false)
 	}
+	if v, ok := cachedCommand(p.Name); ok && p.Auth.Command != "" { // a refreshed command token outranks static sources
+		return v, nil
+	}
 	v, vaultErr := vaultCredential(p)
 	if v != "" {
 		return v, nil
@@ -112,10 +115,20 @@ type flight struct {
 	err   error
 }
 
-var (
-	flightMu sync.Mutex
-	flights  = map[string]*flight{}
-)
+// errMintAborted is what followers see when the leader's mint panics before it returns.
+var errMintAborted = errors.New("credential mint aborted")
+
+// flightHook is a test seam: called with true when a mint leader starts, false when a follower starts waiting.
+var flightHook = func(bool) {}
+
+// flightGroup is single-flight per provider name; cached short-circuits a non-forced call before it joins a flight.
+type flightGroup struct {
+	mu      sync.Mutex
+	flights map[string]*flight
+	cached  func(name string) (string, bool)
+}
+
+var cmdFlights = &flightGroup{flights: map[string]*flight{}, cached: cachedCommand}
 
 func cachedCommand(name string) (string, bool) {
 	if c, ok := cmdCache.Load(name); ok && time.Now().Before(c.(cached).until) {
@@ -126,29 +139,35 @@ func cachedCommand(name string) (string, bool) {
 
 // mintOnce is the one mint coordinator: per provider, single-flight; a forced call never joins a non-forced flight.
 func mintOnce(ctx context.Context, p *Provider, force bool, mint func(context.Context) (string, error)) (string, error) {
+	return cmdFlights.do(ctx, p.Name, force, mint)
+}
+
+func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func(context.Context) (string, error)) (string, error) {
 	for {
-		flightMu.Lock()
+		g.mu.Lock()
 		if !force {
-			if v, ok := cachedCommand(p.Name); ok {
-				flightMu.Unlock()
+			if v, ok := g.cached(name); ok {
+				g.mu.Unlock()
 				return v, nil
 			}
 		}
-		f, inflight := flights[p.Name]
+		f, inflight := g.flights[name]
 		if !inflight {
-			f = &flight{done: make(chan struct{}), force: force}
-			flights[p.Name] = f
-			flightMu.Unlock()
+			f = &flight{done: make(chan struct{}), force: force, err: errMintAborted}
+			g.flights[name] = f
+			g.mu.Unlock()
 			defer func() {
-				flightMu.Lock()
-				delete(flights, p.Name)
-				flightMu.Unlock()
+				g.mu.Lock()
+				delete(g.flights, name)
+				g.mu.Unlock()
 				close(f.done)
 			}()
+			flightHook(true)
 			f.val, f.err = mint(context.WithoutCancel(ctx))
 			return f.val, f.err
 		}
-		flightMu.Unlock()
+		g.mu.Unlock()
+		flightHook(false)
 		select {
 		case <-f.done:
 		case <-ctx.Done():
@@ -273,6 +292,18 @@ func authCommandError(ctx context.Context, p *Provider, err error) error {
 	return fmt.Errorf("%s: auth command failed (%s): %w", p.Name, kind, err)
 }
 
+// redactPunct is the quoting and separator punctuation around a token in JSON or key=value stderr.
+const redactPunct = "\"'`{}[](),;:="
+
+// maskCore replaces the bare token in w with mask, keeping the quotes and separators around it.
+func maskCore(w, mask string) string {
+	core := strings.Trim(w, redactPunct)
+	if core == "" {
+		return w
+	}
+	return strings.Replace(w, core, mask, 1)
+}
+
 // redactDetail is stderr's last non-empty line, ≤160 chars, with credential-shaped words masked.
 func redactDetail(stderr string) string {
 	lines := strings.FieldsFunc(stderr, func(r rune) bool { return r == '\n' || r == '\r' })
@@ -281,12 +312,13 @@ func redactDetail(stderr string) string {
 	}
 	words := strings.Fields(shapes.Redact(lines[len(lines)-1]))
 	for i, w := range words {
-		key := strings.ToLower(strings.TrimRight(w, ":="))
+		core := strings.Trim(w, redactPunct)
+		key := strings.ToLower(core)
 		if i+1 < len(words) && slices.Contains([]string{"token", "access_token", "bearer", "authorization"}, key) {
-			words[i+1] = "REDACTED"
+			words[i+1] = maskCore(words[i+1], "REDACTED")
 		}
-		if strings.HasPrefix(w, "eyJ") { // a JWT; shapes.Looks covers the prefixed key families
-			words[i] = "REDACTED"
+		if strings.HasPrefix(core, "eyJ") { // a JWT; shapes.Looks covers the prefixed key families
+			words[i] = maskCore(w, "REDACTED")
 		}
 	}
 	return textutil.CapRunes(strings.Join(words, " "), 160, "…")
