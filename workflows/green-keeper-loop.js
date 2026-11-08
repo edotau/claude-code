@@ -12,7 +12,7 @@ export const meta = {
 // ── Args ────────────────────────────────────────────────────────────────────
 // Every field has a default so the workflow runs bare; scope is the ONLY place the fixer may edit.
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-relay, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']

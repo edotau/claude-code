@@ -1,20 +1,20 @@
 export const meta = {
   name: 'code-engineer',
-  description: 'One size-routed entry point: size the job, then route it through code-relay (or draft a plan for an epic)',
+  description: 'One size-routed entry point: size the job, then route it through code-workers (or draft a plan for an epic)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {model, effort} per stage (claude only; child is code-relay\'s steps, where Simplify, Review and Fix-all also run per package). polish (default true; false skips both levels: code-relay\'s per-package chain and code-engineer\'s final pass) runs after code-relay when it fixed something: Dedupe (only when 2+ packages were fixed), then Simplify and Review over the merged diff; any finding, lows included, earns one more code-relay pass (capped at one loop). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-relay as known, skipping Find and Rederive. A low token budget (under 150k left) skips the final pass, the review loop and code-relay\'s per-package polish. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, files (sorted repo-relative files the implementer, fixers and test writers changed), dedupe, simplify, review, decisions, report}. Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?}}) with at least one of task/packages/paths/range (range = a git range like main..HEAD; its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {model, effort} per stage (claude only; child is code-workers\'s steps, where Simplify, Review and Fix-all also run per package). polish (default true; false skips both levels: code-workers\'s per-package chain and code-engineer\'s final pass) runs after code-workers when it fixed something: Dedupe (only when 2+ packages were fixed), then Simplify and Review over the merged diff; any finding, lows included, earns one more code-workers pass (capped at one loop). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-workers as known, skipping Find and Rederive. A low token budget (under 150k left) skips the final pass, the review loop and code-workers\'s per-package polish. RETURNS {exit, tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, files (sorted repo-relative files the implementer, fixers and test writers changed), dedupe, simplify, review, decisions, report}. Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
-    { title: 'Run', detail: 'code-relay over the paths (TRIVIAL/LOW/MEDIUM) or the packages (HIGH)' },
-    { title: 'Dedupe', detail: 'when code-relay fixed 2+ packages, one agent consolidates helpers duplicated across their combined diff (polish:false skips)' },
+    { title: 'Run', detail: 'code-workers over the paths (TRIVIAL/LOW/MEDIUM) or the packages (HIGH)' },
+    { title: 'Dedupe', detail: 'when code-workers fixed 2+ packages, one agent consolidates helpers duplicated across their combined diff (polish:false skips)' },
     { title: 'Simplify', detail: 'one agent runs review simplify over the merged diff of all fixed files and applies the simplify gate' },
-    { title: 'Review', detail: 'one read-only agent reviews the merged diff; any finding (lows included) earns one more code-relay pass' },
+    { title: 'Review', detail: 'one read-only agent reviews the merged diff; any finding (lows included) earns one more code-workers pass' },
     { title: 'Record', detail: 'one cheap agent appends the report and decisions to the memory store (record:false skips)' },
   ],
 }
 
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-relay, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed}) -> {model, effort}; claude only, any bad input throws Error naming stage/field.
 const stepOf = (steps, name, defaults, opt) => {
   const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
@@ -48,7 +48,7 @@ const RANGE = a.range ? String(a.range) : ''
 if (RANGE && !/^[A-Za-z0-9._\/~^@{}-]+(\.\.\.?[A-Za-z0-9._\/~^@{}-]+)?$/.test(RANGE)) return ERR('args.range must be a git range like main..HEAD')
 if (!CWD || !(TASK || PATHS.length || PKGS.length || RANGE)) return ERR('args.cwd and one of args.task, args.packages, args.paths or args.range are required')
 if (a.tier !== undefined && !TIERS.includes(a.tier)) return ERR('args.tier must be ' + TIERS.join('|'))
-// steps.child is code-relay's own steps; the rest are ours.
+// steps.child is code-workers's own steps; the rest are ours.
 const { child: CHILD_STEPS, ...OWN } = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
 const OPT = { allowed: ['size', 'intel', 'impl', 'plan', 'dedupe', 'simplify', 'review', 'record'] }
 let S
@@ -155,7 +155,7 @@ if (!tier && !TASK) {
 } else if (a.tier) decisions.push('sized as ' + tier + ': args.tier given')
 
 // ── Route ──
-const route = tier === 'EPIC' ? 'plan' : tier === 'HIGH' ? 'code-relay:packages' : 'code-relay:paths'
+const route = tier === 'EPIC' ? 'plan' : tier === 'HIGH' ? 'code-workers:packages' : 'code-workers:paths'
 decisions.push('route: ' + route)
 log('route: ' + route + ' (tier ' + tier + ', kind ' + (KIND || 'n/a') + ')')
 const head = '# code-engineer: ' + tier + ' → ' + route
@@ -170,9 +170,9 @@ if (tier === 'EPIC') {
   decisions.push('epic: no code changed, plan drafted for the owner')
   return await record({ exit: 'plan', tier, route, packages: 0, merged: 0, confirmed: [], dropped: [], unverified: [], fixed: [], red: [], decisions, report: head + '\n' + p.plan })
 }
-// HIGH with only files: code-relay packages are their directories, never the file paths (finders roam otherwise).
+// HIGH with only files: code-workers packages are their directories, never the file paths (finders roam otherwise).
 const dirsOf = (ps) => [...new Set(ps.map((p) => /\.[A-Za-z0-9]+$/.test(p) ? p.split('/').slice(0, -1).join('/') : p))]
-// code-relay audits a package with its nested ones, so a child of another listed dir would be audited twice.
+// code-workers audits a package with its nested ones, so a child of another listed dir would be audited twice.
 const topDirs = (ds) => ds.filter((d) => !ds.some((o) => o !== d && d.startsWith(o + '/')))
 const target = tier === 'HIGH' ? { packages: topDirs(PKGS.length ? PKGS : dirsOf(PATHS)) } : { paths: PATHS }
 const sized = [...(target.paths || [])] // the files the task names; intel may add context, never new packages to a fix
@@ -192,31 +192,31 @@ if (tier === 'MEDIUM' && TASK) {
     focus = TASK + '. Intel: ' + intel.focus
   } else decisions.push('intel returned nothing; kept the sized paths')
 }
-// code-relay only fixes bugs: a feature task gets an implementer first, then code-relay audits and hardens the new code.
+// code-workers only fixes bugs: a feature task gets an implementer first, then code-workers audits and hardens the new code.
 const feature = KIND ? KIND === 'feature' : /\b(build|add|implement|create|introduce|support|write)\b/i.test(TASK) && !/\b(audit|review)\b/i.test(TASK)
 let IMPL_FILES = []
 if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feature) {
   const impl = await agent(
     RULES + ' Make this change in these files (new files in the same package ok) and nothing else; smallest correct change, functions < 50 lines, 1-line comments. ' +
-      'Run gofmt and go vet on the package. Do not write tests; code-relay follows with find, fix, guard test and gate. Return `files`: every repo-relative file you changed.\nFiles: ' + target.paths.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus,
+      'Run gofmt and go vet on the package. Do not write tests; code-workers follows with find, fix, guard test and gate. Return `files`: every repo-relative file you changed.\nFiles: ' + target.paths.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus,
     { phase: 'Route', label: 'impl', schema: WORK, model: S.impl.model, effort: S.impl.effort },
   ).catch(() => null)
   if (impl) IMPL_FILES = strs(impl.files).map((f) => f.replace(CWD + '/', ''))
   decisions.push('implementer ran: ' + (impl ? impl.status + ' — ' + impl.summary : 'returned nothing'))
-  decisions.push('feature task: code-relay below is an audit-and-harden pass over the new code, not a feature builder')
+  decisions.push('feature task: code-workers below is an audit-and-harden pass over the new code, not a feature builder')
 }
 
 // ── Run ──
 phase('Run')
 let r
-// Fast path: a LOW/MEDIUM fix task names the bug, so code-relay skips Find and Rederive for those files (audits and features never).
+// Fast path: a LOW/MEDIUM fix task names the bug, so code-workers skips Find and Rederive for those files (audits and features never).
 const fastFiles = (tier === 'LOW' || tier === 'MEDIUM') && KIND === 'fix' && TASK && a.fix !== false && a.fast !== false ? (sized.length ? sized : target.paths || []).filter((p) => /\.go$/.test(p) && !/_test\.go$/.test(p)) : []
 const known = fastFiles.map((file) => ({ file, symptom: TASK }))
-if (known.length) { decisions.push('fast path: ' + known.length + ' file(s) passed to code-relay as known'); log('fast path: known ' + known.length + ' file(s)') }
+if (known.length) { decisions.push('fast path: ' + known.length + ' file(s) passed to code-workers as known'); log('fast path: known ' + known.length + ' file(s)') }
 try {
-  r = await workflow({ scriptPath: CWD + '/workflows/code-relay.js' }, { cwd: CWD, ...target, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS, polish: a.polish, ...(known.length ? { known } : {}) })
-} catch (e) { return ERR('code-relay threw: ' + e.message, tier, route, decisions) }
-if (!r || r.exit === 'error') return ERR((r && r.error) || 'code-relay returned nothing', tier, route, decisions)
+  r = await workflow({ scriptPath: CWD + '/workflows/code-workers.js' }, { cwd: CWD, ...target, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS, polish: a.polish, ...(known.length ? { known } : {}) })
+} catch (e) { return ERR('code-workers threw: ' + e.message, tier, route, decisions) }
+if (!r || r.exit === 'error') return ERR((r && r.error) || 'code-workers returned nothing', tier, route, decisions)
 let res = {
   exit: r.exit, tier, route, packages: r.packages, merged: r.merged, confirmed: r.confirmed, dropped: r.dropped, unverified: r.unverified || [], fixed: r.fixed, red: r.red,
   decisions: [...decisions, ...(r.decisions || [])], report: head + '\n' + (r.report || ''),
@@ -235,19 +235,19 @@ function touchedFiles(fixed) {
   return [...new Set([...IMPL_FILES, ...fs.map(norm)])].sort()
 }
 
-// changedFiles lists the files code-relay's fixers and test writers reported, repo-relative; a package dir stands in when none were named.
+// changedFiles lists the files code-workers's fixers and test writers reported, repo-relative; a package dir stands in when none were named.
 function changedFiles(fixed) {
   const norm = (f) => String(f).replace(CWD + '/', '')
   const files = fixed.flatMap((f) => [...strs(f.impl && f.impl.files), ...strs(f.test && f.test.files)].map(norm))
   return [...new Set(files.length ? files : fixed.map((f) => norm(f.pkg)))]
 }
 
-// polish: Dedupe (2+ packages), Simplify over the merged diff, Review; any finding, lows included, earns one more code-relay pass.
+// polish: Dedupe (2+ packages), Simplify over the merged diff, Review; any finding, lows included, earns one more code-workers pass.
 async function polish(res) {
   const files = changedFiles(res.fixed)
   const scope = 'Only these files (the tree is shared and has other dirty files; never touch or diff others): ' + files.join(' ') + '. Diff: `git diff -- ' + files.join(' ') + '`.'
   const dd = res.fixed.length >= 2 ? await dedupe(res, files) : null
-  const pre = dd ? dd.line : 'dedupe skipped: code-relay fixed ' + res.fixed.length + ' package'
+  const pre = dd ? dd.line : 'dedupe skipped: code-workers fixed ' + res.fixed.length + ' package'
   phase('Simplify')
   const sp = await agent(
     RULES + ' Simplify gate (' + CWD + '/skills/simplify/SKILL.md, quality.md -> Simplify), run ONCE over the merged diff. ' + scope +
@@ -279,8 +279,8 @@ async function polish(res) {
     const hotPaths = [...new Set(hot.map((f) => String(f.file).replace(CWD + '/', '')).filter((f) => /\.go$/.test(f) && !/_test\.go$/.test(f)))]
     const text = hot.map((f) => f.file + ':' + f.line + ' (' + f.symbol + ', ' + f.severity + '): ' + f.symptom).join('; ')
     let r2 = null
-    if (hotPaths.length) r2 = await workflow({ scriptPath: CWD + '/workflows/code-relay.js' }, { cwd: CWD, paths: hotPaths, fix: true, minFix: 'low', fast: true, known: hot.filter((f) => hotPaths.includes(String(f.file).replace(CWD + '/', ''))).map((f) => ({ file: String(f.file).replace(CWD + '/', ''), symptom: f.symptom })), focus: 'Review findings to fix, all severities: ' + text, steps: CHILD_STEPS, polish: false }).catch(() => null)
-    d.push('review loop: ' + (r2 && r2.exit !== 'error' ? 'ran once over ' + hotPaths.join(', ') + ' (capped at one loop)' : 'skipped, no usable Go paths or code-relay failed'))
+    if (hotPaths.length) r2 = await workflow({ scriptPath: CWD + '/workflows/code-workers.js' }, { cwd: CWD, paths: hotPaths, fix: true, minFix: 'low', fast: true, known: hot.filter((f) => hotPaths.includes(String(f.file).replace(CWD + '/', ''))).map((f) => ({ file: String(f.file).replace(CWD + '/', ''), symptom: f.symptom })), focus: 'Review findings to fix, all severities: ' + text, steps: CHILD_STEPS, polish: false }).catch(() => null)
+    d.push('review loop: ' + (r2 && r2.exit !== 'error' ? 'ran once over ' + hotPaths.join(', ') + ' (capped at one loop)' : 'skipped, no usable Go paths or code-workers failed'))
     if (r2 && r2.exit !== 'error') {
       out.exit = r2.exit === 'red' || res.red.length ? 'red' : res.exit
       out.fixed = [...res.fixed, ...(r2.fixed || [])]

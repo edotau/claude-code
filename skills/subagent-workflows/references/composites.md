@@ -4,31 +4,31 @@ The composites this harness operates from, as fill-in templates. Shapes and why:
 exits: [saved-workflows.md](saved-workflows.md). Run one only when the owner asks; with no specific fit, run (A).
 Evidence: `memory/claude-code/reports/2026-11-07-workflow-scorecard.md`.
 
-Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 114 / 8.8M). code-relay estimate is
+Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 114 / 8.8M). code-workers estimate is
 `6 x packages + 3 x fixed packages` (the script logs it at launch) plus 2 (size, record). Dispatch cap:
 24 per account, one slot per `agent()` site, so a 15-package run is claimed at the cap, not its real count.
 
 ## A. code-engineer: size, route, stream, record
 
 - **Use when**: any code job when no specific workflow fits; TRIVIAL to HIGH (EPIC stops at a plan).
-- **Script**: `/home/edotau/.claude/workflows/code-engineer.js` calling `/home/edotau/.claude/workflows/code-relay.js`.
+- **Script**: `/home/edotau/.claude/workflows/code-engineer.js` calling `/home/edotau/.claude/workflows/code-workers.js`.
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
 | Size | sizer, `haiku` low | task, `git status`, `go list` | `{tier, packages, paths, focus}` | tier enum | decision line |
-| Route | none (code) | tier | `code-relay:paths` · `code-relay:packages` · `plan` | EPIC returns early | route line |
-| Run | code-relay (composite B) | paths or packages | code-relay result | exit `green\|red\|review` | child decisions |
+| Route | none (code) | tier | `code-workers:paths` · `code-workers:packages` · `plan` | EPIC returns early | route line |
+| Run | code-workers (composite B) | paths or packages | code-workers result | exit `green\|red\|review` | child decisions |
 | Dedupe | deduper, `sonnet` medium | combined diff of 2+ fixed packages | applied, flagged, Δ lines | only cross-package duplicated helpers; `polish:false` skips | decision |
 | Simplify | simplifier, `sonnet` medium | merged diff of all fixed files | simplify result | simplify gate | decision |
-| Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one more code-relay, capped at one loop | decision |
+| Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one more code-workers, capped at one loop | decision |
 | Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
 
 - **Args**: `cwd` and one of `task`, `packages`, `paths`, `range` (git range; changed files become paths); optional
   `tier`, `fix` (true), `minFix` (low), `focus`,
-  `polish` (true; false skips code-relay's per-package chain and the final pass), `label`,
+  `polish` (true; false skips code-workers's per-package chain and the final pass), `label`,
   `record:false`, `steps {size, intel, impl, plan, dedupe, simplify, review, record, child}`.
   Exits `green|red|review|plan|error`.
-- **Cost**: HIGH over N packages is code-relay's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
+- **Cost**: HIGH over N packages is code-workers's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
 - **Failure modes and guards**: sizer returns nothing, so pass `tier`; untested routes (LOW/MEDIUM/impl/EPIC) went
   live only in `2026-11-07-route-test-low.md`; owner messages reach running agents (R8, open); classifier outage
   blocked one fixer in R11 (reported red, re-dispatched by hand, `07f86477`).
@@ -36,7 +36,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
   `agent()` calls replay from cache (R7's fix round re-ran only 12 new agents; R8's resumed the same way). Results land
   in `$(claude-code memory path)/reports/DATE-<label>.md` and `DATE-decisions.md`.
 
-## B. code-relay: find, rederive, fix, guard test, gate, simplify, review, fix-all
+## B. code-workers: find, rederive, fix, guard test, gate, simplify, review, fix-all
 
 - **Use when**: audit and repair named packages or files; `fix:false` for review only (R7, R8 shape).
 
@@ -62,7 +62,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 - **Results**: returns `{exit, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red,
   decisions, report}`; direct runs record nothing, so go through (A) when the run should be filed.
 
-## C. MEDIUM feature: intel, implementer, code-relay harden
+## C. MEDIUM feature: intel, implementer, code-workers harden
 
 - **Use when**: a 2 to 5 file task with a feature verb (`build|add|implement|create|introduce|support|write`, not
   `audit|review`); this is code-engineer's MEDIUM route.
@@ -71,11 +71,11 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | --- | --- | --- | --- | --- | --- |
 | Intel | `sonnet` medium, read-only | task, sized paths | `{paths, focus}` | empty keeps sized paths | decision |
 | Implementer | `sonnet` medium | files, task, focus | `{status, summary}` | gofmt, go vet; writes no tests | status line |
-| Harden | code-relay on the files | paths | composite B result | guard test, gate | child decisions |
+| Harden | code-workers on the files | paths | composite B result | guard test, gate | child decisions |
 
 - **Call**: `Workflow({scriptPath: ".../code-engineer.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
-- **Cost**: 2 + code-relay on 1 to 3 packages, about 8 to 20 agents (about 0.6M to 1.6M tokens, extrapolated).
-- **Failure modes**: code-relay only fixes bugs, so a build is the implementer's job; the old `code-engineer`
+- **Cost**: 2 + code-workers on 1 to 3 packages, about 8 to 20 agents (about 0.6M to 1.6M tokens, extrapolated).
+- **Failure modes**: code-workers only fixes bugs, so a build is the implementer's job; the old `code-engineer`
     (one fixed chain) was rewritten as the size-routed script, renamed from `orchestrate`
     (A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - **Resume**: re-run with `paths` set to the files the implementer touched and no feature verb, which skips it.
@@ -148,7 +148,7 @@ Returns:     {exit, route, packages, merged, confirmed, dropped, unverified, fix
 - A row in the table of [saved-workflows.md](saved-workflows.md); `claude-code workflow lint` fails on a script
   missing from it or a row naming no script.
 - Copy `stepOf` verbatim (markers `── stepOf: copied verbatim` to `── end stepOf ──`) from
-  `/home/edotau/.claude/workflows/code-relay.js`; every stage reads its pin through it.
+  `/home/edotau/.claude/workflows/code-workers.js`; every stage reads its pin through it.
 - Every `agent()` call pins `model:` and `effort:`; claude only, no `agent`/`profile` fields.
 - Return the shared result shape above; `ERR(...)` for bad args; no shell state outside agents; plain JavaScript.
 - A log line with the agent estimate at launch, and a `slice` arg for the first run.
