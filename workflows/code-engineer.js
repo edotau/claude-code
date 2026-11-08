@@ -93,7 +93,9 @@ if (RANGE && !/^[A-Za-z0-9._\/~^@{}-]+(\.\.\.?[A-Za-z0-9._\/~^@{}-]+)?$/.test(RA
 if (!CWD || !(TASK || PATHS.length || PKGS.length || RANGE)) return ERR('args.cwd and one of args.task, args.packages, args.paths or args.range are required')
 if (a.tier !== undefined && !TIERS.includes(a.tier)) return ERR('args.tier must be ' + TIERS.join('|'))
 // steps.child is code-workers's own steps; the rest are ours.
-const { child: CHILD_STEPS, ...OWN } = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
+const { child: CHILD_RAW, ...OWN } = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
+// a fix task never runs impl (code-workers' fix stage does the edit), so steps.impl drives that fix stage unless child.fix is set
+const CHILD_STEPS = OWN.impl && !(CHILD_RAW && CHILD_RAW.fix) ? { ...(CHILD_RAW || {}), fix: OWN.impl } : CHILD_RAW
 const OPT = { external: true, profile: a.profile, provider: a.provider, allowed: ['size', 'intel', 'impl', 'plan', 'dedupe', 'simplify', 'review', 'record'] }
 let S
 try {
@@ -374,12 +376,14 @@ async function record(res0) {
   const res = { ...res0, files, report: res0.report + (files.length ? '\n\nFiles touched: ' + files.join(', ') : '') }
   if (a.record === false) return { ...res, coworkers: COWORKERS }
   const label = String(a.label || 'code-engineer').replace(/[^A-Za-z0-9._-]+/g, '-')
-  const w = S.record.done('record', await agent(
+  const recordOnce = () => agent(
     S.record.task(RULES + ' Write two files and nothing else. Run `cd ' + CWD + ' && claude-code memory path` for the store dir D and `date +%F` for DATE. ' +
       '(1) Append (create if missing) the markdown REPORT below, followed by one blank line, to D/reports/DATE-' + label + '.md. ' +
       '(2) Append each DECISION below as a line `- DATE · ' + label + ' · <decision>` to D/reports/DATE-decisions.md (create with a `# Decisions` title). ' +
       'Then run `cd ' + CWD + ' && claude-code memory fmt` so both files pass the docs lint. Never edit any other file. Return the two paths.\nREPORT:\n' + res.report + '\nDECISIONS:\n' + res.decisions.map((d) => '- ' + d).join('\n')),
     { phase: 'Record', label: 'record', schema: S.record.schema(RECORDED), model: S.record.model, effort: S.record.effort, ...S.record.type },
-  ).catch(() => null))
+  ).catch(() => null)
+  let w = S.record.done('record', await recordOnce())
+  if (!w || !(w.paths || []).length) w = S.record.done('record', await recordOnce()) // a no-op record (paths []) gets one retry
   return { ...res, coworkers: COWORKERS, recorded: w ? w.paths : [], decisions: [...res.decisions, w ? 'recorded: ' + w.paths.join(', ') : 'record agent returned nothing'] }
 }

@@ -2,11 +2,13 @@ package gateway
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -153,5 +155,20 @@ func TestPrintRouteSkipHeader(t *testing.T) {
 	})
 	if strings.Contains(none, "SKIP") {
 		t.Errorf("no skips must print no header:\n%s", none)
+	}
+}
+
+// TestPrintProxyStateReportsWriteError: a failed stdout write is returned, so bare gateway cannot exit 0.
+func TestPrintProxyStateReportsWriteError(t *testing.T) {
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("no /dev/full: %v", err)
+	}
+	defer full.Close()
+	orig := os.Stdout
+	os.Stdout = full
+	t.Cleanup(func() { os.Stdout = orig })
+	if err := printProxyState(proxy.Status{Log: "x.log"}); err == nil {
+		t.Fatal("printProxyState returned nil despite a failed stdout write")
 	}
 }
