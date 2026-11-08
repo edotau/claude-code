@@ -3,6 +3,7 @@ package shell
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -244,6 +245,20 @@ func TestCommandInGitDirOperand(t *testing.T) {
 	for _, c := range cases {
 		if got := CommandIn(c.cmd, root, []string{root, wt}, nil); got != c.want {
 			t.Errorf("CommandIn(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
+
+// TestAbsolutizeOperandsGitDirAndSlash pins that git -C dir gets cwd and a git slash-suffixed path stays as written.
+func TestAbsolutizeOperandsGitDirAndSlash(t *testing.T) {
+	cases := []struct{ in, want []string }{
+		{[]string{"git", "-C", "sub", "status"}, []string{"git", "-C", "/w/sub", "status"}},
+		{[]string{"git", "add", "agents/"}, []string{"git", "add", "agents/"}},
+		{[]string{"rm", "a/"}, []string{"rm", "/w/a"}},
+	}
+	for _, c := range cases {
+		if got := absolutizeOperands(c.in, "/w"); !slices.Equal(got, c.want) {
+			t.Errorf("absolutizeOperands(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
