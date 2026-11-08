@@ -1,8 +1,7 @@
-// `Profile:` brief line: a dispatch for another profile runs through a coworker leaf as `ask --profile <p>`.
+// `Profile:` brief line: a dispatch for another profile keeps its type and runs `ask --profile <p>`.
 package agents
 
 import (
-	"cmp"
 	"fmt"
 	"regexp"
 	"slices"
@@ -50,7 +49,7 @@ func briefAgents(task string) []string {
 	return names
 }
 
-// readOnlyTypes are subagent types without write tools; a Profile: line must not move them to a coworker.
+// readOnlyTypes are subagent types without write tools; a Profile: line does not apply to them.
 var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true,
 	"code-worker:gemini": true, "claude-code-guide": true}
 
@@ -60,7 +59,7 @@ func inContextBrief(task string) bool {
 	return m != nil && strings.Contains(strings.ToLower(m[1]), "in-context")
 }
 
-// applyProfile moves a Profile: dispatch to a coworker and prepends the exact ask command. deny is a Block
+// applyProfile prepends the exact ask command to a Profile: dispatch. deny is a Block
 // for an unknown profile; note is "" when the brief names no profile or the dispatch is already routed.
 func applyProfile(updated map[string]any, promptField, task string) (note string, deny *core.Result) {
 	p := briefProfile(task)
@@ -78,11 +77,11 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 	if inContextBrief(task) {
 		return "agent-effort: Profile: " + p + " ignored for an in-context leaf.", nil
 	}
-	return routeProfile(updated, promptField, task, p, st), nil
+	return routeProfile(updated, promptField, task, p), nil
 }
 
-// routeProfile prepends the ask command to the prompt and moves a non-coworker dispatch to coworker.
-func routeProfile(updated map[string]any, promptField, task, p, st string) (note string) {
+// routeProfile prepends the ask command to the prompt, once.
+func routeProfile(updated map[string]any, promptField, task, p string) (note string) {
 	var cmds []string
 	for _, a := range cmpSlice(briefAgents(task), []string{"claude"}) {
 		cmds = append(cmds, fmt.Sprintf("claude-code agents ask --agent %s --profile %s", a, p))
@@ -92,23 +91,7 @@ func routeProfile(updated map[string]any, promptField, task, p, st string) (note
 		updated[promptField] = "Run: " + strings.Join(cmds, " ; ") + " (profile " + p + "; ask resolves host and auth)\n\n" + prompt
 		note = "agent-effort: Profile: " + p + " — leaf must run `" + strings.Join(cmds, "`, `") + "`."
 	}
-	if pool, _ := splitType(st); pool != "coworker" {
-		to := profileTarget(task)
-		updated["subagent_type"] = to
-		note = strings.TrimSpace(fmt.Sprintf("agent-effort: Profile: %s — %s dispatch moved to %s (the session route cannot change profile). %s",
-			p, cmp.Or(st, "general-purpose"), to, note))
-	}
 	return note
-}
-
-// profileTarget is the coworker type a Profile: dispatch moves to: the brief's copilot/opencode, else bare coworker.
-func profileTarget(task string) string {
-	for _, a := range briefAgents(task) {
-		if t := poolType(a); strings.HasPrefix(t, "coworker:") {
-			return t
-		}
-	}
-	return "coworker"
 }
 
 // profileSuffix appends `·<profile>` to a label unless it already ends with that name.

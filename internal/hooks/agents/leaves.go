@@ -257,14 +257,19 @@ func requestsAgent(brief string) bool {
 	return agentLineRe.MatchString(brief) || briefProfile(brief) != ""
 }
 
+// externalTypes are the leaf types named for the external agent they request; the type is the request.
+var externalTypes = map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true}
+
 // pinnedAgentType is true for a leaf type fixed to one external agent; its type is the request, whatever the brief says.
 func pinnedAgentType(t string) bool {
-	return t == "code-worker:codex" || t == "code-worker:gemini" || t == "coworker:copilot" || t == "coworker:opencode"
+	return externalTypes[t] || t == "code-worker:codex" || t == "code-worker:gemini" || t == "coworker:copilot" || t == "coworker:opencode"
 }
 
-// ranOnGated is true for the leaves that can call an external agent: coworker, coworker:*, code-worker, code-worker:codex|gemini.
+// ranOnGated is true for the leaves that can call an external agent: codex|copilot|gemini|opencode, plus the
+// transitional coworker, coworker:*, code-worker, code-worker:codex|gemini.
 func ranOnGated(t string) bool {
-	return t == "coworker" || strings.HasPrefix(t, "coworker:") || t == "code-worker" || t == "code-worker:codex" || t == "code-worker:gemini"
+	return externalTypes[t] || t == "coworker" || strings.HasPrefix(t, "coworker:") || t == "code-worker" ||
+		t == "code-worker:codex" || t == "code-worker:gemini"
 }
 
 // coworkerRanOnVerdict blocks a coworker's stop or hand-back once when no ran-on line was seen; a repeat passes.
