@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -16,7 +18,7 @@ import (
 // providerListCmdJSON runs `configure providers list <name> --format json`, requires exit 0, and returns stdout and stderr.
 func providerListCmdJSON(t *testing.T, name string) (stdout, stderr string) {
 	t.Helper()
-	code, stdout, stderr := captureOutput(t, func() int { return ProviderList(name, "json", func() []describe.Verb { return nil }) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return ProviderList(name, "json", func() []describe.Verb { return nil }) })
 	if code != 0 {
 		t.Fatalf("provider list %q JSON exit %d stderr %q", name, code, stderr)
 	}
@@ -24,7 +26,7 @@ func providerListCmdJSON(t *testing.T, name string) (stdout, stderr string) {
 }
 
 func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	const secret = "dapi-list-secret-value-123456"
 	err := providers.SetProviderFields("dbx-host", map[string]any{
 		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
@@ -85,11 +87,11 @@ func tableRow(out, label string) string {
 
 // The summary lists profiles whose credential resolves, folds m2m rows into MODE, and adds an agent section.
 func TestProviderTableSummary(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	t.Setenv("SUMMARY_MISSING_KEY", "")
 	t.Setenv("SUMMARY_SP_SECRET", "x")
 	reg := summaryRegistry()
-	_, out, _ := captureOutput(t, func() int { printProviderTable(reg); return 0 })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { printProviderTable(reg); return 0 })
 	if !strings.Contains(out, "PROVIDERS") || !strings.Contains(out, "AUTH") {
 		t.Fatalf("no header:\n%s", out)
 	}
@@ -111,7 +113,7 @@ func credSourceName(source string) string { return "fake-" + strings.ReplaceAll(
 // credSourceFixture seeds one provider per credential source and returns the sources plus the text provider table.
 func credSourceFixture(t *testing.T) (map[string]providers.Auth, string) {
 	t.Helper()
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(providers.EnvSessionProfile, "")
@@ -147,7 +149,7 @@ func credSourceFixture(t *testing.T) (map[string]providers.Auth, string) {
 		t.Fatal(err)
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", string(raw))
-	code, text, _ := captureOutput(t, func() int { return ProviderList("", "text", nil) })
+	code, text, _ := hosttest.CaptureOutput(t, func() int { return ProviderList("", "text", nil) })
 	if code != 0 {
 		t.Fatalf("provider table exit %d", code)
 	}
@@ -179,7 +181,7 @@ func assertCredentialSource(t *testing.T, source, text string) {
 
 func assertCredentialDetail(t *testing.T, name, source, note, text string) {
 	t.Helper()
-	code, detail, _ := captureOutput(t, func() int { return ProviderList(name, "text", nil) })
+	code, detail, _ := hosttest.CaptureOutput(t, func() int { return ProviderList(name, "text", nil) })
 	if code != 0 || !strings.Contains(detail, "cred      "+source) ||
 		(note != "" && !strings.Contains(detail, note)) {
 		t.Error("provider text detail omitted source or note")
@@ -210,7 +212,7 @@ func TestProviderCredentialSources(t *testing.T) {
 
 // A qualified <provider>·<profile> name resolves like reg.Get and lists that profile, not panics.
 func TestProviderListJSONQualifiedName(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	if err := providers.SetProviderFields("grp-dev", map[string]any{
 		"provider": "databricks", "protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"auth": map[string]any{"type": "pat"},

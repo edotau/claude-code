@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -25,7 +27,7 @@ func TestGatewayProxyFlagValidation(t *testing.T) {
 		{[]string{"--stop", "--format", "json"}, "applies to --status only"},
 	}
 	for _, c := range cases {
-		code, stdout, stderr := captureOutput(t, func() int { return Run(append([]string{"proxy"}, c.args...)) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"proxy"}, c.args...)) })
 		if code == 0 || !strings.Contains(stderr, c.want) || stdout != "" {
 			t.Errorf("proxy %v: want error %q, got exit %d stdout %q stderr %q", c.args, c.want, code, stdout, stderr)
 		}
@@ -35,11 +37,11 @@ func TestGatewayProxyFlagValidation(t *testing.T) {
 // TestGatewayProxyNoFlagIsStatus: no flag reports status and exits 1 while the router is down.
 func TestGatewayProxyNoFlagIsStatus(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, _ := captureOutput(t, func() int { return Run([]string{"proxy"}) })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"proxy"}) })
 	if code != 1 || !strings.Contains(stdout, "not running") {
 		t.Fatalf("want exit 1 + 'not running', got %d %q", code, stdout)
 	}
-	code, stdout, _ = captureOutput(t, func() int { return Run([]string{"proxy", "--status", "--format", "json"}) })
+	code, stdout, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"proxy", "--status", "--format", "json"}) })
 	var ps map[string]any
 	if err := json.Unmarshal([]byte(stdout), &ps); err != nil || code != 1 || ps["running"] != false {
 		t.Fatalf("status json: exit %d err %v out %q", code, err, stdout)
@@ -49,7 +51,7 @@ func TestGatewayProxyNoFlagIsStatus(t *testing.T) {
 // TestGatewayBareShowsRouteAndProxyFooter: bare gateway exits 0 even with the router down, ending in the proxy lines.
 func TestGatewayBareShowsRouteAndProxyFooter(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, stderr := captureOutput(t, func() int { return Run(nil) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(nil) })
 	if code != 0 {
 		t.Fatalf("exit %d stderr %q", code, stderr)
 	}
@@ -64,7 +66,7 @@ func TestGatewayBareShowsRouteAndProxyFooter(t *testing.T) {
 // TestGatewayBareJSONShape: bare --format json nests the unchanged route payload beside the proxy state.
 func TestGatewayBareJSONShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, _ := captureOutput(t, func() int { return Run([]string{"--format", "json"}) })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -86,7 +88,7 @@ func TestGatewayBareJSONShape(t *testing.T) {
 		}
 	}
 	// gateway router alone stays the bare route payload (no wrapper).
-	_, rout, _ := captureOutput(t, func() int { return Run([]string{"router", "--format", "json"}) })
+	_, rout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"router", "--format", "json"}) })
 	var plain map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(rout), &plain); err != nil {
 		t.Fatal(err)
@@ -101,7 +103,7 @@ func TestGatewayBareJSONShape(t *testing.T) {
 
 // TestGatewayUnknownWord: a stray word is an error, not a silent route pick.
 func TestGatewayUnknownWord(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"bogus"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"bogus"}) })
 	if code == 0 || !strings.Contains(stderr, "unknown command") {
 		t.Fatalf("exit %d stderr %q", code, stderr)
 	}
@@ -115,7 +117,7 @@ func TestPrintRouteWidthsComeFromData(t *testing.T) {
 			{Agent: "claude", Model: "sonnet", Account: "a", State: "ok", Scores: map[string]float64{}},
 			{Agent: "opencode", Model: long, Account: "b", State: "ok", Scores: map[string]float64{}},
 		}}
-	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
 	var rows []string
 	for l := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(l, "#") || strings.HasPrefix(l, "1 ") || strings.HasPrefix(l, "2 ") {
@@ -140,12 +142,12 @@ func TestPrintRouteWidthsComeFromData(t *testing.T) {
 func TestPrintRouteSkipHeader(t *testing.T) {
 	res := router.PickResult{Alias: "sonnet", Weights: map[string]float64{},
 		Skipped: []router.Skip{{Agent: "copilot", Gate: "exhausted", Reason: "r1"}, {Agent: "x", Gate: "g", Reason: "r2"}}}
-	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
 	if !strings.Contains(out, "SKIP    GATE      REASON\n") ||
 		!strings.Contains(out, "copilot exhausted r1\n") || !strings.Contains(out, "x       g         r2\n") {
 		t.Errorf("skip block wrong:\n%s", out)
 	}
-	_, none, _ := captureOutput(t, func() int {
+	_, none, _ := hosttest.CaptureOutput(t, func() int {
 		printRoute(router.PickResult{Weights: map[string]float64{}}, routeSources{}, nil)
 		return 0
 	})

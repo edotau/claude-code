@@ -1,42 +1,16 @@
 package vscode
 
 import (
-	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// captureOutput redirects os.Stdout/os.Stderr around fn and returns fn's exit code plus both streams.
-func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
-	t.Helper()
-	oldOut, oldErr := os.Stdout, os.Stderr
-	ro, wo, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	re, we, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var bo, be bytes.Buffer
-	var drained sync.WaitGroup
-	drained.Go(func() { io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
-	drained.Go(func() { io.Copy(&be, re) })
-	os.Stdout, os.Stderr = wo, we
-	code = fn()
-	wo.Close()
-	we.Close()
-	os.Stdout, os.Stderr = oldOut, oldErr
-	drained.Wait()
-	return code, bo.String(), be.String()
-}
-
 func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"serve"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"serve"}) })
 	if code != 1 {
 		t.Errorf("theme vscode serve: exit %d, want 1", code)
 	}
@@ -84,7 +58,7 @@ func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
-	code, out, _ := captureOutput(t, func() int {
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return Run(append([]string{"--template", tmpl, "--dest", dest}, extDirFlag(t)...))
 	})
 	if code != 0 {
@@ -102,7 +76,7 @@ func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
-	code, out, _ := captureOutput(t, func() int {
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return Run(append([]string{"--template", tmpl, "--dest", dest}, isolationFlags(t)...))
 	})
 	if code != 0 {
@@ -121,7 +95,7 @@ func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
-	code, out, _ := captureOutput(t, func() int {
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return Run(append([]string{"--template", tmpl, "--dest", dest, "--dry-run"}, isolationFlags(t)...))
 	})
 	if code != 0 {
@@ -142,7 +116,7 @@ func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
 func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
-	code, _, errOut := captureOutput(t, func() int {
+	code, _, errOut := hosttest.CaptureOutput(t, func() int {
 		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check"}, isolationFlags(t)...))
 	})
 	if code != 1 {
@@ -160,12 +134,12 @@ func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	kbFlag := isolationFlags(t)
-	if code, _, _ := captureOutput(t, func() int {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int {
 		return Run(append([]string{"--template", tmpl, "--dest", dest}, kbFlag...))
 	}); code != 0 {
 		t.Fatal("initial merge failed")
 	}
-	code, out, _ := captureOutput(t, func() int {
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check"}, kbFlag...))
 	})
 	if code != 0 {
@@ -179,7 +153,7 @@ func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
 func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to CacheDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
-	code, _, errOut := captureOutput(t, func() int {
+	code, _, errOut := hosttest.CaptureOutput(t, func() int {
 		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check", "--dry-run"}, isolationFlags(t)...))
 	})
 	if code != 2 {
@@ -195,7 +169,7 @@ func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	for _, flagArg := range []string{"-h", "--help"} {
-		code, _, errOut := captureOutput(t, func() int {
+		code, _, errOut := hosttest.CaptureOutput(t, func() int {
 			return Run(append([]string{flagArg, "--template", tmpl, "--dest", dest}, isolationFlags(t)...))
 		})
 		if code != 0 {

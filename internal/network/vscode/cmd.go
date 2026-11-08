@@ -132,8 +132,6 @@ func reportDryRun(label, dest string, changed bool) {
 
 // Spec is the completion node for `theme vscode`.
 func Spec() *completion.Node {
-	flag := func(n string) completion.Flag { return completion.Flag{Name: n} }
-	boolFlag := func(n string) completion.Flag { return completion.Flag{Name: n, IsBool: true} }
-	return &completion.Node{Flags: []completion.Flag{flag("template"), flag("dest"), flag("extensions-dir"),
-		flag("keybindings-template"), flag("keybindings-dest"), boolFlag("check"), boolFlag("dry-run")}}
+	return &completion.Node{Flags: []completion.Flag{completion.Plain("template"), completion.Plain("dest"), completion.Plain("extensions-dir"),
+		completion.Plain("keybindings-template"), completion.Plain("keybindings-dest"), completion.BoolFlag("check"), completion.BoolFlag("dry-run")}}
 }

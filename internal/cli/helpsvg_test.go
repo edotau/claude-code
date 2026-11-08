@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // The README's menu image is the current menu: a verb added or reworded without `make help-svg` fails the gate.
@@ -19,7 +21,7 @@ func TestMenuSVGIsCurrent(t *testing.T) {
 }
 
 func TestMenuSVGReportsStdoutFailure(t *testing.T) {
-	closedStdout(t)
+	hosttest.ClosedStdout(t)
 	if got := cmdMenuSVG(nil); got == 0 {
 		t.Fatal("help-svg exit = 0 on closed stdout, want nonzero")
 	}

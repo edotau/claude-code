@@ -5,11 +5,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
 	"golang.org/x/sys/unix"
 )
 
 func TestVaultGetKeyRefusesTTY(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatal(err)

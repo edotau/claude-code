@@ -8,16 +8,19 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
 func TestRunDoesNotDispatchArgvZero(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"codex"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"codex"}) })
 	if code != 0 || stderr != "" {
 		t.Fatalf("Run exit = %d, stderr = %q, want 0 and no error", code, stderr)
 	}
-	_, want, _ := captureOutput(t, func() int { usage(os.Stdout); return 0 })
+	_, want, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
 	if stdout != want {
 		t.Errorf("Run with argv[0]=codex output = %q, want usage %q", stdout, want)
 	}
@@ -30,7 +33,7 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	if c == nil || !c.hidden {
 		t.Fatal("claude must be a registered hidden command")
 	}
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"claude-code", "claude", "--profile", "max", "--print-env"})
 	})
 	if code != 0 || stderr != "" {
@@ -39,7 +42,7 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	if !strings.Contains(stdout, "binary   "+bin+"\n") {
 		t.Errorf("claude --print-env did not resolve the vendor binary:\n%s", stdout)
 	}
-	code, stdout, stderr = captureOutput(t, func() int { return Run([]string{"claude-code", "help"}) })
+	code, stdout, stderr = hosttest.CaptureOutput(t, func() int { return Run([]string{"claude-code", "help"}) })
 	if code != 0 || stderr != "" {
 		t.Fatalf("help exit = %d, stderr = %q", code, stderr)
 	}
@@ -83,7 +86,7 @@ func TestMenuRowsFit(t *testing.T) {
 
 // Every rendered usage line fits 80 columns (barring one unbreakable word) and continuations start at the description column.
 func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
-	_, out, _ := captureOutput(t, func() int { usage(os.Stdout); return 0 })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
 	col := 2 + nameWidth
 	for line := range strings.SplitSeq(out, "\n") {
 		if utf8.RuneCountInString(line) > menuWidth && len(strings.Fields(line)) > 2 {
@@ -116,7 +119,7 @@ func menuGroup(out, group string) string {
 }
 
 func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
-	_, out, _ := captureOutput(t, func() int { usage(os.Stdout); return 0 })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
 	if !regexp.MustCompile(`(?m)^  network +\S`).MatchString(menuGroup(out, "AUTH")) {
 		t.Errorf("network row missing from AUTH:\n%s", out)
 	}
@@ -138,7 +141,7 @@ func TestOldVerbsAreUnknownCommands(t *testing.T) {
 		if lookup(old) != nil {
 			t.Errorf("lookup(%q) still resolves", old)
 		}
-		code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", old}) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"claude-code", old}) })
 		if code != 2 || !strings.Contains(stderr, "unknown command") {
 			t.Errorf("%s: exit %d, stderr %q, want exit 2 unknown command", old, code, stderr)
 		}
@@ -189,7 +192,7 @@ func TestHelpFormat(t *testing.T) {
 
 func TestTopLevelCommandRowsSingleWordSingleLine(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	t.Setenv("HOME", t.TempDir())
 	for _, c := range commands() {
 		t.Run(c.name, func(t *testing.T) {
@@ -197,7 +200,7 @@ func TestTopLevelCommandRowsSingleWordSingleLine(t *testing.T) {
 			case "opus", "sonnet", "haiku", "fable", "science", "claude", "wl-paste":
 				t.Skip("external CLI launcher or wl-paste proxy: -h is forwarded, not a help page")
 			}
-			code, stdout, stderr := captureOutput(t, func() int {
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 				return Run([]string{"claude-code", c.name, "-h"})
 			})
 			if code != 0 {
@@ -253,7 +256,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	t.Helper()
 	argv := append([]string{"claude-code"}, path...)
 	argv = append(argv, "-h")
-	code, stdout, stderr := captureOutput(t, func() int { return Run(argv) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(argv) })
 	text := stdout + stderr
 	if code != 0 {
 		t.Errorf("%s: exit %d, want 0:\n%s", strings.Join(argv, " "), code, text)
@@ -430,8 +433,8 @@ func TestVaultInAuthGroupHelp(t *testing.T) {
 }
 
 func TestConfigVerbIsUnknown(t *testing.T) {
-	useVaultTest(t)
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"claude-code", "config", "show"}) })
+	vaulttest.UseFreshKey(t)
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"claude-code", "config", "show"}) })
 	if code != 2 {
 		t.Errorf("Run([config show]) = %d, want 2 (unknown verb)", code)
 	}

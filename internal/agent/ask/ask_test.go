@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/agent/job"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -122,7 +124,7 @@ func TestCmdAskBadPermissionRuleNeverLaunches(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
 	t.Setenv("PATH", dir)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return Cmd([]string{"--agent", "claude", "--fallback", "none", "--deny", "Bash(", "say ok"})
 	})
 	if code != 2 || !strings.Contains(stderr, `permission rule "Bash("`) {
@@ -144,7 +146,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 				writeFixtureFile(t, filepath.Join(dir, name), name)
 			}
 			args, wantRecords := askRetryArgs(t, dir, tt)
-			code, _, stderr := captureOutput(t, func() int { return Cmd(args) })
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
 			if code != 1 {
 				t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 			}
@@ -165,7 +167,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 // --background and --job are mutually exclusive: Cmd must fail before doing any work.
 func TestCmdAskBackgroundAndJobMutuallyExclusive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return Cmd([]string{"--background", "--job", "some-id", "say ok"})
 	})
 	if code == 0 {
@@ -184,7 +186,7 @@ func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	code, _, stderr := captureOutput(t, func() int { return Cmd([]string{"--job", rec.ID}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--job", rec.ID}) })
 	if code != 2 || !strings.Contains(stderr, "not a fresh background job") {
 		t.Fatalf("exit %d stderr %q, want 2 and the not-a-fresh-job message", code, stderr)
 	}
@@ -532,7 +534,7 @@ func TestAskHostForwardsFallback(t *testing.T) {
 // A rejected --env must never echo its value: the flag parser prints the value of a failing Set.
 func TestAskEnvRejectionNeverEchoesValue(t *testing.T) {
 	for _, arg := range []string{"ANTHROPIC_API_KEY=supersecret", "HARNESS_VAULT_KEY=supersecret", "supersecret"} {
-		code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"--env", arg, "hi"}, false) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--env", arg, "hi"}, false) })
 		if code == 0 || strings.Contains(stdout+stderr, "supersecret") {
 			t.Errorf("--env %s: code=%d, value leaked or accepted:\nstdout=%q\nstderr=%q", arg, code, stdout, stderr)
 		}
@@ -585,7 +587,7 @@ func TestAskFailureEnvelopeCarriesResolvedRunner(t *testing.T) {
 	t.Setenv("HOME", dir)
 	defs := `{"sec":{"prompt":"Be strict.","agent":"codex"}}`
 	args := []string{"--agents", defs, "--agent", "sec", "--format", "json", "--background", "--env", "A=b", "x"}
-	code, stdout, stderr := captureOutput(t, func() int { return Cmd(args) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
 	var env struct{ Agent string }
 	if err := json.Unmarshal([]byte(stdout), &env); err != nil || code != 2 {
 		t.Fatalf("exit %d, stdout %q, err %v, stderr %q; want a usage envelope", code, stdout, err, stderr)
@@ -598,7 +600,7 @@ func TestAskFailureEnvelopeCarriesResolvedRunner(t *testing.T) {
 // captureAskStdout runs Cmd and returns its exit code and stdout.
 func captureAskStdout(t *testing.T, args ...string) (int, string) {
 	t.Helper()
-	code, stdout, _ := captureOutput(t, func() int { return Cmd(args) })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
 	return code, stdout
 }
 
@@ -810,7 +812,7 @@ func TestCmdAskPackFlagExitsTwo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
 	t.Setenv("PATH", dir)
-	if code, _, _ := captureOutput(t, func() int { return Cmd([]string{"--index", "x"}) }); code != 2 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--index", "x"}) }); code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
 }

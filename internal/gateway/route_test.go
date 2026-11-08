@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -208,7 +210,7 @@ func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 func TestRouterStartHelpDoesNotStart(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, args := range [][]string{{"proxy", "-h"}, {"proxy", "--help"}, {"-h"}} {
-		code, _, stderr := captureOutput(t, func() int { return Run(args) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code != 0 || !strings.Contains(stderr, "usage: claude-code gateway") {
 			t.Errorf("gateway %v: want usage + exit 0, got exit %d stderr %q", args, code, stderr)
 		}
@@ -221,7 +223,7 @@ func TestRouterStartHelpDoesNotStart(t *testing.T) {
 // TestRouterStrayArgumentIsAUsageError: a typo after start/stop/status fails loudly instead of being ignored.
 func TestRouterStrayArgumentIsAUsageError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"proxy", "now"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"proxy", "now"}) })
 	if code == 0 || !strings.Contains(stderr, `unexpected argument "now"`) {
 		t.Fatalf("want a usage error naming the stray argument, got exit %d stderr %q", code, stderr)
 	}

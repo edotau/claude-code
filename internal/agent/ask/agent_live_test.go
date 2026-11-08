@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/agent/job"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -62,7 +64,7 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 	}
 	f := askFlags{}
 	s := (&askRun{f: &f}).askState()
-	if code, _, _ := captureOutput(t, func() int { return startLive(s, agent.Permissions{}, "claude", "sp", "json") }); code != 1 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(s, agent.Permissions{}, "claude", "sp", "json") }); code != 1 {
 		t.Fatalf("startLive = %d, want 1 (test binary is not relaunched)", code)
 	}
 	recs := job.RecentRecords(1)

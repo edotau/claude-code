@@ -11,6 +11,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -18,7 +20,7 @@ import (
 
 // TestConfigureHelpFitsEightyColumns: `configure -h` lines (usage + flag defaults) stay within 80 columns.
 func TestConfigureHelpFitsEightyColumns(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return run([]string{"-h"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"-h"}) })
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
@@ -41,7 +43,7 @@ func TestSpecArgsOfferSectionsThenProfiles(t *testing.T) {
 
 func TestConfigureHelpShowsDoubleDashFlags(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
-	_, _, stderr := captureOutput(t, func() int { return run([]string{"-h"}) })
+	_, _, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"-h"}) })
 	if !strings.Contains(stderr, "--restore") {
 		t.Errorf("help lacks --restore:\n%s", stderr)
 	}
@@ -80,7 +82,7 @@ func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, _, stderr := captureOutput(t, func() int { return run(tc.args) })
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
 			if code != 1 {
 				t.Errorf("exit %d, want 1", code)
 			}
@@ -97,7 +99,7 @@ func TestConfigureRestoreResetsSettingsAfterBackup(t *testing.T) {
 	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return run([]string{"--restore"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"--restore"}) })
 	if code != 0 {
 		t.Fatalf("bare --restore exit %d: %s", code, stderr)
 	}
@@ -122,7 +124,7 @@ func TestConfigureRestoreAgentsNeverTouchesSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"--restore", "--agents", "--agent", "codex"}, {"--restore", "--agent", "codex"}} {
-		if code, _, stderr := captureOutput(t, func() int { return run(args) }); code != 0 {
+		if code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(args) }); code != 0 {
 			t.Fatalf("%v exit %d: %s", args, code, stderr)
 		}
 		baks, _ := filepath.Glob(live + ".bak.*")
@@ -133,7 +135,7 @@ func TestConfigureRestoreAgentsNeverTouchesSettings(t *testing.T) {
 }
 
 func TestConfigureRestoreRejectsUnknownAgent(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return run([]string{"--restore", "--agents", "--agent", "x"})
 	})
 	if code != 1 {
@@ -158,7 +160,7 @@ func TestConfigureAllFlagGates(t *testing.T) {
 		{"--family removed", []string{"provider", "--all", "--family", "x"}, 2, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			code, _, stderr := captureOutput(t, func() int { return run(tc.args) })
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
 			if code != tc.wantCode || !strings.Contains(stderr, tc.want) {
 				t.Errorf("exit %d (want %d), stderr %q lacks %q", code, tc.wantCode, stderr, tc.want)
 			}
@@ -178,7 +180,7 @@ func TestConfigureAllArgumentLimits(t *testing.T) {
 		{"with --profile", []string{"provider", "--all", "--profile", "x"}, "cannot be combined with --list or --profile"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			code, _, stderr := captureOutput(t, func() int { return run(tc.args) })
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
 			if code != 1 || !strings.Contains(stderr, tc.want) {
 				t.Errorf("exit %d, stderr %q lacks %q", code, stderr, tc.want)
 			}
@@ -202,7 +204,7 @@ func desktopCLIEnv(t *testing.T) string {
 
 func TestConfigureDesktopWritesAndReverts(t *testing.T) {
 	root := desktopCLIEnv(t)
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return run([]string{"desktop", "--profile", "anthropic"})
 	})
 	if code != 0 {
@@ -222,7 +224,7 @@ func TestConfigureDesktopWritesAndReverts(t *testing.T) {
 	if headers, ok := profile["inferenceCustomHeaders"].(map[string]any); !ok || headers["X-Claude-Code-Agent"] != "desktop" {
 		t.Fatalf("missing attribution: %s", raw)
 	}
-	code, _, stderr = captureOutput(t, func() int { return run([]string{"desktop", "--revert"}) })
+	code, _, stderr = hosttest.CaptureOutput(t, func() int { return run([]string{"desktop", "--revert"}) })
 	if code != 0 {
 		t.Fatalf("revert exit %d: %s", code, stderr)
 	}
@@ -235,7 +237,7 @@ func TestConfigureDesktopDryRunDoesNotStartProxy(t *testing.T) {
 	root := desktopCLIEnv(t)
 	desktopEnsure = func(context.Context) (string, error) { t.Fatal("dry-run started proxy"); return "", nil }
 	t.Setenv("HARNESS_HEADERS", "X-Private: sensitive-header")
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return run([]string{"desktop", "--profile", "anthropic", "--dry-run"})
 	})
 	if code != 0 || strings.Contains(stdout+stderr, "sensitive-header") {
@@ -259,13 +261,13 @@ func TestConfigureDesktopValidation(t *testing.T) {
 		{"desktop", "--restore"},
 		{"desktop", "--profile", "max"},
 	} {
-		code, stdout, _ := captureOutput(t, func() int { return run(args) })
+		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return run(args) })
 		if code == 0 || stdout != "" {
 			t.Errorf("%v: exit %d stdout %q", args, code, stdout)
 		}
 	}
 	desktopRoot = func() (string, error) { return filepath.Join(root, "never-opened"), nil }
-	code, _, stderr := captureOutput(t, func() int { return run([]string{"desktop", "--dry-run"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"desktop", "--dry-run"}) })
 	if code == 0 || !strings.Contains(stderr, "open Claude Desktop once") {
 		t.Fatalf("missing root: exit %d stderr %q", code, stderr)
 	}
@@ -274,7 +276,7 @@ func TestConfigureDesktopValidation(t *testing.T) {
 func TestConfigureDesktopProxyFailureLeavesDesktopUntouched(t *testing.T) {
 	root := desktopCLIEnv(t)
 	desktopEnsure = func(context.Context) (string, error) { return "", errors.New("private diagnostic") }
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return run([]string{"desktop", "--profile", "anthropic"})
 	})
 	if code == 0 || stdout != "" || strings.Contains(stderr, "private diagnostic") {

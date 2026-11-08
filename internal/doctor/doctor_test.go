@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/browser"
@@ -39,7 +42,7 @@ func TestDoctorSecretAuditExitCodes(t *testing.T) {
 		for _, finding := range []bool{false, true} {
 			t.Run(mode+map[bool]string{false: "/clean", true: "/finding"}[finding], func(t *testing.T) {
 				args, value := doctorSecretAuditFixture(t, mode, finding)
-				code, stdout, stderr := captureOutput(t, func() int { return Run(args) })
+				code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
 				want := 0
 				if finding {
 					want = 1
@@ -64,7 +67,7 @@ func TestDoctorSecretAuditExitCodes(t *testing.T) {
 
 func doctorSecretAuditFixture(t *testing.T, mode string, finding bool) ([]string, string) {
 	t.Helper()
-	cfg := useVaultTest(t)
+	cfg := vaulttest.UseFreshKey(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(doctorGitFixture(t, finding && mode != "scan"))
 	const value = "gh" + "p_obviouslyFAKEfixtureToken1234567890"
@@ -86,7 +89,7 @@ func doctorSecretAuditFixture(t *testing.T, mode string, finding bool) ([]string
 func TestDoctorSecretsWorstExitWins(t *testing.T) {
 	for _, finding := range []string{"scan", "git", "vault"} {
 		t.Run(finding, func(t *testing.T) {
-			cfg := useVaultTest(t)
+			cfg := vaulttest.UseFreshKey(t)
 			t.Setenv("HOME", t.TempDir())
 			t.Chdir(doctorGitFixture(t, finding == "git"))
 			const value = "gh" + "p_obviouslyFAKEfixtureToken1234567890"
@@ -110,7 +113,7 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			code, stdout, stderr := captureOutput(t, func() int {
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 				return Run([]string{"--secrets", "--since", "1"})
 			})
 			if code != 1 {
@@ -124,13 +127,13 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 }
 
 func TestDoctorAuditUsageErrors(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	for _, args := range [][]string{
 		{"unexpected"}, {"--git", "unexpected"},
 		{"--scan", "--format", "json"}, {"--git", "--format", "json"},
 		{"--secrets", "--format", "json"},
 	} {
-		code, _, _ := captureOutput(t, func() int { return Run(args) })
+		code, _, _ := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code != 2 {
 			t.Errorf("doctor %v exit %d, want 2", args, code)
 		}
@@ -138,7 +141,7 @@ func TestDoctorAuditUsageErrors(t *testing.T) {
 }
 
 func TestDoctorPlainIncludesVaultRows(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no real tool --version probes
 	t.Cleanup(browser.SetCommandTimeout(50 * time.Millisecond))
@@ -146,7 +149,7 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, format := range []string{"text", "json"} {
-		code, stdout, _ := captureOutput(t, func() int { return Run([]string{"--format", format}) })
+		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--format", format}) })
 		if strings.Contains(stdout, "obviously-fake-doctor-value") {
 			t.Fatal("plain doctor leaked a raw value")
 		}
@@ -210,7 +213,7 @@ func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {
 	audit.Log(audit.ProviderSwitch, "gemini", "")
 	audit.Log(audit.HookBlocked, "safety", "destructive command")
 
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"--audit"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit"}) })
 	if code != 0 {
 		t.Fatalf("doctor --audit = %d, want 0: %s", code, stderr)
 	}
@@ -241,7 +244,7 @@ func TestDoctorAuditJSONShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	audit.Log(audit.SecretSet, "OPENAI_API_KEY", "")
 
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"--audit", "--format", "json"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("doctor --audit --format json = %d, want 0: %s", code, stderr)
 	}
@@ -264,7 +267,7 @@ func TestDoctorAuditJSONShape(t *testing.T) {
 // doctor --audit --days rejects a non-positive value, same as the old `audit --days`.
 func TestDoctorAuditRejectsNonPositiveDays(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"--audit", "--days", "0"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit", "--days", "0"}) })
 	if code != 2 {
 		t.Errorf("doctor --audit --days 0 = %d, want 2", code)
 	}
@@ -287,7 +290,7 @@ func TestDoctorJSONWriteError(t *testing.T) {
 	orig := doctorChecks
 	doctorChecks = func() ([]launch.Check, bool) { return []launch.Check{{Name: "x", OK: true}}, true }
 	t.Cleanup(func() { doctorChecks = orig })
-	closedStdout(t)
+	hosttest.ClosedStdout(t)
 
 	code := Run([]string{"--format", "json"})
 	if code == 0 {
@@ -298,7 +301,7 @@ func TestDoctorJSONWriteError(t *testing.T) {
 // TestDoctorAuditJSONWriteError ensures doctor --audit --format json exits non-zero
 // when writing to stdout fails (regression test for the doctor audit JSON write).
 func TestDoctorAuditJSONWriteError(t *testing.T) {
-	closedStdout(t)
+	hosttest.ClosedStdout(t)
 
 	code := Run([]string{"--audit", "--format", "json"})
 	if code == 0 {

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/agent/job"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -128,7 +130,7 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, stdout, stderr := captureOutput(t, func() int { return Job("result", []string{rec.ID, "--format", "json"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Job("result", []string{rec.ID, "--format", "json"}) })
 	var got wire.Envelope
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, stdout, err)

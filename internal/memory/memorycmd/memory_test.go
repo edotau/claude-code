@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
@@ -88,7 +90,7 @@ func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
 func TestMemoryMigrateVerbGone(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if code, _, stderr := captureOutput(t, func() int { return Run([]string{"migrate", "--dry-run"}, nil) }); code != 1 || !strings.Contains(stderr, "unknown subcommand") {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"migrate", "--dry-run"}, nil) }); code != 1 || !strings.Contains(stderr, "unknown subcommand") {
 		t.Errorf("memory migrate: code=%d stderr=%q, want exit 1 unknown subcommand", code, stderr)
 	}
 }
@@ -107,7 +109,7 @@ func TestMemorySubcommandsWithoutRepoRejectBareRepoFlag(t *testing.T) {
 		{[]string{"show", "--repo", "/x"}, 2},
 	}
 	for _, c := range cases {
-		code, _, stderr := captureOutput(t, func() int { return Run(c.args, nil) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(c.args, nil) })
 		if code != c.want {
 			t.Errorf("Run(%v) = %d, want %d; stderr=%q", c.args, code, c.want, stderr)
 		}
@@ -119,7 +121,7 @@ func TestMemorySubcommandsWithoutRepoRejectBareRepoFlag(t *testing.T) {
 func TestMemoryPathHonorsRepoFlag(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := t.TempDir()
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"path", "--repo", repo}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"path", "--repo", repo}, nil) })
 	if code != 0 {
 		t.Fatalf("memory path --repo %s: code = %d, want 0; stderr=%q", repo, code, stderr)
 	}
@@ -138,7 +140,7 @@ func TestNoPreRenameLabelInUserOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"init", "--repo", repo}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"init", "--repo", repo}, nil) })
 	if code != 0 {
 		t.Fatalf("memory init: code=%d stderr=%q", code, stderr)
 	}
@@ -149,7 +151,7 @@ func TestNoPreRenameLabelInUserOutput(t *testing.T) {
 		t.Errorf("memory init output still names the pre-rename global tier: %q", out)
 	}
 
-	code, out, stderr = captureOutput(t, func() int { return Run([]string{"index", "--repo", repo}, nil) })
+	code, out, stderr = hosttest.CaptureOutput(t, func() int { return Run([]string{"index", "--repo", repo}, nil) })
 	if code != 0 {
 		t.Fatalf("memory index: code=%d stderr=%q", code, stderr)
 	}
@@ -192,7 +194,7 @@ func TestCmdMemoryFmt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out, _ := captureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
 	if code != 1 || !strings.Contains(out, target) {
 		t.Fatalf("--check over a dirty bank: code=%d out=%q, want 1 naming %s", code, out, target)
 	}
@@ -209,7 +211,7 @@ func TestCmdMemoryFmt(t *testing.T) {
 
 func checkMemoryFmtWrapAndClean(t *testing.T, target string) {
 	t.Helper()
-	code, out, _ := captureOutput(t, func() int { return cmdMemoryFmt(nil) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt(nil) })
 	if code != 0 || !strings.Contains(out, "wrapped 1 file") {
 		t.Fatalf("default fmt pass: code=%d out=%q, want 0 reporting one wrapped file", code, out)
 	}
@@ -223,7 +225,7 @@ func checkMemoryFmtWrapAndClean(t *testing.T, target string) {
 		}
 	}
 
-	code, out, _ = captureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
 	if code != 0 || !strings.Contains(out, "clean") {
 		t.Errorf("--check after wrapping: code=%d out=%q, want 0 clean", code, out)
 	}
@@ -241,13 +243,13 @@ func TestMemoryRememberCLIRoundTripsThroughRecall(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"remember", "--repo", repo, "--type", "project", "ship the recall verb"}, nil)
 	})
 	if code != 0 || !strings.Contains(out, "remembered [") {
 		t.Fatalf("memory remember: code=%d out=%q stderr=%q", code, out, stderr)
 	}
-	code, out, stderr = captureOutput(t, func() int { return Run([]string{"recall", "--repo", repo, "ship", "recall", "verb"}, nil) })
+	code, out, stderr = hosttest.CaptureOutput(t, func() int { return Run([]string{"recall", "--repo", repo, "ship", "recall", "verb"}, nil) })
 	if code != 0 || !strings.Contains(out, "ship the recall verb") {
 		t.Fatalf("memory recall after remember: code=%d out=%q stderr=%q", code, out, stderr)
 	}
@@ -256,7 +258,7 @@ func TestMemoryRememberCLIRoundTripsThroughRecall(t *testing.T) {
 // TestMemoryRememberUnknownTypeFails: the CLI surfaces bank.Remember's type-validation error.
 func TestMemoryRememberUnknownTypeFails(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"remember", "--type", "bogus", "a fact"}, nil)
 	})
 	if code != 1 || !strings.Contains(stderr, "want") {
@@ -275,7 +277,7 @@ func TestMemoryReviewContainsDoctorAndStatsBlocks(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"review", "--repo", repo}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"review", "--repo", repo}, nil) })
 	if code != 0 {
 		t.Fatalf("memory review: code=%d stderr=%q", code, stderr)
 	}
@@ -299,7 +301,7 @@ func TestMemoryReviewBriefPrintsOnlyCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisionLogOverCLI(t, filepath.Join(memstore.Dir(repo), "decisionLog.md"), 80)
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"review", "--repo", repo, "--brief"}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"review", "--repo", repo, "--brief"}, nil) })
 	if code != 0 {
 		t.Fatalf("memory review --brief: code=%d stderr=%q", code, stderr)
 	}
@@ -322,7 +324,7 @@ func TestMemoryReviewCandidatesPrintsProcedureAfterStats(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"review", "--repo", repo, "--candidates"}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"review", "--repo", repo, "--candidates"}, nil) })
 	if code != 0 {
 		t.Fatalf("memory review --candidates: code=%d stderr=%q", code, stderr)
 	}
@@ -356,7 +358,7 @@ func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	}
 	before := dirChecksum(t, memstore.Dir(repo))
 
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"dream", "--cwd", repo, "--dry-run"}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"dream", "--cwd", repo, "--dry-run"}, nil) })
 	if code != 0 {
 		t.Fatalf("memory dream --dry-run: code=%d stderr=%q", code, stderr)
 	}
@@ -397,7 +399,7 @@ func TestMemoryInitPrintsProcedureOnFreshBank(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	code, out, stderr := captureOutput(t, func() int { return Run([]string{"init", "--repo", repo}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"init", "--repo", repo}, nil) })
 	if code != 0 {
 		t.Fatalf("memory init: code=%d stderr=%q", code, stderr)
 	}
@@ -444,7 +446,7 @@ func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 
 func checkMemoryPromoteHomeRoundTrip(t *testing.T, repo, id string) {
 	t.Helper()
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"promote", "--repo", repo, "--dry-run", id, "--to", "home"}, nil)
 	})
 	if code != 0 || !strings.Contains(out, "would move") {
@@ -454,7 +456,7 @@ func checkMemoryPromoteHomeRoundTrip(t *testing.T, repo, id string) {
 	if strings.Contains(string(data), id) {
 		t.Error("--dry-run via the CLI still wrote the home bank")
 	}
-	code, out, stderr = captureOutput(t, func() int {
+	code, out, stderr = hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"promote", "--repo", repo, id, "--to", "home"}, nil)
 	})
 	if code != 0 || !strings.Contains(out, "promoted ["+id+"]") {
@@ -474,7 +476,7 @@ func TestMemoryPromoteCLIMissingArgsFail(t *testing.T) {
 		{"promote", "abc123", "extra", "--to", "home"}, // two positionals
 	}
 	for _, args := range cases {
-		if code, _, _ := captureOutput(t, func() int { return Run(args, nil) }); code != 2 {
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run(args, nil) }); code != 2 {
 			t.Errorf("Run(%v) = %d, want 2", args, code)
 		}
 	}
@@ -484,7 +486,7 @@ func TestMemoryPromoteCLIMissingArgsFail(t *testing.T) {
 // cmdMemoryUpdate prints the embedded update procedure to stdout and exits 0 — it no longer refuses.
 func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, out, _ := captureOutput(t, func() int { return Run([]string{"update", "--cwd", t.TempDir(), "--session", "s"}, nil) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"update", "--cwd", t.TempDir(), "--session", "s"}, nil) })
 	if code != 0 {
 		t.Fatalf("memory update with no --transcript: code=%d, want 0", code)
 	}
@@ -515,7 +517,7 @@ func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
 		}
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if code, _, stderr := captureOutput(t, func() int { return Run([]string{"path"}, nil) }); code != 0 {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"path"}, nil) }); code != 0 {
 		t.Errorf("private verb \"path\" failed to dispatch: code=%d stderr=%q", code, stderr)
 	}
 }
@@ -533,12 +535,12 @@ func TestMemoryUpdateLiveSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(memory.SessionIDEnv, "live-1")
-	code, out, _ := captureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
 	if code != 0 || !strings.Contains(out, tr) {
 		t.Errorf("live session: code=%d out=%q, want the transcript %s", code, out, tr)
 	}
 	t.Setenv(memory.SessionIDEnv, "")
-	code, out, _ = captureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
 	if code != 0 || strings.Contains(out, "dry run") {
 		t.Errorf("no session: code=%d out=%q, want the procedure, not a dry run", code, out)
 	}
@@ -558,11 +560,11 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out, _ := captureOutput(t, func() int { return Run([]string{"show", "abcd1234"}, nil) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"show", "abcd1234"}, nil) })
 	if code != 0 || !strings.Contains(out, "Zebra quota limiter choice") {
 		t.Fatalf("memory show: code=%d out=%q", code, out)
 	}
-	code, out, _ = captureOutput(t, func() int { return Run([]string{"search", "zebra quota limiter"}, nil) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"search", "zebra quota limiter"}, nil) })
 	if code != 0 || !strings.Contains(out, "decisionLog.md") {
 		t.Fatalf("memory search: code=%d out=%q", code, out)
 	}
@@ -645,7 +647,7 @@ func TestMemoryAliasUsageErrors(t *testing.T) {
 		"self":        {"--repo", a, "--into", ka},
 		"bad flag":    {"--bogus"},
 	} {
-		if code, _, _ := captureOutput(t, func() int { return cmdMemoryAlias(args) }); code == 0 {
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryAlias(args) }); code == 0 {
 			t.Errorf("%s: exit 0, want non-zero", name)
 		}
 	}
@@ -655,7 +657,7 @@ func TestMemoryAliasDryRunThenApply(t *testing.T) {
 	_, b, ka, kb := aliasFixture(t)
 	db, _ := memstore.RepoDir(b)
 
-	code, out, _ := captureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka, "--dry-run"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka, "--dry-run"}) })
 	if code != 0 || !strings.Contains(out, "dry run") || !strings.Contains(out, kb) {
 		t.Fatalf("dry run: code=%d out=%q", code, out)
 	}
@@ -663,7 +665,7 @@ func TestMemoryAliasDryRunThenApply(t *testing.T) {
 		t.Fatalf("dry run removed the source store: %v", err)
 	}
 
-	code, out, _ = captureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka}) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka}) })
 	if code != 0 || !strings.HasPrefix(out, "applied:") {
 		t.Fatalf("apply: code=%d out=%q", code, out)
 	}
@@ -673,7 +675,7 @@ func TestMemoryAliasDryRunThenApply(t *testing.T) {
 	if got, _ := memstore.RepoDir(b); filepath.Base(got) != ka {
 		t.Errorf("RepoDir(beta) = %s, want key %s", got, ka)
 	}
-	if code, _, _ = captureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka}) }); code == 0 {
+	if code, _, _ = hosttest.CaptureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka}) }); code == 0 {
 		t.Errorf("repeat apply exited 0, want non-zero")
 	}
 }
@@ -692,7 +694,7 @@ func TestMemoryAliasDispatchedAndCompleted(t *testing.T) {
 			t.Errorf("memory alias flags missing %q: %v", want, got)
 		}
 	}
-	if code, _, _ := captureOutput(t, func() int { return Run([]string{"alias"}, nil) }); code == 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"alias"}, nil) }); code == 0 {
 		t.Errorf("Run alias without flags exited 0")
 	}
 }
@@ -723,7 +725,7 @@ func TestMemorySearchJSONWriteError(t *testing.T) {
 // when an invalid format is specified (regression for internal/cli/memory.go error handling).
 func TestMemorySearchFormatValidation(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdMemorySearch([]string{"test", "--format", "invalid"})
 	})
 	if code == 0 {
@@ -739,7 +741,7 @@ func TestMemorySearchFormatValidation(t *testing.T) {
 func TestMemoryDreamGetWdError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// Test memory dream without --cwd to exercise the Getwd() path
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdMemoryDream([]string{"--dry-run"})
 	})
 	// Should succeed with --dry-run even in an empty bank
@@ -752,7 +754,7 @@ func TestMemoryDreamGetWdError(t *testing.T) {
 // (regression for internal/cli/memory.go:245 where helptext.Fail() return value not used).
 func TestMemorySearchFailReturnValue(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdMemorySearch([]string{})
 	})
 	// Should return non-zero when no arguments given
@@ -765,7 +767,7 @@ func TestMemorySearchFailReturnValue(t *testing.T) {
 // (regression for internal/cli/memory.go:277).
 func TestMemoryShowFailReturnValue(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdMemoryShow([]string{})
 	})
 	// Should return 2 (from fail) when no argument given
@@ -779,7 +781,7 @@ func TestMemoryDigestReportsMissingClaudeBinary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "cfg"))
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"digest", "--repo", t.TempDir()}, nil) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"digest", "--repo", t.TempDir()}, nil) })
 	if code != 1 || !strings.Contains(stderr, "install --tools=claude") {
 		t.Errorf("memory digest without claude: code=%d stderr=%q, want 1 with the install hint", code, stderr)
 	}
