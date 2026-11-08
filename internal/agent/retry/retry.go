@@ -226,6 +226,13 @@ func CoolDown(key string, d time.Duration) {
 	}
 }
 
+// ResetCooldowns drops every hold; tests call it so one test's 429 never delays the next test's dispatch.
+func ResetCooldowns() {
+	cooldowns.Lock()
+	defer cooldowns.Unlock()
+	clear(cooldowns.until)
+}
+
 // WaitCooldown blocks until key's cooldown ends, for at most maxWait, or until ctx is done.
 func WaitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 	if key == "" {
