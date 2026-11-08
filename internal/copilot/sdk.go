@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -91,7 +92,7 @@ func BuildClientOptions(ctx context.Context, o SDKOptions) (*copilot.ClientOptio
 	if o.GitHubToken != "" { // the SDK sets it on the child itself (copilot-sdk client.go:2282)
 		recorded = append(slices.Clone(env), "COPILOT_SDK_AUTH_TOKEN="+o.GitHubToken)
 	}
-	agent.RecordOverlayDebug("copilot", recorded)
+	agentconfig.RecordOverlayDebug("copilot", recorded)
 	return &copilot.ClientOptions{
 		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: env},
 		WorkingDirectory: o.WorkingDirectory,

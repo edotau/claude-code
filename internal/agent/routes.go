@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -101,15 +100,6 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 		return providers.Target{}, "", err
 	}
 	return t, "", nil
-}
-
-// DatabricksUsable is true for a Databricks row whose credential resolves.
-func DatabricksUsable(p *providers.Provider) bool {
-	if p == nil || p.Preset != providers.PresetDatabricks {
-		return false
-	}
-	_, err := providers.Credential(context.Background(), p)
-	return providers.Verdict(err) == providers.VerdictOK
 }
 
 // ErrOwnLogin means the agent should run on the credentials its own CLI stores (no harness route injected).

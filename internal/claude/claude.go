@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -63,7 +64,7 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink a
 	if err != nil {
 		return agent.Result{}, err
 	}
-	agent.RecordOverlayDebug("claude", cmd.Env)
+	agentconfig.RecordOverlayDebug("claude", cmd.Env)
 	if err := cmd.Start(); err != nil {
 		return agent.Result{}, err
 	}

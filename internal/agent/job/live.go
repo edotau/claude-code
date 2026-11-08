@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 )
 
 // Live-session limits and wire constants.
@@ -196,7 +197,7 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *agent.
 	if err != nil {
 		return err
 	}
-	agent.RecordOverlayDebug(name, cmd.Env)
+	agentconfig.RecordOverlayDebug(name, cmd.Env)
 	if err := cmd.Start(); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(LiveSocket(rec.ID))

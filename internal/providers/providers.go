@@ -3,6 +3,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -278,6 +279,31 @@ func (r *Registry) Get(name string) (*Provider, error) {
 		}
 	}
 	return nil, fmt.Errorf("unknown provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
+}
+
+// Row is the registry row named name, or nil when the registry, the name or the row is absent.
+func (r *Registry) Row(name string) *Provider {
+	if r == nil || name == "" {
+		return nil
+	}
+	return r.Providers[name]
+}
+
+// Account is a profile's route-state account key: the structured <provider>·<profile> pair.
+func (p *Provider) Account() string {
+	if p.Provider == "" {
+		return p.Name
+	}
+	return p.Provider + "·" + p.Name
+}
+
+// DatabricksUsable is true for a Databricks row whose credential resolves.
+func (p *Provider) DatabricksUsable() bool {
+	if p == nil || p.Preset != PresetDatabricks {
+		return false
+	}
+	_, err := Credential(context.Background(), p)
+	return Verdict(err) == VerdictOK
 }
 
 // ProfilesOf lists the profile names under one provider in declared order (dev, qa, prod); a row built in Go

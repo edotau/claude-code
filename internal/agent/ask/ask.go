@@ -372,7 +372,7 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 			fmt.Fprintf(os.Stderr, "claude-code agents ask: --overlay-debug: %q looks like a flag; give a file path\n", debugPath)
 			return 2
 		}
-		if err := agent.EnableOverlayDebug(debugPath); err != nil {
+		if err := agentconfig.EnableOverlayDebug(debugPath); err != nil {
 			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay-debug:", err)
 			return 2
 		}
