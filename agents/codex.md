@@ -85,8 +85,9 @@ Codex deltas:
   overrides); `claude-code codex -- <native verb>` forces passthrough (`-- review`, `-- resume --last`).
 - `--tools` edits and runs shell; `--read-only` drops codex's tools (fail closed). `--deny` is enforced by the
   `permission-gate` hook; `--mode auto|plan`.
-- `--profile <p>` bills one dispatch with no fallback · `--no-persist` keeps no session · `--safe-mode` skips
-  hooks/plugins · `--fallback agents|none` · `--output-schema <json>` adds `.structured` to the envelope.
+- `--profile <p>` bills one dispatch with no fallback unless `--fallback` is given; `--provider <x>` leads ·
+  `--no-persist` keeps no session · `--safe-mode` skips hooks/plugins ·
+  `--fallback agents|none` · `--output-schema <json>` adds `.structured` to the envelope.
 
 **What codex loads** (refreshed by `claude-code agents sync`; `codex setup` checks the projection):
 

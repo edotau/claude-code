@@ -104,7 +104,8 @@ Copilot deltas:
   request and is needed for `worktree merge`. `--mode auto|plan`; a `--deny` it cannot enforce refuses.
 - `--fleet` (parallel subagents; verify with the diff stat) ·
   `--enable-memory` (session memory) ·
-  `--fallback all|agents|none` · `--format json` envelope adds `ran_on`.
+  `--fallback all|agents|none` · `--format json` envelope adds `ran_on` ·
+  `--profile <p>` pins one dispatch unless `--fallback` is given; `--provider <x>` leads.
 
 **What copilot loads** (refreshed by `claude-code agents sync`; `copilot setup` checks the projection):
 

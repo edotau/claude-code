@@ -29,7 +29,7 @@ prevents: a hook, rule or agent change that never reaches the sessions and agent
 7. **New or changed component (agent/skill/hook/plugin)** — write the manifest first (exact files, action on each)
    and get approval before writing.
 8. **Saved workflow added/changed** — `claude-code workflow lint` (table row in
-   `skills/subagent-workflows/references/saved-workflows.md`, `stepOf` verbatim).
+   `skills/subagent-workflows/references/saved-workflows.md`, `stepOf` verbatim, every script parses under node).
 
 Files generated from a template: no placeholder leaked through —
 
