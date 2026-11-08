@@ -730,7 +730,7 @@ const report = [`# code-analyzer: ${allConfirmed.length} confirmed finding(s) ov
   ...(planOut ? ['', planOut] : [])].join('\n')
 return {
   ...lastRound, exit: STARVED && lastRound.exit !== 'error' ? 'blocked' : lastRound.exit, round: lastRound.round, rounds,
-  route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged,
+  route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged, confirmed: allConfirmed, // every round's, not only the last re-audit's
   dropped: rounds.flatMap(r => (r.refuted || []).map(f => ({ file: relPath(f.file), line: f.line, symptom: f.title }))),
   unverified: unverifiedAll, fixed: fixedAll, red, decisions, report, partition: partitionOut, coworkers: COWORKERS,
 }
