@@ -308,7 +308,7 @@ func assertDispatchSourceGlobals(t *testing.T, p string, banned map[string]bool)
 	}
 	for _, d := range f.Decls {
 		// Overlay flags set env at flag parse, before dispatch, so --job relaunches inherit (b868a893).
-		if fd, ok := d.(*ast.FuncDecl); ok && (fd.Name.Name == "EnableOverlay" || fd.Name.Name == "EnableOverlayDebug") {
+		if fd, ok := d.(*ast.FuncDecl); ok && (fd.Name.Name == "EnableOverlay") {
 			continue
 		}
 		ast.Inspect(d, func(n ast.Node) bool { return assertDispatchCallGlobals(t, p, n, banned) })
