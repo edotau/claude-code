@@ -25,8 +25,9 @@ decision; agents work in the shared tree.
   Parser: `stepOf`, verbatim in `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `code-workers` and
   `code-engineer` (enforced by `workflow lint`).
 - Stages: the `// ── stages:` block (`stageGate`, `stageDetect`, `stageFix`, `stagePolish`), verbatim in
-  `code-analyzer`, `green-keeper-loop`, `code-workers` and `code-engineer` (enforced by `workflow lint`). Stages run in-script, so a
-  workflow nests one level only. Shell prompts carry no `cd … &&` prefix: the agent's cwd is already `cwd`.
+  `code-analyzer`, `green-keeper-loop`, `code-workers` and `code-engineer` (enforced by `workflow lint`). Stages run
+  in-script, so a workflow nests one level only. Shell prompts carry no `cd … &&` prefix: the agent's cwd is already
+  `cwd`.
 - `code-engineer` is the size-routed rewrite, renamed from `orchestrate` on 2026-11-07 (A/B:
   `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
