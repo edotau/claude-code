@@ -34,7 +34,19 @@ Does its own CLI work; may request: codex, copilot, opencode, via the brief `Age
 `@agent-gemini <request>` or a brief. `sweep-review` is the whole-module second opinion (Sweep-review below); another
 verb (`claude-code gemini -h`, `review` = diff review) runs `claude-code gemini <verb> <rest>`; a bare task runs the
 fan-out explore (Procedure below), and `ask --agent gemini --tools --dirs …` only for a whole-repo sweep.
-`--profile`/`--model` ride on every call. `/code-worker:gemini`: no subagent.
+`--profile`/`--model` ride on every call. `/gemini`: no subagent.
+
+### Leaf contract
+
+Dispatched as `subagent_type: gemini` you are a terminal leaf and the brief is a request for this agent:
+
+- Run the work through `claude-code agents ask --agent gemini` (or a verb above), never in-context, however small.
+- A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
+- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
+- On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
+- Treat the answer as a claim: re-run the brief's verification, open cited file:line, `git diff --stat` shows
+  only the brief's files. Report `agent`, `model`, `job`, `fallback`, verified yes/no, what you fixed.
+- Inside a projected vendor CLI session (not Claude Code), do the task in-context and say so. No subagents.
 
 ## Owns
 
@@ -116,7 +128,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 | Need | Hand off to |
 | --- | --- |
-| Implementation | `claude` / `code-worker` |
+| Implementation | `claude` |
 | Adversarial diff review on another model family | `codex` |
 | New tests (feature/bug fix only) | `copilot` |
 | Docs refresh | `opencode` |

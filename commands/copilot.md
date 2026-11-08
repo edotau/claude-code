@@ -5,9 +5,10 @@ allowed-tools: Bash(claude-code copilot *), Bash(claude-code agents ask --agent 
 disable-model-invocation: true
 ---
 
-# /coworker:copilot
+# /copilot
 
-Launcher only. Verbs and flags: `claude-code copilot -h`; the agent's role and report contract: `~/.claude/agents/copilot.md`.
+Launcher only. Verbs and flags: `claude-code copilot -h`; the agent's role and report contract:
+`~/.claude/agents/copilot.md`.
 
 1. Strip `profile=<p>` and `model=<m>` from `$ARGUMENTS`; they become `--profile <p>` / `--model <m>`.
 2. First remaining word is a verb → run `claude-code copilot <verb> [flags] <rest>`.
@@ -15,5 +16,5 @@ Launcher only. Verbs and flags: `claude-code copilot -h`; the agent's role and r
 3. Anything else is a task → run `claude-code agents ask --agent copilot [flags] "<task>"`.
 
 Pass arguments as literal CLI arguments, never shell-evaluated. Long tasks: add `--background` and relay the job id
-(`/coworker:copilot status`, `/coworker:copilot result <id>`). Relay the output as-is;
+(`/copilot status`, `/copilot result <id>`). Relay the output as-is;
 a verb that rejects a flag errors — relay that, don't retry.

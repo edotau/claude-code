@@ -37,10 +37,10 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 
 ## Hands off to
 
-- **`claude` / `code-worker` leaves** — implementation of the approved plan's phases on your pin; dispatched by the
+- **`claude` leaves** — implementation of the approved plan's phases on your pin; dispatched by the
   manager, not by Plan itself.
-- **`coworker` leaves (experimental)** — a phase that should run on another agent or signed-in account (`Agent:`,
-  `Profile:`), e.g. to spread quota or get another model family; name a `code-worker` fallback in the same phase,
+- **`copilot` / `opencode` leaves (experimental)** — a phase that should run on another agent or account (`Agent:`,
+  `Profile:`), e.g. to spread quota or get another model family; name a `claude` fallback in the same phase,
   since an external account can fail to connect back.
 - **`codex`** — review of the drafted plan, dispatched by the caller, not Plan: the checklist is
   `skills/evaluate-code/references/task-review.md#plan-review`; the brief is
