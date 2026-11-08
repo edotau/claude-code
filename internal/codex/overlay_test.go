@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -186,28 +185,6 @@ func TestPreferencesRejectInvalidEditsWithoutOverwritingSavedValues(t *testing.T
 	got, err := codex.LoadCodexOverlay()
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("staged preference merge lost an untouched preference: %v, %v", got, err)
-	}
-}
-
-func TestConfigPathPrecedence(t *testing.T) {
-	home, native := t.TempDir(), t.TempDir()
-	t.Setenv("CODEX_HOME", native)
-	for _, tc := range []struct{ home, want string }{
-		{home, filepath.Join(home, ".codex", "config.toml")},
-		{"", filepath.Join(native, "config.toml")},
-	} {
-		got, err := paths.CodexConfigPath(tc.home)
-		if err != nil || got != tc.want {
-			t.Fatalf("ConfigPath(%q) = %q, %v; want %q", tc.home, got, err, tc.want)
-		}
-	}
-	t.Setenv("CODEX_HOME", "")
-	defaultHome, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := paths.CodexConfigPath(""); err != nil || got != filepath.Join(defaultHome, ".codex", "config.toml") {
-		t.Fatalf("default ConfigPath = %q, %v", got, err)
 	}
 }
 

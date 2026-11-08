@@ -212,7 +212,7 @@ func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
 	codexJSONKnown = false
 	codexJSONMu.Unlock()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	pathstest.FakeVendor(t, "codex", "sleep 5")
+	pathstest.FakeVendor(t, "codex", "exec sleep 5") // exec: the kill reaches sleep, not an orphan holding the pipe
 	if codexHasJSON() {
 		t.Fatal("timed-out probe reported --json")
 	}
