@@ -356,3 +356,21 @@ func TestDivergedAtTellsSiblingCommitsFromRewrite(t *testing.T) {
 		})
 	}
 }
+
+// TestDivergedAtEmptyCommitsAreNotARewrite: empty commits on both sides share one patch-id but replace nothing.
+func TestDivergedAtEmptyCommitsAreNotARewrite(t *testing.T) {
+	repo := gittest.Repo(t)
+	gittest.In(t, repo, "branch", "-q", "up")
+	gittest.In(t, repo, "switch", "-q", "up")
+	gittest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "remote")
+	gittest.In(t, repo, "switch", "-q", "main")
+	gittest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "local")
+	gittest.In(t, repo, "branch", "-q", "--set-upstream-to=up")
+	d, err := divergedAt(context.Background(), repo)
+	if err != nil || d == nil {
+		t.Fatalf("divergedAt = %v, %v; want a divergence (ahead 1, behind 1)", d, err)
+	}
+	if d.rewritten {
+		t.Errorf("rewritten = true for two empty sibling commits (ahead %d, behind %d)", d.ahead, d.behind)
+	}
+}
