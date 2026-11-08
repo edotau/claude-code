@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -52,7 +54,7 @@ func TestGatewayTokenPrintsOnlyDaemonBoundSessionToken(t *testing.T) {
 		gotProfile, gotPID = req.Profile, req.PID
 		json.NewEncoder(w).Encode(proxy.SessionResponse{Token: "cct_abc"})
 	})
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"token", "--profile", "dev"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"token", "--profile", "dev"}) })
 	if code != 0 || stdout != "cct_abc\n" || stderr != "" || gotProfile != "dev" || gotPID != os.Getpid() {
 		t.Fatalf("exit %d stdout %q stderr %q profile %q pid %d", code, stdout, stderr, gotProfile, gotPID)
 	}
@@ -61,7 +63,7 @@ func TestGatewayTokenPrintsOnlyDaemonBoundSessionToken(t *testing.T) {
 func TestGatewayTokenRejectsBadArgsAndMintFailure(t *testing.T) {
 	tokenDaemon(t, func(w http.ResponseWriter, _ proxy.SessionRequest) { w.WriteHeader(http.StatusInternalServerError) })
 	for _, args := range [][]string{{"token"}, {"token", "extra"}, {"token", "--profile", "dev"}} {
-		code, stdout, stderr := captureOutput(t, func() int { return Run(args) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code == 0 || stdout != "" || !strings.Contains(stderr, "gateway token:") {
 			t.Fatalf("%v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}

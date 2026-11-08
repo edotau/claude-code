@@ -12,13 +12,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proxy"
 )
 
 func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 	for _, args := range [][]string{nil, {"-h"}, {"--help"}} {
-		code, _, stderr := captureOutput(t, func() int { return Run(args, nil) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(args, nil) })
 		if code != 0 {
 			t.Errorf("network %v: exit %d, want 0", args, code)
 		}
@@ -31,7 +33,7 @@ func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 }
 
 func TestNetworkUnknownSubverb(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"bogus"}, nil) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"bogus"}, nil) })
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)
 	}
@@ -42,7 +44,7 @@ func TestNetworkUnknownSubverb(t *testing.T) {
 
 func TestNetworkOldSubverbsRejected(t *testing.T) {
 	for _, old := range []string{"web", "doctor", "status", "connect", "browsers"} {
-		if code, _, _ := captureOutput(t, func() int { return Run([]string{old}, nil) }); code != 1 {
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{old}, nil) }); code != 1 {
 			t.Errorf("network %s: exit %d, want 1", old, code)
 		}
 	}
@@ -61,7 +63,7 @@ func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
 		{"view", func() int { return cmdNetworkView([]string{"agent-id", "--format", "yaml"}) }},
 	}
 	for _, c := range cases {
-		code, _, stderr := captureOutput(t, c.fn)
+		code, _, stderr := hosttest.CaptureOutput(t, c.fn)
 		if code != 2 {
 			t.Errorf("network %s: code = %d, want 2; stderr=%q", c.name, code, stderr)
 		}
@@ -72,7 +74,7 @@ func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
 func TestNetworkBrowserSetupOnlyFlags(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, args := range [][]string{{"--browser", "chrome"}, {"--dry-run"}} {
-		code, _, stderr := captureOutput(t, func() int { return cmdNetworkBrowser(args) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkBrowser(args) })
 		if code != 2 || !strings.Contains(stderr, "belongs to --setup") {
 			t.Errorf("%v: code=%d stderr=%q, want 2 + belongs to --setup", args, code, stderr)
 		}

@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -63,7 +65,7 @@ func TestAgentsUsageFits80(t *testing.T) {
 	if !strings.Contains(usage, "  reap") {
 		t.Error("agentsPage must document reap")
 	}
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"reap", "-h"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"reap", "-h"}) })
 	if code != 0 || !strings.Contains(stderr, "--dry-run") {
 		t.Errorf("agents reap help must document --dry-run: exit %d:\n%s", code, stderr)
 	}
@@ -77,7 +79,7 @@ func TestCmdAgentsReapDryRunChangesNothing(t *testing.T) {
 	writeFixtureFile(t, marker, "")
 	before, _ := os.ReadFile(dead)
 
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"reap", "--dry-run"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"reap", "--dry-run"}) })
 	if code != 0 {
 		t.Fatalf("reap --dry-run exit %d, stderr=%s", code, stderr)
 	}
@@ -102,7 +104,7 @@ func TestCmdAgentsReapMarkers(t *testing.T) {
 	for _, p := range []string{deadM, liveM, lock, stray} {
 		writeFixtureFile(t, p, "")
 	}
-	if code, _, stderr := captureOutput(t, func() int { return Run([]string{"reap"}) }); code != 0 {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"reap"}) }); code != 0 {
 		t.Fatalf("reap exit %d, stderr=%s", code, stderr)
 	}
 	if _, err := os.Stat(deadM); !os.IsNotExist(err) {
@@ -123,7 +125,7 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 	young := writeDispatch(t, "20261024T000004.000-codex", "running", 0, 5*time.Second)
 	old0 := writeDispatch(t, "20261024T000005.000-codex", "running", 0, 10*time.Minute)
 
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"reap"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"reap"}) })
 	if code != 0 {
 		t.Fatalf("reap exit %d, stderr=%s", code, stderr)
 	}
@@ -143,7 +145,7 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 
 func TestCmdAgentsReapNothingToDo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if code, _, stderr := captureOutput(t, func() int { return Run([]string{"reap"}) }); code != 0 {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"reap"}) }); code != 0 {
 		t.Fatalf("reap on empty state exit %d, stderr=%s", code, stderr)
 	}
 }
@@ -153,7 +155,7 @@ func TestCmdAgentsTreeBackgroundKeepsRunningDispatches(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	for _, flag := range []string{"--background", "-bg"} {
-		code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"tree", flag, "--days", "1"}) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"tree", flag, "--days", "1"}) })
 		if code != 0 {
 			t.Fatalf("%s: exit %d, stderr=%s", flag, code, stderr)
 		}
@@ -171,7 +173,7 @@ func TestCmdAgentsTreeFormatJSON(t *testing.T) {
 	writeFixtureFile(t, filepath.Join(dir, "projects", "-Users-fake-repo", "sess0001.jsonl"),
 		`{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hello"},"cwd":"/Users/fake/repo","gitBranch":"main"}`)
 
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"tree", "--days", "365", "--format", "json"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"tree", "--days", "365", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("agents tree --format json exit %d, stderr=%s", code, stderr)
 	}
@@ -191,7 +193,7 @@ func TestCmdAgentsTreeFormatJSON(t *testing.T) {
 // agents tree rejects an unknown --format value before touching the filesystem.
 func TestCmdAgentsTreeRejectsBadFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"tree", "--format", "xml"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"tree", "--format", "xml"}) })
 	if code != 2 {
 		t.Errorf("exit = %d, want 2", code)
 	}
@@ -205,7 +207,7 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	writeDispatch(t, "20261024T000003.000-codex", "ok", os.Getpid(), time.Minute)
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"tree", "--days", "1"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"tree", "--days", "1"}) })
 	if code != 0 {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
 	}
@@ -220,7 +222,7 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 // agents tree's text output (the default) renders without error when no sessions are in scope.
 func TestCmdAgentsTreeTextNoSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, _ := captureOutput(t, func() int { return Run([]string{"tree"}) })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"tree"}) })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -233,7 +235,7 @@ func TestCmdAgentsTreeTextNoSessions(t *testing.T) {
 func TestCmdAgentsTreeWatchRejectsNonPositiveInterval(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, iv := range []string{"0", "-1s"} {
-		code, _, stderr := captureOutput(t, func() int { return Run([]string{"tree", "--watch", "--interval", iv}) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"tree", "--watch", "--interval", iv}) })
 		if code != 2 || stderr == "" {
 			t.Errorf("--interval %s: exit %d stderr %q, want exit 2 with a message", iv, code, stderr)
 		}

@@ -246,37 +246,29 @@ func Run(args []string, knownVerb func(string) bool) int {
 
 // Spec describes memory subcommands and their completion domains.
 func Spec() *completion.Node {
-	flag := func(name string) completion.Flag { return completion.Flag{Name: name} }
-	boolFlag := func(name string) completion.Flag { return completion.Flag{Name: name, IsBool: true} }
-	valuedFlag := func(name string, values func() []string) completion.Flag {
-		return completion.Flag{Name: name, Values: values}
-	}
-	formatFlag := func() completion.Flag {
-		return valuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
-	}
 	return &completion.Node{Sub: map[string]*completion.Node{
-		"recall": {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames), boolFlag("all"), flag("k"),
-			flag("load"), formatFlag()}},
-		"remember": {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames), valuedFlag("type", memoryRememberTypes)}},
-		"init":     {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames)}},
-		"review": {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames), flag("stale-days"), boolFlag("notice"),
-			boolFlag("brief")}},
-		"promote": {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames),
-			valuedFlag("to", memoryPromoteTargets), boolFlag("dry-run")}},
-		"update":   {Flags: []completion.Flag{flag("transcript"), flag("cwd"), flag("session")}},
-		"dream":    {Flags: []completion.Flag{flag("cwd"), boolFlag("force")}},
-		"search":   {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames), boolFlag("all"), flag("k"), formatFlag()}},
+		"recall": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("all"), completion.Plain("k"),
+			completion.Plain("load"), completion.FormatFlag()}},
+		"remember": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.ValuedFlag("type", memoryRememberTypes)}},
+		"init":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
+		"review": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.Plain("stale-days"), completion.BoolFlag("notice"),
+			completion.BoolFlag("brief")}},
+		"promote": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames),
+			completion.ValuedFlag("to", memoryPromoteTargets), completion.BoolFlag("dry-run")}},
+		"update":   {Flags: []completion.Flag{completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("session")}},
+		"dream":    {Flags: []completion.Flag{completion.Plain("cwd"), completion.BoolFlag("force")}},
+		"search":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("all"), completion.Plain("k"), completion.FormatFlag()}},
 		"show":     {},
-		"digest":   {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames)}},
-		"index":    {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames)}},
-		"path":     {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames)}},
-		"fmt":      {Flags: []completion.Flag{boolFlag("check")}},
+		"digest":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
+		"index":    {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
+		"path":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
+		"fmt":      {Flags: []completion.Flag{completion.BoolFlag("check")}},
 		"catchup":  {},
-		"watch":    {Flags: []completion.Flag{flag("session"), flag("transcript"), flag("cwd"), flag("owner"), flag("idle")}},
-		"timeline": {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames), flag("n")}},
-		"archive": {Flags: []completion.Flag{valuedFlag("repo", memoryRepoNames), boolFlag("dupes"), flag("split"),
-			boolFlag("apply"), boolFlag("restore")}},
-		"alias": {Flags: []completion.Flag{flag("repo"), valuedFlag("into", memoryRepoNames), boolFlag("dry-run")}},
+		"watch":    {Flags: []completion.Flag{completion.Plain("session"), completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("owner"), completion.Plain("idle")}},
+		"timeline": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.Plain("n")}},
+		"archive": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("dupes"), completion.Plain("split"),
+			completion.BoolFlag("apply"), completion.BoolFlag("restore")}},
+		"alias": {Flags: []completion.Flag{completion.Plain("repo"), completion.ValuedFlag("into", memoryRepoNames), completion.BoolFlag("dry-run")}},
 	}}
 }
 

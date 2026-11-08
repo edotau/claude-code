@@ -3,11 +3,13 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestDesktopAndTokenHelpFitsEightyColumns(t *testing.T) {
 	for _, args := range [][]string{{"configure", "desktop", "--help"}, {"gateway", "token", "--help"}} {
-		code, stdout, stderr := captureOutput(t, func() int { return Run(append([]string{"claude-code"}, args...)) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"claude-code"}, args...)) })
 		if code != 0 || stdout != "" {
 			t.Fatalf("%v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}

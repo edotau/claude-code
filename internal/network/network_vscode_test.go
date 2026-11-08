@@ -3,10 +3,12 @@ package network
 import (
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestNetworkVSCodeHelpListsFlags(t *testing.T) {
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"vscode", "-h"}, nil) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"vscode", "-h"}, nil) })
 	if code != 0 {
 		t.Errorf("network vscode -h: exit %d, want 0", code)
 	}
@@ -18,7 +20,7 @@ func TestNetworkVSCodeHelpListsFlags(t *testing.T) {
 }
 
 func TestNetworkHelpVSCodeRowFitsEightyColumns(t *testing.T) {
-	_, _, stderr := captureOutput(t, func() int { return Run(nil, nil) })
+	_, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(nil, nil) })
 	found := false
 	for l := range strings.SplitSeq(stderr, "\n") {
 		if strings.HasPrefix(l, "  vscode ") {
@@ -34,7 +36,7 @@ func TestNetworkHelpVSCodeRowFitsEightyColumns(t *testing.T) {
 }
 
 func TestNetworkVscodeServeStatusJSONWriteError(t *testing.T) {
-	closedStdout(t)
+	hosttest.ClosedStdout(t)
 
 	code := cmdNetworkVSCode([]string{"--status", "--format", "json"})
 	if code == 0 {
@@ -52,7 +54,7 @@ func TestNetworkVscodeFormatValidation(t *testing.T) {
 		{[]string{"--status", "--format", "invalid"}, "status"},
 	}
 	for _, tc := range cases {
-		code, _, stderr := captureOutput(t, func() int {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int {
 			return cmdNetworkVSCode(tc.args)
 		})
 		if code == 0 {

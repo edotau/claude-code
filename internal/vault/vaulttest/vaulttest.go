@@ -2,6 +2,7 @@
 package vaulttest
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"maps"
 	"strings"
@@ -19,6 +20,18 @@ func Use(t testing.TB) string {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	t.Setenv("CLAUDE_PROFILE", "") // the launching session's marker must not steer a hermetic vault
+	return dir
+}
+
+// UseFreshKey is Use with a random master key instead of the fixed zero key.
+func UseFreshKey(t testing.TB) string {
+	t.Helper()
+	dir := Use(t)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
 	return dir
 }
 

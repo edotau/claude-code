@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -18,7 +20,7 @@ func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
 	sourceOID := cliHeadOf(t, wt)
 
 	// --no-verify isolates agent dispatch from verification in a fixture without a detectable gate.
-	code, out, errb := captureOutput(t, func() int {
+	code, out, errb := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"merge", "--no-verify", "--resolve-agent", "claude", "feature"})
 	})
 	if code != 0 {
@@ -36,7 +38,7 @@ func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
 func TestCmdWorktreeMergeResumeWithNoSavedOperationFails(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	mainBefore := cliHeadOf(t, repo)
-	code, _, errb := captureOutput(t, func() int {
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
@@ -72,7 +74,7 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, _, errb := captureOutput(t, func() int {
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
@@ -99,7 +101,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 		t.Fatal("fixture invariant broken: main must have actually moved")
 	}
 
-	code, _, errb := captureOutput(t, func() int {
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
@@ -125,7 +127,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T)
 		t.Fatal("fixture invariant broken: the checkout-b must not move the OID")
 	}
 
-	code, _, errb := captureOutput(t, func() int {
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"merge", "--resume", "feature"})
 	})
 	if code == 0 {
@@ -198,7 +200,7 @@ func TestCmdWorktreeMergeResumeMissingWorktreeFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, _, errb := captureOutput(t, func() int {
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"merge", "--resume", "ghost"})
 	})
 	if code == 0 {

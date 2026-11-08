@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -55,7 +57,7 @@ func TestCmdModelsRejectsPositionalArguments(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cliScratch(t)
-			code, stdout, stderr := captureOutput(t, func() int { return Models(tc.args) })
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Models(tc.args) })
 			if code != 2 {
 				t.Fatalf("exit = %d, want 2; stdout=%q stderr=%q", code, stdout, stderr)
 			}
@@ -83,7 +85,7 @@ func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
 	reg := &providers.Registry{}
 	p := &providers.Provider{Name: "personal", Provider: "github"}
-	code, _, stderr := captureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
 	if code == 0 {
 		t.Fatal("listLive: want a non-zero exit when the copilot CLI is missing")
 	}
@@ -98,7 +100,7 @@ func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 	srv := fakeModelsServer(t, []string{"model-a", "model-b"})
 	p := fakeProvider(srv.URL)
 	reg := &providers.Registry{}
-	code, stdout, _ := captureOutput(t, func() int { return listLive(reg, p, helptext.JSON) })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return listLive(reg, p, helptext.JSON) })
 	if code != 0 {
 		t.Fatalf("listLive exit = %d", code)
 	}
@@ -138,7 +140,7 @@ func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 		Models:   map[string]string{"opus": "claude-opus-5-5"},
 	}
 	reg := &providers.Registry{}
-	code, stdout, stderr := captureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
 	if code != 0 {
 		t.Fatalf("listLive exit = %d, stderr=%s", code, stderr)
 	}
@@ -192,7 +194,7 @@ func TestListLiveDatabricksText(t *testing.T) {
 	cliScratch(t)
 	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
 	srv, got := dbxCLIServer(t)
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), helptext.Text)
 	})
 	if code != 0 {
@@ -230,7 +232,7 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 	cliScratch(t)
 	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
 	srv, _ := dbxCLIServer(t)
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), helptext.JSON)
 	})
 	if code != 0 {
@@ -248,11 +250,11 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 func TestListLiveNonDatabricksHasNoTaskReady(t *testing.T) {
 	cliScratch(t)
 	srv := fakeModelsServer(t, []string{"model-a"})
-	_, text, _ := captureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.Text) })
+	_, text, _ := hosttest.CaptureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.Text) })
 	if !strings.HasPrefix(text, "ID") || strings.Contains(text, "TASK") {
 		t.Errorf("text = %q, want the ID/Model table", text)
 	}
-	_, js, _ := captureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.JSON) })
+	_, js, _ := hosttest.CaptureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.JSON) })
 	if strings.Contains(js, `"task"`) || strings.Contains(js, `"ready"`) {
 		t.Errorf("json = %s, want no task/ready keys", js)
 	}
@@ -285,7 +287,7 @@ func statusServer(t *testing.T, code int) (*httptest.Server, *int) {
 func TestSwitchWarmsMissingServedCache(t *testing.T) {
 	srv, got := dbxCLIServer(t)
 	qaProfile(t, srv.URL, true)
-	code, stdout, stderr := captureOutput(t, func() int { return Switch([]string{"qa"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa"}) })
 	if code != 0 || !strings.Contains(stdout, "profile pinned: qa") {
 		t.Fatalf("exit %d, stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -301,7 +303,7 @@ func TestSwitchWarmsMissingServedCache(t *testing.T) {
 func TestSwitchRefreshFailurePrintsAndExitsZero(t *testing.T) {
 	srv, n := statusServer(t, http.StatusInternalServerError)
 	qaProfile(t, srv.URL, true)
-	code, stdout, stderr := captureOutput(t, func() int { return Switch([]string{"qa"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa"}) })
 	if code != 0 || !strings.Contains(stdout, "profile pinned: qa") || !strings.Contains(stdout, "listing refresh failed") {
 		t.Fatalf("exit %d, stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -314,7 +316,7 @@ func TestSwitchRefreshFailurePrintsAndExitsZero(t *testing.T) {
 func TestSwitchDryRunMakesNoRequests(t *testing.T) {
 	srv, got := dbxCLIServer(t)
 	qaProfile(t, srv.URL, true)
-	if code, _, stderr := captureOutput(t, func() int { return Switch([]string{"qa", "--dry-run"}) }); code != 0 {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa", "--dry-run"}) }); code != 0 {
 		t.Fatalf("exit %d, stderr=%q", code, stderr)
 	}
 	if len(*got) != 0 {
@@ -329,7 +331,7 @@ func TestSwitchDryRunMakesNoRequests(t *testing.T) {
 func TestSwitchWithSwitchOffMakesNoRequests(t *testing.T) {
 	srv, got := dbxCLIServer(t)
 	qaProfile(t, srv.URL, false)
-	if code, out, _ := captureOutput(t, func() int { return Switch([]string{"qa"}) }); code != 0 || !strings.Contains(out, "pinned") {
+	if code, out, _ := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa"}) }); code != 0 || !strings.Contains(out, "pinned") {
 		t.Fatalf("exit %d out=%q", code, out)
 	}
 	if len(*got) != 0 {
@@ -344,11 +346,11 @@ func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt"}); err != nil {
 		t.Fatal(err)
 	}
-	_, out, _ := captureOutput(t, func() int { return Switch([]string{"qa", "--dry-run"}) })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa", "--dry-run"}) })
 	if !strings.Contains(out, "codex.profile: chatgpt → qa") || !strings.Contains(out, "copilot: off (kept)") {
 		t.Fatalf("dry-run = %q", out)
 	}
-	if code, _, stderr := captureOutput(t, func() int { return Switch([]string{"qa"}) }); code != 0 {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa"}) }); code != 0 {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
 	recs := vault.AgentRecords(agent.RosterNames())
@@ -365,7 +367,7 @@ func repoLastProfileCached() bool {
 
 func assertSwitchDryRunWritesNothing(t *testing.T) {
 	t.Helper()
-	if code, _, stderr := captureOutput(t, func() int { return Switch([]string{"qa", "--dry-run"}) }); code != 0 || !repoLastProfileCached() {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa", "--dry-run"}) }); code != 0 || !repoLastProfileCached() {
 		t.Fatalf("dry-run exit %d stderr=%q cache kept=%v", code, stderr, repoLastProfileCached())
 	}
 	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
@@ -388,7 +390,7 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 		t.Fatal("fixture: no last-profile cache written")
 	}
 	assertSwitchDryRunWritesNothing(t)
-	if code, _, stderr := captureOutput(t, func() int { return Switch([]string{"qa"}) }); code != 0 {
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Switch([]string{"qa"}) }); code != 0 {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
 	recs := vault.AgentRecords(agent.RosterNames())
@@ -406,7 +408,7 @@ func TestAgentRecordCommandsRejectUnreadableRecords(t *testing.T) {
 			cliScratch(t)
 			vaulttest.Use(t)
 			vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
-			code, out, stderr := captureOutput(t, func() int { return Switch(args) })
+			code, out, stderr := hosttest.CaptureOutput(t, func() int { return Switch(args) })
 			context := "switch profile: "
 			if len(args) > 1 {
 				context = "switch preview: "
@@ -422,7 +424,7 @@ func TestPrintRecordDiffRejectsUnreadableRecords(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
 	applied := false
-	code, out, stderr := captureOutput(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return printRecordDiff(func(map[string]vault.AgentRecord) { applied = true }, nil)
 	})
 	if code != 1 || applied || out != "" || !strings.Contains(stderr, "agent record preview: vault: agent-records is corrupt") {

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -15,7 +18,7 @@ import (
 // assertGetKeyRefusesTTY runs `vault get --key` with slave (a pty slave) as stdout and expects the refusal.
 func assertGetKeyRefusesTTY(t *testing.T, slave *os.File) {
 	t.Helper()
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		old := os.Stdout
 		os.Stdout = slave
 		defer func() { os.Stdout = old }()
@@ -28,8 +31,8 @@ func assertGetKeyRefusesTTY(t *testing.T, slave *os.File) {
 }
 
 func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
-	useVaultTest(t)
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"get", "--key"}) })
+	vaulttest.UseFreshKey(t)
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"get", "--key"}) })
 	if code != 0 {
 		t.Fatalf("vault get --key = %d, want 0; stderr empty=%v", code, stderr == "")
 	}
@@ -50,12 +53,12 @@ func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
 }
 
 func TestVaultDeleteStoredSecret(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	const value = "obviously-fake-delete"
 	if err := vault.Store("VAULT_TEST_DUMMY", value); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int {
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"delete", "VAULT_TEST_DUMMY"})
 	})
 	if code != 0 || len(vault.Names()) != 0 {
@@ -67,11 +70,11 @@ func TestVaultDeleteStoredSecret(t *testing.T) {
 }
 
 func TestVaultExportRejectsStdout(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	if err := vault.Store("ALPHA", "obviously-fake-alpha"); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"export", "--out", "-"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"export", "--out", "-"}) })
 	if code != 2 || stdout != "" || !strings.Contains(stderr, "vault get") {
 		t.Fatalf("export --out -: exit %d, stdout empty=%v, get hint=%v",
 			code, stdout == "", strings.Contains(stderr, "vault get"))
@@ -81,7 +84,7 @@ func TestVaultExportRejectsStdout(t *testing.T) {
 func TestVaultExportFileOnly(t *testing.T) {
 	for _, explicit := range []bool{false, true} {
 		t.Run(map[bool]string{false: "default", true: "out"}[explicit], func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			dir := t.TempDir()
 			t.Chdir(dir)
 			const value = "obviously-fake-alpha"
@@ -95,7 +98,7 @@ func TestVaultExportFileOnly(t *testing.T) {
 				args = append(args, "--out", path)
 			}
 			for range 2 {
-				code, stdout, stderr := captureOutput(t, func() int { return Run(args) })
+				code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
 				if code != 0 || stdout != "" || strings.Contains(stderr, value) {
 					t.Fatalf("export: exit %d, stdout empty=%v, leaked=%v",
 						code, stdout == "", strings.Contains(stderr, value))
@@ -130,9 +133,9 @@ func checkExportedFile(t *testing.T, path, value string) {
 }
 
 func TestVaultImportDashFromPipeRequiresYes(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	withStdin(t, "GAMMA=obviously-fake-gamma\n")
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"import", "-"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"import", "-"}) })
 	if code == 0 || !strings.Contains(stderr, "--yes") {
 		t.Fatalf("import - without --yes: exit %d, missing confirmation hint=%v",
 			code, !strings.Contains(stderr, "--yes"))
@@ -143,10 +146,10 @@ func TestVaultImportDashFromPipeRequiresYes(t *testing.T) {
 }
 
 func TestVaultImportDashFromPipeWithYesStores(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	values := map[string]string{"GAMMA": "obviously-fake-gamma", "DELTA": "obviously-fake-delta"}
 	withStdin(t, "GAMMA="+values["GAMMA"]+"\nDELTA="+values["DELTA"]+"\n")
-	code, stdout, stderr := captureOutput(t, func() int { return Run([]string{"import", "-", "--yes"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"import", "-", "--yes"}) })
 	if code != 0 {
 		t.Fatalf("import - --yes exit = %d", code)
 	}
@@ -162,9 +165,9 @@ func TestVaultImportDashFromPipeWithYesStores(t *testing.T) {
 }
 
 func TestVaultImportDashMalformedWritesNothing(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	withStdin(t, "GAMMA=obviously-fake-gamma\nnot-a-pair\n")
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"import", "-", "--yes"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"import", "-", "--yes"}) })
 	if code == 0 || !strings.Contains(stderr, "nothing written") {
 		t.Fatalf("malformed import: exit %d, nothing-written hint=%v",
 			code, strings.Contains(stderr, "nothing written"))
@@ -177,7 +180,7 @@ func TestVaultImportDashMalformedWritesNothing(t *testing.T) {
 func TestVaultGetMultipleNames(t *testing.T) {
 	for _, export := range []bool{false, true} {
 		t.Run(map[bool]string{false: "plain", true: "export"}[export], func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			values := []string{"obviously-fake-alpha", "obviously-fake-beta's-value"}
 			for i, name := range []string{"ALPHA", "BETA"} {
 				if err := vault.Store(name, values[i]); err != nil {
@@ -188,7 +191,7 @@ func TestVaultGetMultipleNames(t *testing.T) {
 			if export {
 				args = append(args, "--export")
 			}
-			code, stdout, stderr := captureOutput(t, func() int { return Run(args) })
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
 			if code != 0 || stderr != "" {
 				t.Fatalf("get: exit %d, stderr empty=%v", code, stderr == "")
 			}
@@ -222,12 +225,12 @@ func maskGetOutput(stdout string, names, values []string, export bool) (got, wan
 }
 
 func TestVaultGetMissingNamePrintsNothing(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	t.Setenv("ABSENT_VAULT_TEST_KEY", "")
 	if err := vault.Store("ALPHA", "obviously-fake-alpha"); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, _ := captureOutput(t, func() int {
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"get", "ALPHA", "ABSENT_VAULT_TEST_KEY"})
 	})
 	if code != 1 || stdout != "" {
@@ -236,12 +239,12 @@ func TestVaultGetMissingNamePrintsNothing(t *testing.T) {
 }
 
 func TestVaultGetKeyRejectsNamesAndExport(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	for _, args := range [][]string{
 		{"get", "--key", "ALPHA"},
 		{"get", "--key", "--export"},
 	} {
-		code, stdout, _ := captureOutput(t, func() int { return Run(args) })
+		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code != 2 || stdout != "" {
 			t.Errorf("get --key invalid combination: exit %d, stdout empty=%v", code, stdout == "")
 		}
@@ -249,9 +252,9 @@ func TestVaultGetKeyRejectsNamesAndExport(t *testing.T) {
 }
 
 func TestVaultImportRejectsBadGitHubToken(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	withStdin(t, "GITHUB_WORK_PAT=not-a-token\n")
-	code, _, stderr := captureOutput(t, func() int { return Run([]string{"import", "-", "--yes"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"import", "-", "--yes"}) })
 	if code == 0 || !strings.Contains(stderr, "not a GitHub token") {
 		t.Fatalf("exit %d, stderr=%q, want a GitHub-token rejection", code, stderr)
 	}
