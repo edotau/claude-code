@@ -348,6 +348,7 @@ const refuteGate = S.refute.ext ? limiter(EXT_CAP) : fn => fn()
 
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
 const rounds = []
+let STARVED = false // set when a round's audit/refute legs were mostly BLOCKED
 let totalMerged = 0
 const PKG_COUNT = PKGS.length
 for (let round = 1; round <= ROUNDS; round++) {
@@ -472,7 +473,8 @@ for (let round = 1; round <= ROUNDS; round++) {
     .filter(([, ls]) => ls.filter(c => c.status === 'BLOCKED').length * 2 > ls.length)
   if (starved.length) {
     for (const [st, ls] of starved) decisions.push(`round ${round}: ${st} ${ls.filter(c => c.status === 'BLOCKED').length}/${ls.length} external legs BLOCKED — exit blocked, not dry`)
-    rounds.push({ ...base, fixed: [], gate: null, exit: 'blocked', metrics }); break
+    STARVED = true // coverage gap: still fix what was confirmed, but never report the run clean
+    if (!FIX || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: 'blocked', metrics }); break }
   }
   if ((!FIX && !PART) || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
@@ -602,7 +604,7 @@ const report = [`# code-analyzer: ${allConfirmed.length} confirmed finding(s) ov
   ...(unverifiedAll.length ? [`Unverified (refuter failed): ${unverifiedAll.map(u => relPath(u.file) + ':' + u.line).join(', ')}.`] : []),
   ...(planOut ? ['', planOut] : [])].join('\n')
 return {
-  ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds,
+  ...lastRound, exit: STARVED && lastRound.exit !== 'error' ? 'blocked' : lastRound.exit, round: lastRound.round, rounds,
   route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged,
   dropped: rounds.flatMap(r => (r.refuted || []).map(f => ({ file: relPath(f.file), line: f.line, symptom: f.title }))),
   unverified: unverifiedAll, fixed: fixedAll, red, decisions, report, partition: partitionOut, coworkers: COWORKERS,
