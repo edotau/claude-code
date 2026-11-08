@@ -286,7 +286,7 @@ if (FIX && a.fast !== false && Array.isArray(a.known)) {
 const FOCUS = a.focus ? ' Focus for this group: ' + a.focus + '.' : ''
 const RULES =
   'Shared live tree, other packages are being edited in parallel: never git stash|checkout|reset|restore|clean|commit|add, never ' +
-  'make build|install|audit, never edit settings.json. cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Run each command bare, never as `cd … && cmd`: copilot\'s shell rejects compound commands.'
+  'make build|install|audit, never edit settings.json. cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). First run `cd ' + CWD + '` as its own command (your shell may start elsewhere), then each command bare, never as `cd … && cmd`: copilot\'s shell rejects compound commands.'
 const CTX = { cwd: CWD, cd: '', rules: RULES, S, gateMax: MAX_ITER }
 // ro: test files are skipped unless the focus, lens or finding is about tests.
 const ro = (hint) => RULES + ' Read-only: edit nothing, never run go test.' + (/test/i.test((a.focus || '') + ' ' + hint) ? ' *_test.go files are in scope.' : ' Skip *_test.go.')
