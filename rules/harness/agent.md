@@ -61,8 +61,8 @@ paths:
 - **copilot** and **opencode** interactive launches reuse the repo's last-used profile before the agent record's
   profile and treat it like the record (copilot's credit gate applies); `<agent> profile` or `configure` record
   changes clear it.
-- **gemini** runs only on `agy` and its Google sign-in; `ask --dirs/--files/--diff` inline tracked files only, never
-  `.env*`, `state/` or keys.
+- **gemini** runs on `agy`: its Google sign-in by default, a named Databricks profile (`--profile dev|qa|prod`) through
+  the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 
 ## Skills and instructions parity
 
