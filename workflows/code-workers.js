@@ -131,12 +131,17 @@ const FOCUS = a.focus ? ' Focus for this group: ' + a.focus + '.' : ''
 const RULES =
   'Shared live tree, other packages are being edited in parallel: never git stash|checkout|reset|restore|clean|commit|add, never ' +
   'make build|install|audit, never edit settings.json. Prefix every shell command with `cd ' + CWD + ' &&`.'
-const READONLY = RULES + ' Read-only: edit nothing, never run go test. Skip *_test.go.'
+// ro: test files are skipped unless the focus, lens or finding is about tests.
+const ro = (hint) => RULES + ' Read-only: edit nothing, never run go test.' + (/test/i.test((a.focus || '') + ' ' + hint) ? ' *_test.go files are in scope.' : ' Skip *_test.go.')
+const READONLY = ro('')
 
 const SEV = { type: 'string', enum: ['critical', 'high', 'medium', 'low'] }
+// kind: a bug has a failing scenario; a cost (perf, runtime, complexity, test-quality) has none, only a real cost and a safe fix.
+const KIND = { type: 'string', enum: ['bug', 'perf', 'runtime', 'complexity', 'test-quality'], default: 'bug' }
+const isCost = (f) => !!f.kind && f.kind !== 'bug'
 const FINDING = {
   type: 'object',
-  properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, scenario: { type: 'string' }, severity: SEV },
+  properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, scenario: { type: 'string' }, severity: SEV, kind: KIND },
   required: ['file', 'line', 'symbol', 'symptom', 'scenario', 'severity'],
 }
 const FINDINGS = { type: 'object', properties: { findings: { type: 'array', items: FINDING } }, required: ['findings'] }
@@ -162,7 +167,7 @@ const LENSES = [
   { key: 'failure', ask: 'swallowed or mishandled errors, partial writes, records or locks left behind, races, leaked secrets' },
 ]
 const norm = (f) => String(f).replace(CWD + '/', '')
-const list = (cs) => cs.map((c) => '- ' + c.file + ':' + c.line + ' (' + c.symbol + ', ' + c.severity + '): ' + c.symptom + '\n  scenario: ' + c.rederived).join('\n')
+const list = (cs) => cs.map((c) => '- ' + c.file + ':' + c.line + ' (' + c.symbol + ', ' + c.severity + (isCost(c) ? ', ' + c.kind : '') + '): ' + c.symptom + '\n  scenario: ' + c.rederived).join('\n')
 
 function merge(raw) {
   const out = []
@@ -174,6 +179,12 @@ function merge(raw) {
   return out
 }
 
+// judge: bugs need a derived failing scenario; costs need the cost cited in code and a fix that keeps behavior.
+const judge = (f) => isCost(f)
+  ? 'It has no failing scenario by nature. Check the cost is real: cite the spawn, loop, sleep or complexity line (measure it if cheap). ' +
+    'Check the fix keeps behavior. reproduced=true only when the cost is real and the change is safe; put the cited line and why the fix is safe in scenario, and rate its severity.'
+  : 'Derive your own failing scenario from the code and rate its severity; reproduced=false if you cannot.'
+
 async function review(p) {
   if (KNOWN[p]) {
     const confirmed = KNOWN[p].map((k) => ({ file: norm(k.file), line: 0, symbol: 'named by the task', symptom: String(k.symptom), scenario: String(k.symptom), severity: MIN_SEV, rederived: 'named by the task' }))
@@ -182,16 +193,17 @@ async function review(p) {
   }
   const finds = await parallel(LENSES.map((l) => () =>
     agent(
-      S.find.task(READONLY + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + ' Find real bugs of this kind: ' + l.ask + '.' + FOCUS +
-        ' Each finding: file, line, function or symbol, a one-line symptom, a concrete failing scenario. Return {findings: []} when clean.'),
+      S.find.task(ro(l.ask) + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + ' Find real bugs of this kind: ' + l.ask + '.' + FOCUS +
+        ' Each finding: file, line, function or symbol, a one-line symptom, a concrete failing scenario, kind bug. A perf, runtime, complexity or ' +
+        'test-quality cost with no failing scenario takes that kind and names the cost (spawn, loop, sleep, complexity) as its scenario. Return {findings: []} when clean.'),
       { phase: 'Find', label: 'find:' + l.key + ':' + p, schema: S.find.schema(FINDINGS), model: S.find.model, effort: S.find.effort, ...S.find.type },
     ).then((r) => S.find.done('find:' + l.key + ':' + p, r))))
   const merged = merge(finds.filter(Boolean).flatMap((r) => r.findings || []))
   const blocked = finds.filter((r) => !r).length // BLOCKED or empty find legs: over half means the package was not really searched
   const judged = await parallel(merged.map((f, i) => () =>
     agent(
-      S.rederive.task(READONLY + ' A teammate says there is a bug at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
-        '. You have not seen their reasoning. Derive your own failing scenario from the code and rate its severity; reproduced=false if you cannot.'),
+      S.rederive.task(ro(f.file + ' ' + (f.kind || '')) + ' A teammate says there is ' + (isCost(f) ? 'a ' + f.kind + ' cost' : 'a bug') + ' at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
+        '. You have not seen their reasoning. ' + judge(f)),
       { phase: 'Rederive', label: 'rederive:' + p + ':' + i, schema: S.rederive.schema(REDERIVE), model: S.rederive.model, effort: S.rederive.effort, ...S.rederive.type },
     ).then((r) => ({ f, r: S.rederive.done('rederive:' + p + ':' + i, r) }))))
   // A null rederive (rate or API error) is unverified, never refuted.
@@ -199,7 +211,7 @@ async function review(p) {
   const unverified = ok.filter((x) => !x.r).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
   const repro = ok.filter((x) => x.r && x.r.reproduced)
   const confirmed = (await parallel(repro.map((x, i) => () => settleSeverity(p, x, i))))
-    .map((c, i) => c || { ...repro[i].f, severity: repro[i].r.severity, rederived: repro[i].r.scenario })
+    .map((c, i) => c || { ...repro[i].f, kind: repro[i].f.kind || 'bug', severity: repro[i].r.severity, rederived: repro[i].r.scenario })
   const dropped = ok.filter((x) => x.r && !x.r.reproduced).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
   log(p + ': merged ' + merged.length + ', confirmed ' + confirmed.length + ', dropped ' + dropped.length + ', unverified ' + unverified.length)
   return { pkg: p, merged: merged.length, confirmed, dropped, unverified, starved: blocked * 2 > finds.length ? blocked + '/' + finds.length : '' }
@@ -207,12 +219,12 @@ async function review(p) {
 
 // Severity drift: finder and rederiver split across the fix line → one blind tie-breaker; the median of three wins.
 async function settleSeverity(p, x, i) {
-  const out = { ...x.f, severity: x.r.severity, rederived: x.r.scenario }
+  const out = { ...x.f, kind: x.f.kind || 'bug', severity: x.r.severity, rederived: x.r.scenario }
   const fixes = (s) => ORDER[s] <= MIN_FIX
   if (fixes(x.f.severity) === fixes(x.r.severity)) return out
   const t = S.rederive.done('tiebreak:' + p + ':' + i, await agent(
-    S.rederive.task(READONLY + ' Rate the severity of a possible bug at ' + x.f.file + ':' + x.f.line + ' (' + x.f.symbol + '): ' + x.f.symptom +
-      '. Derive your own failing scenario from the code; reproduced=false if you cannot.'),
+    S.rederive.task(ro(x.f.file + ' ' + (x.f.kind || '')) + ' Rate the severity of a possible ' + (isCost(x.f) ? x.f.kind + ' cost' : 'bug') + ' at ' + x.f.file + ':' + x.f.line + ' (' + x.f.symbol + '): ' + x.f.symptom +
+      '. ' + judge(x.f)),
     { phase: 'Rederive', label: 'tiebreak:' + p + ':' + i, schema: S.rederive.schema(REDERIVE), model: S.rederive.model, effort: S.rederive.effort, ...S.rederive.type },
   ).catch(() => null))
   const votes = [x.f.severity, x.r.severity, t ? (t.reproduced ? t.severity : 'low') : null].filter(Boolean).sort((a, b) => ORDER[a] - ORDER[b])
@@ -232,17 +244,21 @@ async function repair(rev) {
   if (!cs.length && rev.starved) return { ...rev, fixed: 0, decisions: [p + ': ' + rev.starved + ' find legs BLOCKED — red, not clean'] }
   if (!cs.length) return { ...rev, fixed: 0, decisions: ['no finding at or above minFix in ' + p] }
   log(p + ': ' + cs.length + ' finding(s) at or above minFix, fixing now')
+  const bugs = cs.filter((c) => !isCost(c))
+  const costs = cs.filter(isCost)
   const impl = S.fix.done('fix:' + p, await agent(
-    S.fix.task(RULES + ' Fix these confirmed bugs in package ' + p + ' and nothing else; edit only non-test files under it (the Test stage writes any requested test; that is not unfinished work, so report done). Root cause first, smallest ' +
+    S.fix.task(RULES + ' Fix these confirmed bugs in package ' + p + ' and nothing else; edit only non-test files under it, except a *_test.go file a cost finding cites (the Test stage writes any requested test; that is not unfinished work, so report done). Root cause first, smallest ' +
       'correct change, functions < 50 lines, 1-line comments. Before finishing, grep every caller OUTSIDE the package of each function you ' +
       'changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). Run gofmt and go vet ./' +
       norm(p) + '/....\n' + list(cs)),
     { phase: 'Fix', label: 'fix:' + p, schema: S.fix.schema(WORK), model: S.fix.model, effort: S.fix.effort, ...S.fix.type },
   ))
   const test = S.test.done('test:' + p, await agent(
-    S.test.task(RULES + ' Fixes just landed in ' + p + ' (`git diff -- ' + p + '`). Write ONE regression test per fix in the package _test.go files that ' +
-      'calls the real code and fails without the fix; prove each with `claude-code test mutate <file> <old> <new> --run <RE> ./' + norm(p) +
-      ' </dev/null` (exit 0 = caught). Edit only *_test.go files under ' + p + '; each test under complexity 10. Put "n/a" in callers.\n' + list(cs)),
+    S.test.task(RULES + ' Fixes just landed in ' + p + ' (`git diff -- ' + p + '`). Edit only *_test.go files under ' + p + '; each test under complexity 10. Put "n/a" in callers.' +
+      (bugs.length ? '\nWrite ONE regression test per bug fix in the package _test.go files that calls the real code and fails without the fix; prove each with ' +
+        '`claude-code test mutate <file> <old> <new> --run <RE> ./' + norm(p) + ' </dev/null` (exit 0 = caught).\n' + list(bugs) : '') +
+      (costs.length ? '\nFor each cost fix, pin the unchanged behavior it must keep: a test that calls the real code and passes before and after the fix ' +
+        '(it need not fail without it; no mutate). When existing tests already pin that behavior, name them in summary and add none.\n' + list(costs) : '')),
     { phase: 'Test', label: 'test:' + p, schema: S.test.schema(WORK), model: S.test.model, effort: S.test.effort, ...S.test.type },
   ))
   const gate = S.gate.done('gate:' + p, await agent(
