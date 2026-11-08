@@ -130,3 +130,13 @@ func TestParseAgyRefusedToolStepIsNotPartial(t *testing.T) {
 		t.Fatalf("res.Answer = %q, err = %v; want the answer and no partial error", res.Answer, err)
 	}
 }
+
+// agy refuses --effort beside an effort-suffixed id ("conflicts with --effort"); a bare id keeps the flag.
+func TestAgyArgvEffortSuffixedModelDropsEffort(t *testing.T) {
+	for model, want := range map[string]bool{"gemini-3.8-flash-high": false, "gemini-3.8-flash": true} {
+		argv := agyArgv(agyRequest{Model: model, Effort: "medium"})
+		if got := slices.Contains(argv, "--effort"); got != want {
+			t.Errorf("%s: --effort present = %v, want %v (%v)", model, got, want, argv)
+		}
+	}
+}
