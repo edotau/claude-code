@@ -63,7 +63,10 @@ const stepOf = (steps, name, defaults, opt) => {
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
   const R = ['ran_on', 'coworker']
   const record = (label, r) => {
-    const ok = !!(r && r.coworker === 'ok' && /^ran on \S/.test(r.ran_on || '')) // the envelope's own line, never a paraphrase
+    const ranOn = (r && r.ran_on) || ''
+    // the envelope's own line; a reworded one still counts when it names the roster agent that ran (logged)
+    const ok = !!(r && r.coworker === 'ok' && (/^ran on \S/.test(ranOn) || /^(?:ran on )?(?:codex|copilot|gemini|opencode)\b\S*\s+\S/.test(ranOn)))
+    if (ok && !/^ran on \S/.test(ranOn)) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
     const why = ok ? '' : (r && r.coworker_error) || 'no ran_on in the result'
     COWORKERS.push({ stage: name, label, agent: who, status: ok ? 'ok' : 'BLOCKED', ran_on: ok ? r.ran_on : '', hops: (r && r.hops) || 0, error: why })
     log(`coworkers ${label}: ${ok ? 'ran on ' + r.ran_on + ' (hop ' + ((r && r.hops) || 0) + ')' : who + ' BLOCKED: ' + why}`)
