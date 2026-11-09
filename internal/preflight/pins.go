@@ -70,12 +70,15 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 	return out
 }
 
-// routedSpec is the profile an unflagged dispatch of a leads on (one-hop Resolve preview, arm included), else the pin.
+// routedSpec is the profile an unflagged dispatch of a leads on (one-hop Resolve preview led by the pin), else the pin.
 func routedSpec(a string, pin router.PinSpec) (router.PinSpec, string, error) {
-	q := agent.RouteReq{Agent: a, Fallback: router.FallbackNone, Preview: true}
+	if pin.Profile == "" { // an unpinned agent runs on its own login; nothing to preview
+		return pin, "pin", nil
+	}
+	q := agent.RouteReq{Agent: a, Lead: pin.Profile, Fallback: router.FallbackNone, Preview: true}
 	_, res, err := agent.Resolve(context.Background(), q)
 	if err != nil {
-		return pin, "route", err // a bad HARNESS_DATABRICKS_ARM fails dispatch too, so it fails the check
+		return pin, "route", err
 	}
 	if len(res.Candidates) == 0 {
 		return pin, "pin", nil

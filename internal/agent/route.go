@@ -251,7 +251,7 @@ type RouteReq struct {
 	Refresh                       func(context.Context, string) bool
 }
 
-// Resolve is the one route entry: lead (flags, session, arm), explicit backend, routed ladder, or a no-run preview.
+// Resolve is the one route entry: lead (flags, session), explicit backend, routed ladder, or a no-run preview.
 func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) {
 	if q.Host {
 		return Single(q.Engine), router.PickResult{}, nil
@@ -274,27 +274,20 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 		router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }})
 }
 
-// routeLead is LeadFor plus the arm: an unled routed run (and preview) takes ArmLead.
+// routeLead is LeadFor, except a preview leads on its pin or the profile of a profile:model, never runs it explicitly.
 func routeLead(q RouteReq) (lead string, explicit bool, err error) {
 	lead, explicit, err = LeadFor(q)
-	if err != nil {
-		return "", false, err
+	if err != nil || !(explicit && q.Preview) {
+		return lead, explicit, err
 	}
-	if explicit && q.Preview { // a preview routes a pin (or a profile:model) as its lead, never the arm
+	if q.Profile != "" {
 		return q.Profile, false, nil
 	}
-	if explicit || lead != "" || q.Native {
-		return lead, explicit, nil
+	if name, _, ok := strings.Cut(q.Model, ":"); ok {
+		return name, false, nil
 	}
-	if armValue(q.Agent) == "" { // arm off or no wanted agent: skip the registry load
-		return "", false, nil
-	}
-	lead, err = ArmLead(armRegistry(), q.Agent)
-	return lead, false, err
+	return "", false, nil
 }
-
-// armRegistry loads the registry for routeLead's arm; a package var so a test can count loads.
-var armRegistry = loadRegistryWarn
 
 // LeadFor is the one pin-or-lead predicate: a named --profile pins (explicit) only with --fallback none or Pinned.
 func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
@@ -341,34 +334,6 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 		chain = withAlias(chain, q.AliasHint)
 	}
 	return chain, nil
-}
-
-// EnvDatabricksArm (vault env) defaults every non-claude lead to Databricks: off|session|<databricks profile>.
-const EnvDatabricksArm = "HARNESS_DATABRICKS_ARM"
-
-// armValue is EnvDatabricksArm's setting for agentName; "" when the arm is off or no agent besides claude is wanted.
-func armValue(agentName string) string {
-	v := strings.TrimSpace(os.Getenv(EnvDatabricksArm))
-	if v == "off" || agentName == "claude" || agentName == "" {
-		return ""
-	}
-	return v
-}
-
-// ArmLead is the lead EnvDatabricksArm gives a dispatch that names no --profile or --provider; "" when off.
-func ArmLead(reg *providers.Registry, agentName string) (string, error) {
-	v := armValue(agentName)
-	if v == "" {
-		return "", nil
-	}
-	if reg == nil {
-		return "", fmt.Errorf("%s=%s: no provider registry", EnvDatabricksArm, v)
-	}
-	lead, err := ResolveLead(reg, agentName, v, "databricks")
-	if err != nil {
-		return "", fmt.Errorf("%s=%s: %w", EnvDatabricksArm, v, err)
-	}
-	return lead, nil
 }
 
 // LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).
