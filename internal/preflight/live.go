@@ -108,7 +108,7 @@ func LivePongs(ctx context.Context, bin string, ps []Pin) []Pong {
 	return pongAll(ctx, bin, live, "")
 }
 
-// pongAll pongs every pin in parallel; askProfile, when set, is passed to ask as --profile.
+// pongAll pongs every pin in parallel; askProfile (else a routed pin's profile) is passed to ask as --profile.
 func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string) []Pong {
 	out := make([]Pong, len(ps))
 	var wg sync.WaitGroup
@@ -123,6 +123,9 @@ func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string) []Pon
 
 func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 	r := Pong{Agent: p.Agent, Profile: p.Profile, Model: p.Model}
+	if askProfile == "" && p.ProfileSource == "route" { // pin the pong to the profile the route preview named
+		askProfile = p.Profile
+	}
 	env, err := runAsk(ctx, bin, p.Agent, askProfile)
 	r.Profile, r.Model = cmp.Or(env.Provider, r.Profile), cmp.Or(env.Model, r.Model)
 	switch {
@@ -182,9 +185,6 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	return pongs
 }
 
-// profileAgents are the agents the all-Databricks arm pongs on a named profile.
-var profileAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
-
 // profileNames resolves profile to the profiles to pong, printing a skip row for each unusable one.
 func profileNames(w io.Writer, reg *providers.Registry, profile string) []string {
 	cands := []string{profile}
@@ -216,9 +216,9 @@ func RunProfilePongs(ctx context.Context, w io.Writer, reg *providers.Registry, 
 	var all []Pong
 	for _, n := range profileNames(w, reg, profile) {
 		pctx, cancel := context.WithTimeout(ctx, 2*Budget) // five cold agents in parallel outlast one install-step budget
-		ps := make([]Pin, len(profileAgents))
-		for i, a := range profileAgents {
-			ps[i] = Pin{Agent: a, Profile: n}
+		var ps []Pin
+		for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
+			ps = append(ps, Pin{Agent: a, Profile: n})
 		}
 		for _, r := range pongAll(pctx, bin, ps, n) {
 			fmt.Fprintln(w, r.Line())

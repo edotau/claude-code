@@ -50,7 +50,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	codex := &fakeRunner{name: "codex", errs: []error{errors.New("insufficient_quota: you exceeded your current quota")}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "openai"}
-	c := ExplicitChain(codex, req)
+	c := explicitChain(codex, req)
 	if len(c.Dispatches) != 1 || c.Dispatches[0].Account != "openai·openai" {
 		t.Fatalf("chain = %+v, want one dispatch on openai·openai", c)
 	}
@@ -60,7 +60,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 	if e := loadState()["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
 		t.Fatalf("openai·openai not marked: %+v", e)
 	}
-	again := ExplicitChain(codex, req)
+	again := explicitChain(codex, req)
 	if len(again.Dispatches) != 0 || len(again.Skipped) != 1 || !strings.Contains(again.Skipped[0], "openai·openai exhausted") {
 		t.Fatalf("second explicit chain = %+v, want a gate skip", again)
 	}
@@ -543,7 +543,7 @@ func TestRateLimitedHopMarksAccount(t *testing.T) {
 	e429 := errors.New("rate limited: codex: exit status 1 exceeded retry limit, last status: 429 Too Many Requests")
 	codex := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "chatgpt"}
-	if _, err := RunWithFallback(context.Background(), ExplicitChain(codex, req), req, wire.Discard, nil); err == nil {
+	if _, err := RunWithFallback(context.Background(), explicitChain(codex, req), req, wire.Discard, nil); err == nil {
 		t.Fatal("the 429 must surface")
 	}
 	e := loadState()["openai·chatgpt"]
@@ -552,7 +552,7 @@ func TestRateLimitedHopMarksAccount(t *testing.T) {
 	}
 	api := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
 	paid := RunOptions{Prompt: "p", Provider: "openai"} // credits billing: one endpoint's 429 must not bench the account
-	_, _ = RunWithFallback(context.Background(), ExplicitChain(api, paid), paid, wire.Discard, nil)
+	_, _ = RunWithFallback(context.Background(), explicitChain(api, paid), paid, wire.Discard, nil)
 	if e := loadState()["openai·openai"]; !e.ExhaustedUntil.IsZero() {
 		t.Fatalf("openai·openai = %+v, want no mark on a credits 429", e)
 	}

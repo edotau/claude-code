@@ -78,7 +78,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	o, pins, err := routePickOpts(o, mode, want, native)
+	o, pins, err := routePickOpts(o, mode)
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
@@ -121,15 +121,9 @@ func loadRegistryWarn() *providers.Registry {
 	return reg
 }
 
-// routePickOpts fills the fallback mode, the account resolver, the roster and the arm lead in o, and loads the pins.
-func routePickOpts(o router.PickOpts, mode, want string, native bool) (router.PickOpts, map[string]router.PinSpec, error) {
+// routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the pins.
+func routePickOpts(o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
 	o.Fallback = mode
-	if o.Lead == "" && !native {
-		var err error
-		if o.Lead, err = ArmLead(loadRegistryWarn(), want); err != nil {
-			return o, nil, err
-		}
-	}
 	if o.Account == nil {
 		o.Account = ResolveAccount
 	}
@@ -194,9 +188,9 @@ func (d Dispatch) same(o Dispatch) bool {
 	return d.Agent.Name() == o.Agent.Name() && d.Account == o.Account && d.Model == o.Model && d.Effort == o.Effort
 }
 
-// ExplicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
+// explicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
 // account: a remembered exhaustion skips it without an attempt, and a quota failure is recorded on it.
-func ExplicitChain(r Engine, req RunOptions) Chain {
+func explicitChain(r Engine, req RunOptions) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
@@ -214,8 +208,8 @@ func ExplicitChain(r Engine, req RunOptions) Chain {
 	return c
 }
 
-// WithAlias runs c's lone explicit dispatch on the router's alias when the caller named no model.
-func WithAlias(c Chain, alias string) Chain {
+// withAlias runs c's lone explicit dispatch on the router's alias when the caller named no model.
+func withAlias(c Chain, alias string) Chain {
 	if len(c.Dispatches) != 1 || alias == "" {
 		return c
 	}
@@ -245,13 +239,111 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	return out
 }
 
+// RouteReq is one route ask: the agent, its model, the caller's route flags and what the chain is for.
+type RouteReq struct {
+	Agent, Model, AliasHint, Task string // AliasHint: the dispatch's classified alias; Task: what a preview classifies
+	Profile, Provider, Lead       string // --profile (a name or LeadSession), --provider, an already-resolved lead
+	Fallback, WorkDir             string
+	Native, Preview               bool
+	Pinned                        bool   // Profile is an explicit backend whatever the fallback (a dispatch's pin)
+	Host                          bool   // Engine runs remotely as one unrouted dispatch (--host)
+	Engine                        Engine // the resolved engine an explicit or --host chain runs on
+	Refresh                       func(context.Context, string) bool
+}
+
+// Resolve is the one route entry: lead (flags, session, arm), explicit backend, routed ladder, or a no-run preview.
+func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) {
+	if q.Host {
+		return Single(q.Engine), router.PickResult{}, nil
+	}
+	lead, explicit, err := routeLead(q)
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	if explicit {
+		c, err := resolveExplicit(q)
+		return c, router.PickResult{}, err
+	}
+	if q.Preview {
+		return previewRoute(ctx, q, lead)
+	}
+	if err := ctx.Err(); err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	return RouteChainFor(ctx, q.Agent, q.Model, q.AliasHint, q.Fallback, q.Native,
+		router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }})
+}
+
+// routeLead is LeadFor plus the arm: an unled routed run (and preview) takes ArmLead.
+func routeLead(q RouteReq) (lead string, explicit bool, err error) {
+	lead, explicit, err = LeadFor(q)
+	if err != nil {
+		return "", false, err
+	}
+	if explicit && q.Preview { // a preview routes a pin (or a profile:model) as its lead, never the arm
+		return q.Profile, false, nil
+	}
+	if explicit || lead != "" || q.Native {
+		return lead, explicit, nil
+	}
+	lead, err = ArmLead(loadRegistryWarn(), q.Agent)
+	return lead, false, err
+}
+
+// LeadFor is the one pin-or-lead predicate: a named --profile pins (explicit) only with --fallback none or Pinned.
+func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
+	if q.Lead != "" {
+		return q.Lead, false, nil
+	}
+	if q.Profile == "" && q.Provider == "" {
+		return "", ExplicitBackend(RunOptions{Model: q.Model}), nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return "", false, err
+	}
+	if q.Provider == "" && q.Profile != LeadSession && (q.Pinned || q.Fallback == router.FallbackNone) {
+		_, err := reg.Get(q.Profile) // an unknown pin errs with explicit set: dispatch reports it, a lead check skips it
+		return "", true, err
+	}
+	lead, err = ResolveLead(reg, q.Agent, q.Profile, q.Provider)
+	return lead, false, err
+}
+
+// resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.
+func resolveExplicit(q RouteReq) (Chain, error) {
+	r := q.Engine
+	if q.Profile != "" {
+		reg, err := providers.Load()
+		if err != nil {
+			return Chain{}, err
+		}
+		p, err := reg.Get(q.Profile)
+		if err != nil {
+			return Chain{}, err
+		}
+		if !q.Native && IsHubAgent(q.Agent) && p.OpencodeID != "" {
+			start, err := HubStart(reg, q.Agent, q.Profile)
+			if err != nil {
+				return Chain{}, err
+			}
+			r = NewHubDispatch(q.Agent, start, reg)
+		}
+	}
+	chain := explicitChain(r, RunOptions{Provider: q.Profile, Model: q.Model})
+	if IsHubAgent(q.Agent) && q.Model == "" {
+		chain = withAlias(chain, q.AliasHint)
+	}
+	return chain, nil
+}
+
 // EnvDatabricksArm (vault env) defaults every non-claude lead to Databricks: off|session|<databricks profile>.
 const EnvDatabricksArm = "HARNESS_DATABRICKS_ARM"
 
 // ArmLead is the lead EnvDatabricksArm gives a dispatch that names no --profile or --provider; "" when off.
 func ArmLead(reg *providers.Registry, agentName string) (string, error) {
 	v := strings.TrimSpace(os.Getenv(EnvDatabricksArm))
-	if v == "" || v == "off" || agentName == "claude" {
+	if v == "" || v == "off" || agentName == "claude" || agentName == "" { // no wanted agent: nothing leads
 		return "", nil
 	}
 	if reg == nil {
@@ -271,7 +363,7 @@ const LeadSession = "session"
 func ResolveLead(reg *providers.Registry, agentName, profile, provider string) (string, error) {
 	fromSession := profile == LeadSession
 	if fromSession {
-		profile = cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+		profile = providers.SessionLead(nil, true)
 		// a session-inherited lead never moves gemini off its pin; only a named profile or provider does
 		if p := reg.Providers[profile]; agentName == "gemini" && provider == "" && (p == nil || p.Provider != "google") {
 			return "", nil

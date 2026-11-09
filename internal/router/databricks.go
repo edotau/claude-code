@@ -1,7 +1,6 @@
 package router
 
 import (
-	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -294,7 +293,7 @@ func sessionDatabricks(reg *providers.Registry, agent string, canServe func(stri
 	if reg == nil {
 		return "", nil, false
 	}
-	profile = cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+	profile = providers.SessionLead(nil, true)
 	p = reg.Providers[profile]
 	if p == nil || p.Preset != providers.PresetDatabricks || !canServe(agent, p) || !providers.CredentialPresent(p) {
 		return "", nil, false

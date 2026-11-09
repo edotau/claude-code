@@ -1,7 +1,6 @@
 package router
 
 import (
-	"cmp"
 	"net/url"
 	"os"
 	"runtime"
@@ -42,7 +41,7 @@ func CurrentLimits() inflight.Limits {
 
 // SessionAccount is the account this session bills: the loopback /p/<name>/ profile, else pin, else the default.
 func SessionAccount() string {
-	name := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+	name := providers.SessionLead(nil, true)
 	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
 		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
 			name, _, _ = strings.Cut(rest, "/")

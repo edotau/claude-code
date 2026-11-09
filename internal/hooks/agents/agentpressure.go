@@ -43,16 +43,12 @@ var ClaudePressure = func() (float64, string, bool) {
 
 // RouteHint names the agent pick for model alias ("codex gpt-6.1-sol"); "" when no agent passes the gates.
 var RouteHint = func(alias string) (agent, model string) {
-	tb, err := router.Load()
-	if err != nil {
-		return "", ""
-	}
-	opts, err := agentpkg.RosterPick(router.PickOpts{Fallback: router.FallbackAgents})
+	q := agentpkg.RouteReq{Model: alias, Fallback: router.FallbackAgents, Preview: true}
+	_, res, err := agentpkg.Resolve(context.Background(), q)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-effort route hint: %v\n", err)
 		return "", ""
 	}
-	res := tb.Pick(context.Background(), alias, "", router.LoadState(), opts)
 	if len(res.Candidates) == 0 {
 		return "", ""
 	}
@@ -62,7 +58,7 @@ var RouteHint = func(alias string) (agent, model string) {
 // billsSubscription is false only when the session provider is known and not passthrough (Databricks, an API key):
 // the cached claude.ai windows then describe a plan this session does not spend.
 func billsSubscription() bool {
-	name := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+	name := providers.SessionLead(nil, true)
 	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
 		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
 			name, _, _ = strings.Cut(rest, "/")

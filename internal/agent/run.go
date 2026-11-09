@@ -55,7 +55,7 @@ func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error
 		return nil, providers.Target{}, err
 	}
 	req = profileAliasRequest(reg, req)
-	sel, err := providers.Select(reg, cmp.Or(req.Provider, registeredSession(reg)))
+	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLead(reg, false)))
 	if sel.Provider == nil || (err != nil && req.Model == "") {
 		return nil, providers.Target{}, err
 	}
@@ -90,14 +90,6 @@ func aliasTarget(sel providers.Selection, model string) (providers.Target, bool)
 		t.OneM = true
 	}
 	return t, ok
-}
-
-// registeredSession is the session's profile when the registry has it, else "": it beats the vault pin.
-func registeredSession(reg *providers.Registry) string {
-	if name := providers.SessionProfile(); reg != nil && reg.Providers[name] != nil {
-		return name
-	}
-	return ""
 }
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.

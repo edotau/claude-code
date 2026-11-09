@@ -149,7 +149,24 @@ func cliTarget(spec agent.Schema, name string, reg *providers.Registry, sel prov
 
 // launchProfile resolves an agent CLI launch's profile: --profile > this workspace's last-used > the agent pin.
 func launchProfile(name string, o agent.LaunchOptions) (agent.LaunchOptions, error) {
+	o, err := withArm(name, o)
+	if err != nil {
+		return o, err
+	}
 	return withAgentPins(name, withLastProfile(name, o))
+}
+
+// withArm fills an unset --profile from HARNESS_DATABRICKS_ARM, ahead of the last-used profile and the pin.
+func withArm(name string, o agent.LaunchOptions) (agent.LaunchOptions, error) {
+	if o.Provider != "" {
+		return o, nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		reg = nil // ArmLead fails only when the arm is on
+	}
+	o.Provider, err = agent.ArmLead(reg, name)
+	return o, err
 }
 
 // lastProfile is the profile this workspace last launched agentName with, "" unless it is registered and the agent can use it.

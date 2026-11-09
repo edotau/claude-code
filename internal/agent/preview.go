@@ -35,23 +35,23 @@ func RosterPick(o router.PickOpts) (router.PickOpts, error) {
 	return o, nil
 }
 
-// PreviewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
-// a dispatch dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
-func PreviewRoute(model, task, want, fallback, lead string, refresh func(context.Context, string) bool) (router.PickResult, error) {
+// previewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
+// a dispatch dropped after the pick (model or profile gate) moves to Skipped.
+func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.PickResult, error) {
 	tb, err := router.Load()
 	if err != nil {
-		return router.PickResult{}, err
+		return Chain{}, router.PickResult{}, err
 	}
-	hint, err := previewHint(tb, model, task)
+	hint, err := previewHint(tb, q.Model, q.Task)
 	if err != nil {
-		return router.PickResult{}, err
+		return Chain{}, router.PickResult{}, err
 	}
-	chain, pick, err := RouteChainFor(context.Background(), want, model, hint, fallback, false,
-		router.PickOpts{Lead: lead, Refresh: refresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+	chain, pick, err := RouteChainFor(ctx, q.Agent, q.Model, hint, q.Fallback, q.Native,
+		router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }})
 	if err != nil {
-		return router.PickResult{}, err
+		return Chain{}, router.PickResult{}, err
 	}
-	return previewOutcome(chain, pick), nil
+	return chain, previewOutcome(chain, pick), nil
 }
 
 func previewHint(tb *router.RouteTable, model, task string) (string, error) {

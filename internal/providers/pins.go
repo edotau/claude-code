@@ -24,6 +24,18 @@ const EnvSessionProfile = "CLAUDE_PROFILE"
 // SessionProfile is the profile of the session this process runs in ("" outside a launched session).
 func SessionProfile() string { return strings.TrimSpace(os.Getenv(EnvSessionProfile)) }
 
+// SessionLead is the session's profile, else (withRecord) claude's record profile; a non-nil reg drops a name it lacks.
+func SessionLead(reg *Registry, withRecord bool) string {
+	name := SessionProfile()
+	if name == "" && withRecord {
+		name = AgentRecord("claude").Profile
+	}
+	if reg != nil && reg.Providers[name] == nil {
+		return ""
+	}
+	return name
+}
+
 // agentRecords reads every stored agent record in one vault transaction.
 func agentRecords() (recs map[string]vault.AgentRecord, err error) {
 	err = vault.View(func(tx *vault.Tx) (e error) { recs, e = tx.AgentRecords(); return e })
@@ -322,7 +334,7 @@ func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
 			return spec
 		}
 	}
-	session := cmp.Or(SessionProfile(), AgentRecord("claude").Profile, reg.Default)
+	session := cmp.Or(SessionLead(nil, true), reg.Default)
 	if providerFlag == session {
 		return spec
 	}

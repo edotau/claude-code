@@ -80,3 +80,54 @@ func TestOtherRouteFollowsLead(t *testing.T) {
 		t.Error("pin row under a lead not marked as another route")
 	}
 }
+
+// LeadFor: a named profile leads (D1) unless --fallback none or Pinned pins it; session and --provider always lead.
+func TestLeadFor(t *testing.T) {
+	leadRegistry(t)
+	t.Setenv(providers.EnvSessionProfile, "dev")
+	all, none := router.FallbackAll, router.FallbackNone
+	cases := []struct {
+		q        RouteReq
+		lead     string
+		explicit bool
+		err      string
+	}{
+		{RouteReq{Agent: "codex", Fallback: all}, "", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all}, "dev", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: none}, "", true, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all, Pinned: true}, "", true, ""},
+		{RouteReq{Agent: "codex", Profile: LeadSession, Fallback: none}, "dev", false, ""},
+		{RouteReq{Agent: "codex", Provider: "databricks", Fallback: none}, "dev", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Lead: "max", Pinned: true}, "max", false, ""},
+		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, ""},
+		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch"},
+		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch"},
+	}
+	for _, c := range cases {
+		lead, explicit, err := LeadFor(c.q)
+		errOK := (c.err == "") == (err == nil) && (err == nil || strings.Contains(err.Error(), c.err))
+		if lead != c.lead || explicit != c.explicit || !errOK {
+			t.Errorf("%+v: got %q, %v, %v", c.q, lead, explicit, err)
+		}
+	}
+}
+
+// A preview of a profile:model names its own route: the arm leads only an unflagged preview, never that one.
+func TestRouteLeadPreviewKeepsModelProfileOverArm(t *testing.T) {
+	leadRegistry(t)
+	t.Setenv(providers.EnvSessionProfile, "max")
+	t.Setenv(EnvDatabricksArm, "dev")
+	cases := []struct {
+		q    RouteReq
+		lead string
+	}{
+		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, "dev"},
+		{RouteReq{Agent: "codex", Model: "max:opus", Fallback: router.FallbackAll, Preview: true}, ""},
+	}
+	for _, c := range cases {
+		lead, explicit, err := routeLead(c.q)
+		if lead != c.lead || explicit || err != nil {
+			t.Errorf("%+v: got %q, %v, %v; want lead %q", c.q, lead, explicit, err, c.lead)
+		}
+	}
+}

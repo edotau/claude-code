@@ -68,7 +68,7 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 		}
 		return t, false, note, true, err
 	}
-	sel, err := providers.Select(reg, registeredSession(reg))
+	sel, err := providers.Select(reg, providers.SessionLead(reg, false))
 	if err != nil {
 		return t, false, "", true, err
 	}
