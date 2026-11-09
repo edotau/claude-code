@@ -36,6 +36,7 @@ var agentsPage = helptext.Page{
 		{"sync", "project agents/ + CLAUDE.md into every agent home; link skills"},
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"reap", "mark dead running dispatches as error; drop stale markers"},
+		{"label", "print a leaf's dispatch description prefix"},
 		{"status", "show a dispatch's state (any agent): status <id>"},
 		{"result", "print a finished dispatch's answer or envelope: result <id>"},
 		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
@@ -90,7 +91,7 @@ func Run(args []string) int {
 // agentsVerbs routes `agents <verb>` to its handler; the job verbs share Job.
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": ask.Cmd, "dispatch": dispatchCmd, "sync": cmdAgentsSync,
-	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": Send,
+	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": Send, "label": cmdAgentsLabel,
 	"status": func(a []string) int { return Job("status", a) },
 	"result": func(a []string) int { return Job("result", a) },
 	"tail":   func(a []string) int { return Job("tail", a) },

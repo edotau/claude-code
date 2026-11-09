@@ -41,6 +41,7 @@ A leaf's `subagent_type` is the agent doing the work: `claude` works in-context;
 
 The `dispatch-effort` hook prefixes the `description` with the planned model (`gpt-6.1-sol: <task>`; in auto
 mode it denies once naming the text to resend); an `inherit` agent runs at the parent's model: fan out as `claude`.
+Print the exact prefix before a dispatch with `claude-code agents label <type> --brief FILE` (add `--model` for a pin; a Plan or `claude` leaf needs the session model, else pass `--session-model`).
 
 ## Workflow
 
