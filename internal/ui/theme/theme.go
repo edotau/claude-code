@@ -145,7 +145,7 @@ func readJSON(path string) (map[string]any, error) {
 	return m, nil
 }
 
-// writeMerged writes newContent with backup and concurrent-change check.
+// writeMerged writes newContent under dest's lock, with backup and a concurrent-change check.
 func writeMerged(dest string, oldContent, newContent []byte, dryRun bool, mode os.FileMode) (changed bool, backup string, err error) {
 	if bytes.Equal(oldContent, newContent) {
 		return false, "", nil
@@ -156,23 +156,37 @@ func writeMerged(dest string, oldContent, newContent []byte, dryRun bool, mode o
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return false, "", err
 	}
+	err = paths.WithFileLock(dest, func() error {
+		var werr error
+		backup, werr = replaceIfUnchanged(dest, oldContent, newContent, mode)
+		return werr
+	})
+	if err != nil {
+		return false, "", err
+	}
+	return true, backup, nil
+}
+
+// replaceIfUnchanged backs up oldContent and swaps in newContent; the caller holds dest's lock.
+func replaceIfUnchanged(dest string, oldContent, newContent []byte, mode os.FileMode) (string, error) {
 	if beforeWrite != nil {
 		beforeWrite(dest)
 	}
 	fresh, err := os.ReadFile(dest)
 	if err != nil && !os.IsNotExist(err) {
-		return false, "", err
+		return "", err
 	}
 	if !bytes.Equal(fresh, oldContent) {
-		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
+		return "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
 	}
+	var backup string
 	if len(oldContent) > 0 {
 		backup, err = paths.Backup(dest, oldContent)
 		if err != nil {
-			return false, "", err
+			return "", err
 		}
 	}
-	return true, backup, paths.AtomicWrite(dest, newContent, mode)
+	return backup, paths.AtomicWrite(dest, newContent, mode)
 }
 
 // mergeFile overlays onto dest's JSON (JSONC tolerated on read); unchanged means no write, no backup.

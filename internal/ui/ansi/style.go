@@ -37,16 +37,8 @@ func Enabled(w io.Writer) bool {
 	return ok && IsTerminal(f)
 }
 
-// IsTerminal reports whether f is a real terminal. /dev/null is itself a char device, so
-// ModeCharDevice alone misreports `cmd </dev/null` as interactive; os.SameFile rules it out.
-func IsTerminal(f *os.File) bool {
-	fi, err := f.Stat()
-	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
-		return false
-	}
-	null, err := os.Stat(os.DevNull)
-	return err != nil || !os.SameFile(fi, null)
-}
+// IsTerminal reports whether f is a real terminal (a termios ioctl succeeds); /dev/null and /dev/zero are not.
+func IsTerminal(f *os.File) bool { return isTTY(f) }
 
 // Style wraps s in code (one or more SGR escapes) and a reset when on; otherwise s unchanged.
 func Style(on bool, code, s string) string {

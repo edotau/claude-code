@@ -96,30 +96,40 @@ func TestGradientEmptyCellsVisible(t *testing.T) {
 	}
 }
 
-// Too wide for the terminal: rows break only between segments, each row fits, and no text is clipped or lost.
+// Segments that individually fit wrap without clipping or losing text.
 func TestGradientWrapsWholeSegments(t *testing.T) {
 	hermetic(t)
-	dir := t.TempDir()
+	const dir = "/statusline-fixture"
 	t.Setenv("COLUMNS", "300")
 	wide := plain(Render([]byte(gradientPayload(dir)), "gradient"))
-	for _, cols := range []int{40, 75, 95} {
+	for _, cols := range []int{40, 65, 80} {
 		t.Setenv("COLUMNS", strconv.Itoa(cols))
 		lines := strings.Split(plain(Render([]byte(gradientPayload(dir)), "gradient")), "\n")
 		if len(lines) < 2 {
 			t.Fatalf("%d cols: want a wrap, got %q", cols, lines)
 		}
-		rest := wide
-		for _, l := range lines {
-			at := strings.Index(rest, l)
-			over := visibleWidth(l) > cols-ccMargin && strings.ContainsAny(l, "·|") // a lone segment may exceed
-			if over || at < 0 || strings.TrimLeft(rest[:at], " ·|") != "" || strings.HasPrefix(l, " ") {
-				t.Fatalf("%d cols: row %q splits a segment or overflows; full line %q", cols, l, wide)
-			}
-			rest = rest[at+len(l):]
+		assertGradientRows(t, wide, lines, cols-ccMargin)
+	}
+}
+
+func assertGradientRows(t *testing.T, wide string, lines []string, width int) {
+	t.Helper()
+	rest := wide
+	for _, line := range lines {
+		if visibleWidth(line) > width || strings.HasPrefix(line, " ") {
+			t.Fatalf("width %d: row overflows or starts with a space: %q", width, line)
 		}
-		if rest != "" {
-			t.Errorf("%d cols: lost %q", cols, rest)
+		at := strings.Index(rest, line)
+		if at < 0 {
+			t.Fatalf("row %q splits a segment; full line %q", line, wide)
 		}
+		if strings.TrimLeft(rest[:at], " ·|") != "" {
+			t.Fatalf("row %q lost text from %q", line, rest)
+		}
+		rest = rest[at+len(line):]
+	}
+	if rest != "" {
+		t.Errorf("lost %q", rest)
 	}
 }
 

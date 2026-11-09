@@ -149,6 +149,14 @@ func TestSectionsOpenWithBlankLineBeforeEachTitle(t *testing.T) {
 	}
 }
 
+func TestPanelLinesFullWidthSectionHeading(t *testing.T) {
+	s := pickState{rows: []string{strings.Repeat("x", 80)}, heads: map[int]bool{0: true}}
+	out := render("", s, false)
+	if got, want := panelLines("", s, 80), strings.Count(out, "\r\n")+1; got != want {
+		t.Fatalf("panelLines = %d, rendered rows = %d; heading has no marker prefix", got, want)
+	}
+}
+
 // TestFitWindowsRowsToTerminalHeight: a panel taller than the screen shows only the rows that fit, cursor
 // included, so the cursor-up rewind never has to reach scrolled-off lines.
 func TestFitWindowsRowsToTerminalHeight(t *testing.T) {

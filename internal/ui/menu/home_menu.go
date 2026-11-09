@@ -28,11 +28,14 @@ var submitRow = EnterRow("save keys to the secrets manager and exit")
 // runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
 // picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
 // narrows it to that agent's row. Any change made here re-renders the agent configs on exit.
-func runMenu(d *dialog) int {
+func runMenu(d *dialog) (code int) {
 	d.pending = map[string]stagedKey{}
 	defer func() {
 		if d.changed {
-			rerenderConfigs(d)
+			if err := rerenderConfigs(d); err != nil {
+				d.println(err)
+				code = 1
+			}
 		}
 	}()
 	start := 0
@@ -45,20 +48,34 @@ func runMenu(d *dialog) int {
 			return 1
 		}
 		if idx < 0 || idx == len(actions) { // Enter, Esc and Left all leave through the one prompt
-			if confirmLeave(len(d.pending), "key(s) to the secrets manager") {
-				ok := saveKeys(d)
-				d.changed = true
-				if !ok {
-					return 1
-				}
-				return 0
-			}
-			discardKeys(d) // saveKeys never ran: nothing was drained, so discard every staged key
-			return 0
+			return leaveMenu(d)
 		}
 		start = idx
 		actions[idx](d)
 	}
+}
+
+// leaveMenu saves or discards the staged keys on leaving; 1 when a key save or a secret deletion failed.
+func leaveMenu(d *dialog) int {
+	if !confirmLeave(len(d.pending), "key(s) to the secrets manager") {
+		discardKeys(d) // saveKeys never ran: nothing was drained, so discard every staged key
+		return failedDeletes(d)
+	}
+	ok := saveKeys(d)
+	d.changed = true
+	if !ok {
+		return 1
+	}
+	return failedDeletes(d)
+}
+
+// failedDeletes is 1 when staged secret deletions are still pending (their vault delete failed on the page).
+func failedDeletes(d *dialog) int {
+	if n := len(d.pendingDeletes); n > 0 {
+		d.printf("secrets: %d deletion(s) not removed from the vault; retry from the secrets page\n", n)
+		return 1
+	}
+	return 0
 }
 
 // homeSections is the agents block, then tools and settings (both hidden under --agent); the two build concurrently.

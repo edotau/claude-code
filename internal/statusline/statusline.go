@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
@@ -129,7 +130,11 @@ func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 		return 2
 	}
 	raw, err := io.ReadAll(r)
-	fmt.Fprintln(w, Render(raw, *style)) // best-effort: render whatever was read even on a short read
+	_, werr := fmt.Fprintln(w, Render(raw, *style)) // best-effort: render whatever was read even on a short read
+	if werr != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: theme statusline: write: "+werr.Error())
+		return 1
+	}
 	if err != nil {
 		return 1
 	}
@@ -150,8 +155,8 @@ func Render(raw []byte, style string) string {
 
 // renderFit tries full, then the capped profile, then no branch (velocity stays); the last pick is clipped to width.
 func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
-	if cfg.gradientStyle() { // renderGradient wraps whole segments itself; nothing is clipped
-		return renderRaw(v, cfg, pal)
+	if cfg.gradientStyle() { // renderGradient wraps whole segments; clip only a segment wider than the line
+		return clip(renderRaw(v, cfg, pal), width)
 	}
 	if width > 0 && cfg.Style != "twoline" { // twoline fits each row itself: shorter path, row 2 clipped alone
 		wide := v
@@ -225,10 +230,10 @@ func collect(in Input, cfg Config) values {
 	return v
 }
 
-// rawModelID is the payload's model id as sent, minus a [1m] tag and a "profile:" prefix; a routed "⇄" label stays.
+// rawModelID is the payload's model id as sent, minus a [1m] tag and a profile prefix; a routed "⇄" label stays.
 func rawModelID(in Input, model string) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
-	if _, m, ok := strings.Cut(id, ":"); ok && m != "" {
+	if m, ok := profileModel(id); ok {
 		id = m
 	}
 	if id == "" || strings.Contains(model, "⇄") {
@@ -337,7 +342,7 @@ func capProfile(label string, max int) string {
 	if !ok {
 		return label
 	}
-	return prov + "·" + truncRunes(prof, max)
+	return prov + "·" + table.Truncate(prof, max)
 }
 
 // profileName is the profile's name, "ultra" for the claude.ai login profile on a 20x account.
@@ -364,6 +369,21 @@ func modelSegment(in Input, session string) string {
 		return displayModel(in.Model.DisplayName)
 	}
 	return shortModelID(id)
+}
+
+// profileModel strips a "<profile>:" prefix only when it names a registered provider or the rest is a Claude id.
+func profileModel(id string) (string, bool) {
+	prov, model, ok := strings.Cut(id, ":")
+	if !ok || prov == "" || model == "" {
+		return id, false
+	}
+	if reg := registry(); reg != nil && reg.Providers[prov] != nil {
+		return model, true
+	}
+	if models.FamilyKind(model) == models.FamilyClaude {
+		return model, true
+	}
+	return id, false
 }
 
 var trailingDate = regexp.MustCompile(`-\d{8}$`)

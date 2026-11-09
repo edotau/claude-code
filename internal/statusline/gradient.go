@@ -39,7 +39,7 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 	for i, c := range b.cells {
 		pieces[i] = paintCell(c, mode, dim, ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase)))
 	}
-	col = wrapSegments(&out, pieces, b.brks, col, width)
+	col = wrapSegments(&out, pieces, b.cells, b.brks, col, width)
 	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
 		writeVelocity(&out, velocityText(v, mode, pal, "/"), ansi.Paint(mode, dim, sepPath, false), col, width)
 	}
@@ -57,7 +57,7 @@ func writeUserHost(out *strings.Builder, v values, cfg Config, pal theme.Palette
 		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true))
 	}
 	out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false))
-	return utf8.RuneCountInString(v.userHost) + 1
+	return visibleWidth(v.userHost) + 1
 }
 
 // writeVelocity appends +A/-D after sep, or alone on a new row when it would cross width.
@@ -81,7 +81,8 @@ func paintCell(c cell, mode string, dim, rgb ansi.RGB) string {
 }
 
 // wrapSegments writes pieces from col, swapping a separator for a newline before a segment crossing width (0: never).
-func wrapSegments(out *strings.Builder, pieces []string, brks []brk, col, width int) int {
+// Widths are terminal cells, as clip measures them, so a wide rune counts two.
+func wrapSegments(out *strings.Builder, pieces []string, cells []cell, brks []brk, col, width int) int {
 	next := 0
 	for i := 0; i < len(pieces); {
 		if next < len(brks) && brks[next].at == i {
@@ -91,17 +92,26 @@ func wrapSegments(out *strings.Builder, pieces []string, brks []brk, col, width 
 			if next < len(brks) {
 				end = brks[next].at
 			}
-			if width > 0 && col > 0 && col+end-sep.at > width {
+			if width > 0 && col > 0 && col+cellsWidth(cells[sep.at:end]) > width {
 				out.WriteByte('\n')
 				col, i = 0, sep.at+sep.n
 				continue
 			}
 		}
 		out.WriteString(pieces[i])
-		col++
+		col += cellWidth(cells[i].ch)
 		i++
 	}
 	return col
+}
+
+// cellsWidth is the terminal columns the cells occupy.
+func cellsWidth(cells []cell) int {
+	n := 0
+	for _, c := range cells {
+		n += cellWidth(c.ch)
+	}
+	return n
 }
 
 // cellBuf accumulates the gradient line's characters with their paint kinds.
@@ -238,14 +248,6 @@ func contextBarParts(pct int, bar BarConfig) (filledPart, emptyPart string) {
 	}
 	n := max(0, min(width, int(float64(pct)/100*float64(width)+0.5)))
 	return strings.Repeat(filled, n), strings.Repeat(empty, width-n)
-}
-
-// truncRunes clips b to n runes with a trailing "…"; n<=0 leaves it whole.
-func truncRunes(b string, n int) string {
-	if n <= 0 || utf8.RuneCountInString(b) <= n {
-		return b
-	}
-	return string([]rune(b)[:max(1, n-1)]) + "…"
 }
 
 // troughTone derives empty-bar cells from the terminal bg (not the ramp, which drags troughs dark):

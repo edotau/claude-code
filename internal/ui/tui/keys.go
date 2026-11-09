@@ -135,10 +135,16 @@ func (k Key) Name() string {
 	return string(k.Rune)
 }
 
+// isLoneEsc reports whether buf is a bare Esc, which may open a sequence whose rest has not arrived yet.
+func isLoneEsc(buf []byte) bool { return len(buf) == 1 && buf[0] == 0x1b }
+
 // drain decodes every complete key in pending, returning them and the still-undecoded tail.
 func drain(pending []byte) ([]Key, []byte) {
 	var keys []Key
 	for len(pending) > 0 {
+		if isLoneEsc(pending) {
+			break // held until the next read or a silent pollTick: the Esc key, or the start of a split sequence
+		}
 		key, consumed := Decode(pending)
 		if consumed == 0 {
 			break // incomplete tail — wait for the next read
@@ -163,6 +169,8 @@ type Terminal struct {
 	stop chan struct{} // closed by Close — ends the key pump
 	done chan struct{} // closed by the key pump when it exits
 	once sync.Once
+	// readErr is the read error that ended the key stream; written before keys closes.
+	readErr error
 }
 
 // Open puts stdin into raw mode and hides the cursor. Fails cleanly when stdin is not a TTY, so
@@ -184,10 +192,10 @@ func Open() (*Terminal, error) {
 }
 
 // Close restores the terminal: cooked mode, cursor back, key pump stopped. Safe to call more than once.
-func (t *Terminal) Close() {
+func (t *Terminal) Close() error {
 	t.stopReader()
 	fmt.Fprint(t.out, "\x1b[?25h")
-	_ = restore(t.fd, t.prev)
+	return restore(t.fd, t.prev)
 }
 
 // stopReader ends the key pump and waits for it: an orphaned read(2) on stdin would otherwise win the
@@ -205,6 +213,9 @@ func (t *Terminal) stopReader() {
 // Keys is the decoded keypress stream.
 func (t *Terminal) Keys() <-chan Key { return t.keys }
 
+// Err is the read error that ended the key stream; read it only after Keys is closed.
+func (t *Terminal) Err() error { return t.readErr }
+
 // Size returns the terminal's current width and height (80x24 when the query fails).
 func (t *Terminal) Size() (w, h int) {
 	w, h, err := proc.Size(t.fd)
@@ -214,8 +225,8 @@ func (t *Terminal) Size() (w, h int) {
 	return w, h
 }
 
-// readKeys pumps stdin through drain. A partial sequence at the buffer end carries into the next
-// read, so an escape sequence split across reads still decodes. Exits when stopReader signals.
+// readKeys pumps stdin through drain. An incomplete sequence carries into the next read; a lone Esc is
+// held for one pollTick of silence before it counts as the Esc key. Exits when stopReader signals.
 func (t *Terminal) readKeys() {
 	defer close(t.done)
 	var pending []byte
@@ -226,6 +237,12 @@ func (t *Terminal) readKeys() {
 			return
 		default:
 		}
+		if isLoneEsc(pending) && t.escTimedOut() {
+			pending = nil
+			if !t.emit([]Key{{Kind: KeyEsc}}) {
+				return
+			}
+		}
 		if !waitReadable(t.fd, pollTick) {
 			continue // nothing typed yet — re-check stop instead of parking in read(2)
 		}
@@ -233,17 +250,29 @@ func (t *Terminal) readKeys() {
 		if n > 0 {
 			var keys []Key
 			keys, pending = drain(append(pending, buf[:n]...))
-			for _, key := range keys {
-				select {
-				case t.keys <- key:
-				case <-t.stop:
-					return
-				}
+			if !t.emit(keys) {
+				return
 			}
 		}
 		if err != nil {
+			t.readErr = err
 			close(t.keys)
 			return
 		}
 	}
+}
+
+// escTimedOut reports whether a held lone Esc got no continuation within pollTick (always true unpollable).
+func (t *Terminal) escTimedOut() bool { return !canPoll || !waitReadable(t.fd, pollTick) }
+
+// emit sends keys to the consumer; false when Close stopped the pump first.
+func (t *Terminal) emit(keys []Key) bool {
+	for _, key := range keys {
+		select {
+		case t.keys <- key:
+		case <-t.stop:
+			return false
+		}
+	}
+	return true
 }

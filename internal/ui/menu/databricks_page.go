@@ -164,8 +164,8 @@ func runDatabricksEnv(d *dialog, env string) {
 			act("Set up", "sign in, verify a token, apply to agents", func() { dbxSetUp(d, env) }),
 			act("Login", "browser sign-in (u2m)", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }),
 			act("Paste PAT", "hidden input", func() { dbxPaste(d, env) }),
-			act("Mint now", "force a fresh token now, even if the current one is valid", func() { dbxMintNow(d, env, false) }),
-			act("Copy token", "force a fresh token to the clipboard; clears in 30s", func() { dbxMintNow(d, env, true) }),
+			act("Mint now", "fresh token now; a PAT profile returns its stored PAT", func() { dbxMintNow(d, env, false) }),
+			act("Copy token", "clipboard copy, clears in 30s; PAT copies the stored PAT", func() { dbxMintNow(d, env, true) }),
 			act("Apply to agents", "repoint all four or one", func() { dbxApply(d, env) }),
 			act("Identity", "auto, user or sp; the paired service principal  "+dbxIdentityBadge(d.reg, env),
 				func() { dbxIdentity(d, env) }),
@@ -369,6 +369,10 @@ func dbxIdentityApply(d *dialog, env, mode string, change, kept bool, p *provide
 func dbxIdentityPrompt(d *dialog, env, mode string, p *providers.Provider, storedSecret string) {
 	id, spID, secret, ok := dbxPromptSP(p, storedSecret)
 	if !ok {
+		return
+	}
+	if spID != "" && cmp.Or(secret, storedSecret) == "" {
+		d.printf("SP %s has no secret; enter one, or keep identity user\n", dbxShort(spID))
 		return
 	}
 	if err := dbxCheckPair(p, spID, cmp.Or(secret, storedSecret)); err != nil {

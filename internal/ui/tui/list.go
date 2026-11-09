@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -382,12 +383,12 @@ func renderList(ls []line) string {
 
 // List runs a grouped, optionally searchable single-choice dialog opening on row start. A non-nil error means stdin
 // is not a terminal (Index -1), the same contract as Pick.
-func List(spec ListSpec, start int) (ListResult, error) {
+func List(spec ListSpec, start int) (res ListResult, err error) {
 	t, err := Open()
 	if err != nil {
 		return ListResult{Index: -1}, err
 	}
-	defer t.Close()
+	defer func() { err = errors.Join(err, t.Close()) }()
 	s := newListState(spec, start)
 	color := ansi.Enabled(os.Stdout)
 	prev := 0 // terminal rows the last frame drew: the next redraw rewinds exactly that many
@@ -409,12 +410,11 @@ func List(spec ListSpec, start int) (ListResult, error) {
 	draw()
 	defer rewind()
 	for k := range t.Keys() {
-		var res ListResult
 		var done bool
 		if s, res, done = listKey(s, k); done {
 			return res, nil
 		}
 		draw()
 	}
-	return ListResult{Index: -1}, nil
+	return ListResult{Index: -1}, t.Err()
 }

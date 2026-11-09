@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"syscall"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -114,13 +115,19 @@ func editLine(line []byte, c byte) (_ []byte, done bool, err error) {
 	case c == 0x03 || c == 0x04:
 		return nil, true, errCanceled
 	case c == 0x7f || c == 0x08:
-		return line[:max(0, len(line)-1)], false, nil
+		return dropLastRune(line), false, nil
 	case c == 0x15:
 		return line[:0], false, nil
 	case c >= 0x20:
 		return append(line, c), false, nil
 	}
 	return line, false, nil
+}
+
+// dropLastRune trims the line's last whole UTF-8 rune, so Backspace over a multibyte character removes all of it.
+func dropLastRune(line []byte) []byte {
+	_, size := utf8.DecodeLastRune(line)
+	return line[:len(line)-size]
 }
 
 // readFD reads fd with read(2) directly: an os.NewFile wrapper is closed by its finalizer, which would close stdin.

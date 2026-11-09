@@ -157,7 +157,10 @@ func runSections(d *dialog, want []string) int {
 // finishSections re-renders configs after a change and maps --check failures to exit 1.
 func finishSections(d *dialog, allOK bool) int {
 	if d.changed && !d.o.Check && !d.o.DryRun {
-		rerenderConfigs(d)
+		if err := rerenderConfigs(d); err != nil {
+			d.println(err)
+			return 1
+		}
 	}
 	if d.o.Check && !allOK {
 		return 1
@@ -223,9 +226,19 @@ func runProvider(d *dialog) bool {
 	printProviderRows(d, names, cur)
 	if !d.o.Interactive || d.o.Check || d.o.DryRun {
 		printProviderStatus(d, cur)
-		return true
+		return !d.o.Check || allCredsPresent(d.reg, names)
 	}
 	return pickProvider(d, names)
+}
+
+// allCredsPresent is the --check verdict: every registry profile has its credential.
+func allCredsPresent(reg *providers.Registry, names []string) bool {
+	for _, n := range names {
+		if !providers.CredentialPresent(reg.Providers[n]) {
+			return false
+		}
+	}
+	return true
 }
 
 func printProviderStatus(d *dialog, cur string) {
@@ -522,6 +535,10 @@ func runAgents(d *dialog) bool {
 		if rerr != nil {
 			d.printf("%-10s FIX: %v; %s\n", name, rerr, s.CLI.ConfigureHint)
 			ok = false
+			continue
+		}
+		if d.o.DryRun || d.o.Check { // read-only: Configure would start the router and store its secret
+			d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
 			continue
 		}
 		_, _, cerr := s.Configure(context.Background(), target, "")

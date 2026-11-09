@@ -42,7 +42,7 @@ func termColumns() int {
 	return n
 }
 
-// clip truncates each line to width visible cells (one per rune), keeping SGR escapes and ending in "…".
+// clip truncates each line to width visible cells (see cellWidth), keeping SGR escapes and ending in "…".
 func clip(s string, width int) string {
 	if width <= 0 {
 		return s
@@ -72,13 +72,13 @@ func clipLine(s string, width int) string {
 			i += j + 1
 			continue
 		}
-		if cells == width-1 {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if cells+cellWidth(r) > width-1 {
 			b.WriteString("…")
 			break
 		}
-		r, size := utf8.DecodeRuneInString(s[i:])
 		b.WriteRune(r)
-		cells++
+		cells += cellWidth(r)
 		i += size
 	}
 	return b.String() + ansi.Reset
@@ -97,11 +97,23 @@ func visibleWidth(s string) int {
 			i += j + 1
 			continue
 		}
-		_, size := utf8.DecodeRuneInString(s[i:])
-		n++
+		r, size := utf8.DecodeRuneInString(s[i:])
+		n += cellWidth(r)
 		i += size
 	}
 	return n
+}
+
+// cellWidth is the terminal columns r occupies: 2 for East Asian wide and fullwidth runes, else 1.
+func cellWidth(r rune) int {
+	switch {
+	case r >= 0x1100 && r <= 0x115F, r >= 0x2E80 && r <= 0xA4CF, r >= 0xAC00 && r <= 0xD7A3,
+		r >= 0xF900 && r <= 0xFAFF, r >= 0xFE30 && r <= 0xFE4F, r >= 0xFF00 && r <= 0xFF60,
+		r >= 0xFFE0 && r <= 0xFFE6, r >= 0x1F300 && r <= 0x1F64F, r >= 0x1F900 && r <= 0x1F9FF,
+		r >= 0x20000 && r <= 0x3FFFD:
+		return 2
+	}
+	return 1
 }
 
 // longestLine is the widest line of s in visible cells.

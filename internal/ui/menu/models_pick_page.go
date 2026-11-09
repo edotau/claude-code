@@ -228,8 +228,9 @@ func pickCopilotModel(d *dialog) {
 			saveAgentModel(d, "copilot", copilotCanonicalID(id))
 			return
 		}
-		saveAgentModel(d, "copilot", id)
-		clearIneligibleCopilotPins(d, id)
+		if saveAgentModel(d, "copilot", id) {
+			clearIneligibleCopilotPins(d, id)
+		}
 		return
 	}
 }
@@ -328,12 +329,13 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 }
 
 // saveAgentModel stores an agent's model in its record (copilot's is independent of the github-copilot opus alias).
-func saveAgentModel(d *dialog, agent, id string) {
+func saveAgentModel(d *dialog, agent, id string) bool {
 	if _, err := writeAgentField(d, agent, "MODEL", id); err != nil {
 		d.printf("model: %v\n", err)
-		return
+		return false
 	}
 	d.printf("model: %s = %s\n", agent, id)
+	return true
 }
 
 // pickModel is the alias list (alias · use · current), then the account's model ids; the pick is saved at once.
