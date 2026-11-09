@@ -167,6 +167,44 @@ func TestProbeTransientWithToolsSkipsNoToolsRetry(t *testing.T) {
 	}
 }
 
+func TestProbeToolsLessRetryTransient(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			vaulttest.Use(t)
+			t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
+			var calls atomic.Int32
+			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("probe body: %v", err)
+					return
+				}
+				if _, withTools := body["tools"]; withTools {
+					http.Error(w, "tools unsupported", http.StatusBadRequest)
+					return
+				}
+				http.Error(w, "retry later", status)
+			}))
+			t.Cleanup(srv.Close)
+			p := &providers.Provider{Name: "retry-transient", Preset: providers.PresetDatabricks, Host: srv.URL,
+				Protocol: providers.ProtocolOpenAI, BaseURL: srv.URL + "/serving-endpoints",
+				Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+			targets := []CheckTarget{{ID: "glm-5-2", Wire: "databricks-glm-5-2"}}
+			got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client(), ClientRoutes: true})
+			if err != nil || len(got) != 1 {
+				t.Fatalf("Probe = %+v, %v", got, err)
+			}
+			if got[0].Status != StatusTransient || got[0].HTTP != status {
+				t.Errorf("tools-less retry = %+v, want transient HTTP %d", got[0], status)
+			}
+			if n := calls.Load(); n != 2 {
+				t.Errorf("requests = %d, want tools request and tools-less retry", n)
+			}
+		})
+	}
+}
+
 // A body read cut short mid-reply is a transport error, not a clean status.
 func TestProbeRequestReportsTruncatedBody(t *testing.T) {
 	vaulttest.Use(t)

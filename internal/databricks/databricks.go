@@ -147,6 +147,9 @@ func parsePlanArgs(args []string) (Plan, string) {
 	name := ""
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
+		case arg == "--": // the child's end-of-options marker: keep it and everything after for the child
+			p.Rest = append(p.Rest, args[i:]...)
+			return p, name
 		case arg == "--profile", arg == "-p": // -p is --profile here; claude's print mode is --print
 			name = ""
 			if i+1 < len(args) {
@@ -273,7 +276,7 @@ func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...strin
 func check(self string, p Plan) int {
 	rc := 0
 	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
-	if out, code := capture(self, p, smokePrompt, nil); code == 0 && lastLine(out) == "OK" {
+	if out, code := capture(self, p, smokePrompt, nil, p.Rest...); code == 0 && lastLine(out) == "OK" {
 		fmt.Println("PASS smoke")
 	} else {
 		fmt.Printf("FAIL smoke: %s\n", tail(out, 5))

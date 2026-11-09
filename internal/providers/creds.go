@@ -29,7 +29,7 @@ type cached struct {
 
 var cmdCache sync.Map // provider name → cached
 
-// Credential resolves env → vault → file → command (cached for TTL).
+// Credential resolves a cached command token first, then env → vault → file → command; sealed types mint.
 func Credential(ctx context.Context, p *Provider) (string, error) {
 	switch p.Auth.Type {
 	case AuthNone:
@@ -109,10 +109,11 @@ func Refresh(ctx context.Context, p *Provider) (string, error) {
 
 // flight is one in-progress command mint for a provider; followers wait on done and share val/err.
 type flight struct {
-	done  chan struct{}
-	force bool
-	val   string
-	err   error
+	done     chan struct{}
+	force    bool
+	val      string
+	err      error
+	panicked any // the mint's panic value, re-raised in the leader
 }
 
 // errMintAborted is what followers see when the leader's mint panics before it returns.
@@ -156,15 +157,9 @@ func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func
 			f = &flight{done: make(chan struct{}), force: force, err: errMintAborted}
 			g.flights[name] = f
 			g.mu.Unlock()
-			defer func() {
-				g.mu.Lock()
-				delete(g.flights, name)
-				g.mu.Unlock()
-				close(f.done)
-			}()
 			flightHook(true)
-			f.val, f.err = mint(context.WithoutCancel(ctx))
-			return f.val, f.err
+			go g.runMint(name, f, func() { f.val, f.err = mint(context.WithoutCancel(ctx)) })
+			return awaitFlight(ctx, f)
 		}
 		g.mu.Unlock()
 		flightHook(false)
@@ -176,6 +171,31 @@ func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func
 		if f.force || !force {
 			return f.val, f.err
 		}
+	}
+}
+
+// runMint runs one flight's mint, then retires the flight and wakes its waiters, even if the leader gave up.
+func (g *flightGroup) runMint(name string, f *flight, mint func()) {
+	defer func() {
+		f.panicked = recover() // re-raised in the leader's caller by awaitFlight
+		g.mu.Lock()
+		delete(g.flights, name)
+		g.mu.Unlock()
+		close(f.done)
+	}()
+	mint()
+}
+
+// awaitFlight waits for f's mint; a caller whose ctx ends stops waiting while the mint continues for followers.
+func awaitFlight(ctx context.Context, f *flight) (string, error) {
+	select {
+	case <-f.done:
+		if f.panicked != nil {
+			panic(f.panicked)
+		}
+		return f.val, f.err
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }
 
@@ -331,7 +351,7 @@ func CredentialPresent(p *Provider) bool {
 		return true
 	}
 	if sealedAuth(p.Auth.Type) {
-		return HasSecret(AuthSecretName(p)) != ""
+		return sealedPresent(p)
 	}
 	if p.Auth.Command != "" {
 		return true
@@ -344,6 +364,23 @@ func CredentialPresent(p *Provider) bool {
 		return err == nil && strings.TrimSpace(string(b)) != ""
 	}
 	return false
+}
+
+// sealedPresent reports a stored credential authCredential would mint from (user secret, or the SP's per identity).
+func sealedPresent(p *Provider) bool {
+	mode, _ := ResolveIdentity(p.Identity, "")
+	if p.Auth.Type == AuthOAuth && mode == IdentitySP {
+		return spPresent(p)
+	}
+	if HasSecret(AuthSecretName(p)) != "" {
+		return true
+	}
+	return p.Auth.Type == AuthOAuth && mode == IdentityAuto && spPresent(p)
+}
+
+// spPresent reports a paired service principal: its spClientId and a stored M2M secret.
+func spPresent(p *Provider) bool {
+	return p.Auth.SPClientID != "" && HasSecret(SecretName(p.provider(), p.Name, AuthM2M)) != ""
 }
 
 func orDash(s string) string {

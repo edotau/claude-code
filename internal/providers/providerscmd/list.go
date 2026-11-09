@@ -20,26 +20,30 @@ func ProviderList(name, format string, verbs func() []describe.Verb) int {
 		return providerListJSON(reg, name, verbs())
 	}
 	if name == "" {
-		printProviderTable(reg)
-		return 0
+		return printProviderTable(reg)
 	}
 	p, err := reg.Get(name)
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
 	source, note := providers.CredSource(p)
-	printLines(providers.ProfileDetail(p, source, note))
+	if err := printLines(providers.ProfileDetail(p, source, note)); err != nil {
+		return helptext.Fail("configure provider: %v", err)
+	}
 	return 0
 }
 
 // printProviderTable prints the provider and agent-CLI summary of the profiles whose credential resolves now.
-func printProviderTable(reg *providers.Registry) {
+func printProviderTable(reg *providers.Registry) int {
 	var agents []providers.AgentServer
 	for _, v := range agent.Names() {
 		agents = append(agents, providers.AgentServer{Name: v, Serves: func(p *providers.Provider) bool { return agent.CanServe(v, p) }})
 	}
 	ready := func(p *providers.Provider) bool { src, _ := providers.CredSource(p); return src != "missing" }
-	printLines(providers.ListTable(reg, ready, agents))
+	if err := printLines(providers.ListTable(reg, ready, agents)); err != nil {
+		return helptext.Fail("configure provider: %v", err)
+	}
+	return 0
 }
 
 // providerListEntry is the describe provider view plus where its credential resolves from.

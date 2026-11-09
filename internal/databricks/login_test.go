@@ -79,11 +79,12 @@ func TestLoginAndMintTakeShorthandP(t *testing.T) {
 func seedCLIProfileRow(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	command, _ := providers.DatabricksCLICommands("dev")
 	err := providers.SetProviderFields("dbx-dev", map[string]any{
 		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"cliProfile": "dev",
 		"auth": map[string]any{
-			"type": "key", "command": "databricks auth token -p dev -o json | jq -r .access_token",
+			"type": "key", "command": command,
 			"refreshCommand": "my-custom-refresh",
 		},
 	})

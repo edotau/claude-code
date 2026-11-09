@@ -37,6 +37,24 @@ func cliScratch(t *testing.T) {
 	}
 }
 
+func captureClosedStdout(t *testing.T, run func() int) (int, string) {
+	t.Helper()
+	closed, err := os.CreateTemp(t.TempDir(), "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		stdout := os.Stdout
+		os.Stdout = closed
+		defer func() { os.Stdout = stdout }()
+		return run()
+	})
+	return code, stderr
+}
+
 // useTLSTransport routes http.DefaultClient through srv's TLS client and closes srv at cleanup.
 func useTLSTransport(t *testing.T, srv *httptest.Server) {
 	t.Helper()

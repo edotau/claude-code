@@ -52,10 +52,14 @@ func checkVaultPerms() []Check {
 }
 
 // checkArchivePerms flags vault.db.rolledback-* archives and migration .bak files (from
-// state/vault-migration.json) that are readable beyond the owner; an unreadable manifest is a failing row.
+// state/vault-migration.json) that are readable beyond the owner; an unreadable listing or manifest is a failing row.
 func checkArchivePerms() []Check {
 	var out []Check
-	matches, _ := filepath.Glob(vault.Path() + ".rolledback-*")
+	matches, err := rolledBackArchives()
+	if err != nil {
+		out = append(out, Check{Name: "vault archive perms", Gate: true,
+			Detail: "could not list the vault directory, so its rolledback archives were not checked: " + err.Error()})
+	}
 	backups, err := manifestBackups()
 	if err != nil {
 		out = append(out, Check{Name: "vault archive perms", Gate: true,
@@ -67,6 +71,27 @@ func checkArchivePerms() []Check {
 		}
 	}
 	return out
+}
+
+// rolledBackArchives lists vault.db.rolledback-* beside the vault; a missing directory holds none.
+func rolledBackArchives() ([]string, error) {
+	file := vault.Path()
+	dir := filepath.Dir(file)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	prefix := filepath.Base(file) + ".rolledback-"
+	var out []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), prefix) {
+			out = append(out, filepath.Join(dir, e.Name()))
+		}
+	}
+	return out, nil
 }
 
 // flagPerm reports a mode > 0600 file, or one that cannot be inspected; a missing file is not a finding.

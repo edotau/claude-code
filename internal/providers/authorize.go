@@ -55,8 +55,8 @@ func SetCredential(p *Provider, h http.Header, cred string) {
 // anthropicOAuthBeta is the header Claude Code's own client sends alongside a setup-token bearer.
 const anthropicOAuthBeta = "oauth-2025-04-20"
 
-// LiveModels GETs the provider's model catalog on whichever route it has (Anthropic /v1/models, else OpenAI
-// /models). A passthrough provider (subscription) has no credential this command can mint on its own, so it
+// LiveModels GETs the provider's model catalog: Databricks serving-endpoints, else Anthropic /v1/models, else OpenAI
+// /models. A passthrough provider (subscription) has no credential this command can mint on its own, so it
 // tries the stored setup-token as a bearer credential; ErrPassthrough means even that is unavailable, and the
 // caller falls back to the registry's own configured models.
 func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
@@ -92,9 +92,12 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode != http.StatusOK {
 		return nil, &catalogStatusError{url: url, status: resp.Status, code: resp.StatusCode, body: strings.TrimSpace(string(body))}
+	}
+	if readErr != nil { // a truncated body must not decode as a complete list
+		return nil, fmt.Errorf("read %s: %w", url, readErr)
 	}
 	if p.Preset == PresetDatabricks && strings.HasSuffix(url, "/api/2.0/serving-endpoints") {
 		return decodeServingEndpoints(url, body)
@@ -148,7 +151,7 @@ func decodeModelsList(url string, body []byte) ([]liveModelEntry, error) {
 	return out, nil
 }
 
-// catalogStatusError is a non-200 catalog GET; ProbeCredential classifies by code, never by the body's text.
+// catalogStatusError is a non-200 catalog GET; ProbeCredential classifies by code, and a 403 by its body's markers.
 type catalogStatusError struct {
 	url, status, body string
 	code              int

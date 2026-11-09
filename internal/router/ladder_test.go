@@ -49,6 +49,53 @@ func TestPickFollowsLadder(t *testing.T) {
 	}
 }
 
+func TestPickFirstPartyFiltersWantedResolvedAccount(t *testing.T) {
+	tb := testTable(t)
+	t.Setenv(EnvRoute, RouteDefault)
+	opts := PickOpts{Fallback: FallbackNone, Configured: allConfigured,
+		Now:     func() time.Time { return now0 },
+		Account: func(string, Cell) (string, string) { return "databricks·dev", BillCredits }}
+	baseline := tb.Pick(context.Background(), "sonnet", "codex", State{}, opts)
+	if len(baseline.Candidates) != 1 || baseline.Candidates[0].Account != "databricks·dev" {
+		t.Fatalf("default route did not admit wanted resolved account: %+v", baseline)
+	}
+	t.Setenv(EnvRoute, routeFirstParty)
+	got := tb.Pick(context.Background(), "sonnet", "codex", State{}, opts)
+	if len(got.Candidates) != 0 {
+		t.Errorf("wanted non-first-party account remained eligible: %+v", got.Candidates)
+	}
+	if !slices.Contains(got.Skipped, Skip{"codex·databricks·dev", gateLadder, "not first-party"}) {
+		t.Errorf("skips = %+v, want wanted resolved account rejected as not first-party", got.Skipped)
+	}
+}
+
+func TestPickRejectsFallbackWithUnservableRungModel(t *testing.T) {
+	tb := testTable(t)
+	t.Setenv(EnvRoute, RouteDefault)
+	opts := PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
+		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
+	baseline := tb.Pick(context.Background(), "sonnet", "copilot", State{}, opts)
+	isCodex := func(c Candidate) bool { return c.Agent == "codex" }
+	if !slices.ContainsFunc(baseline.Candidates, isCodex) {
+		t.Fatalf("baseline did not admit codex fallback: %+v", baseline)
+	}
+	tb.Ladders = map[string][]providers.Rung{providers.LadderDefault: {
+		{Agent: "codex", Provider: "openai", Models: []string{"databricks-unavailable"}},
+		{Agent: "gemini"},
+	}}
+	got := tb.Pick(context.Background(), "sonnet", "copilot", State{}, opts)
+	if slices.ContainsFunc(got.Candidates, isCodex) {
+		t.Errorf("fallback survived rejected rung model with its original model: %+v", got.Candidates)
+	}
+	if !slices.Contains(got.Skipped, Skip{"codex·openai·chatgpt", gateLadder,
+		"rung model databricks-unavailable is not served on openai·chatgpt"}) {
+		t.Errorf("skips = %+v, want codex fallback rejected for an unservable rung model", got.Skipped)
+	}
+	if len(got.Candidates) == 0 || got.Candidates[0].Agent != "copilot" {
+		t.Errorf("wanted candidate lost while rejecting fallback: %+v", got.Candidates)
+	}
+}
+
 // TestFirstPartyRouteWithoutLadderStillFilters: an empty first-party ladder must not turn the first-party filter off.
 func TestFirstPartyRouteWithoutLadderStillFilters(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

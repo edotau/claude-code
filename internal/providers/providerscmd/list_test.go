@@ -59,6 +59,29 @@ func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 	}
 }
 
+func TestProviderListTextWriteError(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	if err := providers.SetProviderFields("write-error", map[string]any{
+		"protocol": "openai", "base_url": "https://example.invalid",
+		"auth": map[string]any{"type": "none"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"", "write-error"} {
+		t.Run("name="+name, func(t *testing.T) {
+			run := func() int { return ProviderList(name, "text", nil) }
+			code, stdout, stderr := hosttest.CaptureOutput(t, run)
+			if code != 0 || !strings.Contains(stdout, "write-error") || stderr != "" {
+				t.Fatalf("successful write: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			code, stderr = captureClosedStdout(t, run)
+			if code != 1 || !strings.Contains(stderr, "configure provider:") || !strings.Contains(stderr, "file already closed") {
+				t.Fatalf("failed text write: code=%d stderr=%q, want exit 1 and write diagnostic", code, stderr)
+			}
+		})
+	}
+}
+
 func summaryRegistry() *providers.Registry {
 	dbx := func(name string, auth providers.Auth) *providers.Provider {
 		return &providers.Provider{Name: name, Provider: providers.GroupDatabricks, Protocol: providers.ProtocolAnthropic, Preset: providers.PresetDatabricks,

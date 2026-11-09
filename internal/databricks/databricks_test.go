@@ -560,6 +560,47 @@ func TestPlanFailsClosedOnProviderLoadError(t *testing.T) {
 	}
 }
 
+func TestRunPreservesChildProfileAfterSeparator(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "bb")
+	for _, flag := range []string{"--profile", "-p", "--profile=other", "-p=other"} {
+		t.Run(flag, func(t *testing.T) {
+			rest := []string{"--", flag}
+			if !strings.Contains(flag, "=") {
+				rest = append(rest, "other")
+			}
+			f := &fakeChild{}
+			useFake(t, f)
+			if code := Run(rest); code != 0 {
+				t.Fatalf("exit = %d, want child launch", code)
+			}
+			want := append([]string{"--profile", "bb"}, rest...)
+			if len(f.calls) != 1 || !slices.Equal(f.calls[0].argv, want) {
+				t.Fatalf("calls = %+v, want argv %q", f.calls, want)
+			}
+		})
+	}
+}
+
+func TestCheckForwardsModelFlag(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	f := &fakeChild{smoke: "OK\n"}
+	useFake(t, f)
+	code, out, stderr := runCaptured(t, func() int {
+		return Run([]string{"check", "--profile", "bb", "--model", "sonnet"})
+	})
+	if code != 0 || !strings.Contains(out, "PASS smoke") {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, out, stderr)
+	}
+	if len(f.calls) != 1 {
+		t.Fatalf("calls = %+v, want one smoke call", f.calls)
+	}
+	argv := f.calls[0].argv
+	if !slices.Equal(argv[len(argv)-2:], []string{"--model", "sonnet"}) {
+		t.Errorf("smoke argv = %q, want forwarded --model sonnet", argv)
+	}
+}
+
 func TestCutFlagFindsFlagAnywhere(t *testing.T) {
 	rest, ok := cutFlag([]string{"--profile", "x", "--all", "--model", "m"}, "--all")
 	if !ok || !slices.Equal(rest, []string{"--profile", "x", "--model", "m"}) {

@@ -108,12 +108,28 @@ func Resolve(p *Provider) ProviderStatus {
 		}
 	}
 	if st.Source == "" {
+		st.Source = profileSecretSource(p, &st)
+	}
+	if st.Source == "" {
 		st.Source = fallbackSource(p)
 	}
 	if st.Source == "none" && p.Auth.Env != "" && st.Note == "" {
 		st.Note = "set " + p.Auth.Env
 	}
 	return st
+}
+
+// profileSecretSource is the source of the profile's own sealed or key secret ("" when none).
+func profileSecretSource(p *Provider, st *ProviderStatus) string {
+	name := cmp.Or(AuthSecretName(p), KeySecretName(p))
+	if name == "" {
+		return ""
+	}
+	source, err := vault.HasSecretErr(name)
+	if err != nil && st.Note == "" {
+		st.Note = "vault unreadable: " + err.Error()
+	}
+	return source
 }
 
 // fallbackSource names the auth.file or command source when the vault has none, else "none".
