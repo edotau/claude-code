@@ -7,9 +7,9 @@ function quoteValue(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-/** Splits freeText on whitespace outside double quotes, keeping quoted segments intact. */
+/** Splits freeText on whitespace outside double quotes; a quoted run stays whole even inside `key:"a b"`. */
 function tokenizeFreeText(freeText) {
-  return (String(freeText || '').match(/"[^"]*"|\S+/g) || []).map((t) => t);
+  return String(freeText || '').match(/\S*"[^"]*"\S*|\S+/g) || [];
 }
 
 function stripQuotes(value) {

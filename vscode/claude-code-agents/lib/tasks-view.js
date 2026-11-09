@@ -217,10 +217,14 @@ function rowCells(item, model, kind) {
   return cells;
 }
 
+/** `data-hydrate` marks an un-hydrated GitHub PR so the page asks for its checks, merge and reviews. */
+function hydrateAttr(item) {
+  return item.source === 'github' && item.type === 'pr' && item.hydrated === false ? ' data-hydrate="1"' : '';
+}
+
 function row(item, model, kind) {
   const cells = Object.entries(rowCells(item, model, kind)).map(([name, html]) => `<div class="cell${name === 'id' ? ' c-id' : name === 'title' ? ' c-title' : name === 'actions' ? ' c-actions' : ''}" data-cell="${name}">${html}</div>`);
-  const hydrate = item.source === 'github' && item.type === 'pr' && item.hydrated === false ? ' data-hydrate="1"' : '';
-  return `<div class="row" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"${hydrate}>${cells.join('')}</div>`;
+  return `<div class="row" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"${hydrateAttr(item)}>${cells.join('')}</div>`;
 }
 
 const HEADERS = {
@@ -365,7 +369,7 @@ function boardCard(item, model) {
   const moves = item.readOnly ? '' : require('./tasks-board').dropTargets(model.board).filter((c) => c.key !== item.boardColumn).map((c) => `<button data-move-to="${esc(c.key)}" data-id="${esc(item.id)}">${ICONS.arrowRight}Move to ${esc(c.label)}</button>`).join('');
   const menu = `<details class="menu card-menu"><summary class="icon-btn" aria-label="Card actions">${ICONS.ellipsisVertical}</summary><div class="menu-items">${moves}<div class="menu-sep"></div><button data-act="start" data-id="${esc(item.id)}">${ICONS.play}${item.attached ? 'Resume' : 'Start'}</button><button data-act="startNew" data-id="${esc(item.id)}">${ICONS.plus}Start new workspace</button><button data-url="${esc(item.url)}">${ICONS.externalLink}Open in browser</button></div></details>`;
   const busy = model.pendingIds && model.pendingIds.includes(item.id);
-  return `<div class="card board-card${busy ? ' busy' : ''}${item.readOnly ? ' readonly' : ''}" draggable="${busy || item.readOnly ? 'false' : 'true'}" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"><div class="card-top">${idPill(item)}${prio}<span class="spacer"></span>${busy ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${menu}</div><div class="card-title">${esc(item.title)}</div>${errorLine}<div class="card-foot">${face}${review}${checks}${labels}<span class="spacer"></span><span class="muted" title="${esc(item.updatedAt)}">${esc(formatRelativeTime(item.updatedAt, model.now))}</span>${model.repoCount > 1 ? `<span class="repo-badge"><span class="repo-dot"></span>${esc(item.repo.name)}</span>` : ''}</div></div>`;
+  return `<div class="card board-card${busy ? ' busy' : ''}${item.readOnly ? ' readonly' : ''}" draggable="${busy || item.readOnly ? 'false' : 'true'}" role="button" tabindex="0" data-id="${esc(item.id)}" data-url="${esc(item.url)}"${hydrateAttr(item)}><div class="card-top">${idPill(item)}${prio}<span class="spacer"></span>${busy ? `<span class="spin">${ICONS.loaderCircle}</span>` : ''}${menu}</div><div class="card-title">${esc(item.title)}</div>${errorLine}<div class="card-foot">${face}${review}${checks}${labels}<span class="spacer"></span><span class="muted" title="${esc(item.updatedAt)}">${esc(formatRelativeTime(item.updatedAt, model.now))}</span>${model.repoCount > 1 ? `<span class="repo-badge"><span class="repo-dot"></span>${esc(item.repo.name)}</span>` : ''}</div></div>`;
 }
 
 function boardView(model) {
@@ -441,6 +445,11 @@ function checksTab(d) {
   return `<section class="card"><div class="card-head"><span class="card-title">Checks</span><span class="count">${c.total || 0}</span></div>${rows.join('') || '<div class="muted">No checks</div>'}</section>`;
 }
 
+/** Root flags the SCRIPT reads to settle a submitted comment: a write in flight, or one that failed. */
+function detailFlags(d) {
+  return ` data-pending="${d.pending ? 1 : 0}" data-failed="${d.mutationError ? 1 : 0}"`;
+}
+
 /** GitHub detail: header, status/assignee controls, PR tabs, body, activity, composer, rail. */
 function threadCard(t, now, readOnly) {
   const label = `${t.path}${t.line != null ? `:${t.line}` : ''}`;
@@ -493,7 +502,7 @@ function githubDetail(model, d, data, head, title, err, now) {
     main = body + threads + activity;
   }
   const rail = `<aside class="rail"><button class="btn btn-outline" data-url="${esc(data.url)}">${ICONS.externalLink}Open in GitHub</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.url)}" data-label="URL">${ICONS.copy}Copy URL</button>${isPr && data.branch ? `<button class="btn btn-outline" data-act="copy" data-text="${esc(data.branch)}" data-label="Branch name">${ICONS.gitBranch}Copy branch name</button>` : ''}<button class="btn btn-outline" data-act="copy" data-text="${esc(d.prompt || '')}" data-label="Prompt">${ICONS.copy}Copy prompt</button></aside>`;
-  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${roNote}${err}${tabs}<div class="detail-body"><div class="detail-main">${main}</div>${rail}</div></div>`;
+  return `<div class="detail" data-detail-id="${esc(data.id)}"${detailFlags(d)}>${head}${title}${metaBar}${roNote}${err}${tabs}<div class="detail-body"><div class="detail-main">${main}</div>${rail}</div></div>`;
 }
 
 /** Full-source detail for Jira; GitHub gets the conversation view; Bitbucket the header + browser link. */
@@ -518,7 +527,7 @@ function detailView(model, now) {
   const comments = d.comments || [];
   const commentsCard = `<section class="card"><div class="card-head"><span class="card-title">Comments</span><span class="count">${comments.length}</span></div>${comments.map((c) => commentBubble(c, now)).join('') || '<div class="muted">No comments yet.</div>'}${ro ? '' : `<form class="composer" id="composer"><textarea id="comment-body" rows="2" placeholder="Add a comment…"></textarea><div class="card-row"><button type="submit" class="btn btn-primary" id="comment-send" disabled>${ICONS.send}Send</button><span class="muted">Plain text or Jira wiki markup</span></div></form>`}</section>`;
   const rail = `<aside class="rail"><button class="btn btn-outline" data-act="open" data-url="${esc(data.url)}">${ICONS.externalLink}Open in Jira</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.url)}" data-label="URL">${ICONS.copy}Copy URL</button><button class="btn btn-outline" data-act="copy" data-text="${esc(data.key)}" data-label="Key">${ICONS.copy}Copy key</button><button class="btn btn-outline" data-act="copy" data-text="${esc(d.branchName || '')}" data-label="Branch name">${ICONS.gitBranch}Copy branch name</button><button class="btn btn-outline" data-act="copy" data-text="${esc(d.prompt || '')}" data-label="Prompt">${ICONS.copy}Copy prompt</button></aside>`;
-  return `<div class="detail" data-detail-id="${esc(data.id)}">${head}${title}${metaBar}${roNote}${err}${ro ? '' : transitionForm()}<div class="detail-body"><div class="detail-main">${description}${commentsCard}</div>${rail}</div></div>`;
+  return `<div class="detail" data-detail-id="${esc(data.id)}"${detailFlags(d)}>${head}${title}${metaBar}${roNote}${err}${ro ? '' : transitionForm()}<div class="detail-body"><div class="detail-main">${description}${commentsCard}</div>${rail}</div></div>`;
 }
 
 const CSS = `
@@ -783,7 +792,7 @@ const SCRIPT = `
       if (['prReady', 'prDraft', 'rerunChecks', 'prTitle', 'prClose', 'prReopen', 'issueTitle'].includes(t.dataset.act)) return post({ type: t.dataset.act, id: t.dataset.id });
       if (t.dataset.act === 'open') return post({ type: 'open', url: t.dataset.url });
       if (t.dataset.act === 'toggleSettings') { const d = $('#settings'); d.open = !d.open; post({ type: 'settingsExpanded', expanded: d.open }); return; }
-      return post({ type: t.dataset.act, source: t.dataset.source });
+      return post({ type: t.dataset.act, source: t.dataset.source, id: t.dataset.id });
     }
     if (t.dataset.preset) return post({ type: 'preset', id: t.dataset.preset });
     if (t.dataset.page) return post({ type: 'page', page: Number(t.dataset.page) });
@@ -833,11 +842,11 @@ const SCRIPT = `
   };
   if ('IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) { requestHydrate(en.target); io.unobserve(en.target); } }), { rootMargin: '160px 0px' });
-    document.querySelectorAll('.row[data-hydrate]').forEach((r) => io.observe(r));
+    document.querySelectorAll('[data-hydrate]').forEach((r) => io.observe(r));
   } else {
-    document.querySelectorAll('.row[data-hydrate]').forEach(requestHydrate);
+    document.querySelectorAll('[data-hydrate]').forEach(requestHydrate);
   }
-  document.addEventListener('mouseover', (e) => { const r = e.target.closest('.row[data-hydrate]'); if (r) requestHydrate(r); });
+  document.addEventListener('mouseover', (e) => { const r = e.target.closest('[data-hydrate]'); if (r) requestHydrate(r); });
   window.addEventListener('message', (e) => {
     const msg = e.data || {};
     if (msg.type !== 'rows') return;
@@ -929,16 +938,29 @@ const SCRIPT = `
     const id = detail.dataset.detailId;
     const body = $('#comment-body');
     const send = $('#comment-send');
+    const flags = { pending: detail.dataset.pending === '1', failed: detail.dataset.failed === '1' };
+    const draftOf = (key) => ((vscode.getState() || {}).drafts || {})[key] || '';
+    const setDraft = (key, text) => { const st = vscode.getState() || {}; vscode.setState({ ...st, drafts: { ...(st.drafts || {}), [key]: text } }); };
+    const stash = (key, text) => { const st = vscode.getState() || {}; vscode.setState({ ...st, unsent: { ...(st.unsent || {}), [key]: text } }); };
+    // Submitted text waits in unsent until the write settles: back into the draft on failure, dropped on success.
+    const settleUnsent = (key) => {
+      const st = vscode.getState() || {};
+      if (!(key in (st.unsent || {})) || flags.pending) return;
+      const { [key]: text, ...rest } = st.unsent;
+      vscode.setState({ ...st, unsent: rest, drafts: flags.failed ? { ...(st.drafts || {}), [key]: text } : st.drafts });
+    };
     if (body) {
-      body.value = (state.drafts || {})[id] || '';
+      settleUnsent(id);
+      body.value = draftOf(id);
       send.disabled = !body.value.trim();
-      body.addEventListener('input', () => { send.disabled = !body.value.trim(); vscode.setState({ ...(vscode.getState() || {}), drafts: { ...((vscode.getState() || {}).drafts || {}), [id]: body.value } }); });
+      body.addEventListener('input', () => { send.disabled = !body.value.trim(); setDraft(id, body.value); });
       body.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('#composer').requestSubmit(); } });
       $('#composer').addEventListener('submit', (e) => {
         e.preventDefault();
         const text = body.value.trim();
         if (!text) return;
-        vscode.setState({ ...(vscode.getState() || {}), drafts: { ...((vscode.getState() || {}).drafts || {}), [id]: '' } });
+        stash(id, text);
+        setDraft(id, '');
         send.disabled = true;
         post({ type: 'comment', id, body: text });
       });
@@ -946,8 +968,12 @@ const SCRIPT = `
     detail.querySelectorAll('[data-act="resolveThread"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'resolveThread', id, threadId: b.dataset.thread, resolved: b.dataset.resolved === 'true' }); }));
     detail.querySelectorAll('form.thread-reply').forEach((f) => {
       const ta = f.querySelector('textarea');
+      const key = 'reply:' + f.dataset.comment;
+      settleUnsent(key);
+      ta.value = draftOf(key);
+      ta.addEventListener('input', () => setDraft(key, ta.value));
       ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); f.requestSubmit(); } });
-      f.addEventListener('submit', (e) => { e.preventDefault(); const text = ta.value.trim(); if (!text) return; ta.value = ''; post({ type: 'replyThread', id, commentId: f.dataset.comment, body: text }); });
+      f.addEventListener('submit', (e) => { e.preventDefault(); const text = ta.value.trim(); if (!text) return; stash(key, text); setDraft(key, ''); ta.value = ''; post({ type: 'replyThread', id, commentId: f.dataset.comment, body: text }); });
     });
     detail.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); if (b.dataset.url) return post({ type: 'open', url: b.dataset.url }); post({ type: 'tab', id, tab: b.dataset.tab }); }));
     detail.querySelectorAll('[data-priority]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); post({ type: 'priority', id, priorityId: b.dataset.priority }); }));

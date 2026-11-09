@@ -54,11 +54,16 @@ function config() {
   return vscode.workspace.getConfiguration('claudeCodeAgents');
 }
 
+// Bounds a hung claude-code child; without it every periodic refresh stacks another one.
+const SUBPROCESS_TIMEOUT_MS = 60000;
+
 function runBinary(binary, argv, cwd, input) {
   return new Promise((resolve, reject) => {
-    const child = execFile(binary, argv.slice(1), { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const opts = { cwd, maxBuffer: 10 * 1024 * 1024, timeout: SUBPROCESS_TIMEOUT_MS };
+    const child = execFile(binary, argv.slice(1), opts, (err, stdout, stderr) => {
       if (err) {
         if (err.code === 'ENOENT') return reject(new Error(`binary not found: ${binary}`));
+        if (err.killed) return reject(new Error(`${binary} timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`));
         return reject(new Error(stderr && stderr.trim() ? stderr.trim() : err.message));
       }
       resolve(stdout);
@@ -831,7 +836,7 @@ class TasksViewProvider {
     t.show();
   }
 
-  /** The prompt goes to a file under global storage so the command line never carries user text. */
+  /** The prompt is written to a file under global storage; launchCommand expands it into the process argv. */
   writePromptFile(id, text) {
     const fs = require('node:fs');
     const path = require('node:path');

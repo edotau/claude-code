@@ -174,7 +174,8 @@ quoted phrases and unknown tokens pass through as free text.
   `<key-slug>`" (`claude-code worktree create`, `claudeCodeAgents.tasksStartDefault` skips the question), then a
   prompt template (Start implementation · Investigate bug · Write test plan · Draft PR summary · Plain; the last
   choice is remembered). The prompt is written to a file under the extension's storage and Claude opens in a
-  terminal with `cd '<cwd>' && claude-code claude "$(cat '<file>')"`, so no prompt text rides the command line.
+  terminal with `cd '<cwd>' && claude-code claude "$(cat '<file>')"`: the typed command stays short and the shell
+  expands the prompt from the file into the argument.
   Rows whose branch matches a worktree (`claude-code worktree list`) show a solid **Resume** button and a branch
   marker; "Start new workspace" in the ⋮ menu ignores the attachment.
 - **GitHub header actions** in the PR detail: Mark ready / Convert to draft, Rerun failed checks (one rerun per

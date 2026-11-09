@@ -168,17 +168,12 @@ function withQualifier(rawQuery, key, value) {
   return serializeTaskQuery(parsed);
 }
 
-/** Drops `repo:` tokens before a per-repo fan-out; tokens with whitespace are re-quoted so `label:"a b"` round-trips. */
+/** Drops unquoted `repo:` tokens before a per-repo fan-out; every other token is kept verbatim, quotes included. */
 function stripRepoQualifiers(rawQuery) {
   const kept = [];
-  for (const token of tokenizeSearchQuery(String(rawQuery || '').trim())) {
-    if (/^repo:[^\s]+$/i.test(token)) continue;
-    if (/\s/.test(token)) {
-      const [rawKey, ...rest] = token.split(':');
-      kept.push(rest.length > 0 ? `${rawKey}:"${rest.join(':')}"` : `"${token}"`);
-    } else {
-      kept.push(token);
-    }
+  for (const { value, raw } of tokenizeWithRaw(String(rawQuery || '').trim())) {
+    if (!/^["']/.test(raw) && /^repo:\S+$/i.test(value)) continue;
+    kept.push(raw);
   }
   return kept.join(' ');
 }

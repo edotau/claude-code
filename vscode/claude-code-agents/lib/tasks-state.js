@@ -69,6 +69,7 @@ class PageCache {
     this.ttlMs = (opts && opts.ttlMs) || 120000;
     this.entries = new Map();
     this.inflight = new Map();
+    this.generation = 0; // bumped by invalidate(); a load started before it must not write the cache
   }
 
   get(parts, nowMs) {
@@ -81,24 +82,30 @@ class PageCache {
   async load(parts, loader, opts) {
     const key = cacheKey(parts);
     const now = opts && opts.nowMs != null ? opts.nowMs : Date.now();
-    if (!(opts && opts.force)) {
+    const force = !!(opts && opts.force);
+    if (!force) {
       const cached = this.get(parts, now);
       if (cached) return cached;
+      if (this.inflight.has(key)) return this.inflight.get(key);
     }
-    if (this.inflight.has(key)) return this.inflight.get(key);
+    const gen = this.generation;
     const p = Promise.resolve()
       .then(loader)
       .then((value) => {
-        this.entries.set(key, { at: now, value });
+        if (gen === this.generation) this.entries.set(key, { at: now, value });
         return value;
       })
-      .finally(() => this.inflight.delete(key));
+      .finally(() => {
+        if (this.inflight.get(key) === p) this.inflight.delete(key);
+      });
     this.inflight.set(key, p);
     return p;
   }
 
   invalidate() {
+    this.generation += 1;
     this.entries.clear();
+    this.inflight.clear();
   }
 }
 

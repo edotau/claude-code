@@ -29,11 +29,10 @@ function loginKnown(item, logins) {
   return false;
 }
 
-/** `scope` is the `tasksWriteScope` setting: `mine` (default) or `all`. */
+/** `scope` is the `tasksWriteScope` setting: `mine` (default) or `all`. Unknown identity fails closed under `mine`. */
 function canWrite(item, logins, scope) {
   if (scope === 'all') return true;
-  if (!loginKnown(item, logins)) return true;
-  return isMine(item, logins);
+  return loginKnown(item, logins) && isMine(item, logins);
 }
 
 /** The reason shown in the UI when an item is read-only. */

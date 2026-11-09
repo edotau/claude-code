@@ -263,10 +263,10 @@ test('createClient.dashboard: an explicit state is passed through; omitted state
   assert.equal(new URL(calls[1].url).searchParams.get('state'), 'OPEN');
 });
 
-// -- resolveToken (execFileImpl is Node callback-style: (binary, args, cb(err, stdout))) --
+// -- resolveToken (execFileImpl is Node callback-style: (binary, args, opts, cb(err, stdout))) --
 
 test('resolveToken: trims the binary\'s stdout', async () => {
-  const execFileImpl = (binary, args, cb) => {
+  const execFileImpl = (binary, args, opts, cb) => {
     assert.deepEqual(args, ['vault', 'get', 'BITBUCKET_TOKEN']);
     cb(null, 'BITBUCKET_TOKEN=obviously-fake-token\n');
   };
@@ -275,13 +275,24 @@ test('resolveToken: trims the binary\'s stdout', async () => {
 });
 
 test('resolveToken: falls back to the env var when the binary fails', async () => {
-  const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
+  const execFileImpl = (binary, args, opts, cb) => cb(new Error('not found'));
   const token = await resolveToken({ binary: 'claude-code', env: { BITBUCKET_TOKEN: 'env-tok' }, execFileImpl });
   assert.equal(token, 'env-tok');
 });
 
+test('resolveToken: the vault call carries a timeout so a hung vault cannot block the fallback', async () => {
+  let seenOpts;
+  const execFileImpl = (binary, args, opts, cb) => {
+    seenOpts = opts;
+    cb(new Error('killed'));
+  };
+  const token = await resolveToken({ binary: 'claude-code', env: { BITBUCKET_TOKEN: 'env-tok' }, execFileImpl });
+  assert.equal(token, 'env-tok');
+  assert.ok(seenOpts.timeout > 0);
+});
+
 test('resolveToken: neither the binary nor the env var rejects with "no token"', async () => {
-  const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
+  const execFileImpl = (binary, args, opts, cb) => cb(new Error('not found'));
   await assert.rejects(
     () => resolveToken({
       binary: 'claude-code', env: {}, execFileImpl,
@@ -292,7 +303,7 @@ test('resolveToken: neither the binary nor the env var rejects with "no token"',
 });
 
 test('resolveToken: an empty binary stdout falls through to the env var, not an empty token', async () => {
-  const execFileImpl = (binary, args, cb) => cb(null, '  \n');
+  const execFileImpl = (binary, args, opts, cb) => cb(null, '  \n');
   const token = await resolveToken({ binary: 'claude-code', env: { BITBUCKET_TOKEN: 'env-tok' }, execFileImpl });
   assert.equal(token, 'env-tok');
 });

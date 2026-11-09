@@ -10,6 +10,7 @@ const tasksStart = require('../lib/tasks-start');
 
 function make() {
   reset();
+  state.config.tasksWriteScope = 'all';
   const provider = new TasksViewProvider({ show() {}, hide() {} }, fakeContext());
   provider.result = { items: [], errors: [], totalPages: 1, failedRepos: 0 };
   provider.initialLoad = false;

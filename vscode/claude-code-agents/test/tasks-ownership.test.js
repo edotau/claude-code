@@ -16,7 +16,7 @@ test('isMine / canWrite: assignee or author match per source; unknown login cann
   assert.equal(o.isMine({ source: 'bitbucket', author: 'simon' }, logins), false);
   assert.equal(o.canWrite({ source: 'bitbucket', author: 'simon' }, logins, 'mine'), false);
   assert.equal(o.canWrite({ source: 'bitbucket', author: 'simon' }, logins, 'all'), true);
-  assert.equal(o.canWrite({ source: 'bitbucket', author: 'simon' }, {}, 'mine'), true, 'no login known → cannot judge');
+  assert.equal(o.canWrite({ source: 'bitbucket', author: 'simon' }, {}, 'mine'), false, 'no login known → fails closed');
   assert.match(o.readOnlyReason({ source: 'jira', assignee: { displayName: 'Sam' } }), /assigned to Sam/);
 });
 
