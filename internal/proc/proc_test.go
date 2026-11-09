@@ -5,9 +5,44 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 )
+
+func TestArgvPreservesTrailingEmptyArguments(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux /proc argv")
+	}
+	cmd := exec.Command("sh", "-c", "read -r line", "value", "", "")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	var got []string
+	// /proc cmdline can be briefly empty while the child finishes exec.
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		got, err = Argv(cmd.Process.Pid)
+		if len(got) > 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, cmd.Args) {
+		t.Fatalf("Argv lost trailing empty arguments: got %q, want %q", got, cmd.Args)
+	}
+}
 
 // The guard must recognise the running test binary, or a detached relaunch fork-bombs the suite.
 func TestIsSelfUnderTest(t *testing.T) {

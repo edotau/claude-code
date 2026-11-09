@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // GitEnv is the process environment with every GIT_* variable removed. Without this an inherited
@@ -57,6 +58,7 @@ func runRaw(ctx context.Context, env []string, dir string, args ...string) (stri
 	}
 	cmd := exec.CommandContext(ctx, "git", full...)
 	cmd.Env = env
+	cmd.WaitDelay = 2 * time.Second // a descendant holding stdout open must not outlive ctx's deadline
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {

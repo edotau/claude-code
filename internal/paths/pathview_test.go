@@ -118,6 +118,29 @@ func TestViewFrom(t *testing.T) {
 	}
 }
 
+func TestViewFromNFSIPv6URL(t *testing.T) {
+	mounts := parseMountinfo("50 22 0:50 / /srv/nfs rw - nfs4 [2001:db8::1]:/export rw\n")
+	r := &Resolver{Mounts: mounts}
+	got, err := r.ViewFrom("/srv/nfs/file", Target{Style: StyleURL})
+	if want := "nfs://[2001:db8::1]/export/file"; err != nil || got != want {
+		t.Fatalf("ViewFrom IPv6 NFS = %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestParseSSHFSUserIPv6(t *testing.T) {
+	got := parseMountinfo("50 22 0:50 / /srv/ssh rw - fuse.sshfs alice@[2001:db8::1]:/work rw\n")
+	want := Mount{
+		Point: "/srv/ssh", Source: "alice@[2001:db8::1]:/work", FSType: "fuse.sshfs",
+		Kind: KindSSHFS, Host: "2001:db8::1", RemotePath: "/work",
+	}
+	if len(got) != 1 {
+		t.Fatalf("mounts = %+v, want one SSHFS mount", got)
+	}
+	if got[0] != want {
+		t.Fatalf("SSHFS mount = %+v, want %+v", got[0], want)
+	}
+}
+
 func TestResolveUnknownSlashUNC(t *testing.T) {
 	r := testResolver()
 	for _, input := range []string{"//stranger/team/docs", "//fileserver/team/other", "//wsl.localhost/Debian/etc"} {
@@ -399,6 +422,9 @@ func TestNinePUNCClassifiedSMB(t *testing.T) {
 	ms := parseMountinfo("50 22 0:50 / /mnt/srv rw - 9p \\134\\134fileserver\\134team rw,aname=drvfs\n")
 	if len(ms) != 1 || ms[0].Kind != KindSMB || ms[0].Host != "fileserver" || ms[0].RemotePath != "team" {
 		t.Fatalf("mounts = %+v", ms)
+	}
+	if want := `\\fileserver\team`; ms[0].Source != want {
+		t.Errorf("Mount.Source = %q, want kernel source %q", ms[0].Source, want)
 	}
 	r := &Resolver{Mounts: ms}
 	got, ok := r.Resolve(`\\fileserver\team\file`)

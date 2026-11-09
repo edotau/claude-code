@@ -361,13 +361,21 @@ func renderRemote(m *Mount, rest string, style Style) (string, error) {
 	switch {
 	case m.Kind == KindSMB:
 		if style == StyleURL {
-			return (&url.URL{Scheme: "smb", Host: m.Host, Path: "/" + path.Join(m.RemotePath, rest)}).String(), nil
+			return (&url.URL{Scheme: "smb", Host: urlHost(m.Host), Path: "/" + path.Join(m.RemotePath, rest)}).String(), nil
 		}
 		return `\\` + m.Host + `\` + strings.ReplaceAll(path.Join(m.RemotePath, rest), "/", `\`), nil
 	case m.Kind == KindNFS && style == StyleURL:
-		return (&url.URL{Scheme: "nfs", Host: m.Host, Path: path.Join(m.RemotePath, rest)}).String(), nil
+		return (&url.URL{Scheme: "nfs", Host: urlHost(m.Host), Path: path.Join(m.RemotePath, rest)}).String(), nil
 	}
 	return "", ErrNotReachable
+}
+
+// urlHost brackets an IPv6 literal so it stays a host in a URL.
+func urlHost(h string) string {
+	if strings.Contains(h, ":") && !strings.HasPrefix(h, "[") {
+		return "[" + h + "]"
+	}
+	return h
 }
 
 // cleanLocal cleans p lexically, except a ".." path is resolved through symlinks (existing paths) so

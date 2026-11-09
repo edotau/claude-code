@@ -31,7 +31,10 @@ func strayClaudeJSON() (ok bool, detail string) {
 	}
 	stub := filepath.Join(home, ".claude", ".claude.json")
 	if _, err := os.Stat(stub); err != nil {
-		return true, "none (~/.claude.json is the only one)"
+		if errors.Is(err, fs.ErrNotExist) {
+			return true, "none (~/.claude.json is the only one)"
+		}
+		return false, "cannot stat " + stub + ": " + err.Error()
 	}
 	return false, "stray " + stub + "; move it aside (mv " + stub + "{,.bak})"
 }

@@ -162,7 +162,9 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	if err != nil {
 		return helptext.Fail("worktree create: %v", err)
 	}
-	fmt.Println(dest)
+	if _, err := fmt.Println(dest); err != nil {
+		return helptext.Fail("worktree create: created %s but could not print its path: %v", dest, err)
+	}
 	return 0
 }
 
@@ -216,6 +218,11 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 
 // mergeDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.
 func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
+	if req.Resume {
+		if err := checkResumable(repo, req.Name); err != nil {
+			return helptext.Fail("worktree merge: %v", err)
+		}
+	}
 	plan, err := worktree.PlanOrResolve(ctx, repo, req, true)
 	if err != nil {
 		return helptext.Fail("worktree merge: %v", err)
@@ -224,6 +231,22 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 		return 1
 	}
 	return 0
+}
+
+// checkResumable mirrors the pre-agent checks of the real --resume so a dry run fails where that would.
+func checkResumable(repo *worktree.Repo, name string) error {
+	op, err := worktree.LoadOperation(repo, name)
+	if err != nil {
+		return fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
+	}
+	if op.Repo != repo.Main {
+		return fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
+	}
+	wtPath := filepath.Join(repo.Root, op.Worktree)
+	if _, err := os.Stat(wtPath); err != nil {
+		return fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, wtPath, err)
+	}
+	return nil
 }
 
 // mergeLocked runs worktree.Merge under the lease cmdWorktreeMerge holds and prints the outcome.
@@ -301,6 +324,9 @@ func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
 	printCleanResult(result, *dryRun)
 	if !result.Removed {
 		return 1
+	}
+	if *force && result.Reason != "" { // removeForced sets Reason only when branch -D failed after the removal
+		return helptext.Fail("worktree clean: branch not deleted: %s", result.Reason)
 	}
 	return 0
 }

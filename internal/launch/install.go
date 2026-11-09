@@ -106,7 +106,7 @@ func checkToolHealth(check func(bool, bool, string, string)) {
 		check(pass, false, "agent version "+spec.Name, detail)
 	}
 	for _, q := range quotaDoctorRows(time.Now()) {
-		check(true, false, q.Name, q.Detail)
+		check(q.OK, false, q.Name, q.Detail)
 	}
 }
 
@@ -415,7 +415,7 @@ func toolDoctorOK(s tools.Status) bool {
 	if !ok {
 		return true
 	}
-	if _, err := os.Lstat(filepath.Join(paths.BinDir(), bin)); err != nil {
+	if _, err := os.Lstat(filepath.Join(paths.BinDir(), bin)); os.IsNotExist(err) {
 		return true
 	}
 	_, err := paths.AgentBin(bin)

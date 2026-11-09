@@ -51,12 +51,12 @@ func stripEnv(w []string) (goFlags, rest []string, ok bool) {
 }
 
 // goFlagsAllowed holds GOFLAGS' fields to the go rule's banned flags and the root, like go's own args.
-func goFlagsAllowed(fields []string, rules agentconfig.ShellRules, root string) bool {
+func goFlagsAllowed(fields []string, rules agentconfig.ShellRules, cwd, root string) bool {
 	if len(fields) == 0 {
 		return true
 	}
 	i := slices.IndexFunc(rules, func(r agentconfig.ShellRule) bool { return slices.Contains(r.Commands, "go") })
-	return i >= 0 && noFlag(fields, rules[i].BannedFlags...) && argsInside(fields, root)
+	return i >= 0 && noFlag(fields, rules[i].BannedFlags...) && argsInside(fields, cwd, root)
 }
 
 // gitVerbFlags are those verbs' only dash args: branch must carry --list or -l, and `git status -v` runs textconv.
@@ -397,14 +397,6 @@ func installedIsSelf(home string) bool {
 	return err == nil && installed == self
 }
 
-// Command is CommandIn with roots[0] as the execution cwd (the hook runs in its first root).
-func Command(cmd string, roots []string, extra agentconfig.ShellRules) bool {
-	if len(roots) == 0 {
-		return false
-	}
-	return CommandIn(cmd, roots[0], roots, extra)
-}
-
 // CommandIn reports whether every segment of cmd, run in cwd, passes the policy's commands or extra (which may be nil)
 // in a root; cwd must be absolute and inside a root, and relative operands resolve against it, never another root.
 func CommandIn(cmd, cwd string, roots []string, extra agentconfig.ShellRules) bool {
@@ -440,7 +432,7 @@ func segmentAllowed(w []string, cwd string, roots []string, extra agentconfig.Sh
 	rest = absolutizeOperands(rest, cwd)
 	rules := agentconfig.ShellPolicy().Commands
 	return slices.ContainsFunc(roots, func(root string) bool {
-		return goFlagsAllowed(goFlags, rules, root) && (allows(rules, rest, root) || allows(extra, rest, root))
+		return goFlagsAllowed(goFlags, rules, cwd, root) && (allows(rules, rest, cwd, root) || allows(extra, rest, cwd, root))
 	})
 }
 
@@ -499,16 +491,16 @@ func uniqOneInput(args []string, _ string) bool {
 	return n <= 1
 }
 
-// allows reports whether any rule for w's command admits w inside workDir (an unknown check admits nothing).
-func allows(rules agentconfig.ShellRules, w []string, workDir string) bool {
+// allows reports whether a rule for w's command admits w run in cwd, inside workDir (unknown checks admit nothing).
+func allows(rules agentconfig.ShellRules, w []string, cwd, workDir string) bool {
 	return slices.ContainsFunc(rules, func(r agentconfig.ShellRule) bool {
-		return slices.Contains(r.Commands, w[0]) && ruleAllows(r, w[1:], workDir)
+		return slices.Contains(r.Commands, w[0]) && ruleAllows(r, w[1:], cwd, workDir)
 	})
 }
 
-func ruleAllows(r agentconfig.ShellRule, args []string, workDir string) bool {
+func ruleAllows(r agentconfig.ShellRule, args []string, cwd, workDir string) bool {
 	rest, ok := matchArgs(r, args)
-	if !ok || !noFlag(args, r.BannedFlags...) || r.ArgsInside && !argsInside(args, workDir) {
+	if !ok || !noFlag(args, r.BannedFlags...) || r.ArgsInside && !argsInside(args, cwd, workDir) {
 		return false
 	}
 	if r.Check == "" {
@@ -553,11 +545,6 @@ func noFlag(args []string, banned ...string) bool {
 	})
 }
 
-// pathLooking is an absolute path or one climbing with ..; relative names stay inside by construction.
-func pathLooking(a string) bool {
-	return strings.HasPrefix(a, "/") || a == ".." || strings.HasPrefix(a, "../") || strings.Contains(a, "/../") || strings.HasSuffix(a, "/..")
-}
-
 // optionValue is the value of a "-name=value" flag whatever its name, or of an attached -o/-C ("-o/x"); "" otherwise.
 func optionValue(a string) string {
 	if !strings.HasPrefix(a, "-") {
@@ -573,22 +560,30 @@ func optionValue(a string) string {
 	return ""
 }
 
-// argsInside requires every path-looking arg, and every -name=value or attached -o/-C value, to resolve inside workDir.
-func argsInside(args []string, workDir string) bool {
+// argsInside requires every arg, and every -name=value or attached -o/-C value, to resolve inside workDir from cwd.
+func argsInside(args []string, cwd, workDir string) bool {
 	for _, a := range args {
 		if strings.HasPrefix(optionValue(a), "~") {
 			return false
 		}
 		for _, v := range []string{a, optionValue(a)} {
-			if !pathLooking(v) {
+			if v == "" { // no value to judge; "" would resolve to cwd and wrongly reject it in another root
 				continue
 			}
-			if _, ok := relInside(v, workDir); !ok {
+			if _, ok := relInside(absFrom(v, cwd), workDir); !ok {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// absFrom anchors a relative p to base, so symlinks in a relative operand are resolved where the command runs.
+func absFrom(p, base string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(base, p)
 }
 
 // absolutizeOperands joins rm's, git add/commit's plain relative operands and git -C's dir onto cwd, so no root can rebase them.
@@ -758,9 +753,13 @@ func commitLongFlag(a string) (ok, skip bool) {
 
 // commitShortFlags judges a short-flag cluster; skip means a trailing m takes the next arg.
 func commitShortFlags(a string) (ok, skip bool) {
-	if strings.ContainsAny(a, "ncC") { // -n skips hooks; -c/-C reuse another commit
+	m := strings.IndexByte(a, 'm')
+	flags := a // letters after m are the attached message, not flags
+	if m >= 0 {
+		flags = a[:m]
+	}
+	if strings.ContainsAny(flags, "ncC") { // -n skips hooks; -c/-C reuse another commit
 		return false, false
 	}
-	m := strings.IndexByte(a, 'm')
-	return true, m == len(a)-1 // text after the first m is the attached message; only a trailing m takes the next arg
+	return true, m == len(a)-1 // only a trailing m takes the next arg
 }

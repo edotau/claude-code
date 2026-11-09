@@ -320,6 +320,10 @@ func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 		if !e.Exists || e.Orphaned {
 			continue
 		}
+		if filepath.Dir(e.Path) != filepath.Clean(repo.Root) {
+			results = append(results, CleanResult{Path: e.Path, Reason: "nested below " + repo.Root + ", not a <root>/<name> worktree; not cleaned"})
+			continue
+		}
 		r, err := Clean(repo, filepath.Base(e.Path), !apply)
 		if err != nil {
 			return results, err

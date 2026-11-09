@@ -52,8 +52,8 @@ func TestCommandGoEnvAndGitGrep(t *testing.T) {
 		{"git grep --open foo", false},
 	}
 	for _, c := range cases {
-		if got := Command(c.cmd, []string{root}, nil); got != c.want {
-			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
+		if got := CommandIn(c.cmd, root, []string{root}, nil); got != c.want {
+			t.Errorf("CommandIn(%q) = %v, want %v", c.cmd, got, c.want)
 		}
 	}
 }
@@ -93,8 +93,8 @@ func TestCommandDashFormsAndPathValues(t *testing.T) {
 		{"git grep -e foo -nO bar", false},
 	}
 	for _, c := range cases {
-		if got := Command(c.cmd, []string{root}, nil); got != c.want {
-			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
+		if got := CommandIn(c.cmd, root, []string{root}, nil); got != c.want {
+			t.Errorf("CommandIn(%q) = %v, want %v", c.cmd, got, c.want)
 		}
 	}
 }
@@ -141,8 +141,8 @@ func TestCommandRm(t *testing.T) {
 		{"rm STATE/x", false}, {"rm " + filepath.Join(root, "STATE", "x"), false}, {"rm viagit/config", false}, {"rm metadata/config", true},
 	}
 	for _, c := range cases {
-		if got := Command(c.cmd, []string{root, wt}, nil); got != c.want {
-			t.Errorf("Command(%q) = %v, want %v", c.cmd, got, c.want)
+		if got := CommandIn(c.cmd, root, []string{root, wt}, nil); got != c.want {
+			t.Errorf("CommandIn(%q) = %v, want %v", c.cmd, got, c.want)
 		}
 	}
 	for _, cwd := range []string{"", "sub", outside} {
@@ -160,7 +160,7 @@ func TestCommandRm(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustSymlink(t, "metadata", filepath.Join(root, ".git"))
-	if Command("rm .git/config", []string{root, wt}, nil) {
+	if CommandIn("rm .git/config", root, []string{root, wt}, nil) {
 		t.Error("rm .git/config through a symlinked .git was allowed")
 	}
 }
@@ -246,6 +246,19 @@ func TestCommandInGitDirOperand(t *testing.T) {
 		if got := CommandIn(c.cmd, root, []string{root, wt}, nil); got != c.want {
 			t.Errorf("CommandIn(%q) = %v, want %v", c.cmd, got, c.want)
 		}
+	}
+}
+
+func TestArgsInsideAbsoluteOperandOtherRoot(t *testing.T) {
+	root, wt := additionRoots(t)
+	operand := filepath.Join(wt, "x", "f")
+	if !argsInside([]string{operand}, root, wt) {
+		t.Errorf("argsInside refused absolute operand %q in another allowed root from cwd %q", operand, root)
+	}
+	outside := filepath.Join(t.TempDir(), "f")
+	touch(t, outside)
+	if argsInside([]string{outside}, root, wt) {
+		t.Errorf("argsInside allowed absolute operand %q outside the allowed root %q", outside, wt)
 	}
 }
 

@@ -679,6 +679,7 @@ func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds
 		ID:                "op-cancel-poll",
 		Repo:              repo.Main,
 		Worktree:          filepath.Base(wt),
+		ConflictPaths:     []string{"f.txt"},
 		TargetRef:         plan.TargetRef,
 		TargetOID:         plan.TargetOID,
 		OriginalSourceOID: plan.SourceOID,

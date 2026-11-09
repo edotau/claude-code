@@ -53,24 +53,25 @@ func Default() *Resolver {
 
 // classify turns a raw mount entry into a Mount; ok is false for filesystems that are not drvfs/remote/Volumes.
 func classify(point, source, fstype string) (Mount, bool) {
-	if strings.HasPrefix(source, `\\`) { // WSL drvfs exposes a UNC share as `\\server\share`
-		source = strings.ReplaceAll(source, `\`, "/")
+	norm := source // WSL drvfs exposes a UNC share as `\\server\share`; classify on the forward-slash form
+	if strings.HasPrefix(source, `\\`) {
+		norm = strings.ReplaceAll(source, `\`, "/")
 	}
 	m := Mount{Point: point, Source: source, FSType: fstype}
 	ok := true
 	switch {
-	case isDriveSource(source):
-		m.Kind, m.Drive = KindDrvFS, strings.ToUpper(source[:1])
-	case isSMB(source, fstype):
+	case isDriveSource(norm):
+		m.Kind, m.Drive = KindDrvFS, strings.ToUpper(norm[:1])
+	case isSMB(norm, fstype):
 		m.Kind = KindSMB
-		m.Host, m.RemotePath, ok = splitSMB(source)
+		m.Host, m.RemotePath, ok = splitSMB(norm)
 	case strings.HasPrefix(fstype, "nfs"):
 		m.Kind = KindNFS
-		m.Host, m.RemotePath, ok = splitHostPath(source)
-	case isSSHFS(source, fstype):
+		m.Host, m.RemotePath, ok = splitHostPath(norm)
+	case isSSHFS(norm, fstype):
 		m.Kind = KindSSHFS
-		m.Host, m.RemotePath, ok = splitHostPath(source)
-	case strings.HasPrefix(point, "/Volumes/") && !strings.HasPrefix(source, "/dev/"):
+		m.Host, m.RemotePath, ok = splitHostPath(norm)
+	case strings.HasPrefix(point, "/Volumes/") && !strings.HasPrefix(norm, "/dev/"):
 		m.Kind = KindVolume
 	default:
 		ok = false
@@ -119,19 +120,27 @@ func splitSMB(source string) (host, share string, ok bool) {
 
 // splitHostPath splits "[user@]host:/path" into host and path; an IPv6 host may be bracketed.
 func splitHostPath(source string) (host, p string, ok bool) {
-	h, p, found := strings.Cut(source, ":")
-	if strings.HasPrefix(source, "[") {
-		if end := strings.Index(source, "]:"); end > 0 {
-			h, p, found = source[1:end], source[end+2:], true
+	start := 0 // the user part ends at the last "@" before the first "/", which starts the path
+	if before, _, found := strings.Cut(source, "/"); found {
+		start = strings.LastIndex(before, "@") + 1
+	}
+	rest := source[start:]
+	if strings.HasPrefix(rest, "[") {
+		end := strings.Index(rest, "]:")
+		if end < 0 {
+			return "", "", false
+		}
+		host, p = rest[1:end], rest[end+2:]
+	} else {
+		var found bool
+		if host, p, found = strings.Cut(rest, ":"); !found {
+			return "", "", false
 		}
 	}
-	if i := strings.LastIndex(h, "@"); i >= 0 {
-		h = h[i+1:]
-	}
-	if !found || h == "" || !strings.HasPrefix(p, "/") {
+	if host == "" || !strings.HasPrefix(p, "/") {
 		return "", "", false
 	}
-	return h, p, true
+	return host, p, true
 }
 
 // wslpathOut runs `wslpath -w /`; a var so tests fake the probe.

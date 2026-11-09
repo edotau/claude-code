@@ -34,8 +34,13 @@ func seedTmuxConf(w io.Writer, dryRun bool) {
 		return
 	}
 	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
+		_, err := os.Stat(p)
+		if err == nil {
 			fmt.Fprintf(w, "tmux     %s exists (kept)\n", p)
+			return
+		}
+		if !errors.Is(err, fs.ErrNotExist) { // unknown state: never seed over a config we could not probe
+			fmt.Fprintf(w, "tmux     skip  %v\n", err)
 			return
 		}
 	}

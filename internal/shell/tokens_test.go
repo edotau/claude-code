@@ -21,7 +21,7 @@ func TestTokensPinnedOutput(t *testing.T) {
 		{`echo 'a\b'`, []string{"echo", `a\b`}},
 		{`echo "unclosed arg`, []string{"echo", "unclosed arg"}},
 		{`echo trailing\`, []string{"echo", `trailing\`}},
-		{"echo a\\\nb", []string{"echo", "a\nb"}},
+		{"echo a\\\nb", []string{"echo", "ab"}}, // backslash-newline is removed, so the words join (POSIX sh)
 		{"a\tb\r\nc", []string{"a", "b", "c"}},
 		{`(cd x)`, []string{"cd", "x"}},
 		{`{ cd x; }`, []string{"cd", "x;"}},

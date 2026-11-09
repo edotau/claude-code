@@ -37,6 +37,9 @@ func TestInspectDerivesGitDirWithoutRevParse(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(gitDir, "logs", "HEAD"), old, old); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chtimes(filepath.Join(gitDir, "index"), old.Add(-time.Hour), old.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	e := Entry{Path: wt, Head: headOf(wt), Exists: true, Registered: true}
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
@@ -220,6 +223,10 @@ func TestListStaleByReflogAge(t *testing.T) {
 	reflog := filepath.Join(strings.TrimSpace(string(gitDirOut)), "logs", "HEAD")
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	if err := os.Chtimes(reflog, old, old); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(filepath.Dir(filepath.Dir(reflog)), "index")
+	if err := os.Chtimes(index, old.Add(-time.Hour), old.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := List(repo)

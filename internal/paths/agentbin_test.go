@@ -179,6 +179,28 @@ func vendorSymlinkOwnPath(t *testing.T) {
 	}
 }
 
+func TestLookPathRealSkipsBinDirSymlink(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vendorDir := t.TempDir()
+	vendor := filepath.Join(vendorDir, "codex")
+	writeScript(t, vendor)
+	linkCodex(t, vendor)
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(paths.BinDir(), alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", alias+string(os.PathListSeparator)+vendorDir)
+
+	got, err := paths.LookPathReal("codex")
+	if err != nil || got != vendor {
+		t.Fatalf("LookPathReal(codex) = %q, %v; want external vendor %q, not BinDir alias", got, err, vendor)
+	}
+	t.Setenv("PATH", alias)
+	if got, err := paths.LookPathReal("codex"); err == nil || got != "" {
+		t.Fatalf("LookPathReal(codex) = %q, %v; BinDir alias alone must not resolve", got, err)
+	}
+}
+
 func TestVendorName(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 

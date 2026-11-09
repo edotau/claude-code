@@ -103,19 +103,19 @@ func gitGlobalOpt(toks []string, i int) (name, val string, next int, ok bool) {
 
 // gitTarget is the tree git acts on: --work-tree, else a .git --git-dir's parent, else the -C chain from cwd.
 func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
-	if p, ok := resolvePath(workTree, cwd); workTree != "" && ok {
-		return p
-	}
-	if p, ok := resolvePath(gitDir, cwd); gitDir != "" && ok && filepath.Base(p) == ".git" {
-		return filepath.Dir(p)
-	}
-	target := cwd
-	for _, c := range cPaths { // successive -C paths apply relative to each other
-		if p, ok := resolvePath(c, target); ok {
-			target = p
+	base := cwd // successive -C paths apply relative to each other; relative --work-tree/--git-dir follow them
+	for _, c := range cPaths {
+		if p, ok := resolvePath(c, base); ok {
+			base = p
 		}
 	}
-	return target
+	if p, ok := resolvePath(workTree, base); workTree != "" && ok {
+		return p
+	}
+	if p, ok := resolvePath(gitDir, base); gitDir != "" && ok && filepath.Base(p) == ".git" {
+		return filepath.Dir(p)
+	}
+	return base
 }
 
 // GitCommitInvocation reports whether cmd, or a nested/substituted command within it, invokes `git commit`;
