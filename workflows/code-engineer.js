@@ -522,7 +522,9 @@ const pfiles = [...new Set([...touchedFiles(res.fixed), ...res.files])].sort()
 const POLISH = a.polish !== false && a.fix !== false
 if (POLISH && pfiles.length && lowBudget()) res.decisions.push('polish skipped: budget under 150k tokens remaining')
 else if (POLISH && pfiles.length) {
-  const po = await stagePolish(CTX, { files: pfiles })
+  // the polish prompts all build on ctx.rules (the stage block is copied verbatim), so the protected task rides there
+  const keep = TASK ? ' Protected requirement: the task below is the owner\'s requested change; never revert, inline away, rename back or otherwise undo what it asks for; flag instead.\nTask: ' + TASK + '\n' : ''
+  const po = await stagePolish({ ...CTX, rules: CTX.rules + keep }, { files: pfiles })
   const fs = po.review.findings
   const sev = ['critical', 'high', 'medium', 'low'].map((k) => [k, fs.filter((f) => f.severity === k).length]).filter((x) => x[1])
   const tally = 'review: ' + fs.length + ' finding(s) (' + (sev.map((x) => x[1] + ' ' + x[0]).join(', ') || 'none') + ')'
