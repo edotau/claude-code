@@ -127,7 +127,7 @@ func TestScopedShellUsesRequestCwd(t *testing.T) {
 func TestScopedWriteWithoutWorkdirUsesCwd(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	opts := newSDKOptions("copilot", nil, agent.RunOptions{Tools: true}, providers.Target{}, true)
+	opts := newSDKOptions("copilot", nil, agent.RunOptions{Tools: true}, providers.Target{})
 	h := BuildSessionConfig(opts).OnPermissionRequest
 	d, err := h(scopedWrite(filepath.Join(dir, "b.txt")), copilot.PermissionInvocation{})
 	if err != nil {

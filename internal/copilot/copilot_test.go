@@ -77,7 +77,8 @@ func TestHandoffNeverWritesCredentials(t *testing.T) {
 	orig := handoffDir
 	handoffDir = func(string) string { return dir }
 	t.Cleanup(func() { handoffDir = orig })
-	creds := CredentialValues([]string{"DBX_TOKEN=" + envSecret, "PLAIN=visible"}, sdkToken)
+	env := []string{providers.CopilotTokenEnv + "=" + sdkToken, "DBX_TOKEN=" + envSecret, "PLAIN=visible"}
+	creds := CredentialValues(env)
 	req := agent.RunOptions{WorkDir: t.TempDir(), Prompt: "use " + sdkToken + " and " + envSecret}
 	path, body, err := writeCopilotHandoff(req, wire.Result{SessionID: "sess-1"}, "partial "+envSecret,
 		"acct", errors.New("quota exhausted"), creds)
@@ -175,38 +176,32 @@ func TestRunNonQuotaFailureWritesNoHandoff(t *testing.T) {
 	}
 }
 
-// Only a quota error on the own login or a copilot-billed row hands off; a BYOK row or another failure does not.
+// Only a quota error on a copilot-billed row hands off; a BYOK row or another failure does not.
 func TestQuotaHandoffEligible(t *testing.T) {
 	quota, outage := errors.New("402 payment required"), errors.New("503 service unavailable")
 	gh := providers.Target{Provider: &providers.Provider{Auth: providers.Auth{Login: "copilot"}}}
 	byok := providers.Target{Provider: &providers.Provider{}}
 	for _, c := range []struct {
 		name string
-		own  bool
 		t    providers.Target
 		err  error
 		want bool
 	}{
-		{"own login quota", true, providers.Target{}, quota, true},
-		{"copilot row quota", false, gh, quota, true},
-		{"byok row quota", false, byok, quota, false},
-		{"copilot row outage", false, gh, outage, false},
+		{"copilot row quota", gh, quota, true},
+		{"byok row quota", byok, quota, false},
+		{"copilot row outage", gh, outage, false},
 	} {
-		if got := quotaHandoffEligible(c.own, c.t, c.err); got != c.want {
+		if got := quotaHandoffEligible(c.t, c.err); got != c.want {
 			t.Errorf("%s: eligible = %v, want %v", c.name, got, c.want)
 		}
 	}
 }
 
-// A non-own target without a provider is a fatal error; the own login reports copilot's own profile.
+// A target without a provider is a fatal error.
 func TestInitialResult(t *testing.T) {
 	cs := copilotSchema()
-	if _, err := initialResult(cs, providers.Target{Model: "auto"}, false); !isFatal(err) {
+	if _, err := initialResult(cs, providers.Target{Model: "auto"}); !isFatal(err) {
 		t.Errorf("no provider: err = %v, want a typed fatal error", err)
-	}
-	res, err := initialResult(cs, providers.Target{Model: "claude-opus-5[1m]"}, true)
-	if err != nil || res.Provider != cs.OwnProfile() || res.Model != "claude-opus-5" {
-		t.Errorf("own: res = %+v err = %v, want own profile and the [1m]-stripped model", res, err)
 	}
 }
 

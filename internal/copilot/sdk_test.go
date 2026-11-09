@@ -386,7 +386,7 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 		t.Fatalf("caps = %v/%v, want Native/Native", row.CLI.Caps.SystemPrompt, row.CLI.Caps.AppendSystemPrompt)
 	}
 	req := agent.RunOptions{Prompt: "say hi", SystemPrompt: "be ZEBRA", AppendSystemPrompt: "end with ZEBRA"}
-	o := newSDKOptions("copilot", nil, req, providers.Target{}, false)
+	o := newSDKOptions("copilot", nil, req, providers.Target{})
 	if o.System != "be ZEBRA\n\nend with ZEBRA" {
 		t.Errorf("System = %q, want both texts", o.System)
 	}
