@@ -9,7 +9,7 @@ export const meta = {
   name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
-    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {runs, cells}.',
+    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins (or HARNESS_DATABRICKS_ARM), or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {runs, cells}.',
   phases: [{ title: 'Execute' }, { title: 'Judge' }],
 }
 
@@ -53,12 +53,12 @@ const stepOf = (steps, name, defaults, opt) => {
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }
   if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
-  // gemini too: 'session' keeps its Google pin; a named profile or provider databricks runs it on Databricks (267d604e).
-  const profile = v.profile !== undefined ? v.profile : o.profile || 'session'
+  // no profile/provider: Go routes the agent's pin (or HARNESS_DATABRICKS_ARM); a named one leads, ladder after.
+  const profile = v.profile !== undefined ? v.profile : o.profile || ''
   const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
   const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
-  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort} --profile ${profile}` +
+  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
     (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
   const R = ['ran_on', 'coworker']
@@ -104,7 +104,7 @@ const EXT = [...new Map(Object.values(ST).filter((s) => s.ext).map((s) => [s.age
 if (EXT.length) {
   const pf = await agent(
     'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. First run `pwd; echo $HOME` and report them as cwd and home.\n' +
-      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents --profile ${s.profile}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['cwd', 'home', 'routes'], properties: { cwd: { type: 'string' }, home: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
