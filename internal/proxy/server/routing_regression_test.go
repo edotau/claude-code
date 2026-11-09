@@ -58,7 +58,7 @@ func stalledUploadUpstream(t *testing.T) *httptest.Server {
 
 func TestStalledLargeUploadFailsOverWithinAttemptBound(t *testing.T) {
 	previous := uploadTimeout
-	uploadTimeout = 300 * time.Millisecond
+	uploadTimeout = 2 * time.Second // covers the healthy leg too: proxy and upstream each parse the 16 MiB body
 	t.Cleanup(func() { uploadTimeout = previous })
 	stalled := stalledUploadUpstream(t)
 	healthy := newUpstream(t, ok)
