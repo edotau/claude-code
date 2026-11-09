@@ -331,8 +331,8 @@ func TestGitSegmentsOutsideRepo(t *testing.T) {
 }
 
 func TestTruncRunes(t *testing.T) {
-	if got := truncRunes("feature/statusline", 8); got != "feature…" {
-		t.Errorf("truncRunes %q", got)
+	if got := capProfile("databricks·feature/statusline", 8); got != "databricks·feature…" {
+		t.Errorf("capProfile %q", got)
 	}
 }
 

@@ -61,8 +61,15 @@ func computeColumnWidths(tree *agenttree.Tree) columnWidths {
 // RenderText groups tree.Sessions by repo (cwd), newest session first within each repo, and prints
 // each session's subagents indented by spawnDepth, with Workflow runs shown as phases -> agents.
 // Every row is fit to terminalWidth() by truncating its description (its tool segment is dropped
-// first) rather than wrapping.
-func RenderText(w io.Writer, tree *agenttree.Tree, now time.Time) {
+// first) rather than wrapping. It returns the first write error, if any.
+func RenderText(w io.Writer, tree *agenttree.Tree, now time.Time) error {
+	ew := &errWriter{w: w}
+	renderTree(ew, tree, now)
+	return ew.err
+}
+
+// renderTree writes the grouped listing to w; write errors are collected by the errWriter it is given.
+func renderTree(w io.Writer, tree *agenttree.Tree, now time.Time) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
@@ -335,8 +342,15 @@ func treeShortID(id string) string {
 	return string(r[:8])
 }
 
-// RenderSnapshot writes a Snapshot as the `--format text` drill-down view.
-func RenderSnapshot(w io.Writer, snap agenttree.Snapshot) {
+// RenderSnapshot writes a Snapshot as the `--format text` drill-down view; it returns the first write error.
+func RenderSnapshot(w io.Writer, snap agenttree.Snapshot) error {
+	ew := &errWriter{w: w}
+	renderSnapshot(ew, snap)
+	return ew.err
+}
+
+// renderSnapshot writes the drill-down lines to w; write errors are collected by the errWriter it is given.
+func renderSnapshot(w io.Writer, snap agenttree.Snapshot) {
 	fmt.Fprintf(w, "%s  %s\n", snap.ID, snap.Label)
 	if snap.Workflow != "" {
 		fmt.Fprintf(w, "workflow %s  phase %s\n", snap.Workflow, snap.Phase)
@@ -364,6 +378,27 @@ func RenderSnapshot(w io.Writer, snap agenttree.Snapshot) {
 }
 
 // Follow writes one formatted line per new event of opts.Agent to w, until it ends or ctx is cancelled.
+// A write failure is returned even when the follow itself ended cleanly.
 func Follow(ctx context.Context, opts agenttree.ViewOptions, w io.Writer) error {
-	return agenttree.Follow(ctx, opts, func(e agenttree.Event) { fmt.Fprintln(w, agenttree.FormatEvent(e)) })
+	ew := &errWriter{w: w}
+	err := agenttree.Follow(ctx, opts, func(e agenttree.Event) { fmt.Fprintln(ew, agenttree.FormatEvent(e)) })
+	if err != nil {
+		return err
+	}
+	return ew.err
+}
+
+// errWriter records the first write error and skips later writes, so a broken pipe is not hidden.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (e *errWriter) Write(p []byte) (int, error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+	n, err := e.w.Write(p)
+	e.err = err
+	return n, err
 }

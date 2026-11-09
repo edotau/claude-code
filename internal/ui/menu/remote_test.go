@@ -79,8 +79,11 @@ func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	if !strings.Contains(got, "web         no tailnet IPv4 address; claude-code network page binds loopback only") {
 		t.Errorf("output missing the no-IPv4 web line:\n%s", got)
 	}
-	if !strings.Contains(got, "dispatch    no online tailnet machines found") {
-		t.Errorf("output missing the no-machines dispatch line:\n%s", got)
+	if !strings.Contains(got, "dispatch    could not list tailnet machines:") {
+		t.Errorf("output missing the machine-list error:\n%s", got)
+	}
+	if strings.Contains(got, "no online tailnet machines found") {
+		t.Errorf("machine-list failure was misreported as an empty list:\n%s", got)
 	}
 }
 

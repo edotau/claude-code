@@ -150,7 +150,33 @@ func keepOldKey(d *dialog, kt configure.KeyTarget, v string) bool {
 		return false
 	}
 	d.printf("%s: new value %s (%s)\n", kt.EnvVar, status, detail)
-	return d.shell().Confirm("Keep the old key and discard this paste?")
+	return confirmKeep(d, "Keep the old key and discard this paste?")
+}
+
+// confirmKeep asks question [Y/n]; a blank or y answer keeps the old key (true), and ended input keeps it too.
+func confirmKeep(d *dialog, question string) bool {
+	ans, ok := readAnswer(d, question+" [Y/n] ")
+	if !ok {
+		d.println("input ended: kept the old key")
+		return true
+	}
+	return !strings.HasPrefix(strings.ToLower(strings.TrimSpace(ans)), "n")
+}
+
+// readAnswer reads one line after prompt from the same reader the menu's prompts use; ok is false when the
+// input ended or failed, so the caller never mistakes a dead input for an empty answer.
+func readAnswer(d *dialog, prompt string) (string, bool) {
+	fmt.Fprint(d.out, prompt)
+	br := d.br
+	if d.shell().TTY {
+		br = tui.Stdin()
+	}
+	line, err := br.ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Fprintln(d.out)
+		return "", false
+	}
+	return strings.TrimRight(line, "\r\n"), true
 }
 
 // runMint asks first (a stray Enter must never start a mint), then runs the token-minting CLI.
@@ -333,10 +359,7 @@ func deleteSecret(d *dialog, name string) bool {
 		return false
 	}
 	if d.pending != nil {
-		if d.pendingDeletes == nil {
-			d.pendingDeletes = map[string]bool{}
-		}
-		d.pendingDeletes[name] = true
+		d.stageDelete(name)
 		d.printf("staged delete of %s · Submit removes it from the vault\n", name)
 		return true
 	}
@@ -433,15 +456,24 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		d.printf("saved %s to the vault (%s)\n", name, vault.Redact(k.val))
 		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
 	}
+	d.pendingDeletes = nil
 	for _, name := range deletes {
 		if err := configure.DeleteSecret(name); err != nil {
 			d.printf("%s: not deleted: %v\n", name, err)
+			d.stageDelete(name) // stays pending: a failed delete is retried, and fails the menu, not dropped
 			continue
 		}
 		d.printf("deleted %s\n", name)
 	}
-	d.pendingDeletes = nil
 	d.changed = true
+}
+
+// stageDelete queues name for vault deletion on Submit (or the page's exit).
+func (d *dialog) stageDelete(name string) {
+	if d.pendingDeletes == nil {
+		d.pendingDeletes = map[string]bool{}
+	}
+	d.pendingDeletes[name] = true
 }
 
 // changedPageKeys lists, sorted, the keys staged during this page: not as before it, and not the value already stored.

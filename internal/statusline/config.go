@@ -40,18 +40,21 @@ type BarConfig struct {
 	Width         int     `json:"width"`
 	FilledGlyph   string  `json:"filledGlyph"`
 	EmptyGlyph    string  `json:"emptyGlyph"`
-	Percent       string  `json:"percent"`    // "after" shows " N%" after the bar
+	Percent       string  `json:"percent"`    // "before" puts N% ahead of the bar; anything else after it
 	TerminalBg    string  `json:"terminalBg"` // trough tone base
 	Theme         string  `json:"theme"`      // auto|dark|light
 	EmptyContrast float64 `json:"emptyContrast"`
 }
 
-// Decoded on first use: this package links into every claude-code exec, only `statusline` reads it.
-var embeddedConfig = sync.OnceValue(func() Config {
+// defaultConfig decodes a fresh embedded theme: json reuses a slice's backing array, so overlays must not share one.
+func defaultConfig() Config {
 	var c Config
 	_ = json.Unmarshal(theme.DefaultConfigJSON(), &c)
 	return c
-})
+}
+
+// Decoded on first use: this package links into every claude-code exec, only `statusline` reads it.
+var embeddedConfig = sync.OnceValue(defaultConfig)
 
 func (c Config) seg(key string, def bool) bool {
 	if v, ok := c.Segments[key]; ok {
@@ -67,22 +70,25 @@ func (c Config) sep(key, def string) string {
 	return def
 }
 
-// loadConfig overlays config.json onto the embedded theme; maps the file omits keep the embedded ones.
+// loadConfig overlays config.json onto the embedded theme; a file that fails to decode is ignored whole.
 func loadConfig() Config {
 	cfg := embeddedConfig()
 	data, err := os.ReadFile(filepath.Join(theme.StatuslineDir(), "config.json"))
 	if err != nil {
 		return cfg
 	}
-	cfg.Segments, cfg.Separators = nil, nil
-	_ = json.Unmarshal(data, &cfg)
-	if len(cfg.Segments) == 0 {
-		cfg.Segments = embeddedConfig().Segments
+	user := defaultConfig()
+	user.Segments, user.Separators = nil, nil
+	if err := json.Unmarshal(data, &user); err != nil {
+		return cfg
 	}
-	if len(cfg.Separators) == 0 {
-		cfg.Separators = embeddedConfig().Separators
+	if len(user.Segments) == 0 {
+		user.Segments = embeddedConfig().Segments
 	}
-	return cfg
+	if len(user.Separators) == 0 {
+		user.Separators = embeddedConfig().Separators
+	}
+	return user
 }
 
 // gradientStyle is true for the default style: any Style renderRaw does not route elsewhere.

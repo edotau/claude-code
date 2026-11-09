@@ -73,6 +73,17 @@ func TestDrainMultipleKeysAndCarriesPartialTail(t *testing.T) {
 	}
 }
 
+func TestDrainCarriesLoneEscIntoArrow(t *testing.T) {
+	keys, tail := drain([]byte("\x1b"))
+	if len(keys) != 0 || string(tail) != "\x1b" {
+		t.Fatalf("first read: keys=%+v tail=%q; want no keys and pending Esc", keys, tail)
+	}
+	keys, tail = drain(append(tail, []byte("[A")...))
+	if len(keys) != 1 || keys[0].Kind != KeyUp || len(tail) != 0 {
+		t.Fatalf("second read: keys=%+v tail=%q; want Up and no tail", keys, tail)
+	}
+}
+
 func TestDrainDropsUnknownBytes(t *testing.T) {
 	keys, tail := drain([]byte{0x1c, 0x1c, 'k'})
 	if len(keys) != 1 || keys[0].Kind != KeyRune || keys[0].Rune != 'k' {

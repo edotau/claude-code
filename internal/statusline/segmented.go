@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -50,7 +51,7 @@ func segLabel(key string, v values) string {
 	return ""
 }
 
-// segmentOrder is the configured order minus path, plus git last when there is a branch.
+// segmentOrder is the configured order minus path, plus git last when there is a branch and no configured slot.
 func segmentOrder(v values, cfg Config) []string {
 	var order []string
 	for _, k := range cfg.Order {
@@ -58,7 +59,7 @@ func segmentOrder(v values, cfg Config) []string {
 			order = append(order, k)
 		}
 	}
-	if cfg.seg("git", true) && v.branch != "" {
+	if cfg.seg("git", true) && v.branch != "" && !slices.Contains(order, "git") {
 		order = append(order, "git")
 	}
 	return order
@@ -162,8 +163,12 @@ func dashboardValueCells(col string, v values, cfg Config) (string, []cell) {
 	switch col {
 	case "context":
 		filled, empty := contextBarParts(v.contextPct, cfg.Bar)
-		cells := append(runeCells(filled, "filled"), runeCells(empty, "empty")...)
-		return col, append(cells, runeCells(" "+strconv.Itoa(v.contextPct)+"%", "g")...)
+		bar := append(runeCells(filled, "filled"), runeCells(empty, "empty")...)
+		pct := strconv.Itoa(v.contextPct) + "%"
+		if cfg.Bar.Percent == "before" {
+			return col, append(runeCells(pct+" ", "g"), bar...)
+		}
+		return col, append(bar, runeCells(" "+pct, "g")...)
 	case "workspace":
 		if v.path == "" {
 			return "", nil
@@ -242,7 +247,7 @@ func dashboardWidth(dash DashboardConfig, width, indentW int) int {
 func buildDashboardCols(cols []string, v values, cfg Config, hasHead bool) []builtCol {
 	var built []builtCol
 	for _, c := range cols {
-		if c == "workspace" && hasHead { // the head already carries the path
+		if c == "workspace" && hasHead || !cfg.seg(c, true) { // the head already carries the path; disabled drops out
 			continue
 		}
 		if hdr, cells := dashboardValueCells(c, v, cfg); cells != nil {

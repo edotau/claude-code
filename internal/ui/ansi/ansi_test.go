@@ -72,6 +72,12 @@ func TestToANSI256(t *testing.T) {
 	}
 }
 
+func TestToANSI256ExactLightGray(t *testing.T) {
+	if got := ToANSI256(RGB{238, 238, 238}); got != 255 {
+		t.Fatalf("ToANSI256({238 238 238}) = %d, want exact grayscale index 255", got)
+	}
+}
+
 func TestToANSI16Nearest(t *testing.T) {
 	// Pure red should map to a red index (1 or its bright variant 9).
 	if got := ToANSI16(RGB{255, 0, 0}); got != 1 && got != 9 {

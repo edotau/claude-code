@@ -139,9 +139,14 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 		adds += a
 		dels += d
 	}
-	return adds + untrackedLines(ctx, cwd), dels, true
+	untracked := untrackedLines(ctx, cwd)
+	if ctx.Err() != nil { // deadline spent mid-sweep: no partial count, the caller falls back to the ledger
+		return 0, 0, false
+	}
+	return adds + untracked, dels, true
 }
 
+// untrackedLines counts untracked lines, stopping early once ctx expires.
 func untrackedLines(ctx context.Context, cwd string) int {
 	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--others", "--exclude-standard", "-z").Output()
 	if err != nil {
@@ -152,7 +157,7 @@ func untrackedLines(ctx context.Context, cwd string) int {
 		if rel == "" {
 			continue
 		}
-		if seen++; seen > untrackedFileCap {
+		if seen++; seen > untrackedFileCap || ctx.Err() != nil {
 			break
 		}
 		total += fileLines(filepath.Join(cwd, rel))

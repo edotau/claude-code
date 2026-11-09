@@ -1,6 +1,8 @@
 package tree
 
 import (
+	"errors"
+	"io"
 	"math"
 	"path/filepath"
 	"strings"
@@ -51,6 +53,50 @@ func TestRenderTextLineWidth(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "/Users/fake/demo-repo") {
 		t.Error("expected the repo's cwd to head its group")
+	}
+}
+
+type renderTestWriter func([]byte) (int, error)
+
+func (w renderTestWriter) Write(p []byte) (int, error) { return w(p) }
+
+func TestRenderWriteErrors(t *testing.T) {
+	want := errors.New("output device full")
+	renders := []struct {
+		name string
+		run  func(io.Writer) error
+	}{
+		{"text", func(w io.Writer) error {
+			tr := &agenttree.Tree{Sessions: []agenttree.Session{{Cwd: "/repo"}}}
+			return RenderText(w, tr, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
+		}},
+		{"snapshot", func(w io.Writer) error {
+			return RenderSnapshot(w, agenttree.Snapshot{ID: "agent", Workflow: "workflow"})
+		}},
+	}
+	failures := []struct {
+		name       string
+		successful int
+	}{{"first-write", 0}, {"partial-output", 1}}
+	for _, render := range renders {
+		for _, failure := range failures {
+			t.Run(render.name+"/"+failure.name, func(t *testing.T) {
+				calls := 0
+				w := renderTestWriter(func(p []byte) (int, error) {
+					calls++
+					if calls <= failure.successful {
+						return len(p), nil
+					}
+					return len(p) / 2, want
+				})
+				if err := render.run(w); !errors.Is(err, want) {
+					t.Fatalf("render error = %v, want %v", err, want)
+				}
+				if calls != failure.successful+1 {
+					t.Errorf("write calls = %d, want %d; writes must stop after failure", calls, failure.successful+1)
+				}
+			})
+		}
 	}
 }
 

@@ -72,7 +72,7 @@ func ToANSI256(rgb RGB) int {
 		if r > 248 {
 			return 231
 		}
-		return int(math.Round(float64(r-8)/247*24)) + 232
+		return 232 + min(int(math.Round(float64(r-8)/10)), 23) // xterm grays are 8+10*i, i in 0..23
 	}
 	q := func(v int) int {
 		switch {

@@ -352,7 +352,12 @@ func codexLogin(d *dialog, ensureKey func() bool) bool {
 
 // codexUseKey points codex's own auth at the stored OPENAI_API_KEY.
 func codexUseKey(d *dialog) bool {
-	key, _, ok := vault.Get("OPENAI_API_KEY")
+	key, ok := "", false
+	if staged, isStaged := d.pending["OPENAI_API_KEY"]; isStaged { // pasted on this page, not yet in the vault
+		key, ok = staged.val, true
+	} else {
+		key, _, ok = vault.Get("OPENAI_API_KEY")
+	}
 	if !ok || key == "" {
 		d.printf("codex: OPENAI_API_KEY not found in the vault\n")
 		return false

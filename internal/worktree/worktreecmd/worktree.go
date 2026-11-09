@@ -124,7 +124,7 @@ func cmdWorktreeGate(args []string) int {
 	fs := helptext.NewFlagSet("worktree gate", helptext.Page{Usage: "claude-code worktree gate [flags]"})
 	dir := fs.String("dir", ".", "repo directory to read the toolchain from")
 	scope := fs.String("scope", "", "comma-separated dirs to limit the gate to (default: whole repo)")
-	lintCheck := fs.Bool("lint-check", false, "prefix `make lint CHECK=1` when the Makefile lint target supports it")
+	lintCheck := fs.Bool("lint-check", false, "prefix make lint CHECK=1 when the Makefile lint target supports it")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code

@@ -34,6 +34,12 @@ var (
 func registerMCPMode(t *testing.T, mode string) (string, error) {
 	t.Helper()
 	_, log, _ := configureCommandEnv(t, mode)
+	if strings.HasPrefix(mode, "exists") {
+		doc := `{"mcpServers":{"web_search":{"command":"old-search","args":[]}}}`
+		if err := os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".claude.json"), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return log, configure.RegisterClaudeMCPContext(context.Background(), mcpBin)
 }
 

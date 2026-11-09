@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -102,7 +103,11 @@ func panelLines(title string, s pickState, cols int) int {
 		lines += wrappedLines(len([]rune(title)), cols) + 1
 	}
 	for i, row := range s.rows {
-		lines += wrappedLines(2+len([]rune(row)), cols)
+		n := len([]rune(row))
+		if !s.heads[i] {
+			n += 2 // the marker/space prefix; section titles are drawn bare
+		}
+		lines += wrappedLines(n, cols)
 		if s.heads[i] && (i > 0 || title == "") {
 			lines++ // the blank line above a section title (the page title's own blank covers the first)
 		}
@@ -154,15 +159,15 @@ func Pick(title string, rows [][2]string, start int) (int, error) {
 }
 
 // pickHeads runs the picker over rows from lay(cols), re-laid per frame; the cursor skips section-title rows (heads).
-func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, start int) (int, error) {
+func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, start int) (idx int, err error) {
 	t, err := Open()
 	if err != nil {
 		return -1, err
 	}
-	defer t.Close()
+	defer func() { err = errors.Join(err, t.Close()) }()
 	s := pickState{rows: lay(0), heads: heads}
-	if start >= 0 && start < len(s.rows) {
-		s.sel = start
+	if n := len(s.rows); n > 0 {
+		s.sel = min(max(start, 0), n-1) // a start outside the rows clamps to the nearest row
 	}
 	if s.heads[s.sel] {
 		s = s.step(1)
@@ -192,13 +197,13 @@ func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, st
 		}
 		draw()
 	}
-	return -1, nil
+	return -1, t.Err()
 }
 
 // fit windows s's rows around the cursor so the panel fits h-1 terminal lines; a panel taller than the screen
 // scrolls its top out of reach of the cursor-up rewind, and every redraw then leaves a stale copy above.
 func fit(title string, s pickState, cols, h int) pickState {
-	if panelLines(title, s, cols) < h {
+	if len(s.rows) == 0 || panelLines(title, s, cols) < h {
 		return s
 	}
 	win := func(lo, hi int) pickState {

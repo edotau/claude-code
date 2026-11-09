@@ -58,7 +58,11 @@ const webSearchKey = "TAVILY_API_KEY"
 
 func webSearchRow() homeRow {
 	state := "no key"
-	if src, _ := vault.HasSecretErr(webSearchKey); src != "" { // presence only: no decrypt per render
+	src, err := vault.HasSecretErr(webSearchKey) // presence only: no decrypt per render
+	switch {
+	case err != nil:
+		state = "status unknown"
+	case src != "":
 		state = "key set"
 	}
 	var wired []string
@@ -269,10 +273,11 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 }
 
 // rerenderConfigs re-renders the agent configs on d; settings.json is the owner's and is never written here.
-func rerenderConfigs(d *dialog) {
+func rerenderConfigs(d *dialog) error {
 	if err := configure.RenderAgentConfigs(d.out); err != nil {
-		d.printf("agent configs: %v\n", err)
+		return fmt.Errorf("agent configs: %w", err)
 	}
+	return nil
 }
 
 // cgnatRemote is the 100.64.0.0/10 block tailscale assigns IPv4 node addresses from.
@@ -296,16 +301,13 @@ func runRemote(d *dialog) bool {
 	default:
 		d.printf("admin api   credential absent → claude-code vault set TAILSCALE_OAUTH_CLIENT_ID|_SECRET\n")
 	}
-	machines, _ := tailscale.Machines(ctx)
-	var online []string
-	for _, m := range machines {
-		if m.Online && m.Name != "" {
-			online = append(online, m.Name)
-		}
-	}
-	if len(online) > 0 {
+	machines, err := tailscale.Machines(ctx)
+	switch online := onlineNames(machines); {
+	case err != nil:
+		d.printf("dispatch    could not list tailnet machines: %v\n", err)
+	case len(online) > 0:
 		d.printf("dispatch    %s\n", strings.Join(online, ", "))
-	} else {
+	default:
 		d.printf("dispatch    no online tailnet machines found\n")
 	}
 	if ip := tailnetIPv4(st); ip != "" {
@@ -314,6 +316,17 @@ func runRemote(d *dialog) bool {
 		d.printf("web         no tailnet IPv4 address; claude-code network page binds loopback only\n")
 	}
 	return true
+}
+
+// onlineNames is the names of the online machines, in list order.
+func onlineNames(machines []tailscale.Machine) []string {
+	var online []string
+	for _, m := range machines {
+		if m.Online && m.Name != "" {
+			online = append(online, m.Name)
+		}
+	}
+	return online
 }
 
 // tailnetIPv4 picks this node's tailnet (100.64.0.0/10) IPv4 address out of st.IPs, if any.

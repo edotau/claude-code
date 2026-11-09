@@ -179,7 +179,11 @@ func editRoutingChoice(d *dialog, f settings.RoutingField, values []string) (str
 
 // editRoutingText is the number/text/list prompt; an empty line resets to the default.
 func editRoutingText(d *dialog, f settings.RoutingField) (string, bool) {
-	input := strings.TrimSpace(d.shell().Line(f.Key + " (empty resets to default): "))
+	raw, ok := readAnswer(d, f.Key+" (empty resets to default): ")
+	if !ok {
+		return "", false // input ended: a cancel, never an accidental reset
+	}
+	input := strings.TrimSpace(raw)
 	if input == "" {
 		return "", true
 	}

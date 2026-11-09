@@ -23,12 +23,19 @@ func waitReadable(fd int, d time.Duration) bool {
 	if fd < 0 || fd >= fdSetSize {
 		return true
 	}
-	var set syscall.FdSet
-	nbits := fdSetSize / len(set.Bits)
-	set.Bits[fd/nbits] |= 1 << uint(fd%nbits)
-	tv := syscall.NsecToTimeval(int64(d))
-	if err := sysSelect(fd+1, &set, &tv); err != nil {
-		return err != syscall.EINTR // EINTR (Go's preemption signal) is just a short poll — go round again
+	deadline := time.Now().Add(d)
+	for {
+		var set syscall.FdSet
+		nbits := fdSetSize / len(set.Bits)
+		set.Bits[fd/nbits] |= 1 << uint(fd%nbits)
+		tv := syscall.NsecToTimeval(max(int64(time.Until(deadline)), 0)) // EINTR retries wait only the remainder
+		err := sysSelect(fd+1, &set, &tv)
+		if err == syscall.EINTR {
+			continue // a signal interrupted the wait, not the timeout: select again with a fresh set
+		}
+		if err != nil {
+			return true
+		}
+		return set.Bits[fd/nbits]&(1<<uint(fd%nbits)) != 0
 	}
-	return set.Bits[fd/nbits]&(1<<uint(fd%nbits)) != 0
 }

@@ -194,14 +194,15 @@ func saveSeed(d *dialog, choice map[string]string) bool {
 			m[a] = r
 		}
 	})
-	if err == nil {
-		err = providers.ClearLastProfilesFor(agents...)
-	}
 	if err != nil {
 		d.printf("seed: %v\n", err)
 		return false
 	}
-	d.changed = true
+	d.changed = true // the profiles are persisted: configs must re-render even if the cache cleanup below fails
+	if err := providers.ClearLastProfilesFor(agents...); err != nil {
+		d.printf("seed: %v\n", err)
+		return false
+	}
 	d.println("agent profiles saved")
 	return true
 }
