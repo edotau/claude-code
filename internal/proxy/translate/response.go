@@ -34,7 +34,10 @@ func FromChatResponse(body []byte, clientModel string) ([]byte, error) {
 	}
 	c := in.Choices[0]
 	content := []map[string]any{}
-	text := contentText(c.Message.Content)
+	text, err := contentText(c.Message.Content)
+	if err != nil {
+		return nil, err
+	}
 	if text == "" {
 		text = c.Message.Refusal
 	}
@@ -73,18 +76,21 @@ func toolInput(args string) json.RawMessage {
 	return raw
 }
 
-// contentText reads message content as a string or an array of text parts.
-func contentText(raw json.RawMessage) string {
+// contentText reads message content as a string or an array of text parts; an absent field is "".
+func contentText(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return s
+		return s, nil
 	}
 	var parts []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(raw, &parts) != nil {
-		return ""
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return "", fmt.Errorf("translate: message content: %w", err)
 	}
 	var b strings.Builder
 	for _, p := range parts {
@@ -92,5 +98,5 @@ func contentText(raw json.RawMessage) string {
 			b.WriteString(p.Text)
 		}
 	}
-	return b.String()
+	return b.String(), nil
 }

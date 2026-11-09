@@ -388,17 +388,37 @@ func Doctor(w io.Writer, o Options) int {
 	if len(defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {
 		rep.Health.Error = "no server status lines recognised in `claude mcp list` output"
 	}
+	ew := &errWriter{w: w}
 	if o.JSON {
 		b, err := json.MarshalIndent(rep, "", "  ")
 		if err != nil {
-			fmt.Fprintln(w, "{}")
+			fmt.Fprintln(ew, "{}")
 			return 1
 		}
-		fmt.Fprintln(w, string(b))
-		return rep.ExitCode()
+		fmt.Fprintln(ew, string(b))
+	} else {
+		printReport(ew, rep)
 	}
-	printReport(w, rep)
+	if ew.err != nil {
+		fmt.Fprintln(os.Stderr, "network mcp: could not write report:", ew.err)
+		return 1
+	}
 	return rep.ExitCode()
+}
+
+// errWriter keeps the first write error, so a truncated report is detected once Doctor finishes.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (e *errWriter) Write(p []byte) (int, error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+	n, err := e.w.Write(p)
+	e.err = err
+	return n, err
 }
 
 // printReport renders rep as the human-readable, section-per-check report.

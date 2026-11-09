@@ -242,6 +242,10 @@ func (r *Router) health(w http.ResponseWriter) {
 }
 
 func exhausted(w http.ResponseWriter, ladder []providers.Target, lastErr error) (string, string, int) {
+	if len(ladder) == 0 { // confineLadder can empty the ladder when no fallback is in the session's profile
+		writeError(w, http.StatusForbidden, "proxy: no provider in this session's scope is usable")
+		return "", "", 0
+	}
 	t := ladder[len(ladder)-1]
 	writeSendError(w, t.Provider, lastErr)
 	return t.Provider.Name, t.Model, len(ladder)

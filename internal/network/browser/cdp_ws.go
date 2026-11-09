@@ -15,7 +15,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 )
 
@@ -38,9 +37,9 @@ var wsHandshakeTimeout = 10 * time.Second
 
 // wsConn is a client websocket: masked frames out, unmasked frames in.
 type wsConn struct {
-	c   net.Conn
-	br  *bufio.Reader
-	wmu sync.Mutex
+	c    net.Conn
+	br   *bufio.Reader
+	wsem chan struct{} // one-slot write lock; a waiter gives up when its context ends
 }
 
 // wsDial performs the client handshake against a ws:// URL and verifies Sec-WebSocket-Accept.
@@ -82,11 +81,14 @@ func wsDial(ctx context.Context, raw string) (*wsConn, error) {
 		return nil, fmt.Errorf("cdp: websocket handshake refused (%s)", resp.Status)
 	}
 	_ = c.SetDeadline(time.Time{})
-	return &wsConn{c: c, br: br}, nil
+	return &wsConn{c: c, br: br, wsem: make(chan struct{}, 1)}, nil
 }
 
-// writeFrame sends one masked, final frame.
-func (w *wsConn) writeFrame(op byte, p []byte) error {
+// writeFrame sends one masked, final frame; a ctx that ends first means the frame is not sent.
+func (w *wsConn) writeFrame(ctx context.Context, op byte, p []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	hdr := []byte{headerFlag | op}
 	switch n := len(p); {
 	case n < 126:
@@ -104,9 +106,17 @@ func (w *wsConn) writeFrame(op byte, p []byte) error {
 	for i, b := range p {
 		body[i] = b ^ mask[i%4]
 	}
-	w.wmu.Lock()
-	defer w.wmu.Unlock()
-	_ = w.c.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+	select {
+	case w.wsem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-w.wsem }()
+	deadline := time.Now().Add(wsWriteTimeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	_ = w.c.SetWriteDeadline(deadline)
 	_, err := w.c.Write(append(append(hdr, mask...), body...))
 	return err
 }
@@ -154,10 +164,10 @@ func (w *wsConn) readMessage() ([]byte, error) {
 		}
 		switch op {
 		case opPing:
-			_ = w.writeFrame(opPong, p)
+			_ = w.writeFrame(context.Background(), opPong, p)
 		case opPong:
 		case opClose:
-			_ = w.writeFrame(opClose, p)
+			_ = w.writeFrame(context.Background(), opClose, p)
 			return nil, io.EOF
 		case opText, opCont:
 			if msg = append(msg, p...); len(msg) > maxFrame {
@@ -171,6 +181,6 @@ func (w *wsConn) readMessage() ([]byte, error) {
 }
 
 func (w *wsConn) close() error {
-	_ = w.writeFrame(opClose, nil)
+	_ = w.writeFrame(context.Background(), opClose, nil)
 	return w.c.Close()
 }

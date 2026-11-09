@@ -2,6 +2,7 @@ package vscode
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -38,9 +39,15 @@ func LinkExtension(claudeHome, extensionsDir string, check bool) (ExtensionResul
 	source := filepath.Join(claudeHome, "vscode", "claude-code-agents")
 	target := filepath.Join(extensionsDir, extensionDirName)
 
+	// A link to a deleted source is not in sync: VS Code cannot load the extension through it.
+	if _, err := os.Stat(source); err != nil {
+		return ExtensionResult{}, fmt.Errorf("extension source: %w", err)
+	}
 	if current, err := os.Readlink(target); err == nil && current == source {
 		if !check {
-			bumpManifestScan(source)
+			if err := bumpManifestScan(source); err != nil {
+				return ExtensionResult{}, err
+			}
 		}
 		return ExtensionResult{Changed: false, Target: target}, nil
 	}
@@ -58,7 +65,9 @@ func LinkExtension(claudeHome, extensionsDir string, check bool) (ExtensionResul
 	if err := symlinkOrSame(source, target); err != nil {
 		return ExtensionResult{}, err
 	}
-	bumpManifestScan(source)
+	if err := bumpManifestScan(source); err != nil {
+		return ExtensionResult{}, err
+	}
 	return ExtensionResult{Changed: true, Target: target}, nil
 }
 
@@ -75,7 +84,7 @@ func symlinkOrSame(src, dst string) error {
 
 // bumpManifestScan touches the extension dir: VS Code caches scanned manifests by the directory's mtime, which an
 // in-place package.json edit through the symlink never changes, so titles and commands would stay stale.
-func bumpManifestScan(dir string) {
+func bumpManifestScan(dir string) error {
 	now := time.Now()
-	_ = os.Chtimes(dir, now, now)
+	return os.Chtimes(dir, now, now)
 }

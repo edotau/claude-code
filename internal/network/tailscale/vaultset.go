@@ -1,6 +1,7 @@
 package tailscale
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -33,4 +34,39 @@ func StoreCred(c Cred, dryRun bool) (verb string, err error) {
 		return "add", nil
 	}
 	return "", vault.Store(c.Name, c.Value)
+}
+
+// priorCred is a vault value a StoreCreds write is about to overwrite, kept so it can be restored.
+type priorCred struct {
+	name, value string
+	had         bool
+}
+
+// StoreCreds writes every pair or none: a failed write restores the earlier pairs' previous values.
+func StoreCreds(creds []Cred) error {
+	var done []priorCred
+	for _, c := range creds {
+		old, had, err := vault.ReadSecret(c.Name)
+		if err != nil {
+			return errors.Join(fmt.Errorf("read %s: %w", c.Name, err), restoreCreds(done))
+		}
+		if err := vault.Store(c.Name, c.Value); err != nil {
+			return errors.Join(err, restoreCreds(done))
+		}
+		done = append(done, priorCred{name: c.Name, value: old, had: had})
+	}
+	return nil
+}
+
+// restoreCreds puts each prior value back, newest first; a name that was absent is deleted again.
+func restoreCreds(done []priorCred) error {
+	var errs []error
+	for _, p := range slices.Backward(done) {
+		if p.had {
+			errs = append(errs, vault.Store(p.name, p.value))
+		} else {
+			errs = append(errs, vault.Delete(p.name))
+		}
+	}
+	return errors.Join(errs...)
 }

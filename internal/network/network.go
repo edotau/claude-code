@@ -72,7 +72,7 @@ func Run(args []string, verbs func() any) int {
 func cmdNetworkMCP(args []string) int {
 	fs := helptext.NewFlagSet("network mcp", helptext.Page{Usage: "claude-code network mcp [flags]",
 		About: "Live health of every MCP server, plus cross-scope drift and inline plaintext secrets.\n" +
-			"Read-only; exits 1 on any failed server or secret."})
+			"Read-only; exits 1 on any failed server, health error, secret or unscanned config."})
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code

@@ -327,7 +327,10 @@ function renderSnapshot(snap) {
   return html;
 }
 
+let detailSeq = 0; // bumped on every open or close so a late /api/view result cannot paint a stale panel
+
 function closeDetail() {
+  detailSeq++;
   if (window._detailAbort) window._detailAbort.abort();
   document.getElementById('detailSection').style.display = 'none';
   document.getElementById('detail').innerHTML = '';
@@ -336,6 +339,7 @@ function closeDetail() {
 // followDetail streams /api/view?follow=1's text/plain lines into #detailEvents as they arrive,
 // aborted by closeDetail or by opening a different agent.
 function followDetail(sessionId, agentId) {
+  if (window._detailAbort) window._detailAbort.abort();
   const controller = new AbortController();
   window._detailAbort = controller;
   fetch('/api/view?session=' + encodeURIComponent(sessionId) + '&agent=' + encodeURIComponent(agentId) + '&follow=1', { signal: controller.signal })
@@ -361,16 +365,21 @@ function followDetail(sessionId, agentId) {
 
 function openDetail(sessionId, agentId) {
   if (window._detailAbort) window._detailAbort.abort();
+  const seq = ++detailSeq;
   const section = document.getElementById('detailSection');
   const el = document.getElementById('detail');
   section.style.display = '';
   el.innerHTML = '<p class="muted">loading…</p>';
   getJSON('/api/view?session=' + encodeURIComponent(sessionId) + '&agent=' + encodeURIComponent(agentId))
     .then(function (snap) {
+      if (seq !== detailSeq) return;
       el.innerHTML = renderSnapshot(snap);
       if (snap.status === 'running') followDetail(sessionId, agentId);
     })
-    .catch(function (err) { el.innerHTML = '<p class="muted">' + escapeHTML(String(err.message || err)) + '</p>'; });
+    .catch(function (err) {
+      if (seq !== detailSeq) return;
+      el.innerHTML = '<p class="muted">' + escapeHTML(String(err.message || err)) + '</p>';
+    });
 }
 
 function renderBrowsers(rep) {
@@ -645,7 +654,7 @@ function postTick(path, t, done, cb) {
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
     body: JSON.stringify({ path: path, line: t.line, title: t.title, done: done }),
   }).then(function (r) {
-    if (r.ok) return showPlan(path);
+    if (r.ok) return openPlan === path ? showPlan(path) : null; // reopen only a plan still on screen
     return r.text().then(function (m) { throw new Error(m.trim() || 'HTTP ' + r.status); });
   }).catch(function (err) {
     cb.checked = !done;
@@ -707,6 +716,7 @@ function showPlan(path) {
   return getJSON('/api/plan?path=' + encodeURIComponent(path))
     .then(function (d) { if (openPlan === path) renderPlanDetail(d); })
     .catch(function (err) {
+      if (openPlan !== path) return; // a stale failure must not write into a newer plan's panel
       planX.textContent = '';
       planX.appendChild(el('p', 'muted', String(err.message || err)));
     });
@@ -751,6 +761,9 @@ function loadUsageModules() {
       return cache[i].exports;
     }
     return { model: req('usage-model'), view: req('usage-view') };
+  }).catch(function (err) {
+    usageState.mods = null; // a failed load is retried on the next call, not cached
+    throw err;
   });
   return usageState.mods;
 }

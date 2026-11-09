@@ -160,9 +160,16 @@ func negotiateProtocolVersion(params json.RawMessage) string {
 	return defaultProtocolVersion
 }
 
-// handle dispatches one request. Returns nil for notifications (no response per JSON-RPC spec).
+// handle dispatches one request. A notification (no id) gets no reply, whatever its method.
 func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
-	isNotification := len(req.ID) == 0
+	resp := s.dispatch(ctx, req)
+	if len(req.ID) == 0 {
+		return nil
+	}
+	return resp
+}
+
+func (s *Server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
 	switch req.Method {
 	case "initialize":
 		return result(req.ID, map[string]any{
@@ -170,19 +177,13 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
 		})
-	case "notifications/initialized":
-		return nil
 	case "ping":
-		if isNotification {
-			return nil
-		}
 		return result(req.ID, map[string]any{})
 	case "tools/list":
 		return result(req.ID, map[string]any{"tools": []map[string]any{toolDescriptor(), extractDescriptor()}})
 	case "tools/call":
 		return s.handleToolsCall(ctx, req)
-	}
-	if isNotification {
+	case "notifications/initialized":
 		return nil
 	}
 	return rpcError(req.ID, -32601, fmt.Sprintf("Method not found: %q", req.Method))
@@ -197,7 +198,9 @@ func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 			URLs       []string `json:"urls"`
 		} `json:"arguments"`
 	}
-	_ = json.Unmarshal(req.Params, &p)
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		return result(req.ID, toolError(fmt.Sprintf("invalid tool arguments: %v", err)))
+	}
 	if p.Name == extractToolName {
 		return result(req.ID, extractToolResult(ctx, p.Arguments.URLs))
 	}
@@ -304,7 +307,10 @@ func OneShot(ctx context.Context, query string, maxResults int, search Searcher,
 		fmt.Fprintln(os.Stderr, err.Error())
 		return 1
 	}
-	fmt.Fprintln(out, text)
+	if _, err := fmt.Fprintln(out, text); err != nil {
+		fmt.Fprintln(os.Stderr, "web search: could not write result:", err)
+		return 1
+	}
 	return 0
 }
 
@@ -540,7 +546,10 @@ func Extract(ctx context.Context, urls []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fmt.Print(text)
+	if _, err := fmt.Print(text); err != nil {
+		fmt.Fprintln(os.Stderr, "web extract: could not write result:", err)
+		return 1
+	}
 	if ok == 0 {
 		return 1
 	}

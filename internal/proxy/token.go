@@ -31,8 +31,9 @@ func Token(ctx context.Context, profile string) (string, error) {
 func Restart(ctx context.Context) int {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	stoppedCode := 0
 	if st, err := Stop(ctx); err == nil {
-		fmt.Printf("proxy: stopped pid %d\n", st.PID)
+		stoppedCode = sayCode("proxy: stopped pid %d\n", st.PID)
 	} else if !errors.Is(err, ErrNotRunning) {
 		return helptext.Fail("proxy: %v", err)
 	}
@@ -40,7 +41,17 @@ func Restart(ctx context.Context) int {
 	if err != nil {
 		return helptext.Fail("proxy: %v", err)
 	}
-	fmt.Println(base)
+	if code := sayCode("%s\n", base); code != 0 {
+		return code
+	}
+	return stoppedCode
+}
+
+// sayCode prints one stdout line; a failed write is an error exit, never a silent 0.
+func sayCode(format string, a ...any) int {
+	if _, err := fmt.Printf(format, a...); err != nil {
+		return helptext.Fail("proxy: write output: %v", err)
+	}
 	return 0
 }
 
@@ -51,12 +62,10 @@ func StopWithHold(ctx context.Context) int {
 	}
 	st, err := Stop(ctx)
 	if errors.Is(err, ErrNotRunning) {
-		fmt.Println("proxy: not running")
-		return 0
+		return sayCode("proxy: not running\n")
 	}
 	if err != nil {
 		return helptext.Fail("proxy: %v", err)
 	}
-	fmt.Printf("proxy: stopped pid %d\n", st.PID)
-	return 0
+	return sayCode("proxy: stopped pid %d\n", st.PID)
 }

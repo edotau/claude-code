@@ -149,7 +149,9 @@ func Status(ctx context.Context) (Local, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
 	defer cancel()
-	out, err := outputCapped(execCommandContext(ctx, bin, "status", "--json"))
+	cmd := execCommandContext(ctx, bin, "status", "--json")
+	cmd.WaitDelay = execWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
+	out, err := outputCapped(cmd)
 	if err != nil {
 		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
 	}
@@ -276,7 +278,8 @@ func Machines(ctx context.Context) ([]Machine, error) {
 	byAddr := peersByAddr(st)
 	out := make([]Machine, 0, len(devices))
 	for _, d := range devices {
-		m := Machine{Name: d.Name, Addresses: d.Addresses, OS: d.OS, LastSeen: d.LastSeen, Tags: d.Tags, Source: "api"}
+		m := Machine{Name: d.Name, Addresses: d.Addresses, OS: d.OS, LastSeen: d.LastSeen, Tags: d.Tags, Source: "api",
+			ExitNodeApproved: hasDefaultRoutes(d.EnabledRoutes)}
 		for _, a := range d.Addresses {
 			if p, ok := byAddr[a]; ok {
 				m.Online, m.ExitNodeAdvertised = p.Online, p.ExitNodeOption || p.ExitNode

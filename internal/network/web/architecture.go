@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -132,23 +134,31 @@ func (s *Server) buildArchitecture() ([]byte, error) {
 		out.Verbs = s.opts.Verbs()
 	}
 	if err := scanArchitecture(s.opts.ClaudeDir, &out.Scan); err != nil {
+		if !errors.Is(err, errNoSourceTree) {
+			return nil, err // a partial scan must not be cached as a success
+		}
 		s.logger.Printf("architecture: scan: %v", err)
 		out.Scan.Error = "source tree not found"
 	}
 	return json.Marshal(out)
 }
 
-// scanArchitecture fills sc from the repo at root; an error means there is no internal/ tree to scan.
+var errNoSourceTree = errors.New("source tree not found")
+
+// scanArchitecture fills sc from the repo at root; errNoSourceTree means there is no internal/ tree to scan.
 func scanArchitecture(root string, sc *archScan) error {
-	if st, err := os.Stat(filepath.Join(root, "internal")); err != nil || !st.IsDir() {
-		if err == nil {
-			err = fs.ErrNotExist
-		}
-		return err
+	st, err := os.Stat(filepath.Join(root, "internal"))
+	if err != nil {
+		return fmt.Errorf("%w: %w", errNoSourceTree, err)
+	}
+	if !st.IsDir() {
+		return errNoSourceTree
 	}
 	mod := modulePath(root)
 	for _, r := range archGoRoots {
-		walkGoDirs(root, r, mod, sc)
+		if err := walkGoDirs(root, r, mod, sc); err != nil {
+			return err
+		}
 	}
 	linkArchitecture(sc.Dirs)
 	listArchFiles(root, sc)
@@ -180,8 +190,9 @@ func modulePath(root string) string {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(sc.Text()), "module "); ok {
-			return strings.Trim(strings.TrimSpace(rest), `"`)
+		line, _, _ := strings.Cut(sc.Text(), "//") // drop a trailing comment
+		if fields := strings.Fields(line); len(fields) >= 2 && fields[0] == "module" {
+			return strings.Trim(fields[1], `"`)
 		}
 	}
 	return ""
@@ -191,20 +202,26 @@ func skipArchName(n string) bool {
 	return n == "testdata" || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_")
 }
 
-// walkGoDirs emits each directory under rel (and rel itself) that holds Go files.
-func walkGoDirs(root, rel, mod string, sc *archScan) {
+// walkGoDirs emits each directory under rel (and rel itself) that holds Go files; a missing dir is skipped.
+func walkGoDirs(root, rel, mod string, sc *archScan) error {
 	entries, err := os.ReadDir(filepath.Join(root, rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return
+		return fmt.Errorf("read %s: %w", rel, err)
 	}
 	if hasGoFile(entries) {
 		sc.Dirs = append(sc.Dirs, scanGoDir(root, rel, mod, entries, sc))
 	}
 	for _, e := range entries {
 		if e.IsDir() && !skipArchName(e.Name()) {
-			walkGoDirs(root, path.Join(rel, e.Name()), mod, sc)
+			if err := walkGoDirs(root, path.Join(rel, e.Name()), mod, sc); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func hasGoFile(entries []os.DirEntry) bool {

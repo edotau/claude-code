@@ -205,11 +205,46 @@ func (r *Router) sendRequest(in *http.Request, method string, p *providers.Provi
 		}
 		providers.SetCredential(p, req.Header, credential)
 	}
-	resp, err := r.client.Do(req)
+	resp, err := r.doBounded(req)
 	if err != nil {
-		return resp, &fallbackError{error: err}
+		return nil, &fallbackError{error: err}
 	}
 	return resp, nil
+}
+
+// uploadTimeout bounds request write plus wait for response headers; a var so tests need not wait minutes.
+var uploadTimeout = 5 * time.Minute
+
+// doBounded sends req and cancels it if headers, upload included, take longer than uploadTimeout.
+func (r *Router) doBounded(req *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithCancel(req.Context())
+	timer := time.AfterFunc(uploadTimeout, cancel)
+	resp, err := r.client.Do(req.WithContext(ctx))
+	timedOut := !timer.Stop()
+	if timedOut {
+		cancel()
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, fmt.Errorf("upstream sent no response within %s", uploadTimeout)
+	}
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	resp.Body = cancelOnClose{resp.Body, cancel} // the body streams past the deadline, so cancel only on Close
+	return resp, nil
+}
+
+// cancelOnClose releases the request context once the response body is closed.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c cancelOnClose) Close() error {
+	defer c.cancel()
+	return c.ReadCloser.Close()
 }
 
 // guardedClient rejects hostnames resolving locally; configured literal IPs and localhost remain allowed.
@@ -240,7 +275,7 @@ func guardedDial(ctx context.Context, network, addr string) (net.Conn, error) {
 // proxyHosts holds the hostnames of HTTP(S)_PROXY as seen by http.ProxyFromEnvironment, resolved once at init.
 var proxyHosts = resolveProxyHosts()
 
-// resolveProxyHosts runs in a fresh subprocess per case because net/http caches proxy environment values.
+// resolveProxyHosts reads the proxy env once; net/http caches those values, so later env changes are ignored.
 func resolveProxyHosts() map[string]bool {
 	hosts := map[string]bool{}
 	for _, scheme := range []string{"http", "https"} {

@@ -233,7 +233,7 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 		return helptext.Fail("network tailscale connect: reading --auth-key from stdin: %v", err)
 	}
 	if key == "" {
-		return tailscaleConnectKeyless(ctx)
+		return tailscaleConnectKeyless(ctx, o.advertise)
 	}
 	if err := tailscale.Connect(ctx, key, o.advertise); err != nil {
 		return helptext.Fail("network tailscale connect: %v", err)
@@ -253,14 +253,23 @@ func auditConnect(ctx context.Context) {
 	audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
 }
 
-// tailscaleConnectKeyless succeeds only when the node is already connected; otherwise it asks for a key.
-func tailscaleConnectKeyless(ctx context.Context) int {
-	if st, ok := tailscale.Connected(ctx); ok {
-		fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
+// tailscaleConnectKeyless succeeds only when the node is already connected; advertise then applies via `tailscale set`.
+func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
+	st, ok := tailscale.Connected(ctx)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `network tailscale --key --save`")
+		return 2
+	}
+	fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
+	if !advertise {
 		return 0
 	}
-	fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `network tailscale --key --save`")
-	return 2
+	if err := tailscale.AdvertiseExitNode(ctx, true); err != nil {
+		return helptext.Fail("network tailscale connect: --advertise-exit: %v", err)
+	}
+	audit.Log(audit.TailscaleExitNode, st.DNSName, "enable")
+	fmt.Println("tailscale: advertising as an exit node")
+	return 0
 }
 
 func tailscaleKey(ctx context.Context, o tsOpts) int {
@@ -273,7 +282,10 @@ func tailscaleKey(ctx context.Context, o tsOpts) int {
 		return helptext.Fail("network tailscale key: %v", err)
 	}
 	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(tagList, ","))
-	fmt.Println(key.Key) // the only thing on stdout, so it can be piped
+	// the only thing on stdout, so it can be piped; a failed write means the key was not delivered
+	if _, err := fmt.Fprintln(os.Stdout, key.Key); err != nil {
+		return helptext.Fail("network tailscale key: writing key to stdout: %v", err)
+	}
 	if o.save {
 		if err := vault.Store("TAILSCALE_AUTHKEY", key.Key); err != nil {
 			fmt.Fprintf(os.Stderr, "tailscale key: --save: %v\n", err)

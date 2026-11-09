@@ -42,20 +42,34 @@ func initSecret() (string, error) {
 		return "", err
 	}
 	if fromFile {
-		if err := os.Remove(secretFile()); err != nil && !os.IsNotExist(err) {
+		if err := removeLegacySecret(); err != nil {
 			return "", err
 		}
 	}
 	return val, nil
 }
 
-// vaultSecret reads the vault record; ok is false when it is absent or empty.
+// removeLegacySecret deletes router.secret; a missing file is not an error.
+func removeLegacySecret() error {
+	if err := os.Remove(secretFile()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("proxy: remove legacy %s: %w", secretFile(), err)
+	}
+	return nil
+}
+
+// vaultSecret reads the vault record; ok is false when absent or empty. A hit also drops router.secret.
 func vaultSecret() (s string, ok bool, err error) {
 	s, found, err := vault.ReadSecret(secretName)
 	if err != nil {
 		return "", false, secretErr(err)
 	}
-	return s, found && s != "", nil
+	if !found || s == "" {
+		return "", false, nil
+	}
+	if err := removeLegacySecret(); err != nil {
+		return "", false, err
+	}
+	return s, true, nil
 }
 
 // legacyOrNewSecret returns the legacy router.secret file's value, or a fresh random one when it is absent or empty.

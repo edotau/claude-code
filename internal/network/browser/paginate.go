@@ -103,7 +103,23 @@ func goNext(ctx context.Context, env Env, c *cdpConn, gate *robotsGate, o Extrac
 	if err := c.Eval(ctx, `document.querySelector(`+jsString(o.Next)+`).click()`, nil); err != nil {
 		return false, err
 	}
-	return waitChange(ctx, env, c, `(`+sigJS(o.Container)+`)`, st.Sig)
+	moved, err := waitChange(ctx, env, c, `(`+sigJS(o.Container)+`)`, st.Sig)
+	if err != nil || !moved {
+		return false, err
+	}
+	if err := checkLanded(ctx, c, gate); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// checkLanded refuses a page a click navigated to when robots.txt disallows it.
+func checkLanded(ctx context.Context, c *cdpConn, gate *robotsGate) error {
+	var href string
+	if err := c.Eval(ctx, `location.href`, &href); err != nil {
+		return err
+	}
+	return gate.check(ctx, href)
 }
 
 // nextProbe is the next control's state: gone|disabled|ok, its same-site href, and the page signature.
@@ -119,10 +135,10 @@ return{state:'ok',href:(e.tagName==='A'&&e.href&&e.href.split('#')[0]!==location
 	return st, c.Eval(ctx, probe, &st)
 }
 
-// sigJS fingerprints the page: URL, container count and the first container's text.
+// sigJS fingerprints the page: URL, container count and every container's text.
 func sigJS(container string) string {
 	q := jsString(container)
-	return `location.href+'|'+document.querySelectorAll(` + q + `).length+'|'+((document.querySelector(` + q + `)||{}).textContent||'').slice(0,200)`
+	return `location.href+'|'+document.querySelectorAll(` + q + `).length+'|'+[...document.querySelectorAll(` + q + `)].map(e=>e.textContent).join('\u0001')`
 }
 
 // waitChange polls until the expression differs from before (true) or 10s pass (false).
@@ -166,19 +182,16 @@ while(!`+count+`&&Date.now()<end)await new Promise(r=>setTimeout(r,200));return 
 	return grab(ctx, c, js)
 }
 
-// nextStalls counts no-growth rounds; a load-more click leaves one round before the loop ends.
+// nextStalls counts consecutive no-growth rounds; each round, click or scroll, counts as one stall.
 func nextStalls(stalls int, step growResult) int {
-	if step.clicked {
-		stalls = 2
-	}
 	if step.grew {
 		return 0
 	}
 	return stalls + 1
 }
 
-// growResult reports one grow round: stop when load-more is gone, grew when the count rose, clicked after a click.
-type growResult struct{ stop, grew, clicked bool }
+// growResult reports one grow round: stop when load-more is gone, grew when the count rose.
+type growResult struct{ stop, grew bool }
 
 // growStep runs one scroll or load-more round and records the new container count in prev.
 func growStep(ctx context.Context, env Env, c *cdpConn, o ExtractOptions, count string, prev *int) (growResult, error) {
@@ -193,7 +206,6 @@ if(!b||b.disabled||b.offsetParent===null)return false;b.click();return true})()`
 			res.stop = true
 			return res, nil
 		}
-		res.clicked = true
 	} else if err := c.Eval(ctx, `window.scrollTo(0,document.body.scrollHeight)`, nil); err != nil {
 		return res, err
 	}

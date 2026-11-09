@@ -213,12 +213,12 @@ func (s *sessionStore) liveLocked(hash string, ses *session, now time.Time, rech
 	return true
 }
 
-// probeUnlocked checks ses's process without mu; false if ses was dropped meanwhile, an exited process expires ses.
+// probeUnlocked probes ses without mu; false if ses was dropped or the probe failed, an exited process expires it.
 func (s *sessionStore) probeUnlocked(hash string, ses *session) bool {
 	s.mu.Unlock()
-	bound := s.stillBound(ses)
+	bound, verified := s.identity(ses)
 	s.mu.Lock()
-	if s.findLocked(hash) != ses {
+	if s.findLocked(hash) != ses || !verified {
 		return false
 	}
 	if !bound {
@@ -297,11 +297,17 @@ func (s *sessionStore) dropLocked(dead map[string]*session) bool {
 }
 
 func (s *sessionStore) stillBound(ses *session) bool {
+	bound, _ := s.identity(ses)
+	return bound
+}
+
+// identity probes ses's pid; verified is false when the probe itself failed, so bound is only a guess then.
+func (s *sessionStore) identity(ses *session) (bound, verified bool) {
 	start, err := s.procStart(ses.pid)
 	if err != nil {
-		return !errors.Is(err, proc.ErrNoProcess) // a failed probe keeps the token
+		return !errors.Is(err, proc.ErrNoProcess), false // a failed probe keeps the token for pruning
 	}
-	return start == ses.start
+	return start == ses.start, true
 }
 
 // profileOfPath returns <name> of /p/<name>/..., "" for any other path.

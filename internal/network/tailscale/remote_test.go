@@ -341,7 +341,7 @@ func TestAttachArgs(t *testing.T) {
 }
 
 func TestListCommand_KnownFormat(t *testing.T) {
-	want := `tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{pane_current_command}|#{@cc_agent}' 2>/dev/null | awk -F'|' '$1 ~ /^cc-/'`
+	want := `out=$(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{pane_current_command}|#{@cc_agent}' 2>&1) || { case $out in *"no server running"*|*"No such file or directory"*) out= ;; *) printf '%s\n' "$out" >&2; exit 1 ;; esac; }; printf '%s\n' "$out" | awk -F'|' '$1 ~ /^cc-/'`
 	if got := ListCommand(); got != want {
 		t.Errorf("ListCommand() = %q, want %q", got, want)
 	}

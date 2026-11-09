@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -248,6 +249,25 @@ func TestRedactScrubsEnvHeadersAndURL(t *testing.T) {
 	}
 	if strings.Contains(safe.URL, "abcdef0123456789") || !strings.Contains(safe.URL, "token=REDACTED") || !strings.Contains(safe.URL, "other=1") {
 		t.Errorf("url after redact = %q", safe.URL)
+	}
+}
+
+func TestDoctorRejectsReportWriteFailure(t *testing.T) {
+	for _, asJSON := range []bool{false, true} {
+		t.Run(fmt.Sprintf("json=%t", asJSON), func(t *testing.T) {
+			dir := t.TempDir()
+			opts := Options{UserPath: filepath.Join(dir, "missing.json"), Home: dir, JSON: asJSON}
+			var out bytes.Buffer
+			if code := Doctor(&out, opts); code != 0 {
+				t.Fatalf("clean scan exit = %d, want 0", code)
+			}
+			if out.Len() == 0 {
+				t.Fatal("clean scan must produce a report")
+			}
+			if code := Doctor(closedTestOutput(t), opts); code == 0 {
+				t.Fatal("report write failure must return a nonzero exit code for a clean scan")
+			}
+		})
 	}
 }
 
