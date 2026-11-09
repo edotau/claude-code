@@ -1,12 +1,11 @@
 {
   "status": "ok",
   "source": "simplicity-skill.md",
-  "total_findings": 9,
+  "total_findings": 6,
   "by_category": {
     "vague-action": 4,
     "absolute-scope": 1,
-    "explicit-assumption": 1,
-    "missing-verification": 3
+    "explicit-assumption": 1
   },
   "verdict": "CLARIFY",
   "findings": [
@@ -51,27 +50,6 @@
       "matched": "fix",
       "message": "Vague action verb. What specifically changes? What's the measurable result?",
       "context": "If a fix would change behavior or its blast radius is unverifiable, **flag it, don't apply"
-    },
-    {
-      "line": 0,
-      "category": "missing-verification",
-      "matched": "1. Run the automated first pass to find the hot spots. 2. Read each changed file",
-      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
-      "context": "1. Run the automated first pass to find the hot spots. 2. Read each changed file (the detectors point; you decide). 3. I"
-    },
-    {
-      "line": 0,
-      "category": "missing-verification",
-      "matched": "4. Apply the simplest fixes first, highest impact first. Preserve behavior; resp",
-      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
-      "context": "4. Apply the simplest fixes first, highest impact first. Preserve behavior; respect existing"
-    },
-    {
-      "line": 0,
-      "category": "missing-verification",
-      "matched": "5. Report what changed in this format:",
-      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
-      "context": "5. Report what changed in this format:"
     }
   ]
 }

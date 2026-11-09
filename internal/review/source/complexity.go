@@ -117,11 +117,16 @@ func deepestIndentUnits(text string) int {
 
 // analyzeFileComplexity ports complexity_checker.analyze_file.
 func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, error) {
+	return analyzeFileComplexityFrom(path, th, os.ReadFile)
+}
+
+// analyzeFileComplexityFrom is analyzeFileComplexity with the file contents supplied by read.
+func analyzeFileComplexityFrom(path string, th ComplexityThresholds, read func(string) ([]byte, error)) (*FileResult, error) {
 	lang := detectComplexityLang(path)
 	if lang == "" {
 		return nil, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := read(path)
 	if err != nil {
 		return nil, err
 	}
@@ -211,12 +216,18 @@ func collectComplexityFiles(target string, extensions []string) []string {
 	}
 	extensionSet := complexityExtensionSet(extensions)
 	var files []string
-	walkSourceFiles(target, func(p string) {
+	unreadable := walkSourceFiles(target, func(p string) {
 		// Keep suffix matching: callers may request multi-part or overlapping extensions.
 		if hasComplexityExtension(p, extensionSet) {
 			files = append(files, p)
 		}
 	})
+	// Unreadable paths below target stay in the list so the analysis reports them; a missing target stays out.
+	for _, p := range unreadable {
+		if p != target && hasComplexityExtension(p, extensionSet) {
+			files = append(files, p)
+		}
+	}
 	return files
 }
 
@@ -312,6 +323,11 @@ func parseComplexityArgs(args []string, stdout, stderr io.Writer) (complexityArg
 
 // RunComplexity is the complexity_checker.py CLI: findings are advisory; JSON output errors exit 1.
 func RunComplexity(args []string, stdout, stderr io.Writer) int {
+	return RunComplexityWith(args, stdout, stderr, os.ReadFile)
+}
+
+// RunComplexityWith is RunComplexity reading each file's contents through read (the review gate passes staged blobs).
+func RunComplexityWith(args []string, stdout, stderr io.Writer, read func(string) ([]byte, error)) int {
 	parsed, code, done := parseComplexityArgs(args, stdout, stderr)
 	if done {
 		return code
@@ -324,7 +340,7 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	}
 
 	sort.Strings(files)
-	results := analyzeComplexityFiles(files, th, stderr)
+	results := analyzeComplexityFiles(files, th, stderr, read)
 	summary := buildComplexitySummary(results, parsed.threshold)
 	if parsed.jsonOut {
 		if err := writeJSON(stdout, summary); err != nil {
@@ -368,10 +384,10 @@ func gatherComplexityFiles(targets, extensions []string) []string {
 	return files
 }
 
-func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer) []FileResult {
+func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer, read func(string) ([]byte, error)) []FileResult {
 	var results []FileResult
 	for _, f := range files {
-		r, err := analyzeFileComplexity(f, th)
+		r, err := analyzeFileComplexityFrom(f, th, read)
 		if err != nil {
 			fmt.Fprintf(stderr, "[warning] could not read %s: %v\n", f, err)
 			continue

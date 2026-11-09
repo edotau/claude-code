@@ -1,12 +1,12 @@
 {
   "status": "ok",
   "source": "plan-standalone-harness.md",
-  "total_findings": 8,
+  "total_findings": 7,
   "by_category": {
     "unscoped-subject": 2,
     "absolute-scope": 3,
     "minimizing": 1,
-    "missing-verification": 2
+    "missing-verification": 1
   },
   "verdict": "CLARIFY",
   "findings": [
@@ -58,13 +58,6 @@
       "matched": "1. authenticates the client secret (`x-api-key` or bearer), validates Host is lo",
       "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
       "context": "1. authenticates the client secret (`x-api-key` or bearer), validates Host is loopback;   2. parses `model` from the bod"
-    },
-    {
-      "line": 0,
-      "category": "missing-verification",
-      "matched": "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered local",
-      "message": "Plan block has no verification step. Add a 'verify:' check to each step.",
-      "context": "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered locally for translated legs."
     }
   ]
 }

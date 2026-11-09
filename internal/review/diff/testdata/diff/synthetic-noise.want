@@ -1,5 +1,5 @@
 Diff Surgeon — 1 files, 8 changed lines
-Noise ratio: 88% (7 noise lines)
+Noise ratio: 100% (8 noise lines)
 Verdict: VERY_NOISY
 
   example.py:

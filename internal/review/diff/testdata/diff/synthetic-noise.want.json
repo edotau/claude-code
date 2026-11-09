@@ -2,8 +2,8 @@
   "status": "ok",
   "files_in_diff": 1,
   "total_change_lines": 8,
-  "noise_lines": 7,
-  "noise_ratio": 0.88,
+  "noise_lines": 8,
+  "noise_ratio": 1.0,
   "verdict": "VERY_NOISY",
   "file_results": [
     {

@@ -408,6 +408,64 @@ func TestShippedWorkflowsAreClean(t *testing.T) {
 	}
 }
 
+func TestAgentPinsIgnoreNonOptionsObjects(t *testing.T) {
+	for _, src := range []string{
+		"agent('p', [{ model: 'gpt-5', effort: 'med' }])",
+		"agent('p', makeOptions({ model: 'gpt-5', effort: 'med' }))",
+	} {
+		t.Run(src, func(t *testing.T) {
+			hits := LintPins("inline", []byte(src))
+			if len(hits) != 2 {
+				t.Fatalf("LintPins = %v, want only missing model and effort (not nested value errors)", hits)
+			}
+			if !strings.Contains(hits[0], "without model:") || !strings.Contains(hits[1], "without effort:") {
+				t.Errorf("LintPins = %v, want missing model then effort", hits)
+			}
+		})
+	}
+}
+
+func TestAgentCallWhitespaceAndIdentifierBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		src      string
+		want     string
+		wantHits int
+	}{
+		{"agent ('p')", "agent ('p', { model: 'sonnet' })", 2},
+		{"agent\t('p')", "agent\t('p', { model: 'sonnet' })", 2},
+		{"agent\n('p')", "agent\n('p', { model: 'sonnet' })", 2},
+		{"$agent('p')", "$agent('p')", 0},
+		{"subagent('p')", "subagent('p')", 0},
+		{"x.agent('p')", "x.agent('p')", 0},
+	} {
+		t.Run(tc.src, func(t *testing.T) {
+			out, ambiguous := FillModel(tc.src, "sonnet")
+			if out != tc.want || len(ambiguous) != 0 {
+				t.Errorf("FillModel = %q, %v; want %q, no ambiguity", out, ambiguous, tc.want)
+			}
+			if hits := LintPins("inline", []byte(tc.src)); len(hits) != tc.wantHits {
+				t.Errorf("LintPins = %v, want %d hits", hits, tc.wantHits)
+			}
+		})
+	}
+}
+
+func TestRegistryHidingSkipsMethodBodies(t *testing.T) {
+	for _, method := range []string{
+		"const obj = { run(x) { if (x) { throw new Error('deferred') } } }",
+		"class Worker { run(x) { if (x) { throw new Error('deferred') } } }",
+	} {
+		t.Run(method, func(t *testing.T) {
+			src := "export const meta = { name: 'x' }\n" + method + "\nif (ready()) { throw new Error('import') }\n"
+			p := writeScript(t, t.TempDir(), "methods.js", src)
+			hits := registryHidingDefects(p)
+			if len(hits) != 1 || !strings.HasPrefix(hits[0], p+":3:") || !strings.Contains(hits[0], "top-level throw") {
+				t.Errorf("registryHidingDefects = %v, want only the line-3 module throw", hits)
+			}
+		})
+	}
+}
+
 func readScript(t *testing.T, p string) string {
 	t.Helper()
 	b, err := os.ReadFile(p)

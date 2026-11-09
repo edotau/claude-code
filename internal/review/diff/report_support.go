@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -168,17 +169,20 @@ func asMap(v any) map[string]any {
 	return nil
 }
 
-// getChangedSourceFiles ports get_changed_source_files: git diff --name-only, filtered to
-// existing files whose extension appears in source.Extensions.
+// getChangedSourceFiles ports get_changed_source_files: changed source paths under repo, warning on git failure.
 func getChangedSourceFiles(repo, base, head string) []string {
 	files, err := changedSourceFiles(repo, base, head)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 	}
+	for i, f := range files {
+		files[i] = filepath.Join(repo, f)
+	}
 	return files
 }
 
-// changedSourceFiles is getChangedSourceFiles returning the git error when both diff forms fail.
+// changedSourceFiles lists the source files added, copied, modified or renamed in base...head, relative to repo.
+// -z keeps non-ASCII and space-containing names unquoted; deleted files are excluded (they have no head content).
 func changedSourceFiles(repo, base, head string) ([]string, error) {
 	exts := map[string]bool{}
 	for _, list := range source.Extensions {
@@ -190,7 +194,7 @@ func changedSourceFiles(repo, base, head string) ([]string, error) {
 	var lastErr error
 	for _, extra := range tryArgs {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		full := append([]string{"diff", "--name-only", "--relative"}, extra...)
+		full := append([]string{"diff", "-z", "--name-only", "--relative", "--diff-filter=ACMR"}, extra...)
 		out, err := proc.RunGitInherit(ctx, repo, full...)
 		cancel()
 		if err != nil {
@@ -198,23 +202,21 @@ func changedSourceFiles(repo, base, head string) ([]string, error) {
 			continue
 		}
 		var files []string
-		for line := range strings.SplitSeq(out, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			ext := extAt(line)
-			if !exts[ext] {
-				continue
-			}
-			full := repo + "/" + line
-			if st, statErr := os.Stat(full); statErr == nil && !st.IsDir() {
-				files = append(files, full)
+		for name := range strings.SplitSeq(out, "\x00") {
+			if name != "" && exts[extAt(name)] {
+				files = append(files, name)
 			}
 		}
 		return files, nil
 	}
 	return nil, fmt.Errorf("git diff %s...%s failed, no files reviewed: %w", base, head, lastErr)
+}
+
+// headContent returns the bytes of the file name (relative to repo) at rev, so a score matches the reviewed commit.
+func headContent(repo, rev, name string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return proc.RunGitRaw(ctx, repo, "show", rev+":./"+name)
 }
 
 func extAt(path string) string {
@@ -243,9 +245,13 @@ func runQualityChecker(repo, base, head string) (map[string]any, error) {
 		return nil, err
 	}
 	var results []map[string]any
-	for _, path := range changed {
-		lang := languageForExt(extAt(path))
-		qr, err := source.Quality(path, lang)
+	for _, name := range changed {
+		lang := languageForExt(extAt(name))
+		content, err := headContent(repo, head, name)
+		if err != nil {
+			return nil, fmt.Errorf("read %s at %s: %w", name, head, err)
+		}
+		qr, err := source.QualityContent(filepath.Join(repo, name), content, lang)
 		if err != nil {
 			continue
 		}

@@ -19,8 +19,11 @@ const noteText = "\n// ── Fill in before running ──\n" +
 	"//  • Pipeline is the default (no barrier). Use parallel() only when a step needs ALL prior results.\n" +
 	"//  • 'router' isn't a Workflow shape — it's an inline branch on the input, then dispatch. No skeleton.\n"
 
+// jsSingleQuoteEscaper makes a user-supplied name safe inside a '...' JS literal.
+var jsSingleQuoteEscaper = strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\n", `\n`, "\r", `\r`)
+
 func metaBlock(name, desc, phases string) string {
-	return fmt.Sprintf("export const meta = {\n  name: '%s',\n  description: '%s',\n  phases: [%s],\n}", name, desc, phases)
+	return fmt.Sprintf("export const meta = {\n  name: '%s',\n  description: '%s',\n  phases: [%s],\n}", jsSingleQuoteEscaper.Replace(name), desc, phases)
 }
 
 func pipelinePattern(name string) string {

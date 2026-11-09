@@ -2,18 +2,22 @@ package diff
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-var gateFileRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.(py|ts|tsx|js|jsx)$`) })
+var gateFileRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.(py|ts|tsx|js|jsx|go)$`) })
 var gateVerdictLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s+\[WARN\]|^Verdict:`) })
 var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Noise ratio:|Verdict:`) })
 
@@ -31,19 +35,76 @@ func gateStagedFiles(repo string) []string {
 	return files
 }
 
+// gateComplexityFiles lists the staged source files (added, copied, modified, renamed), as paths under repo.
 func gateComplexityFiles(repo string) []string {
-	out, _, err := gitInherit(repo, "diff", "--cached", "--name-only", "--relative", "--diff-filter=ACMR")
+	out, _, err := gitInherit(repo, "diff", "--cached", "-z", "--name-only", "--relative", "--diff-filter=ACMR")
 	if err != nil {
 		return nil
 	}
 	var files []string
-	for line := range strings.SplitSeq(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && gateFileRe().MatchString(line) {
-			files = append(files, filepath.Join(repo, line))
+	for name := range strings.SplitSeq(out, "\x00") {
+		if name != "" && gateFileRe().MatchString(name) {
+			files = append(files, filepath.Join(repo, name))
 		}
 	}
 	return files
+}
+
+// stagedBlob reads a path's index (staged) content, so the gate scores exactly what the commit will contain.
+// It keeps the inherited GIT_INDEX_FILE, the same index gateComplexityFiles listed the paths from.
+func stagedBlob(repo string) func(string) ([]byte, error) {
+	return func(p string) ([]byte, error) {
+		rel, err := filepath.Rel(repo, p)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "git", "-C", repo, "show", ":./"+rel)
+		cmd.Env = os.Environ()
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("git show :./%s: %w: %s", rel, err, strings.TrimSpace(stderr.String()))
+		}
+		return out, nil
+	}
+}
+
+// runStagedComplexity mirrors each staged blob into a temp tree, so a file deleted from the worktree is still scored.
+func runStagedComplexity(repo string, changed []string, out io.Writer) int {
+	dir, err := os.MkdirTemp("", "gate-staged-")
+	if err != nil {
+		fmt.Fprintf(out, "mkdir temp: %v\n", err)
+		return 1
+	}
+	defer os.RemoveAll(dir)
+	read := stagedBlob(repo)
+	var mirrored []string
+	for _, p := range changed {
+		rel, err := filepath.Rel(repo, p)
+		if err != nil {
+			fmt.Fprintf(out, "%v\n", err)
+			return 1
+		}
+		data, err := read(p)
+		if err != nil {
+			fmt.Fprintf(out, "read staged %s: %v\n", rel, err)
+			return 1
+		}
+		dst := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+			fmt.Fprintf(out, "mkdir %s: %v\n", rel, err)
+			return 1
+		}
+		if err := os.WriteFile(dst, data, 0o600); err != nil {
+			fmt.Fprintf(out, "write %s: %v\n", rel, err)
+			return 1
+		}
+		mirrored = append(mirrored, dst)
+	}
+	return source.RunComplexityWith(append(mirrored, "--threshold", "medium"), out, out, os.ReadFile)
 }
 
 func filterLines(text string, re *regexp.Regexp) (string, bool) {
@@ -77,7 +138,7 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 	if len(changed) > 0 {
 		fmt.Fprintln(stdout, "[simplicity] complexity_checker (medium):")
 		var buf bytes.Buffer
-		rc := source.RunComplexity(append(changed, "--threshold", "medium"), &buf, &buf)
+		rc := runStagedComplexity(repo, changed, &buf)
 		if rc != 0 {
 			fmt.Fprintf(stdout, "  detector failed (exit %d):\n", rc)
 			indentLines(stdout, buf.String())
