@@ -232,9 +232,9 @@ func TestImportSettings(t *testing.T) {
 		settings json.RawMessage
 		wantErr  string // substring; empty means no error
 	}{
-		{"autoMode object", json.RawMessage(`{"autoMode":{"soft_deny":["$defaults"]}}`), "retired overlay"},
-		{"scalar catalog key", json.RawMessage(`{"theme":"dark"}`), "retired overlay"},
-		{"not an object", json.RawMessage(`[1]`), "settings"},
+		{"autoMode object", json.RawMessage(`{"autoMode":{"soft_deny":["$defaults"]}}`), "settings: retired overlay"},
+		{"scalar catalog key", json.RawMessage(`{"theme":"dark"}`), "settings: retired overlay"},
+		{"not an object", json.RawMessage(`[1]`), "settings: retired overlay"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
