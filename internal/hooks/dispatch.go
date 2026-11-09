@@ -1,5 +1,5 @@
 // Package hooks implements `claude-code hook <Event> [--<module>|--all]`: JSON on stdin, exit 0 = proceed, 2 = block.
-// Hooks fail OPEN — an infra glitch never blocks the session.
+// Hooks fail OPEN — an infra glitch never blocks, except a Blocks gate whose panic or overrun fails CLOSED.
 package hooks
 
 import (
@@ -90,6 +90,9 @@ func runBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (core.Result, erro
 // skipOrBlock names what a failed handler's log line reports, keyed by Spec.Blocks.
 var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
 
+// failClosedModules exit non-zero when they fail: worktree-create must never exit 0 without its path on stdout.
+var failClosedModules = map[string]bool{"worktree-create": true}
+
 // dispatchMerge accumulates the handlers' results for one Dispatch call.
 type dispatchMerge struct {
 	merged         core.Result
@@ -143,7 +146,8 @@ func (m *dispatchMerge) addWorktree(b Bound, r core.Result) {
 }
 
 // Dispatch runs, in order, every bound handler on event whose matcher hits and merges the results. A handler
-// that panics or overruns is logged and skipped (a Blocks gate blocks); a second updatedInput or raw stdout errors.
+// that panics or overruns is logged and skipped (a Blocks gate blocks, failClosedModules exit 1); a second
+// updatedInput or raw stdout errors.
 func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
@@ -158,6 +162,9 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 			fmt.Fprintf(log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
 			if b.Spec.Blocks { // a gate that could not run fails closed
 				m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
+			}
+			if failClosedModules[b.Spec.Name] { // exit 1, not 2: a worktree that was not made reports no path
+				m.merged.ExitCode = 1
 			}
 			continue
 		}
@@ -220,7 +227,7 @@ func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer)
 	return core.Emit(in.Agent(), event, res, stdout, stderr)
 }
 
-// drain waits, bounded by one more longest-budget period, for overrun handlers so none still runs at output time.
+// drain waits up to one longest-budget period for overrun handlers; any still running is logged and abandoned.
 func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
 	if longest <= 0 {
 		longest = 5 * time.Second
@@ -285,8 +292,11 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if name == "safety-scan" && in.Agent() == core.AgentCopilot {
 			fmt.Fprintln(stdout, core.OutputCopilot(settings.EventPreToolUse, res))
 		}
-		if in.Agent() == core.AgentGemini {
-			fmt.Fprintln(stdout, core.OutputGemini(settings.EventPreToolUse, res)) // agy blocks on a JSON deny, not exit 2
+		if in.Agent() == core.AgentGemini { // agy blocks on a JSON deny, not exit 2
+			if _, err := fmt.Fprintln(stdout, core.OutputGemini(settings.EventPreToolUse, res)); err != nil {
+				fmt.Fprintf(stderr, "%s (deny JSON not written: %v)\n", res.Reason, err)
+				return core.ExitBlock // fail closed: a lost deny must not proceed
+			}
 			return core.ExitProceed
 		}
 		fmt.Fprintln(stderr, res.Reason)

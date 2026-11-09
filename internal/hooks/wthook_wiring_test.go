@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
@@ -28,6 +29,37 @@ func TestNativeWthookEntriesAreWthookRunners(t *testing.T) {
 	want := core.ExitResult(wthook.Remove(core.ParseInput(strings.NewReader(payload)), &b), b.String())
 	if got := native["worktree-remove"](core.ParseInput(strings.NewReader(payload))); !reflect.DeepEqual(got, want) || want.ExitCode != 1 {
 		t.Errorf("worktree-remove: native result %+v, want %+v (exit 1)", got, want)
+	}
+}
+
+func TestWorktreeCreateDispatchFailureExitsNonzero(t *testing.T) {
+	for _, failure := range []string{"panic", "timeout"} {
+		t.Run(failure, func(t *testing.T) {
+			release, finished := make(chan struct{}), make(chan struct{})
+			t.Cleanup(func() { close(release); <-finished })
+			spec := specOf("worktree-create")
+			spec.Budget = time.Millisecond
+			run := func(*core.Input) core.Result {
+				defer close(finished)
+				if failure == "panic" {
+					panic("worktree creation failed")
+				}
+				<-release
+				return core.Result{Stdout: "/unusable/worktree"}
+			}
+			var out, errb bytes.Buffer
+			res, err := Dispatch([]Bound{{Group: "worktree", Spec: spec, Run: run}}, spec.Event, &core.Input{}, &errb)
+			if err != nil {
+				t.Fatal(err)
+			}
+			code := core.Emit(core.AgentClaude, spec.Event, res, &out, &errb)
+			if code != 1 || out.Len() != 0 {
+				t.Fatalf("%s: exit=%d stdout=%q; want exit 1 without a worktree path", failure, code, out.String())
+			}
+			if !strings.Contains(errb.String(), "worktree-create") {
+				t.Fatalf("missing failed handler diagnostic: %q", errb.String())
+			}
+		})
 	}
 }
 

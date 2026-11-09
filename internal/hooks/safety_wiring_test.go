@@ -213,6 +213,35 @@ func copilotJSON(cmd string) []byte {
 	return b
 }
 
+type failedDenyWriter struct{ attempted string }
+
+func (w *failedDenyWriter) Write(p []byte) (int, error) {
+	w.attempted = string(p)
+	return 0, io.ErrClosedPipe
+}
+
+func TestGeminiDenyWriteFailureBlocks(t *testing.T) {
+	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
+	t.Setenv("HARNESS_DISPATCH_PERMISSIONS", `{"deny":[{"Tool":"Bash","Arg":"ls"}]}`)
+	payload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
+	var out failedDenyWriter
+	var errb bytes.Buffer
+	code := runDirect("permission-gate", strings.NewReader(payload), &out, &errb)
+	if code != core.ExitBlock {
+		t.Fatalf("lost Gemini deny: exit %d, want ExitBlock; stderr %q", code, errb.String())
+	}
+	var doc struct{ Decision, Reason string }
+	if err := json.Unmarshal([]byte(out.attempted), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Decision != "deny" || doc.Reason == "" {
+		t.Fatalf("attempted stdout %q, want deny with reason", out.attempted)
+	}
+	if !strings.Contains(errb.String(), doc.Reason) || !strings.Contains(errb.String(), io.ErrClosedPipe.Error()) {
+		t.Fatalf("stderr %q must include deny reason and write error", errb.String())
+	}
+}
+
 // agy blocks on a JSON deny at exit 0, not exit 2: the permission-gate entry prints {"decision":"deny","reason":…}.
 func TestPermissionGateAgyDenyIsJSON(t *testing.T) {
 	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
