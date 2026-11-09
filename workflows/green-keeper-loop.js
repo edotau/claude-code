@@ -142,7 +142,8 @@ async function stageDetect(ctx, st, scope) {
 async function stageGate(ctx, o) {
   const tag = o.label || 'gate'
   const cmd = o.gate || o.scope.map((p) => 'go build ./' + p + '/... && go vet ./' + p + '/... && go test -count=1 ./' + p + '/...').join(' && ')
-  const full = '`set -o pipefail; ' + cmd + '`' + (o.schemas ? '; if ' + stDiff(o.scope) + ' changes a function that writes a file, also `go test -count=1 ./internal/schemas/`' : '')
+  // pipefail only matters with a pipe, and copilot's shell policy refuses the `set` prefix
+  const full = '`' + (cmd.includes('|') ? 'set -o pipefail; ' : '') + cmd + '`' + (o.schemas ? '; if ' + stDiff(o.scope) + ' changes a function that writes a file, also `go test -count=1 ./internal/schemas/`' : '')
   const out = (status, exit, hist, residual) => {
     if (status !== 'green' && hist.length) log(tag + ' still ' + status + ' after ' + hist.length + ' iteration(s); residual: ' + residual.length)
     return { status, exit, gate: cmd, iterations: hist.length, filesChanged: [...new Set(hist.flatMap((h) => h.filesChanged))], residual, history: hist }
