@@ -193,7 +193,7 @@ func anthropicHelp(w io.Writer) {
 
 // Anthropic is `claude-code anthropic`: first-party Claude Code with a login, OAuth token or API key.
 func Anthropic(args []string) int {
-	if helptext.WantsHelp(args) {
+	if len(args) > 0 && helptext.WantsHelp(args[:1]) { // only a leading help flag; `anthropic mcp --help` goes to claude
 		anthropicHelp(os.Stdout)
 		return 0
 	}

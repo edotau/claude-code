@@ -2,6 +2,7 @@ package agentcmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -47,13 +48,22 @@ func runSplitReview(name string, args []string, parts []roles.Part, scope roles.
 		ans, rc := captureAnswer(func() int { return ask.Cmd(askArgs) })
 		cleanup()
 		if rc != 0 {
-			fmt.Print(roles.MergeReports(adversarial, parts[:len(answers)], answers))
-			return finishSplitReview(parent, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), roles.LastDispatchError(name)))
+			werr := printMerged(adversarial, parts[:len(answers)], answers)
+			return finishSplitReview(parent, errors.Join(
+				fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), roles.LastDispatchError(name)), werr))
 		}
 		answers = append(answers, ans)
 	}
-	fmt.Print(roles.MergeReports(adversarial, parts, answers))
+	if err := printMerged(adversarial, parts, answers); err != nil {
+		return finishSplitReview(parent, fmt.Errorf("write merged report: %w", err))
+	}
 	return finishSplitReview(parent, nil)
+}
+
+// printMerged writes the merged report of the answers so far to stdout and returns any write failure.
+func printMerged(adversarial bool, parts []roles.Part, answers []string) error {
+	_, err := fmt.Fprint(os.Stdout, roles.MergeReports(adversarial, parts, answers))
+	return err
 }
 
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.

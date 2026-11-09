@@ -184,21 +184,24 @@ func appendLiveTranscripts(claudeDir string, reg map[string]regEntry, sessionFil
 	return append(sessionFiles, liveTranscripts(claudeDir, reg, have)...)
 }
 
-// sessionHasActivity reports whether --running keeps s: it is active or any subagent (direct or in a run) runs.
+// sessionHasActivity reports whether --running keeps s: it is active or any subagent (direct or in a run) is open.
 func sessionHasActivity(s Session) bool {
 	if s.Status == statusActive {
 		return true
 	}
-	for _, sub := range s.Subagents {
-		if sub.Status == StatusRunning {
-			return true
-		}
+	if slices.ContainsFunc(s.Subagents, unfinished) {
+		return true
 	}
 	running := false
 	for _, run := range s.Workflows {
-		forEachRunAgent(run, func(sub Subagent) { running = running || sub.Status == StatusRunning })
+		forEachRunAgent(run, func(sub Subagent) { running = running || unfinished(sub) })
 	}
 	return running
+}
+
+// unfinished is true for a subagent pruneToRunning keeps: running or stale, not finished or error.
+func unfinished(sub Subagent) bool {
+	return sub.Status != StatusFinished && sub.Status != StatusError
 }
 
 // forEachRunAgent calls fn on every agent of every phase of run.

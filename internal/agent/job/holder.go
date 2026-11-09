@@ -21,10 +21,11 @@ func RunHolder(rec *Record, launcher agent.Launcher) int {
 	defer stop()
 	rec.Request.Launcher = launcher // json:"-", so the record loaded from disk has none
 	if err := serveLive(ctx, rec); err != nil {
-		rec.Status, rec.Error = "error", shapes.Redact(err.Error())
+		msg := shapes.Redact(err.Error()) // stderr is the job log: the same redaction as the record
+		rec.Status, rec.Error = "error", msg
 		rec.DurationMs = time.Since(rec.Time).Milliseconds()
 		_ = rec.Save()
-		fmt.Fprintf(os.Stderr, "claude-code: ask --live: %v\n", err)
+		fmt.Fprintf(os.Stderr, "claude-code: ask --live: %s\n", msg)
 		return 1
 	}
 	return 0

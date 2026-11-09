@@ -127,6 +127,27 @@ func TestMergeReportsFailedFirstAdversarialPart(t *testing.T) {
 	}
 }
 
+func TestMergeReportsBlankAdversarialAnswerIsNotClean(t *testing.T) {
+	for _, answer := range []string{"", " \t\n", cleanVerdict} {
+		t.Run(fmt.Sprintf("answer=%q", answer), func(t *testing.T) {
+			parts := []Part{{Files: []string{"a.go"}}}
+			got := MergeReports(true, parts, []string{answer})
+			want := "VERDICT: no review completed\n"
+			marker := "(no review returned)\n"
+			if answer == cleanVerdict {
+				want = cleanVerdict + "\n"
+				marker = "(no findings)\n"
+			}
+			if !strings.HasPrefix(got, want) {
+				t.Fatalf("answer %q: verdict must be %q, got %q", answer, want, got)
+			}
+			if !strings.Contains(got, marker) {
+				t.Fatalf("answer %q: missing review-content marker %q in %q", answer, marker, got)
+			}
+		})
+	}
+}
+
 func TestMergeReportsUnjudgedPartIsNotShipIt(t *testing.T) {
 	parts := []Part{{Files: []string{"a"}}, {Files: []string{"b"}}}
 	out := MergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", ""})

@@ -63,8 +63,11 @@ func matchesClaudeDispatch(s Session, dispatches []Dispatch) bool {
 		if s, ok := agent.LookupSchema(l.Agent); !ok || s.External() { // not the Claude launcher
 			continue
 		}
-		if l.sessionID != "" && l.sessionID == s.ID {
-			return true
+		if l.sessionID != "" { // a known id decides alone: a title match must not claim another session
+			if l.sessionID == s.ID {
+				return true
+			}
+			continue
 		}
 		if matchesDispatchTitle(s, l) {
 			return true
@@ -160,7 +163,10 @@ func socketHolderAlive(id string) bool {
 func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 	dir := inflight.Dir()
 	if _, err := os.Stat(dir); err != nil {
-		return 0, nil // no marker dir yet: nothing was ever dispatched
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil // no marker dir yet: nothing was ever dispatched
+		}
+		return 0, fmt.Errorf("marker dir: %w", err)
 	}
 	n := 0
 	sweep := func() error {

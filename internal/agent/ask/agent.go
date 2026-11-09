@@ -167,7 +167,8 @@ func printAskFailure(format, agentName string, err error) {
 	}
 }
 
-func reportAskResult(format string, res wire.Result, err error, dispatchID string) {
+// reportAskResult prints the outcome; it returns the stdout write error of the json envelope, else nil.
+func reportAskResult(format string, res wire.Result, err error, dispatchID string) error {
 	for _, d := range res.Dropped {
 		if d == "--read-only (tools off)" {
 			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
@@ -177,15 +178,16 @@ func reportAskResult(format string, res wire.Result, err error, dispatchID strin
 	}
 	if format == helptext.JSON {
 		body, _ := json.Marshal(wire.NewEnvelope(res, err, dispatchID))
-		fmt.Println(string(body))
-		return
+		_, werr := fmt.Println(string(body))
+		return werr
 	}
 	if format == formatStreamJSON {
-		return // the result event already carried the envelope
+		return nil // the result event already carried the envelope
 	}
 	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()
 	}
+	return nil
 }
 
 // ApplyRoute exports --route as HARNESS_ROUTE, so this process's picks (and the jobs it spawns) follow that ladder.

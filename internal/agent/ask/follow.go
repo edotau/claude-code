@@ -73,12 +73,11 @@ func (w *follower) next() ([]ParsedLine, [][]byte, error) {
 		line := w.pending[:i+1]
 		w.pending = w.pending[i+1:]
 		w.n++
-		pl, _ := ReadTaskLines(bytes.NewReader(line))
-		for _, p := range pl {
-			p.N = w.n
-			parsed = append(parsed, p)
-			raw = append(raw, line)
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
 		}
+		parsed = append(parsed, decodeTaskLine(line, w.n))
+		raw = append(raw, line)
 	}
 }
 

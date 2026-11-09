@@ -62,16 +62,20 @@ func agentsResult(rec job.Record, format, cwd string) int {
 		}
 		return ResultExit(rec)
 	}
-	fmt.Print(log)
+	out := &errWriter{w: os.Stdout}
+	fmt.Fprint(out, log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
-		fmt.Println()
+		fmt.Fprintln(out)
 	}
 	if line := client.RecordEnvelope(rec, os.Stderr).RanOn; line != "" {
-		fmt.Println("ask:", line)
+		fmt.Fprintln(out, "ask:", line)
 	}
 	if rec.SessionID != "" {
-		fmt.Printf("session: %s\n", rec.SessionID)
-		fmt.Printf("resume: claude-code agents ask --agent %s --session %s\n", rec.Agent, rec.SessionID)
+		fmt.Fprintf(out, "session: %s\n", rec.SessionID)
+		fmt.Fprintf(out, "resume: claude-code agents ask --agent %s --session %s\n", rec.Agent, rec.SessionID)
+	}
+	if out.err != nil {
+		return helptext.Fail("agents result: write output: %v", out.err)
 	}
 	return ResultExit(rec)
 }
@@ -176,20 +180,30 @@ func Send(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
 	}
-	printLiveEnvelope(env, *format)
+	if err := printLiveEnvelope(env, *format); err != nil {
+		return helptext.Fail("agents send: write output: %v", err)
+	}
 	if env.Status != wire.StatusOK {
 		return 1
 	}
 	return 0
 }
 
-func printLiveEnvelope(env wire.Envelope, format string) {
+// printLiveEnvelope writes the turn's envelope (JSON) or closing newline (text), returning any write failure.
+func printLiveEnvelope(env wire.Envelope, format string) error {
 	if format == helptext.JSON {
-		body, _ := json.Marshal(env)
-		fmt.Println(string(body))
-	} else if format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
-		fmt.Println()
+		body, err := json.Marshal(env)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Println(string(body))
+		return err
 	}
+	if format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
+		_, err := fmt.Println()
+		return err
+	}
+	return nil
 }
 
 // ResultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.

@@ -92,14 +92,8 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 	if err != nil {
 		return err
 	}
-	ln, err := listenLive(rec.ID)
-	if err != nil {
-		return err
-	}
 	agentconfig.RecordOverlayDebug(name, cmd.Env)
 	if err := cmd.Start(); err != nil {
-		_ = ln.Close()
-		_ = os.Remove(LiveSocket(rec.ID))
 		return err
 	}
 	exited := make(chan error, 1) // buffered: the waiter never blocks on a gone reader
@@ -111,6 +105,12 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 		}
 		exited <- cmd.Wait()
 	}()
+	// bound after Start: a socket on disk means a running child, so a failed start is never reported ready
+	ln, err := listenLive(rec.ID)
+	if err != nil {
+		cancel(err) // kills the child; the waiter reaps it
+		return err
+	}
 	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
 	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(pump), events: events, idleFor: IdleOf(rec.Request),

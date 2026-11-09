@@ -120,7 +120,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 	}
 	p := runPolicy(ctx, req, notify)
 	var recoverErr error
-	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
+	if t, ok := recoveryTarget(r, req); ok && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
 		p.Recover = func(ctx context.Context) error {
 			_, recoverErr = providers.Refresh(ctx, t.Provider)
 			return recoverErr
@@ -133,6 +133,16 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 		return state.attempt(ctx, actx, r, sink, notify)
 	})
 	return state.finish(r.Name(), start, e, recoverErr)
+}
+
+// recoveryTarget is the provider a run bills: an external CLI's own pick (pin, session, gate), else the flags'.
+func recoveryTarget(r Engine, req RunOptions) (providers.Target, bool) {
+	if s, ok := LookupSchema(r.Name()); ok && s.External() {
+		t, own, _, err := s.targetNote(req)
+		return t, err == nil && !own && t.Provider != nil
+	}
+	_, t, err := resolveTarget(req)
+	return t, err == nil && t.Provider != nil
 }
 
 // checkRun resolves inherited permissions, then refuses a persona, read-only or permission set r cannot honor.

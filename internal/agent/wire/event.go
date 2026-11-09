@@ -23,7 +23,7 @@ const (
 	EventToolUse    = "tool_use"
 	EventToolResult = "tool_result"
 	EventRetry      = "retry"
-	EventProgress   = "progress" // a bare "the attempt acted" mark: counts as progress, no renderer shows it
+	EventProgress   = "progress" // a bare progress mark: counts as progress; EventLog and Stream drop it, JSONLSink keeps it
 	EventResult     = "result"
 	EventError      = "error"
 )
@@ -259,8 +259,8 @@ func (l *EventLog) Emit(ev Event) error {
 		l.writeLocked(ev)
 		return nil
 	}
-	if ev.Text == "" || l.text > eventsTextCap {
-		return nil
+	if ev.Text == "" || l.text+len(ev.Text) > eventsTextCap {
+		return nil // a chunk that would pass the cap is dropped whole, so no partial secret is stored
 	}
 	l.text += len(ev.Text)
 	if ev.Sep {

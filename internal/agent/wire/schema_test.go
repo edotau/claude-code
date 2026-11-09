@@ -7,6 +7,34 @@ import (
 	"testing"
 )
 
+func TestStructuredRejectsMalformedConstraints(t *testing.T) {
+	for _, tc := range []struct {
+		name, schema, reason string
+	}{
+		{"required string", `{"type":"object","required":"approved"}`, "required must be an array"},
+		{"required non-string name", `{"required":[1]}`, "required must hold only property names"},
+		{"properties array", `{"properties":[]}`, "properties must be an object"},
+		{"enum object", `{"enum":{}}`, "enum must be an array"},
+		{"absent property", `{"properties":{"absent":{"required":"approved"}}}`, "required must be an array"},
+		{"unused items", `{"items":{"properties":[]}}`, "properties must be an object"},
+		{"unused tuple item", `{"items":[true,{"required":[false]}]}`, "required must hold only property names"},
+		{"unused additional items", `{"additionalItems":{"enum":false}}`, "enum must be an array"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, unchecked, err := Structured(`{}`, tc.schema)
+			if !errors.Is(err, ErrSchema) {
+				t.Fatalf("malformed schema: got raw=%s, unchecked=%v, err=%v; want ErrSchema", raw, unchecked, err)
+			}
+			if !strings.Contains(err.Error(), "malformed schema") || !strings.Contains(err.Error(), tc.reason) {
+				t.Errorf("err = %v, want malformed schema identifying %q", err, tc.reason)
+			}
+			if raw != nil || unchecked != nil {
+				t.Errorf("malformed schema returned raw=%s, unchecked=%v; want neither", raw, unchecked)
+			}
+		})
+	}
+}
+
 func TestStructuredRequiredEmptyPropertyName(t *testing.T) {
 	const schema = `{"type":"object","required":[""]}`
 	if _, _, err := Structured(`{}`, schema); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), `missing required key ""`) {

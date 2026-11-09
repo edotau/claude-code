@@ -189,7 +189,9 @@ func dispatchDetach(ctx context.Context, client *client.Client, legs []roles.Leg
 				ID    string `json:"id"`
 				Log   string `json:"log"`
 			}{leg.Label, prepared.Record.ID, prepared.Record.Log})
-			fmt.Println(string(body))
+			if _, err := fmt.Fprintln(os.Stdout, string(body)); err != nil {
+				code = helptext.Fail("dispatch: %s: write job id: %v", leg.Label, err)
+			}
 			continue
 		}
 		fmt.Printf("%s\t", leg.Label)

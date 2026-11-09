@@ -16,7 +16,11 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	if i+1 < len(c.Dispatches) && (i != 0 || !ExplicitBackend(req)) && dispatchUnavailable(c.Dispatches[i].Agent, res, err) {
+	if i+1 >= len(c.Dispatches) || (i == 0 && ExplicitBackend(req)) {
+		trip()
+		return
+	}
+	if disp := c.Dispatches[i].Agent; dispatchUnavailable(disp, res, err) || cutOffMidRun(disp, err) {
 		return
 	}
 	trip()

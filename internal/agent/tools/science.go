@@ -86,6 +86,9 @@ func installAppFromDMG(ctx context.Context, w io.Writer, dmg, tmp string) (strin
 			fmt.Fprintf(w, "  install  %s\n", dest)
 			return dest, nil
 		}
+		if errors.Is(err, errAppRollback) { // the original app is stranded: a fallback root would hide that
+			return "", err
+		}
 		errs = append(errs, err)
 	}
 	return "", errors.Join(errs...)
@@ -105,6 +108,9 @@ func verifyScienceApp(ctx context.Context, app string) error {
 	}
 	return nil
 }
+
+// errAppRollback marks a failed swap whose previous app could not be restored; its location is in the error text.
+var errAppRollback = errors.New("previous app could not be restored")
 
 // replaceApp ditto-copies src beside root/Claude Science.app, then renames it in; the old app stays until the swap works.
 func replaceApp(ctx context.Context, src, root string) (string, error) {
@@ -131,7 +137,7 @@ func replaceApp(ctx context.Context, src, root string) (string, error) {
 			if rerr := os.Rename(old, dest); rerr != nil {
 				// keep stage/old.app: it is the only copy of the previous app
 				stage = ""
-				return "", errors.Join(err, fmt.Errorf("restore previous app from %s: %w", old, rerr))
+				return "", errors.Join(err, fmt.Errorf("restore previous app from %s: %w", old, rerr), errAppRollback)
 			}
 		}
 		return "", err

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -48,18 +49,50 @@ func listenLive(id string) (net.Listener, error) {
 	return ln, nil
 }
 
-// accept serves connections until the listener closes; wg counts the in-flight handlers.
+// Accept retry bounds: resource-pressure errors (EMFILE and kin) back off instead of ending the session.
+const (
+	acceptBackoffMin = 5 * time.Millisecond
+	acceptBackoffMax = time.Second
+)
+
+// accept serves connections until the listener closes; transient errors retry, a fatal one ends the session.
 func (s *liveSession) accept(ctx context.Context, ln net.Listener, wg *sync.WaitGroup) {
+	backoff := acceptBackoffMin
 	for {
 		c, err := ln.Accept()
 		if err != nil {
-			return
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			if !transientAccept(err) {
+				s.cancel(fmt.Errorf("live socket accept: %w", err))
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			backoff = min(2*backoff, acceptBackoffMax)
+			continue
 		}
+		backoff = acceptBackoffMin
 		wg.Go(func() {
 			defer c.Close()
 			s.serveConn(ctx, c)
 		})
 	}
+}
+
+// transientAccept reports whether an Accept error is resource pressure that a later retry can clear.
+func transientAccept(err error) bool {
+	for _, e := range []syscall.Errno{syscall.EMFILE, syscall.ENFILE, syscall.ENOBUFS, syscall.ENOMEM,
+		syscall.ECONNABORTED, syscall.EAGAIN} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
 }
 
 // connSink streams events to one client; a failed write is remembered and never reaches the parser.

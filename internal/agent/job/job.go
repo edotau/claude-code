@@ -110,13 +110,13 @@ func Resolve(recs []Record, ref string, pred func(Record) bool) (Record, error) 
 	return Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
 }
 
-// jobArgvSettled reads pid's argv, retrying for ~500ms while it does not match: a child spawned a moment ago
+// jobArgvSettled reads rec's pid argv, retrying for ~500ms while it does not match: a child spawned a moment ago
 // has forked but not yet exec'd, so /proc still shows the parent's argv.
-func jobArgvSettled(pid int, id string) ([]string, error) {
+func jobArgvSettled(rec *Record) ([]string, error) {
 	var argv []string
 	var err error
 	for range 5 {
-		if argv, err = proc.Argv(pid); err != nil || isJobArgv(argv, id) {
+		if argv, err = proc.Argv(rec.PID); err != nil || isOwnArgv(argv, rec) {
 			return argv, err
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -124,9 +124,27 @@ func jobArgvSettled(pid int, id string) ([]string, error) {
 	return argv, nil
 }
 
+// isOwnArgv reports whether argv is rec's detached job: an `ask --job <id>` child or a split review child.
+func isOwnArgv(argv []string, rec *Record) bool {
+	return isJobArgv(argv, rec.ID) || isReviewArgv(argv, rec)
+}
+
 // isJobArgv reports whether argv carries the whole arguments `ask`, `--job` and id.
 func isJobArgv(argv []string, id string) bool {
 	return slices.Contains(argv, "ask") && slices.Contains(argv, "--job") && slices.Contains(argv, id)
+}
+
+// isReviewArgv reports whether argv is rec's detached split review: `<agent> review` at argv[1], or argv[2] under an interpreter.
+func isReviewArgv(argv []string, rec *Record) bool {
+	if rec.Progress == "" {
+		return false
+	}
+	for _, i := range []int{1, 2} {
+		if i+1 < len(argv) && argv[i] == rec.Agent && argv[i+1] == "review" {
+			return true
+		}
+	}
+	return false
 }
 
 // reloadRecord refreshes rec from disk, keeping rec as is when the load fails.
@@ -156,11 +174,11 @@ func Cancel(rec *Record) error {
 	if !proc.Alive(rec.PID) {
 		return failIfRunning(rec, "process gone (pid reused)")
 	}
-	argv, err := jobArgvSettled(rec.PID, rec.ID)
+	argv, err := jobArgvSettled(rec)
 	if err != nil {
 		return fmt.Errorf("dispatch %q: cannot read pid %d command line: %w", rec.ID, rec.PID, err)
 	}
-	if !isJobArgv(argv, rec.ID) {
+	if !isOwnArgv(argv, rec) {
 		if rec.Log == "" || (slices.Contains(argv, "ask") && !slices.Contains(argv, "--job")) { // a foreground ask
 			return fmt.Errorf("dispatch %q is a foreground run; interrupt it in its own terminal", rec.ID)
 		}

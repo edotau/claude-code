@@ -25,7 +25,9 @@ func readSubagentMeta(transcriptPath string) subagentMeta {
 		return subagentMeta{}
 	}
 	var m subagentMeta
-	_ = json.Unmarshal(raw, &m)
+	if json.Unmarshal(raw, &m) != nil { // a partial decode would keep fields set before the bad one
+		return subagentMeta{}
+	}
 	return m
 }
 
@@ -55,8 +57,8 @@ func (m *workflowManifest) resultStatus() string {
 	return ""
 }
 
-// manifestNamePattern pulls the workflow's declared name out of its script's `meta = { name: '...' }`.
-var manifestNamePattern = regexp.MustCompile(`name:\s*'([^']+)'`)
+// manifestNamePattern pulls the name out of the script's `meta = { name: '...' }`, never another object's name.
+var manifestNamePattern = regexp.MustCompile(`\bmeta\s*=\s*\{[^}]*?\bname:\s*'([^']+)'`)
 
 // name resolves the manifest's display name from its script's meta.name.
 func (m *workflowManifest) name() string {

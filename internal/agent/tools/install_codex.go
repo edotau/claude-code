@@ -72,7 +72,14 @@ func extractTarGzSingleFile(data []byte) ([]byte, error) {
 	if hdr.Typeflag != tar.TypeReg {
 		return nil, fmt.Errorf("first entry %s is not a regular file", hdr.Name)
 	}
-	return io.ReadAll(tr)
+	bin, err := io.ReadAll(tr)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.Copy(io.Discard, gz); err != nil { // reading to EOF verifies the gzip checksum
+		return nil, fmt.Errorf("gzip stream: %w", err)
+	}
+	return bin, nil
 }
 
 // codexCompanions ship as their own release assets beside codex; 0.163+ refuses tool calls without its host.
