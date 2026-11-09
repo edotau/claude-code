@@ -2,6 +2,8 @@ package setup
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +28,9 @@ func orphanAccessLog(p string) bool {
 	return os.IsNotExist(err)
 }
 
+// openMemoryFiles is a var so tests can stub the process-table scan (production: scanOpenMemoryFiles).
+var openMemoryFiles = scanOpenMemoryFiles
+
 // memoryStateKeeper snapshots live owners once per sweep and keeps uncertain state.
 func memoryStateKeeper() func(string) bool {
 	var sessions, opened map[string]bool
@@ -45,15 +50,20 @@ func memoryStateKeeper() func(string) bool {
 	}
 }
 
-// liveMemorySessions treats unreadable live registry entries as unknown ownership.
+// liveMemorySessions treats an unreadable sessions dir or live registry entry as unknown ownership.
 func liveMemorySessions() (map[string]bool, bool) {
-	files, err := filepath.Glob(filepath.Join(paths.ConfigDir(), "sessions", "*.json"))
+	dir := filepath.Join(paths.ConfigDir(), "sessions")
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]bool{}, true
+	}
 	if err != nil {
 		return nil, false
 	}
 	live := map[string]bool{}
-	for _, p := range files {
-		if !keepLiveSession(p) {
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		if !strings.HasSuffix(e.Name(), ".json") || !keepLiveSession(p) {
 			continue
 		}
 		var entry struct {

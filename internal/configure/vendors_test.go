@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // An agy that ignores SIGINT and SIGTERM is SIGKILLed after the grace, so stopAgy returns instead of hanging.
@@ -86,5 +88,36 @@ func TestStopAgyKillsStubbornDescendant(t *testing.T) {
 	case <-exited:
 	case <-time.After(time.Second):
 		t.Fatal("descendant still holds stdout open after its parent exited and stopAgy returned")
+	}
+}
+
+func TestHasAdminCredentialRequiresCompleteCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name, id, secret, key string
+		present               bool
+	}{
+		{"none", "", "", "", false},
+		{"id only", "client-id", "", "", false},
+		{"secret only", "", "client-secret", "", false},
+		{"oauth pair", "client-id", "client-secret", "", true},
+		{"api key", "", "", "api-key", true},
+		{"api key with incomplete oauth", "client-id", "", "api-key", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			for name, value := range map[string]string{
+				"TAILSCALE_OAUTH_CLIENT_ID":     tc.id,
+				"TAILSCALE_OAUTH_CLIENT_SECRET": tc.secret,
+				"TAILSCALE_API_KEY":             tc.key,
+			} {
+				t.Setenv(name, "")
+				if value != "" {
+					vaulttest.Secret(t, name, value)
+				}
+			}
+			if got := HasAdminCredential(); got != tc.present {
+				t.Fatalf("HasAdminCredential = %v, want %v", got, tc.present)
+			}
+		})
 	}
 }

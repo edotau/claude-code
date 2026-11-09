@@ -229,11 +229,14 @@ func VerifyAgent(ctx context.Context, agent string) error {
 }
 
 // HasAdminCredential reports, by name only, whether a tailscale admin API credential is set.
+// Mirrors tailscale.NewClient: an OAuth pair (both halves) or an API key.
 func HasAdminCredential() bool {
-	for _, n := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY"} {
-		if src, _ := vault.HasSecretErr(n); src != "" { // presence only: no decrypt per home render
-			return true
-		}
-	}
-	return false
+	return hasSecretPresent("TAILSCALE_API_KEY") ||
+		(hasSecretPresent("TAILSCALE_OAUTH_CLIENT_ID") && hasSecretPresent("TAILSCALE_OAUTH_CLIENT_SECRET"))
+}
+
+// hasSecretPresent is presence only: no decrypt per home render.
+func hasSecretPresent(name string) bool {
+	src, _ := vault.HasSecretErr(name)
+	return src != ""
 }

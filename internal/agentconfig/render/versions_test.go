@@ -107,6 +107,37 @@ func TestRevertLegacySidecarWhenMirrorEmpty(t *testing.T) {
 	}
 }
 
+func TestRevertLegacySidecarsStepBack(t *testing.T) {
+	path, _ := backupEnv(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for suffix, content := range map[string]string{
+		"":                        "v3",
+		".backup.20260101T000000": "v1",
+		".backup.20260102T000000": "v2",
+	} {
+		if err := os.WriteFile(path+suffix, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if mirrors := mirrorsOf(path); len(mirrors) != 0 {
+		t.Fatalf("want no mirrored backups, got %v", mirrors)
+	}
+	for _, want := range []string{"v2", "v1"} {
+		if err := RevertOne("gemini-settings", path, false, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf("successive legacy revert = %q, want %q", got, want)
+		}
+	}
+}
+
 // TestLostLinesEmptyWhenTheirsMatchesBaseline: theirs (current file) equal to the last-written baseline
 // means the user made no local edits — no lost lines, even when the upcoming render (next) differs.
 func TestLostLinesEmptyWhenTheirsMatchesBaseline(t *testing.T) {

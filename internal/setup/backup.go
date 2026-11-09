@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -30,11 +31,34 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
+	if fi.IsDir() {
+		return copyTree(src, dst)
+	}
+	if !fi.Mode().IsRegular() {
+		return nil // FIFOs, sockets and devices are skipped: reading them can block forever
+	}
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
 	return paths.AtomicWrite(dst, data, fi.Mode())
+}
+
+// copyTree backs up a directory's files and links under dst; symlinks inside are copied as links, never followed.
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		return copyFile(p, filepath.Join(dst, rel))
+	})
 }
 
 func copyLink(src, dst string) error {

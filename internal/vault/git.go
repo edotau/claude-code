@@ -36,7 +36,8 @@ func gitLogArgs(dir, rev string, since int) []string {
 func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 	var findings []string
 	commit, file := "", ""
-	addition, cont := false, false
+	addition, hunk := false, false
+	var pending []byte // fragments of one over-long line, joined before any match
 	br := bufio.NewReaderSize(stdout, 1<<20)
 	for {
 		frag, isPrefix, err := br.ReadLine()
@@ -46,34 +47,40 @@ func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 		if err != nil {
 			return findings, err
 		}
-		line := string(frag)
-		if !cont {
-			commit, file, addition = parseGitLogLine(line, commit, file)
+		pending = append(pending, frag...)
+		if isPrefix {
+			continue
 		}
+		line := string(pending)
+		pending = pending[:0]
+		commit, file, addition, hunk = parseGitLogLine(line, commit, file, hunk)
 		if addition && !isTestFixture(file) && slices.ContainsFunc(secretPattern.FindAllString(line, -1), tokenShaped) {
 			findings = append(findings, fmt.Sprintf("%s %s", commit, file))
-			addition = false // one finding per added line, however many fragments it spans
 		}
-		cont = isPrefix
 	}
 }
 
-// parseGitLogLine advances the current commit and file from a line's start, and reports an added (+) line.
-func parseGitLogLine(line, commit, file string) (string, string, bool) {
+// parseGitLogLine advances commit, file and hunk state from a line, and reports whether it is an added (+) line.
+// A "+++ " file header only occurs before the first hunk; inside one, "++…" content is an addition.
+func parseGitLogLine(line, commit, file string, hunk bool) (string, string, bool, bool) {
 	switch {
 	case strings.HasPrefix(line, "commit "):
 		commit = strings.TrimPrefix(line, "commit ")
 		if len(commit) > 12 {
 			commit = commit[:12]
 		}
+		return commit, file, false, false
 	case strings.HasPrefix(line, "diff --git "):
 		if _, b, ok := strings.Cut(strings.TrimPrefix(line, "diff --git "), " b/"); ok {
 			file = b
 		}
-	case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-		return commit, file, true
+		return commit, file, false, false
+	case strings.HasPrefix(line, "@@"):
+		return commit, file, false, true
+	case strings.HasPrefix(line, "+"):
+		return commit, file, hunk || !strings.HasPrefix(line, "+++ "), hunk
 	}
-	return commit, file, false
+	return commit, file, false, hunk
 }
 
 // ScanGit audits dir's git history for secret-shaped ADDITIONS (lines a commit introduced), never

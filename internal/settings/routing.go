@@ -186,7 +186,7 @@ func workRepoMarkersField() RoutingField {
 	}
 }
 
-var freeTierValues = []string{"sonnet,haiku", "haiku", "none"}
+var freeTierValues = []string{"sonnet,haiku", "sonnet", "haiku", "none"}
 
 func freeTiersField() RoutingField {
 	return RoutingField{
@@ -198,6 +198,8 @@ func freeTiersField() RoutingField {
 			switch {
 			case sonnet && haiku:
 				return "sonnet,haiku"
+			case sonnet:
+				return "sonnet"
 			case haiku:
 				return "haiku"
 			default:
@@ -211,6 +213,9 @@ func freeTiersField() RoutingField {
 				r.Opencode.FreeTiers = nil
 			case "sonnet,haiku":
 				l := []string{"sonnet", "haiku"}
+				r.Opencode.FreeTiers = &l
+			case "sonnet":
+				l := []string{"sonnet"}
 				r.Opencode.FreeTiers = &l
 			case "haiku":
 				l := []string{"haiku"}

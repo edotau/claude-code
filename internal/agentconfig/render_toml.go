@@ -97,7 +97,7 @@ func topLevelKeysOf(section string) []string {
 		trimmed := strings.TrimSpace(line)
 		if multiline == "" && depth == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 			if key, _, ok := strings.Cut(trimmed, "="); ok {
-				keys = append(keys, strings.TrimSpace(key))
+				keys = append(keys, TOMLKeyName(key))
 			}
 		}
 		multiline, depth = TOMLLineState(line, multiline, depth)

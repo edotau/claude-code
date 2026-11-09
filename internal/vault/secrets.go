@@ -93,5 +93,9 @@ func MasterKeyStatus() (count int, source string, err error) {
 		return 0, "not needed", nil
 	}
 	_, source, err = MasterKey()
+	if err != nil {
+		return count, source, err
+	}
+	_, err = ReadSecrets(names) // opening every record proves the key decrypts them, not merely resolves
 	return count, source, err
 }

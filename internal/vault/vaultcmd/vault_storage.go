@@ -80,9 +80,12 @@ func Export() ([]byte, error) {
 	return render(d)
 }
 
-// decodeDoc strictly decodes edited as a single Doc value, rejecting unknown fields and trailing data.
+// decodeDoc strictly decodes edited as a single Doc object, rejecting non-objects (null would wipe config), unknown fields and trailing data.
 func decodeDoc(edited []byte) (Doc, error) {
 	var d Doc
+	if t := bytes.TrimSpace(edited); len(t) == 0 || t[0] != '{' {
+		return Doc{}, sectionError("config", errors.New("must be a JSON object"))
+	}
 	dec := json.NewDecoder(bytes.NewReader(edited))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&d); err != nil {
@@ -128,21 +131,10 @@ func validateOverlaySections(d *Doc) error {
 			return sectionError("agents", err)
 		}
 	}
-	if len(d.Settings) != 0 {
-		if err := validateSettingsSection(d.Settings); err != nil {
-			return err
-		}
+	if len(d.Settings) != 0 { // retired: nothing reads it, so saving it would report success with no effect
+		return sectionError("settings", errors.New("retired overlay has no effect; delete the section"))
 	}
 	return validateKeyCommand(d.Vault.KeyCommand)
-}
-
-// validateSettingsSection checks the retired settings overlay (nothing reads it now) still parses as an object.
-func validateSettingsSection(raw json.RawMessage) error {
-	var ov map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &ov); err != nil {
-		return sectionError("settings", err)
-	}
-	return nil
 }
 
 // validateKeyCommand checks vault.key_command, when set, is a JSON argv array with a non-empty argv[0].

@@ -1,6 +1,8 @@
 package setup
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,7 +13,7 @@ import (
 )
 
 // openMemoryFiles lists state files held open by same-user processes, lock descriptors included.
-func openMemoryFiles() (map[string]bool, bool) {
+func scanOpenMemoryFiles() (map[string]bool, bool) {
 	processes, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, false
@@ -40,8 +42,11 @@ func openMemoryFiles() (map[string]bool, bool) {
 // memoryProcessFiles records open state files without opening or changing runtime state.
 func memoryProcessFiles(dir string, opened map[string]bool) bool {
 	fds, err := os.ReadDir(filepath.Join(dir, "fd"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return true // the process exited between listing and reading: it holds no file open
+	}
 	if err != nil {
-		return true // an exited or unreadable process cannot be inspected; the session registry still guards
+		return false // unreadable fd table: open files are unknown, so the caller keeps state
 	}
 	root := filepath.Clean(memstore.StateDir()) + string(filepath.Separator)
 	for _, fd := range fds {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -32,6 +33,7 @@ func nukeFloor(dir string) error {
 	if err != nil {
 		return err
 	}
+	abs = paths.Canon(abs)
 	if abs == string(filepath.Separator) {
 		return ErrNotConfigDir
 	}
@@ -39,7 +41,8 @@ func nukeFloor(dir string) error {
 	if home == "" {
 		return nil
 	}
-	if rel, err := filepath.Rel(abs, filepath.Clean(home)); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	home = paths.Canon(home)
+	if rel, err := filepath.Rel(abs, home); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return ErrNotConfigDir
 	}
 	return nil
@@ -383,8 +386,12 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 // A walk error (e.g. an unreadable subdir) propagates instead of silently truncating the archive plan.
 // Migration: remove after 2026-11-13 once every machine has run a post-2026-10-26 build.
 func keepMemoryPaths(dir string) ([]string, error) {
+	roots, err := memoryRoots(dir)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
-	for _, root := range memoryRoots(dir) {
+	for _, root := range roots {
 		files, err := regularFilesUnder(dir, root)
 		if err != nil {
 			return nil, err
@@ -395,22 +402,37 @@ func keepMemoryPaths(dir string) ([]string, error) {
 }
 
 // memoryRoots returns the existing real (non-symlink) directories under dir that keepMemoryPaths archives.
-func memoryRoots(dir string) []string {
+// An unreadable projects/ dir is an error: a root dropped from the plan would be deleted unarchived.
+func memoryRoots(dir string) ([]string, error) {
 	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), "plans", filepath.Join("docs", "knowledge")} // docs/knowledge is the pre-44aab60 knowledge location
-	if matches, err := filepath.Glob(filepath.Join(dir, "projects", "*", "memory")); err == nil {
-		for _, m := range matches {
-			if rel, err := filepath.Rel(dir, m); err == nil {
-				candidates = append(candidates, rel)
-			}
-		}
+	projects, err := projectMemoryRels(dir)
+	if err != nil {
+		return nil, err
 	}
+	candidates = append(candidates, projects...)
 	var roots []string
 	for _, rel := range candidates {
 		if fi, err := os.Lstat(filepath.Join(dir, rel)); err == nil && fi.IsDir() {
 			roots = append(roots, filepath.Join(dir, rel))
 		}
 	}
-	return roots
+	return roots, nil
+}
+
+// projectMemoryRels lists projects/<slug>/memory for every entry under dir/projects; a missing projects/ is none.
+func projectMemoryRels(dir string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(dir, "projects"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan projects: %w", err)
+	}
+	var rels []string
+	for _, e := range entries {
+		rels = append(rels, filepath.Join("projects", e.Name(), "memory"))
+	}
+	return rels, nil
 }
 
 // regularFilesUnder lists the regular files under root as slash paths relative to dir; symlinks are skipped.

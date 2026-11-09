@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -156,6 +157,29 @@ func TestFreeTiersRoundTripsEnumValuesAndRejectsOthers(t *testing.T) {
 	var r providers.Routing
 	if err := f.Set(&r, "opus"); err == nil {
 		t.Error(`Set("opus") must fail: opus is never eligible for zen-free`)
+	}
+}
+
+func TestFreeTiersSonnetOnly(t *testing.T) {
+	f := fieldByKey(t, "opencode.freeTiers")
+	tiers := []string{"sonnet"}
+	var r providers.Routing
+	r.Opencode.FreeTiers = &tiers
+	if got := f.Get(r); got != "sonnet" {
+		t.Fatalf("Get(sonnet-only routing) = %q, want sonnet", got)
+	}
+	if !slices.Contains(f.Values, "sonnet") {
+		t.Fatal("free-tier choices must include sonnet")
+	}
+	var updated providers.Routing
+	if err := f.Set(&updated, "sonnet"); err != nil {
+		t.Fatalf("Set(sonnet): %v", err)
+	}
+	if updated.Opencode.FreeTiers == nil || !slices.Equal(*updated.Opencode.FreeTiers, tiers) {
+		t.Fatalf("Set(sonnet) must store only sonnet, got %v", updated.Opencode.FreeTiers)
+	}
+	if got := f.Get(updated); got != "sonnet" {
+		t.Errorf("Get() after Set(sonnet) = %q, want sonnet", got)
 	}
 }
 

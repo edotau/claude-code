@@ -1,9 +1,11 @@
 package configure
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -77,5 +79,30 @@ func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 	}
 	if got := providers.AgentRecord("claude").Model; got != "personal:claude-opus-5.5" {
 		t.Errorf("CLAUDE_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
+	}
+}
+
+func TestSetAgentPinClearReportsUnreadableVault(t *testing.T) {
+	vaulttest.Use(t)
+	const corrupt = `{"claude":{"model":`
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, corrupt)
+	for _, field := range []string{"MODEL", "PROFILE"} {
+		t.Run(field, func(t *testing.T) {
+			changed, err := SetAgentPin("claude", field, "")
+			if err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
+				t.Fatalf("clearing %s = (%v, %v), want corrupt-vault error", field, changed, err)
+			}
+			if changed {
+				t.Fatalf("clearing %s reported a change despite unreadable vault", field)
+			}
+		})
+	}
+	if err := vault.View(func(tx *vault.Tx) error {
+		if got, _ := tx.Get(vault.Overlay, vault.AgentRecordsKey); got != corrupt {
+			t.Errorf("failed clear changed vault contents to %q", got)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -18,7 +18,11 @@ import (
 
 // SetAgentPin sets one record field (a vault.AgentRecord.WithPin name) on agent; false when it was already that value.
 func SetAgentPin(agent, field, val string) (bool, error) {
-	rec := vault.GetAgentRecord(agent)
+	recs, err := vault.ReadAgentRecords([]string{agent}) // a read error must not look like an empty record
+	if err != nil {
+		return false, err
+	}
+	rec := recs[agent]
 	next := rec.WithPin(field, val)
 	if reflect.DeepEqual(rec, next) {
 		return false, nil

@@ -172,9 +172,19 @@ func lookupKey(id, kid, command string) (*Key, string, error) {
 		return nil, "", ErrLocked
 	}
 	if err != nil {
-		return nil, source, err
+		return keyAfterError(id, source, kid, command, err)
 	}
 	return matchKey(id, k, source, kid, command)
+}
+
+// keyAfterError returns the per-kid key when a failed source left one recoverable, else err.
+func keyAfterError(id, source, kid, command string, err error) (*Key, string, error) {
+	if kid != "" {
+		if fk, fsource, _ := fallbackKey(id, source, kid, command); fk != nil {
+			return fk, fsource, nil
+		}
+	}
+	return nil, source, err
 }
 
 // parsePointer parses the keyring's current-key pointer; with a kid recorded a malformed pointer reads as absent.
@@ -526,7 +536,7 @@ func rotatePreflight(o rotateKeyOpts) (old *Key, id string, err error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if source != "keyring" {
+	if source != "keyring" && (source != "env" || !o.force) { // --force rotates an env-held key; the caller updates the env
 		return nil, "", errors.New("vault: rotation requires a keyring-held master key")
 	}
 	id, kid, command, err := keyMeta()

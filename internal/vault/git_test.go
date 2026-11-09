@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,34 @@ func TestScanGitNonRepoStillSkipped(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "not inside a git repo") || !strings.Contains(out.String(), "skipped") {
 		t.Errorf("non-repo output = %q, want skip notice", out.String())
+	}
+}
+
+func TestScanGitLogPlusPrefixedSecret(t *testing.T) {
+	token := "ghp_" + "abcdefghij1234567890ABCD"
+	name := "config-" + token + ".env"
+	for _, content := range []string{"++TOKEN=", "++ TOKEN="} {
+		t.Run(content, func(t *testing.T) {
+			patch := "commit 0123456789abcdef\ndiff --git a/" + name + " b/" + name + "\n" +
+				"--- /dev/null\n+++ b/" + name + "\n@@ -0,0 +1 @@\n+" + content + token + "\n"
+			got, err := scanGitLogOutput(strings.NewReader(patch))
+			want := []string{"0123456789ab " + name}
+			if err != nil || !slices.Equal(got, want) {
+				t.Fatalf("scan plus-prefixed addition = %v, %v; want %v", got, err, want)
+			}
+		})
+	}
+}
+
+func TestScanGitLogSecretStraddlesFragment(t *testing.T) {
+	token := "ghp_" + "abcdefghij1234567890ABCD"
+	line := "+" + strings.Repeat("x", (1<<20)-3) + token + "\n"
+	patch := "commit 0123456789abcdef\ndiff --git a/config.env b/config.env\n" +
+		"--- /dev/null\n+++ b/config.env\n@@ -0,0 +1 @@\n" + line
+	got, err := scanGitLogOutput(strings.NewReader(patch))
+	want := []string{"0123456789ab config.env"}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("scan token split after gh = %v, %v; want %v", got, err, want)
 	}
 }
 

@@ -2,13 +2,17 @@ package configure
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
@@ -83,5 +87,111 @@ func TestRegisterClaudeMCPAddFailureKeepsExisting(t *testing.T) {
 	got, _ := os.ReadFile(log)
 	if strings.Contains(string(got), "remove") {
 		t.Fatalf("existing registration removed before a successful add; calls:\n%s", got)
+	}
+}
+
+func TestCodexWiredIgnoresCommentedArgs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	for _, tc := range []struct {
+		name, args string
+		wired      bool
+	}{
+		{"commented", "args = []\n# args = [\"network\", \"websearch\"]\n", false},
+		{"active", "args = [\"network\", \"websearch\"] # enabled\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := "[mcp_servers.web_search]\ncommand = \"/opt/claude-code\"\n" + tc.args
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := CodexWired(path); got != tc.wired {
+				t.Fatalf("CodexWired = %v, want %v for:\n%s", got, tc.wired, body)
+			}
+		})
+	}
+}
+
+func TestRegisterClaudeMCPRestoresAfterReaddFailure(t *testing.T) {
+	for _, mode := range []string{"failure", "deadline"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv("MCP_TEST_CONFIG", paths.ClaudeJSON())
+			t.Setenv("MCP_TEST_CALLS", filepath.Join(t.TempDir(), "calls"))
+			t.Setenv("MCP_TEST_MODE", mode)
+			const original = `{"mcpServers":{"web_search":{"command":"/old/search","args":["custom"],"env":{"SEARCH_MODE":"local"}}}}`
+			if err := os.WriteFile(paths.ClaudeJSON(), []byte(original), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			pathstest.FakeVendor(t, "claude", mcpReaddFailureScript)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			err := RegisterClaudeMCPContext(ctx, "/bin/claude-code")
+			assertMCPReaddError(t, mode, err)
+			assertMCPRestored(t, original)
+		})
+	}
+}
+
+const mcpReaddFailureScript = `
+case "$2" in
+  add)
+    if [ ! -f "$MCP_TEST_CALLS" ]; then
+      echo add > "$MCP_TEST_CALLS"
+      echo 'already exists'
+      exit 1
+    fi
+    echo add >> "$MCP_TEST_CALLS"
+    if [ "$MCP_TEST_MODE" = deadline ]; then exec sleep 10; fi
+    echo 'replacement failed'
+    exit 7
+    ;;
+  remove)
+    echo remove >> "$MCP_TEST_CALLS"
+    printf '{"mcpServers":{}}' > "$MCP_TEST_CONFIG"
+    ;;
+  add-json)
+    echo add-json >> "$MCP_TEST_CALLS"
+    printf '{"mcpServers":{"web_search":%s}}' "$6" > "$MCP_TEST_CONFIG"
+    ;;
+  *) exit 9 ;;
+esac
+`
+
+func assertMCPReaddError(t *testing.T, mode string, err error) {
+	t.Helper()
+	if mode == "deadline" {
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("replacement error = %v, want context deadline", err)
+		}
+		return
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || !strings.Contains(err.Error(), "replacement failed") {
+		t.Fatalf("replacement error = %v, want wrapped exit 7 and replacement output", err)
+	}
+}
+
+func assertMCPRestored(t *testing.T, original string) {
+	t.Helper()
+	calls, err := os.ReadFile(os.Getenv("MCP_TEST_CALLS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(calls) != "add\nremove\nadd\nadd-json\n" {
+		t.Fatalf("replacement did not restore after removal; calls:\n%s", calls)
+	}
+	raw, err := os.ReadFile(paths.ClaudeJSON())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(original), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("restored registration = %s, want %s", raw, original)
 	}
 }

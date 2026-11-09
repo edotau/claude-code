@@ -53,13 +53,8 @@ func workspaceRoot(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = real
-	}
-	cfg := paths.ConfigDir()
-	if real, err := filepath.EvalSymlinks(cfg); err == nil {
-		cfg = real
-	}
+	abs = paths.Canon(abs)
+	cfg := paths.Canon(paths.ConfigDir())
 	if paths.SamePath(abs, cfg) || strings.HasPrefix(abs, cfg+string(filepath.Separator)) {
 		return "", fmt.Errorf("%s is inside the harness config dir %s: a project .claude/ cannot nest there", abs, cfg)
 	}
@@ -140,9 +135,37 @@ func workspacePlan(root string, with []string) []workspaceAction {
 	return out
 }
 
-// workspaceDirAction creates dir with a .gitkeep, or reports it kept.
+// workspaceExists reports whether path is present; a dangling symlink is present, and only not-exist means absent.
+func workspaceExists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+// workspaceErrorAction reports a path that cannot be planned; applying it fails with err.
+func workspaceErrorAction(path string, err error) workspaceAction {
+	return workspaceAction{verb: "error", path: path, apply: func() error { return err }}
+}
+
+// workspaceDirAction keeps dir when it is a directory, creates it with a .gitkeep when absent, and errors otherwise.
 func workspaceDirAction(dir string) workspaceAction {
-	if _, err := os.Stat(dir); err == nil {
+	present, err := workspaceExists(dir)
+	if err != nil {
+		return workspaceErrorAction(dir, err)
+	}
+	if present {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			return workspaceErrorAction(dir, err)
+		}
+		if !fi.IsDir() {
+			return workspaceErrorAction(dir, errors.New("exists and is not a directory"))
+		}
 		return workspaceAction{verb: "keep", path: dir}
 	}
 	return workspaceAction{verb: "create", path: dir, apply: func() error {
@@ -155,7 +178,11 @@ func workspaceDirAction(dir string) workspaceAction {
 
 // workspaceFileAction writes body to path only when path is absent.
 func workspaceFileAction(path, body string) workspaceAction {
-	if _, err := os.Stat(path); err == nil {
+	present, err := workspaceExists(path)
+	if err != nil {
+		return workspaceErrorAction(path, err)
+	}
+	if present {
 		return workspaceAction{verb: "keep", path: path}
 	}
 	return workspaceAction{verb: "create", path: path, apply: func() error {
@@ -208,7 +235,11 @@ func workspaceHasIgnore(path string) (bool, error) {
 // workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
 func workspaceMemoryAction(root string) workspaceAction {
 	dir := memstore.Dir(root)
-	if _, err := os.Stat(filepath.Join(dir, bank.BankFiles()[0])); err == nil {
+	present, err := workspaceExists(filepath.Join(dir, bank.BankFiles()[0]))
+	if err != nil {
+		return workspaceErrorAction(dir, err)
+	}
+	if present {
 		return workspaceAction{verb: "keep", path: dir}
 	}
 	return workspaceAction{verb: "create", path: dir, apply: func() error {
@@ -281,8 +312,16 @@ func WorkspaceStatus(root string, out io.Writer) error {
 			return err
 		}
 	}
-	fmt.Fprintf(out, "settings  %s\n", workspacePresent(filepath.Join(dot, "settings.json")))
-	fmt.Fprintf(out, "memory    %s  %s\n", workspacePresent(filepath.Join(memstore.Dir(root), bank.BankFiles()[0])), memstore.Dir(root))
+	settings, err := workspacePresent(filepath.Join(dot, "settings.json"))
+	if err != nil {
+		return err
+	}
+	memory, err := workspacePresent(filepath.Join(memstore.Dir(root), bank.BankFiles()[0]))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "settings  %s\n", settings)
+	fmt.Fprintf(out, "memory    %s  %s\n", memory, memstore.Dir(root))
 	has, err := workspaceHasIgnore(filepath.Join(root, ".gitignore"))
 	if err != nil {
 		return err
@@ -298,15 +337,19 @@ func WorkspaceStatus(root string, out io.Writer) error {
 // workspaceStatusKind prints one line per entry under dot/<kind>; a missing dir prints nothing.
 func workspaceStatusKind(dot, kind string, out io.Writer) error {
 	dir := filepath.Join(dot, kind)
-	if _, err := os.Stat(dir); err != nil {
-		return nil
+	present, err := workspaceExists(dir)
+	if err != nil || !present {
+		return err
 	}
 	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || p == dir || d.Name() == ".gitkeep" {
 			return err
 		}
 		rel, _ := filepath.Rel(dir, p)
-		state, target := workspaceEntryState(kind, rel, p)
+		state, target, err := workspaceEntryState(kind, rel, p)
+		if err != nil {
+			return err
+		}
 		fmt.Fprintf(out, "%-9s %-16s %s%s\n", kind, state, rel, target)
 		if d.IsDir() && kind == "skills" {
 			return fs.SkipDir // SkipDir on a file would skip its siblings; WalkDir never descends symlinks
@@ -317,21 +360,29 @@ func workspaceStatusKind(dot, kind string, out io.Writer) error {
 
 // workspaceEntryState classifies one entry: a symlink is linked; a local copy whose name also exists
 // globally shadows it; anything else is local.
-func workspaceEntryState(kind, rel, p string) (state, target string) {
+func workspaceEntryState(kind, rel, p string) (state, target string, err error) {
 	if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		t, _ := os.Readlink(p)
-		return "linked", "  → " + t
+		return "linked", "  → " + t, nil
 	}
-	if _, err := os.Stat(filepath.Join(paths.ConfigDir(), kind, rel)); err == nil {
-		return "shadows global", ""
+	shadows, err := workspaceExists(filepath.Join(paths.ConfigDir(), kind, rel))
+	if err != nil {
+		return "", "", err
 	}
-	return "local", ""
+	if shadows {
+		return "shadows global", "", nil
+	}
+	return "local", "", nil
 }
 
-// workspacePresent is "present" or "absent" for path.
-func workspacePresent(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return "present"
+// workspacePresent is "present" or "absent" for path; any error other than not-exist propagates.
+func workspacePresent(path string) (string, error) {
+	present, err := workspaceExists(path)
+	if err != nil {
+		return "", err
 	}
-	return "absent"
+	if present {
+		return "present", nil
+	}
+	return "absent", nil
 }

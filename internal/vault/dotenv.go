@@ -183,11 +183,15 @@ func writeDotenv(path, text string) error {
 	if err != nil {
 		return err
 	}
+	fi, err := f.Stat()
+	if err != nil {
+		return errors.Join(err, f.Close())
+	}
 	if err := f.Chmod(0o600); err != nil { // an existing .env keeps its old mode until now: tighten before writing
 		return errors.Join(err, f.Close())
 	}
-	if _, err := f.WriteString(text); err != nil {
-		return errors.Join(err, f.Close())
+	if _, err := f.WriteString(text); err != nil { // a partial append would read back as set: roll it back
+		return errors.Join(err, f.Truncate(fi.Size()), f.Close())
 	}
 	return f.Close()
 }

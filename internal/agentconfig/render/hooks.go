@@ -29,8 +29,7 @@ func RenderHooksFile(path string, body []byte, merge func(existing, body []byte)
 	return CommitFile(path, raw, append(next, '\n'), existed, o, out, label)
 }
 
-// DecodeRawObject decodes raw as a JSON object into map[string]json.RawMessage, preserving every key
-// (known or not) as raw bytes; blank/absent raw decodes to an empty map rather than an error.
+// DecodeRawObject decodes raw as a JSON object, keeping every key as raw bytes; blank decodes to empty, JSON null is rejected.
 func DecodeRawObject(raw []byte) (map[string]json.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string]json.RawMessage{}, nil
@@ -39,8 +38,8 @@ func DecodeRawObject(raw []byte) (map[string]json.RawMessage, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, err
 	}
-	if m == nil {
-		m = map[string]json.RawMessage{}
+	if m == nil { // json null unmarshals to a nil map: not an object, so refuse to overwrite it
+		return nil, errors.New("not a JSON object")
 	}
 	return m, nil
 }

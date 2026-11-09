@@ -21,6 +21,24 @@ func TestTomlString(t *testing.T) {
 	}
 }
 
+func TestInsertTopLevelTOMLQuotedReplacementKey(t *testing.T) {
+	for _, key := range []string{`"model"`, `'model'`} {
+		for _, suffix := range []string{"", "[profile]\nmodel = \"table\"\n"} {
+			t.Run(key+suffix, func(t *testing.T) {
+				section := key + " = \"new\"\n"
+				want := section
+				if suffix != "" {
+					want += "\n" + suffix
+				}
+				got := InsertTopLevelTOML("model = \"old\"\n"+suffix, section)
+				if got != want {
+					t.Fatalf("quoted replacement must replace the top-level key and preserve table keys: got %q, want %q", got, want)
+				}
+			})
+		}
+	}
+}
+
 // TOMLQuote must stay byte-identical to the json.Marshal-based quoter agent used before the merge.
 func TestTOMLQuoteMatchesLegacyQuoter(t *testing.T) {
 	legacy := func(s string) string { b, _ := json.Marshal(s); return string(b) }

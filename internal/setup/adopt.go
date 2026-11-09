@@ -3,6 +3,7 @@ package setup
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -43,15 +44,26 @@ func Clashes(repo, dir string) ([]Clash, error) {
 		if err != nil {
 			return nil, err
 		}
-		differs := true // a dangling symlink has no content to hash: it always differs
-		if _, statErr := os.Stat(target); statErr == nil || fi.Mode()&os.ModeSymlink == 0 {
-			if differs, err = filesDiffer(filepath.Join(repo, rel), target); err != nil {
-				return nil, err
-			}
+		differs, err := clashDiffers(filepath.Join(repo, rel), target, fi)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, Clash{Path: rel, Size: fi.Size(), Mode: fi.Mode(), Differs: differs})
 	}
 	return out, nil
+}
+
+// clashDiffers reports whether target differs from the repo's copy at src; a directory or dangling link always does.
+func clashDiffers(src, target string, fi os.FileInfo) (bool, error) {
+	if fi.IsDir() {
+		return true, nil
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		if _, err := os.Stat(target); err != nil {
+			return true, nil
+		}
+	}
+	return filesDiffer(src, target)
 }
 
 // trackedFiles runs `git -C repo ls-files -z` and returns repo-relative, slash-separated paths.
@@ -197,12 +209,17 @@ func commitHash(dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// checkoutTimeout bounds the restore so a hung git fails into the rollback instead of blocking with .git moved.
+const checkoutTimeout = 5 * time.Minute
+
 // moveGitAndCheckout moves from/.git into into and checks out; on failure .git moves back so a retry works.
 func moveGitAndCheckout(from, into string) error {
 	if err := os.Rename(filepath.Join(from, ".git"), filepath.Join(into, ".git")); err != nil {
 		return err
 	}
-	out, err := exec.Command("git", "-C", into, "checkout", "--", ".").CombinedOutput() //nolint:noctx // one-shot local git call; no caller ctx
+	ctx, cancel := context.WithTimeout(context.Background(), checkoutTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", into, "checkout", "--", ".").CombinedOutput()
 	if err == nil {
 		return nil
 	}
