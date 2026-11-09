@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentcfg"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -316,8 +317,8 @@ func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
 		_, err := reg.Get(q.Profile) // an unknown pin errs with explicit set: dispatch reports it, a lead check skips it
 		return "", true, err
 	}
-	lead, err = resolveLead(reg, q.Agent, q.Profile, q.Provider)
-	return lead, false, err
+	cfg, err := agentcfg.For(q.Agent, agentcfg.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: CanServe})
+	return cfg.Profile, false, err
 }
 
 // resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.
@@ -349,33 +350,3 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 
 // LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).
 const LeadSession = "session"
-
-// resolveLead is the profile a routed run leads with: profile (LeadSession = the session's), narrowed to provider.
-func resolveLead(reg *providers.Registry, agentName, profile, provider string) (string, error) {
-	fromSession := profile == LeadSession
-	if fromSession {
-		profile = providers.SessionLead(nil, true)
-		// a session-inherited lead never moves gemini off its pin; only a named profile or provider does
-		if p := reg.Providers[profile]; agentName == "gemini" && provider == "" && (p == nil || p.Provider != "google") {
-			return "", nil
-		}
-	}
-	if profile != "" && reg.Providers[profile] == nil {
-		return "", fmt.Errorf("profile %s is not in the registry", profile)
-	}
-	if provider == "" {
-		return profile, nil
-	}
-	if p := reg.Providers[profile]; p != nil && p.Provider == provider {
-		return profile, nil
-	}
-	if profile != "" && !fromSession {
-		return "", fmt.Errorf("--profile %s is not a %s profile", profile, provider)
-	}
-	for _, n := range reg.ProfilesOf(provider) {
-		if p := reg.Providers[n]; CanServe(agentName, p) && providers.CredentialPresent(p) {
-			return n, nil
-		}
-	}
-	return "", fmt.Errorf("no signed-in %s profile serves %s", provider, agentName)
-}
