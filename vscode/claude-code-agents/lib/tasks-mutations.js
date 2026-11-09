@@ -12,6 +12,8 @@ class MutationQueue {
     this.tails = new Map(); // id → promise chain so writes to one item land in order
     this.pending = new Map(); // id → number of in-flight writes
     this.errors = new Map(); // id → { message, retry }
+    this.bases = new Map(); // id → row before the first in-flight write
+    this.inflight = new Map(); // id → entries { patch } of in-flight writes, oldest first
   }
 
   isPending(id) {
@@ -27,10 +29,29 @@ class MutationQueue {
     this.onChange();
   }
 
-  /** Applies `patch` to the row immediately, then runs `write()`; a failure restores the pre-patch row and records the error. */
+  /** Row = base with each in-flight patch layered on, oldest first. */
+  static layer(base, entries) {
+    return entries.reduce((row, e) => (e.patch ? { ...row, ...e.patch } : row), base);
+  }
+
+  /** Drops `entry` from the in-flight list and rebuilds the row from the base plus the writes still pending. */
+  settle(id, entry, { fresh, failed }) {
+    const rest = (this.inflight.get(id) || []).filter((e) => e !== entry);
+    if (rest.length) this.inflight.set(id, rest);
+    else this.inflight.delete(id);
+    if (fresh) this.bases.set(id, fresh);
+    const base = this.bases.get(id);
+    if (!rest.length) this.bases.delete(id);
+    if (base && (failed || fresh)) this.setItem(id, MutationQueue.layer(failed ? base : fresh, rest));
+  }
+
+  /** Applies `patch` to the row immediately, then runs `write()`; a failure reverts only that write's patch. */
   enqueue({ id, patch, write }) {
-    const before = this.getItem(id);
-    if (before && patch) this.setItem(id, { ...before, ...patch });
+    const current = this.getItem(id);
+    if (!(this.inflight.get(id) || []).length) this.bases.set(id, current);
+    const entry = { patch };
+    this.inflight.set(id, [...(this.inflight.get(id) || []), entry]);
+    if (current && patch) this.setItem(id, { ...current, ...patch });
     this.errors.delete(id);
     this.pending.set(id, (this.pending.get(id) || 0) + 1);
     this.onChange();
@@ -38,10 +59,10 @@ class MutationQueue {
       try {
         const result = await write();
         const fresh = this.refetch ? await this.refetch(id).catch(() => null) : null;
-        if (fresh) this.setItem(id, fresh);
+        this.settle(id, entry, { fresh, failed: false });
         return result;
       } catch (err) {
-        if (before) this.setItem(id, before);
+        this.settle(id, entry, { fresh: null, failed: true });
         this.errors.set(id, { message: err && err.message ? err.message : String(err), retry: () => this.enqueue({ id, patch, write }) });
         throw err;
       } finally {

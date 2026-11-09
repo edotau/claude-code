@@ -10,7 +10,6 @@ const MERGE_METHOD_FLAGS = { merge: '--merge', squash: '--squash', rebase: '--re
 // Why: issue numbers follow creation order, so a created sort aligns gh's PR rows with numbered Search API pages.
 const NUMBER_SORT = 'sort:created-desc';
 const PER_REPO_FETCH_LIMIT = 36;
-const CROSS_REPO_DISPLAY_LIMIT = 100;
 
 /** `{owner, name}` for a github.com remote (ssh, scp-like or https), else null. */
 function repoFromRemote(remoteUrl, host) {
@@ -286,6 +285,13 @@ function execOnce(execFileImpl, args, options) {
   });
 }
 
+/** Reads and idempotent calls only: a POST that dropped after the server acted would run twice (duplicate comment). */
+function isIdempotent(args) {
+  const i = args.indexOf('-X');
+  if (i !== -1 && String(args[i + 1] || '').toUpperCase() !== 'GET') return false;
+  return !args.some((a) => /\bmutation\b/.test(a));
+}
+
 /** execFile `gh` with no shell; retries transient failures, trips a per-bucket breaker on a primary rate limit. */
 async function ghExec(execFileImpl, args, options) {
   const bucket = bucketOf(args);
@@ -303,7 +309,7 @@ async function ghExec(execFileImpl, args, options) {
         blockedUntil[bucket] = Date.now() + (bucket === 'search' ? 70000 : 300000);
         throw err;
       }
-      if (attempt >= retryDelaysMs.length || !isTransient(err, err.stderr)) throw err;
+      if (attempt >= retryDelaysMs.length || !isIdempotent(args) || !isTransient(err, err.stderr)) throw err;
       await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
     }
   }
@@ -348,14 +354,14 @@ async function listRepoPage({ repo, query, page, limit, execFileImpl }) {
   return { items, errors, totalPages };
 }
 
-/** Fans one page out across `repos`; cross-repo rows sort by updatedAt and cap at CROSS_REPO_DISPLAY_LIMIT. */
+/** Fans one page out across `repos`; cross-repo rows sort by updatedAt. Every fetched row is kept (no silent cap). */
 async function listWorkItems({ repos, query, page = 1, limit = PER_REPO_FETCH_LIMIT, execFileImpl }) {
   const run = execFileImpl || require('node:child_process').execFile;
   const results = await Promise.all(repos.map((repo) => listRepoPage({ repo, query, page, limit, execFileImpl: run })));
   const items = results.flatMap((r) => r.items);
   if (repos.length > 1) items.sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
   return {
-    items: items.slice(0, CROSS_REPO_DISPLAY_LIMIT),
+    items,
     errors: results.flatMap((r) => r.errors),
     totalPages: Math.max(1, ...results.map((r) => r.totalPages)),
     failedRepos: results.filter((r) => r.errors.length && !r.items.length).length,
@@ -683,7 +689,6 @@ async function authStatus(execFileImpl) {
 
 module.exports = {
   PER_REPO_FETCH_LIMIT,
-  CROSS_REPO_DISPLAY_LIMIT,
   PR_LIST_FIELDS,
   repoFromRemote,
   parseRepoSlug,

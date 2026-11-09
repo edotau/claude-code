@@ -151,23 +151,26 @@ function databricksTotalRow(p, api) {
   return `<div class="spend-row">${esc(formatCount(total))} tokens \u00B7 30d</div>`;
 }
 
-/** Databricks rows: ledger total, budget alerts, and (Remaining only) the auth method and token time left; no bar, no red. */
-function renderSpendRows(p, spend, show, api) {
-  const rows = [databricksTotalRow(p, api), ...spend.map(budgetRow)];
-  if (show === 'left' && (p.authMethod || p.tokenExpiresAtMs != null)) {
-    const ms = p.tokenExpiresAtMs == null ? null : p.tokenExpiresAtMs - Date.now();
-    const left = ms == null ? '' : `token ${ms > 0 ? `${formatResetDuration(ms)} left` : 'expired'}`;
-    const auth = [p.authMethod, left].filter(Boolean).join(' \u00B7 ');
-    rows.push(`<div class="spend-row token-row"><span class="muted">auth</span>  ${esc(auth)}</div>`);
-  }
-  return rows.join('');
+/** Databricks rows: ledger total and budget alerts; no bar, no red. */
+function renderSpendRows(p, spend, api) {
+  return [databricksTotalRow(p, api), ...spend.map(budgetRow)].join('');
+}
+
+/** Auth method and token time left, Remaining only; kept apart from the spend windows so a budget error can't hide it. */
+function renderAuthRow(p, show) {
+  if (show !== 'left' || (!p.authMethod && p.tokenExpiresAtMs == null)) return '';
+  const ms = p.tokenExpiresAtMs == null ? null : p.tokenExpiresAtMs - Date.now();
+  const left = ms == null ? '' : `token ${ms > 0 ? `${formatResetDuration(ms)} left` : 'expired'}`;
+  const auth = [p.authMethod, left].filter(Boolean).join(' \u00B7 ');
+  return `<div class="spend-row token-row"><span class="muted">auth</span>  ${esc(auth)}</div>`;
 }
 
 function renderProvider(p, show, detailed, api) {
   const resets = p.resetsAtMs != null ? formatResetCountdown(p.resetsAtMs - Date.now()) : '';
   const spend = p.windows.filter((w) => w.spend);
   if (spend.length) p = { ...p, windows: p.windows.filter((w) => !w.spend) };
-  const spendBody = spend.length ? renderSpendRows(p, spend, show, api) : '';
+  const spendBody = spend.length ? renderSpendRows(p, spend, api) : '';
+  const authBody = renderAuthRow(p, show);
   const body = p.windows.length
     ? detailed
       ? hasMultipleGroups(p.windows)
@@ -186,7 +189,7 @@ function renderProvider(p, show, detailed, api) {
       <span class="provider-name">${name}</span>
       <span class="provider-resets">${esc(resets)}</span>
     </div>
-    <div class="card-body">${body}${credits}${spendBody}</div>
+    <div class="card-body">${body}${credits}${spendBody}${authBody}</div>
   </div>`;
 }
 
@@ -356,25 +359,24 @@ function renderStatsTiles(stats) {
 function renderHeatmap(stats) {
   const days = stats.daily || [];
   if (!days.length) return '<div class="muted">No activity yet</div>';
-  const firstDow = new Date(`${days[0].date}T00:00:00Z`).getUTCDay();
+  const origin = Date.parse(`${days[0].date}T00:00:00Z`);
+  const firstDow = new Date(origin).getUTCDay();
   const max = Math.max(1, ...days.map((d) => d.tokens));
   const cells = [];
-  let col = 0;
-  let row = firstDow;
+  let columns = 1;
   for (const d of days) {
+    // Position by calendar offset from the first day, so sparse or missing dates keep their weekday row.
+    const offset = Math.round((Date.parse(`${d.date}T00:00:00Z`) - origin) / 86400000) + firstDow;
+    const col = Math.floor(offset / 7);
+    const row = offset % 7;
+    columns = Math.max(columns, col + 1);
     const level = heatLevel(d.tokens, max);
     cells.push(
       `<span class="heat-cell" style="grid-column:${col + 1};grid-row:${row + 1};opacity:${HEAT_OPACITY[level]}${level === 0 ? ';background:var(--track)' : ''}" title="${esc(
         formatDayLabel(d.date)
       )}: ${esc(formatCount(d.tokens))} tokens"></span>`
     );
-    row++;
-    if (row > 6) {
-      row = 0;
-      col++;
-    }
   }
-  const columns = col + 1;
   return `<div class="heatmap-wrap"><div class="heatmap" style="grid-template-columns:repeat(${columns},var(--heat-cell,10px));grid-template-rows:repeat(7,var(--heat-cell,10px))">${cells.join('')}</div></div>`;
 }
 

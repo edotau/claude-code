@@ -9,7 +9,8 @@ const ALLOWED_TAGS = new Set([
 ]);
 const DROP_WITH_CONTENT = new Set(['script', 'style', 'iframe', 'object', 'embed', 'noscript', 'template', 'svg', 'math', 'textarea', 'select', 'button', 'form', 'input']);
 const ALLOWED_ATTRS = { a: ['href', 'title'], img: ['src', 'alt', 'title', 'width', 'height'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'] };
-const VOID = new Set(['br', 'hr', 'img']);
+const VOID = new Set(['br', 'hr', 'img', 'input', 'embed']);
+const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 
 function safeUrl(value, { allowData = false } = {}) {
   const v = String(value || '').trim().replace(/[\u0000-\u001f]/g, '');
@@ -19,11 +20,20 @@ function safeUrl(value, { allowData = false } = {}) {
   return null;
 }
 
+/** Decodes character references so a stored `&amp;` is not escaped twice on output. */
+function decodeEntities(value) {
+  return value.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m, body) => {
+    if (body[0] !== '#') return NAMED_ENTITIES[body.toLowerCase()] ?? m;
+    const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+    return code <= 0x10ffff ? String.fromCodePoint(code) : m;
+  });
+}
+
 function parseAttrs(raw) {
   const out = {};
   const re = /([^\s"'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
   let m;
-  while ((m = re.exec(raw))) out[m[1].toLowerCase()] = m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] != null ? m[4] : '';
+  while ((m = re.exec(raw))) out[m[1].toLowerCase()] = decodeEntities(m[2] ?? m[3] ?? m[4] ?? '');
   return out;
 }
 
@@ -53,7 +63,7 @@ function sanitizeHtml(html, opts) {
       continue;
     }
     if (DROP_WITH_CONTENT.has(tag)) {
-      if (!closing && !/\/\s*>$/.test(m[0])) dropUntil = tag;
+      if (!closing && !VOID.has(tag) && !/\/\s*>$/.test(m[0])) dropUntil = tag;
       continue;
     }
     if (!ALLOWED_TAGS.has(tag)) continue; // unwrap: keep the text, drop the tag
@@ -94,4 +104,4 @@ function textOf(html, max = 200) {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
-module.exports = { sanitizeHtml, textOf, ALLOWED_TAGS };
+module.exports = { sanitizeHtml, textOf };

@@ -254,7 +254,7 @@ test('a non-2xx response throws an Error with .status and errorMessages[0] in th
 
 test('resolveToken: uses `vault get JIRA_TOKEN` via execFileImpl, argv exact, no shell', async () => {
   const calls = [];
-  const execFileImpl = (binary, args, cb) => {
+  const execFileImpl = (binary, args, opts, cb) => {
     calls.push({ binary, args });
     cb(null, 'JIRA_TOKEN=secret-tok\n');
   };
@@ -265,19 +265,19 @@ test('resolveToken: uses `vault get JIRA_TOKEN` via execFileImpl, argv exact, no
 });
 
 test('resolveToken: falls back to env.JIRA_TOKEN when the binary fails', async () => {
-  const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
+  const execFileImpl = (binary, args, opts, cb) => cb(new Error('not found'));
   const token = await resolveToken({ binary: 'claude-code', env: { JIRA_TOKEN: 'env-tok' }, execFileImpl });
   assert.equal(token, 'env-tok');
 });
 
 test('resolveToken: falls back to env.ATLASSIAN_TOKEN when JIRA_TOKEN is unset', async () => {
-  const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
+  const execFileImpl = (binary, args, opts, cb) => cb(new Error('not found'));
   const token = await resolveToken({ binary: 'claude-code', env: { ATLASSIAN_TOKEN: 'atl-tok' }, execFileImpl });
   assert.equal(token, 'atl-tok');
 });
 
 test('resolveToken: falls back to the file named by env.JIRA_TOKEN_FILE', async () => {
-  const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
+  const execFileImpl = (binary, args, opts, cb) => cb(new Error('not found'));
   const readFileImpl = (p) => {
     assert.equal(p, '/custom/token-file');
     return 'file-tok\n';
@@ -292,7 +292,7 @@ test('resolveToken: falls back to the file named by env.JIRA_TOKEN_FILE', async 
 });
 
 test('resolveToken: falls back to ~/.ssh/atlassian-ci-pat', async () => {
-  const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
+  const execFileImpl = (binary, args, opts, cb) => cb(new Error('not found'));
   const readFileImpl = (p) => {
     assert.equal(p, path.join('/home/tester', '.ssh', 'atlassian-ci-pat'));
     return 'pat-tok\n';
@@ -307,13 +307,24 @@ test('resolveToken: falls back to ~/.ssh/atlassian-ci-pat', async () => {
 });
 
 test('resolveToken: an empty binary stdout falls through to env, not an empty token', async () => {
-  const execFileImpl = (binary, args, cb) => cb(null, '  \n');
+  const execFileImpl = (binary, args, opts, cb) => cb(null, '  \n');
   const token = await resolveToken({ binary: 'claude-code', env: { JIRA_TOKEN: 'env-tok' }, execFileImpl });
   assert.equal(token, 'env-tok');
 });
 
+test('resolveToken: the vault call carries a timeout so a hung vault cannot block the fallback', async () => {
+  let seenOpts;
+  const execFileImpl = (binary, args, opts, cb) => {
+    seenOpts = opts;
+    cb(new Error('killed'));
+  };
+  const token = await resolveToken({ binary: 'claude-code', env: { JIRA_TOKEN: 'env-tok' }, execFileImpl });
+  assert.equal(token, 'env-tok');
+  assert.ok(seenOpts.timeout > 0);
+});
+
 test('resolveToken: no source available rejects with "no token"', async () => {
-  const execFileImpl = (binary, args, cb) => cb(new Error('not found'));
+  const execFileImpl = (binary, args, opts, cb) => cb(new Error('not found'));
   const readFileImpl = () => {
     throw new Error('ENOENT');
   };

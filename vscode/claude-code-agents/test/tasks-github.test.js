@@ -8,7 +8,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   PER_REPO_FETCH_LIMIT,
-  CROSS_REPO_DISPLAY_LIMIT,
   summarizeChecks,
   mergeState,
   mapPullRequest,
@@ -297,11 +296,10 @@ test('listWorkItems: scope=pr never issues an issue-search call', async () => {
   assert.ok(out.items.every((i) => i.type === 'pr'));
 });
 
-test('listWorkItems: two repos sort by updatedAt descending and stay under the display cap', async () => {
+test('listWorkItems: two repos sort by updatedAt descending and keep every fetched row', async () => {
   const { execFileImpl } = ghFake();
   const repos = [REPO, { owner: 'acme', name: 'gadgets' }];
   const out = await listWorkItems({ repos, query: QUERY, page: 1, limit: PER_REPO_FETCH_LIMIT, execFileImpl });
-  assert.ok(out.items.length <= CROSS_REPO_DISPLAY_LIMIT);
   assert.equal(out.items.length, 2 * (fixture('pr-list').length + fixture('issue-search').length));
   for (let i = 1; i < out.items.length; i++) {
     assert.ok(Date.parse(out.items[i - 1].updatedAt) >= Date.parse(out.items[i].updatedAt));

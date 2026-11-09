@@ -150,21 +150,49 @@ function buildUrl(baseUrl, path, searchParams) {
   return url.toString();
 }
 
+const REQUEST_TIMEOUT_MS = 15000;
+
 /** Creates a Data Center REST client bound to `baseUrl`/`token`; `fetchImpl` defaults to global fetch. */
 function createClient(opts) {
   const { baseUrl, token, fetchImpl } = opts || {};
   const doFetch = fetchImpl || fetch;
 
-  async function requestJson(path, searchParams) {
-    const response = await doFetch(buildUrl(baseUrl, path, searchParams), {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) {
-      const err = new Error(`Bitbucket request failed: HTTP ${response.status}`);
-      err.status = response.status;
-      throw err;
+  /** One request under a deadline; `read` consumes the response while the timer is still armed. */
+  async function send(url, read) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await doFetch(url, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      return await read(response);
+    } finally {
+      clearTimeout(timer);
     }
-    return response.json();
+  }
+
+  function requestJson(path, searchParams) {
+    return send(buildUrl(baseUrl, path, searchParams), async (response) => {
+      if (!response.ok) {
+        const err = new Error(`Bitbucket request failed: HTTP ${response.status}`);
+        err.status = response.status;
+        throw err;
+      }
+      return response.json();
+    });
+  }
+
+  /** Every page of a paged REST list (`isLastPage` / `nextPageStart`), concatenated in server order. */
+  async function allPages(path, searchParams) {
+    const values = [];
+    let start = 0;
+    for (;;) {
+      const page = await requestJson(path, { ...searchParams, start: String(start) });
+      values.push(...((page && page.values) || []));
+      if (!page || page.isLastPage !== false || page.nextPageStart == null) return values;
+      start = page.nextPageStart;
+    }
   }
 
   async function buildStatus(sha) {
@@ -186,19 +214,13 @@ function createClient(opts) {
   }
 
   /** Raw (unmapped) dashboard PRs — pass through `listWithBuilds` to get row-contract shapes with builds. */
-  async function dashboard(role, state) {
-    const page = await requestJson('/rest/api/1.0/dashboard/pull-requests', {
-      role,
-      state: state || 'OPEN',
-      limit: '50',
-    });
-    return (page && page.values) || [];
+  function dashboard(role, state) {
+    return allPages('/rest/api/1.0/dashboard/pull-requests', { role, state: state || 'OPEN', limit: '50' });
   }
 
-  /** Raw (unmapped) PRs of one repo, newest first; `state` is OPEN|MERGED|DECLINED|ALL (default OPEN). */
-  async function pullRequests(ref, state) {
-    const page = await requestJson(`${repoApiPath(ref)}/pull-requests`, { state: state || 'OPEN', limit: '50' });
-    return (page && page.values) || [];
+  /** Raw (unmapped) PRs of one repo, newest first, all pages; `state` is OPEN|MERGED|DECLINED|ALL (default OPEN). */
+  function pullRequests(ref, state) {
+    return allPages(`${repoApiPath(ref)}/pull-requests`, { state: state || 'OPEN', limit: '50' });
   }
 
   /** Maps raw PRs to row-contract shapes, fetching each one's build status (by its from-branch head) concurrently. */
@@ -211,9 +233,7 @@ function createClient(opts) {
   async function doctor() {
     let response;
     try {
-      response = await doFetch(buildUrl(baseUrl, '/rest/api/1.0/projects', { limit: '1' }), {
-        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-      });
+      response = await send(buildUrl(baseUrl, '/rest/api/1.0/projects', { limit: '1' }), async (r) => r);
     } catch (err) {
       return { ok: false, reason: 'unreachable', message: err.message };
     }
@@ -246,13 +266,15 @@ function tokenFromFiles(env, readFileImpl) {
   return null;
 }
 
+const VAULT_TIMEOUT_MS = 15000; // a hung vault must not block the env/file fallback
+
 /** Resolves BITBUCKET_TOKEN: `<binary> vault get` (NAME=value), then env, then the token files. The caller caches/invalidates it. */
 function resolveToken(opts) {
   const { binary, env, execFileImpl, readFileImpl } = opts || {};
   const runExecFile = execFileImpl || require('node:child_process').execFile;
   const environment = env || process.env;
   return new Promise((resolve, reject) => {
-    runExecFile(binary, ['vault', 'get', 'BITBUCKET_TOKEN'], (err, stdout) => {
+    runExecFile(binary, ['vault', 'get', 'BITBUCKET_TOKEN'], { timeout: VAULT_TIMEOUT_MS }, (err, stdout) => {
       const fromBinary = err ? null : stdout.toString().trim().replace(/^BITBUCKET_TOKEN=/, '');
       if (fromBinary) return resolve(fromBinary);
       if (environment.BITBUCKET_TOKEN) return resolve(environment.BITBUCKET_TOKEN);

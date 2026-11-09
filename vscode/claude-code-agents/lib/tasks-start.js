@@ -50,16 +50,30 @@ function basename(p) {
   return String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
 }
 
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Matchers for the item's key/number in a branch or path: `ABC-1` must not match `abc-10`, `42` not `420`. */
+function mentionMatchers(item) {
+  if (item.source === 'jira') {
+    const key = String(item.key || '').toLowerCase();
+    return key ? [new RegExp(`(?:^|[^a-z0-9])${escapeRegex(key)}(?![0-9])`)] : [];
+  }
+  const n = escapeRegex(String(item.number));
+  return [new RegExp(`(?:^|[^a-z0-9])issue-${n}(?![0-9])`), new RegExp(`(?:^|[^a-z0-9])pr-${n}(?![0-9])`), new RegExp(`-${n}(?![0-9])`)];
+}
+
 /** The `worktree list --format json` entry attached to `item`: exact branch, else a key/number mention in branch or path. */
 function findAttached(worktrees, item) {
   const list = (Array.isArray(worktrees) ? worktrees : []).filter((w) => w && w.Exists !== false);
   const branch = branchNameFor(item);
   const exact = list.find((w) => w.Branch === branch);
   if (exact) return exact;
-  const needles = item.source === 'jira' ? [String(item.key || '').toLowerCase()] : [`issue-${item.number}`, `pr-${item.number}`, `-${item.number}-`];
+  const matchers = mentionMatchers(item);
   const hit = list.find((w) => {
     const hay = `${w.Branch || ''} ${basename(w.Path)}`.toLowerCase();
-    return needles.some((n) => n && hay.includes(n));
+    return matchers.some((re) => re.test(hay));
   });
   return hit || null;
 }
@@ -70,7 +84,7 @@ function shellQuote(s) {
   return `'${String(s).replace(/'/g, "'\\''")}'`;
 }
 
-/** `cd '<cwd>' && <binary> claude "$(cat '<promptFile>')"` — the prompt never travels on the command line. */
+/** `cd '<cwd>' && <binary> claude "$(cat '<promptFile>')"` — the shell expands the file into the launched argv. */
 function launchCommand({ binary, cwd, promptFile }) {
   return `cd ${shellQuote(cwd)} && ${binary} claude "$(cat ${shellQuote(promptFile)})"`;
 }

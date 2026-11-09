@@ -44,7 +44,7 @@ function createClient(opts) {
       });
       if (response.status === 204) return { ok: true };
       if (!response.ok) await throwForStatus(response);
-      return response.json();
+      return await response.json();
     } finally {
       clearTimeout(timer);
     }
@@ -113,24 +113,21 @@ function createClient(opts) {
   }
 
   async function myself() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      let response;
-      try {
-        response = await doFetch(`${serverRoot(baseUrl)}/rest/api/2/myself`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'claude-code-agents' },
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timer);
-      }
+      const response = await doFetch(`${serverRoot(baseUrl)}/rest/api/2/myself`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'claude-code-agents' },
+        signal: controller.signal,
+      });
       if (response.status === 401 || response.status === 403) return { ok: false, reason: 'rejected' };
       if (!response.ok) return { ok: false, reason: 'unreachable' };
       const user = await response.json();
       return { ok: true, user: { name: user.name, displayName: user.displayName, avatarUrl: (user.avatarUrls && user.avatarUrls['24x24']) || null } };
     } catch (err) {
       return { ok: false, reason: 'unreachable', message: err.message };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -154,13 +151,15 @@ function tokenFromFiles(env, readFileImpl) {
   return null;
 }
 
+const VAULT_TIMEOUT_MS = 15000; // a hung vault must not block the env/file fallback
+
 /** Resolves JIRA_TOKEN: `<binary> vault get` (NAME=value), then env (JIRA_TOKEN, ATLASSIAN_TOKEN), then the token files. */
 function resolveToken(opts) {
   const { binary, env, execFileImpl, readFileImpl } = opts || {};
   const runExecFile = execFileImpl || require('node:child_process').execFile;
   const environment = env || process.env;
   return new Promise((resolve, reject) => {
-    runExecFile(binary, ['vault', 'get', 'JIRA_TOKEN'], (err, stdout) => {
+    runExecFile(binary, ['vault', 'get', 'JIRA_TOKEN'], { timeout: VAULT_TIMEOUT_MS }, (err, stdout) => {
       const fromBinary = err ? null : stdout.toString().trim().replace(/^JIRA_TOKEN=/, '');
       if (fromBinary) return resolve(fromBinary);
       if (environment.JIRA_TOKEN) return resolve(environment.JIRA_TOKEN);
