@@ -1,6 +1,7 @@
 package roles
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -49,12 +50,13 @@ func TestArgsToolsFlagPerVendor(t *testing.T) {
 		wantTools bool
 	}{
 		{"codex", false},
-		{"gemini", true},
 		{"copilot", true},
-		{"opencode", true},
 	}
 	for _, c := range cases {
-		args := Args(c.vendor, "/work", "q", false, false)
+		args, err := Args(c.vendor, "/work", "q", false, false)
+		if err != nil {
+			t.Fatal(err)
+		}
 		got := argvContains(args, "--tools")
 		if got != c.wantTools {
 			t.Errorf("Args(%q) --tools present = %v, want %v (args=%v)", c.vendor, got, c.wantTools, args)
@@ -64,11 +66,17 @@ func TestArgsToolsFlagPerVendor(t *testing.T) {
 
 // Args includes --background exactly when requested, independent of the vendor.
 func TestArgsBackgroundFlag(t *testing.T) {
-	fg := Args("codex", "/work", "q", false, false)
+	fg, err := Args("codex", "/work", "q", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if argvContains(fg, "--background") {
 		t.Errorf("foreground Args must not include --background: %v", fg)
 	}
-	bg := Args("codex", "/work", "q", false, true)
+	bg, err := Args("codex", "/work", "q", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !argvContains(bg, "--background") {
 		t.Errorf("background Args must include --background: %v", bg)
 	}
@@ -76,9 +84,12 @@ func TestArgsBackgroundFlag(t *testing.T) {
 
 // Args always carries --agent/--workdir and ends with the built prompt as the last argv element.
 func TestArgsShape(t *testing.T) {
-	args := Args("gemini", "/work", "q", false, false)
-	if len(args) < 3 || args[0] != "--agent" || args[1] != "gemini" {
-		t.Fatalf("Args must start with --agent gemini: %v", args)
+	args, err := Args("copilot", "/work", "q", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) < 3 || args[0] != "--agent" || args[1] != "copilot" {
+		t.Fatalf("Args must start with --agent copilot: %v", args)
 	}
 	if !argvContains(args, "--workdir") {
 		t.Errorf("Args must include --workdir: %v", args)
@@ -97,12 +108,13 @@ func TestExploreToolsReadOnly(t *testing.T) {
 	}{
 		{"copilot", true, true},
 		{"codex", false, false},
-		{"gemini", true, false},
-		{"opencode", true, false},
 	}
 	for _, c := range cases {
 		t.Run(c.vendor, func(t *testing.T) {
-			args := Args(c.vendor, "/work", "inspect the repository", false, false)
+			args, err := Args(c.vendor, "/work", "inspect the repository", false, false)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if got := slices.Contains(args, "--tools"); got != c.wantTools {
 				t.Errorf("Args --tools = %v, want %v", got, c.wantTools)
 			}
@@ -110,12 +122,56 @@ func TestExploreToolsReadOnly(t *testing.T) {
 				t.Errorf("Args --read-only = %v, want %v", got, c.wantReadOnly)
 			}
 			base := agent.RunOptions{Agent: c.vendor}
-			options := Options(base, "inspect the repository", false)
+			options, err := Options(base, "inspect the repository", false)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if options.Tools != c.wantTools || options.ReadOnly != c.wantReadOnly {
 				t.Errorf("Options Tools/ReadOnly = %v/%v, want %v/%v",
 					options.Tools, options.ReadOnly, c.wantTools, c.wantReadOnly)
 			}
 		})
+	}
+}
+
+func TestExploreRejectsPromptOnlyAgents(t *testing.T) {
+	for _, vendor := range []string{"gemini", "opencode"} {
+		t.Run(vendor, func(t *testing.T) {
+			want := "explore on " + vendor + " is read-only by prompt only; use codex or copilot (read-only enforced)"
+			args, err := Args(vendor, "/work", "inspect", true, true)
+			assertExploreRefusal(t, err, want)
+			if args != nil {
+				t.Fatalf("Args returned runnable arguments: %v", args)
+			}
+			_, err = Options(agent.RunOptions{Agent: vendor}, "inspect", true)
+			assertExploreRefusal(t, err, want)
+			r := Role{Name: "explore", Agent: vendor}
+			legs := Legs(r, Request{Task: "inspect", WorkDir: "/work", Web: true})
+			if len(legs) != 1 {
+				t.Fatalf("want one refused leg, got %+v", legs)
+			}
+			if legs[0].Err != want {
+				t.Fatalf("leg error = %q; want %q", legs[0].Err, want)
+			}
+			seen := fakeStream(t)
+			rep := Run(context.Background(), nil, r, legs, 1, nil)
+			if len(*seen) != 0 || rep.Status != "error" {
+				t.Fatalf("refused explore dispatched: calls=%v report=%+v", *seen, rep)
+			}
+			if got := rep.Legs[0].Envelope.Error; got == nil || got.Message != want {
+				t.Fatalf("refusal lost in report: %+v", got)
+			}
+		})
+	}
+}
+
+func assertExploreRefusal(t *testing.T, err error, want string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("explore accepted a prompt-only agent")
+	}
+	if err.Error() != want {
+		t.Fatalf("explore error = %v; want %q", err, want)
 	}
 }
 

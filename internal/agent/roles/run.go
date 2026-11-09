@@ -179,7 +179,12 @@ func exploreLegs(base agent.RunOptions, q Request) []Leg {
 	}
 	legs := make([]Leg, 0, len(parts))
 	for _, p := range parts {
-		legs = append(legs, Leg{Label: p, Opts: Options(base, p, q.Web)})
+		o, err := Options(base, p, q.Web)
+		leg := Leg{Label: p, Opts: o}
+		if err != nil { // keep the requested agent for the failure envelope; Options returns zeroed opts on refusal
+			leg.Opts, leg.Err = base, err.Error()
+		}
+		legs = append(legs, leg)
 	}
 	return legs
 }

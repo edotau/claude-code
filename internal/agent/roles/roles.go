@@ -21,7 +21,7 @@ type Role struct {
 
 // Seed is the built-in role table, replaced by the vault overlay when set.
 var Seed = []Role{
-	{Name: "explore", Agent: "gemini"},
+	{Name: "explore", Agent: "copilot"}, // read-only enforced; gemini/opencode explore is refused (owner, 2026-11-09)
 	{Name: "fleet", Agent: "copilot"},
 	{Name: "compare", Agent: "opencode", Models: []string{"claude-sonnet-5-5", "gpt-6-1-sol", "gemini-3-8-flash", "kimi-k3"}},
 }

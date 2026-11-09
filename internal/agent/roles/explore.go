@@ -1,6 +1,10 @@
 package roles
 
-import "github.com/edotau/claude-code/internal/agent"
+import (
+	"fmt"
+
+	"github.com/edotau/claude-code/internal/agent"
+)
 
 // promptBase is the read-only Explore brief shared by every agent; web is appended when enabled.
 const promptBase = `Read-only: never modify, create or delete a file.
@@ -40,28 +44,38 @@ func enforcesReadOnly(agentName string) bool {
 	return ok && s.CLI.Caps.ReadOnly == agent.Native
 }
 
+// requireReadOnly refuses an agent that reads with tools but cannot enforce read-only (prompt-only is not enough).
+func requireReadOnly(agentName string) error {
+	if !needsTools(agentName) || enforcesReadOnly(agentName) {
+		return nil
+	}
+	return fmt.Errorf("explore on %s is read-only by prompt only; use codex or copilot (read-only enforced)", agentName)
+}
+
 // Args builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
-func Args(agentName, cwd, question string, web, background bool) []string {
+func Args(agentName, cwd, question string, web, background bool) ([]string, error) {
+	if err := requireReadOnly(agentName); err != nil {
+		return nil, err
+	}
 	args := []string{"--agent", agentName, "--workdir", cwd}
 	if needsTools(agentName) {
-		args = append(args, "--tools")
-		if enforcesReadOnly(agentName) {
-			args = append(args, "--read-only")
-		}
+		args = append(args, "--tools", "--read-only")
 	}
 	if background {
 		args = append(args, "--background")
 	}
-	return append(args, Prompt(question, web))
+	return append(args, Prompt(question, web)), nil
 }
 
-// Options returns base with the explore prompt for question, and tools on when the agent needs them to read.
-func Options(base agent.RunOptions, question string, web bool) agent.RunOptions {
+// Options returns base with the explore prompt, tools and read-only on; it refuses prompt-only agents.
+func Options(base agent.RunOptions, question string, web bool) (agent.RunOptions, error) {
+	if err := requireReadOnly(base.Agent); err != nil {
+		return agent.RunOptions{}, err
+	}
 	o := base
 	o.Prompt = Prompt(question, web)
 	if needsTools(o.Agent) {
-		o.Tools = true
-		o.ReadOnly = o.ReadOnly || enforcesReadOnly(o.Agent)
+		o.Tools, o.ReadOnly = true, true
 	}
-	return o
+	return o, nil
 }

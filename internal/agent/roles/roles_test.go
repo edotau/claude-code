@@ -55,12 +55,13 @@ func mustRole(t *testing.T, name string) Role {
 
 func TestRoleExploreLegsOnePerPart(t *testing.T) {
 	vaulttest.Use(t)
-	legs := Legs(mustRole(t, "explore"), Request{Task: "t", Parts: []string{"a", "b"}, WorkDir: "/w", Web: true})
+	r := Role{Name: "explore", Agent: "copilot"}
+	legs := Legs(r, Request{Task: "t", Parts: []string{"a", "b"}, WorkDir: "/w", Web: true})
 	if len(legs) != 2 || legs[0].Label != "a" || legs[1].Label != "b" {
 		t.Fatalf("want legs a,b; got %+v", legs)
 	}
 	o := legs[1].Opts
-	if o.Agent != "gemini" || !o.Tools || o.WorkDir != "/w" || o.Prompt != Prompt("b", true) {
+	if o.Agent != "copilot" || !o.Tools || !o.ReadOnly || o.WorkDir != "/w" || o.Prompt != Prompt("b", true) {
 		t.Errorf("explore opts wrong: %+v", o)
 	}
 }
@@ -69,7 +70,11 @@ func TestRoleLegsCarryOutputSchema(t *testing.T) {
 	vaulttest.Use(t)
 	const schema = `{"type":"object"}`
 	for _, tc := range []struct{ role, models string }{{"explore", ""}, {"fleet", ""}, {"compare", ""}} {
-		legs := Legs(mustRole(t, tc.role), Request{Task: "t", Parts: []string{"a"}, WorkDir: "/w", OutputSchema: schema})
+		r := mustRole(t, tc.role)
+		if r.Name == "explore" {
+			r.Agent = "copilot"
+		}
+		legs := Legs(r, Request{Task: "t", Parts: []string{"a"}, WorkDir: "/w", OutputSchema: schema})
 		if len(legs) == 0 {
 			t.Fatalf("%s: no legs", tc.role)
 		}
@@ -83,7 +88,7 @@ func TestRoleLegsCarryOutputSchema(t *testing.T) {
 
 func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 	vaulttest.Use(t)
-	legs := Legs(mustRole(t, "explore"), Request{Task: "whole", Web: false})
+	legs := Legs(Role{Name: "explore", Agent: "codex"}, Request{Task: "whole", Web: false})
 	if len(legs) != 1 || legs[0].Opts.Prompt != Prompt("whole", false) {
 		t.Fatalf("want one leg on the task; got %+v", legs)
 	}
@@ -178,8 +183,8 @@ func TestRoleVaultOverlayMovesExplore(t *testing.T) {
 	if _, err := Lookup("fleet"); err == nil {
 		t.Error("overlay replaces the table: fleet must be unknown")
 	}
-	if got := Legs(r, Request{Task: "x"})[0].Opts.Agent; got != "opencode" {
-		t.Errorf("leg agent %q", got)
+	if got := Legs(r, Request{Task: "x"})[0].Err; !strings.Contains(got, "explore on opencode") {
+		t.Errorf("prompt-only overlay must be refused: %q", got)
 	}
 }
 
