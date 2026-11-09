@@ -92,9 +92,21 @@ func (lp ladderPick) units(groups [][]Candidate) []rungGroup {
 		}
 		for _, u := range split {
 			if u = lp.l.admit(u, lp.res); len(u) > 0 {
-				rung, cs := lp.placeUnit(u)
-				out = append(out, rungGroup{rung, cs})
+				if rung, cs := lp.placeUnit(u); len(cs) > 0 {
+					out = append(out, rungGroup{rung, cs})
+				}
 			}
+		}
+	}
+	return out
+}
+
+// admitGroups applies the first-party filter to each gate group, dropping groups it empties.
+func (lp ladderPick) admitGroups(groups [][]Candidate) [][]Candidate {
+	var out [][]Candidate
+	for _, g := range groups {
+		if g = lp.l.admit(g, lp.res); len(g) > 0 {
+			out = append(out, g)
 		}
 	}
 	return out
@@ -115,10 +127,12 @@ func (l pickLadder) admit(u []Candidate, res *PickResult) []Candidate {
 }
 
 // placeUnit returns the first rung the unit matches and its candidates (one per rung model); len(rungs) = no rung.
+// A unit whose matched rungs all reject its models returns no candidates, so it is never emitted.
 func (lp ladderPick) placeUnit(u []Candidate) (int, []Candidate) {
 	if lp.l.anywhere && u[0].Agent == "claude" {
 		return -1, u
 	}
+	matched := false
 	for i, g := range lp.l.rungs {
 		if (g.Agent != "" && g.Agent != u[0].Agent) || (g.Provider != "" && g.Provider != accountProvider(u[0].Account)) {
 			continue
@@ -126,9 +140,13 @@ func (lp ladderPick) placeUnit(u []Candidate) (int, []Candidate) {
 		if len(g.Models) == 0 {
 			return i, u
 		}
+		matched = true
 		if cs := lp.rungCandidates(g, u); len(cs) > 0 {
 			return i, cs
 		}
+	}
+	if matched {
+		return len(lp.l.rungs), nil
 	}
 	return len(lp.l.rungs), u
 }

@@ -124,6 +124,8 @@ func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) i
 	}
 	after := maps.Clone(before)
 	apply(after)
-	printLines(providers.DryRunLines(before, after, notes))
+	if err := printLines(providers.DryRunLines(before, after, notes)); err != nil {
+		return helptext.Fail("agent record preview: %v", err)
+	}
 	return 0
 }

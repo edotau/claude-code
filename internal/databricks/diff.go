@@ -47,12 +47,33 @@ func maskPair(o, n any, secret bool, key string) (any, any) {
 	if ook || nok {
 		return maskMaps(o, n, om, nm, ook, nok, secret, key)
 	}
-	oa, ook := o.([]any)
-	na, nok := n.([]any)
-	if ook || nok {
-		return maskSlices(oa, na, secret, key)
+	_, oArr := o.([]any)
+	_, nArr := n.([]any)
+	if oArr || nArr {
+		return maskArrays(o, n, secret, key)
 	}
 	return maskLeaf(o, n, secret, key)
+}
+
+// maskArrays masks a pair where either side is an array; a side that is not an array keeps its own value.
+func maskArrays(o, n any, secret bool, key string) (any, any) {
+	oa, ook := o.([]any)
+	na, nok := n.([]any)
+	if ook && nok {
+		return maskSlices(oa, na, secret, key)
+	}
+	var ov, nv any
+	if ook {
+		ov, _ = maskSlices(oa, nil, secret, key)
+	} else {
+		ov, _ = maskLeaf(o, nil, secret, key)
+	}
+	if nok {
+		_, nv = maskSlices(nil, na, secret, key)
+	} else {
+		_, nv = maskLeaf(nil, n, secret, key)
+	}
+	return ov, nv
 }
 
 // maskMaps masks two objects key by key; a side that is not an object is masked as a leaf.

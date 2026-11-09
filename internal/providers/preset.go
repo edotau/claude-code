@@ -114,7 +114,12 @@ func applyCLIProfile(p *Provider) {
 // DatabricksCLICommands are the auth.command / auth.refreshCommand a cliProfile derives.
 func DatabricksCLICommands(profile string) (command, refresh string) {
 	mint := "databricks auth token -p " + profile
-	return mint + " -o json | jq -r .access_token", mint + " --force-refresh -o json | jq -r .access_token"
+	return tokenFromCLI(mint + " -o json"), tokenFromCLI(mint + " --force-refresh -o json")
+}
+
+// tokenFromCLI pipes a CLI's JSON through jq; capturing first makes a CLI failure stop the chain (sh has no pipefail).
+func tokenFromCLI(cli string) string {
+	return `out=$(` + cli + `) && printf '%s' "$out" | jq -r .access_token`
 }
 
 // ValidID reports whether s is a legal provider row id / cliProfile name.
@@ -194,6 +199,7 @@ var (
 	harnessEnvKeys = []string{
 		"CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_SUBAGENT_MODEL", "MAX_THINKING_TOKENS",
 		"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR",
+		"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
 	}
 )
 

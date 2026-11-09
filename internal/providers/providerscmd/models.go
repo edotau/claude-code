@@ -13,11 +13,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// printLines prints each line of a rendered view.
-func printLines(lines []string) {
+// printLines prints each line of a rendered view, returning the first stdout write error.
+func printLines(lines []string) error {
 	for _, l := range lines {
-		fmt.Println(l)
+		if _, err := fmt.Fprintln(os.Stdout, l); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 var modelsPage = helptext.Page{
@@ -83,7 +86,9 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 		}
 		return 0
 	}
-	printLines(providers.SelectionLines(reg, sel))
+	if err := printLines(providers.SelectionLines(reg, sel)); err != nil {
+		return helptext.Fail("models: %v", err)
+	}
 	return 0
 }
 
@@ -106,6 +111,8 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("models", cat.Rows())
 	}
-	printLines(cat.TableLines())
+	if err := printLines(cat.TableLines()); err != nil {
+		return helptext.Fail("models: %v", err)
+	}
 	return 0
 }

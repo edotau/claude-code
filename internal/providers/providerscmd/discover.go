@@ -2,8 +2,10 @@ package providerscmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
@@ -58,8 +60,10 @@ func printDiscoverResults(results []copilot.DiscoverResult, apply bool, format s
 		}{apply, results}); err != nil {
 			return helptext.Fail("models discover: cannot write JSON")
 		}
-	} else {
-		printDiscoverText(results)
+		return code
+	}
+	if err := printDiscoverText(results); err != nil {
+		return helptext.Fail("models discover: cannot write text output")
 	}
 	return code
 }
@@ -84,18 +88,22 @@ func discoverPickerProfiles(reg *providers.Registry, names []string, apply bool)
 	return results, code
 }
 
-func printDiscoverText(results []copilot.DiscoverResult) {
+// printDiscoverText renders the results into one buffer and writes it once, so a stdout write error is returned.
+func printDiscoverText(results []copilot.DiscoverResult) error {
+	var b strings.Builder
 	for _, r := range results {
-		fmt.Printf("%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, r.Source, r.Discovered, len(r.Additions))
+		fmt.Fprintf(&b, "%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, r.Source, r.Discovered, len(r.Additions))
 		for _, m := range r.Additions {
-			fmt.Printf("  + %s\n", m.ID)
+			fmt.Fprintf(&b, "  + %s\n", m.ID)
 		}
 		if len(r.Destinations) > 0 {
-			fmt.Printf("  destinations: %v\n", r.Destinations)
+			fmt.Fprintf(&b, "  destinations: %v\n", r.Destinations)
 		}
 		if r.Note != "" {
-			fmt.Printf("  %s\n", r.Note)
+			fmt.Fprintf(&b, "  %s\n", r.Note)
 		}
 	}
-	fmt.Println("Saved entries are append-only choices, not current availability or inference proof. Native vendor catalogs are unchanged.")
+	b.WriteString("Saved entries are append-only choices, not current availability or inference proof. Native vendor catalogs are unchanged.\n")
+	_, err := io.WriteString(os.Stdout, b.String())
+	return err
 }

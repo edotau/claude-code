@@ -174,7 +174,7 @@ func RecordLastProfile(agentName, profile string) {
 	if profile == "" || ws == "" {
 		return
 	}
-	_ = updateLastProfiles(func(cur map[string]map[string]lastProfileAt) map[string]map[string]lastProfileAt {
+	err := updateLastProfiles(func(cur map[string]map[string]lastProfileAt) map[string]map[string]lastProfileAt {
 		next := map[string]map[string]lastProfileAt{}
 		for k, v := range cur {
 			next[k] = maps.Clone(v)
@@ -185,4 +185,7 @@ func RecordLastProfile(agentName, profile string) {
 		next[ws][agentName] = lastProfileAt{Profile: profile, Updated: time.Now().UTC()}
 		return next
 	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: last profile for %s not saved: %v\n", agentName, err)
+	}
 }

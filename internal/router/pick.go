@@ -128,6 +128,7 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
 	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(), alias: alias, now: now, res: &res}
+	firstG = lp.admitGroups(firstG)
 	restG, lastG = lp.l.claim(restG, lastG)
 	units := lp.units(restG)
 	restG = make([][]Candidate, len(units))

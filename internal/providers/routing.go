@@ -41,7 +41,7 @@ type Routing struct {
 	Opencode OpencodeRouting   `json:"opencode,omitzero"`
 }
 
-// Ladder names: default runs on a Databricks or BYOK session profile, firstParty on any other.
+// Ladder names: default unless HARNESS_ROUTE asks (router.ladderName); firstParty admits first-party accounts only.
 const (
 	LadderDefault    = "default"
 	LadderFirstParty = "firstParty"

@@ -58,10 +58,10 @@ func checkPresetAuth(t *testing.T, p *Provider) {
 	if p.Auth.Type != AuthKey || p.Auth.TTL != 1800 {
 		t.Errorf("auth = %+v", p.Auth)
 	}
-	if p.Auth.Command != "databricks auth token -p work -o json | jq -r .access_token" {
+	if p.Auth.Command != `out=$(databricks auth token -p work -o json) && printf '%s' "$out" | jq -r .access_token` {
 		t.Errorf("command = %q", p.Auth.Command)
 	}
-	if p.Auth.RefreshCommand != "databricks auth token -p work --force-refresh -o json | jq -r .access_token" {
+	if p.Auth.RefreshCommand != `out=$(databricks auth token -p work --force-refresh -o json) && printf '%s' "$out" | jq -r .access_token` {
 		t.Errorf("refresh = %q", p.Auth.RefreshCommand)
 	}
 	for _, c := range []string{p.Auth.Command, p.Auth.RefreshCommand} {

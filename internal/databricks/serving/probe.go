@@ -134,8 +134,15 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 			r.Status = StatusTransient
 			return r
 		}
-		if code2, ms2, _, err2 := probeRequest(ctx, p, o, url, body(false), anthropic); err2 == nil && code2/100 == 2 {
+		code2, ms2, msg2, err2 := probeRequest(ctx, p, o, url, body(false), anthropic)
+		switch {
+		case err2 == nil && code2/100 == 2:
 			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", code2, ms2, "no", ""
+		case err2 != nil:
+			r.Status, r.Error = StatusTransient, "tools-less retry: "+err2.Error()
+		case transientHTTP(code2):
+			r.Status, r.HTTP, r.LatencyMS = StatusTransient, code2, ms2
+			r.Error = fmt.Sprintf("tools-less retry: HTTP %d: %s", code2, msg2)
 		}
 	}
 	return r

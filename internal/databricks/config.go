@@ -322,11 +322,16 @@ func checkAll(args []string) int {
 	model := fs.String("model", aliasID(models.Haiku), "canonical model id to probe")
 	only := new(string)
 	profileFlagVar(fs, only, "probe only this Databricks profile (default: all)")
-	if rest, err := helptext.ParseArgs(fs, args); err != nil {
+	rest, err := helptext.ParseArgs(fs, args)
+	if err != nil {
 		return helptext.ExitCode(err)
-	} else if len(rest) > 0 {
+	}
+	if len(rest) > 1 {
 		fs.Usage()
 		return 2
+	}
+	if len(rest) == 1 { // positional MODEL overrides --model
+		*model = rest[0]
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -411,7 +416,7 @@ func probe(ctx context.Context, p *providers.Provider, tok, model string) string
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	if err != nil && resp.StatusCode >= 300 {
+	if err != nil { // a truncated body is a failure even on 2xx
 		return fmt.Sprintf("HTTP %d (body cut off)", resp.StatusCode)
 	}
 	return classify(resp.StatusCode, strings.ReplaceAll(string(raw), tok, "***"))

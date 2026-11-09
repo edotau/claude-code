@@ -312,9 +312,9 @@ func CopilotPlanName(raw string) string {
 	return raw
 }
 
-// QualifyPinSpec is spec as "profile:model" when providerFlag names a profile other than the session's own.
+// QualifyPinSpec is spec as "profile:model" when providerFlag names a profile other than the session's own; "" stays "" (unpin).
 func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
-	if providerFlag == "" {
+	if providerFlag == "" || spec == "" {
 		return spec
 	}
 	if name, model, ok := strings.Cut(spec, ":"); ok {

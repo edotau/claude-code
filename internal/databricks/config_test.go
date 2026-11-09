@@ -361,6 +361,61 @@ func TestProbeFailureNamesTimeout(t *testing.T) {
 	}
 }
 
+func TestCheckAllAcceptsPositionalModel(t *testing.T) {
+	seedOverlay(t, "")
+	t.Setenv("DATABRICKS_TEST_PROBE_TOKEN", "test-token")
+	seen := make(chan string, 2)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode probe: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		seen <- body.Model
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	old := probeClient
+	probeClient = srv.Client()
+	t.Cleanup(func() { probeClient = old })
+	if err := providers.SetProviderFields("test-probe", map[string]any{
+		"preset": "databricks", "host": srv.URL,
+		"auth": map[string]any{"type": "key", "env": "DATABRICKS_TEST_PROBE_TOKEN"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	model := "claude-opus-5-5"
+	code, out, stderr := runCaptured(t, func() int {
+		return Run([]string{"check", model, "--all", "--profile", "test-probe", "--model", "claude-haiku-4-5"})
+	})
+	if code != 0 || len(seen) != 2 {
+		t.Fatalf("exit = %d, probes = %d, stdout = %q, stderr = %q", code, len(seen), out, stderr)
+	}
+	for _, want := range []string{"databricks-" + model, "system.ai." + model} {
+		if got := <-seen; got != want {
+			t.Errorf("probe model = %q, want positional model %q", got, want)
+		}
+	}
+}
+
+func TestProbeRejectsTruncatedSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte("partial")); err != nil {
+			t.Errorf("write partial response: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
+	if got := probe(context.Background(), p, "test-token", "m"); got != "HTTP 200 (body cut off)" {
+		t.Errorf("truncated 2xx probe = %q, want body cut off", got)
+	}
+}
+
 // A non-2xx reply whose body is cut off says so instead of reporting a clean HTTP code.
 func TestProbeReportsCutOffBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

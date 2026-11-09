@@ -481,9 +481,12 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 	return tok, nil
 }
 
-// dropLegacyAccess deletes the pre-per-row hash-named cache slot, only when it exists.
+// dropLegacyAccess deletes the pre-per-row hash-named cache slot; a read error is reported, the delete still runs.
 func dropLegacyAccess(slot string) {
-	if _, found, _ := vault.ReadSecret(slot); !found {
+	_, found, err := vault.ReadSecret(slot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read legacy access token slot %s failed: %v\n", slot, err)
+	} else if !found {
 		return
 	}
 	if err := vault.Delete(slot); err != nil {
@@ -610,6 +613,9 @@ func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.D
 func sealLogin(p *Provider, tok oauth.Token) (time.Duration, error) {
 	// A fresh login supersedes the lock holder's refresh, so a lock timeout still seals it.
 	seal := func() error {
+		if err := checkIssuer(p, tok.Access); err != nil { // a wrong-issuer login must not replace the stored tokens
+			return err
+		}
 		if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
 			return fmt.Errorf("%s: seal refresh token: %w", p.Name, err)
 		}
