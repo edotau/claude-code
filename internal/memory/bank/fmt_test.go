@@ -118,6 +118,41 @@ func TestFormatBankMarkdownWrapTable(t *testing.T) {
 	runWrapCases(t, wrapBreakCases())
 }
 
+func TestFormatBankMarkdownPreservesHardBreak(t *testing.T) {
+	t.Parallel()
+	cases := wrapBreakCases()
+	for i := range cases {
+		cases[i].input += "  "
+		cases[i].want += "  "
+	}
+	runWrapCases(t, cases)
+}
+
+func TestFormatBankMarkdownMatchesFenceRun(t *testing.T) {
+	t.Parallel()
+	words := repeatWords(15)
+	longLine := strings.Join(words, " ")
+	wrapped := strings.Join(words[:11], " ") + "\n" + strings.Join(words[11:], " ")
+	cases := []struct{ name, open, inner, close string }{
+		{"backtick ignores tilde", "```md", "~~~", "```"},
+		{"tilde ignores backtick", "~~~md", "```", "~~~"},
+		{"shorter run does not close", "````md", "```", "`````"},
+		{"info string does not close", "```md", "```go", "```"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fenced := c.open + "\n" + c.inner + "\n- " + longLine + "\n  continuation\n" + c.close + "\n"
+			input, want := fenced+longLine, fenced+wrapped
+			if got := formatBankMarkdown(input); got != want {
+				t.Fatalf("fenced code or following prose changed incorrectly:\n got: %q\nwant: %q", got, want)
+			}
+			if got := LogicalLineCount(want); got != 6 {
+				t.Fatalf("LogicalLineCount = %d, want 6 (each fenced line separate, prose joined)", got)
+			}
+		})
+	}
+}
+
 // TestFormatBankMarkdownNeverTouches: fence, table, heading, front matter, comment-only line and RULES region.
 func TestFormatBankMarkdownNeverTouches(t *testing.T) {
 	t.Parallel()

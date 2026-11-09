@@ -284,7 +284,7 @@ func TestStatusParsesRenamesAndUntrackedInDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []StatusEntry{{"R ", "b.md"}, {"??", "deep/dir/c.md"}}
+	want := []StatusEntry{{"R ", "b.md"}, {"D ", "a.md"}, {"??", "deep/dir/c.md"}}
 	if !slices.Equal(st, want) {
 		t.Fatalf("Status = %+v, want %+v", st, want)
 	}

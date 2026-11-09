@@ -138,7 +138,7 @@ func (r Repo) remotes() ([]string, error) {
 	return splitLines(out), nil
 }
 
-// StatusEntry is one porcelain v1 row: the XY code and the path (a rename reports its NEW path).
+// StatusEntry is one porcelain v1 row: the XY code and the path (a rename reports its NEW path, then OLD as "D ").
 type StatusEntry struct{ Code, Path string }
 
 // Status lists dirty paths (untracked files individually), limited to pathspecs when given.
@@ -162,6 +162,9 @@ func (r Repo) Status(pathspecs ...string) ([]StatusEntry, error) {
 		entries = append(entries, StatusEntry{Code: code, Path: f[3:]})
 		if code[0] == 'R' || code[0] == 'C' {
 			i++ // the original path follows as its own NUL field
+			if code[0] == 'R' && i < len(fields) {
+				entries = append(entries, StatusEntry{Code: "D ", Path: fields[i]}) // a rename also deletes its source
+			}
 		}
 	}
 	return entries, nil

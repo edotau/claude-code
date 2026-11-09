@@ -2,14 +2,42 @@ package bank
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memstore"
 )
+
+func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
+	dir := t.TempDir()
+	date := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+	entries := make([]string, SessionHistoryMaxEntries+2)
+	for i := range entries {
+		entries[i] = fmt.Sprintf("## Session %02d\n\nDistinct body %02d.", i, i)
+	}
+	path := filepath.Join(dir, "sessionHistory.md")
+	archive := filepath.Join(dir, "archive", "sessionHistory-2026-11.md")
+	write(t, path, Rejoin("# Session history", entries))
+	// Recreate an archive write that persisted before the source rewrite failed, plus one still-unarchived entry.
+	write(t, archive, Rejoin("# Archived sessions", entries[SessionHistoryMaxEntries:SessionHistoryMaxEntries+1]))
+
+	n, err := RotateSessionHistory(dir, date)
+	if err != nil || n != 2 {
+		t.Fatalf("retry rotation = %d, %v; want 2, nil", n, err)
+	}
+	_, archived := SplitHeadingBlocks(mustRead(t, archive))
+	if want := entries[SessionHistoryMaxEntries:]; !slices.Equal(archived, want) {
+		t.Fatalf("retry duplicated or lost archived entries:\n got: %q\nwant: %q", archived, want)
+	}
+	if got, want := mustRead(t, path), Rejoin("# Session history", entries[:SessionHistoryMaxEntries]); got != want {
+		t.Fatalf("retained history:\n got: %q\nwant: %q", got, want)
+	}
+}
 
 func TestRotateSessionHistoryReportsReadError(t *testing.T) {
 	dir := t.TempDir()

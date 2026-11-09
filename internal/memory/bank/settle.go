@@ -56,13 +56,36 @@ func RotateSessionHistory(dir string, now time.Time) (int, error) {
 	}
 	keep, overflow := entries[:SessionHistoryMaxEntries], entries[SessionHistoryMaxEntries:]
 	archive := filepath.Join(dir, "archive", "sessionHistory-"+now.Format("2006-01")+".md")
-	if err := AppendBlocks(archive, overflow); err != nil {
+	if err := appendUnarchived(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
 	}
 	if err := paths.AtomicWrite(path, []byte(Rejoin(header, keep)), 0o600); err != nil {
 		return 0, err
 	}
 	return len(overflow), nil
+}
+
+// appendUnarchived appends the blocks archive does not already hold, so a retried rotation never duplicates them.
+func appendUnarchived(archive string, blocks []string) error {
+	existing, err := os.ReadFile(archive)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	_, held := SplitHeadingBlocks(string(existing))
+	seen := make(map[string]bool, len(held))
+	for _, b := range held {
+		seen[b] = true
+	}
+	var missing []string
+	for _, b := range blocks {
+		if !seen[b] {
+			missing = append(missing, b)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return AppendBlocks(archive, missing)
 }
 
 // LockPath serializes bank writers (the update worker's headless pass, then its settle); the
