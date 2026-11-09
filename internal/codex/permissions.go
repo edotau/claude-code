@@ -221,16 +221,29 @@ func linkHome(real, home, rules string) error {
 }
 
 // writeRulesDir creates home/rules/ holding links to the user's rule files plus dispatch.rules.
+// The user's dispatch.rules is never linked: writing through that link would truncate the real file,
+// so its content is prepended to the dispatch rules instead.
 func writeRulesDir(home string, user []string, rules string) error {
 	if err := os.Mkdir(filepath.Join(home, "rules"), 0o700); err != nil {
 		return err
 	}
+	var own strings.Builder
 	for _, f := range user {
+		if filepath.Base(f) == "dispatch.rules" {
+			body, err := os.ReadFile(f)
+			if err != nil {
+				return err
+			}
+			own.Write(body)
+			own.WriteString("\n")
+			continue
+		}
 		if err := os.Symlink(f, filepath.Join(home, "rules", filepath.Base(f))); err != nil {
 			return err
 		}
 	}
-	return os.WriteFile(filepath.Join(home, "rules", "dispatch.rules"), []byte(rules), 0o600)
+	own.WriteString(rules)
+	return os.WriteFile(filepath.Join(home, "rules", "dispatch.rules"), []byte(own.String()), 0o600)
 }
 
 // writeRetargetedConfig writes home/config.toml from real's; a missing real config is not an error.

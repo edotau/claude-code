@@ -49,7 +49,11 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 			"models": menu,
 		}},
 	}
-	opencodeHarnessConfig(h)(cfg)
+	url, err := interactivePlugin(h)
+	if err != nil {
+		return nil, nil, err
+	}
+	opencodeHarnessWith(h, url)(cfg)
 	body, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, nil, err
@@ -109,7 +113,11 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 	if err != nil {
 		return denv, nil, err
 	}
-	if denv, err = mutateOpencodeConfigEnv(denv, false, opencodeHarnessConfig(h)); err != nil {
+	url, err := interactivePlugin(h)
+	if err != nil {
+		return nil, nil, err
+	}
+	if denv, err = mutateOpencodeConfigEnv(denv, false, opencodeHarnessWith(h, url)); err != nil {
 		return nil, nil, err
 	}
 	if h == nil {
@@ -121,24 +129,37 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 	return denv, opencodeArgv(opencodeDatabricksModel(denv), *h), nil
 }
 
-// opencodeHarnessConfig is the per-launch config: every launch gets the portable core as instructions and the
-// projected commands; an interactive one also gets the guard plugin (a headless run's Exec adds it), a headless
-// one is tools-off when asked.
-func opencodeHarnessConfig(h *agent.Headless) func(map[string]any) {
+// interactivePlugin writes the guard plugin for an interactive launch (h nil); a headless run's Exec adds it instead.
+// A write failure is an error: the launch must not run without the fail-closed guards.
+func interactivePlugin(h *agent.Headless) (string, error) {
+	if h != nil {
+		return "", nil
+	}
+	return writePlugin()
+}
+
+// opencodeHarnessWith is the per-launch config: the portable core as instructions, the projected commands, tools-off
+// when a headless run asks, and the guard plugin url when one was written.
+func opencodeHarnessWith(h *agent.Headless, url string) func(map[string]any) {
 	return func(cfg map[string]any) {
 		opencodeRulesOn(cfg)
 		opencodeCommandsOn(cfg)
 		if h != nil && !h.Tools {
 			opencodeToolsOff(cfg)
 		}
-		if h == nil {
-			if url, err := writePlugin(); err != nil {
-				fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
-			} else {
-				addPlugin(cfg, url)
-			}
+		if url != "" {
+			addPlugin(cfg, url)
 		}
 	}
+}
+
+// opencodeHarnessConfig is opencodeHarnessWith with the plugin write warned, not returned; launches use the error path.
+func opencodeHarnessConfig(h *agent.Headless) func(map[string]any) {
+	url, err := interactivePlugin(h)
+	if err != nil {
+		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
+	}
+	return opencodeHarnessWith(h, url)
 }
 
 // opencodeDatabricksModel is the default "model" the databricks split rendered into OPENCODE_CONFIG_CONTENT.

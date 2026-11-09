@@ -127,7 +127,7 @@ func MenuCheck(ids []string, all bool, provider string, timeout time.Duration) (
 		return nil, nil, err
 	}
 	SortCheckResults(results)
-	cacheErr = SaveCheckCache(CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: results})
+	cacheErr = SaveCheckCache(CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: serving.SanitizeChecks(results)}) // never persist raw error bodies
 	return results, cacheErr, nil
 }
 

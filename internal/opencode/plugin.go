@@ -22,7 +22,7 @@ import { execFile, execFileSync } from "node:child_process"
 
 const BIN = __BIN__
 const MODULES = __MODULES__
-const TOOLS = { bash: "Bash", edit: "Edit", write: "Write", multiedit: "MultiEdit", read: "Read", webfetch: "WebFetch",
+const TOOLS = { bash: "Bash", edit: "Edit", write: "Write", multiedit: "Edit", read: "Read", webfetch: "WebFetch",
   apply_patch: "Edit", glob: "Glob", grep: "Grep", list: "Read" }
 const KEYS = { filePath: "file_path", oldString: "old_string", newString: "new_string", replaceAll: "replace_all" }
 
@@ -32,29 +32,35 @@ function claudeInput(args) {
   return out
 }
 
-// denied blocks deny and ask decisions: the plugin cannot obtain approval for an ask.
+// denied is the block reason for deny and ask decisions ("" to allow), or null when stdout is not a hook document.
 function denied(stdout) {
+  if (!stdout.trim()) return "" // a silent allow prints nothing
+  let out
   try {
-    const out = JSON.parse(stdout).hookSpecificOutput ?? {}
-    if (out.permissionDecision === "ask") return out.permissionDecisionReason || "approval required; blocked"
-    return out.permissionDecision === "deny" ? (out.permissionDecisionReason || "denied") : ""
+    out = JSON.parse(stdout).hookSpecificOutput ?? {}
   } catch {
-    return ""
+    return null
   }
+  if (out.permissionDecision === "ask") return out.permissionDecisionReason || "approval required; blocked"
+  return out.permissionDecision === "deny" ? (out.permissionDecisionReason || "denied") : ""
+}
+
+// incomplete blocks a module that failed closed, else allows the call with a note.
+function incomplete(m, why) {
+  if (m.failClosed) return m.name + " did not complete (" + why + "); blocked"
+  console.error("claude-code plugin: " + m.name + " did not complete (" + why + "); allowed")
+  return ""
 }
 
 // verdict is the block reason for one module, or "" to let the call run.
 function verdict(m, payload) {
   try {
-    const stdout = execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name],
-      { input: payload, timeout: m.budgetMs, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
-    return denied(stdout)
+    const reason = denied(execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name],
+      { input: payload, timeout: m.budgetMs, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }))
+    return reason ?? incomplete(m, "malformed output")
   } catch (err) {
     if (err.status === 2) return String(err.stderr ?? "").trim() || m.name + " blocked the call"
-    const why = err.signal ? "timed out (" + err.signal + ")" : (err.code ?? "exit " + err.status)
-    if (m.failClosed) return m.name + " did not complete (" + why + "); blocked"
-    console.error("claude-code plugin: " + m.name + " did not complete (" + why + "); allowed")
-    return ""
+    return incomplete(m, err.signal ? "timed out (" + err.signal + ")" : (err.code ?? "exit " + err.status))
   }
 }
 

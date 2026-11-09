@@ -118,6 +118,9 @@ func readCodexSettings(raw string) (map[string]string, error) {
 			}
 		}
 	}
+	if scan.pendingKey != "" {
+		return nil, fmt.Errorf("codex: cannot read %s: unterminated multiline string", scan.pendingKey)
+	}
 	return scan.values, nil
 }
 

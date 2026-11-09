@@ -326,6 +326,10 @@ func codexStrict(v any) any {
 			}
 			sort.Strings(req)
 			x["required"], x["additionalProperties"] = req, false
+		} else if codexObjectType(x["type"]) {
+			if _, set := x["additionalProperties"]; !set { // an explicit map schema keeps its own value
+				x["additionalProperties"] = false
+			}
 		}
 	case []any:
 		for i, c := range x {
@@ -398,17 +402,22 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	return env, codexHeadless(argv, h), nil
 }
 
-// codexHeaderEnv names the env var that carries header k's value into codex.
+// codexHeaderEnv names the env var that carries header k's value into codex; punctuation is hex-escaped so distinct names stay distinct.
 func codexHeaderEnv(k string) string {
-	return "CLAUDE_CODE_CODEX_HDR_" + strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' {
-			return r - 32
+	var b strings.Builder
+	b.WriteString("CLAUDE_CODE_CODEX_HDR_")
+	for i := range len(k) {
+		c := k[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+			b.WriteByte(c - 32)
+		case c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, "_%02X", c)
 		}
-		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-			return r
-		}
-		return '_'
-	}, k)
+	}
+	return b.String()
 }
 
 // codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
@@ -671,6 +680,17 @@ func codexInstructionArgs(req agent.RunOptions) []string {
 		extra = append(extra, "-c", "developer_instructions="+agentconfig.TOMLQuote(req.AppendSystemPrompt))
 	}
 	return extra
+}
+
+// codexObjectType reports whether a JSON Schema "type" is "object", alone or in a type list.
+func codexObjectType(t any) bool {
+	switch v := t.(type) {
+	case string:
+		return v == "object"
+	case []any:
+		return slices.Contains(v, any("object"))
+	}
+	return false
 }
 
 func codexStrictChildren(x map[string]any) {

@@ -27,7 +27,7 @@ var opencodeTools = map[string]struct {
 type opencodeEntry struct{ pattern, action string }
 
 // opencodePermission renders p as opencode's permission JSON (ordered keys: the order is the precedence).
-// Ask and unmatched calls stay "ask" for opencode's --auto judge (D3); plan mode denies what no rule allows.
+// Unmatched calls are "ask" (mode auto: "allow") and ask goes to opencode's --auto judge (D3); plan denies unlisted.
 func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	base := map[string]string{"auto": "allow", "plan": "deny"}[p.Mode]
 	if base == "" {
@@ -194,8 +194,16 @@ func refusePureBashDeny(req agent.RunOptions) error {
 
 // opencodePolicyArgv adds --auto when a policy applies, so "ask" goes to opencode's auto judge and deny still holds.
 func opencodePolicyArgv(argv []string, req agent.RunOptions) []string {
-	if !req.Tools || req.Permissions.IsZero() || slices.Contains(argv, "--auto") {
+	if !req.Tools || req.Permissions.IsZero() || slices.Contains(flagsOnly(argv), "--auto") {
 		return argv
 	}
 	return slices.Insert(slices.Clone(argv), min(1, len(argv)), "--auto")
+}
+
+// flagsOnly is argv up to the "--" separator: a prompt after it is data, never a flag.
+func flagsOnly(argv []string) []string {
+	if i := slices.Index(argv, "--"); i >= 0 {
+		return argv[:i]
+	}
+	return argv
 }

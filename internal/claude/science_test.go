@@ -67,6 +67,27 @@ func TestScienceArgsLeadingPortOnly(t *testing.T) {
 	}
 }
 
+func TestScienceGlobalOptionsKeepPortPin(t *testing.T) {
+	port, rest, err := scienceArgs([]string{"--port", "4100", "--config", "/custom.toml", "serve"}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checked []int
+	got, err := scienceArgv(rest, "/default.toml", port, func(p int) bool {
+		checked = append(checked, p)
+		return false
+	})
+	want := []string{"--config", "/custom.toml", "serve", "--port", "4100", "--sandbox-port", "4101"}
+	if err != nil || !slices.Equal(got, want) || !slices.Equal(checked, []int{4100, 4101}) {
+		t.Fatalf("argv = %v, checked = %v, err = %v; want %v, ports 4100/4101, nil", got, checked, err, want)
+	}
+	for _, busyPort := range []int{4100, 4101} {
+		if _, err := scienceArgv(rest, "", port, func(p int) bool { return p == busyPort }); err == nil {
+			t.Errorf("busy pinned port %d was ignored", busyPort)
+		}
+	}
+}
+
 func TestScienceArgvPinsServeAndConfig(t *testing.T) {
 	free := func(int) bool { return false }
 	got, err := scienceArgv([]string{"serve"}, "/c.toml", 3000, free)

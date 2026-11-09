@@ -64,6 +64,9 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, err
 	}
+	for _, w := range home.Warnings {
+		wire.EventLogFor(ctx).Emit("note", w)
+	}
 	tok, err := mintSession(ctx, t.Provider.Name, os.Getpid())
 	if err != nil {
 		return nil, fmt.Errorf("copilot: mint session token: %w", err)

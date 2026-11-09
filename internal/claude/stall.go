@@ -75,7 +75,7 @@ func (w *stallWatch) observe(ev claudeEvent) {
 			w.pending = max(w.pending-max(countBlocks(ev, "tool_result"), 1), 0)
 		}
 	}
-	if w.pending > 0 || ev.Type == "result" {
+	if w.pending > 0 { // a result keeps the window armed: a hang before EOF is still a stall
 		w.timer.Stop()
 		w.gen++
 		return

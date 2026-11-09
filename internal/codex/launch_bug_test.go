@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+func TestCodexFileOverridesQuotedClosingBracket(t *testing.T) {
+	for _, table := range []string{`model_providers."prod]blue"`, `model_providers.'prod]blue'`} {
+		t.Run(table, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			body := "[" + table + "] # provider\nname = \"blue\"\n"
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := codexFileOverrides(path)
+			if err != nil {
+				t.Fatalf("valid quoted table header rejected: %v", err)
+			}
+			want := []string{"-c", table + `.name="blue"`}
+			if !slices.Equal(got, want) {
+				t.Fatalf("quoted table override: got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestCodexFileOverridesLongLine(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)

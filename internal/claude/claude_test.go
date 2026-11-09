@@ -39,6 +39,19 @@ func TestParseClaudeStream(t *testing.T) {
 	}
 }
 
+func TestParseClaudeStreamEmptyResultKeepsText(t *testing.T) {
+	stream := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}
+{"type":"result","is_error":false,"result":""}`
+	var out strings.Builder
+	res, err := parseClaudeStream(newBR(stream), wire.NewTextSink(&out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "Hello" || res.Answer != "Hello" {
+		t.Fatalf("output = %q, Answer = %q; want Hello in both", out.String(), res.Answer)
+	}
+}
+
 func TestParseClaudeStreamErrors(t *testing.T) {
 	isErr := `{"type":"result","subtype":"success","is_error":true,"result":"API Error: 429 rate_limit_error"}` + "\n"
 	_, err := parseClaudeStream(newBR(isErr), wire.NewTextSink(&strings.Builder{}))

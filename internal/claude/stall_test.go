@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"os"
@@ -69,6 +70,55 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	if pid == 0 || proc.Alive(pid) {
 		t.Errorf("child pid %d still alive after the stall", pid)
+	}
+}
+
+func TestClaudeExecStallsAfterSuccessfulResult(t *testing.T) {
+	res, err := runFakeClaude(t, "echo '"+resultLine+"'\nexec sleep 30\n")
+	if !errors.Is(err, agent.ErrStalled) {
+		t.Fatalf("err = %v; want ErrStalled after result before EOF", err)
+	}
+	if res.Answer != "done" || !strings.Contains(err.Error(), "last event: result") {
+		t.Fatalf("res = %+v, err = %v; want answer preserved and last event result", res, err)
+	}
+}
+
+func TestClaudeLiveStallsWhenSilent(t *testing.T) {
+	old := claudeIdleLimit
+	claudeIdleLimit = 300 * time.Millisecond
+	t.Cleanup(func() { claudeIdleLimit = old })
+	bin := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nread -r prompt\nexec sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	backend := claudeAgent.NewLive()
+	cmd, _, _, err := backend.Build(ctx, agent.RunOptions{Tools: true, Launcher: fakeLauncher{bin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); _ = cmd.Wait() }()
+	if err := backend.WriteTurn(stdin, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = backend.Parse(bufio.NewReader(stdout), wire.Discard, nil)
+	if !errors.Is(err, agent.ErrStalled) {
+		t.Fatalf("live turn err = %v; want ErrStalled before outer deadline", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("live turn waited for outer deadline: %v", ctx.Err())
 	}
 }
 

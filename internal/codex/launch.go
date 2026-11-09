@@ -76,8 +76,8 @@ func codexFileOverrides(path string) ([]string, error) {
 		case line == "" || strings.HasPrefix(line, "#"):
 		case strings.HasPrefix(line, "[["):
 			return nil, fmt.Errorf("-f %s:%d: arrays of tables are not supported", path, n)
-		case strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]"):
-			table = strings.TrimSpace(line[1:len(line)-1]) + "."
+		case codexTableName(line) != "":
+			table = codexTableName(line) + "."
 		default:
 			value, err := codexOverrideValue(line, table, path, n)
 			if err != nil {
@@ -90,6 +90,44 @@ func codexFileOverrides(path string) ([]string, error) {
 		return nil, fmt.Errorf("-f: %w", err)
 	}
 	return out, nil
+}
+
+// codexTableName is the name of a `[name]` table header line, a trailing comment allowed; "" when not a header.
+func codexTableName(line string) string {
+	if !strings.HasPrefix(line, "[") || strings.HasPrefix(line, "[[") {
+		return ""
+	}
+	end := codexHeaderClose(line)
+	if end < 0 {
+		return ""
+	}
+	if rest := strings.TrimSpace(line[end+1:]); rest != "" && !strings.HasPrefix(rest, "#") {
+		return ""
+	}
+	return strings.TrimSpace(line[1:end])
+}
+
+// codexHeaderClose is the index of the `]` closing a table header, skipping any `]` inside quoted key parts; -1 if none.
+func codexHeaderClose(line string) int {
+	var quote byte // open key quote (" or '), 0 outside quotes
+	escaped := false
+	for i := 1; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote == '"' && escaped:
+			escaped = false
+		case quote == '"' && c == '\\':
+			escaped = true
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote != 0:
+		case c == '"' || c == '\'':
+			quote = c
+		case c == ']':
+			return i
+		}
+	}
+	return -1
 }
 
 func codexOverrideValue(line, table, path string, n int) (string, error) {

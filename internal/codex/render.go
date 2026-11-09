@@ -35,7 +35,10 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 		fmt.Fprintln(out, note)
 	}
 	if target.Provider != nil && target.Provider.Auth.Method() == providers.AuthCLI {
-		keys := codexPermissionKeys(existing, out)
+		keys, err := codexPermissionKeys(existing, out)
+		if err != nil {
+			return "", err
+		}
 		if keys == "" {
 			fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
 			return "", nil
@@ -52,37 +55,55 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 	if err != nil {
 		return "", fmt.Errorf("codex: %w", err)
 	}
-	if keys := codexPermissionKeys(existing, out); keys != "" {
+	keys, err := codexPermissionKeys(existing, out)
+	if err != nil {
+		return "", err
+	}
+	if keys != "" {
 		block = keys + "\n" + block
 	}
 	return codexBannerSection(block), nil
 }
 
-// codexCredentialStoreRE matches a top-level cli_auth_credentials_store key already set by the user.
+// codexCredentialStoreRE matches one line assigning cli_auth_credentials_store, bare, single- or double-quoted, indented or not.
 var codexCredentialStoreRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^cli_auth_credentials_store\s*=`)
+	return regexp.MustCompile(`^\s*(?:"cli_auth_credentials_store"|'cli_auth_credentials_store'|cli_auth_credentials_store)\s*=`)
 })
+
+// codexUserSetsCredStore reports whether a top-level key of existing already assigns cli_auth_credentials_store.
+func codexUserSetsCredStore(existing string) bool {
+	lines := strings.SplitAfter(existing, "\n")
+	if idx := agentconfig.FirstTopLevelHeaderIndex(lines); idx >= 0 {
+		lines = lines[:idx] // a key under a table does not set the top-level one
+	}
+	multiline, depth := "", 0
+	for _, line := range lines {
+		if multiline == "" && depth == 0 && codexCredentialStoreRE().MatchString(line) {
+			return true
+		}
+		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth) // skip lines inside """/''' strings
+	}
+	return false
+}
 
 // codexCredStoreKey keeps ~/.codex/auth.json out of plaintext by pointing codex at the OS keyring;
 // it never overwrites a value the user already set outside the managed banner.
 func codexCredStoreKey(existing string, out io.Writer) string {
-	if codexCredentialStoreRE().MatchString(existing) {
+	if codexUserSetsCredStore(existing) {
 		fmt.Fprintln(out, "codex: cli_auth_credentials_store already set by the user; leaving it")
 		return ""
 	}
 	return `cli_auth_credentials_store = "keyring"` + "\n"
 }
 
-// codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
-// TOML keys; approval/sandbox skip when unset (or the agent config fails to load); the keyring pin never depends on it.
-func codexPermissionKeys(existing string, out io.Writer) string {
-	var perm agentconfig.Permission
+// codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level TOML keys;
+// approval/sandbox skip when unset. A failed agent config load is an error, so the render never drops them.
+func codexPermissionKeys(existing string, out io.Writer) (string, error) {
 	cfg, err := agentconfig.LoadConfig()
 	if err != nil {
-		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
-	} else {
-		perm = cfg.Agent("codex").Permission
+		return "", fmt.Errorf("codex: vendorconfig: %w", err)
 	}
+	perm := cfg.Agent("codex").Permission
 	var b strings.Builder
 	if perm.ApprovalPolicy != "" {
 		fmt.Fprintf(&b, "approval_policy = %q\n", perm.ApprovalPolicy)
@@ -91,7 +112,7 @@ func codexPermissionKeys(existing string, out io.Writer) string {
 		fmt.Fprintf(&b, "sandbox_mode = %q\n", perm.SandboxMode)
 	}
 	b.WriteString(codexCredStoreKey(existing, out))
-	return b.String()
+	return b.String(), nil
 }
 
 // codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`

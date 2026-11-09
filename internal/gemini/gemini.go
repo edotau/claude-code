@@ -182,13 +182,8 @@ func geminiLogin(model string, h *agent.Headless) ([]string, []string, error) {
 	return nil, []string{"--model", model}, nil
 }
 
-// GeminiLoginPresent reports whether agy's cached Google login is on disk; agy itself owns and refreshes the token.
-func GeminiLoginPresent() bool {
-	ok, _ := geminiLoginProbe()
-	return ok
-}
-
-// geminiLoginProbe is GeminiLoginPresent plus the first real read failure; a missing marker is absent, not an error.
+// geminiLoginProbe reports whether agy's cached Google login is on disk, plus the first real read failure.
+// A missing marker is absent, not an error; agy itself owns and refreshes the token.
 func geminiLoginProbe() (bool, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -317,7 +312,11 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if h != nil {
 		return env, nil, nil // headless argv is agent.RunAgy's (prompt over stdin stream-json)
 	}
-	return env, []string{"--model", arg}, nil
+	argv := []string{"--model", base} // the gateway advertises only the base id
+	if effort := agyArgEffort(base, arg); effort != "" {
+		argv = append(argv, "--effort", effort)
+	}
+	return env, argv, nil
 }
 
 // agyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
@@ -610,7 +609,7 @@ func applyAgyResult(res *wire.Result, ev agyEvent) error {
 
 // --- gemini: report-only. agy (the agent's binary, name unchanged) has no known settings-file
 // auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
-// auth is the cached Google login marker at launch time (see gemini.GeminiLoginPresent).
+// auth is the cached Google login marker at launch time (see geminiLoginProbe).
 
 func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 	if sel.Provider.Auth.Method() == providers.AuthCLI {
@@ -641,6 +640,11 @@ func agyModel(req agent.RunOptions, t providers.Target) string {
 	return gt.Model
 }
 
+// agyArgEffort is the effort suffix agyGatewayArg appended to base in arg ("" when none).
+func agyArgEffort(base, arg string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(arg, base), "-")
+}
+
 // agyGatewayEffort is the effort a gateway run passes as --effort: the caller's, else the pinned id's suffix.
 func agyGatewayEffort(req agent.RunOptions, t providers.Target) string {
 	if req.Effort != "" || !agent.GeminiGatewayRow(t.Provider) {
@@ -651,7 +655,7 @@ func agyGatewayEffort(req agent.RunOptions, t providers.Target) string {
 	}
 	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
 	base, arg := agyGatewayArg(gt.Model)
-	return strings.TrimPrefix(strings.TrimPrefix(arg, base), "-")
+	return agyArgEffort(base, arg)
 }
 
 // newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.

@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeProvider resolves the workspace profile: --profile, else the OPENCODE_PROFILE pin.
+// opencodeProvider resolves the workspace profile: --profile, else the opencode agent's vault profile.
 func opencodeProvider(name string) (*providers.Registry, *providers.Provider, error) {
 	reg, err := providers.Load()
 	if err != nil {
@@ -301,10 +301,11 @@ func parseMenuLine(line string, n int) (providers.OpencodeModel, error) {
 	return m, nil
 }
 
-// parseOpencodeJSON takes every provider whose id contains "databricks" (or has a models map when none does).
+// parseOpencodeJSON takes every databricks provider (by id or profile name); the provider id sets each model's routing.
 func parseOpencodeJSON(data []byte) ([]providers.OpencodeModel, error) {
 	var doc struct {
 		Provider map[string]struct {
+			NPM    string `json:"npm"`
 			Models map[string]struct {
 				Name string `json:"name"`
 			} `json:"models"`
@@ -326,13 +327,21 @@ func parseOpencodeJSON(data []byte) ([]providers.OpencodeModel, error) {
 			if label == "" {
 				label = DefaultMenuLabel(id)
 			}
-			out = append(out, providers.OpencodeModel{ID: id, Label: label, Responses: models.ResponsesOnly(id)})
+			out = append(out, providers.OpencodeModel{ID: id, Label: label, Responses: providerResponses(pid, prov.NPM)})
 		}
 	}
 	if len(out) == 0 {
 		return nil, errors.New("opencode.json: no databricks provider with a models map")
 	}
 	return dedupeMenu(out), nil
+}
+
+// providerResponses reads the route from the provider's npm package (@ai-sdk/openai is Responses), else the "-gpt" suffix.
+func providerResponses(pid, npm string) bool {
+	if npm != "" {
+		return npm == "@ai-sdk/openai"
+	}
+	return strings.HasSuffix(pid, "-gpt")
 }
 
 // databricksProfileNames are the registry's databricks profiles; a registry that does not load has none.
@@ -344,9 +353,10 @@ func databricksProfileNames() []string {
 	return providers.DatabricksProfiles(reg)
 }
 
-// namesProfile reports whether a "-"-separated token of the opencode provider id is one of profiles.
+// namesProfile reports whether a profile appears in pid as whole "-"-delimited words (profiles may contain hyphens).
 func namesProfile(pid string, profiles []string) bool {
-	return slices.ContainsFunc(strings.Split(pid, "-"), func(tok string) bool { return slices.Contains(profiles, tok) })
+	seg := "-" + pid + "-"
+	return slices.ContainsFunc(profiles, func(p string) bool { return strings.Contains(seg, "-"+p+"-") })
 }
 
 func mapKeys[V any](m map[string]V) func(func(string) bool) {
