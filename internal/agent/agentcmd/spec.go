@@ -41,9 +41,10 @@ func AgentsSpec() *completion.Node {
 		"sync": {Flags: []completion.Flag{valuedFlag("agent", VendorNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
 		"tree": {Flags: []completion.Flag{flag("days"), flag("session"), boolFlag("background"), boolFlag("bg"),
 			boolFlag("watch"), flag("interval"), formatFlag()}},
-		"reap": {Flags: []completion.Flag{boolFlag("dry-run")}},
-		"list": {Flags: []completion.Flag{flag("host"), flag("remote-bin"), formatFlag()}},
-		"ask":  {Flags: askSpecFlags()},
+		"reap":  {Flags: []completion.Flag{boolFlag("dry-run")}},
+		"label": {Flags: []completion.Flag{flag("model"), flag("brief"), flag("session-model"), formatFlag()}},
+		"list":  {Flags: []completion.Flag{flag("host"), flag("remote-bin"), formatFlag()}},
+		"ask":   {Flags: askSpecFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []completion.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background")}},
 	}}

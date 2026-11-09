@@ -55,7 +55,10 @@ func (in *Input) Agent() string {
 }
 
 // ParseInput never errors: malformed stdin yields a zero Input (fail-open).
-func ParseInput(r io.Reader) *Input {
+func ParseInput(r io.Reader) *Input { return ParseInputFor(r, os.Getenv(settings.AgentEnv)) }
+
+// ParseInputFor parses as ParseInput with the hook agent given explicitly ("" = detect from the payload).
+func ParseInputFor(r io.Reader, agent string) *Input {
 	raw, _ := io.ReadAll(r)
 	in := &Input{Raw: raw}
 	if json.Unmarshal(raw, &in.doc) != nil {
@@ -64,7 +67,7 @@ func ParseInput(r io.Reader) *Input {
 	if in.doc == nil { // stdin `null` unmarshals without error and leaves the map nil
 		in.doc = map[string]any{}
 	}
-	switch name := os.Getenv(settings.AgentEnv); name {
+	switch name := agent; name {
 	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini:
 		in.agent = name
 	}

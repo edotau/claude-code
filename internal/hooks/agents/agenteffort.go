@@ -141,7 +141,7 @@ func (e *effortPlan) label(in *core.Input, task string, auto bool) *core.Result 
 		return nil
 	}
 	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: the description must start with the model the "+
-		"dispatch runs on. Resend this dispatch with description %q.", probe["description"])}
+		"dispatch runs on. Resend this dispatch with description %q (or print the prefix with `claude-code agents label <type>`).", probe["description"])}
 }
 
 // discovery appends the bring-your-own-key hint; outside auto mode it counts as a change.
