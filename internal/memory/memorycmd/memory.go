@@ -27,7 +27,7 @@ var memorySubs = []memorySub{
 	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the repo's bank"},
-	{"review", "", "doctor + stats for the banks; --candidates prints the promotion-ranking procedure"},
+	{"review", "", "doctor + bank stats; --candidates prints the promotion procedure"},
 	{"verify", "", "check bank claims against local evidence; never write or fetch"},
 	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
 	{"update", "", "save the live session or --transcript; else print the procedure"},
@@ -39,8 +39,8 @@ var memoryPage = helptext.Page{
 	About: "Per-repo and home memory banks: session-start injects them, the Stop/SessionEnd\n" +
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
-	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch, catchup, timeline,\n" +
-		"          archive, alias — dispatchable, off the menu above\n" +
+	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch,\n" +
+		"          catchup, timeline, archive, alias — dispatchable, off the menu above\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 

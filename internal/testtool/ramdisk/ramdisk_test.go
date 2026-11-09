@@ -2,10 +2,12 @@ package ramdisk
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeDisk stubs the mount seams and reports what ran; attachErr makes the disk unavailable.
@@ -86,6 +88,56 @@ func TestRunWithoutDiskUsesNormalTMPDIR(t *testing.T) {
 				t.Errorf("attached %d, detached %d; want %d, 0", len(f.attached), len(f.detached), c.wantAttach)
 			}
 		})
+	}
+}
+
+func TestRunStalledEraseDetachesAndRunsCommand(t *testing.T) {
+	bin := t.TempDir()
+	detached := filepath.Join(t.TempDir(), "detached")
+	t.Setenv("RAMDISK_DETACH_LOG", detached)
+	writeDiskTool(t, bin, "hdiutil", `if [ "$1" = attach ]; then
+printf '/dev/disk9\n'
+else
+printf '%s' "$2" > "$RAMDISK_DETACH_LOG"
+fi
+`)
+	stall := diskTimeout + diskWaitDelay + 5*time.Second
+	writeDiskTool(t, bin, "diskutil", fmt.Sprintf("exec sleep %d\n", int(stall/time.Second)))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(offEnv, "1")
+	t.Setenv("TMPDIR", t.TempDir())
+	origGoos, origAttach := goos, attach
+	goos, attach = "darwin", attachDisk
+	t.Cleanup(func() { goos, attach = origGoos, origAttach })
+	out := filepath.Join(t.TempDir(), "tmpdir")
+	start := time.Now()
+	code := Run(probe(out, "3"))
+	if elapsed := time.Since(start); elapsed >= diskTimeout+diskWaitDelay {
+		t.Errorf("stalled erase took %s, want less than %s", elapsed, diskTimeout+diskWaitDelay)
+	}
+	if code != 3 {
+		t.Errorf("exit = %d, want the fallback command's 3", code)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != os.Getenv("TMPDIR") {
+		t.Errorf("child TMPDIR = %q, want inherited %q", got, os.Getenv("TMPDIR"))
+	}
+	got, err = os.ReadFile(detached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "/dev/disk9" {
+		t.Errorf("detached = %q, want /dev/disk9", got)
+	}
+}
+
+func writeDiskTool(t *testing.T, dir, name, script string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+script), 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
 

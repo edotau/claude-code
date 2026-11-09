@@ -179,7 +179,7 @@ func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done 
 	formatFlag := helptext.FormatFlag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
 	providersFlag := fs.Bool("providers", true, "append live plan quotas for every provider; =false stays offline")
-	showFlag := fs.String("show", "used", "quota column: used (default), left, or total")
+	showFlag := fs.String("show", "used", "quota column: used (default) or left; total hides the quota table")
 	if code, done := helptext.Parse(fs, args); done {
 		return usageOpts{}, code, true
 	}
@@ -227,6 +227,21 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	return runUsageText(o, claudeDir, out, errw)
 }
 
+// errWriter keeps the first write error so a text renderer reports a failing writer once, at the end.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (e *errWriter) Write(p []byte) (int, error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+	n, err := e.w.Write(p)
+	e.err = err
+	return n, err
+}
+
 // runUsageText prints the five text sections, overlapping the quota fetch and agent aggregation with the local scan.
 func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	session, days, show := o.session, o.days, o.show
@@ -240,12 +255,13 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 		return 1
 	}
 	agg, files := scan.agg, scan.files
+	w := &errWriter{w: out}
 
 	// Section 1 (MODEL table) prints the moment the local scan is done, even while quotas are in flight.
 	if len(files) == 0 {
 		fmt.Fprintln(errw, "usage: no matching subagent transcripts found")
 	} else {
-		printUsageTable(out, agg, len(files))
+		printUsageTable(w, agg, len(files))
 	}
 
 	// Agents aggregation depends on agg/files above, so it starts here, overlapping the quota fetch too.
@@ -261,10 +277,14 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
 	}
 	aggs := aggregateLedger(ledgerEntries, time.Now())
-	printQuotas(out, quotas, show, aggs, ledgerSince(ledgerEntries))
+	printQuotas(w, quotas, show, aggs, ledgerSince(ledgerEntries))
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
-	printAgentsSection(out, <-agentsCh, days)
+	printAgentsSection(w, <-agentsCh, days)
+	if w.err != nil {
+		fmt.Fprintln(errw, "usage: write output:", w.err)
+		return 1
+	}
 
 	// Section 5: the warn/exceeded trailer, derived from the same quotas already printed.
 	printQuotaWarnings(errw, quotas)
@@ -404,7 +424,11 @@ func newestModTime(dir string) (time.Time, error) {
 		if err != nil {
 			return err
 		}
-		if info, err := d.Info(); err == nil && info.ModTime().After(newest) {
+		info, err := d.Info() // unknown mtime could be in window, so it is an error, not a skip
+		if err != nil {
+			return err
+		}
+		if info.ModTime().After(newest) {
 			newest = info.ModTime()
 		}
 		return nil

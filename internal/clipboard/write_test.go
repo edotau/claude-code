@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -274,6 +275,53 @@ func TestClearIfMatchBoundsContext(t *testing.T) {
 		if d.After(start.Add(clearTimeout + time.Second)) {
 			t.Errorf("deadline %v exceeds clearTimeout %v", d.Sub(start), clearTimeout)
 		}
+	}
+}
+
+func TestClearIfMatchRejectsTruncatedRead(t *testing.T) {
+	realRun := run
+	env(t, false, "wayland-0", "", "wl-copy", "wl-paste")
+	run = realRun
+	dir := os.Getenv("PATH")
+	cleared := filepath.Join(dir, "cleared")
+	pidFile := filepath.Join(dir, "child.pid")
+	read := "#!/bin/sh\nprintf '%s' '" + secret + "'\n/bin/sleep 30 &\necho $! > '" + pidFile + "'\n"
+	writeBridgeFixture(t, filepath.Join(dir, "wl-paste"), read)
+	writeBridgeFixture(t, filepath.Join(dir, "wl-copy"), "#!/bin/sh\nprintf cleared > '"+cleared+"'\n")
+	for _, name := range []string{"wl-copy", "wl-paste"} {
+		if err := os.Chmod(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { stopClipboardChild(t, pidFile) })
+	ok, err := ClearIfMatch(context.Background(), Digest(secret))
+	if ok || !errors.Is(err, errOutputCut) {
+		t.Fatalf("truncated read: cleared=%v err=%v, want errOutputCut without clearing", ok, err)
+	}
+	if _, err := os.Stat(cleared); !os.IsNotExist(err) {
+		t.Fatalf("clear command ran or marker inaccessible: %v", err)
+	}
+}
+
+func stopClipboardChild(t *testing.T, pidFile string) {
+	t.Helper()
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		t.Error(err)
 	}
 }
 

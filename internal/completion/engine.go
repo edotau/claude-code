@@ -110,7 +110,12 @@ func remainingFlags(path []string, node *Node, rest []string) []string {
 		out = append(out, "--"+f.Name)
 	}
 	slices.Sort(out)
-	return slices.DeleteFunc(out, func(f string) bool { return slices.Contains(rest, f) })
+	return slices.DeleteFunc(out, func(f string) bool { return typedFlag(rest, f) })
+}
+
+// typedFlag reports whether a word in rest is flag f in bare or --flag=value form.
+func typedFlag(rest []string, f string) bool {
+	return slices.ContainsFunc(rest, func(w string) bool { return w == f || strings.HasPrefix(w, f+"=") })
 }
 
 // positionalInfo counts satisfied positional slots, skipping values consumed by non-boolean flags.
@@ -179,8 +184,8 @@ func (e Engine) Candidates(words []string) []string {
 
 func (e Engine) nextCompletionCandidates(path []string, node *Node, rest []string, cur string) []string {
 	switch {
-	case len(rest) > 0 && strings.HasPrefix(rest[len(rest)-1], "-") && !strings.HasPrefix(cur, "-") &&
-		!flagIsBool(path, node, rest[len(rest)-1]):
+	case len(rest) > 0 && strings.HasPrefix(rest[len(rest)-1], "-") && !strings.Contains(rest[len(rest)-1], "=") &&
+		!strings.HasPrefix(cur, "-") && !flagIsBool(path, node, rest[len(rest)-1]):
 		return flagValues(path, node, rest[len(rest)-1])
 	case len(path) == 0 && len(rest) == 0:
 		return e.topLevelCandidates(cur)

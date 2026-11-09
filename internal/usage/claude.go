@@ -132,11 +132,11 @@ func claudeCredentials(ctx context.Context) (claudeOAuthCreds, bool) {
 
 // claudeUsageResponse mirrors the oauth/usage body: the two headline windows plus a scoped-limit list.
 type claudeUsageResponse struct {
-	FiveHour struct {
+	FiveHour *struct {
 		Utilization float64 `json:"utilization"`
 		ResetsAt    string  `json:"resets_at"`
 	} `json:"five_hour"`
-	SevenDay struct {
+	SevenDay *struct {
 		Utilization float64 `json:"utilization"`
 		ResetsAt    string  `json:"resets_at"`
 	} `json:"seven_day"`
@@ -167,7 +167,22 @@ type claudeUsageCache struct {
 	FetchedAt        time.Time       `json:"fetched_at"`
 	NotBefore        *time.Time      `json:"not_before,omitempty"`
 	SubscriptionType string          `json:"subscription_type"`
+	Owner            string          `json:"owner,omitempty"` // claudeOwner of the credentials that fetched Body
 	Body             json.RawMessage `json:"body,omitempty"`
+}
+
+// claudeOwner fingerprints the access token so a cache is only ever served to the credentials that wrote it.
+func claudeOwner(creds claudeOAuthCreds) string {
+	sum := sha256.Sum256([]byte(creds.ClaudeAiOauth.AccessToken))
+	return hex.EncodeToString(sum[:])
+}
+
+// ownedCache returns c only when it was written under creds; another login's cache (or an unowned one) is a miss.
+func ownedCache(c *claudeUsageCache, creds claudeOAuthCreds) *claudeUsageCache {
+	if c == nil || c.Owner != claudeOwner(creds) {
+		return nil
+	}
+	return c
 }
 
 // claudeCacheDir overrides the usage cache dir (tests); empty resolves state/harness/cache at call time.
@@ -230,15 +245,23 @@ func claudeRetryAfter(v string, now time.Time) time.Duration {
 	return defaultCooldown
 }
 
-// claudeCachedOrNote serves cache's rows with a "cached; <reason>" note on the first row when cache holds a
-// body, else the plain note — the shared fallback for every error path once a prior fetch may exist.
+// claudeCachedOrNote serves cache's rows (all marked cached) with a "cached; <reason>" note, else the plain note.
 func claudeCachedOrNote(cache *claudeUsageCache, reason, note string) []quota {
 	if cache == nil || len(cache.Body) == 0 {
 		return []quota{{Provider: "anthropic", Note: note}}
 	}
-	rows := parseClaudeUsage(cache.Body, cache.SubscriptionType)
-	if len(rows) > 0 {
-		rows[0].Note = "cached; " + reason
+	rows := markCached(parseClaudeUsage(cache.Body, cache.SubscriptionType))
+	if len(rows) == 0 || rows[0].Note != "" {
+		return []quota{{Provider: "anthropic", Note: note}}
+	}
+	rows[0].Note = "cached; " + reason
+	return rows
+}
+
+// markCached flags every row as served from the cache, so no caller records it as a fresh observation.
+func markCached(rows []quota) []quota {
+	for i := range rows {
+		rows[i].cached = true
 	}
 	return rows
 }
@@ -254,15 +277,18 @@ func claudeQuotas(ctx context.Context) []quota {
 	path := claudeUsageCachePath()
 	var rows []quota
 	// The lock spans read, fetch and write, so a concurrent run reads the fresh cache instead of refetching.
-	if err := paths.WithFileLock(path, func() error { rows = claudeFetch(ctx, creds, path); return nil }); err != nil {
-		rows = claudeFetch(ctx, creds, path)
+	err := paths.WithFileLock(path, func() error { rows = claudeFetch(ctx, creds, path); return nil })
+	if err != nil && rows == nil {
+		// Unsynchronized fetches could race another run's cache write, so serve the cache without fetching.
+		return claudeCachedOrNote(ownedCache(readClaudeUsageCache(path), creds), "cache lock unavailable",
+			"usage unavailable: "+commandErrorLine(nil, err))
 	}
 	return rows
 }
 
 // claudeFetch serves the cache when fresh or rate limited, else asks the endpoint and rewrites the cache.
 func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quota {
-	cache := readClaudeUsageCache(path)
+	cache := ownedCache(readClaudeUsageCache(path), creds)
 	now := claudeNow()
 
 	if rows, done := claudeServeLocal(cache, creds, now); done {
@@ -288,7 +314,7 @@ func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quo
 // claudeServeLocal answers without a request: from a fresh cache, a rate-limit hold, or a stale token; done is false to fetch.
 func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.Time) (rows []quota, done bool) {
 	if cache != nil && now.Sub(cache.FetchedAt) < claudeUsageCacheTTL() {
-		return parseClaudeUsage(cache.Body, cache.SubscriptionType), true
+		return markCached(parseClaudeUsage(cache.Body, cache.SubscriptionType)), true
 	}
 	if cache != nil && cache.NotBefore != nil && now.Before(*cache.NotBefore) {
 		return claudeCachedOrNote(cache, "rate limited until "+cache.NotBefore.Local().Format("15:04"),
@@ -304,18 +330,18 @@ func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.
 func claudeHandleResponse(resp *http.Response, body []byte, cache *claudeUsageCache, creds claudeOAuthCreds, path string, now time.Time) []quota {
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if !json.Valid(body) {
+		if _, ok := claudeUsageWindows(body); !ok { // never cache a body that lacks a headline window
 			return claudeCachedOrNote(cache, "unreadable response", "usage unavailable: unreadable response")
 		}
 		writeClaudeUsageCache(path, claudeUsageCache{
-			FetchedAt: now, SubscriptionType: creds.ClaudeAiOauth.SubscriptionType, Body: body,
+			FetchedAt: now, SubscriptionType: creds.ClaudeAiOauth.SubscriptionType, Owner: claudeOwner(creds), Body: body,
 		})
 		return parseClaudeUsage(body, creds.ClaudeAiOauth.SubscriptionType)
 	case http.StatusTooManyRequests:
 		notBefore := now.Add(claudeRetryAfter(resp.Header.Get("Retry-After"), now))
 		note := fmt.Sprintf("usage unavailable: HTTP %d", resp.StatusCode)
 		if cache == nil {
-			cache = &claudeUsageCache{SubscriptionType: creds.ClaudeAiOauth.SubscriptionType}
+			cache = &claudeUsageCache{SubscriptionType: creds.ClaudeAiOauth.SubscriptionType, Owner: claudeOwner(creds)}
 		}
 		cache.NotBefore = &notBefore
 		writeClaudeUsageCache(path, *cache)
@@ -341,10 +367,19 @@ func claudePlanName() string {
 	return cfg.Account.PlanName
 }
 
-// parseClaudeUsage turns an oauth/usage body into the 5h, weekly, and Fable-weekly rows.
-func parseClaudeUsage(body []byte, subscriptionType string) []quota {
+// claudeUsageWindows decodes an oauth/usage body and reports whether both headline windows are present (non-null).
+func claudeUsageWindows(body []byte) (claudeUsageResponse, bool) {
 	var u claudeUsageResponse
-	if err := json.Unmarshal(body, &u); err != nil {
+	if json.Unmarshal(body, &u) != nil || u.FiveHour == nil || u.SevenDay == nil {
+		return u, false
+	}
+	return u, true
+}
+
+// parseClaudeUsage turns an oauth/usage body into the 5h, weekly, and Fable rows; a missing window is a note.
+func parseClaudeUsage(body []byte, subscriptionType string) []quota {
+	u, ok := claudeUsageWindows(body)
+	if !ok {
 		return []quota{{Provider: "anthropic", Note: "usage unavailable: unreadable response"}}
 	}
 	plan := cmp.Or(claudePlanName(), textutil.Title(subscriptionType))

@@ -71,6 +71,22 @@ func TestDecodeNewerRecordReturnsErrNewer(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsNegativeSchemaBeforeMigration(t *testing.T) {
+	calls := 0
+	f := Format{Name: "negative-schema", Version: 1, Migrate: func(_ int, _ []byte) ([]byte, error) {
+		calls++
+		return nil, errors.New("unexpected migration")
+	}}
+	var got rec
+	_, err := Decode(f, []byte(`{"schema":-2147483648}`), &got)
+	if calls != 0 {
+		t.Fatalf("negative schema invoked migration %d times, want 0", calls)
+	}
+	if err == nil || !strings.Contains(err.Error(), "negative schema version -2147483648") {
+		t.Fatalf("Decode error = %v, want negative schema version rejection", err)
+	}
+}
+
 func TestDecodeOlderWithoutMigrateReturnsErrNoMigration(t *testing.T) {
 	hermetic(t)
 	f := reg(t, Format{Name: "t-decode-nomig", Owner: "test", Kind: "record", Version: 1,
@@ -186,6 +202,28 @@ func TestPendingAndMigrateAllSpanFormats(t *testing.T) {
 	t.Run("rewrite", func(t *testing.T) {
 		checkMigrationRewrite(t, rw, ro)
 	})
+}
+
+func TestMigrateAllLedgerCountsLogRecords(t *testing.T) {
+	dir := hermetic(t)
+	path := filepath.Join(dir, "records.jsonl")
+	const staleRecords = 100
+	body := strings.Repeat("{\"name\":\"stale\"}\n", staleRecords) + "{\"schema\":1,\"name\":\"current\"}\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := reg(t, Format{Name: "t-mig-log-count", Owner: "test", Kind: Log, Version: 1, Rewrite: true,
+		Glob: func() string { return path }, Clean: "x", Migrate: SameShape})
+	if _, err := MigrateAll(false); err != nil {
+		t.Fatal(err)
+	}
+	lines := ledgerLines(t, f.Name)
+	if len(lines) != 1 {
+		t.Fatalf("migration ledger has %d rows, want 1", len(lines))
+	}
+	if got := lines[0]["records"]; got != float64(staleRecords) {
+		t.Fatalf("migration ledger records = %v, want %d stale records", got, staleRecords)
+	}
 }
 
 func migrationSnapshot(files []string) string {

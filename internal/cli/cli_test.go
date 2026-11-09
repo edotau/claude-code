@@ -26,6 +26,37 @@ func TestRunDoesNotDispatchArgvZero(t *testing.T) {
 	}
 }
 
+func TestRunHelpReportsWriteFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	closed, err := os.CreateTemp(t.TempDir(), "closed-stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, arg := range []string{"", "help", "-h", "--help"} {
+		t.Run("argument="+arg, func(t *testing.T) {
+			argv := []string{"claude-code"}
+			if arg != "" {
+				argv = append(argv, arg)
+			}
+			code, _, stderr := hosttest.CaptureOutput(t, func() int {
+				stdout := os.Stdout
+				os.Stdout = closed
+				defer func() { os.Stdout = stdout }()
+				return Run(argv)
+			})
+			if code != 1 {
+				t.Errorf("Run(%q) exit = %d, want 1 for failed help write", argv, code)
+			}
+			if !strings.Contains(stderr, "claude-code: write help:") || !strings.Contains(stderr, os.ErrClosed.Error()) {
+				t.Errorf("stderr = %q, want help write diagnostic naming the closed file error", stderr)
+			}
+		})
+	}
+}
+
 func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	cliScratch(t)
 	bin := pathstest.FakeVendor(t, "claude", "exit 99")

@@ -177,7 +177,9 @@ func renderAgentsTree(opts tree.Options, format string, showAll bool) int {
 		}
 		return 0
 	}
-	uitree.RenderText(os.Stdout, listing, time.Now())
+	if err := uitree.RenderText(os.Stdout, listing, time.Now()); err != nil {
+		return helptext.Fail("agents tree: %v", err)
+	}
 	return 0
 }
 

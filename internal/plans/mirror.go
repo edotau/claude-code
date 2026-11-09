@@ -31,11 +31,21 @@ func MirrorDests() []string {
 	recs, _ := filepath.Glob(filepath.Join(ScratchDir(), "*.dest"))
 	var out []string
 	for _, r := range recs {
-		if dest, ok := ReadRecordedDest(strings.TrimSuffix(filepath.Base(r), ".dest")); ok {
-			out = append(out, dest)
+		dest, ok := ReadRecordedDest(strings.TrimSuffix(filepath.Base(r), ".dest"))
+		if !ok {
+			return allDatedPlans() // an unreadable record hides its mirror, so exclude every plan (fail closed)
 		}
+		out = append(out, dest)
 	}
 	return out
+}
+
+// allDatedPlans lists every plan file under the plans home, the fail-closed exclusion when a record is unreadable.
+func allDatedPlans() []string {
+	root := filepath.Join(paths.ConfigDir(), "plans")
+	top, _ := filepath.Glob(filepath.Join(root, "*.md"))
+	sub, _ := filepath.Glob(filepath.Join(root, "*", "*.md"))
+	return append(top, sub...)
 }
 
 // RecordDest records dest as the dated mirror of the draft with this base name.

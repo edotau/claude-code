@@ -23,6 +23,9 @@ const clearTimeout = 30 * time.Second
 // pipeGrace is how long run waits for stdout to close after the tool exits.
 const pipeGrace = 2 * time.Second
 
+// errOutputCut: the tool exited 0 but its stdout was cut off at pipeGrace, so the output may be truncated.
+var errOutputCut = errors.New("clipboard tool output may be truncated")
+
 // DefaultClearAfter is how long a copied secret stays on the clipboard before the timed clear.
 const DefaultClearAfter = 30 * time.Second
 
@@ -38,7 +41,14 @@ var run = func(ctx context.Context, stdin []byte, name string, args ...string) (
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.WaitDelay = pipeGrace // xclip -i forks a selection owner that holds the stdout pipe open
-	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
+	err := cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) { // exit 0; writes ignore the cut stdout, a strict read must not trust it
+		if strictRead(ctx) {
+			return out.Bytes(), errOutputCut
+		}
+		err = nil
+	}
+	if err != nil {
 		// Command name and status only: never stderr or stdin, which may echo the value.
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			return nil, fmt.Errorf("%s: exit status %d", name, ee.ExitCode())
@@ -46,6 +56,18 @@ var run = func(ctx context.Context, stdin []byte, name string, args ...string) (
 		return nil, fmt.Errorf("%s: could not run", name)
 	}
 	return out.Bytes(), nil
+}
+
+type strictReadKey struct{}
+
+// withStrictRead marks ctx so run fails a read whose stdout was cut at pipeGrace instead of trusting it.
+func withStrictRead(ctx context.Context) context.Context {
+	return context.WithValue(ctx, strictReadKey{}, true)
+}
+
+func strictRead(ctx context.Context) bool {
+	v, _ := ctx.Value(strictReadKey{}).(bool)
+	return v
 }
 
 // spawnClear is the detach seam for ScheduleClear.
@@ -169,7 +191,7 @@ func ClearIfMatch(ctx context.Context, digest string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	cur, err := readText(ctx, t)
+	cur, err := readText(withStrictRead(ctx), t)
 	if err != nil {
 		return false, err
 	}

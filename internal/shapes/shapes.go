@@ -83,6 +83,7 @@ func RedactMap(m map[string]string) map[string]string {
 
 // Redact replaces each credential-shaped [A-Za-z0-9_-] run and bearer token in s with REDACTED, in place.
 func Redact(s string) string {
+	s = bearerAuth.ReplaceAllString(s, "${1}REDACTED") // before the run pass, which would shorten the token
 	var b strings.Builder
 	for i := 0; i < len(s); {
 		j := i
@@ -101,7 +102,7 @@ func Redact(s string) string {
 		}
 		i = j
 	}
-	return bearerAuth.ReplaceAllString(b.String(), "${1}REDACTED")
+	return b.String()
 }
 
 // tokenByte reports a byte in the token alphabet every known prefix uses.

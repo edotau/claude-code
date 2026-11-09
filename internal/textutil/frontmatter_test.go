@@ -2,6 +2,7 @@ package textutil
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 
 	"github.com/jeduden/mdsmith/pkg/markdown"
@@ -51,6 +52,22 @@ func TestParseFrontmatterQuotedInlineList(t *testing.T) {
 	names, ok := fm["names"].([]string)
 	if !ok || len(names) != 3 || names[0] != "a" || names[1] != "b" || names[2] != "c" {
 		t.Errorf("names = %v, want [a b c]", fm["names"])
+	}
+}
+
+func TestParseFrontmatterInlineListQuotedComma(t *testing.T) {
+	fm, _ := ParseFrontmatter("---\nnames: [\"alpha,beta\"]\n---\n")
+	names, ok := fm["names"].([]string)
+	if !ok || !slices.Equal(names, []string{"alpha,beta"}) {
+		t.Fatalf("names = %#v, want [\"alpha,beta\"]", fm["names"])
+	}
+}
+
+func TestParseFrontmatterCommentInsideUnindentedList(t *testing.T) {
+	fm, _ := ParseFrontmatter("---\ntools:\n- Read\n# comment\n- Write\n---\n")
+	tools, ok := fm["tools"].([]string)
+	if !ok || !slices.Equal(tools, []string{"Read", "Write"}) {
+		t.Fatalf("tools = %#v, want [Read Write]", fm["tools"])
 	}
 }
 

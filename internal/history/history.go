@@ -1,11 +1,11 @@
 // Package history keeps a git-backed shadow history of the config files several tools co-own (agent
 // CLIs, Claude Code itself, and the user), so a change made two runs ago stays recoverable.
 //
-// ONE repo under state/harness/history (gitignored) carries both "planes" — config files and the
-// memory view (tree.go) — as flat labeled copies. A plane's commit subject is prefixed "config: " or
-// "memory: ", and Log/Diff filter on that prefix (git log --grep), so the two stay independent
-// histories without needing two separate repos. Every git call runs through history.go's sanitized
-// environment, so a snapshot taken inside a session never touches that session's OWN repo.
+// ONE repo under Dir() (paths.CacheDir()/history, gitignored) holds the config plane as flat labeled
+// copies. Commit subjects are prefixed "config: " and Log/Diff filter on that prefix (git log --grep).
+// Memory history is NOT stored here; it has its own git repo at ~/.claude/memory. Every git call runs
+// through proc.RunGit's sanitized environment, so a snapshot taken inside a session never touches that
+// session's OWN repo.
 package history
 
 import (
@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -26,8 +27,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// HistoryFile is one watched file: Label names it inside the store (flat namespace — a label must be
-// unique across BOTH planes), Path is where it lives on disk.
+// HistoryFile is one watched file: Label names it inside its plane's directory of the store (unique within
+// that plane), Path is where it lives on disk.
 type HistoryFile struct {
 	Label, Path string
 	Read        func() ([]byte, error) // when set, replaces reading Path; absence is fs.ErrNotExist
@@ -285,19 +286,31 @@ func (s *Store) commit(subject, body, plane string) (string, error) {
 	return s.git("rev-parse", "--short", "HEAD")
 }
 
-// hasCommits reports whether HEAD resolves; a fresh repo whose first snapshot recorded nothing has none.
-func (s *Store) hasCommits() bool {
+// hasCommits reports whether the store has a repo with a resolvable HEAD. A missing store or an unborn
+// HEAD is "no commits"; any other failure (an unreadable .git, a corrupt HEAD) is a real error.
+func (s *Store) hasCommits() (bool, error) {
+	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
 	_, err := s.git("rev-parse", "--verify", "--quiet", "HEAD")
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 { // rev-parse --quiet: HEAD does not resolve
+		return false, nil
+	}
+	return false, err
 }
 
 // Log returns plane's last n commits as "<sha> <date> <subject>" lines, newest first.
 func (s *Store) Log(n int, plane string) ([]string, error) {
-	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
-		return nil, nil
-	}
-	if !s.hasCommits() {
-		return nil, nil
+	born, err := s.hasCommits()
+	if err != nil || !born {
+		return nil, err
 	}
 	out, err := s.git("log", fmt.Sprintf("-%d", n), "--grep=^"+plane+": ",
 		"--format=%h %ad %s", "--date=format:%Y-%m-%d %H:%M")
@@ -310,7 +323,11 @@ func (s *Store) Log(n int, plane string) ([]string, error) {
 // Diff returns one commit's patch: rev when given, else plane's newest commit.
 func (s *Store) Diff(rev, plane string) (string, error) {
 	if rev == "" {
-		if !s.hasCommits() {
+		born, err := s.hasCommits()
+		if err != nil {
+			return "", err
+		}
+		if !born {
 			return "", fmt.Errorf("no %s commits yet", plane)
 		}
 		found, err := s.git("log", "--grep=^"+plane+": ", "-1", "--format=%H")

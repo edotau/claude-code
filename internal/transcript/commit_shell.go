@@ -120,13 +120,36 @@ func scanGitOpts(opts []string) (aliases map[string]string, shortCircuit bool) {
 	return aliases, false
 }
 
-// gitBuiltinVerbs are git's own command names — git ignores a user alias defined under one of these
-// names, so `-c alias.<builtin>=…` never registers (the builtin behavior still runs unaltered).
+// gitBuiltinVerbs are git's builtin command names (`git --list-cmds=builtins`, git 2.53): git never runs
+// an alias under one of these names, so `-c alias.<builtin>=…` never registers.
 var gitBuiltinVerbs = map[string]bool{
-	"status": true, "add": true, "log": true, "diff": true, "push": true, "pull": true, "fetch": true,
-	"checkout": true, "switch": true, "branch": true, "merge": true, "rebase": true, "reset": true,
-	"show": true, "tag": true, "stash": true, "clone": true, "init": true, "rm": true, "mv": true,
-	"restore": true, "commit": true,
+	"add": true, "am": true, "annotate": true, "apply": true, "archive": true, "backfill": true,
+	"bisect": true, "blame": true, "branch": true, "bugreport": true, "bundle": true, "cat-file": true,
+	"check-attr": true, "check-ignore": true, "check-mailmap": true, "check-ref-format": true,
+	"checkout": true, "checkout-index": true, "cherry": true, "cherry-pick": true, "clean": true,
+	"clone": true, "column": true, "commit": true, "commit-graph": true, "commit-tree": true,
+	"config": true, "count-objects": true, "credential": true, "credential-cache": true,
+	"credential-store": true, "describe": true, "diagnose": true, "diff": true, "diff-files": true,
+	"diff-index": true, "diff-pairs": true, "diff-tree": true, "difftool": true, "fast-export": true,
+	"fast-import": true, "fetch": true, "fetch-pack": true, "fmt-merge-msg": true, "for-each-ref": true,
+	"for-each-repo": true, "format-patch": true, "fsck": true, "fsck-objects": true, "fsmonitor--daemon": true,
+	"gc": true, "get-tar-commit-id": true, "grep": true, "hash-object": true, "help": true, "hook": true,
+	"index-pack": true, "init": true, "init-db": true, "interpret-trailers": true, "last-modified": true,
+	"log": true, "ls-files": true, "ls-remote": true, "ls-tree": true, "mailinfo": true, "mailsplit": true,
+	"maintenance": true, "merge": true, "merge-base": true, "merge-file": true, "merge-index": true,
+	"merge-ours": true, "merge-recursive": true, "merge-subtree": true, "merge-tree": true, "mktag": true,
+	"mktree": true, "multi-pack-index": true, "mv": true, "name-rev": true, "notes": true,
+	"pack-objects": true, "pack-redundant": true, "pack-refs": true, "patch-id": true, "pickaxe": true,
+	"prune": true, "prune-packed": true, "pull": true, "push": true, "range-diff": true, "read-tree": true,
+	"rebase": true, "receive-pack": true, "reflog": true, "refs": true, "remote": true, "repack": true,
+	"replace": true, "replay": true, "repo": true, "rerere": true, "reset": true, "restore": true,
+	"rev-list": true, "rev-parse": true, "revert": true, "rm": true, "send-pack": true, "shortlog": true,
+	"show": true, "show-branch": true, "show-index": true, "show-ref": true, "sparse-checkout": true,
+	"stage": true, "stash": true, "status": true, "stripspace": true, "submodule": true, "switch": true,
+	"symbolic-ref": true, "tag": true, "unpack-file": true, "unpack-objects": true, "update-index": true,
+	"update-ref": true, "update-server-info": true, "upload-archive": true, "upload-pack": true, "var": true,
+	"verify-commit": true, "verify-pack": true, "verify-tag": true, "version": true, "whatchanged": true,
+	"worktree": true, "write-tree": true,
 }
 
 // splitAliasAssign splits `alias.<name>=<value>` (from `git -c <val>`) into name and raw value.
@@ -167,12 +190,12 @@ func stripHeredocBodies(cmd string) string {
 	out := make([]string, 0, len(lines))
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		word, ok := heredocWord(lines[i])
+		word, stripTabs, ok := heredocWord(lines[i])
 		if !ok {
 			continue
 		}
 		i++
-		for i < len(lines) && strings.TrimSpace(lines[i]) != word {
+		for i < len(lines) && !isHeredocEnd(lines[i], word, stripTabs) {
 			i++
 		}
 		// i now sits on the terminator line (or past EOF); either way it is dropped, not re-appended.
@@ -180,33 +203,42 @@ func stripHeredocBodies(cmd string) string {
 	return strings.Join(out, "\n")
 }
 
+// isHeredocEnd reports whether line closes a heredoc: an exact match, with leading tabs stripped only for `<<-`.
+func isHeredocEnd(line, word string, stripTabs bool) bool {
+	if stripTabs {
+		line = strings.TrimLeft(line, "\t")
+	}
+	return line == word
+}
+
 var bareHeredocWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
-// heredocWord reports the terminator word of a `<<[-]WORD` (quoted or bare) on line, false for a
-// here-string (`<<<`) or a line with no heredoc redirect at all.
-func heredocWord(line string) (string, bool) {
+// heredocWord reports the terminator word of a `<<[-]WORD` (quoted or bare) on line and whether it is `<<-`;
+// ok is false for a here-string (`<<<`) or a line with no heredoc redirect at all.
+func heredocWord(line string) (word string, stripTabs, ok bool) {
 	idx := unquotedHeredocOp(line)
 	if idx < 0 || (idx+2 < len(line) && line[idx+2] == '<') {
-		return "", false
+		return "", false, false
 	}
+	stripTabs = strings.HasPrefix(line[idx+2:], "-")
 	rest := strings.TrimLeft(strings.TrimPrefix(line[idx+2:], "-"), " \t")
 	if rest == "" {
-		return "", false
+		return "", false, false
 	}
 	if rest[0] == '\'' || rest[0] == '"' {
 		q := rest[0]
 		end := strings.IndexByte(rest[1:], q)
 		if end < 0 {
-			return "", false
+			return "", false, false
 		}
-		return rest[1 : 1+end], rest[1:1+end] != ""
+		return rest[1 : 1+end], stripTabs, rest[1:1+end] != ""
 	}
 	end := strings.IndexAny(rest, " \t")
 	if end < 0 {
 		end = len(rest)
 	}
-	word := rest[:end]
-	return word, bareHeredocWord.MatchString(word) // rejects `$((1<<4))` and `"a <<b"`
+	word = rest[:end]
+	return word, stripTabs, bareHeredocWord.MatchString(word) // rejects `$((1<<4))` and `"a <<b"`
 }
 
 // unquotedHeredocOp returns the index of the first `<<` on line outside quotes and backslash escapes, or -1.

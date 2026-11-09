@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -128,8 +131,15 @@ func writeOverlay(tmp string, src source, mutated string) (string, error) {
 	return ovPath, nil
 }
 
+// goTestTimeout bounds one go test run, dependency fetch and compile included.
+var goTestTimeout = 15 * time.Minute
+
 // goTest runs go test over o.Pkgs (with the overlay unless ovPath is "") and returns its combined output and run error.
 func goTest(o Options, ovPath string) (string, error) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, goTestTimeout)
+	defer cancel()
 	args := []string{"test", "-count=1"}
 	if ovPath != "" {
 		args = append(args, "-overlay", ovPath)
@@ -137,8 +147,9 @@ func goTest(o Options, ovPath string) (string, error) {
 	if o.Run != "" {
 		args = append(args, "-run", o.Run)
 	}
-	cmd := exec.CommandContext(context.Background(), "go", append(args, o.Pkgs...)...)
+	cmd := exec.CommandContext(ctx, "go", append(args, o.Pkgs...)...)
 	cmd.Dir = o.Dir
+	cmd.WaitDelay = 10 * time.Second // a test binary orphaned by the kill must not hold the pipes open
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	runErr := cmd.Run()

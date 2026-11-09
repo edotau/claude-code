@@ -91,7 +91,7 @@ func printPlanSummaries(summaries []Summary) {
 func cmdPlanTick(args []string) int {
 	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]"})
 	rng := fs.String("range", "", "commits to tick, <a>..<b> as git rev-list reads it")
-	plan := fs.String("plan", "", "plan file to tick (default: this repo's active plan)")
+	plan := fs.String("plan", "", "plan file to tick (default: the plan whose open tasks own the range's files)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
 	if code, done := helptext.Parse(fs, args); done {
 		return code

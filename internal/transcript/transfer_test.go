@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
@@ -54,6 +55,34 @@ func TestDefaultSourcePicksNewest(t *testing.T) {
 	}
 	if got != newer {
 		t.Errorf("DefaultSource = %q, want %q", got, newer)
+	}
+}
+
+func TestDefaultSourceSubsecondNewest(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "proj")
+	dir := projectSessionsDir(t, cwd)
+	older := filepath.Join(dir, "a.jsonl")
+	newer := filepath.Join(dir, "b.jsonl")
+	for i, path := range []string{older, newer} {
+		writeJSONL(t, path, "{}\n")
+		mtime := time.Unix(1_700_000_000, int64(100+i*800)*int64(time.Millisecond))
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.ModTime().Equal(mtime) {
+			t.Fatalf("fixture mtime = %s, want %s", info.ModTime(), mtime)
+		}
+	}
+	got, err := DefaultSource(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != newer {
+		t.Fatalf("DefaultSource = %q, want newer subsecond session %q", got, newer)
 	}
 }
 
@@ -197,6 +226,28 @@ func TestHandoffTrimsToSizeCap(t *testing.T) {
 	}
 	if !strings.Contains(got, "turn-39-") {
 		t.Error("Handoff trimmed the newest turn, which must survive longest")
+	}
+}
+
+func TestHandoffSingleTurnByteLimit(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "session.jsonl")
+	text := strings.Repeat("界", 100*1024/len("界")+1)
+	writeJSONL(t, source, userLine(text)+"\n")
+	got, err := Handoff(source, "/work/proj", "continue")
+	if err != nil {
+		t.Fatalf("Handoff: %v", err)
+	}
+	if len(got) > handoffCap {
+		t.Errorf("single-turn Handoff = %d bytes, want <= %d", len(got), handoffCap)
+	}
+	if !utf8.ValidString(got) {
+		t.Error("Handoff split a UTF-8 rune")
+	}
+	if !strings.Contains(got, "<<<TRANSCRIPT\nUSER: 界") {
+		t.Error("Handoff lost the framed turn")
+	}
+	if !strings.HasSuffix(got, " …[truncated]\nTRANSCRIPT>>>\n\nContinue the work: continue") {
+		t.Error("Handoff lost the truncation marker or closing frame")
 	}
 }
 

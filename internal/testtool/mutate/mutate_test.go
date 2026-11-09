@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestApply(t *testing.T) {
@@ -142,6 +143,36 @@ func TestMain(m *testing.M) {
 		os.RemoveAll(modDir)
 	}
 	os.Exit(code)
+}
+
+func TestGoTestTimeout(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\necho fetching-dependencies\nexec sleep 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	original := goTestTimeout
+	goTestTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { goTestTimeout = original })
+	for _, tc := range []struct{ name, overlay string }{
+		{"baseline", ""},
+		{"mutated", filepath.Join(dir, "overlay.json")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Now()
+			out, err := goTest(Options{Dir: dir, Pkgs: []string{"."}}, tc.overlay)
+			elapsed := time.Since(start)
+			if err == nil {
+				t.Fatal("goTest let the dependency fetch finish instead of cancelling it")
+			}
+			if out != "fetching-dependencies\n" {
+				t.Fatalf("goTest did not reach the simulated dependency fetch: output %q, error %v", out, err)
+			}
+			if elapsed >= 2*time.Second {
+				t.Fatalf("goTest took %v, want cancellation before the 3-second dependency fetch finishes", elapsed)
+			}
+		})
+	}
 }
 
 func TestCheck(t *testing.T) {

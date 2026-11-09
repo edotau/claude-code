@@ -425,8 +425,7 @@ func scorePlan(plan Plan, files []string) (s planScore) {
 	return s
 }
 
-// Select picks the one plan under home (dated, not in skip) whose tasks the commits' files match best; plans tied on the
-// best score narrow to the one whose claim names worktree, else none is chosen and tied lists them.
+// Select ranks dated plans by newest touched date, then exact then touched score; stale unclaimed plans are skipped.
 func Select(home, worktree string, skip []string, commits []Commit) (plan string, tied []string) {
 	entries, err := os.ReadDir(home)
 	if err != nil {
@@ -582,7 +581,7 @@ func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
 	}
 	var files []string
 	for f := range strings.SplitSeq(string(raw), "\x00") {
-		if f = strings.TrimPrefix(f, "\n"); f != "" {
+		if f != "" {
 			files = append(files, f)
 		}
 	}

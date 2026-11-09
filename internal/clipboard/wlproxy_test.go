@@ -79,6 +79,25 @@ func TestProxyRouteTable(t *testing.T) {
 	}
 }
 
+func TestProxyPNGFallbackPreservesPrimary(t *testing.T) {
+	for _, selector := range [][]string{{"--type", "image/png"}, {"-t", "image/png"}, {"--type=image/png"}} {
+		t.Run(strings.Join(selector, " "), func(t *testing.T) {
+			real, log := fakeReal(t, false)
+			args := append([]string{"--primary"}, selector...)
+			var out, stderr bytes.Buffer
+			c := proxyCall{real: real, args: args, env: os.Environ(), stdout: &out, stderr: &stderr}
+			if code := c.pngLeg(); code != 0 {
+				t.Fatalf("PNG fallback exit=%d: %s", code, &stderr)
+			}
+			checkProxyOut(t, "png", out.Bytes())
+			want := strings.Join(args, " ") + ";--primary --type image/bmp"
+			if got := strings.Join(log(), " "); got != want {
+				t.Fatalf("selection arguments=%q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func checkProxyOut(t *testing.T, kind string, out []byte) {
 	t.Helper()
 	switch kind {

@@ -3,6 +3,7 @@ package signin
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -121,8 +122,8 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader,
 func consentToLogin(p *providers.Provider, in *bufio.Reader) bool {
 	fmt.Fprintf(loginOut, "%s: login required. Log in now? [Y/n] ", p.Name)
 	line, rerr := in.ReadString('\n')
-	if rerr != nil && strings.TrimSpace(line) == "" {
-		line = "n" // EOF or a read error is no consent to open a login
+	if rerr != nil && (!errors.Is(rerr, io.EOF) || strings.TrimSpace(line) == "") {
+		return false // a read error, or EOF with no answer, is no consent
 	}
 	a := strings.ToLower(strings.TrimSpace(line))
 	return a == "" || strings.HasPrefix(a, "y")

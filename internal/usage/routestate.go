@@ -38,7 +38,7 @@ func recordQuotas(qs []quota, now time.Time) int {
 
 // recordable is true for a windowed, ungrouped, freshly fetched row; cached rows carry no fetch time and would look fresh.
 func recordable(q quota) bool {
-	return q.Window != "" && q.Group == "" && q.Note == ""
+	return q.Window != "" && q.Group == "" && q.Note == "" && !q.cached
 }
 
 // accountKey maps a quota row to route's account key; "" for providers the router has no column for.
@@ -99,7 +99,13 @@ func RefreshAccount(ctx context.Context, key string) bool {
 // ClaudePressure is the Anthropic plan's tightest window (5h or weekly; Fable excluded) from the shared usage
 // cache when fetched within router.StaleAfter; never touches the network, so a hook may call it.
 func ClaudePressure(now time.Time) (pct float64, window string, ok bool) {
-	c := readClaudeUsageCache(claudeUsageCachePath())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // a stalled keychain tool must not hang a hook
+	defer cancel()
+	creds, credsOK := claudeCredentials(ctx) // local keychain/file read only; no network
+	if !credsOK {
+		return 0, "", false
+	}
+	c := ownedCache(readClaudeUsageCache(claudeUsageCachePath()), creds)
 	if c == nil || now.Sub(c.FetchedAt) > router.StaleAfter {
 		return 0, "", false
 	}

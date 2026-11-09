@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -142,6 +143,22 @@ func TestOfferLoginDecliningWarns(t *testing.T) {
 	}
 	if !strings.Contains(h.out.String(), "Log in now?") {
 		t.Errorf("expected a prompt, got %q", h.out.String())
+	}
+}
+
+func TestOfferLoginReadErrorWithPartialYesSkipsLogin(t *testing.T) {
+	h := loginSetup(t, true, "", nil)
+	loginIn = io.MultiReader(strings.NewReader("y"), iotest.ErrReader(errors.New("broken tty")))
+	var plan agent.Plan
+	OfferLogin(context.Background(), agent.LaunchOptions{}, nil, []*providers.Provider{u2mRow("lp-read-error", h.server)}, &plan)
+	if h.calls.Load() != 0 {
+		t.Fatalf("login=%d, want no login after a read error with partial yes", h.calls.Load())
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "login skipped") {
+		t.Fatalf("warnings=%v, want one login skipped warning", plan.Warnings)
+	}
+	if !strings.Contains(h.out.String(), "Log in now? [Y/n]") {
+		t.Fatalf("expected a consent prompt, got %q", h.out.String())
 	}
 }
 

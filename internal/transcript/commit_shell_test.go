@@ -2,6 +2,25 @@ package transcript
 
 import "testing"
 
+func TestCountEditsHeredocTerminatorWhitespace(t *testing.T) {
+	runCommitCases(t, []commitCase{
+		{"plain leading space", bashLine("cat <<'EOF'\n EOF\ngit commit -m x\nEOF"), false},
+		{"plain leading tab", bashLine("cat <<'EOF'\n\tEOF\ngit commit -m x\nEOF"), false},
+		{"plain trailing space", bashLine("cat <<'EOF'\nEOF \ngit commit -m x\nEOF"), false},
+		{"tab stripping leading space", bashLine("cat <<-'EOF'\n EOF\ngit commit -m x\nEOF"), false},
+		{"tab stripping leading tab", bashLine("cat <<-'EOF'\n\tEOF\ngit commit -m x"), true},
+		{"exact terminator", bashLine("cat <<'EOF'\nEOF\ngit commit -m x"), true},
+	})
+}
+
+func TestCountEditsBuiltinAliasPrecedence(t *testing.T) {
+	runCommitCases(t, []commitCase{
+		{"rev-parse builtin", bashLine("git -c alias.rev-parse=commit rev-parse --is-inside-work-tree"), false},
+		{"hash-object builtin", bashLine("git -c alias.hash-object=commit hash-object file.txt"), false},
+		{"custom commit alias", bashLine("git -c alias.ci=commit ci -m x"), true},
+	})
+}
+
 func TestGitCommitCommandTable(t *testing.T) {
 	tests := []struct {
 		cmd  string

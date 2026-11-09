@@ -1,11 +1,13 @@
 package gittest
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRepoCopyInheritsLocalIdentity(t *testing.T) {
@@ -67,6 +69,46 @@ func TestInReturnsStdoutOnly(t *testing.T) {
 	}
 	if got := strings.TrimSpace(In(t, repo, "branch", "--show-current")); got != "stderr-probe" {
 		t.Fatalf("branch = %q, want stderr-probe", got)
+	}
+}
+
+func TestInTimesOutHangingHook(t *testing.T) {
+	repo := Repo(t)
+	hook := fmt.Sprintf("#!/bin/sh\nexec sleep %d\n", int(gitTimeout/time.Second)+15)
+	if err := os.WriteFile(filepath.Join(repo, ".git", "hooks", "pre-commit"), []byte(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(t.TempDir(), "output")
+	output, err := os.Create(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	passed := func() bool {
+		oldStdout := os.Stdout
+		os.Stdout = output
+		defer func() { os.Stdout = oldStdout }()
+		return testing.RunTests(func(_, _ string) (bool, error) { return true, nil },
+			[]testing.InternalTest{{Name: "hanging-hook", F: func(it *testing.T) {
+				In(it, repo, "commit", "--allow-empty", "-m", "timeout-probe")
+			}}})
+	}()
+	elapsed := time.Since(started)
+	if err := output.Close(); err != nil {
+		t.Fatal(err)
+	}
+	buf, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passed {
+		t.Fatalf("In allowed the hanging pre-commit hook to finish instead of timing out: %s", buf)
+	}
+	if !strings.Contains(string(buf), "git [commit --allow-empty -m timeout-probe]:") {
+		t.Fatalf("In failed without reporting the timed-out git command: %s", buf)
+	}
+	if elapsed > 2*gitTimeout+10*time.Second {
+		t.Fatalf("In took %s, exceeding the context timeout and pipe-drain allowance", elapsed)
 	}
 }
 

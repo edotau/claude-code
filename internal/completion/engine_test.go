@@ -155,6 +155,33 @@ func TestEngineCandidatesPreserveOrder(t *testing.T) {
 	}
 }
 
+func TestCandidatesAfterInlineFlagValue(t *testing.T) {
+	e := syntheticEngine(map[string]*Node{
+		"agents": {Sub: map[string]*Node{
+			"ask": {Flags: []Flag{
+				{Name: "agent", Values: func() []string { return []string{"codex"} }},
+				{Name: "verbose", IsBool: true},
+			}},
+		}},
+	})
+	words := []string{"agents", "ask", "--agent=codex", ""}
+	want := []string{"--verbose"}
+	if got := e.Candidates(words); !slices.Equal(got, want) {
+		t.Fatalf("Candidates(%q) = %v, want remaining flags %v", words, got, want)
+	}
+}
+
+func TestCandidatesSuppressTypedInlineFlag(t *testing.T) {
+	e := syntheticEngine(map[string]*Node{
+		"usage": {Flags: []Flag{{Name: "format"}, {Name: "format-style"}}},
+	})
+	words := []string{"usage", "--format=json", "--format"}
+	want := []string{"--format-style"}
+	if got := e.Candidates(words); !slices.Equal(got, want) {
+		t.Fatalf("Candidates(%q) = %v, want only untyped flag %v", words, got, want)
+	}
+}
+
 func TestEmptyPrefixSubcommandsSorted(t *testing.T) {
 	sub := map[string]*Node{}
 	for _, w := range []string{"merge", "clean", "list", "create", "clean-all", "alpha", "zeta"} {

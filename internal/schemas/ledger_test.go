@@ -65,6 +65,7 @@ var writers = map[string]string{
 	"internal/codex/permissions.go:saveRefreshedAuth":                 unversioned("foreign: codex auth.json refreshed during a dispatch, copied back to the real CODEX_HOME"),
 	"internal/clipboard/ssh_bridge.go:logServed":                      unversioned("log: one line per Mac file served over the clip bridge (path, never bytes)"),
 	"internal/clipboard/ssh_bridge.go:fetchFrom":                      unversioned("cache: a Mac file fetched over the clip bridge into /tmp/claude-drop"),
+	"internal/clipboard/ssh_bridge.go:claimDropPath":                  unversioned("claim: empty O_EXCL placeholder in /tmp/claude-drop, filled by fetchFrom"),
 	"internal/codex/permissions.go:writeRulesDir":                     unversioned("foreign: per-dispatch CODEX_HOME rules dir and execpolicy file, removed after the run"),
 	"internal/codex/settings.go:applyCodexRestore":                    unversioned("foreign: codex config.toml revert in the vendor home"),
 	"internal/codex/settings.go:writeCodexConfigLocked":               unversioned("foreign: codex config.toml in the vendor home"),

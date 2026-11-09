@@ -27,14 +27,12 @@ func lookup(name string) *command {
 func Run(argv []string) int {
 	paths.ExportConfigDir()
 	if len(argv) < 2 {
-		usage(os.Stdout)
-		return 0
+		return printUsage()
 	}
 	name, args := argv[1], argv[2:]
 	switch name {
 	case "-h", "--help", "help":
-		usage(os.Stdout)
-		return 0
+		return printUsage()
 	}
 	if c := lookup(name); c != nil {
 		return c.run(args)
@@ -51,6 +49,15 @@ func Run(argv []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
+}
+
+// printUsage writes the menu to stdout; it returns 1 when the write fails.
+func printUsage() int {
+	if err := usage(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code: write help: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func cmdVersion([]string) int {

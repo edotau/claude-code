@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -75,9 +76,11 @@ func menuRows() []menuRow {
 }
 
 // usage renders the grouped menu, painting heads dim and the name column along the status line's gradient.
-func usage(w *os.File) {
+// It buffers the whole menu and returns the single write's error so a closed or broken stdout fails the command.
+func usage(w *os.File) error {
+	var b strings.Builder
 	for _, l := range menuHeader {
-		fmt.Fprintln(w, l)
+		fmt.Fprintln(&b, l)
 	}
 	paintHead := func(s string) string { return s }
 	paintName := func(s string, frac float64) string { return s }
@@ -95,16 +98,18 @@ func usage(w *os.File) {
 	for _, r := range menuRows() {
 		switch {
 		case r.head != "":
-			fmt.Fprintln(w, paintHead(r.head))
+			fmt.Fprintln(&b, paintHead(r.head))
 		case r.name != "":
 			lines := helptext.Row("  "+r.name, r.summary, 2+nameWidth, helptext.TermWidth(w))
-			fmt.Fprintf(w, "  %s%s\n", paintName(r.name, r.frac), lines[0][min(2+nameWidth, len(lines[0])):])
+			fmt.Fprintf(&b, "  %s%s\n", paintName(r.name, r.frac), lines[0][min(2+nameWidth, len(lines[0])):])
 			for _, l := range lines[1:] {
-				fmt.Fprintln(w, l)
+				fmt.Fprintln(&b, l)
 			}
 		default:
-			fmt.Fprintln(w)
+			fmt.Fprintln(&b)
 		}
 	}
-	fmt.Fprintln(w) // Why: a blank line between the menu and the next shell prompt
+	fmt.Fprintln(&b) // Why: a blank line between the menu and the next shell prompt
+	_, err := io.WriteString(w, b.String())
+	return err
 }

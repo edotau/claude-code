@@ -565,13 +565,13 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart", "remote"},
-		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
-			"digest", "index", "path", "catchup", "watch", "timeline", "archive", "alias", "fmt"},
+		"memory": {"recall", "remember", "init", "review", "verify", "promote", "update", "dream", "search", "show",
+			"digest", "index", "path", "catchup", "watch", "timeline", "archive", "alias", "fmt", "report"},
 		"gateway":  {"router", "proxy", "token"},
 		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch"},
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},
-		"worktree": {"list", "create", "merge", "clean", "clean-all"},
+		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},
 	}
 	// gemini's subwords are "ask" (handled by vendorVerb's own if, not vendorSubverbs) plus every
 	// vendor subverb — derived from vendorSubverbs, not hand-copied, so a future subverb never drifts.

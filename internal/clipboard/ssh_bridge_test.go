@@ -325,12 +325,148 @@ func TestFetchFromNoBridge(t *testing.T) {
 	}
 }
 
+func writeBridgeFixture(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAllowedServePathRejectsSymlinkedSecrets(t *testing.T) {
+	home := t.TempDir()
+	for _, root := range []string{".ssh", ".gnupg", "Library/Keychains", ".claude/state"} {
+		t.Run(root, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "private")
+			writeBridgeFixture(t, filepath.Join(target, "secret"), "private bytes")
+			link := filepath.Join(home, filepath.FromSlash(root))
+			if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			for _, dir := range []string{link, target} {
+				if _, _, err := allowedServePath(home, filepath.Join(dir, "secret")); err == nil || !strings.Contains(err.Error(), "not shareable") {
+					t.Fatalf("secret via %s: err=%v, want refusal", dir, err)
+				}
+			}
+		})
+	}
+}
+
+func TestAllowedServePathRejectsUnknownHome(t *testing.T) {
+	key := filepath.Join(t.TempDir(), ".ssh", "id_ed25519")
+	writeBridgeFixture(t, key, "private bytes")
+	t.Setenv("HOME", "")
+	home, err := os.UserHomeDir()
+	if err == nil || home != "" {
+		t.Fatalf("home lookup = %q, %v; want failure", home, err)
+	}
+	if _, _, err := allowedServePath(home, key); err == nil || !strings.Contains(err.Error(), "home directory unknown") {
+		t.Fatalf("unknown home: err=%v, want refusal", err)
+	}
+}
+
+// On a case-insensitive filesystem, a secret dir requested with different casing is still refused.
+func TestAllowedServePathCaseInsensitiveSecretDir(t *testing.T) {
+	for _, root := range []string{".ssh", ".gnupg", "Library/Keychains", ".claude/state"} {
+		t.Run(root, func(t *testing.T) {
+			home := t.TempDir()
+			writeBridgeFixture(t, filepath.Join(home, filepath.FromSlash(root), "id_ed25519"), "private bytes")
+			alt := filepath.Join(home, filepath.FromSlash(strings.ToUpper(root)), "id_ed25519")
+			if _, err := os.Stat(alt); os.IsNotExist(err) {
+				t.Skip("filesystem is case-sensitive")
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := allowedServePath(home, alt); err == nil || !strings.Contains(err.Error(), "not shareable") {
+				t.Fatalf("case-differing secret dir %s: err=%v, want refusal", alt, err)
+			}
+		})
+	}
+}
+
+// A denied root reached through a differently spelled path is matched by file identity on any filesystem.
+func TestUnderSecretRootByIdentity(t *testing.T) {
+	dir := t.TempDir()
+	denied := filepath.Join(dir, "denied")
+	writeBridgeFixture(t, filepath.Join(denied, "key"), "private bytes")
+	alias := filepath.Join(dir, "alias")
+	if err := os.Symlink(denied, alias); err != nil {
+		t.Fatal(err)
+	}
+	if !underSecretRoot(filepath.Join(denied, "key"), []string{alias}) {
+		t.Fatal("file inside denied root not matched through an alias of that root")
+	}
+	if underSecretRoot(filepath.Join(denied, "key"), []string{filepath.Join(dir, "absent")}) {
+		t.Fatal("unrelated missing root matched")
+	}
+}
+
+func TestFetchFromPreservesSameBasename(t *testing.T) {
+	home, drop := t.TempDir(), t.TempDir()
+	sock := bridgeServer(t, home, nil)
+	var fetched []string
+	for _, content := range []string{"first report", "second report"} {
+		src := filepath.Join(home, content, "report.pdf")
+		writeBridgeFixture(t, src, content)
+		path, err := fetchFrom(sock, src, drop)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fetched = append(fetched, path)
+	}
+	if fetched[0] == fetched[1] {
+		t.Fatal("same-basename transfers reused the first file's path")
+	}
+	for i, want := range []string{"first report", "second report"} {
+		got, err := os.ReadFile(fetched[i])
+		if err != nil || string(got) != want {
+			t.Fatalf("transfer %d: bytes=%q err=%v, want %q", i, got, err, want)
+		}
+	}
+}
+
+type shortWriteDeadlineConn struct {
+	net.Conn
+	deadline time.Time
+}
+
+func (c *shortWriteDeadlineConn) SetWriteDeadline(deadline time.Time) error {
+	c.deadline = deadline
+	return c.Conn.SetWriteDeadline(time.Now().Add(20 * time.Millisecond))
+}
+
+func TestServeConnBoundsBlockedResponse(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	conn := &shortWriteDeadlineConn{Conn: server}
+	go func() { _, _ = io.WriteString(client, "bad request\n") }()
+	watchdog := time.AfterFunc(time.Second, func() { _ = server.Close() })
+	defer watchdog.Stop()
+	start := time.Now()
+	err := serveConn(io.Discard, conn, t.TempDir(), func(io.Writer) error {
+		t.Error("unexpected PNG fallback")
+		return nil
+	})
+	if !os.IsTimeout(err) {
+		t.Fatalf("blocked response: err=%v, want write timeout", err)
+	}
+	if conn.deadline.Before(start.Add(sshTimeout)) || conn.deadline.After(time.Now().Add(sshTimeout)) {
+		t.Fatalf("write deadline=%v, want sshTimeout from write", conn.deadline)
+	}
+}
+
 // The install hint names the exact ssh_config lines and never writes ~/.ssh/config.
 func TestPrintSSHHint(t *testing.T) {
 	home := t.TempDir()
 	var out bytes.Buffer
 	printSSHHint(&out, home)
-	for _, s := range []string{"RemoteForward /tmp/claude-clip-<remote-user>.sock " + launchSocket(home), "StreamLocalBindUnlink yes"} {
+	for _, s := range []string{"this Mac's ~/.ssh/config, the SSH client", "RemoteForward /tmp/claude-clip-<remote-user>.sock " + launchSocket(home), "StreamLocalBindUnlink yes"} {
 		if !strings.Contains(out.String(), s) {
 			t.Errorf("missing %q in %q", s, out.String())
 		}

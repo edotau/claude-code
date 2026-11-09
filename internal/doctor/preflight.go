@@ -46,6 +46,9 @@ func preflightLive(reg *providers.Registry, profile string) int {
 		}
 	} else {
 		pongs = preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
+		if len(pongs) == 0 && pinsBroken(reg) { // a vault error skips every pong; that must not exit 0
+			return helptext.Fail("preflight: no pong ran: the pin check failed (see the fix rows above)")
+		}
 	}
 	if slices.ContainsFunc(pongs, func(p preflight.Pong) bool { return !p.OK }) {
 		return 1
@@ -68,11 +71,11 @@ func Preflight(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if msg := preflightConflict(*discover, *live, *refresh, *profile); msg != "" {
+		return helptext.Fail("preflight: %s", msg)
+	}
 	if *discover != "" {
 		return preflightDiscover(*discover)
-	}
-	if msg := preflightConflict(*live, *refresh, *profile); msg != "" {
-		return helptext.Fail("preflight: %s", msg)
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -81,9 +84,16 @@ func Preflight(args []string) int {
 	return preflightReport(reg, *refresh, *live, *profile)
 }
 
+// pinsBroken reports whether the pin check hit an unreadable vault (a StatusError row).
+func pinsBroken(reg *providers.Registry) bool {
+	return slices.ContainsFunc(preflight.Check(reg, time.Now()), func(p preflight.Pin) bool { return p.Status == preflight.StatusError })
+}
+
 // preflightConflict names the flag combination that would silently drop a flag, or "" when valid.
-func preflightConflict(live, refresh bool, profile string) string {
+func preflightConflict(discover string, live, refresh bool, profile string) string {
 	switch {
+	case discover != "" && (live || refresh || profile != ""):
+		return "--discover cannot be combined with --live, --refresh or --profile"
 	case profile != "" && !live:
 		return "--profile requires --live"
 	case refresh && live:

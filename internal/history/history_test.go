@@ -306,6 +306,29 @@ func TestLogAndDiffOnUnbornBranch(t *testing.T) {
 	}
 }
 
+func TestLogAndDiffSurfaceRepositoryErrors(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "not-a-directory"), "x")
+	write(t, filepath.Join(root, "broken-gitdir", ".git"), "gitdir: missing\n")
+	missingObject := gittest.Repo(t)
+	write(t, filepath.Join(missingObject, ".git", "HEAD"), strings.Repeat("1", 40)+"\n")
+	for name, dir := range map[string]string{
+		"stat failure":   filepath.Join(root, "not-a-directory"),
+		"probe failure":  filepath.Join(root, "broken-gitdir"),
+		"missing object": missingObject,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &Store{Dir: dir}
+			if lines, err := s.Log(20, "config"); err == nil || len(lines) != 0 {
+				t.Errorf("Log = %v, %v; want no lines and a repository error", lines, err)
+			}
+			if patch, err := s.Diff("", "config"); err == nil || patch != "" || strings.Contains(err.Error(), "no config commits yet") {
+				t.Errorf("Diff = %q, %v; want no patch and a repository error, not empty history", patch, err)
+			}
+		})
+	}
+}
+
 func TestSnapshotDropsStaleCopyWhenFileTurnsCredentialShaped(t *testing.T) {
 	root := t.TempDir()
 	live := filepath.Join(root, "live.json")
