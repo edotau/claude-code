@@ -188,6 +188,7 @@ func Roster() []Schema {
 		s.CLI.RouterSuffix = maps.Clone(s.CLI.RouterSuffix)
 		s.CLI.Events = slices.Clone(s.CLI.Events)
 		s.CLI.ModelsArgv = slices.Clone(s.CLI.ModelsArgv)
+		s.CLI.PinIDs = slices.Clone(s.CLI.PinIDs)
 		s.CLI.LoginArgv = slices.Clone(s.CLI.LoginArgv)
 		s.CLI.ExtraUsage = slices.Clone(s.CLI.ExtraUsage)
 	}

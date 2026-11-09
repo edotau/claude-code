@@ -48,7 +48,7 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
 	return io.ReadAll(resp.Body)
@@ -159,7 +159,9 @@ func installOpencodeLocked(ctx context.Context, w io.Writer, dir, src string, dr
 
 // restoreOpencodeAside undoes a refused/failed install and returns cause, joined with any restore failure.
 func restoreOpencodeAside(src, aside string, cause error) error {
-	_ = os.Remove(src)
+	if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
+		cause = errors.Join(cause, fmt.Errorf("opencode: remove refused binary %s: %w", src, err))
+	}
 	if _, err := os.Stat(aside); err != nil {
 		return cause
 	}

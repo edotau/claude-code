@@ -171,7 +171,8 @@ func renderAgentsTree(opts tree.Options, format string, showAll bool) int {
 		return 1
 	}
 	if format == helptext.JSON {
-		if helptext.WriteJSON(os.Stdout, listing) != nil {
+		if err := helptext.WriteJSON(os.Stdout, listing); err != nil {
+			fmt.Fprintln(os.Stderr, "agents tree:", err)
 			return 1
 		}
 		return 0

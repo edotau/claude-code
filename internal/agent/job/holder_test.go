@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,13 @@ func TestRunHolderRedactsAndTimesFailure(t *testing.T) {
 	t.Cleanup(func() { serveLive = orig })
 
 	rec := ClaimRecord("claude", agent.RunOptions{}, time.Now().Add(-2*time.Second))
+	log, err := os.OpenFile(rec.LogPath(), os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = log
+	t.Cleanup(func() { os.Stderr = stderr; _ = log.Close() })
 	if code := RunHolder(&rec, noLauncher{}); code != 1 {
 		t.Fatalf("RunHolder = %d, want 1", code)
 	}
@@ -49,5 +57,13 @@ func TestRunHolderRedactsAndTimesFailure(t *testing.T) {
 	}
 	if got.DurationMs < 1000 {
 		t.Errorf("DurationMs = %d, want the failed holder's elapsed time", got.DurationMs)
+	}
+	body, err := os.ReadFile(rec.LogPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "claude-code: ask --live: " + got.Error + "\n"
+	if string(body) != want {
+		t.Errorf("holder stderr = %q, want only the redacted error %q", body, want)
 	}
 }

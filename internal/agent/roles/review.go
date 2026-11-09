@@ -75,7 +75,8 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 	case "base":
 		out, err = rangeDiff(ctx, cwd, s.Ref)
 	case "commit":
-		out, err = proc.RunGit(ctx, cwd, "show", "--no-color", "--format=", "--end-of-options", s.Ref)
+		// first-parent: a merge's default combined diff is empty for a clean merge
+		out, err = proc.RunGit(ctx, cwd, "show", "--no-color", "--format=", "--diff-merges=first-parent", "--end-of-options", s.Ref)
 	case "pr":
 		var base string
 		base, err = proc.RunGit(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
@@ -118,7 +119,7 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 			skipped++
 			continue
 		}
-		total += appendUntracked(&b, cwd, rel)
+		total += appendUntrackedWithin(&b, cwd, rel, untrackedTotalCap-total)
 	}
 	if skipped > 0 {
 		fmt.Fprintf(&b, "… %d more untracked files not inlined\n", skipped)
@@ -126,7 +127,13 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 	return b.String(), nil
 }
 
+// appendUntracked renders one untracked file under the per-file cap.
 func appendUntracked(b *strings.Builder, cwd, rel string) int {
+	return appendUntrackedWithin(b, cwd, rel, untrackedCap)
+}
+
+// appendUntrackedWithin renders one untracked file, inlining at most limit bytes of its content.
+func appendUntrackedWithin(b *strings.Builder, cwd, rel string, limit int) int {
 	path := filepath.Join(cwd, rel)
 	info, lerr := os.Lstat(path)
 	if lerr != nil {
@@ -150,6 +157,7 @@ func appendUntracked(b *strings.Builder, cwd, rel string) int {
 		fmt.Fprintf(b, "new file: %s (binary, skipped)\n", rel)
 		return 0
 	}
+	data = data[:min(len(data), limit)] // keeps the running total within untrackedTotalCap
 	fmt.Fprintf(b, "new file: %s\n%s\n", rel, data)
 	return len(data)
 }

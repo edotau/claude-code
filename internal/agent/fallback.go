@@ -44,14 +44,19 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	}
 	for i, disp := range c.Dispatches {
 		if done, err := s.step(ctx, c, i, disp, sink, notify); err != nil {
-			return s.res, err
+			return s.attach(s.res), err
 		} else if done {
 			break
 		}
 	}
 	res, err := chainOutcome(c, s.res, s.err, s.reasons, s.prevDispatch, s.ran, s.stopped)
+	return s.attach(res), err
+}
+
+// attach stamps the hand-off and every tried hop on res, so an error return still reports who ran.
+func (s *fallbackState) attach(res wire.Result) wire.Result {
 	res.Handoff, res.Hops = s.handoff, s.hops
-	return res, err
+	return res
 }
 
 // chainOutcome folds every failed hop into err and marks res as a fallback when a different agent or route answered.

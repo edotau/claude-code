@@ -191,6 +191,29 @@ func TestDiffCommit(t *testing.T) {
 	}
 }
 
+func TestDiffMergeCommitUsesFirstParent(t *testing.T) {
+	dir := initRepo(t)
+	runGit(t, dir, "switch", "-q", "-c", "feature")
+	commitGitFile(t, dir, "one\nmerged-feature-line\n", "feature")
+	runGit(t, dir, "switch", "-q", "main")
+	runGit(t, dir, "merge", "-q", "--no-ff", "-m", "merge feature", "feature")
+	sha := strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD"))
+	if parents := strings.Fields(gitOut(t, dir, "show", "-s", "--format=%P", sha)); len(parents) != 2 {
+		t.Fatalf("fixture must be a merge commit, got parents %v", parents)
+	}
+	if combined := gitOut(t, dir, "show", "--no-color", "--format=", sha); strings.TrimSpace(combined) != "" {
+		t.Fatalf("fixture must have an empty default combined diff, got %q", combined)
+	}
+
+	out, err := Diff(context.Background(), dir, Scope{Kind: "commit", Ref: sha})
+	if err != nil {
+		t.Fatalf("clean merge commit must remain in review scope: %v", err)
+	}
+	if !strings.Contains(string(out), "+merged-feature-line") {
+		t.Fatalf("merge review missing the first-parent change:\n%s", out)
+	}
+}
+
 func gitOut(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -462,6 +485,28 @@ func TestUntrackedBlockTotalCap(t *testing.T) {
 	}
 	if len(got) > untrackedTotalCap+2*untrackedCap {
 		t.Errorf("block is %d bytes, exceeds the total cap", len(got))
+	}
+}
+
+func TestDiffUntrackedTotalCapPartialFinalFile(t *testing.T) {
+	dir := initRepo(t)
+	sizes := []int{64, 64, 64, 64, 64, 64, 64, 63, 64}
+	for i, kib := range sizes {
+		name := "f" + string(rune('a'+i)) + ".txt"
+		if err := os.WriteFile(filepath.Join(dir, name), bytes.Repeat([]byte("Z"), kib*1024), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bytes.Count(out, []byte("Z")); got != untrackedTotalCap {
+		t.Fatalf("inlined %d content bytes, want exactly the %d-byte aggregate cap", got, untrackedTotalCap)
+	}
+	last := "new file: fi.txt\n" + strings.Repeat("Z", 1024) + "\n"
+	if !strings.HasSuffix(string(out), last) {
+		t.Fatal("final untracked file must inline only the remaining 1 KiB, excluding its header from the content cap")
 	}
 }
 

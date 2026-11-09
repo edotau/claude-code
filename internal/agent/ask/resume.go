@@ -47,7 +47,11 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	}
 	// The logged request wins; only flags typed on this command line override it.
 	s.Apply(rec, os.Stderr)
+	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
 	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "profile" || f.Name == "provider" { // an explicit route on this command line replaces the logged lead
+			*s.lead = ""
+		}
 		if f.Name == "attach" {
 			*s.Attach = nil
 		}

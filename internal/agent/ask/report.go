@@ -57,13 +57,16 @@ func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepa
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
 	res, err := client.Exec(ctx, p, StdoutSink(format, p.Record.ID), opts)
-	reportAskResult(format, res, err, res.DispatchID)
+	writeErr := reportAskResult(format, res, err, res.DispatchID)
 	for _, line := range []string{wire.RanOn(res), wire.DidNotRun(res)} {
 		if line != "" {
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}
 	}
 	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; agents ask --retry <id> replays it)")
+	if err == nil {
+		err = writeErr
+	}
 	if err != nil {
 		return helptext.Fail("ask: %v", err)
 	}

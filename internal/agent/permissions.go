@@ -7,6 +7,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -257,8 +258,10 @@ func globRegexp(g string) string {
 			b.WriteString("[^/]*")
 		case c == '?':
 			b.WriteString("[^/]")
-		default:
-			b.WriteString(regexp.QuoteMeta(string(c)))
+		default: // copy one whole rune: string(byte) would turn UTF-8 bytes into Latin-1 characters
+			_, size := utf8.DecodeRuneInString(g[i:])
+			b.WriteString(regexp.QuoteMeta(g[i : i+size]))
+			i += size - 1
 		}
 	}
 	return b.String()

@@ -41,6 +41,9 @@ func Structured(answer, schema string) (raw json.RawMessage, unchecked []string,
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: unreadable schema: %v", ErrSchema, err)
 	}
+	if err = schemaShape(sch); err != nil {
+		return nil, nil, fmt.Errorf("%w: malformed schema: %v", ErrSchema, err)
+	}
 	skipped := map[string]bool{}
 	collectUnchecked(sch, skipped)
 	if err = checkSchema("answer", v, sch); err != nil {
@@ -157,6 +160,51 @@ func checkSchemaObject(path string, x, m map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// schemaShape rejects a malformed enforced keyword the validator would skip; it recurses into subschemas.
+func schemaShape(sch any) error {
+	m, ok := sch.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if req, has := m["required"]; has {
+		names, ok := req.([]any)
+		if !ok {
+			return errors.New("required must be an array of property names")
+		}
+		for _, n := range names {
+			if _, isStr := n.(string); !isStr {
+				return errors.New("required must hold only property names")
+			}
+		}
+	}
+	if enum, has := m["enum"]; has {
+		if _, ok := enum.([]any); !ok {
+			return errors.New("enum must be an array")
+		}
+	}
+	if props, has := m["properties"]; has {
+		pm, ok := props.(map[string]any)
+		if !ok {
+			return errors.New("properties must be an object")
+		}
+		for _, p := range pm {
+			if err := schemaShape(p); err != nil {
+				return err
+			}
+		}
+	}
+	if tuple, ok := m["items"].([]any); ok {
+		for _, s := range tuple {
+			if err := schemaShape(s); err != nil {
+				return err
+			}
+		}
+	} else if err := schemaShape(m["items"]); err != nil {
+		return err
+	}
+	return schemaShape(m["additionalItems"])
 }
 
 // collectUnchecked adds every keyword in sch (and its properties and items) that checkSchema does not enforce.

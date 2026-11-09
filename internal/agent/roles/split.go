@@ -294,8 +294,10 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 	}
 	seen := map[string]bool{}
 	var body strings.Builder
-	worst, best, unjudged, total := "", 0, false, 0
+	worst, best, unjudged, unreviewed, total := "", 0, false, false, 0
 	for i, ans := range answers {
+		blank := strings.TrimSpace(ans) == ""
+		unreviewed = unreviewed || blank
 		lines := strings.Split(strings.TrimSpace(ans), "\n")
 		if !adversarial {
 			v := strings.ToUpper(strings.Trim(strings.TrimSpace(lines[0]), "*#: ."))
@@ -311,11 +313,17 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 		fmt.Fprintf(&body, "\n## %s\n", parts[i].Header(i+1, len(parts)))
 		n := appendFindings(&body, lines, seen)
 		total += n
-		if n == 0 {
+		if n == 0 && blank {
+			body.WriteString("(no review returned)\n")
+		} else if n == 0 {
 			body.WriteString("(no findings)\n")
 		}
 	}
-	return mergedVerdict(adversarial, worst, best, unjudged, total, len(parts)) + "\n" + body.String()
+	head := mergedVerdict(adversarial, worst, best, unjudged, total, len(parts))
+	if adversarial && total == 0 && unreviewed { // a part that returned nothing was not reviewed, so no clean verdict
+		head = noReviewVerdict
+	}
+	return head + "\n" + body.String()
 }
 
 func mergedVerdict(adversarial bool, worst string, best int, unjudged bool, total, parts int) string {

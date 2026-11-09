@@ -52,7 +52,9 @@ func LoadSchema(ref string) (*Schema, error) {
 	if strings.TrimSpace(p.Prompt) == "" {
 		return nil, fmt.Errorf("persona %q: %s has no body to use as the prompt", ref, path)
 	}
-	p.Tools = schemaTools(fm["tools"])
+	if p.Tools, err = schemaTools(fm["tools"]); err != nil {
+		return nil, fmt.Errorf("persona %q: %w", ref, err)
+	}
 	if n, ok := fm["maxTurns"].(int); ok && n > 0 {
 		p.MaxTurns = n
 	}
@@ -69,10 +71,13 @@ func schemaPath(ref string) (string, error) {
 	return filepath.Join(paths.ConfigDir(), "agents", ref+".md"), nil
 }
 
-func schemaTools(tools any) []string {
+// schemaTools reads a tools value: absent inherits (nil), a list or comma string restricts; anything else is an error.
+func schemaTools(tools any) ([]string, error) {
 	switch t := tools.(type) {
+	case nil:
+		return nil, nil
 	case []string:
-		return append([]string{}, t...)
+		return append([]string{}, t...), nil
 	case string:
 		out := []string{}
 		for f := range strings.SplitSeq(t, ",") {
@@ -80,9 +85,9 @@ func schemaTools(tools any) []string {
 				out = append(out, f)
 			}
 		}
-		return out
+		return out, nil
 	}
-	return nil
+	return nil, fmt.Errorf("tools must be a list or comma-separated string, not %v", tools)
 }
 
 // agentsDef is the strict wire shape of one --agents entry; every key is optional except the prompt.
@@ -127,6 +132,9 @@ func ParseAgents(arg string) (map[string]*Schema, error) {
 
 // buildAgents validates the decoded entries in key order and stamps each Schema.Name with its key.
 func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
+	if wire == nil { // a top-level null decodes to a nil map without error
+		return nil, errors.New("--agents: top-level value must be a JSON object, not null")
+	}
 	names := rosterNames()
 	agents := make(map[string]*Schema, len(wire))
 	for _, key := range slices.Sorted(maps.Keys(wire)) {

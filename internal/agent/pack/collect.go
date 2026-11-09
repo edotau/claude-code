@@ -96,21 +96,33 @@ func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles,
 		maxFileBytes = DefaultMaxFileBytes
 	}
 
-	var tracked map[string]bool
-	var inRepo bool
-	if len(dirs) > 0 || len(patterns) > 0 {
-		var err error
-		tracked, inRepo, err = gitTrackedFiles(ctx, cwd)
+	tracked, repoRoots, err := gitTrackedFiles(ctx, cwd, gitRoots(cwd, dirs, patterns))
+	if err != nil {
+		return Context{}, err
+	}
+	// Each root decides its own gitignore filtering: a git root filters, a non-git root does not.
+	matches := map[string]bool{}
+	var skipped []SkippedFile
+	for _, dir := range dirs {
+		dirMatches, dirSkipped, err := walkDirs(ctx, cwd, []string{dir}, tracked, repoRoots[absIn(cwd, dir)])
 		if err != nil {
 			return Context{}, err
 		}
+		for p := range dirMatches {
+			matches[p] = true
+		}
+		skipped = append(skipped, dirSkipped...)
 	}
-	matches, skipped := walkDirs(cwd, dirs, tracked, inRepo)
-	skipped = append(skipped, globPatterns(cwd, patterns, matches, tracked, inRepo)...)
+	for _, pattern := range patterns {
+		skipped = append(skipped, globPatterns(cwd, []string{pattern}, matches, tracked, repoRoots[globBase(cwd, pattern)])...)
+	}
 
-	c := collector{maxFiles: maxFiles, maxFileBytes: maxFileBytes, budget: budget}
+	c := collector{cwd: realPath(cwd), maxFiles: maxFiles, maxFileBytes: maxFileBytes, budget: budget}
 	c.out.Skipped = append(c.out.Skipped, skipped...)
 	for _, abs := range sortedMatches(cwd, matches) {
+		if err := ctx.Err(); err != nil {
+			return c.out, err
+		}
 		if err := c.add(abs, relSlash(cwd, abs)); err != nil {
 			return c.out, err
 		}
@@ -136,18 +148,24 @@ type collector struct {
 	out                    Context
 	totalBytes, budget     int
 	maxFiles, maxFileBytes int
+	cwd                    string // symlink-resolved working dir
 }
 
 func (c *collector) skip(rel, reason string) {
 	c.out.Skipped = append(c.out.Skipped, SkippedFile{rel, reason})
 }
 
-// preSkipReason is why rel is skipped before reading it, or "".
-func (c *collector) preSkipReason(rel string) string {
+// resolvesToSecret reports whether abs, with symlinks resolved, is secret-like relative to the real cwd.
+func (c *collector) resolvesToSecret(abs string) bool {
+	return isSecretLike(relSlash(c.cwd, realPath(abs)))
+}
+
+// preSkipReason is why rel (at abs) is skipped before reading it, or "".
+func (c *collector) preSkipReason(rel, abs string) string {
 	switch {
 	case isIgnored(rel):
 		return "ignored-path"
-	case isSecretLike(rel):
+	case isSecretLike(rel) || c.resolvesToSecret(abs):
 		return "secret-like"
 	case len(c.out.Included) >= c.maxFiles:
 		return "max-files-exceeded"
@@ -159,7 +177,7 @@ func (c *collector) preSkipReason(rel string) string {
 
 // add inlines abs, or records why it was skipped.
 func (c *collector) add(abs, rel string) error {
-	if reason := c.preSkipReason(rel); reason != "" {
+	if reason := c.preSkipReason(rel, abs); reason != "" {
 		c.skip(rel, reason)
 		return nil
 	}
@@ -197,7 +215,7 @@ func groupRank(rel string) int {
 
 // walkDirs recursively collects files under dirs, pruning ignored directories and — inside a git work
 // tree — anything not cached or untracked-but-not-ignored (gitignored paths are never inlined).
-func walkDirs(cwd string, dirs []string, tracked map[string]bool, inRepo bool) (map[string]bool, []SkippedFile) {
+func walkDirs(ctx context.Context, cwd string, dirs []string, tracked map[string]bool, inRepo bool) (map[string]bool, []SkippedFile, error) {
 	matches := map[string]bool{}
 	var skipped []SkippedFile
 	for _, dir := range dirs {
@@ -205,7 +223,10 @@ func walkDirs(cwd string, dirs []string, tracked map[string]bool, inRepo bool) (
 		if !filepath.IsAbs(root) {
 			root = filepath.Join(cwd, dir)
 		}
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if err != nil {
 				skipped = append(skipped, SkippedFile{relSlash(cwd, p), "walk-error: " + err.Error()})
 				return nil // unreadable entry: skip, don't abort the walk
@@ -229,12 +250,15 @@ func walkDirs(cwd string, dirs []string, tracked map[string]bool, inRepo bool) (
 			matches[p] = true
 			return nil
 		})
+		if walkErr != nil { // the callback only ever returns a non-nil error on cancellation
+			return nil, nil, walkErr
+		}
 	}
-	return matches, skipped
+	return matches, skipped, nil
 }
 
 // globPatterns expands patterns into matches (mutated in place), returning glob-error and filtered-hit skips;
-// symlinks and, inside a git work tree, untracked-or-ignored hits are never inlined.
+// symlinks and, inside a git work tree, gitignored hits are never inlined.
 func globPatterns(cwd string, patterns []string, matches map[string]bool, tracked map[string]bool, inRepo bool) []SkippedFile {
 	var skipped []SkippedFile
 	for _, pattern := range patterns {
@@ -263,32 +287,94 @@ func globPatterns(cwd string, patterns []string, matches map[string]bool, tracke
 	return skipped
 }
 
-// gitTrackedFiles lists cwd's cached + untracked-not-ignored paths (relative, forward-slash) when cwd
-// is inside a git work tree; ok is false only outside one. Any other git failure is an error (fail closed).
-func gitTrackedFiles(ctx context.Context, cwd string) (tracked map[string]bool, ok bool, err error) {
-	if _, rerr := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--is-inside-work-tree").Output(); rerr != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, false, ctxErr
+// gitTrackedFiles maps each root's cached and untracked-kept paths to cwd-relative keys; repoRoots marks the roots inside git.
+func gitTrackedFiles(ctx context.Context, cwd string, roots []string) (map[string]bool, map[string]bool, error) {
+	tracked := map[string]bool{}
+	repoRoots := map[string]bool{}
+	for _, root := range roots {
+		inside, err := gitListRoot(ctx, cwd, root, tracked)
+		if err != nil {
+			return nil, nil, err
 		}
-		if notARepo(cwd, rerr) {
-			return nil, false, nil
+		if inside {
+			repoRoots[root] = true
 		}
-		return nil, false, fmt.Errorf("git rev-parse in %s: %w", cwd, rerr)
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
+	return tracked, repoRoots, nil
+}
+
+// gitListRoot adds root's cached + untracked-not-ignored paths to tracked; inside=false outside a work tree.
+func gitListRoot(ctx context.Context, cwd, root string, tracked map[string]bool) (inside bool, err error) {
+	if info, serr := os.Stat(root); serr != nil || !info.IsDir() {
+		return false, nil // a missing root surfaces as a walk or glob error, not a git one
+	}
+	if _, rerr := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--is-inside-work-tree").Output(); rerr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		if notARepo(root, rerr) {
+			return false, nil
+		}
+		return false, fmt.Errorf("git rev-parse in %s: %w", root, rerr)
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, false, ctxErr // cancellation stays context.Canceled, not a ls-files failure
+			return false, ctxErr // cancellation stays context.Canceled, not a ls-files failure
 		}
-		return nil, false, fmt.Errorf("git ls-files in %s: %w", cwd, err) // fail closed: never walk gitignored files
+		return false, fmt.Errorf("git ls-files in %s: %w", root, err) // fail closed: never walk gitignored files
 	}
-	tracked = map[string]bool{}
 	for p := range strings.SplitSeq(strings.Trim(string(out), "\x00"), "\x00") {
 		if p != "" {
-			tracked[filepath.ToSlash(p)] = true
+			tracked[relSlash(cwd, filepath.Join(root, p))] = true
 		}
 	}
-	return tracked, true, nil
+	return true, nil
+}
+
+// gitRoots lists the dirs whose git listing decides inlining: each requested dir and each pattern's literal base.
+func gitRoots(cwd string, dirs, patterns []string) []string {
+	roots := make([]string, 0, len(dirs)+len(patterns))
+	for _, d := range dirs {
+		roots = append(roots, absIn(cwd, d))
+	}
+	for _, p := range patterns {
+		roots = append(roots, globBase(cwd, p))
+	}
+	return roots
+}
+
+// globBase is the directory a pattern starts in, before its first glob metacharacter, as an absolute path.
+func globBase(cwd, pattern string) string {
+	dir := filepath.Dir(pattern)
+	if hasGlobMeta(pattern) {
+		dir = pattern
+		for hasGlobMeta(dir) {
+			dir = filepath.Dir(dir)
+		}
+	}
+	return absIn(cwd, dir)
+}
+
+// hasGlobMeta reports whether p contains a filepath.Match metacharacter.
+func hasGlobMeta(p string) bool {
+	return strings.ContainsAny(p, `*?[\`)
+}
+
+// absIn returns p as an absolute path, resolving a relative p against cwd.
+func absIn(cwd, p string) string {
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	return filepath.Join(cwd, p)
+}
+
+// realPath resolves symlinks in p, falling back to p itself when it cannot be resolved.
+func realPath(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	return p
 }
 
 // notARepo reports a confirmed non-repo: no .git in or above cwd AND git's exit 128 "not a git repository".
@@ -318,8 +404,7 @@ func gitEntryAbove(dir string) bool {
 	}
 }
 
-// readInclude stats and bounded-reads abs (at most maxFileBytes+1 bytes), returning either the
-// IncludedFile, a non-empty skip reason, or an error if even the stat/open failed.
+// readInclude bounded-reads abs; returns the IncludedFile or a skip reason (stat/open/read failures → read-error).
 func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error) {
 	info, err := os.Stat(abs)
 	if err != nil {

@@ -127,10 +127,14 @@ func removeUnlessFile(dst string) (kept bool, err error) {
 	return kept, err
 }
 
-// linkCandidate is the agent's PATH entry (unresolved, so self-updaters are followed), else ~/.local/bin, else "".
+// linkCandidate is the agent's PATH entry made absolute (unresolved, so self-updaters are followed), else ~/.local/bin, else "".
 func linkCandidate(t Tool) string {
 	if c, err := paths.LookPathReal(t.Binary); err == nil {
-		return c
+		abs, aerr := filepath.Abs(c) // a relative PATH entry would make the symlink target resolve from bin/
+		if aerr != nil {
+			return ""
+		}
+		return abs
 	}
 	local := localBinDir()
 	if local == "" {

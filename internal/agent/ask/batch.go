@@ -53,15 +53,7 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 	for n := 1; ; n++ {
 		line, err := br.ReadBytes('\n')
 		if len(bytes.TrimSpace(line)) > 0 {
-			pl := ParsedLine{N: n}
-			dec := json.NewDecoder(bytes.NewReader(line))
-			dec.DisallowUnknownFields()
-			if derr := dec.Decode(&pl.Task); derr != nil {
-				pl.Err = fmt.Errorf("line %d: %w", n, derr)
-			} else if extra := (json.RawMessage)(nil); !errors.Is(dec.Decode(&extra), io.EOF) {
-				pl.Err = fmt.Errorf("line %d: trailing data after the JSON object", n) // More() misses a stray '}'
-			}
-			out = append(out, pl)
+			out = append(out, decodeTaskLine(line, n))
 		}
 		if errors.Is(err, io.EOF) {
 			return out, nil
@@ -70,6 +62,19 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 			return out, err
 		}
 	}
+}
+
+// decodeTaskLine decodes one JSONL line that is physical line n; a bad line keeps n in its Err.
+func decodeTaskLine(line []byte, n int) ParsedLine {
+	pl := ParsedLine{N: n}
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.DisallowUnknownFields()
+	if derr := dec.Decode(&pl.Task); derr != nil {
+		pl.Err = fmt.Errorf("line %d: %w", n, derr)
+	} else if extra := (json.RawMessage)(nil); !errors.Is(dec.Decode(&extra), io.EOF) {
+		pl.Err = fmt.Errorf("line %d: trailing data after the JSON object", n) // More() misses a stray '}'
+	}
+	return pl
 }
 
 // Task is one scheduled task; Prepare routes it when it is about to start, and Err fails it before any run.

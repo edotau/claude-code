@@ -61,6 +61,48 @@ func TestEventLogFlushesHeldTextBeforeToolUse(t *testing.T) {
 	}
 }
 
+func TestEventLogRejectsTextPastCap(t *testing.T) {
+	full := strings.Repeat("x", eventsTextCap)
+	for _, tc := range []struct {
+		name   string
+		chunks []string
+		want   string
+	}{
+		{"oversized first chunk", []string{full + "x", "kept"}, "kept"},
+		{"exact cap accepted", []string{full}, full},
+		{"chunk after exact cap", []string{full, "overflow"}, full},
+		{"crossing chunk dropped whole", []string{full[:eventsTextCap-1], "xy", "z"}, full[:eventsTextCap-1] + "z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "x.events.jsonl")
+			l := NewEventLog(path, "id1")
+			t.Cleanup(l.Close)
+			for _, chunk := range tc.chunks {
+				if err := l.Emit(Event{Type: EventText, Text: chunk}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := l.Emit(Event{Type: EventResult}); err != nil {
+				t.Fatal(err)
+			}
+			l.Close()
+			events := readEvents(t, path)
+			var text strings.Builder
+			for _, ev := range events {
+				if ev.Type == EventText {
+					text.WriteString(ev.Text)
+				}
+			}
+			if text.String() != tc.want {
+				t.Errorf("stored text = %d bytes, want %d bytes with only accepted chunks", text.Len(), len(tc.want))
+			}
+			if len(events) == 0 || events[len(events)-1].Type != EventResult {
+				t.Error("text cap dropped the non-text result event")
+			}
+		})
+	}
+}
+
 func TestEventLogFlushesEachEventBeforeClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "x.events.jsonl")
 	l := NewEventLog(path, "d1")
