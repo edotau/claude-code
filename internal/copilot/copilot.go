@@ -68,7 +68,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(t, err) {
 			res.Usage = out.Usage // tokens the exhausted run spent still count
-			return CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, CredentialValues(env))
+			return CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, runCredentials(opts, env, req))
 		}
 		return copilotPartial(res, out, err, sink)
 	}
@@ -89,6 +89,17 @@ func initialResult(cs agent.Schema, t providers.Target) (wire.Result, error) {
 	}
 	res.Provider = t.Provider.Name
 	return res, nil
+}
+
+// runCredentials are the run's secrets to mask: route env credentials, secret-named --env values and the registry token.
+func runCredentials(opts SDKOptions, env []string, req agent.RunOptions) []string {
+	creds := CredentialValues(slices.Concat(env, req.Env))
+	if opts.Token != nil {
+		if tok, err := opts.Token(); err == nil && tok != "" {
+			creds = append(creds, tok)
+		}
+	}
+	return creds
 }
 
 // quotaHandoffEligible reports whether err is a quota failure on a copilot-billed route, so the task can hand off.

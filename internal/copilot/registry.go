@@ -53,7 +53,11 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, err
 	}
-	cr, ref, err := copilotSelect(ctx, reg, t.Provider, eps, base, copilotChoice([]string{models.Strip1M(t.Model)}))
+	var requested []string // empty stays nil so the pin or default applies
+	if m := models.Strip1M(t.Model); m != "" {
+		requested = []string{m}
+	}
+	cr, ref, err := copilotSelect(ctx, reg, t.Provider, eps, base, copilotChoice(requested, ""))
 	if cr.Note != "" {
 		wire.EventLogFor(ctx).Emit("note", cr.Note)
 	}
@@ -374,9 +378,13 @@ func checkDir(dir string) error {
 	return nil
 }
 
-// copilotChoice is the copilot registry's model choice: the requested models, else the agent's model pin.
-func copilotChoice(requested []string) CopilotChoice {
-	return CopilotChoice{Requested: requested, Pin: agent.AgentModelPin("copilot")}
+// copilotChoice is the model choice: the requested models, else the agent pin, else the profile default model.
+func copilotChoice(requested []string, profileModel string) CopilotChoice {
+	pin := agent.AgentModelPin("copilot")
+	if m := models.Strip1M(profileModel); len(requested) == 0 && pin == "" && m != "" {
+		requested = []string{m}
+	}
+	return CopilotChoice{Requested: requested, Pin: pin}
 }
 
 // CopilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
@@ -412,7 +420,7 @@ func ConfigureCopilotRegistry(
 	if err != nil {
 		return agent.RegistryLaunch{}, fmt.Errorf("copilot: router: %w", err)
 	}
-	r, ref, err := copilotSelect(ctx, reg, p, eps, rb, copilotChoice(requested))
+	r, ref, err := copilotSelect(ctx, reg, p, eps, rb, copilotChoice(requested, t.Model))
 	if err != nil {
 		return agent.RegistryLaunch{}, fmt.Errorf("copilot: %w", err)
 	}

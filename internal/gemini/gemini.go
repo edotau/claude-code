@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -255,9 +256,13 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 
 // gatewayEntry is one router+profile token slot; its own lock keeps a slow mint from stalling other profiles.
 type gatewayEntry struct {
-	mu  sync.Mutex
-	tok string
+	mu     sync.Mutex
+	tok    string
+	minted time.Time
 }
+
+// gatewayTokenMaxAge re-mints well inside the router's 12h idle lifetime so a long-lived process never holds a dead token.
+const gatewayTokenMaxAge = time.Hour
 
 // gatewayTokens holds one router session token per router base and profile; a new router gets a fresh mint.
 var (
@@ -276,14 +281,14 @@ func gatewayToken(ctx context.Context, routerBase, profile string) (string, erro
 	gatewayMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.tok != "" {
+	if e.tok != "" && time.Since(e.minted) < gatewayTokenMaxAge {
 		return e.tok, nil
 	}
 	tok, err := agent.MintSession(ctx, profile, os.Getpid())
 	if err != nil {
 		return "", err
 	}
-	e.tok = tok
+	e.tok, e.minted = tok, time.Now()
 	return tok, nil
 }
 
