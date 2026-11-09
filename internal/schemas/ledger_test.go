@@ -168,6 +168,7 @@ var writers = map[string]string{
 	"internal/setup/workspace.go:workspaceIgnoreAction":               unversioned("foreign: workspace repo .gitignore"),
 	"internal/statusline/cache.go:writeStamp":                         unversioned("text: statusline pipe-separated stamp"),
 	"internal/network/tailscale/cli.go:writeAuthKeyFile":              unversioned("foreign: temp auth key file"),
+	"internal/agentconfig/render/render.go:restore":                   unversioned("foreign: agent config restored after a failed staged render"),
 	"internal/ui/theme/theme.go:replaceIfUnchanged":                   unversioned("foreign: theme file and backup in a vendor home"),
 	"internal/agent/tools/version.go:writeVersionCache":               "agentversion",
 	"internal/agent/tools/install.go:runInstallScript":                unversioned("foreign: temp installer script"),

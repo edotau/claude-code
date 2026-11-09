@@ -4,9 +4,11 @@ package render
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -22,22 +24,69 @@ type RenderOptions struct {
 	// Confirm asks whether to overwrite path given its lost hand-edited lines; nil means write and warn.
 	Confirm func(path string, lost []string) bool
 	// staged is the write queue CommitFile appends to; Stage sets it, RenderPlan.Apply runs it.
-	staged *[]func() error
+	staged *[]stagedWrite
 }
 
 // RenderPlan holds ordered agent writes after all selected renders have validated.
 type RenderPlan struct {
-	writes []func() error
+	writes []stagedWrite
 }
 
-// Apply performs the staged writes in order, stopping at the first error.
+// stagedWrite is one queued write; path names the agent config file it changes ("" for a side file like a baseline).
+type stagedWrite struct {
+	path  string
+	write func() error
+}
+
+// Apply performs the staged writes in order; on the first error it restores every config file already written.
 func (p *RenderPlan) Apply() error {
-	for _, write := range p.writes {
-		if err := write(); err != nil {
-			return err
+	var done []snapshot
+	for _, w := range p.writes {
+		snap, err := takeSnapshot(w.path)
+		if err != nil {
+			return errors.Join(err, restore(done))
 		}
+		if err := w.write(); err != nil {
+			return errors.Join(err, restore(append(done, snap)))
+		}
+		done = append(done, snap)
 	}
 	return nil
+}
+
+// snapshot is a config file's bytes before a staged write; absent means it did not exist.
+type snapshot struct {
+	path   string
+	data   []byte
+	absent bool
+}
+
+func takeSnapshot(path string) (snapshot, error) {
+	if path == "" {
+		return snapshot{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return snapshot{path: path, absent: true}, nil
+	}
+	return snapshot{path: path, data: data}, err
+}
+
+// restore puts snapshots back newest first, so a failed multi-file render leaves no half-applied pair.
+func restore(done []snapshot) error {
+	var errs []error
+	for _, s := range slices.Backward(done) {
+		switch {
+		case s.path == "":
+		case s.absent:
+			if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		default:
+			errs = append(errs, paths.AtomicWrite(s.path, s.data, 0o600))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // Stage returns o with CommitFile writes queued onto p instead of written.
@@ -58,7 +107,7 @@ func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 	case !changed:
 		return false, reportUnchanged(path, next, existed, o, out, label)
 	}
-	*o.staged = append(*o.staged, func() error { return commitWrite(path, raw, next, existed, o, out, label) })
+	*o.staged = append(*o.staged, stagedWrite{path, func() error { return commitWrite(path, raw, next, existed, o, out, label) }})
 	return true, nil
 }
 
@@ -86,7 +135,7 @@ func reportUnchanged(path string, next []byte, existed bool, o RenderOptions, ou
 			return err
 		}
 		if base == nil && existed {
-			*o.staged = append(*o.staged, func() error { return ops.SaveBaseline(path, next) })
+			*o.staged = append(*o.staged, stagedWrite{write: func() error { return ops.SaveBaseline(path, next) }})
 		}
 		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 		return nil
@@ -169,12 +218,12 @@ func CommitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Wr
 		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 		return false, nil
 	}
-	*o.staged = append(*o.staged, func() error {
+	*o.staged = append(*o.staged, stagedWrite{path, func() error {
 		if _, err := paths.WriteIfChanged(path, next, 0o600); err != nil {
 			return fmt.Errorf("%s: %w", label, err)
 		}
 		fmt.Fprintf(out, "%s: wrote %s\n", label, path)
 		return nil
-	})
+	}})
 	return true, nil
 }
