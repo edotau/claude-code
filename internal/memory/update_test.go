@@ -43,12 +43,21 @@ func TestTagBlock_MissingTranscriptNoBlock(t *testing.T) {
 	}
 }
 
-// TestAgentUpdatePrompt_UnknownVerbErrors: Reference errors on an unknown verb; agentUpdatePrompt
-// must surface that rather than running on an empty prompt. "update" itself is now always embedded,
-// so this exercises the error path through a verb that will never exist.
-func TestAgentUpdatePrompt_UnknownVerbErrors(t *testing.T) {
-	if _, err := bank.Reference("does-not-exist"); err == nil {
-		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
+func TestAgentUpdatePrompt_UsesReference(t *testing.T) {
+	transcript := writeTranscript(t, "")
+	got, err := agentUpdatePrompt(transcript, "", false)
+	if err != nil {
+		t.Fatalf("agentUpdatePrompt: %v", err)
+	}
+	ref, err := bank.Reference("update")
+	if err != nil {
+		t.Fatalf("Reference(update): %v", err)
+	}
+	if ref == "" || !strings.Contains(got, ref) {
+		t.Fatalf("update prompt missing its embedded procedure: %q", got)
+	}
+	if !strings.Contains(got, transcript) {
+		t.Fatalf("update prompt missing transcript path: %q", got)
 	}
 }
 

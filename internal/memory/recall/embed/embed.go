@@ -115,9 +115,13 @@ func freshEmbedCache(c *EmbedClient) vectorRecord {
 }
 
 // currentEntryHashes is the content hash of each embeddable entry in root's corpus right now.
-func currentEntryHashes(root string) map[string]string {
+func currentEntryHashes(root string) (map[string]string, error) {
+	hits, err := bank.CorpusBlocks(root)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]string{}
-	for _, h := range bank.CorpusBlocks(root) {
+	for _, h := range hits {
 		e := bank.EntryFromHit(h)
 		if e.Archived || e.Superseded {
 			continue
@@ -126,7 +130,7 @@ func currentEntryHashes(root string) map[string]string {
 			out[e.ID] = textHash(entryEmbedText(e))
 		}
 	}
-	return out
+	return out, nil
 }
 
 // EmbedEntries embeds changed live entries; a valid lease returns ErrEmbedValid without minting.
@@ -162,10 +166,13 @@ func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) 
 	if err != nil {
 		return vectorRecord{}, err
 	}
+	if rec.Namespace != c.Namespace || rec.Rows == nil { // a foreign record's lease does not bind this namespace
+		rec = freshEmbedCache(c)
+	}
 	if err := checkEmbedLease(rec, now, force); err != nil {
 		return vectorRecord{}, err
 	}
-	if force || rec.Namespace != c.Namespace || rec.Rows == nil {
+	if force {
 		rec = freshEmbedCache(c)
 	}
 	return rec, nil
@@ -177,7 +184,10 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	if err != nil {
 		return 0, 0, err
 	}
-	ids, texts, hashes, blocks, total := pendingEmbeds(root, rec)
+	ids, texts, hashes, blocks, total, err := pendingEmbeds(root, rec)
+	if err != nil {
+		return 0, 0, err
+	}
 	started := now.UnixNano()
 	owner, err := newEmbedOwner()
 	if err != nil {
@@ -192,7 +202,12 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]vectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
-	run.current = currentEntryHashes(root)
+	current, cerr := currentEntryHashes(root)
+	if cerr != nil {
+		vectorStore.Release(c.Profile, owner) // nothing was stored, so the claim is still ours to drop
+		return embedded, total, errors.Join(embedErr, cerr)
+	}
+	run.current = current
 	stored, cerr := run.store(owner, embedErr == nil)
 	if !stored && cerr == nil {
 		embedded = 0
@@ -205,7 +220,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
 	stored, err = vectorStore.Put(VectorWrite{Profile: r.c.Profile, Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
 		out := r.merge(cur)
-		if complete { // a partial run keeps its paid-for rows but does not start the lease
+		if complete && r.covers(out) { // a partial or migrated-incomplete run keeps its rows but does not start the lease
 			out.MintedAt = time.Now().UnixNano()
 		}
 		return out
@@ -226,10 +241,14 @@ func cacheRowCurrent(row vectorRow, hash, blockHash string, cacheDim int) bool {
 }
 
 // pendingEmbeds lists root's live entries whose vector in cache is missing, stale or undecodable, and the live count.
-func pendingEmbeds(root string, cache vectorRecord) (ids, texts, hashes, blocks []string, total int) {
+func pendingEmbeds(root string, cache vectorRecord) (ids, texts, hashes, blocks []string, total int, err error) {
 	live := map[string]bool{}
 	cacheDim := cacheDimOf(cache)
-	for _, h := range bank.CorpusBlocks(root) {
+	hits, err := bank.CorpusBlocks(root)
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
+	for _, h := range hits {
 		e := bank.EntryFromHit(h)
 		if e.Archived || e.Superseded || live[e.ID] { // the first of a duplicated id wins
 			continue
@@ -243,7 +262,7 @@ func pendingEmbeds(root string, cache vectorRecord) (ids, texts, hashes, blocks 
 		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
 		blocks = append(blocks, hitHash(h))
 	}
-	return ids, texts, hashes, blocks, len(live)
+	return ids, texts, hashes, blocks, len(live), nil
 }
 
 // embedRun is one mint's paid-for rows, merged into the record that is current at commit time.
@@ -272,6 +291,16 @@ func (r *embedRun) merge(cur vectorRecord) vectorRecord {
 	r.absorb(cur, fresh)
 	r.shed(cur)
 	return cur
+}
+
+// covers reports whether rec holds a row at the current hash for every live entry in the run's corpus.
+func (r *embedRun) covers(rec vectorRecord) bool {
+	for id, hash := range r.current {
+		if row, ok := rec.Rows[id]; !ok || row.Hash != hash {
+			return false
+		}
+	}
+	return true
 }
 
 // absorb folds fresh rows for still-current entries into cur; an equal-hash, same-dimension row keeps its vector.

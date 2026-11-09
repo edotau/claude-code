@@ -347,6 +347,99 @@ func TestEmbedFutureMintedAtIsNotValid(t *testing.T) {
 	}
 }
 
+func TestEmbedNamespaceChangeIgnoresForeignLease(t *testing.T) {
+	for _, change := range []struct{ name, model, namespace string }{
+		{"workspace", "fake-gte", "fake|other-workspace|fake-gte"},
+		{"model", "other-model", "fake|h|other-model"},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			root := leaseFixture(t)
+			var calls int
+			c := leaseClient(&calls, nil)
+			if _, _, err := EmbedEntries(context.Background(), root, c); err != nil {
+				t.Fatal(err)
+			}
+			other := &EmbedClient{Profile: c.Profile, Model: change.model, Namespace: change.namespace, EmbedFunc: c.Embed}
+			n, _, err := EmbedEntries(context.Background(), root, other)
+			if err != nil || n != 1 || calls != 2 {
+				t.Fatalf("namespace change inside lease: n=%d calls=%d err=%v", n, calls, err)
+			}
+			rec := loadEmbedCache(c.Profile)
+			if rec.Namespace != other.Namespace || rec.Model != other.Model {
+				t.Fatalf("foreign cache survived namespace change: %+v", rec)
+			}
+		})
+	}
+}
+
+func TestEmbedDimensionMigrationLeavesRepairLeaseOpen(t *testing.T) {
+	root := leaseFixture(t)
+	bankFile := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	write(t, bankFile, lease3Bank[:strings.LastIndex(lease3Bank, "\n\n##")]+"\n")
+	ctx := context.Background()
+	if _, _, err := EmbedEntries(ctx, root, dimEmbedClient(3, nil)); err != nil {
+		t.Fatal(err)
+	}
+	old := backdate(t, 2*time.Hour)
+	write(t, bankFile, lease3Bank)
+	c := dimEmbedClient(2, nil)
+	n, total, err := EmbedEntries(ctx, root, c)
+	if err != nil || n != 1 || total != 3 {
+		t.Fatalf("dimension migration: n=%d total=%d err=%v", n, total, err)
+	}
+	rec := loadEmbedCache(c.Profile)
+	if rec.MintedAt != old.MintedAt {
+		t.Fatalf("incomplete migration renewed lease: minted=%d want=%d", rec.MintedAt, old.MintedAt)
+	}
+	n, _, err = EmbedEntries(ctx, root, c)
+	if err != nil || n != 2 {
+		t.Fatalf("immediate repair must embed the two dropped rows: n=%d err=%v", n, err)
+	}
+	if _, _, err := EmbedEntries(ctx, root, c); !errors.Is(err, ErrEmbedValid) {
+		t.Fatalf("complete repair must renew the lease: %v", err)
+	}
+}
+
+func TestEmbedPutRejectsTakenOverClaim(t *testing.T) {
+	isolatedConfig1(t)
+	now := time.Now()
+	if _, ok, err := vectorStore.Claim("fake", 11, now.Add(-2*time.Minute), now.Add(-time.Minute)); err != nil || !ok {
+		t.Fatalf("seed expired claim: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := vectorStore.Claim("fake", 22, now, now.Add(time.Minute)); err != nil || !ok {
+		t.Fatalf("take over expired claim: ok=%v err=%v", ok, err)
+	}
+	merged := false
+	stale := VectorWrite{Profile: "fake", Owner: 11, Started: now.UnixNano(), Merge: func(vectorRecord) vectorRecord {
+		merged = true
+		return vectorRecord{MintedAt: time.Now().UnixNano(), Rows: map[string]vectorRow{"stale": {Hash: "old"}}}
+	}}
+	stored, err := vectorStore.Put(stale)
+	if err != nil || stored || merged {
+		t.Fatalf("displaced owner committed: stored=%v merged=%v err=%v", stored, merged, err)
+	}
+	assertTakenOverClaimCommits(t, now)
+}
+
+func assertTakenOverClaimCommits(t *testing.T, started time.Time) {
+	t.Helper()
+	if _, owner, ok := readClaim(t); !ok || owner != 22 {
+		t.Fatalf("displaced owner changed successor's claim: ok=%v owner=%d", ok, owner)
+	}
+	if rec := loadEmbedCache("fake"); rec.MintedAt != 0 || len(rec.Rows) != 0 {
+		t.Fatalf("displaced owner wrote a cache record: %+v", rec)
+	}
+	stored, err := vectorStore.Put(VectorWrite{Profile: "fake", Owner: 22, Started: started.UnixNano(), Merge: func(vectorRecord) vectorRecord {
+		return vectorRecord{Namespace: "winner", MintedAt: time.Now().UnixNano(), Rows: map[string]vectorRow{"winner": {Hash: "new"}}}
+	}})
+	if err != nil || !stored {
+		t.Fatalf("successor's commit was discarded: stored=%v err=%v", stored, err)
+	}
+	if rec := loadEmbedCache("fake"); rec.Rows["winner"].Hash != "new" {
+		t.Fatalf("successor's row missing: %+v", rec)
+	}
+}
+
 func TestReembedWindowRejectsUnsafeProfile(t *testing.T) {
 	isolatedConfig1(t)
 	if _, open, err := ReembedWindow("../escape", time.Now()); err == nil || open || !strings.Contains(err.Error(), "unsafe") {

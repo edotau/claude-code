@@ -79,8 +79,8 @@ func nativeLinked(root, dir string) bool {
 	if top := paths.MainCheckout(r, memstore.GitOut); top != "" {
 		r = paths.CanonDeep(top)
 	}
-	cur, err := os.Readlink(memstore.ProjectsMemory(memstore.ProjectSlug(r)))
-	return err == nil && paths.SamePath(cur, dir)
+	target := memstore.NativeLinkTarget(memstore.ProjectsMemory(memstore.ProjectSlug(r)))
+	return target != "" && paths.SamePath(target, dir)
 }
 
 // sectionBody is the text under "## heading" up to the next "## " heading; "" when absent or empty.

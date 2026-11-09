@@ -211,8 +211,12 @@ func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
 	note := filepath.Join(memstore.HomeBankDir(), "knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
+	hits, err := CorpusBlocks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	var got SearchHit
-	for _, h := range CorpusBlocks(t.TempDir()) {
+	for _, h := range hits {
 		if h.Bank == "knowledge" {
 			got = h
 		}

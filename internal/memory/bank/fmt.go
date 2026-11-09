@@ -4,6 +4,8 @@ package bank
 // typed files, archive/*.md, handoffs/*.md and reports/*.md, across every repo store and home/.
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,25 +43,55 @@ func bankFmtTargets() ([]string, error) {
 	}
 	var files []string
 	for _, dir := range dirs {
-		files = append(files, dirFmtTargets(dir)...)
+		dirFiles, err := dirFmtTargets(dir)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, dirFiles...)
 	}
 	return files, nil
 }
 
 // dirFmtTargets lists one bank dir's typed files plus its archive/, handoffs/ and reports/ markdown.
-func dirFmtTargets(dir string) []string {
+func dirFmtTargets(dir string) ([]string, error) {
 	var files []string
 	for _, name := range bankFiles {
 		p := filepath.Join(dir, name)
-		if _, err := os.Stat(p); err == nil {
-			files = append(files, p)
+		_, err := os.Stat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
 		}
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, p)
 	}
 	for _, sub := range bankFmtTargetDirs {
-		matches, _ := filepath.Glob(filepath.Join(dir, sub, "*.md"))
+		matches, err := mdFilesIn(filepath.Join(dir, sub))
+		if err != nil {
+			return nil, err
+		}
 		files = append(files, matches...)
 	}
-	return files
+	return files, nil
+}
+
+// mdFilesIn lists dir's regular *.md files; a missing dir is empty, any other read error is returned.
+func mdFilesIn(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".md") && e.Type().IsRegular() {
+			out = append(out, filepath.Join(dir, e.Name()))
+		}
+	}
+	return out, nil
 }
 
 // FormatBank wraps every target file; check=true writes nothing and only reports. changed lists what
@@ -116,9 +148,8 @@ func formatFiles(files []string, check bool) (changed []string, err error) {
 }
 
 // formatBankMarkdown wraps text's over-width list/paragraph lines; fenced code, tables, headings, front
-// matter and comment-only lines pass through untouched. Lossless: joining a wrapped line's continuations
-// (after trimming their indent) with single spaces reproduces the original; idempotent: a line already
-// ≤ BankFmtMaxLine never changes, so a second pass is a no-op.
+// matter and comment-only lines pass through untouched. Words rejoin with single spaces, so runs of spaces
+// collapse; idempotent: a line already ≤ BankFmtMaxLine never changes, so a second pass is a no-op.
 func formatBankMarkdown(text string) string {
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))

@@ -12,11 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -35,7 +35,7 @@ type Change struct {
 	Checked  bool   // false = fresh import: whatever is there at journal time is the preimage
 }
 
-// Receipt records one applied batch; the copy under receipts/ is tracked and is the authority for cursor recovery.
+// Receipt records one applied batch; its copy under receipts/ is tracked, as a record only (no cursor recovery reads it).
 type Receipt struct {
 	ID           string    `json:"id"`
 	Subject      string    `json:"subject"`
@@ -105,10 +105,18 @@ func CommitChangesLocked(subject string, changes []Change) (Receipt, error) {
 
 // recoverJournals finishes every unfinished journal, oldest first, each as its own commit.
 func recoverJournals() error {
-	files, _ := filepath.Glob(filepath.Join(memstore.JournalDir(), "*.json"))
-	sort.Strings(files)
-	for _, f := range files {
-		if err := recoverJournal(f); err != nil {
+	entries, err := os.ReadDir(memstore.JournalDir())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries { // ReadDir sorts by name: the id's timestamp prefix makes that oldest first
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if err := recoverJournal(filepath.Join(memstore.JournalDir(), e.Name())); err != nil {
 			return err
 		}
 	}
@@ -218,6 +226,9 @@ func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err err
 	if err := repo.Ensure(); err != nil {
 		return nil, err
 	}
+	if err := j.discardReceipt(repo); err != nil {
+		return nil, err
+	}
 	present, missing, err := dirtyFiles(repo)
 	if err != nil {
 		return nil, err
@@ -275,12 +286,16 @@ func (j *journal) plan(dir string, present []string, rec *Receipt) (outcomes []o
 func (j *journal) captureNative(repo Repo, rec *Receipt, capture, missing []string) error {
 	stage := append([]string{}, capture...)
 	for _, p := range missing {
-		// Not at HEAD (git exits 128: an add that never committed) leaves nothing to copy; any other failure aborts.
-		data, err := headBytes(repo, p)
-		if err != nil && exitCode(err) != 128 {
+		// Never committed (a staged add that did not land) has no HEAD bytes to copy.
+		tracked, err := trackedAtHead(repo, p)
+		if err != nil {
 			return fmt.Errorf("recovery copy of %s: %w", p, err)
 		}
-		if err == nil {
+		if tracked {
+			data, err := headBytes(repo, p)
+			if err != nil {
+				return fmt.Errorf("recovery copy of %s: %w", p, err)
+			}
 			copyRel := path.Join(tombstoneDir, j.ID, p)
 			if err := repo.validateRel(copyRel); err != nil {
 				return err
@@ -308,9 +323,29 @@ func (j *journal) captureNative(repo Repo, rec *Receipt, capture, missing []stri
 	return nil
 }
 
+// receiptRel is this journal's receipt, store-relative.
+func (j *journal) receiptRel() string { return "receipts/" + j.ID + ".json" }
+
+// discardReceipt drops the uncommitted receipt a failed earlier attempt left staged or on disk; commit rewrites it.
+// A receipt already in HEAD is history and stays.
+func (j *journal) discardReceipt(repo Repo) error {
+	rel := j.receiptRel()
+	tracked, err := trackedAtHead(repo, rel)
+	if err != nil || tracked {
+		return err
+	}
+	if _, err := repo.run("rm", "--cached", "--quiet", "--force", "--ignore-unmatch", "--", rel); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(repo.Dir, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // commit writes the receipt beside the batch and commits both; the receipt is dropped if nothing was committed.
 func (j *journal) commit(repo Repo, rec *Receipt, stage []string) error {
-	receiptRel := "receipts/" + j.ID + ".json"
+	receiptRel := j.receiptRel()
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
 		return err

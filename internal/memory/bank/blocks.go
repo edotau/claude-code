@@ -34,10 +34,26 @@ func fenceToggle(ln string) bool {
 	return strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~")
 }
 
+// nextFence returns the open fence's marker run after ln: an opener sets it, only a bare run of its character closes.
+func nextFence(open, ln string) string {
+	t := strings.TrimSpace(ln)
+	if open != "" {
+		if fenceCloses(t, open) {
+			return ""
+		}
+		return open
+	}
+	if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+		return fenceRun(t)
+	}
+	return ""
+}
+
 // splitOn is the fence-aware splitter: a marker-shaped line inside a fence never starts a block.
 func splitOn(body string, isMarker func(string) bool) (header string, blocks []string) {
 	var hdr, cur []string
-	inBlock, inFence := false, false
+	inBlock := false
+	fence := "" // marker run of the open fence, "" outside one
 	flush := func() {
 		if len(cur) > 0 {
 			blocks = append(blocks, strings.TrimRight(strings.Join(cur, "\n"), "\n"))
@@ -45,13 +61,11 @@ func splitOn(body string, isMarker func(string) bool) (header string, blocks []s
 		}
 	}
 	for ln := range strings.SplitSeq(body, "\n") {
-		if !inFence && isMarker(ln) {
+		if fence == "" && isMarker(ln) {
 			flush()
 			inBlock = true
 		}
-		if fenceToggle(ln) {
-			inFence = !inFence
-		}
+		fence = nextFence(fence, ln)
 		if inBlock {
 			cur = append(cur, ln)
 		} else {

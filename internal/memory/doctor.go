@@ -16,11 +16,12 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// BankStat is one bank's roll-up: file count, total lines, newest mtime, per-file cap offenders.
+// BankStat is one bank's roll-up: newest mtime, per-file cap offenders, and files that could not be read.
 type BankStat struct {
-	Dir       string
-	Updated   time.Time
-	Oversized []string
+	Dir        string
+	Updated    time.Time
+	Oversized  []string
+	Unreadable []string // "name: error" for each file whose read failed for a reason other than absence
 }
 
 // HomeBankStat rolls up the shared home bank.
@@ -34,6 +35,9 @@ func statBank(dir string) BankStat {
 	for _, name := range bank.BankFiles() {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
+			if !os.IsNotExist(err) {
+				s.Unreadable = append(s.Unreadable, name+": "+err.Error())
+			}
 			continue
 		}
 		if capLines, ok := FileCaps[name]; ok && bank.LogicalLineCount(string(data)) > capLines {
@@ -103,6 +107,9 @@ func bankProblems(tier string, s BankStat, staleDays int, now time.Time) []strin
 	var problems []string
 	for _, f := range s.Oversized {
 		problems = append(problems, tier+" "+f+": over "+strconv.Itoa(FileCaps[f])+" lines — consolidate or promote")
+	}
+	for _, u := range s.Unreadable {
+		problems = append(problems, tier+" "+u+" — unreadable, so not checked")
 	}
 	if !s.Updated.IsZero() && s.Updated.Before(now.AddDate(0, 0, -staleDays)) {
 		problems = append(problems, tier+" bank untouched since "+s.Updated.Format("2006-01-02")+

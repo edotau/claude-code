@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // A corrupt or relative root-<id> file is replaced by the first valid root instead of lingering all session.
@@ -23,6 +25,44 @@ func TestRecordSessionRootRepairsCorruptFile(t *testing.T) {
 		if SessionRoot(id, "fallback") == "fallback" {
 			t.Errorf("SessionRoot still falls back after repairing %q", bad)
 		}
+	}
+}
+
+func TestRecordSessionRootReportsLockTimeout(t *testing.T) {
+	isolatedConfig(t)
+	const id = "11111111-2222-3333-4444-555555555555"
+	cwd := canonTemp(t, t.TempDir())
+	path := sessionRootPath(id)
+	write(t, path+".lock", "")
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() {
+		os.Stderr = original
+		if err := stderr.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	ran, err := paths.TryFileLock(path+".lock", 0, func() error {
+		RecordSessionRoot(id, cwd)
+		return nil
+	})
+	if err != nil || !ran {
+		t.Fatalf("hold session-root lock: ran=%v, err=%v", ran, err)
+	}
+	output, err := os.ReadFile(stderr.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "memory-start: record session root: " + paths.ErrLockTimeout.Error() + ": " + path + ".lock\n"
+	if string(output) != want {
+		t.Errorf("lock timeout diagnostic: got %q, want %q", output, want)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("session root must remain unwritten while locked: %v", err)
 	}
 }
 

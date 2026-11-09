@@ -201,6 +201,9 @@ func cmdMemoryFmt(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if fs.NArg() > 0 { // a positional stops flag parsing, so --check after it would be ignored
+		return helptext.FailUsage("memory fmt: unexpected argument %q", fs.Arg(0))
+	}
 	dirty, err := memory.FormatReport(os.Stdout, *check)
 	if err != nil {
 		return helptext.Fail("memory fmt: %v", err)

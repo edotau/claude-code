@@ -27,7 +27,7 @@ var memorySubs = []memorySub{
 	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the repo's bank"},
-	{"review", "", "doctor + stats for the banks; --candidates ranks promotions"},
+	{"review", "", "doctor + stats for the banks; --candidates prints the promotion-ranking procedure"},
 	{"verify", "", "check bank claims against local evidence; never write or fetch"},
 	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
 	{"update", "", "save the live session or --transcript; else print the procedure"},
@@ -151,6 +151,9 @@ func cmdMemoryDream(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if fs.NArg() > 0 { // a positional stops flag parsing, so --dry-run after it would be ignored
+		return helptext.FailUsage("memory dream: unexpected argument %q", fs.Arg(0))
+	}
 	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: client.MemoryRunner(ask.NewClient), Out: os.Stdout}); err != nil {
 		return helptext.Fail("memory dream: %v", err)
 	}
@@ -254,11 +257,13 @@ func Spec() *completion.Node {
 		"remember": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.ValuedFlag("type", memoryRememberTypes)}},
 		"init":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
 		"review": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.Plain("stale-days"), completion.BoolFlag("notice"),
-			completion.BoolFlag("brief")}},
+			completion.BoolFlag("brief"), completion.BoolFlag("candidates")}},
+		"verify": {Flags: []completion.Flag{completion.Plain("cwd"), completion.BoolFlag("archives"), completion.BoolFlag("all-stores")}},
 		"promote": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames),
 			completion.ValuedFlag("to", memoryPromoteTargets), completion.BoolFlag("dry-run")}},
-		"update":   {Flags: []completion.Flag{completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("session")}},
-		"dream":    {Flags: []completion.Flag{completion.Plain("cwd"), completion.BoolFlag("force")}},
+		"update": {Flags: []completion.Flag{completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("session"),
+			completion.BoolFlag("dry-run"), completion.BoolFlag("historical")}},
+		"dream":    {Flags: []completion.Flag{completion.Plain("cwd"), completion.BoolFlag("force"), completion.BoolFlag("dry-run")}},
 		"search":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("all"), completion.Plain("k"), completion.FormatFlag()}},
 		"show":     {},
 		"digest":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
@@ -266,7 +271,7 @@ func Spec() *completion.Node {
 		"path":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
 		"report":   {Flags: []completion.Flag{completion.Plain("label"), completion.Plain("file"), completion.BoolFlag("stdin"), completion.FormatFlag(), completion.ValuedFlag("repo", memoryRepoNames)}},
 		"fmt":      {Flags: []completion.Flag{completion.BoolFlag("check")}},
-		"catchup":  {},
+		"catchup":  {Flags: []completion.Flag{completion.BoolFlag("dry-run"), completion.Plain("skip")}},
 		"watch":    {Flags: []completion.Flag{completion.Plain("session"), completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("owner"), completion.Plain("idle")}},
 		"timeline": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.Plain("n")}},
 		"archive": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("dupes"), completion.Plain("split"),

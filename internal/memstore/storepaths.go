@@ -68,12 +68,18 @@ func HomeBankDir() string { return homeStoreDir() }
 // homeStoreDir is the home dir inside the store.
 func homeStoreDir() string { return filepath.Join(StoreDir(), "home") }
 
-// Dir is root's local bank; a non-repo root collapses to the home one.
+// Dir is root's local bank; an unresolvable repo gets an inert state-dir path, never the home bank.
 func Dir(root string) string {
 	if d, err := RepoDir(root); err == nil { // one dir per repo shared with native memory; the harness is memory/claude-code
 		return d
 	}
-	return homeStoreDir()
+	switch id := Resolve(root); {
+	case id.HomeBank:
+		return homeStoreDir()
+	case id.Harness:
+		return HarnessStoreDir()
+	}
+	return filepath.Join(StateDir(), "unresolved-store")
 }
 
 // IsHomeBank reports whether root's local bank is the home bank (read it once, not twice).

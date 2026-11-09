@@ -14,22 +14,32 @@ func RoutedRepos(query string) []RepoEntry {
 	q := strings.ToLower(query)
 	var out []RepoEntry
 	for _, e := range entries {
-		for _, name := range []string{e.Key, filepath.Base(e.Origin.Origin)} {
-			name = strings.ToLower(strings.TrimPrefix(name, "."))
-			if len(name) >= 4 && routeWord(q, name) {
-				out = append(out, e)
-				break
-			}
+		if routeMatch(q, e.Key) || routeMatch(q, filepath.Base(e.Origin.Origin)) {
+			out = append(out, e)
 		}
 	}
 	return out
 }
 
-// RepoByName is the store whose key or origin basename equals name, for `--repo <name>`.
+// routeMatch reports whether query names raw as a whole word, with or without its leading dot.
+func routeMatch(query, raw string) bool {
+	name := strings.ToLower(strings.TrimPrefix(raw, "."))
+	if len(name) < 4 {
+		return false
+	}
+	return routeWord(query, strings.ToLower(raw)) || routeWord(query, name)
+}
+
+// RepoByName is the store whose key equals name, else the store whose origin basename does, for `--repo <name>`.
 func RepoByName(name string) (RepoEntry, bool) {
 	entries, _ := RepoDirs()
 	for _, e := range entries {
-		if strings.EqualFold(e.Key, name) || strings.EqualFold(filepath.Base(e.Origin.Origin), name) {
+		if strings.EqualFold(e.Key, name) {
+			return e, true
+		}
+	}
+	for _, e := range entries {
+		if strings.EqualFold(filepath.Base(e.Origin.Origin), name) {
 			return e, true
 		}
 	}

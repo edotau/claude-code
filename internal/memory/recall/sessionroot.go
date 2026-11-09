@@ -57,12 +57,16 @@ func RecordSessionRoot(sessionID, cwd string) {
 	path := sessionRootPath(sessionID)
 	err := os.MkdirAll(filepath.Dir(path), 0o700)
 	if err == nil {
-		_, err = paths.TryFileLock(path+".lock", sessionRootLockWait, func() error {
+		var ran bool
+		ran, err = paths.TryFileLock(path+".lock", sessionRootLockWait, func() error {
 			if SessionRoot(sessionID, "") != "" {
 				return nil
 			}
 			return paths.AtomicWrite(path, []byte(root+"\n"), 0o600)
 		})
+		if err == nil && !ran {
+			err = fmt.Errorf("%w: %s.lock", paths.ErrLockTimeout, path)
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "memory-start: record session root: %v\n", err)

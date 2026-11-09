@@ -24,10 +24,10 @@ func splitEdgeCases() []splitCase {
 			want:       []string{"## real\nbody\n```\n## fake\n```\nmore", "## real2\nbody2"},
 		},
 		{
-			name:       "nested fence toggles early",
+			name:       "mixed fence stays open",
 			in:         "h\n\n## a\n```\n~~~\n## nope\n~~~\nstill fence\n",
 			wantHeader: "h",
-			want:       []string{"## a\n```\n~~~", "## nope\n~~~\nstill fence"},
+			want:       []string{"## a\n```\n~~~\n## nope\n~~~\nstill fence"},
 		},
 		{
 			name:       "unclosed fence",
@@ -56,11 +56,7 @@ func splitEdgeCases() []splitCase {
 	}
 }
 
-// SplitHeadingBlocks edge cases: a "## " line fenced in ``` is never a heading boundary; a ~~~ line
-// nested inside an open ``` fence closes it early (today's hand-rolled fenceToggle shares one bit across
-// both fence chars — this pins that quirk; true nested-fence tracking would be a named correctness fix);
-// an unclosed fence runs to EOF; CRLF line endings keep their "\r"; a missing trailing newline still
-// yields the last block; duplicate headings are kept as separate blocks, nothing dedupes on text.
+// Heading splits respect matching fences, preserve line endings and keep duplicate headings.
 func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
 	t.Parallel()
 	for _, tt := range splitEdgeCases() {

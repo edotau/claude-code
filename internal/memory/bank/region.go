@@ -176,7 +176,11 @@ func SettleDir(d string, now time.Time, s *BankSettlement) error {
 	if _, err = writeBankRegion(d, now); err != nil {
 		return err
 	}
-	_, err = formatFiles(dirFmtTargets(d), false) // update writes land wrapped, so lint-docs stays clean
+	targets, err := dirFmtTargets(d)
+	if err != nil {
+		return err
+	}
+	_, err = formatFiles(targets, false) // update writes land wrapped, so lint-docs stays clean
 	return err
 }
 

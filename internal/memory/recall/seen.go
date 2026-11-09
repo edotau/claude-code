@@ -50,8 +50,12 @@ func ResetSeen(sessionID, root, surface string) {
 	}
 	pruneSeen(filepath.Dir(p))
 	flat := strings.Join(strings.Fields(surface), " ")
+	hits, err := bank.CorpusBlocks(root)
+	if err != nil {
+		return // fail-open: no corpus read, so the seen set is left as it was
+	}
 	var b strings.Builder
-	for _, h := range bank.CorpusBlocks(root) {
+	for _, h := range hits {
 		if norm := strings.Join(strings.Fields(h.Block), " "); norm != "" && strings.Contains(flat, norm) {
 			b.WriteString(BlockKey(h.Block) + "\n")
 		}

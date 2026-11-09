@@ -349,6 +349,19 @@ func runGit(full []string) (string, error) {
 	return proc.RunGit(ctx, "", full...)
 }
 
+// trackedAtHead reports whether rel is in HEAD's tree; an unborn HEAD tracks nothing. Git failures are errors.
+func trackedAtHead(repo Repo, rel string) (bool, error) {
+	head, err := repo.Head()
+	if err != nil || head == "" {
+		return false, err
+	}
+	out, err := repo.run("ls-tree", "-z", "--name-only", "HEAD", "--", rel)
+	if err != nil {
+		return false, err
+	}
+	return out != "", nil
+}
+
 // headBytes is rel's content at HEAD, byte-exact: run trims trailing newlines, which would corrupt a recovery copy.
 func headBytes(repo Repo, rel string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), memstore.GitTimeout)
