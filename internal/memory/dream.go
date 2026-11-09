@@ -109,20 +109,25 @@ func DreamStampPath(root string) string {
 	return filepath.Join(memstore.StateDir(), "last-dream-"+filepath.Base(memstore.Dir(root)))
 }
 
-func dreamStamp(root string) (time.Time, bool) {
+// dreamStamp reads the stamp: its time (line 1) and whether that run failed (line 2 = "failed").
+func dreamStamp(root string) (t time.Time, failed, ok bool) {
 	data, err := os.ReadFile(DreamStampPath(root))
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, false, false
 	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
-	return t, err == nil
+	first, rest, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+	t, err = time.Parse(time.RFC3339, first)
+	return t, rest == "failed", err == nil
 }
 
-// DreamDue: the last dream is over a day old (or never ran) and a bank changed since.
+// DreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its backdated stamp.
 func DreamDue(cwd string, now time.Time) bool {
-	stamp, ok := dreamStamp(cwd)
+	stamp, failed, ok := dreamStamp(cwd)
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
+	}
+	if ok && failed {
+		return true
 	}
 	return bank.NewestMtime(memstore.Dir(cwd)).After(stamp) || bank.NewestMtime(memstore.HomeBankDir()).After(stamp)
 }
@@ -187,11 +192,15 @@ func Dream(o DreamOptions) error {
 	}
 	if err := errors.Join(lockErr, runErr, archiveErr, settleErr); err != nil {
 		// backdated, so DreamDue retries in dreamRetry
-		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval)))
+		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval), true))
 	}
-	return stampDream(o.CWD, time.Now())
+	return stampDream(o.CWD, time.Now(), false)
 }
 
-func stampDream(root string, at time.Time) error {
-	return paths.AtomicWrite(DreamStampPath(root), []byte(at.Format(time.RFC3339)+"\n"), 0o600)
+func stampDream(root string, at time.Time, failed bool) error {
+	body := at.Format(time.RFC3339) + "\n"
+	if failed {
+		body += "failed\n"
+	}
+	return paths.AtomicWrite(DreamStampPath(root), []byte(body), 0o600)
 }

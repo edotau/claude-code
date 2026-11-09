@@ -130,6 +130,7 @@ func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) 
 	res.Lines = append(res.Lines, fmt.Sprintf("fold store %s into %s", src.Key, tgt.Key))
 	origin := tgt.Origin
 	origin.Aliases = append(slices.Clone(origin.Aliases), canon)
+	origin.Aliases = append(origin.Aliases, src.Origin.Origin)     // the source's primary checkout keeps resolving here
 	origin.Aliases = append(origin.Aliases, src.Origin.Aliases...) // the source's own explicit aliases follow it
 	p.origin = origin
 	res.Lines = append(res.Lines, "record alias in the "+tgt.Key+" origin record (vault)")
@@ -189,6 +190,9 @@ func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt memstore.Rep
 	}
 	dst := filepath.Join(tgt.Dir, rel)
 	cur, rerr := os.ReadFile(dst)
+	if rerr != nil && !os.IsNotExist(rerr) {
+		return rerr
+	}
 	if rel == bank.NativeIndexFile {
 		return p.foldNativeIndex(path, rel, string(cur), string(data), tgt, res)
 	}
@@ -227,7 +231,11 @@ func (p *aliasPlan) foldReplace(rel string, cur, data []byte, src, tgt memstore.
 	}
 	name := "merged-" + src.Key + "-" + rel
 	arch := filepath.Join(memstore.ArchiveDir(tgt.Dir), name)
-	if old, err := os.ReadFile(arch); err == nil && !bytes.Equal(old, data) {
+	old, err := readIfExists(arch)
+	if err != nil {
+		return err
+	}
+	if old != nil && !bytes.Equal(old, data) {
 		return fmt.Errorf("%s exists with different bytes; refusing", arch)
 	}
 	p.addWrite(memstore.ArchiveDir(tgt.Dir), name, data, res, fmt.Sprintf("%s: target wins; source kept at archive/%s", rel, name))

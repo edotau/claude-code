@@ -87,7 +87,10 @@ func createExcl(p, body string) error {
 		return err
 	}
 	_, werr := f.WriteString(body)
-	return errors.Join(werr, f.Close())
+	if err := errors.Join(werr, f.Close()); err != nil {
+		return errors.Join(err, os.Remove(p)) // Init skips an existing file, so a partial one must not survive
+	}
+	return nil
 }
 
 // IsProjectContextTemplate reports whether root's projectContext.md still equals the scaffold

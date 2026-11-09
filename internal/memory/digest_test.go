@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // digestFixture is a dir with one raw archive file, a prior digest.md, and a fake claude script body.
@@ -46,6 +48,29 @@ func TestDigestRunsWithoutToolsOrSettings(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("argv missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestDigestCommitFailureRestoresPreviousDigest(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	dir := memstore.HomeBankDir()
+	archive := memstore.ArchiveDir(dir)
+	write(t, filepath.Join(archive, "sessionHistory-2026-10.md"), "- a durable archived fact\n")
+	digest := filepath.Join(archive, DigestFile)
+	write(t, digest, "PREVIOUS\n")
+	write(t, filepath.Join(memstore.StoreDir(), ".git", "index.lock"), "held by another writer\n")
+	fake := filepath.Join(t.TempDir(), "claude")
+	write(t, fake, "#!/bin/sh\nprintf '%s\\n' '- replacement digest'\n")
+	if err := os.Chmod(fake, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Digest(context.Background(), dir, fake)
+	if err == nil || !strings.Contains(err.Error(), "index.lock") {
+		t.Fatalf("want commit failure from held index.lock, got %v", err)
+	}
+	if got := mustRead(t, digest); got != "PREVIOUS\n" {
+		t.Fatalf("failed commit lost previous digest: %q", got)
 	}
 }
 

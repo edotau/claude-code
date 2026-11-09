@@ -111,10 +111,26 @@ func Digest(ctx context.Context, dir, claude string) (string, error) {
 		") from the raw archive: " + strings.Join(used, ", ") + ". Raw files stay the source of truth.\n\n" + strings.Join(lines, "\n") + "\n"
 	path := filepath.Join(memstore.ArchiveDir(dir), DigestFile)
 	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
+		prev, err := readIfExists(path)
+		if err != nil {
+			return err
+		}
 		if err := paths.AtomicWrite(path, []byte(body), 0o600); err != nil {
 			return err
 		}
-		return bank.CommitStore("digest: " + filepath.Base(dir))
+		cerr := bank.CommitStore("digest: " + filepath.Base(dir))
+		if cerr == nil {
+			return nil
+		}
+		return errors.Join(cerr, restoreDigest(path, prev))
 	})
 	return path, err
+}
+
+// restoreDigest puts back the digest a failed commit replaced: its previous bytes, or no file when there were none.
+func restoreDigest(path string, prev []byte) error {
+	if prev == nil {
+		return os.Remove(path)
+	}
+	return paths.AtomicWrite(path, prev, 0o600)
 }

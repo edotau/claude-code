@@ -243,7 +243,14 @@ func (v *claimVerifier) pushedIn(repo, sha string, prev verifyResult) (result ve
 	if err == nil {
 		return verifyResult{"ok", sha + " is an ancestor of local " + strings.TrimPrefix(branch, "refs/remotes/") + " in " + repo}, true
 	}
-	if remotes, _ := verifyGit(repo, "", "branch", "-r", "--contains", sha); strings.TrimSpace(remotes) != "" {
+	remotes, rerr := verifyGit(repo, "", "branch", "-r", "--contains", sha)
+	if rerr != nil {
+		if result.status != "stale" {
+			result = verifyResult{"unverifiable", "cannot list remote branches containing " + sha + " in " + repo}
+		}
+		return result, false
+	}
+	if strings.TrimSpace(remotes) != "" {
 		return verifyResult{"ok", sha + " is on remote branch " + strings.Fields(remotes)[0] + " in " + repo}, true
 	}
 	var exit *exec.ExitError
