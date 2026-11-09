@@ -454,30 +454,3 @@ func TestParseClockResetAcrossDST(t *testing.T) {
 		}
 	}
 }
-
-// TryMarkExhausted skips the write on a held lock instead of waiting, then writes once the lock is free.
-func TestTryMarkExhaustedSkipsBusyLock(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	now := time.Now()
-	if err := os.MkdirAll(filepath.Dir(StatePath()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.OpenFile(StatePath()+".lock", os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !paths.TryLock(f) {
-		t.Fatal("could not take the state lock")
-	}
-	ran, err := TryMarkExhausted("p·x", now.Add(time.Minute), now, "429", 20*time.Millisecond)
-	if ran || err != nil || LoadState()["p·x"].Status(now) == StateExhausted {
-		t.Fatalf("busy lock: ran=%v err=%v, want a skipped write", ran, err)
-	}
-	f.Close() // closing the descriptor releases the flock
-	if ran, err := TryMarkExhausted("p·x", now.Add(time.Minute), now, "429", 20*time.Millisecond); !ran || err != nil {
-		t.Fatalf("free lock: ran=%v err=%v", ran, err)
-	}
-	if LoadState()["p·x"].Status(now) != StateExhausted {
-		t.Fatal("free lock: mark not written")
-	}
-}

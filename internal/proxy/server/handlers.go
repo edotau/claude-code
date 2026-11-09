@@ -17,7 +17,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -86,15 +85,10 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 				return true, true
 			}
 		} else {
-			until := r.now().Add(retryAfter(resp.Header.Get("Retry-After"), r.now()))
+			d := retryAfter(resp.Header.Get("Retry-After"), r.now())
 			r.mu.Lock()
-			extends := until.After(r.cool[p.Name])
-			r.cool[p.Name] = until
+			r.cool[p.Name] = r.now().Add(d)
 			r.mu.Unlock()
-			// like agent.holdable: a credits rate limit is one endpoint's (proxy-local); account quota is shared
-			if account := providers.IsQuota(string(peek)) || router.DefaultBilling(p) == router.BillSubscription; extends && account {
-				r.markExhausted(p.Name, until)
-			}
 		}
 	}
 	if last || !retryable[resp.StatusCode] {

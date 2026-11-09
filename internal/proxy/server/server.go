@@ -51,17 +51,16 @@ type Router struct {
 	cred     map[string]time.Time // provider name → present-credential cache expiry (credTTL)
 	credGen  map[string]int       // provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
 
-	state    router.State         // cached router.LoadState() (auth marks, exhaustion) for attempts
-	stateAt  time.Time            // when state was loaded
-	stateGen int                  // bumped by a state write: a load begun before it is not cached
-	marked   map[string]bool      // provider names this process marked auth-dead: cleared on their next success
-	sinkLog  map[string]time.Time // provider → router-state hold already logged as sinking, guarded by mu
-	files    map[string]fileEntry // scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
-	oauthTok string               // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
-	oauthAt  time.Time            // oauthTok is valid until oauthAt+credTTL
-	oauth    func() string        // reads the sealed subscription token; a seam for tests
-	headers  map[string]string    // validated HARNESS_HEADERS, canonical names
-	tags     string               // validated HARNESS_REQUEST_TAGS JSON, "" when unset or invalid
+	authState func(account string, now time.Time) (string, bool) // cached router.LoadState().AuthMarked lookup for attempts
+	authAt    time.Time                                          // when authState was loaded
+	authGen   int                                                // bumped by condemn: a load begun before its mark is not cached
+	marked    map[string]bool                                    // provider names this process marked auth-dead: cleared on their next success
+	files     map[string]fileEntry                               // scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
+	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
+	oauthAt   time.Time                                          // oauthTok is valid until oauthAt+credTTL
+	oauth     func() string                                      // reads the sealed subscription token; a seam for tests
+	headers   map[string]string                                  // validated HARNESS_HEADERS, canonical names
+	tags      string                                             // validated HARNESS_REQUEST_TAGS JSON, "" when unset or invalid
 }
 
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
@@ -70,7 +69,7 @@ const quotaDeadFor = 30 * time.Minute
 func newRouter(secret string) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]time.Time{}, credGen: map[string]int{},
-		marked: map[string]bool{}, sinkLog: map[string]time.Time{}, oauth: providers.HeadlessOAuthToken}
+		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.tags = parseRequestTags(os.Getenv(proxy.RequestTagsEnv), r.log)
 	r.headers = proxy.ParseHeaders(os.Getenv(proxy.HeadersEnv), r.log)
@@ -245,33 +244,13 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 			}
 		}
 	}
-	state := r.routeState()
-	out = r.withoutAuthMarked(out, state)
-	sunk := r.sunk(out, state)
-	sort.SliceStable(out, func(i, j int) bool { return !sunk[out[i].Provider.Name] && sunk[out[j].Provider.Name] })
-	return out
-}
-
-// sunk names the ladder's providers that sink to the end: cooling here, or exhausted in the router state.
-func (r *Router) sunk(out []providers.Target, state router.State) map[string]bool {
+	out = r.withoutAuthMarked(out)
 	now := r.now()
-	sunk := make(map[string]bool, len(out))
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, t := range out {
-		name := t.Provider.Name
-		if e := state[router.ProviderAccount(name)]; e.Status(now) == router.StateExhausted {
-			if until := e.Until(now); !r.sinkLog[name].Equal(until) { // once per hold, not per request
-				r.sinkLog[name] = until
-				fmt.Fprintf(r.log, "proxy: %s exhausted in router state until %s, sinking\n", name, until.Format(time.RFC3339))
-			}
-			sunk[name] = true
-		}
-	}
-	for _, t := range out {
-		sunk[t.Provider.Name] = sunk[t.Provider.Name] || now.Before(r.cool[t.Provider.Name])
-	}
-	return sunk
+	cooling := func(t providers.Target) bool { return now.Before(r.cool[t.Provider.Name]) }
+	sort.SliceStable(out, func(i, j int) bool { return !cooling(out[i]) && cooling(out[j]) })
+	return out
 }
 
 // failoverLadder is the target followed by one failover target per usable fallback provider, in registry order.
@@ -292,11 +271,11 @@ func (r *Router) failoverLadder(reg *providers.Registry, target providers.Target
 }
 
 // withoutAuthMarked drops targets whose provider has a live auth mark; when that empties the ladder it is kept whole.
-func (r *Router) withoutAuthMarked(out []providers.Target, state router.State) []providers.Target {
-	now := r.now()
+func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
+	marked, now := r.authMarks(), r.now()
 	kept := make([]providers.Target, 0, len(out))
 	for _, t := range out {
-		if _, ok := state.AuthMarked(router.ProviderAccount(t.Provider.Name), now); !ok {
+		if _, ok := marked(router.ProviderAccount(t.Provider.Name), now); !ok {
 			kept = append(kept, t)
 		}
 	}
@@ -306,46 +285,22 @@ func (r *Router) withoutAuthMarked(out []providers.Target, state router.State) [
 	return kept
 }
 
-// routeState is the router state, re-read from quota.json at most once per authStateTTL; callers only read it.
-func (r *Router) routeState() router.State {
+// authMarks is the route state, re-read from quota.json at most once per authStateTTL.
+func (r *Router) authMarks() func(string, time.Time) (string, bool) {
 	r.mu.Lock()
-	now, state, gen := r.now(), r.state, r.stateGen
-	fresh := state != nil && now.Sub(r.stateAt) < authStateTTL
+	now, state, gen := r.now(), r.authState, r.authGen
+	fresh := state != nil && now.Sub(r.authAt) < authStateTTL
 	r.mu.Unlock()
 	if fresh {
 		return state
 	}
-	state = router.LoadState() // read quota.json without holding mu
+	state = router.LoadState().AuthMarked // read quota.json without holding mu
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.stateGen == gen {
-		r.state, r.stateAt = state, now
+	if r.authGen == gen {
+		r.authState, r.authAt = state, now
 	}
 	return state
-}
-
-// staleState makes the next attempts() re-read the router state, so a mark this process wrote is seen.
-func (r *Router) staleState() {
-	r.mu.Lock()
-	r.stateAt = time.Time{}
-	r.stateGen++
-	r.mu.Unlock()
-}
-
-// stateLockWait bounds how long a 429 waits on a held quota.json lock before skipping the write.
-const stateLockWait = 50 * time.Millisecond
-
-// markExhausted records a rate limit on name in the router state; a busy lock skips it, the cooldown still holds.
-func (r *Router) markExhausted(name string, until time.Time) {
-	ran, err := router.TryMarkExhausted(router.ProviderAccount(name), until, r.now(), "proxy: upstream 429", stateLockWait)
-	switch {
-	case err != nil:
-		fmt.Fprintf(r.log, "proxy: mark %s exhausted: %v\n", name, err)
-	case !ran:
-		fmt.Fprintf(r.log, "proxy: mark %s exhausted: quota.json busy, skipped\n", name)
-	default:
-		r.staleState()
-	}
 }
 
 // condemn records a provider as auth-dead in the route state; best-effort, the caller moves on regardless.
@@ -356,8 +311,9 @@ func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
 	}
 	r.mu.Lock()
 	r.marked[p.Name] = true
+	r.authAt = time.Time{} // the next attempts() re-reads the state and sees the mark
+	r.authGen++
 	r.mu.Unlock()
-	r.staleState()
 }
 
 // clearOnSuccess lifts a mark this process set once the provider answers with a 2xx.
