@@ -212,9 +212,20 @@ func shellCwd(req copilot.PermissionRequest) string {
 	return *wd
 }
 
+// isWebSearchMCP is a call to the harness web_search MCP server (`network websearch`).
+func isWebSearchMCP(req copilot.PermissionRequest) bool {
+	switch r := req.(type) {
+	case rpc.PermissionRequestMCP:
+		return r.ServerName == webSearchServer
+	case *rpc.PermissionRequestMCP:
+		return r.ServerName == webSearchServer
+	}
+	return false
+}
+
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	cmd, ok := shellCommand(req)
-	if !readOnlyKinds[req.Kind()] && (!ok || !shell.ReadOnlyGit(cmd)) {
+	if !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) && (!ok || !shell.ReadOnlyGit(cmd)) {
 		feedback := readOnlyFeedback
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}
@@ -256,10 +267,9 @@ func scopedAllowed(req copilot.PermissionRequest, workDir string) bool {
 		return shell.WriteAllowed(r.FileName, workDir)
 	case *rpc.PermissionRequestWrite:
 		return shell.WriteAllowed(r.FileName, workDir)
-	case rpc.PermissionRequestMCP:
-		return r.ServerName == webSearchServer
-	case *rpc.PermissionRequestMCP:
-		return r.ServerName == webSearchServer
+	}
+	if isWebSearchMCP(req) {
+		return true
 	}
 	switch req.Kind() {
 	case rpc.PermissionRequestKindRead, rpc.PermissionRequestKindURL:

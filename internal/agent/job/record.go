@@ -19,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/shapes"
 )
@@ -53,6 +54,7 @@ type Record struct {
 	RanAs          string           `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string           `json:"repo,omitempty"`            // main checkout root the job belongs to
 	PID            int              `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
+	PIDStart       string           `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
 	Log            string           `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
 	Progress       string           `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
 	Owner          int              `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
@@ -139,6 +141,7 @@ func (r Record) encode() ([]byte, error) {
 
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
 func (r Record) Save() error {
+	r.stampOwnStart()
 	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -152,6 +155,13 @@ func (r Record) Save() error {
 	}
 	pruneDispatches(dir)
 	return nil
+}
+
+// stampOwnStart records this process's start time when it saves its own pid and none is on file (a --job child).
+func (r *Record) stampOwnStart() {
+	if r.PID == os.Getpid() && r.PIDStart == "" {
+		r.PIDStart, _ = proc.StartTime(r.PID) // "" on failure: Cancel then refuses to signal this pid
+	}
 }
 
 // Elapsed is the run time as text; "" for a record with no duration (running, or written before duration_ms).

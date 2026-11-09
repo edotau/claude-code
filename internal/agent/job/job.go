@@ -62,7 +62,8 @@ func SpawnArgv(rec *Record, argv, env []string) error {
 	}
 
 	rec.PID, rec.Log = cmd.Process.Pid, logPath
-	go func() { _ = cmd.Wait() }() // reap the detached child; its exit status is read from the record, not here
+	rec.PIDStart, _ = proc.StartTime(rec.PID) // "" on failure: Cancel then refuses to signal this pid
+	go func() { _ = cmd.Wait() }()            // reap the detached child; its exit status is read from the record, not here
 	return nil
 }
 
@@ -184,10 +185,22 @@ func Cancel(rec *Record) error {
 		}
 		return fmt.Errorf("dispatch %q: pid %d is a different program (pid reused); not signalling it", rec.ID, rec.PID)
 	}
+	if !sameStart(rec) {
+		return fmt.Errorf("dispatch %q: pid %d is not the process spawned for it (pid reused); not signalling it", rec.ID, rec.PID)
+	}
 	if err := escalate(rec.PID, rec.ID); err != nil {
 		return err
 	}
 	return failIfRunning(rec, fmt.Sprintf("cancelled by claude-code %s cancel", rec.Agent))
+}
+
+// sameStart reports whether rec.PID still has the start time recorded at spawn; no recorded time fails closed.
+func sameStart(rec *Record) bool {
+	if rec.PIDStart == "" {
+		return false
+	}
+	got, err := proc.StartTime(rec.PID)
+	return err == nil && got == rec.PIDStart
 }
 
 // cancelGrace is how long escalate waits after SIGINT before sending SIGKILL; a var so tests can shorten it.

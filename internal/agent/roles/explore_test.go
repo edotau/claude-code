@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/codex" // the vendors register their schemas from their own init
 	_ "github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini"
@@ -85,6 +86,36 @@ func TestArgsShape(t *testing.T) {
 	last := args[len(args)-1]
 	if last != Prompt("q", false) {
 		t.Errorf("Args must end with the built prompt, got %q", last)
+	}
+}
+
+func TestExploreToolsReadOnly(t *testing.T) {
+	cases := []struct {
+		vendor       string
+		wantTools    bool
+		wantReadOnly bool
+	}{
+		{"copilot", true, true},
+		{"codex", false, false},
+		{"gemini", true, false},
+		{"opencode", true, false},
+	}
+	for _, c := range cases {
+		t.Run(c.vendor, func(t *testing.T) {
+			args := Args(c.vendor, "/work", "inspect the repository", false, false)
+			if got := slices.Contains(args, "--tools"); got != c.wantTools {
+				t.Errorf("Args --tools = %v, want %v", got, c.wantTools)
+			}
+			if got := slices.Contains(args, "--read-only"); got != c.wantReadOnly {
+				t.Errorf("Args --read-only = %v, want %v", got, c.wantReadOnly)
+			}
+			base := agent.RunOptions{Agent: c.vendor}
+			options := Options(base, "inspect the repository", false)
+			if options.Tools != c.wantTools || options.ReadOnly != c.wantReadOnly {
+				t.Errorf("Options Tools/ReadOnly = %v/%v, want %v/%v",
+					options.Tools, options.ReadOnly, c.wantTools, c.wantReadOnly)
+			}
+		})
 	}
 }
 
