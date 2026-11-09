@@ -122,7 +122,7 @@ const ST_DETECT = {
   required: ['gate', 'source'],
   properties: {
     gate: { type: 'string', description: 'exact command, empty when nothing matches' },
-    source: { type: 'string', enum: ['Makefile', 'go.mod', 'pyproject', 'package.json', 'Cargo.toml', 'none'] },
+    source: { type: 'string' },
   },
 }
 // stageAsk runs one stage agent; a thrown call becomes null, and st.done records an external stage's ran-on.
@@ -130,17 +130,10 @@ const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prom
   label, phase: ph, schema: st.schema(schema), ...st.type,
   model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
 }).catch(() => null).then((r) => st.done(label, r))
-// stageDetect picks a scoped verify gate from the toolchain file; gate '' when none.
+// stageDetect reads the scoped verify gate from `claude-code worktree gate`; gate '' when none.
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
-  const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Pick this repo's verify gate; do NOT run it. First call: ls Makefile go.mod pyproject.toml setup.cfg package.json Cargo.toml .venv 2>/dev/null; then read only the file that decides (at most 3 tool calls). ` +
-    `The toolchain file decides; a Makefile only ever PREPENDS a lint step. Scope dirs: ${scope.join(' ') || '(repo root)'}. ` +
-    `(1) go.mod → "go build ./... && go vet ./<dir>/... && go test ./<dir>/..." over the scope dirs (./... when the scope is the root); ` +
-    `(2) pyproject.toml/setup.cfg → "ruff check <dir> && pytest -q <dir-or-tests>" (ruff only if configured; prefix each with .venv/bin/python -m when .venv exists); ` +
-    `(3) package.json → "npm run lint && npm test -- <scope paths>" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test -p <crate of each scope dir>". ` +
-    `If a Makefile has a lint (or fmt/vet) target with a report-only form (e.g. its help says CHECK=1 reports), return "make lint CHECK=1 && " + that command and source "Makefile"; ` +
-    `skip a lint target that only auto-fixes — it edits files outside the scope, and other sessions share this checkout. Never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
-    `(5) Makefile only, no toolchain file, or no scoped command derivable → gate "" and source "none" (the caller must pass args.gate).`, ST_DETECT)
+  const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --lint-check --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
   return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
 }
 // stageGate: an optional cheap check, then up to o.max fixer iterations over o.scope; exit green|stalled|capped|error.
@@ -593,7 +586,7 @@ async function scanFirst() {
 // loopIfNeeded: green-keeper-loop over the dirs whose fix landed but gate stayed red, and over every touched dir when 2+ children ran.
 async function loopIfNeeded(r0, nChildren) {
   const gateRed = [...new Set((r0.fixed || []).filter((f) => f.impl && f.impl.status === 'done' && f.gate && f.gate.exit !== 'green').map((f) => f.pkg))]
-  const touched = [...new Set([...touchedFiles(r0.fixed), ...r0.files].map((f) => stDir(stRel(CTX, f))))]
+  const touched = [...new Set([...touchedFiles(r0.fixed), ...r0.files].filter((f) => /\.go$/.test(f)).map((f) => stDir(stRel(CTX, f))))]
   const scope = [...new Set([...gateRed, ...(nChildren > 1 ? touched : [])])].filter((d) => !GATE_SCOPE.some((g) => overlaps(d, g))).sort()
   if (!scope.length) return r0
   const gk = await runChild('green-keeper-loop', { cwd: CWD, scope, steps: stepsFor({ fix: 'fix' }), profile: a.profile, provider: a.provider })
@@ -622,7 +615,11 @@ async function repairForeign(r0) {
   const d = []
   const red = []
   for (const dir of Object.keys(byDir)) {
-    const fx = await stageRepair(CTX, dir, byDir[dir], { label: 'foreign:' + dir, gate: 'gate:foreign:' + dir })
+    // a Go gate over a dir with no Go files can only go red: non-Go findings get the fix alone
+    const goDir = byDir[dir].some((f) => /\.go$/.test(String(f.file)))
+    const fx = goDir ? await stageRepair(CTX, dir, byDir[dir], { label: 'foreign:' + dir, gate: 'gate:foreign:' + dir })
+      : { ...(await stageFix(CTX, { pkg: dir, findings: byDir[dir], tests: false, label: 'foreign:' + dir })), gate: null, green: undefined }
+    if (!goDir) fx.green = fx.done
     fixed.push({ pkg: dir, findings: byDir[dir].length, impl: fx.impl, test: fx.test, gate: fx.gate, files: fx.files })
     d.push('foreign: ' + byDir[dir].length + ' finding(s) a child cited in ' + dir + ' repaired by code-engineer after the children: ' + (fx.done ? 'fixed' : 'fix NOT done') + ', gate ' + (fx.green ? 'green' : 'red'))
     if (!fx.green) red.push(dir)
