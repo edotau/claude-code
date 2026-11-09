@@ -89,6 +89,8 @@ const ST_GATE_MAX = 2
 const ST_TAIL = 4000 // chars of the initial gate failure carried into every fixer iteration
 const stRel = (ctx, f) => String(f || '').replace(ctx.cwd ? ctx.cwd + '/' : /^$/, '').replace(/^\.\//, '')
 const stDir = (f) => String(f).split('/').slice(0, -1).join('/') || '.'
+// stDiff: the brief's diff command; new files are untracked, so it names them too (read-only, no git add -N).
+const stDiff = (ps) => '`git diff -- ' + ps.join(' ') + '` plus every new file `git ls-files --others --exclude-standard -- ' + ps.join(' ') + '` lists'
 // sameBug: one bug when two findings share a file and sit within ST_NEAR lines or name the same symbol.
 const sameBug = (ctx, g, f) => stRel(ctx, g.file) === stRel(ctx, f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= ST_NEAR || (!!g.symbol && g.symbol === f.symbol))
 const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() < 150000
@@ -143,7 +145,7 @@ async function stageDetect(ctx, st, scope) {
 async function stageGate(ctx, o) {
   const tag = o.label || 'gate'
   const cmd = o.gate || o.scope.map((p) => 'go build ./' + p + '/... && go vet ./' + p + '/... && go test -count=1 ./' + p + '/...').join(' && ')
-  const full = '`set -o pipefail; ' + cmd + '`' + (o.schemas ? '; if `git diff -- ' + o.scope.join(' ') + '` changes a function that writes a file, also `go test -count=1 ./internal/schemas/`' : '')
+  const full = '`set -o pipefail; ' + cmd + '`' + (o.schemas ? '; if ' + stDiff(o.scope) + ' changes a function that writes a file, also `go test -count=1 ./internal/schemas/`' : '')
   const out = (status, exit, hist, residual) => {
     if (status !== 'green' && hist.length) log(tag + ' still ' + status + ' after ' + hist.length + ' iteration(s); residual: ' + residual.length)
     return { status, exit, gate: cmd, iterations: hist.length, filesChanged: [...new Set(hist.flatMap((h) => h.filesChanged))], residual, history: hist }
@@ -198,7 +200,7 @@ async function stageFix(ctx, o) {
     'Run the repo formatter and linter on what you touched' + (o.owns ? '' : ' (gofmt + go vet ./' + o.pkg + '/... for Go)') + '. Return `files`: every repo-relative file you changed.\n' + list, ST_WORK, o.pin)
   const done = !!(impl && impl.status === 'done')
   const tdirs = [...new Set([o.pkg, ...((impl && impl.files) || []).map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
-  const test = done && o.tests !== false ? await stageAsk(ctx, ctx.S.test, 'test:' + o.label, 'Test', ctx.rules + ' Fixes just landed in ' + o.pkg + ' (`git diff -- ' + o.pkg + '`; changed: ' + (impl.files || []).join(', ') + '). ' +
+  const test = done && o.tests !== false ? await stageAsk(ctx, ctx.S.test, 'test:' + o.label, 'Test', ctx.rules + ' Fixes just landed in ' + o.pkg + ' (' + stDiff([o.pkg]) + '; changed: ' + (impl.files || []).join(', ') + '). ' +
     'Repair tests the fixes break. Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). Each test under complexity 10. Skip comment-only and dead-code fixes. Put "n/a" in callers.' +
     (bugs.length ? '\nWrite ONE regression test per bug fix that calls the real code and fails without the fix; for Go prove each with `claude-code test mutate <file> <old> <new> --run <RE> ./' + o.pkg + ' </dev/null` (exit 0 = caught).\n' + bugs.map(item).join('\n') : '') +
     (costs.length ? '\nFor each cost fix, pin the unchanged behavior it must keep: a test that calls the real code and passes before and after the fix ' +
@@ -216,7 +218,7 @@ async function stageRepair(ctx, pkg, findings, o) {
 async function stagePolish(ctx, o) {
   const files = [...new Set(o.files.map((f) => stRel(ctx, f)))]
   const pkgs = [...new Set(files.map(stDir))]
-  const scope = ' Only these files (the tree is shared; never touch or diff others): ' + files.join(' ') + '. Diff: `git diff -- ' + files.join(' ') + '`.'
+  const scope = ' Only these files (the tree is shared; never touch or diff others): ' + files.join(' ') + '. Diff: ' + stDiff(files) + '.'
   const cut = ' Name the assumption before every cut; flag instead of cutting when it has no covering test; never cut semantic comments, error context or distinct tests; never fix bugs (flag them). ' +
     'After edits run gofmt, go vet and go test for ' + pkgs.join(', ') + '; if a test regresses, revert your own edit by hand (never git checkout/restore/stash) and flag it. ' +
     'Return applied[] and flagged[] as `file:line · what · assumption`, deltaLines (net changed lines, negative = removed) and status (clean = nothing to do).'
