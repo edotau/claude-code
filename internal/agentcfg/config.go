@@ -2,6 +2,7 @@
 package agentcfg
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -15,13 +16,25 @@ const geminiLogin = "antigravity"
 // Config is an agent's effective settings after the launch flags are applied.
 type Config struct{ Agent, Profile, Model, Effort, Fallback string }
 
-// Launch is the flags the caller typed; the zero value keeps every agent on its pin.
-type Launch struct{ Profile, Provider string }
+// Launch is the flags the caller typed plus the workspace's last-used profile; the zero value keeps every agent on its pin.
+type Launch struct{ Profile, Provider, LastProfile string }
 
-// For is agent's pin with the launch flags over Profile; a registry profile must exist (own logins skip the check).
+// ErrUnknownProfile marks a profile that is no registry row; For still returns the Config it resolved.
+var ErrUnknownProfile = errors.New("not in the registry")
+
+// lastProfileAgents are the agents whose CLI launch reuses the workspace's last-used profile before the pin.
+var lastProfileAgents = []string{"codex", "copilot", "gemini", "opencode"}
+
+// For is agent's pin with the launch flags, then the last-used profile, over Profile; a registry profile must exist
+// (own logins skip the check). A vault read error is returned.
 func For(agent string, l Launch) (Config, error) {
-	rec := providers.AgentRecord(agent)
+	recs, err := vault.ReadAgentRecords([]string{agent})
+	if err != nil {
+		return Config{}, err
+	}
+	rec := recs[agent]
 	cfg := Config{Agent: agent, Profile: rec.Profile, Model: rec.Model, Effort: rec.Effort, Fallback: rec.Fallback}
+	active := rec.Profile != "" // an off agent (no profile) never turns on from the last-used cache
 	if cfg.Profile == "" && agent == "gemini" {
 		cfg.Profile = geminiLogin
 	}
@@ -43,9 +56,11 @@ func For(agent string, l Launch) (Config, error) {
 		if cfg.Profile, err = databricksProfile(reg); err != nil {
 			return Config{}, fmt.Errorf("agent %s: %w", agent, err)
 		}
+	case l.LastProfile != "" && active && slices.Contains(lastProfileAgents, agent) && reg.Providers[l.LastProfile] != nil:
+		cfg.Profile = l.LastProfile
 	}
 	if p := cfg.Profile; p != "" && !ownsProfile(agent, p) && reg.Providers[p] == nil {
-		return Config{}, fmt.Errorf("agent %s: profile %s is not in the registry", agent, p)
+		return cfg, fmt.Errorf("agent %s: profile %s is %w", agent, p, ErrUnknownProfile)
 	}
 	return cfg, nil
 }

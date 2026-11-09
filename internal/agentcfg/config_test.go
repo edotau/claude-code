@@ -53,6 +53,9 @@ func TestFor(t *testing.T) {
 		{"unsupported provider", "codex", "", Launch{Provider: "anthropic"}, "", "", "--provider anthropic"},
 		{"unknown profile", "codex", "", Launch{Profile: "nosuch"}, "", "", "nosuch"},
 		{"stale fallback ignored", "codex", "", Launch{}, "dev2", "gone", ""},
+		{"last-used beats pin", "codex", "", Launch{LastProfile: "dev"}, "dev", "", ""},
+		{"profile beats last-used", "codex", "", Launch{Profile: "dev", LastProfile: "openai"}, "dev", "", ""},
+		{"invalid last-used keeps pin", "codex", "", Launch{LastProfile: "gone"}, "dev2", "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

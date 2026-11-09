@@ -5,5 +5,4 @@ var (
 	InteractiveArgs = interactiveArgs
 	LaunchProfile   = launchProfile
 	PlainPlan       = plainPlan
-	WithAgentPins   = withAgentPins
 )

@@ -44,14 +44,14 @@ func TestWithAgentPinsPrecedence(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.SetRecord(t, "copilot", "profile", "max")
 	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
-	if got := testAgentPins(t, "copilot", agent.LaunchOptions{}); got.Provider != "max" || got.Model != "" {
+	if got := testLaunchProfile(t, "copilot", agent.LaunchOptions{}); got.Provider != "max" || got.Model != "" {
 		t.Errorf("pins only = %+v, want max and no model (the model pin applies after the target resolves)", got)
 	}
-	if got := testAgentPins(t, "copilot", agent.LaunchOptions{Provider: "personal", Model: "m"}); got.Provider != "personal" || got.Model != "m" {
+	if got := testLaunchProfile(t, "copilot", agent.LaunchOptions{Provider: "personal", Model: "m"}); got.Provider != "personal" || got.Model != "m" {
 		t.Errorf("flags = %+v, want flags to beat the pins", got)
 	}
 	vaulttest.SetRecord(t, "copilot", "profile", "")
-	if got := testAgentPins(t, "copilot", agent.LaunchOptions{}); got.Provider != "" || got.Model != "" {
+	if got := testLaunchProfile(t, "copilot", agent.LaunchOptions{}); got.Provider != "" || got.Model != "" {
 		t.Errorf("COPILOT_ACTIVE=off = %+v, want the pins ignored", got)
 	}
 }
@@ -65,7 +65,7 @@ func TestAgentModelTargetPin(t *testing.T) {
 	const m = "databricks-gpt-6-1-sol"
 	vaulttest.SetRecord(t, "codex", "profile", "dev")
 	vaulttest.SetRecord(t, "codex", "model", m)
-	if got := testAgentPins(t, "codex", agent.LaunchOptions{}); got.Provider != "dev" || got.Model != "" {
+	if got := testLaunchProfile(t, "codex", agent.LaunchOptions{}); got.Provider != "dev" || got.Model != "" {
 		t.Fatalf("codex = %+v, want the profile only", got)
 	}
 	reg, err := providers.Load()
@@ -380,15 +380,6 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 			}
 		})
 	}
-}
-
-func testAgentPins(t *testing.T, name string, o agent.LaunchOptions) agent.LaunchOptions {
-	t.Helper()
-	got, err := launchplan.WithAgentPins(name, o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return got
 }
 
 func TestAgentLastProfileIsPerAgent(t *testing.T) {
