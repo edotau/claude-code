@@ -11,6 +11,9 @@
     "Other"
   ],
   "main": "./extension.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
   "activationEvents": [
     "onView:claudeCodeAgents.usage",
     "onView:claudeCodeTasks.page",
