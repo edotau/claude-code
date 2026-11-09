@@ -40,7 +40,7 @@ func TestResolveLead(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Setenv(providers.EnvSessionProfile, c.env)
-		got, err := ResolveLead(reg, c.agent, c.profile, c.provider)
+		got, err := resolveLead(reg, c.agent, c.profile, c.provider)
 		if got != c.want || (c.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.err)) {
 			t.Errorf("%+v: got %q, %v", c, got, err)
 		}

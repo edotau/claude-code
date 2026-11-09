@@ -258,7 +258,7 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	}
 	lead, explicit, err := routeLead(q)
 	if err != nil {
-		return Chain{}, router.PickResult{}, err
+		return Chain{}, router.PickResult{}, &LeadError{err}
 	}
 	if explicit {
 		c, err := resolveExplicit(q)
@@ -270,7 +270,18 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if err := ctx.Err(); err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	return RouteChainFor(ctx, q.Agent, q.Model, q.AliasHint, q.Fallback, q.Native,
+	return chainFor(ctx, q, q.AliasHint, lead)
+}
+
+// LeadError is a --profile/--provider (or pin) that cannot lead; callers map it to a usage exit.
+type LeadError struct{ Err error }
+
+func (e *LeadError) Error() string { return e.Err.Error() }
+func (e *LeadError) Unwrap() error { return e.Err }
+
+// chainFor builds the routed chain for q with the given alias hint and lead.
+func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router.PickResult, error) {
+	return RouteChainFor(ctx, q.Agent, q.Model, hint, q.Fallback, q.Native,
 		router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }})
 }
 
@@ -305,7 +316,7 @@ func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
 		_, err := reg.Get(q.Profile) // an unknown pin errs with explicit set: dispatch reports it, a lead check skips it
 		return "", true, err
 	}
-	lead, err = ResolveLead(reg, q.Agent, q.Profile, q.Provider)
+	lead, err = resolveLead(reg, q.Agent, q.Profile, q.Provider)
 	return lead, false, err
 }
 
@@ -339,8 +350,8 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 // LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).
 const LeadSession = "session"
 
-// ResolveLead is the profile a routed run leads with: profile (LeadSession = the session's), narrowed to provider.
-func ResolveLead(reg *providers.Registry, agentName, profile, provider string) (string, error) {
+// resolveLead is the profile a routed run leads with: profile (LeadSession = the session's), narrowed to provider.
+func resolveLead(reg *providers.Registry, agentName, profile, provider string) (string, error) {
 	fromSession := profile == LeadSession
 	if fromSession {
 		profile = providers.SessionLead(nil, true)

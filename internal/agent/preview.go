@@ -46,8 +46,7 @@ func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.P
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	chain, pick, err := RouteChainFor(ctx, q.Agent, q.Model, hint, q.Fallback, q.Native,
-		router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }})
+	chain, pick, err := chainFor(ctx, q, hint, lead)
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
