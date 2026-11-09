@@ -536,11 +536,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   phase('Scope')
   const scopes = PRE ? [] : await parallel(GROUPS.map((g, gi) => () =>
     agent(S.scope.task(
-      FILES_MODE
-        ? `${CD}run ONE command: find ${g.join(' ')} -type f \\( -name '*.go' -o -name '*.py' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.mjs' -o -name '*.rs' -o -name '*.java' \\) ! -path '*/node_modules/*' ! -path '*/.venv/*' ! -path '*/vendor/*' ! -path '*/.git/*' ! -name '*_test.go' ! -name '*_test.py' ! -name 'test_*.py' ! -name '*.test.*' ! -name '*.spec.*' ! -path '*/tests/*' ! -path '*/__tests__/*' ! -path '*/testdata/*' -print0 | xargs -0 wc -c — and return each file as an entry ` +
-          `with path and bytes. Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`
-        : `${CD}run ONE command: git diff --numstat ${RANGE || 'HEAD~1..HEAD'} -- ${g.join(' ') || '.'} — and return each file as an entry with path ` +
-          `(the new path for a rename) and bytes = (added + deleted) * 80 (binary "-" counts as 0). Do not read the diff; the auditors run it for their chunk. At most 2 tool calls.`),
+      `${CD}run ONE command: claude-code review scope --repo ${CWD || '.'} ${FILES_MODE ? '' : '--range ' + (RANGE || 'HEAD~1..HEAD') + ' '}--paths ${g.join(',') || '.'} --format json </dev/null — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
       { label: `scope:${round}:${gi}`, phase: 'Scope', schema: S.scope.schema(SCOPE_SCHEMA), ...S.scope.type, model: routeModel(S.scope.model), effort: S.scope.effort } // file listing: schema-checked, haiku is enough
     ).then(r => S.scope.done(`scope:${round}:${gi}`, r))
   ))
@@ -667,7 +663,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const scans = await parallel([...byPkg.entries()].map(([pkg, fs]) => () => agent(S.depscan.task(
     `Read-only dependency scan of ${pkg}${IN}. A fixer will repair these findings:\n${fs.map(f => `- ${relPath(f.file)}:${f.line} ${f.title}`).join('\n')}\n` +
       `Return files = every file the fix will likely edit (tests included), exported = whether it changes an exported symbol or signature, ` +
-      `importers = repo packages importing ${pkg} (run once: ${CD}go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./... and keep repo packages only, as repo-relative dirs), ` +
+      `importers = repo packages importing ${pkg} (run once: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${pkg} --importers --format json </dev/null and take packages[].importers), ` +
       `hotspots = those of ${HOT.join(', ')} the fix must also edit. At most 5 tool calls. ${SHARED_TREE}`),
     { label: `depscan:${round}:${pkg.split('/').pop()}`, phase: 'Scan', schema: S.depscan.schema(SCAN_SCHEMA), ...S.depscan.type, model: routeModel(S.depscan.model), effort: S.depscan.effort }
   ).then(r => S.depscan.done(`depscan:${round}:${pkg.split('/').pop()}`, r)).catch(() => null)))
