@@ -1,7 +1,9 @@
 package memorycmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -123,6 +125,73 @@ func cmdMemoryPath(args []string) int {
 		return code
 	}
 	fmt.Println(memstore.Dir(memstore.Root(*repo)))
+	return 0
+}
+
+// cmdMemoryReport appends a JSON report and its decisions to the repo's bank reports/ and prints both paths.
+func cmdMemoryReport(args []string) int {
+	fs, repo := memoryRepoFlagSet("report")
+	label := fs.String("label", "", "report name: reports/<date>-<label>.md (sanitized to [A-Za-z0-9._-])")
+	file := fs.String("file", "", "JSON input file: {\"report\": markdown, \"decisions\": [...]}")
+	stdin := fs.Bool("stdin", false, "read the JSON input from stdin")
+	format := helptext.FormatFlag(fs)
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		return helptext.FailUsage("memory report: unexpected argument %q", fs.Arg(0))
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("memory report", err)
+	}
+	if (*file == "") == !*stdin {
+		return helptext.FailUsage("memory report: give exactly one of --file or --stdin")
+	}
+	in, err := readReportInput(*file, *stdin)
+	if err != nil {
+		return helptext.Fail("memory report: %v", err)
+	}
+	// EnsureRepoDir registers the origin under the bank lock so the next call resolves the same key.
+	dir, err := memstore.EnsureRepoDir(memstore.Root(*repo))
+	if err != nil {
+		return helptext.Fail("memory report: %v", err)
+	}
+	out, err := bank.AppendReport(dir, *label, in)
+	if err != nil {
+		return helptext.Fail("memory report: %v", err)
+	}
+	return printReportPaths(out, *format)
+}
+
+// readReportInput decodes the report JSON from file, or from stdin when stdin is set.
+func readReportInput(file string, stdin bool) (bank.ReportInput, error) {
+	var in bank.ReportInput
+	var data []byte
+	var err error
+	if stdin {
+		data, err = io.ReadAll(os.Stdin)
+	} else {
+		data, err = os.ReadFile(file)
+	}
+	if err != nil {
+		return in, err
+	}
+	if err := json.Unmarshal(data, &in); err != nil {
+		return in, fmt.Errorf("bad input JSON: %w", err)
+	}
+	return in, nil
+}
+
+// printReportPaths prints the written paths one per line, or as {"paths": [...]} with --format json.
+func printReportPaths(out []string, format string) int {
+	if format == helptext.JSON {
+		return helptext.WriteJSONOrFail("memory report", map[string][]string{"paths": out})
+	}
+	for _, p := range out {
+		if _, err := fmt.Fprintln(os.Stdout, p); err != nil {
+			return helptext.Fail("memory report: %v", err)
+		}
+	}
 	return 0
 }
 

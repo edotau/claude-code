@@ -133,8 +133,26 @@ func formatBankMarkdown(text string) string {
 	return strings.Join(out, "\n")
 }
 
-// bankScan tracks which multi-line region (front matter, fence, rules block) the next line sits in.
-type bankScan struct{ inFence, inFrontMatter, inRules bool }
+// bankScan tracks which multi-line region (front matter, fence run, rules block) the next line sits in.
+type bankScan struct {
+	fence         string
+	inFrontMatter bool
+	inRules       bool
+}
+
+// fenceRun is the leading run of fence characters in a trimmed fence line ("```" for "```go").
+func fenceRun(trimmed string) string {
+	n := 0
+	for n < len(trimmed) && trimmed[n] == trimmed[0] {
+		n++
+	}
+	return trimmed[:n]
+}
+
+// fenceCloses reports whether trimmed is a bare run of open's character at least as long as open.
+func fenceCloses(trimmed, open string) bool {
+	return len(trimmed) >= len(open) && strings.Trim(trimmed, open[:1]) == ""
+}
 
 // special handles fence/front-matter/rules/heading/comment/blank/table lines; false means a content line.
 func (s *bankScan) special(i int, line string) bool {
@@ -144,9 +162,12 @@ func (s *bankScan) special(i int, line string) bool {
 		s.inFrontMatter = true
 	case s.inFrontMatter:
 		s.inFrontMatter = trimmed != "---"
+	case s.fence != "":
+		if fenceCloses(trimmed, s.fence) {
+			s.fence = ""
+		}
 	case bankFmtFence.MatchString(line):
-		s.inFence = !s.inFence
-	case s.inFence:
+		s.fence = fenceRun(trimmed)
 	case strings.Contains(line, "RULES:BEGIN"):
 		s.inRules = true
 	case s.inRules:
@@ -255,7 +276,11 @@ func wrapBankLine(line string) []string {
 	}
 	contIndent := strings.Repeat(" ", contentCol)
 	firstPrefix := indent + marker
-	return bankFmtPack(tokens, firstPrefix, contIndent)
+	out := bankFmtPack(tokens, firstPrefix, contIndent)
+	if strings.HasSuffix(line, "  ") { // a trailing double space is a Markdown hard break: keep it on the last line
+		out[len(out)-1] += "  "
+	}
+	return out
 }
 
 // bankFmtTokenize splits s into words on a bare space, except a space inside a code span, link or

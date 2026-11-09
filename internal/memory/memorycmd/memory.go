@@ -39,7 +39,7 @@ var memoryPage = helptext.Page{
 	About: "Per-repo and home memory banks: session-start injects them, the Stop/SessionEnd\n" +
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
-	Hint: "plumbing: search, show, index, path, digest, fmt, watch, catchup, timeline,\n" +
+	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch, catchup, timeline,\n" +
 		"          archive, alias — dispatchable, off the menu above\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
@@ -59,6 +59,7 @@ var memoryPlumbing = map[string][2]string{
 	"show":     {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"index":    {"", "settle the bank: rotate and archive over caps"},
 	"path":     {"", "print the bank directory"},
+	"report":   {"--label L [--file F | --stdin]", "append a report and its decisions to the bank reports/"},
 	"digest":   {"", "write the bank digest"},
 	"fmt":      {"", "wrap the bank files"},
 	"timeline": {"", "recent bank entries and sessionHistory"},
@@ -220,6 +221,7 @@ func memorySubcommands(knownVerb func(string) bool) map[string]func([]string) in
 		"show":     cmdMemoryShow,
 		"index":    cmdMemoryIndex,
 		"path":     cmdMemoryPath,
+		"report":   cmdMemoryReport,
 		"digest":   cmdMemoryDigest,
 		"fmt":      cmdMemoryFmt,
 		"watch":    cmdMemoryWatch,
@@ -262,6 +264,7 @@ func Spec() *completion.Node {
 		"digest":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
 		"index":    {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
 		"path":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
+		"report":   {Flags: []completion.Flag{completion.Plain("label"), completion.Plain("file"), completion.BoolFlag("stdin"), completion.FormatFlag(), completion.ValuedFlag("repo", memoryRepoNames)}},
 		"fmt":      {Flags: []completion.Flag{completion.BoolFlag("check")}},
 		"catchup":  {},
 		"watch":    {Flags: []completion.Flag{completion.Plain("session"), completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("owner"), completion.Plain("idle")}},

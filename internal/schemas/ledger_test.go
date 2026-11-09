@@ -129,6 +129,8 @@ var writers = map[string]string{
 	"internal/memory/bank/settle.go:RotateSessionHistory":             unversioned("memory-bank: sessionHistory rotation"),
 	"internal/memory/store.go:seedFile":                               unversioned("memory-bank: bank seed files"),
 	"internal/memory/store.go:createExcl":                             unversioned("memory-bank: bank seed files (no-hard-link fallback)"),
+	"internal/memory/bank/report.go:appendText":                       unversioned("memory-bank: report and decisions append"),
+	"internal/memory/bank/report.go:restoreReport":                    unversioned("memory-bank: previous report restored after a failed decisions append"),
 	"internal/memory/bank/txn.go:apply":                               unversioned("memory-bank: txn applied bank file"),
 	"internal/memory/bank/txn.go:captureNative":                       unversioned("memory-bank: txn native copy"),
 	"internal/memory/bank/txn.go:commit":                              unversioned("memory-bank: txn receipt in the memory repo"),
