@@ -6,8 +6,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // A hard-quota 429 demotes within the provider and skips the denied model on subsequent requests.
@@ -119,5 +121,68 @@ func TestHardAccountExhaustion402CoolsButDoesNotMarkDead(t *testing.T) {
 	}
 	if _, cooling := r.cool[p.Name]; !cooling {
 		t.Error("failover must cool the provider on account exhaustion")
+	}
+}
+
+// A credits rate-limit 429 is one endpoint's limit: the proxy cools locally and leaves the router state alone.
+func TestRateLimit429StaysProxyLocal(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
+	})
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d, want the 429 failed over to up2", resp.StatusCode)
+	}
+	if e := router.LoadState()[router.ProviderAccount("up1")]; !e.ExhaustedUntil.IsZero() {
+		t.Fatalf("router state for up1 = %+v, want no mark on a credits rate limit", e)
+	}
+}
+
+// An account-quota 429 lands in the router state for its Retry-After window, and a fresh router sinks that profile.
+func TestAccountQuota429RecordsRouterExhaustion(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"you've hit your usage limit"}}`)
+	})
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d, want the 429 failed over to up2", resp.StatusCode)
+	}
+	now := time.Now()
+	e := router.LoadState()[router.ProviderAccount("up1")]
+	if e.Status(now) != router.StateExhausted || e.ExhaustedUntil.Before(now.Add(100*time.Second)) {
+		t.Fatalf("router state for up1 = %+v, want exhausted ~120s (Retry-After)", e)
+	}
+	srv2 := setupRouter2(t, failoverOverlay(up1.URL, up2.URL)) // a new proxy process: no in-memory cooldown
+	if resp := post(t, srv2.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 || up1.hits.Load() != 1 {
+		t.Fatalf("status %d up1 hits %d, want the exhausted up1 sunk behind up2", resp.StatusCode, up1.hits.Load())
+	}
+}
+
+// A profile the router marked exhausted (another process's verdict) sinks to the end of the proxy ladder.
+func TestRouterExhaustedProfileSinks(t *testing.T) {
+	up1 := newUpstream(t, ok)
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
+	now := time.Now()
+	if err := router.MarkExhausted(router.ProviderAccount("up1"), now.Add(time.Hour), now, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if up1.hits.Load() != 0 || up2.hits.Load() != 1 {
+		t.Fatalf("hits up1=%d up2=%d, want the exhausted up1 skipped for up2", up1.hits.Load(), up2.hits.Load())
 	}
 }
